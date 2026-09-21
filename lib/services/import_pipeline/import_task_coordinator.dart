@@ -578,10 +578,9 @@ class ImportTaskCoordinator {
     );
   }
 
-  /// Resolves the OCR task concurrency budget: how many independent OCR
-  /// ImportTasks may parse at the same time. Without an injected resolver the
-  /// coordinator stays serial, so a missing preference never oversells the
-  /// provider.
+  /// Resolves a batch's local worker count. The shared OCR scheduler separately
+  /// enforces the current app-wide provider budget across batches and callers.
+  /// Without an injected resolver, this batch stays serial.
   Future<int> _resolveOcrMaxConcurrency() {
     final resolver = _ocrMaxConcurrencyResolver;
     if (resolver == null) return Future.value(1);
@@ -707,10 +706,9 @@ class ImportTaskCoordinator {
 
   /// Runs a batch with at most [taskConcurrency] tasks in flight.
   ///
-  /// This is the only place the OCR task concurrency budget is applied: every
-  /// scheduled task keeps parsing its own files strictly in order, so the
-  /// budget decides how many independent ImportTasks run at the same time and
-  /// never splits one task's work.
+  /// This local worker bound does not grant provider slots. The shared OCR
+  /// scheduler controls final provider admission across the app, while each
+  /// task keeps parsing its own files in order.
   Future<void> _runScheduledBatchBounded(
     List<_ScheduledImportTask> scheduled,
     int taskConcurrency,

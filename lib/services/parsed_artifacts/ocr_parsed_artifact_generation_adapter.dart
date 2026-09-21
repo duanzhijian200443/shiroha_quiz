@@ -11,6 +11,7 @@ import '../import_pipeline/adapters/ocr_source_document_adapter.dart';
 import '../import_pipeline/import_format.dart';
 import '../import_pipeline/ocr_document.dart';
 import '../import_pipeline/ocr_document_client.dart';
+import '../import_pipeline/ocr_request_scheduler.dart';
 import '../llm_providers/llm_provider_registry.dart';
 import '../llm_providers/zhipu_ocr_client.dart';
 
@@ -38,15 +39,18 @@ final class OcrParsedArtifactGenerationAdapter
     required ManagedFileStorage managedFileStorage,
     required OcrDocumentClient ocrClient,
     required ActiveOcrProfileLoader activeOcrProfileLoader,
+    OcrRequestScheduler? requestScheduler,
     ContentAssetStore? contentAssetStore,
   })  : _managedFileStorage = managedFileStorage,
         _ocrClient = ocrClient,
         _activeOcrProfileLoader = activeOcrProfileLoader,
+        _requestScheduler = requestScheduler ?? OcrRequestScheduler(),
         _contentAssetStore = contentAssetStore;
 
   final ManagedFileStorage _managedFileStorage;
   final OcrDocumentClient _ocrClient;
   final ActiveOcrProfileLoader _activeOcrProfileLoader;
+  final OcrRequestScheduler _requestScheduler;
   final ContentAssetStore? _contentAssetStore;
 
   static const String ocrPdfRoute = 'ocr_pdf';
@@ -99,10 +103,13 @@ final class OcrParsedArtifactGenerationAdapter
 
     final OcrDocument document;
     try {
-      document = await _ocrClient.parseFile(
-        profile: profile,
-        filePath: managed.path,
-        sourceName: runtimeSourceName,
+      document = await _requestScheduler.run(
+        taskId: 'parsed-artifact-${_nextOcrRequestId++}',
+        operation: () => _ocrClient.parseFile(
+          profile: profile,
+          filePath: managed.path,
+          sourceName: runtimeSourceName,
+        ),
       );
     } on ZhipuOcrAuthenticationException {
       throw const ParsedArtifactGenerationException(
@@ -160,6 +167,8 @@ final class OcrParsedArtifactGenerationAdapter
       );
     }
   }
+
+  int _nextOcrRequestId = 0;
 
   /// Explicit `ocr_pdf` admission (Amendment A): only a PDF-identified
   /// display name without a conflicting known MIME, or an unknown extension

@@ -6,7 +6,7 @@ void main() {
     test('defaults to a budget inside the supported slider range', () {
       expect(ImportAdvancedPreferences.defaults.ocrTaskConcurrency, 2);
       expect(ImportAdvancedPreferences.minOcrTaskConcurrency, 1);
-      expect(ImportAdvancedPreferences.maxOcrTaskConcurrency, 12);
+      expect(ImportAdvancedPreferences.maxOcrTaskConcurrency, 10);
     });
 
     test('every slider value survives unchanged', () {
@@ -33,14 +33,14 @@ void main() {
         1,
       );
       expect(
-        ImportAdvancedPreferences(ocrTaskConcurrency: 13)
+        ImportAdvancedPreferences(ocrTaskConcurrency: 11)
             .effectiveOcrTaskConcurrency,
-        12,
+        10,
       );
       expect(
         ImportAdvancedPreferences(ocrTaskConcurrency: 999)
             .effectiveOcrTaskConcurrency,
-        12,
+        10,
       );
     });
 
@@ -51,7 +51,7 @@ void main() {
       );
       expect(
         ImportAdvancedPreferences(ocrTaskConcurrency: 99).toJson(),
-        containsPair('ocrTaskConcurrency', 12),
+        containsPair('ocrTaskConcurrency', 10),
       );
       expect(
         ImportAdvancedPreferences.fromJson(const <String, dynamic>{
@@ -63,12 +63,18 @@ void main() {
         ImportAdvancedPreferences.fromJson(const <String, dynamic>{
           'ocrTaskConcurrency': 50,
         }).ocrTaskConcurrency,
-        12,
+        10,
+      );
+      expect(
+        ImportAdvancedPreferences.fromJson(const <String, dynamic>{
+          'ocrTaskConcurrency': 12,
+        }).ocrTaskConcurrency,
+        10,
       );
     });
 
     test('json round trip preserves the budget', () {
-      for (final value in <int>[1, 2, 5, 12]) {
+      for (final value in <int>[1, 2, 5, 10]) {
         final preferences =
             ImportAdvancedPreferences(ocrTaskConcurrency: value);
         expect(ImportAdvancedPreferences.fromJson(preferences.toJson()),

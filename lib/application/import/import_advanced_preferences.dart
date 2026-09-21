@@ -22,11 +22,10 @@ class ImportAdvancedPreferences {
 
   /// Bounds of the user-facing OCR task concurrency budget.
   ///
-  /// The budget counts concurrent independent OCR ImportTasks only. One task
-  /// stays serial internally, so a single PDF is never split into parallel OCR
-  /// work, and one task never issues two provider requests at the same time.
+  /// The budget caps provider OCR requests across the app. One import task
+  /// stays serial internally, including files within a single PDF.
   static const int minOcrTaskConcurrency = 1;
-  static const int maxOcrTaskConcurrency = 12;
+  static const int maxOcrTaskConcurrency = 10;
   static const int defaultOcrTaskConcurrency = 2;
 
   /// Normalizes any value into the supported budget range.
@@ -36,7 +35,7 @@ class ImportAdvancedPreferences {
     return value;
   }
 
-  /// How many OCR ImportTasks may run at the same time.
+  /// Maximum number of app-wide concurrent OCR provider requests.
   ///
   /// This only steers execution scheduling. It never changes OCR recognition
   /// content, explanation retention, typed structure, the review flow, or

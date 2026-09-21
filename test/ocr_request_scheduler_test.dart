@@ -350,4 +350,82 @@ void main() {
     await runningExpectation;
     await next;
   });
+
+  test('mixed OCR callers share the same global budget', () async {
+    final scheduler = OcrRequestScheduler(maxConcurrentRequests: 3);
+    final release = Completer<void>();
+    var active = 0;
+    var peak = 0;
+    var entered = 0;
+    final firstThreeEntered = Completer<void>();
+
+    Future<void> providerCall() async {
+      entered++;
+      active++;
+      peak = active > peak ? active : peak;
+      if (entered == 3) firstThreeEntered.complete();
+      try {
+        await release.future;
+      } finally {
+        active--;
+      }
+    }
+
+    final calls = <Future<void>>[
+      for (final caller in <String>[
+        'batch-a',
+        'batch-b',
+        'photo',
+        'retry',
+      ])
+        scheduler.run(taskId: caller, operation: providerCall),
+    ];
+    await firstThreeEntered.future;
+    expect(entered, 3);
+    expect(peak, 3);
+    release.complete();
+    await Future.wait(calls);
+    expect(entered, 4);
+    expect(peak, 3);
+  });
+
+  test('lowered limit pauses new admission without cancelling running OCR',
+      () async {
+    final scheduler = OcrRequestScheduler(maxConcurrentRequests: 3);
+    final releases = List<Completer<void>>.generate(
+      4,
+      (_) => Completer<void>(),
+    );
+    final starts = List<Completer<void>>.generate(
+      4,
+      (_) => Completer<void>(),
+    );
+    final calls = <Future<void>>[
+      for (var i = 0; i < 4; i++)
+        scheduler.run(
+          taskId: 'dynamic-$i',
+          operation: () async {
+            starts[i].complete();
+            await releases[i].future;
+          },
+        ),
+    ];
+    await Future.wait(starts.take(3).map((start) => start.future));
+    expect(starts[3].isCompleted, isFalse);
+
+    scheduler.updateMaxConcurrentRequests(1);
+    releases[0].complete();
+    await calls[0];
+    expect(starts[3].isCompleted, isFalse);
+    releases[1].complete();
+    await calls[1];
+    expect(starts[3].isCompleted, isFalse);
+    releases[2].complete();
+    await starts[3].future;
+    releases[3].complete();
+    await Future.wait(calls);
+
+    scheduler.updateMaxConcurrentRequests(3);
+    expect(scheduler.maxConcurrentRequests, 3);
+  });
 }

@@ -133,7 +133,7 @@ void main() {
 
     // The concurrency budget bounds independent ImportTasks; files of one task
     // stay serial whatever budget the request recorded.
-    final result = await pipeline.parseFiles(requestFor(paths, 12));
+    final result = await pipeline.parseFiles(requestFor(paths, 10));
 
     expect(peak, 1);
     expect(result.questions, hasLength(4));
@@ -150,7 +150,7 @@ void main() {
     var budgetedPeak = 0;
     final budgeted = await buildPipeline(
       recordingOcrParser(reportPeak: (value) => budgetedPeak = value),
-    ).parseFiles(requestFor(paths, 12));
+    ).parseFiles(requestFor(paths, 10));
 
     expect(serialPeak, 1);
     expect(budgetedPeak, 1);
@@ -186,7 +186,7 @@ void main() {
     // The real scheduler rejects a second concurrent request that reuses one
     // taskId + attemptToken with StateError('Duplicate OCR attempt'), so a
     // parallel file loop inside one task cannot pass unnoticed.
-    final scheduler = OcrRequestScheduler(maxConcurrentRequests: 12);
+    final scheduler = OcrRequestScheduler(maxConcurrentRequests: 10);
     var inFlight = 0;
     var peakPerAttempt = 0;
     final pipeline = buildPipeline(({
@@ -229,7 +229,7 @@ void main() {
     );
     final result = await ImportAttemptContext.run(
       attempt: attempt,
-      action: () => pipeline.parseFiles(requestFor(paths, 12)),
+      action: () => pipeline.parseFiles(requestFor(paths, 10)),
     );
 
     expect(peakPerAttempt, 1);
@@ -277,7 +277,7 @@ void main() {
     });
 
     await expectLater(
-      pipeline.parseFiles(requestFor(paths, 12)),
+      pipeline.parseFiles(requestFor(paths, 10)),
       throwsA(
         isA<StateError>().having(
           (error) => error.message,

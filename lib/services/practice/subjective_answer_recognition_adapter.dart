@@ -3,6 +3,7 @@ import '../../data/models/ai_engine_profile.dart';
 import '../../data/repositories/ai_engine_repository.dart';
 import '../import_pipeline/ocr_document.dart';
 import '../import_pipeline/ocr_document_client.dart';
+import '../import_pipeline/ocr_request_scheduler.dart';
 import '../llm_api_client.dart';
 import '../llm_providers/llm_provider_client.dart';
 import '../llm_providers/zhipu_ocr_client.dart';
@@ -13,10 +14,12 @@ final class SubjectiveAnswerRecognitionAdapter
   SubjectiveAnswerRecognitionAdapter({
     required AiEngineRepository engineRepository,
     OcrDocumentClient ocrClient = const ZhipuOcrClient(),
+    OcrRequestScheduler? requestScheduler,
     LlmApiClient apiClient = const LlmApiClient(),
     VisionAssetBuilder assetBuilder = const VisionAssetBuilder(),
   })  : _engineRepository = engineRepository,
         _ocrClient = ocrClient,
+        _requestScheduler = requestScheduler ?? OcrRequestScheduler(),
         _apiClient = apiClient,
         _assetBuilder = assetBuilder;
 
@@ -30,6 +33,7 @@ final class SubjectiveAnswerRecognitionAdapter
 
   final AiEngineRepository _engineRepository;
   final OcrDocumentClient _ocrClient;
+  final OcrRequestScheduler _requestScheduler;
   final LlmApiClient _apiClient;
   final VisionAssetBuilder _assetBuilder;
 
@@ -66,14 +70,19 @@ final class SubjectiveAnswerRecognitionAdapter
   ) async {
     final profile = await _engineRepository.getActiveOcrEngine();
     _requireComplete(profile);
-    final document = await _ocrClient.parseFile(
-      profile: profile!,
-      filePath: request.imagePath,
-      sourceName: request.imageName,
-      timeout: const Duration(seconds: 90),
+    final document = await _requestScheduler.run(
+      taskId: 'subjective-answer-${_nextOcrRequestId++}',
+      operation: () => _ocrClient.parseFile(
+        profile: profile!,
+        filePath: request.imagePath,
+        sourceName: request.imageName,
+        timeout: const Duration(seconds: 90),
+      ),
     );
     return _projectOcrText(document);
   }
+
+  int _nextOcrRequestId = 0;
 
   Future<String> _recognizeWithVision(
     SubjectiveAnswerRecognitionRequest request,

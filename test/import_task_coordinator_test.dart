@@ -650,7 +650,7 @@ void main() {
     );
   });
 
-  for (final budget in <int>[1, 3, 12]) {
+  for (final budget in <int>[1, 3, 10]) {
     test('an independent OCR batch keeps at most $budget parses in flight',
         () async {
       var taskIndex = 0;
@@ -737,6 +737,87 @@ void main() {
       expect(manager.tasks, hasLength(6));
     });
   }
+
+  test('two OCR batches share one provider slot at budget one', () async {
+    var nextTask = 0;
+    var nextTrace = 0;
+    var parserEntries = 0;
+    var providerEntries = 0;
+    var activeProvider = 0;
+    var peakProvider = 0;
+    final bothParsersEntered = Completer<void>();
+    final releaseProvider = Completer<void>();
+    final scheduler = OcrRequestScheduler(maxConcurrentRequests: 1);
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      requestScheduler: scheduler,
+      taskIdFactory: () => 'cross-batch-task-${nextTask++}',
+      traceIdFactory: () => 'cross-batch-trace-${nextTrace++}',
+      batchIdFactory: () => 'cross-batch',
+      ocrMaxConcurrencyResolver: () async => 1,
+    );
+
+    Future<ImportParseResult> parse(String taskId) async {
+      parserEntries++;
+      if (parserEntries == 2) bothParsersEntered.complete();
+      return scheduler.run(
+        taskId: taskId,
+        attemptToken: ImportAttemptContext.current?.attemptToken,
+        operation: () async {
+          providerEntries++;
+          activeProvider++;
+          peakProvider =
+              activeProvider > peakProvider ? activeProvider : peakProvider;
+          try {
+            await releaseProvider.future;
+            return ImportParseResult(questions: <Map<String, dynamic>>[
+              <String, dynamic>{
+                'q_num': '1',
+                'type': 0,
+                'content': 'Synthetic question',
+                'options': const <String>['A', 'B'],
+                'standard_answer': 'A',
+                'explanation': '',
+              },
+            ]);
+          } finally {
+            activeProvider--;
+          }
+        },
+      );
+    }
+
+    Future<ImportTaskBatchHandle> startBatch() =>
+        coordinator.dispatchIndependentBatch(
+          items: List<ImportTaskBatchItem>.generate(
+            2,
+            (index) => ImportTaskBatchItem(
+              sourceDescription: 'synthetic-$index.pdf',
+              mode: ImportParseMode.ocr,
+              parse: parse,
+            ),
+          ),
+        );
+
+    final first = await startBatch();
+    final second = await startBatch();
+    await bothParsersEntered.future;
+    expect(first.batchId, isNot(second.batchId));
+    expect(providerEntries, 1);
+    expect(peakProvider, 1);
+
+    releaseProvider.complete();
+    for (final handle in <ImportTaskHandle>[...first.tasks, ...second.tasks]) {
+      await _waitForTask(
+        manager,
+        handle.taskId,
+        (task) => task.status == TaskStatus.pendingReview,
+      );
+    }
+    expect(providerEntries, 4);
+    expect(peakProvider, 1);
+  });
 
   test('a queued OCR task can be cancelled before it ever reaches the parser',
       () async {
