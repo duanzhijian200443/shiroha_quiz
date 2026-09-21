@@ -39,6 +39,7 @@ final class _RecordingImportTaskCoordinator extends Fake
   final List<ImportParseMode> modes = <ImportParseMode>[];
   final List<ExplanationRetentionMode> retentionModes =
       <ExplanationRetentionMode>[];
+  final List<bool> documentImportEntries = <bool>[];
 
   @override
   Future<ImportTaskHandle> dispatch({
@@ -47,12 +48,14 @@ final class _RecordingImportTaskCoordinator extends Fake
     required ImportTaskParseAction parse,
     ExplanationRetentionMode explanationRetentionMode =
         ExplanationRetentionMode.subjectiveOnly,
+    bool documentImportEntry = false,
   }) async {
     final callNumber = sourceDescriptions.length + 1;
     final taskId = 'synthetic-photo-task-$callNumber';
     sourceDescriptions.add(sourceDescription);
     modes.add(mode);
     retentionModes.add(explanationRetentionMode);
+    documentImportEntries.add(documentImportEntry);
     await parse(taskId);
     return ImportTaskHandle(
       taskId: taskId,
@@ -353,6 +356,13 @@ void main() {
         ExplanationRetentionMode.subjectiveOnly,
         ExplanationRetentionMode.subjectiveOnly,
       ],
+    );
+    // Photo capture is not the document import entry. It must never claim that
+    // provenance, because Review uses it to decide whether the retention
+    // controls that can restore a hidden explanation stay available.
+    expect(
+      coordinator.documentImportEntries,
+      <bool>[false, false],
     );
     expect(pipeline.requests, hasLength(2));
     expect(

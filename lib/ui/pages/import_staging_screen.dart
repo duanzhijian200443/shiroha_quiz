@@ -116,9 +116,9 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   late ExplanationRetentionMode _explanationRetentionMode;
   final Map<int, QuestionExplanationOverride> _explanationOverrides = {};
 
-  /// See [_isLegacyRetentionTask]. Captured once so the controls and the
+  /// See [_isDocumentImportEntryTask]. Captured once so the controls and the
   /// finalization policy can never disagree while the page is open.
-  late final bool _isLegacyRetentionTaskMode;
+  late final bool _isDocumentImportEntryTaskMode;
   final Map<int, String> _answerDistillationStatuses = {};
   final Map<int, String> _answerDistillationReasons = {};
   final Map<int, String> _reviewItemIds = {};
@@ -208,7 +208,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   @override
   void initState() {
     super.initState();
-    _isLegacyRetentionTaskMode = _isLegacyRetentionTask();
+    _isDocumentImportEntryTaskMode = _isDocumentImportEntryTask();
     _explanationRetentionMode = _readReviewExplanationRetentionMode();
     final messages = ImportDiagnosticFormatter.format(
       warnings: widget.warnings,
@@ -290,18 +290,17 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     return parseExplanationRetentionMode(value);
   }
 
-  /// Whether this task predates the fixed document-import retention policy.
+  /// Whether this task fixes explanation retention, i.e. came from the
+  /// document import entry.
   ///
-  /// A task created by the current import entry always carries a recorded
-  /// explanation retention mode, because that entry fixes it. A task that
-  /// records none was persisted by an older build that let the user choose,
-  /// so its persisted draft is the only honest description of what its
-  /// pipeline did and it keeps the controls that describe it.
-  bool _isLegacyRetentionTask() {
-    final diagnostics = widget.diagnostics;
-    return diagnostics?[TaskManager.keyReviewExplanationRetentionMode] ==
-            null &&
-        diagnostics?[TaskManager.keyExplanationRetentionMode] == null;
+  /// This reads explicit entry provenance, never the retention state. Photo
+  /// capture also dispatches through `ImportTaskCoordinator`, so it records
+  /// retention diagnostics too while still running at `subjectiveOnly`; judging
+  /// the entry by retention would hide the only control that can restore a
+  /// recognized objective explanation on a photo-capture task. A task without
+  /// the marker keeps the controls that describe its own recorded policy.
+  bool _isDocumentImportEntryTask() {
+    return isDocumentImportEntryDiagnostics(widget.diagnostics);
   }
 
   @override
@@ -2300,7 +2299,10 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
           ],
           if (_hasLowQualityVision) _buildVisionLowQualityBanner(),
           if (_hasUnsupportedStructure) _buildUnsupportedStructureBanner(),
-          if (_isLegacyRetentionTaskMode) _buildExplanationRetentionControl(),
+          // Document import fixes retention, so only compatibility tasks keep
+          // the document-level switch.
+          if (!_isDocumentImportEntryTaskMode)
+            _buildExplanationRetentionControl(),
           _buildAnswerDistillationControl(),
           const Divider(height: 1),
           _buildSummaryBar(),
@@ -2412,7 +2414,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                                       onExplanationRetentionChanged:
                                           (_selectionMode ||
                                                   _isSaving ||
-                                                  !_isLegacyRetentionTaskMode)
+                                                  _isDocumentImportEntryTaskMode)
                                               ? null
                                               : (retain) =>
                                                   _setQuestionExplanationRetention(

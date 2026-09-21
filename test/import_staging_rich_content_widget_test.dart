@@ -123,12 +123,12 @@ Map<String, dynamic> _question({
   };
 }
 
-/// Diagnostics a task persisted by the current import entry always carries.
+/// Diagnostics a task created by the document import entry carries.
 ///
-/// Document import fixes explanation retention, so a task recording one is a
-/// current task; a task recording none keeps the controls of the older builds
-/// that let the user choose.
-Map<String, dynamic> _newTaskDiagnostics() => <String, dynamic>{
+/// The entry states itself explicitly: retention values alone cannot identify
+/// it, because photo capture records retention diagnostics too.
+Map<String, dynamic> _documentImportDiagnostics() => <String, dynamic>{
+      documentImportEntryMarkerKey: documentImportEntryMarkerValue,
       TaskManager.keyParseExplanationRetentionMode: 'allQuestionTypes',
       TaskManager.keyReviewExplanationRetentionMode: 'allQuestionTypes',
       TaskManager.keyExplanationRetentionMode: 'allQuestionTypes',
@@ -299,7 +299,7 @@ void main() {
       tester,
       _question(),
       _Resolver(),
-      diagnostics: _newTaskDiagnostics(),
+      diagnostics: _documentImportDiagnostics(),
     );
 
     // Retention is no longer a per-question choice, so the explanation stays
@@ -322,7 +322,7 @@ void main() {
       tester,
       _question(),
       _Resolver(),
-      diagnostics: _newTaskDiagnostics(),
+      diagnostics: _documentImportDiagnostics(),
     );
 
     expect(
@@ -361,7 +361,7 @@ void main() {
       tester,
       question,
       _Resolver(),
-      diagnostics: _newTaskDiagnostics(),
+      diagnostics: _documentImportDiagnostics(),
     );
 
     // No retention control may stand between the user and the explanation.

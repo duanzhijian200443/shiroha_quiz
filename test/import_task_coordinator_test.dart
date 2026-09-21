@@ -219,6 +219,106 @@ void main() {
     expect(task.parsedData, hasLength(1));
   });
 
+  test(
+      'document import provenance survives parse-completion diagnostics replacement',
+      () async {
+    // Regression guard for the metadata whitelist. The marker is written when
+    // the task is created, but TaskManager replaces diagnostics when the parse
+    // completes; if the marker is not in the preserved-metadata whitelist it is
+    // silently dropped and Review stops recognising a document import.
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      taskIdFactory: () => 'task-document-entry',
+      traceIdFactory: () => 'trace-document-entry',
+    );
+
+    final handle = await coordinator.dispatch(
+      sourceDescription: 'fixture.pdf',
+      mode: ImportParseMode.ocr,
+      explanationRetentionMode: newDocumentImportExplanationRetentionMode,
+      documentImportEntry: true,
+      parse: (taskId) => Future<ImportParseResult>.value(
+        ImportParseResult(
+          questions: const <Map<String, dynamic>>[
+            <String, dynamic>{
+              'q_num': '1',
+              'type': 0,
+              'content': 'Synthetic question',
+              'options': <String>['A', 'B'],
+              'standard_answer': 'A',
+              'explanation': 'Synthetic explanation',
+            },
+          ],
+          explanationRetentionMode: newDocumentImportExplanationRetentionMode,
+        ),
+      ),
+    );
+    final task = await _waitForTask(
+      manager,
+      handle.taskId,
+      (candidate) => candidate.status == TaskStatus.pendingReview,
+    );
+    final restored = ImportTask.fromMap(task.toMap());
+
+    expect(
+      task.diagnostics?[documentImportEntryMarkerKey],
+      documentImportEntryMarkerValue,
+      reason: 'the marker must survive parse completion',
+    );
+    expect(
+      restored.diagnostics?[documentImportEntryMarkerKey],
+      documentImportEntryMarkerValue,
+      reason: 'the marker must survive a durable round trip',
+    );
+    expect(isDocumentImportEntryDiagnostics(task.diagnostics), isTrue);
+  });
+
+  test('a photo capture dispatch carries no document import provenance',
+      () async {
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      taskIdFactory: () => 'task-photo-entry',
+      traceIdFactory: () => 'trace-photo-entry',
+    );
+
+    final handle = await coordinator.dispatch(
+      sourceDescription: '图片识别',
+      mode: ImportParseMode.ocr,
+      explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      parse: (taskId) => Future<ImportParseResult>.value(
+        ImportParseResult(
+          questions: const <Map<String, dynamic>>[
+            <String, dynamic>{
+              'q_num': '1',
+              'type': 0,
+              'content': 'Synthetic question',
+              'options': <String>['A', 'B'],
+              'standard_answer': 'A',
+            },
+          ],
+          explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+        ),
+      ),
+    );
+    final task = await _waitForTask(
+      manager,
+      handle.taskId,
+      (candidate) => candidate.status == TaskStatus.pendingReview,
+    );
+
+    // Photo capture records retention diagnostics but is not a document
+    // import, so Review must keep its retention controls.
+    expect(
+      task.diagnostics?[TaskManager.keyReviewExplanationRetentionMode],
+      ExplanationRetentionMode.subjectiveOnly.name,
+    );
+    expect(
+        task.diagnostics?.containsKey(documentImportEntryMarkerKey), isFalse);
+    expect(isDocumentImportEntryDiagnostics(task.diagnostics), isFalse);
+  });
+
   test('persists and restores the request explanation retention mode',
       () async {
     final coordinator = ImportTaskCoordinator(

@@ -90,6 +90,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
       mode: mode,
       parse: parseTask,
       explanationRetentionMode: newDocumentImportExplanationRetentionMode,
+      documentImportEntry: true,
     );
 
     if (!mounted) return;
@@ -162,6 +163,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
               mode: selectedMode,
               explanationRetentionMode:
                   newDocumentImportExplanationRetentionMode,
+              documentImportEntry: true,
               parse: (taskId) => parseRequest(
                 ImportParseRequest(
                   filePaths: <String>[file.path!],

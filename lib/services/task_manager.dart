@@ -1480,6 +1480,10 @@ class TaskManager extends ChangeNotifier {
       keyParseExplanationRetentionMode,
       keyReviewExplanationRetentionMode,
       keyExplanationRetentionMode,
+      // Entry provenance decides whether Review fixes explanation retention or
+      // keeps the controls that describe the task's own recorded policy, so it
+      // is task metadata and must survive parse completion.
+      documentImportEntryMarkerKey,
       keyAttemptNumber,
       keyAttemptToken,
       keyAttemptState,
@@ -1574,6 +1578,9 @@ class TaskManager extends ChangeNotifier {
       keyParseExplanationRetentionMode,
       keyReviewExplanationRetentionMode,
       keyExplanationRetentionMode,
+      // Same reason as `_taskMetadata`: a diagnostics replacement mid-parse
+      // must not silently demote a document import to a compatibility task.
+      documentImportEntryMarkerKey,
       keyAttemptNumber,
       keyAttemptToken,
       keyAttemptState,

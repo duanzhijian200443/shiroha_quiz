@@ -59,22 +59,28 @@ void main() {
     );
   }
 
-  /// Diagnostics a task persisted by the current import entry always carries.
+  /// Diagnostics a task created by the document import entry carries.
   ///
-  /// A task that records no explanation retention mode was persisted before
-  /// document import fixed the policy, and it keeps the controls that describe
-  /// what its pipeline actually did.
-  Map<String, dynamic> newTaskDiagnostics({
+  /// Entry provenance is explicit. Photo capture also records retention
+  /// diagnostics but has no marker, so it stays a compatibility task that keeps
+  /// the controls describing its own recorded policy.
+  Map<String, dynamic> documentImportDiagnostics({
     String retentionMode = 'allQuestionTypes',
-    Map<String, dynamic> extra = const <String, dynamic>{},
   }) {
     return <String, dynamic>{
+      documentImportEntryMarkerKey: documentImportEntryMarkerValue,
       TaskManager.keyParseExplanationRetentionMode: retentionMode,
       TaskManager.keyReviewExplanationRetentionMode: retentionMode,
       TaskManager.keyExplanationRetentionMode: retentionMode,
-      ...extra,
     };
   }
+
+  /// Diagnostics of a photo-capture task: retention recorded, no marker.
+  Map<String, dynamic> photoCaptureDiagnostics() => <String, dynamic>{
+        TaskManager.keyParseExplanationRetentionMode: 'subjectiveOnly',
+        TaskManager.keyReviewExplanationRetentionMode: 'subjectiveOnly',
+        TaskManager.keyExplanationRetentionMode: 'subjectiveOnly',
+      };
 
   testWidgets('legacy document retention switch restores the import task mode',
       (WidgetTester tester) async {
@@ -107,11 +113,11 @@ void main() {
     expect(find.text('Retained explanation'), findsOneWidget);
   });
 
-  testWidgets('a new import exposes no retention controls at all',
+  testWidgets('a document import exposes no retention controls at all',
       (WidgetTester tester) async {
     await tester.pumpWidget(
       createWidget(
-        diagnostics: newTaskDiagnostics(),
+        diagnostics: documentImportDiagnostics(),
         questions: const <Map<String, dynamic>>[
           <String, dynamic>{
             'q_num': 1,
@@ -141,11 +147,13 @@ void main() {
   });
 
   testWidgets(
-      'a new import keeps the recorded policy and exposes no switch to change it',
+      'a document import keeps the recorded policy and exposes no switch to change it',
       (WidgetTester tester) async {
     await tester.pumpWidget(
       createWidget(
+        // The marker identifies the entry whatever the recorded values are.
         diagnostics: const <String, dynamic>{
+          documentImportEntryMarkerKey: documentImportEntryMarkerValue,
           TaskManager.keyParseExplanationRetentionMode: 'allQuestionTypes',
           TaskManager.keyReviewExplanationRetentionMode: 'subjectiveOnly',
           TaskManager.keyExplanationRetentionMode: 'subjectiveOnly',
@@ -167,8 +175,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // The task recorded its own retention values, so it is a task from the
-    // current entry and nothing on this page may rewrite that decision.
+    // The task carries document-import provenance, so nothing on this page may
+    // rewrite the retention decision its pipeline recorded.
     expect(
       find.byKey(
         const ValueKey<String>('objective-explanation-document-switch'),
@@ -176,6 +184,52 @@ void main() {
       findsNothing,
     );
     expect(find.text('Review mode hides this explanation'), findsNothing);
+  });
+
+  testWidgets(
+      'a photo capture task keeps the controls that describe its own policy',
+      (WidgetTester tester) async {
+    // Photo capture dispatches through the same coordinator and therefore also
+    // records retention diagnostics. It has no document-import marker, so it
+    // must keep the switch and chips: they are the only way to restore a
+    // recognized objective explanation that its subjectiveOnly policy hides.
+    await tester.pumpWidget(
+      createWidget(
+        diagnostics: photoCaptureDiagnostics(),
+        initialExplanationRetentionMode:
+            ExplanationRetentionMode.subjectiveOnly,
+        questions: const <Map<String, dynamic>>[
+          <String, dynamic>{
+            'q_num': 1,
+            'type': 0,
+            'content': 'Valid Question',
+            'options': <String>['A', 'B'],
+            'standard_answer': 'A',
+            'explanation': '',
+            'raw_explanation': 'Photo captured explanation',
+          },
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(
+        const ValueKey<String>('objective-explanation-document-switch'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('保留解析'), findsOneWidget);
+    expect(find.text('忽略解析'), findsOneWidget);
+
+    // And the switch really restores the hidden explanation.
+    expect(find.text('Photo captured explanation'), findsNothing);
+    await tester.tap(
+      find.byKey(
+          const ValueKey<String>('objective-explanation-document-switch')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Photo captured explanation'), findsOneWidget);
   });
 
   testWidgets('legacy document retention switch defaults to subjective only',

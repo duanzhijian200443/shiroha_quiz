@@ -65,12 +65,26 @@ class ImportTaskBatchItem {
     required this.mode,
     required this.parse,
     this.explanationRetentionMode = ExplanationRetentionMode.subjectiveOnly,
+    this.documentImportEntry = false,
   });
 
   final String sourceDescription;
   final ImportParseMode mode;
   final ImportTaskParseAction parse;
   final ExplanationRetentionMode explanationRetentionMode;
+
+  /// Whether this item was created by the document import entry.
+  ///
+  /// Review reads this marker to decide whether the task fixes explanation
+  /// retention (document import) or keeps the retention controls that describe
+  /// its own recorded policy (photo capture, Agent, older builds).
+  final bool documentImportEntry;
+
+  /// Entry diagnostics this item contributes at task creation.
+  Map<String, dynamic> get entryDiagnostics => <String, dynamic>{
+        if (documentImportEntry)
+          documentImportEntryMarkerKey: documentImportEntryMarkerValue,
+      };
 }
 
 class ImportTaskBatchHandle {
@@ -229,6 +243,7 @@ class ImportTaskCoordinator {
     required Future<ImportParseResult> Function(String taskId) parse,
     ExplanationRetentionMode explanationRetentionMode =
         ExplanationRetentionMode.subjectiveOnly,
+    bool documentImportEntry = false,
   }) async {
     BackupRestoreMutationGate.instance.ensureMutationAllowed();
     final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
@@ -239,6 +254,7 @@ class ImportTaskCoordinator {
         mode: mode,
         parse: parse,
         explanationRetentionMode: explanationRetentionMode,
+        documentImportEntry: documentImportEntry,
       );
     } catch (_) {
       lease.release();
@@ -253,6 +269,7 @@ class ImportTaskCoordinator {
     required Future<ImportParseResult> Function(String taskId) parse,
     ExplanationRetentionMode explanationRetentionMode =
         ExplanationRetentionMode.subjectiveOnly,
+    bool documentImportEntry = false,
   }) async {
     await _readiness;
 
@@ -289,6 +306,8 @@ class ImportTaskCoordinator {
         TaskManager.keyReviewExplanationRetentionMode:
             explanationRetentionMode.name,
         TaskManager.keyExplanationRetentionMode: explanationRetentionMode.name,
+        if (documentImportEntry)
+          documentImportEntryMarkerKey: documentImportEntryMarkerValue,
         TaskManager.keyAttemptNumber: handle.attemptNumber,
         TaskManager.keyAttemptToken: handle.attemptToken,
         TaskManager.keyAttemptState: ImportAttemptState.queued.name,
@@ -408,6 +427,7 @@ class ImportTaskCoordinator {
               item.explanationRetentionMode.name,
           TaskManager.keyExplanationRetentionMode:
               item.explanationRetentionMode.name,
+          ...item.entryDiagnostics,
           TaskManager.keyBatchId: batchId,
           TaskManager.keySelectionIndex: index,
           TaskManager.keyAttemptNumber: handle.attemptNumber,
