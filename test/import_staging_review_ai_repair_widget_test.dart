@@ -25,6 +25,9 @@ import 'package:shiroha_quiz/ui/widgets/review_repair_proposal_dialog.dart';
 
 const String _taskId = 'review-ai-repair-task';
 const String _reviewItemId = '44444444-4444-4444-8444-000000000021';
+const String _questionId = '22222222-2222-4222-8222-000000000021';
+const String _secondReviewItemId = '44444444-4444-4444-8444-000000000022';
+const String _secondQuestionId = '22222222-2222-4222-8222-000000000022';
 const String _brokenExplanation = r'推导 $$\begin{array}{l}x_1=1\\x_2=2$$';
 const String _repairedExplanation =
     r'推导 $$\begin{array}{l}x_1=1\\x_2=2\end{array}$$';
@@ -99,6 +102,12 @@ class _RecordingTaskManager {
 
   Map<String, dynamic> get lastQuestion => lastSave.single;
 
+  Map<String, dynamic> savedQuestion(String reviewItemId) {
+    return lastSave.firstWhere(
+      (question) => question[TaskManager.keyReviewItemId] == reviewItemId,
+    );
+  }
+
   TaskManager create() {
     return TaskManager.forTesting(
       saveReviewDraftCas: ({
@@ -137,22 +146,26 @@ Map<String, dynamic> _question({
   List<String> riskHints = const <String>['latex_unrenderable'],
   List<String> latexInvalidFields = const <String>['explanation'],
   bool withTypedSnapshot = true,
+  int questionNumber = 21,
+  int originalIndex = 20,
+  String reviewItemId = _reviewItemId,
+  String questionId = _questionId,
 }) {
   final question = <String, dynamic>{
-    'q_num': 21,
-    'question_number': 21,
+    'q_num': questionNumber,
+    'question_number': questionNumber,
     'type': type,
     'content': content,
     'options': options,
     'standard_answer': standardAnswer,
     'explanation': explanation,
     if (rawExplanation != null) 'raw_explanation': rawExplanation,
-    TaskManager.keyReviewItemId: _reviewItemId,
+    TaskManager.keyReviewItemId: reviewItemId,
     '_import_review': <String, dynamic>{
       'source': 'ocr',
       'sources': <String>['ocr'],
       'fragmentKinds': <String>[],
-      'originalIndices': <int>[20],
+      'originalIndices': <int>[originalIndex],
       'riskHints': riskHints,
       'latexInvalidFields': latexInvalidFields,
     },
@@ -161,16 +174,16 @@ Map<String, dynamic> _question({
     question[TypedReviewSnapshotCodec.mapKey] =
         const TypedReviewSnapshotCodec().encode(
       TypedReviewSnapshot(
-        reviewItemId: _reviewItemId,
-        questionId: '22222222-2222-4222-8222-000000000021',
+        reviewItemId: reviewItemId,
+        questionId: questionId,
         draft: QuestionDraftV2(
-          questionId: '22222222-2222-4222-8222-000000000021',
+          questionId: questionId,
           kind: switch (type) {
             0 => QuestionKind.singleChoice,
             2 => QuestionKind.fillBlank,
             _ => QuestionKind.shortAnswer,
           },
-          questionNumber: 21,
+          questionNumber: questionNumber,
           stem: _contentFor(content),
           options: <QuestionOption>[
             for (var index = 0; index < options.length; index++)
@@ -185,7 +198,7 @@ Map<String, dynamic> _question({
         ),
         baselineLegacy: LegacyReviewBaseline(
           type: type,
-          questionNumber: 21,
+          questionNumber: questionNumber,
           content: content,
           options: options,
           standardAnswer: standardAnswer,
@@ -202,12 +215,15 @@ RichContent _contentFor(String value) {
       RichContent(nodes: <ContentNode>[TextNode(value)]);
 }
 
-ImportTask _task(Map<String, dynamic> question) {
+ImportTask _task(Map<String, dynamic> question) =>
+    _taskWithQuestions(<Map<String, dynamic>>[question]);
+
+ImportTask _taskWithQuestions(List<Map<String, dynamic>> questions) {
   return ImportTask(
     id: _taskId,
     title: 'AI repair',
     status: TaskStatus.pendingReview,
-    parsedData: <Map<String, dynamic>>[question],
+    parsedData: questions,
     diagnostics: <String, dynamic>{
       ReviewDraftCasPersistence.keyReviewDraftRevision: 1,
       ReviewDraftCasPersistence.keyReviewExplanationRetentionMode:
@@ -307,6 +323,70 @@ void main() {
         _brokenExplanation);
     expect(recorder.lastQuestion['explanation'], _brokenExplanation);
     expect(find.byType(ReviewRepairProposalDialog), findsNothing);
+  });
+
+  testWidgets(
+      'a second automatic proposal is regenerated instead of failing stale',
+      (tester) async {
+    tester.view.physicalSize = const Size(800, 2600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    final recorder = _RecordingTaskManager();
+    final manager = recorder.create();
+    final first = _question();
+    final second = _question(
+      content: 'Second synthetic stem',
+      questionNumber: 22,
+      originalIndex: 21,
+      reviewItemId: _secondReviewItemId,
+      questionId: _secondQuestionId,
+    );
+    manager.tasks.add(
+      _taskWithQuestions(<Map<String, dynamic>>[first, second]),
+    );
+    final generator = _FakeRepairGenerator();
+
+    await tester.pumpWidget(_host(
+      question: first,
+      generator: generator,
+      taskManager: manager,
+      preferencesLoader: () async =>
+          const ImportAdvancedPreferences(autoRepairLatexEnabled: true),
+    ));
+    await tester.pumpAndSettle();
+
+    // Preparing the second proposal moved the draft-wide revision past the
+    // anchor the first proposal was generated against.
+    expect(generator.calls, 2);
+    expect(find.text('查看 AI 修补建议'), findsNWidgets(2));
+
+    await tester.tap(find.byKey(const ValueKey('review-ai-repair-0')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(ReviewRepairProposalDialog.applyKey));
+    await tester.pumpAndSettle();
+
+    expect(find.text('题目已发生变化，请重新执行 AI 修补'), findsNothing);
+    expect(
+      recorder.savedQuestion(_reviewItemId)['explanation'],
+      _repairedExplanation,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('review-ai-repair-1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(ReviewRepairProposalDialog.applyKey));
+    await tester.pumpAndSettle();
+
+    expect(find.text('题目已发生变化，请重新执行 AI 修补'), findsNothing);
+    expect(find.text('AI 修补已应用，请复核后入库'), findsWidgets);
+    expect(
+      recorder.savedQuestion(_secondReviewItemId)['explanation'],
+      _repairedExplanation,
+    );
+    expect(
+      recorder.savedQuestion(_reviewItemId)['explanation'],
+      _repairedExplanation,
+    );
   });
 
   testWidgets('automatic LaTeX repair skips non-LaTeX metadata and failure',

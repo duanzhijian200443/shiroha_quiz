@@ -1603,6 +1603,22 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
 
   bool get _isRepairingAnyItem => _activeRepairIndex != null;
 
+  /// Whether a cached proposal can still be applied without regenerating.
+  ///
+  /// The revision anchor is draft-wide: saving or repairing any other question
+  /// moves it, so a proposal kept across that change could only fail closed at
+  /// the CAS. Regenerating is the only way it can still be applied.
+  bool _isRepairProposalReusable(
+    ImportReviewItem item,
+    ReviewRepairProposal proposal,
+  ) {
+    if (proposal.isStaleFor(item.draft)) return false;
+    final taskId = widget.taskId?.trim() ?? '';
+    if (taskId.isEmpty) return true;
+    return proposal.request.expectedRevision ==
+        _taskManager.reviewDraftRevision(taskId);
+  }
+
   /// Generates a proposal for one eligible item.
   ///
   /// Generating never mutates the review items: the item is only replaced after
@@ -1613,7 +1629,9 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }) async {
     if (_isSaving || _isRepairingAnyItem || _isDistillingAnswers) return;
     final cached = _autoRepairProposals[item.originalIndex];
-    if (!automatic && cached != null && !cached.isStaleFor(item.draft)) {
+    if (!automatic &&
+        cached != null &&
+        _isRepairProposalReusable(item, cached)) {
       final apply = await showDialog<bool>(
         context: context,
         builder: (context) => ReviewRepairProposalDialog(proposal: cached),
