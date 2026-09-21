@@ -5,7 +5,6 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../application/import/import_advanced_preferences.dart';
 import '../../application/practice/subjective_answer_recognition.dart';
-import '../../data/repositories/settings_repository.dart';
 import '../../services/import_pipeline/import_question_field_policy.dart';
 import '../../services/import_pipeline/import_parse_request.dart';
 import '../dependencies/ai_dependencies_scope.dart';
@@ -116,10 +115,9 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
   ) async {
     final dependencies = AiDependenciesScope.of(context);
     const explanationRetentionMode = ExplanationRetentionMode.subjectiveOnly;
-    final preferencesLoader = widget.importPreferencesLoader;
-    final preferences = preferencesLoader != null
-        ? await preferencesLoader()
-        : await SettingsRepository.instance.getImportAdvancedPreferences();
+    final preferencesLoader =
+        widget.importPreferencesLoader ?? dependencies.importPreferencesLoader!;
+    final preferences = await preferencesLoader();
     final maxConcurrency = preferences.effectiveOcrTaskConcurrency;
     await dependencies.importTaskCoordinator.dispatch(
       sourceDescription: '图片识别',

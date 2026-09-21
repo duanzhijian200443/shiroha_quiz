@@ -364,6 +364,24 @@ void main() {
           clock: () => DateTime.now().toUtc(),
         );
         final studyPlanSessionLauncher = StudyPlanPracticeSessionLauncher();
+        final importPreferencesLoader =
+            SettingsRepository.instance.getImportAdvancedPreferences;
+        final initialImportPreferences = await importPreferencesLoader();
+        final ocrRequestScheduler = OcrRequestScheduler(
+          maxConcurrentRequests:
+              initialImportPreferences.effectiveOcrTaskConcurrency,
+        );
+        Future<void> saveImportPreferences(
+          ImportAdvancedPreferences preferences,
+        ) async {
+          await SettingsRepository.instance.setImportAdvancedPreferences(
+            preferences,
+          );
+          ocrRequestScheduler.updateMaxConcurrentRequests(
+            preferences.effectiveOcrTaskConcurrency,
+          );
+        }
+
         final parsedArtifactRepository = ParsedArtifactRepository(
           databaseHelper: databaseHelper,
         );
@@ -383,6 +401,7 @@ void main() {
             ocrGeneration: OcrParsedArtifactGenerationAdapter(
               managedFileStorage: managedFileStorage,
               ocrClient: const ZhipuOcrClient(),
+              requestScheduler: ocrRequestScheduler,
               activeOcrProfileLoader: engineRepository.getActiveOcrEngine,
               contentAssetStore: contentAssetStore,
             ),
@@ -451,10 +470,7 @@ void main() {
         );
         final subjectiveAnswerRecognition = SubjectiveAnswerRecognitionAdapter(
           engineRepository: engineRepository,
-        );
-        final ocrRequestScheduler = OcrRequestScheduler(
-          maxConcurrentRequests:
-              ImportAdvancedPreferences.maxOcrTaskConcurrency,
+          requestScheduler: ocrRequestScheduler,
         );
         final importPipelineService = ImportPipelineService(
           aiService: aiService,
@@ -469,8 +485,7 @@ void main() {
           requestScheduler: ocrRequestScheduler,
           contentAssetStore: contentAssetStore,
           ocrMaxConcurrencyResolver: () async {
-            final preferences = await SettingsRepository.instance
-                .getImportAdvancedPreferences();
+            final preferences = await importPreferencesLoader();
             return preferences.effectiveOcrTaskConcurrency;
           },
           onReadyForReview: (sourceDescription) {
@@ -502,6 +517,8 @@ void main() {
             aiService: aiService,
             importPipelineService: importPipelineService,
             importTaskCoordinator: importTaskCoordinator,
+            importPreferencesLoader: importPreferencesLoader,
+            importPreferencesSaver: saveImportPreferences,
             importCommitService: importCommitService,
             answerGenerationService: answerGenerationService,
             answerCommitCommand: answerCommitCommand,
@@ -552,6 +569,8 @@ class ShirohaQuizApp extends StatelessWidget {
     required this.aiService,
     required this.importPipelineService,
     required this.importTaskCoordinator,
+    this.importPreferencesLoader,
+    this.importPreferencesSaver,
     this.importCommitService,
     required this.answerGenerationService,
     required this.answerCommitCommand,
@@ -582,6 +601,8 @@ class ShirohaQuizApp extends StatelessWidget {
   final AiService aiService;
   final ImportPipelineService importPipelineService;
   final ImportTaskCoordinator importTaskCoordinator;
+  final ImportAdvancedPreferencesLoader? importPreferencesLoader;
+  final ImportAdvancedPreferencesSaver? importPreferencesSaver;
   final ImportCommitService? importCommitService;
 
   /// P7 Application seams for the AI answer review UI.
@@ -654,6 +675,8 @@ class ShirohaQuizApp extends StatelessWidget {
           aiService: aiService,
           importPipelineService: importPipelineService,
           importTaskCoordinator: importTaskCoordinator,
+          importPreferencesLoader: importPreferencesLoader,
+          importPreferencesSaver: importPreferencesSaver,
           answerGenerationService: answerGenerationService,
           answerCommitCommand: answerCommitCommand,
           examMutationCommand: examMutationCommand,

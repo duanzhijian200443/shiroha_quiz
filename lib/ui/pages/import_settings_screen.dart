@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../application/import/import_advanced_preferences.dart';
-import '../../data/repositories/settings_repository.dart';
 import '../dependencies/ai_dependencies_scope.dart';
 import '../theme/design_tokens.dart';
 import '../../services/import_pipeline/import_parse_result.dart';
@@ -53,12 +52,14 @@ class ImportSettingsScreen extends StatefulWidget {
     this.taskDispatcher,
     this.requestParser,
     this.importPreferencesLoader,
+    this.importPreferencesSaver,
   });
 
   final ImportFilePicker? pickFiles;
   final ImportTaskDispatcher? taskDispatcher;
   final ImportRequestParser? requestParser;
   final ImportAdvancedPreferencesLoader? importPreferencesLoader;
+  final ImportAdvancedPreferencesSaver? importPreferencesSaver;
 
   @override
   State<ImportSettingsScreen> createState() => _ImportSettingsScreenState();
@@ -135,10 +136,9 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
       };
 
   Future<int> _resolveOcrMaxConcurrency() async {
-    final preferencesLoader = widget.importPreferencesLoader;
-    final preferences = preferencesLoader != null
-        ? await preferencesLoader()
-        : await SettingsRepository.instance.getImportAdvancedPreferences();
+    final preferencesLoader = widget.importPreferencesLoader ??
+        AiDependenciesScope.of(context).importPreferencesLoader!;
+    final preferences = await preferencesLoader();
     return preferences.effectiveOcrTaskConcurrency;
   }
 
@@ -272,11 +272,18 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
   }
 
   void _openAdvancedSettings() {
+    final dependencies = widget.importPreferencesLoader == null ||
+            widget.importPreferencesSaver == null
+        ? AiDependenciesScope.of(context)
+        : null;
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => ImportAdvancedSettingsScreen(
-          preferencesLoader: widget.importPreferencesLoader,
+          preferencesLoader: widget.importPreferencesLoader ??
+              dependencies!.importPreferencesLoader!,
+          preferencesSaver: widget.importPreferencesSaver ??
+              dependencies!.importPreferencesSaver!,
         ),
       ),
     );

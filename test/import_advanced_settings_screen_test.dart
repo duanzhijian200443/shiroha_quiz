@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/import/import_advanced_preferences.dart';
@@ -138,29 +140,29 @@ void main() {
     expect(find.text('扫描版 PDF 或图片内容使用 OCR 识别。'), findsOneWidget);
   });
 
-  testWidgets('offers the OCR task concurrency slider from 1 to 12',
+  testWidgets('offers the OCR task concurrency slider from 1 to 10',
       (tester) async {
     await pumpScreen(tester);
 
     expect(find.text('OCR 并行任务数'), findsOneWidget);
     expect(
-      find.text('同时处理的 OCR 任务越多，批量导入可能越快，但更容易触发服务限流或增加资源占用。'
-          '单个 PDF 内仍按串行方式处理。'),
+      find.text('这是整个 App 的 OCR 服务请求并发上限。较高并发可能提升批量导入速度，'
+          '但也可能更容易触发服务限流。单个 PDF 内仍按串行方式处理。'),
       findsOneWidget,
     );
 
     final slider = sliderOf(tester);
     expect(slider.min, 1);
-    expect(slider.max, 12);
+    expect(slider.max, 10);
     expect(
       slider.divisions,
-      11,
-      reason: 'every whole number in 1..12 must be reachable in one step',
+      9,
+      reason: 'every whole number in 1..10 must be reachable in one step',
     );
     expectBudget(tester, ImportAdvancedPreferences.defaultOcrTaskConcurrency);
   });
 
-  testWidgets('dragging to either end stays inside the 1..12 budget',
+  testWidgets('dragging to either end stays inside the 1..10 budget',
       (tester) async {
     await pumpScreen(tester);
 
@@ -177,7 +179,7 @@ void main() {
     await dragSlider(tester, 150);
     final value = sliderOf(tester).value;
     expect(value, greaterThan(1));
-    expect(value, lessThan(12));
+    expect(value, lessThan(10));
 
     // Pressing exactly at the badge reports the same value only while the
     // badge still covers the thumb.
@@ -238,6 +240,79 @@ void main() {
 
     expect(store.loadCalls, 1);
     expectBudget(tester, 7);
+  });
+
+  testWidgets('pending load cannot save defaults or accept edits',
+      (tester) async {
+    tester.view.physicalSize = const Size(900, 1400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final delayed = Completer<ImportAdvancedPreferences>();
+    final saved = <ImportAdvancedPreferences>[];
+    await tester.pumpWidget(MaterialApp(
+      home: ImportAdvancedSettingsScreen(
+        preferencesLoader: () => delayed.future,
+        preferencesSaver: (value) async => saved.add(value),
+      ),
+    ));
+
+    expect(sliderOf(tester).onChanged, isNull);
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.byKey(const ValueKey<String>('advanced-settings-done')),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<TextButton>(
+            find.byKey(
+                const ValueKey<String>('advanced-settings-reset-defaults')),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(saved, isEmpty);
+
+    delayed.complete(const ImportAdvancedPreferences(ocrTaskConcurrency: 7));
+    await tester.pumpAndSettle();
+    expectBudget(tester, 7);
+    expect(sliderOf(tester).onChanged, isNotNull);
+    expect(saved, isEmpty);
+  });
+
+  testWidgets('editing starts only after delayed initialization resolves',
+      (tester) async {
+    tester.view.physicalSize = const Size(900, 1400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final delayed = Completer<ImportAdvancedPreferences>();
+    ImportAdvancedPreferences? saved;
+    await tester.pumpWidget(MaterialApp(
+      home: ImportAdvancedSettingsScreen(
+        preferencesLoader: () => delayed.future,
+        preferencesSaver: (value) async => saved = value,
+      ),
+    ));
+    expect(sliderOf(tester).onChanged, isNull);
+
+    delayed.complete(const ImportAdvancedPreferences(ocrTaskConcurrency: 7));
+    await tester.pumpAndSettle();
+    expectBudget(tester, 7);
+    sliderOf(tester).onChanged!(5);
+    await tester.pump();
+    expectBudget(tester, 5);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey<String>('advanced-settings-done')),
+    );
+    await tester
+        .tap(find.byKey(const ValueKey<String>('advanced-settings-done')));
+    await tester.pumpAndSettle();
+    expect(saved?.ocrTaskConcurrency, 5);
   });
 
   testWidgets('edits stay local until the done action', (tester) async {

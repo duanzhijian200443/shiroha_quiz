@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
@@ -463,6 +464,7 @@ void main() {
       tester,
       screen: ImportSettingsScreen(
         importPreferencesLoader: () async => const ImportAdvancedPreferences(),
+        importPreferencesSaver: (_) async {},
       ),
     );
 
@@ -474,10 +476,24 @@ void main() {
     expect(find.byType(ImportAdvancedSettingsScreen), findsOneWidget);
   });
 
+  test('import presentation files do not depend on SettingsRepository', () {
+    for (final path in <String>[
+      'lib/ui/pages/import_settings_screen.dart',
+      'lib/ui/pages/import_advanced_settings_screen.dart',
+      'lib/ui/pages/photo_capture_screen.dart',
+    ]) {
+      expect(
+        File(path).readAsStringSync(),
+        isNot(contains('data/repositories/settings_repository.dart')),
+        reason: path,
+      );
+    }
+  });
+
   testWidgets(
       'the OCR task concurrency preference is recorded on the dispatched request',
       (tester) async {
-    for (final budget in <int>[1, 2, 9, 12]) {
+    for (final budget in <int>[1, 2, 9, 10]) {
       final requests = <ImportParseRequest>[];
       await pumpScreen(
         tester,

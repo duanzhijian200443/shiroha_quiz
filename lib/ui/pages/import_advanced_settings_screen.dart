@@ -1,26 +1,25 @@
 import 'package:flutter/material.dart';
 
 import '../../application/import/import_advanced_preferences.dart';
-import '../../data/repositories/settings_repository.dart';
 import '../theme/design_tokens.dart';
 
 /// Advanced import settings.
 ///
 /// This page is deliberately secondary to the import entry and contains only
 /// settings that are real. The OCR task concurrency slider is consumed by the
-/// import pipeline's OCR tasks through `ImportAdvancedPreferences`; the
+/// app's shared OCR provider scheduler through `ImportAdvancedPreferences`; the
 /// exception handling rows are not implemented yet, so they are presented as
 /// planned instead of as working switches. Read-only blocks explain behavior
 /// and never present a control that does nothing.
 class ImportAdvancedSettingsScreen extends StatefulWidget {
   const ImportAdvancedSettingsScreen({
     super.key,
-    this.preferencesLoader,
-    this.preferencesSaver,
+    required this.preferencesLoader,
+    required this.preferencesSaver,
   });
 
-  final ImportAdvancedPreferencesLoader? preferencesLoader;
-  final ImportAdvancedPreferencesSaver? preferencesSaver;
+  final ImportAdvancedPreferencesLoader preferencesLoader;
+  final ImportAdvancedPreferencesSaver preferencesSaver;
 
   @override
   State<ImportAdvancedSettingsScreen> createState() =>
@@ -33,6 +32,9 @@ class _ImportAdvancedSettingsScreenState
   /// the user confirms with 完成, so 恢复默认 and accidental taps never write
   /// a preference by themselves.
   ImportAdvancedPreferences _preferences = ImportAdvancedPreferences.defaults;
+  bool _loaded = false;
+  bool _loadFailed = false;
+  bool _saving = false;
 
   @override
   void initState() {
@@ -41,12 +43,17 @@ class _ImportAdvancedSettingsScreenState
   }
 
   Future<void> _loadPreferences() async {
-    final loader = widget.preferencesLoader;
-    final loaded = loader != null
-        ? await loader()
-        : await SettingsRepository.instance.getImportAdvancedPreferences();
-    if (!mounted) return;
-    setState(() => _preferences = loaded);
+    try {
+      final loaded = await widget.preferencesLoader();
+      if (!mounted) return;
+      setState(() {
+        _preferences = loaded;
+        _loaded = true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loadFailed = true);
+    }
   }
 
   void _setOcrTaskConcurrency(int value) {
@@ -69,12 +76,12 @@ class _ImportAdvancedSettingsScreenState
   }
 
   Future<void> _done() async {
-    final saver = widget.preferencesSaver;
-    if (saver != null) {
-      await saver(_preferences);
-    } else {
-      await SettingsRepository.instance
-          .setImportAdvancedPreferences(_preferences);
+    if (!_loaded || _saving) return;
+    setState(() => _saving = true);
+    try {
+      await widget.preferencesSaver(_preferences);
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
     if (!mounted) return;
     Navigator.pop(context);
@@ -104,15 +111,16 @@ class _ImportAdvancedSettingsScreenState
                 _AdvancedSection(
                   icon: Icons.settings_outlined,
                   title: 'OCR 并行任务数',
-                  description: '同时处理的 OCR 任务越多，批量导入可能越快，但更容易触发服务限流或增加资源占用。'
-                      '单个 PDF 内仍按串行方式处理。',
+                  description: '这是整个 App 的 OCR 服务请求并发上限。较高并发可能提升批量导入速度，'
+                      '但也可能更容易触发服务限流。单个 PDF 内仍按串行方式处理。',
                   children: [
                     _ConcurrencySelector(
                       key: const ValueKey<String>(
                         'advanced-ocr-concurrency-card',
                       ),
                       value: _preferences.effectiveOcrTaskConcurrency,
-                      onChanged: _setOcrTaskConcurrency,
+                      onChanged:
+                          _loaded && !_saving ? _setOcrTaskConcurrency : null,
                     ),
                   ],
                 ),
@@ -181,13 +189,14 @@ class _ImportAdvancedSettingsScreenState
                   ],
                 ),
                 const SizedBox(height: DesignTokens.sectionGap),
+                if (!_loaded) Text(_loadFailed ? '设置加载失败，请返回后重试。' : '正在加载设置…'),
                 Row(
                   children: [
                     TextButton.icon(
                       key: const ValueKey<String>(
                         'advanced-settings-reset-defaults',
                       ),
-                      onPressed: _resetDefaults,
+                      onPressed: _loaded && !_saving ? _resetDefaults : null,
                       icon: const Icon(Icons.restart_alt, size: 18),
                       label: const Text('恢复默认'),
                     ),
@@ -206,7 +215,7 @@ class _ImportAdvancedSettingsScreenState
                               BorderRadius.circular(DesignTokens.cardRadius),
                         ),
                       ),
-                      onPressed: _done,
+                      onPressed: _loaded && !_saving ? _done : null,
                       child: const Text(
                         '完成',
                         style: TextStyle(fontWeight: FontWeight.bold),
@@ -225,7 +234,7 @@ class _ImportAdvancedSettingsScreenState
 
 /// The OCR task concurrency budget control.
 ///
-/// The slider spans the supported 1..12 range in single steps, so every value
+/// The slider spans the supported 1..10 range in single steps, so every value
 /// it can produce is already a valid runtime budget. The badge above the thumb
 /// shows the same number as the value line below the track.
 class _ConcurrencySelector extends StatelessWidget {
@@ -240,7 +249,7 @@ class _ConcurrencySelector extends StatelessWidget {
   static const double _inset = 12;
 
   final int value;
-  final ValueChanged<int> onChanged;
+  final ValueChanged<int>? onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -293,7 +302,9 @@ class _ConcurrencySelector extends StatelessWidget {
                                 ),
                                 semanticFormatterCallback: (raw) =>
                                     'OCR 并行任务数 ${raw.round()}',
-                                onChanged: (raw) => onChanged(raw.round()),
+                                onChanged: onChanged == null
+                                    ? null
+                                    : (raw) => onChanged!(raw.round()),
                               ),
                             ),
                           ),
