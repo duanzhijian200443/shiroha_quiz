@@ -33,14 +33,23 @@ class ImportAdvancedSettingsScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const _AdvancedSection(
-                  icon: Icons.rule_folder_outlined,
-                  title: '导入后流程',
-                  description: '导入任务完成后不会直接入库。',
+                  icon: Icons.route_outlined,
+                  title: '流程说明',
+                  description: '导入将按照以下流程进行，确保内容准确可靠。',
                   children: [
-                    _AdvancedInfoRow(
-                      key: ValueKey<String>('import-flow-review-row'),
-                      title: '识别完成后进入校对页',
-                      subtitle: '确认题目、答案和解析后再收入题库。',
+                    _ImportFlowStrip(
+                      key: ValueKey<String>('import-flow-strip'),
+                      steps: [
+                        '选择文件',
+                        '解析内容',
+                        '生成候选题目',
+                        '待校对',
+                        '确认入库',
+                      ],
+                    ),
+                    _AdvancedFootnote(
+                      key: ValueKey<String>('import-flow-review-note'),
+                      text: '正式入库前需经过人工校对。',
                     ),
                   ],
                 ),
@@ -85,8 +94,8 @@ class ImportAdvancedSettingsScreen extends StatelessWidget {
                         horizontal: 32,
                         vertical: 14,
                       ),
-                      backgroundColor: theme.colorScheme.primaryContainer,
-                      foregroundColor: theme.colorScheme.onPrimaryContainer,
+                      backgroundColor: theme.colorScheme.primary,
+                      foregroundColor: theme.colorScheme.onPrimary,
                       shape: RoundedRectangleBorder(
                         borderRadius:
                             BorderRadius.circular(DesignTokens.cardRadius),
@@ -128,6 +137,7 @@ class _AdvancedSection extends StatelessWidget {
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(DesignTokens.cardRadius),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
       ),
       child: Padding(
         padding: const EdgeInsets.all(DesignTokens.cardInternalPadding),
@@ -137,7 +147,21 @@ class _AdvancedSection extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(icon, size: 20, color: theme.colorScheme.primary),
+                Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(
+                      DesignTokens.compactIconContainerRadius,
+                    ),
+                  ),
+                  child: Icon(
+                    icon,
+                    size: 18,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -216,6 +240,113 @@ class _AdvancedInfoRow extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The fixed import pipeline, rendered as a read-only numbered sequence.
+///
+/// [Wrap] is used instead of a row so the strip reflows on narrow windows and
+/// under large text rather than overflowing.
+class _ImportFlowStrip extends StatelessWidget {
+  const _ImportFlowStrip({super.key, required this.steps});
+
+  final List<String> steps;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Wrap(
+      spacing: 6,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        for (final (index, step) in steps.indexed)
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _FlowStep(index: index + 1, label: step),
+              if (index < steps.length - 1)
+                Icon(
+                  Icons.arrow_forward,
+                  size: 14,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+            ],
+          ),
+      ],
+    );
+  }
+}
+
+class _FlowStep extends StatelessWidget {
+  const _FlowStep({required this.index, required this.label});
+
+  final int index;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(6, 5, 12, 5),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 20,
+              height: 20,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: theme.colorScheme.primary),
+              ),
+              child: Text(
+                '$index',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurface,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A read-only note under a section's rows.
+class _AdvancedFootnote extends StatelessWidget {
+  const _AdvancedFootnote({super.key, required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Text(
+        text,
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
         ),
       ),
     );

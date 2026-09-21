@@ -27,15 +27,38 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('states the fixed post-import review flow as read-only',
+  const flowSteps = <String>[
+    '选择文件',
+    '解析内容',
+    '生成候选题目',
+    '待校对',
+    '确认入库',
+  ];
+
+  testWidgets('presents the fixed import pipeline as a read-only flow',
       (tester) async {
     await pumpScreen(tester);
 
-    expect(find.text('导入后流程'), findsOneWidget);
-    expect(find.text('识别完成后进入校对页'), findsOneWidget);
-    expect(find.text('确认题目、答案和解析后再收入题库。'), findsOneWidget);
+    final strip = find.byKey(const ValueKey<String>('import-flow-strip'));
+    expect(strip, findsOneWidget);
+    for (final step in flowSteps) {
+      expect(
+        find.descendant(of: strip, matching: find.text(step)),
+        findsOneWidget,
+        reason: '$step must be part of the flow strip',
+      );
+    }
+    // Five connected stages render as four arrows; a missing or reordered stage
+    // breaks this count.
     expect(
-      find.byKey(const ValueKey<String>('import-flow-review-row')),
+      find.descendant(of: strip, matching: find.byIcon(Icons.arrow_forward)),
+      findsNWidgets(4),
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('import-flow-review-note')),
+        matching: find.text('正式入库前需经过人工校对。'),
+      ),
       findsOneWidget,
     );
     expect(find.text('入库行为'), findsNothing);
@@ -65,6 +88,10 @@ void main() {
     expect(find.byType(Checkbox), findsNothing);
   });
 
+  // None of these controls has a backend consumer, so they stay out of the
+  // page: OCR does not read ImportParseRequest.maxConcurrency, the provider
+  // retry loops have no off-switch, and a failed batch is dropped rather than
+  // staged for review. With nothing to change there is also nothing to reset.
   testWidgets('does not ship the design mock decoy strategy settings',
       (tester) async {
     await pumpScreen(tester);
@@ -75,7 +102,7 @@ void main() {
     expect(find.textContaining('自动重试'), findsNothing);
     expect(find.textContaining('失败项保留'), findsNothing);
     expect(find.textContaining('异常处理'), findsNothing);
-    expect(find.textContaining('流程说明'), findsNothing);
+    expect(find.textContaining('恢复默认'), findsNothing);
   });
 
   // The OCR path does not consume ImportParseRequest.maxConcurrency, so no
@@ -99,7 +126,8 @@ void main() {
     await pumpScreen(tester);
 
     for (final key in const <String>[
-      'import-flow-review-row',
+      'import-flow-strip',
+      'import-flow-review-note',
       'advanced-text-direct-read-row',
       'advanced-ocr-scan-row',
       'advanced-ocr-concurrency-row',
@@ -188,7 +216,7 @@ void main() {
         ),
       );
 
-      expect(find.text('导入后流程'), findsOneWidget);
+      expect(find.text('流程说明'), findsOneWidget);
       expect(tester.takeException(), isNull);
     }
   });
@@ -201,8 +229,11 @@ void main() {
       textScaler: const TextScaler.linear(1.3),
     );
 
-    expect(find.text('导入后流程'), findsOneWidget);
+    expect(find.text('流程说明'), findsOneWidget);
     expect(find.text('OCR 并行度'), findsOneWidget);
+    for (final step in flowSteps) {
+      expect(find.text(step), findsOneWidget);
+    }
     expect(tester.takeException(), isNull);
   });
 
@@ -210,7 +241,7 @@ void main() {
     for (final size in const <Size>[Size(1280, 900), Size(900, 1200)]) {
       await pumpScreen(tester, size: size);
 
-      expect(find.text('导入后流程'), findsOneWidget);
+      expect(find.text('流程说明'), findsOneWidget);
       expect(tester.takeException(), isNull);
     }
   });
