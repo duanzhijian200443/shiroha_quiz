@@ -1,3 +1,5 @@
+import '../widgets/photo_answer_transcription.dart';
+import '../../application/practice/photo_answer_history.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -5,7 +7,8 @@ import 'package:uuid/uuid.dart';
 
 import '../../application/practice/practice_session_mutation_command.dart';
 import '../../application/practice/record_answer_attempt_command.dart';
-import '../../application/practice/subjective_answer_recognition.dart';
+import '../../application/practice/photo_answer_judgement.dart';
+import '../../application/practice/photo_answer_submission.dart';
 import '../../application/questions/question_mutation_command.dart';
 import '../../application/questions/question_write_mutation_command.dart';
 import '../../core/review_engine_service.dart';
@@ -21,9 +24,10 @@ import 'photo_capture_screen.dart';
 import '../widgets/markdown_extensions.dart';
 import '../widgets/structured_content_renderer.dart';
 
-typedef SubjectiveAnswerCaptureLauncher = Future<String?> Function(
+typedef PhotoAnswerCaptureLauncher = Future<ConfirmedPhotoAnswer?> Function(
   BuildContext context,
-  SubjectiveAnswerRecognitionPort recognition,
+  PhotoAnswerJudgementPort recognition,
+  PracticeQuestionView view,
 );
 
 class PracticePage extends StatefulWidget {
@@ -48,7 +52,7 @@ class PracticePage extends StatefulWidget {
   final RecordAnswerAttemptCommand? recordAnswerAttemptCommand;
   final Future<void> Function(String questionId, int grade)?
       submitReviewOverride;
-  final SubjectiveAnswerCaptureLauncher? subjectiveAnswerCaptureLauncher;
+  final PhotoAnswerCaptureLauncher? photoAnswerCaptureLauncher;
 
   const PracticePage({
     super.key,
@@ -60,7 +64,7 @@ class PracticePage extends StatefulWidget {
     this.usePreparedStudySession = false,
     this.recordAnswerAttemptCommand,
     this.submitReviewOverride,
-    this.subjectiveAnswerCaptureLauncher,
+    this.photoAnswerCaptureLauncher,
   });
 
   @override
@@ -111,35 +115,92 @@ class _PracticePageState extends State<PracticePage> {
     return _currentQuestion!.displayOptions.isEmpty;
   }
 
+  ConfirmedPhotoAnswer? _pendingPhoto;
+  String? _pendingPhotoAttemptId;
+  Future<List<PhotoAnswerHistoryEntry>>? _photoHistory;
+
   Future<void> _captureSubjectiveAnswer() async {
-    final recognition =
-        AiDependenciesScope.of(context).subjectiveAnswerRecognition;
-    final recognizedText = await (widget.subjectiveAnswerCaptureLauncher ??
-        _openSubjectiveAnswerCapture)(
-      context,
-      recognition,
-    );
-    if (!mounted || recognizedText == null || recognizedText.trim().isEmpty) {
+    if (_isAiJudging ||
+        _isRecordingAttempt ||
+        _attemptRecordedForCurrentPresentation) {
       return;
     }
-
-    _subjectiveController.value = TextEditingValue(
-      text: recognizedText,
-      selection: TextSelection.collapsed(offset: recognizedText.length),
-    );
+    final view = _currentQuestion!;
+    if (view.kind != PracticeQuestionKind.fillBlank &&
+        view.kind != PracticeQuestionKind.shortAnswer) {
+      return;
+    }
+    final dependencies = AiDependenciesScope.of(context);
+    setState(() => _isRecordingAttempt = true);
+    try {
+      final photo = _pendingPhoto ??
+          await (widget.photoAnswerCaptureLauncher ??
+                  _openSubjectiveAnswerCapture)(
+              context, dependencies.photoAnswerJudgement, view);
+      if (!mounted || !identical(view, _currentQuestion) || photo == null) {
+        return;
+      }
+      if (!photo.result.isSuccess) return;
+      _pendingPhoto = photo;
+      _pendingPhotoAttemptId ??= const Uuid().v4();
+      if (!view.isPreview) {
+        final submission = dependencies.photoAnswerSubmission;
+        if (submission == null) {
+          throw const PhotoAnswerSubmissionException(
+              PhotoAnswerSubmissionFailure.imageSaveFailed);
+        }
+        final now = DateTime.now().millisecondsSinceEpoch;
+        await submission.submit(
+            photo: photo,
+            attemptId: _pendingPhotoAttemptId!,
+            questionId: view.storageId,
+            sessionKind: widget.usePreparedStudySession
+                ? AnswerAttemptSessionKind.focused
+                : AnswerAttemptSessionKind.normal,
+            answeredAt: now ~/ 1000,
+            durationMs: _questionPresentedTimestamp > 0
+                ? (now - _questionPresentedTimestamp).clamp(0, 86400000)
+                : null);
+        _attemptRecordedForCurrentPresentation = true;
+        _photoHistory =
+            dependencies.photoAnswerHistory?.forQuestion(view.storageId);
+      }
+      if (!mounted || !identical(view, _currentQuestion)) return;
+      setState(() {
+        final decisionText = switch (photo.result.decision!) {
+          PhotoAnswerDecision.correct => '作答正确',
+          PhotoAnswerDecision.incorrect => '作答不正确',
+          PhotoAnswerDecision.uncertain => 'AI 无法可靠判断这张作答图片。建议重新拍摄或改用文字输入。',
+        };
+        _aiFeedback = '$decisionText\n${photo.result.feedback}';
+        _isAnswerRevealed = true;
+        _pendingPhoto = null;
+        _pendingPhotoAttemptId = null;
+      });
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('无法保存本次作答，请重试')));
+      }
+    } finally {
+      if (mounted) setState(() => _isRecordingAttempt = false);
+    }
   }
 
-  Future<String?> _openSubjectiveAnswerCapture(
-    BuildContext context,
-    SubjectiveAnswerRecognitionPort recognition,
-  ) {
-    return Navigator.of(context).push<String>(
-      MaterialPageRoute<String>(
-        builder: (_) => PhotoCaptureScreen.subjectiveAnswer(
-          subjectiveAnswerRecognition: recognition,
-        ),
-      ),
-    );
+  Future<ConfirmedPhotoAnswer?> _openSubjectiveAnswerCapture(
+      BuildContext context,
+      PhotoAnswerJudgementPort recognition,
+      PracticeQuestionView view) {
+    return Navigator.of(context)
+        .push<ConfirmedPhotoAnswer>(MaterialPageRoute<ConfirmedPhotoAnswer>(
+      builder: (_) => PhotoCaptureScreen.subjectiveAnswer(
+          photoAnswerJudgement: recognition,
+          questionKind: view.kind == PracticeQuestionKind.fillBlank
+              ? PhotoAnswerQuestionKind.fillBlank
+              : PhotoAnswerQuestionKind.shortAnswer,
+          questionText: view.stemText,
+          standardAnswerText: view.answerText),
+    ));
   }
 
   @override
@@ -224,6 +285,9 @@ class _PracticePageState extends State<PracticePage> {
       _subjectiveController.clear();
       _showStandardAnswerDirectly = false;
       _attemptRecordedForCurrentPresentation = false;
+      _pendingPhoto = null;
+      _pendingPhotoAttemptId = null;
+      _photoHistory = null;
       _isRecordingAttempt = false;
       _isSubmittingGrade = false;
       _questionPresentedTimestamp = DateTime.now().millisecondsSinceEpoch;
@@ -596,7 +660,8 @@ class _PracticePageState extends State<PracticePage> {
           _buildOptionsList(opts),
         if (_isAnswerRevealed && !isSubjective) ...[
           const SizedBox(height: 16),
-          _buildAnalysis(view)
+          _buildAnalysis(view),
+          if (!view.isPreview) _buildPhotoHistory(view),
         ],
         const SizedBox(height: 16),
       ],
@@ -805,6 +870,39 @@ class _PracticePageState extends State<PracticePage> {
     );
   }
 
+  Widget _buildPhotoHistory(PracticeQuestionView view) {
+    final scope =
+        context.dependOnInheritedWidgetOfExactType<AiDependenciesScope>();
+    _photoHistory ??= scope?.photoAnswerHistory?.forQuestion(view.storageId);
+    if (_photoHistory == null) return const SizedBox.shrink();
+    return FutureBuilder<List<PhotoAnswerHistoryEntry>>(
+        future: _photoHistory,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) return const Text('无法加载作答图片记录，请稍后重试');
+          final entries = snapshot.data ?? const <PhotoAnswerHistoryEntry>[];
+          if (entries.isEmpty) return const SizedBox.shrink();
+          return ExpansionTile(title: const Text('拍照作答记录'), children: [
+            for (final entry in entries.reversed)
+              ListTile(
+                title:
+                    Text(entry.evidenceAvailable ? '作答图片已保存至资料库' : '原始作答图片已清理'),
+                subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(entry.attempt.correctness == null
+                          ? '无法可靠判断'
+                          : entry.attempt.correctness!
+                              ? '作答正确'
+                              : '作答不正确'),
+                      if (entry.transcription.isNotEmpty)
+                        PhotoAnswerTranscription(text: entry.transcription),
+                      if (entry.feedback.isNotEmpty) Text(entry.feedback),
+                    ]),
+              ),
+          ]);
+        });
+  }
+
   Widget _buildSubjectiveSection(PracticeQuestionView view) {
     final colors = Theme.of(context).colorScheme;
     if (_isAnswerRevealed || _showStandardAnswerDirectly) {
@@ -838,11 +936,12 @@ class _PracticePageState extends State<PracticePage> {
               ],
             ),
           ),
-        _buildAnalysis(view)
+        _buildAnalysis(view),
+        if (!view.isPreview) _buildPhotoHistory(view),
       ]);
     }
 
-    final bool isFillInBlank = view.stemText.contains('___');
+    final bool isFillInBlank = view.kind == PracticeQuestionKind.fillBlank;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Column(children: [
@@ -860,17 +959,19 @@ class _PracticePageState extends State<PracticePage> {
           ),
         ),
         const SizedBox(height: 10),
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            key: const ValueKey<String>('subjective-answer-photo-action'),
-            onPressed: _isAiJudging || _isRecordingAttempt
-                ? null
-                : _captureSubjectiveAnswer,
-            icon: const Icon(Icons.camera_alt_outlined),
-            label: const Text('拍照作答 / 图片识别'),
+        if (view.kind == PracticeQuestionKind.fillBlank ||
+            view.kind == PracticeQuestionKind.shortAnswer)
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              key: const ValueKey<String>('subjective-answer-photo-action'),
+              onPressed: _isAiJudging || _isRecordingAttempt
+                  ? null
+                  : _captureSubjectiveAnswer,
+              icon: const Icon(Icons.camera_alt_outlined),
+              label: Text(_pendingPhoto == null ? '拍照作答' : '重试提交作答'),
+            ),
           ),
-        ),
         const SizedBox(height: 16),
         Column(
           children: [

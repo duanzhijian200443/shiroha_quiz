@@ -1,3 +1,8 @@
+import 'application/practice/photo_answer_history.dart';
+import 'core/observability/log_writer.dart';
+import 'application/practice/photo_answer_submission.dart';
+import 'application/practice/record_answer_attempt_command.dart';
+import 'data/repositories/answer_attempt_repository.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
@@ -28,7 +33,7 @@ import 'application/safe_write/typed_answer_command.dart';
 import 'application/conversations/conversation_service.dart';
 import 'application/content/content_asset_authority.dart';
 import 'application/exam/exam_mutation_command.dart';
-import 'application/practice/subjective_answer_recognition.dart';
+import 'application/practice/photo_answer_judgement.dart';
 import 'application/file_library/library_folder_service.dart';
 import 'application/import/import_advanced_preferences.dart';
 import 'application/import/import_completion_navigation_policy.dart';
@@ -94,7 +99,7 @@ import 'services/parsed_artifacts/deterministic_parsed_artifact_generation_adapt
 import 'services/parsed_artifacts/ocr_parsed_artifact_generation_adapter.dart';
 import 'services/parsed_artifacts/parsed_artifact_generation_router.dart';
 import 'services/parsed_artifacts/parsed_artifact_lifecycle_service.dart';
-import 'services/practice/subjective_answer_recognition_adapter.dart';
+import 'services/practice/photo_answer_judgement_adapter.dart';
 import 'services/retrieval/parsed_artifact_retrieval_source.dart';
 import 'services/retrieval/deterministic_source_chunker.dart';
 import 'services/study_plan/study_plan_practice_session_launcher.dart';
@@ -477,10 +482,20 @@ void main() {
           engineRepository: engineRepository,
           taskManager: taskManager,
         );
-        final subjectiveAnswerRecognition = SubjectiveAnswerRecognitionAdapter(
-          engineRepository: engineRepository,
-          requestScheduler: ocrRequestScheduler,
-          requestExecutor: ocrRequestExecutor,
+        final photoAnswerJudgement =
+            PhotoAnswerJudgementAdapter(engineRepository: engineRepository);
+        final photoAnswerHistory = PhotoAnswerHistoryQuery(
+            attempts: AnswerAttemptRepository(databaseHelper: databaseHelper),
+            files: libraryFileRepository);
+        final photoAnswerSubmission = PhotoAnswerSubmissionCommand(
+          ingestion: fileIngestionService,
+          attempts: RecordAnswerAttemptCommand(
+              AnswerAttemptRepository(databaseHelper: databaseHelper)),
+          deletion: libraryFileDeletion,
+          diagnostic: (failure) => LogWriter.error(
+              'Photo answer compensation pending',
+              module: 'Practice',
+              data: {'failure': failure.name}),
         );
         final importPipelineService = ImportPipelineService(
           aiService: aiService,
@@ -572,7 +587,9 @@ void main() {
             answerGenerationService: answerGenerationService,
             answerCommitCommand: answerCommitCommand,
             examMutationCommand: examMutationCommand,
-            subjectiveAnswerRecognition: subjectiveAnswerRecognition,
+            photoAnswerJudgement: photoAnswerJudgement,
+            photoAnswerSubmission: photoAnswerSubmission,
+            photoAnswerHistory: photoAnswerHistory,
             questionListQuery: questionRepository,
             questionMutationPersistence: questionRepository,
             typedAnswerPersistence: questionRepository,
@@ -624,7 +641,9 @@ class ShirohaQuizApp extends StatelessWidget {
     required this.answerGenerationService,
     required this.answerCommitCommand,
     required this.examMutationCommand,
-    required this.subjectiveAnswerRecognition,
+    required this.photoAnswerJudgement,
+    this.photoAnswerSubmission,
+    this.photoAnswerHistory,
     required this.questionListQuery,
     required this.questionMutationPersistence,
     required this.typedAnswerPersistence,
@@ -658,7 +677,9 @@ class ShirohaQuizApp extends StatelessWidget {
   final AiAnswerGenerationService answerGenerationService;
   final AiAnswerCommitCommand answerCommitCommand;
   final ExamMutationCommand examMutationCommand;
-  final SubjectiveAnswerRecognitionPort subjectiveAnswerRecognition;
+  final PhotoAnswerJudgementPort photoAnswerJudgement;
+  final PhotoAnswerSubmissionCommand? photoAnswerSubmission;
+  final PhotoAnswerHistoryQuery? photoAnswerHistory;
   final QuestionListQueryPort questionListQuery;
   final QuestionMutationPersistencePort questionMutationPersistence;
   final TypedAnswerPersistencePort typedAnswerPersistence;
@@ -729,7 +750,9 @@ class ShirohaQuizApp extends StatelessWidget {
           answerGenerationService: answerGenerationService,
           answerCommitCommand: answerCommitCommand,
           examMutationCommand: examMutationCommand,
-          subjectiveAnswerRecognition: subjectiveAnswerRecognition,
+          photoAnswerJudgement: photoAnswerJudgement,
+          photoAnswerSubmission: photoAnswerSubmission,
+          photoAnswerHistory: photoAnswerHistory,
           child: content,
         );
       },

@@ -52,7 +52,7 @@ import 'package:shiroha_quiz/services/ai_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_pipeline_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_task_coordinator.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_request_scheduler.dart';
-import 'package:shiroha_quiz/services/practice/subjective_answer_recognition_adapter.dart';
+import 'package:shiroha_quiz/services/practice/photo_answer_judgement_adapter.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:shiroha_quiz/ui/dependencies/ai_dependencies_scope.dart';
 import 'package:shiroha_quiz/ui/pages/main_screen.dart';
@@ -847,14 +847,14 @@ void main() {
       expect(app.folderQuery, same(configured));
       expect(app.contentAssetResolver, same(contentAssetStore));
       expect(
-        app.subjectiveAnswerRecognition,
-        isA<SubjectiveAnswerRecognitionAdapter>(),
+        app.photoAnswerJudgement,
+        isA<PhotoAnswerJudgementAdapter>(),
       );
       expect(
         tester
             .widget<AiDependenciesScope>(find.byType(AiDependenciesScope))
-            .subjectiveAnswerRecognition,
-        same(app.subjectiveAnswerRecognition),
+            .photoAnswerJudgement,
+        same(app.photoAnswerJudgement),
       );
       expect(
         tester.widget<MainScreen>(find.byType(MainScreen)).questionListQuery,
@@ -930,7 +930,7 @@ Widget _buildTestApp({
     answerGenerationService: answerGenerationService,
     answerCommitCommand: answerCommitCommand,
     examMutationCommand: examMutationCommand,
-    subjectiveAnswerRecognition: SubjectiveAnswerRecognitionAdapter(
+    photoAnswerJudgement: PhotoAnswerJudgementAdapter(
       engineRepository: engineRepository,
     ),
     questionListQuery: configuredQuestionRepository,

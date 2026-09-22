@@ -1,3 +1,4 @@
+import '../../application/practice/photo_answer_history.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../application/answers/ai_answer_commit_command.dart';
@@ -5,7 +6,8 @@ import '../../application/ai_config/ai_config_service.dart';
 import '../../application/import/import_advanced_preferences.dart';
 import '../../application/answers/ai_answer_generation.dart';
 import '../../application/exam/exam_mutation_command.dart';
-import '../../application/practice/subjective_answer_recognition.dart';
+import '../../application/practice/photo_answer_judgement.dart';
+import '../../application/practice/photo_answer_submission.dart';
 import '../../data/repositories/ai_engine_repository.dart';
 import '../../services/ai_service.dart';
 import '../../services/import_pipeline/import_pipeline_service.dart';
@@ -24,8 +26,9 @@ class AiDependenciesScope extends InheritedWidget {
     required this.answerGenerationService,
     required this.answerCommitCommand,
     required this.examMutationCommand,
-    this.subjectiveAnswerRecognition =
-        const _UnavailableSubjectiveAnswerRecognition(),
+    this.photoAnswerJudgement = const _UnavailablePhotoAnswerJudgement(),
+    this.photoAnswerSubmission,
+    this.photoAnswerHistory,
     required super.child,
   });
 
@@ -47,9 +50,11 @@ class AiDependenciesScope extends InheritedWidget {
   /// Application authority for every production Exam write.
   final ExamMutationCommand examMutationCommand;
 
-  /// Application seam for transient answer-image transcription. This path
+  /// Application seam for direct answer-image judgement. This path
   /// never creates an import task or a pending-review draft.
-  final SubjectiveAnswerRecognitionPort subjectiveAnswerRecognition;
+  final PhotoAnswerJudgementPort photoAnswerJudgement;
+  final PhotoAnswerSubmissionCommand? photoAnswerSubmission;
+  final PhotoAnswerHistoryQuery? photoAnswerHistory;
 
   static AiDependenciesScope of(BuildContext context) {
     final scope =
@@ -62,7 +67,9 @@ class AiDependenciesScope extends InheritedWidget {
 
   @override
   bool updateShouldNotify(AiDependenciesScope oldWidget) {
-    return !identical(engineRepository, oldWidget.engineRepository) ||
+    return !identical(photoAnswerHistory, oldWidget.photoAnswerHistory) ||
+        !identical(photoAnswerSubmission, oldWidget.photoAnswerSubmission) ||
+        !identical(engineRepository, oldWidget.engineRepository) ||
         !identical(aiConfigService, oldWidget.aiConfigService) ||
         !identical(aiService, oldWidget.aiService) ||
         !identical(importPipelineService, oldWidget.importPipelineService) ||
@@ -75,22 +82,22 @@ class AiDependenciesScope extends InheritedWidget {
         !identical(answerCommitCommand, oldWidget.answerCommitCommand) ||
         !identical(examMutationCommand, oldWidget.examMutationCommand) ||
         !identical(
-          subjectiveAnswerRecognition,
-          oldWidget.subjectiveAnswerRecognition,
+          photoAnswerJudgement,
+          oldWidget.photoAnswerJudgement,
         );
   }
 }
 
-final class _UnavailableSubjectiveAnswerRecognition
-    implements SubjectiveAnswerRecognitionPort {
-  const _UnavailableSubjectiveAnswerRecognition();
+final class _UnavailablePhotoAnswerJudgement
+    implements PhotoAnswerJudgementPort {
+  const _UnavailablePhotoAnswerJudgement();
 
   @override
-  Future<SubjectiveAnswerRecognitionResult> recognize(
-    SubjectiveAnswerRecognitionRequest request,
+  Future<PhotoAnswerJudgementResult> judge(
+    PhotoAnswerJudgementRequest request,
   ) async {
-    return SubjectiveAnswerRecognitionResult.failure(
-      SubjectiveAnswerRecognitionClassification.engineUnavailable,
+    return PhotoAnswerJudgementResult.failed(
+      PhotoAnswerJudgementFailure.engineUnavailable,
     );
   }
 }
