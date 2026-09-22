@@ -37,11 +37,13 @@ change.
 Failed compensation is explicitly classified and emits a content-free diagnostic.
 This is compensation across file/database operations, not crash-atomic storage.
 The entire submission, including compensation, holds one root BackupRestore
-mutation lease. Awaited nested runMutation calls inherit that still-live lease
-through their async Zone and may finish while quiescence waits. Independent
-workflows and callbacks whose inherited root lease has already ended must acquire
-a new lease and remain blocked during maintenance. Callers must await nested work
-within the owning workflow.
+mutation lease. Every admitted mutation action owns a scope that admits its own
+descendants until that action finishes, so one root lease covers the whole async
+tree and a still-running nested action may keep starting nested work after the
+root action returned. Callbacks whose owning action has already ended, and
+independent workflows, acquire a new lease and remain blocked during
+maintenance. The lease is released only once the root and all admitted
+descendants have finished.
 Preview sessions never ingest images or append attempts. Session kind and duration
 retain existing practice semantics. Vision never selects or submits an FSRS grade.
 

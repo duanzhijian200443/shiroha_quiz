@@ -75,26 +75,21 @@ final class BackupRestoreMutationGateState {
 
   /// One root mutation owns one external lease for its whole async tree.
   ///
-  /// Awaited nested calls inherit the root context and add no lease, so
-  /// quiescence still drains exactly one root mutation. A nested mutation that
-  /// is still running when the root action returns keeps that lease alive until
-  /// it finishes, so no already-started work can cross the restore drain
-  /// boundary. Work started after the root action returned acquires its own
-  /// lease and stays blocked during maintenance.
+  /// Every admitted action owns a scope that stays usable for its own
+  /// descendants until that action finishes, so a still-running nested action
+  /// may keep starting nested work after the root action returned. Callbacks
+  /// whose owning action has already finished — and independent workflows —
+  /// acquire a new lease and stay blocked during maintenance. The lease is
+  /// released only once the root and every admitted descendant have finished.
   Future<T> runMutation<T>(Future<T> Function() action) async {
     final inherited = Zone.current[_mutationContextKey];
-    if (inherited is _RootMutationContext && inherited.admitNested()) {
-      try {
-        return await action();
-      } finally {
-        inherited.nestedFinished();
-      }
-    }
-    final context = _RootMutationContext(acquireMutationLease());
+    final scope = inherited is _MutationScope && inherited.isActive
+        ? inherited.admitChild()
+        : _MutationScope(_RootMutationContext(acquireMutationLease()));
     try {
-      return await runZoned(action, zoneValues: {_mutationContextKey: context});
+      return await runZoned(action, zoneValues: {_mutationContextKey: scope});
     } finally {
-      context.rootFinished();
+      scope.close();
     }
   }
 
@@ -113,31 +108,38 @@ final class BackupRestoreMutationGateState {
   }
 }
 
-/// One root mutation lease plus every nested mutation started under it.
-///
-/// The lease stays held until the root action and all nested mutations that
-/// started before it returned have finished, so quiescence cannot drain while
-/// already-started leased work is still in flight.
+/// One root mutation lease plus every action admitted under it.
 final class _RootMutationContext {
   _RootMutationContext(this._lease);
 
   final BackupRestoreMutationLease _lease;
-  int _openActions = 1;
-  bool _rootReturned = false;
+  int _openActions = 0;
 
-  bool admitNested() {
-    if (_rootReturned || _lease._released) return false;
-    _openActions++;
-    return true;
-  }
+  void actionOpened() => _openActions++;
 
-  void nestedFinished() {
+  void actionClosed() {
     if (--_openActions == 0) _lease.release();
   }
+}
 
-  void rootFinished() {
-    _rootReturned = true;
-    if (--_openActions == 0) _lease.release();
+/// One admitted mutation action. The scope admits descendants until the action
+/// itself finishes, even when its root action has already returned.
+final class _MutationScope {
+  _MutationScope(this._context) {
+    _context.actionOpened();
+  }
+
+  final _RootMutationContext _context;
+  bool _active = true;
+
+  bool get isActive => _active;
+
+  _MutationScope admitChild() => _MutationScope(_context);
+
+  void close() {
+    if (!_active) return;
+    _active = false;
+    _context.actionClosed();
   }
 }
 
