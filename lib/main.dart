@@ -482,8 +482,9 @@ void main() {
           engineRepository: engineRepository,
           taskManager: taskManager,
         );
-        final photoAnswerJudgement =
-            PhotoAnswerJudgementAdapter(engineRepository: engineRepository);
+        final photoAnswerJudgement = PhotoAnswerJudgementAdapter(
+            engineRepository: engineRepository,
+            contentAssetResolver: contentAssetStore);
         final photoAnswerHistory = PhotoAnswerHistoryQuery(
             attempts: AnswerAttemptRepository(databaseHelper: databaseHelper),
             files: libraryFileRepository);

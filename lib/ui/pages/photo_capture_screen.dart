@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import '../../domain/content/rich_content.dart';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -28,16 +29,16 @@ class PhotoCaptureScreen extends StatefulWidget {
   })  : purpose = PhotoCapturePurpose.questionImport,
         photoAnswerJudgement = null,
         questionKind = null,
-        questionText = null,
-        standardAnswerText = null;
+        question = null,
+        standardAnswer = null;
 
   const PhotoCaptureScreen.subjectiveAnswer({
     super.key,
     this.pickPhoto,
     required this.photoAnswerJudgement,
     required this.questionKind,
-    required this.questionText,
-    required this.standardAnswerText,
+    required this.question,
+    required this.standardAnswer,
   })  : purpose = PhotoCapturePurpose.subjectiveAnswer,
         onRecognitionRequested = null,
         importPreferencesLoader = null;
@@ -47,8 +48,8 @@ class PhotoCaptureScreen extends StatefulWidget {
   final PhotoRecognitionDispatcher? onRecognitionRequested;
   final PhotoAnswerJudgementPort? photoAnswerJudgement;
   final PhotoAnswerQuestionKind? questionKind;
-  final String? questionText;
-  final String? standardAnswerText;
+  final RichContent? question;
+  final RichContent? standardAnswer;
   final ImportAdvancedPreferencesLoader? importPreferencesLoader;
 
   @override
@@ -93,8 +94,8 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
               image: image,
               recognition: recognition,
               questionKind: widget.questionKind!,
-              questionText: widget.questionText!,
-              standardAnswerText: widget.standardAnswerText!,
+              question: widget.question!,
+              standardAnswer: widget.standardAnswer!,
             ),
           ),
         );
@@ -256,14 +257,18 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
               child: Column(
                 children: [
                   Text(
-                    '仅拍照，不识别',
+                    widget.purpose == PhotoCapturePurpose.subjectiveAnswer
+                        ? '拍照作答'
+                        : '仅拍照，不识别',
                     style: theme.textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w700,
                     ),
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    '拍照后进入「确认照片与识别模式」',
+                    widget.purpose == PhotoCapturePurpose.subjectiveAnswer
+                        ? '拍摄后由 AI 结合题目和标准答案理解并判定你的作答'
+                        : '拍照后进入「确认照片与识别模式」',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: colors.onSurfaceVariant,
                     ),
@@ -287,16 +292,16 @@ class PhotoRecognitionConfirmationScreen extends StatefulWidget {
   })  : purpose = PhotoCapturePurpose.questionImport,
         photoAnswerJudgement = null,
         questionKind = null,
-        questionText = null,
-        standardAnswerText = null;
+        question = null,
+        standardAnswer = null;
 
   const PhotoRecognitionConfirmationScreen.subjectiveAnswer({
     super.key,
     required this.image,
     required PhotoAnswerJudgementPort recognition,
     required this.questionKind,
-    required this.questionText,
-    required this.standardAnswerText,
+    required this.question,
+    required this.standardAnswer,
     this.loadBytes,
   })  : purpose = PhotoCapturePurpose.subjectiveAnswer,
         onRecognitionRequested = null,
@@ -307,8 +312,8 @@ class PhotoRecognitionConfirmationScreen extends StatefulWidget {
   final PhotoRecognitionDispatcher? onRecognitionRequested;
   final PhotoAnswerJudgementPort? photoAnswerJudgement;
   final PhotoAnswerQuestionKind? questionKind;
-  final String? questionText;
-  final String? standardAnswerText;
+  final RichContent? question;
+  final RichContent? standardAnswer;
   final PhotoBytesLoader? loadBytes;
 
   @override
@@ -328,8 +333,8 @@ class _PhotoRecognitionConfirmationScreenState
       imagePath: widget.image.path,
       imageName: widget.image.name,
       kind: widget.questionKind!,
-      questionText: widget.questionText!,
-      standardAnswerText: widget.standardAnswerText!);
+      question: widget.question!,
+      standardAnswer: widget.standardAnswer!);
 
   @override
   void initState() {
@@ -376,6 +381,10 @@ class _PhotoRecognitionConfirmationScreenState
 
   String _failureMessage(PhotoAnswerJudgementFailure failure) =>
       switch (failure) {
+        PhotoAnswerJudgementFailure.contextAssetUnavailable =>
+          '题目或标准答案中的图片资源不可用，暂时无法进行拍照判题。',
+        PhotoAnswerJudgementFailure.contextUnsupported =>
+          '题目或标准答案包含暂不支持的内容，无法进行拍照判题。',
         PhotoAnswerJudgementFailure.engineUnavailable => '未配置支持图片理解的 AI 模型',
         PhotoAnswerJudgementFailure.invalidInput => '图片或题目信息无效，请重新拍摄或改用文字输入',
         PhotoAnswerJudgementFailure.timeout => 'AI 判题超时，请稍后重试',

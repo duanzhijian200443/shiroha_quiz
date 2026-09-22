@@ -5,8 +5,21 @@ answers. Choice interactions expose no photo action. Manual text judging keeps
 AiService.judgeAnswer; photo answers never pass transcription to that service.
 
 Presentation calls PhotoAnswerJudgementPort with the question kind, question,
-standard answer and transient picker image. The adapter resolves only the active
-Vision engine and builds one compressed inline image through VisionAssetBuilder.
+standard answer as authoritative RichContent and a transient picker image.
+Typed contexts use typedStem and ContentAnswer.content; incompatible typed answer
+shapes fail closed. Legacy text is explicitly wrapped in TextNode at the
+Presentation projection boundary. Explanation, raw explanation, history and
+other questions never enter judgement context.
+
+The pure PhotoAnswerVisionContextProjector preserves text, original LaTeX and
+TableNode row/cell/span structure, including table-cell ImageNodes. Image alt
+content supplements rather than replaces an image. The adapter resolves durable
+ImageNode bytes only through ContentAssetResolver and builds inline assets via
+VisionAssetBuilder. Missing/invalid authoritative images and RawFallback context
+fail closed before any provider call. Pure-image and table-only contexts are
+valid. Attachments and their explicit prompt manifest follow RichContent traversal
+order: question images, standard-answer images, then the student image last.
+The adapter resolves only the active Vision engine.
 One request returns correct/incorrect/uncertain, faithful transcription and brief
 feedback. Question data and image content cannot override judgement instructions.
 Strict bounded JSON parsing fails closed; only one outer presentation code fence
@@ -23,6 +36,12 @@ same command just created; it adds no second deletion rule and no ownership
 change.
 Failed compensation is explicitly classified and emits a content-free diagnostic.
 This is compensation across file/database operations, not crash-atomic storage.
+The entire submission, including compensation, holds one root BackupRestore
+mutation lease. Awaited nested runMutation calls inherit that still-live lease
+through their async Zone and may finish while quiescence waits. Independent
+workflows and callbacks whose inherited root lease has already ended must acquire
+a new lease and remain blocked during maintenance. Callers must await nested work
+within the owning workflow.
 Preview sessions never ingest images or append attempts. Session kind and duration
 retain existing practice semantics. Vision never selects or submits an FSRS grade.
 

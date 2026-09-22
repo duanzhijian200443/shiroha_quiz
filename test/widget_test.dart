@@ -931,6 +931,7 @@ Widget _buildTestApp({
     answerCommitCommand: answerCommitCommand,
     examMutationCommand: examMutationCommand,
     photoAnswerJudgement: PhotoAnswerJudgementAdapter(
+      contentAssetResolver: contentAssetResolver ?? _EmptyContentAssets(),
       engineRepository: engineRepository,
     ),
     questionListQuery: configuredQuestionRepository,
@@ -1062,3 +1063,5 @@ Future<void> pumpUntilFound(
   }
   fail('Expected widget did not appear within ${maxFrames * 25} ms: $finder');
 }
+
+final class _EmptyContentAssets extends Fake implements ContentAssetResolver {}

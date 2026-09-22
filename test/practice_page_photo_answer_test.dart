@@ -128,6 +128,7 @@ void main() {
     WidgetTester tester, {
     PhotoAnswerCaptureLauncher? launcher,
     QuestionKind? typedKind,
+    bool missingTypedAnswer = false,
     PhotoAnswerSubmissionCommand? submission,
     PhotoAnswerHistoryQuery? history,
     Future<void> Function(String, int)? grade,
@@ -155,9 +156,11 @@ void main() {
                             optionId: 'a', label: 'A', content: content)
                       ]
                     : [],
-                answer: typedKind == QuestionKind.singleChoice
-                    ? ChoiceAnswer(optionIds: ['a'])
-                    : ContentAnswer(content: content)))
+                answer: missingTypedAnswer
+                    ? null
+                    : typedKind == QuestionKind.singleChoice
+                        ? ChoiceAnswer(optionIds: ['a'])
+                        : ContentAnswer(content: content)))
       ]);
     }
     final aiService = _RecordingAiService();
@@ -211,19 +214,25 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(PhotoCaptureScreen), findsOneWidget);
-    expect(find.text('拍照作答'), findsOneWidget);
+    expect(find.text('拍照作答'), findsNWidgets(2));
+    final capture =
+        tester.widget<PhotoCaptureScreen>(find.byType(PhotoCaptureScreen));
+    expect(capture.question,
+        RichContent(nodes: [TextNode(_subjectiveQuestion.content)]));
+    expect(capture.standardAnswer,
+        RichContent(nodes: [TextNode(_subjectiveQuestion.answer)]));
   });
 
   testWidgets('photo judgement bypasses text AI; preview does not persist',
       (tester) async {
     final ai = await pumpPractice(tester,
         launcher: (context, recognition, view) async => ConfirmedPhotoAnswer(
-            request: const PhotoAnswerJudgementRequest(
+            request: PhotoAnswerJudgementRequest(
                 imagePath: 'synthetic',
                 imageName: 'synthetic',
                 kind: PhotoAnswerQuestionKind.shortAnswer,
-                questionText: 'q',
-                standardAnswerText: 'a'),
+                question: RichContent(nodes: [TextNode('q')]),
+                standardAnswer: RichContent(nodes: [TextNode('a')])),
             result: const PhotoAnswerJudgementResult(
                 decision: PhotoAnswerDecision.correct,
                 transcription: 'photo answer',
@@ -234,6 +243,29 @@ void main() {
     expect(ai.submittedAnswer, isNull);
     expect(find.textContaining('vision feedback'), findsOneWidget);
   });
+  for (final kind in [QuestionKind.fillBlank, QuestionKind.shortAnswer]) {
+    testWidgets('$kind missing typed ContentAnswer fails closed before capture',
+        (tester) async {
+      await pumpPractice(tester, typedKind: kind, missingTypedAnswer: true);
+      await tester.tap(
+          find.byKey(const ValueKey<String>('subjective-answer-photo-action')));
+      await tester.pumpAndSettle();
+      expect(find.byType(PhotoCaptureScreen), findsNothing);
+      expect(find.text('题目或标准答案无效，暂时无法进行拍照判题。'), findsOneWidget);
+    });
+    testWidgets('$kind production capture receives authoritative RichContent',
+        (tester) async {
+      await pumpPractice(tester, typedKind: kind);
+      await tester.tap(
+          find.byKey(const ValueKey<String>('subjective-answer-photo-action')));
+      await tester.pumpAndSettle();
+      final capture =
+          tester.widget<PhotoCaptureScreen>(find.byType(PhotoCaptureScreen));
+      expect(capture.question,
+          RichContent(nodes: [const TextNode('synthetic no underscores')]));
+      expect(capture.standardAnswer, capture.question);
+    });
+  }
   testWidgets('manual text retains existing AI judging', (tester) async {
     final ai = await pumpPractice(tester);
     await tester.enterText(find.byType(TextField).first, 'manual answer');
@@ -297,8 +329,8 @@ void main() {
                     kind: kind == QuestionKind.fillBlank
                         ? PhotoAnswerQuestionKind.fillBlank
                         : PhotoAnswerQuestionKind.shortAnswer,
-                    questionText: view.stemText,
-                    standardAnswerText: view.answerText),
+                    question: view.photoAnswerQuestion!,
+                    standardAnswer: view.photoAnswerStandardAnswer!),
                 result: PhotoAnswerJudgementResult(
                     decision: decision,
                     transcription: '',

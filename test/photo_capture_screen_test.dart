@@ -1,3 +1,5 @@
+import 'package:shiroha_quiz/domain/content/content_node.dart';
+import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -420,8 +422,8 @@ void main() {
                 MaterialPageRoute<ConfirmedPhotoAnswer>(
                   builder: (_) => PhotoCaptureScreen.subjectiveAnswer(
                     questionKind: PhotoAnswerQuestionKind.fillBlank,
-                    questionText: 'question',
-                    standardAnswerText: 'standard',
+                    question: RichContent(nodes: [TextNode('question')]),
+                    standardAnswer: RichContent(nodes: [TextNode('standard')]),
                     pickPhoto: (source) async => syntheticPhoto(syntheticPng),
                     photoAnswerJudgement: recognition,
                   ),
@@ -438,6 +440,9 @@ void main() {
       find.byKey(const ValueKey<String>('open-subjective-photo')),
     );
     await tester.pumpAndSettle();
+    expect(find.text('仅拍照，不识别'), findsNothing);
+    expect(find.text('拍照后进入「确认照片与识别模式」'), findsNothing);
+    expect(find.text('拍摄后由 AI 结合题目和标准答案理解并判定你的作答'), findsOneWidget);
     await tester.tap(
       find.byKey(const ValueKey<String>('photo-gallery-action')),
     );
@@ -485,8 +490,8 @@ void main() {
       MaterialApp(
         home: PhotoCaptureScreen.subjectiveAnswer(
           questionKind: PhotoAnswerQuestionKind.fillBlank,
-          questionText: 'question',
-          standardAnswerText: 'standard',
+          question: RichContent(nodes: [TextNode('question')]),
+          standardAnswer: RichContent(nodes: [TextNode('standard')]),
           pickPhoto: (source) async => syntheticPhoto(syntheticPng),
           photoAnswerJudgement: recognition,
         ),
@@ -530,8 +535,9 @@ void main() {
                                   syntheticPhoto(syntheticPng),
                               photoAnswerJudgement: recognition,
                               questionKind: PhotoAnswerQuestionKind.fillBlank,
-                              questionText: 'q',
-                              standardAnswerText: 'a')));
+                              question: RichContent(nodes: [TextNode('q')]),
+                              standardAnswer:
+                                  RichContent(nodes: [TextNode('a')]))));
                   submitted = result != null;
                 },
                 child: const Text('open')))));

@@ -1,9 +1,13 @@
+import '../../domain/content/rich_content.dart';
+
 enum PhotoAnswerQuestionKind { fillBlank, shortAnswer }
 
 enum PhotoAnswerDecision { correct, incorrect, uncertain }
 
 enum PhotoAnswerJudgementFailure {
   invalidInput,
+  contextAssetUnavailable,
+  contextUnsupported,
   engineUnavailable,
   providerFailure,
   timeout,
@@ -16,15 +20,15 @@ final class PhotoAnswerJudgementRequest {
       {required this.imagePath,
       required this.imageName,
       required this.kind,
-      required this.questionText,
-      required this.standardAnswerText});
+      required this.question,
+      required this.standardAnswer});
 
   /// Transient picker identity. Never persist or log.
   final String imagePath;
   final String imageName;
   final PhotoAnswerQuestionKind kind;
-  final String questionText;
-  final String standardAnswerText;
+  final RichContent question;
+  final RichContent standardAnswer;
 }
 
 final class PhotoAnswerJudgementResult {

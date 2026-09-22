@@ -191,6 +191,14 @@ class _PracticePageState extends State<PracticePage> {
       BuildContext context,
       PhotoAnswerJudgementPort recognition,
       PracticeQuestionView view) {
+    final question = view.photoAnswerQuestion;
+    final answer = view.photoAnswerStandardAnswer;
+    if (question == null || answer == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('题目或标准答案无效，暂时无法进行拍照判题。')),
+      );
+      return Future.value(null);
+    }
     return Navigator.of(context)
         .push<ConfirmedPhotoAnswer>(MaterialPageRoute<ConfirmedPhotoAnswer>(
       builder: (_) => PhotoCaptureScreen.subjectiveAnswer(
@@ -198,8 +206,8 @@ class _PracticePageState extends State<PracticePage> {
           questionKind: view.kind == PracticeQuestionKind.fillBlank
               ? PhotoAnswerQuestionKind.fillBlank
               : PhotoAnswerQuestionKind.shortAnswer,
-          questionText: view.stemText,
-          standardAnswerText: view.answerText),
+          question: question,
+          standardAnswer: answer),
     ));
   }
 
