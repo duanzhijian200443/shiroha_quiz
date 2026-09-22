@@ -1095,9 +1095,6 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     if (oldVersion < 25) {
       await migrateAiConfigToV25(db);
     }
-    if (oldVersion < 26) {
-      await migrateAnswerAttemptsToV26(db);
-    }
     await _validateV15Schema(db);
     await _validateLibraryFilesSchema(db);
     await _validateProjectSchema(db);
@@ -1106,6 +1103,13 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await _validateParsedArtifactSchema(db);
     await validateRetrievalV21Schema(db);
     await validateStudyPlanV22Schema(db);
+    // The legacy integrity gates above classify existing corruption first. The
+    // v26 rebuild runs after them so an unrelated foreign-key violation keeps
+    // its QuestionV2 classification instead of surfacing as an answer_attempts
+    // schema failure.
+    if (oldVersion < 26) {
+      await migrateAnswerAttemptsToV26(db);
+    }
     await validateAnswerAttemptV26Schema(db);
     await validateAiConfigV25Schema(db);
   }
