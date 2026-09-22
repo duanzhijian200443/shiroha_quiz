@@ -10,6 +10,7 @@ import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:image/image.dart' as img;
 import 'package:flutter_test/flutter_test.dart';
@@ -52,14 +53,10 @@ final class _FakeVisionAssetBuilder extends Fake implements VisionAssetBuilder {
           mimeType: 'image/jpeg', base64Data: base64Encode(bytes));
 
   @override
-  Future<LlmVisionAsset> buildInlineFileAsset(
-    String filePath, {
-    required String mimeType,
-    required bool compressImage,
-  }) async {
+  Future<LlmVisionAsset> buildInlineStrictFileAsset(String filePath) async {
     calls++;
     return LlmVisionAsset.inline(
-      mimeType: mimeType,
+      mimeType: 'image/jpeg',
       base64Data: 'c3ludGhldGlj',
     );
   }
@@ -112,6 +109,30 @@ void main() {
     expect(decoded?.height, 3);
     await expectLater(
         builder.buildInlineImageBytes([1, 2, 3]), throwsFormatException);
+  });
+  test('undecodable student image fails closed before any provider call',
+      () async {
+    final dir = await Directory.systemTemp.createTemp('student_image_');
+    try {
+      final file = File('${dir.path}/student.png')
+        ..writeAsBytesSync(<int>[1, 2, 3]);
+      final api = _FakeLlmApiClient(response: 'unused');
+      final result = await PhotoAnswerJudgementAdapter(
+              engineRepository: _FakeEngineRepository(),
+              contentAssetResolver: _FakeResolver(),
+              apiClient: api,
+              assetBuilder: const VisionAssetBuilder())
+          .judge(PhotoAnswerJudgementRequest(
+              imagePath: file.path,
+              imageName: 'student.png',
+              kind: PhotoAnswerQuestionKind.fillBlank,
+              question: RichContent(nodes: [const TextNode('q')]),
+              standardAnswer: RichContent(nodes: [const TextNode('a')])));
+      expect(result.failure, PhotoAnswerJudgementFailure.invalidInput);
+      expect(api.calls, 0);
+    } finally {
+      await dir.delete(recursive: true);
+    }
   });
   RichContent content(List<ContentNode> nodes) => RichContent(nodes: nodes);
   ImageNode image(String id, {bool alt = false}) => ImageNode(

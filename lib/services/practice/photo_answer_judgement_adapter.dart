@@ -58,8 +58,7 @@ final class PhotoAnswerJudgementAdapter implements PhotoAnswerJudgementPort {
             PhotoAnswerJudgementFailure.contextAssetUnavailable);
       }
       try {
-        assets.add(await _assets.buildInlineFileAsset(request.imagePath,
-            mimeType: 'image/jpeg', compressImage: true));
+        assets.add(await _assets.buildInlineStrictFileAsset(request.imagePath));
       } catch (_) {
         return const PhotoAnswerJudgementResult.failed(
             PhotoAnswerJudgementFailure.invalidInput);

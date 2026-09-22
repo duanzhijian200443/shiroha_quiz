@@ -32,6 +32,17 @@ class VisionAssetBuilder {
     }
   }
 
+  /// Strict variant for transient picker images. Undecodable or empty bytes
+  /// fail closed instead of falling back to the original bytes, so an invalid
+  /// student photo can never reach a provider mislabeled as a valid image.
+  Future<LlmVisionAsset> buildInlineStrictFileAsset(String filePath) async {
+    final bytes = await File(filePath).readAsBytes();
+    if (bytes.isEmpty) {
+      throw const FormatException('Invalid student image.');
+    }
+    return buildInlineImageBytes(bytes);
+  }
+
   Future<List<LlmVisionAsset>> buildInlineImageAssets(
     List<String> imagePaths, {
     int compressionThresholdBytes = 500 * 1024,
