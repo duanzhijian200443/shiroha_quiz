@@ -216,6 +216,7 @@ void main() {
     expect(find.text('确认照片'), findsOneWidget);
     expect(find.text('OCR'), findsOneWidget);
     expect(find.text('多模态'), findsOneWidget);
+    expect(find.text('开始识别'), findsOneWidget);
     expect(dispatchCalls, 0);
     final preview = tester.widget<Image>(
       find.descendant(
@@ -547,7 +548,7 @@ void main() {
         .tap(find.byKey(const ValueKey<String>('photo-gallery-action')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey<String>('photo-mode-ocr')), findsNothing);
-    await tester.tap(find.text('开始识别'));
+    await tester.tap(find.text('开始判题'));
     await tester.pumpAndSettle();
     expect(find.byType(Math), findsWidgets);
     expect(find.text(r'\frac{\sqrt{2}}{2}'), findsNothing);

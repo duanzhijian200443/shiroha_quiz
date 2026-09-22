@@ -374,7 +374,11 @@ class _PhotoRecognitionConfirmationScreenState
       if (!mounted) return;
       setState(() => _isSubmitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('识别任务启动失败，请稍后重试。')),
+        SnackBar(
+          content: Text(widget.purpose == PhotoCapturePurpose.subjectiveAnswer
+              ? 'AI 判题启动失败，请稍后重试。'
+              : '识别任务启动失败，请稍后重试。'),
+        ),
       );
     }
   }
@@ -529,7 +533,11 @@ class _PhotoRecognitionConfirmationScreenState
                         ),
                       )
                     : const Icon(Icons.arrow_forward_rounded),
-                label: Text(_judgement == null ? '开始识别' : '提交答案'),
+                label: Text(_judgement == null
+                    ? (widget.purpose == PhotoCapturePurpose.subjectiveAnswer
+                        ? '开始判题'
+                        : '开始识别')
+                    : '提交答案'),
                 style: FilledButton.styleFrom(
                   minimumSize: const Size.fromHeight(52),
                 ),
