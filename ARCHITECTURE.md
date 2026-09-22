@@ -482,3 +482,11 @@ falls back to question-level rewriting, provider reasoning, retry, or expanded
 context. The accepted fragment is persisted only as bounded digests and a
 typed node locator; no prompt, LaTeX source, provider body, or reasoning is
 stored. This boundary adds no database schema or dependency change.
+
+## 16. Photo answer boundary
+
+Practice fillBlank / shortAnswer photo answers use Application-owned direct
+Vision judgement and explicit user confirmation before managed image ingestion
+and AnswerAttempt append. Text answering remains available; question-import OCR
+is unchanged. Student images are soft evidence references, not RichContent or
+FSRS grading authority. See `docs/architecture/photo-answer-v1.md`.
