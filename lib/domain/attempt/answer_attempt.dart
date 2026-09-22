@@ -21,7 +21,8 @@ enum AnswerAttemptSessionKind {
 /// Interaction modality for an answer attempt.
 enum AnswerAttemptModality {
   choice,
-  text;
+  text,
+  image;
 
   String get dbValue => name;
 
@@ -29,6 +30,7 @@ enum AnswerAttemptModality {
     return switch (value) {
       'choice' => AnswerAttemptModality.choice,
       'text' => AnswerAttemptModality.text,
+      'image' => AnswerAttemptModality.image,
       _ => throw ArgumentError('Unknown AnswerAttemptModality: $value'),
     };
   }
@@ -86,6 +88,19 @@ final class AnswerAttemptPayload {
     });
   }
 
+  static String image(
+      {required String sourceFileId, String? transcription, String? feedback}) {
+    final payload = jsonEncode(<String, Object?>{
+      'version': currentVersion,
+      'kind': 'image',
+      'source_file_id': sourceFileId,
+      if (transcription != null) 'transcription': transcription,
+      if (feedback != null) 'feedback': feedback,
+    });
+    validateForModality(AnswerAttemptModality.image, payload);
+    return payload;
+  }
+
   /// Validates that [jsonStr] matches [modality] and is a valid version 1 payload.
   static void validateForModality(
     AnswerAttemptModality modality,
@@ -109,6 +124,30 @@ final class AnswerAttemptPayload {
     }
 
     switch (modality) {
+      case AnswerAttemptModality.image:
+        final id = decoded['source_file_id'];
+        if (kind != 'image' ||
+            id is! String ||
+            !RegExp(r'^[A-Za-z0-9_-]{1,128}$').hasMatch(id) ||
+            decoded.keys.any((key) => !const {
+                  'version',
+                  'kind',
+                  'source_file_id',
+                  'transcription',
+                  'feedback'
+                }.contains(key))) {
+          throw const FormatException('Invalid image evidence payload');
+        }
+        for (final field in ['transcription', 'feedback']) {
+          final value = decoded[field];
+          if (value != null &&
+              (value is! String ||
+                  value.runes.length >
+                      (field == 'transcription' ? 20000 : 2000))) {
+            throw const FormatException('Invalid image evidence text');
+          }
+        }
+
       case AnswerAttemptModality.choice:
         if (kind != 'choice' && kind != 'legacy_choice') {
           throw FormatException(
@@ -177,6 +216,8 @@ final class AnswerAttemptPayload {
       throw const FormatException('Payload kind must be a String');
     }
     switch (kind) {
+      case 'image':
+        validateForModality(AnswerAttemptModality.image, jsonStr);
       case 'choice':
         validateForModality(AnswerAttemptModality.choice, jsonStr);
       case 'legacy_choice':

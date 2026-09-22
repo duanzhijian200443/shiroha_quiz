@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/core/database/answer_attempt_v23_schema.dart';
+import 'package:shiroha_quiz/core/database/answer_attempt_v26_schema.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -58,7 +59,7 @@ void main() {
       expect(await db.rawQuery('PRAGMA foreign_key_check'), isEmpty);
 
       // Verify schema helper validates cleanly without throwing
-      await expectLater(validateAnswerAttemptV23Schema(db), completes);
+      await expectLater(validateAnswerAttemptV26Schema(db), completes);
     } finally {
       await db.close();
     }
@@ -133,7 +134,7 @@ void main() {
       expect(attempts, isEmpty);
 
       // Verify schema validates cleanly
-      await expectLater(validateAnswerAttemptV23Schema(upgraded), completes);
+      await expectLater(validateAnswerAttemptV26Schema(upgraded), completes);
     } finally {
       await upgraded.close();
     }
@@ -144,7 +145,7 @@ void main() {
     try {
       // Table missing entirely
       expect(
-        () => validateAnswerAttemptV23Schema(db),
+        () => validateAnswerAttemptV26Schema(db),
         throwsA(isA<AnswerAttemptSchemaException>()),
       );
 
@@ -163,7 +164,7 @@ void main() {
       ''');
 
       expect(
-        () => validateAnswerAttemptV23Schema(db),
+        () => validateAnswerAttemptV26Schema(db),
         throwsA(isA<AnswerAttemptSchemaException>()),
       );
     } finally {
@@ -302,12 +303,12 @@ void main() {
         await DatabaseHelper.instance.openPathForTesting(inMemoryDatabasePath);
     try {
       // 1. Correct two indexes -> PASS
-      await expectLater(validateAnswerAttemptV23Schema(db), completes);
+      await expectLater(validateAnswerAttemptV26Schema(db), completes);
 
       // 2. Drop question_answered index -> FAIL
       await db.execute('DROP INDEX idx_answer_attempts_question_answered');
       await expectLater(
-        () => validateAnswerAttemptV23Schema(db),
+        () => validateAnswerAttemptV26Schema(db),
         throwsA(isA<AnswerAttemptSchemaException>()),
       );
 
@@ -316,7 +317,7 @@ void main() {
         'CREATE INDEX idx_answer_attempts_question_answered ON answer_attempts(answered_at, question_id)',
       );
       await expectLater(
-        () => validateAnswerAttemptV23Schema(db),
+        () => validateAnswerAttemptV26Schema(db),
         throwsA(isA<AnswerAttemptSchemaException>()),
       );
 
@@ -326,7 +327,7 @@ void main() {
         'CREATE INDEX idx_answer_attempts_question_answered ON answer_attempts(question_id)',
       );
       await expectLater(
-        () => validateAnswerAttemptV23Schema(db),
+        () => validateAnswerAttemptV26Schema(db),
         throwsA(isA<AnswerAttemptSchemaException>()),
       );
 
@@ -336,7 +337,7 @@ void main() {
         'CREATE INDEX idx_answer_attempts_question_answered ON answer_attempts(question_id, answered_at DESC)',
       );
       await expectLater(
-        () => validateAnswerAttemptV23Schema(db),
+        () => validateAnswerAttemptV26Schema(db),
         throwsA(isA<AnswerAttemptSchemaException>()),
       );
 
@@ -345,12 +346,12 @@ void main() {
       await db.execute(
         'CREATE INDEX idx_answer_attempts_question_answered ON answer_attempts(question_id, answered_at)',
       );
-      await expectLater(validateAnswerAttemptV23Schema(db), completes);
+      await expectLater(validateAnswerAttemptV26Schema(db), completes);
 
       // 3. Drop correctness_answered index -> FAIL
       await db.execute('DROP INDEX idx_answer_attempts_correctness_answered');
       await expectLater(
-        () => validateAnswerAttemptV23Schema(db),
+        () => validateAnswerAttemptV26Schema(db),
         throwsA(isA<AnswerAttemptSchemaException>()),
       );
 
@@ -359,7 +360,7 @@ void main() {
         'CREATE INDEX idx_answer_attempts_correctness_answered ON answer_attempts(correctness, answered_at DESC)',
       );
       await expectLater(
-        () => validateAnswerAttemptV23Schema(db),
+        () => validateAnswerAttemptV26Schema(db),
         throwsA(isA<AnswerAttemptSchemaException>()),
       );
     } finally {

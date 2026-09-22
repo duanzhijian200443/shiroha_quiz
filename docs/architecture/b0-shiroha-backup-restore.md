@@ -14,6 +14,18 @@ closure) are COMPLETE. B0 itself added no migration or dependency changes. At
 that closure point the runtime schema was v23 because the additive
 AnswerAttempt migration followed the original B0-P0 v22 freeze.
 
+### Current-state amendment: AnswerAttempt schema v26
+
+Current runtime uses v26. Staged v25 databases rebuild `answer_attempts` inside
+DatabaseHelper's upgrade transaction, preserving all rows and both indexes;
+only the modality CHECK gains `image`. Image payload v1 uses `source_file_id`
+as a soft LibraryFile evidence reference. Transcription is optional, and
+correctness remains exclusively on AnswerAttempt. Missing/cleaned evidence does
+not invalidate a backup or delete history. Retained images use the existing
+LibraryFile byte inventory. Package versions/layout, credential scrubbing and
+restore/rollback authority are unchanged. The v24 amendment below records the
+prior schema boundary.
+
 ### Current-state amendment: AI Config schema v24
 
 The current runtime and current-runtime backup fixtures use schema **v24**.

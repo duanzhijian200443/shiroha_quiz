@@ -329,6 +329,20 @@ void main() {
   test(
       'populated current-schema round trip preserves durable state and excludes derived state',
       () async {
+    final beforeDb = await helper.database;
+    await beforeDb.insert('answer_attempts', <String, Object?>{
+      'attempt_id': 'att-image',
+      'question_id': 'q-1',
+      'session_kind': 'focused',
+      'modality': 'image',
+      'answer_payload_json':
+          '{"version":1,"kind":"image","source_file_id":"file-1","feedback":"synthetic"}',
+      'correctness': null,
+      'answered_at': 2,
+      'duration_ms': 120,
+    });
+    final attemptsBefore =
+        await beforeDb.query('answer_attempts', orderBy: 'attempt_id');
     final package = await exportPackage();
     final manifest = await BackupArchiveIo.readManifestOnly(package);
     final manifestJson = manifest.encode();
@@ -373,8 +387,8 @@ void main() {
     expect((await restored.query('conversations')).single['conversation_id'],
         'conv-1');
     expect((await restored.query('study_plans')).single['plan_id'], 'plan-1');
-    expect((await restored.query('answer_attempts')).single['attempt_id'],
-        'att-1');
+    expect(await restored.query('answer_attempts', orderBy: 'attempt_id'),
+        attemptsBefore);
     expect(
       storage.resolveManagedFile('library/file-1').readAsBytesSync(),
       fileBytes,

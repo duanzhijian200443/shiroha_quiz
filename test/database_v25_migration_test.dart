@@ -25,7 +25,7 @@ void main() {
       await seeded.close();
       final db = await DatabaseHelper.instance.openPathForTesting(path);
       try {
-        expect(await db.getVersion(), 25);
+        expect(await db.getVersion(), DatabaseHelper.databaseVersion);
         await validateAiConfigV25Schema(db);
       } finally {
         await db.close();
@@ -106,7 +106,7 @@ void main() {
       await seed.close();
       final db = await DatabaseHelper.instance.openPathForTesting(path);
       try {
-        expect(await db.getVersion(), 25);
+        expect(await db.getVersion(), DatabaseHelper.databaseVersion);
         await validateAiConfigV25Schema(db);
         expect(await db.query('ai_capability_bindings', orderBy: 'slot'),
             beforeBindings);
