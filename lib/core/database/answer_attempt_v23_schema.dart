@@ -187,5 +187,5 @@ final class AnswerAttemptSchemaException implements Exception {
 
   @override
   String toString() => 'AnswerAttemptSchemaException(${failure.name}): '
-      'The answer_attempts table does not match the frozen v23 definition.';
+      'The answer_attempts table does not match the expected schema definition.';
 }
