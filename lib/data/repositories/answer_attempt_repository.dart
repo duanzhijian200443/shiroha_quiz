@@ -1,6 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 
 import '../../application/practice/record_answer_attempt_command.dart';
+import '../../application/practice/photo_answer_history.dart';
 import '../../core/database/database_helper.dart';
 import '../../domain/attempt/answer_attempt.dart';
 
@@ -8,7 +9,8 @@ import '../../domain/attempt/answer_attempt.dart';
 ///
 /// Implements [AnswerAttemptPersistencePort] for the Application layer.
 /// All writes are append-only.
-final class AnswerAttemptRepository implements AnswerAttemptPersistencePort {
+final class AnswerAttemptRepository
+    implements AnswerAttemptPersistencePort, AnswerAttemptHistoryPort {
   AnswerAttemptRepository({DatabaseHelper? databaseHelper})
       : _databaseHelper = databaseHelper ?? DatabaseHelper.instance;
 
@@ -33,6 +35,7 @@ final class AnswerAttemptRepository implements AnswerAttemptPersistencePort {
   }
 
   /// Returns all attempts for a given [questionId] ordered by `answered_at ASC`.
+  @override
   Future<List<AnswerAttempt>> getAttemptsForQuestion(String questionId) async {
     final db = await _db;
     final rows = await db.query(

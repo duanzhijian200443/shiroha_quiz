@@ -128,7 +128,7 @@ final class AnswerAttemptPayload {
         final id = decoded['source_file_id'];
         if (kind != 'image' ||
             id is! String ||
-            !RegExp(r'^[A-Za-z0-9_-]{1,128}$').hasMatch(id) ||
+            !RegExp(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$').hasMatch(id) ||
             decoded.keys.any((key) => !const {
                   'version',
                   'kind',
