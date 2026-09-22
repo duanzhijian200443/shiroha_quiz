@@ -1,6 +1,12 @@
+import 'package:shiroha_quiz/domain/content/content_node.dart';
+import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/application/practice/photo_answer_history.dart';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:async';
+import 'package:shiroha_quiz/application/backup/backup_restore_gate.dart';
+import 'package:shiroha_quiz/application/file_library/file_library_ports.dart';
+import 'package:shiroha_quiz/domain/assets/library_file.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/file_library/library_file_deletion.dart';
 import 'package:shiroha_quiz/application/practice/photo_answer_judgement.dart';
@@ -35,12 +41,125 @@ class _FailDelete implements LibraryFileDeletionPort {
       throw StateError('synthetic');
 }
 
+class _PausedIngestion implements FileIngestionPort {
+  _PausedIngestion(this.delegate);
+  final FileIngestionPort delegate;
+  final ingested = Completer<void>();
+  final resume = Completer<void>();
+  @override
+  Future<LibraryFile> ingest(
+      {required String externalPath,
+      required String displayName,
+      String? mimeType}) async {
+    final file = await delegate.ingest(
+        externalPath: externalPath,
+        displayName: displayName,
+        mimeType: mimeType);
+    ingested.complete();
+    await resume.future;
+    return file;
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  setUp(BackupRestoreMutationGate.resetForTesting);
+  tearDown(BackupRestoreMutationGate.resetForTesting);
   setUpAll(() {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
   });
+  for (final attemptFails in [false, true]) {
+    test(
+        'submission retains root lease through waiting restore and compensation: $attemptFails',
+        () async {
+      final dir = await Directory.systemTemp.createTemp('photo_race_');
+      final db = await DatabaseHelper.instance
+          .openPathForTesting(inMemoryDatabasePath);
+      try {
+        final source = File('${dir.path}/source.png');
+        await source.writeAsBytes([1, 2, 3]);
+        final files = LibraryFileRepository(databaseHelper: _Helper(db));
+        final attempts = AnswerAttemptRepository(databaseHelper: _Helper(db));
+        final storage = ManagedFileStorageAdapter(
+            managedRoot: Directory('${dir.path}/managed'));
+        final ingestion = _PausedIngestion(
+            FileIngestionService(storage: storage, repository: files));
+        final command = PhotoAnswerSubmissionCommand(
+          ingestion: ingestion,
+          attempts: RecordAnswerAttemptCommand(
+              attemptFails ? _FailAttempts() : attempts),
+          deletion: LibraryFileDeletionService(
+              metadataRepository: files,
+              deletionRepository: files,
+              managedFileStorage: storage,
+              managedArtifactStorage: ManagedArtifactStorageAdapter(
+                  managedRoot: Directory('${dir.path}/managed'))),
+          diagnostic: (_) => fail('unexpected compensation failure'),
+        );
+        final submission = command.submit(
+            photo: ConfirmedPhotoAnswer(
+                request: PhotoAnswerJudgementRequest(
+                    imagePath: source.path,
+                    imageName: 'source.png',
+                    kind: PhotoAnswerQuestionKind.shortAnswer,
+                    question: RichContent(nodes: [const TextNode('q')]),
+                    standardAnswer: RichContent(nodes: [const TextNode('a')])),
+                result: const PhotoAnswerJudgementResult(
+                    decision: PhotoAnswerDecision.correct,
+                    transcription: '',
+                    feedback: '')),
+            attemptId: 'race',
+            questionId: 'q',
+            sessionKind: AnswerAttemptSessionKind.normal,
+            answeredAt: 1);
+        final checked = attemptFails
+            ? expectLater(
+                submission,
+                throwsA(isA<PhotoAnswerSubmissionException>().having(
+                    (e) => e.failure,
+                    'failure',
+                    PhotoAnswerSubmissionFailure.attemptSaveFailed)))
+            : submission;
+        await ingestion.ingested.future;
+        final gate = BackupRestoreMutationGate.instance;
+        expect(gate.activeMutationCount, 1);
+        expect(await files.findAll(), hasLength(1));
+        var drained = false;
+        final restore = gate.enterQuiescence().then((_) async {
+          drained = true;
+          // The restore boundary sees a complete submission or complete compensation.
+          expect(await files.findAll(), hasLength(attemptFails ? 0 : 1));
+          expect(await attempts.getAttemptsForQuestion('q'),
+              hasLength(attemptFails ? 0 : 1));
+        });
+        expect(drained, false);
+        ingestion.resume.complete();
+        await checked;
+        await restore;
+        expect(gate.activeMutationCount, 0);
+        final rows = await files.findAll();
+        final facts = await attempts.getAttemptsForQuestion('q');
+        final retained = await Directory('${dir.path}/managed')
+            .list(recursive: true)
+            .where((e) => e is File)
+            .toList();
+        expect(retained, hasLength(attemptFails ? 0 : 1));
+        if (!attemptFails) {
+          expect(jsonDecode(facts.single.answerPayloadJson)['source_file_id'],
+              rows.single.fileId);
+          expect(
+              await storage
+                  .resolveManagedFile(rows.single.storageKey)
+                  .readAsBytes(),
+              [1, 2, 3]);
+        }
+      } finally {
+        await db.close();
+        await dir.delete(recursive: true);
+      }
+    });
+  }
   for (final decision in PhotoAnswerDecision.values) {
     test(
         '$decision persists original evidence and soft reference survives deletion',
@@ -74,8 +193,8 @@ void main() {
                     imagePath: source.path,
                     imageName: 'source.png',
                     kind: PhotoAnswerQuestionKind.fillBlank,
-                    questionText: 'q',
-                    standardAnswerText: 'a'),
+                    question: RichContent(nodes: [TextNode('q')]),
+                    standardAnswer: RichContent(nodes: [TextNode('a')])),
                 result: PhotoAnswerJudgementResult(
                     decision: decision,
                     transcription: '',
@@ -151,8 +270,8 @@ void main() {
                         imagePath: source.path,
                         imageName: 'source.png',
                         kind: PhotoAnswerQuestionKind.shortAnswer,
-                        questionText: 'q',
-                        standardAnswerText: 'a'),
+                        question: RichContent(nodes: [TextNode('q')]),
+                        standardAnswer: RichContent(nodes: [TextNode('a')])),
                     result: const PhotoAnswerJudgementResult(
                         decision: PhotoAnswerDecision.incorrect,
                         transcription: 'answer',

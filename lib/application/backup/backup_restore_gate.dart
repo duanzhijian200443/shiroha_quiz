@@ -20,6 +20,7 @@ abstract final class BackupRestoreMutationGate {
 }
 
 final class BackupRestoreMutationGateState {
+  final Object _mutationContextKey = Object();
   bool _exclusive = false;
   bool _maintenanceRequested = false;
   int _activeMutations = 0;
@@ -72,10 +73,16 @@ final class BackupRestoreMutationGateState {
     return BackupRestoreMutationLease._(this);
   }
 
+  /// Awaited nested work shares only this Zone's still-live root lease.
+  /// Detached callbacks cannot reuse ownership after the root has released it.
   Future<T> runMutation<T>(Future<T> Function() action) async {
+    final owner = Zone.current[_mutationContextKey];
+    if (owner is BackupRestoreMutationLease && !owner._released) {
+      return await action();
+    }
     final lease = acquireMutationLease();
     try {
-      return await action();
+      return await runZoned(action, zoneValues: {_mutationContextKey: lease});
     } finally {
       lease.release();
     }
