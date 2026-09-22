@@ -60,7 +60,13 @@ Future<void> createAnswerAttemptV23Schema(DatabaseExecutor db) async {
   ));
 }
 
-Future<void> validateAnswerAttemptV23Schema(DatabaseExecutor db) async {
+Future<void> validateAnswerAttemptV23Schema(DatabaseExecutor db) =>
+    validateAnswerAttemptSchema(db, expectedTableDdl: answerAttemptsTableDdl);
+
+Future<void> validateAnswerAttemptSchema(
+  DatabaseExecutor db, {
+  required String expectedTableDdl,
+}) async {
   final rows = await db.rawQuery(
     "SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name = 'answer_attempts'",
   );
@@ -70,7 +76,7 @@ Future<void> validateAnswerAttemptV23Schema(DatabaseExecutor db) async {
   }
   final storedSql = rows.single['sql'] as String?;
   if (storedSql == null ||
-      _canonicalizeSql(storedSql) != _canonicalizeSql(answerAttemptsTableDdl)) {
+      _canonicalizeSql(storedSql) != _canonicalizeSql(expectedTableDdl)) {
     throw const AnswerAttemptSchemaException(
         AnswerAttemptSchemaFailure.malformedSchema);
   }
@@ -147,6 +153,7 @@ Future<void> validateAnswerAttemptV23Schema(DatabaseExecutor db) async {
 }
 
 String _canonicalizeSql(String sql) => sql
+    .replaceAll('"answer_attempts"', 'answer_attempts')
     .replaceAll(RegExp(r'\bIF\s+NOT\s+EXISTS\b', caseSensitive: false), '')
     .replaceAll(RegExp(r'\s+'), ' ')
     .replaceAll(RegExp(r'\s*([(),=])\s*'), r'$1')
@@ -180,5 +187,5 @@ final class AnswerAttemptSchemaException implements Exception {
 
   @override
   String toString() => 'AnswerAttemptSchemaException(${failure.name}): '
-      'The answer_attempts table does not match the frozen v23 definition.';
+      'The answer_attempts table does not match the expected schema definition.';
 }

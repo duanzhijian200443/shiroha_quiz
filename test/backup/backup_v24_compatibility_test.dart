@@ -53,7 +53,7 @@ void main() {
     try {
       expect(
         (await migrated.rawQuery('PRAGMA user_version')).single['user_version'],
-        25,
+        DatabaseHelper.databaseVersion,
       );
       expect(
         (await migrated.query('ai_providers')).single['provider_id'],

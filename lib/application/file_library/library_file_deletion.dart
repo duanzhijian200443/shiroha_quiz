@@ -2,8 +2,11 @@ library;
 
 import '../../domain/assets/library_file.dart';
 
-/// Application authority for the explicit LibraryFile destructive operation.
+/// Application authority for the LibraryFile destructive operation.
 ///
+/// Callers are either an explicit user-initiated delete or a bounded
+/// compensation for a file created by the same failed command. Both reuse this
+/// authority instead of introducing a second deletion rule.
 /// Project and Conversation references are relations, not byte ownership.
 /// Implementations report the references observed in the same database
 /// transaction that removes the file row.

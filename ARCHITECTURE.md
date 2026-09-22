@@ -96,12 +96,19 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
 6. Typed content mutation must not pass through the legacy editor or reconstruct authority from a V1 projection.
 7. Review/FSRS state is separate from typed question content mutation.
 8. `RichContent` is structural: a persisted `TextNode` is not reparsed later as Markdown/math/image syntax.
-9. Current database schema is **v24**: the frozen v15 typed sidecar remains
+9. Current database schema is **v26**: the frozen v15 typed sidecar remains
    authoritative, with the additive v16 File Library, v17 Project, v18 flat
    File Library Folder, v19 Conversation, and v20 parsed-artifact tables, the
    additive RAG-1 derived lexical-retrieval cache and FTS5 objects, the
    additive v22 `study_plans` table, the additive v23 `answer_attempts` table,
-   and the additive v24 Provider / Model Registry / capability authority.
+   the additive v24 Provider / Model Registry / capability authority, v25 model
+   origin/binding policy, and v26 image AnswerAttempt modality. V26 only extends
+   the modality CHECK; all columns, indexes, nullable correctness and append-only
+   semantics remain unchanged. Image payload v1 requires a durable
+   `source_file_id` soft evidence reference, permits optional/empty transcription
+   and bounded feedback, and never duplicates correctness. Missing evidence does
+   not invalidate history. Question/Explanation remain RichContent; student
+   image answers are AnswerAttempt plus optional retained image evidence.
    `answer_attempts` is append-only durable answer
    history, separate from mutable Review/FSRS scheduling state in
    `review_states`; changing or resetting scheduling state does not rewrite or
@@ -475,3 +482,11 @@ falls back to question-level rewriting, provider reasoning, retry, or expanded
 context. The accepted fragment is persisted only as bounded digests and a
 typed node locator; no prompt, LaTeX source, provider body, or reasoning is
 stored. This boundary adds no database schema or dependency change.
+
+## 16. Photo answer boundary
+
+Practice fillBlank / shortAnswer photo answers use Application-owned direct
+Vision judgement and explicit user confirmation before managed image ingestion
+and AnswerAttempt append. Text answering remains available; question-import OCR
+is unchanged. Student images are soft evidence references, not RichContent or
+FSRS grading authority. See `docs/architecture/photo-answer-v1.md`.

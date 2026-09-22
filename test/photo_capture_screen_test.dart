@@ -1,3 +1,6 @@
+import 'package:shiroha_quiz/domain/content/content_node.dart';
+import 'package:shiroha_quiz/domain/content/rich_content.dart';
+import 'package:flutter_math_fork/flutter_math.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -10,7 +13,7 @@ import 'package:shiroha_quiz/application/answers/ai_answer_provider.dart';
 import 'package:shiroha_quiz/application/ai_config/ai_config_service.dart';
 import 'package:shiroha_quiz/application/exam/exam_mutation_command.dart';
 import 'package:shiroha_quiz/application/import/import_advanced_preferences.dart';
-import 'package:shiroha_quiz/application/practice/subjective_answer_recognition.dart';
+import 'package:shiroha_quiz/application/practice/photo_answer_judgement.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_ports.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/services/ai_service.dart';
@@ -85,17 +88,16 @@ final class _UnusedAiAnswerCommitPersistence extends Fake
 final class _UnusedExamMutationPersistence extends Fake
     implements ExamMutationPersistencePort {}
 
-final class _FakeSubjectiveAnswerRecognition
-    implements SubjectiveAnswerRecognitionPort {
-  _FakeSubjectiveAnswerRecognition(this.result);
+final class _FakePhotoAnswerJudgement implements PhotoAnswerJudgementPort {
+  _FakePhotoAnswerJudgement(this.result);
 
-  final SubjectiveAnswerRecognitionResult result;
-  final List<SubjectiveAnswerRecognitionRequest> requests =
-      <SubjectiveAnswerRecognitionRequest>[];
+  final PhotoAnswerJudgementResult result;
+  final List<PhotoAnswerJudgementRequest> requests =
+      <PhotoAnswerJudgementRequest>[];
 
   @override
-  Future<SubjectiveAnswerRecognitionResult> recognize(
-    SubjectiveAnswerRecognitionRequest request,
+  Future<PhotoAnswerJudgementResult> judge(
+    PhotoAnswerJudgementRequest request,
   ) async {
     requests.add(request);
     return result;
@@ -214,6 +216,7 @@ void main() {
     expect(find.text('确认照片'), findsOneWidget);
     expect(find.text('OCR'), findsOneWidget);
     expect(find.text('多模态'), findsOneWidget);
+    expect(find.text('开始识别'), findsOneWidget);
     expect(dispatchCalls, 0);
     final preview = tester.widget<Image>(
       find.descendant(
@@ -320,9 +323,9 @@ void main() {
         examMutationCommand: ExamMutationCommand(
           _UnusedExamMutationPersistence(),
         ),
-        subjectiveAnswerRecognition: _FakeSubjectiveAnswerRecognition(
-          SubjectiveAnswerRecognitionResult.failure(
-            SubjectiveAnswerRecognitionClassification.providerFailure,
+        photoAnswerJudgement: _FakePhotoAnswerJudgement(
+          PhotoAnswerJudgementResult.failed(
+            PhotoAnswerJudgementFailure.providerFailure,
           ),
         ),
         child: child,
@@ -395,28 +398,35 @@ void main() {
   });
 
   testWidgets(
-      'subjective answer recognition returns editable text without import dispatch',
+      'photo judgement requires explicit confirmation without import dispatch',
       (tester) async {
     tester.view.physicalSize = const Size(430, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    final recognition = _FakeSubjectiveAnswerRecognition(
-      SubjectiveAnswerRecognitionResult.success('recognized answer'),
+    final recognition = _FakePhotoAnswerJudgement(
+      const PhotoAnswerJudgementResult(
+          decision: PhotoAnswerDecision.uncertain,
+          transcription: 'recognized answer',
+          feedback: 'synthetic'),
     );
-    String? returnedText;
+    ConfirmedPhotoAnswer? returnedText;
     await tester.pumpWidget(
       MaterialApp(
         home: Builder(
           builder: (context) => FilledButton(
             key: const ValueKey<String>('open-subjective-photo'),
             onPressed: () async {
-              returnedText = await Navigator.of(context).push<String>(
-                MaterialPageRoute<String>(
+              returnedText =
+                  await Navigator.of(context).push<ConfirmedPhotoAnswer>(
+                MaterialPageRoute<ConfirmedPhotoAnswer>(
                   builder: (_) => PhotoCaptureScreen.subjectiveAnswer(
+                    questionKind: PhotoAnswerQuestionKind.fillBlank,
+                    question: RichContent(nodes: [TextNode('question')]),
+                    standardAnswer: RichContent(nodes: [TextNode('standard')]),
                     pickPhoto: (source) async => syntheticPhoto(syntheticPng),
-                    subjectiveAnswerRecognition: recognition,
+                    photoAnswerJudgement: recognition,
                   ),
                 ),
               );
@@ -431,6 +441,9 @@ void main() {
       find.byKey(const ValueKey<String>('open-subjective-photo')),
     );
     await tester.pumpAndSettle();
+    expect(find.text('仅拍照，不识别'), findsNothing);
+    expect(find.text('拍照后进入「确认照片与识别模式」'), findsNothing);
+    expect(find.text('拍摄后由 AI 结合题目和标准答案理解并判定你的作答'), findsOneWidget);
     await tester.tap(
       find.byKey(const ValueKey<String>('photo-gallery-action')),
     );
@@ -440,11 +453,20 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(returnedText, 'recognized answer');
+    expect(returnedText, isNull);
+    expect(find.byKey(const ValueKey<String>('photo-mode-ocr')), findsNothing);
+    expect(
+        find.byKey(const ValueKey<String>('photo-mode-vision')), findsNothing);
+    expect(find.text('已识别你的答案'), findsOneWidget);
+    expect(find.text('AI 无法可靠判断这张作答图片。建议重新拍摄或改用文字输入。'), findsOneWidget);
+    await tester.tap(find.text('提交答案'));
+    await tester.pumpAndSettle();
+    expect(returnedText!.result.transcription, 'recognized answer');
+    expect(returnedText!.result.correctness, isNull);
     expect(recognition.requests, hasLength(1));
     expect(
-      recognition.requests.single.mode,
-      SubjectiveAnswerRecognitionMode.ocr,
+      recognition.requests.single.kind,
+      PhotoAnswerQuestionKind.fillBlank,
     );
     expect(
       find.byKey(const ValueKey<String>('open-subjective-photo')),
@@ -460,16 +482,19 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    final recognition = _FakeSubjectiveAnswerRecognition(
-      SubjectiveAnswerRecognitionResult.failure(
-        SubjectiveAnswerRecognitionClassification.providerFailure,
+    final recognition = _FakePhotoAnswerJudgement(
+      PhotoAnswerJudgementResult.failed(
+        PhotoAnswerJudgementFailure.providerFailure,
       ),
     );
     await tester.pumpWidget(
       MaterialApp(
         home: PhotoCaptureScreen.subjectiveAnswer(
+          questionKind: PhotoAnswerQuestionKind.fillBlank,
+          question: RichContent(nodes: [TextNode('question')]),
+          standardAnswer: RichContent(nodes: [TextNode('standard')]),
           pickPhoto: (source) async => syntheticPhoto(syntheticPng),
-          subjectiveAnswerRecognition: recognition,
+          photoAnswerJudgement: recognition,
         ),
       ),
     );
@@ -484,7 +509,54 @@ void main() {
     await tester.pump();
 
     expect(find.byType(PhotoRecognitionConfirmationScreen), findsOneWidget);
-    expect(find.text('答案识别失败，请稍后重试。'), findsOneWidget);
+    expect(find.text('AI 判题失败，请稍后重试'), findsOneWidget);
+    expect(recognition.requests, hasLength(1));
+  });
+  testWidgets(
+      'math confirmation retake discards judgement without returning a submission',
+      (tester) async {
+    tester.view.physicalSize = const Size(430, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final recognition = _FakePhotoAnswerJudgement(
+        const PhotoAnswerJudgementResult(
+            decision: PhotoAnswerDecision.correct,
+            transcription: r'\frac{\sqrt{2}}{2}',
+            feedback: ''));
+    var submitted = false;
+    await tester.pumpWidget(MaterialApp(
+        home: Builder(
+            builder: (context) => TextButton(
+                onPressed: () async {
+                  final result = await Navigator.of(context)
+                      .push<ConfirmedPhotoAnswer>(MaterialPageRoute(
+                          builder: (_) => PhotoCaptureScreen.subjectiveAnswer(
+                              pickPhoto: (_) async =>
+                                  syntheticPhoto(syntheticPng),
+                              photoAnswerJudgement: recognition,
+                              questionKind: PhotoAnswerQuestionKind.fillBlank,
+                              question: RichContent(nodes: [TextNode('q')]),
+                              standardAnswer:
+                                  RichContent(nodes: [TextNode('a')]))));
+                  submitted = result != null;
+                },
+                child: const Text('open')))));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester
+        .tap(find.byKey(const ValueKey<String>('photo-gallery-action')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey<String>('photo-mode-ocr')), findsNothing);
+    await tester.tap(find.text('开始判题'));
+    await tester.pumpAndSettle();
+    expect(find.byType(Math), findsWidgets);
+    expect(find.text(r'\frac{\sqrt{2}}{2}'), findsNothing);
+    await tester.tap(find.text('重新拍摄'));
+    await tester.pumpAndSettle();
+    expect(find.byType(PhotoCaptureScreen), findsOneWidget);
+    expect(find.text('已识别你的答案'), findsNothing);
+    expect(submitted, false);
     expect(recognition.requests, hasLength(1));
   });
 }

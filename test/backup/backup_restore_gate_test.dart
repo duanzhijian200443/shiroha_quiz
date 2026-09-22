@@ -149,6 +149,115 @@ void main() {
   setUp(BackupRestoreMutationGate.resetForTesting);
   tearDown(BackupRestoreMutationGate.resetForTesting);
 
+  for (final innerThrows in [false, true]) {
+    test('reentrant quiescence drains one root; inner throws: $innerThrows',
+        () async {
+      final gate = BackupRestoreMutationGate.instance;
+      final entered = Completer<void>();
+      final proceed = Completer<void>();
+      final events = <String>[];
+      final root = gate.runMutation(() async {
+        entered.complete();
+        await proceed.future;
+        try {
+          await gate.runMutation(() => gate.runMutation(() async {
+                expect(gate.activeMutationCount, 1);
+                events.add('nested');
+                if (innerThrows) throw StateError('synthetic');
+              }));
+        } finally {
+          events.add('root-finally');
+        }
+      });
+      final checkedRoot =
+          innerThrows ? expectLater(root, throwsStateError) : root;
+      await entered.future;
+      final drained = gate.enterQuiescence().then((_) => events.add('drained'));
+      await expectLater(
+          gate.runMutation(() async => fail('external admitted')),
+          throwsA(isA<BackupException>().having(
+              (e) => e.failure, 'failure', BackupFailure.restoreBlocked)));
+      expect(events, isEmpty);
+      expect(gate.activeMutationCount, 1);
+      proceed.complete();
+      await checkedRoot;
+      await drained;
+      expect(events, ['nested', 'root-finally', 'drained']);
+      expect(gate.activeMutationCount, 0);
+    });
+  }
+
+  test('nested mutation that outlives its root keeps the lease drained',
+      () async {
+    final gate = BackupRestoreMutationGate.instance;
+    final started = Completer<void>();
+    final finish = Completer<void>();
+    final root = gate.runMutation(() async {
+      unawaited(gate.runMutation(() async {
+        started.complete();
+        await finish.future;
+      }));
+      await started.future;
+    });
+    await root;
+    expect(gate.activeMutationCount, 1);
+    var drained = false;
+    final quiescence = gate.enterQuiescence().then((_) => drained = true);
+    await Future<void>.delayed(Duration.zero);
+    expect(drained, false);
+    expect(gate.activeMutationCount, 1);
+    finish.complete();
+    await quiescence;
+    expect(gate.activeMutationCount, 0);
+  });
+
+  test('live nested action may still start its own nested work after root',
+      () async {
+    final gate = BackupRestoreMutationGate.instance;
+    final started = Completer<void>();
+    final resume = Completer<void>();
+    var grandchildRan = false;
+    var drained = false;
+    final root = gate.runMutation(() async {
+      unawaited(gate.runMutation(() async {
+        started.complete();
+        await resume.future;
+        // The root action returned already; this live action still owns its
+        // scope and keeps working while quiescence waits.
+        await gate.runMutation(() async {
+          grandchildRan = true;
+        });
+      }));
+      await started.future;
+    });
+    await root;
+    expect(gate.activeMutationCount, 1);
+    final quiescence = gate.enterQuiescence().then((_) => drained = true);
+    await Future<void>.delayed(Duration.zero);
+    expect(drained, false);
+    resume.complete();
+    await quiescence;
+    expect(grandchildRan, true);
+    expect(drained, true);
+    expect(gate.activeMutationCount, 0);
+  });
+
+  test('released zone ownership cannot admit late work during maintenance',
+      () async {
+    final gate = BackupRestoreMutationGate.instance;
+    late Future<void> Function() lateWork;
+    await gate.runMutation(() async {
+      final ownerZone = Zone.current;
+      lateWork = () => ownerZone.run(() => gate.runMutation(() async {}));
+    });
+    await gate.enterQuiescence();
+    await expectLater(
+        lateWork(),
+        throwsA(isA<BackupException>().having(
+            (e) => e.failure, 'failure', BackupFailure.restoreBlocked)));
+    expect(gate.activeMutationCount, 0);
+  });
+
   test('quiescence blocks all durable mutation authorities', () async {
     await BackupRestoreMutationGate.instance.enterQuiescence();
     expect(

@@ -96,6 +96,14 @@ final class PracticeQuestionView {
   final String stemText;
   final String answerText;
 
+  /// Photo judgement reads authoritative content only; invalid typed answer
+  /// shapes stay unavailable instead of falling back to compatibility text.
+  RichContent? get photoAnswerQuestion =>
+      isTyped ? typedStem : RichContent(nodes: [TextNode(legacyStem)]);
+
+  RichContent? get photoAnswerStandardAnswer =>
+      isTyped ? contentAnswer : RichContent(nodes: [TextNode(legacyAnswer)]);
+
   /// Question for the legacy LLM service. Legacy rows pass their own
   /// [Question]; typed rows are projected from the sidecar draft and never
   /// read the V1 compatibility row.

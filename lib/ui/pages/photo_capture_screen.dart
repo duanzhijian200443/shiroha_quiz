@@ -1,13 +1,15 @@
 import 'dart:typed_data';
+import '../../domain/content/rich_content.dart';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../application/import/import_advanced_preferences.dart';
-import '../../application/practice/subjective_answer_recognition.dart';
+import '../../application/practice/photo_answer_judgement.dart';
 import '../../services/import_pipeline/import_question_field_policy.dart';
 import '../../services/import_pipeline/import_parse_request.dart';
 import '../dependencies/ai_dependencies_scope.dart';
+import '../widgets/photo_answer_transcription.dart';
 
 typedef PhotoPicker = Future<XFile?> Function(ImageSource source);
 typedef PhotoRecognitionDispatcher = Future<void> Function(
@@ -25,12 +27,18 @@ class PhotoCaptureScreen extends StatefulWidget {
     this.onRecognitionRequested,
     this.importPreferencesLoader,
   })  : purpose = PhotoCapturePurpose.questionImport,
-        subjectiveAnswerRecognition = null;
+        photoAnswerJudgement = null,
+        questionKind = null,
+        question = null,
+        standardAnswer = null;
 
   const PhotoCaptureScreen.subjectiveAnswer({
     super.key,
     this.pickPhoto,
-    required this.subjectiveAnswerRecognition,
+    required this.photoAnswerJudgement,
+    required this.questionKind,
+    required this.question,
+    required this.standardAnswer,
   })  : purpose = PhotoCapturePurpose.subjectiveAnswer,
         onRecognitionRequested = null,
         importPreferencesLoader = null;
@@ -38,7 +46,10 @@ class PhotoCaptureScreen extends StatefulWidget {
   final PhotoCapturePurpose purpose;
   final PhotoPicker? pickPhoto;
   final PhotoRecognitionDispatcher? onRecognitionRequested;
-  final SubjectiveAnswerRecognitionPort? subjectiveAnswerRecognition;
+  final PhotoAnswerJudgementPort? photoAnswerJudgement;
+  final PhotoAnswerQuestionKind? questionKind;
+  final RichContent? question;
+  final RichContent? standardAnswer;
   final ImportAdvancedPreferencesLoader? importPreferencesLoader;
 
   @override
@@ -69,18 +80,22 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
       if (!mounted || image == null) return;
 
       if (widget.purpose == PhotoCapturePurpose.subjectiveAnswer) {
-        final recognition = widget.subjectiveAnswerRecognition;
+        final recognition = widget.photoAnswerJudgement;
         if (recognition == null) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('答案识别暂不可用，请稍后重试。')),
           );
           return;
         }
-        final recognizedText = await Navigator.of(context).push<String>(
-          MaterialPageRoute<String>(
+        final recognizedText =
+            await Navigator.of(context).push<ConfirmedPhotoAnswer>(
+          MaterialPageRoute<ConfirmedPhotoAnswer>(
             builder: (_) => PhotoRecognitionConfirmationScreen.subjectiveAnswer(
               image: image,
               recognition: recognition,
+              questionKind: widget.questionKind!,
+              question: widget.question!,
+              standardAnswer: widget.standardAnswer!,
             ),
           ),
         );
@@ -242,14 +257,18 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
               child: Column(
                 children: [
                   Text(
-                    '仅拍照，不识别',
+                    widget.purpose == PhotoCapturePurpose.subjectiveAnswer
+                        ? '拍照作答'
+                        : '仅拍照，不识别',
                     style: theme.textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w700,
                     ),
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    '拍照后进入「确认照片与识别模式」',
+                    widget.purpose == PhotoCapturePurpose.subjectiveAnswer
+                        ? '拍摄后由 AI 结合题目和标准答案理解并判定你的作答'
+                        : '拍照后进入「确认照片与识别模式」',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: colors.onSurfaceVariant,
                     ),
@@ -271,21 +290,30 @@ class PhotoRecognitionConfirmationScreen extends StatefulWidget {
     required this.onRecognitionRequested,
     this.loadBytes,
   })  : purpose = PhotoCapturePurpose.questionImport,
-        subjectiveAnswerRecognition = null;
+        photoAnswerJudgement = null,
+        questionKind = null,
+        question = null,
+        standardAnswer = null;
 
   const PhotoRecognitionConfirmationScreen.subjectiveAnswer({
     super.key,
     required this.image,
-    required SubjectiveAnswerRecognitionPort recognition,
+    required PhotoAnswerJudgementPort recognition,
+    required this.questionKind,
+    required this.question,
+    required this.standardAnswer,
     this.loadBytes,
   })  : purpose = PhotoCapturePurpose.subjectiveAnswer,
         onRecognitionRequested = null,
-        subjectiveAnswerRecognition = recognition;
+        photoAnswerJudgement = recognition;
 
   final XFile image;
   final PhotoCapturePurpose purpose;
   final PhotoRecognitionDispatcher? onRecognitionRequested;
-  final SubjectiveAnswerRecognitionPort? subjectiveAnswerRecognition;
+  final PhotoAnswerJudgementPort? photoAnswerJudgement;
+  final PhotoAnswerQuestionKind? questionKind;
+  final RichContent? question;
+  final RichContent? standardAnswer;
   final PhotoBytesLoader? loadBytes;
 
   @override
@@ -300,6 +328,13 @@ class _PhotoRecognitionConfirmationScreenState
   ImportParseMode _selectedMode = ImportParseMode.ocr;
   late final Future<Uint8List> _imageBytes;
   bool _isSubmitting = false;
+  PhotoAnswerJudgementResult? _judgement;
+  PhotoAnswerJudgementRequest get _request => PhotoAnswerJudgementRequest(
+      imagePath: widget.image.path,
+      imageName: widget.image.name,
+      kind: widget.questionKind!,
+      question: widget.question!,
+      standardAnswer: widget.standardAnswer!);
 
   @override
   void initState() {
@@ -312,24 +347,24 @@ class _PhotoRecognitionConfirmationScreenState
     setState(() => _isSubmitting = true);
     try {
       if (widget.purpose == PhotoCapturePurpose.subjectiveAnswer) {
-        final result = await widget.subjectiveAnswerRecognition!.recognize(
-          SubjectiveAnswerRecognitionRequest(
-            imagePath: widget.image.path,
-            imageName: widget.image.name,
-            mode: _selectedMode == ImportParseMode.ocr
-                ? SubjectiveAnswerRecognitionMode.ocr
-                : SubjectiveAnswerRecognitionMode.vision,
-          ),
-        );
+        if (_judgement != null) {
+          Navigator.of(context).pop(
+              ConfirmedPhotoAnswer(request: _request, result: _judgement!));
+          return;
+        }
+        final result = await widget.photoAnswerJudgement!.judge(_request);
         if (!mounted) return;
         if (!result.isSuccess) {
           setState(() => _isSubmitting = false);
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(_failureMessage(result.classification))),
+            SnackBar(content: Text(_failureMessage(result.failure!))),
           );
           return;
         }
-        Navigator.of(context).pop(result.recognizedText);
+        setState(() {
+          _judgement = result;
+          _isSubmitting = false;
+        });
       } else {
         await widget.onRecognitionRequested!(widget.image, _selectedMode);
         if (!mounted) return;
@@ -339,23 +374,28 @@ class _PhotoRecognitionConfirmationScreenState
       if (!mounted) return;
       setState(() => _isSubmitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('识别任务启动失败，请稍后重试。')),
+        SnackBar(
+          content: Text(widget.purpose == PhotoCapturePurpose.subjectiveAnswer
+              ? 'AI 判题启动失败，请稍后重试。'
+              : '识别任务启动失败，请稍后重试。'),
+        ),
       );
     }
   }
 
-  String _failureMessage(
-    SubjectiveAnswerRecognitionClassification classification,
-  ) {
-    return switch (classification) {
-      SubjectiveAnswerRecognitionClassification.engineUnavailable =>
-        '未配置可用的识别引擎，请先完成配置。',
-      SubjectiveAnswerRecognitionClassification.emptyResult =>
-        '未识别到有效答案，请调整图片后重试。',
-      SubjectiveAnswerRecognitionClassification.success => '',
-      _ => '答案识别失败，请稍后重试。',
-    };
-  }
+  String _failureMessage(PhotoAnswerJudgementFailure failure) =>
+      switch (failure) {
+        PhotoAnswerJudgementFailure.contextAssetUnavailable =>
+          '题目或标准答案中的图片资源不可用，暂时无法进行拍照判题。',
+        PhotoAnswerJudgementFailure.contextUnsupported =>
+          '题目或标准答案包含暂不支持的内容，无法进行拍照判题。',
+        PhotoAnswerJudgementFailure.engineUnavailable => '未配置支持图片理解的 AI 模型',
+        PhotoAnswerJudgementFailure.invalidInput => '图片或题目信息无效，请重新拍摄或改用文字输入',
+        PhotoAnswerJudgementFailure.timeout => 'AI 判题超时，请稍后重试',
+        PhotoAnswerJudgementFailure.malformedResponse => 'AI 返回的判题格式无效，请重试',
+        PhotoAnswerJudgementFailure.outputTooLong => 'AI 返回内容过长，请重试',
+        PhotoAnswerJudgementFailure.providerFailure => 'AI 判题失败，请稍后重试',
+      };
 
   @override
   Widget build(BuildContext context) {
@@ -370,42 +410,66 @@ class _PhotoRecognitionConfirmationScreenState
           child: Column(
             children: [
               Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(22),
-                  child: ColoredBox(
-                    color: const Color(0xFF071019),
-                    child: SizedBox.expand(
-                      child: FutureBuilder<Uint8List>(
-                        future: _imageBytes,
-                        builder: (context, snapshot) {
-                          if (snapshot.hasData) {
-                            return Image(
-                              image: ResizeImage(
-                                MemoryImage(snapshot.data!),
-                                width: _previewMaxDecodeDimension,
-                                height: _previewMaxDecodeDimension,
-                                policy: ResizeImagePolicy.fit,
-                              ),
-                              fit: BoxFit.contain,
-                              gaplessPlayback: true,
-                            );
-                          }
-                          if (snapshot.hasError) {
-                            return const Center(
-                              child: Text(
-                                '无法预览照片',
-                                style: TextStyle(color: Colors.white70),
-                              ),
-                            );
-                          }
-                          return const Center(
-                            child: CircularProgressIndicator(),
-                          );
-                        },
+                child: _judgement != null
+                    ? ListView(children: [
+                        const Text('已识别你的答案',
+                            style: TextStyle(
+                                fontSize: 20, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 16),
+                        if (_judgement!.transcription.trim().isEmpty)
+                          const Text('答案包含无法文本化的内容，请核对原照片后提交。')
+                        else
+                          PhotoAnswerTranscription(
+                              text: _judgement!.transcription),
+                        if (_judgement!.decision ==
+                            PhotoAnswerDecision.uncertain)
+                          const Text('AI 无法可靠判断这张作答图片。建议重新拍摄或改用文字输入。'),
+                        FutureBuilder<Uint8List>(
+                            future: _imageBytes,
+                            builder: (context, snapshot) => snapshot.hasData
+                                ? Image.memory(snapshot.data!,
+                                    height: 180,
+                                    cacheWidth: 720,
+                                    errorBuilder: (_, __, ___) =>
+                                        const Text('无法预览照片'))
+                                : const SizedBox()),
+                      ])
+                    : ClipRRect(
+                        borderRadius: BorderRadius.circular(22),
+                        child: ColoredBox(
+                          color: const Color(0xFF071019),
+                          child: SizedBox.expand(
+                            child: FutureBuilder<Uint8List>(
+                              future: _imageBytes,
+                              builder: (context, snapshot) {
+                                if (snapshot.hasData) {
+                                  return Image(
+                                    image: ResizeImage(
+                                      MemoryImage(snapshot.data!),
+                                      width: _previewMaxDecodeDimension,
+                                      height: _previewMaxDecodeDimension,
+                                      policy: ResizeImagePolicy.fit,
+                                    ),
+                                    fit: BoxFit.contain,
+                                    gaplessPlayback: true,
+                                  );
+                                }
+                                if (snapshot.hasError) {
+                                  return const Center(
+                                    child: Text(
+                                      '无法预览照片',
+                                      style: TextStyle(color: Colors.white70),
+                                    ),
+                                  );
+                                }
+                                return const Center(
+                                  child: CircularProgressIndicator(),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                ),
               ),
               const SizedBox(height: 12),
               Row(
@@ -419,38 +483,40 @@ class _PhotoRecognitionConfirmationScreenState
                       label: const Text('重新拍摄'),
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _RecognitionModeCard(
-                      key: const ValueKey<String>('photo-mode-ocr'),
-                      title: 'OCR',
-                      subtitle: '文字识别',
-                      icon: Icons.document_scanner_outlined,
-                      color: colors.primary,
-                      selected: _selectedMode == ImportParseMode.ocr,
-                      onTap: _isSubmitting
-                          ? null
-                          : () => setState(
-                                () => _selectedMode = ImportParseMode.ocr,
-                              ),
+                  if (widget.purpose == PhotoCapturePurpose.questionImport) ...[
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _RecognitionModeCard(
+                        key: const ValueKey<String>('photo-mode-ocr'),
+                        title: 'OCR',
+                        subtitle: '文字识别',
+                        icon: Icons.document_scanner_outlined,
+                        color: colors.primary,
+                        selected: _selectedMode == ImportParseMode.ocr,
+                        onTap: _isSubmitting
+                            ? null
+                            : () => setState(
+                                  () => _selectedMode = ImportParseMode.ocr,
+                                ),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _RecognitionModeCard(
-                      key: const ValueKey<String>('photo-mode-vision'),
-                      title: '多模态',
-                      subtitle: '视觉理解',
-                      icon: Icons.visibility_outlined,
-                      color: colors.secondary,
-                      selected: _selectedMode == ImportParseMode.vision,
-                      onTap: _isSubmitting
-                          ? null
-                          : () => setState(
-                                () => _selectedMode = ImportParseMode.vision,
-                              ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _RecognitionModeCard(
+                        key: const ValueKey<String>('photo-mode-vision'),
+                        title: '多模态',
+                        subtitle: '视觉理解',
+                        icon: Icons.visibility_outlined,
+                        color: colors.secondary,
+                        selected: _selectedMode == ImportParseMode.vision,
+                        onTap: _isSubmitting
+                            ? null
+                            : () => setState(
+                                  () => _selectedMode = ImportParseMode.vision,
+                                ),
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
               const SizedBox(height: 14),
@@ -467,7 +533,11 @@ class _PhotoRecognitionConfirmationScreenState
                         ),
                       )
                     : const Icon(Icons.arrow_forward_rounded),
-                label: const Text('开始识别'),
+                label: Text(_judgement == null
+                    ? (widget.purpose == PhotoCapturePurpose.subjectiveAnswer
+                        ? '开始判题'
+                        : '开始识别')
+                    : '提交答案'),
                 style: FilledButton.styleFrom(
                   minimumSize: const Size.fromHeight(52),
                 ),
