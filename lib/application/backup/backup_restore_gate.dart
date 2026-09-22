@@ -73,18 +73,28 @@ final class BackupRestoreMutationGateState {
     return BackupRestoreMutationLease._(this);
   }
 
-  /// Awaited nested work shares only this Zone's still-live root lease.
-  /// Detached callbacks cannot reuse ownership after the root has released it.
+  /// One root mutation owns one external lease for its whole async tree.
+  ///
+  /// Awaited nested calls inherit the root context and add no lease, so
+  /// quiescence still drains exactly one root mutation. A nested mutation that
+  /// is still running when the root action returns keeps that lease alive until
+  /// it finishes, so no already-started work can cross the restore drain
+  /// boundary. Work started after the root action returned acquires its own
+  /// lease and stays blocked during maintenance.
   Future<T> runMutation<T>(Future<T> Function() action) async {
-    final owner = Zone.current[_mutationContextKey];
-    if (owner is BackupRestoreMutationLease && !owner._released) {
-      return await action();
+    final inherited = Zone.current[_mutationContextKey];
+    if (inherited is _RootMutationContext && inherited.admitNested()) {
+      try {
+        return await action();
+      } finally {
+        inherited.nestedFinished();
+      }
     }
-    final lease = acquireMutationLease();
+    final context = _RootMutationContext(acquireMutationLease());
     try {
-      return await runZoned(action, zoneValues: {_mutationContextKey: lease});
+      return await runZoned(action, zoneValues: {_mutationContextKey: context});
     } finally {
-      lease.release();
+      context.rootFinished();
     }
   }
 
@@ -100,6 +110,34 @@ final class BackupRestoreMutationGateState {
     _maintenanceRequested = false;
     _activeMutations = 0;
     _drainWaiter = null;
+  }
+}
+
+/// One root mutation lease plus every nested mutation started under it.
+///
+/// The lease stays held until the root action and all nested mutations that
+/// started before it returned have finished, so quiescence cannot drain while
+/// already-started leased work is still in flight.
+final class _RootMutationContext {
+  _RootMutationContext(this._lease);
+
+  final BackupRestoreMutationLease _lease;
+  int _openActions = 1;
+  bool _rootReturned = false;
+
+  bool admitNested() {
+    if (_rootReturned || _lease._released) return false;
+    _openActions++;
+    return true;
+  }
+
+  void nestedFinished() {
+    if (--_openActions == 0) _lease.release();
+  }
+
+  void rootFinished() {
+    _rootReturned = true;
+    if (--_openActions == 0) _lease.release();
   }
 }
 

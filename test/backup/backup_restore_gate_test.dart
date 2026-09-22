@@ -187,6 +187,30 @@ void main() {
     });
   }
 
+  test('nested mutation that outlives its root keeps the lease drained',
+      () async {
+    final gate = BackupRestoreMutationGate.instance;
+    final started = Completer<void>();
+    final finish = Completer<void>();
+    final root = gate.runMutation(() async {
+      unawaited(gate.runMutation(() async {
+        started.complete();
+        await finish.future;
+      }));
+      await started.future;
+    });
+    await root;
+    expect(gate.activeMutationCount, 1);
+    var drained = false;
+    final quiescence = gate.enterQuiescence().then((_) => drained = true);
+    await Future<void>.delayed(Duration.zero);
+    expect(drained, false);
+    expect(gate.activeMutationCount, 1);
+    finish.complete();
+    await quiescence;
+    expect(gate.activeMutationCount, 0);
+  });
+
   test('released zone ownership cannot admit late work during maintenance',
       () async {
     final gate = BackupRestoreMutationGate.instance;
