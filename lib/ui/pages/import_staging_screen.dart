@@ -145,6 +145,12 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   int? _activeRepairIndex;
   int _repairOperationId = 0;
   bool _autoRepairInitialized = false;
+  bool _autoRepairEnabled = false;
+  bool _autoRepairPreparing = false;
+
+  /// Questions the automatic walk already handled: prepared, skipped because
+  /// they are not an auto-repairable LaTeX target, or opened by the user.
+  final Set<int> _autoRepairSettled = <int>{};
 
   String? get _traceId {
     final value =
@@ -298,11 +304,11 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
             ?.importPreferencesLoader;
     if (loader == null) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) unawaited(_generateAutoLatexProposals(loader));
+      if (mounted) unawaited(_initializeAutoLatexRepair(loader));
     });
   }
 
-  Future<void> _generateAutoLatexProposals(
+  Future<void> _initializeAutoLatexRepair(
     ImportAdvancedPreferencesLoader loader,
   ) async {
     final ImportAdvancedPreferences preferences;
@@ -312,18 +318,52 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
       return;
     }
     if (!mounted || !preferences.autoRepairLatexEnabled) return;
+    _autoRepairEnabled = true;
+    await _prepareNextAutoLatexProposal();
+  }
+
+  /// Prepares at most the next eligible question, then waits for the user.
+  ///
+  /// Preparing every eligible question up front saved the draft after each
+  /// proposal, and every save advances the draft-wide revision, so all but the
+  /// last prepared proposal went stale and had to be regenerated when opened
+  /// (~2N provider calls for N questions). A ready proposal therefore anchors
+  /// to the revision the user is about to act on; the walk resumes once that
+  /// question is applied or skipped.
+  Future<void> _prepareNextAutoLatexProposal() async {
+    if (!_autoRepairEnabled || _autoRepairPreparing) return;
     for (final item in List<ImportReviewItem>.of(_allItems)) {
       if (!mounted) return;
+      if (_autoRepairSettled.contains(item.originalIndex)) continue;
       final target = _reviewRepairTargetFor(item);
-      if (target == null ||
-          !(target.strategy == ReviewRepairStrategy.latexFragment ||
-              (target.triggerCodes.length == 1 &&
-                  target.triggerCodes.single == 'dangling_latex'))) {
+      if (target == null || !_isAutoLatexRepairTarget(target)) {
+        _autoRepairSettled.add(item.originalIndex);
         continue;
       }
-      await _requestReviewRepair(item, automatic: true);
+      final cached = _autoRepairProposals[item.originalIndex];
+      if (cached != null && _isRepairProposalReusable(item, cached)) {
+        _autoRepairSettled.add(item.originalIndex);
+        continue;
+      }
+      _autoRepairSettled.add(item.originalIndex);
+      _autoRepairPreparing = true;
+      try {
+        await _requestReviewRepair(item, automatic: true);
+      } finally {
+        _autoRepairPreparing = false;
+      }
+      if (!mounted) return;
+      // A ready proposal waits for the user. A generation that produced
+      // nothing lets the walk continue with the next eligible question.
+      if (_autoRepairProposals.containsKey(item.originalIndex)) return;
     }
   }
+
+  /// Whether [target] is the LaTeX anomaly the automatic walk prepares.
+  bool _isAutoLatexRepairTarget(ReviewRepairTarget target) =>
+      target.strategy == ReviewRepairStrategy.latexFragment ||
+      (target.triggerCodes.length == 1 &&
+          target.triggerCodes.single == 'dangling_latex');
 
   ExplanationRetentionMode _readReviewExplanationRetentionMode() {
     final diagnostics = widget.diagnostics;
@@ -1628,6 +1668,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     bool automatic = false,
   }) async {
     if (_isSaving || _isRepairingAnyItem || _isDistillingAnswers) return;
+    if (!automatic) _autoRepairSettled.add(item.originalIndex);
     final cached = _autoRepairProposals[item.originalIndex];
     if (!automatic &&
         cached != null &&
@@ -1640,6 +1681,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
         await _applyReviewRepairProposal(item, cached);
         _autoRepairProposals.remove(item.originalIndex);
       }
+      unawaited(_prepareNextAutoLatexProposal());
       return;
     }
     _autoRepairProposals.remove(item.originalIndex);
@@ -1699,6 +1741,9 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
       if (mounted && operationId == _repairOperationId) {
         setState(() => _activeRepairIndex = null);
       }
+      // The user handled this question: preparation may continue with the next
+      // eligible one against the now settled revision.
+      if (!automatic) unawaited(_prepareNextAutoLatexProposal());
     }
   }
 

@@ -357,8 +357,7 @@ void main() {
     expect(recorder.lastQuestion['explanation'], _brokenExplanation);
   });
 
-  testWidgets(
-      'a second automatic proposal is regenerated instead of failing stale',
+  testWidgets('sequential preparation spends one provider call per question',
       (tester) async {
     tester.view.physicalSize = const Size(800, 2600);
     tester.view.devicePixelRatio = 1;
@@ -388,16 +387,18 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    // Preparing the second proposal moved the draft-wide revision past the
-    // anchor the first proposal was generated against.
-    expect(generator.calls, 2);
-    expect(find.text('查看 AI 修补建议'), findsNWidgets(2));
+    // Only the first eligible question is prepared: preparing every question up
+    // front saved the draft after each proposal, and every save advanced the
+    // draft-wide revision past the earlier anchors.
+    expect(generator.calls, 1);
+    expect(find.text('查看 AI 修补建议'), findsOneWidget);
+    expect(find.text('AI 修补'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('review-ai-repair-0')));
     await tester.pumpAndSettle();
-    // The stale proposal is discarded and regenerated, not stamped with a
-    // fresh revision and pushed into the CAS.
-    expect(generator.calls, 3);
+    // The prepared proposal still anchors to the current revision, so opening
+    // it spends no second provider call.
+    expect(generator.calls, 1);
     await tester.tap(find.byKey(ReviewRepairProposalDialog.applyKey));
     await tester.pumpAndSettle();
 
@@ -406,12 +407,14 @@ void main() {
       recorder.savedQuestion(_reviewItemId)['explanation'],
       _repairedExplanation,
     );
+    // Applying settled the revision and advanced preparation to the second
+    // question, whose proposal is ready without a regeneration.
+    expect(generator.calls, 2);
+    expect(find.text('查看 AI 修补建议'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('review-ai-repair-1')));
     await tester.pumpAndSettle();
-    // Applying the first repair moved the draft-wide revision again, so this
-    // proposal has to be regenerated as well.
-    expect(generator.calls, 4);
+    expect(generator.calls, 2);
     await tester.tap(find.byKey(ReviewRepairProposalDialog.applyKey));
     await tester.pumpAndSettle();
 
@@ -425,6 +428,8 @@ void main() {
       recorder.savedQuestion(_reviewItemId)['explanation'],
       _repairedExplanation,
     );
+    // Two questions cost two provider calls instead of about four.
+    expect(generator.calls, 2);
   });
 
   testWidgets('automatic LaTeX repair skips non-LaTeX metadata and failure',
