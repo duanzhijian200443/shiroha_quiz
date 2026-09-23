@@ -26,9 +26,22 @@ LibraryFile byte inventory. Package versions/layout, credential scrubbing and
 restore/rollback authority are unchanged. The v24 amendment below records the
 prior schema boundary.
 
-### Current-state amendment: AI Config schema v24
+### ContentAsset lifecycle successor (docs-only)
 
-The current runtime and current-runtime backup fixtures use schema **v24**.
+`dm-p0-content-asset-lifecycle.md` distinguishes runtime retention from the
+B0 package-required ContentAsset set. B0 scrubs current ParsedArtifact and
+revision-head rows and excludes derived sidecars, so an Artifact-only asset can
+be live at runtime without entering the package. B0 includes structurally
+reachable assets required by packaged QuestionDraftV2 payloads; restore must
+validate and restore those bytes. Current export does not quiesce mutation
+leases; the B0G successor stage must add fail-fast admission before any
+destructive ContentAsset collector can activate. This paragraph is a future
+contract, not a claim that B0G is already implemented.
+
+### Historical amendment: AI Config schema v24
+
+At that amendment's closure, runtime and current-runtime backup fixtures used
+schema **v24**; the current runtime is v26 as stated above.
 The four additive AI configuration tables (`ai_providers`, `ai_models`,
 `ai_model_capability_claims`, `ai_capability_bindings`) are authoritative
 INCLUDE state. None has a credential column. Legacy `ai_engines.api_key` and
@@ -84,7 +97,8 @@ schemaVersion  = SQLite PRAGMA user_version
 - `schemaVersion` versions the SQLite schema carried inside the snapshot.
 - The manifest carries both; compatibility checks for each are separate
   (§8).
-- Current runtime schema is **v24**.
+- Current runtime schema is **v26**; v24 references below retain their
+  historical amendment or compatibility-fixture meaning.
 
 ## 2. Frozen package structure
 
@@ -154,7 +168,9 @@ payloads, or user file bytes. Those bytes remain only inside
 ## 3. Portable snapshot — INCLUDE
 
 The sanitized SQLite snapshot must preserve all authoritative durable user
-state. For current runtime schema v24, the frozen INCLUDE set is:
+state. The v24 amendment froze the INCLUDE set below; current runtime is v26
+and retains these authoritative rows, including `answer_attempts` with image
+modality:
 
 | Durable state | Current schema rows |
 |---|---|
@@ -210,7 +226,7 @@ The package must never contain:
 - secrets.
 
 In the sanitized snapshot, all legacy/current credential columns must be in an
-empty/null safe state. For current schema v24 this includes at least:
+empty/null safe state. For current schema v26 this includes at least:
 
 ```text
 ai_engines.api_key
@@ -857,7 +873,7 @@ B0 v0 explicitly excludes:
 - credential backup;
 - ParsedArtifact backup;
 - RAG cache backup;
-- future database schema migrations beyond the current runtime v24;
+- future database schema migrations beyond the current runtime (v26);
 - DATA-MGMT destructive features;
 - UI redesign.
 
@@ -916,7 +932,7 @@ B0 .shiroha Backup / Restore — CLOSED / FROZEN
 The B0-V0 acceptance suite must cover:
 
 1. empty/fresh app export + restore;
-2. realistic populated current-schema v24 round trip;
+2. realistic populated current-schema v26 round trip;
 3. Questions + typed sidecars + `answer_attempts` preserved;
 4. FSRS/review history preserved;
 5. Library files + bytes/digests preserved;

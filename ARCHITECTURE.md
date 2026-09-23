@@ -123,7 +123,10 @@ block-native structural ownership is
 `docs/architecture/rich-content-foundation.md`. The bounded Phase 2A/Train B
 implementation now conforms for typed image/table admission, managed asset
 durability, B0 package v2 coverage, and explicit resolver-backed rendering;
-final live acceptance and unbounded asset lifecycle expansion remain deferred.
+final live acceptance remains deferred. The D0 successor for ContentAsset
+retention, writer ownership, inventory, and future collection is
+`docs/architecture/dm-p0-content-asset-lifecycle.md`; its implementation stages
+are not activated by the docs-only contract.
 
 ## 4. Learning asset expansion boundary
 
@@ -177,9 +180,16 @@ Rules:
 - Persisted payloads admit only `SourceDocument`/`SourcePart`/`SourceRef`/
   `RichContent`/`ImportIssue`/safe `AssetRef` metadata, never provider bodies,
   raw diagnostics, absolute paths, or binary image bytes.
+- A verified current `parsed_artifacts` row and its decoded `SourceAssetPart`
+  identities form a derived runtime ContentAsset retention root. A revision
+  head alone does not; an unreadable current payload blocks destructive scans.
+  OCR artifact generation is also a production ContentAsset byte writer. See
+  `docs/architecture/dm-p0-content-asset-lifecycle.md` for the docs-only D0
+  target and the still-open writer ownership gap.
 - F1-D1 implemented the additive v20 artifact tables without modifying any
-  earlier table. RAG-1 subsequently raises the current runtime schema to v21
-  with derived lexical-retrieval cache tables and a dedicated FTS5 index.
+  earlier table. RAG-1 subsequently raised the runtime schema to v21 at its
+  closure with derived lexical-retrieval cache tables and a dedicated FTS5
+  index; the current runtime is v26.
 
 See `docs/architecture/f1-parsed-artifact-lifecycle.md`.
 

@@ -1,0 +1,269 @@
+# DM-P0-D0 ContentAsset lifecycle successor
+
+Status: **D0 contract frozen; implementation stages not activated**.
+
+This successor defines the ContentAsset lifecycle target for future destructive
+work. It supplements the historical DM-P0 destructive-mutation contract. D0 is
+documentation only: the gaps described here remain present until their named
+implementation stages close. No automatic ContentAsset collection is authorized
+by this document alone.
+
+## 1. Authorities and current state
+
+| Object or path | Current role | ContentAsset consequence |
+| --- | --- | --- |
+| `Question` plus its valid `QuestionDraftV2` typed sidecar | Confirmed learning-data authority | Structurally reachable `ImageNode` identities are authoritative durable roots. `assetRefs` is declared metadata/inventory, not a mark set. |
+| Current `ParsedArtifact` plus verified `SourceDocument` | Rebuildable derived generation | Its `SourceAssetPart` identities are **runtime retention roots** while that current generation exists. They do not become confirmed Question authority. |
+| Pending-review `ImportTask` candidate and active writer operation | Workflow and transient ownership | Exact identities must remain protected until commit, discard, or proven rollback. Existing coverage is incomplete; see §4. |
+| `LibraryFile` original managed bytes | Primary source file | Its file identity and bytes are separate from source-qualified ContentAsset identity. |
+| `AnswerAttempt.image.source_file_id` | Soft `LibraryFile` evidence | Neither ContentAsset root nor required FK nor file-deletion blocker. Missing evidence does not corrupt history. |
+| Retrieval/RAG data | Rebuildable derivative of current artifact | No independent ContentAsset root is established by retrieval rows. |
+| `parsed_artifact_heads` | CAS/revision continuity | Never a ContentAsset retention root by itself. |
+
+The production ContentAsset byte writer is
+`OcrSourceDocumentAdapter -> ManagedContentAssetStore`. It has two composed
+callers: Import typed-candidate conversion and OCR ParsedArtifact generation.
+Any future production writer must join the same ownership contract before
+destructive collection can activate. Test and tool writers are not evidence of
+an additional production route, but test-created physical entities are still
+subject to safe inventory classification.
+
+Question reachability uses the canonical recursive `reachableImageNodes` walk
+through stem, options, `ContentAnswer`, explanation, image alternative content,
+and table-cell content. A structurally unused `assetRefs` entry does not make a
+Question root. A valid `SourceDocument` may carry `SourceAssetPart` identities
+without any Question; these are covered by the ParsedArtifact rule below.
+
+## 2. ADR PA-A: current ParsedArtifact retains referenced assets
+
+**Decision: PA-A.** A current, verifiable ParsedArtifact is a runtime
+ContentAsset retention root for every `(sourceId, localAssetId)` in its
+`SourceAssetPart` set. This is conservative: a still-current payload must not
+point to bytes that GC deleted merely because the artifact is rebuildable.
+ParsedArtifact removal/replacement first changes current metadata under its
+existing CAS authority. Only after that visibility point may a later complete
+reconciliation consider identities from the old generation unreachable. Shared
+Question or other roots continue to protect the same bytes. Removing an artifact
+does not rewrite a confirmed Question or its `SourceRef`.
+
+“Current ParsedArtifact” has a precise identity for retention: a valid
+`parsed_artifacts` **current metadata row** exists, and the row's sidecar/payload
+can be safely read and passes all of these checks:
+
+- `fileId` binding and `artifactId` binding;
+- payload schema/version support;
+- sidecar digest and size;
+- strict `SourceDocument` decode.
+
+`parsed_artifact_heads` provides CAS/revision history authority only. A head
+without a `parsed_artifacts` current row creates **no current Artifact retention
+root**. If a current metadata row exists but its sidecar is missing, corrupt,
+unsupported, unreadable, or cannot be stably observed across a replacement
+race, the root scan is **incomplete**. The entire destructive pass performs
+**zero deletes**; it must not interpret the row as having no references. The
+same fail-closed rule applies to an undecodable current row or unavailable
+repository read. A safe bounded retry may resolve a legal replacement race,
+but cannot turn uncertainty into an empty root set.
+
+PA-B (artifact never retains assets) would require atomic or crash-recoverable
+artifact invalidation before any referenced byte disappears. No such combined
+contract exists in the current repository. PA-A is selected for v0 because it
+protects the visible current payload without a new schema.
+
+## 3. Two distinct asset sets
+
+Define, for one complete and consistent runtime observation:
+
+```text
+questionRoots = reachable ImageNode identities in valid current QuestionDraftV2 payloads
+artifactRoots = SourceAssetPart identities in verified current ParsedArtifacts
+candidateRoots = durable pending-review identities plus active writer/operation ownership
+futureRoots = identities from any later explicitly registered durable ContentAsset root
+
+runtimeContentAssetLiveSet =
+  questionRoots ∪ artifactRoots ∪ candidateRoots ∪ futureRoots
+```
+
+Question roots are authoritative learning data. Artifact roots retain bytes
+while a rebuildable current generation exists; they are released by current
+metadata invalidation/removal, then a later full scan and grace period.
+Candidate roots bridge writes into either published authority or exact rollback.
+An unenumerable root category, invalid sidecar, undecodable payload, unresolved
+writer, or inconsistent scan makes liveness **unknown** and forbids the whole
+destructive pass. Absence is meaningful only after a complete scan under the
+required mutation authority.
+
+B0 uses a different set:
+
+```text
+backupRequiredContentAssetSet =
+  structurally reachable ImageNode identities in authoritative QuestionDraftV2
+  payloads retained in the sanitized B0 package
+```
+
+The existing B0 snapshot scrubs `parsed_artifacts`, `parsed_artifact_heads`,
+retrieval rows, and `import_tasks`; it exports source-qualified ContentAssets
+required by packaged Questions. Consequently, an asset protected only by a
+current ParsedArtifact is retained at runtime but need not enter B0. Restore
+must validate and restore every package-required Question asset and may rebuild
+derived artifacts later. Runtime GC roots must never be inferred from the B0
+manifest, and the B0 export set must never be inflated by artifact-only roots.
+An unsupported/corrupt Question payload must fail backup or GC completeness,
+not silently contribute an empty set.
+
+## 4. Writer ownership: present gap and target invariant
+
+**Current gap.** Import conversion can write bytes, verify integrity, invoke
+`onAssetCreated`, and only then register a candidate lease. A successful write
+followed by verification or callback failure can leave residue without an exact
+lease. OCR ParsedArtifact generation uses the same adapter without a candidate
+lease; a failed generation before publish can leave unowned bytes. F1's sidecar
+publish/CAS and cleanup rules do not by themselves own these ContentAsset bytes.
+The present repository therefore does **not** satisfy “protected before first
+byte” and destructive GC is prohibited.
+
+**Target invariant.** Before a durable byte can become visible, every production
+writer obtains explicit operation ownership for a bounded set of exact
+`(sourceId, localAssetId)` identities. The preferred minimal v0 mechanism is
+predeclaring the exact identity before `storeBytesSync`, under the shared
+Application mutation lease; the Import candidate owner and ParsedArtifact
+generation owner each record it before write. A writer-scoped token may carry
+that declaration within the operation, without a persisted refcount. The write
+then verifies bytes and publishes the identity into a durable pending-review,
+Question, or current ParsedArtifact owner, or performs exact rollback. On a
+failure after physical visibility, the operation retains enough exact identity
+to retry cleanup or conservatively classify residue. It must never silently
+discard identity because a callback, verification, CAS, or cleanup failed.
+
+I1A must prove this for both composed callers, synchronous failure,
+cancellation, and idempotent retry. A process crash can erase a transient
+lease; it cannot erase the requirement to account for any visible residue.
+I2/I4 must conservatively rediscover it through complete physical inventory,
+full root scans, startup reconciliation, and grace before I3 can classify it
+for deletion. I1B must close artifact invalidation/removal and derived cleanup
+ordering. Until all these stages close, report-only classification may label
+uncertain physical entities but cannot delete them. A staging identity,
+durable registry, or refcount is not selected for v0; if predeclaration,
+leases, and conservative recovery cannot close the crash gap, stop and re-plan
+before destructive activation.
+
+## 5. Inventory, classification, and deletion authority
+
+`ManagedContentAssetStore.listAssets()` is a healthy-asset listing: it reads
+full bytes, hashes accepted files, and skips empty, oversized, invalid-image,
+temporary, unknown, and non-file entities. It is **not** a complete physical
+inventory for destructive classification. I2 must provide a bounded inventory
+of raw physical entities and an explicit outcome for every encountered file,
+directory, link/reparse point, malformed name, unreadable entry, and transient
+write. Skipped or unclassified entities cannot be treated as absent. Inventory
+failure makes the scan incomplete and the destructive pass delete nothing.
+
+The classifier distinguishes live authoritative Question assets, live derived
+Artifact assets, owned candidates/in-flight writes, shared assets, proven
+unreachable regular assets, corrupt/unknown physical entities, and incomplete
+scans. An asset becomes a deletion candidate only after complete root and
+physical scans, no owner, an elapsed grace interval across scans, and a fresh
+exclusive revalidation immediately before exact physical deletion. A failed
+delete is observable and retryable; it does not roll back a committed primary
+mutation. No deletion follows a symlink, junction, or reparse point. Lexical
+`normalize`/`isWithin` checks currently used by managed paths are insufficient
+proof of resolved filesystem containment; I2/I3 must prove target and parent
+containment on supported platforms or fail closed.
+
+Report-only I2 may classify without activating deletion. For v0 the selected
+design uses Application ownership, full scans, conservative retention, and
+existing identities; it requires no new registry, refcount, or schema
+migration **if** I1A/I1B/I2/I4 prove the invariants above. This is a selected
+design condition, not a claim that future extensions never need persistence.
+
+## 6. Concurrency and operation ordering
+
+B0 currently gates export, inspect, and prepare with exclusive authority but
+does not quiesce mutation leases. Restore commit and startup recovery use the
+restore mutation gate. `enterQuiescence` waits for active leases; it is not a
+fail-fast admission primitive. B0G must add fail-fast export admission for a
+busy mutation authority and hold a consistent snapshot boundary. GC must use
+the same exclusive authority and refuse deletion when an active writer,
+restore, backup snapshot, or unresolved lease prevents a complete observation.
+It cannot reuse waiting quiescence as proof of safe admission. No Application
+authority may make a new ContentAsset writer invisible to that gate.
+
+Primary Question/Bank/clear-all deletion must preserve Exam guards before
+deleting referenced Questions, including `paper_questions` under clear-all.
+Database commit precedes byte cleanup. LibraryFile deletion remains the
+Application authority for original managed bytes and relations; Project,
+Conversation, and Folder detach do not delete those bytes. `AnswerAttempt`
+soft evidence does not enter the file-deletion guard. Derived
+`LibraryFile -> ParsedArtifact -> Retrieval` invalidation remains distinct from
+ContentAsset primary learning-data lifetime. There is no proven startup orphan
+sweep or complete derived reconciliation today; I1B/I4 must establish
+idempotent, crash-safe cleanup without promoting retrieval rows to roots.
+
+## 7. Implementation dependencies and review units
+
+```text
+D0 contract (this document)
+  -> I0 clear-all Exam guard
+  -> B0G fail-fast export admission
+  -> I1A ContentAsset writer ownership closure
+  -> I1B ParsedArtifact invalidation and derived reconciliation
+  -> I2 complete physical inventory + report-only classifier
+  -> I4 crash/startup reconciliation and grace proof
+  -> I3 destructive sweep
+  -> U0 bounded presentation
+  -> V0 independent destructive/concurrency verification
+  -> CL canonical closure
+```
+
+Each arrow is an activation dependency; stages may split into smaller serial
+PRs without weakening it. Suggested PR boundaries are D0 docs, I0 guard,
+B0G admission, I1A writers, I1B artifact/retrieval ordering, I2 inventory and
+report-only classification, I4 recovery, I3 deletion, U0 UI, and V0/CL
+verification/closure. I2 classification is never final proof for I3 unless
+I1A and I1B have closed writer and derived ownership. No stage activates its
+successor merely because its PR was created.
+
+## 8. Future acceptance contract
+
+These are required future deterministic, synthetic/offline tests, not tests
+claimed to pass at D0:
+
+| ID | Required behavior |
+| --- | --- |
+| L1 | A uniquely Question-rooted asset remains live; after Question deletion, complete scan and grace may classify it orphan. |
+| L2 | Two Questions sharing one asset retain it until both roots disappear. |
+| L3 | Pending-review candidate asset remains protected through restart, commit, discard, and retryable cleanup. |
+| L4 | Unknown physical file, directory, link, or unreadable entry never becomes a deletion candidate by omission. |
+| L5 | LibraryFile deletion cannot delete a ContentAsset still required by a Question. |
+| L6 | Derived ParsedArtifact/Retrieval invalidation preserves Question assets and leaves retryable derived cleanup. |
+| L7 | Post-commit physical deletion failure preserves committed DB truth and is observable/retryable. |
+| L8 | B0 export/restore and GC exclude each other under one mutation authority. |
+| L9 | Restored Question plus required image bytes pass structural and digest validation. |
+| L10 | Question/Bank/clear-all Exam guard or DB failure produces zero premature asset cleanup and no dangling `paper_questions`. |
+| L11 | Removing LibraryFile photo evidence preserves AnswerAttempt history and unavailable-evidence display. |
+| L12 | Shared/bulk photo evidence cleanup neither blocks unrelated file deletion nor deletes answer history. |
+| L13 | An invalid/empty/oversized physical asset skipped by healthy listing is still accounted for by destructive inventory. |
+| L14 | B0 export encountering an active long-running mutation fails fast; it does not wait into an inconsistent snapshot. |
+| L15 | ParsedArtifact-only asset remains protected while a verified current metadata row and payload exist. |
+| L16 | After current ParsedArtifact invalidation/removal, with no other root, complete scan and grace may classify its asset orphan; a head-only row is not a root. |
+| L17 | Import byte write followed by verification/callback failure retains exact ownership or reconcilable residue; no silent unclassified asset. |
+| L18 | ParsedArtifact byte write followed by prepublish failure has the same safety property. |
+| L19 | An asset shared by Question and ParsedArtifact survives removal of either one alone. |
+| L20 | B0 excludes derived ParsedArtifact but restores all authoritative package-required Question assets consistently. |
+
+L15/L16 also cover the corrupt-current-row boundary: missing, corrupt, or
+unsupported sidecar/payload makes the root scan incomplete and yields zero
+destructive deletes, rather than an empty Artifact root set.
+
+## 9. HARD STOP for destructive activation
+
+Stop before any physical ContentAsset sweep if a production writer is
+unclassified; an identity can become visible before ownership; current
+ParsedArtifact verification is incomplete; a durable or candidate root cannot
+be scanned; B0/GC/writer mutation admission is ambiguous; raw physical
+inventory skips an entity; resolved path containment is unproven; Exam guards
+are bypassed; startup recovery/grace cannot distinguish residues from live
+assets; or a proposed fix requires new schema, registry, refcount, or public
+contract beyond this selected v0 design. Preserve bytes and return an
+observable blocked/incomplete result. Re-plan the precise failed invariant
+before changing that boundary.

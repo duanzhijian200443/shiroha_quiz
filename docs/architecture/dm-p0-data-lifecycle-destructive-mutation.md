@@ -139,9 +139,9 @@ ParsedArtifact metadata/sidecars, RAG builds/heads/chunks/FTS, ImportTasks,
 credentials, logs, provider raw responses, and other rebuildable or secret
 state remain excluded or scrubbed according to B0 rules.
 
-### B0 v23 alignment
+### B0 v23 alignment (historical DM-P0 freeze)
 
-**CURRENT**
+**AT DM-P0 FREEZE**
 
 - Runtime schema = v23.
 - AnswerAttempt backup/restore already has acceptance coverage. The acceptance
@@ -150,7 +150,7 @@ state remain excluded or scrubbed according to B0 rules.
   restore.
 - AnswerAttempt is already part of whole-backup durable state.
 
-**GAP**
+**GAP AT THAT FREEZE**
 
 - The B0 canonical contract still describes runtime schema v22 in several
   places and its INCLUDE table is v22-based.
@@ -225,3 +225,18 @@ Agent/MCP boundary differences. It reuses DM-D1E confirmations, preserves W0,
 and keeps MCP v0 exactly six READ_ONLY tools. It adds no autonomous destructive
 Agent/MCP runtime. OBS-1 remains historically CLOSED/FROZEN; the destructive
 operation kind is a post-OBS-1 extension, not retroactive OBS-1 v0 scope.
+
+## 13. ContentAsset lifecycle successor
+
+The Rich Image deferral in §9 and the original DM-D1–D5 graph record the
+historical DM-P0 boundary. The current, docs-only successor target for
+ContentAsset runtime retention, writer ownership, physical inventory, B0
+separation, and future destructive collection is
+`dm-p0-content-asset-lifecycle.md`. It does not retroactively activate GC.
+
+The v23 and v22 wording in §8 is historical stage context, not a
+current-runtime version claim; runtime schema is v26. B0's focused contract
+records the current version and compatibility fixtures. The successor also
+supersedes any reading of §9 that would let a current ParsedArtifact's
+`SourceAssetPart` references be deleted while its verified current payload
+still exists.
