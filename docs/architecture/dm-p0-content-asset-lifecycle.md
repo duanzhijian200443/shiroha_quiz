@@ -1,6 +1,6 @@
 # DM-P0-D0 ContentAsset lifecycle successor
 
-Status: **D0 contract frozen; I0 and B0G implemented; I1A and later stages not activated; lifecycle implementation incomplete**.
+Status: **D0 contract amended for durable reclamation grace; I0 and B0G implemented; I1A and later stages not activated; lifecycle implementation incomplete**.
 
 This successor defines the ContentAsset lifecycle target for future destructive
 work. It supplements the historical DM-P0 destructive-mutation contract. D0 is
@@ -182,11 +182,73 @@ mutation. No deletion follows a symlink, junction, or reparse point. Lexical
 proof of resolved filesystem containment; I2/I3 must prove target and parent
 containment on supported platforms or fail closed.
 
-Report-only I2 may classify without activating deletion. For v0 the selected
-design uses Application ownership, full scans, conservative retention, and
-existing identities; it requires no new registry, refcount, or schema
-migration **if** I1A/I1B/I2/I4 prove the invariants above. This is a selected
-design condition, not a claim that future extensions never need persistence.
+Report-only I2 may classify without activating deletion. The original D0 v0
+selection assumed Application ownership, full scans, conservative retention,
+and existing identities could avoid a registry, refcount, and schema migration
+**if** I1A/I1B/I2/I4 proved all required invariants. G0 repository verification
+invalidated only the no-schema part of that conditional assumption: there is no
+existing durable evidence of when an identity first became unreachable. File
+creation and modification times prove file age, not continuous orphan age.
+The focused amendment below permits one derived observation table while still
+forbidding an ownership registry, refcount, and persisted live-set cache.
+
+### G0 amendment: durable reclamation observation
+
+Schema v27 adds `content_asset_reclamation_observations`, a narrow **derived
+maintenance-state** ledger keyed by `(source_id, local_asset_id)`. Each row has
+`first_unreachable_at` and `last_verified_unreachable_at`, both UTC Unix
+seconds. It stores no path, storage key, owner identity, payload, provider
+data, reference count, or live-set cache. A row is grace evidence only:
+presence never proves an asset orphan, and absence never proves it live.
+Current liveness always comes from the complete Question, current
+ParsedArtifact, durable candidate, and active-owner scans plus physical
+inventory. An unavailable, corrupt, invalid-schema, or unreadable ledger makes
+the entire destructive pass incomplete and permits zero deletes; a missing
+row for one asset merely means that asset is not grace eligible.
+
+Only a complete maintenance root scan and raw physical inventory may create a
+new observation for a canonical, safely classified, currently unreachable
+asset. A complete later observation of the same unreachable asset updates
+`last_verified_unreachable_at` without changing `first_unreachable_at`.
+Incomplete roots or inventory, bound hits, corrupt current Artifacts,
+malformed pending-review owners, maintenance conflicts, and ambiguous paths
+create no new grace evidence. Root release never starts a timer directly: the
+next complete observation does. Report-only I2 may internally classify an
+unreachable asset as `unobserved`, `gracePending`, or `graceEligible`, but
+durable, log, and UI results expose only fixed states and counts.
+
+Every production transition that can make an exact identity a Question root,
+current ParsedArtifact root, durable pending-review owner, or active ordinary
+writer owner must delete/reset its observation **before** the owner becomes
+visible or the first byte can become visible. I1A writer predeclaration resets
+even for an idempotent write to pre-existing bytes; that write never acquires
+physical-delete ownership of the pre-existing file. Question root acquisition
+should reset in the same SQLite transaction as typed persistence, covering all
+production write routes. ParsedArtifact CAS publish should reset within its
+metadata transaction; if that cannot be composed, reset first and then CAS,
+leaving a conservative restarted timer on CAS failure. Pending-review publish
+resets idempotently after writer predeclaration. Question deletion, Artifact
+replacement/removal, and candidate discard do not create observations.
+Startup reconciliation invalidates stale observations for any currently live
+identity before considering grace; an old row alone never authorizes deletion.
+
+Grace is satisfied only when an observation remains valid across all
+intervening root/ownership acquisitions, at least 72 hours have elapsed since
+`first_unreachable_at`, a new complete scan still finds the identity
+unreachable, raw physical classification is safe, and fresh exact path,
+inventory, and root revalidation passes under exclusive maintenance. Neither
+`ctime` nor `mtime` substitutes for `first_unreachable_at`. If current UTC
+Unix seconds precede either stored timestamp, the observation is invalidated
+and restarted only through a complete observation; that pass deletes nothing.
+No network time authority is introduced.
+
+The observation ledger is not authoritative user backup state. B0 export
+scrubs every row from its sanitized snapshot and includes no observation in
+the manifest. Restore, including migration of an older supported package to
+v27, leaves the ledger empty and restarts all grace timers. This can delay
+reclamation but cannot shorten grace. The v26-to-v27 migration is additive and
+must preserve Questions, typed sidecars, Review state/log, AnswerAttempts,
+Exams, LibraryFiles, current ParsedArtifacts, and ImportTasks.
 
 ## 6. Concurrency and operation ordering
 
@@ -228,6 +290,7 @@ AnswerAttempt history remains intact in either operation.
 D0 contract (this document)
   -> I0 clear-all Exam guard
   -> B0G fail-fast export admission + Question asset-set validation
+  -> D0-G0 derived observation ledger amendment (this section)
   -> I1A ContentAsset writer ownership closure
   -> I1B ParsedArtifact invalidation and derived reconciliation
   -> I2 complete physical inventory + report-only classifier
@@ -238,12 +301,10 @@ D0 contract (this document)
   -> CL canonical closure
 ```
 
-Each arrow is an activation dependency; stages may split into smaller serial
-PRs without weakening it. Suggested PR boundaries are D0 docs, I0 guard,
-B0G admission/asset-set validation, I1A ordinary writers, I1B artifact and
-retrieval ordering, I2 inventory and report-only classification, I4 recovery,
-I3 deletion, U0 UI, and V0/CL verification/closure. I2 classification is never
-final proof for I3 unless I1A and I1B have closed writer and derived ownership.
+Each arrow is an activation dependency. The current closure work keeps B0G,
+this amendment, I1A, I1B, I2, I4, I3, U0, and V0/CL on one branch for one
+final PR. I2 classification is never final proof for I3 unless I1A and I1B
+have closed writer and derived ownership and the v27 ledger proves grace.
 No stage activates its successor merely because its PR was created.
 
 ## 8. Future acceptance contract
@@ -282,6 +343,13 @@ B0G also requires a focused export regression: an unsupported QuestionDraftV2
 sidecar schema fails package asset-set construction before publication, rather
 than silently omitting its ContentAssets.
 
+The G0 amendment additionally requires synthetic migration and B0
+compatibility checks, complete-observation grace tests before and after 72
+hours, reset tests for Question, ParsedArtifact, candidate and writer
+acquisition, root-release and restart tests, backward-clock and unavailable
+ledger failures, and proof that a restored ledger is empty. These are
+implementation acceptance requirements, not claims of current coverage.
+
 ## 9. HARD STOP for destructive activation
 
 Stop before any physical ContentAsset sweep if a production writer is
@@ -291,7 +359,11 @@ be scanned; B0 can silently omit an uninterpretable Question sidecar;
 B0/GC/writer mutation admission is ambiguous; raw physical
 inventory skips an entity; resolved path containment is unproven; Exam guards
 are bypassed; startup recovery/grace cannot distinguish residues from live
-assets; or a proposed fix requires new schema, registry, refcount, or public
-contract beyond this selected v0 design. Preserve bytes and return an
+assets; or a proposed fix requires schema beyond the focused v27 observation
+table, an ownership registry, refcount, or public contract beyond this amended
+design. Also stop if any production root-acquisition path cannot reset its
+observation before visibility, if v27/B0 compatibility cannot be preserved, or
+if ParsedArtifact CAS cannot provide safe reset-before-publish ordering.
+Preserve bytes and return an
 observable blocked/incomplete result. Re-plan the precise failed invariant
 before changing that boundary.
