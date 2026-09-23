@@ -266,6 +266,28 @@ void main() {
     expect(await db.query('paper_questions'), hasLength(1));
   });
 
+  test('transaction start failure is unavailable before guard completion',
+      () async {
+    final db = await DatabaseHelper.instance.database;
+    await _seedQuestionData(db, 'question-transaction-start');
+    await db.execute('BEGIN EXCLUSIVE');
+
+    await expectLater(
+      ReviewRepository().clearAllData(),
+      throwsA(
+        isA<QuestionDataClearAllException>().having(
+          (error) => error.failure,
+          'failure',
+          QuestionDataClearAllFailure.unavailable,
+        ),
+      ),
+    );
+
+    await db.execute('ROLLBACK');
+    await _expectQuestionDataPresent(
+        db, <String>['question-transaction-start']);
+  });
+
   test('post-guard delete failure rolls back every clear-all table', () async {
     final db = await DatabaseHelper.instance.database;
     await _seedQuestionData(db, 'question-rollback');

@@ -159,6 +159,7 @@ class ReviewRepository implements StudyMetricsQueryPort {
   /// separate from [resetReviewState], which only resets mutable scheduling
   /// columns and never deletes ReviewLog or AnswerAttempt history.
   Future<void> clearAllData() async {
+    var examReferenceGuardPassed = false;
     try {
       final db = await _db;
       await db.transaction((txn) async {
@@ -195,6 +196,7 @@ class ReviewRepository implements StudyMetricsQueryPort {
           );
         }
 
+        examReferenceGuardPassed = true;
         await txn.delete('answer_attempts');
         await txn.delete('review_states');
         await txn.delete('review_logs');
@@ -203,8 +205,10 @@ class ReviewRepository implements StudyMetricsQueryPort {
     } on QuestionDataClearAllException {
       rethrow;
     } catch (_) {
-      throw const QuestionDataClearAllException(
-        QuestionDataClearAllFailure.transactionFailed,
+      throw QuestionDataClearAllException(
+        examReferenceGuardPassed
+            ? QuestionDataClearAllFailure.transactionFailed
+            : QuestionDataClearAllFailure.unavailable,
       );
     }
   }
