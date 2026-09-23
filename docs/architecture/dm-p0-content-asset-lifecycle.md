@@ -1,6 +1,6 @@
 # DM-P0-D0 ContentAsset lifecycle successor
 
-Status: **D0 contract frozen; implementation stages not activated**.
+Status: **D0 contract frozen; I0 clear-all Exam guard implemented; B0G and later implementation stages not activated**.
 
 This successor defines the ContentAsset lifecycle target for future destructive
 work. It supplements the historical DM-P0 destructive-mutation contract. D0 is

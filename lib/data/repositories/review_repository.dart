@@ -1,3 +1,4 @@
+import '../../application/review/question_data_clear_all.dart';
 import '../../application/study_query/study_query_ports.dart';
 import '../../core/database/database_helper.dart';
 import '../../core/database/sqflite_runtime.dart';
@@ -158,13 +159,58 @@ class ReviewRepository implements StudyMetricsQueryPort {
   /// separate from [resetReviewState], which only resets mutable scheduling
   /// columns and never deletes ReviewLog or AnswerAttempt history.
   Future<void> clearAllData() async {
-    final db = await _db;
-    await db.transaction((txn) async {
-      await txn.delete('answer_attempts');
-      await txn.delete('review_states');
-      await txn.delete('review_logs');
-      await txn.delete('questions');
-    });
+    var examReferenceGuardPassed = false;
+    try {
+      final db = await _db;
+      await db.transaction((txn) async {
+        try {
+          final examReferenceTable = await txn.rawQuery(
+            "SELECT type FROM sqlite_master WHERE name = 'paper_questions' "
+            'LIMIT 1',
+          );
+          if (examReferenceTable.isNotEmpty) {
+            if (examReferenceTable.single['type'] != 'table') {
+              throw const QuestionDataClearAllException(
+                QuestionDataClearAllFailure.unavailable,
+              );
+            }
+            final references = await txn.rawQuery('''
+              SELECT 1
+              FROM paper_questions
+              WHERE question_id IN (
+                SELECT id FROM questions
+              )
+              LIMIT 1
+            ''');
+            if (references.isNotEmpty) {
+              throw const QuestionDataClearAllException(
+                QuestionDataClearAllFailure.examReferenced,
+              );
+            }
+          }
+        } on QuestionDataClearAllException {
+          rethrow;
+        } catch (_) {
+          throw const QuestionDataClearAllException(
+            QuestionDataClearAllFailure.unavailable,
+          );
+        }
+
+        examReferenceGuardPassed = true;
+        await txn.delete('answer_attempts');
+        await txn.delete('review_states');
+        await txn.delete('review_logs');
+        await txn.delete('questions');
+      });
+    } on QuestionDataClearAllException {
+      rethrow;
+    } catch (_) {
+      throw QuestionDataClearAllException(
+        examReferenceGuardPassed
+            ? QuestionDataClearAllFailure.transactionFailed
+            : QuestionDataClearAllFailure.unavailable,
+      );
+    }
   }
 
   /// D1D targeted ReviewState reset.
