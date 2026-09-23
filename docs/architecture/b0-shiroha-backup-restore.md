@@ -38,6 +38,20 @@ leases; the B0G successor stage must add fail-fast admission before any
 destructive ContentAsset collector can activate. This paragraph is a future
 contract, not a claim that B0G is already implemented.
 
+Restore commit is a separate journaled ContentAsset recovery writer. It copies
+validated staged manifest assets into the live managed root under B0 exclusive
+authority and mutation quiescence, with rollback/recovery and post-swap
+verification. It does not use the ordinary OCR candidate ownership protocol.
+
+**Current B0 asset-set gap:**
+`BackupSnapshotRepository._readReferencedContentAssetIdentities` skips an
+unsupported `QuestionDraftV2` sidecar schema. Database quick-check, FK, and
+scrub validation do not supply its missing ContentAsset marks. **Target:** B0
+export fails closed before package publication when any admitted Question
+sidecar schema/content cannot be fully interpreted. B0G must close this narrow
+validation gap together with fail-fast export admission before destructive GC
+activation.
+
 ### Historical amendment: AI Config schema v24
 
 At that amendment's closure, runtime and current-runtime backup fixtures used
@@ -381,7 +395,9 @@ managedFiles[]:
 
 Type/format rules:
 
-- `packageVersion` is the integer `1`.
+- The frozen v1 baseline uses integer `packageVersion = 1`; current export uses
+  `2`, and the strict decoder accepts v1 and v2. Version 2 adds the bounded
+  `contentAssets[]` extension described above.
 - `schemaVersion` is the integer SQLite `PRAGMA user_version` of the sanitized
   snapshot.
 - `createdAtUtc` is a deterministic UTC timestamp.

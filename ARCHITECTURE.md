@@ -183,9 +183,10 @@ Rules:
 - A verified current `parsed_artifacts` row and its decoded `SourceAssetPart`
   identities form a derived runtime ContentAsset retention root. A revision
   head alone does not; an unreadable current payload blocks destructive scans.
-  OCR artifact generation is also a production ContentAsset byte writer. See
-  `docs/architecture/dm-p0-content-asset-lifecycle.md` for the docs-only D0
-  target and the still-open writer ownership gap.
+  OCR artifact generation is also an ordinary runtime ContentAsset byte writer;
+  B0 restore writes ContentAssets through a separate journaled recovery path.
+  See `docs/architecture/dm-p0-content-asset-lifecycle.md` for the docs-only
+  D0 target and the still-open ordinary writer ownership gap.
 - F1-D1 implemented the additive v20 artifact tables without modifying any
   earlier table. RAG-1 subsequently raised the runtime schema to v21 at its
   closure with derived lexical-retrieval cache tables and a dedicated FTS5
@@ -423,8 +424,8 @@ boundary remains frozen and applies to any future P7 extension:
   and never calls `retrieve_file_content`; MCP v0 stays exactly six
   READ_ONLY tools, A0 stays exactly six tools, and W0 is not a P7 workflow.
 - P7 adds no schema change and no persisted candidate/generation state/
-  provenance/provider request/result/review state; runtime schema remains
-  v21.
+  provenance/provider request/result/review state; runtime schema was v21 at
+  P7 closure. The current runtime is v26.
 
 ## 12. UI Finalization Presentation boundary
 
@@ -447,8 +448,8 @@ the separate `propose_study_plan` capability; only explicit user adoption
 through an Application command with a durable transaction-level
   compare-and-set may persist the single global `ActiveStudyPlan`. MCP v0
   remains exactly six READ_ONLY tools and the A0 read catalog remains exactly
-  six tools. SPL-1-D1 introduced the v22 `study_plans` table; the current
-  runtime schema is v24. ActiveStudyPlan durable singleton persistence exists;
+  six tools. SPL-1-D1 introduced the v22 `study_plans` table; runtime schema
+  was v24 at SPL-1 closure. ActiveStudyPlan durable singleton persistence exists;
   formal adoption
   remains Application-controlled; Agent planning and Assistant draft/adoption
   Presentation are implemented; Today/特训 consumes the adopted plan through
@@ -457,7 +458,8 @@ through an Application command with a durable transaction-level
   materializes the exact ordered selected storage IDs through the narrow
   non-preview Practice seam (never `PracticePage.initialQuestions`, which
   remains preview-only). SPL-1 StudyPlan Agent Tool v0 is CLOSED / FROZEN
-  (P0–D0–D1–I0–U0–V0–CL COMPLETE; stage schema v22, current runtime v24).
+  (P0–D0–D1–I0–U0–V0–CL COMPLETE; stage schema v22, v24 at closure;
+  current runtime v26).
 
   The focused SPL-1 authority is
 `docs/product/SPL-1 StudyPlan Agent Tool v0.md`.

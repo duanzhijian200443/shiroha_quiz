@@ -15,18 +15,24 @@ by this document alone.
 | `Question` plus its valid `QuestionDraftV2` typed sidecar | Confirmed learning-data authority | Structurally reachable `ImageNode` identities are authoritative durable roots. `assetRefs` is declared metadata/inventory, not a mark set. |
 | Current `ParsedArtifact` plus verified `SourceDocument` | Rebuildable derived generation | Its `SourceAssetPart` identities are **runtime retention roots** while that current generation exists. They do not become confirmed Question authority. |
 | Pending-review `ImportTask` candidate and active writer operation | Workflow and transient ownership | Exact identities must remain protected until commit, discard, or proven rollback. Existing coverage is incomplete; see §4. |
+| B0 restore commit | Journaled recovery writer | Copies validated staged ContentAssets into the live managed root under B0 exclusive authority and mutation quiescence; it does not use I1A candidate ownership tokens. |
 | `LibraryFile` original managed bytes | Primary source file | Its file identity and bytes are separate from source-qualified ContentAsset identity. |
 | `AnswerAttempt.image.source_file_id` | Soft `LibraryFile` evidence | Neither ContentAsset root nor required FK nor file-deletion blocker. Missing evidence does not corrupt history. |
 | Retrieval/RAG data | Rebuildable derivative of current artifact | No independent ContentAsset root is established by retrieval rows. |
 | `parsed_artifact_heads` | CAS/revision continuity | Never a ContentAsset retention root by itself. |
 
-The production ContentAsset byte writer is
-`OcrSourceDocumentAdapter -> ManagedContentAssetStore`. It has two composed
+Ordinary runtime ContentAsset byte writes use
+`OcrSourceDocumentAdapter -> ManagedContentAssetStore`, with two composed
 callers: Import typed-candidate conversion and OCR ParsedArtifact generation.
-Any future production writer must join the same ownership contract before
-destructive collection can activate. Test and tool writers are not evidence of
-an additional production route, but test-created physical entities are still
-subject to safe inventory classification.
+Separately, B0 restore is a production **recovery writer**:
+`BackupRestoreRuntime._swapLiveState` copies staged manifest ContentAssets into
+the live managed root. Its authority is B0 staged validation, exclusive restore
+commit with mutation quiescence, durable journal/rollback/recovery, and post-swap
+verification. It is not subject to the I1A candidate/pre-write-token protocol.
+Future ordinary writers must join I1A; any new recovery writer needs an
+equally explicit recovery authority before destructive collection activates.
+Test and tool writers are not additional production routes, but test-created
+physical entities are still subject to safe inventory classification.
 
 Question reachability uses the canonical recursive `reachableImageNodes` walk
 through stem, options, `ContentAnswer`, explanation, image alternative content,
@@ -111,6 +117,16 @@ manifest, and the B0 export set must never be inflated by artifact-only roots.
 An unsupported/corrupt Question payload must fail backup or GC completeness,
 not silently contribute an empty set.
 
+**Current B0 gap.** `BackupSnapshotRepository`
+`_readReferencedContentAssetIdentities` currently skips a
+`question_v2_payloads` row when `payload_schema_version` is unsupported.
+`_validateInvariants` checks database integrity, foreign keys, and scrub state,
+but does not recover that missing asset-set mark. B0 export can therefore omit
+assets for an uninterpretable Question sidecar. **Target:** package asset-set
+construction fails closed for every admitted Question sidecar whose schema or
+content cannot be fully interpreted. B0G owns this narrow validation closure;
+I3 cannot activate until it is proven.
+
 ## 4. Writer ownership: present gap and target invariant
 
 **Current gap.** Import conversion can write bytes, verify integrity, invoke
@@ -122,10 +138,11 @@ publish/CAS and cleanup rules do not by themselves own these ContentAsset bytes.
 The present repository therefore does **not** satisfy “protected before first
 byte” and destructive GC is prohibited.
 
-**Target invariant.** Before a durable byte can become visible, every production
-writer obtains explicit operation ownership for a bounded set of exact
-`(sourceId, localAssetId)` identities. The preferred minimal v0 mechanism is
-predeclaring the exact identity before `storeBytesSync`, under the shared
+**Target invariant for ordinary writers.** Before a durable byte can become
+visible, each ordinary runtime writer obtains explicit operation ownership for
+a bounded set of exact `(sourceId, localAssetId)` identities. The preferred
+minimal v0 mechanism is predeclaring the exact identity before
+`storeBytesSync`, under the shared
 Application mutation lease; the Import candidate owner and ParsedArtifact
 generation owner each record it before write. A writer-scoped token may carry
 that declaration within the operation, without a persisted refcount. The write
@@ -179,12 +196,16 @@ design condition, not a claim that future extensions never need persistence.
 ## 6. Concurrency and operation ordering
 
 B0 currently gates export, inspect, and prepare with exclusive authority but
-does not quiesce mutation leases. Restore commit and startup recovery use the
-restore mutation gate. `enterQuiescence` waits for active leases; it is not a
-fail-fast admission primitive. B0G must add fail-fast export admission for a
-busy mutation authority and hold a consistent snapshot boundary. GC must use
-the same exclusive authority and refuse deletion when an active writer,
-restore, backup snapshot, or unresolved lease prevents a complete observation.
+does not quiesce mutation leases. Restore commit uses exclusive authority,
+mutation quiescence, and the journaled recovery path described in §1;
+startup recovery runs from the journal before production database open and
+normal composition. `enterQuiescence` waits for active leases; it is not a
+fail-fast admission primitive. B0G must add
+fail-fast export admission for a busy mutation authority, hold a consistent
+snapshot boundary, and close the unsupported Question sidecar asset-set gap
+in §3. GC must use the same exclusive authority and refuse deletion when an
+active writer, restore, backup snapshot, or unresolved lease prevents a
+complete observation.
 It cannot reuse waiting quiescence as proof of safe admission. No Application
 authority may make a new ContentAsset writer invisible to that gate.
 
@@ -199,12 +220,19 @@ ContentAsset primary learning-data lifetime. There is no proven startup orphan
 sweep or complete derived reconciliation today; I1B/I4 must establish
 idempotent, crash-safe cleanup without promoting retrieval rows to roots.
 
+Explicit user `LibraryFile` deletion and future bulk answer-photo cleanup are
+different authorities. An `AnswerAttempt` having once referenced a file does
+not make it eligible for bulk deletion. Bulk cleanup remains deferred pending
+an atomic eligibility/deletion contract that preserves Project, Conversation,
+Folder, and any future required uses without detaching unrelated relations;
+AnswerAttempt history remains intact in either operation.
+
 ## 7. Implementation dependencies and review units
 
 ```text
 D0 contract (this document)
   -> I0 clear-all Exam guard
-  -> B0G fail-fast export admission
+  -> B0G fail-fast export admission + Question asset-set validation
   -> I1A ContentAsset writer ownership closure
   -> I1B ParsedArtifact invalidation and derived reconciliation
   -> I2 complete physical inventory + report-only classifier
@@ -217,11 +245,11 @@ D0 contract (this document)
 
 Each arrow is an activation dependency; stages may split into smaller serial
 PRs without weakening it. Suggested PR boundaries are D0 docs, I0 guard,
-B0G admission, I1A writers, I1B artifact/retrieval ordering, I2 inventory and
-report-only classification, I4 recovery, I3 deletion, U0 UI, and V0/CL
-verification/closure. I2 classification is never final proof for I3 unless
-I1A and I1B have closed writer and derived ownership. No stage activates its
-successor merely because its PR was created.
+B0G admission/asset-set validation, I1A ordinary writers, I1B artifact and
+retrieval ordering, I2 inventory and report-only classification, I4 recovery,
+I3 deletion, U0 UI, and V0/CL verification/closure. I2 classification is never
+final proof for I3 unless I1A and I1B have closed writer and derived ownership.
+No stage activates its successor merely because its PR was created.
 
 ## 8. Future acceptance contract
 
@@ -241,7 +269,7 @@ claimed to pass at D0:
 | L9 | Restored Question plus required image bytes pass structural and digest validation. |
 | L10 | Question/Bank/clear-all Exam guard or DB failure produces zero premature asset cleanup and no dangling `paper_questions`. |
 | L11 | Removing LibraryFile photo evidence preserves AnswerAttempt history and unavailable-evidence display. |
-| L12 | Shared/bulk photo evidence cleanup neither blocks unrelated file deletion nor deletes answer history. |
+| L12 | An answer-photo `LibraryFile` with Project, Conversation, Folder, or future required use is ineligible for bulk evidence cleanup. Bulk cleanup never detaches unrelated relations merely because AnswerAttempt holds soft evidence; AnswerAttempt history is preserved regardless. |
 | L13 | An invalid/empty/oversized physical asset skipped by healthy listing is still accounted for by destructive inventory. |
 | L14 | B0 export encountering an active long-running mutation fails fast; it does not wait into an inconsistent snapshot. |
 | L15 | ParsedArtifact-only asset remains protected while a verified current metadata row and payload exist. |
@@ -255,12 +283,17 @@ L15/L16 also cover the corrupt-current-row boundary: missing, corrupt, or
 unsupported sidecar/payload makes the root scan incomplete and yields zero
 destructive deletes, rather than an empty Artifact root set.
 
+B0G also requires a focused export regression: an unsupported QuestionDraftV2
+sidecar schema fails package asset-set construction before publication, rather
+than silently omitting its ContentAssets.
+
 ## 9. HARD STOP for destructive activation
 
 Stop before any physical ContentAsset sweep if a production writer is
 unclassified; an identity can become visible before ownership; current
 ParsedArtifact verification is incomplete; a durable or candidate root cannot
-be scanned; B0/GC/writer mutation admission is ambiguous; raw physical
+be scanned; B0 can silently omit an uninterpretable Question sidecar;
+B0/GC/writer mutation admission is ambiguous; raw physical
 inventory skips an entity; resolved path containment is unproven; Exam guards
 are bypassed; startup recovery/grace cannot distinguish residues from live
 assets; or a proposed fix requires new schema, registry, refcount, or public
