@@ -1,6 +1,6 @@
 # DM-P0-D0 ContentAsset lifecycle successor
 
-Status: **D0 contract frozen; I0 clear-all Exam guard implemented; B0G and later implementation stages not activated**.
+Status: **D0 contract frozen; I0 and B0G implemented; I1A and later stages not activated; lifecycle implementation incomplete**.
 
 This successor defines the ContentAsset lifecycle target for future destructive
 work. It supplements the historical DM-P0 destructive-mutation contract. D0 is
@@ -117,15 +117,10 @@ manifest, and the B0 export set must never be inflated by artifact-only roots.
 An unsupported/corrupt Question payload must fail backup or GC completeness,
 not silently contribute an empty set.
 
-**Current B0 gap.** `BackupSnapshotRepository`
-`_readReferencedContentAssetIdentities` currently skips a
-`question_v2_payloads` row when `payload_schema_version` is unsupported.
-`_validateInvariants` checks database integrity, foreign keys, and scrub state,
-but does not recover that missing asset-set mark. B0 export can therefore omit
-assets for an uninterpretable Question sidecar. **Target:** package asset-set
-construction fails closed for every admitted Question sidecar whose schema or
-content cannot be fully interpreted. B0G owns this narrow validation closure;
-I3 cannot activate until it is proven.
+**B0G implementation.** `BackupSnapshotRepository`
+`_readReferencedContentAssetIdentities` fails package asset-set construction
+when an admitted `question_v2_payloads` row has an unsupported schema or
+uninterpretable content. Export does not publish a package in that case.
 
 ## 4. Writer ownership: present gap and target invariant
 
@@ -195,15 +190,15 @@ design condition, not a claim that future extensions never need persistence.
 
 ## 6. Concurrency and operation ordering
 
-B0 currently gates export, inspect, and prepare with exclusive authority but
-does not quiesce mutation leases. Restore commit uses exclusive authority,
+B0 gates export, inspect, and prepare with exclusive authority. Export also
+uses atomic fail-fast maintenance admission: an active mutation yields a fixed
+busy failure before snapshot work, while an admitted export blocks new
+mutations. Restore commit uses exclusive authority,
 mutation quiescence, and the journaled recovery path described in §1;
 startup recovery runs from the journal before production database open and
-normal composition. `enterQuiescence` waits for active leases; it is not a
-fail-fast admission primitive. B0G must add
-fail-fast export admission for a busy mutation authority, hold a consistent
-snapshot boundary, and close the unsupported Question sidecar asset-set gap
-in §3. GC must use the same exclusive authority and refuse deletion when an
+normal composition. `enterQuiescence` still waits for active leases; export
+uses the separate `tryEnterQuiescence` primitive. GC must use the same
+exclusive authority and refuse deletion when an
 active writer, restore, backup snapshot, or unresolved lease prevents a
 complete observation.
 It cannot reuse waiting quiescence as proof of safe admission. No Application
