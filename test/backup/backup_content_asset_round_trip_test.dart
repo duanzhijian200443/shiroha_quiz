@@ -292,6 +292,35 @@ void main() {
       <String>['asset_answer', 'asset_explanation', 'asset_table'],
     );
   });
+
+  for (final invalidPayload in <String, Object?>{
+    'unsupported schema': 999,
+    'corrupt JSON': '{',
+  }.entries) {
+    test('B0 blocks ${invalidPayload.key} before package publication',
+        () async {
+      final db = await helper.database;
+      await db.update(
+        'question_v2_payloads',
+        invalidPayload.key == 'unsupported schema'
+            ? <String, Object?>{
+                'payload_schema_version': invalidPayload.value,
+              }
+            : <String, Object?>{'payload_json': invalidPayload.value},
+      );
+      final packagePath = p.join(temp.path, 'export', 'invalid.shiroha');
+
+      await expectLater(
+        buildRuntime().exportTo(packagePath),
+        throwsA(isA<BackupException>().having(
+          (error) => error.failure,
+          'failure',
+          BackupFailure.databaseInvalid,
+        )),
+      );
+      expect(File(packagePath).existsSync(), isFalse);
+    });
+  }
 }
 
 Future<void> _replacePayload(Database db, QuestionDraftV2 draft) async {

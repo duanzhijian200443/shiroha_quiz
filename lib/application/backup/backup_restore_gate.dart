@@ -57,6 +57,15 @@ final class BackupRestoreMutationGateState {
     _drainWaiter = null;
   }
 
+  /// Admits maintenance only when no mutation is active. The check and state
+  /// change are synchronous so no new mutation can enter between them.
+  void tryEnterQuiescence() {
+    if (_maintenanceRequested || _activeMutations > 0) {
+      throw const BackupException(BackupFailure.restoreBusy);
+    }
+    _maintenanceRequested = true;
+  }
+
   void exitQuiescence() {
     _maintenanceRequested = false;
   }

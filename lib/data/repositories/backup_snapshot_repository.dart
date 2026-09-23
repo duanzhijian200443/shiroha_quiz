@@ -121,7 +121,9 @@ final class BackupSnapshotRepository {
     for (final row in rows) {
       final schemaVersion = row['payload_schema_version'];
       final payloadJson = row['payload_json'];
-      if (schemaVersion != QuestionDraftV2Codec.schemaVersion) continue;
+      if (schemaVersion != QuestionDraftV2Codec.schemaVersion) {
+        throw const BackupException(BackupFailure.databaseInvalid);
+      }
       if (payloadJson is! String || payloadJson.isEmpty) {
         throw const BackupException(BackupFailure.databaseInvalid);
       }
