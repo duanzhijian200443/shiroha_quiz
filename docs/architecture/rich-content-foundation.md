@@ -270,6 +270,15 @@ this invariant with source-qualified managed content assets and B0 manifest,
 archive, and restore validation; registry, reference counting, and garbage
 collection remain deferred.
 
+The preceding “before production activation” rule is historical activation
+ordering: the bounded typed ImageNode path and B0 package-v2 support are now
+present. The docs-only DM-P0-D0 successor
+(`dm-p0-content-asset-lifecycle.md`) freezes future physical lifecycle
+semantics. Question reachability, not unused `assetRefs` inventory entries,
+marks authoritative learning-data roots; a verified current ParsedArtifact
+`SourceAssetPart` is a separate derived runtime retention root. Its writer
+ownership closure and destructive GC remain unimplemented.
+
 ## D. TableNode v0 FINAL Contract
 
 ### D.1 Shared canonical structure

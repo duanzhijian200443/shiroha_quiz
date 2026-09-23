@@ -126,8 +126,13 @@ Forbidden from persistence:
 - temporary image paths
 - parser task/attempt state
 
-v0 does not persist binary image bytes. DOCX/Markdown/OCR images keep only safe
-metadata, alternative text, or a typed unsupported/unavailable issue.
+The ParsedArtifact sidecar does not embed binary image bytes. Its
+`SourceDocument` can persist `SourceAssetPart` identities for OCR images whose
+bytes are stored separately in `ManagedContentAssetStore`; the prior v0
+sentence about binary bytes described the sidecar boundary, not an absence of
+ContentAsset writes. See the DM-P0-D0 successor
+`dm-p0-content-asset-lifecycle.md` for runtime retention and the current
+writer ownership gap.
 
 Decode must strictly reject:
 
@@ -153,6 +158,15 @@ Rationale:
 - relative `storage_key` supports Windows/mobile portability;
 - suits later P6, Agent, and RAG consumers;
 - derived sidecars follow explicit backup/GC rules.
+
+For ContentAsset retention, a “current ParsedArtifact” requires a valid
+`parsed_artifacts` current metadata row plus a safely readable sidecar/payload
+that passes fileId/artifactId binding, payload schema/version, digest/size,
+and `SourceDocument` decode. `parsed_artifact_heads` only preserves CAS/revision
+history: a head without a current metadata row is not a retention root. A
+current row with a missing, corrupt, unsupported, or unreadable payload makes
+the root scan incomplete and any destructive pass deletes zero bytes; it is
+never interpreted as an empty set of references.
 
 Publish sequence:
 
@@ -381,6 +395,12 @@ Stop conditions:
   history, P6/P7/RAG, MCP, or UI).
 
 ## 13. Deferred capabilities
+
+This list records the original F1 v0 stage scope. “Binary asset persistence”
+meant embedding bytes in the ParsedArtifact payload; the later composed OCR
+route already writes separate managed ContentAsset bytes as described in §5.
+Its ownership and collection follow the DM-P0-D0 successor, not this historical
+deferred list.
 
 - ZIP
 - vision/AI question parsing
