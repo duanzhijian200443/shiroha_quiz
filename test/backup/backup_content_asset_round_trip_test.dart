@@ -525,6 +525,7 @@ void main() {
   for (final invalidPayload in <String, Object?>{
     'unsupported schema': 999,
     'corrupt JSON': '{',
+    'well-formed payload the codec rejects': '{"unexpected":true}',
   }.entries) {
     test('B0 blocks ${invalidPayload.key} before package publication',
         () async {
