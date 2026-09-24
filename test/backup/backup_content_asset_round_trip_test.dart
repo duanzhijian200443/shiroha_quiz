@@ -201,7 +201,7 @@ void main() {
     final runtime = buildRuntime();
     await runtime.exportTo(packagePath);
     final manifest = await BackupArchiveIo.readManifestOnly(packagePath);
-    expect(manifest.schemaVersion, 27);
+    expect(manifest.schemaVersion, contentAssetReclamationSchemaVersion);
     expect(manifest.contentAssets, hasLength(1));
 
     final extracted = await BackupArchiveIo.extractAndValidate(
@@ -271,7 +271,7 @@ void main() {
     await runtime.prepareRestore(oldPackage);
     await runtime.commitPreparedRestore();
     final restored = await helper.database;
-    expect(await restored.getVersion(), 27);
+    expect(await restored.getVersion(), contentAssetReclamationSchemaVersion);
     expect(await restored.query(contentAssetReclamationTable), isEmpty);
     expect(await restored.query('question_v2_payloads'), hasLength(1));
     expect(
