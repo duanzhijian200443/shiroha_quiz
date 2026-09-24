@@ -288,7 +288,8 @@ jobs:
             'test/core/database/content_asset_reclamation_v27_schema_test.dart',
             'test/services/file_library/content_asset_lifecycle_maintenance_test.dart',
             'test/backup/backup_content_asset_round_trip_test.dart',
-            'test/dm_d1e_destructive_confirmation_test.dart'
+            'test/dm_d1e_destructive_confirmation_test.dart',
+            'test/ocr_smoke_report_test.dart'
           )
 
           $shardCount = 4
