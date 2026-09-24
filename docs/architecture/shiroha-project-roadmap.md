@@ -1,10 +1,12 @@
-# N0 Post-P5 Canonical Roadmap
+# Shiroha Canonical Project Roadmap
 
-Status: **Canonical post-P5 stage ordering**.
+Status: **Canonical project stage/status authority**.
 
-R1–R8 core refactor and P5 typed manual answer repair are complete. This roadmap supersedes the old near-term sequence `P5 -> P6 -> P7` as the default implementation order. Historical plans remain useful as provenance but must not be treated as current scheduling authority.
+This file evolved from the former N0 post-P5 roadmap. It now serves as the repository-wide authority for project stage ordering, completion/deferred status, and cross-stage follow-up work. Focused architecture/product contracts remain authoritative inside their own domains, while merged code and tests provide implementation evidence.
 
-## Current-stage status amendment
+R1–R8 core refactor and P5 typed manual answer repair are complete. The historical post-P5 sequence is retained below as provenance, but historical plans must not be treated as current scheduling authority.
+
+## Current stage status snapshot
 
 The canonical sequence below records the original post-P5 dependency and stage
 decisions. Delivery has since advanced some independent read-side stages ahead
@@ -22,7 +24,7 @@ C0
 A0
 ```
 
-The current-stage amendment is:
+Current implementation snapshot:
 
 ```text
 C0 Conversation Foundation — COMPLETE
@@ -70,26 +72,26 @@ RAG1-P0 through RAG1-CL — COMPLETE
 RAG-1 Lexical Retrieval — COMPLETE
 RAG-2 Semantic Embedding — DEFERRED
 RAG-3 Hybrid Retrieval / Rerank — DEFERRED
-  SPL-1-P0 StudyPlan Agent Tool v0 contract freeze — COMPLETE
-  SPL-1-D0 Domain + transient draft + planning/candidate read seams — COMPLETE
-  SPL-1-D1 v22 persistence + durable CAS commands — COMPLETE
-  SPL-1-I0 Agent planning tool + draft/adoption Presentation — COMPLETE
-  SPL-1-U0 Today / 特训 + dynamic selection + Practice seam — COMPLETE
-  SPL-1-V0 Focused acceptance — COMPLETE
-  AGENT-FB Bounded Fallback v0 — COMPLETE / CLOSED
-  OCR-UX Explicit OCR Activation v0 — COMPLETE / CLOSED
-  CONV-MOVE Conversation Relocation v0 — COMPLETE / CLOSED
-  U1-LIFECYCLE-UX Closure v0 — COMPLETE / CLOSED
-  OBS-1 Unified Operation Trace v0 — COMPLETE / CLOSED
-  B0-P0 .shiroha Backup / Restore canonical contract — COMPLETE
-  B0-D0 Package / Manifest Core — COMPLETE
-  B0-E0 Export — COMPLETE
-  B0-I0 Whole Restore + Rollback — COMPLETE
-  B0-U0 Minimal UI — COMPLETE
-  B0-V0 Round-trip / corruption acceptance — COMPLETE
-  B0-CL Closure — COMPLETE
-  Current runtime schema — v23
-  B0 .shiroha Backup / Restore — CLOSED / FROZEN
+SPL-1-P0 StudyPlan Agent Tool v0 contract freeze — COMPLETE
+SPL-1-D0 Domain + transient draft + planning/candidate read seams — COMPLETE
+SPL-1-D1 v22 persistence + durable CAS commands — COMPLETE
+SPL-1-I0 Agent planning tool + draft/adoption Presentation — COMPLETE
+SPL-1-U0 Today / 特训 + dynamic selection + Practice seam — COMPLETE
+SPL-1-V0 Focused acceptance — COMPLETE
+AGENT-FB Bounded Fallback v0 — COMPLETE / CLOSED
+OCR-UX Explicit OCR Activation v0 — COMPLETE / CLOSED
+CONV-MOVE Conversation Relocation v0 — COMPLETE / CLOSED
+U1-LIFECYCLE-UX Closure v0 — COMPLETE / CLOSED
+OBS-1 Unified Operation Trace v0 — COMPLETE / CLOSED
+B0-P0 .shiroha Backup / Restore canonical contract — COMPLETE
+B0-D0 Package / Manifest Core — COMPLETE
+B0-E0 Export — COMPLETE
+B0-I0 Whole Restore + Rollback — COMPLETE
+B0-U0 Minimal UI — COMPLETE
+B0-V0 Round-trip / corruption acceptance — COMPLETE
+B0-CL Closure — COMPLETE
+Current runtime schema — v27
+B0 .shiroha Backup / Restore — CLOSED / FROZEN
 ```
 
 B0-P0 through B0-CL are COMPLETE and B0 v0 is CLOSED / FROZEN. The canonical
@@ -112,6 +114,36 @@ remain valid as described there.
 A0 runtime/product contract.
 `docs/product/W0 Safe Agent Write.md` is the focused authority for the current
 W0 proposal, approval, scope, replay and typed-write contract.
+
+## Current follow-up backlog
+
+This table is the repository-level status authority for cross-stage work that is
+not yet CLOSED. Design notes outside the repository may provide UI/detail
+context, but they do not change implementation status by themselves.
+
+| ID | Status | Current evidence / next scope |
+|---|---|---|
+| **ARCH-EXAM-GENERATION-LIFETIME** | BACKLOG / HARDENING | Random mock-exam selection still happens before the final `ExamMutationCommand.createExamPaper` mutation lease. The durable create is gated; full selection-to-create lifetime ownership remains a low-risk hardening item. |
+| **UI-RWD-1** | PARTIAL | Shared `contentMaxWidth` constraints and Assistant/File Library breakpoints already exist. App-wide narrow/wide/desktop acceptance and consistent responsive policy are not yet closed. |
+| **P6-ACT-1** | PLANNED | P6 Supplemental Answer core and `SupplementalAnswerReviewScreen` are complete, but the ordinary-user file-selection/navigation entry is not activated. Reuse existing P6 matching/review/typed-answer authority; do not create a second write path. |
+| **ZIP-BUNDLE-1** | LEGACY ROUTE IMPLEMENTED / MODERNIZATION DEFERRED | Text Direct Read already accepts `.zip` through `ZipDocumentAdapter` (Markdown/TXT/images and relative image resolution). F1 `ParsedArtifact` generation still rejects ZIP as `unsupportedRoute`; follow-up work is lifecycle/asset/admission modernization, not a greenfield ZIP implementation. |
+| **BANK-PKG-1** | PLANNED | Data-management UI contains a disabled “导入结构化题库包 / 暂未开放” placeholder. A versioned `.shiroha-bank` package/import contract and implementation do not yet exist. |
+| **TYPED-ADMISSION-R1** | PLANNED / HARDENING | `OcrTypedCandidateGate` remains batch-wide all-or-nothing. A future bounded refactor may reduce one question's structural-admission failure blast radius without weakening fail-closed semantics. |
+| **RAG-2 / RAG-3** | DEFERRED | RAG-1 local lexical retrieval is COMPLETE. Semantic embeddings and hybrid/rerank retrieval remain separately deferred. |
+
+Status rules:
+
+- **COMPLETE / CLOSED / FROZEN** means the scoped contract and required
+  acceptance are closed; later work must be a new scope.
+- **PARTIAL** means production pieces exist but the roadmap acceptance is not
+  complete.
+- **PLANNED / BACKLOG / DEFERRED** means no automatic activation. A separate
+  task/authorization is required.
+- Legacy functionality may remain supported even when its modern lifecycle
+  integration is deferred; such work must be described as modernization rather
+  than “not implemented”.
+- When a merged PR materially changes one of these statuses, update this file
+  in the same PR or an immediate documentation-only follow-up.
 
 ## 1. Product/architecture direction
 
@@ -142,7 +174,7 @@ The goal is expansion around the typed core, not another repository-wide refacto
 | **J0-P0** | Bank identity decision | Decide `bank_name` compatibility vs additive stable `bankId` registry | decision only unless separately approved |
 | **J0** | Project v0 | Optional Project plus file/bank references; no file duplication | additive migration candidate |
 | **U1** | Information-architecture migration | Replace the primary Subject-library navigation role with Project-aware UI while retaining compatibility surfaces | normally unchanged beyond F0/J0 |
-| **B0** | Whole backup/restore foundation | Versioned ZIP-compatible `.shiroha` package: sanitized DB snapshot + managed LibraryFile bytes; B0 v0 CLOSED / FROZEN | unchanged (B0 itself adds no schema migration; current runtime is now v23 due to the later additive AnswerAttempt migration) |
+| **B0** | Whole backup/restore foundation | Versioned ZIP-compatible `.shiroha` package: sanitized DB snapshot + managed LibraryFile bytes; B0 v0 CLOSED / FROZEN | unchanged (B0 itself adds no schema migration; current runtime is now v27 due to later additive migrations) |
 | **C0** | Conversation foundation | Persistent Conversation/User Message history and Conversation-level File context | additive v19 |
 | **T0** | Application Tool Layer | Reusable query/service facade shared by UI, Agent and MCP | unchanged |
 | **M0** | MCP v0 | Implement the existing exactly-six-tool `READ_ONLY` contract | unchanged |
@@ -241,7 +273,7 @@ B0-P0 Contract Freeze -> B0-D0 Package / Manifest Core -> B0-E0 Export
 ```
 
 B0 adds no second migration authority. B0 itself adds no schema migration;
-current runtime is now v23 due to the later additive AnswerAttempt migration.
+current runtime is now v27 due to later additive migrations.
 
 ### T0 — Application Tool Layer
 
@@ -449,7 +481,7 @@ Agent/MCP/schema catalogs — on synthetic SQLite with zero production code
 changes) is COMPLETE. SPL-1-CL (canonical closure / freeze of the SPL-1 v0
 contract and capability, docs-only) is COMPLETE. SPL-1 StudyPlan Agent Tool
 v0 is CLOSED / FROZEN; its durable persistence stage used schema v22, while
-the current runtime schema is v23. SPL-1 follow-up roadmap items do not
+the current runtime schema is v27. SPL-1 follow-up roadmap items do not
 auto-start.
 
 The frozen capability chain is:
@@ -509,8 +541,8 @@ Until separately authorized:
 ## 6. Documentation authority
 
 - `ARCHITECTURE.md` is the current repository-wide boundary.
-- ADRs under `docs/architecture/adr-*` record accepted post-P5 decisions.
-- This file is the canonical stage ordering.
+- ADRs under `docs/architecture/adr-*` record accepted architecture decisions.
+- This file is the canonical project stage/status roadmap.
 - `mcp-v0-contract.md` remains the authority for MCP v0 semantics.
 - `docs/product/W0 Safe Agent Write.md` is the focused W0 write-boundary
   authority.

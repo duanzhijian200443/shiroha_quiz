@@ -326,6 +326,6 @@ Documentation authority:
   Presentation / Navigation IA authority;
 - `docs/product/u1-agent-first-ia-freeze.md` — historical U1 authority,
   retained except where superseded above;
-- `docs/architecture/n0-post-p5-roadmap.md` — stage ordering and current
+- `docs/architecture/shiroha-project-roadmap.md` — stage ordering and current
   status;
 - `ARCHITECTURE.md` — repository-wide dependency and boundary contract.

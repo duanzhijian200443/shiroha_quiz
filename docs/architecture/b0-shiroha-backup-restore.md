@@ -1008,7 +1008,7 @@ The B0-V0 acceptance suite must cover:
 - `ARCHITECTURE.md` — repository-wide architecture boundary; this document is
   the focused B0 package and schema-version authority.
 - This document — focused B0 `.shiroha` contract authority.
-- `docs/architecture/n0-post-p5-roadmap.md` — stage ordering and current B0
+- `docs/architecture/shiroha-project-roadmap.md` — stage ordering and current B0
   status.
 - `docs/architecture/f1-parsed-artifact-lifecycle.md` — ParsedArtifact
   lifecycle authority; B0 v0 uses the allowed
