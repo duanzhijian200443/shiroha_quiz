@@ -2,14 +2,29 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/content/content_asset_maintenance.dart';
+import 'package:shiroha_quiz/application/parsed_artifacts/parsed_artifact_lifecycle.dart';
 import 'package:shiroha_quiz/core/database/content_asset_reclamation_v27_schema.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/persistence/question_v2_persistence_mapper.dart';
+import 'package:shiroha_quiz/data/repositories/content_asset_reclamation_observation_repository.dart';
+import 'package:shiroha_quiz/data/repositories/content_asset_root_page_repository.dart';
 import 'package:shiroha_quiz/domain/attempt/answer_attempt.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
+import 'package:shiroha_quiz/services/file_library/content_asset_lifecycle_maintenance_service.dart';
+import 'package:shiroha_quiz/services/file_library/managed_content_asset_store.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+final class _NoCurrentArtifact implements ParsedArtifactLifecyclePort {
+  @override
+  Future<ParsedArtifactSnapshot> getCurrentArtifact(String fileId) async =>
+      throw StateError('unexpected current artifact');
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -240,6 +255,61 @@ void main() {
           .single;
       expect(durable['progress_text'], 'previous projection');
       expect(durable['status'], 0);
+    } finally {
+      await helper.close();
+      await DatabaseHelper.resetRuntimeProfileForTesting();
+      await dir.delete(recursive: true);
+    }
+  });
+
+  test('a corrupt grace ledger refuses destructive deletion', () async {
+    final dir = await Directory.systemTemp.createTemp('reclamation_corrupt_');
+    final managed = Directory('${dir.path}/managed')..createSync();
+    await DatabaseHelper.resetRuntimeProfileForTesting();
+    DatabaseHelper.configureRuntimeProfile(
+      DatabaseRuntimeProfile.explicitFile,
+      databasePath: dir.path,
+    );
+    final helper = DatabaseHelper.instance;
+    try {
+      final store = ManagedContentAssetStore(managedRoot: managed);
+      store.storeBytesSync(
+        sourceId: 'source-1',
+        localAssetId: 'asset-1',
+        bytes: base64Decode(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk'
+          '+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        ),
+        mimeType: 'image/png',
+      );
+      final observations = ContentAssetReclamationObservationRepository(
+        databaseHelper: helper,
+      );
+      var now = 1000000;
+      final maintenance = ContentAssetLifecycleMaintenanceService(
+        rootPages: SqliteContentAssetRootPageRepository(databaseHelper: helper),
+        contentAssets: store,
+        parsedArtifacts: _NoCurrentArtifact(),
+        observations: observations,
+        nowUtcSeconds: () => now,
+      );
+
+      expect((await maintenance.reportOnly()).unobservedCount, 1);
+      now += ContentAssetLifecycleMaintenanceService.graceSeconds;
+
+      final db = await helper.database;
+      await db.execute(
+        'ALTER TABLE $contentAssetReclamationTable '
+        'RENAME COLUMN first_unreachable_at TO renamed_at',
+      );
+
+      final result = await maintenance.sweepEligible();
+      expect(result.outcome, ContentAssetMaintenanceOutcome.ledgerUnavailable);
+      expect(result.deletedCount, 0);
+      expect(
+        await store.assetExists(sourceId: 'source-1', localAssetId: 'asset-1'),
+        isTrue,
+      );
     } finally {
       await helper.close();
       await DatabaseHelper.resetRuntimeProfileForTesting();

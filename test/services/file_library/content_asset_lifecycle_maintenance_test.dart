@@ -207,7 +207,6 @@ void main() {
 
   test('physical delete failure retains bytes and durable grace evidence',
       () async {
-    if (!Platform.isWindows) return;
     expect((await maintenance.reportOnly()).unobservedCount, 1);
     now += ContentAssetLifecycleMaintenanceService.graceSeconds;
     final path = p.join(managed.path, 'content_assets', 'source-1', 'asset-1');
@@ -223,7 +222,10 @@ void main() {
       final unprotected = await Process.run('attrib', <String>['-R', path]);
       expect(unprotected.exitCode, 0);
     }
-  });
+  },
+      skip: !Platform.isWindows
+          ? 'Windows-only filesystem semantics: read-only attribute blocks unlink'
+          : null);
 
   test('target mutation in the delete window blocks the exact delete',
       () async {
@@ -277,7 +279,6 @@ void main() {
   });
 
   test('Windows junction replacement fails fresh path proof', () async {
-    if (!Platform.isWindows) return;
     expect((await maintenance.reportOnly()).unobservedCount, 1);
     now += ContentAssetLifecycleMaintenanceService.graceSeconds;
     final content = Directory(p.join(managed.path, 'content_assets'));
@@ -306,7 +307,10 @@ void main() {
     expect(result.outcome, ContentAssetMaintenanceOutcome.incompleteInventory);
     expect(await externalAsset.exists(), isTrue);
     await Link(source.path).delete();
-  });
+  },
+      skip: !Platform.isWindows
+          ? 'Windows-only filesystem semantics: junction replacement'
+          : null);
 
   test('G4-G5 Question acquisition resets timer; release waits for next scan',
       () async {
@@ -987,5 +991,154 @@ void main() {
     expect(result.outcome, ContentAssetMaintenanceOutcome.complete);
     expect(result.deletedCount, 1);
     expect(await rows(), isEmpty);
+  });
+
+  test('a released Question root reaches a real orphan deletion', () async {
+    final questions = QuestionRepository(
+      databaseHelper: helper,
+      mapper: QuestionV2PersistenceMapper(contentAssetAuthority: store),
+    );
+    await questions.saveQuestionDraftsV2ToBank(
+      bankName: 'synthetic',
+      folderName: null,
+      questions: <QuestionDraftV2>[imageDraft('draft-1')],
+    );
+    final live = await maintenance.reportOnly();
+    expect(live.liveCount, 1);
+    expect(live.deletedCount, 0);
+
+    final db = await helper.database;
+    final questionId =
+        (await db.query('questions', columns: <String>['id'], limit: 1))
+            .single['id']! as String;
+    await questions.deleteQuestion(questionId);
+
+    final released = await maintenance.reportOnly();
+    expect(released.unobservedCount, 1);
+    expect(released.deletedCount, 0);
+    expect((await rows()).single['first_unreachable_at'], now);
+
+    now += ContentAssetLifecycleMaintenanceService.graceSeconds - 1;
+    final pending = await maintenance.sweepEligible();
+    expect(pending.deletedCount, 0);
+
+    now++;
+    final eligible = await maintenance.sweepEligible();
+    expect(eligible.outcome, ContentAssetMaintenanceOutcome.complete);
+    expect(eligible.deletedCount, 1);
+    expect(
+        await store.assetExists(sourceId: 'source-1', localAssetId: 'asset-1'),
+        isFalse);
+  });
+
+  test('unknown physical entities block the whole destructive pass', () async {
+    expect((await maintenance.reportOnly()).unobservedCount, 1);
+    now += ContentAssetLifecycleMaintenanceService.graceSeconds;
+
+    final contentRoot = Directory(p.join(managed.path, 'content_assets'));
+    final stray = File(p.join(contentRoot.path, 'stray-file'));
+    final invalidSource = Directory(p.join(contentRoot.path, 'bad source!'));
+    final invalidAsset =
+        File(p.join(contentRoot.path, 'source-1', 'bad name.png'));
+    await stray.writeAsBytes(const <int>[1]);
+    await invalidSource.create();
+    await invalidAsset.writeAsBytes(const <int>[1]);
+
+    final inventory = await store.classifyPhysicalInventory();
+    expect(
+      inventory.entries.map((entry) => entry.classification).toSet(),
+      containsAll(<ContentAssetPhysicalClass>{
+        ContentAssetPhysicalClass.unexpectedFile,
+        ContentAssetPhysicalClass.invalidSourceIdentity,
+        ContentAssetPhysicalClass.invalidLocalAssetIdentity,
+      }),
+    );
+
+    final blocked = await maintenance.sweepEligible();
+    expect(blocked.outcome, ContentAssetMaintenanceOutcome.incompleteInventory);
+    expect(blocked.deletedCount, 0);
+    expect(
+        await store.assetExists(sourceId: 'source-1', localAssetId: 'asset-1'),
+        isTrue);
+
+    await stray.delete();
+    await invalidSource.delete();
+    await invalidAsset.delete();
+
+    final unblocked = await maintenance.sweepEligible();
+    expect(unblocked.outcome, ContentAssetMaintenanceOutcome.complete);
+    expect(unblocked.deletedCount, 1);
+  });
+
+  test('a healthy listing is not a destructive inventory', () async {
+    final source =
+        Directory(p.join(managed.path, 'content_assets', 'source-1'));
+    await File(p.join(source.path, 'empty-asset')).writeAsBytes(const <int>[]);
+    await File(p.join(source.path, 'unknown-asset'))
+        .writeAsBytes(const <int>[1, 2, 3]);
+    final valid = await File(p.join(source.path, 'asset-1')).readAsBytes();
+    await File(p.join(source.path, 'corrupt-asset')).writeAsBytes(
+        <int>[...valid.take(33), ...valid.skip(valid.length - 12)]);
+    final oversized = File(p.join(source.path, 'oversized-asset'));
+    final handle = await oversized.open(mode: FileMode.write);
+    try {
+      await handle.truncate(ManagedContentAssetStore.maxImageBytes + 1);
+    } finally {
+      await handle.close();
+    }
+
+    final healthy = await store.listAssets();
+    final healthyIds = healthy.map((asset) => asset.localAssetId).toSet();
+    expect(healthyIds, <String>{'asset-1', 'corrupt-asset'});
+    expect(healthyIds, isNot(contains('empty-asset')));
+    expect(healthyIds, isNot(contains('oversized-asset')));
+    expect(healthyIds, isNot(contains('unknown-asset')));
+
+    final inventory = await store.classifyPhysicalInventory();
+    expect(
+      inventory.entries.map((entry) => entry.classification).toSet(),
+      containsAll(<ContentAssetPhysicalClass>{
+        ContentAssetPhysicalClass.canonicalValidAsset,
+        ContentAssetPhysicalClass.canonicalEmptyAsset,
+        ContentAssetPhysicalClass.canonicalOversizedAsset,
+        ContentAssetPhysicalClass.canonicalCorruptAsset,
+        ContentAssetPhysicalClass.unknownMimeAsset,
+      }),
+    );
+
+    final blocked = await maintenance.sweepEligible();
+    expect(blocked.outcome, ContentAssetMaintenanceOutcome.incompleteInventory);
+    expect(blocked.deletedCount, 0);
+    expect(
+        await store.assetExists(sourceId: 'source-1', localAssetId: 'asset-1'),
+        isTrue);
+  });
+
+  test('an invalid durable clock deletes nothing and advances no grace',
+      () async {
+    final db = await helper.database;
+    await db.insert(contentAssetReclamationTable, <String, Object?>{
+      'source_id': 'source-1',
+      'local_asset_id': 'asset-1',
+      'first_unreachable_at': 1,
+      'last_verified_unreachable_at': 1,
+    });
+    final invalidClock = ContentAssetLifecycleMaintenanceService(
+      rootPages: SqliteContentAssetRootPageRepository(databaseHelper: helper),
+      contentAssets: store,
+      parsedArtifacts: artifacts,
+      observations: observations,
+      nowUtcSeconds: () => -1,
+    );
+
+    final result = await invalidClock.sweepEligible();
+    expect(result.outcome, ContentAssetMaintenanceOutcome.ledgerUnavailable);
+    expect(result.deletedCount, 0);
+    final row = (await rows()).single;
+    expect(row['first_unreachable_at'], 1);
+    expect(row['last_verified_unreachable_at'], 1);
+    expect(
+        await store.assetExists(sourceId: 'source-1', localAssetId: 'asset-1'),
+        isTrue);
   });
 }
