@@ -183,6 +183,7 @@ enum ParsedArtifactGenerationFailure {
   unsupportedRoute,
   sourceUnavailable,
   parseFailed,
+  resetAuthorityMissing,
   temporarilyUnavailable,
 }
 
@@ -201,6 +202,8 @@ final class ParsedArtifactGenerationException implements Exception {
         'The source file is unavailable for parsing.',
       ParsedArtifactGenerationFailure.parseFailed =>
         'The parse generation failed.',
+      ParsedArtifactGenerationFailure.resetAuthorityMissing =>
+        'The content asset writer has no reset authority.',
       ParsedArtifactGenerationFailure.temporarilyUnavailable =>
         'The parse generation service is temporarily unavailable.',
     };

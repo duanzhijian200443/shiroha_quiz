@@ -747,6 +747,12 @@ final class ParsedArtifactLifecycleService
         const ParsedArtifactLifecycleException(
           ParsedArtifactLifecycleFailure.parseFailed,
         ),
+      // Deliberately not a new lifecycle category: the writer refusal is a
+      // generation-site diagnostic, and callers keep retrying parseFailed.
+      ParsedArtifactGenerationFailure.resetAuthorityMissing =>
+        const ParsedArtifactLifecycleException(
+          ParsedArtifactLifecycleFailure.parseFailed,
+        ),
       ParsedArtifactGenerationFailure.temporarilyUnavailable =>
         const ParsedArtifactLifecycleException(
           ParsedArtifactLifecycleFailure.temporarilyUnavailable,

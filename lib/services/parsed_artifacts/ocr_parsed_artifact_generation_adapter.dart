@@ -169,8 +169,9 @@ final class OcrParsedArtifactGenerationAdapter
         if (_contentAssetStore != null &&
             _reclamationReset == null &&
             assetIds.isNotEmpty) {
-          throw const FormatException(
-              'Content asset writer has no reset authority.');
+          throw const ParsedArtifactGenerationException(
+            ParsedArtifactGenerationFailure.resetAuthorityMissing,
+          );
         }
         if (_contentAssetStore != null &&
             _reclamationReset != null &&

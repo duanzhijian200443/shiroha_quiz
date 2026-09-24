@@ -561,8 +561,10 @@ class OcrImportService {
           if (_contentAssetStore != null &&
               _reclamationReset == null &&
               assetIds.isNotEmpty) {
-            throw const FormatException(
-                'Content asset writer has no reset authority.');
+            return OcrTypedCandidateBatch(
+              candidates: <OcrTypedCandidate>[],
+              failure: OcrTypedCandidateFailure.resetAuthorityMissing,
+            );
           }
           if (_contentAssetStore != null &&
               _reclamationReset != null &&

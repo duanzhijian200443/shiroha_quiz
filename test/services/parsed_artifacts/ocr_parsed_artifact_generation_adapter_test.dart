@@ -222,6 +222,62 @@ void main() {
     expect(states, <bool>[false, true]);
   });
 
+  test('OCR writer without reset authority fails closed before storing bytes',
+      () async {
+    await seedManagedFile('library/file-1');
+    final bytes = base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk'
+      '+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    );
+    final contentStore = ManagedContentAssetStore(managedRoot: tempDir);
+    ocrClient.nextResult = OcrDocument(
+      sourceName: 'synthetic',
+      pages: <OcrPage>[
+        OcrPage(pageIndex: 1, blocks: <OcrBlock>[
+          OcrBlock(
+            blockId: 'p001_b0001',
+            pageIndex: 1,
+            type: 'image',
+            text: '[图片]',
+            bbox: const <double>[],
+            readingOrder: 0,
+            imagePayload: OcrImagePayload(bytes: bytes, mimeType: 'image/png'),
+          ),
+        ]),
+      ],
+      markdown: '',
+      rawResponses: const <Map<String, dynamic>>[],
+      usage: const <String, dynamic>{},
+    );
+
+    final writer = OcrParsedArtifactGenerationAdapter(
+      managedFileStorage: managedStorage,
+      ocrClient: ocrClient,
+      activeOcrProfileLoader: () async => activeProfile,
+      contentAssetStore: contentStore,
+    );
+
+    await expectLater(
+      writer.generate(
+        file: libraryFile(),
+        artifactId: 'artifact-1',
+        plan: plan('ocr_image'),
+      ),
+      throwsA(isA<ParsedArtifactGenerationException>().having(
+        (error) => error.failure,
+        'failure',
+        ParsedArtifactGenerationFailure.resetAuthorityMissing,
+      )),
+    );
+    expect(
+      await contentStore.assetExists(
+        sourceId: 'artifact-1',
+        localAssetId: 'p001_b0001',
+      ),
+      isFalse,
+    );
+  });
+
   group('route admission', () {
     test('explicit OCR selections resolve offline without profile access',
         () async {

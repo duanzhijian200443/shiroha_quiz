@@ -48,6 +48,7 @@ enum OcrTypedCandidateFailure {
   rawExplanationDiverged,
   snapshotInvalid,
   notSingleFile,
+  resetAuthorityMissing,
   internalError,
 }
 
@@ -73,6 +74,8 @@ String ocrTypedCandidateFailureReason(OcrTypedCandidateFailure failure) {
     OcrTypedCandidateFailure.snapshotInvalid =>
       'typed_candidate_snapshot_invalid',
     OcrTypedCandidateFailure.notSingleFile => 'typed_candidate_not_single_file',
+    OcrTypedCandidateFailure.resetAuthorityMissing =>
+      'typed_candidate_reset_authority_missing',
     OcrTypedCandidateFailure.internalError => 'typed_candidate_internal_error',
   };
 }
