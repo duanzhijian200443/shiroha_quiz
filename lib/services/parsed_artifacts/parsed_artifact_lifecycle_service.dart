@@ -8,6 +8,7 @@ import 'package:crypto/crypto.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../application/backup/backup_restore_gate.dart';
+import '../../application/content/content_asset_reclamation_reset.dart';
 import '../../application/file_library/file_library_ports.dart';
 import '../../application/parsed_artifacts/parsed_artifact_lifecycle.dart';
 import '../../application/parsed_artifacts/parsed_artifact_ports.dart';
@@ -91,17 +92,20 @@ final class ParsedArtifactLifecycleService
     required ManagedArtifactStorage artifactStorage,
     required ParsedArtifactGenerationPort generationPort,
     RetrievalIndexPort? retrievalIndex,
+    ContentAssetReclamationResetPort? reclamationReset,
   })  : _libraryFileRepository = libraryFileRepository,
         _artifactRepository = artifactRepository,
         _artifactStorage = artifactStorage,
         _generationPort = generationPort,
-        _retrievalIndex = retrievalIndex;
+        _retrievalIndex = retrievalIndex,
+        _reclamationReset = reclamationReset;
 
   final LibraryFileRepositoryPort _libraryFileRepository;
   final ParsedArtifactRepositoryPort _artifactRepository;
   final ManagedArtifactStorage _artifactStorage;
   final ParsedArtifactGenerationPort _generationPort;
   final RetrievalIndexPort? _retrievalIndex;
+  final ContentAssetReclamationResetPort? _reclamationReset;
 
   static const ParsedArtifactPayloadCodec _payloadCodec =
       ParsedArtifactPayloadCodec();
@@ -476,6 +480,23 @@ final class ParsedArtifactLifecycleService
 
     final ParsedArtifactPublishResult publishResult;
     try {
+      final reset = _reclamationReset;
+      if (reset == null && sourceDocument.assetRefs.isNotEmpty) {
+        throw const ParsedArtifactLifecycleException(
+            ParsedArtifactLifecycleFailure.internalError);
+      }
+      if (reset != null && sourceDocument.assetRefs.isNotEmpty) {
+        final bySource = <String, Set<String>>{};
+        for (final asset in sourceDocument.assetRefs) {
+          (bySource[asset.sourceId] ??= <String>{}).add(asset.localAssetId);
+        }
+        for (final entry in bySource.entries) {
+          await reset.resetBeforeOwnership(
+            sourceId: entry.key,
+            localAssetIds: entry.value,
+          );
+        }
+      }
       publishResult = await _artifactRepository.publishCurrent(
         fileId: file.fileId,
         candidate: metadata,
@@ -484,6 +505,11 @@ final class ParsedArtifactLifecycleService
     } on ParsedArtifactRepositoryException catch (error) {
       await _bestEffortDeleteSidecar(storageKey);
       throw _repositoryFailure(error);
+    } catch (_) {
+      await _bestEffortDeleteSidecar(storageKey);
+      throw const ParsedArtifactLifecycleException(
+        ParsedArtifactLifecycleFailure.internalError,
+      );
     }
 
     switch (publishResult.status) {
@@ -718,6 +744,12 @@ final class ParsedArtifactLifecycleService
           ParsedArtifactLifecycleFailure.sourceUnavailable,
         ),
       ParsedArtifactGenerationFailure.parseFailed =>
+        const ParsedArtifactLifecycleException(
+          ParsedArtifactLifecycleFailure.parseFailed,
+        ),
+      // Deliberately not a new lifecycle category: the writer refusal is a
+      // generation-site diagnostic, and callers keep retrying parseFailed.
+      ParsedArtifactGenerationFailure.resetAuthorityMissing =>
         const ParsedArtifactLifecycleException(
           ParsedArtifactLifecycleFailure.parseFailed,
         ),

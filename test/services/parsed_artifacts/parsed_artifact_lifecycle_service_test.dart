@@ -6,16 +6,21 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/application/parsed_artifacts/parsed_artifact_lifecycle.dart';
 import 'package:shiroha_quiz/application/parsed_artifacts/parsed_artifact_ports.dart';
+import 'package:shiroha_quiz/application/content/content_asset_reclamation_reset.dart';
 import 'package:shiroha_quiz/application/retrieval/retrieval.dart';
 import 'package:shiroha_quiz/application/retrieval/retrieval_ports.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/core/observability/log_record.dart';
 import 'package:shiroha_quiz/core/observability/log_writer.dart';
+import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
+import 'package:shiroha_quiz/data/repositories/content_asset_reclamation_observation_repository.dart';
+import 'package:shiroha_quiz/data/repositories/content_asset_root_page_repository.dart';
 import 'package:shiroha_quiz/data/repositories/library_file_repository.dart';
 import 'package:shiroha_quiz/data/repositories/parsed_artifact_repository.dart';
 import 'package:shiroha_quiz/data/repositories/retrieval_index_repository.dart';
 import 'package:shiroha_quiz/domain/assets/library_file.dart';
 import 'package:shiroha_quiz/domain/assets/parsed_artifact.dart';
+import 'package:shiroha_quiz/domain/assets/asset_ref.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/retrieval/retrieval_chunk.dart';
@@ -23,8 +28,14 @@ import 'package:shiroha_quiz/domain/source/parsed_artifact_payload_codec.dart';
 import 'package:shiroha_quiz/domain/source/source_document.dart';
 import 'package:shiroha_quiz/domain/source/source_part.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
+import 'package:shiroha_quiz/services/file_library/content_asset_lifecycle_maintenance_service.dart';
 import 'package:shiroha_quiz/services/file_library/managed_artifact_storage.dart';
 import 'package:shiroha_quiz/services/file_library/managed_artifact_storage_adapter.dart';
+import 'package:shiroha_quiz/services/file_library/managed_file_storage_adapter.dart';
+import 'package:shiroha_quiz/services/file_library/managed_content_asset_store.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_document_client.dart';
+import 'package:shiroha_quiz/services/parsed_artifacts/ocr_parsed_artifact_generation_adapter.dart';
 import 'package:shiroha_quiz/services/parsed_artifacts/parsed_artifact_lifecycle_service.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -166,6 +177,42 @@ class _ConflictInjectingRepository implements ParsedArtifactRepositoryPort {
   }) {
     return inner.removeCurrent(
       fileId: fileId,
+      expectedRevision: expectedRevision,
+    );
+  }
+}
+
+final class _ResetOrderProbe implements ContentAssetReclamationResetPort {
+  bool called = false;
+  String? sourceId;
+  Set<String> localIds = <String>{};
+
+  @override
+  Future<void> resetBeforeOwnership({
+    required String sourceId,
+    required Iterable<String> localAssetIds,
+  }) async {
+    called = true;
+    this.sourceId = sourceId;
+    localIds.addAll(localAssetIds);
+  }
+}
+
+final class _PublishAfterResetRepository extends _ConflictInjectingRepository {
+  _PublishAfterResetRepository(super.inner, this.probe);
+
+  final _ResetOrderProbe probe;
+
+  @override
+  Future<ParsedArtifactPublishResult> publishCurrent({
+    required String fileId,
+    required ParsedArtifactMetadata candidate,
+    required int expectedRevision,
+  }) {
+    expect(probe.called, isTrue);
+    return super.publishCurrent(
+      fileId: fileId,
+      candidate: candidate,
       expectedRevision: expectedRevision,
     );
   }
@@ -428,6 +475,85 @@ class _ScriptedSidecarStorage implements ManagedArtifactStorage {
   Future<void> deleteArtifact(String storageKey) async {}
 }
 
+final class _ImageOcrClient implements OcrDocumentClient {
+  _ImageOcrClient(this.document);
+
+  final OcrDocument document;
+
+  @override
+  String get modelId => 'synthetic-ocr';
+
+  @override
+  Future<OcrDocument> parseFile({
+    required AiEngineProfile profile,
+    required String filePath,
+    required String sourceName,
+    Duration timeout = const Duration(minutes: 8),
+  }) async =>
+      document;
+}
+
+/// Generation that runs the real OCR artifact adapter, so ContentAsset bytes
+/// are produced by production code rather than a fake.
+final class _AdapterGenerationPort implements ParsedArtifactGenerationPort {
+  _AdapterGenerationPort(this.adapter);
+
+  final OcrParsedArtifactGenerationAdapter adapter;
+
+  @override
+  Future<ParsedArtifactGenerationPlan> resolvePlan({
+    required LibraryFile file,
+    required ParsedArtifactParseOptions options,
+  }) =>
+      adapter.resolvePlan(file: file, options: options);
+
+  @override
+  Future<SourceDocument> generate({
+    required LibraryFile file,
+    required String artifactId,
+    required ParsedArtifactGenerationPlan plan,
+  }) =>
+      adapter.generate(file: file, artifactId: artifactId, plan: plan);
+}
+
+AiEngineProfile _syntheticOcrProfile() => AiEngineProfile(
+      id: 'ocr-synthetic',
+      engineType: AiEngineType.ocr,
+      name: 'synthetic-ocr',
+      apiKey: 'synthetic-key',
+      baseUrl: 'https://open.bigmodel.cn/api/paas',
+      modelName: 'glm-ocr',
+      temperature: 0.1,
+      reasoningEffort: '',
+      isActive: true,
+    );
+
+OcrDocument _imageOcrDocument() {
+  return OcrDocument(
+    sourceName: 'library-file.png',
+    pages: <OcrPage>[
+      OcrPage(pageIndex: 1, blocks: <OcrBlock>[
+        OcrBlock(
+          blockId: 'img_001',
+          pageIndex: 1,
+          type: 'image',
+          text: '[图片]',
+          bbox: const <double>[],
+          readingOrder: 0,
+          imagePayload: OcrImagePayload.fromDataUrl(
+            'data:image/png;base64,'
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk'
+            '+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+          ),
+        ),
+      ]),
+    ],
+    markdown: '',
+    rawResponses: const <Map<String, dynamic>>[],
+    usage: const <String, dynamic>{},
+  );
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -471,6 +597,37 @@ void main() {
       seededFile(fileId: fileId, storageKey: 'library/$fileId'),
     );
   }
+
+  test('current Artifact root resets grace before CAS publish visibility',
+      () async {
+    await seedLibraryFile();
+    final probe = _ResetOrderProbe();
+    generation.documentOverride = (sourceId, file) => SourceDocument(
+          sourceId: sourceId,
+          parts: <SourcePart>[
+            SourceAssetPart(
+              sourceRef: SourceRef.document(sourceId: sourceId),
+              asset: AssetRef(assetId: 'asset-1', kind: AssetKind.image),
+            ),
+          ],
+        );
+    final withReset = ParsedArtifactLifecycleService(
+      libraryFileRepository: libraryRepository,
+      artifactRepository: _PublishAfterResetRepository(
+        artifactRepository,
+        probe,
+      ),
+      artifactStorage: storage,
+      generationPort: generation,
+      reclamationReset: probe,
+    );
+    final result = await withReset.ensureParsedArtifact(
+      fileId: 'file-1',
+      options: _options,
+    );
+    expect(probe.sourceId, result.snapshot.artifact.artifactId);
+    expect(probe.localIds, <String>{'asset-1'});
+  });
 
   Future<ParsedArtifactEnsureResult> ensure({
     String fileId = 'file-1',
@@ -1737,6 +1894,79 @@ void main() {
         );
       }
     });
+  });
+
+  test('a failed publish leaves reconcilable ContentAsset residue', () async {
+    await seedLibraryFile();
+    final libraryFile = File(p.join(tempDir.path, 'library', 'file-1'));
+    await libraryFile.parent.create(recursive: true);
+    await libraryFile.writeAsBytes('abc'.codeUnits);
+    const ocrOptions = ParsedArtifactParseOptions(
+      routeSelection: ParsedArtifactRouteSelection.ocrPdf,
+    );
+
+    final contentStore = ManagedContentAssetStore(managedRoot: tempDir);
+    final probe = _ResetOrderProbe();
+    final adapter = OcrParsedArtifactGenerationAdapter(
+      managedFileStorage: ManagedFileStorageAdapter(managedRoot: tempDir),
+      ocrClient: _ImageOcrClient(_imageOcrDocument()),
+      activeOcrProfileLoader: () async => _syntheticOcrProfile(),
+      contentAssetStore: contentStore,
+      reclamationReset: probe,
+    );
+    final conflicting = _ConflictInjectingRepository(artifactRepository)
+      ..inject = true;
+    final withRealBytes = ParsedArtifactLifecycleService(
+      libraryFileRepository: libraryRepository,
+      artifactRepository: conflicting,
+      artifactStorage: storage,
+      generationPort: _AdapterGenerationPort(adapter),
+      retrievalIndex: retrievalIndex,
+      reclamationReset: probe,
+    );
+
+    try {
+      await withRealBytes.ensureParsedArtifact(
+        fileId: 'file-1',
+        options: ocrOptions,
+      );
+      fail('expected publishConflict');
+    } catch (error) {
+      expectLifecycleFailure(
+        error,
+        failure: ParsedArtifactLifecycleFailure.publishConflict,
+      );
+    }
+
+    expect(probe.called, isTrue);
+    expect(await conflicting.findCurrentByFileId('file-1'), isNull);
+    final assets = await contentStore.listAssets();
+    expect(assets, hasLength(1));
+    expect(assets.single.localAssetId, 'img_001');
+    expect(
+      contentStore.readAssetBytes(
+        sourceId: assets.single.sourceId,
+        localAssetId: assets.single.localAssetId,
+      ),
+      isNotNull,
+    );
+
+    final maintenance = ContentAssetLifecycleMaintenanceService(
+      rootPages: SqliteContentAssetRootPageRepository(
+        databaseHelper: DatabaseHelper.instance,
+      ),
+      contentAssets: contentStore,
+      parsedArtifacts: withRealBytes,
+      observations: ContentAssetReclamationObservationRepository(
+        databaseHelper: DatabaseHelper.instance,
+      ),
+      nowUtcSeconds: () => 1000000,
+    );
+    final report = await maintenance.reportOnly();
+    expect(report.liveCount, 0);
+    final swept = await maintenance.sweepEligible();
+    expect(swept.deletedCount, 0);
+    expect(await contentStore.listAssets(), hasLength(1));
   });
 }
 

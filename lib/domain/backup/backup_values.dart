@@ -10,7 +10,7 @@ abstract final class BackupValues {
   /// Additive package version for source-qualified durable content assets.
   static const int currentPackageVersion = 2;
   static const int contentAssetPackageVersion = 2;
-  static const int currentSchemaVersion = 26;
+  static const int currentSchemaVersion = 27;
 
   static const String manifestArchivePath = 'manifest.json';
   static const String databaseArchivePath = 'database/shiroha.db';

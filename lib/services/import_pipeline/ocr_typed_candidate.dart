@@ -48,6 +48,7 @@ enum OcrTypedCandidateFailure {
   rawExplanationDiverged,
   snapshotInvalid,
   notSingleFile,
+  resetAuthorityMissing,
   internalError,
 }
 
@@ -73,6 +74,8 @@ String ocrTypedCandidateFailureReason(OcrTypedCandidateFailure failure) {
     OcrTypedCandidateFailure.snapshotInvalid =>
       'typed_candidate_snapshot_invalid',
     OcrTypedCandidateFailure.notSingleFile => 'typed_candidate_not_single_file',
+    OcrTypedCandidateFailure.resetAuthorityMissing =>
+      'typed_candidate_reset_authority_missing',
     OcrTypedCandidateFailure.internalError => 'typed_candidate_internal_error',
   };
 }
@@ -176,6 +179,8 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
   required List<Map<String, dynamic>> legacyQuestions,
   required String Function() uuidV4Factory,
   ContentAssetStore? assetStore,
+  String? predeclaredSourceId,
+  Set<String>? predeclaredAssetIds,
   ExplanationRetentionMode explanationRetentionMode =
       ExplanationRetentionMode.subjectiveOnly,
 }) {
@@ -208,11 +213,12 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
   final createdAssetIds = <String>{};
   ContentAssetCandidateLease? candidateAssetLease;
   try {
-    final generatedSourceId = uuidV4Factory();
+    final generatedSourceId = predeclaredSourceId ?? uuidV4Factory();
     sourceId = generatedSourceId;
     sourceDocument = OcrSourceDocumentAdapter(
       assetStore: assetStore,
       onAssetCreated: createdAssetIds.add,
+      predeclaredAssetIds: predeclaredAssetIds,
     ).convert(document,
         sourceId: generatedSourceId,
         displayLabel: null,

@@ -1,6 +1,7 @@
 import '../../application/safe_write/typed_answer_command.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../models/persisted_question.dart';
+import '../repositories/content_asset_reclamation_observation_repository.dart';
 import 'question_v2_persistence_mapper.dart';
 
 /// Minimal transaction surface the typed-answer kernel needs from the
@@ -8,6 +9,10 @@ import 'question_v2_persistence_mapper.dart';
 /// transaction and adapts its executor; the kernel never starts or nests a
 /// transaction itself.
 abstract interface class TypedAnswerTransactionExecutor {
+  Future<void> resetContentAssetObservations(
+    Iterable<ContentAssetIdentity> identities,
+  );
+
   /// Runs one joined-row SELECT inside the caller's transaction.
   Future<List<Map<String, Object?>>> queryRaw(
     String sql, [
@@ -119,6 +124,10 @@ final class TypedAnswerPersistenceKernel {
         TypedAnswerMutationFailure.unsafePayload,
       );
     }
+    await txn.resetContentAssetObservations(<ContentAssetIdentity>{
+      for (final asset in replacementDraft.assetRefs)
+        (asset.sourceId, asset.localAssetId),
+    });
     final payloadUpdated = await txn.update(
       'question_v2_payloads',
       <String, Object?>{

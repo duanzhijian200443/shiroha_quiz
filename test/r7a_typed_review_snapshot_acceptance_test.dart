@@ -6,6 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shiroha_quiz/application/questions/folder_query_port.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
+import 'package:shiroha_quiz/core/database/content_asset_reclamation_v27_schema.dart';
+import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/models/question_draft.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
@@ -387,10 +389,10 @@ void main() {
     });
 
     test('database version follows the newest schema constant', () {
-      final source =
-          File('lib/core/database/database_helper.dart').readAsStringSync();
-      expect(source,
-          contains('static const int _dbVersion = photoAnswerSchemaVersion'));
+      expect(
+        DatabaseHelper.databaseVersion,
+        contentAssetReclamationSchemaVersion,
+      );
     });
 
     test('v15 sidecar DDL sentinels remain unchanged', () {

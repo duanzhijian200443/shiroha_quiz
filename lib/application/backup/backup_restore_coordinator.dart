@@ -26,35 +26,41 @@ final class BackupRestoreCoordinator {
     required TraceOperationKind operationKind,
     required Future<T> Function() action,
     bool quiesceMutations = false,
-  }) {
+    bool failFastQuiescence = false,
+  }) async {
     if (_busy) {
       throw const BackupException(BackupFailure.restoreBusy);
     }
     BackupRestoreMutationGate.instance.acquireExclusive();
     _busy = true;
-    return TraceContext.runRoot<T>(
-      operationKind: operationKind,
-      action: () async {
-        final quiesced = quiesceMutations;
-        if (quiesced) {
-          await BackupRestoreMutationGate.instance.enterQuiescence();
-        }
-        try {
-          return await action();
-        } finally {
-          if (quiesced) {
-            BackupRestoreMutationGate.instance.exitQuiescence();
+    var maintenanceEntered = false;
+    try {
+      return await TraceContext.runRoot<T>(
+        operationKind: operationKind,
+        action: () async {
+          if (failFastQuiescence) {
+            BackupRestoreMutationGate.instance.tryEnterQuiescence();
+            maintenanceEntered = true;
+          } else if (quiesceMutations) {
+            await BackupRestoreMutationGate.instance.enterQuiescence();
+            maintenanceEntered = true;
           }
-          BackupRestoreMutationGate.instance.releaseExclusive();
-          _busy = false;
-        }
-      },
-    );
+          return action();
+        },
+      );
+    } finally {
+      if (maintenanceEntered) {
+        BackupRestoreMutationGate.instance.exitQuiescence();
+      }
+      BackupRestoreMutationGate.instance.releaseExclusive();
+      _busy = false;
+    }
   }
 
   Future<BackupExportSummary> exportTo(String destinationPath) {
     return _runExclusive(
       operationKind: TraceOperationKind.backupExport,
+      failFastQuiescence: true,
       action: () async {
         final result = await _operations.exportTo(destinationPath);
         LogWriter.info(

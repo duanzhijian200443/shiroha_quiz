@@ -17,13 +17,20 @@ import 'package:shiroha_quiz/domain/backup/backup_values.dart';
 
 final class _FakeOperations implements BackupRestoreOperations {
   bool maintenanceObservedDuringCommit = false;
+  bool maintenanceObservedDuringExport = false;
   int commitCalls = 0;
+  int exportCalls = 0;
+  void Function()? duringExport;
 
   @override
   PreparedRestoreState? get preparedRestore => null;
 
   @override
   Future<BackupExportSummary> exportTo(String destinationPath) async {
+    exportCalls++;
+    maintenanceObservedDuringExport =
+        BackupRestoreMutationGate.instance.isMaintenance;
+    duringExport?.call();
     return const BackupExportSummary(
       fileName: 'backup.shiroha',
       schemaVersion: BackupValues.currentSchemaVersion,
@@ -303,6 +310,54 @@ void main() {
     BackupRestoreMutationGate.instance.exitQuiescence();
   });
 
+  test('export fails immediately while mutation is active and releases gates',
+      () async {
+    final gate = BackupRestoreMutationGate.instance;
+    final operations = _FakeOperations();
+    final coordinator = BackupRestoreCoordinator(operations: operations);
+    final lease = gate.acquireMutationLease();
+
+    await expectLater(
+      coordinator.exportTo('synthetic.shiroha'),
+      throwsA(isA<BackupException>().having(
+        (error) => error.failure,
+        'failure',
+        BackupFailure.restoreBusy,
+      )),
+    );
+    expect(operations.exportCalls, 0);
+    expect(coordinator.isBusy, isFalse);
+    expect(gate.isExclusive, isFalse);
+    expect(gate.isMaintenance, isFalse);
+
+    lease.release();
+    await coordinator.exportTo('synthetic.shiroha');
+    expect(operations.exportCalls, 1);
+    expect(operations.maintenanceObservedDuringExport, isTrue);
+    expect(gate.isExclusive, isFalse);
+    expect(gate.isMaintenance, isFalse);
+  });
+
+  test('export maintenance rejects a new mutation', () async {
+    final gate = BackupRestoreMutationGate.instance;
+    final operations = _FakeOperations();
+    final coordinator = BackupRestoreCoordinator(operations: operations);
+    operations.duringExport = () {
+      expect(
+        gate.acquireMutationLease,
+        throwsA(isA<BackupException>().having(
+          (error) => error.failure,
+          'failure',
+          BackupFailure.restoreBlocked,
+        )),
+      );
+    };
+
+    await coordinator.exportTo('synthetic.shiroha');
+    expect(operations.maintenanceObservedDuringExport, isTrue);
+    expect(gate.isMaintenance, isFalse);
+  });
+
   test('exclusive B0 operations reject a concurrent backup/restore', () {
     BackupRestoreMutationGate.instance.acquireExclusive();
     expect(
@@ -364,5 +419,24 @@ void main() {
     expect(operations.maintenanceObservedDuringCommit, isTrue);
     expect(BackupRestoreMutationGate.instance.isMaintenance, isFalse);
     expect(BackupRestoreMutationGate.instance.isExclusive, isFalse);
+  });
+
+  test('coordinator restore commit still waits for an active mutation',
+      () async {
+    final gate = BackupRestoreMutationGate.instance;
+    final operations = _FakeOperations();
+    final coordinator = BackupRestoreCoordinator(operations: operations);
+    final lease = gate.acquireMutationLease();
+
+    final commit = coordinator.commitPreparedRestore();
+    await Future<void>.delayed(Duration.zero);
+    expect(gate.isMaintenance, isTrue);
+    expect(operations.commitCalls, 0);
+
+    lease.release();
+    await commit;
+    expect(operations.commitCalls, 1);
+    expect(gate.isMaintenance, isFalse);
+    expect(gate.isExclusive, isFalse);
   });
 }

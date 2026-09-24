@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/core/database/ai_config_v24_schema.dart';
 import 'package:shiroha_quiz/core/database/ai_config_v25_schema.dart';
-import 'package:shiroha_quiz/core/database/answer_attempt_v26_schema.dart';
+import 'package:shiroha_quiz/core/database/content_asset_reclamation_v27_schema.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -32,7 +32,8 @@ void main() {
       inMemoryDatabasePath,
     );
     try {
-      expect(DatabaseHelper.databaseVersion, photoAnswerSchemaVersion);
+      expect(
+          DatabaseHelper.databaseVersion, contentAssetReclamationSchemaVersion);
       await expectLater(validateAiConfigV25Schema(db), completes);
       final tables = await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'ai_%'",

@@ -67,6 +67,7 @@ import 'data/repositories/library_file_repository.dart';
 import 'data/repositories/library_folder_repository.dart';
 import 'data/repositories/project_repository.dart';
 import 'data/repositories/parsed_artifact_repository.dart';
+import 'data/repositories/content_asset_reclamation_observation_repository.dart';
 import 'data/repositories/retrieval_index_repository.dart';
 import 'data/repositories/question_repository.dart';
 import 'data/persistence/question_v2_persistence_mapper.dart';
@@ -87,6 +88,10 @@ import 'services/file_library/library_file_deletion_service.dart';
 import 'services/file_library/managed_file_storage_adapter.dart';
 import 'services/file_library/managed_artifact_storage_adapter.dart';
 import 'services/file_library/managed_content_asset_store.dart';
+import 'services/file_library/content_asset_lifecycle_maintenance_service.dart';
+import 'application/content/content_asset_maintenance.dart';
+import 'data/repositories/content_asset_root_page_repository.dart';
+import 'data/repositories/parsed_artifact_derived_maintenance_repository.dart';
 import 'services/import_pipeline/import_pipeline_service.dart';
 import 'services/import_pipeline/import_task_coordinator.dart';
 import 'services/import_pipeline/ocr_request_scheduler.dart';
@@ -99,11 +104,13 @@ import 'services/parsed_artifacts/deterministic_parsed_artifact_generation_adapt
 import 'services/parsed_artifacts/ocr_parsed_artifact_generation_adapter.dart';
 import 'services/parsed_artifacts/parsed_artifact_generation_router.dart';
 import 'services/parsed_artifacts/parsed_artifact_lifecycle_service.dart';
+import 'services/parsed_artifacts/parsed_artifact_derived_reconciliation_service.dart';
 import 'services/practice/photo_answer_judgement_adapter.dart';
 import 'services/retrieval/parsed_artifact_retrieval_source.dart';
 import 'services/retrieval/deterministic_source_chunker.dart';
 import 'services/study_plan/study_plan_practice_session_launcher.dart';
 import 'ui/dependencies/ai_dependencies_scope.dart';
+import 'ui/dependencies/content_asset_maintenance_scope.dart';
 import 'ui/pages/backup/backup_restore_screen.dart';
 import 'ui/pages/home_page.dart';
 import 'ui/pages/import_staging_screen.dart';
@@ -186,6 +193,10 @@ void main() {
       );
       final contentAssetStore = ManagedContentAssetStore(
         managedRoot: Directory(appDataPaths.managedFilesRoot),
+      );
+      final reclamationObservations =
+          ContentAssetReclamationObservationRepository(
+        databaseHelper: databaseHelper,
       );
       final backupSnapshotRepository = BackupSnapshotRepository(
         databaseHelper: databaseHelper,
@@ -406,6 +417,7 @@ void main() {
           artifactRepository: parsedArtifactRepository,
           retrievalIndex: retrievalIndex,
           artifactStorage: managedArtifactStorage,
+          reclamationReset: reclamationObservations,
           generationPort: ParsedArtifactGenerationRouter(
             deterministicGeneration:
                 DeterministicParsedArtifactGenerationAdapter(
@@ -418,8 +430,26 @@ void main() {
               requestExecutor: ocrRequestExecutor,
               activeOcrProfileLoader: engineRepository.getActiveOcrEngine,
               contentAssetStore: contentAssetStore,
+              reclamationReset: reclamationObservations,
             ),
           ),
+        );
+        final contentAssetMaintenance = ContentAssetLifecycleMaintenanceService(
+          rootPages: SqliteContentAssetRootPageRepository(
+            databaseHelper: databaseHelper,
+          ),
+          contentAssets: contentAssetStore,
+          parsedArtifacts: parsedArtifactLifecycle,
+          observations: reclamationObservations,
+        );
+        final derivedReconciliation =
+            ParsedArtifactDerivedReconciliationService(
+          derivedRows: SqliteParsedArtifactDerivedMaintenanceRepository(
+            databaseHelper: databaseHelper,
+          ),
+          managedRoot: Directory(appDataPaths.managedFilesRoot),
+          storage: managedArtifactStorage,
+          artifacts: parsedArtifactLifecycle,
         );
         final u1WorkspaceFacade = U1WorkspaceFacade(
           projectService: projectService,
@@ -505,6 +535,7 @@ void main() {
           ocrRequestScheduler: ocrRequestScheduler,
           ocrRequestExecutor: ocrRequestExecutor,
           contentAssetStore: contentAssetStore,
+          reclamationReset: reclamationObservations,
         );
         var autoReviewNavigationInProgress = false;
         final importTaskCoordinator = ImportTaskCoordinator(
@@ -563,6 +594,32 @@ void main() {
           },
         );
 
+        await taskManager.ready;
+        final lifecycleReport = await contentAssetMaintenance.reportOnly();
+        AppLogger.info(
+          'Content asset maintenance observation completed',
+          module: 'ContentAssetLifecycle',
+          data: <String, Object?>{
+            'status': lifecycleReport.outcome.name,
+            'physicalCount': lifecycleReport.physicalCount,
+            'liveCount': lifecycleReport.liveCount,
+            'unobservedCount': lifecycleReport.unobservedCount,
+            'gracePendingCount': lifecycleReport.gracePendingCount,
+            'graceEligibleCount': lifecycleReport.graceEligibleCount,
+          },
+        );
+        final derivedReport = await derivedReconciliation.reconcile();
+        AppLogger.info(
+          'Parsed artifact derived reconciliation completed',
+          module: 'ParsedArtifact',
+          data: <String, Object?>{
+            'status': derivedReport.outcome.name,
+            'staleSidecars': derivedReport.staleSidecars,
+            'deletedSidecars': derivedReport.deletedSidecars,
+            'staleRetrievalBuilds': derivedReport.staleRetrievalBuilds,
+          },
+        );
+
         final savedTheme = await SettingsRepository.instance.getAppTheme();
         if (savedTheme.isNotEmpty) {
           globalThemeNotifier.value = savedTheme;
@@ -608,6 +665,7 @@ void main() {
             studyPlanSessionLauncher: studyPlanSessionLauncher,
             backupRestore: backupRestore,
             contentAssetResolver: contentAssetStore,
+            contentAssetMaintenance: contentAssetMaintenance,
             onRestoreCompleted: () {},
           ),
         );
@@ -662,6 +720,7 @@ class ShirohaQuizApp extends StatelessWidget {
     this.studyPlanSessionLauncher,
     this.backupRestore,
     this.contentAssetResolver,
+    this.contentAssetMaintenance,
     this.onRestoreCompleted,
   });
 
@@ -700,6 +759,7 @@ class ShirohaQuizApp extends StatelessWidget {
   final StudyPlanPracticeSessionLauncher? studyPlanSessionLauncher;
   final BackupRestoreCoordinator? backupRestore;
   final ContentAssetResolver? contentAssetResolver;
+  final ContentAssetMaintenancePort? contentAssetMaintenance;
   final VoidCallback? onRestoreCompleted;
 
   @override
@@ -740,6 +800,12 @@ class ShirohaQuizApp extends StatelessWidget {
                 resolver: contentAssetResolver!,
                 child: materialApp,
               );
+        final withMaintenance = contentAssetMaintenance == null
+            ? content
+            : ContentAssetMaintenanceScope(
+                maintenance: contentAssetMaintenance!,
+                child: content,
+              );
         return AiDependenciesScope(
           engineRepository: engineRepository,
           aiConfigService: aiConfigService,
@@ -754,7 +820,7 @@ class ShirohaQuizApp extends StatelessWidget {
           photoAnswerJudgement: photoAnswerJudgement,
           photoAnswerSubmission: photoAnswerSubmission,
           photoAnswerHistory: photoAnswerHistory,
-          child: content,
+          child: withMaintenance,
         );
       },
     );

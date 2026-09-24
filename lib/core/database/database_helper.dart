@@ -4,6 +4,11 @@ import 'dart:io';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart';
 
+import '../../application/import_review/typed_review_snapshot.dart';
+import '../../domain/content/content_node.dart';
+import '../../domain/content/rich_content.dart';
+import '../../domain/question/question_draft_v2.dart';
+
 import '../../data/models/ai_engine_profile.dart';
 import '../../data/models/import_task_cleanup.dart';
 import '../../data/models/review_draft_cas.dart';
@@ -15,6 +20,7 @@ import 'ai_config_v24_schema.dart';
 import 'ai_config_v25_schema.dart';
 import 'answer_attempt_v23_schema.dart';
 import 'answer_attempt_v26_schema.dart';
+import 'content_asset_reclamation_v27_schema.dart';
 import 'question_v2_schema_exception.dart';
 import 'retrieval_v21_schema.dart';
 import 'study_plan_v22_schema.dart';
@@ -77,7 +83,7 @@ class DatabaseHelper
   DatabaseHelper._();
 
   static const String _dbName = 'shiroha_core_v1.db';
-  static const int _dbVersion = photoAnswerSchemaVersion;
+  static const int _dbVersion = contentAssetReclamationSchemaVersion;
 
   static String get databaseFileName => _dbName;
   static int get databaseVersion => _dbVersion;
@@ -680,6 +686,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await validateRetrievalV21Schema(db);
     await validateStudyPlanV22Schema(db);
     await validateAnswerAttemptV26Schema(db);
+    await validateContentAssetReclamationV27Schema(db);
     await validateAiConfigV25Schema(db);
   }
 
@@ -930,6 +937,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await createRetrievalV21Schema(db);
     await createStudyPlanV22Schema(db);
     await createAnswerAttemptV26Schema(db);
+    await createContentAssetReclamationV27Schema(db);
     await _validateV15Schema(db);
     await _validateLibraryFilesSchema(db);
     await _validateProjectSchema(db);
@@ -939,6 +947,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await validateRetrievalV21Schema(db);
     await validateStudyPlanV22Schema(db);
     await validateAnswerAttemptV26Schema(db);
+    await validateContentAssetReclamationV27Schema(db);
     await validateAiConfigV25Schema(db);
   }
 
@@ -1110,7 +1119,11 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     if (oldVersion < 26) {
       await migrateAnswerAttemptsToV26(db);
     }
+    if (oldVersion < 27) {
+      await migrateContentAssetReclamationToV27(db);
+    }
     await validateAnswerAttemptV26Schema(db);
+    await validateContentAssetReclamationV27Schema(db);
     await validateAiConfigV25Schema(db);
   }
 
@@ -3202,11 +3215,126 @@ SELECT
   // --- 解析任务持久化方法 ---
   Future<void> saveImportTask(Map<String, dynamic> taskData) async {
     final db = await database;
-    await db.insert(
-      'import_tasks',
-      taskData,
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.transaction((txn) async {
+      await _resetReclamationForImportTask(txn, taskData);
+      await txn.insert(
+        'import_tasks',
+        taskData,
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    });
+  }
+
+  Future<void> _resetReclamationForImportTask(
+    DatabaseExecutor txn,
+    Map<String, dynamic> taskData,
+  ) async {
+    final pendingReview = taskData['status'] == 1;
+    final raw = taskData['diagnostics'];
+    if (raw == null) {
+      if (!pendingReview) return;
+      // A pending review with no route metadata cannot name its typed owner.
+      // Failing closed keeps the previous durable projection visible and
+      // leaves unrelated sources' continuous grace evidence intact.
+      throw const FormatException();
+    }
+    final Map<String, dynamic> diagnostics;
+    try {
+      final decoded = jsonDecode(raw as String);
+      if (decoded is! Map<String, dynamic>) throw const FormatException();
+      diagnostics = decoded;
+    } catch (_) {
+      if (pendingReview) throw const FormatException();
+      return;
+    }
+    for (final keys in <(String, String)>[
+      ('_candidate_asset_source_id', '_candidate_asset_local_ids'),
+      (
+        '_candidate_asset_cleanup_source_id',
+        '_candidate_asset_cleanup_local_ids'
+      ),
+    ]) {
+      final source = diagnostics[keys.$1];
+      final ids = diagnostics[keys.$2];
+      if (source == null && ids == null) continue;
+      if (source is! String ||
+          !RegExp(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$').hasMatch(source) ||
+          ids is! List ||
+          ids.any((id) =>
+              id is! String ||
+              !RegExp(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$').hasMatch(id))) {
+        // Unresolvable ownership cannot be repaired by discarding grace
+        // evidence that belongs to sources this row does not name. Only a
+        // pending review makes a typed owner visible, so only it fails closed.
+        if (pendingReview) throw const FormatException();
+        continue;
+      }
+      // A present source with an empty list is a valid owner of zero
+      // identities; it resets nothing.
+      for (final id in ids) {
+        await txn.delete(
+          contentAssetReclamationTable,
+          where: 'source_id = ? AND local_asset_id = ?',
+          whereArgs: <Object?>[source, id],
+        );
+      }
+    }
+    if (pendingReview) {
+      final rawParsed = taskData['parsed_data'];
+      if (rawParsed is! String) throw const FormatException();
+      final parsed = jsonDecode(rawParsed);
+      if (parsed is! List) throw const FormatException();
+      await _resetReclamationForTypedReviewQuestions(
+        txn,
+        diagnostics: diagnostics,
+        questions: <Map<String, dynamic>>[
+          for (final item in parsed) Map<String, dynamic>.from(item as Map),
+        ],
+      );
+    }
+  }
+
+  Future<void> _resetReclamationForTypedReviewQuestions(
+    DatabaseExecutor txn, {
+    required Map<String, dynamic> diagnostics,
+    required List<Map<String, dynamic>> questions,
+  }) async {
+    final route = decodeImportStorageRoute(diagnostics['_importStorageRoute']);
+    const codec = TypedReviewSnapshotCodec();
+    final identities = <(String, String)>{};
+    for (final question in questions) {
+      codec.requireTypedEnvelope(route, question);
+      if (route != ImportStorageRoute.typedV2) {
+        if (codec.containsEnvelope(question)) throw const FormatException();
+        continue;
+      }
+      final snapshot = codec.decodeRequired(
+        question[TypedReviewSnapshotCodec.mapKey],
+      );
+      void collect(RichContent content) {
+        for (final image in reachableImageNodes(content)) {
+          identities.add((image.sourceId, image.localAssetId));
+        }
+      }
+
+      collect(snapshot.draft.stem);
+      for (final option in snapshot.draft.options) {
+        collect(option.content);
+      }
+      if (snapshot.draft.answer case ContentAnswer(:final content)) {
+        collect(content);
+      }
+      if (snapshot.draft.explanation != null) {
+        collect(snapshot.draft.explanation!);
+      }
+    }
+    for (final (sourceId, localAssetId) in identities) {
+      await txn.delete(
+        contentAssetReclamationTable,
+        where: 'source_id = ? AND local_asset_id = ?',
+        whereArgs: <Object?>[sourceId, localAssetId],
+      );
+    }
   }
 
   /// Persisted ReviewDraft compare-and-set.
@@ -3309,6 +3437,18 @@ SELECT
         reviewExplanationRetentionMode: explanationRetentionMode,
         reviewDraftRevision: nextRevision,
       );
+      try {
+        await _resetReclamationForTypedReviewQuestions(
+          txn,
+          diagnostics: Map<String, dynamic>.from(diagnostics),
+          questions: questions,
+        );
+      } catch (_) {
+        return const ReviewDraftCasResult(
+          ReviewDraftCasStatus.invalidMetadata,
+          durableRevision: null,
+        );
+      }
       final updated = await txn.update(
         'import_tasks',
         <String, Object?>{

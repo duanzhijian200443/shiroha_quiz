@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import '../../application/content/content_asset_maintenance.dart';
 import '../../data/models/subject_tree_index.dart';
 import '../../application/latex_migration/latex_migration_mutation_command.dart';
 import '../../application/questions/question_bank_folder_mutation_command.dart';
 import '../../data/repositories/question_repository.dart';
 import '../../services/latex_migration_service.dart';
 import '../dependencies/ai_dependencies_scope.dart';
+import '../dependencies/content_asset_maintenance_scope.dart';
 import 'bank_detail_screen.dart';
 import 'import_settings_screen.dart';
 
@@ -22,6 +24,10 @@ class _DataCenterScreenState extends State<DataCenterScreen> {
   bool _isLoading = true;
   bool _isSearching = false;
   bool _isMigrating = false;
+  ContentAssetMaintenancePort? _maintenance;
+  ContentAssetMaintenanceReport? _maintenanceReport;
+  bool _maintenanceBusy = false;
+  bool _maintenanceLoaded = false;
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
 
@@ -62,6 +68,80 @@ class _DataCenterScreenState extends State<DataCenterScreen> {
   void initState() {
     super.initState();
     _loadRealData();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final port = ContentAssetMaintenanceScope.maybeOf(context);
+    if (identical(port, _maintenance) && _maintenanceLoaded) return;
+    _maintenance = port;
+    _maintenanceReport = null;
+    _maintenanceLoaded = true;
+    if (port != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _runStorageMaintenance(reportOnly: true);
+      });
+    }
+  }
+
+  Future<void> _runStorageMaintenance({required bool reportOnly}) async {
+    final port = _maintenance;
+    if (port == null || _maintenanceBusy) return;
+    setState(() => _maintenanceBusy = true);
+    try {
+      final result =
+          reportOnly ? await port.reportOnly() : await port.sweepEligible();
+      if (mounted) setState(() => _maintenanceReport = result);
+    } catch (_) {
+      if (mounted) setState(() => _maintenanceReport = null);
+    } finally {
+      if (mounted) setState(() => _maintenanceBusy = false);
+    }
+  }
+
+  int get _graceEligibleCount => _maintenanceReport?.graceEligibleCount ?? 0;
+
+  Future<void> _confirmStorageMaintenance() async {
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('确认清理孤立文件'),
+        content: Text(
+          '当前检测到 $_graceEligibleCount 个已达到保留期的孤立文件。'
+          '继续后，只会永久删除其中通过最终安全复验的文件，此操作不可撤销。',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('确认清理'),
+          ),
+        ],
+      ),
+    );
+    if (approved == true && mounted) {
+      await _runStorageMaintenance(reportOnly: false);
+    }
+  }
+
+  String get _maintenanceStatus {
+    final report = _maintenanceReport;
+    if (report == null) return '维护状态暂不可用';
+    if (report.boundHit) {
+      return '本次未能在安全检查限制内完成完整验证'
+          '（可能触及数量上限或时间预算），'
+          '因此未删除任何文件。';
+    }
+    return switch (report.outcome) {
+      ContentAssetMaintenanceOutcome.complete => '存储维护正常',
+      ContentAssetMaintenanceOutcome.busy => '维护繁忙，请稍后重试',
+      ContentAssetMaintenanceOutcome.deleteFailed => '部分文件清理失败，已停止继续删除',
+      _ => '安全扫描未完成，文件已保留',
+    };
   }
 
   Future<void> _loadRealData() async {
@@ -357,6 +437,58 @@ class _DataCenterScreenState extends State<DataCenterScreen> {
           : ListView(
               padding: const EdgeInsets.all(16.0),
               children: [
+                if (_maintenance != null)
+                  Card(
+                    key: const ValueKey<String>('content-asset-maintenance'),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('存储维护', style: theme.textTheme.titleMedium),
+                          const SizedBox(height: 8),
+                          Text(_maintenanceBusy
+                              ? '正在检查存储状态…'
+                              : _maintenanceStatus),
+                          if (_maintenanceReport != null) ...[
+                            const SizedBox(height: 4),
+                            Text('待观察 ${_maintenanceReport!.unobservedCount} · '
+                                '宽限期内 ${_maintenanceReport!.gracePendingCount} · '
+                                '已达保留期待清理 '
+                                '${_maintenanceReport!.graceEligibleCount} · '
+                                '保守保留 ${_maintenanceReport!.unknownCount} · '
+                                '本次清理 ${_maintenanceReport!.deletedCount}'),
+                          ],
+                          const SizedBox(height: 8),
+                          Row(children: [
+                            TextButton(
+                              key: const ValueKey<String>(
+                                'storage-maintenance-refresh',
+                              ),
+                              onPressed: _maintenanceBusy
+                                  ? null
+                                  : () =>
+                                      _runStorageMaintenance(reportOnly: true),
+                              child: const Text('刷新状态'),
+                            ),
+                            const SizedBox(width: 8),
+                            TextButton(
+                              key: const ValueKey<String>(
+                                'storage-maintenance-sweep',
+                              ),
+                              onPressed:
+                                  _maintenanceBusy || _graceEligibleCount == 0
+                                      ? null
+                                      : _confirmStorageMaintenance,
+                              child: Text(
+                                '清理已达保留期的孤立文件（$_graceEligibleCount）',
+                              ),
+                            ),
+                          ]),
+                        ],
+                      ),
+                    ),
+                  ),
                 if (_visibleFolders.isEmpty)
                   const Padding(
                       padding: EdgeInsets.only(top: 32.0),

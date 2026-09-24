@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive_io.dart';
@@ -10,6 +11,10 @@ import 'package:shiroha_quiz/data/repositories/backup_snapshot_repository.dart';
 import 'package:shiroha_quiz/domain/backup/backup_failure.dart';
 import 'package:shiroha_quiz/domain/backup/backup_manifest.dart';
 import 'package:shiroha_quiz/domain/backup/backup_values.dart';
+import 'package:shiroha_quiz/domain/content/content_node.dart';
+import 'package:shiroha_quiz/domain/content/rich_content.dart';
+import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
+import 'package:shiroha_quiz/domain/question/question_draft_v2_codec.dart';
 import 'package:shiroha_quiz/services/backup/backup_archive_io.dart';
 import 'package:shiroha_quiz/services/backup/backup_disk_space.dart';
 import 'package:shiroha_quiz/services/backup/backup_filesystem.dart';
@@ -89,8 +94,20 @@ void main() {
     });
     await db.insert('question_v2_payloads', <String, Object?>{
       'question_id': 'q-1',
-      'payload_schema_version': 1,
-      'payload_json': '{"content":"QUESTION_CONTENT_SENTINEL"}',
+      'payload_schema_version': QuestionDraftV2Codec.schemaVersion,
+      'payload_json': jsonEncode(
+        const QuestionDraftV2Codec().encode(
+          QuestionDraftV2(
+            questionId: 'q-1',
+            kind: QuestionKind.shortAnswer,
+            stem: RichContent(
+              nodes: <ContentNode>[
+                const TextNode('QUESTION_CONTENT_SENTINEL'),
+              ],
+            ),
+          ),
+        ),
+      ),
     });
     await db.insert('review_states', <String, Object?>{
       'question_id': 'q-1',

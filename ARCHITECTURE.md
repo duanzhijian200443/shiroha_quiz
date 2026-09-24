@@ -96,13 +96,16 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
 6. Typed content mutation must not pass through the legacy editor or reconstruct authority from a V1 projection.
 7. Review/FSRS state is separate from typed question content mutation.
 8. `RichContent` is structural: a persisted `TextNode` is not reparsed later as Markdown/math/image syntax.
-9. Current database schema is **v26**: the frozen v15 typed sidecar remains
+9. Current database schema is **v27**: the frozen v15 typed sidecar remains
    authoritative, with the additive v16 File Library, v17 Project, v18 flat
    File Library Folder, v19 Conversation, and v20 parsed-artifact tables, the
    additive RAG-1 derived lexical-retrieval cache and FTS5 objects, the
    additive v22 `study_plans` table, the additive v23 `answer_attempts` table,
    the additive v24 Provider / Model Registry / capability authority, v25 model
-   origin/binding policy, and v26 image AnswerAttempt modality. V26 only extends
+   origin/binding policy, v26 image AnswerAttempt modality, and the v27 derived
+   ContentAsset reclamation-observation table. The v27 table records only
+   continuous grace evidence; it is neither an ownership registry, a refcount,
+   nor a persisted live-set authority. V26 only extends
    the modality CHECK; all columns, indexes, nullable correctness and append-only
    semantics remain unchanged. Image payload v1 requires a durable
    `source_file_id` soft evidence reference, permits optional/empty transcription
@@ -124,9 +127,10 @@ block-native structural ownership is
 implementation now conforms for typed image/table admission, managed asset
 durability, B0 package v2 coverage, and explicit resolver-backed rendering;
 final live acceptance remains deferred. The D0 successor for ContentAsset
-retention, writer ownership, inventory, and future collection is
-`docs/architecture/dm-p0-content-asset-lifecycle.md`; its implementation stages
-are not activated by the docs-only contract.
+retention, writer ownership, inventory, and collection is
+`docs/architecture/dm-p0-content-asset-lifecycle.md`; its lifecycle stages are
+activated and closed together, and destructive collection runs only through that
+document's gated maintenance path under an explicit user confirmation.
 
 ## 4. Learning asset expansion boundary
 
@@ -185,12 +189,13 @@ Rules:
   head alone does not; an unreadable current payload blocks destructive scans.
   OCR artifact generation is also an ordinary runtime ContentAsset byte writer;
   B0 restore writes ContentAssets through a separate journaled recovery path.
-  See `docs/architecture/dm-p0-content-asset-lifecycle.md` for the docs-only
-  D0 target and the still-open ordinary writer ownership gap.
+  See `docs/architecture/dm-p0-content-asset-lifecycle.md` for the activated
+  lifecycle stages, the acceptance evidence per row, and the rows that remain
+  unproven.
 - F1-D1 implemented the additive v20 artifact tables without modifying any
   earlier table. RAG-1 subsequently raised the runtime schema to v21 at its
   closure with derived lexical-retrieval cache tables and a dedicated FTS5
-  index; the current runtime is v26.
+  index; the current runtime is v27.
 
 See `docs/architecture/f1-parsed-artifact-lifecycle.md`.
 
@@ -425,7 +430,7 @@ boundary remains frozen and applies to any future P7 extension:
   READ_ONLY tools, A0 stays exactly six tools, and W0 is not a P7 workflow.
 - P7 adds no schema change and no persisted candidate/generation state/
   provenance/provider request/result/review state; runtime schema was v21 at
-  P7 closure. The current runtime is v26.
+  P7 closure. The current runtime is v27.
 
 ## 12. UI Finalization Presentation boundary
 
@@ -459,7 +464,7 @@ through an Application command with a durable transaction-level
   non-preview Practice seam (never `PracticePage.initialQuestions`, which
   remains preview-only). SPL-1 StudyPlan Agent Tool v0 is CLOSED / FROZEN
   (P0–D0–D1–I0–U0–V0–CL COMPLETE; stage schema v22, v24 at closure;
-  current runtime v26).
+  current runtime v27).
 
   The focused SPL-1 authority is
 `docs/product/SPL-1 StudyPlan Agent Tool v0.md`.

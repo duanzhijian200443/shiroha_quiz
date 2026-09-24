@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import '../../application/content/content_asset_authority.dart';
+import '../../application/content/content_asset_reclamation_reset.dart';
+import '../../application/backup/backup_restore_gate.dart';
 import '../../application/parsed_artifacts/parsed_artifact_lifecycle.dart';
 import '../../data/models/ai_engine_profile.dart';
 import '../../domain/assets/library_file.dart';
@@ -44,6 +46,7 @@ final class OcrParsedArtifactGenerationAdapter
     OcrRequestScheduler? requestScheduler,
     OcrRequestExecutor? requestExecutor,
     ContentAssetStore? contentAssetStore,
+    ContentAssetReclamationResetPort? reclamationReset,
   })  : _managedFileStorage = managedFileStorage,
         _ocrClient = ocrClient,
         _activeOcrProfileLoader = activeOcrProfileLoader,
@@ -52,13 +55,15 @@ final class OcrParsedArtifactGenerationAdapter
               scheduler: requestScheduler ?? OcrRequestScheduler(),
               preferencesLoader: () async => ImportAdvancedPreferences.defaults,
             ),
-        _contentAssetStore = contentAssetStore;
+        _contentAssetStore = contentAssetStore,
+        _reclamationReset = reclamationReset;
 
   final ManagedFileStorage _managedFileStorage;
   final OcrDocumentClient _ocrClient;
   final ActiveOcrProfileLoader _activeOcrProfileLoader;
   final OcrRequestExecutor _requestExecutor;
   final ContentAssetStore? _contentAssetStore;
+  final ContentAssetReclamationResetPort? _reclamationReset;
 
   static const String ocrPdfRoute = 'ocr_pdf';
   static const String ocrImageRoute = 'ocr_image';
@@ -157,9 +162,31 @@ final class OcrParsedArtifactGenerationAdapter
           ParsedArtifactGenerationFailure.sourceUnavailable,
         );
       }
-      final sourceDocument = OcrSourceDocumentAdapter(
-        assetStore: _contentAssetStore,
-      ).convert(document, sourceId: artifactId, displayLabel: file.displayName);
+      final sourceDocument =
+          await BackupRestoreMutationGate.instance.runMutation(() async {
+        final assetIds =
+            OcrSourceDocumentAdapter.assetIdsRequiringPredeclaration(document);
+        if (_contentAssetStore != null &&
+            _reclamationReset == null &&
+            assetIds.isNotEmpty) {
+          throw const ParsedArtifactGenerationException(
+            ParsedArtifactGenerationFailure.resetAuthorityMissing,
+          );
+        }
+        if (_contentAssetStore != null &&
+            _reclamationReset != null &&
+            assetIds.isNotEmpty) {
+          await _reclamationReset.resetBeforeOwnership(
+            sourceId: artifactId,
+            localAssetIds: assetIds,
+          );
+        }
+        return OcrSourceDocumentAdapter(
+          assetStore: _contentAssetStore,
+          predeclaredAssetIds: _reclamationReset == null ? null : assetIds,
+        ).convert(document,
+            sourceId: artifactId, displayLabel: file.displayName);
+      });
       if (sourceDocument.documentRef.sourceId != artifactId) {
         throw const ParsedArtifactGenerationException(
           ParsedArtifactGenerationFailure.parseFailed,
