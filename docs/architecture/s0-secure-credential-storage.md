@@ -267,5 +267,5 @@ next stage starts, and later stages never auto-activate.
 
 - `ARCHITECTURE.md` — repository-wide boundary contract.
 - This document — focused S0 authority.
-- `docs/architecture/n0-post-p5-roadmap.md` — stage ordering and current
+- `docs/architecture/shiroha-project-roadmap.md` — stage ordering and current
   status.
