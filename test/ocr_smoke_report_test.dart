@@ -284,7 +284,6 @@ void main() {
     });
 
     test('PowerShell launcher persists a safe early failure report', () async {
-      if (!Platform.isWindows) return;
       final toolDirectory = Directory(
         '${repository.path}${Platform.pathSeparator}tool',
       )..createSync(recursive: true);
@@ -297,6 +296,12 @@ void main() {
       )..writeAsStringSync(
           File('tool/run_ocr_smoke.ps1').readAsStringSync(),
         );
+      File(
+        '${toolDirectory.path}${Platform.pathSeparator}'
+        'ocr_smoke_path_helpers.ps1',
+      ).writeAsStringSync(
+        File('tool/ocr_smoke_path_helpers.ps1').readAsStringSync(),
+      );
 
       final process = await Process.run(
         'powershell.exe',
@@ -339,11 +344,10 @@ void main() {
       final contents = files.map((file) => file.readAsStringSync()).join();
       expect(contents, isNot(contains('SHIROHA_OCR_API_KEY')));
       expect(contents, isNot(contains(repository.path)));
-    });
+    }, skip: !Platform.isWindows);
 
     test('PowerShell 5.1 renders the terminal summary without mojibake',
         () async {
-      if (!Platform.isWindows) return;
       final source = File('tool/run_ocr_smoke.ps1').readAsStringSync();
 
       String extractFunction(String name, String nextName) {
@@ -411,7 +415,7 @@ Write-OcrSmokeTerminalSummary -Report \$report
       expect(output, isNot(contains('@{')));
       expect(output, isNot(contains('System.Object[]')));
       expect(output, isNot(contains('锛')));
-    });
+    }, skip: !Platform.isWindows);
 
     test('builds unique safe run identifiers', () {
       final first = createOcrSmokeRunId(
