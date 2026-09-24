@@ -24,7 +24,7 @@ C0
 A0
 ```
 
-The current-stage amendment is:
+Current implementation snapshot:
 
 ```text
 C0 Conversation Foundation — COMPLETE
@@ -72,26 +72,26 @@ RAG1-P0 through RAG1-CL — COMPLETE
 RAG-1 Lexical Retrieval — COMPLETE
 RAG-2 Semantic Embedding — DEFERRED
 RAG-3 Hybrid Retrieval / Rerank — DEFERRED
-  SPL-1-P0 StudyPlan Agent Tool v0 contract freeze — COMPLETE
-  SPL-1-D0 Domain + transient draft + planning/candidate read seams — COMPLETE
-  SPL-1-D1 v22 persistence + durable CAS commands — COMPLETE
-  SPL-1-I0 Agent planning tool + draft/adoption Presentation — COMPLETE
-  SPL-1-U0 Today / 特训 + dynamic selection + Practice seam — COMPLETE
-  SPL-1-V0 Focused acceptance — COMPLETE
-  AGENT-FB Bounded Fallback v0 — COMPLETE / CLOSED
-  OCR-UX Explicit OCR Activation v0 — COMPLETE / CLOSED
-  CONV-MOVE Conversation Relocation v0 — COMPLETE / CLOSED
-  U1-LIFECYCLE-UX Closure v0 — COMPLETE / CLOSED
-  OBS-1 Unified Operation Trace v0 — COMPLETE / CLOSED
-  B0-P0 .shiroha Backup / Restore canonical contract — COMPLETE
-  B0-D0 Package / Manifest Core — COMPLETE
-  B0-E0 Export — COMPLETE
-  B0-I0 Whole Restore + Rollback — COMPLETE
-  B0-U0 Minimal UI — COMPLETE
-  B0-V0 Round-trip / corruption acceptance — COMPLETE
-  B0-CL Closure — COMPLETE
-  Current runtime schema — v27
-  B0 .shiroha Backup / Restore — CLOSED / FROZEN
+SPL-1-P0 StudyPlan Agent Tool v0 contract freeze — COMPLETE
+SPL-1-D0 Domain + transient draft + planning/candidate read seams — COMPLETE
+SPL-1-D1 v22 persistence + durable CAS commands — COMPLETE
+SPL-1-I0 Agent planning tool + draft/adoption Presentation — COMPLETE
+SPL-1-U0 Today / 特训 + dynamic selection + Practice seam — COMPLETE
+SPL-1-V0 Focused acceptance — COMPLETE
+AGENT-FB Bounded Fallback v0 — COMPLETE / CLOSED
+OCR-UX Explicit OCR Activation v0 — COMPLETE / CLOSED
+CONV-MOVE Conversation Relocation v0 — COMPLETE / CLOSED
+U1-LIFECYCLE-UX Closure v0 — COMPLETE / CLOSED
+OBS-1 Unified Operation Trace v0 — COMPLETE / CLOSED
+B0-P0 .shiroha Backup / Restore canonical contract — COMPLETE
+B0-D0 Package / Manifest Core — COMPLETE
+B0-E0 Export — COMPLETE
+B0-I0 Whole Restore + Rollback — COMPLETE
+B0-U0 Minimal UI — COMPLETE
+B0-V0 Round-trip / corruption acceptance — COMPLETE
+B0-CL Closure — COMPLETE
+Current runtime schema — v27
+B0 .shiroha Backup / Restore — CLOSED / FROZEN
 ```
 
 B0-P0 through B0-CL are COMPLETE and B0 v0 is CLOSED / FROZEN. The canonical
