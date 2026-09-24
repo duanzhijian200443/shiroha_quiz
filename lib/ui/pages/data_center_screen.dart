@@ -128,13 +128,19 @@ class _DataCenterScreenState extends State<DataCenterScreen> {
     }
   }
 
-  String get _maintenanceStatus => switch (_maintenanceReport?.outcome) {
-        ContentAssetMaintenanceOutcome.complete => '存储维护正常',
-        ContentAssetMaintenanceOutcome.busy => '维护繁忙，请稍后重试',
-        ContentAssetMaintenanceOutcome.deleteFailed => '部分文件清理失败，已停止继续删除',
-        null => '维护状态暂不可用',
-        _ => '安全扫描未完成，文件已保留',
-      };
+  String get _maintenanceStatus {
+    final report = _maintenanceReport;
+    if (report == null) return '维护状态暂不可用';
+    if (report.boundHit) {
+      return '本次未达到完整检查条件（超出单次检查上限或时间预算），未删除任何文件。';
+    }
+    return switch (report.outcome) {
+      ContentAssetMaintenanceOutcome.complete => '存储维护正常',
+      ContentAssetMaintenanceOutcome.busy => '维护繁忙，请稍后重试',
+      ContentAssetMaintenanceOutcome.deleteFailed => '部分文件清理失败，已停止继续删除',
+      _ => '安全扫描未完成，文件已保留',
+    };
+  }
 
   Future<void> _loadRealData() async {
     setState(() => _isLoading = true);

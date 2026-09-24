@@ -740,6 +740,14 @@ void main() {
     );
   });
 
+  test('v0 complete-proof ceiling stays the declared entry and time bound', () {
+    expect(ManagedContentAssetStore.completeInventoryEntryCeiling, 5000);
+    expect(
+      ManagedContentAssetStore.completeInventoryTimeBudget,
+      const Duration(seconds: 2),
+    );
+  });
+
   test('question mark ceiling prevents any destructive delete', () async {
     await maintenance.reportOnly();
     now += ContentAssetLifecycleMaintenanceService.graceSeconds;

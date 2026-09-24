@@ -58,6 +58,9 @@ void main() {
   Future<_MaintenanceSpy> pumpScreen(
     WidgetTester tester, {
     required int graceEligibleCount,
+    ContentAssetMaintenanceOutcome outcome =
+        ContentAssetMaintenanceOutcome.complete,
+    bool boundHit = false,
   }) async {
     tester.view.physicalSize = const Size(1200, 2200);
     tester.view.devicePixelRatio = 1;
@@ -66,8 +69,9 @@ void main() {
 
     final spy = _MaintenanceSpy(
       ContentAssetMaintenanceReport(
-        outcome: ContentAssetMaintenanceOutcome.complete,
+        outcome: outcome,
         graceEligibleCount: graceEligibleCount,
+        boundHit: boundHit,
       ),
     );
     await tester.runAsync(() async {
@@ -130,5 +134,20 @@ void main() {
 
     expect(spy.sweepCalls, 0);
     expect(find.text('确认清理孤立文件'), findsNothing);
+  });
+
+  testWidgets('a bound-limited pass states that nothing was deleted',
+      (tester) async {
+    final spy = await pumpScreen(
+      tester,
+      graceEligibleCount: 0,
+      outcome: ContentAssetMaintenanceOutcome.incompleteInventory,
+      boundHit: true,
+    );
+
+    expect(find.textContaining('未删除任何文件'), findsOneWidget);
+    expect(find.textContaining('超出单次检查上限'), findsOneWidget);
+    expect(tester.widget<TextButton>(sweepButton()).onPressed, isNull);
+    expect(spy.sweepCalls, 0);
   });
 }

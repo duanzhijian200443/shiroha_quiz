@@ -23,6 +23,15 @@ final class ManagedContentAssetStore
       : _managedRoot = p.normalize(managedRoot.path);
 
   static const int maxImageBytes = 10 * 1024 * 1024;
+
+  /// v0 complete-proof ceiling for one destructive-maintenance scan. The
+  /// count covers physical entries under the managed asset root, meaning
+  /// source directories and their asset files together. Breaching it, or the
+  /// [completeInventoryTimeBudget] below, reports an incomplete pass and
+  /// deletes nothing; it is not a limit on how many assets a library may
+  /// hold, read or use.
+  static const int completeInventoryEntryCeiling = 5000;
+  static const Duration completeInventoryTimeBudget = Duration(seconds: 2);
   static final RegExp _identityPattern = RegExp(
     r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$',
   );
@@ -275,8 +284,8 @@ final class ManagedContentAssetStore
   /// Strict destructive-maintenance inventory. Unlike [listAssets], every
   /// physical entry is accounted for; ambiguity aborts the entire scan.
   Future<List<ContentAssetRecord>> inspectCompleteInventory({
-    int maxEntries = 5000,
-    Duration maxDuration = const Duration(seconds: 2),
+    int maxEntries = completeInventoryEntryCeiling,
+    Duration maxDuration = completeInventoryTimeBudget,
   }) async {
     final classified = await classifyPhysicalInventory(
       maxEntries: maxEntries,
@@ -292,8 +301,8 @@ final class ManagedContentAssetStore
   /// Classifies each encountered directory entry once before content reads.
   /// Unknown entries are retained and prevent a destructive pass.
   Future<ContentAssetPhysicalInventory> classifyPhysicalInventory({
-    int maxEntries = 5000,
-    Duration maxDuration = const Duration(seconds: 2),
+    int maxEntries = completeInventoryEntryCeiling,
+    Duration maxDuration = completeInventoryTimeBudget,
   }) async {
     final watch = Stopwatch()..start();
     void checkBound(int entries) {
