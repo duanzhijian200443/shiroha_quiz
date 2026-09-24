@@ -420,5 +420,5 @@ deferred list.
 - This document — focused F1 authority.
 - `docs/architecture/adr-002-learning-asset-lifecycle.md` — accepted lifecycle
   decision.
-- `docs/architecture/n0-post-p5-roadmap.md` — stage ordering and current
+- `docs/architecture/shiroha-project-roadmap.md` — stage ordering and current
   status.
