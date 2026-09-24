@@ -6,7 +6,7 @@
 
 本文件是 U0（Information Architecture Design Freeze）的唯一 deliverable。它冻结 Shiroha 的信息架构（IA）与入口责任，作为 U1 导航迁移与 F0/J0 入口接线的契约输入；不包含任何 UI 细节决策，不产生任何生产代码、schema 或依赖变更。
 
-权威依据为 `docs/architecture/n0-post-p5-roadmap.md`（U0/F0/J0/U1 阶段定义、J0 关系形状、非目标）与 ADR-001/002/003。本文件不得与上述文档矛盾；本文件未覆盖之处以 N0 与 ADR 为准。
+权威依据为 `docs/architecture/shiroha-project-roadmap.md`（U0/F0/J0/U1 阶段定义、J0 关系形状、非目标）与 ADR-001/002/003。本文件不得与上述文档矛盾；本文件未覆盖之处以 N0 与 ADR 为准。
 
 ## 2. Current IA
 
