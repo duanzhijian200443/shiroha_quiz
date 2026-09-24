@@ -16,7 +16,8 @@ AnswerAttempt migration followed the original B0-P0 v22 freeze.
 
 ### Current-state amendment: AnswerAttempt schema v26
 
-Current runtime uses v26. Staged v25 databases rebuild `answer_attempts` inside
+This amendment raised the runtime to v26; the current runtime is v27 as stated
+below. Staged v25 databases rebuild `answer_attempts` inside
 DatabaseHelper's upgrade transaction, preserving all rows and both indexes;
 only the modality CHECK gains `image`. Image payload v1 uses `source_file_id`
 as a soft LibraryFile evidence reference. Transcription is optional, and
@@ -33,29 +34,29 @@ B0 package-required ContentAsset set. B0 scrubs current ParsedArtifact and
 revision-head rows and excludes derived sidecars, so an Artifact-only asset can
 be live at runtime without entering the package. B0 includes structurally
 reachable assets required by packaged QuestionDraftV2 payloads; restore must
-validate and restore those bytes. Current export does not quiesce mutation
-leases; the B0G successor stage must add fail-fast admission before any
-destructive ContentAsset collector can activate. This paragraph is a future
-contract, not a claim that B0G is already implemented.
+validate and restore those bytes. Export uses fail-fast maintenance admission:
+an active mutation yields a fixed busy failure before snapshot work begins, and
+an admitted export blocks new mutations, so a destructive ContentAsset pass
+cannot overlap package construction. B0G is implemented, and the successor
+document records its acceptance evidence.
 
 Restore commit is a separate journaled ContentAsset recovery writer. It copies
 validated staged manifest assets into the live managed root under B0 exclusive
 authority and mutation quiescence, with rollback/recovery and post-swap
 verification. It does not use the ordinary OCR candidate ownership protocol.
 
-**Current B0 asset-set gap:**
-`BackupSnapshotRepository._readReferencedContentAssetIdentities` skips an
-unsupported `QuestionDraftV2` sidecar schema. Database quick-check, FK, and
-scrub validation do not supply its missing ContentAsset marks. **Target:** B0
-export fails closed before package publication when any admitted Question
-sidecar schema/content cannot be fully interpreted. B0G must close this narrow
-validation gap together with fail-fast export admission before destructive GC
-activation.
+**B0 asset-set closure:**
+`BackupSnapshotRepository._readReferencedContentAssetIdentities` no longer
+skips an uninterpretable sidecar. An unsupported `QuestionDraftV2` schema, a
+corrupt payload, or a payload the codec structurally rejects fails the export
+before package publication, and a declared inventory that does not cover the
+reachable images does the same. Fail-fast export admission and this validation
+closure are both implemented; the successor document records the evidence.
 
 ### Historical amendment: AI Config schema v24
 
 At that amendment's closure, runtime and current-runtime backup fixtures used
-schema **v24**; the current runtime is v26 as stated above.
+schema **v24**; the current runtime is v27 as stated above.
 The four additive AI configuration tables (`ai_providers`, `ai_models`,
 `ai_model_capability_claims`, `ai_capability_bindings`) are authoritative
 INCLUDE state. None has a credential column. Legacy `ai_engines.api_key` and
@@ -111,7 +112,9 @@ schemaVersion  = SQLite PRAGMA user_version
 - `schemaVersion` versions the SQLite schema carried inside the snapshot.
 - The manifest carries both; compatibility checks for each are separate
   (§8).
-- Current runtime schema is **v26**; v24 references below retain their
+- Current runtime schema is **v27**: the v27 addition is the derived
+  ContentAsset reclamation-observation ledger, which the package excludes and
+  scrubs like other derived state. v24 and v26 references below retain their
   historical amendment or compatibility-fixture meaning.
 
 ## 2. Frozen package structure
@@ -182,7 +185,7 @@ payloads, or user file bytes. Those bytes remain only inside
 ## 3. Portable snapshot — INCLUDE
 
 The sanitized SQLite snapshot must preserve all authoritative durable user
-state. The v24 amendment froze the INCLUDE set below; current runtime is v26
+state. The v24 amendment froze the INCLUDE set below; current runtime is v27
 and retains these authoritative rows, including `answer_attempts` with image
 modality:
 
@@ -240,7 +243,7 @@ The package must never contain:
 - secrets.
 
 In the sanitized snapshot, all legacy/current credential columns must be in an
-empty/null safe state. For current schema v26 this includes at least:
+empty/null safe state. For current schema v27 this includes at least:
 
 ```text
 ai_engines.api_key
@@ -889,7 +892,7 @@ B0 v0 explicitly excludes:
 - credential backup;
 - ParsedArtifact backup;
 - RAG cache backup;
-- future database schema migrations beyond the current runtime (v26);
+- future database schema migrations beyond the current runtime (v27);
 - DATA-MGMT destructive features;
 - UI redesign.
 
@@ -948,7 +951,7 @@ B0 .shiroha Backup / Restore — CLOSED / FROZEN
 The B0-V0 acceptance suite must cover:
 
 1. empty/fresh app export + restore;
-2. realistic populated current-schema v26 round trip;
+2. realistic populated current-schema v27 round trip;
 3. Questions + typed sidecars + `answer_attempts` preserved;
 4. FSRS/review history preserved;
 5. Library files + bytes/digests preserved;

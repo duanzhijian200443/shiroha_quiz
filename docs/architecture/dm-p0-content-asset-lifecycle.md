@@ -1,12 +1,14 @@
 # DM-P0-D0 ContentAsset lifecycle successor
 
-Status: **D0 contract amended for durable reclamation grace; I0 and B0G implemented; I1A and later stages not activated; lifecycle implementation incomplete**.
+Status: **CLOSED — I0, B0G, I1A, I1B, I2, I4, I3 and U0 are activated and closed together on one branch; V0 is independently verified offline and deterministically on `df0559d`; this amendment records that closure.**
 
-This successor defines the ContentAsset lifecycle target for future destructive
-work. It supplements the historical DM-P0 destructive-mutation contract. D0 is
-documentation only: the gaps described here remain present until their named
-implementation stages close. No automatic ContentAsset collection is authorized
-by this document alone.
+This successor defines the ContentAsset lifecycle for managed reclamation. It
+supplements the historical DM-P0 destructive-mutation contract. §7 records which
+stages are activated, and §8 records the acceptance evidence together with the
+rows that remain unproven or deferred. Destructive collection runs only through
+the gated maintenance path in §5, requires an explicit user confirmation, and
+stays scoped to the single-application-process managed-storage authority
+declared there.
 
 ## 1. Authorities and current state
 
@@ -14,7 +16,7 @@ by this document alone.
 | --- | --- | --- |
 | `Question` plus its valid `QuestionDraftV2` typed sidecar | Confirmed learning-data authority | Structurally reachable `ImageNode` identities are authoritative durable roots. `assetRefs` is declared metadata/inventory, not a mark set. |
 | Current `ParsedArtifact` plus verified `SourceDocument` | Rebuildable derived generation | Its `SourceAssetPart` identities are **runtime retention roots** while that current generation exists. They do not become confirmed Question authority. |
-| Pending-review `ImportTask` candidate and active writer operation | Workflow and transient ownership | Exact identities must remain protected until commit, discard, or proven rollback. Existing coverage is incomplete; see §4. |
+| Pending-review `ImportTask` candidate and active writer operation | Workflow and transient ownership | Exact identities are protected until commit, discard, or proven rollback; §4 records the closed invariant and its evidence. |
 | B0 restore commit | Journaled recovery writer | Copies validated staged ContentAssets into the live managed root under B0 exclusive authority and mutation quiescence; it does not use I1A candidate ownership tokens. |
 | `LibraryFile` original managed bytes | Primary source file | Its file identity and bytes are separate from source-qualified ContentAsset identity. |
 | `AnswerAttempt.image.source_file_id` | Soft `LibraryFile` evidence | Neither ContentAsset root nor required FK nor file-deletion blocker. Missing evidence does not corrupt history. |
@@ -29,10 +31,12 @@ Separately, B0 restore is a production **recovery writer**:
 the live managed root. Its authority is B0 staged validation, exclusive restore
 commit with mutation quiescence, durable journal/rollback/recovery, and post-swap
 verification. It is not subject to the I1A candidate/pre-write-token protocol.
-Future ordinary writers must join I1A; any new recovery writer needs an
-equally explicit recovery authority before destructive collection activates.
-Test and tool writers are not additional production routes, but test-created
-physical entities are still subject to safe inventory classification.
+Ordinary writers join I1A by predeclaring the exact identity before the first
+byte. A new recovery writer needs an equally explicit recovery authority before
+it may publish bytes, and no Application authority may make a writer invisible
+to the maintenance gate in §6. Test and tool writers are not additional
+production routes, but test-created physical entities are still subject to safe
+inventory classification.
 
 Question reachability uses the canonical recursive `reachableImageNodes` walk
 through stem, options, `ContentAnswer`, explanation, image alternative content,
@@ -124,14 +128,15 @@ uninterpretable content. Export does not publish a package in that case.
 
 ## 4. Writer ownership: present gap and target invariant
 
-**Current gap.** Import conversion can write bytes, verify integrity, invoke
-`onAssetCreated`, and only then register a candidate lease. A successful write
-followed by verification or callback failure can leave residue without an exact
-lease. OCR ParsedArtifact generation uses the same adapter without a candidate
-lease; a failed generation before publish can leave unowned bytes. F1's sidecar
-publish/CAS and cleanup rules do not by themselves own these ContentAsset bytes.
-The present repository therefore does **not** satisfy “protected before first
-byte” and destructive GC is prohibited.
+**Closed by I1A and I1B.** Import conversion predeclares the exact identity
+before `storeBytesSync` and registers the candidate lease, so a write that
+becomes physically visible while verification or the ownership callback fails
+still leaves an exact identity for rollback or conservative grace. OCR
+ParsedArtifact generation runs the same adapter under a reset authority and
+becomes a durable root only when its current generation publishes; a prepublish
+failure leaves reconcilable residue rather than an unowned identity. Both
+composed callers therefore satisfy “protected before first byte”, which is what
+destructive classification depends on. §8 records the acceptance evidence.
 
 **Target invariant for ordinary writers.** Before a durable byte can become
 visible, each ordinary runtime writer obtains explicit operation ownership for
@@ -147,28 +152,31 @@ failure after physical visibility, the operation retains enough exact identity
 to retry cleanup or conservatively classify residue. It must never silently
 discard identity because a callback, verification, CAS, or cleanup failed.
 
-I1A must prove this for both composed callers, synchronous failure,
-cancellation, and idempotent retry. A process crash can erase a transient
-lease; it cannot erase the requirement to account for any visible residue.
-I2/I4 must conservatively rediscover it through complete physical inventory,
+I1A proves this for both composed callers, synchronous failure, cancellation,
+and idempotent retry; §8 records the evidence. A process crash can erase a
+transient lease; it cannot erase the requirement to account for any visible
+residue. I2/I4 conservatively rediscover it through complete physical inventory,
 full root scans, startup reconciliation, and grace before I3 can classify it
-for deletion. I1B must close artifact invalidation/removal and derived cleanup
-ordering. Until all these stages close, report-only classification may label
-uncertain physical entities but cannot delete them. A staging identity,
-durable registry, or refcount is not selected for v0; if predeclaration,
-leases, and conservative recovery cannot close the crash gap, stop and re-plan
-before destructive activation.
+for deletion, and I1B closes artifact invalidation/removal and derived cleanup
+ordering. A staging identity, durable registry, or refcount is not selected for
+v0; if predeclaration, leases, and conservative recovery cannot close the crash
+gap, stop and re-plan before destructive activation.
 
 ## 5. Inventory, classification, and deletion authority
 
 `ManagedContentAssetStore.listAssets()` is a healthy-asset listing: it reads
-full bytes, hashes accepted files, and skips empty, oversized, invalid-image,
-temporary, unknown, and non-file entities. It is **not** a complete physical
-inventory for destructive classification. I2 must provide a bounded inventory
-of raw physical entities and an explicit outcome for every encountered file,
-directory, link/reparse point, malformed name, unreadable entry, and transient
-write. Skipped or unclassified entities cannot be treated as absent. Inventory
-failure makes the scan incomplete and the destructive pass delete nothing.
+full bytes and hashes accepted files, filtering only by entity kind, identity
+shape, size and image magic bytes. It therefore skips empty, oversized,
+temporary, unknown-MIME and non-file entities, but it does **not** validate
+image content — a file with an intact modern signature and corrupt body is
+still listed. Its one production consumer is B0 package construction, which
+reports a loud integrity mismatch instead of deciding deletion. It is **not** a
+complete physical inventory for destructive classification. I2 provides a
+bounded inventory of raw physical entities and an explicit outcome for every
+encountered file, directory, link/reparse point, malformed name, unreadable
+entry, and transient write. Skipped or unclassified entities cannot be treated
+as absent. Inventory failure makes the scan incomplete and the destructive pass
+delete nothing.
 
 The classifier distinguishes live authoritative Question assets, live derived
 Artifact assets, owned candidates/in-flight writes, shared assets, proven
@@ -179,8 +187,10 @@ exclusive revalidation immediately before exact physical deletion. A failed
 delete is observable and retryable; it does not roll back a committed primary
 mutation. No deletion follows a symlink, junction, or reparse point. Lexical
 `normalize`/`isWithin` checks currently used by managed paths are insufficient
-proof of resolved filesystem containment; I2/I3 must prove target and parent
-containment on supported platforms or fail closed.
+proof of resolved filesystem containment; I2/I3 prove target and parent
+containment on supported platforms or fail closed, rejecting any link/reparse
+entity during classification and re-proving the selected target immediately
+before unlink.
 
 The destructive path's check-to-delete guarantee is scoped to the existing
 single-application-process managed-storage authority: every production
@@ -193,7 +203,9 @@ root, path-based deletion cannot meet this contract and I3 must remain off in
 that deployment. This scope does not shorten grace or make ledger rows a
 live-set authority.
 
-Report-only I2 may classify without activating deletion. The original D0 v0
+Report-only classification remains available and deletes nothing; destructive
+collection is activated on this branch and additionally requires an explicit
+user confirmation. The original D0 v0
 selection assumed Application ownership, full scans, conservative retention,
 and existing identities could avoid a registry, refcount, and schema migration
 **if** I1A/I1B/I2/I4 proved all required invariants. G0 repository verification
@@ -284,9 +296,11 @@ Application authority for original managed bytes and relations; Project,
 Conversation, and Folder detach do not delete those bytes. `AnswerAttempt`
 soft evidence does not enter the file-deletion guard. Derived
 `LibraryFile -> ParsedArtifact -> Retrieval` invalidation remains distinct from
-ContentAsset primary learning-data lifetime. There is no proven startup orphan
-sweep or complete derived reconciliation today; I1B/I4 must establish
-idempotent, crash-safe cleanup without promoting retrieval rows to roots.
+ContentAsset primary learning-data lifetime. I1B/I4 establish idempotent,
+crash-safe startup reconciliation and derived cleanup without promoting
+retrieval rows to roots: startup reconciliation removes stale artifact sidecars
+and stale retrieval builds, and leaves ContentAsset bytes to the grace
+lifecycle below rather than deleting them directly.
 
 Explicit user `LibraryFile` deletion and future bulk answer-photo cleanup are
 different authorities. An `AnswerAttempt` having once referenced a file does
@@ -312,16 +326,25 @@ D0 contract (this document)
   -> CL canonical closure
 ```
 
-Each arrow is an activation dependency. The current closure work keeps B0G,
-this amendment, I1A, I1B, I2, I4, I3, U0, and V0/CL on one branch for one
-final PR. I2 classification is never final proof for I3 unless I1A and I1B
-have closed writer and derived ownership and the v27 ledger proves grace.
-No stage activates its successor merely because its PR was created.
+Each arrow is an activation dependency. The closure work kept B0G, this
+amendment, I1A, I1B, I2, I4, I3, U0, and V0/CL on one branch for one final PR.
+That branch activates all of them: I0 and B0G are closed, I1A and I1B are
+closed with writer and derived ownership, I2 and I4 are closed with complete
+inventory, durable grace and startup reconciliation, I3 is closed behind the
+gated maintenance path with an explicit user confirmation, and V0/CL are closed
+by the independent verification recorded in §8. I2 classification is never
+final proof for I3 unless I1A and I1B have closed writer and derived ownership
+and the v27 ledger proves grace. No stage activates its successor merely because
+its PR was created.
 
-## 8. Future acceptance contract
+## 8. Acceptance contract and closure status
 
-These are required future deterministic, synthetic/offline tests, not tests
-claimed to pass at D0:
+The table below is the deterministic, synthetic/offline acceptance contract. The
+closure status after it records, per ID, the evidence that exists today: rows
+marked `PARTIAL` or `DEFERRED` state what is still unproven, and verification
+ruled them non-blocking for destructive activation, which rests on the gated
+path in §5, the single mutation authority in §6, and the V0 record at the end of
+this section.
 
 | ID | Required behavior |
 | --- | --- |
@@ -361,6 +384,51 @@ acquisition, root-release and restart tests, backward-clock and unavailable
 ledger failures, and proof that a restored ledger is empty. These are
 implementation acceptance requirements, not claims of current coverage.
 
+### Closure status
+
+`PASS` means a deterministic test proves the invariant. `PARTIAL` names the gap
+that is still unproven. `DEFERRED` means the behaviour a row guards does not
+exist yet, so the row cannot be exercised.
+
+| ID | status | evidence or remaining gap |
+| --- | --- | --- |
+| L1 | PASS | Production repository acquisition, release through the production deletion authority, grace starting at the first complete unreachable observation, and byte deletion after the window |
+| L2 | PASS | A shared asset is retained until both roots release |
+| L3 | PASS | Candidate restart/commit/discard coverage plus cleanup-residue owner protection and malformed-residue abort |
+| L4 | PASS, with two recorded non-constructible classes | Stray file, invalid source directory and invalid asset name are each classified, and the whole pass refuses while any of them exists. `externalOrEscape` and `unreadableEntity` are fail-closed branches that a deterministic single-process fixture cannot reach: any static link on the path is classified `junctionOrReparse` first, and Windows enumeration cannot produce a pipe or socket entity |
+| L5 | PASS | LibraryFile deletion cannot remove a Question-required ContentAsset |
+| L6 | PARTIAL | Derived idempotence and RAG-cleanup failure are proven; a real invalidation with a live Question-rooted asset is not driven end to end |
+| L7 | PARTIAL | Observable failure and preserved committed truth are proven; no consumer demonstrates reclaiming the same residue afterwards |
+| L8 | PASS | Export/restore and the destroy window exclude each other, proven from both sides |
+| L9 | DEFERRED | Restore-side digest validation belongs to the B0 contract |
+| L10 | PARTIAL | Guard rollback is proven on three routes; asset-side zero-cleanup evidence and a clear-all case over a non-empty `paper_questions` set are still missing |
+| L11 | PASS | Soft evidence is preserved and unavailable-evidence rendering is proven |
+| L12 | DEFERRED | Bulk answer-photo cleanup does not exist, so its eligibility predicate cannot be exercised |
+| L13 | PASS | One tree, two views: the healthy listing and destructive inventory disagree by design and the sweep refuses |
+| L14 | PASS | Export fails fast against an active mutation |
+| L15 | PASS | Current-artifact acquisition keeps the asset live, and a malformed current row blocks the scan |
+| L16 | PARTIAL | Head-only rows are proven not to be roots; the transition from verified current to orphan is not driven |
+| L17 | PASS | A post-visibility write failure keeps the exact identity in the lease and rolls it back exactly |
+| L18 | PASS | Real adapter bytes with a failing publish leave reconcilable residue that is never live and never deleted |
+| L19 | PARTIAL | The artifact-removed direction is proven; Question removal with a live artifact root is not |
+| L20 | PARTIAL | Derived exclusion and nested closure are proven; only a single-asset package is restored and the staged/live digest cross-check is untested |
+| B0G | PASS | Unsupported, corrupt and codec-rejected sidecars each fail before package publication |
+| G0 cluster | PASS | Migration, B0 compatibility, scrubbed grace evidence, empty restored ledger, grace before and after the window, resets for Question, artifact, candidate and writer acquisition, root release, restart continuity, backward clock, unavailable ledger, renamed-column ledger and negative clock |
+| §9 traps | discharged where implemented | Unclassified writers, reset-before-visibility, artifact verification, scan completeness and the B0 sidecar refusal each carry evidence above; the containment trap is discharged by classification rejection plus the pre-unlink re-proof |
+
+### V0 verification record
+
+V0 is signed on `df0559d` by an independent verification session. It re-ran the
+changed deterministic files (105 tests), the surrounding gate files (67 tests)
+and the maintenance file alone (33 tests) on the product platform, all passing
+with no failures and no skips, with `dart format`, `flutter analyze`,
+`git diff --check` and the CI contract checks clean, and it confirmed that the
+delta from the previously verified head touched only test files. It recorded
+that CI cannot observe Windows-only filesystem behaviour — those cases now
+report an explicit skip instead of a silent pass — and that L18 pins byte
+survival rather than the sweep outcome. V0 being signed means I3 may run on that
+head; it is not a merge approval, which stays a separate decision.
+
 ## 9. HARD STOP for destructive activation
 
 Stop before any physical ContentAsset sweep if a production writer is
@@ -378,3 +446,9 @@ if ParsedArtifact CAS cannot provide safe reset-before-publish ordering.
 Preserve bytes and return an
 observable blocked/incomplete result. Re-plan the precise failed invariant
 before changing that boundary.
+
+These conditions remain standing. Their discharge for the current activation is
+recorded in §8: classified writers and reset-before-visibility (§4), complete
+inventory and containment (§5), the mutation authority (§6), artifact
+verification and the B0 sidecar refusal (§8 L15/L16/B0G), and v27/B0
+compatibility (the G0 cluster).

@@ -128,8 +128,9 @@ implementation now conforms for typed image/table admission, managed asset
 durability, B0 package v2 coverage, and explicit resolver-backed rendering;
 final live acceptance remains deferred. The D0 successor for ContentAsset
 retention, writer ownership, inventory, and collection is
-`docs/architecture/dm-p0-content-asset-lifecycle.md`; implementation remains
-subject to its stage gates before destructive collection is activated.
+`docs/architecture/dm-p0-content-asset-lifecycle.md`; its lifecycle stages are
+activated and closed together, and destructive collection runs only through that
+document's gated maintenance path under an explicit user confirmation.
 
 ## 4. Learning asset expansion boundary
 
@@ -188,8 +189,9 @@ Rules:
   head alone does not; an unreadable current payload blocks destructive scans.
   OCR artifact generation is also an ordinary runtime ContentAsset byte writer;
   B0 restore writes ContentAssets through a separate journaled recovery path.
-  See `docs/architecture/dm-p0-content-asset-lifecycle.md` for the amended
-  D0 target and its lifecycle stage gates.
+  See `docs/architecture/dm-p0-content-asset-lifecycle.md` for the activated
+  lifecycle stages, the acceptance evidence per row, and the rows that remain
+  unproven.
 - F1-D1 implemented the additive v20 artifact tables without modifying any
   earlier table. RAG-1 subsequently raised the runtime schema to v21 at its
   closure with derived lexical-retrieval cache tables and a dedicated FTS5
