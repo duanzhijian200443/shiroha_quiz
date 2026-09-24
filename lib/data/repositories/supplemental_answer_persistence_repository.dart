@@ -1,11 +1,13 @@
 import '../../application/supplemental_answers/supplemental_answer_command.dart';
 import '../../application/supplemental_answers/supplemental_answer_failure.dart';
 import '../../core/database/database_helper.dart';
+import '../../application/backup/backup_restore_gate.dart';
 import '../../core/database/sqflite_runtime.dart';
 import '../../domain/supplemental_answers/answer_candidate.dart';
 import '../models/persisted_question.dart';
 import '../persistence/question_v2_persistence_mapper.dart';
 import '../persistence/typed_answer_persistence.dart';
+import 'content_asset_reclamation_observation_repository.dart';
 
 /// Data-layer implementation of the P6 confirm port.
 ///
@@ -47,6 +49,7 @@ final class SupplementalAnswerPersistenceRepository
           SupplementalAnswerFailure.invalidCandidate,
         ),
     };
+    final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
     try {
       final db = await _databaseHelper.database;
       await db.transaction((txn) async {
@@ -67,6 +70,8 @@ final class SupplementalAnswerPersistenceRepository
       throw const SupplementalAnswerException(
         SupplementalAnswerFailure.temporarilyUnavailable,
       );
+    } finally {
+      lease.release();
     }
   }
 
@@ -177,6 +182,15 @@ final class _P6TransactionExecutor implements TypedAnswerTransactionExecutor {
   const _P6TransactionExecutor(this._txn);
 
   final DatabaseExecutor _txn;
+
+  @override
+  Future<void> resetContentAssetObservations(
+    Iterable<ContentAssetIdentity> identities,
+  ) =>
+      ContentAssetReclamationObservationRepository.resetInTransaction(
+        _txn,
+        identities,
+      );
 
   @override
   Future<List<Map<String, Object?>>> queryRaw(

@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/application/parsed_artifacts/parsed_artifact_lifecycle.dart';
 import 'package:shiroha_quiz/application/parsed_artifacts/parsed_artifact_ports.dart';
+import 'package:shiroha_quiz/application/content/content_asset_reclamation_reset.dart';
 import 'package:shiroha_quiz/application/retrieval/retrieval.dart';
 import 'package:shiroha_quiz/application/retrieval/retrieval_ports.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
@@ -16,6 +17,7 @@ import 'package:shiroha_quiz/data/repositories/parsed_artifact_repository.dart';
 import 'package:shiroha_quiz/data/repositories/retrieval_index_repository.dart';
 import 'package:shiroha_quiz/domain/assets/library_file.dart';
 import 'package:shiroha_quiz/domain/assets/parsed_artifact.dart';
+import 'package:shiroha_quiz/domain/assets/asset_ref.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/retrieval/retrieval_chunk.dart';
@@ -166,6 +168,42 @@ class _ConflictInjectingRepository implements ParsedArtifactRepositoryPort {
   }) {
     return inner.removeCurrent(
       fileId: fileId,
+      expectedRevision: expectedRevision,
+    );
+  }
+}
+
+final class _ResetOrderProbe implements ContentAssetReclamationResetPort {
+  bool called = false;
+  String? sourceId;
+  Set<String> localIds = <String>{};
+
+  @override
+  Future<void> resetBeforeOwnership({
+    required String sourceId,
+    required Iterable<String> localAssetIds,
+  }) async {
+    called = true;
+    this.sourceId = sourceId;
+    localIds.addAll(localAssetIds);
+  }
+}
+
+final class _PublishAfterResetRepository extends _ConflictInjectingRepository {
+  _PublishAfterResetRepository(super.inner, this.probe);
+
+  final _ResetOrderProbe probe;
+
+  @override
+  Future<ParsedArtifactPublishResult> publishCurrent({
+    required String fileId,
+    required ParsedArtifactMetadata candidate,
+    required int expectedRevision,
+  }) {
+    expect(probe.called, isTrue);
+    return super.publishCurrent(
+      fileId: fileId,
+      candidate: candidate,
       expectedRevision: expectedRevision,
     );
   }
@@ -471,6 +509,37 @@ void main() {
       seededFile(fileId: fileId, storageKey: 'library/$fileId'),
     );
   }
+
+  test('current Artifact root resets grace before CAS publish visibility',
+      () async {
+    await seedLibraryFile();
+    final probe = _ResetOrderProbe();
+    generation.documentOverride = (sourceId, file) => SourceDocument(
+          sourceId: sourceId,
+          parts: <SourcePart>[
+            SourceAssetPart(
+              sourceRef: SourceRef.document(sourceId: sourceId),
+              asset: AssetRef(assetId: 'asset-1', kind: AssetKind.image),
+            ),
+          ],
+        );
+    final withReset = ParsedArtifactLifecycleService(
+      libraryFileRepository: libraryRepository,
+      artifactRepository: _PublishAfterResetRepository(
+        artifactRepository,
+        probe,
+      ),
+      artifactStorage: storage,
+      generationPort: generation,
+      reclamationReset: probe,
+    );
+    final result = await withReset.ensureParsedArtifact(
+      fileId: 'file-1',
+      options: _options,
+    );
+    expect(probe.sourceId, result.snapshot.artifact.artifactId);
+    expect(probe.localIds, <String>{'asset-1'});
+  });
 
   Future<ParsedArtifactEnsureResult> ensure({
     String fileId = 'file-1',

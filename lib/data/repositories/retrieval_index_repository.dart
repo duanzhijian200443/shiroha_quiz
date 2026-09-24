@@ -9,6 +9,7 @@ import 'package:crypto/crypto.dart';
 import '../../application/retrieval/retrieval.dart';
 import '../../application/retrieval/retrieval_ports.dart';
 import '../../application/retrieval/retrieval_service.dart';
+import '../../application/backup/backup_restore_gate.dart';
 import '../../core/database/database_helper.dart';
 import '../../core/database/sqflite_runtime.dart';
 import '../../domain/retrieval/retrieval_chunk.dart';
@@ -27,8 +28,9 @@ final class SqliteRetrievalIndexRepository implements RetrievalIndexPort {
       required String lexicalProjectionVersion,
       required List<RetrievalChunk> chunks}) {
     final previous = _ensureChains[snapshot.fileId] ?? Future<void>.value();
-    final result = previous.then((_) =>
-        _ensure(snapshot, chunkerVersion, lexicalProjectionVersion, chunks));
+    final result = previous.then((_) => BackupRestoreMutationGate.instance
+        .runMutation(() => _ensure(
+            snapshot, chunkerVersion, lexicalProjectionVersion, chunks)));
     final tail = result.then<void>((_) {}, onError: (_) {});
     _ensureChains[snapshot.fileId] = tail;
     tail.whenComplete(() {
@@ -316,24 +318,28 @@ final class SqliteRetrievalIndexRepository implements RetrievalIndexPort {
 
   @override
   Future<void> removeIndex(String fileId) async {
-    final db = await _databaseHelper.database;
-    await db.delete('retrieval_index_builds',
-        where: 'file_id = ?', whereArgs: <Object?>[fileId]);
+    await BackupRestoreMutationGate.instance.runMutation(() async {
+      final db = await _databaseHelper.database;
+      await db.delete('retrieval_index_builds',
+          where: 'file_id = ?', whereArgs: <Object?>[fileId]);
+    });
   }
 
   @override
   Future<void> removeIndexGeneration(RetrievalArtifactSnapshot snapshot) async {
-    final db = await _databaseHelper.database;
-    await db.delete(
-      'retrieval_index_builds',
-      where:
-          'file_id = ? AND artifact_id = ? AND revision = ? AND payload_digest = ?',
-      whereArgs: <Object?>[
-        snapshot.fileId,
-        snapshot.artifactId,
-        snapshot.revision,
-        snapshot.payloadDigest,
-      ],
-    );
+    await BackupRestoreMutationGate.instance.runMutation(() async {
+      final db = await _databaseHelper.database;
+      await db.delete(
+        'retrieval_index_builds',
+        where:
+            'file_id = ? AND artifact_id = ? AND revision = ? AND payload_digest = ?',
+        whereArgs: <Object?>[
+          snapshot.fileId,
+          snapshot.artifactId,
+          snapshot.revision,
+          snapshot.payloadDigest,
+        ],
+      );
+    });
   }
 }

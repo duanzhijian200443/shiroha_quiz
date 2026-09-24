@@ -180,6 +180,7 @@ final class BackupSnapshotRepository {
     }
 
     await db.delete('import_tasks');
+    await db.delete('content_asset_reclamation_observations');
     if (await _tableExists(db, 'app_settings')) {
       await db.delete(
         'app_settings',
@@ -207,6 +208,7 @@ final class BackupSnapshotRepository {
       'retrieval_chunks',
       'retrieval_chunks_fts',
       'import_tasks',
+      'content_asset_reclamation_observations',
       'questions_fts',
     ];
     for (final table in excludedTables) {

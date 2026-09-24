@@ -1,11 +1,13 @@
 import '../../application/answers/ai_answer_commit_command.dart';
 import '../../application/safe_write/typed_answer_command.dart';
 import '../../core/database/database_helper.dart';
+import '../../application/backup/backup_restore_gate.dart';
 import '../../core/database/sqflite_runtime.dart';
 import '../../domain/answers/answer_candidate.dart';
 import '../models/persisted_question.dart';
 import '../persistence/question_v2_persistence_mapper.dart';
 import '../persistence/typed_answer_persistence.dart';
+import 'content_asset_reclamation_observation_repository.dart';
 
 /// P7-C0 data-layer implementation of the AI commit port.
 ///
@@ -52,6 +54,7 @@ final class AiAnswerCommitRepository implements AiAnswerCommitPersistencePort {
         AiAnswerCommitFailure.candidateNotCommittable,
       );
     }
+    final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
     try {
       final db = await _databaseHelper.database;
       await db.transaction((txn) async {
@@ -73,6 +76,8 @@ final class AiAnswerCommitRepository implements AiAnswerCommitPersistencePort {
       throw const AiAnswerCommitException(
         AiAnswerCommitFailure.persistenceFailed,
       );
+    } finally {
+      lease.release();
     }
   }
 
@@ -173,6 +178,15 @@ final class _AiCommitTransactionExecutor
   const _AiCommitTransactionExecutor(this._txn);
 
   final DatabaseExecutor _txn;
+
+  @override
+  Future<void> resetContentAssetObservations(
+    Iterable<ContentAssetIdentity> identities,
+  ) =>
+      ContentAssetReclamationObservationRepository.resetInTransaction(
+        _txn,
+        identities,
+      );
 
   @override
   Future<List<Map<String, Object?>>> queryRaw(

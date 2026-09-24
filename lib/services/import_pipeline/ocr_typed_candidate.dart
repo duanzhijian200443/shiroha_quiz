@@ -176,6 +176,8 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
   required List<Map<String, dynamic>> legacyQuestions,
   required String Function() uuidV4Factory,
   ContentAssetStore? assetStore,
+  String? predeclaredSourceId,
+  Set<String>? predeclaredAssetIds,
   ExplanationRetentionMode explanationRetentionMode =
       ExplanationRetentionMode.subjectiveOnly,
 }) {
@@ -208,11 +210,12 @@ OcrTypedCandidateBatch buildOcrTypedCandidateBatch({
   final createdAssetIds = <String>{};
   ContentAssetCandidateLease? candidateAssetLease;
   try {
-    final generatedSourceId = uuidV4Factory();
+    final generatedSourceId = predeclaredSourceId ?? uuidV4Factory();
     sourceId = generatedSourceId;
     sourceDocument = OcrSourceDocumentAdapter(
       assetStore: assetStore,
       onAssetCreated: createdAssetIds.add,
+      predeclaredAssetIds: predeclaredAssetIds,
     ).convert(document,
         sourceId: generatedSourceId,
         displayLabel: null,

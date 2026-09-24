@@ -4,11 +4,13 @@ import '../../application/safe_write/agent_write_persistence.dart';
 import '../../application/safe_write/agent_write_proposed_answer_policy.dart';
 import '../../application/safe_write/typed_answer_command.dart';
 import '../../core/database/database_helper.dart';
+import '../../application/backup/backup_restore_gate.dart';
 import '../../domain/conversations/conversation.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../models/persisted_question.dart';
 import '../persistence/question_v2_persistence_mapper.dart';
 import '../persistence/typed_answer_persistence.dart';
+import 'content_asset_reclamation_observation_repository.dart';
 
 /// SQLite implementation of the W0 [AgentWritePersistencePort].
 ///
@@ -108,6 +110,7 @@ final class ApprovedAgentWriteRepository
     if (request.expectedBankName.trim().isEmpty) {
       throw ArgumentError('Expected bank name is required.');
     }
+    final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
     try {
       final db = await _databaseHelper.database;
       await db.transaction((txn) async {
@@ -193,6 +196,8 @@ final class ApprovedAgentWriteRepository
       throw const TypedAnswerMutationException(
         TypedAnswerMutationFailure.transactionFailed,
       );
+    } finally {
+      lease.release();
     }
   }
 
@@ -452,6 +457,15 @@ final class _TransactionExecutorAdapter
   _TransactionExecutorAdapter(this._txn);
 
   final DatabaseExecutor _txn;
+
+  @override
+  Future<void> resetContentAssetObservations(
+    Iterable<ContentAssetIdentity> identities,
+  ) =>
+      ContentAssetReclamationObservationRepository.resetInTransaction(
+        _txn,
+        identities,
+      );
 
   @override
   Future<List<Map<String, Object?>>> queryRaw(

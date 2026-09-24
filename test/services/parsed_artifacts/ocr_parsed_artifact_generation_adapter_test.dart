@@ -1,14 +1,17 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/application/parsed_artifacts/parsed_artifact_lifecycle.dart';
+import 'package:shiroha_quiz/application/content/content_asset_reclamation_reset.dart';
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/domain/assets/library_file.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/source/source_part.dart';
 import 'package:shiroha_quiz/services/file_library/managed_file_storage_adapter.dart';
+import 'package:shiroha_quiz/services/file_library/managed_content_asset_store.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document_client.dart';
 import 'package:shiroha_quiz/services/llm_providers/zhipu_ocr_client.dart';
@@ -50,6 +53,22 @@ class _FakeOcrClient implements OcrDocumentClient {
     final result = nextResult;
     if (result is OcrDocument) return result;
     throw result as Object;
+  }
+}
+
+final class _ResetSpy implements ContentAssetReclamationResetPort {
+  _ResetSpy(this.beforeReset);
+
+  final Future<void> Function(String, Iterable<String>) beforeReset;
+  int calls = 0;
+
+  @override
+  Future<void> resetBeforeOwnership({
+    required String sourceId,
+    required Iterable<String> localAssetIds,
+  }) async {
+    calls++;
+    await beforeReset(sourceId, localAssetIds);
   }
 }
 
@@ -147,6 +166,61 @@ void main() {
       usage: const <String, dynamic>{},
     );
   }
+
+  test('OCR writer resets exact grace identity before new and existing bytes',
+      () async {
+    await seedManagedFile('library/file-1');
+    final bytes = base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk'
+      '+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    );
+    final contentStore = ManagedContentAssetStore(managedRoot: tempDir);
+    ocrClient.nextResult = OcrDocument(
+      sourceName: 'synthetic',
+      pages: <OcrPage>[
+        OcrPage(pageIndex: 1, blocks: <OcrBlock>[
+          OcrBlock(
+            blockId: 'p001_b0001',
+            pageIndex: 1,
+            type: 'image',
+            text: '[图片]',
+            bbox: const <double>[],
+            readingOrder: 0,
+            imagePayload: OcrImagePayload(bytes: bytes, mimeType: 'image/png'),
+          ),
+        ]),
+      ],
+      markdown: '',
+      rawResponses: const <Map<String, dynamic>>[],
+      usage: const <String, dynamic>{},
+    );
+    final states = <bool>[];
+    final reset = _ResetSpy((sourceId, ids) async {
+      expect(sourceId, 'artifact-1');
+      expect(ids.toSet(), <String>{'p001_b0001'});
+      states.add(await contentStore.assetExists(
+        sourceId: sourceId,
+        localAssetId: 'p001_b0001',
+      ));
+    });
+    final writer = OcrParsedArtifactGenerationAdapter(
+      managedFileStorage: managedStorage,
+      ocrClient: ocrClient,
+      activeOcrProfileLoader: () async => activeProfile,
+      contentAssetStore: contentStore,
+      reclamationReset: reset,
+    );
+    for (var i = 0; i < 2; i++) {
+      final document = await writer.generate(
+        file: libraryFile(),
+        artifactId: 'artifact-1',
+        plan: plan('ocr_image'),
+      );
+      expect(document.assetRefs, hasLength(1));
+    }
+    expect(reset.calls, 2);
+    expect(states, <bool>[false, true]);
+  });
 
   group('route admission', () {
     test('explicit OCR selections resolve offline without profile access',

@@ -1,4 +1,6 @@
 import '../../application/content/content_asset_authority.dart';
+import '../../application/content/content_asset_reclamation_reset.dart';
+import '../../application/backup/backup_restore_gate.dart';
 import '../../data/repositories/ai_engine_repository.dart';
 import '../../core/observability/trace_context.dart';
 import '../llm_providers/llm_provider_registry.dart';
@@ -12,6 +14,7 @@ import 'import_question_field_policy.dart';
 import 'import_question_repair_policy.dart';
 import 'local_question_assembler.dart';
 import 'ocr_typed_candidate.dart';
+import 'adapters/ocr_source_document_adapter.dart';
 import 'ocr_document.dart';
 import 'ocr_document_client.dart';
 import 'ocr_question_assembler.dart';
@@ -57,6 +60,7 @@ class OcrImportService {
     TaskManager? taskManager,
     String Function()? uuidV4Factory,
     ContentAssetStore? contentAssetStore,
+    ContentAssetReclamationResetPort? reclamationReset,
   })  : _ocrClient = ocrClient,
         _engineRepository = engineRepository,
         _regionizer = regionizer,
@@ -71,6 +75,7 @@ class OcrImportService {
         _taskManager = taskManager,
         _uuidV4Factory = uuidV4Factory ?? _defaultUuidV4,
         _contentAssetStore = contentAssetStore,
+        _reclamationReset = reclamationReset,
         _repairService = repairService ??
             SingleQuestionRepairService(engineRepository: engineRepository);
 
@@ -85,6 +90,7 @@ class OcrImportService {
   final SingleQuestionRepairService _repairService;
   final String Function() _uuidV4Factory;
   final ContentAssetStore? _contentAssetStore;
+  final ContentAssetReclamationResetPort? _reclamationReset;
 
   static String _defaultUuidV4() => const Uuid().v4();
 
@@ -428,7 +434,7 @@ class OcrImportService {
         retentionMode: explanationRetentionMode,
       );
 
-      final typedCandidateBatch = _buildTypedCandidateBatch(
+      final typedCandidateBatch = await _buildTypedCandidateBatch(
         document,
         <OcrQuestionRegion>[
           for (final candidate in assembled) candidate.region,
@@ -540,28 +546,49 @@ class OcrImportService {
     };
   }
 
-  OcrTypedCandidateBatch _buildTypedCandidateBatch(
+  Future<OcrTypedCandidateBatch> _buildTypedCandidateBatch(
     OcrDocument document,
     List<OcrQuestionRegion> regions,
     List<Map<String, dynamic>> legacyQuestions, {
     required ExplanationRetentionMode explanationRetentionMode,
-  }) {
-    try {
-      return buildOcrTypedCandidateBatch(
-        document: document,
-        regions: regions,
-        legacyQuestions: legacyQuestions,
-        uuidV4Factory: _uuidV4Factory,
-        assetStore: _contentAssetStore,
-        explanationRetentionMode: explanationRetentionMode,
-      );
-    } catch (_) {
-      return OcrTypedCandidateBatch(
-        candidates: <OcrTypedCandidate>[],
-        failure: OcrTypedCandidateFailure.internalError,
-      );
-    }
-  }
+  }) =>
+      BackupRestoreMutationGate.instance.runMutation(() async {
+        try {
+          final sourceId = _uuidV4Factory();
+          final assetIds =
+              OcrSourceDocumentAdapter.assetIdsRequiringPredeclaration(
+                  document);
+          if (_contentAssetStore != null &&
+              _reclamationReset == null &&
+              assetIds.isNotEmpty) {
+            throw const FormatException(
+                'Content asset writer has no reset authority.');
+          }
+          if (_contentAssetStore != null &&
+              _reclamationReset != null &&
+              assetIds.isNotEmpty) {
+            await _reclamationReset.resetBeforeOwnership(
+              sourceId: sourceId,
+              localAssetIds: assetIds,
+            );
+          }
+          return buildOcrTypedCandidateBatch(
+            document: document,
+            regions: regions,
+            legacyQuestions: legacyQuestions,
+            uuidV4Factory: _uuidV4Factory,
+            predeclaredSourceId: sourceId,
+            predeclaredAssetIds: _reclamationReset == null ? null : assetIds,
+            assetStore: _contentAssetStore,
+            explanationRetentionMode: explanationRetentionMode,
+          );
+        } catch (_) {
+          return OcrTypedCandidateBatch(
+            candidates: <OcrTypedCandidate>[],
+            failure: OcrTypedCandidateFailure.internalError,
+          );
+        }
+      });
 
   _OcrDocumentRoleAssessment _assessDocumentRole({
     required OcrDocument document,

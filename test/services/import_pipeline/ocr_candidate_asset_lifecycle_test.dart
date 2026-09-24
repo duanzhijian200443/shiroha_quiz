@@ -11,6 +11,7 @@ import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/services/file_library/managed_content_asset_store.dart';
+import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_source_document_adapter.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_request.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_pipeline_service.dart';
@@ -48,6 +49,26 @@ void main() {
     BackupRestoreMutationGate.resetForTesting();
   });
 
+  test('missing writer predeclaration exposes no candidate bytes', () async {
+    final store = ManagedContentAssetStore(managedRoot: temp);
+    final fixture = _fixture();
+    final region = const OcrQuestionRegionizer().regionize(fixture).regions;
+    final legacyQuestion =
+        const OcrQuestionAssembler().assemble(region.single).question;
+    final batch = buildOcrTypedCandidateBatch(
+      document: fixture,
+      regions: region,
+      legacyQuestions: <Map<String, dynamic>>[legacyQuestion],
+      uuidV4Factory: _uuidSequence(),
+      assetStore: store,
+    );
+    expect(batch.failure, OcrTypedCandidateFailure.unsupportedStructure);
+    expect(
+      store.readAssetBytes(sourceId: _sourceId, localAssetId: 'img_001'),
+      isNull,
+    );
+  });
+
   test('pipeline fallback rolls back newly acquired candidate assets',
       () async {
     final store = ManagedContentAssetStore(managedRoot: temp);
@@ -61,6 +82,8 @@ void main() {
       legacyQuestions: <Map<String, dynamic>>[legacyQuestion],
       uuidV4Factory: _uuidSequence(),
       assetStore: store,
+      predeclaredAssetIds:
+          OcrSourceDocumentAdapter.assetIdsRequiringPredeclaration(fixture),
     );
     final lease = batch.candidateAssetLease;
     expect(lease, isNotNull);
@@ -135,6 +158,8 @@ void main() {
       legacyQuestions: <Map<String, dynamic>>[sourceQuestion],
       uuidV4Factory: _uuidSequence(),
       assetStore: store,
+      predeclaredAssetIds:
+          OcrSourceDocumentAdapter.assetIdsRequiringPredeclaration(fixture),
       explanationRetentionMode: mode,
     );
     expect(batch.failure, isNull);
@@ -182,6 +207,8 @@ void main() {
       legacyQuestions: <Map<String, dynamic>>[legacyA],
       uuidV4Factory: _uuidSequence(),
       assetStore: store,
+      predeclaredAssetIds:
+          OcrSourceDocumentAdapter.assetIdsRequiringPredeclaration(fixtureA),
     );
     final fixtureB = _fixture(number: 2);
     final regionB = const OcrQuestionRegionizer().regionize(fixtureB).regions;
@@ -197,6 +224,8 @@ void main() {
         reviewId: '66666666-6666-4666-8666-666666666666',
       ),
       assetStore: store,
+      predeclaredAssetIds:
+          OcrSourceDocumentAdapter.assetIdsRequiringPredeclaration(fixtureB),
     );
 
     var parserCalls = 0;
@@ -319,6 +348,8 @@ void main() {
         reviewId: '66666666-6666-4666-8666-666666666666',
       ),
       assetStore: store,
+      predeclaredAssetIds:
+          OcrSourceDocumentAdapter.assetIdsRequiringPredeclaration(fixtureB),
     );
     var parserCalls = 0;
     final pipeline = ImportPipelineService.forTesting(
@@ -681,6 +712,8 @@ void main() {
       legacyQuestions: <Map<String, dynamic>>[legacyQuestion],
       uuidV4Factory: _uuidSequence(),
       assetStore: store,
+      predeclaredAssetIds:
+          OcrSourceDocumentAdapter.assetIdsRequiringPredeclaration(fixture),
     );
     final finalQuestion = Map<String, dynamic>.from(legacyQuestion)
       ..['explanation'] = 'different final explanation';
@@ -757,6 +790,8 @@ void main() {
       legacyQuestions: <Map<String, dynamic>>[legacyQuestion],
       uuidV4Factory: _uuidSequence(),
       assetStore: store,
+      predeclaredAssetIds:
+          OcrSourceDocumentAdapter.assetIdsRequiringPredeclaration(fixture),
     );
 
     expect(batch.candidateAssetLease, isNotNull);
@@ -1192,6 +1227,8 @@ OcrTypedCandidateBatch _buildBatch(
     legacyQuestions: <Map<String, dynamic>>[legacyQuestion],
     uuidV4Factory: _uuidSequence(),
     assetStore: store,
+    predeclaredAssetIds:
+        OcrSourceDocumentAdapter.assetIdsRequiringPredeclaration(document),
   );
 }
 

@@ -17,10 +17,26 @@ final class OcrSourceDocumentAdapter {
   const OcrSourceDocumentAdapter({
     ContentAssetStore? assetStore,
     this.onAssetCreated,
+    this.predeclaredAssetIds,
   }) : _assetStore = assetStore;
 
   final ContentAssetStore? _assetStore;
   final void Function(String localAssetId)? onAssetCreated;
+  final Set<String>? predeclaredAssetIds;
+
+  /// Conservative superset of image identities this conversion may write.
+  /// Production callers reset grace for every member before conversion.
+  static Set<String> assetIdsRequiringPredeclaration(OcrDocument document) {
+    return <String>{
+      for (final indexed in _usableBlocks(document))
+        if (_isValidBlockId(indexed.block.blockId) &&
+            (indexed.block.type.trim().toLowerCase() == 'image' ||
+                indexed.block.type.trim().toLowerCase() == 'figure') &&
+            (indexed.block.imagePayload != null ||
+                OcrImagePayload.fromDataUrl(indexed.block.text) != null))
+          indexed.block.blockId,
+    };
+  }
 
   SourceDocument convert(
     OcrDocument document, {
@@ -130,6 +146,7 @@ final class OcrSourceDocumentAdapter {
         _assetStore,
         mathSourceMap: math,
         onAssetCreated: onAssetCreated,
+        predeclaredAssetIds: predeclaredAssetIds,
       );
       parts.add(mapped.part);
       if (mapped.structureUnsupported) {
@@ -237,6 +254,7 @@ SourceDocument _convertWithoutBlocks({
   ContentAssetStore? assetStore, {
   required OcrMathSourceMap mathSourceMap,
   void Function(String localAssetId)? onAssetCreated,
+  Set<String>? predeclaredAssetIds,
 }) {
   final normalizedType = _normalizeType(block.type);
   return switch (normalizedType) {
@@ -270,6 +288,7 @@ SourceDocument _convertWithoutBlocks({
         sourceRef,
         assetStore,
         onAssetCreated: onAssetCreated,
+        predeclaredAssetIds: predeclaredAssetIds,
       ),
     _ => (
         part: UnsupportedSourcePart(
@@ -313,12 +332,14 @@ SourceDocument _convertWithoutBlocks({
   SourceRef sourceRef,
   ContentAssetStore? assetStore, {
   void Function(String localAssetId)? onAssetCreated,
+  Set<String>? predeclaredAssetIds,
 }) {
   final payload = block.imagePayload ?? OcrImagePayload.fromDataUrl(block.text);
   final localAssetId = block.blockId;
   if (assetStore != null &&
       payload != null &&
-      sourceRef.start?.blockId == localAssetId) {
+      sourceRef.start?.blockId == localAssetId &&
+      predeclaredAssetIds?.contains(localAssetId) == true) {
     try {
       final stored = assetStore.storeBytesSync(
         sourceId: sourceRef.sourceId,
@@ -338,7 +359,10 @@ SourceDocument _convertWithoutBlocks({
         ),
         structureUnsupported: false,
       );
-    } catch (_) {
+    } catch (error) {
+      if (error is ContentAssetWriteVisibilityException) {
+        onAssetCreated?.call(localAssetId);
+      }
       // An image that cannot be admitted is explicit unsupported structure;
       // the provider locator or bytes never enter the fallback content.
     }

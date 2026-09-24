@@ -1,5 +1,7 @@
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;
 
 import '../../application/content/content_asset_authority.dart';
@@ -7,6 +9,7 @@ import '../../domain/backup/archive_path_policy.dart';
 import '../../domain/assets/sourced_asset_ref.dart';
 import '../../domain/assets/image_byte_signature.dart';
 import '../backup/sha256.dart';
+import 'windows_reparse_point_probe.dart';
 
 /// Filesystem-backed content asset authority under the existing managed root.
 ///
@@ -102,10 +105,12 @@ final class ManagedContentAssetStore
       if (temporary.existsSync()) temporary.deleteSync();
     }
 
-    if (_readDigest(target) != expectedDigest) {
-      throw const FileSystemException(
-        'Content asset write did not preserve its digest.',
-      );
+    try {
+      if (_readDigest(target) != expectedDigest) {
+        throw const ContentAssetWriteVisibilityException();
+      }
+    } catch (_) {
+      throw const ContentAssetWriteVisibilityException();
     }
     return ContentAssetWriteResult(
       storageKey: key,
@@ -267,6 +272,301 @@ final class ManagedContentAssetStore
     return List<ContentAssetRecord>.unmodifiable(records);
   }
 
+  /// Strict destructive-maintenance inventory. Unlike [listAssets], every
+  /// physical entry is accounted for; ambiguity aborts the entire scan.
+  Future<List<ContentAssetRecord>> inspectCompleteInventory({
+    int maxEntries = 5000,
+    Duration maxDuration = const Duration(seconds: 2),
+  }) async {
+    final classified = await classifyPhysicalInventory(
+      maxEntries: maxEntries,
+      maxDuration: maxDuration,
+    );
+    if (classified.unknownCount != 0) {
+      throw ContentAssetPhysicalInventoryException(
+          unknownCount: classified.unknownCount);
+    }
+    return classified.records;
+  }
+
+  /// Classifies each encountered directory entry once before content reads.
+  /// Unknown entries are retained and prevent a destructive pass.
+  Future<ContentAssetPhysicalInventory> classifyPhysicalInventory({
+    int maxEntries = 5000,
+    Duration maxDuration = const Duration(seconds: 2),
+  }) async {
+    final watch = Stopwatch()..start();
+    void checkBound(int entries) {
+      if (entries > maxEntries || watch.elapsed >= maxDuration) {
+        throw const ContentAssetPhysicalInventoryException(boundHit: true);
+      }
+    }
+
+    final managedType = await FileSystemEntity.type(
+      _managedRoot,
+      followLinks: false,
+    );
+    if (managedType != FileSystemEntityType.directory ||
+        !_isPlainEntity(_managedRoot)) {
+      throw const ContentAssetPhysicalInventoryException();
+    }
+    final rootPath = p.join(_managedRoot, 'content_assets');
+    final rootType = await FileSystemEntity.type(rootPath, followLinks: false);
+    if (rootType == FileSystemEntityType.notFound) {
+      return const ContentAssetPhysicalInventory(entries: []);
+    }
+    if (rootType != FileSystemEntityType.directory ||
+        !_isPlainEntity(rootPath)) {
+      throw const ContentAssetPhysicalInventoryException();
+    }
+    final classified = <ContentAssetPhysicalEntry>[];
+    var entries = 0;
+    try {
+      await for (final source in Directory(rootPath).list(followLinks: false)) {
+        checkBound(++entries);
+        final sourceType =
+            await FileSystemEntity.type(source.path, followLinks: false);
+        if (sourceType == FileSystemEntityType.link ||
+            !_isPlainEntity(source.path)) {
+          classified.add(const ContentAssetPhysicalEntry(
+              ContentAssetPhysicalClass.junctionOrReparse));
+          continue;
+        }
+        if (sourceType != FileSystemEntityType.directory) {
+          classified.add(ContentAssetPhysicalEntry(
+              sourceType == FileSystemEntityType.file
+                  ? ContentAssetPhysicalClass.unexpectedFile
+                  : ContentAssetPhysicalClass.unreadableEntity));
+          continue;
+        }
+        final sourceId = p.basename(source.path);
+        if (!_identityPattern.hasMatch(sourceId)) {
+          classified.add(const ContentAssetPhysicalEntry(
+              ContentAssetPhysicalClass.invalidSourceIdentity));
+          continue;
+        }
+        classified.add(const ContentAssetPhysicalEntry(
+            ContentAssetPhysicalClass.canonicalSourceDirectory));
+        await for (final asset
+            in Directory(source.path).list(followLinks: false)) {
+          checkBound(++entries);
+          final assetType =
+              await FileSystemEntity.type(asset.path, followLinks: false);
+          if (assetType == FileSystemEntityType.link ||
+              !_isPlainEntity(asset.path)) {
+            classified.add(const ContentAssetPhysicalEntry(
+                ContentAssetPhysicalClass.junctionOrReparse));
+            continue;
+          }
+          if (assetType != FileSystemEntityType.file) {
+            classified.add(ContentAssetPhysicalEntry(
+                assetType == FileSystemEntityType.directory
+                    ? ContentAssetPhysicalClass.unexpectedDirectory
+                    : ContentAssetPhysicalClass.unreadableEntity));
+            continue;
+          }
+          final localAssetId = p.basename(asset.path);
+          if (localAssetId.startsWith('.tmp_')) {
+            classified.add(const ContentAssetPhysicalEntry(
+                ContentAssetPhysicalClass.temporaryWrite));
+            continue;
+          }
+          if (!_identityPattern.hasMatch(localAssetId)) {
+            classified.add(const ContentAssetPhysicalEntry(
+                ContentAssetPhysicalClass.invalidLocalAssetIdentity));
+            continue;
+          }
+          if (!await _hasResolvedContainment(sourceId, localAssetId)) {
+            classified.add(const ContentAssetPhysicalEntry(
+                ContentAssetPhysicalClass.externalOrEscape));
+            continue;
+          }
+          final file = File(asset.path);
+          final length = await file.length();
+          if (length == 0 || length > maxImageBytes) {
+            classified.add(ContentAssetPhysicalEntry(length == 0
+                ? ContentAssetPhysicalClass.canonicalEmptyAsset
+                : ContentAssetPhysicalClass.canonicalOversizedAsset));
+            continue;
+          }
+          final bytes = await file.readAsBytes();
+          checkBound(entries);
+          if (bytes.isEmpty || bytes.length > maxImageBytes) {
+            classified.add(ContentAssetPhysicalEntry(bytes.isEmpty
+                ? ContentAssetPhysicalClass.canonicalEmptyAsset
+                : ContentAssetPhysicalClass.canonicalOversizedAsset));
+            continue;
+          }
+          final mime = ImageByteSignature.detectMime(bytes);
+          if (mime == null) {
+            classified.add(const ContentAssetPhysicalEntry(
+                ContentAssetPhysicalClass.unknownMimeAsset));
+            continue;
+          }
+          if (!_hasBasicImageEnvelope(bytes, mime) ||
+              !_isFullyDecodableImage(bytes)) {
+            classified.add(const ContentAssetPhysicalEntry(
+                ContentAssetPhysicalClass.canonicalCorruptAsset));
+            continue;
+          }
+          classified.add(ContentAssetPhysicalEntry(
+              ContentAssetPhysicalClass.canonicalValidAsset,
+              record: ContentAssetRecord(
+                sourceId: sourceId,
+                localAssetId: localAssetId,
+                storageKey:
+                    storageKey(sourceId: sourceId, localAssetId: localAssetId),
+                sizeBytes: bytes.length,
+                sha256: sha256Hex(bytes),
+              )));
+        }
+      }
+    } on ContentAssetPhysicalInventoryException {
+      rethrow;
+    } catch (_) {
+      throw const ContentAssetPhysicalInventoryException();
+    }
+    checkBound(entries);
+    return ContentAssetPhysicalInventory(
+        entries: List<ContentAssetPhysicalEntry>.unmodifiable(classified));
+  }
+
+  /// Fresh exact-target classification immediately before a destructive step.
+  Future<bool> isExactTargetUnchanged(ContentAssetRecord record) async {
+    try {
+      if (await FileSystemEntity.type(_managedRoot, followLinks: false) !=
+              FileSystemEntityType.directory ||
+          await FileSystemEntity.type(p.join(_managedRoot, 'content_assets'),
+                  followLinks: false) !=
+              FileSystemEntityType.directory ||
+          await FileSystemEntity.type(
+                  p.join(_managedRoot, 'content_assets', record.sourceId),
+                  followLinks: false) !=
+              FileSystemEntityType.directory) {
+        return false;
+      }
+      final key = storageKey(
+        sourceId: record.sourceId,
+        localAssetId: record.localAssetId,
+      );
+      if (key != record.storageKey) return false;
+      if (!await _hasResolvedContainment(
+          record.sourceId, record.localAssetId)) {
+        return false;
+      }
+      final target = _resolveKey(key);
+      if (await FileSystemEntity.type(target.path, followLinks: false) !=
+          FileSystemEntityType.file) {
+        return false;
+      }
+      final bytes = await target.readAsBytes();
+      return bytes.length == record.sizeBytes &&
+          sha256Hex(bytes) == record.sha256;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> deleteExactIfUnchanged(ContentAssetRecord record) async {
+    if (!await isExactTargetUnchanged(record)) return false;
+    try {
+      await _resolveKey(record.storageKey).delete();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  bool _isPlainEntity(String path) {
+    try {
+      return !WindowsReparsePointProbe.isReparsePoint(path);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static bool _hasBasicImageEnvelope(List<int> bytes, String mime) {
+    switch (mime) {
+      case 'image/png':
+        const tail = <int>[0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130];
+        return bytes.length >= 33 &&
+            bytes[12] == 73 &&
+            bytes[13] == 72 &&
+            bytes[14] == 68 &&
+            bytes[15] == 82 &&
+            _endsWith(bytes, tail);
+      case 'image/jpeg':
+        return bytes.length >= 4 &&
+            bytes[bytes.length - 2] == 0xff &&
+            bytes.last == 0xd9;
+      case 'image/gif':
+        return bytes.length >= 14 && bytes.last == 0x3b;
+      case 'image/webp':
+        if (bytes.length < 20) return false;
+        final riffLength =
+            bytes[4] | (bytes[5] << 8) | (bytes[6] << 16) | (bytes[7] << 24);
+        return riffLength + 8 == bytes.length;
+      default:
+        return false;
+    }
+  }
+
+  static bool _isFullyDecodableImage(List<int> bytes) {
+    try {
+      final data = Uint8List.fromList(bytes);
+      final decoder = img.findDecoderForData(data);
+      if (decoder == null) return false;
+      final info = decoder.startDecode(data);
+      if (info == null ||
+          info.width <= 0 ||
+          info.height <= 0 ||
+          info.width * info.height > 20000000) {
+        return false;
+      }
+      return decoder.decodeFrame(0) != null;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static bool _endsWith(List<int> bytes, List<int> tail) {
+    if (bytes.length < tail.length) return false;
+    for (var i = 0; i < tail.length; i++) {
+      if (bytes[bytes.length - tail.length + i] != tail[i]) return false;
+    }
+    return true;
+  }
+
+  Future<bool> _hasResolvedContainment(
+      String sourceId, String localAssetId) async {
+    try {
+      final contentRoot = p.join(_managedRoot, 'content_assets');
+      final source = p.join(contentRoot, sourceId);
+      final target = p.join(source, localAssetId);
+      if (!_isPlainEntity(_managedRoot) ||
+          !_isPlainEntity(contentRoot) ||
+          !_isPlainEntity(source) ||
+          !_isPlainEntity(target)) {
+        return false;
+      }
+      final resolvedManaged =
+          p.normalize(await Directory(_managedRoot).resolveSymbolicLinks());
+      final resolvedContent =
+          p.normalize(await Directory(contentRoot).resolveSymbolicLinks());
+      final resolvedSource =
+          p.normalize(await Directory(source).resolveSymbolicLinks());
+      final resolvedTarget =
+          p.normalize(await File(target).resolveSymbolicLinks());
+      return p.isWithin(resolvedManaged, resolvedContent) &&
+          p.isWithin(resolvedContent, resolvedSource) &&
+          p.isWithin(resolvedContent, resolvedTarget) &&
+          p.dirname(resolvedSource) == resolvedContent &&
+          p.dirname(resolvedTarget) == resolvedSource;
+    } catch (_) {
+      return false;
+    }
+  }
+
   @override
   bool isDurableAssetReady(SourcedAssetRef asset) {
     return readAssetBytes(
@@ -304,4 +604,67 @@ final class ManagedContentAssetStore
   static String _canonicalMime(String mimeType) {
     return ImageByteSignature.canonicalMime(mimeType) ?? mimeType;
   }
+}
+
+enum ContentAssetPhysicalClass {
+  canonicalSourceDirectory,
+  canonicalValidAsset,
+  canonicalCorruptAsset,
+  canonicalEmptyAsset,
+  canonicalOversizedAsset,
+  unknownMimeAsset,
+  invalidSourceIdentity,
+  invalidLocalAssetIdentity,
+  unexpectedFile,
+  unexpectedDirectory,
+  junctionOrReparse,
+  temporaryWrite,
+  unreadableEntity,
+  externalOrEscape,
+  inventoryError,
+}
+
+final class ContentAssetPhysicalEntry {
+  const ContentAssetPhysicalEntry(this.classification, {this.record});
+
+  final ContentAssetPhysicalClass classification;
+  final ContentAssetRecord? record;
+}
+
+final class ContentAssetPhysicalInventory {
+  const ContentAssetPhysicalInventory({required this.entries});
+
+  final List<ContentAssetPhysicalEntry> entries;
+
+  List<ContentAssetRecord> get records {
+    final result = <ContentAssetRecord>[
+      for (final entry in entries)
+        if (entry.record != null) entry.record!,
+    ];
+    result.sort((a, b) {
+      final source = a.sourceId.compareTo(b.sourceId);
+      return source == 0 ? a.localAssetId.compareTo(b.localAssetId) : source;
+    });
+    return List<ContentAssetRecord>.unmodifiable(result);
+  }
+
+  int get unknownCount => entries
+      .where((entry) =>
+          entry.classification !=
+              ContentAssetPhysicalClass.canonicalSourceDirectory &&
+          entry.classification != ContentAssetPhysicalClass.canonicalValidAsset)
+      .length;
+}
+
+final class ContentAssetPhysicalInventoryException implements Exception {
+  const ContentAssetPhysicalInventoryException({
+    this.unknownCount = 0,
+    this.boundHit = false,
+  });
+
+  final int unknownCount;
+  final bool boundHit;
+
+  @override
+  String toString() => 'ContentAssetPhysicalInventoryException';
 }

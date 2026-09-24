@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../../application/content/content_asset_authority.dart';
+import '../../application/content/content_asset_reclamation_reset.dart';
 import '../../application/import_review/typed_review_snapshot.dart';
 import '../../core/observability/app_logger.dart';
 import '../../core/observability/trace_context.dart';
@@ -86,6 +87,7 @@ class ImportPipelineService {
     OcrRequestScheduler? ocrRequestScheduler,
     OcrRequestExecutor? ocrRequestExecutor,
     ContentAssetStore? contentAssetStore,
+    ContentAssetReclamationResetPort? reclamationReset,
     OcrDocumentClient? ocrClient,
   }) : this._(
           textParser: (rawText, {required taskId, required isMarkdown}) =>
@@ -103,6 +105,7 @@ class ImportPipelineService {
             requestExecutor: ocrRequestExecutor,
             taskManager: taskManager,
             contentAssetStore: contentAssetStore,
+            reclamationReset: reclamationReset,
           ).tryParse,
           questionMerger: aiService.mergeStructuredQuestions,
           taskManager: taskManager,

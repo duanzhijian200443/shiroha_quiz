@@ -253,6 +253,38 @@ void main() {
         isNull);
   });
 
+  test(
+      'shared AnswerAttempt photo evidence stays soft after LibraryFile delete',
+      () async {
+    final file = await seedFile();
+    final db = await DatabaseHelper.instance.database;
+    for (final attemptId in <String>['attempt-1', 'attempt-2']) {
+      await db.insert('answer_attempts', <String, Object?>{
+        'attempt_id': attemptId,
+        'question_id': 'historical-question',
+        'session_kind': 'focused',
+        'modality': 'image',
+        'answer_payload_json':
+            '{"version":1,"kind":"image","source_file_id":"$_fileId"}',
+        'correctness': null,
+        'answered_at': 10,
+        'duration_ms': null,
+      });
+    }
+
+    final result = await service.deleteLibraryFile(file.fileId);
+
+    expect(result.managedBytesCleanup, LibraryFileManagedBytesCleanup.deleted);
+    expect(await repository.findById(file.fileId), isNull);
+    expect(await storage.managedFileExists(file.storageKey), isFalse);
+    final attempts = await db.query('answer_attempts', orderBy: 'attempt_id');
+    expect(attempts, hasLength(2));
+    expect(
+      attempts.map((row) => row['answer_payload_json']),
+      everyElement(contains('"source_file_id":"$_fileId"')),
+    );
+  });
+
   test('database failure preserves row and never deletes managed bytes',
       () async {
     final file = await seedFile();

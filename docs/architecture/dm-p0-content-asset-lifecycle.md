@@ -182,6 +182,17 @@ mutation. No deletion follows a symlink, junction, or reparse point. Lexical
 proof of resolved filesystem containment; I2/I3 must prove target and parent
 containment on supported platforms or fail closed.
 
+The destructive path's check-to-delete guarantee is scoped to the existing
+single-application-process managed-storage authority: every production
+ContentAsset writer and root acquisition must participate in the same
+maintenance gate. An independent process concurrently replacing managed-root
+entries is outside that contract. A static link, junction, or reparse point is
+still rejected, and every selected target is rechecked immediately before
+deletion. If a deployment permits concurrent external mutation of the managed
+root, path-based deletion cannot meet this contract and I3 must remain off in
+that deployment. This scope does not shorten grace or make ledger rows a
+live-set authority.
+
 Report-only I2 may classify without activating deletion. The original D0 v0
 selection assumed Application ownership, full scans, conservative retention,
 and existing identities could avoid a registry, refcount, and schema migration

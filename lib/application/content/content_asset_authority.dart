@@ -21,6 +21,15 @@ final class ContentAssetWriteResult {
   final bool created;
 }
 
+/// A write failed after this operation made a new identity visible. The
+/// candidate lease must retain that identity for exact rollback or recovery.
+final class ContentAssetWriteVisibilityException implements Exception {
+  const ContentAssetWriteVisibilityException();
+
+  @override
+  String toString() => 'ContentAssetWriteVisibilityException';
+}
+
 /// Bounded ownership token for assets acquired while building one transient
 /// OCR candidate. It contains only source-qualified safe identities; it is
 /// never persisted as question content or a provider locator.

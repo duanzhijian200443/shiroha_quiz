@@ -14,6 +14,8 @@ import '../../application/practice/practice_session_mutation_command.dart';
 import '../../application/study_query/study_query_dtos.dart';
 import '../../application/study_query/study_query_ports.dart';
 import '../../core/database/database_helper.dart';
+import '../../application/backup/backup_restore_gate.dart';
+import 'content_asset_reclamation_observation_repository.dart';
 import '../../core/database/sqflite_runtime.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../models/persisted_question.dart';
@@ -136,14 +138,20 @@ class QuestionRepository
     }
     if (questions.isEmpty) return;
 
-    final nowUtcSeconds = DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
-    final frozenWrites = _freezeV2Writes(
-      bankName: trimmedBankName,
-      questions: questions,
-      createdAt: nowUtcSeconds,
-    );
-
+    final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
     try {
+      final nowUtcSeconds =
+          DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
+      final frozenWrites = _freezeV2Writes(
+        bankName: trimmedBankName,
+        questions: questions,
+        createdAt: nowUtcSeconds,
+      );
+      final assetIdentities = <ContentAssetIdentity>{
+        for (final draft in questions)
+          for (final asset in draft.assetRefs)
+            (asset.sourceId, asset.localAssetId),
+      };
       final db = await _databaseHelper.database;
       await db.transaction((txn) async {
         await _writeFrozenV2Batch(
@@ -151,12 +159,15 @@ class QuestionRepository
           bankName: trimmedBankName,
           folderName: folderName,
           frozenWrites: frozenWrites,
+          assetIdentities: assetIdentities,
         );
       });
     } on DatabaseException {
       throw const QuestionV2WriteException(
         QuestionV2WriteFailure.transactionFailed,
       );
+    } finally {
+      lease.release();
     }
   }
 
@@ -188,14 +199,20 @@ class QuestionRepository
     }
     _validateImportCommitGuard(guard);
 
-    final nowUtcSeconds = DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
-    final frozenWrites = _freezeV2Writes(
-      bankName: trimmedBankName,
-      questions: questions,
-      createdAt: nowUtcSeconds,
-    );
-
+    final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
     try {
+      final nowUtcSeconds =
+          DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
+      final frozenWrites = _freezeV2Writes(
+        bankName: trimmedBankName,
+        questions: questions,
+        createdAt: nowUtcSeconds,
+      );
+      final assetIdentities = <ContentAssetIdentity>{
+        for (final draft in questions)
+          for (final asset in draft.assetRefs)
+            (asset.sourceId, asset.localAssetId),
+      };
       final db = await _databaseHelper.database;
       return await db.transaction((txn) async {
         await _validatePersistedImportTask(txn, guard);
@@ -204,6 +221,7 @@ class QuestionRepository
           bankName: trimmedBankName,
           folderName: folderName,
           frozenWrites: frozenWrites,
+          assetIdentities: assetIdentities,
         );
         final updated = await txn.update(
           'import_tasks',
@@ -237,6 +255,8 @@ class QuestionRepository
       throw const TypedImportCommitPersistenceException(
         TypedImportCommitPersistenceFailure.transactionFailed,
       );
+    } finally {
+      lease.release();
     }
   }
 
@@ -640,7 +660,12 @@ class QuestionRepository
     required String bankName,
     required String? folderName,
     required List<FrozenQuestionV2Write> frozenWrites,
+    required Set<ContentAssetIdentity> assetIdentities,
   }) async {
+    await ContentAssetReclamationObservationRepository.resetInTransaction(
+      txn,
+      assetIdentities,
+    );
     final resolvedFolderName =
         await _resolveV2FolderAction(txn, bankName, folderName);
     for (final frozenWrite in frozenWrites) {
@@ -1291,6 +1316,7 @@ class QuestionRepository
     required QuestionDraftV2 expectedDraft,
     required QuestionAnswer? newAnswer,
   }) async {
+    final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
     try {
       final db = await _databaseHelper.database;
       await db.transaction((txn) async {
@@ -1307,6 +1333,8 @@ class QuestionRepository
       throw const TypedAnswerMutationException(
         TypedAnswerMutationFailure.transactionFailed,
       );
+    } finally {
+      lease.release();
     }
   }
 
@@ -1507,6 +1535,15 @@ final class _TypedAnswerTxnExecutor implements TypedAnswerTransactionExecutor {
   _TypedAnswerTxnExecutor(this._txn);
 
   final DatabaseExecutor _txn;
+
+  @override
+  Future<void> resetContentAssetObservations(
+    Iterable<ContentAssetIdentity> identities,
+  ) =>
+      ContentAssetReclamationObservationRepository.resetInTransaction(
+        _txn,
+        identities,
+      );
 
   @override
   Future<List<Map<String, Object?>>> queryRaw(
