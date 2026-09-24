@@ -275,7 +275,7 @@ See `docs/architecture/adr-003-agent-mcp-and-write-boundary.md`.
 - RAG is a retrieval implementation behind File/Project/Agent concepts, not a separate user-facing knowledge-base domain.
 - Historical compatibility code is removed only when its legitimate responsibility is proven obsolete; code is not retired merely because it is old.
 
-The canonical post-P5 sequence is maintained in `docs/architecture/n0-post-p5-roadmap.md`.
+The canonical project roadmap and current stage/status authority is maintained in `docs/architecture/shiroha-project-roadmap.md`.
 
 ## 8. Architecture document authority
 
@@ -284,7 +284,7 @@ Current-state authority, in order:
 1. `ARCHITECTURE.md` — repository-wide dependency and boundary contract;
 2. active focused contracts in `docs/architecture/` (for example MCP v0, F1 parsed-artifact lifecycle, and R7/R8 typed-persistence contracts);
 3. ADRs for accepted post-P5 architectural decisions;
-4. `docs/architecture/n0-post-p5-roadmap.md` for stage ordering and deferred decisions.
+4. `docs/architecture/shiroha-project-roadmap.md` for stage ordering and deferred decisions.
 
 Files explicitly marked **Historical baseline** describe how a migration was planned or characterized at that time. They must not override this current contract.
 
