@@ -452,5 +452,5 @@ Documentation authority:
   identity/revision and the Application seam P6 consumes;
 - `docs/product/W0 Safe Agent Write.md` — the shared typed-answer write
   authority P6 reuses;
-- `docs/architecture/n0-post-p5-roadmap.md` — stage ordering and current
+- `docs/architecture/shiroha-project-roadmap.md` — stage ordering and current
   status.
