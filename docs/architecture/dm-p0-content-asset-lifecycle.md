@@ -328,10 +328,11 @@ D0 contract (this document)
 
 Each arrow is an activation dependency. The closure work kept B0G, this
 amendment, I1A, I1B, I2, I4, I3, U0, and V0/CL on one branch for one final PR.
-That branch activates all of them: I0 and B0G are closed, I1A and I1B are
-closed with writer and derived ownership, I2 and I4 are closed with complete
-inventory, durable grace and startup reconciliation, I3 is closed behind the
-gated maintenance path with an explicit user confirmation, and V0/CL are closed
+That branch activates all of them: B0G is closed (I0 had already closed on
+master), I1A and I1B are closed with writer and derived ownership, I2 and I4
+are closed with complete inventory, durable grace and startup reconciliation,
+I3 is closed behind the gated maintenance path with an explicit user
+confirmation, and V0/CL are closed
 by the independent verification recorded in §8. I2 classification is never
 final proof for I3 unless I1A and I1B have closed writer and derived ownership
 and the v27 ledger proves grace. No stage activates its successor merely because
