@@ -386,7 +386,6 @@ final class ContentAssetLifecycleMaintenanceService
     if (source is! String ||
         !pattern.hasMatch(source) ||
         rawIds is! List ||
-        rawIds.isEmpty ||
         rawIds.any((id) => id is! String || !pattern.hasMatch(id))) {
       throw const FormatException();
     }

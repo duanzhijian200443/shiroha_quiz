@@ -3229,24 +3229,22 @@ SELECT
     DatabaseExecutor txn,
     Map<String, dynamic> taskData,
   ) async {
+    final pendingReview = taskData['status'] == 1;
     final raw = taskData['diagnostics'];
     if (raw == null) {
-      if (taskData['status'] == 1) {
-        // A pending review with no route metadata is ambiguous. It cannot
-        // preserve prior grace evidence for any possible typed owner.
-        await txn.delete(contentAssetReclamationTable);
-      }
-      return;
+      if (!pendingReview) return;
+      // A pending review with no route metadata cannot name its typed owner.
+      // Failing closed keeps the previous durable projection visible and
+      // leaves unrelated sources' continuous grace evidence intact.
+      throw const FormatException();
     }
-    Map<String, dynamic> diagnostics;
+    final Map<String, dynamic> diagnostics;
     try {
       final decoded = jsonDecode(raw as String);
       if (decoded is! Map<String, dynamic>) throw const FormatException();
       diagnostics = decoded;
     } catch (_) {
-      if (taskData['status'] == 1) {
-        await txn.delete(contentAssetReclamationTable);
-      }
+      if (pendingReview) throw const FormatException();
       return;
     }
     for (final keys in <(String, String)>[
@@ -3262,15 +3260,17 @@ SELECT
       if (source is! String ||
           !RegExp(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$').hasMatch(source) ||
           ids is! List ||
-          ids.isEmpty ||
           ids.any((id) =>
               id is! String ||
               !RegExp(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$').hasMatch(id))) {
-        // Ambiguous durable candidate metadata cannot preserve an old grace
-        // timer. Clearing derived evidence is safe and conservative.
-        await txn.delete(contentAssetReclamationTable);
-        return;
+        // Unresolvable ownership cannot be repaired by discarding grace
+        // evidence that belongs to sources this row does not name. Only a
+        // pending review makes a typed owner visible, so only it fails closed.
+        if (pendingReview) throw const FormatException();
+        continue;
       }
+      // A present source with an empty list is a valid owner of zero
+      // identities; it resets nothing.
       for (final id in ids) {
         await txn.delete(
           contentAssetReclamationTable,
@@ -3279,20 +3279,18 @@ SELECT
         );
       }
     }
-    if (taskData['status'] == 1) {
-      try {
-        final parsed = jsonDecode(taskData['parsed_data'] as String);
-        if (parsed is! List) throw const FormatException();
-        await _resetReclamationForTypedReviewQuestions(
-          txn,
-          diagnostics: diagnostics,
-          questions: <Map<String, dynamic>>[
-            for (final item in parsed) Map<String, dynamic>.from(item as Map),
-          ],
-        );
-      } catch (_) {
-        await txn.delete(contentAssetReclamationTable);
-      }
+    if (pendingReview) {
+      final rawParsed = taskData['parsed_data'];
+      if (rawParsed is! String) throw const FormatException();
+      final parsed = jsonDecode(rawParsed);
+      if (parsed is! List) throw const FormatException();
+      await _resetReclamationForTypedReviewQuestions(
+        txn,
+        diagnostics: diagnostics,
+        questions: <Map<String, dynamic>>[
+          for (final item in parsed) Map<String, dynamic>.from(item as Map),
+        ],
+      );
     }
   }
 

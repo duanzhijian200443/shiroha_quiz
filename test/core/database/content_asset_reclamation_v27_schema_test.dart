@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -165,4 +166,97 @@ void main() {
       await dir.delete(recursive: true);
     }
   });
+
+  test('a pending review owning zero assets resets no grace evidence',
+      () async {
+    final dir =
+        await Directory.systemTemp.createTemp('reclamation_empty_owner_');
+    await DatabaseHelper.resetRuntimeProfileForTesting();
+    DatabaseHelper.configureRuntimeProfile(
+      DatabaseRuntimeProfile.explicitFile,
+      databasePath: dir.path,
+    );
+    final helper = DatabaseHelper.instance;
+    try {
+      final db = await helper.database;
+      await db.insert(contentAssetReclamationTable, <String, Object?>{
+        'source_id': 'source_other',
+        'local_asset_id': 'asset_000001',
+        'first_unreachable_at': 1,
+        'last_verified_unreachable_at': 1,
+      });
+
+      await helper.saveImportTask(_pendingReviewTask(
+        diagnosticsJson: jsonEncode(<String, Object?>{
+          '_importStorageRoute': 'typedV2',
+          '_candidate_asset_source_id': 'source_empty',
+          '_candidate_asset_local_ids': <String>[],
+        }),
+      ));
+
+      expect(await db.query(contentAssetReclamationTable), hasLength(1));
+      expect(
+        await db.query('import_tasks', where: 'id = ?', whereArgs: ['task-1']),
+        hasLength(1),
+      );
+    } finally {
+      await helper.close();
+      await DatabaseHelper.resetRuntimeProfileForTesting();
+      await dir.delete(recursive: true);
+    }
+  });
+
+  test('ambiguous pending-review ownership fails closed without a write',
+      () async {
+    final dir = await Directory.systemTemp.createTemp('reclamation_ambiguous_');
+    await DatabaseHelper.resetRuntimeProfileForTesting();
+    DatabaseHelper.configureRuntimeProfile(
+      DatabaseRuntimeProfile.explicitFile,
+      databasePath: dir.path,
+    );
+    final helper = DatabaseHelper.instance;
+    try {
+      final db = await helper.database;
+      await db.insert(contentAssetReclamationTable, <String, Object?>{
+        'source_id': 'source_other',
+        'local_asset_id': 'asset_000001',
+        'first_unreachable_at': 1,
+        'last_verified_unreachable_at': 1,
+      });
+      await db.insert('import_tasks', <String, Object?>{
+        ..._pendingReviewTask(diagnosticsJson: '{}'),
+        'status': 0,
+        'progress_text': 'previous projection',
+      });
+
+      await expectLater(
+        helper.saveImportTask(_pendingReviewTask(diagnosticsJson: '{')),
+        throwsA(isA<FormatException>()),
+      );
+
+      expect(await db.query(contentAssetReclamationTable), hasLength(1));
+      final durable = (await db
+              .query('import_tasks', where: 'id = ?', whereArgs: ['task-1']))
+          .single;
+      expect(durable['progress_text'], 'previous projection');
+      expect(durable['status'], 0);
+    } finally {
+      await helper.close();
+      await DatabaseHelper.resetRuntimeProfileForTesting();
+      await dir.delete(recursive: true);
+    }
+  });
+}
+
+Map<String, dynamic> _pendingReviewTask({required String diagnosticsJson}) {
+  return <String, dynamic>{
+    'id': 'task-1',
+    'title': 'Synthetic import',
+    'status': 1,
+    'progress_text': 'review',
+    'percent': 1.0,
+    'created_at': 10,
+    'parsed_data': '[]',
+    'diagnostics': diagnosticsJson,
+  };
 }
