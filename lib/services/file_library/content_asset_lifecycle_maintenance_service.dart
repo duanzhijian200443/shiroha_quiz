@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:meta/meta.dart';
+
 import '../../application/backup/backup_restore_gate.dart';
 import '../../application/import_review/typed_review_snapshot.dart';
 import '../../application/parsed_artifacts/parsed_artifact_lifecycle.dart';
@@ -20,11 +22,13 @@ final class ContentAssetLifecycleMaintenanceService
     required ParsedArtifactLifecyclePort parsedArtifacts,
     required ContentAssetReclamationObservationRepository observations,
     int Function()? nowUtcSeconds,
+    @visibleForTesting Future<void> Function()? beforeExactDeleteForTesting,
   })  : _rootPages = rootPages,
         _contentAssets = contentAssets,
         _parsedArtifacts = parsedArtifacts,
         _observations = observations,
-        _nowUtcSeconds = nowUtcSeconds ?? _systemUtcSeconds;
+        _nowUtcSeconds = nowUtcSeconds ?? _systemUtcSeconds,
+        _beforeExactDelete = beforeExactDeleteForTesting;
 
   static const int graceSeconds = 72 * 60 * 60;
   static const int rootPageSize = 200;
@@ -38,6 +42,7 @@ final class ContentAssetLifecycleMaintenanceService
   final ParsedArtifactLifecyclePort _parsedArtifacts;
   final ContentAssetReclamationObservationRepository _observations;
   final int Function() _nowUtcSeconds;
+  final Future<void> Function()? _beforeExactDelete;
 
   static int _systemUtcSeconds() =>
       DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
@@ -177,6 +182,7 @@ final class ContentAssetLifecycleMaintenanceService
               base, ContentAssetMaintenanceOutcome.revalidationFailed);
         }
       }
+      await _beforeExactDelete?.call();
       var deleted = 0;
       for (final key in selected) {
         if (sweepWatch.elapsed >= sweepWallLimit) {

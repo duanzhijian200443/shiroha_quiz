@@ -43,6 +43,41 @@ final class _NoCurrentArtifact implements ParsedArtifactLifecyclePort {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+/// Serves an empty root set for the first scans, then reports [owningDraft]
+/// as a live root so a sweep sees ownership return after ledger admission.
+final class _DriftRootPages implements ContentAssetRootPagePort {
+  _DriftRootPages({required this.owningDraft, required this.draftFromScan});
+
+  final QuestionDraftV2 owningDraft;
+  final int draftFromScan;
+  int _questionScans = 0;
+
+  @override
+  Future<List<QuestionDraftV2?>> questionPage({
+    required int offset,
+    required int limit,
+  }) async {
+    if (offset > 0) return const <QuestionDraftV2?>[];
+    _questionScans++;
+    if (_questionScans < draftFromScan) return const <QuestionDraftV2?>[];
+    return <QuestionDraftV2?>[owningDraft];
+  }
+
+  @override
+  Future<List<String>> currentArtifactFileIdsPage({
+    required int offset,
+    required int limit,
+  }) async =>
+      const <String>[];
+
+  @override
+  Future<List<ContentAssetTaskRootRow>> importTaskPage({
+    required int offset,
+    required int limit,
+  }) async =>
+      const <ContentAssetTaskRootRow>[];
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() {
@@ -182,6 +217,57 @@ void main() {
       final unprotected = await Process.run('attrib', <String>['-R', path]);
       expect(unprotected.exitCode, 0);
     }
+  });
+
+  test('target mutation in the delete window blocks the exact delete',
+      () async {
+    final path = p.join(managed.path, 'content_assets', 'source-1', 'asset-1');
+    final original = await File(path).readAsBytes();
+    final armed = ContentAssetLifecycleMaintenanceService(
+      rootPages: SqliteContentAssetRootPageRepository(databaseHelper: helper),
+      contentAssets: store,
+      parsedArtifacts: artifacts,
+      observations: observations,
+      nowUtcSeconds: () => now,
+      beforeExactDeleteForTesting: () =>
+          File(path).writeAsBytes(<int>[...original, 0x00]),
+    );
+
+    expect((await armed.reportOnly()).unobservedCount, 1);
+    now += ContentAssetLifecycleMaintenanceService.graceSeconds;
+
+    final result = await armed.sweepEligible();
+    expect(result.outcome, ContentAssetMaintenanceOutcome.deleteFailed);
+    expect(result.deletedCount, 0);
+    expect(await File(path).exists(), isTrue);
+    expect(await File(path).readAsBytes(), isNot(original));
+    expect(await rows(), hasLength(1));
+  });
+
+  test('root reacquisition after ledger admission aborts before deletion',
+      () async {
+    final withDrift = ContentAssetLifecycleMaintenanceService(
+      rootPages: _DriftRootPages(
+        owningDraft: imageDraft('q-1'),
+        draftFromScan: 3,
+      ),
+      contentAssets: store,
+      parsedArtifacts: artifacts,
+      observations: observations,
+      nowUtcSeconds: () => now,
+    );
+
+    expect((await withDrift.reportOnly()).unobservedCount, 1);
+    now += ContentAssetLifecycleMaintenanceService.graceSeconds;
+
+    final result = await withDrift.sweepEligible();
+    expect(result.graceEligibleCount, 1);
+    expect(result.outcome, ContentAssetMaintenanceOutcome.revalidationFailed);
+    expect(result.deletedCount, 0);
+    expect(
+        await store.assetExists(sourceId: 'source-1', localAssetId: 'asset-1'),
+        isTrue);
+    expect(await rows(), hasLength(1));
   });
 
   test('Windows junction replacement fails fresh path proof', () async {
