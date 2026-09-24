@@ -76,6 +76,7 @@ class _DataCenterScreenState extends State<DataCenterScreen> {
     final port = ContentAssetMaintenanceScope.maybeOf(context);
     if (identical(port, _maintenance) && _maintenanceLoaded) return;
     _maintenance = port;
+    _maintenanceReport = null;
     _maintenanceLoaded = true;
     if (port != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -99,10 +100,38 @@ class _DataCenterScreenState extends State<DataCenterScreen> {
     }
   }
 
+  int get _graceEligibleCount => _maintenanceReport?.graceEligibleCount ?? 0;
+
+  Future<void> _confirmStorageMaintenance() async {
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('确认清理孤立文件'),
+        content: Text(
+          '当前检测到 $_graceEligibleCount 个已达到保留期的孤立文件。'
+          '继续后，只会永久删除其中通过最终安全复验的文件，此操作不可撤销。',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('确认清理'),
+          ),
+        ],
+      ),
+    );
+    if (approved == true && mounted) {
+      await _runStorageMaintenance(reportOnly: false);
+    }
+  }
+
   String get _maintenanceStatus => switch (_maintenanceReport?.outcome) {
         ContentAssetMaintenanceOutcome.complete => '存储维护正常',
         ContentAssetMaintenanceOutcome.busy => '维护繁忙，请稍后重试',
-        ContentAssetMaintenanceOutcome.deleteFailed => '部分清理待重试',
+        ContentAssetMaintenanceOutcome.deleteFailed => '部分文件清理失败，已停止继续删除',
         null => '维护状态暂不可用',
         _ => '安全扫描未完成，文件已保留',
       };
@@ -417,13 +446,17 @@ class _DataCenterScreenState extends State<DataCenterScreen> {
                             const SizedBox(height: 4),
                             Text('待观察 ${_maintenanceReport!.unobservedCount} · '
                                 '宽限期内 ${_maintenanceReport!.gracePendingCount} · '
-                                '可安全清理 ${_maintenanceReport!.graceEligibleCount} · '
+                                '已达保留期待清理 '
+                                '${_maintenanceReport!.graceEligibleCount} · '
                                 '保守保留 ${_maintenanceReport!.unknownCount} · '
                                 '本次清理 ${_maintenanceReport!.deletedCount}'),
                           ],
                           const SizedBox(height: 8),
                           Row(children: [
                             TextButton(
+                              key: const ValueKey<String>(
+                                'storage-maintenance-refresh',
+                              ),
                               onPressed: _maintenanceBusy
                                   ? null
                                   : () =>
@@ -432,11 +465,16 @@ class _DataCenterScreenState extends State<DataCenterScreen> {
                             ),
                             const SizedBox(width: 8),
                             TextButton(
-                              onPressed: _maintenanceBusy
-                                  ? null
-                                  : () =>
-                                      _runStorageMaintenance(reportOnly: false),
-                              child: const Text('运行安全维护'),
+                              key: const ValueKey<String>(
+                                'storage-maintenance-sweep',
+                              ),
+                              onPressed:
+                                  _maintenanceBusy || _graceEligibleCount == 0
+                                      ? null
+                                      : _confirmStorageMaintenance,
+                              child: Text(
+                                '清理已达保留期的孤立文件（$_graceEligibleCount）',
+                              ),
                             ),
                           ]),
                         ],
