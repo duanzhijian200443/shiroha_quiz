@@ -44,9 +44,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  assets:
-    - assets/
-    - assets/流萤.png
 
 hooks:
   user_defines:

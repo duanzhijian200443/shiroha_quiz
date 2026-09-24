@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "shiroha_quiz" "\0"
+            VALUE "CompanyName", "" "\0"
+            VALUE "FileDescription", "Shiroha Quiz" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "shiroha_quiz" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 duanzhijian200443. Licensed under the MIT License." "\0"
             VALUE "OriginalFilename", "shiroha_quiz.exe" "\0"
-            VALUE "ProductName", "shiroha_quiz" "\0"
+            VALUE "ProductName", "Shiroha Quiz" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

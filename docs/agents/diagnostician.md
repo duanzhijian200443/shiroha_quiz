@@ -170,7 +170,7 @@ Resolve paths from source first. Do not recursively scan AppData.
 Current Windows desktop development locations:
 
 - Logs:
-  `%APPDATA%\com.example\shiroha_quiz\logs`
+  `%APPDATA%\Shiroha Quiz\Shiroha\development\runtime\logs`
 - Current log:
   `shiroha-quiz.log`
 - Rotated logs:
