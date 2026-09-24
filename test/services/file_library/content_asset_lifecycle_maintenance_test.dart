@@ -46,10 +46,15 @@ final class _NoCurrentArtifact implements ParsedArtifactLifecyclePort {
 /// Serves an empty root set for the first scans, then reports [owningDraft]
 /// as a live root so a sweep sees ownership return after ledger admission.
 final class _DriftRootPages implements ContentAssetRootPagePort {
-  _DriftRootPages({required this.owningDraft, required this.draftFromScan});
+  _DriftRootPages({
+    required this.owningDraft,
+    required this.draftFromScan,
+    this.onRootScan,
+  });
 
   final QuestionDraftV2 owningDraft;
   final int draftFromScan;
+  final void Function(int rootScan)? onRootScan;
   int _questionScans = 0;
 
   @override
@@ -59,6 +64,7 @@ final class _DriftRootPages implements ContentAssetRootPagePort {
   }) async {
     if (offset > 0) return const <QuestionDraftV2?>[];
     _questionScans++;
+    onRootScan?.call(_questionScans);
     if (_questionScans < draftFromScan) return const <QuestionDraftV2?>[];
     return <QuestionDraftV2?>[owningDraft];
   }
@@ -812,5 +818,174 @@ void main() {
     expect(
         await store.assetExists(sourceId: 'source-1', localAssetId: 'asset-1'),
         isTrue);
+  });
+
+  test('a selected target that changed entity kind is never unlinked',
+      () async {
+    final assetPath =
+        p.join(managed.path, 'content_assets', 'source-1', 'asset-1');
+    final externalPath = p.join(temp.path, 'outside.png');
+    final original = await File(assetPath).readAsBytes();
+    await File(externalPath).writeAsBytes(original);
+    final armed = ContentAssetLifecycleMaintenanceService(
+      rootPages: SqliteContentAssetRootPageRepository(databaseHelper: helper),
+      contentAssets: store,
+      parsedArtifacts: artifacts,
+      observations: observations,
+      nowUtcSeconds: () => now,
+      beforeExactDeleteForTesting: () async {
+        File(assetPath).deleteSync();
+        if (Platform.isWindows) {
+          Directory(assetPath).createSync();
+        } else {
+          await Link(assetPath).create(externalPath);
+        }
+      },
+    );
+
+    expect((await armed.reportOnly()).unobservedCount, 1);
+    now += ContentAssetLifecycleMaintenanceService.graceSeconds;
+
+    final result = await armed.sweepEligible();
+    expect(result.outcome, ContentAssetMaintenanceOutcome.deleteFailed);
+    expect(result.deletedCount, 0);
+    expect(
+      await FileSystemEntity.type(assetPath, followLinks: false),
+      isNot(FileSystemEntityType.file),
+    );
+    expect(await File(externalPath).readAsBytes(), original);
+  });
+
+  test('a physical entry appearing during ledger admission aborts deletion',
+      () async {
+    final withDrift = ContentAssetLifecycleMaintenanceService(
+      rootPages: _DriftRootPages(
+        owningDraft: imageDraft('q-1'),
+        draftFromScan: 99,
+        onRootScan: (rootScan) {
+          if (rootScan != 3) return;
+          store.storeBytesSync(
+            sourceId: 'source-1',
+            localAssetId: 'asset-2',
+            bytes: base64Decode(
+              'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk'
+              '+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+            ),
+            mimeType: 'image/png',
+          );
+        },
+      ),
+      contentAssets: store,
+      parsedArtifacts: artifacts,
+      observations: observations,
+      nowUtcSeconds: () => now,
+    );
+
+    expect((await withDrift.reportOnly()).unobservedCount, 1);
+    now += ContentAssetLifecycleMaintenanceService.graceSeconds;
+
+    final result = await withDrift.sweepEligible();
+    expect(result.outcome, ContentAssetMaintenanceOutcome.revalidationFailed);
+    expect(result.deletedCount, 0);
+    expect(
+        await store.assetExists(sourceId: 'source-1', localAssetId: 'asset-1'),
+        isTrue);
+  });
+
+  test('the delete window admits no new content writer', () async {
+    var writerAdmitted = false;
+    final armed = ContentAssetLifecycleMaintenanceService(
+      rootPages: SqliteContentAssetRootPageRepository(databaseHelper: helper),
+      contentAssets: store,
+      parsedArtifacts: artifacts,
+      observations: observations,
+      nowUtcSeconds: () => now,
+      beforeExactDeleteForTesting: () async {
+        try {
+          BackupRestoreMutationGate.instance.acquireMutationLease().release();
+          writerAdmitted = true;
+        } catch (_) {
+          writerAdmitted = false;
+        }
+      },
+    );
+
+    expect((await armed.reportOnly()).unobservedCount, 1);
+    now += ContentAssetLifecycleMaintenanceService.graceSeconds;
+    final result = await armed.sweepEligible();
+
+    expect(writerAdmitted, isFalse);
+    expect(result.deletedCount, 1);
+  });
+
+  test('retryable cleanup residue stays a ContentAsset root', () async {
+    final db = await helper.database;
+    await db.insert('import_tasks', <String, Object?>{
+      'id': 'task-cleanup',
+      'title': 'synthetic',
+      'status': 0,
+      'progress_text': 'cleanup pending',
+      'percent': 1.0,
+      'created_at': 10,
+      'diagnostics': jsonEncode(<String, Object?>{
+        '_candidate_asset_cleanup_source_id': 'source-1',
+        '_candidate_asset_cleanup_local_ids': <String>['asset-1'],
+      }),
+    });
+
+    final live = await maintenance.reportOnly();
+    expect(live.liveCount, 1);
+    now += ContentAssetLifecycleMaintenanceService.graceSeconds;
+    final swept = await maintenance.sweepEligible();
+
+    expect(swept.deletedCount, 0);
+    expect(
+        await store.assetExists(sourceId: 'source-1', localAssetId: 'asset-1'),
+        isTrue);
+  });
+
+  test('malformed cleanup residue aborts the complete root scan', () async {
+    final db = await helper.database;
+    await db.insert('import_tasks', <String, Object?>{
+      'id': 'task-cleanup',
+      'title': 'synthetic',
+      'status': 0,
+      'progress_text': 'cleanup pending',
+      'percent': 1.0,
+      'created_at': 10,
+      'diagnostics': jsonEncode(<String, Object?>{
+        '_candidate_asset_cleanup_source_id': 'source-1',
+        '_candidate_asset_cleanup_local_ids': 'malformed',
+      }),
+    });
+
+    final result = await maintenance.sweepEligible();
+    expect(result.outcome, ContentAssetMaintenanceOutcome.incompleteRoots);
+    expect(result.deletedCount, 0);
+    expect(
+        await store.assetExists(sourceId: 'source-1', localAssetId: 'asset-1'),
+        isTrue);
+  });
+
+  test('grace elapsed before a restart completes against the persisted timer',
+      () async {
+    expect((await maintenance.reportOnly()).unobservedCount, 1);
+    expect((await rows()).single['first_unreachable_at'], now);
+
+    await helper.close();
+    final afterRestart = ContentAssetLifecycleMaintenanceService(
+      rootPages: SqliteContentAssetRootPageRepository(databaseHelper: helper),
+      contentAssets: ManagedContentAssetStore(managedRoot: managed),
+      parsedArtifacts: _NoCurrentArtifact(),
+      observations:
+          ContentAssetReclamationObservationRepository(databaseHelper: helper),
+      nowUtcSeconds: () => now,
+    );
+    now += ContentAssetLifecycleMaintenanceService.graceSeconds;
+
+    final result = await afterRestart.sweepEligible();
+    expect(result.outcome, ContentAssetMaintenanceOutcome.complete);
+    expect(result.deletedCount, 1);
+    expect(await rows(), isEmpty);
   });
 }
