@@ -145,8 +145,11 @@ void main() {
       boundHit: true,
     );
 
-    expect(find.textContaining('未删除任何文件'), findsOneWidget);
-    expect(find.textContaining('超出单次检查上限'), findsOneWidget);
+    expect(find.textContaining('因此未删除任何文件'), findsOneWidget);
+    expect(
+      find.textContaining('未能在安全检查限制内完成完整验证'),
+      findsOneWidget,
+    );
     expect(tester.widget<TextButton>(sweepButton()).onPressed, isNull);
     expect(spy.sweepCalls, 0);
   });

@@ -132,7 +132,9 @@ class _DataCenterScreenState extends State<DataCenterScreen> {
     final report = _maintenanceReport;
     if (report == null) return '维护状态暂不可用';
     if (report.boundHit) {
-      return '本次未达到完整检查条件（超出单次检查上限或时间预算），未删除任何文件。';
+      return '本次未能在安全检查限制内完成完整验证'
+          '（可能触及数量上限或时间预算），'
+          '因此未删除任何文件。';
     }
     return switch (report.outcome) {
       ContentAssetMaintenanceOutcome.complete => '存储维护正常',
