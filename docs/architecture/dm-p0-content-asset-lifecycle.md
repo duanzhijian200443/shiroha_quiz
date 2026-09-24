@@ -1,6 +1,6 @@
 # DM-P0-D0 ContentAsset lifecycle successor
 
-Status: **CLOSED — I0, B0G, I1A, I1B, I2, I4, I3 and U0 are activated and closed together on one branch; V0 is independently verified offline and deterministically on `df0559d`; this amendment records that closure.**
+Status: **CLOSED — I0 closed earlier on master; B0G, I1A, I1B, I2, I4, I3 and U0 are activated and closed together on one branch; V0 is independently verified offline and deterministically on `df0559d`; this amendment records that closure.**
 
 This successor defines the ContentAsset lifecycle for managed reclamation. It
 supplements the historical DM-P0 destructive-mutation contract. §7 records which
@@ -414,7 +414,7 @@ exist yet, so the row cannot be exercised.
 | L20 | PARTIAL | Derived exclusion and nested closure are proven; only a single-asset package is restored and the staged/live digest cross-check is untested |
 | B0G | PASS | Unsupported, corrupt and codec-rejected sidecars each fail before package publication |
 | G0 cluster | PASS | Migration, B0 compatibility, scrubbed grace evidence, empty restored ledger, grace before and after the window, resets for Question, artifact, candidate and writer acquisition, root release, restart continuity, backward clock, unavailable ledger, renamed-column ledger and negative clock |
-| §9 traps | discharged where implemented | Unclassified writers, reset-before-visibility, artifact verification, scan completeness and the B0 sidecar refusal each carry evidence above; the containment trap is discharged by classification rejection plus the pre-unlink re-proof |
+| §9 traps | discharged where implemented | Unclassified writers and the predeclaration rule, artifact verification, scan completeness, the B0 sidecar refusal and the containment trap are discharged as described in their rows. Reset-before-visibility carries evidence for the two composed byte writers and for Question and artifact-root acquisition; the typed-answer, agent and supplemental write executors reset inside their own transaction, but that ordering is not pinned by a dedicated test |
 
 ### V0 verification record
 
