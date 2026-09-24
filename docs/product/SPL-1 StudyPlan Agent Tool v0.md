@@ -538,7 +538,7 @@ starts, and later stages never auto-activate.
 - `ARCHITECTURE.md` — repository-wide boundary;
 - `docs/product/SPL-1 StudyPlan Agent Tool v0.md` — this document, the focused
   SPL-1 authority;
-- `docs/architecture/n0-post-p5-roadmap.md` — stage ordering and status;
+- `docs/architecture/shiroha-project-roadmap.md` — stage ordering and status;
 - `docs/product/W0 Safe Agent Write.md` — W0 authority (unchanged);
 - `docs/product/A0 Built-in Agent v0.md` — A0 authority (unchanged);
 - `docs/architecture/mcp-v0-contract.md` — MCP v0 authority (unchanged);
