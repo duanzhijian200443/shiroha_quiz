@@ -4,14 +4,18 @@ import 'dart:io';
 import 'package:shiroha_quiz/application/backup/backup_restore_gate.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/content/content_asset_authority.dart';
+import 'package:shiroha_quiz/application/content/content_asset_reclamation_reset.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/core/observability/app_logger.dart';
 import 'package:shiroha_quiz/core/observability/log_record.dart';
+import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
+import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/services/file_library/managed_content_asset_store.dart';
 import 'package:shiroha_quiz/services/import_pipeline/adapters/ocr_source_document_adapter.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_format.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_request.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_pipeline_service.dart';
@@ -19,11 +23,14 @@ import 'package:shiroha_quiz/services/import_pipeline/import_attempt_context.dar
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_task_coordinator.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_document_client.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_assembler.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_typed_candidate.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_import_service.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
+
+import '../../support/unsupported_ai_engine_store.dart';
 
 const _sourceId = '11111111-1111-4111-8111-111111111111';
 const _secondSourceId = '44444444-4444-4444-8444-444444444444';
@@ -32,6 +39,194 @@ const _reviewId = '33333333-3333-4333-8333-333333333333';
 const _pngDataUrl = 'data:image/png;base64,'
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk'
     '+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
+/// Wraps a real store and reports a post-visibility failure for the first
+/// created identity, so the adapter's ownership callback path is exercised
+/// without changing the production store.
+final class _VisibilityFailingStore implements ContentAssetStore {
+  _VisibilityFailingStore(this.delegate);
+
+  final ContentAssetStore delegate;
+
+  @override
+  ContentAssetWriteResult storeBytesSync({
+    required String sourceId,
+    required String localAssetId,
+    required List<int> bytes,
+    required String mimeType,
+  }) {
+    final stored = delegate.storeBytesSync(
+      sourceId: sourceId,
+      localAssetId: localAssetId,
+      bytes: bytes,
+      mimeType: mimeType,
+    );
+    if (stored.created) throw const ContentAssetWriteVisibilityException();
+    return stored;
+  }
+
+  @override
+  String storageKey({required String sourceId, required String localAssetId}) =>
+      delegate.storageKey(sourceId: sourceId, localAssetId: localAssetId);
+
+  @override
+  Future<ContentAssetWriteResult> storeBytes({
+    required String sourceId,
+    required String localAssetId,
+    required List<int> bytes,
+    required String mimeType,
+  }) =>
+      delegate.storeBytes(
+        sourceId: sourceId,
+        localAssetId: localAssetId,
+        bytes: bytes,
+        mimeType: mimeType,
+      );
+
+  @override
+  Future<ContentAssetRollbackResult> deleteCandidateAssets(
+    ContentAssetCandidateLease lease,
+  ) =>
+      delegate.deleteCandidateAssets(lease);
+
+  @override
+  List<int>? readAssetBytes({
+    required String sourceId,
+    required String localAssetId,
+  }) =>
+      delegate.readAssetBytes(sourceId: sourceId, localAssetId: localAssetId);
+
+  @override
+  Future<bool> assetExists({
+    required String sourceId,
+    required String localAssetId,
+  }) =>
+      delegate.assetExists(sourceId: sourceId, localAssetId: localAssetId);
+
+  @override
+  Future<List<ContentAssetRecord>> listAssets() => delegate.listAssets();
+}
+
+final class _ResetProbe implements ContentAssetReclamationResetPort {
+  final List<(String, List<String>)> calls = <(String, List<String>)>[];
+
+  @override
+  Future<void> resetBeforeOwnership({
+    required String sourceId,
+    required Iterable<String> localAssetIds,
+  }) async {
+    calls.add((sourceId, localAssetIds.toList(growable: false)));
+  }
+}
+
+/// Records whether every byte write happened after a reclamation reset.
+final class _ResetOrderWitnessStore implements ContentAssetStore {
+  _ResetOrderWitnessStore(this.delegate, this.probe);
+
+  final ContentAssetStore delegate;
+  final _ResetProbe probe;
+  bool everyWriteHadReset = true;
+
+  @override
+  ContentAssetWriteResult storeBytesSync({
+    required String sourceId,
+    required String localAssetId,
+    required List<int> bytes,
+    required String mimeType,
+  }) {
+    if (probe.calls.isEmpty) everyWriteHadReset = false;
+    return delegate.storeBytesSync(
+      sourceId: sourceId,
+      localAssetId: localAssetId,
+      bytes: bytes,
+      mimeType: mimeType,
+    );
+  }
+
+  @override
+  String storageKey({required String sourceId, required String localAssetId}) =>
+      delegate.storageKey(sourceId: sourceId, localAssetId: localAssetId);
+
+  @override
+  Future<ContentAssetWriteResult> storeBytes({
+    required String sourceId,
+    required String localAssetId,
+    required List<int> bytes,
+    required String mimeType,
+  }) =>
+      delegate.storeBytes(
+        sourceId: sourceId,
+        localAssetId: localAssetId,
+        bytes: bytes,
+        mimeType: mimeType,
+      );
+
+  @override
+  Future<ContentAssetRollbackResult> deleteCandidateAssets(
+    ContentAssetCandidateLease lease,
+  ) =>
+      delegate.deleteCandidateAssets(lease);
+
+  @override
+  List<int>? readAssetBytes({
+    required String sourceId,
+    required String localAssetId,
+  }) =>
+      delegate.readAssetBytes(sourceId: sourceId, localAssetId: localAssetId);
+
+  @override
+  Future<bool> assetExists({
+    required String sourceId,
+    required String localAssetId,
+  }) =>
+      delegate.assetExists(sourceId: sourceId, localAssetId: localAssetId);
+
+  @override
+  Future<List<ContentAssetRecord>> listAssets() => delegate.listAssets();
+}
+
+final class _ImportEngineRepository extends AiEngineRepository {
+  _ImportEngineRepository(this.profile)
+      : super(
+          store: const UnsupportedAiEngineStore(),
+          credentialStore: const UnsupportedEngineCredentialStore(),
+        );
+
+  final AiEngineProfile? profile;
+
+  @override
+  Future<AiEngineProfile?> getActiveOcrEngine() async => profile;
+}
+
+final class _StaticOcrClient implements OcrDocumentClient {
+  _StaticOcrClient(this.document);
+
+  final OcrDocument document;
+
+  @override
+  String get modelId => 'synthetic-ocr';
+
+  @override
+  Future<OcrDocument> parseFile({
+    required AiEngineProfile profile,
+    required String filePath,
+    required String sourceName,
+    Duration timeout = const Duration(minutes: 8),
+  }) async =>
+      document;
+}
+
+AiEngineProfile _syntheticOcrProfile() => AiEngineProfile(
+      id: 'ocr-synthetic',
+      engineType: AiEngineType.ocr,
+      name: 'synthetic-ocr',
+      apiKey: 'synthetic-key',
+      baseUrl: 'https://open.bigmodel.cn/api/paas',
+      modelName: 'glm-ocr',
+      temperature: 0.1,
+      reasoningEffort: '',
+      isActive: true,
+    );
 
 void main() {
   late Directory temp;
@@ -1061,6 +1256,99 @@ void main() {
       store.readAssetBytes(sourceId: _sourceId, localAssetId: 'img_001'),
       isNull,
     );
+  });
+  test('a post-visibility write failure keeps exact candidate ownership',
+      () async {
+    final store = ManagedContentAssetStore(managedRoot: temp);
+    store.storeBytesSync(
+      sourceId: _sourceId,
+      localAssetId: 'asset-keep',
+      bytes: OcrImagePayload.fromDataUrl(_pngDataUrl)!.bytes,
+      mimeType: 'image/png',
+    );
+    final fixture = _fixture();
+    final region = const OcrQuestionRegionizer().regionize(fixture).regions;
+    final legacyQuestion =
+        const OcrQuestionAssembler().assemble(region.single).question;
+
+    final batch = buildOcrTypedCandidateBatch(
+      document: fixture,
+      regions: region,
+      legacyQuestions: <Map<String, dynamic>>[legacyQuestion],
+      uuidV4Factory: _uuidSequence(),
+      assetStore: _VisibilityFailingStore(store),
+      predeclaredAssetIds:
+          OcrSourceDocumentAdapter.assetIdsRequiringPredeclaration(fixture),
+    );
+
+    final lease = batch.candidateAssetLease;
+    expect(lease, isNotNull);
+    expect(lease!.sourceId, _sourceId);
+    expect(lease.localAssetIds, <String>['img_001']);
+    expect(
+      store.readAssetBytes(sourceId: _sourceId, localAssetId: 'img_001'),
+      isNotNull,
+    );
+
+    final rollback = await store.deleteCandidateAssets(lease);
+    expect(rollback.deletedCount, 1);
+    expect(
+      store.readAssetBytes(sourceId: _sourceId, localAssetId: 'img_001'),
+      isNull,
+    );
+    expect(
+      store.readAssetBytes(sourceId: _sourceId, localAssetId: 'asset-keep'),
+      isNotNull,
+    );
+  });
+  test('the import writer resets grace before the first asset byte', () async {
+    final store = ManagedContentAssetStore(managedRoot: temp);
+    final probe = _ResetProbe();
+    final witness = _ResetOrderWitnessStore(store, probe);
+    final service = OcrImportService(
+      ocrClient: _StaticOcrClient(_fixture()),
+      engineRepository: _ImportEngineRepository(_syntheticOcrProfile()),
+      contentAssetStore: witness,
+      reclamationReset: probe,
+      uuidV4Factory: _uuidSequence(),
+    );
+
+    final result = await service.tryParse(
+      filePath: 'synthetic.png',
+      sourceName: 'synthetic.png',
+      format: ImportFormat.image,
+      explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+    );
+
+    expect(result, isNotNull);
+    expect(result!.diagnostics['status'], 'used_ocr');
+    expect(probe.calls, hasLength(1));
+    expect(probe.calls.single.$1, _sourceId);
+    expect(probe.calls.single.$2, <String>['img_001']);
+    expect(witness.everyWriteHadReset, isTrue);
+  });
+
+  test('a store without reset authority reports the typed refusal', () async {
+    final store = ManagedContentAssetStore(managedRoot: temp);
+    final service = OcrImportService(
+      ocrClient: _StaticOcrClient(_fixture()),
+      engineRepository: _ImportEngineRepository(_syntheticOcrProfile()),
+      contentAssetStore: store,
+      uuidV4Factory: _uuidSequence(),
+    );
+
+    final result = await service.tryParse(
+      filePath: 'synthetic.png',
+      sourceName: 'synthetic.png',
+      format: ImportFormat.image,
+      explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+    );
+
+    expect(
+      result?.typedCandidateBatch?.failure,
+      OcrTypedCandidateFailure.resetAuthorityMissing,
+    );
+    expect(await store.listAssets(), isEmpty);
   });
 }
 
