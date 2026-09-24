@@ -53,14 +53,13 @@ class ProfilePage extends StatelessWidget {
           child: SizedBox(
             width: 80,
             height: 80,
-            child: Image(
-              image: avatarImage ?? const AssetImage('assets/流萤.png'),
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Container(
-                color: const Color(0xFFE8ECF4),
-                child: const Icon(Icons.person, color: _primaryColor, size: 40),
-              ),
-            ),
+            child: avatarImage == null
+                ? _avatarPlaceholder()
+                : Image(
+                    image: avatarImage!,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => _avatarPlaceholder(),
+                  ),
           ),
         ),
         const SizedBox(height: 14),
@@ -78,6 +77,13 @@ class ProfilePage extends StatelessWidget {
           style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
         ),
       ],
+    );
+  }
+
+  Widget _avatarPlaceholder() {
+    return Container(
+      color: const Color(0xFFE8ECF4),
+      child: const Icon(Icons.person, color: _primaryColor, size: 40),
     );
   }
 
