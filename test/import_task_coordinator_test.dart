@@ -8,6 +8,7 @@ import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dar
 import 'package:shiroha_quiz/core/observability/app_logger.dart';
 import 'package:shiroha_quiz/core/observability/log_record.dart';
 import 'package:shiroha_quiz/core/observability/trace_context.dart';
+import 'package:shiroha_quiz/data/models/review_draft_cas.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_attempt_context.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_failure_classifier.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_request.dart';
@@ -410,6 +411,71 @@ void main() {
       reason: 'the marker must survive a durable round trip',
     );
     expect(isDocumentImportEntryDiagnostics(task.diagnostics), isTrue);
+  });
+
+  test('typed document RD0 settles before review notification, with fallback',
+      () async {
+    for (final failMaterialization in <bool>[false, true]) {
+      final notified = Completer<void>();
+      final localManager = TaskManager.forTesting(
+        saveTask: (_) async {},
+        saveReviewDraftCas: ({
+          required taskId,
+          required expectedAttempt,
+          required expectedRevision,
+          required questions,
+          required explanationRetentionMode,
+        }) async {
+          expect(expectedRevision, 0);
+          if (failMaterialization) {
+            throw StateError('synthetic persistence failure');
+          }
+          return const ReviewDraftCasResult(
+            ReviewDraftCasStatus.saved,
+            durableRevision: 1,
+          );
+        },
+      );
+      final coordinator = ImportTaskCoordinator(
+        taskManager: localManager,
+        readiness: localManager.ready,
+        taskIdFactory: () => failMaterialization
+            ? 'rd0-coordinator-fallback'
+            : 'rd0-coordinator-success',
+        traceIdFactory: () => 'rd0-coordinator-trace',
+        onReadyForReview: (_) {
+          final task = localManager.tasks.single;
+          expect(task.status, TaskStatus.pendingReview);
+          expect(task.parsedData, hasLength(1));
+          expect(
+            localManager.reviewDraftRevision(task.id),
+            failMaterialization ? 0 : 1,
+          );
+          notified.complete();
+        },
+      );
+      final handle = await coordinator.dispatch(
+        sourceDescription: 'synthetic.pdf',
+        mode: ImportParseMode.ocr,
+        documentImportEntry: true,
+        parse: (_) async => ImportParseResult.withStorageMetadata(
+          questions: const <Map<String, dynamic>>[
+            <String, dynamic>{
+              'q_num': 1,
+              'type': 0,
+              'content': 'Synthetic question',
+              'options': <String>['A'],
+              'standard_answer': 'A',
+            },
+          ],
+          storageRoute: ImportStorageRoute.typedV2,
+          storageReason: 'typed_candidate_ready',
+        ),
+      );
+      await notified.future;
+      expect(localManager.tasks.single.id, handle.taskId);
+      expect(localManager.tasks.single.errorMsg, isNull);
+    }
   });
 
   test('a photo capture dispatch carries no document import provenance',

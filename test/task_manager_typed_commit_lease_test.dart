@@ -4,6 +4,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/data/models/review_draft_cas.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_attempt_context.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
@@ -22,6 +23,8 @@ ImportTask _typedTask({
   String route = 'typedV2',
   String? reason = 'typed_candidate_ready',
   bool withParsedData = true,
+  bool document = false,
+  String? trace,
 }) {
   return ImportTask(
     id: id,
@@ -38,6 +41,9 @@ ImportTask _typedTask({
           ]
         : null,
     diagnostics: <String, dynamic>{
+      if (document)
+        documentImportEntryMarkerKey: documentImportEntryMarkerValue,
+      if (trace != null) TaskManager.keyTraceId: trace,
       TaskManager.keyAttemptToken: token,
       TaskManager.keyAttemptNumber: number,
       TaskManager.keyAttemptState:
@@ -106,6 +112,91 @@ Future<LegacyCommitLeaseResult> _beginLegacy(
 }
 
 void main() {
+  test('RD0 CAS and typed commit lease are serialized on one review queue',
+      () async {
+    final enteredCas = Completer<void>();
+    final finishCas = Completer<ReviewDraftCasResult>();
+    final manager = TaskManager.forTesting(
+      saveReviewDraftCas: ({
+        required taskId,
+        required expectedAttempt,
+        required expectedRevision,
+        required questions,
+        required explanationRetentionMode,
+      }) {
+        expect(expectedRevision, 0);
+        enteredCas.complete();
+        return finishCas.future;
+      },
+    );
+    manager.tasks
+        .add(_typedTask(revision: 0, document: true, trace: 'lease-trace'));
+    const attempt = ImportAttemptRef(
+      taskId: _taskId,
+      attemptNumber: 1,
+      attemptToken: _attemptToken,
+      traceId: 'lease-trace',
+    );
+
+    final materialization =
+        manager.materializeInitialTypedDocumentReviewDraft(attempt);
+    await enteredCas.future;
+    var leaseCompleted = false;
+    final leaseFuture = _begin(manager, expectedRevision: 1)
+      ..then((_) {
+        leaseCompleted = true;
+      });
+    await Future<void>.delayed(Duration.zero);
+    expect(leaseCompleted, isFalse);
+    finishCas.complete(const ReviewDraftCasResult(
+      ReviewDraftCasStatus.saved,
+      durableRevision: 1,
+    ));
+
+    expect(
+      await materialization,
+      InitialTypedDocumentReviewDraftStatus.materialized,
+    );
+    final lease = await leaseFuture;
+    expect(lease.status, TypedCommitLeaseStatus.acquired);
+    expect(lease.lease!.reviewDraftRevision, 1);
+    expect(
+      await manager.materializeInitialTypedDocumentReviewDraft(attempt),
+      InitialTypedDocumentReviewDraftStatus.ineligible,
+      reason: 'an active typed commit lease bars RD0 writes',
+    );
+    manager.releaseTypedCommitLease(lease.lease!);
+  });
+
+  test('persisted CAS stale attempt is never reported as materialized',
+      () async {
+    final manager = TaskManager.forTesting(
+      saveReviewDraftCas: ({
+        required taskId,
+        required expectedAttempt,
+        required expectedRevision,
+        required questions,
+        required explanationRetentionMode,
+      }) async =>
+          const ReviewDraftCasResult(
+        ReviewDraftCasStatus.staleAttempt,
+        durableRevision: 1,
+      ),
+    );
+    manager.tasks
+        .add(_typedTask(revision: 0, document: true, trace: 'lease-trace'));
+    const attempt = ImportAttemptRef(
+      taskId: _taskId,
+      attemptNumber: 1,
+      attemptToken: _attemptToken,
+      traceId: 'lease-trace',
+    );
+    expect(
+      await manager.materializeInitialTypedDocumentReviewDraft(attempt),
+      InitialTypedDocumentReviewDraftStatus.staleAttempt,
+    );
+    expect(manager.reviewDraftRevision(_taskId), 0);
+  });
   test('matching pendingReview attempt acquires a lease', () async {
     final manager = TaskManager.forTesting();
     manager.tasks.add(_typedTask());

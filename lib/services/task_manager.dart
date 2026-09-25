@@ -300,6 +300,16 @@ enum ReviewDraftSaveStatus {
   commitInProgress,
 }
 
+/// RD0 only initializes the durable draft of a current typed document attempt.
+/// Every non-materialized outcome leaves the parsed task available to Review.
+enum InitialTypedDocumentReviewDraftStatus {
+  materialized,
+  alreadyMaterialized,
+  ineligible,
+  staleAttempt,
+  failed,
+}
+
 class ReviewDraftSaveResult {
   const ReviewDraftSaveResult(this.status, {int? revision})
       : durableRevision = revision;
@@ -1124,12 +1134,23 @@ class TaskManager extends ChangeNotifier {
         if (!isAttemptRunnable(attempt)) {
           return ImportAttemptWriteStatus.invalidState;
         }
+        final frozenBank = task.bankName;
+        final preserveDocumentTarget =
+            isDocumentImportEntryDiagnostics(task.diagnostics) &&
+                frozenBank != null &&
+                frozenBank.trim().isNotEmpty;
+        if (preserveDocumentTarget &&
+            bank.trim().isNotEmpty &&
+            (bank != frozenBank ||
+                (folder.trim().isNotEmpty && folder != task.folderName))) {
+          return ImportAttemptWriteStatus.invalidState;
+        }
         next.status = TaskStatus.pendingReview;
         next.completedAt ??= DateTime.now().millisecondsSinceEpoch ~/ 1000;
         next.progressText = text;
         next.parsedData = _deduplicateQuestions(data);
-        next.bankName = bank;
-        next.folderName = folder;
+        next.bankName = preserveDocumentTarget ? frozenBank : bank;
+        next.folderName = preserveDocumentTarget ? task.folderName : folder;
         next.percent = 1.0;
         next.warnings = List<String>.from(warnings);
         next.diagnostics = _replaceDiagnosticsPreservingTaskMetadata(
@@ -1234,8 +1255,11 @@ class TaskManager extends ChangeNotifier {
         next.percent = 0.1;
         next.errorMsg = null;
         next.parsedData = null;
-        next.bankName = null;
-        next.folderName = null;
+        if (!isDocumentImportEntryDiagnostics(task.diagnostics) ||
+            task.bankName?.trim().isNotEmpty != true) {
+          next.bankName = null;
+          next.folderName = null;
+        }
         next.sourceType = null;
         next.pendingChunks = null;
         next.failedChunks = null;
@@ -1611,6 +1635,80 @@ class TaskManager extends ChangeNotifier {
     return _readReviewDraftRevision(tasks[idx]);
   }
 
+  /// Materializes revision 1 after the parse result is already pendingReview.
+  /// The shared review queue serializes this with manual saves and commit
+  /// leases; the existing CAS writer remains the only revision write path.
+  Future<InitialTypedDocumentReviewDraftStatus>
+      materializeInitialTypedDocumentReviewDraft(
+          ImportAttemptRef attempt) async {
+    try {
+      return await _enqueueReviewDraftWrite(() async {
+        final task = _taskForAttempt(attempt);
+        if (task == null) {
+          return InitialTypedDocumentReviewDraftStatus.staleAttempt;
+        }
+        if (_cleanupInProgress.contains(attempt.taskId) ||
+            !isDocumentImportEntryDiagnostics(task.diagnostics) ||
+            task.status != TaskStatus.pendingReview ||
+            task.attemptState != ImportAttemptState.readyForReview ||
+            task.diagnostics?[keyImportStorageRoute] !=
+                TypedImportCommitPersistence.typedV2RouteValue ||
+            task.diagnostics?[keyImportStorageReason] !=
+                TypedImportCommitPersistence.typedCandidateReadyReasonValue ||
+            task.parsedData == null ||
+            task.parsedData!.isEmpty ||
+            _hasCommitLease(attempt.taskId)) {
+          return InitialTypedDocumentReviewDraftStatus.ineligible;
+        }
+        final identity = _captureReviewDraftAttemptIdentity(task);
+        if (identity?.attemptToken != attempt.attemptToken ||
+            identity?.attemptNumber != attempt.attemptNumber ||
+            identity?.traceId != attempt.traceId) {
+          return InitialTypedDocumentReviewDraftStatus.staleAttempt;
+        }
+        final rawRevision = task.diagnostics?[keyReviewDraftRevision];
+        if (rawRevision is int && rawRevision > 0) {
+          return InitialTypedDocumentReviewDraftStatus.alreadyMaterialized;
+        }
+        if (rawRevision != null && rawRevision != 0) {
+          return InitialTypedDocumentReviewDraftStatus.ineligible;
+        }
+        ReviewDraftCasStatus? casStatus;
+        final saved = await _saveReviewDraftNow(
+          attempt.taskId,
+          questions: task.parsedData!,
+          explanationRetentionMode: task.reviewExplanationRetentionMode,
+          expectedRevision: 0,
+          onCasStatus: (status) => casStatus = status,
+        );
+        return switch (saved.status) {
+          ReviewDraftSaveStatus.saved =>
+            InitialTypedDocumentReviewDraftStatus.materialized,
+          ReviewDraftSaveStatus.stale
+              when casStatus == ReviewDraftCasStatus.staleRevision &&
+                  saved.revision > 0 =>
+            InitialTypedDocumentReviewDraftStatus.alreadyMaterialized,
+          ReviewDraftSaveStatus.stale
+              when casStatus == ReviewDraftCasStatus.staleAttempt =>
+            InitialTypedDocumentReviewDraftStatus.staleAttempt,
+          ReviewDraftSaveStatus.stale =>
+            InitialTypedDocumentReviewDraftStatus.ineligible,
+          ReviewDraftSaveStatus.taskMissing =>
+            InitialTypedDocumentReviewDraftStatus.staleAttempt,
+          ReviewDraftSaveStatus.failed
+              when casStatus == ReviewDraftCasStatus.invalidMetadata =>
+            InitialTypedDocumentReviewDraftStatus.ineligible,
+          ReviewDraftSaveStatus.failed =>
+            InitialTypedDocumentReviewDraftStatus.failed,
+          _ => InitialTypedDocumentReviewDraftStatus.ineligible,
+        };
+      });
+    } catch (_) {
+      _logTaskPersistenceFailure();
+      return InitialTypedDocumentReviewDraftStatus.failed;
+    }
+  }
+
   Future<ReviewDraftSaveResult> saveReviewDraft(
     String id, {
     required List<Map<String, dynamic>> questions,
@@ -1869,6 +1967,7 @@ class TaskManager extends ChangeNotifier {
     required List<Map<String, dynamic>> questions,
     required ExplanationRetentionMode explanationRetentionMode,
     int? expectedRevision,
+    void Function(ReviewDraftCasStatus)? onCasStatus,
   }) async {
     if (_cleanupInProgress.contains(id)) {
       return const ReviewDraftSaveResult(
@@ -1930,6 +2029,7 @@ class TaskManager extends ChangeNotifier {
       );
     }
 
+    onCasStatus?.call(casResult.status);
     final mapped = _mapReviewDraftCasResult(casResult);
     if (casResult.status != ReviewDraftCasStatus.saved) return mapped;
     final durableRevision = casResult.durableRevision!;
@@ -2065,11 +2165,11 @@ class TaskManager extends ChangeNotifier {
     return sanitized;
   }
 
-  Future<ReviewDraftSaveResult> _enqueueReviewDraftWrite(
-    Future<ReviewDraftSaveResult> Function() action,
+  Future<T> _enqueueReviewDraftWrite<T>(
+    Future<T> Function() action,
   ) {
     final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
-    final completer = Completer<ReviewDraftSaveResult>();
+    final completer = Completer<T>();
     final previous = _reviewDraftWriteTail.then<void>(
       (_) {},
       onError: (_, __) {},
