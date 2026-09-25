@@ -15,7 +15,7 @@ import '../import_pipeline/import_format.dart';
 import '../import_pipeline/parsed_document.dart';
 
 const _parserVersions = <String, String>{
-  'pdf_text': 'syncfusion_pdf_text.source_adapter.v2',
+  'pdf_text': 'syncfusion_pdf_text.source_adapter.v3',
   'docx_text': 'docx_document_adapter.source_adapter.v2',
   'txt': 'txt_document_adapter.source_adapter.v2',
   'markdown': 'markdown_document_adapter.source_adapter.v2',
@@ -211,9 +211,7 @@ final class DeterministicParsedArtifactGenerationAdapter
     final parsed = ParsedDocument(
       sourceName: file.displayName,
       format: ImportFormat.pdf,
-      parts: <DocumentPart>[
-        TextPart(order: 0, text: text, role: TextRole.paragraph),
-      ],
+      parts: _pdfTextParts(text),
       signals: const DocumentSignals(),
       contentStatus: ParsedDocumentContentStatus.usable,
     );
@@ -282,4 +280,31 @@ final class DeterministicParsedArtifactGenerationAdapter
 
 String _safeTempBase(String sourceName) {
   return sourceName.replaceAll(RegExp(r'[^\w.-]'), '_');
+}
+
+/// Splits one extracted PDF text into ordered natural text parts.
+///
+/// F1 stays text-structural here: the extractor preserves lines, so every line
+/// becomes one ordered part and no page, question, answer, or filename meaning
+/// is inferred. Characters are never dropped, reordered, trimmed, or reflowed;
+/// a line longer than the RichContent node bound is left intact for
+/// [ParsedSourceDocumentAdapter] to bound as its last safety step.
+List<DocumentPart> _pdfTextParts(String text) {
+  final parts = <DocumentPart>[];
+  var order = 0;
+  var start = 0;
+  while (start < text.length) {
+    final newline = text.indexOf('\n', start);
+    final end = newline < 0 ? text.length : newline + 1;
+    parts.add(
+      TextPart(
+        order: order,
+        text: text.substring(start, end),
+        role: TextRole.paragraph,
+      ),
+    );
+    order += 1;
+    start = end;
+  }
+  return parts;
 }

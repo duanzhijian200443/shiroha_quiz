@@ -414,7 +414,10 @@ void main() {
       );
 
       expect(document.documentRef.sourceId, 'artifact-pdf');
-      expect(_singleText(document.parts.single), contains('formal pdf text'));
+      expect(
+        document.parts.whereType<SourceContentPart>().map(_singleText).join(),
+        contains('formal pdf text'),
+      );
     });
 
     test('long PDF text publishes bounded parts instead of failing', () async {
@@ -442,9 +445,57 @@ void main() {
       expect(joined.runes.length, greaterThan(4096));
       expect(joined, contains('p00'));
       expect(joined, contains('p59'));
+      // Natural text boundaries, not mechanical 4K blocks: one part per
+      // extracted line, and the concatenation is the extractor output.
+      expect(texts.length, _lineCount(joined));
       expect(document.issues, isEmpty);
     });
 
+    test('PDF text keeps one natural part per extracted line', () async {
+      await seedManagedFile(
+        bytes: _buildTextPdfPages(<String>[
+          'first question line',
+          'second question line',
+          'third question line',
+        ]),
+      );
+      final file = libraryFile(displayName: 'lines.pdf');
+
+      final plan =
+          await resolvePlan(file, ParsedArtifactRouteSelection.pdfText);
+      final document = await adapter.generate(
+        file: file,
+        artifactId: 'artifact-lines-pdf',
+        plan: plan,
+      );
+
+      final texts = <String>[
+        for (final part in document.parts)
+          if (part is SourceContentPart)
+            (part.content.nodes.single as TextNode).text,
+      ];
+      final joined = texts.join();
+      const sentinels = <String>[
+        'first question line',
+        'second question line',
+        'third question line',
+      ];
+      for (final sentinel in sentinels) {
+        expect(joined, contains(sentinel));
+      }
+      // One part per extracted line: the projection keeps the extractor's own
+      // line boundaries, so no part merges two question lines.
+      expect(texts.length, _lineCount(joined));
+      for (final text in texts) {
+        expect(
+          sentinels.where(text.contains).length,
+          lessThanOrEqualTo(1),
+        );
+      }
+      for (final text in texts.take(texts.length - 1)) {
+        expect(text, endsWith('\n'));
+      }
+    });
     test('empty PDF is sourceUnavailable without OCR', () async {
       await seedManagedFile(bytes: _buildBlankPdf());
       final file = libraryFile(displayName: 'doc.pdf');
@@ -627,6 +678,21 @@ List<int> _buildTextPdf(String text) {
   final bytes = document.saveSync();
   document.dispose();
   return bytes;
+}
+
+List<int> _buildTextPdfPages(List<String> lines) {
+  final document = PdfDocument();
+  final font = PdfStandardFont(PdfFontFamily.helvetica, 10);
+  for (final line in lines) {
+    document.pages.add().graphics.drawString(line, font);
+  }
+  final bytes = document.saveSync();
+  document.dispose();
+  return bytes;
+}
+
+int _lineCount(String text) {
+  return '\n'.allMatches(text).length + (text.endsWith('\n') ? 0 : 1);
 }
 
 List<int> _buildLongTextPdf({required int pageCount}) {
