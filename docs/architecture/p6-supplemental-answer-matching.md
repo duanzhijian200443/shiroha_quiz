@@ -79,10 +79,23 @@ SupplementalAnswerFragment
   ordered SourceRefs
   source sequence/table position
   optional stem context
+  transient answer source: explicitAnswer | solutionBlock
 ```
 
 Rules:
 
+- the transient answer source records whether the supplemental document stated
+  the content as the answer itself (`explicitAnswer`, the default) or only
+  produced it from a solution/`证明` block (`solutionBlock`); it is never
+  persisted, and fragments built without it keep the explicit-answer meaning;
+- a `solutionBlock` fragment may produce a Candidate only for `shortAnswer`;
+  for `singleChoice` and `fillBlank` it stays `invalid(typeIncompatible)`, and
+  a choice label never overrides that gate;
+- explicit answers and explicit table answers remain available for every
+  supported target type;
+- content the matcher composes itself must satisfy the same RichContent
+  admission bound as any persisted content; an over-limit composition fails
+  closed as `invalid(unsupportedContent)` instead of yielding a candidate;
 - consumes only the current F1 `SourceDocument` through
   `ParsedArtifactLifecyclePort.getCurrentArtifact(fileId)`; never sidecars,
   SQLite rows, or managed paths directly;
@@ -95,6 +108,38 @@ Rules:
 - a multi-part answer combines `RichContent` nodes structurally;
   flatten -> string -> reparse is forbidden;
 - explanation may be previewed but is never persisted.
+
+### Field markers and derived solution blocks
+
+- markers are recognized only inside a bounded leading prefix at a field
+  boundary: right after a locator, or at the start of a continuation part;
+- answer markers are exactly `答案` / `参考答案`; explanation markers are the
+  existing `解析` / `详解` / `分析` / `说明`; `解` / `证明` open a solution body;
+- paired `【】` / `[]` wrappers delimit a marker on their own, while an
+  unwrapped marker must be delimited by a colon, whitespace, or the end of the
+  text, so prose such as `解答如下` is never treated as a marker;
+- a parenthesized context label such as `(I)` / `(II)` may precede a marker and
+  stays content; such labels never become a main number or a subquestion;
+- explicit answers and explanations stay separated, and the explanation state
+  is sticky: marker-less continuation parts keep belonging to the explanation
+  instead of falling back into the answer;
+- a fragment whose content came only from `解` / `证明` blocks is projected with
+  the `solutionBlock` source, and an explicit answer anywhere in the fragment
+  keeps the fragment an explicit answer with its derived content in the
+  explanation;
+- a parenthesized number (`(1)` / `（15）`) is a top-level locator only with
+  evidence: it must open a recognised field marker, and it must not step
+  backwards inside an already open fragment, so `(1)【解】…` under an open `18.`
+  stays content instead of becoming question 1; a bracket number without that
+  evidence stays ordinary content, and the bracket shape alone is never proof;
+- over-limit content is never truncated; the fragment or candidate is
+  dropped instead, and the projector enforces the same RichContent admission
+  bound as persisted content before a fragment leaves its close boundary, for
+  answer, explanation, and derived solution content alike, reporting a
+  rejected fragment as `contentAdmissionRejected` instead of throwing or
+  yielding a candidate;
+- a second main locator on one line makes that line unwritable: it yields no
+  candidate, and no part of it may be swallowed into the previous answer.
 
 ## 4. Matching objects
 

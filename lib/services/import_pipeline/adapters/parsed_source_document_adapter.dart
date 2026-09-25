@@ -1,6 +1,7 @@
 import '../../../domain/assets/asset_ref.dart';
 import '../../../domain/content/content_node.dart';
 import '../../../domain/content/rich_content.dart';
+import '../../../domain/content/rich_content_limits.dart';
 import '../../../domain/import/import_issue.dart';
 import '../../../domain/source/source_document.dart';
 import '../../../domain/source/source_part.dart';
@@ -173,13 +174,16 @@ final class ParsedSourceDocumentAdapter {
           );
           issueCodes.add('parsed_source_boundary_redacted');
         case TextPart(:final text, :final role):
-          parts.add(
-            SourceContentPart(
-              sourceRef: documentRef,
-              content: _textContent(text),
-              role: _mapTextRole(role),
-            ),
-          );
+          final partRole = _mapTextRole(role);
+          for (final chunk in _boundedTextChunks(text)) {
+            parts.add(
+              SourceContentPart(
+                sourceRef: documentRef,
+                content: _textContent(chunk),
+                role: partRole,
+              ),
+            );
+          }
           if (text.trim().isNotEmpty) {
             hasFormalContent = true;
           }
@@ -339,6 +343,67 @@ String? _nonBlankText(String? value) {
 RichContent _textContent(String text) {
   return RichContent(nodes: <ContentNode>[TextNode(text)]);
 }
+
+/// One projected text node may not exceed the shared RichContent admission
+/// bound, so a long text part is split instead of making the whole document
+/// unrepresentable.
+const int _maxTextNodeRunes = RichContentLimits.maxNodeScalars;
+
+final _blankLineSeparatorPattern = RegExp(r'\n[ \t]*\n');
+
+/// Splits one document text into ordered chunks that each fit one [TextNode].
+///
+/// Chunking preserves paragraph (blank-line) boundaries first, then line
+/// boundaries, and only then hard-splits at the rune bound. Concatenating the
+/// returned chunks reproduces [text] exactly, including separator whitespace.
+List<String> _boundedTextChunks(String text) {
+  final totalRunes = text.runes.length;
+  if (totalRunes <= _maxTextNodeRunes) {
+    return <String>[text];
+  }
+
+  final chunks = <String>[];
+  var start = 0;
+  var consumedRunes = 0;
+  while (start < text.length) {
+    if (totalRunes - consumedRunes <= _maxTextNodeRunes) {
+      chunks.add(text.substring(start));
+      break;
+    }
+
+    // A code-unit window of the rune bound never exceeds it; stepping back off
+    // a trailing high surrogate keeps the cut on a rune boundary.
+    var end = start + _maxTextNodeRunes;
+    while (end > start && _isHighSurrogate(text.codeUnitAt(end - 1))) {
+      end--;
+    }
+    final window = text.substring(start, end);
+
+    var cut = _lastBlankLineEnd(window);
+    if (cut <= 0) {
+      cut = window.lastIndexOf('\n') + 1;
+    }
+    if (cut <= 0) {
+      cut = window.length;
+    }
+
+    final chunk = text.substring(start, start + cut);
+    chunks.add(chunk);
+    consumedRunes += chunk.runes.length;
+    start += cut;
+  }
+  return chunks;
+}
+
+int _lastBlankLineEnd(String window) {
+  var end = 0;
+  for (final match in _blankLineSeparatorPattern.allMatches(window)) {
+    end = match.end;
+  }
+  return end;
+}
+
+bool _isHighSurrogate(int codeUnit) => codeUnit >= 0xD800 && codeUnit <= 0xDBFF;
 
 final class _IssueSpec {
   const _IssueSpec({

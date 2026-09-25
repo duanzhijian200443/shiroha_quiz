@@ -32,6 +32,7 @@ import 'application/questions/question_mutation_command.dart';
 import 'application/safe_write/typed_answer_command.dart';
 import 'application/supplemental_answers/supplemental_answer_activation_service.dart';
 import 'application/supplemental_answers/supplemental_answer_command.dart';
+import 'application/supplemental_answers/supplemental_answer_source_acquisition_service.dart';
 import 'application/supplemental_answers/target_question_snapshot_service.dart';
 import 'application/conversations/conversation_service.dart';
 import 'application/content/content_asset_authority.dart';
@@ -453,6 +454,12 @@ void main() {
           ),
           artifactPort: parsedArtifactLifecycle,
         );
+        final supplementalAnswerSourceAcquisition =
+            SupplementalAnswerSourceAcquisitionService(
+          ingestion: fileIngestionService,
+          artifactPort: parsedArtifactLifecycle,
+          activationService: supplementalAnswerActivation,
+        );
         final supplementalAnswerConfirmCommand =
             SupplementalAnswerConfirmCommand(
           artifactPort: parsedArtifactLifecycle,
@@ -694,6 +701,8 @@ void main() {
             contentAssetResolver: contentAssetStore,
             contentAssetMaintenance: contentAssetMaintenance,
             supplementalAnswerActivationService: supplementalAnswerActivation,
+            supplementalAnswerSourceAcquisitionService:
+                supplementalAnswerSourceAcquisition,
             supplementalAnswerConfirmCommand: supplementalAnswerConfirmCommand,
             onRestoreCompleted: () {},
           ),
@@ -751,6 +760,7 @@ class ShirohaQuizApp extends StatelessWidget {
     this.contentAssetResolver,
     this.contentAssetMaintenance,
     this.supplementalAnswerActivationService,
+    this.supplementalAnswerSourceAcquisitionService,
     this.supplementalAnswerConfirmCommand,
     this.onRestoreCompleted,
   });
@@ -795,6 +805,8 @@ class ShirohaQuizApp extends StatelessWidget {
   /// P6-ACT-1 Application seams for the ordinary-user supplemental entry.
   final SupplementalAnswerActivationService?
       supplementalAnswerActivationService;
+  final SupplementalAnswerSourceAcquisitionService?
+      supplementalAnswerSourceAcquisitionService;
   final SupplementalAnswerConfirmCommand? supplementalAnswerConfirmCommand;
   final VoidCallback? onRestoreCompleted;
 
@@ -843,15 +855,19 @@ class ShirohaQuizApp extends StatelessWidget {
                 child: content,
               );
         final supplementalAnswers = supplementalAnswerActivationService;
+        final supplementalAcquisition =
+            supplementalAnswerSourceAcquisitionService;
         final supplementalConfirm = supplementalAnswerConfirmCommand;
-        final withSupplementalAnswers =
-            (supplementalAnswers == null || supplementalConfirm == null)
-                ? withMaintenance
-                : SupplementalAnswerDependenciesScope(
-                    activationService: supplementalAnswers,
-                    confirmCommand: supplementalConfirm,
-                    child: withMaintenance,
-                  );
+        final withSupplementalAnswers = (supplementalAnswers == null ||
+                supplementalAcquisition == null ||
+                supplementalConfirm == null)
+            ? withMaintenance
+            : SupplementalAnswerDependenciesScope(
+                activationService: supplementalAnswers,
+                sourceAcquisitionService: supplementalAcquisition,
+                confirmCommand: supplementalConfirm,
+                child: withMaintenance,
+              );
         return AiDependenciesScope(
           engineRepository: engineRepository,
           aiConfigService: aiConfigService,

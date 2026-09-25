@@ -433,6 +433,144 @@ void main() {
       expect(result.records.single.candidate, isNull);
     });
   });
+
+  group('transient answer source gate', () {
+    TargetQuestionSnapshot oneTarget(QuestionKind kind) {
+      return TargetQuestionSnapshot(
+        targets: [_target('q_one', number: 3, kind: kind)],
+        reports: const [],
+      );
+    }
+
+    test('shortAnswer accepts a derived solution block as a candidate', () {
+      final result = matcher.match(
+        fragments: [
+          _fragment(
+            'frag_sol',
+            main: '3',
+            answer: 'proof body',
+            source: SupplementalAnswerSource.solutionBlock,
+          ),
+        ],
+        snapshot: oneTarget(QuestionKind.shortAnswer),
+        artifact: _artifact,
+      );
+
+      expect(result.records.single.disposition, AnswerMatchDisposition.matched);
+      expect(result.records.single.candidate, isNotNull);
+      expect(
+        (result.records.single.candidate!.answer as ContentAnswer)
+            .content
+            .nodes,
+        hasLength(1),
+      );
+    });
+
+    test('fillBlank rejects a derived solution block as typeIncompatible', () {
+      final result = matcher.match(
+        fragments: [
+          _fragment(
+            'frag_sol',
+            main: '3',
+            answer: 'x = 1',
+            source: SupplementalAnswerSource.solutionBlock,
+          ),
+        ],
+        snapshot: oneTarget(QuestionKind.fillBlank),
+        artifact: _artifact,
+      );
+
+      expect(result.records.single.disposition, AnswerMatchDisposition.invalid);
+      expect(result.records.single.candidate, isNull);
+      expect(
+        result.records.single.evidence,
+        contains(MatchEvidenceCode.typeIncompatible),
+      );
+    });
+
+    test('singleChoice rejects a derived solution block despite a valid label',
+        () {
+      final result = matcher.match(
+        fragments: [
+          _fragment(
+            'frag_sol',
+            main: '3',
+            answer: 'A',
+            source: SupplementalAnswerSource.solutionBlock,
+          ),
+        ],
+        snapshot: oneTarget(QuestionKind.singleChoice),
+        artifact: _artifact,
+      );
+
+      expect(result.records.single.disposition, AnswerMatchDisposition.invalid);
+      expect(result.records.single.candidate, isNull);
+      expect(
+        result.records.single.evidence,
+        contains(MatchEvidenceCode.typeIncompatible),
+      );
+    });
+
+    test('explicit answers keep every target type available', () {
+      final fillBlank = matcher.match(
+        fragments: [_fragment('frag_fill', main: '3', answer: 'x = 1')],
+        snapshot: oneTarget(QuestionKind.fillBlank),
+        artifact: _artifact,
+      );
+      expect(
+        fillBlank.records.single.disposition,
+        AnswerMatchDisposition.matched,
+      );
+
+      final singleChoice = matcher.match(
+        fragments: [_fragment('frag_choice', main: '3', answer: 'A')],
+        snapshot: oneTarget(QuestionKind.singleChoice),
+        artifact: _artifact,
+      );
+      expect(
+        singleChoice.records.single.disposition,
+        AnswerMatchDisposition.matched,
+      );
+      expect(
+        (singleChoice.records.single.candidate!.answer as ChoiceAnswer)
+            .optionIds,
+        <String>['opt_a'],
+      );
+    });
+
+    test('over-limit composition fails closed instead of throwing', () {
+      final snapshot = TargetQuestionSnapshot(
+        targets: [
+          _target(
+            'q_parent',
+            number: 1,
+            kind: QuestionKind.shortAnswer,
+            stem: '（1） and （2）',
+          ),
+        ],
+        reports: const [],
+      );
+
+      final result = matcher.match(
+        fragments: [
+          _fragment('frag_sub1', main: '1', sub: '1', answer: 'z' * 4097),
+          _fragment('frag_sub2', main: '1', sub: '2', answer: 'second'),
+        ],
+        snapshot: snapshot,
+        artifact: _artifact,
+      );
+
+      expect(result.records, hasLength(2));
+      for (final record in result.records) {
+        expect(record.disposition, AnswerMatchDisposition.invalid);
+        expect(record.candidate, isNull);
+        expect(
+          record.evidence,
+          contains(MatchEvidenceCode.unsupportedContent),
+        );
+      }
+    });
+  });
 }
 
 AnswerTargetReference _target(
@@ -479,6 +617,7 @@ SupplementalAnswerFragment _fragment(
   String? sub,
   required String answer,
   String? stemContext,
+  SupplementalAnswerSource source = SupplementalAnswerSource.explicitAnswer,
 }) {
   return SupplementalAnswerFragment(
     fragmentId: fragmentId,
@@ -493,6 +632,7 @@ SupplementalAnswerFragment _fragment(
       continuationOrdinal: 0,
     ),
     stemContext: stemContext == null ? null : _text(stemContext),
+    source: source,
   );
 }
 

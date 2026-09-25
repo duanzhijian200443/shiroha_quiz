@@ -145,6 +145,35 @@ Decode must strictly reject:
 
 Unsafe/corrupt payloads must never be downgraded to provider/raw content.
 
+### Bounded text projection
+
+`ParsedDocument -> SourceDocument` projection keeps every projected text node
+inside the shared RichContent admission bound
+(`RichContentLimits.maxNodeScalars`). One document `TextPart` therefore
+projects into one or more ordered `SourceContentPart` values:
+
+- the deterministic PDF producer emits one ordered `TextPart` per extracted
+  line, so consumers keep natural textual boundaries instead of one
+  whole-document block;
+- chunking preserves paragraph (blank-line) boundaries first, then line
+  boundaries, and only then splits at the rune bound;
+- concatenating the projected text nodes reproduces the source `TextPart`
+  exactly, including separator whitespace, so a long part is never truncated,
+  reflowed, or normalized;
+- the aggregate document text is not bound by one node or one part budget;
+- no page-level boundary, no question boundary, and no synthetic page
+  provenance is invented: a part is a textual unit, never a question identity;
+- a line longer than the node bound stays intact in the producer and is split
+  only by this adapter, as its last safety step.
+
+Deterministic parser semantic versions: `pdf_text` is
+`syncfusion_pdf_text.source_adapter.v3` (natural per-line PDF parts), and
+`docx_text` / `txt` / `markdown` are `*.source_adapter.v2` from the bounded
+projection onward. They participate in the cache fingerprint, so earlier
+artifacts regenerate through the deterministic local parser instead of being
+reused with the previous shapes, and no OCR or provider egress is triggered by
+that regeneration.
+
 ## 6. Storage and atomic publish
 
 Decision: **SQLite current metadata + managed immutable artifact sidecar**.

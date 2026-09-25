@@ -1,5 +1,6 @@
 import '../../domain/content/content_node.dart';
 import '../../domain/content/rich_content.dart';
+import '../../domain/content/rich_content_privacy_admission.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../../domain/source/source_ref.dart';
 import '../../domain/supplemental_answers/answer_candidate.dart';
@@ -297,6 +298,15 @@ final class SupplementalAnswerMatcher {
     if (fragment.answerContent.nodes.any((node) => node is RawFallbackNode)) {
       return const _ConversionInvalid(MatchEvidenceCode.unsupportedContent);
     }
+    if (fragment.source == SupplementalAnswerSource.solutionBlock) {
+      // Derived solution content only ever proves a target that accepts
+      // composed content; choice labels and fill-blank slots require an
+      // explicit answer statement.
+      if (target.draft.kind != QuestionKind.shortAnswer) {
+        return const _ConversionInvalid(MatchEvidenceCode.typeIncompatible);
+      }
+      return _ConversionAnswer(ContentAnswer(content: fragment.answerContent));
+    }
     if (target.draft.kind == QuestionKind.singleChoice) {
       final label = _plainText(fragment.answerContent)?.trim() ?? '';
       if (label.isEmpty) {
@@ -537,7 +547,32 @@ List<_MergedItem> _composeSubquestions(
       for (final item in ordered)
         ..._supplementalSourceRefs(item.resolved.candidate!),
     ];
-    final composedAnswer = ContentAnswer(content: RichContent(nodes: nodes));
+    final ContentAnswer composedAnswer;
+    try {
+      final composedContent = RichContent(nodes: nodes);
+      // The composition creates new structure, so it must satisfy the same
+      // admission bound as any other persisted content; an over-limit
+      // composition fails closed instead of yielding an unwritable candidate.
+      const RichContentPrivacyAdmission().validate(composedContent);
+      composedAnswer = ContentAnswer(content: composedContent);
+    } on FormatException {
+      for (final item in group) {
+        result.add(
+          _MergedItem.single(
+            _ResolvedFragment(
+              fragment: item.resolved.fragment,
+              disposition: AnswerMatchDisposition.invalid,
+              certainty: MatchCertainty.none,
+              evidence: const <MatchEvidenceCode>[
+                MatchEvidenceCode.unsupportedContent,
+              ],
+            ),
+          ),
+        );
+        consumed.add(indexByItem[item]!);
+      }
+      continue;
+    }
     final currentAnswer = target.draft.answer;
     final writeIntent = currentAnswer == null
         ? CandidateWriteIntent.fill

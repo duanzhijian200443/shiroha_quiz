@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/domain/assets/asset_ref.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
+import 'package:shiroha_quiz/domain/content/rich_content_limits.dart';
 import 'package:shiroha_quiz/domain/import/import_issue.dart';
 import 'package:shiroha_quiz/domain/source/source_document.dart';
 import 'package:shiroha_quiz/domain/source/source_part.dart';
@@ -1065,6 +1066,132 @@ void main() {
         () => asset.alternativeText!.nodes.add(const TextNode('later')),
         throwsUnsupportedError,
       );
+    });
+  });
+
+  group('ParsedSourceDocumentAdapter bounded text projection', () {
+    const nodeLimit = RichContentLimits.maxNodeScalars;
+
+    List<String> textNodesOf(SourceDocument document) {
+      return <String>[
+        for (final part in document.parts)
+          if (part is SourceContentPart)
+            (part.content.nodes.single as TextNode).text,
+      ];
+    }
+
+    test('splits one long single-line part into ordered bounded parts', () {
+      final text = 'A' * (nodeLimit + 3000);
+
+      final document = adapter.convert(
+        _parsed(
+          parts: <DocumentPart>[
+            TextPart(order: 0, text: text, role: TextRole.paragraph),
+          ],
+        ),
+        sourceId: 'artifact-long-line',
+      );
+
+      expect(document.parts, hasLength(2));
+      final texts = textNodesOf(document);
+      expect(texts, hasLength(2));
+      expect(texts.join(), text);
+      for (final chunk in texts) {
+        expect(chunk.runes.length, lessThanOrEqualTo(nodeLimit));
+      }
+      expect(
+        document.parts.map((part) => part.runtimeType).toSet(),
+        <Type>{SourceContentPart},
+      );
+    });
+
+    test('prefers paragraph boundaries and keeps the aggregate beyond 8192',
+        () {
+      final paragraph = '${'P' * 200}\n\n';
+      final text = paragraph * 45; // 9090 runes: past the aggregate budget.
+
+      final document = adapter.convert(
+        _parsed(
+          parts: <DocumentPart>[
+            TextPart(order: 0, text: text, role: TextRole.paragraph),
+          ],
+        ),
+        sourceId: 'artifact-paragraphs',
+      );
+
+      final texts = textNodesOf(document);
+      expect(texts.length, greaterThan(2));
+      expect(texts.join(), text);
+      for (final chunk in texts) {
+        expect(chunk.runes.length, lessThanOrEqualTo(nodeLimit));
+      }
+      for (final chunk in texts.take(texts.length - 1)) {
+        expect(chunk, endsWith('\n\n'));
+      }
+    });
+
+    test('falls back to line boundaries when no blank line fits', () {
+      final line = '${'L' * 90}\n';
+      final text = line * 100; // 9100 runes, no blank lines.
+
+      final document = adapter.convert(
+        _parsed(
+          parts: <DocumentPart>[
+            TextPart(order: 0, text: text, role: TextRole.answerBlock),
+          ],
+        ),
+        sourceId: 'artifact-lines',
+      );
+
+      final texts = textNodesOf(document);
+      expect(texts.length, greaterThan(2));
+      expect(texts.join(), text);
+      for (final chunk in texts) {
+        expect(chunk.runes.length, lessThanOrEqualTo(nodeLimit));
+      }
+      for (final chunk in texts.take(texts.length - 1)) {
+        expect(chunk, endsWith('\n'));
+      }
+      expect(
+        (document.parts.first as SourceContentPart).role,
+        SourceContentRole.answerLike,
+      );
+    });
+
+    test('hard-splits without separating surrogate pairs', () {
+      final text = '😀' * 5000; // 5000 runes, 10000 UTF-16 code units.
+
+      final document = adapter.convert(
+        _parsed(
+          parts: <DocumentPart>[
+            TextPart(order: 0, text: text, role: TextRole.paragraph),
+          ],
+        ),
+        sourceId: 'artifact-emoji',
+      );
+
+      final texts = textNodesOf(document);
+      expect(texts.length, greaterThan(1));
+      expect(texts.join(), text);
+      for (final chunk in texts) {
+        expect(chunk.runes.length, lessThanOrEqualTo(nodeLimit));
+        expect(chunk, '😀' * chunk.runes.length);
+      }
+    });
+
+    test('keeps short, empty, and multi-part texts unchanged', () {
+      final document = adapter.convert(
+        _parsed(
+          parts: const <DocumentPart>[
+            TextPart(order: 0, text: 'short one', role: TextRole.paragraph),
+            TextPart(order: 1, text: '', role: TextRole.paragraph),
+            TextPart(order: 2, text: 'short two', role: TextRole.paragraph),
+          ],
+        ),
+        sourceId: 'artifact-short',
+      );
+
+      expect(textNodesOf(document), <String>['short one', '', 'short two']);
     });
   });
 }

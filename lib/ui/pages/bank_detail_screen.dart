@@ -72,7 +72,9 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
     final session = await showSupplementalAnswerSourcePicker(
       context: context,
       service: dependencies.activationService,
+      sourceAcquisition: dependencies.sourceAcquisitionService,
       targetScope: QuestionBankScope(bankName: widget.bankName),
+      pickFile: dependencies.pickFile,
     );
     if (session == null || !context.mounted) return;
     await Navigator.push(
