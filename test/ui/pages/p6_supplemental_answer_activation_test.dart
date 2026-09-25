@@ -12,6 +12,7 @@ import 'package:shiroha_quiz/application/file_library/file_library_ports.dart';
 import 'package:shiroha_quiz/application/parsed_artifacts/parsed_artifact_lifecycle.dart';
 import 'package:shiroha_quiz/application/supplemental_answers/supplemental_answer_activation_service.dart';
 import 'package:shiroha_quiz/application/supplemental_answers/supplemental_answer_command.dart';
+import 'package:shiroha_quiz/application/supplemental_answers/supplemental_answer_source_acquisition_service.dart';
 import 'package:shiroha_quiz/application/supplemental_answers/supplemental_answer_target_port.dart';
 import 'package:shiroha_quiz/application/supplemental_answers/target_question_snapshot_service.dart';
 import 'package:shiroha_quiz/domain/answers/answer_candidate.dart';
@@ -51,6 +52,7 @@ void main() {
       snapshot: _snapshot(revision: 2, parts: [_answerParagraph('1. x = 1')]),
     );
     final persistence = _FakePersistencePort();
+    final ingestion = _RecordingIngestionPort();
 
     await _pumpBankDetail(
       tester,
@@ -58,6 +60,7 @@ void main() {
       targets: targets,
       artifacts: artifacts,
       persistence: persistence,
+      ingestion: ingestion,
     );
 
     await tester.tap(find.text('从文件补充答案'));
@@ -74,6 +77,9 @@ void main() {
     expect(find.byType(SupplementalAnswerReviewScreen), findsOneWidget);
     expect(targets.listByBankCalls, 1);
     expect(artifacts.getCurrentArtifactCalls, 1);
+    expect(artifacts.ensureCalls, 0);
+    expect(artifacts.reparseCalls, 0);
+    expect(ingestion.ingestedPaths, isEmpty);
     expect(persistence.confirmed, isEmpty);
   });
 
@@ -120,7 +126,7 @@ void main() {
     await tester.tap(find.text('从文件补充答案'));
     await tester.pumpAndSettle();
 
-    expect(find.text('文件库中还没有可用文件，请先在文件库中上传并解析后再试。'), findsOneWidget);
+    expect(find.text('文件库中还没有文件，可先添加一份答案文件。'), findsOneWidget);
     expect(targets.listByBankCalls, 0);
   });
 
@@ -188,6 +194,7 @@ Future<void> _pumpBankDetail(
   required _FakeTargetPort targets,
   required _FakeArtifactPort artifacts,
   _FakePersistencePort? persistence,
+  _RecordingIngestionPort? ingestion,
 }) async {
   final service = SupplementalAnswerActivationService(
     fileCatalog: _FakeFileCatalog(files),
@@ -201,11 +208,33 @@ Future<void> _pumpBankDetail(
   await tester.pumpWidget(
     SupplementalAnswerDependenciesScope(
       activationService: service,
+      sourceAcquisitionService: SupplementalAnswerSourceAcquisitionService(
+        ingestion: ingestion ?? _RecordingIngestionPort(),
+        artifactPort: artifacts,
+        activationService: service,
+      ),
       confirmCommand: command,
+      pickFile: () async => null,
       child: const MaterialApp(home: BankDetailScreen(bankName: _bankName)),
     ),
   );
   await tester.pumpAndSettle();
+}
+
+/// Records ingestion attempts so the existing-file path can prove it never
+/// ingests, parses, or OCRs anything.
+class _RecordingIngestionPort implements FileIngestionPort {
+  final List<String> ingestedPaths = <String>[];
+
+  @override
+  Future<LibraryFile> ingest({
+    required String externalPath,
+    required String displayName,
+    String? mimeType,
+  }) async {
+    ingestedPaths.add(externalPath);
+    throw UnimplementedError();
+  }
 }
 
 LibraryFile _libraryFile(String displayName) {
