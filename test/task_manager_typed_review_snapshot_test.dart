@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
+import 'package:shiroha_quiz/data/models/review_draft_cas.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
@@ -80,8 +81,313 @@ Map<String, dynamic> _routeDiagnostics({
 
 String _json(Object? value) => jsonEncode(value);
 
+const _rd0Attempt = ImportAttemptRef(
+  taskId: 'rd0-task',
+  attemptNumber: 1,
+  attemptToken: 'rd0-attempt-1',
+  traceId: 'rd0-trace-1',
+);
+
+ImportTask _rd0Task({
+  bool document = true,
+  String route = 'typedV2',
+  Object? revision = 0,
+  TaskStatus status = TaskStatus.pendingReview,
+  String attemptState = 'readyForReview',
+}) =>
+    ImportTask(
+      id: _rd0Attempt.taskId,
+      title: 'Synthetic document task',
+      status: status,
+      bankName: 'Synthetic bank',
+      folderName: 'Synthetic folder',
+      parsedData: <Map<String, dynamic>>[_questionWithEnvelope()],
+      diagnostics: <String, dynamic>{
+        TaskManager.keyTraceId: _rd0Attempt.traceId,
+        TaskManager.keyAttemptNumber: _rd0Attempt.attemptNumber,
+        TaskManager.keyAttemptToken: _rd0Attempt.attemptToken,
+        TaskManager.keyAttemptState: attemptState,
+        if (document)
+          documentImportEntryMarkerKey: documentImportEntryMarkerValue,
+        TaskManager.keyImportStorageRoute: route,
+        TaskManager.keyImportStorageReason: 'typed_candidate_ready',
+        TaskManager.keyParseExplanationRetentionMode: 'allQuestionTypes',
+        TaskManager.keyReviewExplanationRetentionMode: 'subjectiveOnly',
+        if (revision != null) TaskManager.keyReviewDraftRevision: revision,
+      },
+    );
+
 void main() {
   group('TaskManager typed review snapshot persistence', () {
+    test('RD0 writes revision 1 once through existing CAS and keeps retention',
+        () async {
+      var writes = 0;
+      final manager = TaskManager.forTesting(
+        saveReviewDraftCas: ({
+          required taskId,
+          required expectedAttempt,
+          required expectedRevision,
+          required questions,
+          required explanationRetentionMode,
+        }) async {
+          writes++;
+          expect(taskId, _rd0Attempt.taskId);
+          expect(expectedAttempt.attemptToken, _rd0Attempt.attemptToken);
+          expect(expectedAttempt.traceId, _rd0Attempt.traceId);
+          expect(expectedRevision, writes - 1);
+          expect(questions, hasLength(1));
+          expect(
+            _json(questions.single[TypedReviewSnapshotCodec.mapKey]),
+            _json(_envelope()),
+          );
+          expect(explanationRetentionMode, 'subjectiveOnly');
+          return ReviewDraftCasResult(
+            ReviewDraftCasStatus.saved,
+            durableRevision: expectedRevision + 1,
+          );
+        },
+      );
+      manager.tasks.add(_rd0Task());
+
+      expect(
+        await manager.materializeInitialTypedDocumentReviewDraft(_rd0Attempt),
+        InitialTypedDocumentReviewDraftStatus.materialized,
+      );
+      expect(manager.reviewDraftRevision(_rd0Attempt.taskId), 1);
+      expect(
+        await manager.materializeInitialTypedDocumentReviewDraft(_rd0Attempt),
+        InitialTypedDocumentReviewDraftStatus.alreadyMaterialized,
+      );
+      expect(writes, 1);
+      expect(
+        (await manager.saveReviewDraft(
+          _rd0Attempt.taskId,
+          questions: manager.tasks.single.parsedData!,
+          explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+        ))
+            .revision,
+        2,
+      );
+    });
+
+    test('RD0 rejects stale, legacy and malformed state without writing',
+        () async {
+      final manager = TaskManager.forTesting();
+      manager.tasks.add(_rd0Task());
+      const stale = ImportAttemptRef(
+        taskId: 'rd0-task',
+        attemptNumber: 1,
+        attemptToken: 'old-token',
+        traceId: 'rd0-trace-1',
+      );
+      expect(
+        await manager.materializeInitialTypedDocumentReviewDraft(stale),
+        InitialTypedDocumentReviewDraftStatus.staleAttempt,
+      );
+      for (final task in <ImportTask>[
+        _rd0Task(document: false),
+        _rd0Task(route: 'legacyV1'),
+        _rd0Task(revision: 'invalid'),
+        _rd0Task(status: TaskStatus.processing),
+      ]) {
+        manager.tasks[0] = task;
+        expect(
+          await manager.materializeInitialTypedDocumentReviewDraft(_rd0Attempt),
+          InitialTypedDocumentReviewDraftStatus.ineligible,
+        );
+      }
+      expect(manager.reviewDraftRevision(_rd0Attempt.taskId), 0);
+    });
+
+    test('manual Review save winning revision 1 makes RD0 a no-op', () async {
+      var writes = 0;
+      final manager = TaskManager.forTesting(
+        saveReviewDraftCas: ({
+          required taskId,
+          required expectedAttempt,
+          required expectedRevision,
+          required questions,
+          required explanationRetentionMode,
+        }) async {
+          writes++;
+          return ReviewDraftCasResult(
+            ReviewDraftCasStatus.saved,
+            durableRevision: expectedRevision + 1,
+          );
+        },
+      );
+      manager.tasks.add(_rd0Task());
+      final manualQuestions = <Map<String, dynamic>>[
+        <String, dynamic>{..._questionWithEnvelope(), 'content': 'Manual edit'},
+      ];
+
+      final manual = manager.saveReviewDraft(
+        _rd0Attempt.taskId,
+        questions: manualQuestions,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+      final rd0 =
+          manager.materializeInitialTypedDocumentReviewDraft(_rd0Attempt);
+      expect((await manual).revision, 1);
+      expect(
+        await rd0,
+        InitialTypedDocumentReviewDraftStatus.alreadyMaterialized,
+      );
+      expect(writes, 1);
+      expect(manager.tasks.single.parsedData!.single['content'], 'Manual edit');
+    });
+
+    test('failed RD0 keeps parsed review available for first manual save',
+        () async {
+      var writes = 0;
+      final manager = TaskManager.forTesting(
+        saveReviewDraftCas: ({
+          required taskId,
+          required expectedAttempt,
+          required expectedRevision,
+          required questions,
+          required explanationRetentionMode,
+        }) async {
+          writes++;
+          if (writes == 1) throw StateError('synthetic persistence failure');
+          return ReviewDraftCasResult(
+            ReviewDraftCasStatus.saved,
+            durableRevision: expectedRevision + 1,
+          );
+        },
+      );
+      manager.tasks.add(_rd0Task());
+
+      expect(
+        await manager.materializeInitialTypedDocumentReviewDraft(_rd0Attempt),
+        InitialTypedDocumentReviewDraftStatus.failed,
+      );
+      expect(manager.tasks.single.status, TaskStatus.pendingReview);
+      expect(manager.tasks.single.parsedData, hasLength(1));
+      expect(manager.reviewDraftRevision(_rd0Attempt.taskId), 0);
+      final manual = await manager.saveReviewDraft(
+        _rd0Attempt.taskId,
+        questions: manager.tasks.single.parsedData!,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      );
+      expect(manual.status, ReviewDraftSaveStatus.saved);
+      expect(manual.revision, 1);
+    });
+
+    test('CAS rejection is ineligible and preserves the manual Review payload',
+        () async {
+      final manager = TaskManager.forTesting(
+        saveReviewDraftCas: ({
+          required taskId,
+          required expectedAttempt,
+          required expectedRevision,
+          required questions,
+          required explanationRetentionMode,
+        }) async =>
+            const ReviewDraftCasResult(
+          ReviewDraftCasStatus.invalidMetadata,
+          durableRevision: null,
+        ),
+      );
+      manager.tasks.add(_rd0Task());
+
+      expect(
+        await manager.materializeInitialTypedDocumentReviewDraft(_rd0Attempt),
+        InitialTypedDocumentReviewDraftStatus.ineligible,
+      );
+      expect(manager.tasks.single.status, TaskStatus.pendingReview);
+      expect(manager.tasks.single.parsedData, hasLength(1));
+      expect(manager.reviewDraftRevision(_rd0Attempt.taskId), 0);
+    });
+
+    test('frozen document target survives review transition and retry',
+        () async {
+      final manager = TaskManager.forTesting();
+      final task = _rd0Task(
+        status: TaskStatus.processing,
+        attemptState: 'queued',
+      );
+      manager.tasks.add(task);
+      expect(
+        await manager.requireAttemptReview(
+          _rd0Attempt,
+          'Ready',
+          <Map<String, dynamic>>[_questionWithEnvelope()],
+          '',
+          '',
+        ),
+        ImportAttemptWriteStatus.applied,
+      );
+      expect(manager.tasks.single.bankName, 'Synthetic bank');
+      expect(manager.tasks.single.folderName, 'Synthetic folder');
+
+      final conflicting = _rd0Task(
+        status: TaskStatus.processing,
+        attemptState: 'queued',
+      );
+      manager.tasks[0] = conflicting;
+      expect(
+        await manager.requireAttemptReview(
+          _rd0Attempt,
+          'Ready',
+          <Map<String, dynamic>>[_questionWithEnvelope()],
+          'Other bank',
+          'Synthetic folder',
+        ),
+        ImportAttemptWriteStatus.invalidState,
+      );
+      expect(manager.tasks.single.status, TaskStatus.processing);
+      expect(manager.tasks.single.bankName, 'Synthetic bank');
+      expect(
+        await manager.requireAttemptReview(
+          _rd0Attempt,
+          'Ready',
+          <Map<String, dynamic>>[_questionWithEnvelope()],
+          'Synthetic bank',
+          'Other folder',
+        ),
+        ImportAttemptWriteStatus.invalidState,
+      );
+
+      manager.tasks[0] = _rd0Task(
+        status: TaskStatus.error,
+        attemptState: 'failed',
+      );
+      const retry = ImportAttemptRef(
+        taskId: 'rd0-task',
+        attemptNumber: 2,
+        attemptToken: 'rd0-attempt-2',
+        traceId: 'rd0-trace-2',
+      );
+      expect(
+        await manager.restartAttempt(
+          retry,
+          parseMode: 'ocr',
+          explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+        ),
+        ImportAttemptWriteStatus.applied,
+      );
+      expect(manager.tasks.single.bankName, 'Synthetic bank');
+      expect(manager.tasks.single.folderName, 'Synthetic folder');
+
+      manager.tasks[0] = _rd0Task(
+        document: false,
+        status: TaskStatus.processing,
+        attemptState: 'queued',
+      );
+      expect(
+        await manager.requireAttemptReview(
+          _rd0Attempt,
+          'Ready',
+          <Map<String, dynamic>>[_questionWithEnvelope()],
+          '',
+          '',
+        ),
+        ImportAttemptWriteStatus.applied,
+      );
+      expect(manager.tasks.single.bankName, '');
+      expect(manager.tasks.single.folderName, '');
+    });
     test('ImportTask.toMap/fromMap preserves the per-question envelope', () {
       final task = ImportTask(
         id: 'round-trip-task',

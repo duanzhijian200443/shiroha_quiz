@@ -891,6 +891,19 @@ class ImportTaskCoordinator {
         }
         return;
       }
+      final initialDraftStatus = await _taskManager
+          .materializeInitialTypedDocumentReviewDraft(handle.attempt);
+      if (initialDraftStatus == InitialTypedDocumentReviewDraftStatus.failed) {
+        AppLogger.warning(
+          'Initial import review draft was not materialized',
+          module: 'Import',
+          data: const <String, Object?>{
+            'stage': 'initial_review_draft',
+            'status': 'failed',
+          },
+        );
+      }
+      if (!_taskManager.isCurrentAttempt(handle.attempt)) return;
       AppLogger.info(
         'Import is ready for review',
         module: 'Import',

@@ -1,11 +1,70 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/repositories/import_task_repository.dart';
+import 'package:shiroha_quiz/domain/content/content_node.dart';
+import 'package:shiroha_quiz/domain/content/rich_content.dart';
+import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_attempt_context.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+const _rd0Attempt = ImportAttemptRef(
+  taskId: 'durable-rd0-task',
+  attemptNumber: 1,
+  attemptToken: 'durable-rd0-attempt',
+  traceId: 'durable-rd0-trace',
+);
+
+Map<String, dynamic> _typedQuestion() {
+  const questionId = '1a2b3c4d-5e6f-4a8b-9c0d-1e2f3a4b5c6d';
+  const reviewItemId = '0d8b7a3e-7f1c-4b2a-9d3e-5a6b7c8d9e0f';
+  const codec = TypedReviewSnapshotCodec();
+  return <String, dynamic>{
+    'q_num': 1,
+    'type': 0,
+    'content': 'Synthetic stem',
+    'options': <String>['A'],
+    'standard_answer': 'A',
+    'explanation': 'Synthetic explanation',
+    TaskManager.keyReviewItemId: reviewItemId,
+    TypedReviewSnapshotCodec.mapKey: codec.encode(
+      TypedReviewSnapshot(
+        reviewItemId: reviewItemId,
+        questionId: questionId,
+        draft: QuestionDraftV2(
+          questionId: questionId,
+          kind: QuestionKind.singleChoice,
+          questionNumber: 1,
+          stem: RichContent(nodes: const <ContentNode>[
+            TextNode('Synthetic stem'),
+          ]),
+          options: <QuestionOption>[
+            QuestionOption(
+              optionId: 'option_a',
+              label: 'A',
+              content: RichContent(nodes: const <ContentNode>[
+                TextNode('Synthetic option A'),
+              ]),
+            ),
+          ],
+          answer: ChoiceAnswer(optionIds: <String>['option_a']),
+        ),
+        baselineLegacy: LegacyReviewBaseline(
+          type: 0,
+          questionNumber: 1,
+          content: 'Synthetic stem',
+          options: <String>['A'],
+          standardAnswer: 'A',
+          explanation: 'Synthetic explanation',
+        ),
+      ),
+    ),
+  };
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -189,4 +248,65 @@ void main() {
       );
     },
   );
+
+  test('RD0 revision 1 survives restart with typed envelope and frozen target',
+      () async {
+    final repository = ImportTaskRepository();
+    await repository.saveImportTask(
+      ImportTask(
+        id: _rd0Attempt.taskId,
+        title: 'Synthetic typed document',
+        status: TaskStatus.pendingReview,
+        bankName: 'Synthetic bank',
+        folderName: 'Synthetic folder',
+        parsedData: <Map<String, dynamic>>[_typedQuestion()],
+        diagnostics: <String, dynamic>{
+          TaskManager.keyTraceId: _rd0Attempt.traceId,
+          TaskManager.keyAttemptToken: _rd0Attempt.attemptToken,
+          TaskManager.keyAttemptNumber: _rd0Attempt.attemptNumber,
+          TaskManager.keyAttemptState: 'readyForReview',
+          documentImportEntryMarkerKey: documentImportEntryMarkerValue,
+          TaskManager.keyImportStorageRoute: 'typedV2',
+          TaskManager.keyImportStorageReason: 'typed_candidate_ready',
+          TaskManager.keyParseExplanationRetentionMode: 'allQuestionTypes',
+          TaskManager.keyReviewExplanationRetentionMode: 'subjectiveOnly',
+        },
+      ).toMap(),
+    );
+    TaskManager manager() => TaskManager.forTesting(
+          loadTasks: repository.getAllImportTasks,
+          saveReviewDraftCas: repository.saveReviewDraftCas,
+        );
+    final first = manager();
+    await first.ready;
+
+    expect(
+      await first.materializeInitialTypedDocumentReviewDraft(_rd0Attempt),
+      InitialTypedDocumentReviewDraftStatus.materialized,
+    );
+    final restarted = manager();
+    await restarted.ready;
+    final loaded = restarted.tasks.single;
+    expect(loaded.status, TaskStatus.pendingReview);
+    expect(loaded.bankName, 'Synthetic bank');
+    expect(loaded.folderName, 'Synthetic folder');
+    expect(restarted.reviewDraftRevision(_rd0Attempt.taskId), 1);
+    expect(
+      loaded.parsedData!.single[TypedReviewSnapshotCodec.mapKey],
+      _typedQuestion()[TypedReviewSnapshotCodec.mapKey],
+    );
+    expect(
+      await restarted.materializeInitialTypedDocumentReviewDraft(_rd0Attempt),
+      InitialTypedDocumentReviewDraftStatus.alreadyMaterialized,
+    );
+    expect(
+      (await restarted.saveReviewDraft(
+        _rd0Attempt.taskId,
+        questions: loaded.parsedData!,
+        explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+      ))
+          .revision,
+      2,
+    );
+  });
 }
