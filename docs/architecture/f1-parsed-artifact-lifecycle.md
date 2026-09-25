@@ -145,6 +145,27 @@ Decode must strictly reject:
 
 Unsafe/corrupt payloads must never be downgraded to provider/raw content.
 
+### Bounded text projection
+
+`ParsedDocument -> SourceDocument` projection keeps every projected text node
+inside the shared RichContent admission bound
+(`RichContentLimits.maxNodeScalars`). One document `TextPart` therefore
+projects into one or more ordered `SourceContentPart` values:
+
+- chunking preserves paragraph (blank-line) boundaries first, then line
+  boundaries, and only then splits at the rune bound;
+- concatenating the projected text nodes reproduces the source `TextPart`
+  exactly, including separator whitespace, so a long part is never truncated,
+  reflowed, or normalized;
+- the aggregate document text is not bound by one node or one part budget;
+- no page-level boundary and no synthetic page provenance is invented, because
+  the deterministic producers do not provide reliable page identity.
+
+The deterministic parser semantic versions for `pdf_text`, `docx_text`, `txt`,
+and `markdown` are `*.source_adapter.v2` from this projection onward. They
+participate in the cache fingerprint, so earlier artifacts regenerate instead
+of being reused with the previous monolithic text shape.
+
 ## 6. Storage and atomic publish
 
 Decision: **SQLite current metadata + managed immutable artifact sidecar**.

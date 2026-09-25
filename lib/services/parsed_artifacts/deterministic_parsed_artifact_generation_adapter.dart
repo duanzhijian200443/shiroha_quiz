@@ -15,10 +15,10 @@ import '../import_pipeline/import_format.dart';
 import '../import_pipeline/parsed_document.dart';
 
 const _parserVersions = <String, String>{
-  'pdf_text': 'syncfusion_pdf_text.source_adapter.v1',
-  'docx_text': 'docx_document_adapter.source_adapter.v1',
-  'txt': 'txt_document_adapter.source_adapter.v1',
-  'markdown': 'markdown_document_adapter.source_adapter.v1',
+  'pdf_text': 'syncfusion_pdf_text.source_adapter.v2',
+  'docx_text': 'docx_document_adapter.source_adapter.v2',
+  'txt': 'txt_document_adapter.source_adapter.v2',
+  'markdown': 'markdown_document_adapter.source_adapter.v2',
 };
 
 /// Deterministic production generation adapter (F1-I1).
