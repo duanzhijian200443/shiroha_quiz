@@ -4,6 +4,22 @@ import 'rich_content_equality.dart';
 
 final _fragmentIdPattern = RegExp(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$');
 
+/// Transient provenance of one fragment's answer content.
+///
+/// The distinction exists only inside one matching session. An explicit answer
+/// marker (or an explicit table answer) is a formal answer statement for every
+/// supported target type, while a solution/`证明` block that never carried an
+/// explicit answer is derived content and stays usable only where the target
+/// accepts composed content.
+enum SupplementalAnswerSource {
+  /// The source stated this content as the answer itself.
+  explicitAnswer,
+
+  /// Only a solution (`解` / `证明`) block produced this content; the source
+  /// carried no explicit answer statement.
+  solutionBlock,
+}
+
 /// One projected answer fragment from the supplemental document.
 ///
 /// Transient only: never persisted. The fragment keeps the ordered source
@@ -20,6 +36,7 @@ final class SupplementalAnswerFragment {
     required Iterable<SourceRef> sourceRefs,
     required SupplementalSequencePosition sequencePosition,
     RichContent? stemContext,
+    SupplementalAnswerSource source = SupplementalAnswerSource.explicitAnswer,
   }) {
     if (!_fragmentIdPattern.hasMatch(fragmentId)) {
       throw const FormatException(
@@ -53,6 +70,7 @@ final class SupplementalAnswerFragment {
       sourceRefs: copiedSourceRefs,
       sequencePosition: sequencePosition,
       stemContext: stemContext,
+      source: source,
     );
   }
 
@@ -66,6 +84,7 @@ final class SupplementalAnswerFragment {
     required this.sourceRefs,
     required this.sequencePosition,
     required this.stemContext,
+    required this.source,
   });
 
   final String fragmentId;
@@ -77,6 +96,7 @@ final class SupplementalAnswerFragment {
   final List<SourceRef> sourceRefs;
   final SupplementalSequencePosition sequencePosition;
   final RichContent? stemContext;
+  final SupplementalAnswerSource source;
 
   @override
   bool operator ==(Object other) {
@@ -93,7 +113,8 @@ final class SupplementalAnswerFragment {
             _richContentListEquals(headingContext, other.headingContext) &&
             _orderedEquals(sourceRefs, other.sourceRefs) &&
             sequencePosition == other.sequencePosition &&
-            _nullableRichContentEquals(stemContext, other.stemContext);
+            _nullableRichContentEquals(stemContext, other.stemContext) &&
+            source == other.source;
   }
 
   @override
@@ -109,6 +130,7 @@ final class SupplementalAnswerFragment {
         Object.hashAll(sourceRefs),
         sequencePosition,
         stemContext == null ? null : richContentHash(stemContext!),
+        source,
       );
 }
 

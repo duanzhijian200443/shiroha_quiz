@@ -79,10 +79,23 @@ SupplementalAnswerFragment
   ordered SourceRefs
   source sequence/table position
   optional stem context
+  transient answer source: explicitAnswer | solutionBlock
 ```
 
 Rules:
 
+- the transient answer source records whether the supplemental document stated
+  the content as the answer itself (`explicitAnswer`, the default) or only
+  produced it from a solution/`证明` block (`solutionBlock`); it is never
+  persisted, and fragments built without it keep the explicit-answer meaning;
+- a `solutionBlock` fragment may produce a Candidate only for `shortAnswer`;
+  for `singleChoice` and `fillBlank` it stays `invalid(typeIncompatible)`, and
+  a choice label never overrides that gate;
+- explicit answers and explicit table answers remain available for every
+  supported target type;
+- content the matcher composes itself must satisfy the same RichContent
+  admission bound as any persisted content; an over-limit composition fails
+  closed as `invalid(unsupportedContent)` instead of yielding a candidate;
 - consumes only the current F1 `SourceDocument` through
   `ParsedArtifactLifecyclePort.getCurrentArtifact(fileId)`; never sidecars,
   SQLite rows, or managed paths directly;

@@ -97,6 +97,49 @@ void main() {
         throwsFormatException,
       );
     });
+
+    test('defaults to an explicit answer and keeps the transient source', () {
+      SupplementalAnswerFragment fragment({
+        SupplementalAnswerSource source =
+            SupplementalAnswerSource.explicitAnswer,
+      }) {
+        return SupplementalAnswerFragment(
+          fragmentId: 'fragment_001',
+          answerContent: _text('x = 2'),
+          sourceRefs: [
+            SourceRef.document(sourceId: 'artifact_001'),
+          ],
+          sequencePosition: const SupplementalSequencePosition(
+            partIndex: 0,
+            continuationOrdinal: 0,
+          ),
+          source: source,
+        );
+      }
+
+      final legacy = SupplementalAnswerFragment(
+        fragmentId: 'fragment_001',
+        answerContent: _text('x = 2'),
+        sourceRefs: [
+          SourceRef.document(sourceId: 'artifact_001'),
+        ],
+        sequencePosition: const SupplementalSequencePosition(
+          partIndex: 0,
+          continuationOrdinal: 0,
+        ),
+      );
+
+      expect(legacy.source, SupplementalAnswerSource.explicitAnswer);
+      expect(legacy, fragment());
+      expect(
+        fragment(source: SupplementalAnswerSource.solutionBlock).source,
+        SupplementalAnswerSource.solutionBlock,
+      );
+      expect(
+        fragment(source: SupplementalAnswerSource.solutionBlock),
+        isNot(fragment()),
+      );
+    });
   });
 
   group('AnswerCandidate', () {
