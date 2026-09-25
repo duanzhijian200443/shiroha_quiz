@@ -109,6 +109,29 @@ Rules:
   flatten -> string -> reparse is forbidden;
 - explanation may be previewed but is never persisted.
 
+### Field markers and derived solution blocks
+
+- markers are recognized only inside a bounded leading prefix at a field
+  boundary: right after a locator, or at the start of a continuation part;
+- answer markers are exactly `答案` / `参考答案`; explanation markers are the
+  existing `解析` / `详解` / `分析` / `说明`; `解` / `证明` open a solution body;
+- paired `【】` / `[]` wrappers delimit a marker on their own, while an
+  unwrapped marker must be delimited by a colon, whitespace, or the end of the
+  text, so prose such as `解答如下` is never treated as a marker;
+- a parenthesized context label such as `(I)` / `(II)` may precede a marker and
+  stays content; such labels never become a main number or a subquestion;
+- explicit answers and explanations stay separated, and the explanation state
+  is sticky: marker-less continuation parts keep belonging to the explanation
+  instead of falling back into the answer;
+- a fragment whose content came only from `解` / `证明` blocks is projected with
+  the `solutionBlock` source, and an explicit answer anywhere in the fragment
+  keeps the fragment an explicit answer with its derived content in the
+  explanation;
+- over-limit content is never truncated; the fragment or candidate is
+  dropped instead;
+- a second main locator on one line makes that line unwritable: it yields no
+  candidate, and no part of it may be swallowed into the previous answer.
+
 ## 4. Matching objects
 
 Three layers:

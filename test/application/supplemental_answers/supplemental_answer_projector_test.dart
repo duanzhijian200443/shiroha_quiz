@@ -6,6 +6,7 @@ import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/source/source_document.dart';
 import 'package:shiroha_quiz/domain/source/source_part.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
+import 'package:shiroha_quiz/domain/supplemental_answers/supplemental_answer_fragment.dart';
 
 void main() {
   const projector = SupplementalAnswerProjector();
@@ -176,6 +177,130 @@ void main() {
       '参考答案',
     );
   });
+
+  group('field markers and solution blocks', () {
+    SourceDocument documentOf(List<SourceContentPart> parts) {
+      return SourceDocument(sourceId: 'artifact_001', parts: parts);
+    }
+
+    test('keeps marker-less continuations inside the explanation field', () {
+      final result = projector.project(
+        documentOf([
+          _paragraph('1. 答案：A', role: SourceContentRole.answerLike),
+          _paragraph('解析：first line', role: SourceContentRole.paragraph),
+          _paragraph('second line of the same explanation',
+              role: SourceContentRole.paragraph),
+        ]),
+      );
+
+      final fragment = result.fragments.single;
+      expect(_texts(fragment.answerContent), ['A']);
+      expect(_texts(fragment.explanationContent!), [
+        '解析：first line',
+        'second line of the same explanation',
+      ]);
+      expect(fragment.source, SupplementalAnswerSource.explicitAnswer);
+    });
+
+    test('recognizes a wrapped solution marker as a solution block', () {
+      final result = projector.project(
+        documentOf([
+          _paragraph('15.【解】由题意可得', role: SourceContentRole.answerLike),
+        ]),
+      );
+
+      final fragment = result.fragments.single;
+      expect(fragment.normalizedMainNumber, '15');
+      expect(fragment.source, SupplementalAnswerSource.solutionBlock);
+      expect(_texts(fragment.answerContent), ['【解】由题意可得']);
+      expect(fragment.explanationContent, isNull);
+    });
+
+    test('keeps (I)/(II) context labels inside a proof solution block', () {
+      final result = projector.project(
+        documentOf([
+          _paragraph('18.(I)【证明】first half',
+              role: SourceContentRole.answerLike),
+          _paragraph('(II)【解】second half', role: SourceContentRole.paragraph),
+        ]),
+      );
+
+      final fragment = result.fragments.single;
+      expect(fragment.normalizedMainNumber, '18');
+      expect(fragment.normalizedSubquestion, isNull);
+      expect(fragment.source, SupplementalAnswerSource.solutionBlock);
+      expect(_texts(fragment.answerContent), [
+        '(I)【证明】first half',
+        '(II)【解】second half',
+      ]);
+    });
+
+    test('recognizes a solution marker that opens the next part', () {
+      final result = projector.project(
+        documentOf([
+          _paragraph('15.', role: SourceContentRole.answerLike),
+          _paragraph('【解】body in the next part',
+              role: SourceContentRole.paragraph),
+        ]),
+      );
+
+      final fragment = result.fragments.single;
+      expect(fragment.normalizedMainNumber, '15');
+      expect(fragment.source, SupplementalAnswerSource.solutionBlock);
+      expect(_texts(fragment.answerContent), ['【解】body in the next part']);
+    });
+
+    test('a later explicit answer keeps the block an explicit answer', () {
+      final result = projector.project(
+        documentOf([
+          _paragraph('15.【解】derived body', role: SourceContentRole.answerLike),
+          _paragraph('【答案】C', role: SourceContentRole.paragraph),
+        ]),
+      );
+
+      final fragment = result.fragments.single;
+      expect(fragment.source, SupplementalAnswerSource.explicitAnswer);
+      expect(_texts(fragment.answerContent), ['C']);
+      expect(_texts(fragment.explanationContent!), ['【解】derived body']);
+    });
+
+    test('an unmarked solution word inside prose stays content', () {
+      final result = projector.project(
+        documentOf([
+          _paragraph('16. 解答如下', role: SourceContentRole.answerLike),
+        ]),
+      );
+
+      final fragment = result.fragments.single;
+      expect(fragment.source, SupplementalAnswerSource.explicitAnswer);
+      expect(_texts(fragment.answerContent), ['解答如下']);
+    });
+
+    test('a second main locator on one line stays unwritable', () {
+      final result = projector.project(
+        documentOf([
+          _paragraph('17. first answer 18. second answer',
+              role: SourceContentRole.answerLike),
+          _paragraph('19. clean answer', role: SourceContentRole.answerLike),
+        ]),
+      );
+
+      expect(result.fragments, hasLength(1));
+      expect(result.fragments.single.normalizedMainNumber, '19');
+      expect(_texts(result.fragments.single.answerContent), ['clean answer']);
+      expect(
+        result.issues.map((issue) => issue.kind),
+        contains(SupplementalProjectionIssueKind.ambiguousMultiLocatorLine),
+      );
+    });
+  });
+}
+
+List<String> _texts(RichContent content) {
+  return [
+    for (final node in content.nodes)
+      if (node is TextNode) node.text,
+  ];
 }
 
 SourceContentPart _paragraph(

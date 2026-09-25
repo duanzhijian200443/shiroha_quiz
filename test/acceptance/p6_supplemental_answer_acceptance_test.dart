@@ -442,6 +442,48 @@ void main() {
     });
   });
 
+  group('L. solution-only document gate', () {
+    SourceDocument solutionDocument() {
+      return SourceDocument(
+        sourceId: _artifactId,
+        parts: [_answerPart('1.【解】由题意可得')],
+      );
+    }
+
+    test('a 解 block reaches shortAnswer through the real projector', () async {
+      await _seedTarget(storageId: _storageId);
+      await _seedArtifact(revision: 1);
+
+      final projection =
+          const SupplementalAnswerProjector().project(solutionDocument());
+      expect(
+        projection.fragments.single.source,
+        SupplementalAnswerSource.solutionBlock,
+      );
+
+      final match = await _matchFragments(projection.fragments);
+
+      expect(match.records.single.disposition, AnswerMatchDisposition.matched);
+      expect(match.records.single.candidate, isNotNull);
+    });
+
+    test('a 解 block never fills a fillBlank target', () async {
+      await _seedTarget(storageId: _storageId, kind: QuestionKind.fillBlank);
+      await _seedArtifact(revision: 1);
+
+      final projection =
+          const SupplementalAnswerProjector().project(solutionDocument());
+      final match = await _matchFragments(projection.fragments);
+
+      expect(match.records.single.disposition, AnswerMatchDisposition.invalid);
+      expect(match.records.single.candidate, isNull);
+      expect(
+        match.records.single.evidence,
+        contains(MatchEvidenceCode.typeIncompatible),
+      );
+    });
+  });
+
   group('no OCR/provider/paired-path use', () {
     test('projector consumes only the synthetic SourceDocument', () async {
       await _seedArtifact(revision: 1);
@@ -719,11 +761,12 @@ Future<void> _seedTarget({
   RichContent? stem,
   RichContent? answer,
   int? questionNumber = 1,
+  QuestionKind kind = QuestionKind.shortAnswer,
 }) async {
   final db = await DatabaseHelper.instance.database;
   final draft = QuestionDraftV2(
     questionId: storageId,
-    kind: QuestionKind.shortAnswer,
+    kind: kind,
     questionNumber: questionNumber,
     stem: stem ?? _text('stem 1'),
     answer: answer == null ? null : ContentAnswer(content: answer),
