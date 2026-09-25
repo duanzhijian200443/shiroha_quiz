@@ -127,8 +127,17 @@ Rules:
   the `solutionBlock` source, and an explicit answer anywhere in the fragment
   keeps the fragment an explicit answer with its derived content in the
   explanation;
+- a parenthesized number (`(1)` / `（15）`) is a top-level locator only with
+  evidence: it must open a recognised field marker, and it must not step
+  backwards inside an already open fragment, so `(1)【解】…` under an open `18.`
+  stays content instead of becoming question 1; a bracket number without that
+  evidence stays ordinary content, and the bracket shape alone is never proof;
 - over-limit content is never truncated; the fragment or candidate is
-  dropped instead;
+  dropped instead, and the projector enforces the same RichContent admission
+  bound as persisted content before a fragment leaves its close boundary, for
+  answer, explanation, and derived solution content alike, reporting a
+  rejected fragment as `contentAdmissionRejected` instead of throwing or
+  yielding a candidate;
 - a second main locator on one line makes that line unwritable: it yields no
   candidate, and no part of it may be swallowed into the previous answer.
 

@@ -1,5 +1,6 @@
 import '../../domain/content/content_node.dart';
 import '../../domain/content/rich_content.dart';
+import '../../domain/content/rich_content_privacy_admission.dart';
 import '../../domain/source/source_document.dart';
 import '../../domain/source/source_part.dart';
 import '../../domain/source/source_ref.dart';
@@ -22,6 +23,10 @@ final _mainNumberPattern = RegExp(
   r'^\s*(?:第\s*)?(\d{1,4})\s*(?:题)?\s*[.．、:：]?\s*',
 );
 final _subNumberPattern = RegExp(r'^[（(]\s*(\d{1,4})\s*[)）]\s*');
+
+/// A parenthesized number, e.g. `(1)` / `（15）`. Whether it is a top-level
+/// locator or a subquestion depends on the surrounding field evidence.
+final _bracketNumberPattern = RegExp(r'^\s*[（(]\s*(\d{1,4})\s*[)）]\s*');
 
 /// Field markers are recognized only inside a bounded leading prefix, so a
 /// long part is never flattened just to find one.
@@ -135,6 +140,7 @@ enum SupplementalProjectionIssueKind {
   continuationWithoutFragmentSkipped,
   emptyAnswerSkipped,
   ambiguousMultiLocatorLine,
+  contentAdmissionRejected,
 }
 
 final class SupplementalProjectionIssue {
@@ -274,6 +280,14 @@ final class SupplementalAnswerProjector {
         ),
       ),
     );
+    issues.addAll(
+      builder.admissionRejectedPartIndexes.map(
+        (partIndex) => SupplementalProjectionIssue(
+          kind: SupplementalProjectionIssueKind.contentAdmissionRejected,
+          partIndex: partIndex,
+        ),
+      ),
+    );
     return SupplementalProjectionResult(
       fragments: List<SupplementalAnswerFragment>.unmodifiable(fragments),
       issues: List<SupplementalProjectionIssue>.unmodifiable(issues),
@@ -288,7 +302,11 @@ final class SupplementalAnswerProjector {
     required List<SupplementalAnswerFragment> fragments,
     required List<SupplementalProjectionIssue> issues,
   }) {
-    final locator = _extractLocator(content, builder.hasOpenFragment);
+    final locator = _extractLocator(
+      content,
+      builder.hasOpenFragment,
+      builder.openMainNumber,
+    );
     if (locator != null) {
       if (locator.ambiguousLine) {
         // A second main locator on the same line is only split when the syntax
@@ -451,31 +469,84 @@ final class _Locator {
 _Locator? _extractLocator(
   RichContent content,
   bool hasOpenFragment,
+  String? openMainNumber,
 ) {
   final rawText = _plainText(content);
   if (rawText == null) return null;
   final text = _normalizeDigits(rawText);
 
   final mainMatch = _mainNumberPattern.firstMatch(text);
-  if (mainMatch == null) return null;
-  final consumedMarker = mainMatch.group(0)!.trim().isNotEmpty &&
-      mainMatch.end > mainMatch.start &&
-      RegExp(r'[.．、:：题]').hasMatch(mainMatch.group(0)!);
-  // A bare number while a fragment is already open is treated as a
-  // continuation, never as a new locator: in real answer documents a bare
-  // continuation like a second line of a math answer is far more common
-  // than a new question consisting of one bare digit.
-  if (!consumedMarker && hasOpenFragment) return null;
-  final mainNumber = mainMatch.group(1)!;
-  var cursor = mainMatch.end;
-
-  String? subquestion;
-  final subMatch = _subNumberPattern.firstMatch(text.substring(cursor));
-  if (subMatch != null) {
-    subquestion = subMatch.group(1)!;
-    cursor += subMatch.end;
+  if (mainMatch != null) {
+    final consumedMarker = mainMatch.group(0)!.trim().isNotEmpty &&
+        mainMatch.end > mainMatch.start &&
+        RegExp(r'[.．、:：题]').hasMatch(mainMatch.group(0)!);
+    // A bare number while a fragment is already open is treated as a
+    // continuation, never as a new locator: in real answer documents a bare
+    // continuation like a second line of a math answer is far more common
+    // than a new question consisting of one bare digit.
+    if (!consumedMarker && hasOpenFragment) return null;
+    var cursor = mainMatch.end;
+    final subMatch = cursor >= text.length
+        ? null
+        : _subNumberPattern.firstMatch(text.substring(cursor));
+    if (subMatch != null) cursor += subMatch.end;
+    return _locatedAt(
+      content: content,
+      text: text,
+      mainNumber: mainMatch.group(1)!,
+      cursor: cursor,
+      subquestion: subMatch?.group(1),
+    );
   }
 
+  final bracketMatch = _bracketNumberPattern.firstMatch(text);
+  if (bracketMatch == null) return null;
+  if (!_bracketNumberOpensField(
+    text: text,
+    cursor: bracketMatch.end,
+    candidateNumber: bracketMatch.group(1)!,
+    openMainNumber: openMainNumber,
+  )) {
+    return null;
+  }
+  return _locatedAt(
+    content: content,
+    text: text,
+    mainNumber: bracketMatch.group(1)!,
+    cursor: bracketMatch.end,
+    subquestion: null,
+  );
+}
+
+/// Whether one parenthesized number is proven to be a top-level locator.
+///
+/// The bracket shape is not evidence by itself: the number must open a
+/// recognised field marker, and it must not step backwards inside an already
+/// open fragment, which is what a sub-solution line such as `(1)【解】…` under
+/// an open `18.` looks like. Anything unproven stays ordinary content.
+bool _bracketNumberOpensField({
+  required String text,
+  required int cursor,
+  required String candidateNumber,
+  required String? openMainNumber,
+}) {
+  if (cursor >= text.length) return false;
+  if (_leadingFieldMarker(text.substring(cursor)) == null) return false;
+  final openMain = openMainNumber;
+  if (openMain == null) return true;
+  final candidate = int.tryParse(_normalizeDigits(candidateNumber));
+  final open = int.tryParse(_normalizeDigits(openMain));
+  if (candidate == null || open == null) return false;
+  return candidate > open;
+}
+
+_Locator _locatedAt({
+  required RichContent content,
+  required String text,
+  required String mainNumber,
+  required int cursor,
+  required String? subquestion,
+}) {
   final remainderText = cursor >= text.length ? '' : text.substring(cursor);
   final scan = _scanRemainder(content, cursor, text);
   return _Locator(
@@ -639,7 +710,14 @@ final class _FragmentBuilder {
 
   bool get hasOpenFragment => _fragmentId != null;
 
+  /// Main number of the fragment still collecting content, when it has one.
+  String? get openMainNumber =>
+      _fragmentId == null ? null : _normalizedMainNumber;
+
   final List<int> emptySkippedPartIndexes = <int>[];
+
+  /// Parts whose assembled content failed RichContent admission.
+  final List<int> admissionRejectedPartIndexes = <int>[];
 
   void pushHeading(RichContent heading) {
     _headingContext.add(heading);
@@ -756,14 +834,19 @@ final class _FragmentBuilder {
       // A solution/证明 block that never carried an explicit answer stays
       // derived content: it becomes the fragment's answer body with a
       // solutionBlock source, and the matcher decides which targets accept it.
+      final derivedContent = RichContent(
+        nodes: List<ContentNode>.unmodifiable(_explanationNodes),
+      );
+      if (!_isAdmissible(answer: derivedContent, explanation: null)) {
+        admissionRejectedPartIndexes.add(_partIndex);
+        return const <SupplementalAnswerFragment>[];
+      }
       return <SupplementalAnswerFragment>[
         SupplementalAnswerFragment(
           fragmentId: id,
           normalizedMainNumber: _normalizedMainNumber,
           normalizedSubquestion: _normalizedSubquestion,
-          answerContent: RichContent(
-            nodes: List<ContentNode>.unmodifiable(_explanationNodes),
-          ),
+          answerContent: derivedContent,
           explanationContent: null,
           headingContext: List<RichContent>.unmodifiable(_headingContext),
           sourceRefs: List<SourceRef>.unmodifiable(
@@ -781,18 +864,29 @@ final class _FragmentBuilder {
         ),
       ];
     }
+    final answerContent = RichContent(
+      nodes: List<ContentNode>.unmodifiable(_answerNodes),
+    );
+    final explanationContent = _hasExplanationContent
+        ? RichContent(
+            nodes: List<ContentNode>.unmodifiable(_explanationNodes),
+          )
+        : null;
+    if (!_isAdmissible(
+      answer: answerContent,
+      explanation: explanationContent,
+    )) {
+      // Content that cannot be admitted is never truncated and never becomes a
+      // candidate: the fragment is dropped with one bounded projection issue.
+      admissionRejectedPartIndexes.add(_partIndex);
+      return const <SupplementalAnswerFragment>[];
+    }
     final fragment = SupplementalAnswerFragment(
       fragmentId: id,
       normalizedMainNumber: _normalizedMainNumber,
       normalizedSubquestion: _normalizedSubquestion,
-      answerContent: RichContent(
-        nodes: List<ContentNode>.unmodifiable(_answerNodes),
-      ),
-      explanationContent: _hasExplanationContent
-          ? RichContent(
-              nodes: List<ContentNode>.unmodifiable(_explanationNodes),
-            )
-          : null,
+      answerContent: answerContent,
+      explanationContent: explanationContent,
       headingContext: List<RichContent>.unmodifiable(_headingContext),
       sourceRefs: List<SourceRef>.unmodifiable(_answerSourceRefs),
       sequencePosition: SupplementalSequencePosition(
@@ -804,6 +898,25 @@ final class _FragmentBuilder {
       source: SupplementalAnswerSource.explicitAnswer,
     );
     return <SupplementalAnswerFragment>[fragment];
+  }
+
+  /// The projector assembles new structure, so it enforces the same admission
+  /// bound as any persisted content before a fragment may leave this boundary.
+  bool _isAdmissible({
+    required RichContent answer,
+    required RichContent? explanation,
+  }) {
+    const admission = RichContentPrivacyAdmission();
+    try {
+      admission.validate(answer);
+      final explanationContent = explanation;
+      if (explanationContent != null) {
+        admission.validate(explanationContent);
+      }
+      return true;
+    } on FormatException {
+      return false;
+    }
   }
 }
 

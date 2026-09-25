@@ -62,6 +62,7 @@ void main() {
 
       expect(ingestion.ingestedPaths, [r'C:\picked\supplemental.pdf']);
       expect(ingestion.ingestedNames, ['supplemental.pdf']);
+      expect(ingestion.ingestedMimeTypes, ['application/pdf']);
       expect(artifacts.ensureRoutes, [
         ParsedArtifactRouteSelection.auto,
       ]);
@@ -72,6 +73,54 @@ void main() {
         SupplementalAnswerSourcePhase.preparing,
         SupplementalAnswerSourcePhase.matching,
       ]);
+    });
+
+    test('maps every supported extension to a safe media type', () async {
+      expect(
+        supplementalAnswerSourceFileExtensions.map(
+          (extension) => supplementalAnswerSourceMimeType('source.$extension'),
+        ),
+        isNot(contains(null)),
+      );
+      expect(
+        supplementalAnswerSourceMimeTypes.keys,
+        containsAll(supplementalAnswerSourceFileExtensions),
+      );
+      expect(
+        supplementalAnswerSourceMimeTypes,
+        <String, String>{
+          'pdf': 'application/pdf',
+          'docx': 'application/vnd.openxmlformats-officedocument'
+              '.wordprocessingml.document',
+          'txt': 'text/plain',
+          'md': 'text/markdown',
+          'markdown': 'text/markdown',
+        },
+      );
+
+      for (final entry in <String, String>{
+        'paper.PDF': 'application/pdf',
+        'notes.docx': 'application/vnd.openxmlformats-officedocument'
+            '.wordprocessingml.document',
+        'notes.txt': 'text/plain',
+        'notes.md': 'text/markdown',
+        'notes.markdown': 'text/markdown',
+      }.entries) {
+        final ingestion = _FakeIngestionPort();
+        final artifacts = _FakeArtifactLifecyclePort(
+          snapshot:
+              _snapshot(revision: 1, parts: [_answerParagraph('1. x = 1')]),
+        );
+        final service = _service(ingestion: ingestion, artifacts: artifacts);
+
+        await service.addSourceAndStart(
+          targetScope: const QuestionBankScope(bankName: _bankName),
+          externalPath: r'C:\picked\source',
+          displayName: entry.key,
+        );
+
+        expect(ingestion.ingestedMimeTypes, [entry.value]);
+      }
     });
 
     test('rejects unsupported file types before any side effect', () async {
@@ -352,6 +401,7 @@ class _FakeIngestionPort implements FileIngestionPort {
   final Object? ingestFailure;
   final List<String> ingestedPaths = <String>[];
   final List<String> ingestedNames = <String>[];
+  final List<String?> ingestedMimeTypes = <String?>[];
   final List<LibraryFile> files = <LibraryFile>[];
 
   String get issuedFileId =>
@@ -365,6 +415,7 @@ class _FakeIngestionPort implements FileIngestionPort {
   }) async {
     ingestedPaths.add(externalPath);
     ingestedNames.add(displayName);
+    ingestedMimeTypes.add(mimeType);
     final failure = ingestFailure;
     if (failure != null) throw failure;
     final file = LibraryFile(

@@ -18,12 +18,31 @@ const supplementalAnswerSourceFileExtensions = <String>[
   'markdown',
 ];
 
+/// Safe media types for the supported supplemental source extensions.
+///
+/// This is a deterministic mapping for files that already passed the
+/// supported-extension gate, never content sniffing.
+const supplementalAnswerSourceMimeTypes = <String, String>{
+  'pdf': 'application/pdf',
+  'docx':
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'txt': 'text/plain',
+  'md': 'text/markdown',
+  'markdown': 'text/markdown',
+};
+
+/// The safe media type of one supplemental source name, or null when the file
+/// type is not supported.
+String? supplementalAnswerSourceMimeType(String displayName) {
+  final dot = displayName.lastIndexOf('.');
+  if (dot < 0 || dot == displayName.length - 1) return null;
+  return supplementalAnswerSourceMimeTypes[
+      displayName.substring(dot + 1).toLowerCase()];
+}
+
 /// Whether [displayName] names a file the direct acquisition path may add.
 bool isSupportedSupplementalSourceName(String displayName) {
-  final dot = displayName.lastIndexOf('.');
-  if (dot < 0 || dot == displayName.length - 1) return false;
-  return supplementalAnswerSourceFileExtensions
-      .contains(displayName.substring(dot + 1).toLowerCase());
+  return supplementalAnswerSourceMimeType(displayName) != null;
 }
 
 /// Observable phases of one direct acquisition, for Presentation progress.
@@ -122,7 +141,8 @@ final class SupplementalAnswerSourceAcquisitionService {
     required String displayName,
     SupplementalAnswerSourceProgress? onPhase,
   }) async {
-    if (!isSupportedSupplementalSourceName(displayName)) {
+    final mimeType = supplementalAnswerSourceMimeType(displayName);
+    if (mimeType == null) {
       return const SupplementalAnswerSourceFailed(
         SupplementalAnswerSourceFailure.unsupportedFile,
       );
@@ -134,6 +154,7 @@ final class SupplementalAnswerSourceAcquisitionService {
       file = await _ingestion.ingest(
         externalPath: externalPath,
         displayName: displayName,
+        mimeType: mimeType,
       );
     } catch (_) {
       return const SupplementalAnswerSourceFailed(
