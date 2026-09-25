@@ -30,6 +30,9 @@ import 'application/questions/question_bank_mutation_command.dart';
 import 'application/questions/question_list_query_port.dart';
 import 'application/questions/question_mutation_command.dart';
 import 'application/safe_write/typed_answer_command.dart';
+import 'application/supplemental_answers/supplemental_answer_activation_service.dart';
+import 'application/supplemental_answers/supplemental_answer_command.dart';
+import 'application/supplemental_answers/target_question_snapshot_service.dart';
 import 'application/conversations/conversation_service.dart';
 import 'application/content/content_asset_authority.dart';
 import 'application/exam/exam_mutation_command.dart';
@@ -76,6 +79,8 @@ import 'data/repositories/settings_repository.dart';
 import 'data/repositories/ai_answer_commit_repository.dart';
 import 'data/repositories/study_plan_persistence_repository.dart';
 import 'data/repositories/study_plan_read_repository.dart';
+import 'data/repositories/supplemental_answer_persistence_repository.dart';
+import 'data/repositories/supplemental_answer_target_repository.dart';
 import 'mcp/study_mcp_adapter.dart';
 import 'services/ai_service.dart';
 import 'services/answers/ai_answer_provider_adapter.dart';
@@ -111,6 +116,7 @@ import 'services/retrieval/deterministic_source_chunker.dart';
 import 'services/study_plan/study_plan_practice_session_launcher.dart';
 import 'ui/dependencies/ai_dependencies_scope.dart';
 import 'ui/dependencies/content_asset_maintenance_scope.dart';
+import 'ui/dependencies/supplemental_answer_dependencies_scope.dart';
 import 'ui/pages/backup/backup_restore_screen.dart';
 import 'ui/pages/home_page.dart';
 import 'ui/pages/import_staging_screen.dart';
@@ -434,6 +440,27 @@ void main() {
             ),
           ),
         );
+        // P6-ACT-1 composition: Presentation reaches the P6 supplemental-answer
+        // chain only through this activation service and confirm command.
+        final supplementalAnswerActivation =
+            SupplementalAnswerActivationService(
+          fileCatalog: libraryFileRepository,
+          targetSnapshotService: TargetQuestionSnapshotService(
+            port: SupplementalAnswerTargetRepository(
+              questionRepository: questionRepository,
+              projectRepository: projectRepository,
+            ),
+          ),
+          artifactPort: parsedArtifactLifecycle,
+        );
+        final supplementalAnswerConfirmCommand =
+            SupplementalAnswerConfirmCommand(
+          artifactPort: parsedArtifactLifecycle,
+          persistencePort: SupplementalAnswerPersistenceRepository(
+            databaseHelper: databaseHelper,
+            mapper: productionQuestionMapper,
+          ),
+        );
         final contentAssetMaintenance = ContentAssetLifecycleMaintenanceService(
           rootPages: SqliteContentAssetRootPageRepository(
             databaseHelper: databaseHelper,
@@ -666,6 +693,8 @@ void main() {
             backupRestore: backupRestore,
             contentAssetResolver: contentAssetStore,
             contentAssetMaintenance: contentAssetMaintenance,
+            supplementalAnswerActivationService: supplementalAnswerActivation,
+            supplementalAnswerConfirmCommand: supplementalAnswerConfirmCommand,
             onRestoreCompleted: () {},
           ),
         );
@@ -721,6 +750,8 @@ class ShirohaQuizApp extends StatelessWidget {
     this.backupRestore,
     this.contentAssetResolver,
     this.contentAssetMaintenance,
+    this.supplementalAnswerActivationService,
+    this.supplementalAnswerConfirmCommand,
     this.onRestoreCompleted,
   });
 
@@ -760,6 +791,11 @@ class ShirohaQuizApp extends StatelessWidget {
   final BackupRestoreCoordinator? backupRestore;
   final ContentAssetResolver? contentAssetResolver;
   final ContentAssetMaintenancePort? contentAssetMaintenance;
+
+  /// P6-ACT-1 Application seams for the ordinary-user supplemental entry.
+  final SupplementalAnswerActivationService?
+      supplementalAnswerActivationService;
+  final SupplementalAnswerConfirmCommand? supplementalAnswerConfirmCommand;
   final VoidCallback? onRestoreCompleted;
 
   @override
@@ -806,6 +842,16 @@ class ShirohaQuizApp extends StatelessWidget {
                 maintenance: contentAssetMaintenance!,
                 child: content,
               );
+        final supplementalAnswers = supplementalAnswerActivationService;
+        final supplementalConfirm = supplementalAnswerConfirmCommand;
+        final withSupplementalAnswers =
+            (supplementalAnswers == null || supplementalConfirm == null)
+                ? withMaintenance
+                : SupplementalAnswerDependenciesScope(
+                    activationService: supplementalAnswers,
+                    confirmCommand: supplementalConfirm,
+                    child: withMaintenance,
+                  );
         return AiDependenciesScope(
           engineRepository: engineRepository,
           aiConfigService: aiConfigService,
@@ -820,7 +866,7 @@ class ShirohaQuizApp extends StatelessWidget {
           photoAnswerJudgement: photoAnswerJudgement,
           photoAnswerSubmission: photoAnswerSubmission,
           photoAnswerHistory: photoAnswerHistory,
-          child: withMaintenance,
+          child: withSupplementalAnswers,
         );
       },
     );

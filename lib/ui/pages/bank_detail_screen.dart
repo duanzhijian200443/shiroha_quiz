@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'practice_page.dart';
 import 'question_list_screen.dart';
+import 'supplemental_answer_review_screen.dart';
+import 'supplemental_answer_source_picker_sheet.dart';
 import '../../application/questions/question_list_query_port.dart';
 import '../../application/questions/question_mutation_command.dart';
 import '../../application/questions/question_bank_mutation_command.dart';
 import '../../application/safe_write/typed_answer_command.dart';
+import '../../domain/supplemental_answers/supplemental_answer_scope.dart';
+import '../dependencies/supplemental_answer_dependencies_scope.dart';
 
 class BankDetailScreen extends StatefulWidget {
   final String bankName;
@@ -61,6 +65,27 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
     );
   }
 
+  Future<void> _openSupplementalAnswerFlow(
+    BuildContext context,
+    SupplementalAnswerDependenciesScope dependencies,
+  ) async {
+    final session = await showSupplementalAnswerSourcePicker(
+      context: context,
+      service: dependencies.activationService,
+      targetScope: QuestionBankScope(bankName: widget.bankName),
+    );
+    if (session == null || !context.mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SupplementalAnswerReviewScreen(
+          session: session,
+          confirmCommand: dependencies.confirmCommand,
+        ),
+      ),
+    );
+  }
+
   Widget _buildPracticeCard(BuildContext context, String icon, String title,
       String subtitle, int? type) {
     final theme = Theme.of(context);
@@ -103,6 +128,8 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
         isDark ? Colors.white.withValues(alpha: 0.87) : Colors.black87;
     final textLevel2 =
         isDark ? Colors.white.withValues(alpha: 0.60) : Colors.black54;
+    final supplementalAnswers =
+        SupplementalAnswerDependenciesScope.maybeOf(context);
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -208,6 +235,33 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
               },
             ),
           ),
+          if (supplementalAnswers != null)
+            Card(
+              elevation: 0,
+              margin: const EdgeInsets.only(bottom: 24.0),
+              color: theme.primaryColor.withValues(alpha: 0.05),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  side: BorderSide(
+                      color: theme.primaryColor.withValues(alpha: 0.2))),
+              child: ListTile(
+                leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                        color: theme.primaryColor,
+                        borderRadius: BorderRadius.circular(8)),
+                    child: const Icon(Icons.playlist_add_check_rounded,
+                        color: Colors.white)),
+                title: const Text('从文件补充答案',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: const Text('选择文件库中的解析资料，匹配后确认写入',
+                    style: TextStyle(fontSize: 12, color: Colors.grey)),
+                trailing: const Icon(Icons.arrow_forward_ios,
+                    size: 16, color: Colors.grey),
+                onTap: () =>
+                    _openSupplementalAnswerFlow(context, supplementalAnswers),
+              ),
+            ),
           _buildPracticeCard(context, '🎯', '全类型自适应复习', '智能混排，全面提升', null),
           _buildPracticeCard(context, '📝', '选择题专项', '单选多选集中突破', 0),
           _buildPracticeCard(context, '✏️', '填空题专项', '精准记忆，不留死角', 2),
