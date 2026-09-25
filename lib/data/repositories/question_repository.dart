@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:uuid/uuid.dart';
 
 import '../../application/safe_write/typed_answer_command.dart';
+import '../../application/import/import_target_catalog_service.dart';
 import '../../application/questions/folder_query_port.dart';
 import '../../application/questions/question_list_query_port.dart';
 import '../../application/questions/question_presentation_read.dart';
@@ -50,7 +51,8 @@ class QuestionRepository
         QuestionWriteMutationPersistencePort,
         PracticeSessionMutationPersistencePort,
         QuestionListQueryPort,
-        FolderQueryPort {
+        FolderQueryPort,
+        ImportTargetCatalogPort {
   QuestionRepository({
     DatabaseHelper? databaseHelper,
     Uuid? uuid,
@@ -746,6 +748,24 @@ class QuestionRepository
 
   @override
   Future<List<String>> listAvailableFolders() => getAvailableFolders();
+
+  @override
+  Future<List<ImportTargetSummary>> listImportTargets() async {
+    final db = await _databaseHelper.database;
+    final rows = await db.rawQuery('''
+      SELECT q.bank_name, bf.folder_name, COUNT(q.id) AS question_count
+      FROM questions q
+      LEFT JOIN bank_folders bf ON bf.bank_name = q.bank_name
+      GROUP BY q.bank_name, bf.folder_name
+      ORDER BY q.bank_name COLLATE NOCASE
+    ''');
+    return List<ImportTargetSummary>.unmodifiable(
+        rows.map((row) => ImportTargetSummary(
+              bankName: row['bank_name'] as String,
+              folderName: row['folder_name'] as String?,
+              questionCount: (row['question_count'] as num?)?.toInt() ?? 0,
+            )));
+  }
 
   @override
   Future<List<QuestionPresentationRead>> listQuestionsForBank(

@@ -167,6 +167,19 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
       widget.taskManager ?? TaskManager.instance;
   List<String> _existingFolders = [];
 
+  ImportTask? get _frozenDocumentTarget {
+    final id = widget.taskId;
+    if (id == null || id.isEmpty) return null;
+    final task =
+        _taskManager.tasks.where((entry) => entry.id == id).firstOrNull;
+    if (task == null ||
+        !isDocumentImportEntryDiagnostics(task.diagnostics) ||
+        task.bankName?.trim().isNotEmpty != true) {
+      return null;
+    }
+    return task;
+  }
+
   bool get _isBlockedByQualityGate =>
       ImportReviewBlockingPolicy.isBlocked(_reviewResult);
 
@@ -697,6 +710,11 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   void _showSaveDialog() {
+    final frozen = _frozenDocumentTarget;
+    if (frozen != null) {
+      _confirmAndSave(frozen.bankName!, frozen.folderName ?? '');
+      return;
+    }
     showDialog(
         context: context,
         barrierDismissible: false,
@@ -2422,6 +2440,14 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
             ),
           ),
           if (_traceId != null) _buildTraceBar(),
+          if (_frozenDocumentTarget case final target?)
+            ListTile(
+              key: const ValueKey<String>('review-frozen-target'),
+              title: const Text('导入到'),
+              subtitle: Text(target.folderName?.trim().isNotEmpty == true
+                  ? '${target.folderName} / ${target.bankName}'
+                  : target.bankName!),
+            ),
           if (_diagnosticMessages.isNotEmpty) ...[
             _buildDiagnosticBanner(),
           ],

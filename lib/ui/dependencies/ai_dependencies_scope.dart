@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import '../../application/answers/ai_answer_commit_command.dart';
 import '../../application/ai_config/ai_config_service.dart';
 import '../../application/import/import_advanced_preferences.dart';
+import '../../application/import/import_target_catalog_service.dart';
 import '../../application/answers/ai_answer_generation.dart';
 import '../../application/exam/exam_mutation_command.dart';
 import '../../application/practice/photo_answer_judgement.dart';
@@ -23,6 +24,7 @@ class AiDependenciesScope extends InheritedWidget {
     required this.importTaskCoordinator,
     this.importPreferencesLoader,
     this.importPreferencesSaver,
+    this.importTargetCatalogService,
     required this.answerGenerationService,
     required this.answerCommitCommand,
     required this.examMutationCommand,
@@ -39,6 +41,7 @@ class AiDependenciesScope extends InheritedWidget {
   final ImportTaskCoordinator importTaskCoordinator;
   final ImportAdvancedPreferencesLoader? importPreferencesLoader;
   final ImportAdvancedPreferencesSaver? importPreferencesSaver;
+  final ImportTargetCatalogService? importTargetCatalogService;
 
   /// P7 Application generation seam: Presentation never touches the
   /// provider adapter or any provider/DB type directly.
@@ -65,6 +68,9 @@ class AiDependenciesScope extends InheritedWidget {
     return scope;
   }
 
+  static AiDependenciesScope? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<AiDependenciesScope>();
+
   @override
   bool updateShouldNotify(AiDependenciesScope oldWidget) {
     return !identical(photoAnswerHistory, oldWidget.photoAnswerHistory) ||
@@ -77,6 +83,8 @@ class AiDependenciesScope extends InheritedWidget {
         !identical(
             importPreferencesLoader, oldWidget.importPreferencesLoader) ||
         !identical(importPreferencesSaver, oldWidget.importPreferencesSaver) ||
+        !identical(
+            importTargetCatalogService, oldWidget.importTargetCatalogService) ||
         !identical(
             answerGenerationService, oldWidget.answerGenerationService) ||
         !identical(answerCommitCommand, oldWidget.answerCommitCommand) ||

@@ -3,12 +3,30 @@ import 'package:shiroha_quiz/application/import/import_advanced_preferences.dart
 
 void main() {
   group('ImportAdvancedPreferences', () {
+    test('perfect auto commit copy and value equality are stable', () {
+      const defaults = ImportAdvancedPreferences.defaults;
+      final enabled = defaults.copyWith(autoCommitPerfectImports: true);
+      expect(enabled.autoCommitPerfectImports, isTrue);
+      expect(enabled, isNot(defaults));
+      expect(enabled,
+          const ImportAdvancedPreferences(autoCommitPerfectImports: true));
+      expect(
+          enabled.hashCode,
+          const ImportAdvancedPreferences(autoCommitPerfectImports: true)
+              .hashCode);
+      expect(ImportAdvancedPreferences.fromJson(enabled.toJson()), enabled);
+      expect(
+          ImportAdvancedPreferences.fromJson(const {}).autoCommitPerfectImports,
+          isFalse);
+    });
     test('defaults to a budget inside the supported slider range', () {
       expect(ImportAdvancedPreferences.defaults.ocrTaskConcurrency, 2);
       expect(ImportAdvancedPreferences.defaults.autoRetryEnabled, isTrue);
       expect(ImportAdvancedPreferences.defaults.ocrRequestTimeoutSeconds, 90);
       expect(
           ImportAdvancedPreferences.defaults.autoRepairLatexEnabled, isFalse);
+      expect(
+          ImportAdvancedPreferences.defaults.autoCommitPerfectImports, isFalse);
       expect(ImportAdvancedPreferences.defaults.completionBehavior,
           ImportCompletionBehavior.notifyOnly);
       expect(ImportAdvancedPreferences.minOcrTaskConcurrency, 1);
@@ -99,6 +117,7 @@ void main() {
         autoRetryEnabled: false,
         ocrRequestTimeoutSeconds: 180,
         autoRepairLatexEnabled: true,
+        autoCommitPerfectImports: true,
         completionBehavior: ImportCompletionBehavior.openReview,
         retainUnresolvedFragments: false,
       );
@@ -114,6 +133,7 @@ void main() {
       expect(legacy.autoRetryEnabled, isTrue);
       expect(legacy.ocrRequestTimeoutSeconds, 90);
       expect(legacy.autoRepairLatexEnabled, isFalse);
+      expect(legacy.autoCommitPerfectImports, isFalse);
       expect(legacy.completionBehavior, ImportCompletionBehavior.notifyOnly);
       expect(
         ImportAdvancedPreferences.fromJson(const <String, dynamic>{

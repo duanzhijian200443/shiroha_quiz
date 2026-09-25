@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../application/backup/backup_restore_gate.dart';
+import '../application/import/import_target_selection.dart';
 import 'package:shiroha_quiz/application/content/content_asset_authority.dart';
 import 'package:shiroha_quiz/core/observability/app_logger.dart';
 import 'package:shiroha_quiz/domain/backup/backup_manifest.dart';
@@ -1281,6 +1282,9 @@ class TaskManager extends ChangeNotifier {
           if (stableMetadata[documentImportEntryMarkerKey] != null)
             documentImportEntryMarkerKey:
                 stableMetadata[documentImportEntryMarkerKey],
+          if (stableMetadata[importTargetKindMarkerKey] != null)
+            importTargetKindMarkerKey:
+                stableMetadata[importTargetKindMarkerKey],
           if (stableMetadata[keyCorrelationId] != null)
             keyCorrelationId: stableMetadata[keyCorrelationId],
           if (previousTraceId != null) keyParentTraceId: previousTraceId,
@@ -1515,6 +1519,7 @@ class TaskManager extends ChangeNotifier {
       // keeps the controls that describe the task's own recorded policy, so it
       // is task metadata and must survive parse completion.
       documentImportEntryMarkerKey,
+      importTargetKindMarkerKey,
       keyAttemptNumber,
       keyAttemptToken,
       keyAttemptState,
@@ -1612,6 +1617,7 @@ class TaskManager extends ChangeNotifier {
       // Same reason as `_taskMetadata`: a diagnostics replacement mid-parse
       // must not silently demote a document import to a compatibility task.
       documentImportEntryMarkerKey,
+      importTargetKindMarkerKey,
       keyAttemptNumber,
       keyAttemptToken,
       keyAttemptState,
@@ -1634,6 +1640,8 @@ class TaskManager extends ChangeNotifier {
     if (idx < 0) return 0;
     return _readReviewDraftRevision(tasks[idx]);
   }
+
+  bool hasActiveTypedCommitLease(String id) => _hasCommitLease(id);
 
   /// Materializes revision 1 after the parse result is already pendingReview.
   /// The shared review queue serializes this with manual saves and commit

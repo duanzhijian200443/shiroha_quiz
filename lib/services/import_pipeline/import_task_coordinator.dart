@@ -5,10 +5,12 @@ import 'package:path/path.dart' as p;
 import '../../application/backup/backup_restore_gate.dart';
 import '../../application/content/content_asset_authority.dart';
 import '../../application/import_review/typed_review_snapshot.dart';
+import '../../application/import/import_target_selection.dart';
 import '../../core/observability/app_logger.dart';
 import '../../core/observability/trace_context.dart';
 import '../../data/models/question_identity.dart';
 import '../task_manager.dart';
+import '../import_review/import_perfect_auto_commit_service.dart';
 import 'import_attempt_context.dart';
 import 'candidate_asset_cleanup.dart';
 import 'candidate_asset_lease.dart';
@@ -66,6 +68,9 @@ class ImportTaskBatchItem {
     required this.parse,
     this.explanationRetentionMode = ExplanationRetentionMode.subjectiveOnly,
     this.documentImportEntry = false,
+    this.bankName,
+    this.folderName,
+    this.targetKind,
   });
 
   final String sourceDescription;
@@ -79,6 +84,9 @@ class ImportTaskBatchItem {
   /// retention (document import) or keeps the retention controls that describe
   /// its own recorded policy (photo capture, Agent, older builds).
   final bool documentImportEntry;
+  final String? bankName;
+  final String? folderName;
+  final ImportTargetKind? targetKind;
 
   /// Entry diagnostics this item contributes at task creation.
   Map<String, dynamic> get entryDiagnostics => <String, dynamic>{
@@ -132,6 +140,8 @@ class ImportTaskCoordinator {
     Future<int> Function()? ocrMaxConcurrencyResolver,
     this.onReadyForReview,
     this.onSingleReadyForReview,
+    this.perfectAutoCommitService,
+    this.onAutoCommitted,
   })  : _taskManager = taskManager ?? TaskManager.instance,
         _readiness = readiness ?? (taskManager ?? TaskManager.instance).ready,
         _parser = parser,
@@ -211,6 +221,8 @@ class ImportTaskCoordinator {
   /// Opens the review page for one user-started task. Returns whether the page
   /// was actually opened, which decides if [onReadyForReview] still applies.
   final Future<bool> Function(String taskId)? onSingleReadyForReview;
+  final ImportPerfectAutoCommitService? perfectAutoCommitService;
+  final void Function(String bankName, int questionCount)? onAutoCommitted;
 
   static String _createTaskId() =>
       'task_${DateTime.now().microsecondsSinceEpoch}';
@@ -253,6 +265,9 @@ class ImportTaskCoordinator {
         ExplanationRetentionMode.subjectiveOnly,
     bool documentImportEntry = false,
     bool allowAutoOpenReview = false,
+    String? bankName,
+    String? folderName,
+    ImportTargetKind? targetKind,
   }) async {
     BackupRestoreMutationGate.instance.ensureMutationAllowed();
     final lease = BackupRestoreMutationGate.instance.acquireMutationLease();
@@ -265,6 +280,9 @@ class ImportTaskCoordinator {
         explanationRetentionMode: explanationRetentionMode,
         documentImportEntry: documentImportEntry,
         allowAutoOpenReview: allowAutoOpenReview,
+        bankName: bankName,
+        folderName: folderName,
+        targetKind: targetKind,
       );
     } catch (_) {
       lease.release();
@@ -281,6 +299,9 @@ class ImportTaskCoordinator {
         ExplanationRetentionMode.subjectiveOnly,
     bool documentImportEntry = false,
     bool allowAutoOpenReview = false,
+    String? bankName,
+    String? folderName,
+    ImportTargetKind? targetKind,
   }) async {
     await _readiness;
 
@@ -307,6 +328,8 @@ class ImportTaskCoordinator {
       title: '文档解析任务: $safeSourceDescription',
       progressText: '已进入后台队列...',
       percent: 0.1,
+      bankName: bankName,
+      folderName: folderName,
       diagnostics: <String, dynamic>{
         TaskManager.keyTraceId: traceId,
         TaskManager.keyCorrelationId: correlationId,
@@ -319,6 +342,7 @@ class ImportTaskCoordinator {
         TaskManager.keyExplanationRetentionMode: explanationRetentionMode.name,
         if (documentImportEntry)
           documentImportEntryMarkerKey: documentImportEntryMarkerValue,
+        if (targetKind != null) importTargetKindMarkerKey: targetKind.name,
         TaskManager.keyAttemptNumber: handle.attemptNumber,
         TaskManager.keyAttemptToken: handle.attemptToken,
         TaskManager.keyAttemptState: ImportAttemptState.queued.name,
@@ -434,6 +458,8 @@ class ImportTaskCoordinator {
         title: '文档解析任务: $safeSourceDescription',
         progressText: '已进入后台队列...',
         percent: 0.1,
+        bankName: item.bankName,
+        folderName: item.folderName,
         diagnostics: <String, dynamic>{
           TaskManager.keyTraceId: traceId,
           TaskManager.keyCorrelationId: correlationId,
@@ -447,6 +473,8 @@ class ImportTaskCoordinator {
           TaskManager.keyExplanationRetentionMode:
               item.explanationRetentionMode.name,
           ...item.entryDiagnostics,
+          if (item.targetKind != null)
+            importTargetKindMarkerKey: item.targetKind!.name,
           TaskManager.keyBatchId: batchId,
           TaskManager.keySelectionIndex: index,
           TaskManager.keyAttemptNumber: handle.attemptNumber,
@@ -904,6 +932,49 @@ class ImportTaskCoordinator {
         );
       }
       if (!_taskManager.isCurrentAttempt(handle.attempt)) return;
+      final autoCommit = perfectAutoCommitService;
+      if (autoCommit != null &&
+          initialDraftStatus ==
+              InitialTypedDocumentReviewDraftStatus.materialized) {
+        final outcome = await autoCommit.tryCommit(handle.attempt);
+        if (outcome.status == ImportPerfectAutoCommitStatus.committed) {
+          final committedTask = _taskManager.tasks
+              .where((task) => task.id == handle.taskId)
+              .firstOrNull;
+          if (committedTask != null) {
+            try {
+              onAutoCommitted?.call(
+                  committedTask.bankName ?? '', outcome.questionCount);
+            } catch (_) {
+              AppLogger.warning(
+                'Automatic import notification failed',
+                module: 'Import',
+                data: const <String, Object?>{
+                  'stage': 'auto_commit_notification',
+                  'status': 'failed',
+                },
+              );
+            }
+          }
+          return;
+        }
+        if (outcome.status ==
+            ImportPerfectAutoCommitStatus.lifecycleRegression) {
+          AppLogger.warning(
+            'Typed document review draft has no durable revision',
+            module: 'Import',
+            data: const <String, Object?>{
+              'stage': 'initial_review_draft',
+              'status': 'lifecycle_regression',
+            },
+          );
+        }
+      }
+      if (!_taskManager.isCurrentAttempt(handle.attempt)) return;
+      final currentTask = _taskManager.tasks
+          .where((task) => task.id == handle.taskId)
+          .firstOrNull;
+      if (currentTask?.status != TaskStatus.pendingReview) return;
       AppLogger.info(
         'Import is ready for review',
         module: 'Import',

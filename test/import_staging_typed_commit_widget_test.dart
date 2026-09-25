@@ -14,6 +14,7 @@ import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
 import 'package:shiroha_quiz/services/bank_update_notifier.dart';
 import 'package:shiroha_quiz/services/import_review/import_commit_service.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:shiroha_quiz/ui/pages/import_staging_screen.dart';
 
@@ -211,6 +212,8 @@ void main() {
     required List<Map<String, dynamic>> questions,
     Map<String, dynamic>? diagnostics,
     String? taskId,
+    String? bankName,
+    String? folderName,
   }) {
     // The manager must be created inside the test body zone: a manager
     // created in setUp owns a `_reviewDraftWriteTail` completed in the real
@@ -223,6 +226,8 @@ void main() {
         title: 'Synthetic typed import',
         status: TaskStatus.pendingReview,
         parsedData: questions,
+        bankName: bankName,
+        folderName: folderName,
         diagnostics: diagnostics ?? _typedDiagnostics(),
       ));
     }
@@ -357,6 +362,32 @@ void main() {
     expect(globalBankUpdateNotifier.value, notifierBefore + 1);
     expect(manager.tasks.single.status, TaskStatus.completed);
     expect(find.text('本次导入报告'), findsOneWidget);
+  });
+
+  testWidgets(
+      'frozen document target is read only and bypasses save-location dialog',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 2000));
+    final diagnostics = <String, dynamic>{
+      ..._typedDiagnostics(),
+      documentImportEntryMarkerKey: documentImportEntryMarkerValue,
+      TaskManager.keyReviewDraftRevision: 1,
+    };
+    await tester.pumpWidget(buildScreen(
+      questions: <Map<String, dynamic>>[_typedQuestion(number: 1)],
+      diagnostics: diagnostics,
+      taskId: _taskId,
+      bankName: '考研数学一',
+      folderName: '数学',
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('数学 / 考研数学一'), findsOneWidget);
+    await tester.tap(find.textContaining('收入题库'));
+    await tester.pumpAndSettle();
+    expect(find.text('选择保存位置'), findsNothing);
+    expect(find.widgetWithText(TextField, '目标题库名称'), findsNothing);
+    expect(repo.typedSaveCalls, 1);
+    expect(manager.tasks.single.status, TaskStatus.completed);
   });
 
   testWidgets('typedV2 without a reason blocks the commit', (tester) async {

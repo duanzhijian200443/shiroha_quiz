@@ -2,9 +2,11 @@ import 'dart:convert';
 
 import '../../application/backup/backup_restore_gate.dart';
 import '../../application/import/import_advanced_preferences.dart';
+import '../../application/import/import_target_catalog_service.dart';
+import '../../application/import/import_target_selection.dart';
 import '../../core/database/database_helper.dart';
 
-class SettingsRepository {
+class SettingsRepository implements ImportTargetSelectionStore {
   SettingsRepository({DatabaseHelper? databaseHelper})
       : _databaseHelper = databaseHelper ?? DatabaseHelper.instance;
 
@@ -91,6 +93,27 @@ class SettingsRepository {
       'import_advanced_preferences',
       jsonEncode(preferences.toJson()),
     );
+  }
+
+  @override
+  Future<ImportTargetSelection?> getLastImportTarget() async {
+    final raw = await _getSettingWithCache('last_import_target');
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      return ImportTargetSelection.fromJson(jsonDecode(raw));
+    } on FormatException {
+      return null;
+    }
+  }
+
+  @override
+  Future<void> setLastImportTarget(ImportTargetSelection? selection) async {
+    const key = 'last_import_target';
+    final value = selection == null ? '' : jsonEncode(selection.toJson());
+    await BackupRestoreMutationGate.instance.runMutation(() async {
+      await _databaseHelper.saveSetting(key, value);
+      _cache[key] = value;
+    });
   }
 
   // --- Clear Cache (for testing/reset) ---

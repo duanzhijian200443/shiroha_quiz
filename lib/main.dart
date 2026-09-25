@@ -40,6 +40,7 @@ import 'application/exam/exam_mutation_command.dart';
 import 'application/practice/photo_answer_judgement.dart';
 import 'application/file_library/library_folder_service.dart';
 import 'application/import/import_advanced_preferences.dart';
+import 'application/import/import_target_catalog_service.dart';
 import 'application/import/import_completion_navigation_policy.dart';
 import 'application/retrieval/retrieval_scope_resolver.dart';
 import 'application/retrieval/retrieval_service.dart';
@@ -89,6 +90,7 @@ import 'services/agent/deepseek_responses_provider.dart';
 import 'services/agent/deepseek_agent_model_compatibility_adapter.dart';
 import 'services/backup/backup_restore_runtime.dart';
 import 'services/bank_update_notifier.dart' as bank_updates;
+import 'services/import_review/import_perfect_auto_commit_service.dart';
 import 'services/file_library/file_ingestion_service.dart';
 import 'services/file_library/library_file_deletion_service.dart';
 import 'services/file_library/managed_file_storage_adapter.dart';
@@ -296,6 +298,10 @@ void main() {
         final questionRepository = QuestionRepository(
           databaseHelper: databaseHelper,
           mapper: productionQuestionMapper,
+        );
+        final importTargetCatalog = ImportTargetCatalogService(
+          catalog: questionRepository,
+          selectionStore: SettingsRepository.instance,
         );
         final examMutationCommand = ExamMutationCommand(
           ExamRepository(databaseHelper: databaseHelper),
@@ -542,6 +548,12 @@ void main() {
           taskManager: taskManager,
           contentAssetStore: contentAssetStore,
         );
+        final perfectAutoCommitService = ImportPerfectAutoCommitService(
+          taskManager: taskManager,
+          commitService: importCommitService,
+          preferencesLoader: importPreferencesLoader,
+          targetCatalog: importTargetCatalog,
+        );
         final aiService = AiService(
           engineRepository: engineRepository,
           taskManager: taskManager,
@@ -580,6 +592,16 @@ void main() {
           ocrMaxConcurrencyResolver: () async {
             final preferences = await importPreferencesLoader();
             return preferences.effectiveOcrTaskConcurrency;
+          },
+          perfectAutoCommitService: perfectAutoCommitService,
+          onAutoCommitted: (bankName, questionCount) {
+            bank_updates.globalBankUpdateNotifier.value++;
+            final messenger = rootScaffoldMessengerKey.currentState;
+            messenger?.clearSnackBars();
+            messenger?.showSnackBar(SnackBar(
+              content: Text('已自动导入 $questionCount 题到「$bankName」'),
+              backgroundColor: Colors.green,
+            ));
           },
           onReadyForReview: (sourceDescription) {
             rootScaffoldMessengerKey.currentState?.showSnackBar(
@@ -675,6 +697,7 @@ void main() {
             importTaskCoordinator: importTaskCoordinator,
             importPreferencesLoader: importPreferencesLoader,
             importPreferencesSaver: saveImportPreferences,
+            importTargetCatalogService: importTargetCatalog,
             importCommitService: importCommitService,
             answerGenerationService: answerGenerationService,
             answerCommitCommand: answerCommitCommand,
@@ -734,6 +757,7 @@ class ShirohaQuizApp extends StatelessWidget {
     required this.importTaskCoordinator,
     this.importPreferencesLoader,
     this.importPreferencesSaver,
+    this.importTargetCatalogService,
     this.importCommitService,
     required this.answerGenerationService,
     required this.answerCommitCommand,
@@ -772,6 +796,7 @@ class ShirohaQuizApp extends StatelessWidget {
   final ImportTaskCoordinator importTaskCoordinator;
   final ImportAdvancedPreferencesLoader? importPreferencesLoader;
   final ImportAdvancedPreferencesSaver? importPreferencesSaver;
+  final ImportTargetCatalogService? importTargetCatalogService;
   final ImportCommitService? importCommitService;
 
   /// P7 Application seams for the AI answer review UI.
@@ -876,6 +901,7 @@ class ShirohaQuizApp extends StatelessWidget {
           importTaskCoordinator: importTaskCoordinator,
           importPreferencesLoader: importPreferencesLoader,
           importPreferencesSaver: importPreferencesSaver,
+          importTargetCatalogService: importTargetCatalogService,
           answerGenerationService: answerGenerationService,
           answerCommitCommand: answerCommitCommand,
           examMutationCommand: examMutationCommand,

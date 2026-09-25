@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../application/import/import_advanced_preferences.dart';
+import '../../application/import/import_target_catalog_service.dart';
+import '../../application/import/import_target_selection.dart';
 import '../dependencies/ai_dependencies_scope.dart';
 import '../theme/design_tokens.dart';
 import '../../services/import_pipeline/import_parse_result.dart';
@@ -17,6 +19,7 @@ typedef ImportTaskParser = Future<List<Map<String, dynamic>>> Function(
 typedef ImportTaskDispatcher = void Function(
   String sourceDescription,
   ImportTaskParser parseTask,
+  ImportTargetSelection target,
 );
 
 /// Extension sets the pipeline actually accepts per parse mode.
@@ -53,6 +56,7 @@ class ImportSettingsScreen extends StatefulWidget {
     this.requestParser,
     this.importPreferencesLoader,
     this.importPreferencesSaver,
+    this.targetCatalogService,
   });
 
   final ImportFilePicker? pickFiles;
@@ -60,6 +64,7 @@ class ImportSettingsScreen extends StatefulWidget {
   final ImportRequestParser? requestParser;
   final ImportAdvancedPreferencesLoader? importPreferencesLoader;
   final ImportAdvancedPreferencesSaver? importPreferencesSaver;
+  final ImportTargetCatalogService? targetCatalogService;
 
   @override
   State<ImportSettingsScreen> createState() => _ImportSettingsScreenState();
@@ -68,6 +73,60 @@ class ImportSettingsScreen extends StatefulWidget {
 class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
   /// Documents and scans are this page's main material, so OCR is the default.
   ImportParseMode _selectedMode = ImportParseMode.ocr;
+  ImportTargetSelection? _target;
+  bool _targetLoaded = false;
+
+  ImportTargetCatalogService? _targetCatalogService;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final service = widget.targetCatalogService ??
+        AiDependenciesScope.maybeOf(context)?.importTargetCatalogService;
+    if (identical(service, _targetCatalogService)) return;
+    _targetCatalogService = service;
+    if (service != null) _restoreTarget(service);
+  }
+
+  Future<void> _restoreTarget(ImportTargetCatalogService service) async {
+    try {
+      final restored = await service.restore();
+      if (mounted && identical(service, _targetCatalogService)) {
+        setState(() {
+          _target = restored;
+          _targetLoaded = true;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _targetLoaded = true);
+    }
+  }
+
+  void _showTargetError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<ImportTargetSelection?> _validatedTarget(
+      ImportTargetSelection snapshot) async {
+    final service = _targetCatalogService;
+    if (service == null) return null;
+    try {
+      final valid = await service.validateForDispatch(snapshot);
+      if (valid == null) {
+        if (mounted && _target == snapshot) setState(() => _target = null);
+        _showTargetError('该题库已不存在，请重新选择导入题库');
+      }
+      return valid;
+    } on ImportTargetSelectionException {
+      _showTargetError('该题库已存在，请直接选择已有题库。');
+      return null;
+    } catch (_) {
+      _showTargetError('题库列表暂不可用，请稍后重试');
+      return null;
+    }
+  }
 
   ImportRequestParser _resolveRequestParser() {
     final requestParser = widget.requestParser;
@@ -79,12 +138,14 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
     String sourceDesc,
     Future<ImportParseResult> Function(String taskId) parseTask, {
     required ImportParseMode mode,
+    required ImportTargetSelection target,
   }) async {
     final testDispatcher = widget.taskDispatcher;
     if (testDispatcher != null) {
       testDispatcher(
         sourceDesc,
         (taskId) async => (await parseTask(taskId)).questions,
+        target,
       );
       return;
     }
@@ -97,6 +158,9 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
       explanationRetentionMode: newDocumentImportExplanationRetentionMode,
       documentImportEntry: true,
       allowAutoOpenReview: true,
+      bankName: target.bankName,
+      folderName: target.folderName,
+      targetKind: target.targetKind,
     );
 
     if (!mounted) return;
@@ -115,6 +179,11 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
         testDispatcher(
           item.sourceDescription,
           (taskId) async => (await item.parse(taskId)).questions,
+          ImportTargetSelection(
+            bankName: item.bankName!,
+            folderName: item.folderName,
+            targetKind: ImportTargetKind.existing,
+          ),
         );
       }
       return;
@@ -144,6 +213,11 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
   }
 
   Future<void> _pickAndParseFile() async {
+    final targetSnapshot = _target;
+    if (targetSnapshot == null) {
+      _showTargetError('请先选择导入题库');
+      return;
+    }
     final selectedMode = _selectedMode;
     final result = widget.pickFiles != null
         ? await widget.pickFiles!()
@@ -166,6 +240,8 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
     final parseRequest = _resolveRequestParser();
     final maxConcurrency = await _resolveOcrMaxConcurrency();
     if (!mounted) return;
+    final target = await _validatedTarget(targetSnapshot);
+    if (target == null || !mounted) return;
 
     final isAllPdfBatch = result.files.length > 1 &&
         result.files.every((file) => _fileExtension(file) == 'pdf');
@@ -179,6 +255,9 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
               explanationRetentionMode:
                   newDocumentImportExplanationRetentionMode,
               documentImportEntry: true,
+              bankName: target.bankName,
+              folderName: target.folderName,
+              targetKind: target.targetKind,
               parse: (taskId) => parseRequest(
                 ImportParseRequest(
                   filePaths: <String>[file.path!],
@@ -215,6 +294,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
         ),
       ),
       mode: selectedMode,
+      target: target,
     );
   }
 
@@ -258,9 +338,16 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
   /// disabled variant of the currently selected mode, so choosing OCR does not
   /// take it away.
   Future<void> _pasteAndParse() async {
+    final targetSnapshot = _target;
+    if (targetSnapshot == null) {
+      _showTargetError('请先选择导入题库');
+      return;
+    }
     final pastedText = await Navigator.push<String>(context,
         MaterialPageRoute(builder: (context) => const PasteTextScreen()));
     if (pastedText != null && pastedText.trim().length >= 10) {
+      final target = await _validatedTarget(targetSnapshot);
+      if (target == null || !mounted) return;
       await _dispatchBackgroundTask('剪贴板注入', (taskId) async {
         return ImportParseResult(
           questions: await AiDependenciesScope.of(context)
@@ -268,7 +355,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
               .parseTextToQuestions(pastedText),
           explanationRetentionMode: newDocumentImportExplanationRetentionMode,
         );
-      }, mode: ImportParseMode.text);
+      }, mode: ImportParseMode.text, target: target);
     }
   }
 
@@ -317,6 +404,8 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
               children: [
                 _buildParseModeSection(theme),
                 const SizedBox(height: DesignTokens.sectionGap),
+                _buildTargetSection(),
+                const SizedBox(height: DesignTokens.sectionGap),
                 _buildImportSourceSection(theme),
                 const SizedBox(height: DesignTokens.sectionGap),
                 _buildFooterActions(theme),
@@ -349,14 +438,95 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
           selected: _selectedMode == ImportParseMode.text,
           onTap: () => setState(() => _selectedMode = ImportParseMode.text),
         ),
-        const SizedBox(height: 14),
-        _ImportInfoNotice(
-          icon: Icons.info_outline_rounded,
-          text: '单题拍照识别请前往「拍照识题」入口。',
-          theme: theme,
+      ],
+    );
+  }
+
+  Widget _buildTargetSection() {
+    return _ImportSection(
+      title: '导入到',
+      children: [
+        ListTile(
+          key: const ValueKey<String>('import-target-selector'),
+          contentPadding: EdgeInsets.zero,
+          title: Text(_target?.displayPath ?? '选择或新建题库'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: _targetLoaded && _targetCatalogService != null
+              ? _showTargetPicker
+              : null,
         ),
       ],
     );
+  }
+
+  Future<void> _showTargetPicker() async {
+    final service = _targetCatalogService;
+    if (service == null) return;
+    try {
+      final targets = await service.listTargets();
+      if (!mounted) return;
+      final selected = await showDialog<ImportTargetSummary>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('选择题库'),
+          content: SizedBox(
+            width: 440,
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                for (final bank in targets)
+                  ListTile(
+                    title: Text(bank.displayPath),
+                    subtitle: Text('${bank.questionCount} 题'),
+                    onTap: () => Navigator.pop(dialogContext, bank),
+                  ),
+                ListTile(
+                  key: const ValueKey<String>('import-create-bank'),
+                  leading: const Icon(Icons.add),
+                  title: const Text('新建题库'),
+                  onTap: () {
+                    Navigator.pop(dialogContext);
+                    _showNewTargetDialog();
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      if (selected == null || !mounted) return;
+      final choice = await service.selectExisting(selected);
+      if (mounted) setState(() => _target = choice);
+    } catch (_) {
+      _showTargetError('题库列表暂不可用，请稍后重试');
+    }
+  }
+
+  Future<void> _showNewTargetDialog() async {
+    final service = _targetCatalogService;
+    if (service == null) return;
+    try {
+      final folders = await service.listFolders();
+      if (!mounted) return;
+      final result = await showDialog<Object>(
+        context: context,
+        builder: (_) => _NewImportTargetDialog(
+          service: service,
+          folders: folders,
+        ),
+      );
+      if (!mounted) return;
+      if (result is ImportTargetSelection) {
+        setState(() => _target = result);
+      } else if (result == _NewTargetDialogOutcome.duplicate) {
+        _showTargetError('该题库已存在，请直接选择已有题库。');
+        await _showTargetPicker();
+      } else if (result == _NewTargetDialogOutcome.failed) {
+        _showTargetError('无法保存导入目标，请稍后重试');
+      }
+    } catch (_) {
+      _showTargetError('分类列表暂不可用，请稍后重试');
+    }
   }
 
   Widget _buildImportSourceSection(ThemeData theme) {
@@ -380,7 +550,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
               '从文件管理器选择',
               style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
             ),
-            onPressed: _pickAndParseFile,
+            onPressed: _target == null ? null : _pickAndParseFile,
           ),
         ),
         const SizedBox(height: 8),
@@ -412,7 +582,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
               '从剪贴板粘贴文本',
               style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
             ),
-            onPressed: _pasteAndParse,
+            onPressed: _target == null ? null : _pasteAndParse,
           ),
         ),
       ],
@@ -469,6 +639,111 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
 }
 
 /// One titled group of related controls.
+enum _NewTargetDialogOutcome { duplicate, failed }
+
+class _NewImportTargetDialog extends StatefulWidget {
+  const _NewImportTargetDialog({
+    required this.service,
+    required this.folders,
+  });
+
+  final ImportTargetCatalogService service;
+  final List<String> folders;
+
+  @override
+  State<_NewImportTargetDialog> createState() => _NewImportTargetDialogState();
+}
+
+class _NewImportTargetDialogState extends State<_NewImportTargetDialog> {
+  final _nameController = TextEditingController();
+  final _folderController = TextEditingController();
+  bool _saving = false;
+  String? _nameError;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _folderController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_nameController.text.trim().isEmpty) {
+      setState(() => _nameError = '请输入题库名称');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _nameError = null;
+    });
+    try {
+      final selection = await widget.service.proposeNew(
+        bankName: _nameController.text,
+        folderName: _folderController.text,
+      );
+      if (mounted) Navigator.of(context).pop<Object>(selection);
+    } on ImportTargetSelectionException {
+      if (mounted) {
+        Navigator.of(context).pop<Object>(_NewTargetDialogOutcome.duplicate);
+      }
+    } catch (_) {
+      if (mounted) {
+        Navigator.of(context).pop<Object>(_NewTargetDialogOutcome.failed);
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('新建题库'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                key: const ValueKey<String>('import-new-bank-name'),
+                controller: _nameController,
+                decoration: InputDecoration(
+                  labelText: '题库名称',
+                  errorText: _nameError,
+                ),
+              ),
+              TextField(
+                key: const ValueKey<String>('import-new-bank-folder'),
+                controller: _folderController,
+                decoration: const InputDecoration(labelText: '分类（可选）'),
+              ),
+              if (widget.folders.isNotEmpty)
+                Wrap(
+                  children: [
+                    for (final folder in widget.folders)
+                      ActionChip(
+                        label: Text(folder),
+                        onPressed: _saving
+                            ? null
+                            : () => _folderController.text = folder,
+                      ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: _saving ? null : () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            key: const ValueKey<String>('import-create-bank-confirm'),
+            onPressed: _saving ? null : _submit,
+            child: const Text('使用此题库'),
+          ),
+        ],
+      );
+}
+
 class _ImportSection extends StatelessWidget {
   const _ImportSection({required this.title, required this.children});
 
@@ -497,46 +772,6 @@ class _ImportSection extends StatelessWidget {
             ...children,
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// A quiet informational line: never an affordance, never a disabled control.
-class _ImportInfoNotice extends StatelessWidget {
-  const _ImportInfoNotice({
-    required this.icon,
-    required this.text,
-    required this.theme,
-  });
-
-  final IconData icon;
-  final String text;
-  final ThemeData theme;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest
-            .withValues(alpha: theme.brightness == Brightness.dark ? 0.4 : 0.6),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 18, color: theme.colorScheme.onSurfaceVariant),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              text,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
