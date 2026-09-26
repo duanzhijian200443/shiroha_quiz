@@ -2,7 +2,7 @@
 
 Status: **Canonical ANSWER-COMP-P0 design authority. P0 is COMPLETE / FROZEN. Production implementation stages remain NOT STARTED at this freeze.**
 
-Frozen against: `master@4a154c12766b0cb30e8f869f08b1e52747e4a8de`  
+Frozen against: `master@4a154c12766b0cb30e8f869f08b1e52747e4a8de`
 Date: `2026-09-27`
 
 This document freezes the durable grouping and Answer Completion activation design only. It adds no production Dart, schema, migration, provider call, OCR behavior, or runtime write by itself.
