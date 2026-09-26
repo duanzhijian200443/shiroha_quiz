@@ -499,3 +499,12 @@ Documentation authority:
   authority P6 reuses;
 - `docs/architecture/shiroha-project-roadmap.md` — stage ordering and current
   status.
+## ANSWER-COMP-P0 planned set activation amendment
+
+The future Answer Completion surface is governed by `docs/architecture/answer-completion-question-sets.md`.
+
+An `ImportedQuestionSet` is a durable selection authority only. Application resolves it to the complete ordered persisted `storageId` list and calls the existing `ExplicitQuestionScope`; P6 gains no `QuestionSetScope`.
+
+File matching uses the full eligible typed set, including already-answered members, so existing `noOp`, `fill`, `conflict`, ambiguity, stale/CAS, deterministic matcher, and replacement-confirmation semantics remain unchanged. No filename/order/year/AI inference or silent OCR is authorized.
+
+This is a P0 design freeze only; set-backed runtime activation waits for later implementation stages.
