@@ -92,6 +92,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   static const _reviewRepairSaveFailedText = 'AI 修补已生成，但校对结果保存失败，请重试';
   static const _typedTaskExpiredText = '任务已过期或已被替换，请检查后重试';
   static const _typedCommitInProgressText = '已有入库操作正在进行，请稍后重试';
+  static const _proposedTargetExistsText = '目标题库已存在，本次未入库；请返回选择已有题库后重新导入';
   static const _legacyCommitFailedText = '题库入库失败，题目保持待审状态，请检查后重试';
   static const _legacyTaskExpiredText = '任务已过期或已被替换，请检查后重试';
   static const _safeSnapshotProvenanceKeys = {
@@ -908,6 +909,8 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
             _legacyTaskExpiredText,
           LegacyReviewCommitAttemptFailure.commitInProgress =>
             _typedCommitInProgressText,
+          LegacyReviewCommitAttemptFailure.proposedTargetExists =>
+            _proposedTargetExistsText,
           LegacyReviewCommitAttemptFailure.persistenceFailed =>
             _legacyCommitFailedText,
         },
@@ -1047,6 +1050,8 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
           _typedTaskExpiredText,
         TypedReviewCommitAttemptFailure.commitInProgress =>
           _typedCommitInProgressText,
+        TypedReviewCommitAttemptFailure.proposedTargetExists =>
+          _proposedTargetExistsText,
         TypedReviewCommitAttemptFailure.persistenceFailed =>
           _typedCommitFailedText,
       },

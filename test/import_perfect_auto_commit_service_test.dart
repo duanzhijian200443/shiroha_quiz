@@ -77,6 +77,29 @@ final class _EmptyCatalog implements ImportTargetCatalogPort {
   Future<List<String>> listAvailableFolders() async => const [];
 }
 
+final class _PausingCatalog implements ImportTargetCatalogPort {
+  _PausingCatalog({required this.entered, required this.gate});
+
+  final Completer<void> entered;
+  final Completer<void> gate;
+
+  @override
+  Future<List<ImportTargetSummary>> listImportTargets() async {
+    entered.complete();
+    await gate.future;
+    return const <ImportTargetSummary>[
+      ImportTargetSummary(
+        bankName: '考研数学一',
+        folderName: '数学',
+        questionCount: 3,
+      ),
+    ];
+  }
+
+  @override
+  Future<List<String>> listAvailableFolders() async => const <String>[];
+}
+
 final class _NoopSelectionStore implements ImportTargetSelectionStore {
   @override
   Future<ImportTargetSelection?> getLastImportTarget() async => null;
@@ -271,5 +294,80 @@ void main() {
         ImportPerfectAutoCommitStatus.notEligible);
     expect(repository.typedWrites, 0);
     expect(manager.tasks.single.status, TaskStatus.pendingReview);
+  });
+
+  test('manual save during the preference await keeps Review authority',
+      () async {
+    final gate = Completer<void>();
+    final entered = Completer<void>();
+    final paused = ImportPerfectAutoCommitService(
+      taskManager: manager,
+      commitService: ImportCommitService(
+        taskManager: manager,
+        questionRepository: repository,
+      ),
+      preferencesLoader: () async {
+        entered.complete();
+        await gate.future;
+        return const ImportAdvancedPreferences(autoCommitPerfectImports: true);
+      },
+    );
+    manager.addTask(_task());
+    final pending = paused.tryCommit(attempt);
+    await entered.future;
+
+    // The user opens Review and saves while auto commit is waiting.
+    final saved = await manager.saveReviewDraft(
+      _taskId,
+      questions: manager.tasks.single.parsedData!,
+      explanationRetentionMode: ExplanationRetentionMode.allQuestionTypes,
+    );
+    expect(saved.saved, isTrue);
+    expect(manager.reviewDraftRevision(_taskId), 2);
+
+    gate.complete();
+    final outcome = await pending;
+    expect(outcome.status, ImportPerfectAutoCommitStatus.reviewFallback);
+    expect(repository.typedWrites, 0);
+    expect(manager.tasks.single.status, TaskStatus.pendingReview);
+    expect(manager.reviewDraftRevision(_taskId), 2);
+  });
+
+  test('manual save during the target catalog await keeps Review authority',
+      () async {
+    final gate = Completer<void>();
+    final entered = Completer<void>();
+    final catalog = ImportTargetCatalogService(
+      catalog: _PausingCatalog(entered: entered, gate: gate),
+      selectionStore: _NoopSelectionStore(),
+    );
+    final paused = ImportPerfectAutoCommitService(
+      taskManager: manager,
+      commitService: ImportCommitService(
+        taskManager: manager,
+        questionRepository: repository,
+      ),
+      preferencesLoader: () async =>
+          const ImportAdvancedPreferences(autoCommitPerfectImports: true),
+      targetCatalog: catalog,
+    );
+    manager.addTask(_task(kind: ImportTargetKind.existing));
+    final pending = paused.tryCommit(attempt);
+    await entered.future;
+
+    final saved = await manager.saveReviewDraft(
+      _taskId,
+      questions: manager.tasks.single.parsedData!,
+      explanationRetentionMode: ExplanationRetentionMode.allQuestionTypes,
+    );
+    expect(saved.saved, isTrue);
+    expect(manager.reviewDraftRevision(_taskId), 2);
+
+    gate.complete();
+    final outcome = await pending;
+    expect(outcome.status, ImportPerfectAutoCommitStatus.reviewFallback);
+    expect(repository.typedWrites, 0);
+    expect(manager.tasks.single.status, TaskStatus.pendingReview);
+    expect(manager.reviewDraftRevision(_taskId), 2);
   });
 }

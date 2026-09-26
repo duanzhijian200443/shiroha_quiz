@@ -50,6 +50,8 @@ void main() {
     expect(policy.isEligible(facts(warnings: 1)), isFalse);
     expect(policy.isEligible(facts(blocked: true)), isFalse);
     expect(policy.isEligible(facts(revision: 0)), isFalse);
+    expect(policy.isEligible(facts(revision: 2)), isFalse,
+        reason: 'a later Review revision keeps the manual workflow');
     expect(policy.isEligible(facts(committing: true)), isFalse);
     expect(policy.isEligible(facts(snapshotValid: false)), isFalse);
   });

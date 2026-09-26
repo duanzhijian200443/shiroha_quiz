@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../application/safe_write/typed_answer_command.dart';
 import '../../application/import/import_target_catalog_service.dart';
+import '../../application/import/import_target_selection.dart';
 import '../../application/questions/folder_query_port.dart';
 import '../../application/questions/question_list_query_port.dart';
 import '../../application/questions/question_presentation_read.dart';
@@ -156,10 +157,12 @@ class QuestionRepository
       };
       final db = await _databaseHelper.database;
       await db.transaction((txn) async {
+        final resolvedFolderName =
+            await _resolveV2FolderAction(txn, trimmedBankName, folderName);
         await _writeFrozenV2Batch(
           txn,
           bankName: trimmedBankName,
-          folderName: folderName,
+          resolvedFolderName: resolvedFolderName,
           frozenWrites: frozenWrites,
           assetIdentities: assetIdentities,
         );
@@ -175,12 +178,19 @@ class QuestionRepository
 
   /// Attempt-aware atomic typed import commit.
   ///
-  /// Runs the persisted `import_tasks` ownership gate, the folder decision,
-  /// the question/payload/review-state writes, the folder mapping upsert and
-  /// the compare-and-set `import_tasks` completion update in one SQLite
-  /// transaction. Any ownership mismatch, CAS mismatch or database failure
-  /// rolls the whole transaction back with zero question rows and the task
-  /// still `pendingReview`.
+  /// Runs the persisted `import_tasks` ownership gate, the frozen-target
+  /// folder decision, the question/payload/review-state writes, the folder
+  /// mapping upsert and the compare-and-set `import_tasks` completion update
+  /// in one SQLite transaction. Any ownership mismatch, CAS mismatch or
+  /// database failure rolls the whole transaction back with zero question
+  /// rows and the task still `pendingReview`.
+  ///
+  /// The persisted `_importTargetKind` marker decides the folder authority
+  /// inside this transaction: an existing frozen bank keeps its current
+  /// `bank_folders` mapping (the frozen folder name is display context only),
+  /// a proposed bank must still be unused and otherwise fails closed with
+  /// [TypedImportCommitPersistenceFailure.proposedTargetExists], and a task
+  /// without the marker keeps the compatible save-location semantics.
   ///
   /// [guard] carries the exact attempt/revision/route/reason expected from
   /// the persisted `import_tasks.diagnostics`; the persisted values are
@@ -217,11 +227,17 @@ class QuestionRepository
       };
       final db = await _databaseHelper.database;
       return await db.transaction((txn) async {
-        await _validatePersistedImportTask(txn, guard);
-        await _writeFrozenV2Batch(
+        final targetKind = await _validatePersistedImportTask(txn, guard);
+        final resolvedFolderName = await _resolveImportCommitFolder(
           txn,
           bankName: trimmedBankName,
           folderName: folderName,
+          targetKind: targetKind,
+        );
+        await _writeFrozenV2Batch(
+          txn,
+          bankName: trimmedBankName,
+          resolvedFolderName: resolvedFolderName,
           frozenWrites: frozenWrites,
           assetIdentities: assetIdentities,
         );
@@ -251,6 +267,10 @@ class QuestionRepository
           completedAt: nowUtcSeconds,
         );
       });
+    } on _ProposedImportBankExistsException {
+      throw const TypedImportCommitPersistenceException(
+        TypedImportCommitPersistenceFailure.proposedTargetExists,
+      );
     } on TypedImportCommitPersistenceException {
       rethrow;
     } on DatabaseException {
@@ -268,6 +288,11 @@ class QuestionRepository
   /// exact persisted nullable attempt identity and ReviewDraft revision, then
   /// writes legacy question rows, review states, folder mapping, and task
   /// completion in one transaction.
+  ///
+  /// The persisted `_importTargetKind` marker governs the folder mapping with
+  /// the same rule as the typed import commit: an existing frozen bank keeps
+  /// its current mapping, and a proposed bank that already exists fails closed
+  /// with [LegacyImportCommitPersistenceFailure.proposedTargetExists].
   Future<LegacyImportCommitPersistenceResult>
       commitQuestionDraftsLegacyForImport({
     required String bankName,
@@ -297,9 +322,13 @@ class QuestionRepository
     try {
       final db = await _databaseHelper.database;
       return await db.transaction((txn) async {
-        await _validatePersistedLegacyImportTask(txn, guard);
-        final resolvedFolderName =
-            await _resolveV2FolderAction(txn, trimmedBankName, folderName);
+        final targetKind = await _validatePersistedLegacyImportTask(txn, guard);
+        final resolvedFolderName = await _resolveImportCommitFolder(
+          txn,
+          bankName: trimmedBankName,
+          folderName: folderName,
+          targetKind: targetKind,
+        );
         for (final row in frozenRows) {
           await txn.insert('questions', row);
           await txn.insert(
@@ -344,6 +373,10 @@ class QuestionRepository
           completedAt: nowUtcSeconds,
         );
       });
+    } on _ProposedImportBankExistsException {
+      throw const LegacyImportCommitPersistenceException(
+        LegacyImportCommitPersistenceFailure.proposedTargetExists,
+      );
     } on LegacyImportCommitPersistenceException {
       rethrow;
     } on DatabaseException {
@@ -366,7 +399,7 @@ class QuestionRepository
     }
   }
 
-  Future<void> _validatePersistedLegacyImportTask(
+  Future<ImportTargetKind?> _validatePersistedLegacyImportTask(
     DatabaseExecutor txn,
     LegacyImportCommitGuard guard,
   ) async {
@@ -446,6 +479,25 @@ class QuestionRepository
       );
     }
 
+    final rawTargetKind = diagnostics[importTargetKindMarkerKey];
+    final ImportTargetKind? targetKind;
+    if (rawTargetKind == null) {
+      targetKind = null;
+    } else if (rawTargetKind is String) {
+      targetKind = ImportTargetKind.values
+          .where((kind) => kind.name == rawTargetKind)
+          .firstOrNull;
+      if (targetKind == null) {
+        throw const LegacyImportCommitPersistenceException(
+          LegacyImportCommitPersistenceFailure.invalidTaskMetadata,
+        );
+      }
+    } else {
+      throw const LegacyImportCommitPersistenceException(
+        LegacyImportCommitPersistenceFailure.invalidTaskMetadata,
+      );
+    }
+
     final rawRevision =
         diagnostics[TypedImportCommitPersistence.keyReviewDraftRevision];
     final int revision;
@@ -463,6 +515,7 @@ class QuestionRepository
         LegacyImportCommitPersistenceFailure.staleReviewDraft,
       );
     }
+    return targetKind;
   }
 
   Map<String, Object?>? _decodeLegacyCommitDiagnostics(Object? raw) {
@@ -500,8 +553,10 @@ class QuestionRepository
   ///
   /// Must match exactly one row. Every attempt/revision/route/reason value is
   /// decoded from the diagnostics JSON with strict types; the status must be
-  /// the frozen pendingReview code and `parsed_data` must be non-null.
-  Future<void> _validatePersistedImportTask(
+  /// the frozen pendingReview code and `parsed_data` must be non-null. The
+  /// decoded `_importTargetKind` marker is returned so the caller can apply the
+  /// frozen folder authority inside the same transaction.
+  Future<ImportTargetKind?> _validatePersistedImportTask(
     DatabaseExecutor txn,
     TypedImportCommitGuard guard,
   ) async {
@@ -624,6 +679,25 @@ class QuestionRepository
       );
     }
 
+    final rawTargetKind = diagnostics[importTargetKindMarkerKey];
+    final ImportTargetKind? targetKind;
+    if (rawTargetKind == null) {
+      targetKind = null;
+    } else if (rawTargetKind is String) {
+      targetKind = ImportTargetKind.values
+          .where((kind) => kind.name == rawTargetKind)
+          .firstOrNull;
+      if (targetKind == null) {
+        throw const TypedImportCommitPersistenceException(
+          TypedImportCommitPersistenceFailure.invalidTaskMetadata,
+        );
+      }
+    } else {
+      throw const TypedImportCommitPersistenceException(
+        TypedImportCommitPersistenceFailure.invalidTaskMetadata,
+      );
+    }
+
     final revision =
         diagnostics[TypedImportCommitPersistence.keyReviewDraftRevision];
     if (revision is! int || revision <= 0) {
@@ -636,6 +710,7 @@ class QuestionRepository
         TypedImportCommitPersistenceFailure.staleReviewDraft,
       );
     }
+    return targetKind;
   }
 
   /// Shared V2 freeze step used by both public typed write APIs.
@@ -655,12 +730,12 @@ class QuestionRepository
     ];
   }
 
-  /// Shared in-transaction V2 batch write: folder decision, parent rows,
-  /// sidecar rows, initial review states and the folder mapping upsert.
+  /// Shared in-transaction V2 batch write: parent rows, sidecar rows, initial
+  /// review states and the already-resolved folder mapping upsert.
   Future<void> _writeFrozenV2Batch(
     DatabaseExecutor txn, {
     required String bankName,
-    required String? folderName,
+    required String? resolvedFolderName,
     required List<FrozenQuestionV2Write> frozenWrites,
     required Set<ContentAssetIdentity> assetIdentities,
   }) async {
@@ -668,8 +743,6 @@ class QuestionRepository
       txn,
       assetIdentities,
     );
-    final resolvedFolderName =
-        await _resolveV2FolderAction(txn, bankName, folderName);
     for (final frozenWrite in frozenWrites) {
       await txn.insert('questions', frozenWrite.questionRow);
       await txn.insert('question_v2_payloads', frozenWrite.payloadRow);
@@ -689,6 +762,51 @@ class QuestionRepository
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
+  }
+
+  /// Folder-mapping decision of a task-bound import commit, resolved on the
+  /// caller's [DatabaseExecutor] so the enforced rule and the insert share the
+  /// transaction snapshot.
+  ///
+  /// The persisted `_importTargetKind` marker owns the authority:
+  ///
+  /// - [ImportTargetKind.existing] returns null: the import only appends
+  ///   questions to the selected bank, whose current `bank_folders` mapping
+  ///   stays untouched. The frozen folder name is display context only; it may
+  ///   not move a bank the user has already reorganized.
+  /// - [ImportTargetKind.proposedNew] requires the name to still be unused in
+  ///   the same transaction, so a proposal that another task/user created in
+  ///   the meantime fails closed instead of silently appending to a bank the
+  ///   user never selected, and otherwise creates the frozen folder mapping
+  ///   with the new bank;
+  /// - an absent marker keeps the compatible save-location flow where the
+  ///   caller-supplied folder name is an explicit user choice.
+  Future<String?> _resolveImportCommitFolder(
+    DatabaseExecutor executor, {
+    required String bankName,
+    required String? folderName,
+    required ImportTargetKind? targetKind,
+  }) async {
+    if (targetKind == ImportTargetKind.existing) return null;
+    if (targetKind == ImportTargetKind.proposedNew &&
+        await _bankAlreadyExists(executor, bankName)) {
+      throw const _ProposedImportBankExistsException();
+    }
+    return _resolveV2FolderAction(executor, bankName, folderName);
+  }
+
+  Future<bool> _bankAlreadyExists(
+    DatabaseExecutor executor,
+    String bankName,
+  ) async {
+    final rows = await executor.query(
+      'questions',
+      columns: <String>['id'],
+      where: 'bank_name = ?',
+      whereArgs: <Object?>[bankName],
+      limit: 1,
+    );
+    return rows.isNotEmpty;
   }
 
   /// Frozen typed-save folder rule. An explicit non-empty folder name wins;
@@ -1546,6 +1664,13 @@ final class QuestionV2WriteException implements Exception {
     };
     return 'QuestionV2WriteException(${failure.name}): $detail';
   }
+}
+
+/// Internal in-transaction signal: a proposed import bank already exists, so
+/// the frozen-target proposal must fail closed with zero writes. Each import
+/// commit maps it to its own fixed persistence failure.
+final class _ProposedImportBankExistsException implements Exception {
+  const _ProposedImportBankExistsException();
 }
 
 /// Adapts the caller-owned SQLite transaction to the kernel's minimal

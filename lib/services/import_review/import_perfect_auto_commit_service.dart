@@ -31,6 +31,11 @@ final class ImportPerfectAutoCommitOutcome {
 
 /// Runs after RD0. It never creates a ReviewDraft or writes questions itself.
 final class ImportPerfectAutoCommitService {
+  /// RD0 materializes exactly one revision. Auto commit owns that snapshot
+  /// only: once Review saves a later revision its manual workflow has
+  /// authority, and the commit lease/CAS must see this exact expected value.
+  static const int _rd0ReviewDraftRevision = 1;
+
   ImportPerfectAutoCommitService({
     required TaskManager taskManager,
     required ImportCommitService commitService,
@@ -81,7 +86,7 @@ final class ImportPerfectAutoCommitService {
     }
     // Auto commit belongs to the just-materialized RD0 snapshot. A later
     // positive revision means Review has already begun editing this task.
-    if (_taskManager.reviewDraftRevision(task.id) != 1) {
+    if (_taskManager.reviewDraftRevision(task.id) != _rd0ReviewDraftRevision) {
       return const ImportPerfectAutoCommitOutcome(
           ImportPerfectAutoCommitStatus.notEligible);
     }
@@ -92,7 +97,7 @@ final class ImportPerfectAutoCommitService {
         return const ImportPerfectAutoCommitOutcome(
             ImportPerfectAutoCommitStatus.notEligible);
       }
-      if (_currentTask(attempt) == null) {
+      if (!_holdsAutoCommitScope(attempt)) {
         return const ImportPerfectAutoCommitOutcome(
             ImportPerfectAutoCommitStatus.reviewFallback);
       }
@@ -116,6 +121,15 @@ final class ImportPerfectAutoCommitService {
           return const ImportPerfectAutoCommitOutcome(
               ImportPerfectAutoCommitStatus.reviewFallback);
         }
+      }
+
+      // Every await above is a window in which Review can save a new revision.
+      // The frozen revision-1 snapshot is copied only while the scope is still
+      // intact, and the commit below keeps expecting revision 1 so a save that
+      // lands later fails the lease CAS instead of being committed.
+      if (!_holdsAutoCommitScope(attempt)) {
+        return const ImportPerfectAutoCommitOutcome(
+            ImportPerfectAutoCommitStatus.reviewFallback);
       }
 
       final source = task.parsedData;
@@ -216,7 +230,7 @@ final class ImportPerfectAutoCommitService {
         taskId: task.id,
         attemptToken: attempt.attemptToken,
         attemptNumber: attempt.attemptNumber,
-        expectedReviewDraftRevision: revision,
+        expectedReviewDraftRevision: _rd0ReviewDraftRevision,
         storageRoute: ImportStorageRoute.typedV2,
         storageReason: ocrTypedCandidateReadyReason,
         explanationRetentionMode: task.reviewExplanationRetentionMode,
@@ -236,6 +250,19 @@ final class ImportPerfectAutoCommitService {
     return _taskManager.tasks
         .where((task) => task.id == attempt.taskId)
         .firstOrNull;
+  }
+
+  /// Re-reads the live task after an await and rechecks the exact scope auto
+  /// commit froze at entry: same attempt, still `pendingReview` /
+  /// `readyForReview`, and still RD0's revision 1. Any drift means Review took
+  /// authority while auto commit was waiting, so the attempt must be abandoned
+  /// without writing questions.
+  bool _holdsAutoCommitScope(ImportAttemptRef attempt) {
+    final task = _currentTask(attempt);
+    return task != null &&
+        task.status == TaskStatus.pendingReview &&
+        task.attemptState == ImportAttemptState.readyForReview &&
+        _taskManager.reviewDraftRevision(task.id) == _rd0ReviewDraftRevision;
   }
 
   String? _folderOrNull(String? value) =>

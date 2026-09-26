@@ -806,6 +806,43 @@ void main() {
     expect(manager.tasks.single.status, TaskStatus.pendingReview);
   });
 
+  test('proposed target conflict on the legacy route keeps its fixed failure',
+      () async {
+    final repository = _CommitRepository()
+      ..failure = const LegacyImportCommitPersistenceException(
+        LegacyImportCommitPersistenceFailure.proposedTargetExists,
+      );
+    manager.addTask(ImportTask(
+      id: 'task-proposed-conflict',
+      title: 'Synthetic import',
+      status: TaskStatus.pendingReview,
+      parsedData: <Map<String, dynamic>>[_draft.toMap()],
+    ));
+    final service = ImportCommitService(
+      questionRepository: repository,
+      taskManager: manager,
+    );
+
+    await expectLater(
+      service.commit(
+        bankName: 'Smoke Bank',
+        folderName: 'Smoke',
+        questions: const [_draft],
+        taskId: 'task-proposed-conflict',
+        diagnostics: const {},
+      ),
+      throwsA(
+        isA<LegacyReviewCommitAttemptException>().having(
+          (error) => error.failure,
+          'failure',
+          LegacyReviewCommitAttemptFailure.proposedTargetExists,
+        ),
+      ),
+    );
+
+    expect(manager.tasks.single.status, TaskStatus.pendingReview);
+  });
+
   group('typed commit', () {
     ImportCommitService typedService(
       _CommitRepository repository, {
@@ -1339,6 +1376,40 @@ void main() {
         expect(error.toString(), isNot(contains('synthetic-db-error')));
         expect(error.toString(), isNot(contains('StateError')));
       }
+    });
+
+    test('proposed target conflict keeps its own fixed failure', () async {
+      final repository = _CommitRepository()
+        ..failure = const TypedImportCommitPersistenceException(
+          TypedImportCommitPersistenceFailure.proposedTargetExists,
+        );
+      final service = typedService(repository);
+
+      await expectLater(
+        service.commitTyped(
+          bankName: 'Typed Bank',
+          folderName: 'Math',
+          items: <TypedReviewCommitInput>[_typedInput()],
+          taskId: _typedTaskId,
+          attemptToken: _typedAttemptToken,
+          attemptNumber: 1,
+          expectedReviewDraftRevision: 1,
+          storageRoute: ImportStorageRoute.typedV2,
+          storageReason: ocrTypedCandidateReadyReason,
+          explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+        ),
+        throwsA(
+          isA<TypedReviewCommitAttemptException>().having(
+            (error) => error.failure,
+            'failure',
+            TypedReviewCommitAttemptFailure.proposedTargetExists,
+          ),
+        ),
+      );
+
+      expect(manager.tasks.single.status, TaskStatus.pendingReview);
+      expect(repository.saveCalls, 0,
+          reason: 'a rejected proposal must never fall back to legacy writes');
     });
 
     test('quality blocked typed commit never calls the repository', () async {

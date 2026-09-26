@@ -37,6 +37,9 @@ final class ImportPerfectAutoCommitFacts {
 final class ImportPerfectAutoCommitPolicy {
   const ImportPerfectAutoCommitPolicy();
 
+  /// Auto commit is only the RD0 snapshot's commit path, so eligibility
+  /// requires exactly that materialized revision. Any later positive revision
+  /// means Review has started editing and keeps authority.
   bool isEligible(ImportPerfectAutoCommitFacts facts) =>
       facts.enabled &&
       facts.documentImportEntry &&
@@ -49,7 +52,7 @@ final class ImportPerfectAutoCommitPolicy {
       facts.errorCount == 0 &&
       facts.warningCount == 0 &&
       !facts.qualityGateBlocked &&
-      facts.reviewDraftRevision > 0 &&
+      facts.reviewDraftRevision == 1 &&
       !facts.commitInProgress &&
       facts.typedSnapshotValid;
 }
