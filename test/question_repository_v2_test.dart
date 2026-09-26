@@ -11,6 +11,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:shiroha_quiz/application/import/import_target_selection.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/models/persisted_question.dart';
 import 'package:shiroha_quiz/data/models/question_draft.dart';
@@ -178,6 +179,7 @@ Map<String, Object?> _legacyImportDiagnostics({
   int revision = 1,
   bool explicitRoute = false,
   String? reason,
+  ImportTargetKind? targetKind,
 }) {
   return <String, Object?>{
     if (token != null) TypedImportCommitPersistence.keyAttemptToken: token,
@@ -188,6 +190,7 @@ Map<String, Object?> _legacyImportDiagnostics({
           TypedImportCommitPersistence.legacyV1RouteValue,
     if (reason != null)
       TypedImportCommitPersistence.keyImportStorageReason: reason,
+    if (targetKind != null) importTargetKindMarkerKey: targetKind.name,
     TypedImportCommitPersistence.keyReviewDraftRevision: revision,
   };
 }
@@ -207,6 +210,7 @@ Map<String, Object?> _importDiagnostics({
   String route = 'typedV2',
   String? reason = 'typed_candidate_ready',
   String attemptState = 'readyForReview',
+  ImportTargetKind? targetKind,
 }) {
   return <String, Object?>{
     TypedImportCommitPersistence.keyAttemptToken: token,
@@ -215,6 +219,7 @@ Map<String, Object?> _importDiagnostics({
     TypedImportCommitPersistence.keyImportStorageRoute: route,
     if (reason != null)
       TypedImportCommitPersistence.keyImportStorageReason: reason,
+    if (targetKind != null) importTargetKindMarkerKey: targetKind.name,
     TypedImportCommitPersistence.keyReviewDraftRevision: revision,
   };
 }
@@ -1491,6 +1496,80 @@ void main() {
       expect(await db.query('review_states'), hasLength(2));
       expect((await _importTaskRows(db)).single['status'], 2);
     });
+
+    test('existing frozen target keeps the folder the bank now belongs to',
+        () async {
+      final db = await _singletonDb();
+      await _insertImportTask(
+        db,
+        diagnostics: _importDiagnostics(targetKind: ImportTargetKind.existing),
+      );
+      // The bank was reorganized after dispatch: 数学 -> 真题.
+      await db.insert('bank_folders', <String, Object?>{
+        'bank_name': _bankName,
+        'folder_name': '真题',
+      });
+      final repository = QuestionRepository();
+
+      final result = await repository.commitQuestionDraftsV2ForImport(
+        bankName: _bankName,
+        folderName: '数学',
+        questions: <QuestionDraftV2>[_draft('import_existing_reorganized')],
+        guard: _importGuard(),
+        completionText: 'done',
+      );
+
+      expect(result.questionCount, 1);
+      expect(await db.query('questions'), hasLength(1));
+      final folders = await db.query('bank_folders');
+      expect(folders.single['folder_name'], '真题',
+          reason: 'an existing bank keeps its current folder mapping');
+      expect((await _importTaskRows(db)).single['status'], 2);
+    });
+
+    test('proposed bank created meanwhile fails closed with zero writes',
+        () async {
+      final db = await _singletonDb();
+      await _insertImportTask(
+        db,
+        diagnostics:
+            _importDiagnostics(targetKind: ImportTargetKind.proposedNew),
+      );
+      final repository = QuestionRepository();
+      // Another operation created the proposed bank after dispatch.
+      await repository.saveQuestionDraftsV2ToBank(
+        bankName: _bankName,
+        folderName: null,
+        questions: <QuestionDraftV2>[_draft('other_task_question')],
+      );
+      final questionsBefore = (await db.query('questions')).length;
+      final foldersBefore = (await db.query('bank_folders')).length;
+
+      await expectLater(
+        repository.commitQuestionDraftsV2ForImport(
+          bankName: _bankName,
+          folderName: '数学',
+          questions: <QuestionDraftV2>[_draft('import_proposed_conflict')],
+          guard: _importGuard(),
+          completionText: 'must not commit',
+        ),
+        throwsA(
+          isA<TypedImportCommitPersistenceException>().having(
+            (error) => error.failure,
+            'failure',
+            TypedImportCommitPersistenceFailure.proposedTargetExists,
+          ),
+        ),
+      );
+
+      expect((await db.query('questions')).length, questionsBefore);
+      expect((await db.query('bank_folders')).length, foldersBefore);
+      final task = (await _importTaskRows(db)).single;
+      expect(task['status'], 1,
+          reason: 'the task must stay pendingReview for a manual retry');
+      expect(task['parsed_data'], isNotNull,
+          reason: 'the Review payload must survive the rejected commit');
+    });
   });
 
   group('task-bound legacy import atomic commit', () {
@@ -1595,6 +1674,79 @@ void main() {
       final task = (await _importTaskRows(db)).single;
       expect(task['status'], 1);
       expect(task['parsed_data'], isNotNull);
+    });
+
+    test('existing frozen legacy target keeps the current folder mapping',
+        () async {
+      final db = await _singletonDb();
+      await _insertImportTask(
+        db,
+        id: 'legacy-import-task',
+        diagnostics:
+            _legacyImportDiagnostics(targetKind: ImportTargetKind.existing),
+      );
+      await db.insert('bank_folders', <String, Object?>{
+        'bank_name': _bankName,
+        'folder_name': '真题',
+      });
+      final repository = QuestionRepository();
+
+      final result = await repository.commitQuestionDraftsLegacyForImport(
+        bankName: _bankName,
+        folderName: '数学',
+        questions: const <QuestionDraft>[_legacyImportDraft],
+        guard: _legacyImportGuard(),
+        completionText: 'legacy done',
+      );
+
+      expect(result.questionCount, 1);
+      expect(await db.query('questions'), hasLength(1));
+      final folders = await db.query('bank_folders');
+      expect(folders.single['folder_name'], '真题',
+          reason: 'an existing bank keeps its current folder mapping');
+      expect((await _importTaskRows(db)).single['status'], 2);
+    });
+
+    test('proposed legacy bank created meanwhile fails closed with zero writes',
+        () async {
+      final db = await _singletonDb();
+      await _insertImportTask(
+        db,
+        id: 'legacy-import-task',
+        diagnostics:
+            _legacyImportDiagnostics(targetKind: ImportTargetKind.proposedNew),
+      );
+      final repository = QuestionRepository();
+      await repository.saveQuestionDraftsToBank(
+        bankName: _bankName,
+        folderName: null,
+        questions: const <QuestionDraft>[_legacyImportDraft],
+      );
+      final questionsBefore = (await db.query('questions')).length;
+
+      await expectLater(
+        repository.commitQuestionDraftsLegacyForImport(
+          bankName: _bankName,
+          folderName: '数学',
+          questions: const <QuestionDraft>[_legacyImportDraft],
+          guard: _legacyImportGuard(),
+          completionText: 'must not commit',
+        ),
+        throwsA(
+          isA<LegacyImportCommitPersistenceException>().having(
+            (error) => error.failure,
+            'failure',
+            LegacyImportCommitPersistenceFailure.proposedTargetExists,
+          ),
+        ),
+      );
+
+      expect((await db.query('questions')).length, questionsBefore);
+      final task = (await _importTaskRows(db)).single;
+      expect(task['status'], 1,
+          reason: 'the task must stay pendingReview for a manual retry');
+      expect(task['parsed_data'], isNotNull,
+          reason: 'the Review payload must survive the rejected commit');
     });
   });
 

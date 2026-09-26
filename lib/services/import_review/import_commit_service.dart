@@ -32,6 +32,7 @@ enum TypedReviewCommitAttemptFailure {
   staleAttempt,
   staleReviewDraft,
   commitInProgress,
+  proposedTargetExists,
   persistenceFailed,
 }
 
@@ -41,6 +42,7 @@ enum LegacyReviewCommitAttemptFailure {
   staleAttempt,
   staleReviewDraft,
   commitInProgress,
+  proposedTargetExists,
   persistenceFailed,
 }
 
@@ -71,6 +73,8 @@ final class TypedReviewCommitAttemptException implements Exception {
         'The import task review draft is stale.',
       TypedReviewCommitAttemptFailure.commitInProgress =>
         'A typed import commit is already in progress for this task.',
+      TypedReviewCommitAttemptFailure.proposedTargetExists =>
+        'The proposed import bank already exists.',
       TypedReviewCommitAttemptFailure.persistenceFailed =>
         'Typed commit persistence failed.',
     };
@@ -707,6 +711,8 @@ class ImportCommitService {
         LegacyReviewCommitAttemptFailure.staleAttempt,
       LegacyImportCommitPersistenceFailure.staleReviewDraft =>
         LegacyReviewCommitAttemptFailure.staleReviewDraft,
+      LegacyImportCommitPersistenceFailure.proposedTargetExists =>
+        LegacyReviewCommitAttemptFailure.proposedTargetExists,
       LegacyImportCommitPersistenceFailure.transactionFailed =>
         LegacyReviewCommitAttemptFailure.persistenceFailed,
     };
@@ -746,6 +752,8 @@ class ImportCommitService {
         TypedReviewCommitAttemptFailure.staleAttempt,
       TypedImportCommitPersistenceFailure.staleReviewDraft =>
         TypedReviewCommitAttemptFailure.staleReviewDraft,
+      TypedImportCommitPersistenceFailure.proposedTargetExists =>
+        TypedReviewCommitAttemptFailure.proposedTargetExists,
       TypedImportCommitPersistenceFailure.transactionFailed =>
         TypedReviewCommitAttemptFailure.persistenceFailed,
     };

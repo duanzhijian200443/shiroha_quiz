@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/backup/backup_restore_gate.dart';
+import 'package:shiroha_quiz/application/import/import_target_selection.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/core/observability/app_logger.dart';
 import 'package:shiroha_quiz/core/observability/log_record.dart';
@@ -475,6 +476,85 @@ void main() {
       await notified.future;
       expect(localManager.tasks.single.id, handle.taskId);
       expect(localManager.tasks.single.errorMsg, isNull);
+    }
+  });
+
+  test('frozen document target survives RD0 and a durable task round trip',
+      () async {
+    final notified = Completer<void>();
+    final localManager = TaskManager.forTesting(
+      saveTask: (_) async {},
+      saveReviewDraftCas: ({
+        required taskId,
+        required expectedAttempt,
+        required expectedRevision,
+        required questions,
+        required explanationRetentionMode,
+      }) async {
+        expect(expectedRevision, 0);
+        return const ReviewDraftCasResult(ReviewDraftCasStatus.saved,
+            durableRevision: 1);
+      },
+    );
+    final coordinator = ImportTaskCoordinator(
+      taskManager: localManager,
+      readiness: localManager.ready,
+      onReadyForReview: (_) => notified.complete(),
+    );
+    final handle = await coordinator.dispatch(
+      sourceDescription: 'synthetic.pdf',
+      mode: ImportParseMode.ocr,
+      documentImportEntry: true,
+      bankName: '考研数学一',
+      folderName: '数学',
+      targetKind: ImportTargetKind.existing,
+      parse: (_) async => ImportParseResult.withStorageMetadata(
+        questions: const [
+          {'type': 3, 'content': 'Synthetic question', 'standard_answer': 'A'}
+        ],
+        storageRoute: ImportStorageRoute.typedV2,
+        storageReason: 'typed_candidate_ready',
+      ),
+    );
+    await notified.future;
+    final task = localManager.tasks.single;
+    expect(task.id, handle.taskId);
+    expect(localManager.reviewDraftRevision(task.id), 1);
+    expect(task.bankName, '考研数学一');
+    expect(task.folderName, '数学');
+    final reloaded = ImportTask.fromMap(task.toMap());
+    expect((reloaded.bankName, reloaded.folderName), ('考研数学一', '数学'));
+    expect(reloaded.diagnostics?[importTargetKindMarkerKey], 'existing');
+  });
+
+  test('batch snapshots one target into every task before parsing', () async {
+    final parsing = Completer<ImportParseResult>();
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+    );
+    final batch = await coordinator.dispatchIndependentBatch(items: [
+      for (final year in [2019, 2020, 2021])
+        ImportTaskBatchItem(
+          sourceDescription: '$year.pdf',
+          mode: ImportParseMode.text,
+          documentImportEntry: true,
+          bankName: '考研数学一',
+          folderName: '数学',
+          targetKind: ImportTargetKind.existing,
+          parse: (_) => parsing.future,
+        ),
+    ]);
+    expect(batch.tasks, hasLength(3));
+    expect(
+        manager.tasks.map((task) => (task.bankName, task.folderName)).toSet(),
+        {('考研数学一', '数学')});
+    parsing.complete(const ImportParseResult(questions: [
+      {'type': 3, 'content': 'Synthetic question', 'standard_answer': 'A'}
+    ]));
+    for (final handle in batch.tasks) {
+      await _waitForTask(manager, handle.taskId,
+          (task) => task.status == TaskStatus.pendingReview);
     }
   });
 

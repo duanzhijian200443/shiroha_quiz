@@ -9,6 +9,7 @@ void main() {
   const sliderKey = ValueKey('advanced-ocr-concurrency-slider');
   const retryKey = ValueKey('advanced-auto-retry-switch');
   const repairKey = ValueKey('advanced-latex-repair-switch');
+  const perfectKey = ValueKey('advanced-perfect-auto-commit-switch');
   const timeoutKey = ValueKey('advanced-ocr-timeout-selector');
   const completionKey = ValueKey('advanced-completion-selector');
   const resetKey = ValueKey('advanced-settings-reset-defaults');
@@ -44,6 +45,7 @@ void main() {
       'OCR 请求超时',
       '校对与修复',
       'LaTeX 异常自动尝试修补',
+      '满分结果自动入库',
       '导入完成后',
     ]) {
       expect(find.text(title), findsOneWidget);
@@ -65,6 +67,7 @@ void main() {
         (1.0, 10.0, 9, 2.0));
     expect(tester.widget<Switch>(find.byKey(retryKey)).value, isTrue);
     expect(tester.widget<Switch>(find.byKey(repairKey)).value, isFalse);
+    expect(tester.widget<Switch>(find.byKey(perfectKey)).value, isFalse);
     expect(tester.widget<SegmentedButton<int>>(find.byKey(timeoutKey)).selected,
         {90});
     expect(
@@ -84,6 +87,7 @@ void main() {
     expect(tester.widget<Slider>(find.byKey(sliderKey)).onChanged, isNull);
     expect(tester.widget<Switch>(find.byKey(retryKey)).onChanged, isNull);
     expect(tester.widget<Switch>(find.byKey(repairKey)).onChanged, isNull);
+    expect(tester.widget<Switch>(find.byKey(perfectKey)).onChanged, isNull);
     expect(
         tester
             .widget<SegmentedButton<int>>(find.byKey(timeoutKey))
@@ -115,6 +119,22 @@ void main() {
     expect(saves, isEmpty);
   });
 
+  testWidgets('perfect auto commit opt-in persists only after Done',
+      (tester) async {
+    ImportAdvancedPreferences? saved;
+    await pumpScreen(tester,
+        loader: () async => ImportAdvancedPreferences.defaults,
+        saver: (value) async => saved = value);
+    await tester.pumpAndSettle();
+    tester.widget<Switch>(find.byKey(perfectKey)).onChanged!(true);
+    await tester.pump();
+    expect(saved, isNull);
+    await tester.ensureVisible(find.byKey(doneKey));
+    await tester.tap(find.byKey(doneKey));
+    await tester.pump();
+    expect(saved?.autoCommitPerfectImports, isTrue);
+  });
+
   testWidgets('edits stay local, reset stays local, Done persists all fields',
       (tester) async {
     var stored = const ImportAdvancedPreferences(
@@ -132,6 +152,7 @@ void main() {
     tester.widget<Slider>(find.byKey(sliderKey)).onChanged!(5);
     tester.widget<Switch>(find.byKey(retryKey)).onChanged!(false);
     tester.widget<Switch>(find.byKey(repairKey)).onChanged!(true);
+    tester.widget<Switch>(find.byKey(perfectKey)).onChanged!(true);
     tester
         .widget<SegmentedButton<int>>(find.byKey(timeoutKey))
         .onSelectionChanged!({180});
@@ -150,6 +171,7 @@ void main() {
     expect(tester.widget<Slider>(find.byKey(sliderKey)).value, 2);
     expect(tester.widget<Switch>(find.byKey(retryKey)).value, isTrue);
     expect(tester.widget<Switch>(find.byKey(repairKey)).value, isFalse);
+    expect(tester.widget<Switch>(find.byKey(perfectKey)).value, isFalse);
     expect(tester.widget<SegmentedButton<int>>(find.byKey(timeoutKey)).selected,
         {90});
 
@@ -161,6 +183,7 @@ void main() {
     expect(stored.autoRetryEnabled, isTrue);
     expect(stored.ocrRequestTimeoutSeconds, 90);
     expect(stored.autoRepairLatexEnabled, isFalse);
+    expect(stored.autoCommitPerfectImports, isFalse);
     expect(stored.completionBehavior, ImportCompletionBehavior.notifyOnly);
     expect(stored.retainUnresolvedFragments, isFalse);
   });

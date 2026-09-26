@@ -92,6 +92,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   static const _reviewRepairSaveFailedText = 'AI 修补已生成，但校对结果保存失败，请重试';
   static const _typedTaskExpiredText = '任务已过期或已被替换，请检查后重试';
   static const _typedCommitInProgressText = '已有入库操作正在进行，请稍后重试';
+  static const _proposedTargetExistsText = '目标题库已存在，本次未入库；请返回选择已有题库后重新导入';
   static const _legacyCommitFailedText = '题库入库失败，题目保持待审状态，请检查后重试';
   static const _legacyTaskExpiredText = '任务已过期或已被替换，请检查后重试';
   static const _safeSnapshotProvenanceKeys = {
@@ -166,6 +167,19 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   late final TaskManager _taskManager =
       widget.taskManager ?? TaskManager.instance;
   List<String> _existingFolders = [];
+
+  ImportTask? get _frozenDocumentTarget {
+    final id = widget.taskId;
+    if (id == null || id.isEmpty) return null;
+    final task =
+        _taskManager.tasks.where((entry) => entry.id == id).firstOrNull;
+    if (task == null ||
+        !isDocumentImportEntryDiagnostics(task.diagnostics) ||
+        task.bankName?.trim().isNotEmpty != true) {
+      return null;
+    }
+    return task;
+  }
 
   bool get _isBlockedByQualityGate =>
       ImportReviewBlockingPolicy.isBlocked(_reviewResult);
@@ -697,6 +711,11 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   void _showSaveDialog() {
+    final frozen = _frozenDocumentTarget;
+    if (frozen != null) {
+      _confirmAndSave(frozen.bankName!, frozen.folderName ?? '');
+      return;
+    }
     showDialog(
         context: context,
         barrierDismissible: false,
@@ -890,6 +909,8 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
             _legacyTaskExpiredText,
           LegacyReviewCommitAttemptFailure.commitInProgress =>
             _typedCommitInProgressText,
+          LegacyReviewCommitAttemptFailure.proposedTargetExists =>
+            _proposedTargetExistsText,
           LegacyReviewCommitAttemptFailure.persistenceFailed =>
             _legacyCommitFailedText,
         },
@@ -1029,6 +1050,8 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
           _typedTaskExpiredText,
         TypedReviewCommitAttemptFailure.commitInProgress =>
           _typedCommitInProgressText,
+        TypedReviewCommitAttemptFailure.proposedTargetExists =>
+          _proposedTargetExistsText,
         TypedReviewCommitAttemptFailure.persistenceFailed =>
           _typedCommitFailedText,
       },
@@ -2422,6 +2445,14 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
             ),
           ),
           if (_traceId != null) _buildTraceBar(),
+          if (_frozenDocumentTarget case final target?)
+            ListTile(
+              key: const ValueKey<String>('review-frozen-target'),
+              title: const Text('导入到'),
+              subtitle: Text(target.folderName?.trim().isNotEmpty == true
+                  ? '${target.folderName} / ${target.bankName}'
+                  : target.bankName!),
+            ),
           if (_diagnosticMessages.isNotEmpty) ...[
             _buildDiagnosticBanner(),
           ],

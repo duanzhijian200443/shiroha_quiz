@@ -19,6 +19,7 @@ class ImportAdvancedPreferences {
     this.autoRetryEnabled = true,
     this.ocrRequestTimeoutSeconds = defaultOcrRequestTimeoutSeconds,
     this.autoRepairLatexEnabled = false,
+    this.autoCommitPerfectImports = false,
     this.completionBehavior = ImportCompletionBehavior.notifyOnly,
     this.retainUnresolvedFragments = true,
   });
@@ -63,6 +64,9 @@ class ImportAdvancedPreferences {
   /// Generates review repair proposals for eligible LaTeX issues only.
   final bool autoRepairLatexEnabled;
 
+  /// Opt-in typed document import commit after a clean final score of 100.
+  final bool autoCommitPerfectImports;
+
   final ImportCompletionBehavior completionBehavior;
 
   /// Deprecated compatibility field. No UI or runtime path consumes it.
@@ -83,6 +87,7 @@ class ImportAdvancedPreferences {
     bool? autoRetryEnabled,
     int? ocrRequestTimeoutSeconds,
     bool? autoRepairLatexEnabled,
+    bool? autoCommitPerfectImports,
     ImportCompletionBehavior? completionBehavior,
     bool? retainUnresolvedFragments,
   }) {
@@ -93,6 +98,8 @@ class ImportAdvancedPreferences {
           ocrRequestTimeoutSeconds ?? this.ocrRequestTimeoutSeconds,
       autoRepairLatexEnabled:
           autoRepairLatexEnabled ?? this.autoRepairLatexEnabled,
+      autoCommitPerfectImports:
+          autoCommitPerfectImports ?? this.autoCommitPerfectImports,
       completionBehavior: completionBehavior ?? this.completionBehavior,
       retainUnresolvedFragments:
           retainUnresolvedFragments ?? this.retainUnresolvedFragments,
@@ -107,6 +114,7 @@ class ImportAdvancedPreferences {
       'autoRetryEnabled': autoRetryEnabled,
       'ocrRequestTimeoutSeconds': effectiveOcrRequestTimeoutSeconds,
       'autoRepairLatexEnabled': autoRepairLatexEnabled,
+      'autoCommitPerfectImports': autoCommitPerfectImports,
       'completionBehavior': completionBehavior.name,
       'retainUnresolvedFragments': retainUnresolvedFragments,
     };
@@ -132,6 +140,9 @@ class ImportAdvancedPreferences {
       autoRepairLatexEnabled: json['autoRepairLatexEnabled'] is bool
           ? json['autoRepairLatexEnabled'] as bool
           : defaults.autoRepairLatexEnabled,
+      autoCommitPerfectImports: json['autoCommitPerfectImports'] is bool
+          ? json['autoCommitPerfectImports'] as bool
+          : defaults.autoCommitPerfectImports,
       completionBehavior: ImportCompletionBehavior.values
               .where((value) => value.name == json['completionBehavior'])
               .firstOrNull ??
@@ -166,6 +177,7 @@ class ImportAdvancedPreferences {
         other.autoRetryEnabled == autoRetryEnabled &&
         other.ocrRequestTimeoutSeconds == ocrRequestTimeoutSeconds &&
         other.autoRepairLatexEnabled == autoRepairLatexEnabled &&
+        other.autoCommitPerfectImports == autoCommitPerfectImports &&
         other.completionBehavior == completionBehavior &&
         other.retainUnresolvedFragments == retainUnresolvedFragments;
   }
@@ -176,6 +188,7 @@ class ImportAdvancedPreferences {
         autoRetryEnabled,
         ocrRequestTimeoutSeconds,
         autoRepairLatexEnabled,
+        autoCommitPerfectImports,
         completionBehavior,
         retainUnresolvedFragments,
       );

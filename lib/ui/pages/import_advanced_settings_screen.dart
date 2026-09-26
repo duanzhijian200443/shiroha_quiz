@@ -170,6 +170,21 @@ class _ImportAdvancedSettingsScreenState
                     ),
                     const Divider(),
                     _SettingRow(
+                      title: '满分结果自动入库',
+                      subtitle: '最终质量评分为 100 分且通过全部安全检查时，跳过人工校对并直接加入目标题库。',
+                      control: Switch(
+                        key: const ValueKey(
+                            'advanced-perfect-auto-commit-switch'),
+                        value: _preferences.autoCommitPerfectImports,
+                        onChanged: _editable
+                            ? (value) => _edit(_preferences.copyWith(
+                                  autoCommitPerfectImports: value,
+                                ))
+                            : null,
+                      ),
+                    ),
+                    const Divider(),
+                    _SettingRow(
                       title: '导入完成后',
                       subtitle: '设置解析完成后的默认操作。',
                       control: SingleChildScrollView(

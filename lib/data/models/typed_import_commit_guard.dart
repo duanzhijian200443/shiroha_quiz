@@ -69,6 +69,7 @@ enum LegacyImportCommitPersistenceFailure {
   staleReviewDraft,
   invalidTaskMetadata,
   alreadyCompleted,
+  proposedTargetExists,
   transactionFailed,
 }
 
@@ -92,6 +93,7 @@ enum TypedImportCommitPersistenceFailure {
   invalidTaskMetadata,
   staleReviewDraft,
   alreadyCompleted,
+  proposedTargetExists,
   transactionFailed,
 }
 
@@ -115,6 +117,8 @@ final class TypedImportCommitPersistenceException implements Exception {
         'The import task review draft is stale.',
       TypedImportCommitPersistenceFailure.alreadyCompleted =>
         'The import task is already completed.',
+      TypedImportCommitPersistenceFailure.proposedTargetExists =>
+        'The proposed import bank already exists.',
       TypedImportCommitPersistenceFailure.transactionFailed =>
         'The typed import commit transaction failed.',
     };

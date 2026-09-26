@@ -6,6 +6,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/import/import_advanced_preferences.dart';
+import 'package:shiroha_quiz/application/import/import_target_catalog_service.dart';
+import 'package:shiroha_quiz/application/import/import_target_selection.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_request.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_parse_result.dart';
 import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
@@ -23,6 +25,32 @@ class _RecordingNavigatorObserver extends NavigatorObserver {
   }
 }
 
+class _TargetFixture
+    implements ImportTargetCatalogPort, ImportTargetSelectionStore {
+  ImportTargetSelection? selection = ImportTargetSelection(
+    bankName: '考研数学一',
+    folderName: '数学',
+    targetKind: ImportTargetKind.existing,
+  );
+
+  @override
+  Future<ImportTargetSelection?> getLastImportTarget() async => selection;
+
+  @override
+  Future<void> setLastImportTarget(ImportTargetSelection? value) async {
+    selection = value;
+  }
+
+  @override
+  Future<List<ImportTargetSummary>> listImportTargets() async => const [
+        ImportTargetSummary(
+            bankName: '考研数学一', folderName: '数学', questionCount: 3),
+      ];
+
+  @override
+  Future<List<String>> listAvailableFolders() async => const ['数学'];
+}
+
 void main() {
   Future<void> pumpScreen(
     WidgetTester tester, {
@@ -37,6 +65,17 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
+    final fixture = _TargetFixture();
+    final effectiveScreen = ImportSettingsScreen(
+      key: screen.key,
+      pickFiles: screen.pickFiles,
+      taskDispatcher: screen.taskDispatcher,
+      requestParser: screen.requestParser,
+      importPreferencesLoader: screen.importPreferencesLoader,
+      importPreferencesSaver: screen.importPreferencesSaver,
+      targetCatalogService: screen.targetCatalogService ??
+          ImportTargetCatalogService(catalog: fixture, selectionStore: fixture),
+    );
     await tester.pumpWidget(
       MaterialApp(
         theme: theme,
@@ -47,7 +86,7 @@ void main() {
           data: MediaQuery.of(context).copyWith(textScaler: textScaler),
           child: child!,
         ),
-        home: screen,
+        home: effectiveScreen,
       ),
     );
     await tester.pumpAndSettle();
@@ -81,7 +120,7 @@ void main() {
         );
       },
       taskDispatcher: taskDispatcher ??
-          (source, parseTask) {
+          (source, parseTask, target) {
             unawaited(parseTask('settings-task-${dispatchedTaskIndex++}'));
           },
     );
@@ -345,7 +384,7 @@ void main() {
           PlatformFile(name: 'notes.txt', path: 'notes.txt', size: 0),
           PlatformFile(name: 'quiz.md', path: 'quiz.md', size: 0),
         ]),
-        taskDispatcher: (source, parseTask) {
+        taskDispatcher: (source, parseTask, target) {
           dispatchCalls++;
         },
       ),
@@ -375,7 +414,7 @@ void main() {
         pickFiles: () async => FilePickerResult(<PlatformFile>[
           PlatformFile(name: 'photo.png', path: 'photo.png', size: 0),
         ]),
-        taskDispatcher: (source, parseTask) {
+        taskDispatcher: (source, parseTask, target) {
           dispatchCalls++;
         },
       ),
@@ -409,7 +448,7 @@ void main() {
         pickFiles: () async => FilePickerResult(<PlatformFile>[
           PlatformFile(name: 'photo.png', path: 'photo.png', size: 0),
         ]),
-        taskDispatcher: (source, parseTask) {},
+        taskDispatcher: (source, parseTask, target) {},
       ),
     );
 
@@ -616,7 +655,7 @@ void main() {
             explanationRetentionMode: request.explanationRetentionMode,
           );
         },
-        taskDispatcher: (source, parseTask) {
+        taskDispatcher: (source, parseTask, target) {
           sources.add(source);
           unawaited(parseTask('settings-task-${dispatchedTaskIndex++}'));
         },
@@ -658,7 +697,7 @@ void main() {
             explanationRetentionMode: request.explanationRetentionMode,
           );
         },
-        taskDispatcher: (source, parseTask) {
+        taskDispatcher: (source, parseTask, target) {
           sources.add(source);
           unawaited(parseTask('settings-task-${dispatchedTaskIndex++}'));
         },
@@ -694,7 +733,7 @@ void main() {
             explanationRetentionMode: request.explanationRetentionMode,
           );
         },
-        taskDispatcher: (source, parseTask) {
+        taskDispatcher: (source, parseTask, target) {
           sources.add(source);
           unawaited(parseTask('settings-task-${dispatchedTaskIndex++}'));
         },

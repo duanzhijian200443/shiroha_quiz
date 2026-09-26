@@ -123,6 +123,7 @@ context, but they do not change implementation status by themselves.
 
 | ID | Status | Current evidence / next scope |
 |---|---|---|
+| **IMPORT-UX-1** | COMPLETE | Document import selects the real QuestionBank before parsing, silently remembers the target, freezes `bankName`/`folderName` per task and PDF batch, and confirms frozen targets in Review without renaming. Optional default-off perfect-score auto commit accepts only clean typedV2 RD0 snapshots through the existing typed lease/CAS writer, with manual Review fallback. `bankName` remains globally unique; no bankId, duplicate-name support, legacy backfill, AI classification, or schema change. |
 | **ARCH-EXAM-GENERATION-LIFETIME** | BACKLOG / HARDENING | Random mock-exam selection still happens before the final `ExamMutationCommand.createExamPaper` mutation lease. The durable create is gated; full selection-to-create lifetime ownership remains a low-risk hardening item. |
 | **UI-RWD-1** | PARTIAL | Shared `contentMaxWidth` constraints and Assistant/File Library breakpoints already exist. App-wide narrow/wide/desktop acceptance and consistent responsive policy are not yet closed. |
 | **P6-ACT-1** | COMPLETE | Bank-scoped ordinary-user activation is wired from the existing BankDetail surface through explicit LibraryFile selection into the existing P6 matching/review/typed-answer authority. Project-scoped and explicit-question entry surfaces remain unactivated. |
