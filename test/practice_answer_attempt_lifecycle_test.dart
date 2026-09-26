@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_commit_command.dart';
+import 'package:shiroha_quiz/application/answers/ai_answer_entry_guard.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_generation.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_provider.dart';
 import 'package:shiroha_quiz/application/ai_config/ai_config_service.dart';
@@ -509,6 +510,10 @@ void main() {
         ),
         answerCommitCommand: AiAnswerCommitCommand(
           persistencePort: _FakeAiAnswerCommitPersistencePort(),
+        ),
+        answerEntryGuard: AiAnswerEntryGuard(
+          questionPort: _FakeStudyQuestionQueryPort(),
+          clock: () => DateTime.now(),
         ),
         examMutationCommand:
             ExamMutationCommand(_FakeExamMutationPersistence()),

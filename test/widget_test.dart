@@ -16,6 +16,7 @@ import 'package:shiroha_quiz/application/agent/agent_config_service.dart';
 import 'package:shiroha_quiz/application/agent/agent_turn.dart';
 import 'package:shiroha_quiz/application/ai_config/ai_config_service.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_commit_command.dart';
+import 'package:shiroha_quiz/application/answers/ai_answer_entry_guard.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_generation.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_provider.dart';
 import 'package:shiroha_quiz/application/content/content_asset_authority.dart';
@@ -913,6 +914,10 @@ Widget _buildTestApp({
   final answerCommitCommand = AiAnswerCommitCommand(
     persistencePort: _FailClosedCommitPort(),
   );
+  final answerEntryGuard = AiAnswerEntryGuard(
+    questionPort: _EmptyQuestions(),
+    clock: () => DateTime.fromMillisecondsSinceEpoch(1, isUtc: true),
+  );
   final examMutationCommand = ExamMutationCommand(
     _EmptyExamMutationPersistence(),
   );
@@ -929,6 +934,7 @@ Widget _buildTestApp({
     importTaskCoordinator: importTaskCoordinator,
     answerGenerationService: answerGenerationService,
     answerCommitCommand: answerCommitCommand,
+    answerEntryGuard: answerEntryGuard,
     examMutationCommand: examMutationCommand,
     photoAnswerJudgement: PhotoAnswerJudgementAdapter(
       contentAssetResolver: contentAssetResolver ?? _EmptyContentAssets(),

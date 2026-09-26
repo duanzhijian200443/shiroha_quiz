@@ -9,6 +9,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_commit_command.dart';
+import 'package:shiroha_quiz/application/answers/ai_answer_entry_guard.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_generation.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_provider.dart';
 import 'package:shiroha_quiz/application/ai_config/ai_config_service.dart';
@@ -260,6 +261,10 @@ class _Harness {
           importTaskCoordinator: _FakeImportTaskCoordinator(),
           answerGenerationService: answerGenerationService,
           answerCommitCommand: answerCommitCommand,
+          answerEntryGuard: AiAnswerEntryGuard(
+            questionPort: questionPort,
+            clock: () => DateTime.utc(2026, 8, 20, 12),
+          ),
           examMutationCommand: ExamMutationCommand(
             _FakeExamMutationPersistence(),
           ),

@@ -2,6 +2,7 @@ import '../../application/practice/photo_answer_history.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../application/answers/ai_answer_commit_command.dart';
+import '../../application/answers/ai_answer_entry_guard.dart';
 import '../../application/ai_config/ai_config_service.dart';
 import '../../application/import/import_advanced_preferences.dart';
 import '../../application/import/import_target_catalog_service.dart';
@@ -27,6 +28,7 @@ class AiDependenciesScope extends InheritedWidget {
     this.importTargetCatalogService,
     required this.answerGenerationService,
     required this.answerCommitCommand,
+    required this.answerEntryGuard,
     required this.examMutationCommand,
     this.photoAnswerJudgement = const _UnavailablePhotoAnswerJudgement(),
     this.photoAnswerSubmission,
@@ -49,6 +51,10 @@ class AiDependenciesScope extends InheritedWidget {
 
   /// P7 Application commit seam: the only formal write path for AI answers.
   final AiAnswerCommitCommand answerCommitCommand;
+
+  /// ANSWER-ENTRY-GUARD routing seam: decides whether one persisted question
+  /// may use the legacy AI answer entry, by real `storageId`. Fail-closed.
+  final AiAnswerEntryGuard answerEntryGuard;
 
   /// Application authority for every production Exam write.
   final ExamMutationCommand examMutationCommand;
@@ -88,6 +94,7 @@ class AiDependenciesScope extends InheritedWidget {
         !identical(
             answerGenerationService, oldWidget.answerGenerationService) ||
         !identical(answerCommitCommand, oldWidget.answerCommitCommand) ||
+        !identical(answerEntryGuard, oldWidget.answerEntryGuard) ||
         !identical(examMutationCommand, oldWidget.examMutationCommand) ||
         !identical(
           photoAnswerJudgement,

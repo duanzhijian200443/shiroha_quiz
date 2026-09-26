@@ -15,6 +15,7 @@ import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_commit_command.dart';
+import 'package:shiroha_quiz/application/answers/ai_answer_entry_guard.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_generation.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_provider.dart';
 import 'package:shiroha_quiz/application/ai_config/ai_config_service.dart';
@@ -180,6 +181,10 @@ void main() {
         answerGenerationService: answerGeneration,
         answerCommitCommand: AiAnswerCommitCommand(
           persistencePort: _UnusedAiAnswerCommitPersistence(),
+        ),
+        answerEntryGuard: AiAnswerEntryGuard(
+          questionPort: _UnusedStudyQuestionQuery(),
+          clock: () => DateTime.utc(2026, 9, 12),
         ),
         examMutationCommand: ExamMutationCommand(
           _UnusedExamMutationPersistence(),

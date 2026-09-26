@@ -24,6 +24,7 @@ import 'application/agent/agent_turn.dart';
 import 'application/agent/agent_write_proposal_tool_dispatcher.dart';
 import 'application/agent/agent_retrieval_tool.dart';
 import 'application/answers/ai_answer_commit_command.dart';
+import 'application/answers/ai_answer_entry_guard.dart';
 import 'application/answers/ai_answer_generation.dart';
 import 'application/questions/folder_query_port.dart';
 import 'application/questions/question_bank_mutation_command.dart';
@@ -346,6 +347,12 @@ void main() {
             databaseHelper: databaseHelper,
             mapper: productionQuestionMapper,
           ),
+        );
+        // ANSWER-ENTRY-GUARD: the legacy editor AI entry classifies its target
+        // through the same typed-aware Application read the P7 seam uses.
+        final answerEntryGuard = AiAnswerEntryGuard(
+          questionPort: questionRepository,
+          clock: () => DateTime.now().toUtc(),
         );
         // Agent candidates resolve directly from the Provider / Model
         // Registry (the model-asset authority), not the legacy projection.
@@ -701,6 +708,7 @@ void main() {
             importCommitService: importCommitService,
             answerGenerationService: answerGenerationService,
             answerCommitCommand: answerCommitCommand,
+            answerEntryGuard: answerEntryGuard,
             examMutationCommand: examMutationCommand,
             photoAnswerJudgement: photoAnswerJudgement,
             photoAnswerSubmission: photoAnswerSubmission,
@@ -761,6 +769,7 @@ class ShirohaQuizApp extends StatelessWidget {
     this.importCommitService,
     required this.answerGenerationService,
     required this.answerCommitCommand,
+    required this.answerEntryGuard,
     required this.examMutationCommand,
     required this.photoAnswerJudgement,
     this.photoAnswerSubmission,
@@ -802,6 +811,9 @@ class ShirohaQuizApp extends StatelessWidget {
   /// P7 Application seams for the AI answer review UI.
   final AiAnswerGenerationService answerGenerationService;
   final AiAnswerCommitCommand answerCommitCommand;
+
+  /// ANSWER-ENTRY-GUARD routing seam for the legacy editor AI entry.
+  final AiAnswerEntryGuard answerEntryGuard;
   final ExamMutationCommand examMutationCommand;
   final PhotoAnswerJudgementPort photoAnswerJudgement;
   final PhotoAnswerSubmissionCommand? photoAnswerSubmission;
@@ -904,6 +916,7 @@ class ShirohaQuizApp extends StatelessWidget {
           importTargetCatalogService: importTargetCatalogService,
           answerGenerationService: answerGenerationService,
           answerCommitCommand: answerCommitCommand,
+          answerEntryGuard: answerEntryGuard,
           examMutationCommand: examMutationCommand,
           photoAnswerJudgement: photoAnswerJudgement,
           photoAnswerSubmission: photoAnswerSubmission,
