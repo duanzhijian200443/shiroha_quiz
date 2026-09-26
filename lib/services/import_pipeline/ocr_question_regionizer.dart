@@ -258,9 +258,11 @@ class OcrQuestionRegionizer {
   /// Bounded numeric question range inside a section heading, for example
   /// `一、选择题(1〜8小题，每小题4分，共32分)`. Only the exact
   /// `start<separator>end小题` token is recognised: a bare `1-8` or any other
-  /// number pair in body text is never a section range.
+  /// number pair in body text is never a section range. A provider LaTeX
+  /// rendering (`（$17\sim 22$小题，共70分）`) is the same token behind an
+  /// optional math wrapper.
   static final RegExp _sectionQuestionRangeRegex = RegExp(
-    r'([0-9０-９]{1,3})\s*[〜～\-－—]\s*([0-9０-９]{1,3})\s*小题',
+    r'\$?\s*([0-9０-９]{1,3})\s*(?:[〜～\-－—]|\\sim)\s*([0-9０-９]{1,3})\s*\$?\s*小题',
   );
 
   /// Separators that may join the range token with the following instruction
@@ -472,11 +474,35 @@ class OcrQuestionRegionizer {
       return previous == null ? 'no_sequence_evidence' : 'sequence_mismatch';
     }
 
+    /// Recovers a provider-dropped leading digit on a marker (`3)` printed in
+    /// the slot of `13`). Recovery needs three independent facts: the seen
+    /// number was already accepted, so it is a backwards duplicate and not the
+    /// sequence itself; the next number of the accepted sequence ends with the
+    /// seen digits; and that next number lies inside the current section's
+    /// declared range. Nothing is inferred about a marker outside that window.
+    int? leadingDigitRecoveredNumber(int seenNumber) {
+      final previous = previousAcceptedNumber();
+      if (previous == null) return null;
+
+      final expected = previous + 1;
+      if (seenNumber >= expected) return null;
+      if (!confirmedAcceptedNumbers.contains(seenNumber)) return null;
+
+      final rangeStart = currentSectionRangeStart;
+      final rangeEnd = currentSectionRangeEnd;
+      if (rangeStart == null || rangeEnd == null) return null;
+      if (expected < rangeStart || expected > rangeEnd) return null;
+      if (!expected.toString().endsWith(seenNumber.toString())) return null;
+
+      return expected;
+    }
+
     void startQuestion({
       required int number,
       required _OcrTextUnit unit,
       required String markerKind,
       required String remainingText,
+      int? recoveredFromNumber,
     }) {
       final previous = previousAcceptedNumber();
       finishCurrent();
@@ -530,7 +556,9 @@ class OcrQuestionRegionizer {
         unit: unit,
         markerKind: markerKind,
         decision: 'accepted',
-        reason: 'valid_question_start',
+        reason: recoveredFromNumber == null
+            ? 'valid_question_start'
+            : 'valid_question_start_leading_digit_recovered:$recoveredFromNumber',
         previousAcceptedNumber: previous,
         sectionIndex: currentSectionIndex,
       );
@@ -658,8 +686,11 @@ class OcrQuestionRegionizer {
       if (parenthesizedMarker != null) {
         recordQuestionCandidate(unit);
         parenthesizedArabicCandidateCount++;
+        final recoveredNumber =
+            leadingDigitRecoveredNumber(parenthesizedMarker.number);
+        final resolvedNumber = recoveredNumber ?? parenthesizedMarker.number;
         final rejectionReason = candidateRejectionReason(
-          number: parenthesizedMarker.number,
+          number: resolvedNumber,
           requiresSectionContext: true,
         );
 
@@ -667,10 +698,12 @@ class OcrQuestionRegionizer {
           parenthesizedArabicAcceptedCount++;
           sequenceAcceptedCount++;
           startQuestion(
-            number: parenthesizedMarker.number,
+            number: resolvedNumber,
             unit: unit,
             markerKind: 'parenthesized_arabic',
             remainingText: parenthesizedMarker.remainingText,
+            recoveredFromNumber:
+                recoveredNumber == null ? null : parenthesizedMarker.number,
           );
           continue;
         }
@@ -694,18 +727,25 @@ class OcrQuestionRegionizer {
       if (rightParenthesizedMarker != null) {
         recordQuestionCandidate(unit);
         rightParenthesisCandidateCount++;
+        final recoveredNumber =
+            leadingDigitRecoveredNumber(rightParenthesizedMarker.number);
+        final resolvedNumber =
+            recoveredNumber ?? rightParenthesizedMarker.number;
         final rejectionReason = rightParenthesizedRejectionReason(
-          number: rightParenthesizedMarker.number,
+          number: resolvedNumber,
         );
 
         if (rejectionReason == null) {
           rightParenthesisAcceptedCount++;
           sequenceAcceptedCount++;
           startQuestion(
-            number: rightParenthesizedMarker.number,
+            number: resolvedNumber,
             unit: unit,
             markerKind: 'right_parenthesized_arabic',
             remainingText: rightParenthesizedMarker.remainingText,
+            recoveredFromNumber: recoveredNumber == null
+                ? null
+                : rightParenthesizedMarker.number,
           );
           continue;
         }

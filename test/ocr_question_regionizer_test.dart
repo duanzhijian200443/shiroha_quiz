@@ -3042,6 +3042,151 @@ void main() {
       );
     });
 
+    test('a LaTeX math range heading keeps its declared window', () {
+      var order = 0;
+      OcrBlock next(String id, String text) => block(id, text, order++);
+
+      final result = const OcrQuestionRegionizer().regionize(document([
+        next('heading_1', '一、选择题(1〜2小题，每小题5分，共10分)'),
+        next('q_1', '（1）Synthetic one。'),
+        next('q_2', '（2）Synthetic two。'),
+        next('heading_2', '二、填空题（3〜4小题，每小题5分，共10分）'),
+        next('q_3', '3）Synthetic three ____。'),
+        next('q_4', '4）Synthetic four ____。'),
+        // The provider returns this heading's range as inline LaTeX math.
+        next('heading_3', '## 三、解答题（\$5\\sim 6\$小题，共10分）'),
+        next('q_5', '（5）Synthetic five。'),
+        next('q_6', '（6）Synthetic six。'),
+        next('body', '设函数 \$7\\sim 8\$ 小题成立。'),
+      ]));
+
+      expect(result.diagnostics['sectionHeadingCount'], 3);
+      final sections = (result.diagnostics['sections'] as List).cast<Map>();
+      expect(
+        sections.map((section) => section['kind']),
+        ['choice', 'fillBlank', 'subjective'],
+      );
+      expect(
+        sections.map((section) => section['expectedSectionQuestionCount']),
+        [2, 2, 2],
+      );
+      expect(sections[2]['rangeStart'], 5);
+      expect(sections[2]['rangeEnd'], 6);
+      expect(result.diagnostics['acceptedNumbers'], [1, 2, 3, 4, 5, 6]);
+      expect(result.diagnostics['expectedQuestionCount'], 6);
+      expect(
+        result.regions
+            .where((region) => region.number >= 5)
+            .map((region) => region.declaredKind),
+        everyElement(TextQuestionKind.subjective),
+      );
+    });
+
+    test(
+        'a dropped leading digit marker is recovered inside the declared window',
+        () {
+      var order = 0;
+      OcrBlock next(String id, String text) => block(id, text, order++);
+      // Faithful to the real 2021 trace: 13-16 reached the regionizer as
+      // `(3)`/`4)`/`5)`/`(6)` because the provider dropped the leading `1`.
+      final blocks = <OcrBlock>[
+        next('heading_1', '一、选择题(1〜10小题，每小题5分，共50分)'),
+        for (var number = 1; number <= 10; number++)
+          next('q_$number', '（$number）Synthetic stem $number。'),
+        next('heading_2', '二、填空题（11〜16小题，每小题5分，共30分）'),
+        next('q_11', '11）Synthetic stem eleven ____。'),
+        next('q_12', '12）Synthetic stem twelve ____。'),
+        next('q_13', '(3) Synthetic stem thirteen ____。'),
+        next('q_14', '4) Synthetic stem fourteen ____。'),
+        next('q_15', '5) Synthetic stem fifteen ____。'),
+        next('q_16', '(6) Synthetic stem sixteen ____。'),
+        next('heading_3', '## 三、解答题（\$17\\sim 22\$小题，共70分）'),
+        for (var number = 17; number <= 22; number++)
+          next('q_$number', '（$number）Synthetic stem $number。'),
+      ];
+
+      final result = const OcrQuestionRegionizer().regionize(document(blocks));
+
+      expect(result.diagnostics['sectionHeadingCount'], 3);
+      expect(
+        result.diagnostics['acceptedNumbers'],
+        List<int>.generate(22, (index) => index + 1),
+      );
+      expect(result.diagnostics['expectedQuestionCount'], 22);
+      expect(result.diagnostics['sequenceRejectedCount'], 0);
+
+      final trace =
+          (result.diagnostics['questionCandidateTrace'] as List).cast<Map>();
+      final recovered = trace
+          .where((entry) => (entry['reason'] as String)
+              .startsWith('valid_question_start_leading_digit_recovered:'))
+          .toList();
+      expect(
+        recovered.map((entry) => entry['number']).toList(),
+        [13, 14, 15, 16],
+      );
+
+      TextQuestionKind kindFor(int number) => result.regions
+          .singleWhere((region) => region.number == number)
+          .declaredKind;
+      expect(
+        [for (var number = 1; number <= 10; number++) kindFor(number)],
+        everyElement(TextQuestionKind.choice),
+      );
+      expect(
+        [for (var number = 11; number <= 16; number++) kindFor(number)],
+        everyElement(TextQuestionKind.fillBlank),
+      );
+      expect(
+        [for (var number = 17; number <= 22; number++) kindFor(number)],
+        everyElement(TextQuestionKind.subjective),
+      );
+    });
+
+    test('leading digit recovery never fires without its three anchors', () {
+      // (a) the expected next number does not end with the seen digits
+      final noSuffix = const OcrQuestionRegionizer().regionize(document([
+        block('heading', '一、选择题(1〜5小题，每小题5分，共25分)', 0),
+        block('q_1', '（1）Synthetic one。', 1),
+        block('q_2', '（2）Synthetic two。', 2),
+        block('q_3', '（3）Synthetic three。', 3),
+        block('q_dup', '（3）Synthetic duplicate。', 4),
+      ]));
+      expect(noSuffix.diagnostics['acceptedNumbers'], [1, 2, 3]);
+      expect(noSuffix.diagnostics['sequenceRejectedCount'], 1);
+
+      // (b) the seen number was never accepted in this document
+      final neverAccepted = const OcrQuestionRegionizer().regionize(document([
+        block('heading_1', '一、选择题(1〜10小题，每小题5分，共50分)', 0),
+        block('q_1', '（1）Synthetic one。', 1),
+        block('heading_2', '二、填空题（11〜16小题，每小题5分，共30分）', 2),
+        block('q_11', '11）Synthetic eleven ____。', 3),
+        block('q_12', '12）Synthetic twelve ____。', 4),
+        block('q_13', '13）Synthetic thirteen ____。', 5),
+        block('q_14', '14）Synthetic fourteen ____。', 6),
+        block('q_15', '15）Synthetic fifteen ____。', 7),
+        block('q_4', '(4) Synthetic four ____。', 8),
+      ]));
+      expect(
+        neverAccepted.diagnostics['acceptedNumbers'],
+        [1, 11, 12, 13, 14, 15],
+      );
+      expect(neverAccepted.diagnostics['sequenceRejectedCount'], 1);
+
+      // (c) the expected number is outside the section's declared window
+      final outsideWindow = const OcrQuestionRegionizer().regionize(document([
+        block('heading_1', '一、选择题(1〜10小题，每小题5分，共50分)', 0),
+        block('q_1', '（1）Synthetic one。', 1),
+        block('heading_2', '二、填空题（11〜13小题，共15分）', 2),
+        block('q_11', '11）Synthetic eleven ____。', 3),
+        block('q_12', '12）Synthetic twelve ____。', 4),
+        block('q_13', '13）Synthetic thirteen ____。', 5),
+        block('q_4', '(4) Synthetic four ____。', 6),
+      ]));
+      expect(outsideWindow.diagnostics['acceptedNumbers'], [1, 11, 12, 13]);
+      expect(outsideWindow.diagnostics['sequenceRejectedCount'], 1);
+    });
+
     test(
         'a two-symbol drifted ordinal is tolerated while unsupported shapes are not',
         () {
