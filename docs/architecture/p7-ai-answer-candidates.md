@@ -492,3 +492,12 @@ Documentation authority:
   Supplemental-origin invariants;
 - `docs/architecture/shiroha-project-roadmap.md` — stage ordering and current
   status.
+## ANSWER-COMP-P0 planned Presentation activation amendment
+
+The future Answer Completion queue defined by `docs/architecture/answer-completion-question-sets.md` may expose the existing single-question P7 flow for valid typed missing-answer targets. It reuses `AiAnswerGenerationService.generateForQuestion(storageId)`, producer-neutral Candidate/Review, cancellation/epoch, stale/CAS, and replacement reconfirmation.
+
+P7 remains answer-only. This amendment does not authorize batch AI, AI explanation persistence, or another Candidate/Review system.
+
+Before that surface depends on legacy editing routes, `ANSWER-ENTRY-GUARD` must guarantee that typed questions make **zero calls** through the legacy `QuestionEditScreen._askAi()` / `answerSingleQuestion` provider path, while valid legacy questions retain their existing answer+explanation flow.
+
+This is a P0 design freeze; no runtime P7 behavior changes here.
