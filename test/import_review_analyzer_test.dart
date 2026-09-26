@@ -73,7 +73,7 @@ void main() {
       expect(res.summary.qualityScore, 95); // 100 - 5
     });
 
-    test('A placeholder assumption warns while hypothesis-testing stems do not',
+    test('A placeholder assumption warns while ordinary 假设 phrasing does not',
         () {
       final placeholder = ImportReviewAnalyzer.analyze([
         QuestionDraft(
@@ -100,6 +100,20 @@ void main() {
         ),
         QuestionDraft(
           content: '假设随机变量 X 与 Y 相互独立，则（ ）。',
+          type: QuestionType.shortAnswer,
+          options: const [],
+          explanation: '',
+          standardAnswer: 'B',
+        ),
+        QuestionDraft(
+          content: '假设略去高阶项，则（ ）。',
+          type: QuestionType.shortAnswer,
+          options: const [],
+          explanation: '',
+          standardAnswer: 'B',
+        ),
+        QuestionDraft(
+          content: '假设待补偿量记为 ε，则（ ）。',
           type: QuestionType.shortAnswer,
           options: const [],
           explanation: '',

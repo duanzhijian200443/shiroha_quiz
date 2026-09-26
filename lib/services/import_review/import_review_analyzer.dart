@@ -15,13 +15,15 @@ class ImportReviewAnalyzerResult {
 }
 
 class ImportReviewAnalyzer {
-  /// A leaked model placeholder reads as `假设XXX` / `假设题干内容` / `假设这道题…`:
-  /// the word `假设` followed by a placeholder token or by the model talking
-  /// about the question instead of writing it. The bare word is ordinary exam
-  /// vocabulary (`假设检验`, `假设随机变量`), so only the adjacent form is
-  /// reported.
+  /// A leaked model placeholder reads as `假设XXX` / `假设题干内容` /
+  /// `假设这道题…`: the word `假设` followed by a placeholder marker (an `XX`
+  /// run, an ellipsis) or by the model talking about the question instead of
+  /// writing it. The bare word is ordinary exam vocabulary (`假设检验`,
+  /// `假设随机变量`), and so are ordinary continuations such as `假设略去…`,
+  /// `假设待补偿…` or `假设内容为…`, so only the placeholder markers and the
+  /// self-referential phrases below are reported.
   static final RegExp _aiPlaceholderAssumptionRegex = RegExp(
-    r'假设\s*(?:[XＸ]{2,}|……|\.{3,}|略|待补|占位|内容|题干|原文|这道题|这题|此题)',
+    r'假设\s*(?:[XＸ]{2,}|……|\.{3,}|题干|原文|占位|这道题|这题|此题)',
   );
 
   static ImportReviewAnalyzerResult analyze(List<QuestionDraft> drafts) {
