@@ -1900,7 +1900,7 @@ void main() {
       name: 'no question regions',
       status: 'failed_no_question_regions',
       expectedType: 'OcrNoQuestionRegionsFailure',
-      expectedMessage: 'OCR 已返回文字，但未识别到有效题目区域',
+      expectedMessage: 'OCR 已返回内容，但未识别到有效题目区域',
     ),
     const _EmptyOcrFailureCase(
       name: 'no assembled questions',
@@ -1993,6 +1993,312 @@ void main() {
       }
     });
   }
+
+  test('empty OCR result keeps bounded regionizer counters on the failure',
+      () async {
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      parser: (request) async => ImportParseResult(
+        questions: const <Map<String, dynamic>>[],
+        warnings: <String>[_sensitiveFailureText],
+        diagnostics: <String, dynamic>{
+          'ocr_import_file_0': <String, dynamic>{
+            'status': 'failed_no_question_regions',
+            'document': <String, dynamic>{
+              'sourceName': _sensitiveFailureText,
+              'pageCount': 1,
+              'blockCount': 1,
+              'hasMarkdown': true,
+              'usage': <String, dynamic>{'total_tokens': 12},
+              'pages': <Object?>[_sensitiveFailureText],
+            },
+            'unsupportedStructureSummary': <String, dynamic>{
+              'imageBlockCount': 1,
+              'tableBlockCount': 0,
+            },
+            'regionizer': <String, dynamic>{
+              'sourceName': _sensitiveFailureText,
+              'unitCount': 1,
+              'regionCount': 0,
+              'sectionHeadingCount': 0,
+              'blockStartCandidateCount': 0,
+              'internalLineCandidateCount': 0,
+              'parenthesizedArabicCandidateCount': 0,
+              'rightParenthesisCandidateCount': 1,
+              'rightParenthesisAcceptedCount': 0,
+              'rightParenthesisRejectedCount': 1,
+              'sequenceRejectedCount': 0,
+              'referenceSectionDetected': false,
+              'ignoredBlockIds': <String>[_sensitiveFailureText],
+              'rejectedQuestionStarts': <String>[
+                _sensitiveFailureText,
+                _sensitiveFailureText,
+              ],
+              'markerProbeTrace': <Object?>[_sensitiveFailureText],
+            },
+          },
+        },
+      ),
+      taskIdFactory: () => 'task-bounded-counters',
+      traceIdFactory: () => 'trace-bounded-counters',
+    );
+
+    final handle = await coordinator.dispatchRequest(
+      sourceDescription: r'C:\private\fixture.pdf',
+      filePaths: const <String>['fixture.pdf'],
+      fileNames: const <String>['fixture.pdf'],
+      mode: ImportParseMode.ocr,
+      maxConcurrency: 1,
+    );
+    final task = await _waitForTask(
+      manager,
+      handle.taskId,
+      (task) => task.status == TaskStatus.error,
+    );
+    await AppLogger.flush();
+
+    expect(task.errorMsg, 'OCR 已返回内容，但未识别到有效题目区域');
+    expect(task.diagnostics?['status'], 'failed_no_question_regions');
+    expect(task.diagnostics?['errorType'], 'OcrNoQuestionRegionsFailure');
+
+    final bounded = task.diagnostics?['ocrRegionizer'] as Map<String, dynamic>?;
+    expect(bounded, isNotNull);
+    expect(bounded!['pageCount'], 1);
+    expect(bounded['blockCount'], 1);
+    expect(bounded['imageBlockCount'], 1);
+    expect(bounded['tableBlockCount'], 0);
+    expect(bounded['unitCount'], 1);
+    expect(bounded['regionCount'], 0);
+    expect(bounded['sectionHeadingCount'], 0);
+    expect(bounded['blockStartCandidateCount'], 0);
+    expect(bounded['internalLineCandidateCount'], 0);
+    expect(bounded['parenthesizedArabicCandidateCount'], 0);
+    expect(bounded['rightParenthesisCandidateCount'], 1);
+    expect(bounded['rightParenthesisRejectedCount'], 1);
+    expect(bounded['referenceSectionDetected'], isFalse);
+    expect(bounded['rejectedQuestionStartCount'], 2);
+    expect(bounded.containsKey('ignoredBlockIds'), isFalse);
+    expect(bounded.containsKey('sourceName'), isFalse);
+
+    final persisted = jsonEncode(task.toMap());
+    final logs = jsonEncode(
+      logSink.records.map((record) => record.toJson()).toList(),
+    );
+    for (final fragment in _sensitiveFragments) {
+      expect(persisted, isNot(contains(fragment)));
+      expect(logs, isNot(contains(fragment)));
+    }
+  });
+
+  test('bounded OCR traces are capped and keep only whitelisted fields',
+      () async {
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      parser: (request) async => ImportParseResult(
+        questions: const <Map<String, dynamic>>[],
+        warnings: const <String>[],
+        diagnostics: <String, dynamic>{
+          'ocr_import_file_0': <String, dynamic>{
+            'status': 'failed_no_question_regions',
+            'regionizer': <String, dynamic>{
+              'unitCount': 25,
+              'regionCount': 0,
+              'markerProbeTrace': <Map<String, dynamic>>[
+                for (var index = 0; index < 25; index++)
+                  <String, dynamic>{
+                    'markerShape': 'digit_prefix_unrecognized',
+                    'followerClass': 'stem_keyword',
+                    'probeReason': 'block_start_not_candidate',
+                    'startsAtBlockStart': true,
+                    'startsAtLineBoundary': true,
+                    'parsedNumber': index + 1,
+                    'text': _sensitiveFailureText,
+                    'blockId': 'block_$index',
+                    'remainingText': _sensitiveFailureText,
+                  },
+              ],
+              'questionCandidateTrace': <Map<String, dynamic>>[
+                for (var index = 0; index < 25; index++)
+                  <String, dynamic>{
+                    'number': index + 1,
+                    'markerKind': 'right_parenthesized_arabic',
+                    'decision': 'rejected',
+                    'reason': 'missing_section_context',
+                    'previousAcceptedNumber': index,
+                    'sectionIndex': 0,
+                    'blockOrder': index,
+                    'text': _sensitiveFailureText,
+                  },
+              ],
+            },
+          },
+        },
+      ),
+      taskIdFactory: () => 'task-bounded-traces',
+      traceIdFactory: () => 'trace-bounded-traces',
+    );
+
+    final handle = await coordinator.dispatchRequest(
+      sourceDescription: r'C:\private\fixture.pdf',
+      filePaths: const <String>['fixture.pdf'],
+      fileNames: const <String>['fixture.pdf'],
+      mode: ImportParseMode.ocr,
+      maxConcurrency: 1,
+    );
+    final task = await _waitForTask(
+      manager,
+      handle.taskId,
+      (task) => task.status == TaskStatus.error,
+    );
+
+    final bounded = task.diagnostics?['ocrRegionizer'] as Map<String, dynamic>?;
+    expect(bounded, isNotNull);
+
+    const probeKeys = <String>{
+      'markerShape',
+      'followerClass',
+      'probeReason',
+      'startsAtBlockStart',
+      'startsAtLineBoundary',
+      'parsedNumber',
+    };
+    final probes = bounded!['markerProbeTrace'] as List;
+    expect(probes, hasLength(20));
+    expect(bounded['markerProbeTraceTruncated'], isTrue);
+    for (final probe in probes) {
+      expect(
+        (probe as Map).keys.where((key) => !probeKeys.contains(key)),
+        isEmpty,
+      );
+    }
+    expect((probes.first as Map)['parsedNumber'], 1);
+    expect((probes.last as Map)['parsedNumber'], 20);
+
+    const candidateKeys = <String>{
+      'number',
+      'markerKind',
+      'decision',
+      'reason',
+      'previousAcceptedNumber',
+      'sectionIndex',
+    };
+    final candidates = bounded['questionCandidateTrace'] as List;
+    expect(candidates, hasLength(20));
+    expect(bounded['questionCandidateTraceTruncated'], isTrue);
+    for (final candidate in candidates) {
+      expect(
+        (candidate as Map).keys.where((key) => !candidateKeys.contains(key)),
+        isEmpty,
+      );
+    }
+    expect((candidates.first as Map)['reason'], 'missing_section_context');
+    expect((candidates.last as Map)['number'], 20);
+
+    final persisted = jsonEncode(task.toMap());
+    for (final fragment in _sensitiveFragments) {
+      expect(persisted, isNot(contains(fragment)));
+    }
+    expect(persisted, isNot(contains('blockId')));
+    expect(persisted, isNot(contains('remainingText')));
+    expect(persisted, isNot(contains('blockOrder')));
+  });
+
+  test('bounded OCR failure diagnostics never persist content or names',
+      () async {
+    final coordinator = ImportTaskCoordinator(
+      taskManager: manager,
+      readiness: Future<void>.value(),
+      parser: (request) async => ImportParseResult(
+        questions: const <Map<String, dynamic>>[],
+        warnings: const <String>[],
+        diagnostics: <String, dynamic>{
+          'ocr_import_file_0': <String, dynamic>{
+            'status': 'failed_no_question_regions',
+            'document': <String, dynamic>{
+              'sourceName': r'C:\private\fixture.pdf',
+              'pageCount': 2,
+              'blockCount': 3,
+              'hasMarkdown': true,
+              'markdown': 'OCR-SENSITIVE-CONTENT',
+              'usage': <String, dynamic>{},
+              'pages': <Object?>[
+                <String, dynamic>{'blockCount': 3, 'text': 'PRIVATE'},
+              ],
+            },
+            'regionizer': <String, dynamic>{
+              'sourceName': r'C:\private\fixture.pdf',
+              'unitCount': 3,
+              'regionCount': 0,
+              'sectionHeadingCount': 0,
+              'rejectedQuestionStarts': <String>['block_0001'],
+              'markerProbeTrace': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'markerShape': 'digit_prefix_unrecognized',
+                  'followerClass': 'stem_keyword',
+                  'probeReason': 'block_start_not_candidate',
+                  'startsAtBlockStart': true,
+                  'startsAtLineBoundary': true,
+                  'parsedNumber': 4,
+                  'text': 'OCR-SENSITIVE-CONTENT',
+                  'blockId': 'block_0001',
+                },
+              ],
+            },
+            'rawResponses': <Object?>[
+              <String, dynamic>{'rawResponse': 'PRIVATE'},
+            ],
+            'rawResponse': 'Authorization: Bearer fixture-token',
+          },
+        },
+      ),
+      taskIdFactory: () => 'task-privacy-gate',
+      traceIdFactory: () => 'trace-privacy-gate',
+    );
+
+    final handle = await coordinator.dispatchRequest(
+      sourceDescription: r'C:\private\fixture.pdf',
+      filePaths: const <String>['fixture.pdf'],
+      fileNames: const <String>['fixture.pdf'],
+      mode: ImportParseMode.ocr,
+      maxConcurrency: 1,
+    );
+    final task = await _waitForTask(
+      manager,
+      handle.taskId,
+      (task) => task.status == TaskStatus.error,
+    );
+    await AppLogger.flush();
+
+    final bounded = task.diagnostics?['ocrRegionizer'] as Map<String, dynamic>?;
+    expect(bounded, isNotNull);
+    expect(bounded!['pageCount'], 2);
+    expect(bounded['blockCount'], 3);
+    expect(bounded['unitCount'], 3);
+    expect(bounded['regionCount'], 0);
+    expect(bounded['rejectedQuestionStartCount'], 1);
+    final probes = bounded['markerProbeTrace'] as List;
+    expect(probes, hasLength(1));
+    expect((probes.single as Map)['markerShape'], 'digit_prefix_unrecognized');
+    expect((probes.single as Map)['parsedNumber'], 4);
+
+    final persisted = jsonEncode(task.toMap());
+    final logs = jsonEncode(
+      logSink.records.map((record) => record.toJson()).toList(),
+    );
+    for (final fragment in _sensitiveFragments) {
+      expect(task.errorMsg, isNot(contains(fragment)));
+      expect(persisted, isNot(contains(fragment)));
+      expect(logs, isNot(contains(fragment)));
+    }
+    expect(persisted, isNot(contains('sourceName')));
+    expect(persisted, isNot(contains('rawResponses')));
+    expect(persisted, isNot(contains('blockId')));
+    expect(persisted, isNot(contains('markdown')));
+    expect(persisted, isNot(contains('"text"')));
+    expect(persisted, isNot(contains(r'C:\private')));
+  });
 
   test('default parser span keeps failure details out of logs and task data',
       () async {

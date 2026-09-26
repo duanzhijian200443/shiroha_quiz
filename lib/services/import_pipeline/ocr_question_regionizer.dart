@@ -208,6 +208,15 @@ class OcrQuestionRegionizer {
     r'^\s*(?:（([0-9０-９]{1,3})）|\(([0-9０-９]{1,3})\))\s*([\s\S]*)$',
   );
 
+  /// Single-sided marker shape `4）` / `4)`. It is matched against the raw unit
+  /// text (never the markdown-normalised text) so a line that only *normalises*
+  /// to the marker cannot promote its body, and its acceptance stays behind the
+  /// restricted section/sequence rules. The digits must be followed immediately
+  /// by the bracket: `10) kg` is a candidate, `1 0)` is not.
+  static final RegExp _rightParenthesizedArabicMarkerRegex = RegExp(
+    r'^[ \t]*([0-9０-９]{1,3})[）)]\s*([\s\S]*)$',
+  );
+
   static final RegExp _romanSubquestionRegex = RegExp(
     r'^\s*(?:（[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+）|\([ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\))',
   );
@@ -246,6 +255,39 @@ class OcrQuestionRegionizer {
     r'(?:本题\s*)?共\s*([0-9０-９]{1,3})\s*(?:小题|题)',
   );
 
+  /// Bounded numeric question range inside a section heading, for example
+  /// `一、选择题(1〜8小题，每小题4分，共32分)`. Only the exact
+  /// `start<separator>end小题` token is recognised: a bare `1-8` or any other
+  /// number pair in body text is never a section range. A provider LaTeX
+  /// rendering (`（$17\sim 22$小题，共70分）`) is the same token behind an
+  /// optional math wrapper.
+  static final RegExp _sectionQuestionRangeRegex = RegExp(
+    r'\$?\s*([0-9０-９]{1,3})\s*(?:[〜～\-－—]|\\sim)\s*([0-9０-９]{1,3})\s*\$?\s*小题',
+  );
+
+  /// Separators that may join the range token with the following instruction
+  /// clause (`1〜8小题，每小题4分`). Punctuation only: it carries no meaning.
+  static final RegExp _sectionInstructionSeparatorRegex =
+      RegExp(r'^[，,、；;。.\s]+');
+
+  /// Section ordinal in the frozen Chinese-numeral form (`一、选择题`).
+  static final RegExp _sectionNumeralPrefixRegex = RegExp(
+    r'^([一二三四五六七八九十]+)[、,，\.．]?(.*)$',
+  );
+
+  /// Provider glyph drift in the ordinal slot: a real 2020 scan returns the
+  /// section ordinal as placeholder symbols (`■、填空题（9〜14小题…）`) instead
+  /// of a Chinese numeral. The tolerated shape stays deliberately tight - at
+  /// most two symbol characters, never a letter and never a digit, always
+  /// followed by the ordinal delimiter - and the frozen label plus the strict
+  /// suffix grammar still have to match. A delimiter-less drift is not covered.
+  /// The ordinal itself remains unknown: a drifted heading never invents a
+  /// section position and is reported as `ordinalDrifted` instead.
+  static final RegExp _sectionDriftedOrdinalPrefixRegex = RegExp(
+    r'^([^\p{L}\p{N}]{1,2})[、,，\.．](.*)$',
+    unicode: true,
+  );
+
   OcrQuestionRegionizerResult regionize(OcrDocument document) {
     final units = <_OcrTextUnit>[];
     for (final block in document.flattenedBlocks) {
@@ -269,10 +311,16 @@ class OcrQuestionRegionizer {
     var romanSubquestionCount = 0;
     var sequenceAcceptedCount = 0;
     var sequenceRejectedCount = 0;
+    var rightParenthesisCandidateCount = 0;
+    var rightParenthesisAcceptedCount = 0;
+    var rightParenthesisRejectedCount = 0;
 
     _MutableRegion? current;
     var currentField = OcrRegionField.stem;
     var currentSectionKind = TextQuestionKind.unknown;
+    int? currentSectionRangeStart;
+    int? currentSectionRangeEnd;
+    var currentSectionAcceptedCount = 0;
     final confirmedAcceptedNumbers = <int>[];
     var highestOfficialSectionOrdinal = 0;
     var currentSectionIsReference = false;
@@ -403,17 +451,72 @@ class OcrQuestionRegionizer {
       return null;
     }
 
+    /// Restricted acceptance for the single-sided `N）`/`N)` marker.
+    ///
+    /// The shape alone is never enough: a year note or a unit label in body
+    /// text must not become a question. Acceptance requires a known,
+    /// non-reference section plus one of two sequence anchors: the next number
+    /// of the accepted sequence, or - while the current section has accepted
+    /// nothing yet - the exact range start its heading declared.
+    String? rightParenthesizedRejectionReason({required int number}) {
+      if (currentSectionIsReference) return 'reference_section';
+      if (currentSectionKind == TextQuestionKind.unknown) {
+        return 'missing_section_context';
+      }
+
+      final previous = previousAcceptedNumber();
+      if (previous != null && number == previous + 1) return null;
+      if (currentSectionAcceptedCount == 0 &&
+          currentSectionRangeStart != null &&
+          number == currentSectionRangeStart) {
+        return null;
+      }
+      return previous == null ? 'no_sequence_evidence' : 'sequence_mismatch';
+    }
+
+    /// Recovers a provider-dropped leading `1` on a marker (`3)` printed in the
+    /// slot of `13`). Recovery needs four independent facts: the marker starts
+    /// its block, so it is a top-level line and not a sub-question line inside
+    /// one; the seen number was already accepted, so it is a backwards
+    /// duplicate and not the sequence itself; the next number of the accepted
+    /// sequence is exactly the seen digits behind one leading `1` (the observed
+    /// provider loss, `13` -> `3`); and that next number lies inside the
+    /// current section's declared range. Nothing else is inferred.
+    int? leadingDigitRecoveredNumber(
+      int seenNumber, {
+      required bool startsAtBlockStart,
+    }) {
+      if (!startsAtBlockStart) return null;
+
+      final previous = previousAcceptedNumber();
+      if (previous == null) return null;
+
+      final expected = previous + 1;
+      if (expected != int.parse('1$seenNumber')) return null;
+      if (!confirmedAcceptedNumbers.contains(seenNumber)) return null;
+
+      final rangeStart = currentSectionRangeStart;
+      final rangeEnd = currentSectionRangeEnd;
+      if (rangeStart == null || rangeEnd == null) return null;
+      if (expected < rangeStart || expected > rangeEnd) return null;
+
+      return expected;
+    }
+
     void startQuestion({
       required int number,
       required _OcrTextUnit unit,
       required String markerKind,
       required String remainingText,
+      int? recoveredFromNumber,
     }) {
       final previous = previousAcceptedNumber();
       finishCurrent();
       final kindInfo = _kindForQuestionNumber(
         number,
         currentSectionKind: currentSectionKind,
+        sectionRangeStart: currentSectionRangeStart,
+        sectionRangeEnd: currentSectionRangeEnd,
       );
       current = _MutableRegion(
         number,
@@ -459,11 +562,14 @@ class OcrQuestionRegionizer {
         unit: unit,
         markerKind: markerKind,
         decision: 'accepted',
-        reason: 'valid_question_start',
+        reason: recoveredFromNumber == null
+            ? 'valid_question_start'
+            : 'valid_question_start_leading_digit_recovered:$recoveredFromNumber',
         previousAcceptedNumber: previous,
         sectionIndex: currentSectionIndex,
       );
       confirmedAcceptedNumbers.add(number);
+      currentSectionAcceptedCount++;
     }
 
     void rejectQuestionCandidate({
@@ -538,6 +644,9 @@ class OcrQuestionRegionizer {
           highestOfficialSectionOrdinal = section.ordinal!;
         }
         currentSectionKind = section.kind;
+        currentSectionRangeStart = section.rangeStart;
+        currentSectionRangeEnd = section.rangeEnd;
+        currentSectionAcceptedCount = 0;
         sections.add(section);
         if (!currentSectionIsReference) {
           officialSections.add(section);
@@ -583,8 +692,13 @@ class OcrQuestionRegionizer {
       if (parenthesizedMarker != null) {
         recordQuestionCandidate(unit);
         parenthesizedArabicCandidateCount++;
+        final recoveredNumber = leadingDigitRecoveredNumber(
+          parenthesizedMarker.number,
+          startsAtBlockStart: unit.startsAtBlockStart,
+        );
+        final resolvedNumber = recoveredNumber ?? parenthesizedMarker.number;
         final rejectionReason = candidateRejectionReason(
-          number: parenthesizedMarker.number,
+          number: resolvedNumber,
           requiresSectionContext: true,
         );
 
@@ -592,10 +706,12 @@ class OcrQuestionRegionizer {
           parenthesizedArabicAcceptedCount++;
           sequenceAcceptedCount++;
           startQuestion(
-            number: parenthesizedMarker.number,
+            number: resolvedNumber,
             unit: unit,
             markerKind: 'parenthesized_arabic',
             remainingText: parenthesizedMarker.remainingText,
+            recoveredFromNumber:
+                recoveredNumber == null ? null : parenthesizedMarker.number,
           );
           continue;
         }
@@ -608,6 +724,50 @@ class OcrQuestionRegionizer {
           number: parenthesizedMarker.number,
           unit: unit,
           markerKind: 'parenthesized_arabic',
+          reason: rejectionReason,
+          text: text,
+        );
+        continue;
+      }
+
+      final rightParenthesizedMarker =
+          _readRightParenthesizedArabicMarker(unit);
+      if (rightParenthesizedMarker != null) {
+        recordQuestionCandidate(unit);
+        rightParenthesisCandidateCount++;
+        final recoveredNumber = leadingDigitRecoveredNumber(
+          rightParenthesizedMarker.number,
+          startsAtBlockStart: unit.startsAtBlockStart,
+        );
+        final resolvedNumber =
+            recoveredNumber ?? rightParenthesizedMarker.number;
+        final rejectionReason = rightParenthesizedRejectionReason(
+          number: resolvedNumber,
+        );
+
+        if (rejectionReason == null) {
+          rightParenthesisAcceptedCount++;
+          sequenceAcceptedCount++;
+          startQuestion(
+            number: resolvedNumber,
+            unit: unit,
+            markerKind: 'right_parenthesized_arabic',
+            remainingText: rightParenthesizedMarker.remainingText,
+            recoveredFromNumber: recoveredNumber == null
+                ? null
+                : rightParenthesizedMarker.number,
+          );
+          continue;
+        }
+
+        rightParenthesisRejectedCount++;
+        if (rejectionReason == 'sequence_mismatch') {
+          sequenceRejectedCount++;
+        }
+        rejectQuestionCandidate(
+          number: rightParenthesizedMarker.number,
+          unit: unit,
+          markerKind: 'right_parenthesized_arabic',
           reason: rejectionReason,
           text: text,
         );
@@ -915,6 +1075,9 @@ class OcrQuestionRegionizer {
         'missingQuestionCount': missingQuestionCount,
         'parenthesizedArabicAcceptedCount': parenthesizedArabicAcceptedCount,
         'parenthesizedArabicRejectedCount': parenthesizedArabicRejectedCount,
+        'rightParenthesisCandidateCount': rightParenthesisCandidateCount,
+        'rightParenthesisAcceptedCount': rightParenthesisAcceptedCount,
+        'rightParenthesisRejectedCount': rightParenthesisRejectedCount,
         'romanSubquestionCount': romanSubquestionCount,
         'sequenceAcceptedCount': sequenceAcceptedCount,
         'sequenceRejectedCount': sequenceRejectedCount,
@@ -948,6 +1111,7 @@ class OcrQuestionRegionizer {
       } else if (_isValidInlineQuestionStart(line) ||
           _isValidBareQuestionStart(line) ||
           _readParenthesizedArabicMarker(line) != null ||
+          _isRightParenthesizedQuestionLine(line) ||
           _isRomanSubquestion(line)) {
         boundaries.add(lineStart);
       }
@@ -1084,6 +1248,36 @@ class OcrQuestionRegionizer {
     return _romanSubquestionRegex.hasMatch(
       _normalizeQuestionCandidateText(text),
     );
+  }
+
+  /// Reads the single-sided `N）`/`N)` marker from the raw unit text.
+  ///
+  /// The raw read is deliberate: it keeps the marker tied to the first visible
+  /// character of a unit (units already start at a block or line boundary), so
+  /// a quoted or markdown-prefixed line can never promote its body text. Units
+  /// are the same shape the line splitter accepts, so a candidate here always
+  /// began its own line.
+  _RightParenthesizedArabicMarker? _readRightParenthesizedArabicMarker(
+    _OcrTextUnit unit,
+  ) {
+    final match = _rightParenthesizedArabicMarkerRegex.firstMatch(unit.text);
+    if (match == null) return null;
+
+    final number = _parseQuestionNumber(match.group(1) ?? '');
+    if (number == null) return null;
+    final remainingText = _normalizeText(match.group(2) ?? '').trim();
+    if (remainingText.isEmpty) return null;
+    return _RightParenthesizedArabicMarker(
+      number: number,
+      remainingText: remainingText,
+    );
+  }
+
+  bool _isRightParenthesizedQuestionLine(String line) {
+    final match = _rightParenthesizedArabicMarkerRegex.firstMatch(line);
+    if (match == null) return false;
+    return _parseQuestionNumber(match.group(1) ?? '') != null &&
+        (match.group(2) ?? '').trim().isNotEmpty;
   }
 
   int? _extractQuestionNumber(String text) {
@@ -1425,13 +1619,19 @@ class OcrQuestionRegionizer {
       text,
     ).replaceFirst(RegExp(r'^第\s*'), '').replaceAll(RegExp(r'\s+'), '');
 
-    final prefix = RegExp(
-      r'^([一二三四五六七八九十]+)[、,，\.．]?(.*)$',
-    ).firstMatch(normalized);
-    if (prefix == null) return null;
+    final numeralPrefix = _sectionNumeralPrefixRegex.firstMatch(normalized);
+    final String? ordinalToken = numeralPrefix?.group(1);
+    final String remainder;
+    if (numeralPrefix != null) {
+      remainder = numeralPrefix.group(2) ?? '';
+    } else {
+      final driftedPrefix =
+          _sectionDriftedOrdinalPrefixRegex.firstMatch(normalized);
+      if (driftedPrefix == null) return null;
+      remainder = driftedPrefix.group(2) ?? '';
+    }
 
     const labels = ['单项选择题', '多项选择题', '选择题', '填空题', '解答题', '证明题', '计算题'];
-    final remainder = prefix.group(2) ?? '';
     final label = labels.cast<String?>().firstWhere(
           (candidate) => remainder.startsWith(candidate!),
           orElse: () => null,
@@ -1441,15 +1641,34 @@ class OcrQuestionRegionizer {
     final suffix = remainder.substring(label.length);
     if (!_isValidSectionHeadingSuffix(suffix)) return null;
 
+    final range = _readSectionQuestionRange(suffix);
+    final declaredCount = _extractExpectedSectionQuestionCount(suffix);
+    final int? expectedQuestionCount;
+    if (range == null) {
+      expectedQuestionCount = declaredCount;
+    } else if (declaredCount == null) {
+      expectedQuestionCount = range.questionCount;
+    } else if (declaredCount == range.questionCount) {
+      expectedQuestionCount = declaredCount;
+    } else {
+      // Two different declared totals are never silently reconciled.
+      expectedQuestionCount = null;
+    }
+
     final kind = label.contains('选择')
         ? TextQuestionKind.choice
         : label.contains('填空')
             ? TextQuestionKind.fillBlank
             : TextQuestionKind.subjective;
     return _SectionHeadingInfo(
-      ordinal: _parseChineseSectionOrdinal(prefix.group(1) ?? ''),
+      ordinal: ordinalToken == null
+          ? null
+          : _parseChineseSectionOrdinal(ordinalToken),
       kind: kind,
-      expectedQuestionCount: _extractExpectedSectionQuestionCount(suffix),
+      expectedQuestionCount: expectedQuestionCount,
+      rangeStart: range?.start,
+      rangeEnd: range?.end,
+      ordinalDrifted: numeralPrefix == null,
     );
   }
 
@@ -1493,18 +1712,46 @@ class OcrQuestionRegionizer {
     if (suffix.isEmpty) return true;
 
     if (suffix.startsWith('：') || suffix.startsWith(':')) {
-      return _looksLikeSectionInstruction(suffix.substring(1));
+      return _isValidSectionInstructionBody(suffix.substring(1));
     }
 
     final usesChineseBrackets = suffix.startsWith('（') && suffix.endsWith('）');
     final usesAsciiBrackets = suffix.startsWith('(') && suffix.endsWith(')');
     if (usesChineseBrackets || usesAsciiBrackets) {
-      return _looksLikeSectionInstruction(
+      return _isValidSectionInstructionBody(
         suffix.substring(1, suffix.length - 1),
       );
     }
 
-    return _looksLikeSectionInstruction(suffix);
+    return _isValidSectionInstructionBody(suffix);
+  }
+
+  /// A section body is either the frozen instruction grammar or the bounded
+  /// `start〜end小题` range form, optionally followed by an instruction clause
+  /// (`1〜8小题，每小题4分，共32分`). Nothing else is accepted, so a stray
+  /// number pair in body text is still not a section heading.
+  bool _isValidSectionInstructionBody(String text) {
+    if (_looksLikeSectionInstruction(text)) return true;
+
+    final range = _readSectionQuestionRange(text);
+    if (range == null) return false;
+
+    final remainder = text
+        .substring(range.matchEnd)
+        .replaceFirst(_sectionInstructionSeparatorRegex, '')
+        .trim();
+    if (remainder.isEmpty) return true;
+    return _looksLikeSectionInstruction(remainder);
+  }
+
+  _SectionQuestionRange? _readSectionQuestionRange(String text) {
+    final match = _sectionQuestionRangeRegex.firstMatch(text);
+    if (match == null) return null;
+
+    final start = _parseQuestionNumber(match.group(1) ?? '');
+    final end = _parseQuestionNumber(match.group(2) ?? '');
+    if (start == null || end == null || end < start) return null;
+    return _SectionQuestionRange(start: start, end: end, matchEnd: match.end);
   }
 
   bool _looksLikeSectionInstruction(String text) {
@@ -1594,16 +1841,50 @@ class OcrQuestionRegionizer {
     return missing;
   }
 
+  /// Resolves the kind authority for one accepted question number.
+  ///
+  /// A range heading owns its kind only for the numbers it declared
+  /// (`start〜end小题`). A question outside that window keeps no section
+  /// authority: the kind stays unresolved so the existing content evidence
+  /// decides it. A heading without a declared range keeps the previous
+  /// behaviour and governs every later question.
   _KindInfo _kindForQuestionNumber(
     int questionNumber, {
     required TextQuestionKind currentSectionKind,
+    required int? sectionRangeStart,
+    required int? sectionRangeEnd,
   }) {
     if (currentSectionKind != TextQuestionKind.unknown) {
-      return _KindInfo(currentSectionKind, [
-        'kind_declared_from_section:${currentSectionKind.name}',
+      if (_sectionKindGovernsNumber(
+        questionNumber,
+        rangeStart: sectionRangeStart,
+        rangeEnd: sectionRangeEnd,
+      )) {
+        return _KindInfo(currentSectionKind, [
+          'kind_declared_from_section:${currentSectionKind.name}',
+        ]);
+      }
+
+      final unresolved = _kindForUnresolvedSection(questionNumber);
+      return _KindInfo(unresolved.kind, [
+        'kind_outside_declared_section_range:${currentSectionKind.name}',
+        ...unresolved.diagnostics,
       ]);
     }
 
+    return _kindForUnresolvedSection(questionNumber);
+  }
+
+  bool _sectionKindGovernsNumber(
+    int questionNumber, {
+    required int? rangeStart,
+    required int? rangeEnd,
+  }) {
+    if (rangeStart == null || rangeEnd == null) return true;
+    return questionNumber >= rangeStart && questionNumber <= rangeEnd;
+  }
+
+  _KindInfo _kindForUnresolvedSection(int questionNumber) {
     for (final range in questionNumberKindRanges) {
       if (range.contains(questionNumber)) {
         return _KindInfo(range.kind, [
@@ -1832,23 +2113,68 @@ class _SectionHeadingInfo {
     required this.ordinal,
     required this.kind,
     required this.expectedQuestionCount,
+    this.rangeStart,
+    this.rangeEnd,
+    this.ordinalDrifted = false,
   });
 
   final int? ordinal;
   final TextQuestionKind kind;
   final int? expectedQuestionCount;
 
+  /// Declared first question number of a `start〜end小题` heading. Null for a
+  /// heading that only declares an instruction. It is the second accepted
+  /// anchor for the restricted single-sided marker.
+  final int? rangeStart;
+
+  /// Declared last question number of the same `start〜end小题` token. The
+  /// heading's kind governs only `rangeStart..rangeEnd`; a question outside
+  /// that window never inherits it.
+  final int? rangeEnd;
+
+  /// True when the ordinal slot held provider drift symbols instead of a
+  /// Chinese numeral. Such a heading still owns its kind and range, but it
+  /// never claims a section position.
+  final bool ordinalDrifted;
+
   Map<String, dynamic> toDiagnostics(int sectionIndex) {
     return {
       'sectionIndex': sectionIndex,
       'kind': kind.name,
       'expectedSectionQuestionCount': expectedQuestionCount,
+      if (rangeStart != null) 'rangeStart': rangeStart,
+      if (rangeEnd != null) 'rangeEnd': rangeEnd,
+      if (ordinalDrifted) 'ordinalDrifted': true,
     };
   }
 }
 
+class _SectionQuestionRange {
+  const _SectionQuestionRange({
+    required this.start,
+    required this.end,
+    required this.matchEnd,
+  });
+
+  final int start;
+  final int end;
+  final int matchEnd;
+
+  int get questionCount => end - start + 1;
+}
+
 class _ParenthesizedArabicMarker {
   const _ParenthesizedArabicMarker({
+    required this.number,
+    required this.remainingText,
+  });
+
+  final int number;
+  final String remainingText;
+}
+
+class _RightParenthesizedArabicMarker {
+  const _RightParenthesizedArabicMarker({
     required this.number,
     required this.remainingText,
   });
