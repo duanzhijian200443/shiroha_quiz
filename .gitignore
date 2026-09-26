@@ -46,6 +46,7 @@ app.*.map.json
 
 # Antigravity / Scratch / Local test assets
 .gemini/
+.qoder/
 /scratch/test_pdfs/
 scratch/ocr_reports/
 scratch/ocr_replay/
