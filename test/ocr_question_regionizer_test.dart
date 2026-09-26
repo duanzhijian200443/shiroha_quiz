@@ -3187,6 +3187,57 @@ void main() {
       expect(outsideWindow.diagnostics['sequenceRejectedCount'], 1);
     });
 
+    test('a sub-question marker is never promoted to a top-level question', () {
+      var order = 0;
+      OcrBlock next(String id, String text) => block(id, text, order++);
+
+      // Q20 carries (1)/(2) sub-questions. Sharing Q20's block makes them split
+      // units that do not start the block; as their own blocks they are block
+      // starts, so the leading-`1` rule has to reject them on its own.
+      final insideBlock = const OcrQuestionRegionizer().regionize(document([
+        next('heading', '三、解答题（17〜22小题，共70分）'),
+        next('q_17', '（17）Synthetic seventeen。'),
+        next('q_18', '（18）Synthetic eighteen。'),
+        next('q_19', '（19）Synthetic nineteen。'),
+        next(
+          'q_20',
+          '（20）Synthetic twenty。\n'
+              '(1) Synthetic sub-question one。\n'
+              '(2) Synthetic sub-question two。',
+        ),
+        next('q_21', '（21）Synthetic twenty-one。'),
+      ]));
+      expect(insideBlock.diagnostics['acceptedNumbers'], [17, 18, 19, 20, 21]);
+      expect(insideBlock.diagnostics['sequenceRejectedCount'], 2);
+
+      final ownBlocks = const OcrQuestionRegionizer().regionize(document([
+        next('heading', '三、解答题（17〜22小题，共70分）'),
+        next('q_17', '（17）Synthetic seventeen。'),
+        next('q_18', '（18）Synthetic eighteen。'),
+        next('q_19', '（19）Synthetic nineteen。'),
+        next('q_20', '（20）Synthetic twenty。'),
+        next('sub_1', '(1) Synthetic sub-question one。'),
+        next('sub_2', '(2) Synthetic sub-question two。'),
+        next('q_21', '（21）Synthetic twenty-one。'),
+      ]));
+      expect(ownBlocks.diagnostics['acceptedNumbers'], [17, 18, 19, 20, 21]);
+      expect(ownBlocks.diagnostics['sequenceRejectedCount'], 2);
+      final trace =
+          (ownBlocks.diagnostics['questionCandidateTrace'] as List).cast<Map>();
+      expect(
+        trace
+            .where((entry) => entry['reason'] == 'sequence_mismatch')
+            .map((entry) => entry['number'])
+            .toList(),
+        [1, 2],
+      );
+      expect(
+        trace.where((entry) => (entry['reason'] as String)
+            .startsWith('valid_question_start_leading_digit_recovered:')),
+        isEmpty,
+      );
+    });
+
     test(
         'a two-symbol drifted ordinal is tolerated while unsupported shapes are not',
         () {

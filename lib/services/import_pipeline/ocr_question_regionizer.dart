@@ -474,25 +474,31 @@ class OcrQuestionRegionizer {
       return previous == null ? 'no_sequence_evidence' : 'sequence_mismatch';
     }
 
-    /// Recovers a provider-dropped leading digit on a marker (`3)` printed in
-    /// the slot of `13`). Recovery needs three independent facts: the seen
-    /// number was already accepted, so it is a backwards duplicate and not the
-    /// sequence itself; the next number of the accepted sequence ends with the
-    /// seen digits; and that next number lies inside the current section's
-    /// declared range. Nothing is inferred about a marker outside that window.
-    int? leadingDigitRecoveredNumber(int seenNumber) {
+    /// Recovers a provider-dropped leading `1` on a marker (`3)` printed in the
+    /// slot of `13`). Recovery needs four independent facts: the marker starts
+    /// its block, so it is a top-level line and not a sub-question line inside
+    /// one; the seen number was already accepted, so it is a backwards
+    /// duplicate and not the sequence itself; the next number of the accepted
+    /// sequence is exactly the seen digits behind one leading `1` (the observed
+    /// provider loss, `13` -> `3`); and that next number lies inside the
+    /// current section's declared range. Nothing else is inferred.
+    int? leadingDigitRecoveredNumber(
+      int seenNumber, {
+      required bool startsAtBlockStart,
+    }) {
+      if (!startsAtBlockStart) return null;
+
       final previous = previousAcceptedNumber();
       if (previous == null) return null;
 
       final expected = previous + 1;
-      if (seenNumber >= expected) return null;
+      if (expected != int.parse('1$seenNumber')) return null;
       if (!confirmedAcceptedNumbers.contains(seenNumber)) return null;
 
       final rangeStart = currentSectionRangeStart;
       final rangeEnd = currentSectionRangeEnd;
       if (rangeStart == null || rangeEnd == null) return null;
       if (expected < rangeStart || expected > rangeEnd) return null;
-      if (!expected.toString().endsWith(seenNumber.toString())) return null;
 
       return expected;
     }
@@ -686,8 +692,10 @@ class OcrQuestionRegionizer {
       if (parenthesizedMarker != null) {
         recordQuestionCandidate(unit);
         parenthesizedArabicCandidateCount++;
-        final recoveredNumber =
-            leadingDigitRecoveredNumber(parenthesizedMarker.number);
+        final recoveredNumber = leadingDigitRecoveredNumber(
+          parenthesizedMarker.number,
+          startsAtBlockStart: unit.startsAtBlockStart,
+        );
         final resolvedNumber = recoveredNumber ?? parenthesizedMarker.number;
         final rejectionReason = candidateRejectionReason(
           number: resolvedNumber,
@@ -727,8 +735,10 @@ class OcrQuestionRegionizer {
       if (rightParenthesizedMarker != null) {
         recordQuestionCandidate(unit);
         rightParenthesisCandidateCount++;
-        final recoveredNumber =
-            leadingDigitRecoveredNumber(rightParenthesizedMarker.number);
+        final recoveredNumber = leadingDigitRecoveredNumber(
+          rightParenthesizedMarker.number,
+          startsAtBlockStart: unit.startsAtBlockStart,
+        );
         final resolvedNumber =
             recoveredNumber ?? rightParenthesizedMarker.number;
         final rejectionReason = rightParenthesizedRejectionReason(
