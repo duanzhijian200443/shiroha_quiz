@@ -317,6 +317,7 @@ class OcrQuestionRegionizer {
     var currentField = OcrRegionField.stem;
     var currentSectionKind = TextQuestionKind.unknown;
     int? currentSectionRangeStart;
+    int? currentSectionRangeEnd;
     var currentSectionAcceptedCount = 0;
     final confirmedAcceptedNumbers = <int>[];
     var highestOfficialSectionOrdinal = 0;
@@ -482,6 +483,8 @@ class OcrQuestionRegionizer {
       final kindInfo = _kindForQuestionNumber(
         number,
         currentSectionKind: currentSectionKind,
+        sectionRangeStart: currentSectionRangeStart,
+        sectionRangeEnd: currentSectionRangeEnd,
       );
       current = _MutableRegion(
         number,
@@ -608,6 +611,7 @@ class OcrQuestionRegionizer {
         }
         currentSectionKind = section.kind;
         currentSectionRangeStart = section.rangeStart;
+        currentSectionRangeEnd = section.rangeEnd;
         currentSectionAcceptedCount = 0;
         sections.add(section);
         if (!currentSectionIsReference) {
@@ -1613,6 +1617,7 @@ class OcrQuestionRegionizer {
       kind: kind,
       expectedQuestionCount: expectedQuestionCount,
       rangeStart: range?.start,
+      rangeEnd: range?.end,
       ordinalDrifted: numeralPrefix == null,
     );
   }
@@ -1786,16 +1791,50 @@ class OcrQuestionRegionizer {
     return missing;
   }
 
+  /// Resolves the kind authority for one accepted question number.
+  ///
+  /// A range heading owns its kind only for the numbers it declared
+  /// (`start〜end小题`). A question outside that window keeps no section
+  /// authority: the kind stays unresolved so the existing content evidence
+  /// decides it. A heading without a declared range keeps the previous
+  /// behaviour and governs every later question.
   _KindInfo _kindForQuestionNumber(
     int questionNumber, {
     required TextQuestionKind currentSectionKind,
+    required int? sectionRangeStart,
+    required int? sectionRangeEnd,
   }) {
     if (currentSectionKind != TextQuestionKind.unknown) {
-      return _KindInfo(currentSectionKind, [
-        'kind_declared_from_section:${currentSectionKind.name}',
+      if (_sectionKindGovernsNumber(
+        questionNumber,
+        rangeStart: sectionRangeStart,
+        rangeEnd: sectionRangeEnd,
+      )) {
+        return _KindInfo(currentSectionKind, [
+          'kind_declared_from_section:${currentSectionKind.name}',
+        ]);
+      }
+
+      final unresolved = _kindForUnresolvedSection(questionNumber);
+      return _KindInfo(unresolved.kind, [
+        'kind_outside_declared_section_range:${currentSectionKind.name}',
+        ...unresolved.diagnostics,
       ]);
     }
 
+    return _kindForUnresolvedSection(questionNumber);
+  }
+
+  bool _sectionKindGovernsNumber(
+    int questionNumber, {
+    required int? rangeStart,
+    required int? rangeEnd,
+  }) {
+    if (rangeStart == null || rangeEnd == null) return true;
+    return questionNumber >= rangeStart && questionNumber <= rangeEnd;
+  }
+
+  _KindInfo _kindForUnresolvedSection(int questionNumber) {
     for (final range in questionNumberKindRanges) {
       if (range.contains(questionNumber)) {
         return _KindInfo(range.kind, [
@@ -2025,6 +2064,7 @@ class _SectionHeadingInfo {
     required this.kind,
     required this.expectedQuestionCount,
     this.rangeStart,
+    this.rangeEnd,
     this.ordinalDrifted = false,
   });
 
@@ -2037,6 +2077,11 @@ class _SectionHeadingInfo {
   /// anchor for the restricted single-sided marker.
   final int? rangeStart;
 
+  /// Declared last question number of the same `start〜end小题` token. The
+  /// heading's kind governs only `rangeStart..rangeEnd`; a question outside
+  /// that window never inherits it.
+  final int? rangeEnd;
+
   /// True when the ordinal slot held provider drift symbols instead of a
   /// Chinese numeral. Such a heading still owns its kind and range, but it
   /// never claims a section position.
@@ -2047,6 +2092,8 @@ class _SectionHeadingInfo {
       'sectionIndex': sectionIndex,
       'kind': kind.name,
       'expectedSectionQuestionCount': expectedQuestionCount,
+      if (rangeStart != null) 'rangeStart': rangeStart,
+      if (rangeEnd != null) 'rangeEnd': rangeEnd,
       if (ordinalDrifted) 'ordinalDrifted': true,
     };
   }
