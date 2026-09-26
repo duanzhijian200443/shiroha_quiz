@@ -1026,3 +1026,10 @@ The B0-V0 acceptance suite must cover:
 B0-P0 changes only the canonical B0 contract and the roadmap. Production code,
 tests, UI, migrations, schema, CI, and dependencies are intentionally
 untouched.
+## ANSWER-COMP-P0 planned portable-state amendment
+
+`docs/architecture/answer-completion-question-sets.md` freezes a future durable `ImportedQuestionSet` relation. Once its schema implementation merges, set rows and ordered membership become B0 INCLUDE state because they are confirmed organizational learning data independent of ImportTask, ParsedArtifact, and source-file continued existence.
+
+Implementation must preserve `setId`, ordered positions, and membership across round-trip; keep ImportTask/ParsedArtifact scrubbed; permit missing soft `sourceFileId`; and extend staged validation to the new tables, indexes, FKs, required triggers, non-empty sets, same-bank membership, and duplicate/dangling-member rejection.
+
+**Current runtime is still v27 in this P0 docs-only freeze.** This section does not claim future tables exist in current snapshots and does not change backup package version by itself.
