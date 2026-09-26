@@ -507,3 +507,10 @@ Vision judgement and explicit user confirmation before managed image ingestion
 and AnswerAttempt append. Text answering remains available; question-import OCR
 is unchanged. Student images are soft evidence references, not RichContent or
 FSRS grading authority. See `docs/architecture/photo-answer-v1.md`.
+## ANSWER-COMP-P0 frozen design authority
+
+`docs/architecture/answer-completion-question-sets.md` is the canonical design authority for the future Answer Completion / `ImportedQuestionSet` capability.
+
+The design keeps Presentation behind Answer Completion Application services, preserves `PersistedQuestion.storageId` as Question identity, reuses existing P6/P7 answer mutation authority, and makes the existing task-bound `QuestionRepository` transaction the only import transaction owner. `LibraryFile`, `ParsedArtifact`, and `ImportTask` do not become QuestionSet identity.
+
+**Current runtime remains schema v27 until ANSWER-COMP-D1 is implemented and merged.** P0 freezes a planned additive next-schema relation; it does not claim those tables exist yet.

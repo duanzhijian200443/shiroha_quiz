@@ -503,3 +503,14 @@ At the D4 final implementation / acceptance head, the Executor closure target
 has no known open P0, P1, or P2 defect. Independent verification and review of
 the Draft FINAL PR remain required before any merge; this addendum is not a
 self-approval or merge authorization.
+## ANSWER-COMP-P0 future seed/capture amendment
+
+The future Answer Completion grouping contract is frozen in `docs/architecture/answer-completion-question-sets.md`.
+
+New set-aware document tasks use `_importEntry = document_v4` plus the strict `diagnostics['_questionSetCaptureV1']` commit-correctness envelope. Historical/current `document_v3` remains compatible. A v4 task with missing/invalid envelope fails closed and must not degrade to an ungrouped successful commit.
+
+The reserved envelope survives metadata preservation, diagnostics replacement, ReviewDraft persistence, restart/load, and OCR retry by **key presence**, so invalid null cannot disappear and masquerade as an older task. Parser/provider diagnostics cannot overwrite or create the reserved authority.
+
+ImportTask remains ephemeral workflow state. On successful set-aware import, the existing `QuestionRepository` task-bound transaction is the sole transaction owner for Question rows, typed sidecars where applicable, set/membership, and task completion. No second transaction or post-success relation writer is authorized.
+
+This amendment freezes future behavior only; P0 does not modify current DM-D4 runtime.

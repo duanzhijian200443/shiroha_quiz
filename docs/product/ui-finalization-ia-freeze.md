@@ -329,3 +329,17 @@ Documentation authority:
 - `docs/architecture/shiroha-project-roadmap.md` — stage ordering and current
   status;
 - `ARCHITECTURE.md` — repository-wide dependency and boundary contract.
+## ANSWER-COMP-P0 secondary Answer Completion navigation amendment
+
+The future Answer Completion feature does **not** add a primary navigation destination or reopen the frozen three-destination IA.
+
+```text
+Question Bank detail
+  -> 补充答案
+  -> 待补答案
+  -> ImportedQuestionSet detail
+```
+
+The queue may present per-question “AI补答案” and set-level “从答案文件补充” through existing Application/P6/P7 authorities. It does not expose the old whole-bank matching entry as an ordinary v0 menu.
+
+This is a bounded future secondary-navigation activation under `docs/architecture/answer-completion-question-sets.md`; P0 itself changes no Flutter UI.
