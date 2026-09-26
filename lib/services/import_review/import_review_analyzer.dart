@@ -15,15 +15,6 @@ class ImportReviewAnalyzerResult {
 }
 
 class ImportReviewAnalyzer {
-  /// A leaked model placeholder reads as `假设XXX` / `假设题干内容` / `假设这道题…`:
-  /// the word `假设` followed by a placeholder token or by the model talking
-  /// about the question instead of writing it. The bare word is ordinary exam
-  /// vocabulary (`假设检验`, `假设随机变量`), so only the adjacent form is
-  /// reported.
-  static final RegExp _aiPlaceholderAssumptionRegex = RegExp(
-    r'假设\s*(?:[XＸ]{2,}|……|\.{3,}|略|待补|占位|内容|题干|原文|这道题|这题|此题)',
-  );
-
   static ImportReviewAnalyzerResult analyze(List<QuestionDraft> drafts) {
     final items = drafts
         .asMap()
@@ -165,8 +156,7 @@ class ImportReviewAnalyzer {
           message: '题干为保留占位符',
         ));
         errorCount++;
-      } else if (content.contains('原题干') ||
-          _aiPlaceholderAssumptionRegex.hasMatch(content)) {
+      } else if (content.contains('假设') || content.contains('原题干')) {
         issues.add(ImportReviewIssue(
           severity: ImportReviewSeverity.warning,
           code: ImportReviewIssueCode.placeholderStem,

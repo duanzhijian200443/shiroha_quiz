@@ -73,49 +73,6 @@ void main() {
       expect(res.summary.qualityScore, 95); // 100 - 5
     });
 
-    test('A placeholder assumption warns while hypothesis-testing stems do not',
-        () {
-      final placeholder = ImportReviewAnalyzer.analyze([
-        QuestionDraft(
-          content: '假设题干内容',
-          type: QuestionType.shortAnswer,
-          options: const [],
-          explanation: '',
-          standardAnswer: 'Yes',
-        ),
-      ]);
-      expect(placeholder.summary.warningCount, 1);
-      expect(
-        placeholder.issues.single.code,
-        ImportReviewIssueCode.placeholderStem,
-      );
-
-      final realStems = ImportReviewAnalyzer.analyze([
-        QuestionDraft(
-          content: '设总体服从正态分布，考虑假设检验问题，则犯第二类错误的概率为（ ）。',
-          type: QuestionType.singleChoice,
-          options: const ['A. 0.1', 'B. 0.2'],
-          explanation: '',
-          standardAnswer: 'A',
-        ),
-        QuestionDraft(
-          content: '假设随机变量 X 与 Y 相互独立，则（ ）。',
-          type: QuestionType.shortAnswer,
-          options: const [],
-          explanation: '',
-          standardAnswer: 'B',
-        ),
-      ]);
-      expect(
-        realStems.issues.where(
-          (issue) => issue.code == ImportReviewIssueCode.placeholderStem,
-        ),
-        isEmpty,
-      );
-      expect(realStems.summary.warningCount, 0);
-      expect(realStems.summary.errorCount, 0);
-    });
-
     test('Detects template placeholder stem as missing stem', () {
       final drafts = [
         QuestionDraft(

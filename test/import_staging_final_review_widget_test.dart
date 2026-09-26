@@ -146,7 +146,7 @@ void main() {
       final parsedQuestions = [
         {
           'type': 0,
-          'content': '假设XXX', // placeholderStem -> warning
+          'content': '题干包含假设', // placeholderStem -> warning
           'options': ['A', 'B'],
           'standard_answer': 'A',
           'explanation': 'Exp',
