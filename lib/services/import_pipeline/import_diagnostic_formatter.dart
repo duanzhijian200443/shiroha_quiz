@@ -354,7 +354,7 @@ class ImportDiagnosticFormatter {
         lastSuccessStage = 'OCR 引擎请求';
       } else if (ocrStatus == 'failed_no_question_regions') {
         failedStage = '题目区域识别阶段 / Regionizer';
-        userGuidance = 'OCR 已返回文字，但未能识别到有效题目区域。请确保文档包含清晰可见的题目排版或更换排版规范的文档后重试。';
+        userGuidance = 'OCR 已返回内容，但未识别到有效题目区域。请确保文档包含清晰可见的题目排版或更换排版规范的文档后重试。';
         suggestRetry = true;
       } else if (ocrStatus != null && ocrStatus.startsWith('failed_')) {
         failedStage = 'OCR 请求阶段';

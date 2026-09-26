@@ -208,6 +208,15 @@ class OcrQuestionRegionizer {
     r'^\s*(?:（([0-9０-９]{1,3})）|\(([0-9０-９]{1,3})\))\s*([\s\S]*)$',
   );
 
+  /// Single-sided marker shape `4）` / `4)`. It is matched against the raw unit
+  /// text (never the markdown-normalised text) so a line that only *normalises*
+  /// to the marker cannot promote its body, and its acceptance stays behind the
+  /// restricted section/sequence rules. The digits must be followed immediately
+  /// by the bracket: `10) kg` is a candidate, `1 0)` is not.
+  static final RegExp _rightParenthesizedArabicMarkerRegex = RegExp(
+    r'^[ \t]*([0-9０-９]{1,3})[）)]\s*([\s\S]*)$',
+  );
+
   static final RegExp _romanSubquestionRegex = RegExp(
     r'^\s*(?:（[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+）|\([ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\))',
   );
@@ -246,6 +255,19 @@ class OcrQuestionRegionizer {
     r'(?:本题\s*)?共\s*([0-9０-９]{1,3})\s*(?:小题|题)',
   );
 
+  /// Bounded numeric question range inside a section heading, for example
+  /// `一、选择题(1〜8小题，每小题4分，共32分)`. Only the exact
+  /// `start<separator>end小题` token is recognised: a bare `1-8` or any other
+  /// number pair in body text is never a section range.
+  static final RegExp _sectionQuestionRangeRegex = RegExp(
+    r'([0-9０-９]{1,3})\s*[〜～\-－—]\s*([0-9０-９]{1,3})\s*小题',
+  );
+
+  /// Separators that may join the range token with the following instruction
+  /// clause (`1〜8小题，每小题4分`). Punctuation only: it carries no meaning.
+  static final RegExp _sectionInstructionSeparatorRegex =
+      RegExp(r'^[，,、；;。.\s]+');
+
   OcrQuestionRegionizerResult regionize(OcrDocument document) {
     final units = <_OcrTextUnit>[];
     for (final block in document.flattenedBlocks) {
@@ -269,10 +291,15 @@ class OcrQuestionRegionizer {
     var romanSubquestionCount = 0;
     var sequenceAcceptedCount = 0;
     var sequenceRejectedCount = 0;
+    var rightParenthesisCandidateCount = 0;
+    var rightParenthesisAcceptedCount = 0;
+    var rightParenthesisRejectedCount = 0;
 
     _MutableRegion? current;
     var currentField = OcrRegionField.stem;
     var currentSectionKind = TextQuestionKind.unknown;
+    int? currentSectionRangeStart;
+    var currentSectionAcceptedCount = 0;
     final confirmedAcceptedNumbers = <int>[];
     var highestOfficialSectionOrdinal = 0;
     var currentSectionIsReference = false;
@@ -403,6 +430,29 @@ class OcrQuestionRegionizer {
       return null;
     }
 
+    /// Restricted acceptance for the single-sided `N）`/`N)` marker.
+    ///
+    /// The shape alone is never enough: a year note or a unit label in body
+    /// text must not become a question. Acceptance requires a known,
+    /// non-reference section plus one of two sequence anchors: the next number
+    /// of the accepted sequence, or - while the current section has accepted
+    /// nothing yet - the exact range start its heading declared.
+    String? rightParenthesizedRejectionReason({required int number}) {
+      if (currentSectionIsReference) return 'reference_section';
+      if (currentSectionKind == TextQuestionKind.unknown) {
+        return 'missing_section_context';
+      }
+
+      final previous = previousAcceptedNumber();
+      if (previous != null && number == previous + 1) return null;
+      if (currentSectionAcceptedCount == 0 &&
+          currentSectionRangeStart != null &&
+          number == currentSectionRangeStart) {
+        return null;
+      }
+      return previous == null ? 'no_sequence_evidence' : 'sequence_mismatch';
+    }
+
     void startQuestion({
       required int number,
       required _OcrTextUnit unit,
@@ -464,6 +514,7 @@ class OcrQuestionRegionizer {
         sectionIndex: currentSectionIndex,
       );
       confirmedAcceptedNumbers.add(number);
+      currentSectionAcceptedCount++;
     }
 
     void rejectQuestionCandidate({
@@ -538,6 +589,8 @@ class OcrQuestionRegionizer {
           highestOfficialSectionOrdinal = section.ordinal!;
         }
         currentSectionKind = section.kind;
+        currentSectionRangeStart = section.rangeStart;
+        currentSectionAcceptedCount = 0;
         sections.add(section);
         if (!currentSectionIsReference) {
           officialSections.add(section);
@@ -608,6 +661,41 @@ class OcrQuestionRegionizer {
           number: parenthesizedMarker.number,
           unit: unit,
           markerKind: 'parenthesized_arabic',
+          reason: rejectionReason,
+          text: text,
+        );
+        continue;
+      }
+
+      final rightParenthesizedMarker =
+          _readRightParenthesizedArabicMarker(unit);
+      if (rightParenthesizedMarker != null) {
+        recordQuestionCandidate(unit);
+        rightParenthesisCandidateCount++;
+        final rejectionReason = rightParenthesizedRejectionReason(
+          number: rightParenthesizedMarker.number,
+        );
+
+        if (rejectionReason == null) {
+          rightParenthesisAcceptedCount++;
+          sequenceAcceptedCount++;
+          startQuestion(
+            number: rightParenthesizedMarker.number,
+            unit: unit,
+            markerKind: 'right_parenthesized_arabic',
+            remainingText: rightParenthesizedMarker.remainingText,
+          );
+          continue;
+        }
+
+        rightParenthesisRejectedCount++;
+        if (rejectionReason == 'sequence_mismatch') {
+          sequenceRejectedCount++;
+        }
+        rejectQuestionCandidate(
+          number: rightParenthesizedMarker.number,
+          unit: unit,
+          markerKind: 'right_parenthesized_arabic',
           reason: rejectionReason,
           text: text,
         );
@@ -915,6 +1003,9 @@ class OcrQuestionRegionizer {
         'missingQuestionCount': missingQuestionCount,
         'parenthesizedArabicAcceptedCount': parenthesizedArabicAcceptedCount,
         'parenthesizedArabicRejectedCount': parenthesizedArabicRejectedCount,
+        'rightParenthesisCandidateCount': rightParenthesisCandidateCount,
+        'rightParenthesisAcceptedCount': rightParenthesisAcceptedCount,
+        'rightParenthesisRejectedCount': rightParenthesisRejectedCount,
         'romanSubquestionCount': romanSubquestionCount,
         'sequenceAcceptedCount': sequenceAcceptedCount,
         'sequenceRejectedCount': sequenceRejectedCount,
@@ -948,6 +1039,7 @@ class OcrQuestionRegionizer {
       } else if (_isValidInlineQuestionStart(line) ||
           _isValidBareQuestionStart(line) ||
           _readParenthesizedArabicMarker(line) != null ||
+          _isRightParenthesizedQuestionLine(line) ||
           _isRomanSubquestion(line)) {
         boundaries.add(lineStart);
       }
@@ -1084,6 +1176,36 @@ class OcrQuestionRegionizer {
     return _romanSubquestionRegex.hasMatch(
       _normalizeQuestionCandidateText(text),
     );
+  }
+
+  /// Reads the single-sided `N）`/`N)` marker from the raw unit text.
+  ///
+  /// The raw read is deliberate: it keeps the marker tied to the first visible
+  /// character of a unit (units already start at a block or line boundary), so
+  /// a quoted or markdown-prefixed line can never promote its body text. Units
+  /// are the same shape the line splitter accepts, so a candidate here always
+  /// began its own line.
+  _RightParenthesizedArabicMarker? _readRightParenthesizedArabicMarker(
+    _OcrTextUnit unit,
+  ) {
+    final match = _rightParenthesizedArabicMarkerRegex.firstMatch(unit.text);
+    if (match == null) return null;
+
+    final number = _parseQuestionNumber(match.group(1) ?? '');
+    if (number == null) return null;
+    final remainingText = _normalizeText(match.group(2) ?? '').trim();
+    if (remainingText.isEmpty) return null;
+    return _RightParenthesizedArabicMarker(
+      number: number,
+      remainingText: remainingText,
+    );
+  }
+
+  bool _isRightParenthesizedQuestionLine(String line) {
+    final match = _rightParenthesizedArabicMarkerRegex.firstMatch(line);
+    if (match == null) return false;
+    return _parseQuestionNumber(match.group(1) ?? '') != null &&
+        (match.group(2) ?? '').trim().isNotEmpty;
   }
 
   int? _extractQuestionNumber(String text) {
@@ -1441,6 +1563,20 @@ class OcrQuestionRegionizer {
     final suffix = remainder.substring(label.length);
     if (!_isValidSectionHeadingSuffix(suffix)) return null;
 
+    final range = _readSectionQuestionRange(suffix);
+    final declaredCount = _extractExpectedSectionQuestionCount(suffix);
+    final int? expectedQuestionCount;
+    if (range == null) {
+      expectedQuestionCount = declaredCount;
+    } else if (declaredCount == null) {
+      expectedQuestionCount = range.questionCount;
+    } else if (declaredCount == range.questionCount) {
+      expectedQuestionCount = declaredCount;
+    } else {
+      // Two different declared totals are never silently reconciled.
+      expectedQuestionCount = null;
+    }
+
     final kind = label.contains('选择')
         ? TextQuestionKind.choice
         : label.contains('填空')
@@ -1449,7 +1585,8 @@ class OcrQuestionRegionizer {
     return _SectionHeadingInfo(
       ordinal: _parseChineseSectionOrdinal(prefix.group(1) ?? ''),
       kind: kind,
-      expectedQuestionCount: _extractExpectedSectionQuestionCount(suffix),
+      expectedQuestionCount: expectedQuestionCount,
+      rangeStart: range?.start,
     );
   }
 
@@ -1493,18 +1630,46 @@ class OcrQuestionRegionizer {
     if (suffix.isEmpty) return true;
 
     if (suffix.startsWith('：') || suffix.startsWith(':')) {
-      return _looksLikeSectionInstruction(suffix.substring(1));
+      return _isValidSectionInstructionBody(suffix.substring(1));
     }
 
     final usesChineseBrackets = suffix.startsWith('（') && suffix.endsWith('）');
     final usesAsciiBrackets = suffix.startsWith('(') && suffix.endsWith(')');
     if (usesChineseBrackets || usesAsciiBrackets) {
-      return _looksLikeSectionInstruction(
+      return _isValidSectionInstructionBody(
         suffix.substring(1, suffix.length - 1),
       );
     }
 
-    return _looksLikeSectionInstruction(suffix);
+    return _isValidSectionInstructionBody(suffix);
+  }
+
+  /// A section body is either the frozen instruction grammar or the bounded
+  /// `start〜end小题` range form, optionally followed by an instruction clause
+  /// (`1〜8小题，每小题4分，共32分`). Nothing else is accepted, so a stray
+  /// number pair in body text is still not a section heading.
+  bool _isValidSectionInstructionBody(String text) {
+    if (_looksLikeSectionInstruction(text)) return true;
+
+    final range = _readSectionQuestionRange(text);
+    if (range == null) return false;
+
+    final remainder = text
+        .substring(range.matchEnd)
+        .replaceFirst(_sectionInstructionSeparatorRegex, '')
+        .trim();
+    if (remainder.isEmpty) return true;
+    return _looksLikeSectionInstruction(remainder);
+  }
+
+  _SectionQuestionRange? _readSectionQuestionRange(String text) {
+    final match = _sectionQuestionRangeRegex.firstMatch(text);
+    if (match == null) return null;
+
+    final start = _parseQuestionNumber(match.group(1) ?? '');
+    final end = _parseQuestionNumber(match.group(2) ?? '');
+    if (start == null || end == null || end < start) return null;
+    return _SectionQuestionRange(start: start, end: end, matchEnd: match.end);
   }
 
   bool _looksLikeSectionInstruction(String text) {
@@ -1832,11 +1997,17 @@ class _SectionHeadingInfo {
     required this.ordinal,
     required this.kind,
     required this.expectedQuestionCount,
+    this.rangeStart,
   });
 
   final int? ordinal;
   final TextQuestionKind kind;
   final int? expectedQuestionCount;
+
+  /// Declared first question number of a `start〜end小题` heading. Null for a
+  /// heading that only declares an instruction. It is the second accepted
+  /// anchor for the restricted single-sided marker.
+  final int? rangeStart;
 
   Map<String, dynamic> toDiagnostics(int sectionIndex) {
     return {
@@ -1847,8 +2018,32 @@ class _SectionHeadingInfo {
   }
 }
 
+class _SectionQuestionRange {
+  const _SectionQuestionRange({
+    required this.start,
+    required this.end,
+    required this.matchEnd,
+  });
+
+  final int start;
+  final int end;
+  final int matchEnd;
+
+  int get questionCount => end - start + 1;
+}
+
 class _ParenthesizedArabicMarker {
   const _ParenthesizedArabicMarker({
+    required this.number,
+    required this.remainingText,
+  });
+
+  final int number;
+  final String remainingText;
+}
+
+class _RightParenthesizedArabicMarker {
+  const _RightParenthesizedArabicMarker({
     required this.number,
     required this.remainingText,
   });

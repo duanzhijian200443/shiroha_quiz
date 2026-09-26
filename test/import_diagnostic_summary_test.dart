@@ -173,6 +173,8 @@ void main() {
       expect(summary.failedStage, '题目区域识别阶段 / Regionizer');
       expect(summary.suggestRetry, true);
       expect(summary.userGuidance, contains('题目区域'));
+      expect(summary.userGuidance, contains('OCR 已返回内容'));
+      expect(summary.userGuidance, isNot(contains('已返回文字')));
     });
   });
 }

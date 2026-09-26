@@ -2681,4 +2681,162 @@ void main() {
       );
     });
   });
+
+  group('range headings and single-sided markers', () {
+    OcrBlock block(String id, String text, int order) {
+      return OcrBlock(
+        blockId: id,
+        pageIndex: 1,
+        type: 'text',
+        text: text,
+        bbox: const [],
+        readingOrder: order,
+      );
+    }
+
+    OcrDocument document(List<OcrBlock> blocks) {
+      return OcrDocument(
+        sourceName: 'synthetic-layout.pdf',
+        markdown: '',
+        rawResponses: const [],
+        usage: const {},
+        pages: [OcrPage(pageIndex: 1, blocks: blocks)],
+      );
+    }
+
+    test('range heading accepts parenthesized and single-sided markers', () {
+      final result = const OcrQuestionRegionizer().regionize(document([
+        block('heading', '一、选择题(1〜8小题，每小题4分，共32分)', 0),
+        block(
+          'questions',
+          '(1) Synthetic stem one。\n'
+              '(2) Synthetic stem two。\n'
+              '(3) Synthetic stem three。\n'
+              '4）Synthetic stem four。\n'
+              '5）Synthetic stem five。\n'
+              '6）Synthetic stem six。\n'
+              '7) Synthetic stem seven。\n'
+              '8）Synthetic stem eight。',
+          1,
+        ),
+      ]));
+
+      expect(result.diagnostics['sectionHeadingCount'], 1);
+      expect(
+        result.regions.map((region) => region.number).toList(),
+        [1, 2, 3, 4, 5, 6, 7, 8],
+      );
+      expect(result.diagnostics['acceptedNumbers'], [1, 2, 3, 4, 5, 6, 7, 8]);
+      expect(result.diagnostics['expectedQuestionCount'], 8);
+      expect(result.diagnostics['missingQuestionCount'], 0);
+      expect(result.diagnostics['rightParenthesisCandidateCount'], 5);
+      expect(result.diagnostics['rightParenthesisAcceptedCount'], 5);
+      expect(result.diagnostics['rightParenthesisRejectedCount'], 0);
+    });
+
+    test('three range sections keep kind, count and cross-section sequence',
+        () {
+      final result = const OcrQuestionRegionizer().regionize(document([
+        block('heading_1', '一、选择题(1〜8小题，每小题4分，共32分)', 0),
+        block('q_1', '(1) Synthetic one。', 1),
+        block('q_2', '(2) Synthetic two。', 2),
+        block('heading_2', '二、填空题（9〜14小题，每小题4分，共24分）', 3),
+        block('q_9', '9）Synthetic nine。', 4),
+        block('q_10', '10）Synthetic ten。', 5),
+        block('heading_3', '三、解答题（15〜23小题，共94分）', 6),
+        block('q_15', '15）Synthetic fifteen。', 7),
+        block('q_16', '16）Synthetic sixteen。', 8),
+      ]));
+
+      expect(result.diagnostics['sectionHeadingCount'], 3);
+      final sections = result.diagnostics['sections'] as List;
+      expect(
+        sections.map((section) => (section as Map)['kind']).toList(),
+        ['choice', 'fillBlank', 'subjective'],
+      );
+      expect(
+        sections
+            .map((section) => (section as Map)['expectedSectionQuestionCount'])
+            .toList(),
+        [8, 6, 9],
+      );
+      expect(result.diagnostics['acceptedNumbers'], [1, 2, 9, 10, 15, 16]);
+      expect(result.diagnostics['expectedQuestionCount'], 23);
+      expect(result.diagnostics['sequenceRejectedCount'], 0);
+      expect(result.diagnostics['rightParenthesisRejectedCount'], 0);
+    });
+
+    test(
+        'declared section counts stay authoritative and conflicts are not guessed',
+        () {
+      final compatible = const OcrQuestionRegionizer().regionize(document([
+        block('heading', '一、选择题（共 8 小题）', 0),
+        block('q_1', '1. Synthetic one。', 1),
+        block('q_2', '2. Synthetic two。', 2),
+      ]));
+
+      expect(compatible.diagnostics['sectionHeadingCount'], 1);
+      expect(compatible.diagnostics['acceptedNumbers'], [1, 2]);
+      expect(compatible.diagnostics['expectedQuestionCount'], 8);
+
+      final conflict = const OcrQuestionRegionizer().regionize(document([
+        block('heading', '一、选择题(1〜8小题，共 10 小题)', 0),
+        block('q_1', '1. Synthetic one。', 1),
+      ]));
+
+      expect(conflict.diagnostics['sectionHeadingCount'], 1);
+      expect(conflict.diagnostics['expectedQuestionCount'], isNull);
+    });
+
+    test('body-text right-parenthesis shapes never become questions', () {
+      final result = const OcrQuestionRegionizer().regionize(document([
+        block(
+          'body',
+          '数据说明：\n'
+              '2020）这是年份说明。\n'
+              '10) kg\n'
+              '12) cm',
+          0,
+        ),
+      ]));
+
+      expect(result.regions, isEmpty);
+      expect(result.diagnostics['rightParenthesisCandidateCount'], 2);
+      expect(result.diagnostics['rightParenthesisAcceptedCount'], 0);
+      expect(result.diagnostics['rightParenthesisRejectedCount'], 2);
+    });
+
+    test('a four-digit year line is not a single-sided candidate', () {
+      final result = const OcrQuestionRegionizer().regionize(document([
+        block('heading', '一、选择题(1〜8小题，每小题4分，共32分)', 0),
+        block(
+          'body',
+          '1. Synthetic one。\n2020）这是年份说明。\n2. Synthetic two。',
+          1,
+        ),
+      ]));
+
+      expect(result.regions.map((region) => region.number).toList(), [1, 2]);
+      expect(result.diagnostics['rightParenthesisCandidateCount'], 0);
+    });
+
+    test('a sequence break inside a section rejects the single-sided marker',
+        () {
+      final result = const OcrQuestionRegionizer().regionize(document([
+        block('heading', '一、选择题(1〜8小题，每小题4分，共32分)', 0),
+        block('q_1', '(1) Synthetic one。', 1),
+        block('q_2', '(2) Synthetic two。', 2),
+        block('q_3', '(3) Synthetic three。', 3),
+        block('q_4', '4）Synthetic four。', 4),
+        block('q_9', '9）Synthetic nine。', 5),
+      ]));
+
+      expect(
+          result.regions.map((region) => region.number).toList(), [1, 2, 3, 4]);
+      expect(result.diagnostics['acceptedNumbers'], [1, 2, 3, 4]);
+      expect(result.diagnostics['rightParenthesisAcceptedCount'], 1);
+      expect(result.diagnostics['rightParenthesisRejectedCount'], 1);
+      expect(result.diagnostics['sequenceRejectedCount'], 1);
+    });
+  });
 }
