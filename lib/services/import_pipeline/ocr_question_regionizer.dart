@@ -268,6 +268,24 @@ class OcrQuestionRegionizer {
   static final RegExp _sectionInstructionSeparatorRegex =
       RegExp(r'^[，,、；;。.\s]+');
 
+  /// Section ordinal in the frozen Chinese-numeral form (`一、选择题`).
+  static final RegExp _sectionNumeralPrefixRegex = RegExp(
+    r'^([一二三四五六七八九十]+)[、,，\.．]?(.*)$',
+  );
+
+  /// Provider glyph drift in the ordinal slot: a real 2020 scan returns the
+  /// section ordinal as placeholder symbols (`■、填空题（9〜14小题…）`) instead
+  /// of a Chinese numeral. The tolerated shape stays deliberately tight - at
+  /// most two symbol characters, never a letter and never a digit, always
+  /// followed by the ordinal delimiter - and the frozen label plus the strict
+  /// suffix grammar still have to match. A delimiter-less drift is not covered.
+  /// The ordinal itself remains unknown: a drifted heading never invents a
+  /// section position and is reported as `ordinalDrifted` instead.
+  static final RegExp _sectionDriftedOrdinalPrefixRegex = RegExp(
+    r'^([^\p{L}\p{N}]{1,2})[、,，\.．](.*)$',
+    unicode: true,
+  );
+
   OcrQuestionRegionizerResult regionize(OcrDocument document) {
     final units = <_OcrTextUnit>[];
     for (final block in document.flattenedBlocks) {
@@ -1547,13 +1565,19 @@ class OcrQuestionRegionizer {
       text,
     ).replaceFirst(RegExp(r'^第\s*'), '').replaceAll(RegExp(r'\s+'), '');
 
-    final prefix = RegExp(
-      r'^([一二三四五六七八九十]+)[、,，\.．]?(.*)$',
-    ).firstMatch(normalized);
-    if (prefix == null) return null;
+    final numeralPrefix = _sectionNumeralPrefixRegex.firstMatch(normalized);
+    final String? ordinalToken = numeralPrefix?.group(1);
+    final String remainder;
+    if (numeralPrefix != null) {
+      remainder = numeralPrefix.group(2) ?? '';
+    } else {
+      final driftedPrefix =
+          _sectionDriftedOrdinalPrefixRegex.firstMatch(normalized);
+      if (driftedPrefix == null) return null;
+      remainder = driftedPrefix.group(2) ?? '';
+    }
 
     const labels = ['单项选择题', '多项选择题', '选择题', '填空题', '解答题', '证明题', '计算题'];
-    final remainder = prefix.group(2) ?? '';
     final label = labels.cast<String?>().firstWhere(
           (candidate) => remainder.startsWith(candidate!),
           orElse: () => null,
@@ -1583,10 +1607,13 @@ class OcrQuestionRegionizer {
             ? TextQuestionKind.fillBlank
             : TextQuestionKind.subjective;
     return _SectionHeadingInfo(
-      ordinal: _parseChineseSectionOrdinal(prefix.group(1) ?? ''),
+      ordinal: ordinalToken == null
+          ? null
+          : _parseChineseSectionOrdinal(ordinalToken),
       kind: kind,
       expectedQuestionCount: expectedQuestionCount,
       rangeStart: range?.start,
+      ordinalDrifted: numeralPrefix == null,
     );
   }
 
@@ -1998,6 +2025,7 @@ class _SectionHeadingInfo {
     required this.kind,
     required this.expectedQuestionCount,
     this.rangeStart,
+    this.ordinalDrifted = false,
   });
 
   final int? ordinal;
@@ -2009,11 +2037,17 @@ class _SectionHeadingInfo {
   /// anchor for the restricted single-sided marker.
   final int? rangeStart;
 
+  /// True when the ordinal slot held provider drift symbols instead of a
+  /// Chinese numeral. Such a heading still owns its kind and range, but it
+  /// never claims a section position.
+  final bool ordinalDrifted;
+
   Map<String, dynamic> toDiagnostics(int sectionIndex) {
     return {
       'sectionIndex': sectionIndex,
       'kind': kind.name,
       'expectedSectionQuestionCount': expectedQuestionCount,
+      if (ordinalDrifted) 'ordinalDrifted': true,
     };
   }
 }

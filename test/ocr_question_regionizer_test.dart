@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_question_assembler.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
 import 'package:shiroha_quiz/services/import_pipeline/text_question_region.dart';
 
@@ -2837,6 +2838,119 @@ void main() {
       expect(result.diagnostics['rightParenthesisAcceptedCount'], 1);
       expect(result.diagnostics['rightParenthesisRejectedCount'], 1);
       expect(result.diagnostics['sequenceRejectedCount'], 1);
+    });
+
+    test(
+        'a drifted ordinal heading keeps its own section kind for 23 questions',
+        () {
+      var order = 0;
+      OcrBlock next(String id, String text) => block(id, text, order++);
+      // Faithful to the real 2020 marker shapes: (1)-(3), 4）-12）, (13)-(23).
+      String marker(int number) =>
+          number <= 3 || number >= 13 ? '($number)' : '$number）';
+
+      final blocks = <OcrBlock>[
+        next('heading_1', '一、选择题(1〜8小题，每小题4分，共32分)'),
+        for (var number = 1; number <= 8; number++)
+          next('q_$number', '${marker(number)} Synthetic stem $number。'),
+        // The provider returned this heading's ordinal as a placeholder glyph.
+        next('heading_2', '■、填空题（9〜14小题，每小题4分，共24分）'),
+        for (var number = 9; number <= 14; number++)
+          next('q_$number', '${marker(number)} Synthetic stem $number。'),
+        next('heading_3', '三、解答题（15〜23小题，共94分）'),
+        for (var number = 15; number <= 23; number++)
+          next('q_$number', '${marker(number)} Synthetic stem $number。'),
+      ];
+
+      final result = const OcrQuestionRegionizer().regionize(document(blocks));
+
+      expect(result.diagnostics['sectionHeadingCount'], 3);
+      final sections = (result.diagnostics['sections'] as List).cast<Map>();
+      expect(
+        sections.map((section) => section['kind']),
+        ['choice', 'fillBlank', 'subjective'],
+      );
+      expect(
+        sections.map((section) => section['expectedSectionQuestionCount']),
+        [8, 6, 9],
+      );
+      expect(sections[1]['ordinalDrifted'], isTrue);
+      expect(sections[0].containsKey('ordinalDrifted'), isFalse);
+      expect(sections[2].containsKey('ordinalDrifted'), isFalse);
+      expect(
+        result.diagnostics['acceptedNumbers'],
+        List<int>.generate(23, (index) => index + 1),
+      );
+      expect(result.diagnostics['rightParenthesisAcceptedCount'], 9);
+
+      TextQuestionKind kindFor(int number) => result.regions
+          .singleWhere((region) => region.number == number)
+          .declaredKind;
+      expect(
+        [for (var number = 1; number <= 8; number++) kindFor(number)],
+        everyElement(TextQuestionKind.choice),
+      );
+      expect(
+        [for (var number = 9; number <= 14; number++) kindFor(number)],
+        everyElement(TextQuestionKind.fillBlank),
+      );
+      expect(
+        [for (var number = 15; number <= 23; number++) kindFor(number)],
+        everyElement(TextQuestionKind.subjective),
+      );
+
+      // Acceptance-equivalent: the assembled question types are 0 / 2 / 3.
+      const assembler = OcrQuestionAssembler();
+      int typeFor(int number) => assembler
+          .assemble(
+            result.regions.singleWhere((region) => region.number == number),
+          )
+          .question['type'] as int;
+      expect(
+        [for (var number = 1; number <= 8; number++) typeFor(number)],
+        everyElement(0),
+      );
+      expect(
+        [for (var number = 9; number <= 14; number++) typeFor(number)],
+        everyElement(2),
+      );
+      expect(
+        [for (var number = 15; number <= 23; number++) typeFor(number)],
+        everyElement(3),
+      );
+    });
+
+    test(
+        'a two-symbol drifted ordinal is tolerated while unsupported shapes are not',
+        () {
+      final drifted = const OcrQuestionRegionizer().regionize(document([
+        block('heading', '：■、填空题（9〜14小题，每小题4分，共24分）', 0),
+        block('q_9', '9）Synthetic nine。', 1),
+      ]));
+
+      expect(drifted.diagnostics['sectionHeadingCount'], 1);
+      final sections = (drifted.diagnostics['sections'] as List).cast<Map>();
+      expect(sections.single['kind'], 'fillBlank');
+      expect(sections.single['ordinalDrifted'], isTrue);
+      expect(sections.single['expectedSectionQuestionCount'], 6);
+      expect(drifted.regions.single.declaredKind, TextQuestionKind.fillBlank);
+
+      for (final heading in const <String>[
+        '2020、填空题（9〜14小题，每小题4分，共24分）',
+        'A、填空题（9〜14小题，每小题4分，共24分）',
+        '■、填空题（略）',
+      ]) {
+        final rejected = const OcrQuestionRegionizer().regionize(document([
+          block('heading', heading, 0),
+          block('q_1', '1. Synthetic stem。', 1),
+        ]));
+        expect(rejected.diagnostics['sectionHeadingCount'], 0, reason: heading);
+        expect(
+          rejected.regions.single.declaredKind,
+          TextQuestionKind.unknown,
+          reason: heading,
+        );
+      }
     });
   });
 }
