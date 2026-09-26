@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_document.dart';
+import 'package:shiroha_quiz/services/import_pipeline/ocr_question_assembler.dart';
 import 'package:shiroha_quiz/services/import_pipeline/ocr_question_regionizer.dart';
 import 'package:shiroha_quiz/services/import_pipeline/text_question_region.dart';
 
@@ -2679,6 +2680,595 @@ void main() {
         q2.ownedSources.map((source) => source.blockId),
         isNot(contains('img_001')),
       );
+    });
+  });
+
+  group('range headings and single-sided markers', () {
+    OcrBlock block(String id, String text, int order) {
+      return OcrBlock(
+        blockId: id,
+        pageIndex: 1,
+        type: 'text',
+        text: text,
+        bbox: const [],
+        readingOrder: order,
+      );
+    }
+
+    OcrDocument document(List<OcrBlock> blocks) {
+      return OcrDocument(
+        sourceName: 'synthetic-layout.pdf',
+        markdown: '',
+        rawResponses: const [],
+        usage: const {},
+        pages: [OcrPage(pageIndex: 1, blocks: blocks)],
+      );
+    }
+
+    test('range heading accepts parenthesized and single-sided markers', () {
+      final result = const OcrQuestionRegionizer().regionize(document([
+        block('heading', '一、选择题(1〜8小题，每小题4分，共32分)', 0),
+        block(
+          'questions',
+          '(1) Synthetic stem one。\n'
+              '(2) Synthetic stem two。\n'
+              '(3) Synthetic stem three。\n'
+              '4）Synthetic stem four。\n'
+              '5）Synthetic stem five。\n'
+              '6）Synthetic stem six。\n'
+              '7) Synthetic stem seven。\n'
+              '8）Synthetic stem eight。',
+          1,
+        ),
+      ]));
+
+      expect(result.diagnostics['sectionHeadingCount'], 1);
+      expect(
+        result.regions.map((region) => region.number).toList(),
+        [1, 2, 3, 4, 5, 6, 7, 8],
+      );
+      expect(result.diagnostics['acceptedNumbers'], [1, 2, 3, 4, 5, 6, 7, 8]);
+      expect(result.diagnostics['expectedQuestionCount'], 8);
+      expect(result.diagnostics['missingQuestionCount'], 0);
+      expect(result.diagnostics['rightParenthesisCandidateCount'], 5);
+      expect(result.diagnostics['rightParenthesisAcceptedCount'], 5);
+      expect(result.diagnostics['rightParenthesisRejectedCount'], 0);
+    });
+
+    test('three range sections keep kind, count and cross-section sequence',
+        () {
+      final result = const OcrQuestionRegionizer().regionize(document([
+        block('heading_1', '一、选择题(1〜8小题，每小题4分，共32分)', 0),
+        block('q_1', '(1) Synthetic one。', 1),
+        block('q_2', '(2) Synthetic two。', 2),
+        block('heading_2', '二、填空题（9〜14小题，每小题4分，共24分）', 3),
+        block('q_9', '9）Synthetic nine。', 4),
+        block('q_10', '10）Synthetic ten。', 5),
+        block('heading_3', '三、解答题（15〜23小题，共94分）', 6),
+        block('q_15', '15）Synthetic fifteen。', 7),
+        block('q_16', '16）Synthetic sixteen。', 8),
+      ]));
+
+      expect(result.diagnostics['sectionHeadingCount'], 3);
+      final sections = result.diagnostics['sections'] as List;
+      expect(
+        sections.map((section) => (section as Map)['kind']).toList(),
+        ['choice', 'fillBlank', 'subjective'],
+      );
+      expect(
+        sections
+            .map((section) => (section as Map)['expectedSectionQuestionCount'])
+            .toList(),
+        [8, 6, 9],
+      );
+      expect(result.diagnostics['acceptedNumbers'], [1, 2, 9, 10, 15, 16]);
+      expect(result.diagnostics['expectedQuestionCount'], 23);
+      expect(result.diagnostics['sequenceRejectedCount'], 0);
+      expect(result.diagnostics['rightParenthesisRejectedCount'], 0);
+    });
+
+    test(
+        'declared section counts stay authoritative and conflicts are not guessed',
+        () {
+      final compatible = const OcrQuestionRegionizer().regionize(document([
+        block('heading', '一、选择题（共 8 小题）', 0),
+        block('q_1', '1. Synthetic one。', 1),
+        block('q_2', '2. Synthetic two。', 2),
+      ]));
+
+      expect(compatible.diagnostics['sectionHeadingCount'], 1);
+      expect(compatible.diagnostics['acceptedNumbers'], [1, 2]);
+      expect(compatible.diagnostics['expectedQuestionCount'], 8);
+
+      final conflict = const OcrQuestionRegionizer().regionize(document([
+        block('heading', '一、选择题(1〜8小题，共 10 小题)', 0),
+        block('q_1', '1. Synthetic one。', 1),
+      ]));
+
+      expect(conflict.diagnostics['sectionHeadingCount'], 1);
+      expect(conflict.diagnostics['expectedQuestionCount'], isNull);
+    });
+
+    test('body-text right-parenthesis shapes never become questions', () {
+      final result = const OcrQuestionRegionizer().regionize(document([
+        block(
+          'body',
+          '数据说明：\n'
+              '2020）这是年份说明。\n'
+              '10) kg\n'
+              '12) cm',
+          0,
+        ),
+      ]));
+
+      expect(result.regions, isEmpty);
+      expect(result.diagnostics['rightParenthesisCandidateCount'], 2);
+      expect(result.diagnostics['rightParenthesisAcceptedCount'], 0);
+      expect(result.diagnostics['rightParenthesisRejectedCount'], 2);
+    });
+
+    test('a four-digit year line is not a single-sided candidate', () {
+      final result = const OcrQuestionRegionizer().regionize(document([
+        block('heading', '一、选择题(1〜8小题，每小题4分，共32分)', 0),
+        block(
+          'body',
+          '1. Synthetic one。\n2020）这是年份说明。\n2. Synthetic two。',
+          1,
+        ),
+      ]));
+
+      expect(result.regions.map((region) => region.number).toList(), [1, 2]);
+      expect(result.diagnostics['rightParenthesisCandidateCount'], 0);
+    });
+
+    test('a sequence break inside a section rejects the single-sided marker',
+        () {
+      final result = const OcrQuestionRegionizer().regionize(document([
+        block('heading', '一、选择题(1〜8小题，每小题4分，共32分)', 0),
+        block('q_1', '(1) Synthetic one。', 1),
+        block('q_2', '(2) Synthetic two。', 2),
+        block('q_3', '(3) Synthetic three。', 3),
+        block('q_4', '4）Synthetic four。', 4),
+        block('q_9', '9）Synthetic nine。', 5),
+      ]));
+
+      expect(
+          result.regions.map((region) => region.number).toList(), [1, 2, 3, 4]);
+      expect(result.diagnostics['acceptedNumbers'], [1, 2, 3, 4]);
+      expect(result.diagnostics['rightParenthesisAcceptedCount'], 1);
+      expect(result.diagnostics['rightParenthesisRejectedCount'], 1);
+      expect(result.diagnostics['sequenceRejectedCount'], 1);
+    });
+
+    test(
+        'a drifted ordinal heading keeps its own section kind for 23 questions',
+        () {
+      var order = 0;
+      OcrBlock next(String id, String text) => block(id, text, order++);
+      // Faithful to the real 2020 marker shapes: (1)-(3), 4）-12）, (13)-(23).
+      String marker(int number) =>
+          number <= 3 || number >= 13 ? '($number)' : '$number）';
+
+      final blocks = <OcrBlock>[
+        next('heading_1', '一、选择题(1〜8小题，每小题4分，共32分)'),
+        for (var number = 1; number <= 8; number++)
+          next('q_$number', '${marker(number)} Synthetic stem $number。'),
+        // The provider returned this heading's ordinal as a placeholder glyph.
+        next('heading_2', '■、填空题（9〜14小题，每小题4分，共24分）'),
+        for (var number = 9; number <= 14; number++)
+          next('q_$number', '${marker(number)} Synthetic stem $number。'),
+        next('heading_3', '三、解答题（15〜23小题，共94分）'),
+        for (var number = 15; number <= 23; number++)
+          next('q_$number', '${marker(number)} Synthetic stem $number。'),
+      ];
+
+      final result = const OcrQuestionRegionizer().regionize(document(blocks));
+
+      expect(result.diagnostics['sectionHeadingCount'], 3);
+      final sections = (result.diagnostics['sections'] as List).cast<Map>();
+      expect(
+        sections.map((section) => section['kind']),
+        ['choice', 'fillBlank', 'subjective'],
+      );
+      expect(
+        sections.map((section) => section['expectedSectionQuestionCount']),
+        [8, 6, 9],
+      );
+      expect(sections[1]['ordinalDrifted'], isTrue);
+      expect(sections[0].containsKey('ordinalDrifted'), isFalse);
+      expect(sections[2].containsKey('ordinalDrifted'), isFalse);
+      expect(
+        result.diagnostics['acceptedNumbers'],
+        List<int>.generate(23, (index) => index + 1),
+      );
+      expect(result.diagnostics['rightParenthesisAcceptedCount'], 9);
+
+      TextQuestionKind kindFor(int number) => result.regions
+          .singleWhere((region) => region.number == number)
+          .declaredKind;
+      expect(
+        [for (var number = 1; number <= 8; number++) kindFor(number)],
+        everyElement(TextQuestionKind.choice),
+      );
+      expect(
+        [for (var number = 9; number <= 14; number++) kindFor(number)],
+        everyElement(TextQuestionKind.fillBlank),
+      );
+      expect(
+        [for (var number = 15; number <= 23; number++) kindFor(number)],
+        everyElement(TextQuestionKind.subjective),
+      );
+
+      // Acceptance-equivalent: the assembled question types are 0 / 2 / 3.
+      const assembler = OcrQuestionAssembler();
+      int typeFor(int number) => assembler
+          .assemble(
+            result.regions.singleWhere((region) => region.number == number),
+          )
+          .question['type'] as int;
+      expect(
+        [for (var number = 1; number <= 8; number++) typeFor(number)],
+        everyElement(0),
+      );
+      expect(
+        [for (var number = 9; number <= 14; number++) typeFor(number)],
+        everyElement(2),
+      );
+      expect(
+        [for (var number = 15; number <= 23; number++) typeFor(number)],
+        everyElement(3),
+      );
+    });
+
+    test(
+        'questions past a declared range window never inherit the missing '
+        'section kind', () {
+      var order = 0;
+      OcrBlock next(String id, String text) => block(id, text, order++);
+      // Faithful to the real 2020 trace: the provider never emitted the
+      // 二、填空题 heading, so 9-14 sit behind the 选择题 window (1〜8).
+      final blocks = <OcrBlock>[
+        next('heading_1', '一、选择题(1〜8小题，每小题4分，共32分)'),
+        for (var number = 1; number <= 8; number++) ...[
+          next('q_$number', '（$number）Synthetic stem $number。'),
+          next(
+            'options_$number',
+            '(A) Synthetic α。\n'
+                '(B) Synthetic β。\n'
+                '(C) Synthetic γ。\n'
+                '(D) Synthetic δ。',
+          ),
+        ],
+        for (var number = 9; number <= 14; number++)
+          next('q_$number', '$number）Synthetic stem $number ____。'),
+        next('heading_3', '三、解答题（15〜23小题，共94分）'),
+        for (var number = 15; number <= 23; number++)
+          next('q_$number', '（$number）Synthetic stem $number。'),
+      ];
+
+      final result = const OcrQuestionRegionizer().regionize(document(blocks));
+
+      expect(result.diagnostics['sectionHeadingCount'], 2);
+      expect(
+        result.diagnostics['acceptedNumbers'],
+        List<int>.generate(23, (index) => index + 1),
+      );
+      expect(result.diagnostics['expectedQuestionCount'], isNull);
+      final sections = (result.diagnostics['sections'] as List).cast<Map>();
+      expect(sections[0]['rangeEnd'], 8);
+      expect(sections[1]['rangeStart'], 15);
+      expect(sections[1]['rangeEnd'], 23);
+
+      TextQuestionKind kindFor(int number) => result.regions
+          .singleWhere((region) => region.number == number)
+          .declaredKind;
+      expect(
+        [for (var number = 1; number <= 8; number++) kindFor(number)],
+        everyElement(TextQuestionKind.choice),
+      );
+      expect(
+        [for (var number = 9; number <= 14; number++) kindFor(number)],
+        everyElement(TextQuestionKind.unknown),
+      );
+      expect(
+        [for (var number = 15; number <= 23; number++) kindFor(number)],
+        everyElement(TextQuestionKind.subjective),
+      );
+
+      const assembler = OcrQuestionAssembler();
+      int typeFor(int number) => assembler
+          .assemble(
+            result.regions.singleWhere((region) => region.number == number),
+          )
+          .question['type'] as int;
+      expect(
+        [for (var number = 1; number <= 8; number++) typeFor(number)],
+        everyElement(0),
+      );
+      expect(
+        [for (var number = 9; number <= 14; number++) typeFor(number)],
+        everyElement(2),
+      );
+      expect(
+        [for (var number = 15; number <= 23; number++) typeFor(number)],
+        everyElement(3),
+      );
+
+      // These six questions drove the useless repair round trips; the choice
+      // option trigger must no longer be attached to them.
+      for (var number = 9; number <= 14; number++) {
+        final diagnostics = assembler
+            .assemble(
+              result.regions.singleWhere((region) => region.number == number),
+            )
+            .diagnostics;
+        expect(
+          diagnostics,
+          contains('kind_outside_declared_section_range:choice'),
+        );
+        expect(diagnostics, isNot(contains('choice_options_less_than_2')));
+      }
+    });
+
+    test('a heading without a declared range still governs later questions',
+        () {
+      var order = 0;
+      OcrBlock next(String id, String text) => block(id, text, order++);
+
+      final result = const OcrQuestionRegionizer().regionize(document([
+        next('heading_1', '一、选择题(1〜8小题，每小题4分，共32分)'),
+        for (var number = 1; number <= 8; number++)
+          next('q_$number', '（$number）Synthetic stem $number。'),
+        next('heading_2', '二、填空题（本题共6小题，每小题4分，共24分）'),
+        for (var number = 9; number <= 14; number++)
+          next('q_$number', '（$number）Synthetic stem $number ____。'),
+      ]));
+
+      expect(result.diagnostics['sectionHeadingCount'], 2);
+      expect(result.diagnostics['expectedQuestionCount'], 14);
+      expect(
+        result.diagnostics['acceptedNumbers'],
+        List<int>.generate(14, (index) => index + 1),
+      );
+      final sections = (result.diagnostics['sections'] as List).cast<Map>();
+      expect(sections[1]['expectedSectionQuestionCount'], 6);
+      expect(sections[1].containsKey('rangeStart'), isFalse);
+      expect(sections[1].containsKey('rangeEnd'), isFalse);
+      expect(
+        result.regions
+            .where((region) => region.number >= 9)
+            .map((region) => region.declaredKind),
+        everyElement(TextQuestionKind.fillBlank),
+      );
+    });
+
+    test('a LaTeX math range heading keeps its declared window', () {
+      var order = 0;
+      OcrBlock next(String id, String text) => block(id, text, order++);
+
+      final result = const OcrQuestionRegionizer().regionize(document([
+        next('heading_1', '一、选择题(1〜2小题，每小题5分，共10分)'),
+        next('q_1', '（1）Synthetic one。'),
+        next('q_2', '（2）Synthetic two。'),
+        next('heading_2', '二、填空题（3〜4小题，每小题5分，共10分）'),
+        next('q_3', '3）Synthetic three ____。'),
+        next('q_4', '4）Synthetic four ____。'),
+        // The provider returns this heading's range as inline LaTeX math.
+        next('heading_3', '## 三、解答题（\$5\\sim 6\$小题，共10分）'),
+        next('q_5', '（5）Synthetic five。'),
+        next('q_6', '（6）Synthetic six。'),
+        next('body', '设函数 \$7\\sim 8\$ 小题成立。'),
+      ]));
+
+      expect(result.diagnostics['sectionHeadingCount'], 3);
+      final sections = (result.diagnostics['sections'] as List).cast<Map>();
+      expect(
+        sections.map((section) => section['kind']),
+        ['choice', 'fillBlank', 'subjective'],
+      );
+      expect(
+        sections.map((section) => section['expectedSectionQuestionCount']),
+        [2, 2, 2],
+      );
+      expect(sections[2]['rangeStart'], 5);
+      expect(sections[2]['rangeEnd'], 6);
+      expect(result.diagnostics['acceptedNumbers'], [1, 2, 3, 4, 5, 6]);
+      expect(result.diagnostics['expectedQuestionCount'], 6);
+      expect(
+        result.regions
+            .where((region) => region.number >= 5)
+            .map((region) => region.declaredKind),
+        everyElement(TextQuestionKind.subjective),
+      );
+    });
+
+    test(
+        'a dropped leading digit marker is recovered inside the declared window',
+        () {
+      var order = 0;
+      OcrBlock next(String id, String text) => block(id, text, order++);
+      // Faithful to the real 2021 trace: 13-16 reached the regionizer as
+      // `(3)`/`4)`/`5)`/`(6)` because the provider dropped the leading `1`.
+      final blocks = <OcrBlock>[
+        next('heading_1', '一、选择题(1〜10小题，每小题5分，共50分)'),
+        for (var number = 1; number <= 10; number++)
+          next('q_$number', '（$number）Synthetic stem $number。'),
+        next('heading_2', '二、填空题（11〜16小题，每小题5分，共30分）'),
+        next('q_11', '11）Synthetic stem eleven ____。'),
+        next('q_12', '12）Synthetic stem twelve ____。'),
+        next('q_13', '(3) Synthetic stem thirteen ____。'),
+        next('q_14', '4) Synthetic stem fourteen ____。'),
+        next('q_15', '5) Synthetic stem fifteen ____。'),
+        next('q_16', '(6) Synthetic stem sixteen ____。'),
+        next('heading_3', '## 三、解答题（\$17\\sim 22\$小题，共70分）'),
+        for (var number = 17; number <= 22; number++)
+          next('q_$number', '（$number）Synthetic stem $number。'),
+      ];
+
+      final result = const OcrQuestionRegionizer().regionize(document(blocks));
+
+      expect(result.diagnostics['sectionHeadingCount'], 3);
+      expect(
+        result.diagnostics['acceptedNumbers'],
+        List<int>.generate(22, (index) => index + 1),
+      );
+      expect(result.diagnostics['expectedQuestionCount'], 22);
+      expect(result.diagnostics['sequenceRejectedCount'], 0);
+
+      final trace =
+          (result.diagnostics['questionCandidateTrace'] as List).cast<Map>();
+      final recovered = trace
+          .where((entry) => (entry['reason'] as String)
+              .startsWith('valid_question_start_leading_digit_recovered:'))
+          .toList();
+      expect(
+        recovered.map((entry) => entry['number']).toList(),
+        [13, 14, 15, 16],
+      );
+
+      TextQuestionKind kindFor(int number) => result.regions
+          .singleWhere((region) => region.number == number)
+          .declaredKind;
+      expect(
+        [for (var number = 1; number <= 10; number++) kindFor(number)],
+        everyElement(TextQuestionKind.choice),
+      );
+      expect(
+        [for (var number = 11; number <= 16; number++) kindFor(number)],
+        everyElement(TextQuestionKind.fillBlank),
+      );
+      expect(
+        [for (var number = 17; number <= 22; number++) kindFor(number)],
+        everyElement(TextQuestionKind.subjective),
+      );
+    });
+
+    test('leading digit recovery never fires without its three anchors', () {
+      // (a) the expected next number does not end with the seen digits
+      final noSuffix = const OcrQuestionRegionizer().regionize(document([
+        block('heading', '一、选择题(1〜5小题，每小题5分，共25分)', 0),
+        block('q_1', '（1）Synthetic one。', 1),
+        block('q_2', '（2）Synthetic two。', 2),
+        block('q_3', '（3）Synthetic three。', 3),
+        block('q_dup', '（3）Synthetic duplicate。', 4),
+      ]));
+      expect(noSuffix.diagnostics['acceptedNumbers'], [1, 2, 3]);
+      expect(noSuffix.diagnostics['sequenceRejectedCount'], 1);
+
+      // (b) the seen number was never accepted in this document
+      final neverAccepted = const OcrQuestionRegionizer().regionize(document([
+        block('heading_1', '一、选择题(1〜10小题，每小题5分，共50分)', 0),
+        block('q_1', '（1）Synthetic one。', 1),
+        block('heading_2', '二、填空题（11〜16小题，每小题5分，共30分）', 2),
+        block('q_11', '11）Synthetic eleven ____。', 3),
+        block('q_12', '12）Synthetic twelve ____。', 4),
+        block('q_13', '13）Synthetic thirteen ____。', 5),
+        block('q_14', '14）Synthetic fourteen ____。', 6),
+        block('q_15', '15）Synthetic fifteen ____。', 7),
+        block('q_4', '(4) Synthetic four ____。', 8),
+      ]));
+      expect(
+        neverAccepted.diagnostics['acceptedNumbers'],
+        [1, 11, 12, 13, 14, 15],
+      );
+      expect(neverAccepted.diagnostics['sequenceRejectedCount'], 1);
+
+      // (c) the expected number is outside the section's declared window
+      final outsideWindow = const OcrQuestionRegionizer().regionize(document([
+        block('heading_1', '一、选择题(1〜10小题，每小题5分，共50分)', 0),
+        block('q_1', '（1）Synthetic one。', 1),
+        block('heading_2', '二、填空题（11〜13小题，共15分）', 2),
+        block('q_11', '11）Synthetic eleven ____。', 3),
+        block('q_12', '12）Synthetic twelve ____。', 4),
+        block('q_13', '13）Synthetic thirteen ____。', 5),
+        block('q_4', '(4) Synthetic four ____。', 6),
+      ]));
+      expect(outsideWindow.diagnostics['acceptedNumbers'], [1, 11, 12, 13]);
+      expect(outsideWindow.diagnostics['sequenceRejectedCount'], 1);
+    });
+
+    test('a sub-question marker is never promoted to a top-level question', () {
+      var order = 0;
+      OcrBlock next(String id, String text) => block(id, text, order++);
+
+      // Q20 carries (1)/(2) sub-questions. Sharing Q20's block makes them split
+      // units that do not start the block; as their own blocks they are block
+      // starts, so the leading-`1` rule has to reject them on its own.
+      final insideBlock = const OcrQuestionRegionizer().regionize(document([
+        next('heading', '三、解答题（17〜22小题，共70分）'),
+        next('q_17', '（17）Synthetic seventeen。'),
+        next('q_18', '（18）Synthetic eighteen。'),
+        next('q_19', '（19）Synthetic nineteen。'),
+        next(
+          'q_20',
+          '（20）Synthetic twenty。\n'
+              '(1) Synthetic sub-question one。\n'
+              '(2) Synthetic sub-question two。',
+        ),
+        next('q_21', '（21）Synthetic twenty-one。'),
+      ]));
+      expect(insideBlock.diagnostics['acceptedNumbers'], [17, 18, 19, 20, 21]);
+      expect(insideBlock.diagnostics['sequenceRejectedCount'], 2);
+
+      final ownBlocks = const OcrQuestionRegionizer().regionize(document([
+        next('heading', '三、解答题（17〜22小题，共70分）'),
+        next('q_17', '（17）Synthetic seventeen。'),
+        next('q_18', '（18）Synthetic eighteen。'),
+        next('q_19', '（19）Synthetic nineteen。'),
+        next('q_20', '（20）Synthetic twenty。'),
+        next('sub_1', '(1) Synthetic sub-question one。'),
+        next('sub_2', '(2) Synthetic sub-question two。'),
+        next('q_21', '（21）Synthetic twenty-one。'),
+      ]));
+      expect(ownBlocks.diagnostics['acceptedNumbers'], [17, 18, 19, 20, 21]);
+      expect(ownBlocks.diagnostics['sequenceRejectedCount'], 2);
+      final trace =
+          (ownBlocks.diagnostics['questionCandidateTrace'] as List).cast<Map>();
+      expect(
+        trace
+            .where((entry) => entry['reason'] == 'sequence_mismatch')
+            .map((entry) => entry['number'])
+            .toList(),
+        [1, 2],
+      );
+      expect(
+        trace.where((entry) => (entry['reason'] as String)
+            .startsWith('valid_question_start_leading_digit_recovered:')),
+        isEmpty,
+      );
+    });
+
+    test(
+        'a two-symbol drifted ordinal is tolerated while unsupported shapes are not',
+        () {
+      final drifted = const OcrQuestionRegionizer().regionize(document([
+        block('heading', '：■、填空题（9〜14小题，每小题4分，共24分）', 0),
+        block('q_9', '9）Synthetic nine。', 1),
+      ]));
+
+      expect(drifted.diagnostics['sectionHeadingCount'], 1);
+      final sections = (drifted.diagnostics['sections'] as List).cast<Map>();
+      expect(sections.single['kind'], 'fillBlank');
+      expect(sections.single['ordinalDrifted'], isTrue);
+      expect(sections.single['expectedSectionQuestionCount'], 6);
+      expect(drifted.regions.single.declaredKind, TextQuestionKind.fillBlank);
+
+      for (final heading in const <String>[
+        '2020、填空题（9〜14小题，每小题4分，共24分）',
+        'A、填空题（9〜14小题，每小题4分，共24分）',
+        '■、填空题（略）',
+      ]) {
+        final rejected = const OcrQuestionRegionizer().regionize(document([
+          block('heading', heading, 0),
+          block('q_1', '1. Synthetic stem。', 1),
+        ]));
+        expect(rejected.diagnostics['sectionHeadingCount'], 0, reason: heading);
+        expect(
+          rejected.regions.single.declaredKind,
+          TextQuestionKind.unknown,
+          reason: heading,
+        );
+      }
     });
   });
 }

@@ -197,7 +197,7 @@ class ImportTaskCoordinator {
       ImportFailureClassification(
     type: ImportFailureType.unknown,
     errorType: 'OcrNoQuestionRegionsFailure',
-    userMessage: 'OCR 已返回文字，但未识别到有效题目区域',
+    userMessage: 'OCR 已返回内容，但未识别到有效题目区域',
   );
   static const ImportFailureClassification _ocrNoAssembledQuestionsFailure =
       ImportFailureClassification(
@@ -862,6 +862,8 @@ class ImportTaskCoordinator {
           warningCount: result.warnings.length,
           status: emptyFailure.ocrStatus,
           ocrErrorType: emptyFailure.ocrErrorType,
+          structureDiagnostics:
+              _boundedOcrFailureDiagnostics(result.diagnostics),
         );
         AppLogger.warning(
           'Import produced no questions',
@@ -1187,6 +1189,7 @@ class ImportTaskCoordinator {
     int? warningCount,
     String? status,
     String? ocrErrorType,
+    Map<String, dynamic>? structureDiagnostics,
   }) {
     return _taskManager.failAttempt(
       handle.attempt,
@@ -1202,8 +1205,156 @@ class ImportTaskCoordinator {
         'status': status ?? 'failed',
         if (ocrErrorType != null) 'ocrErrorType': ocrErrorType,
         if (warningCount != null) 'warningCount': warningCount,
+        if (structureDiagnostics != null) 'ocrRegionizer': structureDiagnostics,
       },
     );
+  }
+
+  /// Scalar counter keys of the OCR document/structure diagnostics that survive
+  /// a failed empty-result attempt. Every key is a count, so the persisted
+  /// failure can still answer "was a section recognised, were there candidate
+  /// numbers, what shape were they" without any document text.
+  static const List<String> _boundedDocumentCounterKeys = <String>[
+    'pageCount',
+    'blockCount',
+  ];
+
+  static const List<String> _boundedStructureCounterKeys = <String>[
+    'imageBlockCount',
+    'tableBlockCount',
+  ];
+
+  static const List<String> _boundedRegionizerCounterKeys = <String>[
+    'unitCount',
+    'regionCount',
+    'ignoredBlockCount',
+    'numberedFieldCandidateCount',
+    'sectionHeadingCount',
+    'splitUnitCount',
+    'markdownPrefixedCandidateCount',
+    'blockStartCandidateCount',
+    'internalLineCandidateCount',
+    'parenthesizedArabicCandidateCount',
+    'acceptedQuestionCount',
+    'expectedQuestionCount',
+    'missingQuestionCount',
+    'parenthesizedArabicAcceptedCount',
+    'parenthesizedArabicRejectedCount',
+    'rightParenthesisCandidateCount',
+    'rightParenthesisAcceptedCount',
+    'rightParenthesisRejectedCount',
+    'romanSubquestionCount',
+    'sequenceAcceptedCount',
+    'sequenceRejectedCount',
+    'referenceSectionDetected',
+    'referenceSectionCandidateCount',
+  ];
+
+  /// Trace entries keep only fixed shape/decision codes and their counters.
+  static const List<String> _boundedMarkerProbeKeys = <String>[
+    'markerShape',
+    'followerClass',
+    'probeReason',
+    'startsAtBlockStart',
+    'startsAtLineBoundary',
+    'parsedNumber',
+  ];
+
+  static const List<String> _boundedCandidateTraceKeys = <String>[
+    'number',
+    'markerKind',
+    'decision',
+    'reason',
+    'previousAcceptedNumber',
+    'sectionIndex',
+  ];
+
+  static const int _boundedTraceLimit = 20;
+
+  /// Bounded, text-free OCR structure diagnostics for one failed empty-result
+  /// attempt.
+  ///
+  /// Only the whitelisted scalar counters and the two capped traces are copied.
+  /// Document text, block ids, the source name, paths, raw responses, markdown
+  /// and provider payloads never pass through this method.
+  static Map<String, dynamic>? _boundedOcrFailureDiagnostics(
+    Map<String, dynamic> resultDiagnostics,
+  ) {
+    Map<Object?, Object?>? ocr;
+    for (final entry in resultDiagnostics.entries) {
+      if (entry.key.startsWith('ocr_import_file_') && entry.value is Map) {
+        ocr = entry.value as Map<Object?, Object?>;
+        break;
+      }
+    }
+    if (ocr == null) return null;
+
+    final bounded = <String, dynamic>{};
+    final document = ocr['document'];
+    if (document is Map) {
+      _copyBoundedScalars(document, _boundedDocumentCounterKeys, bounded);
+    }
+    final structures = ocr['unsupportedStructureSummary'];
+    if (structures is Map) {
+      _copyBoundedScalars(structures, _boundedStructureCounterKeys, bounded);
+    }
+
+    final regionizer = ocr['regionizer'];
+    if (regionizer is Map) {
+      _copyBoundedScalars(regionizer, _boundedRegionizerCounterKeys, bounded);
+      final rejectedStarts = regionizer['rejectedQuestionStarts'];
+      if (rejectedStarts is List) {
+        bounded['rejectedQuestionStartCount'] = rejectedStarts.length;
+      }
+      final probes = regionizer['markerProbeTrace'];
+      if (probes is List) {
+        final kept = _boundedTrace(probes, _boundedMarkerProbeKeys);
+        bounded['markerProbeTrace'] = kept;
+        if (probes.length > kept.length) {
+          bounded['markerProbeTraceTruncated'] = true;
+        }
+      }
+      final candidates = regionizer['questionCandidateTrace'];
+      if (candidates is List) {
+        final kept = _boundedTrace(candidates, _boundedCandidateTraceKeys);
+        bounded['questionCandidateTrace'] = kept;
+        if (candidates.length > kept.length) {
+          bounded['questionCandidateTraceTruncated'] = true;
+        }
+      }
+    }
+    return bounded.isEmpty ? null : bounded;
+  }
+
+  static void _copyBoundedScalars(
+    Map<Object?, Object?> source,
+    List<String> keys,
+    Map<String, dynamic> target,
+  ) {
+    for (final key in keys) {
+      final value = source[key];
+      if (value is int || value is bool) target[key] = value;
+    }
+  }
+
+  static List<Map<String, dynamic>> _boundedTrace(
+    List<Object?> entries,
+    List<String> keys,
+  ) {
+    final kept = <Map<String, dynamic>>[];
+    for (final entry in entries) {
+      if (kept.length >= _boundedTraceLimit) break;
+      if (entry is! Map) continue;
+      final boundedEntry = <String, dynamic>{};
+      for (final key in keys) {
+        final value = entry[key];
+        if (value is int || value is bool || value is String) {
+          boundedEntry[key] = value;
+        }
+      }
+      kept.add(boundedEntry);
+    }
+    return kept;
   }
 
   List<Map<String, dynamic>> _attachImportDiagnostics(
