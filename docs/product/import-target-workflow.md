@@ -58,3 +58,16 @@ commit failures leave the task and its Review payload available for manual
 Review; the existing completion behavior then decides whether to open Review
 or notify. A successful auto commit completes the task and uses the existing
 nonblocking notification pattern without opening Review.
+## ANSWER-COMP-P0 planned per-document dispatch amendment
+
+The future Answer Completion grouping contract is frozen by `docs/architecture/answer-completion-question-sets.md`.
+
+For supported top-level document multi-select, target behavior becomes one source document -> one ImportTask -> one independent commit -> zero or one ImportedQuestionSet. PDF, DOCX, TXT, and Markdown dispatch independently; one task failure does not cancel siblings.
+
+A multi-file batch may target only a bank that already exists at dispatch time. Multi-file + proposed-new bank fails before task/parser creation. The workflow must not rewrite targetKind after the first success, depend on task order, create empty-bank reservation, or treat the first task as batch owner. Single-file proposed-new behavior remains compatible.
+
+New grouping-aware document tasks use separately versioned `document_v4` plus the strict seed envelope. Historical `document_v3` tasks keep compatibility semantics and do not gain inferred grouping.
+
+ZIP remains one top-level task/set boundary. OCR retry keeps its current same-task/new-attempt contract; universal non-OCR same-task retry is not introduced here.
+
+This is a P0 design freeze; current import dispatch remains unchanged until implementation.
