@@ -240,3 +240,18 @@ records the current version and compatibility fixtures. The successor also
 supersedes any reading of §9 that would let a current ParsedArtifact's
 `SourceAssetPart` references be deleted while its verified current payload
 still exists.
+## 14. ANSWER-COMP-P0 future ImportedQuestionSet lifecycle amendment
+
+The future `ImportedQuestionSet` relation is frozen by `docs/architecture/answer-completion-question-sets.md` as durable organizational learning data, not ownership of Question content or source files.
+
+Once implemented:
+
+- deleting a source `LibraryFile`, replacing/clearing a `ParsedArtifact`, or cleaning an `ImportTask` preserves the set and Questions;
+- Question deletion still runs the existing Exam-reference guard first; successful deletion cascades only its membership;
+- removing the final membership removes the empty set in the same transaction;
+- changing a Question to another bank detaches it from the old set and does not auto-attach elsewhere;
+- folder moves do not affect set identity;
+- `ImportedQuestionSet.bankName` is immutable until a separately authorized stable-bank-identity migration;
+- Question/Bank delete continues to preserve AnswerAttempt history and existing DM-P0 protections.
+
+P0 is docs-only and does not change current destructive runtime behavior.
