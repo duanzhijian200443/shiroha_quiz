@@ -15,7 +15,7 @@ Before editing, read:
 When the task touches OCR, `import_pipeline`, `import_review`, `QuestionDraft`, content auditing, answer fusion, or Import Acceptance, also read:
 
 ```text
-.agents/skills/shiroha-import-audit/SKILL_shiroha_import_audit_v2.md
+.agents/skills/shiroha-import-audit/SKILL.md
 ```
 
 ## Preflight and scope
