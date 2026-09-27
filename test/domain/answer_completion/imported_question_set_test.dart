@@ -55,14 +55,34 @@ void main() {
       }
     });
 
-    test('rejects every non-canonical setId', () {
+    test('accepts any textual UUID identity without version restriction', () {
+      for (final setId in <String>[
+        _setId,
+        '3f1b0a52-9c6d-1b8e-8f0a-1c2d3e4f5a6b',
+        '017f22e2-79b0-7cc3-98c4-dc0c0c07398f',
+        '3F1B0A52-9C6D-4B8E-8F0A-1C2D3E4F5A6B',
+      ]) {
+        final set = ImportedQuestionSet(
+          setId: setId,
+          bankName: 'b',
+          displayName: 'a.pdf',
+          createdAt: 0,
+        );
+
+        expect(set.setId, setId);
+      }
+    });
+
+    test('rejects every malformed setId', () {
       for (final setId in <String>[
         '',
         'set-1',
-        '3F1B0A52-9C6D-4B8E-8F0A-1C2D3E4F5A6B',
-        '3f1b0a52-9c6d-1b8e-8f0a-1c2d3e4f5a6b',
-        '3f1b0a52-9c6d-4b8e-7f0a-1c2d3e4f5a6b',
         '3f1b0a52-9c6d-4b8e-8f0a-1c2d3e4f5a6',
+        '3f1b0a52-9c6d-4b8e-8f0a-1c2d3e4f5a6b7',
+        '3f1b0a52-9c6d-4b8e-8f0a-1c2d3e4f5a6g',
+        '3f1b0a52-9c6d-4b8e-8f0a1c2d3e4f5a6b',
+        '{3f1b0a52-9c6d-4b8e-8f0a-1c2d3e4f5a6b}',
+        'urn:uuid:3f1b0a52-9c6d-4b8e-8f0a-1c2d3e4f5a6b',
       ]) {
         expect(
           () => ImportedQuestionSet(
@@ -296,7 +316,7 @@ void main() {
       );
     });
 
-    test('rejects a non-canonical setId', () {
+    test('rejects a malformed setId', () {
       for (final setId in <String>['', 'set-1']) {
         expect(
           () => ImportedQuestionSetItem(

@@ -10,17 +10,18 @@ library;
 const int minImportedQuestionSetDisplayNameScalars = 1;
 const int maxImportedQuestionSetDisplayNameScalars = 256;
 
-/// Whether [value] is a canonical imported question set identity.
+/// Whether [value] is a well-formed imported question set identity.
 ///
-/// The frozen contract is an opaque UUID. This mirrors the repository's
-/// canonical durable identity form (lowercase canonical UUIDv4, RFC 4122
-/// variant) used for `PersistedQuestion.storageId` and typed review identity.
+/// The frozen contract is an opaque UUID: any textual UUID form is accepted.
+/// No version, variant, or case restriction is applied and no semantics are
+/// inferred from the version, because the frozen contract states neither.
 bool isValidImportedQuestionSetId(String value) {
-  return _canonicalUuidV4Pattern.hasMatch(value);
+  return _uuidPattern.hasMatch(value);
 }
 
-final _canonicalUuidV4Pattern = RegExp(
-  r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+final _uuidPattern = RegExp(
+  r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-'
+  r'[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
 );
 
 /// Whether [value] is a canonical source file reference.
@@ -105,7 +106,7 @@ final class ImportedQuestionSetValidationException implements Exception {
 
 /// Immutable durable identity of one successful source-document import.
 ///
-/// [setId] is an opaque canonical UUID that must never be derived from
+/// [setId] is an opaque UUID that must never be derived from
 /// filename, task, artifact, or locator. [bankName] is the current
 /// compatibility bank identity. [displayName] is a bounded display snapshot
 /// that is never identity or matching evidence. [sourceFileId] is optional
@@ -141,7 +142,7 @@ final class ImportedQuestionSet {
 
 /// Immutable ordered membership of one question inside an [ImportedQuestionSet].
 ///
-/// [setId] is the canonical UUID of the owning set and [questionStorageId] is
+/// [setId] is the owning set's UUID and [questionStorageId] is
 /// the owning question's `PersistedQuestion.storageId`. [position] records
 /// commit order and is never matching evidence.
 final class ImportedQuestionSetItem {
