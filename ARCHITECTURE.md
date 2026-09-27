@@ -96,14 +96,16 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
 6. Typed content mutation must not pass through the legacy editor or reconstruct authority from a V1 projection.
 7. Review/FSRS state is separate from typed question content mutation.
 8. `RichContent` is structural: a persisted `TextNode` is not reparsed later as Markdown/math/image syntax.
-9. Current database schema is **v27**: the frozen v15 typed sidecar remains
+9. Current database schema is **v28**: the frozen v15 typed sidecar remains
    authoritative, with the additive v16 File Library, v17 Project, v18 flat
    File Library Folder, v19 Conversation, and v20 parsed-artifact tables, the
    additive RAG-1 derived lexical-retrieval cache and FTS5 objects, the
    additive v22 `study_plans` table, the additive v23 `answer_attempts` table,
    the additive v24 Provider / Model Registry / capability authority, v25 model
-   origin/binding policy, v26 image AnswerAttempt modality, and the v27 derived
-   ContentAsset reclamation-observation table. The v27 table records only
+   origin/binding policy, v26 image AnswerAttempt modality, the v27 derived
+   ContentAsset reclamation-observation table, and the v28 durable
+   `ImportedQuestionSet` / ordered-membership schema with database-owned
+   relationship invariants. The v27 table records only
    continuous grace evidence; it is neither an ownership registry, a refcount,
    nor a persisted live-set authority. V26 only extends
    the modality CHECK; all columns, indexes, nullable correctness and append-only
@@ -195,7 +197,7 @@ Rules:
 - F1-D1 implemented the additive v20 artifact tables without modifying any
   earlier table. RAG-1 subsequently raised the runtime schema to v21 at its
   closure with derived lexical-retrieval cache tables and a dedicated FTS5
-  index; the current runtime is v27.
+  index; the current runtime is v28.
 
 See `docs/architecture/f1-parsed-artifact-lifecycle.md`.
 
@@ -430,7 +432,7 @@ boundary remains frozen and applies to any future P7 extension:
   READ_ONLY tools, A0 stays exactly six tools, and W0 is not a P7 workflow.
 - P7 adds no schema change and no persisted candidate/generation state/
   provenance/provider request/result/review state; runtime schema was v21 at
-  P7 closure. The current runtime is v27.
+  P7 closure. The current runtime is v28.
 
 ## 12. UI Finalization Presentation boundary
 
@@ -464,7 +466,7 @@ through an Application command with a durable transaction-level
   non-preview Practice seam (never `PracticePage.initialQuestions`, which
   remains preview-only). SPL-1 StudyPlan Agent Tool v0 is CLOSED / FROZEN
   (P0–D0–D1–I0–U0–V0–CL COMPLETE; stage schema v22, v24 at closure;
-  current runtime v27).
+  current runtime v28).
 
   The focused SPL-1 authority is
 `docs/product/SPL-1 StudyPlan Agent Tool v0.md`.
@@ -513,4 +515,4 @@ FSRS grading authority. See `docs/architecture/photo-answer-v1.md`.
 
 The design keeps Presentation behind Answer Completion Application services, preserves `PersistedQuestion.storageId` as Question identity, reuses existing P6/P7 answer mutation authority, and makes the existing task-bound `QuestionRepository` transaction the only import transaction owner. `LibraryFile`, `ParsedArtifact`, and `ImportTask` do not become QuestionSet identity.
 
-**Current runtime remains schema v27 until ANSWER-COMP-D1 is implemented and merged.** P0 freezes a planned additive next-schema relation; it does not claim those tables exist yet.
+**ANSWER-COMP-D1 implemented this relation as the additive v28 schema; the runtime is now v28.** The `imported_question_sets` / `imported_question_set_items` tables, their constraints, the bank lookup index, and the required relationship triggers exist and are strictly validated, while historical questions remain ungrouped. No QuestionSet writer, query projection, import dispatch, or UI is implemented yet.

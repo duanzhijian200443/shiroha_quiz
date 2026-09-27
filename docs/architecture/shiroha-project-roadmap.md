@@ -90,7 +90,7 @@ B0-I0 Whole Restore + Rollback — COMPLETE
 B0-U0 Minimal UI — COMPLETE
 B0-V0 Round-trip / corruption acceptance — COMPLETE
 B0-CL Closure — COMPLETE
-Current runtime schema — v27
+Current runtime schema — v28
 B0 .shiroha Backup / Restore — CLOSED / FROZEN
 ```
 
@@ -130,7 +130,10 @@ context, but they do not change implementation status by themselves.
 | **P6-ACT-2** | COMPLETE | Bank-scoped Supplemental Answer now supports explicit direct external-file acquisition through existing File Library ingestion, deterministic F1 parsing, explicit scanned-PDF OCR confirmation when required, and the existing P6 matching/review/typed-answer authority. Image OCR activation, ProjectScope / ExplicitQuestionScope entry surfaces, automatic OCR, and structured-target eligibility remain out of scope. |
 | **ZIP-BUNDLE-1** | LEGACY ROUTE IMPLEMENTED / MODERNIZATION DEFERRED | Text Direct Read already accepts `.zip` through `ZipDocumentAdapter` (Markdown/TXT/images and relative image resolution). F1 `ParsedArtifact` generation still rejects ZIP as `unsupportedRoute`; follow-up work is lifecycle/asset/admission modernization, not a greenfield ZIP implementation. |
 | **BANK-PKG-1** | PLANNED | Data-management UI contains a disabled “导入结构化题库包 / 暂未开放” placeholder. A versioned `.shiroha-bank` package/import contract and implementation do not yet exist. |
-| **ANSWER-COMP-P0** | COMPLETE / FROZEN | Docs-only design authority is frozen in `docs/architecture/answer-completion-question-sets.md`. It defines durable ImportedQuestionSet identity, strict document_v4 seed metadata, QuestionRepository-owned atomic membership commit, consistent Answer Completion queries, full-set P6 ExplicitQuestionScope activation, single-question P7 reuse, and the “补充答案 → 待补答案” secondary UI. Production implementation is not started; next stage is ANSWER-ENTRY-GUARD, then D0/D1/B0/I0/Q0/U0/P6/P7/V0/CL. |
+| **ANSWER-COMP-P0** | COMPLETE / FROZEN | Docs-only design authority is frozen in `docs/architecture/answer-completion-question-sets.md`. It defines durable ImportedQuestionSet identity, strict document_v4 seed metadata, QuestionRepository-owned atomic membership commit, consistent Answer Completion queries, full-set P6 ExplicitQuestionScope activation, single-question P7 reuse, and the “补充答案 → 待补答案” secondary UI. Production implementation continued through the ANSWER-ENTRY-GUARD, D0, and D1 stages below. |
+| **ANSWER-ENTRY-GUARD** | COMPLETE | Typed questions can no longer enter the legacy `answerSingleQuestion` AI path: the old-editor entry is gated by an Application typed-aware route decision on the real persisted `storageId`, with the defensive editor check retained; the valid legacy AI answer/explanation path remains usable. Merged as PR #182. |
+| **ANSWER-COMP-D0** | COMPLETE | Domain/Application contracts plus the strict document seed codec are frozen: `ImportedQuestionSet` / `ImportedQuestionSetItem` value contracts, the reserved `_questionSetCaptureV1` exact-key envelope with a non-normalizing decoder, and safe fixed failures. No schema, runtime seed persistence, dispatch, or UI. Merged as PR #184. |
+| **ANSWER-COMP-D1** | COMPLETE | Additive v28 schema implements the frozen durable relation: `imported_question_sets` / `imported_question_set_items`, composite primary key, both unique shapes, position CHECK, cascade foreign keys, bank lookup index, and the required cross-bank, bank-move detach, empty-set cleanup, and bank-immutability triggers, with a strict schema validator and an additive v27 → v28 migration that never backfills. Current runtime schema is v28; no QuestionSet writer, query, dispatch, or UI exists yet. Next stage: ANSWER-COMP-B0. |
 | **TYPED-ADMISSION-R1** | PLANNED / HARDENING | `OcrTypedCandidateGate` remains batch-wide all-or-nothing. A future bounded refactor may reduce one question's structural-admission failure blast radius without weakening fail-closed semantics. |
 | **RAG-2 / RAG-3** | DEFERRED | RAG-1 local lexical retrieval is COMPLETE. Semantic embeddings and hybrid/rerank retrieval remain separately deferred. |
 
@@ -177,7 +180,7 @@ The goal is expansion around the typed core, not another repository-wide refacto
 | **J0-P0** | Bank identity decision | Decide `bank_name` compatibility vs additive stable `bankId` registry | decision only unless separately approved |
 | **J0** | Project v0 | Optional Project plus file/bank references; no file duplication | additive migration candidate |
 | **U1** | Information-architecture migration | Replace the primary Subject-library navigation role with Project-aware UI while retaining compatibility surfaces | normally unchanged beyond F0/J0 |
-| **B0** | Whole backup/restore foundation | Versioned ZIP-compatible `.shiroha` package: sanitized DB snapshot + managed LibraryFile bytes; B0 v0 CLOSED / FROZEN | unchanged (B0 itself adds no schema migration; current runtime is now v27 due to later additive migrations) |
+| **B0** | Whole backup/restore foundation | Versioned ZIP-compatible `.shiroha` package: sanitized DB snapshot + managed LibraryFile bytes; B0 v0 CLOSED / FROZEN | unchanged (B0 itself adds no schema migration; current runtime is now v28 due to later additive migrations) |
 | **C0** | Conversation foundation | Persistent Conversation/User Message history and Conversation-level File context | additive v19 |
 | **T0** | Application Tool Layer | Reusable query/service facade shared by UI, Agent and MCP | unchanged |
 | **M0** | MCP v0 | Implement the existing exactly-six-tool `READ_ONLY` contract | unchanged |
@@ -276,7 +279,7 @@ B0-P0 Contract Freeze -> B0-D0 Package / Manifest Core -> B0-E0 Export
 ```
 
 B0 adds no second migration authority. B0 itself adds no schema migration;
-current runtime is now v27 due to later additive migrations.
+current runtime is now v28 due to later additive migrations.
 
 ### T0 — Application Tool Layer
 
@@ -484,7 +487,7 @@ Agent/MCP/schema catalogs — on synthetic SQLite with zero production code
 changes) is COMPLETE. SPL-1-CL (canonical closure / freeze of the SPL-1 v0
 contract and capability, docs-only) is COMPLETE. SPL-1 StudyPlan Agent Tool
 v0 is CLOSED / FROZEN; its durable persistence stage used schema v22, while
-the current runtime schema is v27. SPL-1 follow-up roadmap items do not
+the current runtime schema is v28. SPL-1 follow-up roadmap items do not
 auto-start.
 
 The frozen capability chain is:
