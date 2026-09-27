@@ -712,7 +712,7 @@ void main() {
     expect(requests.single.filePaths, <String>['img1.png', 'img2.png']);
   });
 
-  testWidgets('TXT Markdown and DOCX dispatch one aggregated request',
+  testWidgets('TXT Markdown and DOCX dispatch independent document requests',
       (tester) async {
     final sources = <String>[];
     final requests = <ImportParseRequest>[];
@@ -745,12 +745,31 @@ void main() {
     await tester.tap(fileButton());
     await tester.pump();
 
-    expect(sources, <String>['notes1.txt 等 3 个文件']);
+    expect(sources, <String>['notes1.txt', 'notes2.md', 'notes3.docx']);
+    expect(requests, hasLength(3));
+    expect(requests.map((request) => request.filePaths), [
+      ['notes1.txt'],
+      ['notes2.md'],
+      ['notes3.docx'],
+    ]);
+    expect(requests.map((request) => request.taskId).toSet(), hasLength(3));
+    expect(requests.every((request) => request.mode == ImportParseMode.text),
+        isTrue);
+  });
+  testWidgets('one ZIP remains one parser request', (tester) async {
+    final requests = <ImportParseRequest>[];
+    await pumpScreen(tester,
+        screen: fileScreen(
+            pickFiles: () async => FilePickerResult([
+                  PlatformFile(
+                      name: 'fixture.zip', path: 'fixture.zip', size: 0)
+                ]),
+            requests: requests));
+    await tester.tap(textCard());
+    await tester.pumpAndSettle();
+    await tester.tap(fileButton());
+    await tester.pumpAndSettle();
     expect(requests, hasLength(1));
-    expect(
-      requests.single.filePaths,
-      <String>['notes1.txt', 'notes2.md', 'notes3.docx'],
-    );
-    expect(requests.single.mode, ImportParseMode.text);
+    expect(requests.single.filePaths, ['fixture.zip']);
   });
 }

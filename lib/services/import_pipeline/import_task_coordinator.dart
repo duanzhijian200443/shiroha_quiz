@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:path/path.dart' as p;
+import '../../application/answer_completion/document_question_set_seed.dart';
 
 import '../../application/backup/backup_restore_gate.dart';
 import '../../application/content/content_asset_authority.dart';
@@ -68,6 +69,7 @@ class ImportTaskBatchItem {
     required this.parse,
     this.explanationRetentionMode = ExplanationRetentionMode.subjectiveOnly,
     this.documentImportEntry = false,
+    this.questionSetSeed,
     this.bankName,
     this.folderName,
     this.targetKind,
@@ -84,6 +86,7 @@ class ImportTaskBatchItem {
   /// retention (document import) or keeps the retention controls that describe
   /// its own recorded policy (photo capture, Agent, older builds).
   final bool documentImportEntry;
+  final DocumentQuestionSetSeed? questionSetSeed;
   final String? bankName;
   final String? folderName;
   final ImportTargetKind? targetKind;
@@ -91,7 +94,12 @@ class ImportTaskBatchItem {
   /// Entry diagnostics this item contributes at task creation.
   Map<String, dynamic> get entryDiagnostics => <String, dynamic>{
         if (documentImportEntry)
-          documentImportEntryMarkerKey: documentImportEntryMarkerValue,
+          documentImportEntryMarkerKey: questionSetSeed == null
+              ? documentImportEntryMarkerValue
+              : documentQuestionSetImportEntryMarkerValue,
+        if (questionSetSeed != null)
+          questionSetCaptureMetadataKey:
+              const DocumentQuestionSetSeedCodec().encode(questionSetSeed!),
       };
 }
 
@@ -124,6 +132,13 @@ class ImportTaskRetryRejectedException implements Exception {
 
   @override
   String toString() => 'ImportTaskRetryRejectedException';
+}
+
+class ImportDocumentBatchTargetException implements Exception {
+  const ImportDocumentBatchTargetException();
+
+  @override
+  String toString() => 'Document batches require an existing bank.';
 }
 
 class ImportTaskCoordinator {
@@ -264,6 +279,7 @@ class ImportTaskCoordinator {
     ExplanationRetentionMode explanationRetentionMode =
         ExplanationRetentionMode.subjectiveOnly,
     bool documentImportEntry = false,
+    DocumentQuestionSetSeed? questionSetSeed,
     bool allowAutoOpenReview = false,
     String? bankName,
     String? folderName,
@@ -279,6 +295,7 @@ class ImportTaskCoordinator {
         parse: parse,
         explanationRetentionMode: explanationRetentionMode,
         documentImportEntry: documentImportEntry,
+        questionSetSeed: questionSetSeed,
         allowAutoOpenReview: allowAutoOpenReview,
         bankName: bankName,
         folderName: folderName,
@@ -298,12 +315,22 @@ class ImportTaskCoordinator {
     ExplanationRetentionMode explanationRetentionMode =
         ExplanationRetentionMode.subjectiveOnly,
     bool documentImportEntry = false,
+    DocumentQuestionSetSeed? questionSetSeed,
     bool allowAutoOpenReview = false,
     String? bankName,
     String? folderName,
     ImportTargetKind? targetKind,
   }) async {
     await _readiness;
+
+    final entryDiagnostics = ImportTaskBatchItem(
+      sourceDescription: sourceDescription,
+      mode: mode,
+      parse: parse,
+      documentImportEntry: documentImportEntry,
+      questionSetSeed: questionSetSeed,
+    ).entryDiagnostics;
+    readDocumentQuestionSetSeed(entryDiagnostics);
 
     final taskId = _taskIdFactory();
     final traceId = _traceIdFactory();
@@ -340,8 +367,7 @@ class ImportTaskCoordinator {
         TaskManager.keyReviewExplanationRetentionMode:
             explanationRetentionMode.name,
         TaskManager.keyExplanationRetentionMode: explanationRetentionMode.name,
-        if (documentImportEntry)
-          documentImportEntryMarkerKey: documentImportEntryMarkerValue,
+        ...entryDiagnostics,
         if (targetKind != null) importTargetKindMarkerKey: targetKind.name,
         TaskManager.keyAttemptNumber: handle.attemptNumber,
         TaskManager.keyAttemptToken: handle.attemptToken,
@@ -377,6 +403,11 @@ class ImportTaskCoordinator {
   Future<ImportTaskBatchHandle> dispatchIndependentBatch({
     required List<ImportTaskBatchItem> items,
   }) async {
+    if (items.length > 1 &&
+        items.any((item) => item.documentImportEntry) &&
+        items.any((item) => item.targetKind != ImportTargetKind.existing)) {
+      throw const ImportDocumentBatchTargetException();
+    }
     BackupRestoreMutationGate.instance.ensureMutationAllowed();
     final leases = <BackupRestoreMutationLease>[
       for (var i = 0; i < items.length; i++)
@@ -430,6 +461,7 @@ class ImportTaskCoordinator {
 
     for (var index = 0; index < items.length; index++) {
       final item = items[index];
+      readDocumentQuestionSetSeed(item.entryDiagnostics);
       final taskId = _uniqueValue(_taskIdFactory(), reservedTaskIds);
       reservedTaskIds.add(taskId);
       final traceId = _uniqueValue(_traceIdFactory(), reservedTraceIds);
@@ -1379,6 +1411,10 @@ class ImportTaskCoordinator {
 
     void flatten(Map<Object?, Object?> map, String prefix) {
       for (final entry in map.entries) {
+        if (entry.key == questionSetCaptureMetadataKey ||
+            entry.key == documentImportEntryMarkerKey) {
+          continue;
+        }
         final value = entry.value;
         final key = entry.key.toString();
         final nextPrefix = prefix.isEmpty ? '$key ' : '$prefix$key ';

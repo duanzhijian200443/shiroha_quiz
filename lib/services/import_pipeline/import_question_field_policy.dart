@@ -1,4 +1,11 @@
 import '../../data/models/question_draft.dart';
+import '../../application/answer_completion/document_question_set_seed.dart';
+
+export '../../application/answer_completion/document_question_set_seed.dart'
+    show
+        documentImportEntryMarkerKey,
+        documentImportEntryMarkerValue,
+        documentQuestionSetImportEntryMarkerValue;
 
 enum ExplanationRetentionMode {
   subjectiveOnly,
@@ -26,23 +33,6 @@ ExplanationRetentionMode parseExplanationRetentionMode(Object? value) {
 const ExplanationRetentionMode newDocumentImportExplanationRetentionMode =
     ExplanationRetentionMode.allQuestionTypes;
 
-/// Diagnostics key that marks a task created by the document import entry.
-///
-/// Entry provenance is **not** inferable from the retention mode. Every task
-/// dispatched through `ImportTaskCoordinator` records all three retention
-/// diagnostics, including single-question photo capture, which still runs at
-/// [ExplanationRetentionMode.subjectiveOnly] and still needs the review-time
-/// controls that describe that choice. Guessing the entry from retention state
-/// would hide the only way to restore a recognized objective explanation on a
-/// photo-capture task, so the entry states itself explicitly instead.
-///
-/// The marker is additive task diagnostics metadata: it needs no schema
-/// migration, and tasks that predate it simply read as compatibility tasks.
-const String documentImportEntryMarkerKey = '_importEntry';
-
-/// Marker value written by the document import entry.
-const String documentImportEntryMarkerValue = 'document_v3';
-
 /// Whether [diagnostics] describe a task created by the document import entry.
 ///
 /// A task without the marker is a compatibility task: it came from photo
@@ -50,7 +40,9 @@ const String documentImportEntryMarkerValue = 'document_v3';
 /// controls that match what its own pipeline recorded.
 bool isDocumentImportEntryDiagnostics(Map<String, dynamic>? diagnostics) {
   return diagnostics?[documentImportEntryMarkerKey] ==
-      documentImportEntryMarkerValue;
+          documentImportEntryMarkerValue ||
+      diagnostics?[documentImportEntryMarkerKey] ==
+          documentQuestionSetImportEntryMarkerValue;
 }
 
 enum QuestionExplanationOverride {

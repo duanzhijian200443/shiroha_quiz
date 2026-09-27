@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:uuid/uuid.dart';
 
+import '../../application/answer_completion/document_question_set_seed.dart';
 import '../../application/safe_write/typed_answer_command.dart';
 import '../../application/import/import_target_catalog_service.dart';
 import '../../application/import/import_target_selection.dart';
@@ -24,6 +25,7 @@ import '../models/persisted_question.dart';
 import '../models/question_draft.dart';
 import '../models/subject_tree_index.dart';
 import '../models/typed_import_commit_guard.dart';
+import '../persistence/imported_question_set_persistence_kernel.dart';
 import '../persistence/question_v2_persistence_mapper.dart';
 import '../persistence/typed_answer_persistence.dart';
 
@@ -227,12 +229,13 @@ class QuestionRepository
       };
       final db = await _databaseHelper.database;
       return await db.transaction((txn) async {
-        final targetKind = await _validatePersistedImportTask(txn, guard);
+        final authority = await _validatePersistedImportTask(
+            txn, guard, trimmedBankName, folderName);
         final resolvedFolderName = await _resolveImportCommitFolder(
           txn,
           bankName: trimmedBankName,
           folderName: folderName,
-          targetKind: targetKind,
+          targetKind: authority.targetKind,
         );
         await _writeFrozenV2Batch(
           txn,
@@ -241,6 +244,19 @@ class QuestionRepository
           frozenWrites: frozenWrites,
           assetIdentities: assetIdentities,
         );
+        final seed = authority.seed;
+        if (seed != null) {
+          await const ImportedQuestionSetPersistenceKernel().write(
+            txn,
+            setId: _uuid.v4(),
+            bankName: trimmedBankName,
+            seed: seed,
+            createdAt: nowUtcSeconds,
+            storageIds: frozenWrites
+                .map((write) => write.questionRow['id']! as String)
+                .toList(growable: false),
+          );
+        }
         final updated = await txn.update(
           'import_tasks',
           <String, Object?>{
@@ -322,12 +338,13 @@ class QuestionRepository
     try {
       final db = await _databaseHelper.database;
       return await db.transaction((txn) async {
-        final targetKind = await _validatePersistedLegacyImportTask(txn, guard);
+        final authority = await _validatePersistedLegacyImportTask(
+            txn, guard, trimmedBankName, folderName);
         final resolvedFolderName = await _resolveImportCommitFolder(
           txn,
           bankName: trimmedBankName,
           folderName: folderName,
-          targetKind: targetKind,
+          targetKind: authority.targetKind,
         );
         for (final row in frozenRows) {
           await txn.insert('questions', row);
@@ -345,6 +362,19 @@ class QuestionRepository
               'folder_name': resolvedFolderName,
             },
             conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+        final seed = authority.seed;
+        if (seed != null) {
+          await const ImportedQuestionSetPersistenceKernel().write(
+            txn,
+            setId: _uuid.v4(),
+            bankName: trimmedBankName,
+            seed: seed,
+            createdAt: nowUtcSeconds,
+            storageIds: frozenRows
+                .map((row) => row['id']! as String)
+                .toList(growable: false),
           );
         }
         final updated = await txn.update(
@@ -399,9 +429,12 @@ class QuestionRepository
     }
   }
 
-  Future<ImportTargetKind?> _validatePersistedLegacyImportTask(
+  Future<({ImportTargetKind? targetKind, DocumentQuestionSetSeed? seed})>
+      _validatePersistedLegacyImportTask(
     DatabaseExecutor txn,
     LegacyImportCommitGuard guard,
+    String bankName,
+    String? folderName,
   ) async {
     final rows = await txn.query(
       'import_tasks',
@@ -515,7 +548,21 @@ class QuestionRepository
         LegacyImportCommitPersistenceFailure.staleReviewDraft,
       );
     }
-    return targetKind;
+    final DocumentQuestionSetSeed? seed;
+    try {
+      seed = readDocumentQuestionSetSeed(diagnostics);
+    } on DocumentQuestionSetSeedException {
+      throw const LegacyImportCommitPersistenceException(
+        LegacyImportCommitPersistenceFailure.invalidTaskMetadata,
+      );
+    }
+    if (seed != null &&
+        !_matchesFrozenImportTarget(row, bankName, folderName, targetKind)) {
+      throw const LegacyImportCommitPersistenceException(
+        LegacyImportCommitPersistenceFailure.invalidTaskMetadata,
+      );
+    }
+    return (targetKind: targetKind, seed: seed);
   }
 
   Map<String, Object?>? _decodeLegacyCommitDiagnostics(Object? raw) {
@@ -556,9 +603,12 @@ class QuestionRepository
   /// the frozen pendingReview code and `parsed_data` must be non-null. The
   /// decoded `_importTargetKind` marker is returned so the caller can apply the
   /// frozen folder authority inside the same transaction.
-  Future<ImportTargetKind?> _validatePersistedImportTask(
+  Future<({ImportTargetKind? targetKind, DocumentQuestionSetSeed? seed})>
+      _validatePersistedImportTask(
     DatabaseExecutor txn,
     TypedImportCommitGuard guard,
+    String bankName,
+    String? folderName,
   ) async {
     final rows = await txn.query(
       'import_tasks',
@@ -710,7 +760,42 @@ class QuestionRepository
         TypedImportCommitPersistenceFailure.staleReviewDraft,
       );
     }
-    return targetKind;
+    final DocumentQuestionSetSeed? seed;
+    try {
+      seed = readDocumentQuestionSetSeed(diagnostics);
+    } on DocumentQuestionSetSeedException {
+      throw const TypedImportCommitPersistenceException(
+        TypedImportCommitPersistenceFailure.invalidTaskMetadata,
+      );
+    }
+    if (seed != null &&
+        !_matchesFrozenImportTarget(row, bankName, folderName, targetKind)) {
+      throw const TypedImportCommitPersistenceException(
+        TypedImportCommitPersistenceFailure.invalidTaskMetadata,
+      );
+    }
+    return (targetKind: targetKind, seed: seed);
+  }
+
+  /// A captured v4 commit stays bound to the whole frozen target: the
+  /// persisted kind must be present, the bank must equal the persisted bank,
+  /// and a proposed bank must keep the folder frozen at task creation.
+  bool _matchesFrozenImportTarget(
+    Map<String, Object?> row,
+    String bankName,
+    String? folderName,
+    ImportTargetKind? targetKind,
+  ) {
+    if (targetKind == null || row['bank_name'] != bankName) return false;
+    if (targetKind != ImportTargetKind.proposedNew) return true;
+    final frozen =
+        row['folder_name'] is String ? row['folder_name']! as String : null;
+    return _normalizedFolderName(folderName) == _normalizedFolderName(frozen);
+  }
+
+  String? _normalizedFolderName(String? value) {
+    final trimmed = value?.trim() ?? '';
+    return trimmed.isEmpty ? null : trimmed;
   }
 
   /// Shared V2 freeze step used by both public typed write APIs.

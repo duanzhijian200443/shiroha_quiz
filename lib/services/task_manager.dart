@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import '../application/answer_completion/document_question_set_seed.dart';
 import 'package:flutter/material.dart';
 import '../application/backup/backup_restore_gate.dart';
 import '../application/import/import_target_selection.dart';
@@ -1267,6 +1268,9 @@ class TaskManager extends ChangeNotifier {
         next.warnings = null;
         next.completedAt = null;
         next.diagnostics = <String, dynamic>{
+          if (stableMetadata.containsKey(questionSetCaptureMetadataKey))
+            questionSetCaptureMetadataKey:
+                stableMetadata[questionSetCaptureMetadataKey],
           if (stableMetadata[keyBatchId] != null)
             keyBatchId: stableMetadata[keyBatchId],
           if (stableMetadata[keySelectionIndex] != null)
@@ -1278,8 +1282,9 @@ class TaskManager extends ChangeNotifier {
           // Entry provenance is task metadata: a retry rebuilds diagnostics
           // from scratch, and dropping the marker here would demote a document
           // import to a compatibility task and bring its retention controls
-          // back for the retried attempt.
-          if (stableMetadata[documentImportEntryMarkerKey] != null)
+          // back for the retried attempt. A stored null entry must survive so
+          // the commit path still fails closed on it.
+          if (stableMetadata.containsKey(documentImportEntryMarkerKey))
             documentImportEntryMarkerKey:
                 stableMetadata[documentImportEntryMarkerKey],
           if (stableMetadata[importTargetKindMarkerKey] != null)
@@ -1506,6 +1511,20 @@ class TaskManager extends ChangeNotifier {
     final existing = task.diagnostics;
     final metadata = <String, dynamic>{};
     for (final key in <String>[
+      // Presence is the authority for the reserved seed and entry keys: a
+      // stored null is a present-but-invalid value that normalization and
+      // retries must carry forward instead of silently dropping.
+      questionSetCaptureMetadataKey,
+      // Entry provenance decides whether Review fixes explanation retention or
+      // keeps the controls that describe the task's own recorded policy, so it
+      // is task metadata and must survive parse completion.
+      documentImportEntryMarkerKey,
+    ]) {
+      if (existing?.containsKey(key) == true) {
+        metadata[key] = existing![key];
+      }
+    }
+    for (final key in <String>[
       keyTraceId,
       keyCorrelationId,
       keyParentTraceId,
@@ -1515,10 +1534,6 @@ class TaskManager extends ChangeNotifier {
       keyParseExplanationRetentionMode,
       keyReviewExplanationRetentionMode,
       keyExplanationRetentionMode,
-      // Entry provenance decides whether Review fixes explanation retention or
-      // keeps the controls that describe the task's own recorded policy, so it
-      // is task metadata and must survive parse completion.
-      documentImportEntryMarkerKey,
       importTargetKindMarkerKey,
       keyAttemptNumber,
       keyAttemptToken,
@@ -1604,6 +1619,15 @@ class TaskManager extends ChangeNotifier {
   ) {
     final existing = task.diagnostics;
     final next = Map<String, dynamic>.from(diagnostics);
+    // Only creation owns these fields. An absent seed cannot be synthesized
+    // by parser diagnostics, and a present null must remain invalid.
+    for (final key in <String>[
+      questionSetCaptureMetadataKey,
+      documentImportEntryMarkerKey,
+    ]) {
+      next.remove(key);
+      if (existing?.containsKey(key) == true) next[key] = existing![key];
+    }
     for (final key in <String>[
       keyTraceId,
       keyCorrelationId,
