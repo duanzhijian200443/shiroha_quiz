@@ -20,6 +20,7 @@ import 'ai_config_v24_schema.dart';
 import 'ai_config_v25_schema.dart';
 import 'answer_attempt_v23_schema.dart';
 import 'answer_attempt_v26_schema.dart';
+import 'answer_completion_v28_schema.dart';
 import 'content_asset_reclamation_v27_schema.dart';
 import 'question_v2_schema_exception.dart';
 import 'retrieval_v21_schema.dart';
@@ -83,7 +84,7 @@ class DatabaseHelper
   DatabaseHelper._();
 
   static const String _dbName = 'shiroha_core_v1.db';
-  static const int _dbVersion = contentAssetReclamationSchemaVersion;
+  static const int _dbVersion = answerCompletionSchemaVersion;
 
   static String get databaseFileName => _dbName;
   static int get databaseVersion => _dbVersion;
@@ -687,6 +688,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await validateStudyPlanV22Schema(db);
     await validateAnswerAttemptV26Schema(db);
     await validateContentAssetReclamationV27Schema(db);
+    await validateAnswerCompletionV28Schema(db);
     await validateAiConfigV25Schema(db);
   }
 
@@ -938,6 +940,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await createStudyPlanV22Schema(db);
     await createAnswerAttemptV26Schema(db);
     await createContentAssetReclamationV27Schema(db);
+    await createAnswerCompletionV28Schema(db);
     await _validateV15Schema(db);
     await _validateLibraryFilesSchema(db);
     await _validateProjectSchema(db);
@@ -948,6 +951,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await validateStudyPlanV22Schema(db);
     await validateAnswerAttemptV26Schema(db);
     await validateContentAssetReclamationV27Schema(db);
+    await validateAnswerCompletionV28Schema(db);
     await validateAiConfigV25Schema(db);
   }
 
@@ -1122,8 +1126,12 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     if (oldVersion < 27) {
       await migrateContentAssetReclamationToV27(db);
     }
+    if (oldVersion < 28) {
+      await migrateAnswerCompletionToV28(db);
+    }
     await validateAnswerAttemptV26Schema(db);
     await validateContentAssetReclamationV27Schema(db);
+    await validateAnswerCompletionV28Schema(db);
     await validateAiConfigV25Schema(db);
   }
 

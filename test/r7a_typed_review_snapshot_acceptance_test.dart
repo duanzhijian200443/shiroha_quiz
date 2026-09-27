@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shiroha_quiz/application/questions/folder_query_port.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
-import 'package:shiroha_quiz/core/database/content_asset_reclamation_v27_schema.dart';
+import 'package:shiroha_quiz/core/database/answer_completion_v28_schema.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/models/question_draft.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
@@ -391,7 +391,7 @@ void main() {
     test('database version follows the newest schema constant', () {
       expect(
         DatabaseHelper.databaseVersion,
-        contentAssetReclamationSchemaVersion,
+        answerCompletionSchemaVersion,
       );
     });
 

@@ -165,7 +165,7 @@ void main() {
       await helper.close();
 
       migrated = await helper.openPathForTesting(path);
-      expect(await migrated.getVersion(), contentAssetReclamationSchemaVersion);
+      expect(await migrated.getVersion(), DatabaseHelper.databaseVersion);
       await validateContentAssetReclamationV27Schema(migrated);
       expect(await migrated.query(contentAssetReclamationTable), isEmpty);
       for (final table in preserved) {

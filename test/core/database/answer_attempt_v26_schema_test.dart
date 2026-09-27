@@ -21,7 +21,7 @@ void main() {
     await DatabaseHelper.resetRuntimeProfileForTesting();
     try {
       final seed = await DatabaseHelper.instance.openPathForTesting(path);
-      expect(await seed.getVersion(), contentAssetReclamationSchemaVersion);
+      expect(await seed.getVersion(), DatabaseHelper.databaseVersion);
       await validateAnswerAttemptV26Schema(seed);
       await seed.execute('DROP TABLE answer_attempts');
       await createAnswerAttemptV23Schema(seed);
@@ -46,7 +46,7 @@ void main() {
           .openStagedAndValidate(path);
       final db = await DatabaseHelper.instance.openPathForTesting(path);
       try {
-        expect(await db.getVersion(), contentAssetReclamationSchemaVersion);
+        expect(await db.getVersion(), DatabaseHelper.databaseVersion);
         expect(
             await db.query('answer_attempts', orderBy: 'attempt_id'), before);
         await validateAnswerAttemptV26Schema(db);
