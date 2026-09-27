@@ -60,7 +60,7 @@ final class _RoutePort extends Fake implements StudyQuestionQueryPort {
   }
 }
 
-final _clock = () => DateTime.utc(2026, 9, 27, 12);
+DateTime _clock() => DateTime.utc(2026, 9, 27, 12);
 
 AiAnswerEntryGuard _guard(_RoutePort port) =>
     AiAnswerEntryGuard(questionPort: port, clock: _clock);
