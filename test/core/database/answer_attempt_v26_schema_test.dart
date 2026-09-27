@@ -2,7 +2,6 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/core/database/answer_attempt_v23_schema.dart';
 import 'package:shiroha_quiz/core/database/answer_attempt_v26_schema.dart';
-import 'package:shiroha_quiz/core/database/content_asset_reclamation_v27_schema.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/repositories/backup_snapshot_repository.dart';
 import 'package:shiroha_quiz/domain/attempt/answer_attempt.dart';
@@ -21,7 +20,7 @@ void main() {
     await DatabaseHelper.resetRuntimeProfileForTesting();
     try {
       final seed = await DatabaseHelper.instance.openPathForTesting(path);
-      expect(await seed.getVersion(), contentAssetReclamationSchemaVersion);
+      expect(await seed.getVersion(), DatabaseHelper.databaseVersion);
       await validateAnswerAttemptV26Schema(seed);
       await seed.execute('DROP TABLE answer_attempts');
       await createAnswerAttemptV23Schema(seed);
@@ -46,7 +45,7 @@ void main() {
           .openStagedAndValidate(path);
       final db = await DatabaseHelper.instance.openPathForTesting(path);
       try {
-        expect(await db.getVersion(), contentAssetReclamationSchemaVersion);
+        expect(await db.getVersion(), DatabaseHelper.databaseVersion);
         expect(
             await db.query('answer_attempts', orderBy: 'attempt_id'), before);
         await validateAnswerAttemptV26Schema(db);

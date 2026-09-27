@@ -15,6 +15,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:shiroha_quiz/core/database/answer_completion_v28_schema.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/core/database/question_v2_schema_exception.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -1081,13 +1082,18 @@ void main() {
       );
 
       final probe = await openRaw(path);
+      // The failed upgrade leaves exactly the fixture's blocking trigger plus
+      // the committed schema-owned trigger on questions, and nothing else.
       expect(
         (await probe.rawQuery(
-          "SELECT COUNT(*) AS c FROM sqlite_master "
-          "WHERE type = 'trigger' AND tbl_name = 'questions'",
+          "SELECT name FROM sqlite_master "
+          "WHERE type = 'trigger' AND tbl_name = 'questions' ORDER BY name",
         ))
-            .single['c'],
-        1,
+            .map((row) => row['name'] as String),
+        <String>[
+          'block_question_insert',
+          answerCompletionQuestionBankDetachTrigger,
+        ],
       );
       expect((await probe.query('questions')).length, 2);
       await probe.close();
