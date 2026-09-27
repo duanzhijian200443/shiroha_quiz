@@ -10,6 +10,34 @@ import 'package:shiroha_quiz/domain/answer_completion/imported_question_set.dart
 /// and can never be mistaken for a historical task without a seed.
 const String questionSetCaptureMetadataKey = '_questionSetCaptureV1';
 
+/// Task-owned document entry provenance, independent of parse/retention mode.
+const String documentImportEntryMarkerKey = '_importEntry';
+
+/// Historical document marker; never silently upgraded or assigned a seed.
+const String documentImportEntryMarkerValue = 'document_v3';
+
+/// Set-aware document entry; the v3 marker remains a compatibility value.
+const String documentQuestionSetImportEntryMarkerValue = 'document_v4';
+
+/// Validates capture intent without upgrading historical tasks.
+DocumentQuestionSetSeed? readDocumentQuestionSetSeed(
+  Map<String, Object?> diagnostics,
+) {
+  final present = diagnostics.containsKey(questionSetCaptureMetadataKey);
+  final entry = diagnostics[documentImportEntryMarkerKey];
+  if (!present && entry != documentQuestionSetImportEntryMarkerValue) {
+    return null;
+  }
+  if (!present || entry != documentQuestionSetImportEntryMarkerValue) {
+    throw const DocumentQuestionSetSeedException(
+      DocumentQuestionSetSeedFailure.invalidEnvelope,
+    );
+  }
+  return const DocumentQuestionSetSeedCodec().decode(
+    diagnostics[questionSetCaptureMetadataKey],
+  );
+}
+
 /// Fixed failure classification for QuestionSet capture seed handling.
 enum DocumentQuestionSetSeedFailure {
   /// The envelope is malformed: wrong root, wrong types, non-string keys,

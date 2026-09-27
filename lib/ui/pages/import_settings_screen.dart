@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import '../../application/answer_completion/document_question_set_seed.dart';
 import '../../application/import/import_advanced_preferences.dart';
 import '../../application/import/import_target_catalog_service.dart';
 import '../../application/import/import_target_selection.dart';
@@ -139,6 +140,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
     Future<ImportParseResult> Function(String taskId) parseTask, {
     required ImportParseMode mode,
     required ImportTargetSelection target,
+    DocumentQuestionSetSeed? questionSetSeed,
   }) async {
     final testDispatcher = widget.taskDispatcher;
     if (testDispatcher != null) {
@@ -157,6 +159,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
       parse: parseTask,
       explanationRetentionMode: newDocumentImportExplanationRetentionMode,
       documentImportEntry: true,
+      questionSetSeed: questionSetSeed,
       allowAutoOpenReview: true,
       bankName: target.bankName,
       folderName: target.folderName,
@@ -182,7 +185,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
           ImportTargetSelection(
             bankName: item.bankName!,
             folderName: item.folderName,
-            targetKind: ImportTargetKind.existing,
+            targetKind: item.targetKind!,
           ),
         );
       }
@@ -237,16 +240,22 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
       _showIncompatibleFiles(selectedMode, incompatibleFiles);
       return;
     }
+    if (result.files.length > 1 &&
+        targetSnapshot.targetKind != ImportTargetKind.existing) {
+      _showTargetError('多文件批量导入请选择已有题库；新题库请先导入单个文件。');
+      return;
+    }
     final parseRequest = _resolveRequestParser();
     final maxConcurrency = await _resolveOcrMaxConcurrency();
     if (!mounted) return;
     final target = await _validatedTarget(targetSnapshot);
     if (target == null || !mounted) return;
 
-    final isAllPdfBatch = result.files.length > 1 &&
-        result.files.every((file) => _fileExtension(file) == 'pdf');
+    final hasDocument = result.files.any(
+      (file) => importTextSupportedExtensions.contains(_fileExtension(file)),
+    );
 
-    if (isAllPdfBatch) {
+    if (result.files.length > 1 && hasDocument) {
       final items = result.files
           .map(
             (file) => ImportTaskBatchItem(
@@ -255,6 +264,7 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
               explanationRetentionMode:
                   newDocumentImportExplanationRetentionMode,
               documentImportEntry: true,
+              questionSetSeed: _documentSeed(file),
               bankName: target.bankName,
               folderName: target.folderName,
               targetKind: target.targetKind,
@@ -295,6 +305,24 @@ class _ImportSettingsScreenState extends State<ImportSettingsScreen> {
       ),
       mode: selectedMode,
       target: target,
+      questionSetSeed:
+          result.files.length == 1 ? _documentSeed(result.files.single) : null,
+    );
+  }
+
+  DocumentQuestionSetSeed? _documentSeed(PlatformFile file) {
+    if (!importTextSupportedExtensions.contains(_fileExtension(file))) {
+      return null;
+    }
+    // Sanitize only at creation. The strict decoder never repairs authority.
+    final basename = file.name.replaceAll('\\', '/').split('/').last;
+    final scalars = basename.runes.where((scalar) =>
+        scalar >= 0x20 &&
+        !(scalar >= 0x7f && scalar <= 0x9f) &&
+        !(scalar >= 0xd800 && scalar <= 0xdfff));
+    final displayName = String.fromCharCodes(scalars.take(256));
+    return DocumentQuestionSetSeed(
+      displayName: displayName.isEmpty ? '导入文件' : displayName,
     );
   }
 

@@ -194,4 +194,30 @@ void main() {
     await tester.pumpAndSettle();
     expect(targets, [target]);
   });
+  for (final count in [1, 2]) {
+    testWidgets(
+        'proposed bank with $count files dispatches only a single-file import',
+        (tester) async {
+      var dispatches = 0;
+      final target = ImportTargetSelection(
+          bankName: 'new bank', targetKind: ImportTargetKind.proposedNew);
+      await pump(tester,
+          store: _TargetStore(target),
+          picker: () async => FilePickerResult([
+                for (var i = 0; i < count; i++)
+                  PlatformFile(name: '$i.pdf', path: '$i.pdf', size: 0),
+              ]),
+          dispatcher: (_, __, selected) {
+            dispatches++;
+            expect(selected.targetKind, ImportTargetKind.proposedNew);
+          });
+      await tester
+          .tap(find.byKey(const ValueKey<String>('import-file-button')));
+      await tester.pumpAndSettle();
+      expect(dispatches, count == 1 ? 1 : 0);
+      if (count == 2) {
+        expect(find.text('多文件批量导入请选择已有题库；新题库请先导入单个文件。'), findsOneWidget);
+      }
+    });
+  }
 }

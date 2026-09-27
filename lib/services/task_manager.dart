@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import '../application/answer_completion/document_question_set_seed.dart';
 import 'package:flutter/material.dart';
 import '../application/backup/backup_restore_gate.dart';
 import '../application/import/import_target_selection.dart';
@@ -1267,6 +1268,9 @@ class TaskManager extends ChangeNotifier {
         next.warnings = null;
         next.completedAt = null;
         next.diagnostics = <String, dynamic>{
+          if (stableMetadata.containsKey(questionSetCaptureMetadataKey))
+            questionSetCaptureMetadataKey:
+                stableMetadata[questionSetCaptureMetadataKey],
           if (stableMetadata[keyBatchId] != null)
             keyBatchId: stableMetadata[keyBatchId],
           if (stableMetadata[keySelectionIndex] != null)
@@ -1505,6 +1509,10 @@ class TaskManager extends ChangeNotifier {
   Map<String, dynamic> _taskMetadata(ImportTask task) {
     final existing = task.diagnostics;
     final metadata = <String, dynamic>{};
+    if (existing?.containsKey(questionSetCaptureMetadataKey) == true) {
+      metadata[questionSetCaptureMetadataKey] =
+          existing![questionSetCaptureMetadataKey];
+    }
     for (final key in <String>[
       keyTraceId,
       keyCorrelationId,
@@ -1604,6 +1612,15 @@ class TaskManager extends ChangeNotifier {
   ) {
     final existing = task.diagnostics;
     final next = Map<String, dynamic>.from(diagnostics);
+    // Only creation owns these fields. An absent seed cannot be synthesized
+    // by parser diagnostics, and a present null must remain invalid.
+    for (final key in <String>[
+      questionSetCaptureMetadataKey,
+      documentImportEntryMarkerKey,
+    ]) {
+      next.remove(key);
+      if (existing?.containsKey(key) == true) next[key] = existing![key];
+    }
     for (final key in <String>[
       keyTraceId,
       keyCorrelationId,
