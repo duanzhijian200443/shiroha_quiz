@@ -2,7 +2,6 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/core/database/answer_attempt_v23_schema.dart';
 import 'package:shiroha_quiz/core/database/answer_attempt_v26_schema.dart';
-import 'package:shiroha_quiz/core/database/content_asset_reclamation_v27_schema.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/repositories/backup_snapshot_repository.dart';
 import 'package:shiroha_quiz/domain/attempt/answer_attempt.dart';

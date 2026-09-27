@@ -609,6 +609,38 @@ void main() {
     }
   });
 
+  test('validator rejects an extra unique named index', () async {
+    final itemIndex = await openSeam('extra_unique_item.db');
+    try {
+      // A unique index on set_id would silently allow only one membership per
+      // set while every inline constraint still reads correctly.
+      await itemIndex.execute(
+        'CREATE UNIQUE INDEX bad_unique_set_id '
+        'ON $importedQuestionSetItemsTable(set_id)',
+      );
+      await expectLater(
+        validateAnswerCompletionV28Schema(itemIndex),
+        _throwsSchemaFailure(),
+      );
+    } finally {
+      await itemIndex.close();
+    }
+
+    final setIndex = await openSeam('extra_unique_set.db');
+    try {
+      await setIndex.execute(
+        'CREATE UNIQUE INDEX bad_unique_bank '
+        'ON $importedQuestionSetsTable(bank_name)',
+      );
+      await expectLater(
+        validateAnswerCompletionV28Schema(setIndex),
+        _throwsSchemaFailure(),
+      );
+    } finally {
+      await setIndex.close();
+    }
+  });
+
   test('validator rejects a dropped required trigger', () async {
     final db = await openSeam('corrupt_trigger.db');
     try {

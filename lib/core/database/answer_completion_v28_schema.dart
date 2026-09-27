@@ -213,6 +213,8 @@ Future<void> validateAnswerCompletionV28Schema(DatabaseExecutor db) async {
     ],
   );
   await _requireBankIndex(db);
+  await _requireNoExtraUniqueIndexes(db, importedQuestionSetsTable);
+  await _requireNoExtraUniqueIndexes(db, importedQuestionSetItemsTable);
   await _requireItemKeyShapes(db);
   await _requireItemForeignKeys(db);
   final setsForeignKeys = await db.rawQuery(
@@ -348,6 +350,26 @@ Future<void> _requireBankIndex(DatabaseExecutor db) async {
   }
 }
 
+/// Rejects a named unique index on a v28 table.
+///
+/// The frozen schema declares exactly one named index (the non-unique bank
+/// lookup index); every key shape is an inline constraint. A named unique
+/// index would silently tighten the relation, for example to one membership
+/// per set, without changing the inline constraint text.
+Future<void> _requireNoExtraUniqueIndexes(
+  DatabaseExecutor db,
+  String table,
+) async {
+  final indexes = await db.rawQuery('PRAGMA index_list($table)');
+  for (final index in indexes) {
+    if (index['origin'] == 'c' && index['unique'] == 1) {
+      throw const AnswerCompletionSchemaException(
+        AnswerCompletionSchemaFailure.malformedSchema,
+      );
+    }
+  }
+}
+
 /// Requires exactly `PRIMARY KEY(set_id, question_storage_id)`,
 /// `UNIQUE(question_storage_id)`, and `UNIQUE(set_id, position)`.
 Future<void> _requireItemKeyShapes(DatabaseExecutor db) async {
@@ -371,8 +393,8 @@ Future<void> _requireItemKeyShapes(DatabaseExecutor db) async {
       case 'pk':
         primaryKeyShapes.add(shape);
       case 'c':
-        // A named index adds no key semantics; the frozen shapes are checked
-        // through the unique and primary-key entries above.
+        // A named index adds no key semantics here; a named *unique* index is
+        // rejected by _requireNoExtraUniqueIndexes before this check runs.
         break;
       default:
         throw const AnswerCompletionSchemaException(
