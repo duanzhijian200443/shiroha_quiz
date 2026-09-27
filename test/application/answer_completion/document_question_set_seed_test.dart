@@ -5,6 +5,7 @@ import 'package:shiroha_quiz/application/answer_completion/document_question_set
 
 const DocumentQuestionSetSeedCodec _codec = DocumentQuestionSetSeedCodec();
 const String _displayName = 'a.pdf';
+const String _sourceFileId = 'file-1';
 
 Matcher _throwsSeedFailure(DocumentQuestionSetSeedFailure failure) {
   return throwsA(
@@ -71,44 +72,15 @@ void main() {
       expect(encoded['sourceFileId'], isNull);
     });
 
-    test('encodes a non-empty sourceFileId', () {
+    test('encodes a bounded sourceFileId token', () {
       final encoded = _codec.encode(
         DocumentQuestionSetSeed(
-            displayName: _displayName, sourceFileId: 'file-1'),
-      );
-
-      expect(encoded['sourceFileId'], 'file-1');
-    });
-
-    test('rejects an envelope above the byte cap', () {
-      final overhead = _byteLengthOf(_displayName, '');
-      final maxIdLength =
-          DocumentQuestionSetSeedCodec.maxEnvelopeBytes - overhead;
-      final atCap = _scalars('a', maxIdLength);
-      final aboveCap = _scalars('a', maxIdLength + 1);
-
-      expect(
-        _byteLengthOf(_displayName, atCap),
-        DocumentQuestionSetSeedCodec.maxEnvelopeBytes,
-      );
-      expect(
-        _codec.encode(
-          DocumentQuestionSetSeed(
-            displayName: _displayName,
-            sourceFileId: atCap,
-          ),
-        )['sourceFileId'],
-        atCap,
-      );
-      expect(
-        () => _codec.encode(
-          DocumentQuestionSetSeed(
-            displayName: _displayName,
-            sourceFileId: aboveCap,
-          ),
+          displayName: _displayName,
+          sourceFileId: _sourceFileId,
         ),
-        _throwsSeedFailure(DocumentQuestionSetSeedFailure.oversize),
       );
+
+      expect(encoded['sourceFileId'], _sourceFileId);
     });
   });
 
@@ -125,16 +97,18 @@ void main() {
       expect(_codec.encode(decoded), encoded);
     });
 
-    test('round-trips a non-empty sourceFileId', () {
+    test('round-trips a bounded sourceFileId token', () {
       final encoded = _codec.encode(
         DocumentQuestionSetSeed(
-            displayName: _displayName, sourceFileId: 'file-1'),
+          displayName: _displayName,
+          sourceFileId: _sourceFileId,
+        ),
       );
 
       final decoded = _codec.decode(encoded);
 
       expect(decoded.displayName, _displayName);
-      expect(decoded.sourceFileId, 'file-1');
+      expect(decoded.sourceFileId, _sourceFileId);
       expect(_codec.encode(decoded), encoded);
     });
 
@@ -151,8 +125,10 @@ void main() {
     test('accepts exactly 256 scalars', () {
       final displayName = _scalars('a', 256);
 
-      expect(_codec.decode(_envelope(displayName: displayName)).displayName,
-          displayName);
+      expect(
+        _codec.decode(_envelope(displayName: displayName)).displayName,
+        displayName,
+      );
     });
   });
 
@@ -188,6 +164,17 @@ void main() {
           () => _codec.decode(_envelope(displayName: displayName)),
           _throwsSeedFailure(DocumentQuestionSetSeedFailure.invalidEnvelope),
           reason: 'control rune U+${rune.toRadixString(16)} must be rejected',
+        );
+      }
+    });
+
+    test('rejects an unpaired surrogate half', () {
+      for (final rune in <int>[0xd800, 0xdfff]) {
+        final displayName = 'a${String.fromCharCode(rune)}b';
+        expect(
+          () => _codec.decode(_envelope(displayName: displayName)),
+          _throwsSeedFailure(DocumentQuestionSetSeedFailure.invalidEnvelope),
+          reason: 'surrogate half U+${rune.toRadixString(16)} must be rejected',
         );
       }
     });
@@ -315,11 +302,22 @@ void main() {
   });
 
   group('DocumentQuestionSetSeedCodec decode sourceFileId invalid', () {
-    test('rejects an empty sourceFileId', () {
-      expect(
-        () => _codec.decode(_envelope(sourceFileId: '')),
-        _throwsSeedFailure(DocumentQuestionSetSeedFailure.invalidEnvelope),
-      );
+    test('rejects every path-like or non-token sourceFileId', () {
+      for (final sourceFileId in <Object?>[
+        '',
+        '/tmp/a.pdf',
+        'C:\\a.pdf',
+        'a/b.pdf',
+        '.hidden',
+        '-leading',
+        _scalars('a', 129),
+      ]) {
+        expect(
+          () => _codec.decode(_envelope(sourceFileId: sourceFileId)),
+          _throwsSeedFailure(DocumentQuestionSetSeedFailure.invalidEnvelope),
+          reason: 'sourceFileId $sourceFileId must be rejected',
+        );
+      }
     });
 
     test('rejects a non-string sourceFileId', () {
@@ -327,7 +325,7 @@ void main() {
         42,
         true,
         <Object?>[],
-        <Object?, Object?>{}
+        <Object?, Object?>{},
       ]) {
         expect(
           () => _codec.decode(_envelope(sourceFileId: sourceFileId)),
@@ -339,25 +337,42 @@ void main() {
   });
 
   group('DocumentQuestionSetSeedCodec byte cap', () {
-    test('accepts a compact envelope of exactly 4096 bytes', () {
+    test('keeps every constructible seed below the byte cap', () {
+      final seed = DocumentQuestionSetSeed(
+        displayName: _scalars('\u{1F600}', 256),
+        sourceFileId: _scalars('a', 128),
+      );
+
+      final encoded = _codec.encode(seed);
+      final byteLength = utf8.encode(jsonEncode(encoded)).length;
+
+      expect(
+        byteLength,
+        lessThan(DocumentQuestionSetSeedCodec.maxEnvelopeBytes),
+      );
+      expect(_codec.decode(encoded).displayName, seed.displayName);
+    });
+
+    test('passes the exact cap boundary through to field validation', () {
       final overhead = _byteLengthOf(_displayName, '');
-      final maxIdLength =
-          DocumentQuestionSetSeedCodec.maxEnvelopeBytes - overhead;
-      final atCap = _scalars('a', maxIdLength);
+      final atCap = _scalars(
+        'a',
+        DocumentQuestionSetSeedCodec.maxEnvelopeBytes - overhead,
+      );
 
       expect(
         _byteLengthOf(_displayName, atCap),
         DocumentQuestionSetSeedCodec.maxEnvelopeBytes,
       );
-
-      final decoded = _codec.decode(
-        _envelope(displayName: _displayName, sourceFileId: atCap),
+      expect(
+        () => _codec.decode(
+          _envelope(displayName: _displayName, sourceFileId: atCap),
+        ),
+        _throwsSeedFailure(DocumentQuestionSetSeedFailure.invalidEnvelope),
       );
-
-      expect(decoded.sourceFileId, atCap);
     });
 
-    test('rejects a compact envelope above 4096 bytes on decode', () {
+    test('rejects a payload above the cap as oversize', () {
       final overhead = _byteLengthOf(_displayName, '');
       final aboveCap = _scalars(
         'a',
@@ -365,9 +380,25 @@ void main() {
       );
 
       expect(
+        _byteLengthOf(_displayName, aboveCap),
+        DocumentQuestionSetSeedCodec.maxEnvelopeBytes + 1,
+      );
+      expect(
         () => _codec.decode(
           _envelope(displayName: _displayName, sourceFileId: aboveCap),
         ),
+        _throwsSeedFailure(DocumentQuestionSetSeedFailure.oversize),
+      );
+    });
+
+    test('classifies an oversized displayName as oversize', () {
+      final oversizedName = _scalars(
+        'a',
+        DocumentQuestionSetSeedCodec.maxEnvelopeBytes,
+      );
+
+      expect(
+        () => _codec.decode(_envelope(displayName: oversizedName)),
         _throwsSeedFailure(DocumentQuestionSetSeedFailure.oversize),
       );
     });
@@ -393,18 +424,24 @@ void main() {
   });
 
   group('DocumentQuestionSetSeed construction', () {
-    test('accepts a canonical display name', () {
+    test('accepts a canonical display name and token', () {
       final seed = DocumentQuestionSetSeed(
         displayName: '2021数学一真题.pdf',
-        sourceFileId: 'file-1',
+        sourceFileId: _sourceFileId,
       );
 
       expect(seed.displayName, '2021数学一真题.pdf');
-      expect(seed.sourceFileId, 'file-1');
+      expect(seed.sourceFileId, _sourceFileId);
     });
 
     test('rejects a display name that is not canonical-safe', () {
-      for (final displayName in <String>['', 'a/b', 'a\\b', 'a\u0000b']) {
+      for (final displayName in <String>[
+        '',
+        'a/b',
+        'a\\b',
+        'a\u0000b',
+        'a\uD800b',
+      ]) {
         expect(
           () => DocumentQuestionSetSeed(displayName: displayName),
           _throwsSeedFailure(DocumentQuestionSetSeedFailure.invalidEnvelope),
@@ -413,12 +450,22 @@ void main() {
       }
     });
 
-    test('rejects an empty sourceFileId', () {
-      expect(
-        () => DocumentQuestionSetSeed(
-            displayName: _displayName, sourceFileId: ''),
-        _throwsSeedFailure(DocumentQuestionSetSeedFailure.invalidEnvelope),
-      );
+    test('rejects a path-like or oversized sourceFileId', () {
+      for (final sourceFileId in <String>[
+        '',
+        '/tmp/a.pdf',
+        'C:\\a.pdf',
+        _scalars('a', 129),
+      ]) {
+        expect(
+          () => DocumentQuestionSetSeed(
+            displayName: _displayName,
+            sourceFileId: sourceFileId,
+          ),
+          _throwsSeedFailure(DocumentQuestionSetSeedFailure.invalidEnvelope),
+          reason: 'sourceFileId $sourceFileId must be rejected',
+        );
+      }
     });
   });
 

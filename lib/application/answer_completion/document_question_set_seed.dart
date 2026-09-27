@@ -51,10 +51,11 @@ final class DocumentQuestionSetSeedException implements Exception {
 /// Immutable QuestionSet capture intent carried by one document import task.
 ///
 /// [displayName] must already be canonical-safe: 1–256 Unicode scalars with no
-/// path separator and no control character. Sanitizing a raw file path into a
-/// display name is not part of this contract; callers pass a value that
-/// already satisfies [isValidImportedQuestionSetDisplayName]. [sourceFileId]
-/// is an optional opaque LibraryFile reference, never a path; `null` means no
+/// path separator, control character, or unpaired surrogate half. Sanitizing a
+/// raw file path into a display name is not part of this contract; callers
+/// pass a value that already satisfies
+/// [isValidImportedQuestionSetDisplayName]. [sourceFileId] is an optional
+/// bounded `LibraryFile.fileId` token, never a path; `null` means no
 /// provenance and is not "file deleted".
 ///
 /// `schemaVersion` and `capture` are protocol constants and are deliberately
@@ -83,10 +84,15 @@ final class DocumentQuestionSetSeed {
 /// }
 /// ```
 ///
+/// `displayName` is bounded to 1–256 Unicode scalars without path separators,
+/// control characters, or unpaired surrogate halves, and `sourceFileId` is
+/// `null` or a bounded `LibraryFile.fileId` token, never a path. Together with
+/// the 4096-byte compact cap those bounds fail closed on missing, extra, or
+/// unknown keys, wrong types, unsupported versions, and oversized payloads.
+///
 /// [decode] verifies persisted authority and never repairs it: it does not
 /// trim, fill defaults, coerce types, drop unknown keys, or turn an empty
-/// `sourceFileId` into `null`. A missing, extra, or unknown key, an
-/// unsupported version, or an oversized payload fails closed.
+/// `sourceFileId` into `null`.
 final class DocumentQuestionSetSeedCodec {
   const DocumentQuestionSetSeedCodec();
 
@@ -123,6 +129,13 @@ final class DocumentQuestionSetSeedCodec {
   /// malformed envelope.
   DocumentQuestionSetSeed decode(Object? value) {
     final envelope = _requireEnvelope(value);
+    // Defensive inbound bound. The compact byte length is independent of key
+    // order, so this check on the received envelope is already the canonical
+    // compact representation check; running it before field classification
+    // keeps an oversized hostile or corrupt payload failing closed as
+    // `oversize` instead of as an incidental field failure. Field contracts
+    // keep every valid envelope far below the cap.
+    _requireWithinByteCap(envelope);
 
     final version = envelope['schemaVersion'];
     if (version is! int) {
@@ -157,17 +170,10 @@ final class DocumentQuestionSetSeedCodec {
         ),
     };
 
-    final seed = DocumentQuestionSetSeed(
+    return DocumentQuestionSetSeed(
       displayName: displayName,
       sourceFileId: sourceFileId,
     );
-    _requireWithinByteCap(
-      _canonicalEnvelope(
-        displayName: seed.displayName,
-        sourceFileId: seed.sourceFileId,
-      ),
-    );
-    return seed;
   }
 
   /// Whether [diagnostics] carries the reserved seed key.
@@ -235,7 +241,7 @@ String _requireDisplayName(String value) {
 }
 
 String? _requireSourceFileId(String? value) {
-  if (value != null && value.isEmpty) {
+  if (value != null && !isValidImportedQuestionSetSourceFileId(value)) {
     throw const DocumentQuestionSetSeedException(
       DocumentQuestionSetSeedFailure.invalidEnvelope,
     );

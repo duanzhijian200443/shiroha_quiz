@@ -10,16 +10,47 @@ library;
 const int minImportedQuestionSetDisplayNameScalars = 1;
 const int maxImportedQuestionSetDisplayNameScalars = 256;
 
+/// Whether [value] is a canonical imported question set identity.
+///
+/// The frozen contract is an opaque UUID. This mirrors the repository's
+/// canonical durable identity form (lowercase canonical UUIDv4, RFC 4122
+/// variant) used for `PersistedQuestion.storageId` and typed review identity.
+bool isValidImportedQuestionSetId(String value) {
+  return _canonicalUuidV4Pattern.hasMatch(value);
+}
+
+final _canonicalUuidV4Pattern = RegExp(
+  r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+);
+
+/// Whether [value] is a canonical source file reference.
+///
+/// `sourceFileId` references a `LibraryFile.fileId`, so it uses the same
+/// bounded opaque token contract as `LibraryFile` and the photo-answer image
+/// evidence payload. A filesystem path can never satisfy this token.
+bool isValidImportedQuestionSetSourceFileId(String value) {
+  return _libraryFileIdTokenPattern.hasMatch(value);
+}
+
+final _libraryFileIdTokenPattern =
+    RegExp(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$');
+
 /// Whether [value] is a canonical imported question set display name.
 ///
-/// The frozen rule is 1–256 Unicode scalars with no path separator (`/`, `\`)
-/// and no control character (C0 `U+0000`–`U+001F` or DEL/C1
-/// `U+007F`–`U+009F`). The value is judged verbatim: it is never trimmed,
-/// collapsed, or repaired.
+/// The frozen rule is 1–256 Unicode scalars with no path separator (`/`, `\`),
+/// no control character (C0 `U+0000`–`U+001F` or DEL/C1 `U+007F`–`U+009F`),
+/// and no unpaired surrogate half (`U+D800`–`U+DFFF`), which is not a Unicode
+/// scalar value. The value is judged verbatim: it is never trimmed, collapsed,
+/// or repaired.
 bool isValidImportedQuestionSetDisplayName(String value) {
   var scalarCount = 0;
   for (final rune in value.runes) {
     scalarCount++;
+    // `String.runes` yields an unpaired surrogate half as-is; a surrogate half
+    // is not a Unicode scalar value and must never enter a durable snapshot.
+    if (rune >= 0xd800 && rune <= 0xdfff) {
+      return false;
+    }
     if (rune < 0x20 || (rune >= 0x7f && rune <= 0x9f)) {
       return false;
     }
@@ -74,12 +105,13 @@ final class ImportedQuestionSetValidationException implements Exception {
 
 /// Immutable durable identity of one successful source-document import.
 ///
-/// [setId] is an opaque durable identity that must never be derived from
+/// [setId] is an opaque canonical UUID that must never be derived from
 /// filename, task, artifact, or locator. [bankName] is the current
 /// compatibility bank identity. [displayName] is a bounded display snapshot
 /// that is never identity or matching evidence. [sourceFileId] is optional
-/// soft provenance: it does not own the source file, and `null` means "no
-/// provenance" rather than "file deleted".
+/// soft provenance: it is a bounded `LibraryFile.fileId` token, never a path;
+/// it does not own the source file, and `null` means "no provenance" rather
+/// than "file deleted".
 ///
 /// Only locally provable value validation happens here; bank membership,
 /// set emptiness, membership uniqueness, and source-file existence belong to
@@ -91,10 +123,7 @@ final class ImportedQuestionSet {
     required String displayName,
     required int createdAt,
     String? sourceFileId,
-  })  : setId = _requireNonEmpty(
-          setId,
-          ImportedQuestionSetValidationFailure.invalidSetId,
-        ),
+  })  : setId = _requireSetId(setId),
         bankName = _requireNonEmpty(
           bankName,
           ImportedQuestionSetValidationFailure.invalidBankName,
@@ -112,16 +141,15 @@ final class ImportedQuestionSet {
 
 /// Immutable ordered membership of one question inside an [ImportedQuestionSet].
 ///
-/// [position] records commit order and is never matching evidence.
+/// [setId] is the canonical UUID of the owning set and [questionStorageId] is
+/// the owning question's `PersistedQuestion.storageId`. [position] records
+/// commit order and is never matching evidence.
 final class ImportedQuestionSetItem {
   ImportedQuestionSetItem({
     required String setId,
     required String questionStorageId,
     required int position,
-  })  : setId = _requireNonEmpty(
-          setId,
-          ImportedQuestionSetValidationFailure.invalidSetId,
-        ),
+  })  : setId = _requireSetId(setId),
         questionStorageId = _requireNonEmpty(
           questionStorageId,
           ImportedQuestionSetValidationFailure.invalidQuestionStorageId,
@@ -131,6 +159,15 @@ final class ImportedQuestionSetItem {
   final String setId;
   final String questionStorageId;
   final int position;
+}
+
+String _requireSetId(String value) {
+  if (!isValidImportedQuestionSetId(value)) {
+    throw const ImportedQuestionSetValidationException(
+      ImportedQuestionSetValidationFailure.invalidSetId,
+    );
+  }
+  return value;
 }
 
 String _requireNonEmpty(
@@ -162,7 +199,7 @@ int _requireCreatedAt(int value) {
 }
 
 String? _requireSourceFileId(String? value) {
-  if (value != null && value.isEmpty) {
+  if (value != null && !isValidImportedQuestionSetSourceFileId(value)) {
     throw const ImportedQuestionSetValidationException(
       ImportedQuestionSetValidationFailure.invalidSourceFileId,
     );
