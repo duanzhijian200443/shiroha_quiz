@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
+import '../../application/answers/ai_answer_entry_guard.dart';
 import '../../application/questions/question_mutation_command.dart';
 import '../../data/repositories/question_repository.dart';
 import '../dependencies/ai_dependencies_scope.dart';
@@ -113,6 +114,23 @@ class _QuestionEditScreenState extends State<QuestionEditScreen> {
     FocusScope.of(context).unfocus();
     setState(() => _isAiLoading = true);
     try {
+      final scope = AiDependenciesScope.of(context);
+      // ANSWER-ENTRY-GUARD: a typed question must never reach the legacy
+      // provider. The route is decided by the persisted storageId alone, and
+      // anything not provably legacy is refused before any provider call.
+      final route = await scope.answerEntryGuard.routeFor(
+        storageId: widget.question['id']?.toString() ?? '',
+      );
+      if (!mounted) return;
+      if (route != AiAnswerEntryRoute.legacy) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(route == AiAnswerEntryRoute.typed
+                ? '结构化题目请使用题库列表的「AI 生成答案」入口'
+                : '无法确认题目类型，已阻止 AI 解答'),
+            backgroundColor: Colors.redAccent));
+        return;
+      }
+
       final updatedQ = Map<String, dynamic>.from(widget.question);
       updatedQ['content'] = _contentCtrl.text;
       if (updatedQ['type'] == 0) {
@@ -124,9 +142,7 @@ class _QuestionEditScreenState extends State<QuestionEditScreen> {
         updatedQ['options'] = jsonEncode(optsList);
       }
 
-      final res = await AiDependenciesScope.of(context)
-          .aiService
-          .answerSingleQuestion(updatedQ);
+      final res = await scope.aiService.answerSingleQuestion(updatedQ);
 
       if (mounted) {
         _answerCtrl.text = res['standard_answer'] ?? '';

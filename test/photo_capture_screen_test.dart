@@ -8,11 +8,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_commit_command.dart';
+import 'package:shiroha_quiz/application/answers/ai_answer_entry_guard.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_generation.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_provider.dart';
 import 'package:shiroha_quiz/application/ai_config/ai_config_service.dart';
 import 'package:shiroha_quiz/application/exam/exam_mutation_command.dart';
 import 'package:shiroha_quiz/application/import/import_advanced_preferences.dart';
+import 'package:shiroha_quiz/application/import/import_target_selection.dart';
 import 'package:shiroha_quiz/application/practice/photo_answer_judgement.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_ports.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
@@ -54,6 +56,9 @@ final class _RecordingImportTaskCoordinator extends Fake
         ExplanationRetentionMode.subjectiveOnly,
     bool documentImportEntry = false,
     bool allowAutoOpenReview = false,
+    String? bankName,
+    String? folderName,
+    ImportTargetKind? targetKind,
   }) async {
     final callNumber = sourceDescriptions.length + 1;
     final taskId = 'synthetic-photo-task-$callNumber';
@@ -319,6 +324,10 @@ void main() {
         answerGenerationService: answerGeneration,
         answerCommitCommand: AiAnswerCommitCommand(
           persistencePort: _UnusedAiAnswerCommitPersistence(),
+        ),
+        answerEntryGuard: AiAnswerEntryGuard(
+          questionPort: _UnusedStudyQuestionQuery(),
+          clock: () => DateTime.utc(2026, 9, 4),
         ),
         examMutationCommand: ExamMutationCommand(
           _UnusedExamMutationPersistence(),
