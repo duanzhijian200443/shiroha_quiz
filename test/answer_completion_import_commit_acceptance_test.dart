@@ -73,7 +73,8 @@ List<Map<String, dynamic>> _typedQuestions() => [
     ];
 
 Future<void> _insertTask(
-    Database db, String id, bool typed, Map<String, Object?> entry) async {
+    Database db, String id, bool typed, Map<String, Object?> entry,
+    {String? folder = 'folder'}) async {
   await db.insert(
       'import_tasks',
       ImportTask(
@@ -81,7 +82,7 @@ Future<void> _insertTask(
         title: 'Synthetic',
         status: TaskStatus.pendingReview,
         bankName: 'bank',
-        folderName: 'folder',
+        folderName: folder,
         parsedData: typed ? _typedQuestions() : _questions,
         diagnostics: {
           TaskManager.keyAttemptToken: 'attempt',
@@ -98,12 +99,14 @@ Future<void> _insertTask(
 }
 
 Future<void> _commit(String id, bool typed,
-    {String token = 'attempt', String trace = 'trace'}) async {
+    {String token = 'attempt',
+    String trace = 'trace',
+    String? folderName = 'folder'}) async {
   final repository = QuestionRepository();
   if (typed) {
     await repository.commitQuestionDraftsV2ForImport(
       bankName: 'bank',
-      folderName: 'folder',
+      folderName: folderName,
       questions: [for (var i = 0; i < 2; i++) _typedDraft(i)],
       guard: TypedImportCommitGuard(
           taskId: id,
@@ -117,7 +120,7 @@ Future<void> _commit(String id, bool typed,
   } else {
     await repository.commitQuestionDraftsLegacyForImport(
       bankName: 'bank',
-      folderName: 'folder',
+      folderName: folderName,
       questions: QuestionDraft.listFromMaps(_questions),
       guard: LegacyImportCommitGuard(
           taskId: id,
@@ -134,6 +137,7 @@ Future<void> _commit(String id, bool typed,
 
 Map<String, Object?> _entry() => {
       documentImportEntryMarkerKey: documentQuestionSetImportEntryMarkerValue,
+      importTargetKindMarkerKey: ImportTargetKind.existing.name,
       questionSetCaptureMetadataKey: _codec.encode(_seed),
     };
 
@@ -248,6 +252,9 @@ void main() {
         questionSetCaptureMetadataKey: _codec.encode(_seed)
       },
       'non-document invalid seed': {questionSetCaptureMetadataKey: null},
+      'unknown entry': {documentImportEntryMarkerKey: 'document_v5'},
+      'wrong-type entry': {documentImportEntryMarkerKey: 7},
+      'null entry': {documentImportEntryMarkerKey: null},
     };
     for (final entry in invalid.entries) {
       test('$route ${entry.key} rejects with zero learning writes', () async {
@@ -267,6 +274,52 @@ void main() {
         await _expectRollback(db);
       });
     }
+    test('$route v4 without persisted target kind rejects with zero writes',
+        () async {
+      final db = await DatabaseHelper.instance.database;
+      await _insertTask(
+          db, 'task', typed, {..._entry()}..remove(importTargetKindMarkerKey));
+      await expectLater(
+          _commit('task', typed),
+          throwsA(typed
+              ? isA<TypedImportCommitPersistenceException>().having(
+                  (e) => e.failure,
+                  'failure',
+                  TypedImportCommitPersistenceFailure.invalidTaskMetadata)
+              : isA<LegacyImportCommitPersistenceException>().having(
+                  (e) => e.failure,
+                  'failure',
+                  LegacyImportCommitPersistenceFailure.invalidTaskMetadata)));
+      await _expectRollback(db);
+    });
+    test('$route v4 proposedNew commit binds the persisted frozen folder',
+        () async {
+      final db = await DatabaseHelper.instance.database;
+      await _insertTask(
+          db,
+          'task',
+          typed,
+          {
+            ..._entry(),
+            importTargetKindMarkerKey: ImportTargetKind.proposedNew.name,
+          },
+          folder: 'frozen folder');
+      await expectLater(
+          _commit('task', typed, folderName: 'drifted folder'),
+          throwsA(typed
+              ? isA<TypedImportCommitPersistenceException>().having(
+                  (e) => e.failure,
+                  'failure',
+                  TypedImportCommitPersistenceFailure.invalidTaskMetadata)
+              : isA<LegacyImportCommitPersistenceException>().having(
+                  (e) => e.failure,
+                  'failure',
+                  LegacyImportCommitPersistenceFailure.invalidTaskMetadata)));
+      await _expectRollback(db);
+      await _commit('task', typed, folderName: 'frozen folder');
+      expect(await db.query('imported_question_sets'), hasLength(1));
+      expect(await db.query('questions'), hasLength(2));
+    });
     for (final fault in ['set', 'member', 'completion CAS']) {
       test('$route $fault failure rolls back the entire outer transaction',
           () async {
@@ -519,7 +572,7 @@ void main() {
             .status,
         ReviewDraftSaveStatus.saved);
     await _commit(handle.taskId, false,
-        token: handle.attemptToken, trace: handle.traceId);
+        token: handle.attemptToken, trace: handle.traceId, folderName: null);
     final sets = await db.query('imported_question_sets');
     expect(sets, hasLength(1));
     expect(sets.single['source_file_id'], isNull);

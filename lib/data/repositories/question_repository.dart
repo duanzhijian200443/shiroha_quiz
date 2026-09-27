@@ -229,8 +229,8 @@ class QuestionRepository
       };
       final db = await _databaseHelper.database;
       return await db.transaction((txn) async {
-        final authority =
-            await _validatePersistedImportTask(txn, guard, trimmedBankName);
+        final authority = await _validatePersistedImportTask(
+            txn, guard, trimmedBankName, folderName);
         final resolvedFolderName = await _resolveImportCommitFolder(
           txn,
           bankName: trimmedBankName,
@@ -339,7 +339,7 @@ class QuestionRepository
       final db = await _databaseHelper.database;
       return await db.transaction((txn) async {
         final authority = await _validatePersistedLegacyImportTask(
-            txn, guard, trimmedBankName);
+            txn, guard, trimmedBankName, folderName);
         final resolvedFolderName = await _resolveImportCommitFolder(
           txn,
           bankName: trimmedBankName,
@@ -434,6 +434,7 @@ class QuestionRepository
     DatabaseExecutor txn,
     LegacyImportCommitGuard guard,
     String bankName,
+    String? folderName,
   ) async {
     final rows = await txn.query(
       'import_tasks',
@@ -547,19 +548,21 @@ class QuestionRepository
         LegacyImportCommitPersistenceFailure.staleReviewDraft,
       );
     }
+    final DocumentQuestionSetSeed? seed;
     try {
-      final seed = readDocumentQuestionSetSeed(diagnostics);
-      if (seed != null && row['bank_name'] != bankName) {
-        throw const DocumentQuestionSetSeedException(
-          DocumentQuestionSetSeedFailure.invalidEnvelope,
-        );
-      }
-      return (targetKind: targetKind, seed: seed);
+      seed = readDocumentQuestionSetSeed(diagnostics);
     } on DocumentQuestionSetSeedException {
       throw const LegacyImportCommitPersistenceException(
         LegacyImportCommitPersistenceFailure.invalidTaskMetadata,
       );
     }
+    if (seed != null &&
+        !_matchesFrozenImportTarget(row, bankName, folderName, targetKind)) {
+      throw const LegacyImportCommitPersistenceException(
+        LegacyImportCommitPersistenceFailure.invalidTaskMetadata,
+      );
+    }
+    return (targetKind: targetKind, seed: seed);
   }
 
   Map<String, Object?>? _decodeLegacyCommitDiagnostics(Object? raw) {
@@ -605,6 +608,7 @@ class QuestionRepository
     DatabaseExecutor txn,
     TypedImportCommitGuard guard,
     String bankName,
+    String? folderName,
   ) async {
     final rows = await txn.query(
       'import_tasks',
@@ -756,19 +760,42 @@ class QuestionRepository
         TypedImportCommitPersistenceFailure.staleReviewDraft,
       );
     }
+    final DocumentQuestionSetSeed? seed;
     try {
-      final seed = readDocumentQuestionSetSeed(diagnostics);
-      if (seed != null && row['bank_name'] != bankName) {
-        throw const DocumentQuestionSetSeedException(
-          DocumentQuestionSetSeedFailure.invalidEnvelope,
-        );
-      }
-      return (targetKind: targetKind, seed: seed);
+      seed = readDocumentQuestionSetSeed(diagnostics);
     } on DocumentQuestionSetSeedException {
       throw const TypedImportCommitPersistenceException(
         TypedImportCommitPersistenceFailure.invalidTaskMetadata,
       );
     }
+    if (seed != null &&
+        !_matchesFrozenImportTarget(row, bankName, folderName, targetKind)) {
+      throw const TypedImportCommitPersistenceException(
+        TypedImportCommitPersistenceFailure.invalidTaskMetadata,
+      );
+    }
+    return (targetKind: targetKind, seed: seed);
+  }
+
+  /// A captured v4 commit stays bound to the whole frozen target: the
+  /// persisted kind must be present, the bank must equal the persisted bank,
+  /// and a proposed bank must keep the folder frozen at task creation.
+  bool _matchesFrozenImportTarget(
+    Map<String, Object?> row,
+    String bankName,
+    String? folderName,
+    ImportTargetKind? targetKind,
+  ) {
+    if (targetKind == null || row['bank_name'] != bankName) return false;
+    if (targetKind != ImportTargetKind.proposedNew) return true;
+    final frozen =
+        row['folder_name'] is String ? row['folder_name']! as String : null;
+    return _normalizedFolderName(folderName) == _normalizedFolderName(frozen);
+  }
+
+  String? _normalizedFolderName(String? value) {
+    final trimmed = value?.trim() ?? '';
+    return trimmed.isEmpty ? null : trimmed;
   }
 
   /// Shared V2 freeze step used by both public typed write APIs.

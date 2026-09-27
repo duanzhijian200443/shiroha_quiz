@@ -20,15 +20,27 @@ const String documentImportEntryMarkerValue = 'document_v3';
 const String documentQuestionSetImportEntryMarkerValue = 'document_v4';
 
 /// Validates capture intent without upgrading historical tasks.
+///
+/// The entry/seed state machine is explicit: absent entry without a seed is a
+/// historical or non-document compatibility task, `document_v3` without a seed
+/// is a compatibility document task, and `document_v4` with a seed is a
+/// capture. Every other combination, including unknown, wrong-type or null
+/// entry values, fails closed instead of degrading to compatibility.
 DocumentQuestionSetSeed? readDocumentQuestionSetSeed(
   Map<String, Object?> diagnostics,
 ) {
   final present = diagnostics.containsKey(questionSetCaptureMetadataKey);
   final entry = diagnostics[documentImportEntryMarkerKey];
-  if (!present && entry != documentQuestionSetImportEntryMarkerValue) {
+  if (!diagnostics.containsKey(documentImportEntryMarkerKey) ||
+      entry == documentImportEntryMarkerValue) {
+    if (present) {
+      throw const DocumentQuestionSetSeedException(
+        DocumentQuestionSetSeedFailure.invalidEnvelope,
+      );
+    }
     return null;
   }
-  if (!present || entry != documentQuestionSetImportEntryMarkerValue) {
+  if (entry != documentQuestionSetImportEntryMarkerValue || !present) {
     throw const DocumentQuestionSetSeedException(
       DocumentQuestionSetSeedFailure.invalidEnvelope,
     );
