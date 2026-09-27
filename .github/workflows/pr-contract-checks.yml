@@ -182,6 +182,7 @@ jobs:
             'test/backup/backup_restore_test.dart',
             'test/backup/backup_restore_screen_test.dart',
             'test/backup/backup_acceptance_test.dart',
+            'test/backup/answer_completion_backup_test.dart',
             'test/application/b0_final_mutation_authority_test.dart',
             'test/domain/question/question_region_test.dart',
             'test/services/import_pipeline/adapters/ocr_question_region_bridge_test.dart',

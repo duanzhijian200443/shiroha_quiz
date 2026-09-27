@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
 import '../../application/backup/backup_contracts.dart';
+import '../../core/database/answer_completion_v28_schema.dart';
 import '../../core/database/database_helper.dart';
 import '../../domain/backup/backup_failure.dart';
 import '../../domain/backup/backup_manifest.dart';
@@ -199,6 +200,7 @@ final class BackupSnapshotRepository {
     if (foreignKeyIssues.isNotEmpty) {
       throw const BackupException(BackupFailure.databaseInvalid);
     }
+    await _validateQuestionSetPortableData(db);
 
     final excludedTables = <String>[
       'parsed_artifacts',
@@ -237,6 +239,47 @@ final class BackupSnapshotRepository {
         ) ??
         0;
     if (engineKeys != 0 || profileKeys != 0) {
+      throw const BackupException(BackupFailure.databaseInvalid);
+    }
+  }
+
+  Future<void> _validateQuestionSetPortableData(Database db) async {
+    try {
+      final emptySets = await db.rawQuery('''
+        SELECT 1 FROM $importedQuestionSetsTable AS s
+        WHERE NOT EXISTS (
+          SELECT 1 FROM $importedQuestionSetItemsTable AS i
+          WHERE i.set_id = s.set_id
+        )
+        LIMIT 1
+      ''');
+      final invalidMembers = await db.rawQuery('''
+        SELECT 1 FROM $importedQuestionSetItemsTable AS i
+        LEFT JOIN $importedQuestionSetsTable AS s ON s.set_id = i.set_id
+        LEFT JOIN questions AS q ON q.id = i.question_storage_id
+        WHERE s.set_id IS NULL OR q.id IS NULL
+          OR s.bank_name IS NOT q.bank_name
+        LIMIT 1
+      ''');
+      final duplicateQuestions = await db.rawQuery('''
+        SELECT 1 FROM $importedQuestionSetItemsTable
+        GROUP BY question_storage_id HAVING COUNT(*) > 1
+        LIMIT 1
+      ''');
+      final duplicatePositions = await db.rawQuery('''
+        SELECT 1 FROM $importedQuestionSetItemsTable
+        GROUP BY set_id, position HAVING COUNT(*) > 1
+        LIMIT 1
+      ''');
+      if (emptySets.isNotEmpty ||
+          invalidMembers.isNotEmpty ||
+          duplicateQuestions.isNotEmpty ||
+          duplicatePositions.isNotEmpty) {
+        throw const BackupException(BackupFailure.databaseInvalid);
+      }
+    } on BackupException {
+      rethrow;
+    } catch (_) {
       throw const BackupException(BackupFailure.databaseInvalid);
     }
   }
@@ -292,6 +335,10 @@ final class BackupSnapshotRepository {
       if (includeScrubInvariants) {
         await _validateInvariants(migrated);
       }
+    } on BackupException {
+      rethrow;
+    } catch (_) {
+      throw const BackupException(BackupFailure.databaseInvalid);
     } finally {
       await migrated.close();
     }
