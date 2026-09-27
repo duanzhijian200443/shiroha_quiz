@@ -101,7 +101,8 @@ Future<void> _insertTask(
 Future<void> _commit(String id, bool typed,
     {String token = 'attempt',
     String trace = 'trace',
-    String? folderName = 'folder'}) async {
+    String? folderName = 'folder',
+    int attemptNumber = 1}) async {
   final repository = QuestionRepository();
   if (typed) {
     await repository.commitQuestionDraftsV2ForImport(
@@ -111,7 +112,7 @@ Future<void> _commit(String id, bool typed,
       guard: TypedImportCommitGuard(
           taskId: id,
           attemptToken: token,
-          attemptNumber: 1,
+          attemptNumber: attemptNumber,
           reviewDraftRevision: 1,
           storageRoute: 'typedV2',
           storageReason: 'typed_candidate_ready'),
@@ -125,7 +126,7 @@ Future<void> _commit(String id, bool typed,
       guard: LegacyImportCommitGuard(
           taskId: id,
           attemptToken: token,
-          attemptNumber: 1,
+          attemptNumber: attemptNumber,
           traceId: trace,
           reviewDraftRevision: 1,
           storageRoute: 'legacyV1',
@@ -435,6 +436,84 @@ void main() {
       reloaded.dispose();
     });
   }
+
+  test(
+      'null entry survives restart normalization and retry; commit still fails closed',
+      () async {
+    final db = await DatabaseHelper.instance.database;
+    await db.insert(
+        'import_tasks',
+        ImportTask(
+          id: 'task',
+          title: 'Synthetic',
+          status: TaskStatus.processing,
+          bankName: 'bank',
+          diagnostics: {
+            documentImportEntryMarkerKey: null,
+            TaskManager.keyAttemptToken: 'attempt',
+            TaskManager.keyAttemptNumber: 1,
+            TaskManager.keyTraceId: 'trace',
+            TaskManager.keyAttemptState: 'queued',
+            TaskManager.keyImportStorageRoute: 'legacyV1',
+          },
+        ).toMap());
+    final reloaded = TaskManager.forTesting(
+        saveTask: DatabaseHelper.instance.saveImportTask,
+        loadTasks: DatabaseHelper.instance.getAllImportTasks,
+        deleteOldImportTasks: (_) async {});
+    await reloaded.ready;
+
+    final interrupted = reloaded.tasks.single;
+    expect(interrupted.status, TaskStatus.error);
+    expect(interrupted.attemptState, ImportAttemptState.interrupted);
+    expect(interrupted.diagnostics!.containsKey(documentImportEntryMarkerKey),
+        isTrue);
+    expect(interrupted.diagnostics![documentImportEntryMarkerKey], isNull);
+    var row =
+        (await db.query('import_tasks', where: 'id = ?', whereArgs: ['task']))
+            .single;
+    var durable = jsonDecode(row['diagnostics']! as String) as Map;
+    expect(durable.containsKey(documentImportEntryMarkerKey), isTrue);
+    expect(durable[documentImportEntryMarkerKey], isNull);
+
+    final retry = ImportAttemptRef(
+        taskId: 'task',
+        attemptNumber: 2,
+        attemptToken: 'next',
+        traceId: 'next-trace');
+    expect(
+        await reloaded.restartAttempt(retry,
+            parseMode: 'ocr',
+            explanationRetentionMode:
+                ExplanationRetentionMode.allQuestionTypes),
+        ImportAttemptWriteStatus.applied);
+    row = (await db.query('import_tasks', where: 'id = ?', whereArgs: ['task']))
+        .single;
+    durable = jsonDecode(row['diagnostics']! as String) as Map;
+    expect(durable.containsKey(documentImportEntryMarkerKey), isTrue);
+    expect(durable[documentImportEntryMarkerKey], isNull);
+
+    expect(
+        await reloaded.requireAttemptReview(
+            retry, 'Review', _questions, 'bank', ''),
+        ImportAttemptWriteStatus.applied);
+    expect(
+        (await reloaded.saveReviewDraft('task',
+                questions: _questions,
+                explanationRetentionMode:
+                    ExplanationRetentionMode.allQuestionTypes))
+            .status,
+        ReviewDraftSaveStatus.saved);
+    await expectLater(
+        _commit('task', false,
+            token: 'next', trace: 'next-trace', attemptNumber: 2),
+        throwsA(isA<LegacyImportCommitPersistenceException>().having(
+            (e) => e.failure,
+            'failure',
+            LegacyImportCommitPersistenceFailure.invalidTaskMetadata)));
+    await _expectRollback(db);
+    reloaded.dispose();
+  });
 
   test('parser cannot synthesize reserved seed on non-document dispatch',
       () async {

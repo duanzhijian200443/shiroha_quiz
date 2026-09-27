@@ -1282,8 +1282,9 @@ class TaskManager extends ChangeNotifier {
           // Entry provenance is task metadata: a retry rebuilds diagnostics
           // from scratch, and dropping the marker here would demote a document
           // import to a compatibility task and bring its retention controls
-          // back for the retried attempt.
-          if (stableMetadata[documentImportEntryMarkerKey] != null)
+          // back for the retried attempt. A stored null entry must survive so
+          // the commit path still fails closed on it.
+          if (stableMetadata.containsKey(documentImportEntryMarkerKey))
             documentImportEntryMarkerKey:
                 stableMetadata[documentImportEntryMarkerKey],
           if (stableMetadata[importTargetKindMarkerKey] != null)
@@ -1509,9 +1510,19 @@ class TaskManager extends ChangeNotifier {
   Map<String, dynamic> _taskMetadata(ImportTask task) {
     final existing = task.diagnostics;
     final metadata = <String, dynamic>{};
-    if (existing?.containsKey(questionSetCaptureMetadataKey) == true) {
-      metadata[questionSetCaptureMetadataKey] =
-          existing![questionSetCaptureMetadataKey];
+    for (final key in <String>[
+      // Presence is the authority for the reserved seed and entry keys: a
+      // stored null is a present-but-invalid value that normalization and
+      // retries must carry forward instead of silently dropping.
+      questionSetCaptureMetadataKey,
+      // Entry provenance decides whether Review fixes explanation retention or
+      // keeps the controls that describe the task's own recorded policy, so it
+      // is task metadata and must survive parse completion.
+      documentImportEntryMarkerKey,
+    ]) {
+      if (existing?.containsKey(key) == true) {
+        metadata[key] = existing![key];
+      }
     }
     for (final key in <String>[
       keyTraceId,
@@ -1523,10 +1534,6 @@ class TaskManager extends ChangeNotifier {
       keyParseExplanationRetentionMode,
       keyReviewExplanationRetentionMode,
       keyExplanationRetentionMode,
-      // Entry provenance decides whether Review fixes explanation retention or
-      // keeps the controls that describe the task's own recorded policy, so it
-      // is task metadata and must survive parse completion.
-      documentImportEntryMarkerKey,
       importTargetKindMarkerKey,
       keyAttemptNumber,
       keyAttemptToken,
