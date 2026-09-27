@@ -1,14 +1,12 @@
+import 'answer_completion_screen.dart';
+import '../dependencies/answer_completion_dependencies_scope.dart';
 import 'package:flutter/material.dart';
 import 'practice_page.dart';
 import 'question_list_screen.dart';
-import 'supplemental_answer_review_screen.dart';
-import 'supplemental_answer_source_picker_sheet.dart';
 import '../../application/questions/question_list_query_port.dart';
 import '../../application/questions/question_mutation_command.dart';
 import '../../application/questions/question_bank_mutation_command.dart';
 import '../../application/safe_write/typed_answer_command.dart';
-import '../../domain/supplemental_answers/supplemental_answer_scope.dart';
-import '../dependencies/supplemental_answer_dependencies_scope.dart';
 
 class BankDetailScreen extends StatefulWidget {
   final String bankName;
@@ -65,29 +63,6 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
     );
   }
 
-  Future<void> _openSupplementalAnswerFlow(
-    BuildContext context,
-    SupplementalAnswerDependenciesScope dependencies,
-  ) async {
-    final session = await showSupplementalAnswerSourcePicker(
-      context: context,
-      service: dependencies.activationService,
-      sourceAcquisition: dependencies.sourceAcquisitionService,
-      targetScope: QuestionBankScope(bankName: widget.bankName),
-      pickFile: dependencies.pickFile,
-    );
-    if (session == null || !context.mounted) return;
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => SupplementalAnswerReviewScreen(
-          session: session,
-          confirmCommand: dependencies.confirmCommand,
-        ),
-      ),
-    );
-  }
-
   Widget _buildPracticeCard(BuildContext context, String icon, String title,
       String subtitle, int? type) {
     final theme = Theme.of(context);
@@ -130,8 +105,7 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
         isDark ? Colors.white.withValues(alpha: 0.87) : Colors.black87;
     final textLevel2 =
         isDark ? Colors.white.withValues(alpha: 0.60) : Colors.black54;
-    final supplementalAnswers =
-        SupplementalAnswerDependenciesScope.maybeOf(context);
+    final answerCompletion = AnswerCompletionDependenciesScope.maybeOf(context);
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -237,7 +211,7 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
               },
             ),
           ),
-          if (supplementalAnswers != null)
+          if (answerCompletion != null)
             Card(
               elevation: 0,
               margin: const EdgeInsets.only(bottom: 24.0),
@@ -254,14 +228,17 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
                         borderRadius: BorderRadius.circular(8)),
                     child: const Icon(Icons.playlist_add_check_rounded,
                         color: Colors.white)),
-                title: const Text('从文件补充答案',
+                title: const Text('补充答案',
                     style: TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: const Text('选择文件库中的解析资料，匹配后确认写入',
+                subtitle: const Text('查看待补答案的题组与未分组题目',
                     style: TextStyle(fontSize: 12, color: Colors.grey)),
                 trailing: const Icon(Icons.arrow_forward_ios,
                     size: 16, color: Colors.grey),
-                onTap: () =>
-                    _openSupplementalAnswerFlow(context, supplementalAnswers),
+                onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                        builder: (_) =>
+                            AnswerCompletionScreen(bankName: widget.bankName))),
               ),
             ),
           _buildPracticeCard(context, '🎯', '全类型自适应复习', '智能混排，全面提升', null),
