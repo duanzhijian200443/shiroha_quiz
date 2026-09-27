@@ -45,12 +45,12 @@ function Reset-InvocationLog {
 
 $repositoryRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $script:verifyScript = Join-Path $repositoryRoot 'tool\verify_changed.ps1'
-$skillFile = Join-Path $repositoryRoot '.agents\skills\shiroha-import-audit\SKILL.md'
+$skillFile = Join-Path $repositoryRoot '.agents\skills\shiroha-import-audit\SKILL_shiroha_import_audit_v2.md'
 
 Assert-True -Condition (Test-Path -LiteralPath $script:verifyScript -PathType Leaf) `
     -Message 'verify_changed.ps1 must exist'
 Assert-True -Condition (Test-Path -LiteralPath $skillFile -PathType Leaf) `
-    -Message 'shiroha-import-audit SKILL.md must exist'
+    -Message 'shiroha-import-audit skill file must exist'
 
 $parseTokens = $null
 $parseErrors = $null
