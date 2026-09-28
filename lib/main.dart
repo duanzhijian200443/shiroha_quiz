@@ -598,7 +598,7 @@ void main() {
           engineRepository: engineRepository,
           taskManager: taskManager,
           ocrRequestScheduler: ocrRequestScheduler,
-          ocrRequestExecutor: ocrRequestExecutor,
+          importPreferencesLoader: importPreferencesLoader,
           contentAssetStore: contentAssetStore,
           reclamationReset: reclamationObservations,
         );

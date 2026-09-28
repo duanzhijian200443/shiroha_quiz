@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import 'answer_block_matcher.dart';
 import 'import_quality_gate.dart';
+import '../../application/import/import_advanced_preferences.dart';
 import 'import_question_field_policy.dart';
 import 'local_question_assembler.dart';
 import 'single_question_repair_service.dart';
@@ -30,17 +31,20 @@ class DocxTextFirstParseService {
     SingleQuestionRepairService repairService =
         const SingleQuestionRepairService(),
     ImportQualityGate qualityGate = const ImportQualityGate(),
+    ImportAdvancedPreferencesLoader? importPreferencesLoader,
   })  : _answerMatcher = answerMatcher,
         _regionizer = regionizer,
         _assembler = assembler,
         _repairService = repairService,
-        _qualityGate = qualityGate;
+        _qualityGate = qualityGate,
+        _importPreferencesLoader = importPreferencesLoader;
 
   final AnswerBlockMatcher _answerMatcher;
   final TextQuestionRegionizer _regionizer;
   final LocalQuestionAssembler _assembler;
   final SingleQuestionRepairService _repairService;
   final ImportQualityGate _qualityGate;
+  final ImportAdvancedPreferencesLoader? _importPreferencesLoader;
 
   Future<DocxTextFirstParseResult> parseDocxText({
     required String rawText,
@@ -48,6 +52,19 @@ class DocxTextFirstParseService {
     String? taskId,
     DocumentSignals? documentSignals,
   }) async {
+    final preferencesLoader = _importPreferencesLoader;
+    var importPreferences = ImportAdvancedPreferences.defaults;
+    var repairPreferenceLoadFailed = false;
+    if (preferencesLoader != null) {
+      try {
+        importPreferences = await preferencesLoader();
+      } catch (_) {
+        importPreferences = ImportAdvancedPreferences.defaults.copyWith(
+          aiRepairEnabled: false,
+        );
+        repairPreferenceLoadFailed = true;
+      }
+    }
     debugPrint('🧱 [DOCX Text-First] 启动确定性结构解析: $sourceName');
     debugPrint('🧱 [DOCX Text-First] rawTextLength=${rawText.length}');
 
@@ -57,6 +74,7 @@ class DocxTextFirstParseService {
       'rawTextLineCount': rawText.split('\n').length,
       'rawTextPreview':
           rawText.length > 8000 ? rawText.substring(0, 8000) : rawText,
+      'repairPreferenceLoadFailed': repairPreferenceLoadFailed,
     };
 
     final answerSplit = _answerMatcher.splitAnswerBlock(rawText);
@@ -101,6 +119,7 @@ class DocxTextFirstParseService {
     final questionsByNumber = <int, Map<String, dynamic>>{};
     final criticalDiagnostics = <String>[];
     var repairCount = 0;
+    var repairSkippedByPreferenceCount = 0;
     var rejectedCount = 0;
 
     for (final region in regionResult.regions) {
@@ -117,13 +136,17 @@ class DocxTextFirstParseService {
       }
 
       if (assembly.repairRecommended) {
-        repairCount++;
-        assembly = await _repairService.repair(
-          region: enrichedRegion,
-          localResult: assembly,
-          requireAnswer: true,
-          explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
-        );
+        if (importPreferences.effectiveQuestionStructureRepairEnabled) {
+          repairCount++;
+          assembly = await _repairService.repair(
+            region: enrichedRegion,
+            localResult: assembly,
+            requireAnswer: true,
+            explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+          );
+        } else {
+          repairSkippedByPreferenceCount++;
+        }
       }
 
       final questionNumber = _readQuestionNumber(assembly.question);
@@ -166,6 +189,7 @@ class DocxTextFirstParseService {
     diagnostics['assembly'] = {
       'questionCount': questions.length,
       'repairCount': repairCount,
+      'repairSkippedByPreferenceCount': repairSkippedByPreferenceCount,
       'rejectedCount': rejectedCount,
       'criticalDiagnostics': criticalDiagnostics,
     };

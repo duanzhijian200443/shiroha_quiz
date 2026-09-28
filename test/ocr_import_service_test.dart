@@ -188,6 +188,80 @@ AiEngineProfile ocrTestProfile() {
   );
 }
 
+OcrDocument structuralRepairPreferenceDocument() {
+  return const OcrDocument(
+    sourceName: 'structural-repair-preference.pdf',
+    markdown: '',
+    rawResponses: [],
+    usage: {},
+    pages: [
+      OcrPage(
+        pageIndex: 1,
+        blocks: [
+          OcrBlock(
+            blockId: 'section',
+            pageIndex: 1,
+            type: 'text',
+            text: '一、选择题（共 2 题）',
+            bbox: [],
+            readingOrder: 0,
+          ),
+          OcrBlock(
+            blockId: 'q1',
+            pageIndex: 1,
+            type: 'text',
+            text: '1. SYNTHETIC_INCOMPLETE_CHOICE_ONE',
+            bbox: [],
+            readingOrder: 1,
+          ),
+          OcrBlock(
+            blockId: 'a1',
+            pageIndex: 1,
+            type: 'text',
+            text: '答案：A',
+            bbox: [],
+            readingOrder: 2,
+          ),
+          OcrBlock(
+            blockId: 'q2',
+            pageIndex: 1,
+            type: 'text',
+            text: '2. SYNTHETIC_INCOMPLETE_CHOICE_TWO',
+            bbox: [],
+            readingOrder: 3,
+          ),
+          OcrBlock(
+            blockId: 'a2',
+            pageIndex: 1,
+            type: 'text',
+            text: '答案：B',
+            bbox: [],
+            readingOrder: 4,
+          ),
+        ],
+      ),
+    ],
+  );
+}
+
+Future<OcrImportResult?> _parseStructuralRepairPreferenceFixture({
+  required FakeOcrDocumentClient ocrClient,
+  required RecordingRepairService repairService,
+  required ImportAdvancedPreferencesLoader importPreferencesLoader,
+}) {
+  return OcrImportService(
+    engineRepository: FakeAiEngineRepository(ocrTestProfile()),
+    ocrClient: ocrClient,
+    repairService: repairService,
+    importPreferencesLoader: importPreferencesLoader,
+  ).tryParse(
+    filePath: 'synthetic-structural-repair.pdf',
+    sourceName: 'synthetic-structural-repair.pdf',
+    format: ImportFormat.pdf,
+    explanationRetentionMode: ExplanationRetentionMode.subjectiveOnly,
+  );
+}
+
 OcrDocument unsupportedStructureDocument({bool includeUnsupported = true}) {
   return OcrDocument(
     sourceName: 'unsupported-structure.pdf',
@@ -849,6 +923,128 @@ void main() {
       expect(repair.retentionModes, isEmpty);
       expect(result.diagnostics['repairEligibleCount'], 0);
       expect(result.diagnostics['repairAttemptedCount'], 0);
+    });
+
+    for (final entry
+        in <({String name, ImportAdvancedPreferences preferences})>[
+      (
+        name: 'master off',
+        preferences: const ImportAdvancedPreferences(aiRepairEnabled: false),
+      ),
+      (
+        name: 'structure child off',
+        preferences: const ImportAdvancedPreferences(
+          autoRepairQuestionStructureEnabled: false,
+        ),
+      ),
+    ]) {
+      test('structural repair is skipped when ${entry.name}', () async {
+        var loaderCalls = 0;
+        final client = FakeOcrDocumentClient(
+          structuralRepairPreferenceDocument(),
+        );
+        final repair = RecordingRepairService();
+        final result = await _parseStructuralRepairPreferenceFixture(
+          ocrClient: client,
+          repairService: repair,
+          importPreferencesLoader: () async {
+            loaderCalls++;
+            return entry.preferences;
+          },
+        );
+
+        expect(loaderCalls, 1);
+        expect(client.callCount, 1);
+        expect(result, isNotNull);
+        expect(result!.usedOcr, isTrue);
+        expect(result.questions, hasLength(2));
+        expect(repair.callCount, 0);
+        expect(result.diagnostics['repairEligibleCount'], 2);
+        expect(result.diagnostics['repairSkippedByPreferenceCount'], 2);
+        expect(result.diagnostics['repairAttemptedCount'], 0);
+        expect(result.diagnostics['repairAppliedCount'], 0);
+        expect(
+          result.questions.any(
+            (question) =>
+                (question['diagnostics'] as List).contains('ai_repair_applied'),
+          ),
+          isFalse,
+        );
+        final gate = applyOcrTypedCandidateGate(
+          batch: result.typedCandidateBatch!,
+          finalQuestions: result.questions,
+          singleFile: true,
+        );
+        expect(gate.reason, isNot('typed_candidate_repair_applied'));
+      });
+    }
+
+    test('structural repair remains enabled when both switches are on',
+        () async {
+      var loaderCalls = 0;
+      final client = FakeOcrDocumentClient(
+        structuralRepairPreferenceDocument(),
+      );
+      final repair = RecordingRepairService();
+      final result = await _parseStructuralRepairPreferenceFixture(
+        ocrClient: client,
+        repairService: repair,
+        importPreferencesLoader: () async {
+          loaderCalls++;
+          return const ImportAdvancedPreferences(
+            aiRepairEnabled: true,
+            autoRepairQuestionStructureEnabled: true,
+          );
+        },
+      );
+
+      expect(loaderCalls, 1);
+      expect(result, isNotNull);
+      expect(result!.usedOcr, isTrue);
+      expect(repair.callCount, 2);
+      expect(result.diagnostics['repairAttemptedCount'], 2);
+      expect(result.diagnostics['repairAppliedCount'], 2);
+      expect(
+        result.questions.any(
+          (question) =>
+              (question['diagnostics'] as List).contains('ai_repair_applied'),
+        ),
+        isTrue,
+      );
+      final gate = applyOcrTypedCandidateGate(
+        batch: result.typedCandidateBatch!,
+        finalQuestions: result.questions,
+        singleFile: true,
+      );
+      expect(gate.reason, 'typed_candidate_repair_applied');
+    });
+
+    test('preference loader failure keeps OCR local assembly fail closed',
+        () async {
+      var loaderCalls = 0;
+      final client = FakeOcrDocumentClient(
+        structuralRepairPreferenceDocument(),
+      );
+      final repair = RecordingRepairService();
+      final result = await _parseStructuralRepairPreferenceFixture(
+        ocrClient: client,
+        repairService: repair,
+        importPreferencesLoader: () async {
+          loaderCalls++;
+          throw StateError('synthetic preference read failure');
+        },
+      );
+
+      expect(loaderCalls, 1);
+      expect(client.callCount, 1);
+      expect(result, isNotNull);
+      expect(result!.usedOcr, isTrue);
+      expect(result.questions, hasLength(2));
+      expect(result.diagnostics['repairPreferenceLoadFailed'], isTrue);
+      expect(result.diagnostics['repairSkippedByPreferenceCount'], 2);
+      expect(result.diagnostics['repairAttemptedCount'], 0);
+      expect(result.diagnostics['repairAppliedCount'], 0);
+      expect(repair.callCount, 0);
     });
 
     test('real structural defects repair serially with safe timing', () async {

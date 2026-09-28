@@ -25,6 +25,18 @@ void main() {
       expect(ImportAdvancedPreferences.defaults.ocrRequestTimeoutSeconds, 90);
       expect(
           ImportAdvancedPreferences.defaults.autoRepairLatexEnabled, isFalse);
+      expect(ImportAdvancedPreferences.defaults.aiRepairEnabled, isTrue);
+      expect(
+        ImportAdvancedPreferences.defaults.autoRepairQuestionStructureEnabled,
+        isTrue,
+      );
+      expect(
+        ImportAdvancedPreferences
+            .defaults.effectiveQuestionStructureRepairEnabled,
+        isTrue,
+      );
+      expect(ImportAdvancedPreferences.defaults.effectiveLatexRepairEnabled,
+          isFalse);
       expect(
           ImportAdvancedPreferences.defaults.autoCommitPerfectImports, isFalse);
       expect(ImportAdvancedPreferences.defaults.completionBehavior,
@@ -116,6 +128,8 @@ void main() {
         ocrTaskConcurrency: 3,
         autoRetryEnabled: false,
         ocrRequestTimeoutSeconds: 180,
+        aiRepairEnabled: false,
+        autoRepairQuestionStructureEnabled: false,
         autoRepairLatexEnabled: true,
         autoCommitPerfectImports: true,
         completionBehavior: ImportCompletionBehavior.openReview,
@@ -123,6 +137,62 @@ void main() {
       );
       expect(ImportAdvancedPreferences.fromJson(preferences.toJson()),
           preferences);
+      expect(preferences.effectiveQuestionStructureRepairEnabled, isFalse);
+      expect(preferences.effectiveLatexRepairEnabled, isFalse);
+      expect(
+        preferences
+            .copyWith(aiRepairEnabled: true)
+            .effectiveQuestionStructureRepairEnabled,
+        isFalse,
+      );
+      expect(
+        preferences.copyWith(aiRepairEnabled: true).effectiveLatexRepairEnabled,
+        isTrue,
+      );
+      expect(preferences.toJson(), containsPair('aiRepairEnabled', false));
+      expect(preferences.toJson(),
+          containsPair('autoRepairQuestionStructureEnabled', false));
+    });
+
+    test('legacy payloads keep structural repair enabled and preserve Latex',
+        () {
+      final legacyOff = ImportAdvancedPreferences.fromJson(
+        const <String, dynamic>{'autoRepairLatexEnabled': false},
+      );
+      expect(legacyOff.aiRepairEnabled, isTrue);
+      expect(legacyOff.autoRepairQuestionStructureEnabled, isTrue);
+      expect(legacyOff.autoRepairLatexEnabled, isFalse);
+
+      final legacyLatexOn = ImportAdvancedPreferences.fromJson(
+        const <String, dynamic>{'autoRepairLatexEnabled': true},
+      );
+      expect(legacyLatexOn.aiRepairEnabled, isTrue);
+      expect(legacyLatexOn.autoRepairQuestionStructureEnabled, isTrue);
+      expect(legacyLatexOn.autoRepairLatexEnabled, isTrue);
+    });
+
+    test('new preference fields participate in copy equality and hash', () {
+      const enabled = ImportAdvancedPreferences.defaults;
+      final disabledMaster = enabled.copyWith(aiRepairEnabled: false);
+      expect(disabledMaster, isNot(enabled));
+      expect(
+        disabledMaster,
+        const ImportAdvancedPreferences(aiRepairEnabled: false),
+      );
+      expect(
+        disabledMaster.hashCode,
+        const ImportAdvancedPreferences(aiRepairEnabled: false).hashCode,
+      );
+
+      final disabledStructure =
+          enabled.copyWith(autoRepairQuestionStructureEnabled: false);
+      expect(disabledStructure, isNot(enabled));
+      expect(
+        disabledStructure.hashCode,
+        const ImportAdvancedPreferences(
+          autoRepairQuestionStructureEnabled: false,
+        ).hashCode,
+      );
     });
 
     test('legacy payload defaults new fields and invalid choices', () {
@@ -186,9 +256,19 @@ void main() {
         ImportAdvancedPreferences.fromJson(const <String, dynamic>{
           'processingStrategy': 'not-a-strategy',
           'autoRetryEnabled': 'yes',
+          'aiRepairEnabled': 'yes',
+          'autoRepairQuestionStructureEnabled': null,
         }),
         ImportAdvancedPreferences.defaults,
       );
+      final malformedRepair = ImportAdvancedPreferences.fromJson(
+        const <String, dynamic>{
+          'aiRepairEnabled': 'yes',
+          'autoRepairQuestionStructureEnabled': null,
+        },
+      );
+      expect(malformedRepair.aiRepairEnabled, isTrue);
+      expect(malformedRepair.autoRepairQuestionStructureEnabled, isTrue);
       expect(
         ImportAdvancedPreferences.fromJson(const <String, dynamic>{
           'ocrTaskConcurrency': 'fast',
