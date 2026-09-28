@@ -32,6 +32,13 @@ final _bracketNumberPattern = RegExp(r'^\s*[（(]\s*(\d{1,4})\s*[)）]\s*');
 /// long part is never flattened just to find one.
 const int _markerScanPrefixLength = 24;
 
+/// A PDF text layer may keep one visually continuous answer line as several
+/// ordered text runs, so locator and marker recognition may join a bounded run
+/// of adjacent content parts. Both bounds are fixed constants: the window never
+/// grows with the document and never carries an answer body.
+const int _maxLookaheadParts = 8;
+const int _maxLookaheadChars = 128;
+
 /// Paired `【】` / `[]` wrappers delimit a marker on their own.
 final _wrappedFieldMarkerPattern = RegExp(
   r'^\s*[【\[]\s*(参考答案|答案|解析|详解|分析|说明|证明|解)\s*[】\]]\s*[:：]?\s*',
@@ -55,6 +62,9 @@ final _contextLabelPattern = RegExp(
 
 /// A second main locator appearing after the first one on the same line.
 final _inlineMainLocatorPattern = RegExp(r'\s+\d{1,4}\s*[.．、](?!\d)\s*\S');
+
+/// A separator that turns a bare number into primary locator evidence.
+final _locatorSeparatorPattern = RegExp(r'[.．、:：题]');
 
 /// Field a fragment is currently collecting.
 enum _FragmentField { answer, explanation }
@@ -205,8 +215,10 @@ final class SupplementalAnswerProjector {
     final issues = <SupplementalProjectionIssue>[];
     final builder = _FragmentBuilder();
 
-    for (var partIndex = 0; partIndex < document.parts.length; partIndex++) {
-      final part = document.parts[partIndex];
+    final parts = document.parts;
+    var partIndex = 0;
+    while (partIndex < parts.length) {
+      final part = parts[partIndex];
       switch (part) {
         case SourceContentPart(
             :final sourceRef,
@@ -215,16 +227,18 @@ final class SupplementalAnswerProjector {
           ):
           if (role == SourceContentRole.heading) {
             builder.pushHeading(content);
-            continue;
+            partIndex += 1;
+          } else {
+            partIndex += _projectContentPart(
+              partIndex: partIndex,
+              parts: parts,
+              sourceRef: sourceRef,
+              content: content,
+              builder: builder,
+              fragments: fragments,
+              issues: issues,
+            );
           }
-          _projectContentPart(
-            partIndex: partIndex,
-            sourceRef: sourceRef,
-            content: content,
-            builder: builder,
-            fragments: fragments,
-            issues: issues,
-          );
         case SourceTablePart(:final sourceRef, :final rows):
           _projectTablePart(
             partIndex: partIndex,
@@ -234,6 +248,7 @@ final class SupplementalAnswerProjector {
             fragments: fragments,
             issues: issues,
           );
+          partIndex += 1;
         case SourceAssetPart(
             :final sourceRef,
             :final alternativeText,
@@ -247,9 +262,7 @@ final class SupplementalAnswerProjector {
                 partIndex: partIndex,
               ),
             );
-            continue;
-          }
-          if (!builder.hasOpenFragment) {
+          } else if (!builder.hasOpenFragment) {
             issues.add(
               SupplementalProjectionIssue(
                 kind: SupplementalProjectionIssueKind
@@ -257,9 +270,10 @@ final class SupplementalAnswerProjector {
                 partIndex: partIndex,
               ),
             );
-            continue;
+          } else {
+            builder.appendAnswer(altText, sourceRef);
           }
-          builder.appendAnswer(altText, sourceRef);
+          partIndex += 1;
         case UnsupportedSourcePart():
           issues.add(
             SupplementalProjectionIssue(
@@ -267,6 +281,7 @@ final class SupplementalAnswerProjector {
               partIndex: partIndex,
             ),
           );
+          partIndex += 1;
       }
     }
 
@@ -294,19 +309,19 @@ final class SupplementalAnswerProjector {
     );
   }
 
-  void _projectContentPart({
+  /// Projects one content part and returns how many consecutive parts that
+  /// consumed. A locator or field marker that the source split across adjacent
+  /// text runs consumes every part the recognized token covers.
+  int _projectContentPart({
     required int partIndex,
+    required List<SourcePart> parts,
     required SourceRef sourceRef,
     required RichContent content,
     required _FragmentBuilder builder,
     required List<SupplementalAnswerFragment> fragments,
     required List<SupplementalProjectionIssue> issues,
   }) {
-    final locator = _extractLocator(
-      content,
-      builder.hasOpenFragment,
-      builder.openMainNumber,
-    );
+    final locator = _extractLocator(content, builder.openMainNumber);
     if (locator != null) {
       if (locator.ambiguousLine) {
         // A second main locator on the same line is only split when the syntax
@@ -318,7 +333,7 @@ final class SupplementalAnswerProjector {
             partIndex: partIndex,
           ),
         );
-        return;
+        return 1;
       }
       final closed = builder.start(
         partIndex: partIndex,
@@ -330,7 +345,42 @@ final class SupplementalAnswerProjector {
         solutionBlock: locator.solutionBlock,
       );
       fragments.addAll(closed);
-      return;
+      return 1;
+    }
+
+    final crossLocator = _recognizeCrossPartLocator(
+      parts: parts,
+      startIndex: partIndex,
+      openMainNumber: builder.openMainNumber,
+    );
+    if (crossLocator != null) {
+      if (crossLocator.ambiguousLine) {
+        issues.add(
+          SupplementalProjectionIssue(
+            kind: SupplementalProjectionIssueKind.ambiguousMultiLocatorLine,
+            partIndex: partIndex,
+          ),
+        );
+        return crossLocator.consumedParts;
+      }
+      final closed = builder.start(
+        partIndex: partIndex,
+        sourceRef: sourceRef,
+        normalizedMainNumber: crossLocator.mainNumber,
+        normalizedSubquestion: crossLocator.subquestion,
+        initialContent: null,
+        initialField: crossLocator.markerKind == _FieldMarkerKind.explicitAnswer
+            ? _FragmentField.answer
+            : _FragmentField.explanation,
+        solutionBlock:
+            crossLocator.markerKind == _FieldMarkerKind.solutionBlock,
+      );
+      fragments.addAll(closed);
+      builder.applyMarkerSlices(
+        kind: crossLocator.markerKind,
+        slices: crossLocator.slices,
+      );
+      return crossLocator.consumedParts;
     }
 
     if (!builder.hasOpenFragment) {
@@ -341,7 +391,7 @@ final class SupplementalAnswerProjector {
           partIndex: partIndex,
         ),
       );
-      return;
+      return 1;
     }
 
     final marker = _leadingFieldMarker(_plainText(content) ?? '');
@@ -356,9 +406,23 @@ final class SupplementalAnswerProjector {
         sourceRef: sourceRef,
         kind: marker.kind,
       );
-      return;
+      return 1;
     }
+
+    final crossMarker = _recognizeCrossPartMarker(
+      parts: parts,
+      startIndex: partIndex,
+    );
+    if (crossMarker != null) {
+      builder.applyMarkerSlices(
+        kind: crossMarker.kind,
+        slices: crossMarker.slices,
+      );
+      return crossMarker.consumedParts;
+    }
+
     builder.appendContinuation(content, sourceRef);
+    return 1;
   }
 
   void _projectTablePart({
@@ -466,11 +530,7 @@ final class _Locator {
   final bool ambiguousLine;
 }
 
-_Locator? _extractLocator(
-  RichContent content,
-  bool hasOpenFragment,
-  String? openMainNumber,
-) {
+_Locator? _extractLocator(RichContent content, String? openMainNumber) {
   final rawText = _plainText(content);
   if (rawText == null) return null;
   final text = _normalizeDigits(rawText);
@@ -479,12 +539,12 @@ _Locator? _extractLocator(
   if (mainMatch != null) {
     final consumedMarker = mainMatch.group(0)!.trim().isNotEmpty &&
         mainMatch.end > mainMatch.start &&
-        RegExp(r'[.．、:：题]').hasMatch(mainMatch.group(0)!);
-    // A bare number while a fragment is already open is treated as a
-    // continuation, never as a new locator: in real answer documents a bare
-    // continuation like a second line of a math answer is far more common
-    // than a new question consisting of one bare digit.
-    if (!consumedMarker && hasOpenFragment) return null;
+        _locatorSeparatorPattern.hasMatch(mainMatch.group(0)!);
+    // A bare number is never a locator on its own: without a separator, `题`,
+    // or a field marker it carries no primary locator evidence, so a document
+    // title year such as `2019` or a bare formula value stays ordinary content
+    // instead of opening a fragment that swallows the rest of the document.
+    if (!consumedMarker) return null;
     var cursor = mainMatch.end;
     final subMatch = cursor >= text.length
         ? null
@@ -562,6 +622,281 @@ _Locator _locatedAt({
 /// Whether one line carries a second main locator after the first one.
 bool _hasInlineMainLocator(String remainderText) {
   return _inlineMainLocatorPattern.hasMatch(remainderText);
+}
+
+/// One adjacent content part inside a bounded recognition window.
+///
+/// [start] and [end] are offsets into the window's joined text. They stay valid
+/// against the digit-normalized join because [_normalizeDigits] maps one code
+/// unit to one code unit, so normalization never shifts an offset.
+final class _WindowEntry {
+  const _WindowEntry({
+    required this.sourceRef,
+    required this.content,
+    required this.text,
+    required this.start,
+    required this.end,
+  });
+
+  final SourceRef sourceRef;
+  final RichContent content;
+  final String text;
+  final int start;
+  final int end;
+}
+
+/// One recognized content region, attributed to the part it came from.
+final class _ContentSlice {
+  const _ContentSlice({required this.content, required this.sourceRef});
+
+  final RichContent content;
+  final SourceRef sourceRef;
+}
+
+/// A locator whose field marker was proven across adjacent parts.
+final class _CrossPartLocator {
+  const _CrossPartLocator({
+    required this.mainNumber,
+    required this.subquestion,
+    required this.markerKind,
+    required this.slices,
+    required this.consumedParts,
+    required this.ambiguousLine,
+  });
+
+  final String mainNumber;
+  final String? subquestion;
+  final _FieldMarkerKind markerKind;
+  final List<_ContentSlice> slices;
+  final int consumedParts;
+  final bool ambiguousLine;
+}
+
+/// A field marker proven at the start of a run of adjacent continuation parts.
+final class _CrossPartMarker {
+  const _CrossPartMarker({
+    required this.kind,
+    required this.slices,
+    required this.consumedParts,
+  });
+
+  final _FieldMarkerKind kind;
+  final List<_ContentSlice> slices;
+  final int consumedParts;
+}
+
+/// Collects the bounded window of adjacent parts one recognition may join.
+///
+/// The window stops at a structural part, a heading, a part carrying any
+/// non-text node, the fixed part/character bounds, and at a part that already
+/// proves its own top-level locator. Joining is recognition-only: content is
+/// sliced back out of the original text nodes, so no structure is flattened and
+/// every slice keeps the [SourceRef] of the part that really contributed it.
+List<_WindowEntry> _recognitionWindow(List<SourcePart> parts, int startIndex) {
+  final entries = <_WindowEntry>[];
+  var length = 0;
+  for (var index = startIndex;
+      index < parts.length && entries.length < _maxLookaheadParts;
+      index++) {
+    final part = parts[index];
+    if (part is! SourceContentPart) break;
+    if (part.role == SourceContentRole.heading) break;
+    final text = _plainText(part.content);
+    if (text == null) break;
+    if (!part.content.nodes.every((node) => node is TextNode)) break;
+    if (length + text.length > _maxLookaheadChars) break;
+    if (entries.isNotEmpty && _beginsProvenLocator(_normalizeDigits(text))) {
+      break;
+    }
+    entries.add(
+      _WindowEntry(
+        sourceRef: part.sourceRef,
+        content: part.content,
+        text: text,
+        start: length,
+        end: length + text.length,
+      ),
+    );
+    length += text.length;
+  }
+  return entries;
+}
+
+/// Whether one part's own text already proves a top-level locator.
+///
+/// Used only as a window boundary: such a part starts a new question, so the
+/// previous window must not reach across it.
+bool _beginsProvenLocator(String normalizedText) {
+  final main = _mainNumberPattern.firstMatch(normalizedText);
+  if (main != null) {
+    final consumedMarker = main.group(0)!.trim().isNotEmpty &&
+        main.end > main.start &&
+        _locatorSeparatorPattern.hasMatch(main.group(0)!);
+    if (consumedMarker &&
+        main.end < normalizedText.length &&
+        _leadingFieldMarker(normalizedText.substring(main.end)) != null) {
+      return true;
+    }
+  }
+  final bracket = _bracketNumberPattern.firstMatch(normalizedText);
+  return bracket != null &&
+      bracket.end < normalizedText.length &&
+      _leadingFieldMarker(normalizedText.substring(bracket.end)) != null;
+}
+
+String _joinedWindowText(List<_WindowEntry> window) {
+  return _normalizeDigits(window.map((entry) => entry.text).join());
+}
+
+/// End of the window entry that contains [offset].
+int _windowRegionEnd(List<_WindowEntry> window, int offset) {
+  for (final entry in window) {
+    if (entry.end > offset) return entry.end;
+  }
+  return window.last.end;
+}
+
+/// How many leading window entries a region ending at [offset] covers.
+int _windowConsumedParts(List<_WindowEntry> window, int offset) {
+  var count = 0;
+  for (final entry in window) {
+    if (entry.start < offset) count += 1;
+  }
+  return count;
+}
+
+/// Slices `[from, to)` of the joined window back into per-part content.
+List<_ContentSlice> _sliceWindow(List<_WindowEntry> window, int from, int to) {
+  final slices = <_ContentSlice>[];
+  for (final entry in window) {
+    if (entry.end <= from) continue;
+    if (entry.start >= to) break;
+    final content = _sliceTextContent(
+      entry.content,
+      (from - entry.start).clamp(0, entry.text.length),
+      (to - entry.start).clamp(0, entry.text.length),
+    );
+    if (content == null) continue;
+    slices.add(_ContentSlice(content: content, sourceRef: entry.sourceRef));
+  }
+  return slices;
+}
+
+/// Cuts `[from, to)` out of one text-only content without reparsing it.
+RichContent? _sliceTextContent(RichContent content, int from, int to) {
+  if (to <= from) return null;
+  final nodes = <ContentNode>[];
+  var offset = 0;
+  for (final node in content.nodes) {
+    final text = (node as TextNode).text;
+    final nodeEnd = offset + text.length;
+    if (nodeEnd > from && offset < to) {
+      final start = (from - offset).clamp(0, text.length);
+      final end = (to - offset).clamp(0, text.length);
+      if (end > start) nodes.add(TextNode(text.substring(start, end)));
+    }
+    offset = nodeEnd;
+  }
+  return nodes.isEmpty ? null : RichContent(nodes: nodes);
+}
+
+/// Recovers one locator plus its field marker from a run of adjacent parts.
+///
+/// Only reached when the part alone proved nothing. The frozen contract
+/// recognizes a marker right after a locator or at the start of a continuation
+/// part; this joins adjacent runs at those same two boundaries and adds no
+/// third recognition point, so a locator is proven only by the marker that
+/// immediately follows it inside the window.
+_CrossPartLocator? _recognizeCrossPartLocator({
+  required List<SourcePart> parts,
+  required int startIndex,
+  required String? openMainNumber,
+}) {
+  final window = _recognitionWindow(parts, startIndex);
+  if (window.length < 2) return null;
+  final text = _joinedWindowText(window);
+
+  final mainMatch = _mainNumberPattern.firstMatch(text);
+  if (mainMatch != null) {
+    final consumedMarker = mainMatch.group(0)!.trim().isNotEmpty &&
+        mainMatch.end > mainMatch.start &&
+        _locatorSeparatorPattern.hasMatch(mainMatch.group(0)!);
+    // A bare number stays content here exactly as it does inside one part.
+    if (!consumedMarker) return null;
+    var cursor = mainMatch.end;
+    final subMatch = cursor >= text.length
+        ? null
+        : _subNumberPattern.firstMatch(text.substring(cursor));
+    if (subMatch != null) cursor += subMatch.end;
+    return _crossPartLocatorAt(
+      window: window,
+      text: text,
+      mainNumber: mainMatch.group(1)!,
+      subquestion: subMatch?.group(1),
+      cursor: cursor,
+    );
+  }
+
+  final bracketMatch = _bracketNumberPattern.firstMatch(text);
+  if (bracketMatch == null) return null;
+  if (!_bracketNumberOpensField(
+    text: text,
+    cursor: bracketMatch.end,
+    candidateNumber: bracketMatch.group(1)!,
+    openMainNumber: openMainNumber,
+  )) {
+    return null;
+  }
+  return _crossPartLocatorAt(
+    window: window,
+    text: text,
+    mainNumber: bracketMatch.group(1)!,
+    subquestion: null,
+    cursor: bracketMatch.end,
+  );
+}
+
+_CrossPartLocator? _crossPartLocatorAt({
+  required List<_WindowEntry> window,
+  required String text,
+  required String mainNumber,
+  required String? subquestion,
+  required int cursor,
+}) {
+  if (cursor >= text.length) return null;
+  final marker = _leadingFieldMarker(text.substring(cursor));
+  if (marker == null) return null;
+  final markerEnd = cursor + marker.end;
+  final contentEnd = _windowRegionEnd(window, markerEnd);
+  return _CrossPartLocator(
+    mainNumber: mainNumber,
+    subquestion: subquestion,
+    markerKind: marker.kind,
+    slices: _sliceWindow(window, markerEnd, contentEnd),
+    consumedParts: _windowConsumedParts(window, contentEnd),
+    ambiguousLine: _hasInlineMainLocator(text.substring(markerEnd, contentEnd)),
+  );
+}
+
+/// Recovers one field marker that a run of adjacent continuation parts split.
+_CrossPartMarker? _recognizeCrossPartMarker({
+  required List<SourcePart> parts,
+  required int startIndex,
+}) {
+  final window = _recognitionWindow(parts, startIndex);
+  if (window.length < 2) return null;
+  final text = _joinedWindowText(window);
+  final marker = _leadingFieldMarker(text);
+  if (marker == null) return null;
+  final contentEnd = _windowRegionEnd(window, marker.end);
+  // The answer field never keeps an explicit answer marker; explanation and
+  // solution markers stay in their own field verbatim.
+  final from = marker.kind == _FieldMarkerKind.explicitAnswer ? marker.end : 0;
+  return _CrossPartMarker(
+    kind: marker.kind,
+    slices: _sliceWindow(window, from, contentEnd),
+    consumedParts: _windowConsumedParts(window, contentEnd),
+  );
 }
 
 String? _parseNumber(String text) {
@@ -777,20 +1112,41 @@ final class _FragmentBuilder {
     required SourceRef sourceRef,
     required _FieldMarkerKind kind,
   }) {
+    applyMarkerSlices(
+      kind: kind,
+      slices: <_ContentSlice>[
+        _ContentSlice(content: content, sourceRef: sourceRef),
+      ],
+    );
+  }
+
+  /// Applies one field marker together with the ordered content that followed
+  /// it. Each slice stays bound to the part that really contributed it, so a
+  /// marker recovered across adjacent parts never invents provenance.
+  void applyMarkerSlices({
+    required _FieldMarkerKind kind,
+    required List<_ContentSlice> slices,
+  }) {
     if (!hasOpenFragment) return;
     switch (kind) {
       case _FieldMarkerKind.explicitAnswer:
         _field = _FragmentField.answer;
         _solutionField = false;
-        if (content.nodes.isNotEmpty) appendAnswer(content, sourceRef);
+        for (final slice in slices) {
+          appendAnswer(slice.content, slice.sourceRef);
+        }
       case _FieldMarkerKind.explanation:
         _field = _FragmentField.explanation;
         _solutionField = false;
-        if (content.nodes.isNotEmpty) appendExplanation(content, sourceRef);
+        for (final slice in slices) {
+          appendExplanation(slice.content, slice.sourceRef);
+        }
       case _FieldMarkerKind.solutionBlock:
         _field = _FragmentField.explanation;
         _solutionField = true;
-        if (content.nodes.isNotEmpty) appendExplanation(content, sourceRef);
+        for (final slice in slices) {
+          appendExplanation(slice.content, slice.sourceRef);
+        }
     }
   }
 

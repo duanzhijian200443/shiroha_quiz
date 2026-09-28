@@ -11,6 +11,16 @@ import 'target_question_snapshot_service.dart';
 
 final _subMarkerPattern = RegExp(r'[（(]\s*(\d{1,4})\s*[)）]');
 
+/// One bare choice letter with at most one trailing terminator.
+final _bareChoiceLabelPattern = RegExp(
+  r'^\s*([A-Da-dＡ-Ｄａ-ｄ])\s*[.．。]?\s*$',
+);
+
+/// The same single choice letter inside one balanced bracket pair.
+final _wrappedChoiceLabelPattern = RegExp(
+  r'^\s*[（(]\s*([A-Da-dＡ-Ｄａ-ｄ])\s*[)）]\s*[.．。]?\s*$',
+);
+
 /// Immutable artifact context bound to every candidate produced by one
 /// matching session.
 final class SupplementalArtifactContext {
@@ -308,9 +318,15 @@ final class SupplementalAnswerMatcher {
       return _ConversionAnswer(ContentAnswer(content: fragment.answerContent));
     }
     if (target.draft.kind == QuestionKind.singleChoice) {
-      final label = _plainText(fragment.answerContent)?.trim() ?? '';
-      if (label.isEmpty) {
+      final rawLabel = _plainText(fragment.answerContent)?.trim() ?? '';
+      if (rawLabel.isEmpty) {
         return const _ConversionInvalid(MatchEvidenceCode.noLocator);
+      }
+      final label = _normalizedChoiceLabel(rawLabel);
+      if (label == null) {
+        return const _ConversionInvalid(
+          MatchEvidenceCode.ambiguousChoiceLabel,
+        );
       }
       final matches = target.draft.options
           .where((option) => option.label.trim() == label)
@@ -709,6 +725,32 @@ String? _plainText(RichContent content) {
   }
   final value = buffer.toString();
   return value.isEmpty ? null : value;
+}
+
+/// Canonical single-choice label of one strict answer token, or null.
+///
+/// Accepts exactly one `A`-`D` letter, half or full width, optionally inside
+/// one balanced bracket pair and optionally followed by one terminator, so a
+/// fragmented answer line yielding `(C).` maps to `C`. Prose after the label, a
+/// slash, several letters, or a letter outside `A`-`D` stays unmappable rather
+/// than being guessed at. Only single-choice conversion uses this; a
+/// `ContentAnswer` is never rewritten.
+String? _normalizedChoiceLabel(String value) {
+  final match = _wrappedChoiceLabelPattern.firstMatch(value) ??
+      _bareChoiceLabelPattern.firstMatch(value);
+  if (match == null) return null;
+  return _asciiChoiceLetter(match.group(1)!);
+}
+
+String _asciiChoiceLetter(String letter) {
+  final code = letter.codeUnitAt(0);
+  if (code >= 0xff21 && code <= 0xff24) {
+    return String.fromCharCode(code - 0xff21 + 0x41);
+  }
+  if (code >= 0xff41 && code <= 0xff44) {
+    return String.fromCharCode(code - 0xff41 + 0x41);
+  }
+  return letter.toUpperCase();
 }
 
 bool _setEquals(Set<String> left, Set<String> right) {

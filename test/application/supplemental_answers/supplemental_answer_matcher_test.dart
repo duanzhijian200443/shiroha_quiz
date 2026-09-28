@@ -571,6 +571,120 @@ void main() {
       }
     });
   });
+
+  group('single-choice label normalization', () {
+    AnswerMatchRecord matchOne(String answer) {
+      return matcher
+          .match(
+            fragments: [_fragment('frag_1', main: '1', answer: answer)],
+            snapshot: TargetQuestionSnapshot(
+              targets: [_abcdTarget('q_choice', number: 1)],
+              reports: const [],
+            ),
+            artifact: _artifact,
+          )
+          .records
+          .single;
+    }
+
+    test('one strict label maps to its option as a fill candidate', () {
+      const expected = <String, String>{
+        '(C).': 'opt_c',
+        '（Ｂ）。': 'opt_b',
+        'c': 'opt_c',
+        'C': 'opt_c',
+        'Ｃ': 'opt_c',
+        '(D)': 'opt_d',
+        'A．': 'opt_a',
+        ' (B) ': 'opt_b',
+      };
+      for (final entry in expected.entries) {
+        final record = matchOne(entry.key);
+        expect(
+          record.disposition,
+          AnswerMatchDisposition.matched,
+          reason: '${entry.key} must normalize to a writable label',
+        );
+        expect(
+          (record.candidate!.answer as ChoiceAnswer).optionIds,
+          <String>[entry.value],
+          reason: entry.key,
+        );
+        expect(record.candidate!.writeIntent, CandidateWriteIntent.fill);
+      }
+    });
+
+    test('anything beyond one strict label stays invalid', () {
+      const rejected = <String>[
+        '(C) explanation',
+        'A/B',
+        'AB',
+        'Z',
+        '(Z)',
+        'option C',
+        '答案 C because',
+        '(C',
+        'C)',
+        'C D',
+      ];
+      for (final answer in rejected) {
+        final record = matchOne(answer);
+        expect(
+          record.disposition,
+          AnswerMatchDisposition.invalid,
+          reason: answer,
+        );
+        expect(record.candidate, isNull, reason: answer);
+        expect(
+          record.evidence,
+          contains(MatchEvidenceCode.ambiguousChoiceLabel),
+          reason: answer,
+        );
+      }
+    });
+
+    test('normalization never rewrites a non-choice target answer', () {
+      final result = matcher.match(
+        fragments: [_fragment('frag_fill', main: '1', answer: '(C).')],
+        snapshot: TargetQuestionSnapshot(
+          targets: [
+            _target('q_fill', number: 1, kind: QuestionKind.fillBlank),
+          ],
+          reports: const [],
+        ),
+        artifact: _artifact,
+      );
+
+      final record = result.records.single;
+      expect(record.disposition, AnswerMatchDisposition.matched);
+      expect(
+        (record.candidate!.answer as ContentAnswer).content.nodes
+            .map((node) => (node as TextNode).text),
+        ['(C).'],
+      );
+    });
+  });
+}
+
+AnswerTargetReference _abcdTarget(String storageId, {required int number}) {
+  return AnswerTargetReference(
+    storageId: storageId,
+    bankName: 'bank_math',
+    draft: QuestionDraftV2(
+      questionId: storageId,
+      kind: QuestionKind.singleChoice,
+      questionNumber: number,
+      stem: _text('synthetic stem'),
+      options: [
+        for (final label in const <String>['A', 'B', 'C', 'D'])
+          QuestionOption(
+            optionId: 'opt_${label.toLowerCase()}',
+            label: label,
+            content: _text('$label option'),
+          ),
+      ],
+    ),
+  );
 }
 
 AnswerTargetReference _target(
