@@ -556,10 +556,13 @@ String _ocrRegionStem(QuestionRegion region, OcrMathSourceMap? math) {
 /// sequence with non-empty values is extracted.
 _OcrOptionExtract _ocrExtractOptions(String text) {
   final markerRegex = RegExp(
-    r'(?:[（(]\s*([A-D])\s*[）)]|(?:^|\n)[ \t]*([A-D])\s*[.．、])[ \t\r\n]*',
+    r'(?:[（(]([A-D])[）)]|(?:^|\n)[ \t]*([A-D])\s*[.．、])[ \t\r\n]*',
     multiLine: true,
   );
-  final matches = markerRegex.allMatches(text).toList();
+  final matches = markerRegex
+      .allMatches(text)
+      .where((match) => _isStandaloneOptionMarker(text, match))
+      .toList();
   const expectedKeys = ['A', 'B', 'C', 'D'];
   final keys = matches
       .map((match) => (match.group(1) ?? match.group(2) ?? '').toUpperCase())
@@ -590,6 +593,18 @@ bool _hasExpectedOptionSequence(List<String> actual, List<String> expected) {
     if (actual[index] != expected[index]) return false;
   }
   return true;
+}
+
+final RegExp _optionMarkerIdentifierBlocker = RegExp(r'[A-Za-z0-9Ａ-Ｚａ-ｚ０-９]');
+
+/// A parenthesized label is an option marker only when it is not glued to an
+/// identifier character: mathematical `( A )`/`P(A)` fragments (`f(A)`,
+/// `X(B)`) must not enter the option marker sequence.
+bool _isStandaloneOptionMarker(String text, RegExpMatch match) {
+  if (match.group(1) == null) return true;
+  final start = match.start;
+  if (start == 0) return true;
+  return !_optionMarkerIdentifierBlocker.hasMatch(text[start - 1]);
 }
 
 bool _ocrShouldKeepOptions(
