@@ -253,6 +253,76 @@ void main() {
       );
     });
 
+    test('a duplicate locator mixing candidate and non-candidate siblings '
+        'keeps both outcomes', () {
+      final snapshot = TargetQuestionSnapshot(
+        targets: [_abcdTarget('q_choice', number: 1)],
+        reports: const [],
+      );
+
+      final result = matcher.match(
+        fragments: [
+          _fragment('frag_writable', main: '1', answer: 'A'),
+          _fragment('frag_unmappable', main: '1', answer: 'Z'),
+        ],
+        snapshot: snapshot,
+        artifact: _artifact,
+      );
+
+      expect(result.records, hasLength(2));
+      final writable = result.records.firstWhere(
+        (record) => record.fragmentId == 'frag_writable',
+      );
+      final unmappable = result.records.firstWhere(
+        (record) => record.fragmentId == 'frag_unmappable',
+      );
+      expect(writable.disposition, AnswerMatchDisposition.matched);
+      expect(
+        (writable.candidate!.answer as ChoiceAnswer).optionIds,
+        <String>['opt_a'],
+      );
+      expect(writable.candidate!.writeIntent, CandidateWriteIntent.fill);
+      expect(unmappable.disposition, AnswerMatchDisposition.invalid);
+      expect(unmappable.candidate, isNull);
+      expect(
+        unmappable.evidence,
+        contains(MatchEvidenceCode.ambiguousChoiceLabel),
+      );
+    });
+
+    test('a conflicting duplicate locator still reports sourceConflict beside '
+        'its non-candidate sibling', () {
+      final snapshot = TargetQuestionSnapshot(
+        targets: [_abcdTarget('q_choice', number: 1)],
+        reports: const [],
+      );
+
+      final result = matcher.match(
+        fragments: [
+          _fragment('frag_a', main: '1', answer: 'A'),
+          _fragment('frag_b', main: '1', answer: 'B'),
+          _fragment('frag_unmappable', main: '1', answer: 'Z'),
+        ],
+        snapshot: snapshot,
+        artifact: _artifact,
+      );
+
+      expect(result.records, hasLength(2));
+      final conflicted = result.records.firstWhere(
+        (record) => record.evidence.contains(MatchEvidenceCode.sourceConflict),
+      );
+      final unmappable = result.records.firstWhere(
+        (record) => record.fragmentId == 'frag_unmappable',
+      );
+      expect(conflicted.disposition, AnswerMatchDisposition.invalid);
+      expect(conflicted.candidate, isNull);
+      expect(unmappable.disposition, AnswerMatchDisposition.invalid);
+      expect(
+        unmappable.evidence,
+        contains(MatchEvidenceCode.ambiguousChoiceLabel),
+      );
+    });
+
     test('complete subquestion set composes one ContentAnswer in sub-order',
         () {
       final snapshot = TargetQuestionSnapshot(

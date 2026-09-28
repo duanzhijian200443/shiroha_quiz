@@ -381,6 +381,12 @@ final class _ResolvedFragment {
 
 /// Merges duplicate-locator fragments: structurally equal answers merge
 /// provenance into one candidate; conflicting answers become invalid.
+///
+/// One duplicate-locator group may mix fragments that produced a candidate
+/// with siblings that did not (an `unmatched`, `ambiguous`, or `invalid`
+/// fragment carrying the same locator). Only candidate-bearing fragments can
+/// contribute provenance to a merge; the rest pass through untouched with their
+/// own terminal disposition instead of being dereferenced or silently dropped.
 List<_MergedItem> _mergeDuplicateLocators(
   List<_ResolvedFragment> resolved,
   SupplementalArtifactContext artifact,
@@ -396,22 +402,29 @@ List<_MergedItem> _mergeDuplicateLocators(
 
   final merged = <_MergedItem>[];
   for (final items in byLocator.values) {
-    final candidates = items
-        .map((item) => item.candidate)
-        .whereType<AnswerCandidate>()
-        .toList();
-    if (items.length == 1 || candidates.isEmpty) {
+    final candidateItems = items
+        .where((item) => item.candidate != null)
+        .toList(growable: false);
+    if (items.length == 1 || candidateItems.isEmpty) {
       merged.addAll(items.map(_MergedItem.single));
       continue;
     }
+    final passThrough = items
+        .where((item) => item.candidate == null)
+        .map(_MergedItem.single)
+        .toList(growable: false);
+    final candidates = candidateItems
+        .map((item) => item.candidate!)
+        .toList(growable: false);
     final firstAnswer = candidates.first.answer;
     final allEqual =
         candidates.every((candidate) => candidate.answer == firstAnswer);
     if (!allEqual) {
+      merged.addAll(passThrough);
       merged.add(
         _MergedItem.single(
           _ResolvedFragment(
-            fragment: items.first.fragment,
+            fragment: candidateItems.first.fragment,
             disposition: AnswerMatchDisposition.invalid,
             certainty: MatchCertainty.none,
             evidence: const <MatchEvidenceCode>[
@@ -424,7 +437,8 @@ List<_MergedItem> _mergeDuplicateLocators(
     }
     final first = candidates.first;
     final sourceRefs = <SourceRef>[
-      for (final item in items) ..._supplementalSourceRefs(item.candidate!),
+      for (final item in candidateItems)
+        ..._supplementalSourceRefs(item.candidate!),
     ];
     final candidate = AnswerCandidate(
       candidateId: first.candidateId,
@@ -442,10 +456,11 @@ List<_MergedItem> _mergeDuplicateLocators(
         matchEvidence: _supplementalEvidence(first),
       ),
     );
+    merged.addAll(passThrough);
     merged.add(
       _MergedItem.single(
         _ResolvedFragment(
-          fragment: items.first.fragment,
+          fragment: candidateItems.first.fragment,
           disposition: first.writeIntent == CandidateWriteIntent.replace
               ? AnswerMatchDisposition.conflict
               : AnswerMatchDisposition.matched,
