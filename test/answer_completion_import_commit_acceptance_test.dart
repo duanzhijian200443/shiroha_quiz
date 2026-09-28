@@ -3,13 +3,20 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/answer_completion/document_question_set_seed.dart';
+import 'package:shiroha_quiz/application/answer_completion/answer_completion_query.dart';
 import 'package:shiroha_quiz/application/backup/backup_restore_gate.dart';
 import 'package:shiroha_quiz/application/import/import_target_selection.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
+import 'package:shiroha_quiz/application/parsed_artifacts/parsed_artifact_ports.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/models/question_draft.dart';
+import 'package:shiroha_quiz/data/models/import_task_cleanup.dart';
 import 'package:shiroha_quiz/data/models/typed_import_commit_guard.dart';
 import 'package:shiroha_quiz/data/repositories/question_repository.dart';
+import 'package:shiroha_quiz/data/repositories/imported_question_set_repository.dart';
+import 'package:shiroha_quiz/data/repositories/library_file_repository.dart';
+import 'package:shiroha_quiz/data/repositories/parsed_artifact_repository.dart';
+import 'package:shiroha_quiz/domain/assets/parsed_artifact.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
@@ -321,12 +328,23 @@ void main() {
       expect(await db.query('imported_question_sets'), hasLength(1));
       expect(await db.query('questions'), hasLength(2));
     });
-    for (final fault in ['set', 'member', 'completion CAS']) {
+    for (final fault in [
+      'questions',
+      if (typed) 'question_v2_payloads',
+      'review_states',
+      'set',
+      'member',
+      'completion CAS'
+    ]) {
       test('$route $fault failure rolls back the entire outer transaction',
           () async {
         final db = await DatabaseHelper.instance.database;
         await _insertTask(db, 'task', typed, _entry());
         final sql = switch (fault) {
+          'questions' ||
+          'question_v2_payloads' ||
+          'review_states' =>
+            "CREATE TRIGGER synthetic_failure BEFORE INSERT ON $fault WHEN (SELECT COUNT(*) FROM $fault) = 1 BEGIN SELECT RAISE(ABORT, 'synthetic'); END",
           'set' =>
             "CREATE TRIGGER synthetic_failure BEFORE INSERT ON imported_question_sets BEGIN SELECT RAISE(ABORT, 'synthetic'); END",
           'member' =>
@@ -339,6 +357,147 @@ void main() {
         await _expectRollback(db);
       });
     }
+
+    test(
+        'V0 $route committed lifecycle preserves identity until member removal',
+        () async {
+      final helper = DatabaseHelper.instance;
+      final db = await helper.database;
+      final repository = QuestionRepository();
+      final sourceId = _seed.sourceFileId!;
+      await db.insert('library_files', {
+        'file_id': sourceId,
+        'display_name': 'synthetic.pdf',
+        'mime_type': 'application/pdf',
+        'size_bytes': 1,
+        'sha256': 'a' * 64,
+        'storage_key': 'synthetic/file',
+        'created_at': 1,
+      });
+      final artifacts = ParsedArtifactRepository();
+      Future<void> publish(int revision) async {
+        final result = await artifacts.publishCurrent(
+          fileId: sourceId,
+          expectedRevision: revision - 1,
+          candidate: ParsedArtifactMetadata(
+            artifact: ParsedArtifact(
+              fileId: sourceId,
+              artifactId: 'artifact-$revision',
+              revision: revision,
+              payloadSchemaVersion: 1,
+            ),
+            sourceSha256: 'a' * 64,
+            cacheKeyVersion: 1,
+            cacheFingerprint: 'synthetic-v1',
+            parserRoute: 'pdf_text',
+            parserVersion: '1',
+            optionsSchemaVersion: 1,
+            storageKey: 'artifacts/artifact-$revision.json',
+            payloadSha256: 'b' * 64,
+            sizeBytes: 1,
+            publishedAt: revision,
+          ),
+        );
+        expect(result.status, ParsedArtifactPublishStatus.published);
+      }
+
+      await publish(1);
+      await _insertTask(db, 'task', typed, _entry());
+      await _commit('task', typed);
+      final preserved = <String, List<Map<String, Object?>>>{
+        for (final table in [
+          'questions',
+          'question_v2_payloads',
+          'review_states',
+          'imported_question_sets',
+          'imported_question_set_items',
+        ])
+          table: await db.query(table),
+      };
+      final members =
+          await db.query('imported_question_set_items', orderBy: 'position');
+      final ids =
+          members.map((m) => m['question_storage_id']! as String).toList();
+      final setId = preserved['imported_question_sets']!.single['set_id'];
+      Future<void> expectPreserved() async {
+        for (final entry in preserved.entries) {
+          expect(await db.query(entry.key), entry.value, reason: entry.key);
+        }
+      }
+
+      await publish(2);
+      expect((await artifacts.findCurrentByFileId(sourceId))!.revision, 2);
+      await expectPreserved();
+      expect(
+          (await artifacts.removeCurrent(fileId: sourceId, expectedRevision: 2))
+              .status,
+          ParsedArtifactRemoveStatus.removed);
+      expect(await artifacts.findCurrentByFileId(sourceId), isNull);
+      await expectPreserved();
+      expect(await helper.deleteImportTask('task'),
+          ImportTaskDeletePersistenceStatus.deleted);
+      expect(await db.query('import_tasks'), isEmpty);
+      await expectPreserved();
+      await repository.updateBankFolder('bank', 'moved-folder');
+      expect(await repository.getFolderForBank('bank'), 'moved-folder');
+      await expectPreserved();
+      await LibraryFileRepository().deleteLibraryFile(
+          fileId: sourceId, expectedStorageKey: 'synthetic/file');
+      expect(await db.query('library_files'), isEmpty);
+      await expectPreserved();
+
+      Future<AnswerCompletionSet> readSet() async {
+        final snapshot = await ImportedQuestionSetRepository().readBank('bank')
+            as AnswerCompletionSnapshot;
+        return snapshot.sets.single;
+      }
+
+      final beforeEdit = await readSet();
+      expect(beforeEdit.set.setId, setId);
+      expect(beforeEdit.provenance, AnswerCompletionProvenance.unavailable);
+      expect([beforeEdit.total, beforeEdit.missing, beforeEdit.ineligible],
+          typed ? [2, 2, 0] : [2, 0, 2]);
+      if (typed) {
+        await repository.updateTypedAnswer(
+            storageId: ids.first,
+            expectedDraft: beforeEdit.members.first.draft!,
+            newAnswer:
+                ContentAnswer(content: RichContent(nodes: [TextNode('')])));
+      } else {
+        await repository.updateQuestion({
+          'id': ids.first,
+          'content': 'Synthetic edited content',
+          'standard_answer': 'Synthetic edited answer',
+        });
+      }
+      expect(await db.query('imported_question_sets'),
+          preserved['imported_question_sets']);
+      expect(await db.query('imported_question_set_items', orderBy: 'position'),
+          members);
+      expect(await db.query('review_states'), preserved['review_states']);
+      final afterEdit = await readSet();
+      expect([
+        afterEdit.total,
+        afterEdit.missing,
+        afterEdit.answered,
+        afterEdit.ineligible
+      ], typed ? [2, 1, 1, 0] : [2, 0, 0, 2]);
+      await repository.deleteQuestion(ids.first);
+      final remaining = await readSet();
+      expect(remaining.set.setId, setId);
+      expect(remaining.members.map((m) => m.storageId), [ids.last]);
+      // Bank identity migration is out of scope; exercise the schema-owned
+      // move primitive directly, as in the D1 and Q0 authoritative suites.
+      await db.update('questions', {'bank_name': 'other'},
+          where: 'id = ?', whereArgs: [ids.last]);
+      expect(await db.query('imported_question_set_items'), isEmpty);
+      expect(await db.query('imported_question_sets'), isEmpty);
+      final destination = await ImportedQuestionSetRepository()
+          .readBank('other') as AnswerCompletionSnapshot;
+      expect(destination.sets, isEmpty);
+      expect(destination.ungrouped.map((m) => m.storageId),
+          typed ? [ids.last] : isEmpty);
+    });
   }
 
   for (final value in <Object?>[_codec.encode(_seed), null]) {

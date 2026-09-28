@@ -1,11 +1,18 @@
 # ANSWER-COMP-P0 Answer Completion / Imported Question Sets — Focused Canonical Contract
 
-Status: **Canonical ANSWER-COMP-P0 design authority. P0 is COMPLETE / FROZEN. Production implementation stages remain NOT STARTED at this freeze.**
+Status: **Answer Completion v0 — CLOSED / FROZEN. P0 is COMPLETE / FROZEN; ANSWER-ENTRY-GUARD and D0/D1/B0/I0a/I0b/I0c/Q0/U0/P6/P7/V0/CL are COMPLETE.**
 
-Frozen against: `master@4a154c12766b0cb30e8f869f08b1e52747e4a8de`
-Date: `2026-09-27`
+Historical P0 freeze: `master@4a154c12766b0cb30e8f869f08b1e52747e4a8de`, `2026-09-27`.
 
-This document freezes the durable grouping and Answer Completion activation design only. It adds no production Dart, schema, migration, provider call, OCR behavior, or runtime write by itself.
+P0 froze the design only and added no production Dart, schema, migration, provider call, OCR behavior or runtime write. The closure amendment below records the implemented contract; historical planning wording describes the original freeze rather than current stage status.
+
+## Closure amendment — implemented v0 authority
+
+The frozen grouping, import, query and activation contracts in §§2–13 are now implemented. Runtime schema is v28, including strict set/member constraints, lifecycle triggers and B0 validation. `QuestionRepository` owns the task-bound typed/legacy atomic commit and calls `ImportedQuestionSetPersistenceKernel` within that same transaction. `document_v4` captures authoritative seed metadata; compatible v3 remains ungrouped.
+
+The Application queue/detail projection uses one read transaction. Presentation exposes “补充答案” → “待补答案”, full-set P6 activation and single-question P7 review/commit through existing authorities. Cleanup of source files, artifacts or tasks never owns a committed set; member deletion/bank movement and final-member cleanup remain schema-owned. Answer/content edits preserve membership and query counts remain dynamic.
+
+V0 closes focused deterministic acceptance and standing CI coverage; CL synchronizes the canonical contracts. The executable evidence map is maintained in `test/answer_completion_v0_acceptance.md`, with tests in the unconditional contract list in `.github/workflows/pr-contract-checks.yml`. This closure adds no schema, provider or persistence path and preserves every non-goal in §16. Live-provider/device performance acceptance and future work require their own scope.
 
 ## 1. Purpose and scope
 
@@ -54,11 +61,11 @@ Invariants:
 
 `LibraryFile`, `ParsedArtifact`, and `ImportTask` are not set identity. Source-file deletion, artifact replacement, or task cleanup does not delete a committed set.
 
-## 3. Planned additive persistence target
+## 3. Additive persistence contract
 
-Implementation plans an additive schema migration from the current runtime v27 to the next available version (expected v28). P0 does not change runtime schema.
+P0 planned an additive migration from then-current v27 to v28 without changing runtime schema itself. D1 implemented that migration; current runtime is v28.
 
-Planned tables:
+Implemented tables:
 
 ```text
 imported_question_sets
@@ -159,7 +166,7 @@ validate persisted task / attempt / ReviewDraft / target / seed
 -> COMMIT
 ```
 
-A planned `ImportedQuestionSetPersistenceKernel` may write set/member rows only with a caller-owned SQLite `Transaction`. It must not obtain `DatabaseHelper`, open/commit/rollback another transaction, register a post-commit relation writer, or ignore/replace conflicts.
+`ImportedQuestionSetPersistenceKernel` writes set/member rows only with a caller-owned SQLite `Transaction`. It must not obtain `DatabaseHelper`, open/commit/rollback another transaction, register a post-commit relation writer, or ignore/replace conflicts.
 
 `ImportedQuestionSetRepository` is a query adapter in v0 and is not a second import writer. `ImportCommitService` must not append QuestionSet writes after `QuestionRepository` reports success.
 
@@ -285,7 +292,7 @@ Ungrouped questions leave the queue when answered; they do not become synthetic 
 - ordinary content/answer edits preserve membership while counts update dynamically;
 - duplicate successful import creates a new set/new Questions; filename/fileId does not deduplicate.
 
-Once implemented, set/member tables are B0 portable durable data. ImportTask and ParsedArtifact remain scrubbed/transient. B0 must preserve setId/position/membership, validate tables/indexes/FKs/required triggers and no empty/cross-bank/duplicate/dangling membership, while allowing missing soft source-file provenance.
+Set/member tables are B0 portable durable data. ImportTask and ParsedArtifact remain scrubbed/transient. B0 preserves setId/position/membership and validates tables/indexes/FKs/required triggers and no empty/cross-bank/duplicate/dangling membership, while allowing missing soft source-file provenance.
 
 P0 itself does not change current B0 package/runtime schema.
 

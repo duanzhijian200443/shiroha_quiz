@@ -270,6 +270,8 @@ jobs:
             'test/acceptance/p6_supplemental_answer_acceptance_test.dart',
             'test/answer_entry_guard_ui_test.dart',
             'test/application/answer_completion/document_question_set_seed_test.dart',
+            'test/domain/answer_completion/imported_question_set_test.dart',
+            'test/application/answers/ai_answer_entry_guard_test.dart',
             'test/import_settings_screen_test.dart',
             'test/import_target_workflow_widget_test.dart',
             'test/pr137_final_transport_retry_regression_test.dart',
