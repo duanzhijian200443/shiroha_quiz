@@ -149,6 +149,55 @@ void main() {
       expect(projected.question['options'], authoritative.question['options']);
     });
 
+    test('projects math-parenthesized options with authoritative parity', () {
+      final legacy = OcrQuestionRegion(
+        number: 7,
+        stemParts: <String>[
+          r'7 设 A，B为随机事件，则 $ P ( A )=P ( B ) $的充分必要条件是（ ）',
+          '(A) option with P ( A )',
+          '(B) option with P ( B )',
+          '(C) third option',
+          '(D) fourth option',
+        ],
+        answerParts: <String>['A'],
+        explanationParts: const <String>[],
+        sourcePageIndices: <int>[1],
+        sourceBlockIds: <String>['b1', 'b2'],
+        diagnostics: const <String>[],
+        declaredKind: TextQuestionKind.choice,
+      );
+      final region = _bridgeOcr(legacy);
+      final draft = assembler.assemble(region, questionId: 'task_q7');
+      final projected = projector.project(
+        draft: draft,
+        region: region,
+        profile: const OcrLegacyProjectionProfile(),
+      );
+      final authoritative = const OcrQuestionAssembler().assemble(legacy);
+
+      expect(
+        authoritative.question['options'],
+        const <String>[
+          'A. option with P ( A )',
+          'B. option with P ( B )',
+          'C. third option',
+          'D. fourth option',
+        ],
+      );
+      expect(draft.options, hasLength(4));
+      expect(projected.question['options'], authoritative.question['options']);
+      expect(projected.question['content'], authoritative.question['content']);
+      expect(projected.question, authoritative.question);
+      expect(
+        authoritative.diagnostics,
+        isNot(contains('choice_options_less_than_2')),
+      );
+      expect(
+        projected.diagnostics,
+        isNot(contains('choice_options_less_than_2')),
+      );
+    });
+
     test('supports the authoritative option marker variants', () {
       const variants = <String, String>{
         'ASCII parentheses': '(A) 甲\n(B) 乙\n(C) 丙\n(D) 丁',

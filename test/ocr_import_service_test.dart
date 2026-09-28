@@ -262,6 +262,50 @@ Future<OcrImportResult?> _parseStructuralRepairPreferenceFixture({
   );
 }
 
+OcrDocument optionMarkerBoundaryDocument() {
+  return const OcrDocument(
+    sourceName: 'q7-option-marker-boundary.pdf',
+    markdown: '',
+    rawResponses: [],
+    usage: {},
+    pages: [
+      OcrPage(
+        pageIndex: 1,
+        blocks: [
+          OcrBlock(
+            blockId: 'section',
+            pageIndex: 1,
+            type: 'text',
+            text: '一、选择题（共 1 题）',
+            bbox: [],
+            readingOrder: 0,
+          ),
+          OcrBlock(
+            blockId: 'question',
+            pageIndex: 1,
+            type: 'text',
+            text: '1. 设 A，B为随机事件，则 \$ P ( A )=P ( B ) \$的充分必要条件是（ ）'
+                '\n(A) option with P ( A )'
+                '\n(B) option with P ( B )'
+                '\n(C) third option'
+                '\n(D) fourth option',
+            bbox: [],
+            readingOrder: 1,
+          ),
+          OcrBlock(
+            blockId: 'answer',
+            pageIndex: 1,
+            type: 'text',
+            text: '答案：A',
+            bbox: [],
+            readingOrder: 2,
+          ),
+        ],
+      ),
+    ],
+  );
+}
+
 OcrDocument unsupportedStructureDocument({bool includeUnsupported = true}) {
   return OcrDocument(
     sourceName: 'unsupported-structure.pdf',
@@ -2053,6 +2097,71 @@ void main() {
       expect(
         jsonEncode(result.diagnostics),
         isNot(contains('_typed_review_v1')),
+      );
+    });
+
+    test(
+        'math parenthesized variables do not become option markers or repair '
+        'candidates', () async {
+      final client = FakeOcrDocumentClient(optionMarkerBoundaryDocument());
+      final repairService = RecordingRepairService();
+      final service = OcrImportService(
+        engineRepository: FakeAiEngineRepository(ocrTestProfile()),
+        ocrClient: client,
+        repairService: repairService,
+        importPreferencesLoader: () async =>
+            const ImportAdvancedPreferences(aiRepairEnabled: false),
+        uuidV4Factory: () => '0d8b7a3e-7f1c-4b2a-9d3e-000000000007',
+      );
+
+      final parsed = await service.tryParse(
+        filePath: r'C:\synthetic\q7-option-marker-boundary.pdf',
+        sourceName: 'q7-option-marker-boundary.pdf',
+        format: ImportFormat.pdf,
+        explanationRetentionMode: ExplanationRetentionMode.allQuestionTypes,
+      );
+
+      expect(client.callCount, 1, reason: 'fake OCR client only');
+      expect(parsed, isNotNull);
+      final question = parsed!.questions.single;
+      expect(question['type'], 0);
+      expect(question['options'], const <String>[
+        'A. option with P ( A )',
+        'B. option with P ( B )',
+        'C. third option',
+        'D. fourth option',
+      ]);
+      expect(
+        question['diagnostics'] as List,
+        isNot(contains('choice_options_less_than_2')),
+      );
+      expect(parsed.diagnostics['repairEligibleCount'], 0);
+      expect(parsed.diagnostics['repairAttemptedCount'], 0);
+      expect(parsed.diagnostics['repairAppliedCount'], 0);
+      expect(parsed.diagnostics['repairSkippedByPreferenceCount'], 0);
+      expect(repairService.callCount, 0);
+
+      final batch = parsed.typedCandidateBatch!;
+      expect(batch.failure, isNull);
+      final candidate = batch.candidates.single;
+      expect(candidate.draft.options, hasLength(4));
+      expect(candidate.projectedLegacy.options, question['options']);
+
+      final gate = applyOcrTypedCandidateGate(
+        batch: batch,
+        finalQuestions: parsed.questions,
+        singleFile: true,
+      );
+      expect(gate.route, ImportStorageRoute.typedV2, reason: gate.reason);
+      expect(gate.reason, ocrTypedCandidateReadyReason);
+      final snapshot = const TypedReviewSnapshotCodec().decodeRequired(
+        gate.questions.single[TypedReviewSnapshotCodec.mapKey],
+      );
+      expect(snapshot.baselineLegacy.options, hasLength(4));
+      expect(snapshot.baselineLegacy.options, question['options']);
+      expect(
+        snapshot.draft.options.map((option) => option.optionId).toList(),
+        const <String>['A', 'B', 'C', 'D'],
       );
     });
 

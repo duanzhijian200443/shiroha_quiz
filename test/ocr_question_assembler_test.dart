@@ -185,6 +185,96 @@ void main() {
       expect(result.diagnostics, contains('choice_options_less_than_2'));
     });
 
+    test('rejects spaced mathematical variables as option markers', () {
+      final region = OcrQuestionRegion(
+        number: 7,
+        stemParts: const [
+          r'7 设 A，B为随机事件，则 $ P ( A )=P ( B ) $的充分必要条件是（ ）',
+          '(A) option with P ( A )',
+          '(B) option with P ( B )',
+          '(C) third option',
+          '(D) fourth option',
+        ],
+        answerParts: const ['A'],
+        explanationParts: const [],
+        sourcePageIndices: const [1],
+        sourceBlockIds: const ['p001_b0011'],
+        diagnostics: const [],
+        declaredKind: TextQuestionKind.choice,
+      );
+
+      final result = const OcrQuestionAssembler().assemble(region);
+
+      expect(result.question['type'], 0);
+      expect(result.question['options'], const [
+        'A. option with P ( A )',
+        'B. option with P ( B )',
+        'C. third option',
+        'D. fourth option',
+      ]);
+      expect(
+        result.question['content'],
+        r'设 A，B为随机事件，则 $ P ( A )=P ( B ) $的充分必要条件是（ ）',
+      );
+      expect(
+        result.diagnostics,
+        isNot(contains('choice_options_less_than_2')),
+      );
+      expect(result.repairRecommended, isFalse);
+    });
+
+    test('rejects compact mathematical variables as option markers', () {
+      final region = OcrQuestionRegion(
+        number: 8,
+        stemParts: const [
+          r'8 设 A，B为随机事件，则 P(A)=P(B)的充分必要条件是（ ）',
+          '(A) alpha P(A)',
+          '(B) beta P(B)',
+          '(C) gamma',
+          '(D) delta',
+        ],
+        answerParts: const ['A'],
+        explanationParts: const [],
+        sourcePageIndices: const [1],
+        sourceBlockIds: const ['p001_b0012'],
+        diagnostics: const [],
+        declaredKind: TextQuestionKind.choice,
+      );
+
+      final result = const OcrQuestionAssembler().assemble(region);
+
+      expect(result.question['type'], 0);
+      expect(result.question['options'], const [
+        'A. alpha P(A)',
+        'B. beta P(B)',
+        'C. gamma',
+        'D. delta',
+      ]);
+      expect(
+        result.diagnostics,
+        isNot(contains('choice_options_less_than_2')),
+      );
+      expect(result.repairRecommended, isFalse);
+    });
+
+    test('keeps spaced mathematical variables out of the marker sequence', () {
+      const original = r'9 若 P ( A ) = P ( B )，则下列结论中正确的是（ ）';
+      final region = OcrQuestionRegion(
+        number: 9,
+        stemParts: const [original],
+        answerParts: const ['正确'],
+        explanationParts: const [],
+        sourcePageIndices: const [1],
+        sourceBlockIds: const ['p001_b0013'],
+        diagnostics: const [],
+      );
+
+      final result = const OcrQuestionAssembler().assemble(region);
+
+      expect(result.question['options'], isEmpty);
+      expect(result.question['content'], original.substring(2));
+    });
+
     test('drops explanation for fill blanks and preserves subjective questions',
         () {
       final fillRegion = OcrQuestionRegion(
