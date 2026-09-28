@@ -1,3 +1,7 @@
+import 'application/answer_completion/answer_completion_query.dart';
+import 'application/answer_completion/answer_completion_supplemental.dart';
+import 'data/repositories/imported_question_set_repository.dart';
+import 'ui/dependencies/answer_completion_dependencies_scope.dart';
 import 'application/practice/photo_answer_history.dart';
 import 'core/observability/log_writer.dart';
 import 'application/practice/photo_answer_submission.dart';
@@ -454,6 +458,14 @@ void main() {
             ),
           ),
         );
+        final answerCompletionQuery =
+            ImportedQuestionSetRepository(databaseHelper: databaseHelper);
+        final answerCompletionSupplemental =
+            AnswerCompletionSupplementalService(
+                query: answerCompletionQuery,
+                fileCatalog: libraryFileRepository,
+                artifactPort: parsedArtifactLifecycle,
+                ingestion: fileIngestionService);
         // P6-ACT-1 composition: Presentation reaches the P6 supplemental-answer
         // chain only through this activation service and confirm command.
         final supplementalAnswerActivation =
@@ -731,6 +743,8 @@ void main() {
             backupRestore: backupRestore,
             contentAssetResolver: contentAssetStore,
             contentAssetMaintenance: contentAssetMaintenance,
+            answerCompletionQuery: answerCompletionQuery,
+            answerCompletionSupplemental: answerCompletionSupplemental,
             supplementalAnswerActivationService: supplementalAnswerActivation,
             supplementalAnswerSourceAcquisitionService:
                 supplementalAnswerSourceAcquisition,
@@ -792,6 +806,8 @@ class ShirohaQuizApp extends StatelessWidget {
     this.backupRestore,
     this.contentAssetResolver,
     this.contentAssetMaintenance,
+    this.answerCompletionQuery,
+    this.answerCompletionSupplemental,
     this.supplementalAnswerActivationService,
     this.supplementalAnswerSourceAcquisitionService,
     this.supplementalAnswerConfirmCommand,
@@ -838,6 +854,9 @@ class ShirohaQuizApp extends StatelessWidget {
   final BackupRestoreCoordinator? backupRestore;
   final ContentAssetResolver? contentAssetResolver;
   final ContentAssetMaintenancePort? contentAssetMaintenance;
+
+  final AnswerCompletionQuery? answerCompletionQuery;
+  final AnswerCompletionSupplementalService? answerCompletionSupplemental;
 
   /// P6-ACT-1 Application seams for the ordinary-user supplemental entry.
   final SupplementalAnswerActivationService?
@@ -921,7 +940,15 @@ class ShirohaQuizApp extends StatelessWidget {
           photoAnswerJudgement: photoAnswerJudgement,
           photoAnswerSubmission: photoAnswerSubmission,
           photoAnswerHistory: photoAnswerHistory,
-          child: withSupplementalAnswers,
+          child: answerCompletionQuery == null
+              ? withSupplementalAnswers
+              : AnswerCompletionDependenciesScope(
+                  query: answerCompletionQuery!,
+                  supplemental: answerCompletionSupplemental,
+                  confirmCommand: supplementalAnswerConfirmCommand,
+                  generationService: answerGenerationService,
+                  aiCommitCommand: answerCommitCommand,
+                  child: withSupplementalAnswers),
         );
       },
     );

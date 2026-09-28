@@ -511,8 +511,16 @@ is unchanged. Student images are soft evidence references, not RichContent or
 FSRS grading authority. See `docs/architecture/photo-answer-v1.md`.
 ## ANSWER-COMP-P0 frozen design authority
 
-`docs/architecture/answer-completion-question-sets.md` is the canonical design authority for the future Answer Completion / `ImportedQuestionSet` capability.
+`docs/architecture/answer-completion-question-sets.md` is the canonical design authority for the Answer Completion / `ImportedQuestionSet` capability.
 
 The design keeps Presentation behind Answer Completion Application services, preserves `PersistedQuestion.storageId` as Question identity, reuses existing P6/P7 answer mutation authority, and makes the existing task-bound `QuestionRepository` transaction the only import transaction owner. `LibraryFile`, `ParsedArtifact`, and `ImportTask` do not become QuestionSet identity.
 
-**ANSWER-COMP-D1 implemented this relation as the additive v28 schema; the runtime is now v28.** The `imported_question_sets` / `imported_question_set_items` tables, their constraints, the bank lookup index, and the required relationship triggers exist and are strictly validated, while historical questions remain ungrouped. No QuestionSet writer, query projection, import dispatch, or UI is implemented yet.
+**ANSWER-COMP-D1 implemented this relation as the additive v28 schema; the runtime is now v28.** The `imported_question_sets` / `imported_question_set_items` tables, their constraints, the bank lookup index, and the required relationship triggers exist and are strictly validated, while historical questions remain ungrouped.
+
+Seed capture, the QuestionRepository-owned atomic set/member writer with per-document dispatch, the Answer Completion read projection, the queue/detail Presentation, and set-scoped P6 plus single-question P7 activation are implemented. Focused ANSWER-COMP acceptance and canonical closure remain open. These durable boundaries apply:
+
+- The task-bound `QuestionRepository` transaction stays the only writer of Questions plus set/member rows; historical questions stay ungrouped and are never backfilled.
+- The queue/detail projection is read in one short transaction. Presentation consumes that projection only, so counts, eligibility and set category are never composed from independent repository reads or re-derived in widgets.
+- Activating a set binds its complete membership as a full-set `ExplicitQuestionScope` and revalidates that membership when the supplemental session binds; the existing P6 review and typed-commit authority is reused, and no second answer write path is added.
+- Single-question AI answering reuses the existing P7 generation/review/commit boundary through a transient surface where dismissal is zero mutation.
+- This stage adds no schema beyond v28, no persisted candidate or generation state, and no new provider call site.

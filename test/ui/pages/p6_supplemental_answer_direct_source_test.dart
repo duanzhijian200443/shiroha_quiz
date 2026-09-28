@@ -1,9 +1,14 @@
 // P6-ACT-2 direct supplemental-source acquisition widget acceptance.
 //
 // Synthetic fixtures only: no live OCR/provider, no private PDFs, no network.
-// Proves the BankDetail entry can add a new file through the real ingestion and
+// Proves the selected ImportedQuestionSet entry can add a new file through the real ingestion and
 // deterministic-parse seams, keeps scanned-PDF OCR behind the canonical
 // confirmation dialog, and leaves the frozen existing-file path untouched.
+import 'package:shiroha_quiz/ui/pages/answer_completion_screen.dart';
+import 'package:shiroha_quiz/ui/dependencies/answer_completion_dependencies_scope.dart';
+import 'package:shiroha_quiz/domain/answer_completion/imported_question_set.dart';
+import 'package:shiroha_quiz/application/answer_completion/answer_completion_supplemental.dart';
+import 'package:shiroha_quiz/application/answer_completion/answer_completion_query.dart';
 import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
@@ -11,11 +16,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/file_library/file_library_ports.dart';
 import 'package:shiroha_quiz/application/parsed_artifacts/parsed_artifact_lifecycle.dart';
-import 'package:shiroha_quiz/application/supplemental_answers/supplemental_answer_activation_service.dart';
 import 'package:shiroha_quiz/application/supplemental_answers/supplemental_answer_command.dart';
-import 'package:shiroha_quiz/application/supplemental_answers/supplemental_answer_source_acquisition_service.dart';
 import 'package:shiroha_quiz/application/supplemental_answers/supplemental_answer_target_port.dart';
-import 'package:shiroha_quiz/application/supplemental_answers/target_question_snapshot_service.dart';
 import 'package:shiroha_quiz/domain/answers/answer_candidate.dart';
 import 'package:shiroha_quiz/domain/assets/library_file.dart';
 import 'package:shiroha_quiz/domain/assets/parsed_artifact.dart';
@@ -25,8 +27,6 @@ import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/domain/source/source_document.dart';
 import 'package:shiroha_quiz/domain/source/source_part.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
-import 'package:shiroha_quiz/ui/dependencies/supplemental_answer_dependencies_scope.dart';
-import 'package:shiroha_quiz/ui/pages/bank_detail_screen.dart';
 import 'package:shiroha_quiz/ui/pages/supplemental_answer_review_screen.dart';
 
 const _bankName = 'p6_direct_ui_bank';
@@ -37,9 +37,9 @@ const _storageId = 'a3f9c2e4-5b6d-4e7f-8a9b-0c1d2e3f4a5b';
 void main() {
   testWidgets('picker offers direct file adding next to the library list',
       (tester) async {
-    await _pumpBankDetail(tester, existingFiles: [_libraryFile('old.pdf')]);
+    await _pumpSetDetail(tester, existingFiles: [_libraryFile('old.pdf')]);
 
-    await tester.tap(find.text('从文件补充答案'));
+    await tester.tap(find.text('从答案文件补充'));
     await tester.pumpAndSettle();
 
     expect(
@@ -53,12 +53,12 @@ void main() {
 
   testWidgets('adding a PDF ingests, parses deterministically, and reviews',
       (tester) async {
-    final harness = await _pumpBankDetail(tester);
+    final harness = await _pumpSetDetail(tester);
     harness.pickedFiles.add(
       _pickedFile(name: 'answers.pdf', path: r'C:\picked\answers.pdf'),
     );
 
-    await tester.tap(find.text('从文件补充答案'));
+    await tester.tap(find.text('从答案文件补充'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('添加答案文件'));
     await tester.pumpAndSettle();
@@ -82,10 +82,10 @@ void main() {
   });
 
   testWidgets('cancelling the system picker starts nothing', (tester) async {
-    final harness = await _pumpBankDetail(tester);
+    final harness = await _pumpSetDetail(tester);
     // No queued selection: the injected picker resolves to null (user cancel).
 
-    await tester.tap(find.text('从文件补充答案'));
+    await tester.tap(find.text('从答案文件补充'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('添加答案文件'));
     await tester.pumpAndSettle();
@@ -99,7 +99,7 @@ void main() {
 
   testWidgets('a scanned PDF asks for explicit OCR before any OCR call',
       (tester) async {
-    final harness = await _pumpBankDetail(
+    final harness = await _pumpSetDetail(
       tester,
       deterministicFailure: ParsedArtifactLifecycleFailure.sourceUnavailable,
       displayName: 'scanned.pdf',
@@ -108,7 +108,7 @@ void main() {
       _pickedFile(name: 'scanned.pdf', path: r'C:\picked\scanned.pdf'),
     );
 
-    await tester.tap(find.text('从文件补充答案'));
+    await tester.tap(find.text('从答案文件补充'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('添加答案文件'));
     await tester.pumpAndSettle();
@@ -131,7 +131,7 @@ void main() {
 
   testWidgets('cancelling the OCR dialog never runs OCR and keeps the file',
       (tester) async {
-    final harness = await _pumpBankDetail(
+    final harness = await _pumpSetDetail(
       tester,
       deterministicFailure: ParsedArtifactLifecycleFailure.sourceUnavailable,
       displayName: 'scanned.pdf',
@@ -140,7 +140,7 @@ void main() {
       _pickedFile(name: 'scanned.pdf', path: r'C:\picked\scanned.pdf'),
     );
 
-    await tester.tap(find.text('从文件补充答案'));
+    await tester.tap(find.text('从答案文件补充'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('添加答案文件'));
     await tester.pumpAndSettle();
@@ -161,7 +161,7 @@ void main() {
 
   testWidgets('confirming OCR runs ocr_pdf once and then reviews',
       (tester) async {
-    final harness = await _pumpBankDetail(
+    final harness = await _pumpSetDetail(
       tester,
       deterministicFailure: ParsedArtifactLifecycleFailure.sourceUnavailable,
       displayName: 'scanned.pdf',
@@ -170,7 +170,7 @@ void main() {
       _pickedFile(name: 'scanned.pdf', path: r'C:\picked\scanned.pdf'),
     );
 
-    await tester.tap(find.text('从文件补充答案'));
+    await tester.tap(find.text('从答案文件补充'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('添加答案文件'));
     await tester.pumpAndSettle();
@@ -189,12 +189,12 @@ void main() {
 
   testWidgets('an existing library file keeps the frozen existing-file path',
       (tester) async {
-    final harness = await _pumpBankDetail(
+    final harness = await _pumpSetDetail(
       tester,
       existingFiles: [_libraryFile('old.pdf')],
     );
 
-    await tester.tap(find.text('从文件补充答案'));
+    await tester.tap(find.text('从答案文件补充'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('old.pdf'));
     await tester.pumpAndSettle();
@@ -207,12 +207,12 @@ void main() {
 
   testWidgets('tapping add again while the picker is open adds nothing twice',
       (tester) async {
-    final harness = await _pumpBankDetail(tester, holdPicker: true);
+    final harness = await _pumpSetDetail(tester, holdPicker: true);
     harness.pickedFiles.add(
       _pickedFile(name: 'answers.pdf', path: r'C:\picked\answers.pdf'),
     );
 
-    await tester.tap(find.text('从文件补充答案'));
+    await tester.tap(find.text('从答案文件补充'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('添加答案文件'));
     await tester.pump();
@@ -230,7 +230,7 @@ void main() {
 
   testWidgets('an ingestion failure shows one bounded safe message',
       (tester) async {
-    final harness = await _pumpBankDetail(
+    final harness = await _pumpSetDetail(
       tester,
       ingestionFailure: StateError('copy failed'),
     );
@@ -238,7 +238,7 @@ void main() {
       _pickedFile(name: 'answers.pdf', path: r'C:\picked\answers.pdf'),
     );
 
-    await tester.tap(find.text('从文件补充答案'));
+    await tester.tap(find.text('从答案文件补充'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('添加答案文件'));
     await tester.pumpAndSettle();
@@ -249,7 +249,7 @@ void main() {
   });
 }
 
-Future<_Harness> _pumpBankDetail(
+Future<_Harness> _pumpSetDetail(
   WidgetTester tester, {
   List<LibraryFile> existingFiles = const [],
   ParsedArtifactLifecycleFailure? deterministicFailure,
@@ -268,27 +268,21 @@ Future<_Harness> _pumpBankDetail(
     ),
     holdPicker: holdPicker,
   );
-  final activation = SupplementalAnswerActivationService(
-    fileCatalog: _FakeFileCatalog(existingFiles),
-    targetSnapshotService: TargetQuestionSnapshotService(
-      port: _FakeTargetPort([_typedRead()]),
-    ),
-    artifactPort: harness.artifacts,
-  );
   await tester.pumpWidget(
-    SupplementalAnswerDependenciesScope(
-      activationService: activation,
-      sourceAcquisitionService: SupplementalAnswerSourceAcquisitionService(
-        ingestion: harness.ingestion,
-        artifactPort: harness.artifacts,
-        activationService: activation,
-      ),
+    AnswerCompletionDependenciesScope(
+      query: _CompletionQuery([_typedRead()]),
+      supplemental: AnswerCompletionSupplementalService(
+          query: _CompletionQuery([_typedRead()]),
+          fileCatalog: _FakeFileCatalog(existingFiles),
+          ingestion: harness.ingestion,
+          artifactPort: harness.artifacts),
       confirmCommand: SupplementalAnswerConfirmCommand(
         artifactPort: harness.artifacts,
         persistencePort: _FakePersistencePort(),
       ),
       pickFile: harness.pickFile,
-      child: const MaterialApp(home: BankDetailScreen(bankName: _bankName)),
+      child: const MaterialApp(
+          home: AnswerCompletionScreen(bankName: _bankName, setId: _setId)),
     ),
   );
   await tester.pumpAndSettle();
@@ -427,31 +421,6 @@ class _FakeFileCatalog implements LibraryFileRepositoryPort {
   Future<List<LibraryFile>> findAll() async => files;
 }
 
-class _FakeTargetPort implements SupplementalAnswerTargetPort {
-  _FakeTargetPort(this.reads);
-
-  final List<SupplementalTargetRead> reads;
-
-  @override
-  Future<List<SupplementalTargetRead>> listTypedQuestionsByBank(
-    String bankName,
-  ) async {
-    return reads;
-  }
-
-  @override
-  Future<List<SupplementalTargetRead>> listTypedQuestionsByIds(
-    Iterable<String> storageIds,
-  ) async {
-    throw UnimplementedError();
-  }
-
-  @override
-  Future<List<String>> listProjectBankNames(String projectId) async {
-    throw UnimplementedError();
-  }
-}
-
 class _FakeArtifactPort implements ParsedArtifactLifecyclePort {
   _FakeArtifactPort({required this.snapshot, this.deterministicFailure});
 
@@ -504,4 +473,28 @@ class _FakeArtifactPort implements ParsedArtifactLifecyclePort {
 class _FakePersistencePort implements SupplementalAnswerPersistencePort {
   @override
   Future<void> confirmCandidate(AnswerCandidate candidate) async {}
+}
+
+const _setId = '11111111-1111-4111-8111-111111111111';
+
+class _CompletionQuery implements AnswerCompletionQuery {
+  _CompletionQuery(this.reads);
+  final List<SupplementalTargetRead> reads;
+  @override
+  Future<AnswerCompletionRead> readBank(String bankName) async {
+    return AnswerCompletionSnapshot(sets: [
+      AnswerCompletionSet(
+          set: ImportedQuestionSet(
+              setId: _setId,
+              bankName: _bankName,
+              displayName: 'synthetic set',
+              createdAt: 1),
+          provenance: AnswerCompletionProvenance.none,
+          members: [
+            for (final read in reads)
+              AnswerCompletionMember.typed(
+                  storageId: read.storageId, typedDraft: read.typedDraft!)
+          ])
+    ], ungrouped: []);
+  }
 }
