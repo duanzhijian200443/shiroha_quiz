@@ -302,6 +302,26 @@ void main() {
     expect(generator.calls, 0);
   });
 
+  testWidgets('master off suppresses automatic LaTeX proposals',
+      (tester) async {
+    final recorder = _RecordingTaskManager();
+    final manager = recorder.create();
+    final question = _question();
+    manager.tasks.add(_task(question));
+    final generator = _FakeRepairGenerator();
+    await tester.pumpWidget(_host(
+      question: question,
+      generator: generator,
+      taskManager: manager,
+      preferencesLoader: () async => const ImportAdvancedPreferences(
+        aiRepairEnabled: false,
+        autoRepairLatexEnabled: true,
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(generator.calls, 0);
+  });
+
   testWidgets('automatic LaTeX repair prepares a proposal without applying',
       (tester) async {
     final recorder = _RecordingTaskManager();

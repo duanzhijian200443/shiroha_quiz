@@ -57,6 +57,7 @@ class OcrImportService {
     SingleQuestionRepairService? repairService,
     OcrRequestScheduler? requestScheduler,
     OcrRequestExecutor? requestExecutor,
+    ImportAdvancedPreferencesLoader? importPreferencesLoader,
     TaskManager? taskManager,
     String Function()? uuidV4Factory,
     ContentAssetStore? contentAssetStore,
@@ -67,11 +68,9 @@ class OcrImportService {
         _assembler = assembler,
         _referenceAnswerExtractor = referenceAnswerExtractor,
         _referenceAnswerMerger = referenceAnswerMerger,
-        _requestExecutor = requestExecutor ??
-            OcrRequestExecutor(
-              scheduler: requestScheduler ?? OcrRequestScheduler(),
-              preferencesLoader: () async => ImportAdvancedPreferences.defaults,
-            ),
+        _requestScheduler = requestScheduler ?? OcrRequestScheduler(),
+        _requestExecutor = requestExecutor,
+        _importPreferencesLoader = importPreferencesLoader,
         _taskManager = taskManager,
         _uuidV4Factory = uuidV4Factory ?? _defaultUuidV4,
         _contentAssetStore = contentAssetStore,
@@ -85,7 +84,9 @@ class OcrImportService {
   final OcrQuestionAssembler _assembler;
   final ReferenceAnswerExtractor _referenceAnswerExtractor;
   final ReferenceAnswerMerger _referenceAnswerMerger;
-  final OcrRequestExecutor _requestExecutor;
+  final OcrRequestScheduler _requestScheduler;
+  final OcrRequestExecutor? _requestExecutor;
+  final ImportAdvancedPreferencesLoader? _importPreferencesLoader;
   final TaskManager? _taskManager;
   final SingleQuestionRepairService _repairService;
   final String Function() _uuidV4Factory;
@@ -159,6 +160,25 @@ class OcrImportService {
     }
 
     try {
+      final preferencesLoader = _importPreferencesLoader;
+      var importPreferences = ImportAdvancedPreferences.defaults;
+      var repairPreferenceLoadFailed = false;
+      if (preferencesLoader != null) {
+        try {
+          importPreferences = await preferencesLoader();
+        } catch (_) {
+          repairPreferenceLoadFailed = true;
+          importPreferences = ImportAdvancedPreferences.defaults.copyWith(
+            aiRepairEnabled: false,
+          );
+        }
+      }
+      diagnostics['repairPreferenceLoadFailed'] = repairPreferenceLoadFailed;
+      final requestExecutor = _requestExecutor ??
+          OcrRequestExecutor(
+            scheduler: _requestScheduler,
+            preferencesLoader: () async => importPreferences,
+          );
       final attempt = ImportAttemptContext.current;
       final taskManager = _taskManager;
       if (attempt != null &&
@@ -168,7 +188,7 @@ class OcrImportService {
       }
       final document = await measureAsyncStage(
         'ocrDurationMs',
-        () => _requestExecutor.run(
+        () => requestExecutor.run(
           taskId:
               attempt?.taskId ?? TraceContext.taskId ?? 'unscoped-ocr-import',
           attemptToken: attempt?.attemptToken,
@@ -276,6 +296,7 @@ class OcrImportService {
       var repairRecommendedCount = 0;
       var repairAttemptedCount = 0;
       var repairAppliedCount = 0;
+      var repairSkippedByPreferenceCount = 0;
       var rejectedCount = 0;
 
       final assembly = measureStage('assemblyDurationMs', () {
@@ -349,33 +370,37 @@ class OcrImportService {
         );
         if (triggerCodes.isNotEmpty) {
           repairEligibleCount++;
-          repairAttemptedCount++;
-          final repairStopwatch = Stopwatch()..start();
-          var outcome = 'threw';
-          try {
-            result = await _repairService.repair(
-              region: region.toTextQuestionRegion(),
-              localResult: result,
-              requireAnswer: !isStemOnly,
-              explanationRetentionMode: explanationRetentionMode,
-            );
-            outcome = _repairOutcome(result);
-            if (outcome == 'applied') {
-              repairAppliedCount++;
-              if (isStemOnly && _hasAnswerOrExplanation(result.question)) {
-                discardedAnswerFromRepairCount++;
+          if (importPreferences.effectiveQuestionStructureRepairEnabled) {
+            repairAttemptedCount++;
+            final repairStopwatch = Stopwatch()..start();
+            var outcome = 'threw';
+            try {
+              result = await _repairService.repair(
+                region: region.toTextQuestionRegion(),
+                localResult: result,
+                requireAnswer: !isStemOnly,
+                explanationRetentionMode: explanationRetentionMode,
+              );
+              outcome = _repairOutcome(result);
+              if (outcome == 'applied') {
+                repairAppliedCount++;
+                if (isStemOnly && _hasAnswerOrExplanation(result.question)) {
+                  discardedAnswerFromRepairCount++;
+                }
               }
+            } finally {
+              repairStopwatch.stop();
+              repairDurationMs += repairStopwatch.elapsedMilliseconds;
+              timing['repairDurationMs'] = repairDurationMs;
+              repairAttempts.add({
+                'questionNumber': region.number,
+                'triggerCodes': triggerCodes,
+                'outcome': outcome,
+                'durationMs': repairStopwatch.elapsedMilliseconds,
+              });
             }
-          } finally {
-            repairStopwatch.stop();
-            repairDurationMs += repairStopwatch.elapsedMilliseconds;
-            timing['repairDurationMs'] = repairDurationMs;
-            repairAttempts.add({
-              'questionNumber': region.number,
-              'triggerCodes': triggerCodes,
-              'outcome': outcome,
-              'durationMs': repairStopwatch.elapsedMilliseconds,
-            });
+          } else {
+            repairSkippedByPreferenceCount++;
           }
         } else if (initialRepairRecommended || result.repairRecommended) {
           repairSkippedNonStructuralCount++;
@@ -384,7 +409,8 @@ class OcrImportService {
           }
         }
 
-        if (triggerCodes.isNotEmpty) {
+        if (triggerCodes.isNotEmpty &&
+            importPreferences.effectiveQuestionStructureRepairEnabled) {
           if (isStemOnly) {
             result = _enforceStemOnly(result);
           }
@@ -412,6 +438,7 @@ class OcrImportService {
         'repairAttemptCount': repairAttemptedCount,
         'repairAttemptedCount': repairAttemptedCount,
         'repairAppliedCount': repairAppliedCount,
+        'repairSkippedByPreferenceCount': repairSkippedByPreferenceCount,
         'repairEligibleCount': repairEligibleCount,
         'repairSkippedNonStructuralCount': repairSkippedNonStructuralCount,
         'repairSkippedForStemOnlyCount': repairSkippedForStemOnlyCount,

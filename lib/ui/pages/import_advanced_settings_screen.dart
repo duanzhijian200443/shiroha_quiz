@@ -156,12 +156,40 @@ class _ImportAdvancedSettingsScreenState
                   title: '校对与修复',
                   children: [
                     _SettingRow(
-                      title: 'LaTeX 异常自动尝试修补',
+                      title: 'AI 自动修补',
+                      subtitle: '允许导入流程在启用的修补类型中调用 AI。',
+                      control: Switch(
+                        key: const ValueKey('advanced-ai-repair-switch'),
+                        value: _preferences.aiRepairEnabled,
+                        onChanged: _editable
+                            ? (value) => _edit(_preferences.copyWith(
+                                  aiRepairEnabled: value,
+                                ))
+                            : null,
+                      ),
+                    ),
+                    const Divider(),
+                    _SettingRow(
+                      title: '题目结构异常自动修补',
+                      subtitle: '发现选项、答案等题目结构异常时，允许 AI 尝试修补。',
+                      control: Switch(
+                        key: const ValueKey('advanced-structure-repair-switch'),
+                        value: _preferences.autoRepairQuestionStructureEnabled,
+                        onChanged: _editable && _preferences.aiRepairEnabled
+                            ? (value) => _edit(_preferences.copyWith(
+                                  autoRepairQuestionStructureEnabled: value,
+                                ))
+                            : null,
+                      ),
+                    ),
+                    const Divider(),
+                    _SettingRow(
+                      title: 'LaTeX 异常自动修补',
                       subtitle: '发现 LaTeX 问题后自动生成修补建议。',
                       control: Switch(
                         key: const ValueKey('advanced-latex-repair-switch'),
                         value: _preferences.autoRepairLatexEnabled,
-                        onChanged: _editable
+                        onChanged: _editable && _preferences.aiRepairEnabled
                             ? (value) => _edit(_preferences.copyWith(
                                   autoRepairLatexEnabled: value,
                                 ))

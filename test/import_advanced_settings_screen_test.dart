@@ -8,6 +8,8 @@ import 'package:shiroha_quiz/ui/pages/import_advanced_settings_screen.dart';
 void main() {
   const sliderKey = ValueKey('advanced-ocr-concurrency-slider');
   const retryKey = ValueKey('advanced-auto-retry-switch');
+  const aiRepairKey = ValueKey('advanced-ai-repair-switch');
+  const structureRepairKey = ValueKey('advanced-structure-repair-switch');
   const repairKey = ValueKey('advanced-latex-repair-switch');
   const perfectKey = ValueKey('advanced-perfect-auto-commit-switch');
   const timeoutKey = ValueKey('advanced-ocr-timeout-selector');
@@ -44,7 +46,9 @@ void main() {
       '自动重试',
       'OCR 请求超时',
       '校对与修复',
-      'LaTeX 异常自动尝试修补',
+      'AI 自动修补',
+      '题目结构异常自动修补',
+      'LaTeX 异常自动修补',
       '满分结果自动入库',
       '导入完成后',
     ]) {
@@ -66,6 +70,8 @@ void main() {
     expect((slider.min, slider.max, slider.divisions, slider.value),
         (1.0, 10.0, 9, 2.0));
     expect(tester.widget<Switch>(find.byKey(retryKey)).value, isTrue);
+    expect(tester.widget<Switch>(find.byKey(aiRepairKey)).value, isTrue);
+    expect(tester.widget<Switch>(find.byKey(structureRepairKey)).value, isTrue);
     expect(tester.widget<Switch>(find.byKey(repairKey)).value, isFalse);
     expect(tester.widget<Switch>(find.byKey(perfectKey)).value, isFalse);
     expect(tester.widget<SegmentedButton<int>>(find.byKey(timeoutKey)).selected,
@@ -86,6 +92,9 @@ void main() {
         loader: () => delayed.future, saver: (value) async => saves.add(value));
     expect(tester.widget<Slider>(find.byKey(sliderKey)).onChanged, isNull);
     expect(tester.widget<Switch>(find.byKey(retryKey)).onChanged, isNull);
+    expect(tester.widget<Switch>(find.byKey(aiRepairKey)).onChanged, isNull);
+    expect(tester.widget<Switch>(find.byKey(structureRepairKey)).onChanged,
+        isNull);
     expect(tester.widget<Switch>(find.byKey(repairKey)).onChanged, isNull);
     expect(tester.widget<Switch>(find.byKey(perfectKey)).onChanged, isNull);
     expect(
@@ -113,6 +122,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.widget<Slider>(find.byKey(sliderKey)).value, 7);
     expect(tester.widget<Switch>(find.byKey(retryKey)).value, isFalse);
+    expect(tester.widget<Switch>(find.byKey(aiRepairKey)).value, isTrue);
+    expect(tester.widget<Switch>(find.byKey(structureRepairKey)).value, isTrue);
     expect(tester.widget<Switch>(find.byKey(repairKey)).value, isTrue);
     expect(tester.widget<SegmentedButton<int>>(find.byKey(timeoutKey)).selected,
         {120});
@@ -170,6 +181,8 @@ void main() {
     expect(saves, 0);
     expect(tester.widget<Slider>(find.byKey(sliderKey)).value, 2);
     expect(tester.widget<Switch>(find.byKey(retryKey)).value, isTrue);
+    expect(tester.widget<Switch>(find.byKey(aiRepairKey)).value, isTrue);
+    expect(tester.widget<Switch>(find.byKey(structureRepairKey)).value, isTrue);
     expect(tester.widget<Switch>(find.byKey(repairKey)).value, isFalse);
     expect(tester.widget<Switch>(find.byKey(perfectKey)).value, isFalse);
     expect(tester.widget<SegmentedButton<int>>(find.byKey(timeoutKey)).selected,
@@ -182,6 +195,8 @@ void main() {
     expect(stored.ocrTaskConcurrency, 2);
     expect(stored.autoRetryEnabled, isTrue);
     expect(stored.ocrRequestTimeoutSeconds, 90);
+    expect(stored.aiRepairEnabled, isTrue);
+    expect(stored.autoRepairQuestionStructureEnabled, isTrue);
     expect(stored.autoRepairLatexEnabled, isFalse);
     expect(stored.autoCommitPerfectImports, isFalse);
     expect(stored.completionBehavior, ImportCompletionBehavior.notifyOnly);
@@ -216,6 +231,9 @@ void main() {
     expect(saves, 1);
     expect(tester.widget<Slider>(find.byKey(sliderKey)).onChanged, isNull);
     expect(tester.widget<Switch>(find.byKey(retryKey)).onChanged, isNull);
+    expect(tester.widget<Switch>(find.byKey(aiRepairKey)).onChanged, isNull);
+    expect(tester.widget<Switch>(find.byKey(structureRepairKey)).onChanged,
+        isNull);
     expect(tester.widget<Switch>(find.byKey(repairKey)).onChanged, isNull);
     expect(
         tester
@@ -233,6 +251,47 @@ void main() {
     pendingSave.complete();
     await tester.pumpAndSettle();
     expect(saves, 1);
+  });
+
+  testWidgets('master disables child repairs and retains their values',
+      (tester) async {
+    ImportAdvancedPreferences? saved;
+    await pumpScreen(
+      tester,
+      loader: () async => const ImportAdvancedPreferences(
+        autoRepairQuestionStructureEnabled: false,
+        autoRepairLatexEnabled: true,
+      ),
+      saver: (value) async => saved = value,
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(aiRepairKey));
+    await tester.pump();
+    expect(tester.widget<Switch>(find.byKey(aiRepairKey)).value, isFalse);
+    expect(
+        tester.widget<Switch>(find.byKey(structureRepairKey)).value, isFalse);
+    expect(tester.widget<Switch>(find.byKey(repairKey)).value, isTrue);
+    expect(tester.widget<Switch>(find.byKey(structureRepairKey)).onChanged,
+        isNull);
+    expect(tester.widget<Switch>(find.byKey(repairKey)).onChanged, isNull);
+    expect(saved, isNull);
+
+    await tester.tap(find.byKey(aiRepairKey));
+    await tester.pump();
+    expect(tester.widget<Switch>(find.byKey(aiRepairKey)).value, isTrue);
+    expect(
+        tester.widget<Switch>(find.byKey(structureRepairKey)).value, isFalse);
+    expect(tester.widget<Switch>(find.byKey(repairKey)).value, isTrue);
+    expect(tester.widget<Switch>(find.byKey(structureRepairKey)).onChanged,
+        isNotNull);
+
+    await tester.ensureVisible(find.byKey(doneKey));
+    await tester.tap(find.byKey(doneKey));
+    await tester.pump();
+    expect(saved?.aiRepairEnabled, isTrue);
+    expect(saved?.autoRepairQuestionStructureEnabled, isFalse);
+    expect(saved?.autoRepairLatexEnabled, isTrue);
   });
 
   testWidgets('narrow display does not overflow', (tester) async {

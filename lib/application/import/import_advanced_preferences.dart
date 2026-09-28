@@ -18,6 +18,8 @@ class ImportAdvancedPreferences {
     this.ocrTaskConcurrency = defaultOcrTaskConcurrency,
     this.autoRetryEnabled = true,
     this.ocrRequestTimeoutSeconds = defaultOcrRequestTimeoutSeconds,
+    this.aiRepairEnabled = true,
+    this.autoRepairQuestionStructureEnabled = true,
     this.autoRepairLatexEnabled = false,
     this.autoCommitPerfectImports = false,
     this.completionBehavior = ImportCompletionBehavior.notifyOnly,
@@ -61,6 +63,12 @@ class ImportAdvancedPreferences {
   /// Per OCR provider network request, not per task or PDF.
   final int ocrRequestTimeoutSeconds;
 
+  /// Master switch for all automatic AI repair flows.
+  final bool aiRepairEnabled;
+
+  /// Allows structural repair during OCR and DOCX text-first imports.
+  final bool autoRepairQuestionStructureEnabled;
+
   /// Generates review repair proposals for eligible LaTeX issues only.
   final bool autoRepairLatexEnabled;
 
@@ -82,10 +90,18 @@ class ImportAdvancedPreferences {
           ? ocrRequestTimeoutSeconds
           : defaultOcrRequestTimeoutSeconds;
 
+  bool get effectiveQuestionStructureRepairEnabled =>
+      aiRepairEnabled && autoRepairQuestionStructureEnabled;
+
+  bool get effectiveLatexRepairEnabled =>
+      aiRepairEnabled && autoRepairLatexEnabled;
+
   ImportAdvancedPreferences copyWith({
     int? ocrTaskConcurrency,
     bool? autoRetryEnabled,
     int? ocrRequestTimeoutSeconds,
+    bool? aiRepairEnabled,
+    bool? autoRepairQuestionStructureEnabled,
     bool? autoRepairLatexEnabled,
     bool? autoCommitPerfectImports,
     ImportCompletionBehavior? completionBehavior,
@@ -96,6 +112,9 @@ class ImportAdvancedPreferences {
       autoRetryEnabled: autoRetryEnabled ?? this.autoRetryEnabled,
       ocrRequestTimeoutSeconds:
           ocrRequestTimeoutSeconds ?? this.ocrRequestTimeoutSeconds,
+      aiRepairEnabled: aiRepairEnabled ?? this.aiRepairEnabled,
+      autoRepairQuestionStructureEnabled: autoRepairQuestionStructureEnabled ??
+          this.autoRepairQuestionStructureEnabled,
       autoRepairLatexEnabled:
           autoRepairLatexEnabled ?? this.autoRepairLatexEnabled,
       autoCommitPerfectImports:
@@ -113,6 +132,8 @@ class ImportAdvancedPreferences {
       'ocrTaskConcurrency': effectiveOcrTaskConcurrency,
       'autoRetryEnabled': autoRetryEnabled,
       'ocrRequestTimeoutSeconds': effectiveOcrRequestTimeoutSeconds,
+      'aiRepairEnabled': aiRepairEnabled,
+      'autoRepairQuestionStructureEnabled': autoRepairQuestionStructureEnabled,
       'autoRepairLatexEnabled': autoRepairLatexEnabled,
       'autoCommitPerfectImports': autoCommitPerfectImports,
       'completionBehavior': completionBehavior.name,
@@ -137,6 +158,13 @@ class ImportAdvancedPreferences {
                   .contains(json['ocrRequestTimeoutSeconds'])
           ? json['ocrRequestTimeoutSeconds'] as int
           : defaults.ocrRequestTimeoutSeconds,
+      aiRepairEnabled: json['aiRepairEnabled'] is bool
+          ? json['aiRepairEnabled'] as bool
+          : defaults.aiRepairEnabled,
+      autoRepairQuestionStructureEnabled:
+          json['autoRepairQuestionStructureEnabled'] is bool
+              ? json['autoRepairQuestionStructureEnabled'] as bool
+              : defaults.autoRepairQuestionStructureEnabled,
       autoRepairLatexEnabled: json['autoRepairLatexEnabled'] is bool
           ? json['autoRepairLatexEnabled'] as bool
           : defaults.autoRepairLatexEnabled,
@@ -176,6 +204,9 @@ class ImportAdvancedPreferences {
         other.ocrTaskConcurrency == ocrTaskConcurrency &&
         other.autoRetryEnabled == autoRetryEnabled &&
         other.ocrRequestTimeoutSeconds == ocrRequestTimeoutSeconds &&
+        other.aiRepairEnabled == aiRepairEnabled &&
+        other.autoRepairQuestionStructureEnabled ==
+            autoRepairQuestionStructureEnabled &&
         other.autoRepairLatexEnabled == autoRepairLatexEnabled &&
         other.autoCommitPerfectImports == autoCommitPerfectImports &&
         other.completionBehavior == completionBehavior &&
@@ -187,6 +218,8 @@ class ImportAdvancedPreferences {
         ocrTaskConcurrency,
         autoRetryEnabled,
         ocrRequestTimeoutSeconds,
+        aiRepairEnabled,
+        autoRepairQuestionStructureEnabled,
         autoRepairLatexEnabled,
         autoCommitPerfectImports,
         completionBehavior,

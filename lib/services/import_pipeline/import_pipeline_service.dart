@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../application/content/content_asset_authority.dart';
 import '../../application/content/content_asset_reclamation_reset.dart';
+import '../../application/import/import_advanced_preferences.dart';
 import '../../application/import_review/typed_review_snapshot.dart';
 import '../../core/observability/app_logger.dart';
 import '../../core/observability/trace_context.dart';
@@ -86,6 +87,7 @@ class ImportPipelineService {
     required TaskManager taskManager,
     OcrRequestScheduler? ocrRequestScheduler,
     OcrRequestExecutor? ocrRequestExecutor,
+    ImportAdvancedPreferencesLoader? importPreferencesLoader,
     ContentAssetStore? contentAssetStore,
     ContentAssetReclamationResetPort? reclamationReset,
     OcrDocumentClient? ocrClient,
@@ -103,6 +105,7 @@ class ImportPipelineService {
             engineRepository: engineRepository,
             requestScheduler: ocrRequestScheduler ?? OcrRequestScheduler(),
             requestExecutor: ocrRequestExecutor,
+            importPreferencesLoader: importPreferencesLoader,
             taskManager: taskManager,
             contentAssetStore: contentAssetStore,
             reclamationReset: reclamationReset,
@@ -114,6 +117,7 @@ class ImportPipelineService {
             repairService: SingleQuestionRepairService(
               engineRepository: engineRepository,
             ),
+            importPreferencesLoader: importPreferencesLoader,
           ),
         );
 

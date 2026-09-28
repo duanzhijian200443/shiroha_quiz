@@ -1,6 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/import/import_advanced_preferences.dart';
 import 'package:shiroha_quiz/services/import_pipeline/docx_text_first_parse_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/document_signals.dart';
+import 'package:shiroha_quiz/services/import_pipeline/local_question_assembler.dart';
+import 'package:shiroha_quiz/services/import_pipeline/import_question_field_policy.dart';
+import 'package:shiroha_quiz/services/import_pipeline/single_question_repair_service.dart';
 import 'package:shiroha_quiz/services/import_pipeline/text_question_regionizer.dart';
 import 'package:shiroha_quiz/services/import_pipeline/text_question_region.dart';
 import 'package:shiroha_quiz/services/import_pipeline/answer_block_matcher.dart';
@@ -38,8 +42,124 @@ class MockAnswerMatcher implements AnswerBlockMatcher {
   }
 }
 
+class RepairRecommendedAssembler extends LocalQuestionAssembler {
+  @override
+  LocalAssemblyResult assemble(TextQuestionRegion region) {
+    return LocalAssemblyResult(
+      question: <String, dynamic>{
+        'question_number': region.number,
+        'type': 3,
+        'content': 'Synthetic DOCX local assembly',
+        'options': const <String>[],
+        'standard_answer': region.answerText ?? '',
+        'explanation': '',
+        'raw_explanation': null,
+      },
+      diagnostics: const <String>['synthetic_repair_recommended'],
+      repairRecommended: true,
+      rejected: false,
+    );
+  }
+}
+
+class RecordingDocxRepairService extends SingleQuestionRepairService {
+  int callCount = 0;
+
+  @override
+  Future<LocalAssemblyResult> repair({
+    required TextQuestionRegion region,
+    required LocalAssemblyResult localResult,
+    required bool requireAnswer,
+    required ExplanationRetentionMode explanationRetentionMode,
+  }) async {
+    callCount++;
+    return localResult;
+  }
+}
+
 void main() {
   group('DocxTextFirstParseService Strict Quality Gates', () {
+    test('structural repair obeys the shared preference gate', () async {
+      final region = TextQuestionRegion(
+        number: 1,
+        rawText: 'Synthetic question region long enough for the quality gate.',
+        startOffset: 0,
+        endOffset: 60,
+        kind: TextQuestionKind.subjective,
+        health: RegionHealth.clean,
+      );
+
+      for (final enabled in [false, true]) {
+        var loaderCalls = 0;
+        final repair = RecordingDocxRepairService();
+        final service = DocxTextFirstParseService(
+          regionizer: MockRegionizer([region]),
+          answerMatcher: MockAnswerMatcher({1: 'A'}),
+          assembler: RepairRecommendedAssembler(),
+          repairService: repair,
+          importPreferencesLoader: () async {
+            loaderCalls++;
+            return ImportAdvancedPreferences(
+              aiRepairEnabled: true,
+              autoRepairQuestionStructureEnabled: enabled,
+            );
+          },
+        );
+
+        final result = await service.parseDocxText(
+          rawText: 'Synthetic DOCX source for repair preference coverage.',
+          sourceName: 'synthetic.docx',
+          documentSignals: const DocumentSignals(questionMarkerCount: 1),
+        );
+
+        expect(loaderCalls, 1);
+        expect(result.questions, hasLength(1));
+        expect(result.questions.single['content'],
+            'Synthetic DOCX local assembly');
+        expect(repair.callCount, enabled ? 1 : 0);
+        final assembly = result.diagnostics['assembly'] as Map<String, dynamic>;
+        expect(assembly['repairCount'], enabled ? 1 : 0);
+        expect(assembly['repairSkippedByPreferenceCount'], enabled ? 0 : 1);
+        expect(result.blocked, isFalse);
+      }
+    });
+
+    test('preference loader failure skips repair and preserves local result',
+        () async {
+      final repair = RecordingDocxRepairService();
+      final service = DocxTextFirstParseService(
+        regionizer: MockRegionizer([
+          TextQuestionRegion(
+            number: 1,
+            rawText:
+                'Synthetic question region long enough for the quality gate.',
+            startOffset: 0,
+            endOffset: 60,
+            kind: TextQuestionKind.subjective,
+            health: RegionHealth.clean,
+          ),
+        ]),
+        answerMatcher: MockAnswerMatcher({1: 'A'}),
+        assembler: RepairRecommendedAssembler(),
+        repairService: repair,
+        importPreferencesLoader: () async =>
+            throw StateError('synthetic preference read failure'),
+      );
+
+      final result = await service.parseDocxText(
+        rawText: 'Synthetic DOCX source for repair preference coverage.',
+        sourceName: 'synthetic.docx',
+        documentSignals: const DocumentSignals(questionMarkerCount: 1),
+      );
+
+      expect(result.questions, hasLength(1));
+      expect(
+          result.questions.single['content'], 'Synthetic DOCX local assembly');
+      expect(result.diagnostics['repairPreferenceLoadFailed'], isTrue);
+      expect(repair.callCount, 0);
+      expect(result.blocked, isFalse);
+    });
+
     test('Empty regions should return regionizer_empty blocked result',
         () async {
       final mockRegionizer = MockRegionizer([]);

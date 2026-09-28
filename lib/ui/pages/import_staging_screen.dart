@@ -331,7 +331,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     } catch (_) {
       return;
     }
-    if (!mounted || !preferences.autoRepairLatexEnabled) return;
+    if (!mounted || !preferences.effectiveLatexRepairEnabled) return;
     _autoRepairEnabled = true;
     await _prepareNextAutoLatexProposal();
   }
