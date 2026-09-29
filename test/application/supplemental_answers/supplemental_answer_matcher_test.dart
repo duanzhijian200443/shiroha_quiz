@@ -738,6 +738,341 @@ void main() {
       );
     });
   });
+
+  group('bounded cross-part choice seal', () {
+    AnswerMatchRecord matchParts(
+      List<_FragmentPart> parts, {
+      required QuestionKind kind,
+      String? explanationText,
+    }) {
+      return matcher
+          .match(
+            fragments: [
+              _fragmented(
+                'frag_6',
+                main: '6',
+                parts: parts,
+                explanation:
+                    explanationText == null ? null : _text(explanationText),
+              ),
+            ],
+            snapshot: TargetQuestionSnapshot(
+              targets: [
+                kind == QuestionKind.singleChoice
+                    ? _abcdTarget('q_choice', number: 6)
+                    : _target('q_open', number: 6, kind: kind),
+              ],
+              reports: const [],
+            ),
+            artifact: _artifact,
+          )
+          .records
+          .single;
+    }
+
+    test('seals a fragmented explicit token with token-only provenance', () {
+      final record = matchParts([
+        _part(10, '('),
+        _part(11, 'A).'),
+        _part(12, 'solution prose'),
+      ], kind: QuestionKind.singleChoice);
+
+      expect(record.disposition, AnswerMatchDisposition.matched);
+      expect(record.certainty, MatchCertainty.deterministic);
+      final candidate = record.candidate!;
+      expect(candidate.writeIntent, CandidateWriteIntent.fill);
+      expect((candidate.answer as ChoiceAnswer).optionIds, ['opt_a']);
+      expect(candidate.reviewOnlyExplanation, isNull);
+      // The marker-less residual never becomes answer provenance.
+      expect(_origin(candidate).supplementalSourceRefs, <SourceRef>[
+        _partRef(10),
+        _partRef(11),
+      ]);
+      expect(record.evidence, contains(MatchEvidenceCode.uniqueMainNumber));
+      expect(record.evidence, contains(MatchEvidenceCode.typeCompatible));
+    });
+
+    test('seals a token that text runs split with trailing breaks', () {
+      final record = matchParts([
+        _part(10, '(\r\n'),
+        _part(11, '\r\nA).'),
+        _part(12, 'solution prose\r\n'),
+      ], kind: QuestionKind.singleChoice);
+
+      expect(record.disposition, AnswerMatchDisposition.matched);
+      expect(
+        (record.candidate!.answer as ChoiceAnswer).optionIds,
+        ['opt_a'],
+      );
+      expect(_origin(record.candidate!).supplementalSourceRefs, <SourceRef>[
+        _partRef(10),
+        _partRef(11),
+      ]);
+    });
+
+    test('keeps a marker-proven explanation separate from the sealed answer',
+        () {
+      final record = matchParts([
+        _part(10, '('),
+        _part(11, 'A).'),
+        _part(12, 'solution prose'),
+      ],
+          kind: QuestionKind.singleChoice,
+          explanationText: '【解】real explanation');
+
+      final candidate = record.candidate!;
+      expect((candidate.answer as ChoiceAnswer).optionIds, ['opt_a']);
+      expect(
+        (candidate.reviewOnlyExplanation!.nodes.single as TextNode).text,
+        '【解】real explanation',
+      );
+      expect(
+        (candidate.reviewOnlyExplanation!.nodes.single as TextNode).text,
+        isNot(contains('solution prose')),
+      );
+    });
+
+    test('stops at the shortest valid prefix', () {
+      final record = matchParts([
+        _part(10, '('),
+        _part(11, 'A).'),
+        _part(12, 'B).'),
+        _part(13, 'solution prose'),
+      ], kind: QuestionKind.singleChoice);
+
+      expect(
+        (record.candidate!.answer as ChoiceAnswer).optionIds,
+        ['opt_a'],
+      );
+      expect(_origin(record.candidate!).supplementalSourceRefs, <SourceRef>[
+        _partRef(10),
+        _partRef(11),
+      ]);
+    });
+
+    test('keeps both refs when token segments share one source ref', () {
+      final record = matchParts([
+        _part(10, '(', page: 1),
+        _part(11, 'A).', page: 1),
+        _part(12, 'solution prose', page: 2),
+      ], kind: QuestionKind.singleChoice);
+
+      expect(
+        (record.candidate!.answer as ChoiceAnswer).optionIds,
+        ['opt_a'],
+      );
+      final refs = _origin(record.candidate!).supplementalSourceRefs;
+      expect(refs, hasLength(2));
+      expect(refs.toSet(), <SourceRef>{_partRefWithPage(1)});
+    });
+
+    test('never seals without a proven source boundary', () {
+      final rejected = <(String, List<_FragmentPart>)>[
+        (
+          '(A) plus residual',
+          [_part(10, '('), _part(11, 'A)'), _part(12, 'solution prose')],
+        ),
+        (
+          'bare letter plus residual',
+          [_part(10, 'A'), _part(11, 'solution prose')],
+        ),
+        ('slash pair', [_part(10, 'A/'), _part(11, 'B')]),
+        ('two letters', [_part(10, 'AB')]),
+        (
+          'unterminated bracket',
+          [
+            _part(10, '('),
+            _part(11, 'C'),
+            _part(12, 'solution prose'),
+          ]
+        ),
+        (
+          'closing bracket only',
+          [
+            _part(10, 'C'),
+            _part(11, ')'),
+            _part(12, 'solution prose'),
+          ]
+        ),
+        (
+          'unmatched full-width open',
+          [
+            _part(10, '（'),
+            _part(11, 'A)'),
+            _part(12, 'solution prose'),
+          ]
+        ),
+        (
+          'unmatched full-width close',
+          [
+            _part(10, '('),
+            _part(11, 'A）'),
+            _part(12, 'solution prose'),
+          ]
+        ),
+        (
+          'content before the token',
+          [
+            _part(10, 'prefix '),
+            _part(11, '('),
+            _part(12, 'A).'),
+            _part(13, 'solution prose'),
+          ]
+        ),
+        ('token inside one part', [_part(10, '(A). explanation')]),
+      ];
+      for (final (reason, parts) in rejected) {
+        final record = matchParts(parts, kind: QuestionKind.singleChoice);
+        expect(
+          record.disposition,
+          AnswerMatchDisposition.invalid,
+          reason: reason,
+        );
+        expect(record.candidate, isNull, reason: reason);
+        expect(
+          record.evidence,
+          contains(MatchEvidenceCode.ambiguousChoiceLabel),
+          reason: reason,
+        );
+      }
+    });
+
+    test('fails closed on a source-part gap', () {
+      final record = matchParts([
+        _part(10, '('),
+        _part(12, 'A).'),
+        _part(13, 'solution prose'),
+      ], kind: QuestionKind.singleChoice);
+
+      expect(record.disposition, AnswerMatchDisposition.invalid);
+      expect(record.candidate, isNull);
+    });
+
+    test('fails closed on an answer node-range gap', () {
+      final record = matcher
+          .match(
+            fragments: [
+              _fragmentedRaw(
+                fragmentId: 'frag_6',
+                main: '6',
+                nodes: [TextNode('('), TextNode('x'), TextNode('A).')],
+                evidence: [
+                  _segmentOf(_part(10, '('), nodeStart: 0, nodeEnd: 1),
+                  _segmentOf(_part(11, 'A).'), nodeStart: 2, nodeEnd: 3),
+                ],
+              ),
+            ],
+            snapshot: TargetQuestionSnapshot(
+              targets: [_abcdTarget('q_choice', number: 6)],
+              reports: const [],
+            ),
+            artifact: _artifact,
+          )
+          .records
+          .single;
+
+      expect(record.disposition, AnswerMatchDisposition.invalid);
+      expect(record.candidate, isNull);
+    });
+
+    test('fails closed beyond the segment bound', () {
+      final record = matchParts([
+        for (var partIndex = 10; partIndex < 18; partIndex++)
+          _part(partIndex, '\n'),
+        _part(18, '(A).'),
+        _part(19, 'solution prose'),
+      ], kind: QuestionKind.singleChoice);
+
+      expect(record.disposition, AnswerMatchDisposition.invalid);
+      expect(record.candidate, isNull);
+    });
+
+    test('fails closed beyond the code-unit bound', () {
+      final record = matchParts([
+        _part(10, '(${'\n' * 130}'),
+        _part(11, 'A).'),
+        _part(12, 'solution prose'),
+      ], kind: QuestionKind.singleChoice);
+
+      expect(record.disposition, AnswerMatchDisposition.invalid);
+      expect(record.candidate, isNull);
+    });
+
+    test('never seals for fillBlank or shortAnswer', () {
+      for (final kind in const <QuestionKind>[
+        QuestionKind.fillBlank,
+        QuestionKind.shortAnswer,
+      ]) {
+        final record = matchParts([
+          _part(10, '('),
+          _part(11, 'A).'),
+          _part(12, 'solution prose'),
+        ], kind: kind);
+
+        expect(record.disposition, AnswerMatchDisposition.matched);
+        expect(
+          (record.candidate!.answer as ContentAnswer)
+              .content
+              .nodes
+              .map((node) => (node as TextNode).text),
+          ['(', 'A).', 'solution prose'],
+          reason: '$kind must keep the complete answer',
+        );
+      }
+    });
+
+    test('strict normalization keeps precedence over the seal', () {
+      final record = matchParts([
+        _part(10, '(A).'),
+        _part(11, '\n'),
+      ], kind: QuestionKind.singleChoice);
+
+      expect(
+        (record.candidate!.answer as ChoiceAnswer).optionIds,
+        ['opt_a'],
+      );
+      // A mappable full answer keeps whole-fragment provenance.
+      expect(_origin(record.candidate!).supplementalSourceRefs, <SourceRef>[
+        _partRef(10),
+        _partRef(11),
+      ]);
+    });
+
+    test('raw fallback content still fails closed', () {
+      final record = matcher
+          .match(
+            fragments: [
+              _fragmentedRaw(
+                fragmentId: 'frag_6',
+                main: '6',
+                nodes: [
+                  TextNode('('),
+                  TextNode('A).'),
+                  RawFallbackNode(<Object?, Object?>{
+                    'type': 'raw_fallback',
+                    'payload': 'x',
+                  }),
+                ],
+                evidence: [
+                  _segmentOf(_part(10, '('), nodeStart: 0, nodeEnd: 1),
+                  _segmentOf(_part(11, 'A).'), nodeStart: 1, nodeEnd: 2),
+                ],
+              ),
+            ],
+            snapshot: TargetQuestionSnapshot(
+              targets: [_abcdTarget('q_choice', number: 6)],
+              reports: const [],
+            ),
+            artifact: _artifact,
+          )
+          .records
+          .single;
+
+      expect(record.disposition, AnswerMatchDisposition.invalid);
+      expect(record.candidate, isNull);
+      expect(record.evidence, contains(MatchEvidenceCode.unsupportedContent));
+    });
+  });
 }
 
 AnswerTargetReference _abcdTarget(String storageId, {required int number}) {
@@ -826,4 +1161,94 @@ SupplementalAnswerFragment _fragment(
 
 RichContent _text(String text) {
   return RichContent(nodes: [TextNode(text)]);
+}
+
+/// One source part of a fragmented answer fixture. The default page keeps every
+/// part ref distinct; [page] overrides it for shared-ref fixtures.
+final class _FragmentPart {
+  const _FragmentPart(this.partIndex, this.text, {this.page});
+
+  final int partIndex;
+  final String text;
+  final int? page;
+}
+
+_FragmentPart _part(int partIndex, String text, {int? page}) {
+  return _FragmentPart(partIndex, text, page: page);
+}
+
+SourceRef _partRefWithPage(int page) {
+  return SourceRef.at(
+    sourceId: 'artifact_001',
+    point: SourcePoint.page(pageNumber: page),
+  );
+}
+
+SourceRef _partRef(int partIndex) => _partRefWithPage(partIndex + 1);
+
+SupplementalAnswerPartSegment _segmentOf(
+  _FragmentPart part, {
+  required int nodeStart,
+  required int nodeEnd,
+}) {
+  return SupplementalAnswerPartSegment(
+    partIndex: part.partIndex,
+    answerNodeStart: nodeStart,
+    answerNodeEnd: nodeEnd,
+    content: _text(part.text),
+    sourceRef: _partRefWithPage(part.page ?? part.partIndex + 1),
+  );
+}
+
+/// One fragmented explicit-answer fragment whose evidence covers one text node
+/// per part.
+SupplementalAnswerFragment _fragmented(
+  String fragmentId, {
+  required String? main,
+  required List<_FragmentPart> parts,
+  RichContent? explanation,
+}) {
+  final evidence = <SupplementalAnswerPartSegment>[];
+  final nodes = <ContentNode>[];
+  for (final part in parts) {
+    evidence.add(
+      _segmentOf(part, nodeStart: nodes.length, nodeEnd: nodes.length + 1),
+    );
+    nodes.addAll(_text(part.text).nodes);
+  }
+  return _fragmentedRaw(
+    fragmentId: fragmentId,
+    main: main,
+    nodes: nodes,
+    evidence: evidence,
+    explanation: explanation,
+  );
+}
+
+SupplementalAnswerFragment _fragmentedRaw({
+  required String fragmentId,
+  required String? main,
+  required List<ContentNode> nodes,
+  required List<SupplementalAnswerPartSegment> evidence,
+  RichContent? explanation,
+}) {
+  return SupplementalAnswerFragment(
+    fragmentId: fragmentId,
+    normalizedMainNumber: main,
+    answerContent: RichContent(nodes: nodes),
+    explanationContent: explanation,
+    sourceRefs: [for (final segment in evidence) segment.sourceRef],
+    sequencePosition: const SupplementalSequencePosition(
+      partIndex: 0,
+      continuationOrdinal: 0,
+    ),
+    answerPartEvidence: evidence,
+  );
+}
+
+SupplementalAnswerOrigin _origin(AnswerCandidate candidate) {
+  return switch (candidate.origin) {
+    SupplementalAnswerOrigin origin => origin,
+    AiAnswerOrigin() => fail('matcher must produce a supplemental origin'),
+  };
 }

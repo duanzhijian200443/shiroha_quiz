@@ -19,6 +19,7 @@ import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/domain/source/source_part.dart';
+import 'package:shiroha_quiz/domain/source/source_ref.dart';
 import 'package:shiroha_quiz/domain/supplemental_answers/answer_match_record.dart';
 import 'package:shiroha_quiz/domain/supplemental_answers/supplemental_answer_fragment.dart';
 import 'package:shiroha_quiz/domain/supplemental_answers/target_coverage.dart';
@@ -67,6 +68,13 @@ const _fragmentedContentAnswers = <String, String>{
 
 /// A document title whose leading year must never become a question locator.
 const _fragmentedTitle = '2019年数学(一)真题解析';
+
+/// The Q6 shape: the explicit choice token itself is split across two runs and
+/// is followed by marker-less prose that no field marker ever opened.
+const _splitTokenResidual = 'marker-less solution prose';
+
+/// A token kept in one run whose answer line still ends in marker-less prose.
+const _trailingResidual = 'textbook prose';
 
 void main() {
   late Directory tempDir;
@@ -255,6 +263,127 @@ void main() {
       );
     });
   });
+
+  test('a Q6-shaped fragmented explicit token seals to one choice answer',
+      () async {
+    final source = await _seedQ6Pdf(storage: storage, tempDir: tempDir);
+    final plan = await adapter.resolvePlan(
+      file: source,
+      options: const ParsedArtifactParseOptions(
+        routeSelection: ParsedArtifactRouteSelection.auto,
+      ),
+    );
+    expect(plan.parserRoute, 'pdf_text');
+
+    final document = await adapter.generate(
+      file: source,
+      artifactId: 'artifact-q6',
+      plan: plan,
+    );
+
+    final projection = const SupplementalAnswerProjector().project(document);
+    final byNumber = <String?, SupplementalAnswerFragment>{
+      for (final fragment in projection.fragments)
+        fragment.normalizedMainNumber: fragment,
+    };
+    expect(
+      projection.fragments.map((fragment) => fragment.normalizedMainNumber),
+      ['6', '7'],
+    );
+
+    final sixth = byNumber['6']!;
+    // The projector keeps the complete answer line; nothing is truncated to
+    // fit a seal candidate. The text layer also splits the break between runs
+    // into its own part, so the token itself spans three ordered parts.
+    expect(_answerTexts(sixth.answerContent), [
+      '(',
+      'A).',
+      _splitTokenResidual,
+    ]);
+    final evidence = sixth.answerPartEvidence;
+    expect(evidence, hasLength(6));
+    expect(
+      evidence.map((segment) => segment.partIndex).toList(),
+      <int>[
+        for (var index = 0; index < evidence.length; index++)
+          evidence[0].partIndex + index,
+      ],
+      reason: 'the whole answer line came from consecutive source parts',
+    );
+    expect(
+      evidence
+          .map((segment) => (segment.answerNodeStart, segment.answerNodeEnd))
+          .toList(),
+      <(int, int)>[
+        for (var index = 0; index < evidence.length; index++) (index, index + 1)
+      ],
+    );
+    expect(
+      evidence.first.sourceRef,
+      same(document.parts[evidence.first.partIndex].sourceRef),
+    );
+
+    final result = const SupplementalAnswerMatcher().match(
+      fragments: projection.fragments,
+      snapshot: _q6TargetSnapshot(),
+      artifact: const SupplementalArtifactContext(
+        supplementalFileId: 'file-q6',
+        artifactId: 'artifact-q6',
+        artifactRevision: 1,
+      ),
+    );
+
+    expect(result.records, hasLength(2));
+    expect(
+      result.records.map((record) => record.disposition),
+      everyElement(AnswerMatchDisposition.matched),
+    );
+    expect(
+      result.records.map((record) => record.candidate!.writeIntent),
+      everyElement(CandidateWriteIntent.fill),
+    );
+
+    final sixthCandidate = result.records
+        .singleWhere((record) => record.candidate!.targetStorageId == 'q_6')
+        .candidate!;
+    expect((sixthCandidate.answer as ChoiceAnswer).optionIds, ['q_6_opt_a']);
+    expect(sixthCandidate.reviewOnlyExplanation, isNull);
+    // Only the three runs that really proved `(A).` are answer provenance; the
+    // three marker-less residual runs are neither answer nor explanation. The
+    // text adapter binds every part to one document-level ref, so the number
+    // and order of provenance entries is the observable proof here.
+    expect(_originRefs(sixthCandidate), hasLength(3));
+    expect(_originRefs(sixthCandidate), <SourceRef>[
+      evidence[0].sourceRef,
+      evidence[1].sourceRef,
+      evidence[2].sourceRef,
+    ]);
+
+    final seventh = byNumber['7']!;
+    expect(_answerTexts(seventh.answerContent), [
+      '(C).',
+      _trailingResidual,
+    ]);
+    final seventhEvidence = seventh.answerPartEvidence;
+    expect(seventhEvidence, hasLength(5));
+    expect(
+      seventhEvidence.map((segment) => segment.partIndex).toList(),
+      <int>[
+        for (var index = 0; index < seventhEvidence.length; index++)
+          seventhEvidence[0].partIndex + index,
+      ],
+    );
+    final seventhCandidate = result.records
+        .singleWhere((record) => record.candidate!.targetStorageId == 'q_7')
+        .candidate!;
+    expect((seventhCandidate.answer as ChoiceAnswer).optionIds, ['q_7_opt_c']);
+    expect(seventhCandidate.reviewOnlyExplanation, isNull);
+    expect(_originRefs(seventhCandidate), hasLength(2));
+    expect(_originRefs(seventhCandidate), <SourceRef>[
+      seventhEvidence[0].sourceRef,
+      seventhEvidence[1].sourceRef,
+    ]);
+  });
 }
 
 TargetQuestionSnapshot _fragmentedTargetSnapshot() {
@@ -319,35 +448,104 @@ Future<LibraryFile> _seedFragmentedPdf({
   );
 }
 
+Future<LibraryFile> _seedQ6Pdf({
+  required ManagedFileStorageAdapter storage,
+  required Directory tempDir,
+}) async {
+  final bytes = _buildQ6AnswersPdf();
+  final fixture = File(p.join(tempDir.path, 'q6_answers_fixture.pdf'));
+  await fixture.writeAsBytes(bytes);
+  await storage.copyIntoManagedStorage(
+    externalPath: fixture.path,
+    storageKey: 'library/file-q6',
+  );
+  await fixture.delete();
+  return LibraryFile(
+    fileId: 'file-q6',
+    displayName: 'q6-answers.pdf',
+    mimeType: 'application/pdf',
+    sizeBytes: bytes.length,
+    sha256: _sha256,
+    storageKey: 'library/file-q6',
+    createdAt: DateTime.utc(2026, 9, 29),
+  );
+}
+
+TargetQuestionSnapshot _q6TargetSnapshot() {
+  return TargetQuestionSnapshot(
+    targets: <AnswerTargetReference>[
+      _syntheticTarget(number: '6', kind: QuestionKind.singleChoice),
+      _syntheticTarget(number: '7', kind: QuestionKind.singleChoice),
+    ],
+    reports: const <TargetScopeReport>[],
+  );
+}
+
+List<SourceRef> _originRefs(AnswerCandidate candidate) {
+  return switch (candidate.origin) {
+    SupplementalAnswerOrigin origin => origin.supplementalSourceRefs,
+    AiAnswerOrigin() => fail('matcher must produce a supplemental origin'),
+  };
+}
+
 /// Draws every token of one answer line as its own text run, so the extractor
 /// preserves the line as several ordered parts.
 List<int> _buildFragmentedAnswersPdf() {
   final document = PdfDocument();
   final font = PdfCjkStandardFont(PdfCjkFontFamily.sinoTypeSongLight, 10);
   document.pages.add().graphics.drawString(_fragmentedTitle, font);
-  void drawFragmentedLine(List<String> runs) {
-    final page = document.pages.add();
-    var offset = 0.0;
-    for (final run in runs) {
-      page.graphics
-        ..save()
-        ..translateTransform(offset, 10)
-        ..drawString(run, font)
-        ..restore();
-      offset += 25;
-    }
-  }
 
   _fragmentedChoiceAnswers.forEach((number, letter) {
-    drawFragmentedLine(<String>['($number)', '【', '答案', '】', '($letter).']);
+    _drawFragmentedLine(
+        document, font, <String>['($number)', '【', '答案', '】', '($letter).']);
   });
   _fragmentedContentAnswers.forEach((number, content) {
-    drawFragmentedLine(<String>['($number)', '【', '答案', '】', content]);
+    _drawFragmentedLine(
+        document, font, <String>['($number)', '【', '答案', '】', content]);
   });
 
   final bytes = document.saveSync();
   document.dispose();
   return bytes;
+}
+
+/// Draws the Q6 shape: one explicit token split across two runs, plus a token
+/// that stays in one run while marker-less prose follows it.
+List<int> _buildQ6AnswersPdf() {
+  final document = PdfDocument();
+  final font = PdfCjkStandardFont(PdfCjkFontFamily.sinoTypeSongLight, 10);
+
+  _drawFragmentedLine(
+    document,
+    font,
+    <String>['(6)', '【', '答案', '】', '(', 'A).', _splitTokenResidual],
+  );
+  _drawFragmentedLine(
+    document,
+    font,
+    <String>['(7)', '【', '答案', '】', '(C).', _trailingResidual],
+  );
+
+  final bytes = document.saveSync();
+  document.dispose();
+  return bytes;
+}
+
+void _drawFragmentedLine(
+  PdfDocument document,
+  PdfCjkStandardFont font,
+  List<String> runs,
+) {
+  final page = document.pages.add();
+  var offset = 0.0;
+  for (final run in runs) {
+    page.graphics
+      ..save()
+      ..translateTransform(offset, 10)
+      ..drawString(run, font)
+      ..restore();
+    offset += 25;
+  }
 }
 
 Future<LibraryFile> _seedPdf({
@@ -393,6 +591,16 @@ List<String> _texts(RichContent content) {
   return <String>[
     for (final node in content.nodes)
       if (node is TextNode) node.text,
+  ];
+}
+
+/// The significant texts of one projected answer: the text layer's own
+/// break-only parts are dropped, so an assertion states the answer content
+/// instead of the extraction's part granularity.
+List<String> _answerTexts(RichContent content) {
+  return <String>[
+    for (final text in _texts(content))
+      if (text.trim().isNotEmpty) text.trim(),
   ];
 }
 

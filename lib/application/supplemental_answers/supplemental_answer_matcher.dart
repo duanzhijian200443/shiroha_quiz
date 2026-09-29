@@ -21,6 +21,22 @@ final _wrappedChoiceLabelPattern = RegExp(
   r'^\s*[（(]\s*([A-Da-dＡ-Ｄａ-ｄ])\s*[)）]\s*[.．。]?\s*$',
 );
 
+/// The bounded cross-part seal joins whole source-part segments only, so both
+/// bounds are fixed constants: the scan never grows with the document and never
+/// cuts a character out of a segment.
+const int _maxSealSegments = 8;
+const int _maxSealCodeUnits = 128;
+
+/// One real bracket pair around exactly one `A`-`D` letter plus exactly one
+/// terminator — the only token profile the cross-part seal accepts.
+///
+/// Deliberately stricter than [_wrappedChoiceLabelPattern]: the brackets must
+/// form a matching pair and the terminator is mandatory, because a prefix such
+/// as `(A)` could still be followed by unrelated content in a later part.
+final _sealedChoiceLabelPattern = RegExp(
+  r'^\s*(?:\(\s*([A-Da-dＡ-Ｄａ-ｄ])\s*\)|（\s*([A-Da-dＡ-Ｄａ-ｄ])\s*）)\s*[.．。]\s*$',
+);
+
 /// Immutable artifact context bound to every candidate produced by one
 /// matching session.
 final class SupplementalArtifactContext {
@@ -267,7 +283,8 @@ final class SupplementalAnswerMatcher {
         ],
       );
     }
-    final answer = (converted as _ConversionAnswer).answer;
+    final conversion = converted as _ConversionAnswer;
+    final answer = conversion.answer;
     final current = target.draft.answer;
     final writeIntent = current == null
         ? CandidateWriteIntent.fill
@@ -286,7 +303,7 @@ final class SupplementalAnswerMatcher {
         supplementalFileId: artifact.supplementalFileId,
         artifactId: artifact.artifactId,
         artifactRevision: artifact.artifactRevision,
-        supplementalSourceRefs: fragment.sourceRefs,
+        supplementalSourceRefs: conversion.candidateSourceRefs,
         matchEvidence: evidence,
       ),
     );
@@ -315,7 +332,10 @@ final class SupplementalAnswerMatcher {
       if (target.draft.kind != QuestionKind.shortAnswer) {
         return const _ConversionInvalid(MatchEvidenceCode.typeIncompatible);
       }
-      return _ConversionAnswer(ContentAnswer(content: fragment.answerContent));
+      return _ConversionAnswer(
+        ContentAnswer(content: fragment.answerContent),
+        candidateSourceRefs: fragment.sourceRefs,
+      );
     }
     if (target.draft.kind == QuestionKind.singleChoice) {
       final rawLabel = _plainText(fragment.answerContent)?.trim() ?? '';
@@ -323,24 +343,49 @@ final class SupplementalAnswerMatcher {
         return const _ConversionInvalid(MatchEvidenceCode.noLocator);
       }
       final label = _normalizedChoiceLabel(rawLabel);
-      if (label == null) {
+      if (label != null) {
+        return _choiceConversion(fragment, target, label);
+      }
+      // The strict normalization of the full answer always runs first, so a
+      // mappable answer is never rewritten. The bounded cross-part seal is only
+      // a fallback for one explicit choice token that a real source-part
+      // boundary proves.
+      final sealed = _sealFragmentedChoice(fragment);
+      if (sealed == null) {
         return const _ConversionInvalid(
           MatchEvidenceCode.ambiguousChoiceLabel,
         );
       }
-      final matches = target.draft.options
-          .where((option) => option.label.trim() == label)
-          .toList(growable: false);
-      if (matches.length != 1) {
-        return const _ConversionInvalid(
-          MatchEvidenceCode.ambiguousChoiceLabel,
-        );
-      }
-      return _ConversionAnswer(
-        ChoiceAnswer(optionIds: <String>[matches.single.optionId]),
+      return _choiceConversion(
+        fragment,
+        target,
+        sealed.label,
+        candidateSourceRefs: sealed.sourceRefs,
       );
     }
-    return _ConversionAnswer(ContentAnswer(content: fragment.answerContent));
+    return _ConversionAnswer(
+      ContentAnswer(content: fragment.answerContent),
+      candidateSourceRefs: fragment.sourceRefs,
+    );
+  }
+
+  /// Maps one proven choice label to its unique current option.
+  _ConversionResult _choiceConversion(
+    SupplementalAnswerFragment fragment,
+    AnswerTargetReference target,
+    String label, {
+    List<SourceRef>? candidateSourceRefs,
+  }) {
+    final matches = target.draft.options
+        .where((option) => option.label.trim() == label)
+        .toList(growable: false);
+    if (matches.length != 1) {
+      return const _ConversionInvalid(MatchEvidenceCode.ambiguousChoiceLabel);
+    }
+    return _ConversionAnswer(
+      ChoiceAnswer(optionIds: <String>[matches.single.optionId]),
+      candidateSourceRefs: candidateSourceRefs ?? fragment.sourceRefs,
+    );
   }
 }
 
@@ -349,9 +394,17 @@ sealed class _ConversionResult {
 }
 
 final class _ConversionAnswer extends _ConversionResult {
-  const _ConversionAnswer(this.answer);
+  const _ConversionAnswer(
+    this.answer, {
+    required this.candidateSourceRefs,
+  });
 
   final QuestionAnswer answer;
+
+  /// Provenance of exactly the content that proved this answer: the whole
+  /// fragment for a plain conversion, and only the token source parts after a
+  /// cross-part seal.
+  final List<SourceRef> candidateSourceRefs;
 }
 
 final class _ConversionInvalid extends _ConversionResult {
@@ -764,6 +817,76 @@ String _asciiChoiceLetter(String letter) {
     return String.fromCharCode(code - 0xff41 + 0x41);
   }
   return letter.toUpperCase();
+}
+
+/// One strict choice token together with the source parts that proved it.
+final class _SealedChoiceToken {
+  const _SealedChoiceToken({required this.label, required this.sourceRefs});
+
+  final String label;
+  final List<SourceRef> sourceRefs;
+}
+
+/// Canonical label of one fully bracketed, terminated cross-part token, or
+/// null. See [_sealedChoiceLabelPattern] for the accepted profile.
+String? _sealedChoiceLabel(String value) {
+  final match = _sealedChoiceLabelPattern.firstMatch(value);
+  if (match == null) return null;
+  return _asciiChoiceLetter((match.group(1) ?? match.group(2))!);
+}
+
+/// The exact text of one pure-text answer segment, or null when that segment
+/// carries any structured node.
+String? _segmentText(SupplementalAnswerPartSegment segment) {
+  final buffer = StringBuffer();
+  for (final node in segment.content.nodes) {
+    if (node is! TextNode) return null;
+    buffer.write(node.text);
+  }
+  return buffer.toString();
+}
+
+/// The shortest whole-segment answer prefix that provably forms one strict
+/// bracketed choice token, or null.
+///
+/// Only reached after the full answer already failed strict normalization. The
+/// scan starts at answer offset zero, joins whole source segments only, and
+/// requires ordered consecutive answer node ranges with consecutive source part
+/// indexes, so nothing before the token is skipped and no boundary is guessed
+/// inside a part. Every bound fails closed: the scan never truncates to a limit
+/// and never continues past a gap or a structured segment.
+_SealedChoiceToken? _sealFragmentedChoice(SupplementalAnswerFragment fragment) {
+  final evidence = fragment.answerPartEvidence;
+  if (evidence.isEmpty) return null;
+  if (evidence.first.answerNodeStart != 0) return null;
+
+  final prefix = StringBuffer();
+  final sourceRefs = <SourceRef>[];
+  SupplementalAnswerPartSegment? previous;
+  for (var index = 0;
+      index < evidence.length && index < _maxSealSegments;
+      index++) {
+    final segment = evidence[index];
+    final prior = previous;
+    if (prior != null) {
+      if (segment.answerNodeStart != prior.answerNodeEnd) return null;
+      if (segment.partIndex != prior.partIndex + 1) return null;
+    }
+    final text = _segmentText(segment);
+    if (text == null) return null;
+    if (prefix.length + text.length > _maxSealCodeUnits) return null;
+    prefix.write(text);
+    sourceRefs.add(segment.sourceRef);
+    previous = segment;
+    final label = _sealedChoiceLabel(prefix.toString());
+    if (label != null) {
+      return _SealedChoiceToken(
+        label: label,
+        sourceRefs: List<SourceRef>.unmodifiable(sourceRefs),
+      );
+    }
+  }
+  return null;
 }
 
 bool _setEquals(Set<String> left, Set<String> right) {
