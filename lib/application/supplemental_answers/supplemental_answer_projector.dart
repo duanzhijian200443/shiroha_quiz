@@ -343,6 +343,7 @@ final class SupplementalAnswerProjector {
         initialContent: locator.content,
         initialField: locator.field,
         solutionBlock: locator.solutionBlock,
+        evidencePartIndex: partIndex,
       );
       fragments.addAll(closed);
       return 1;
@@ -404,6 +405,7 @@ final class SupplementalAnswerProjector {
             ? _withoutMarkerSpan(content, marker)
             : content,
         sourceRef: sourceRef,
+        partIndex: partIndex,
         kind: marker.kind,
       );
       return 1;
@@ -421,7 +423,7 @@ final class SupplementalAnswerProjector {
       return crossMarker.consumedParts;
     }
 
-    builder.appendContinuation(content, sourceRef);
+    builder.appendContinuation(content, sourceRef, partIndex);
     return 1;
   }
 
@@ -631,6 +633,7 @@ bool _hasInlineMainLocator(String remainderText) {
 /// unit to one code unit, so normalization never shifts an offset.
 final class _WindowEntry {
   const _WindowEntry({
+    required this.partIndex,
     required this.sourceRef,
     required this.content,
     required this.text,
@@ -638,6 +641,7 @@ final class _WindowEntry {
     required this.end,
   });
 
+  final int partIndex;
   final SourceRef sourceRef;
   final RichContent content;
   final String text;
@@ -647,8 +651,13 @@ final class _WindowEntry {
 
 /// One recognized content region, attributed to the part it came from.
 final class _ContentSlice {
-  const _ContentSlice({required this.content, required this.sourceRef});
+  const _ContentSlice({
+    required this.partIndex,
+    required this.content,
+    required this.sourceRef,
+  });
 
+  final int partIndex;
   final RichContent content;
   final SourceRef sourceRef;
 }
@@ -710,6 +719,7 @@ List<_WindowEntry> _recognitionWindow(List<SourcePart> parts, int startIndex) {
     }
     entries.add(
       _WindowEntry(
+        partIndex: index,
         sourceRef: part.sourceRef,
         content: part.content,
         text: text,
@@ -777,7 +787,13 @@ List<_ContentSlice> _sliceWindow(List<_WindowEntry> window, int from, int to) {
       (to - entry.start).clamp(0, entry.text.length),
     );
     if (content == null) continue;
-    slices.add(_ContentSlice(content: content, sourceRef: entry.sourceRef));
+    slices.add(
+      _ContentSlice(
+        partIndex: entry.partIndex,
+        content: content,
+        sourceRef: entry.sourceRef,
+      ),
+    );
   }
   return slices;
 }
@@ -1033,6 +1049,8 @@ final class _FragmentBuilder {
   final List<ContentNode> _answerNodes = <ContentNode>[];
   final List<ContentNode> _explanationNodes = <ContentNode>[];
   final List<SourceRef> _answerSourceRefs = <SourceRef>[];
+  final List<SupplementalAnswerPartSegment> _answerPartEvidence =
+      <SupplementalAnswerPartSegment>[];
   final List<SourceRef> _solutionSourceRefs = <SourceRef>[];
   int? _tableRow;
   int? _tableColumn;
@@ -1071,6 +1089,7 @@ final class _FragmentBuilder {
     required bool solutionBlock,
     int? tableRow,
     int? tableColumn,
+    int? evidencePartIndex,
   }) {
     final closed = close();
     _fragmentId = 'frag_${partIndex}_$_fragmentOrdinal';
@@ -1085,15 +1104,14 @@ final class _FragmentBuilder {
     _explanationNodes.clear();
     _answerSourceRefs.clear();
     _solutionSourceRefs.clear();
+    _answerPartEvidence.clear();
     _hasAnswerContent = false;
     _hasExplanationContent = false;
     _field = initialField;
     _solutionField = solutionBlock;
     if (initialContent != null && initialContent.nodes.isNotEmpty) {
       if (initialField == _FragmentField.answer) {
-        _answerNodes.addAll(initialContent.nodes);
-        _answerSourceRefs.add(sourceRef);
-        _hasAnswerContent = true;
+        _collectAnswer(initialContent, sourceRef, evidencePartIndex);
       } else {
         _explanationNodes.addAll(initialContent.nodes);
         if (solutionBlock) _solutionSourceRefs.add(sourceRef);
@@ -1110,12 +1128,17 @@ final class _FragmentBuilder {
   void applyMarker({
     required RichContent content,
     required SourceRef sourceRef,
+    required int partIndex,
     required _FieldMarkerKind kind,
   }) {
     applyMarkerSlices(
       kind: kind,
       slices: <_ContentSlice>[
-        _ContentSlice(content: content, sourceRef: sourceRef),
+        _ContentSlice(
+          partIndex: partIndex,
+          content: content,
+          sourceRef: sourceRef,
+        ),
       ],
     );
   }
@@ -1133,7 +1156,11 @@ final class _FragmentBuilder {
         _field = _FragmentField.answer;
         _solutionField = false;
         for (final slice in slices) {
-          appendAnswer(slice.content, slice.sourceRef);
+          appendAnswer(
+            slice.content,
+            slice.sourceRef,
+            partIndex: slice.partIndex,
+          );
         }
       case _FieldMarkerKind.explanation:
         _field = _FragmentField.explanation;
@@ -1151,22 +1178,45 @@ final class _FragmentBuilder {
   }
 
   /// Appends one marker-less part to the field that is currently open.
-  void appendContinuation(RichContent content, SourceRef sourceRef) {
+  void appendContinuation(
+      RichContent content, SourceRef sourceRef, int partIndex) {
     if (!hasOpenFragment) return;
     if (_field == _FragmentField.explanation) {
       appendExplanation(content, sourceRef);
     } else {
-      appendAnswer(content, sourceRef);
+      appendAnswer(content, sourceRef, partIndex: partIndex);
     }
   }
 
-  void appendAnswer(RichContent content, SourceRef sourceRef) {
+  void appendAnswer(RichContent content, SourceRef sourceRef,
+      {int? partIndex}) {
     if (!hasOpenFragment) return;
     if (content.nodes.isEmpty) return;
+    _collectAnswer(content, sourceRef, partIndex);
+    _continuationOrdinal += 1;
+  }
+
+  /// Appends one answer contribution and, when it came from a real content
+  /// part, records the part-boundary evidence segment of that contribution.
+  ///
+  /// A contribution whose provenance is not a text part keeps its ordered
+  /// [SourceRef] but never claims part-boundary evidence.
+  void _collectAnswer(
+      RichContent content, SourceRef sourceRef, int? partIndex) {
+    final nodeStart = _answerNodes.length;
     _answerNodes.addAll(content.nodes);
     _answerSourceRefs.add(sourceRef);
     _hasAnswerContent = true;
-    _continuationOrdinal += 1;
+    if (partIndex == null) return;
+    _answerPartEvidence.add(
+      SupplementalAnswerPartSegment(
+        partIndex: partIndex,
+        answerNodeStart: nodeStart,
+        answerNodeEnd: _answerNodes.length,
+        content: content,
+        sourceRef: sourceRef,
+      ),
+    );
   }
 
   void appendExplanation(RichContent content, SourceRef sourceRef) {
@@ -1252,6 +1302,7 @@ final class _FragmentBuilder {
         continuationOrdinal: _continuationOrdinal,
       ),
       source: SupplementalAnswerSource.explicitAnswer,
+      answerPartEvidence: _answerPartEvidence,
     );
     return <SupplementalAnswerFragment>[fragment];
   }

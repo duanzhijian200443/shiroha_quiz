@@ -37,6 +37,8 @@ final class SupplementalAnswerFragment {
     required SupplementalSequencePosition sequencePosition,
     RichContent? stemContext,
     SupplementalAnswerSource source = SupplementalAnswerSource.explicitAnswer,
+    Iterable<SupplementalAnswerPartSegment> answerPartEvidence =
+        const <SupplementalAnswerPartSegment>[],
   }) {
     if (!_fragmentIdPattern.hasMatch(fragmentId)) {
       throw const FormatException(
@@ -60,6 +62,27 @@ final class SupplementalAnswerFragment {
         'Supplemental answer fragment refs must share one artifact source.',
       );
     }
+    final copiedPartEvidence =
+        List<SupplementalAnswerPartSegment>.unmodifiable(answerPartEvidence);
+    var previousNodeEnd = 0;
+    for (final segment in copiedPartEvidence) {
+      if (!sourceIds.contains(segment.sourceRef.sourceId)) {
+        throw const FormatException(
+          'Answer part evidence must stay bound to the fragment source.',
+        );
+      }
+      if (segment.answerNodeStart < previousNodeEnd) {
+        throw const FormatException(
+          'Answer part evidence must stay ordered and non-overlapping.',
+        );
+      }
+      previousNodeEnd = segment.answerNodeEnd;
+    }
+    if (previousNodeEnd > answerContent.nodes.length) {
+      throw const FormatException(
+        'Answer part evidence must stay inside the answer content.',
+      );
+    }
     return SupplementalAnswerFragment._(
       fragmentId: fragmentId,
       normalizedMainNumber: _boundedFeature(normalizedMainNumber),
@@ -71,6 +94,7 @@ final class SupplementalAnswerFragment {
       sequencePosition: sequencePosition,
       stemContext: stemContext,
       source: source,
+      answerPartEvidence: copiedPartEvidence,
     );
   }
 
@@ -85,6 +109,7 @@ final class SupplementalAnswerFragment {
     required this.sequencePosition,
     required this.stemContext,
     required this.source,
+    required this.answerPartEvidence,
   });
 
   final String fragmentId;
@@ -97,6 +122,14 @@ final class SupplementalAnswerFragment {
   final SupplementalSequencePosition sequencePosition;
   final RichContent? stemContext;
   final SupplementalAnswerSource source;
+
+  /// Ordered transient part-boundary evidence of [answerContent].
+  ///
+  /// Every entry records one real content part's contribution; an empty list
+  /// means the answer content carries no provable part boundary. The evidence
+  /// is a source fact only: it never identifies an answer boundary by itself,
+  /// and it is never persisted.
+  final List<SupplementalAnswerPartSegment> answerPartEvidence;
 
   @override
   bool operator ==(Object other) {
@@ -114,7 +147,8 @@ final class SupplementalAnswerFragment {
             _orderedEquals(sourceRefs, other.sourceRefs) &&
             sequencePosition == other.sequencePosition &&
             _nullableRichContentEquals(stemContext, other.stemContext) &&
-            source == other.source;
+            source == other.source &&
+            _orderedEquals(answerPartEvidence, other.answerPartEvidence);
   }
 
   @override
@@ -131,6 +165,76 @@ final class SupplementalAnswerFragment {
         sequencePosition,
         stemContext == null ? null : richContentHash(stemContext!),
         source,
+        Object.hashAll(answerPartEvidence),
+      );
+}
+
+/// One contiguous answer segment contributed by exactly one source part.
+///
+/// Transient source fact only: the segment binds a real source part to the
+/// exact [RichContent] it contributed and to that contribution's node range
+/// inside [SupplementalAnswerFragment.answerContent]. It lets a later consumer
+/// prove that a chosen answer offset really sits on a source-part boundary. It
+/// never identifies an answer boundary by itself, never carries target
+/// knowledge, and is never persisted.
+final class SupplementalAnswerPartSegment {
+  SupplementalAnswerPartSegment({
+    required this.partIndex,
+    required this.answerNodeStart,
+    required this.answerNodeEnd,
+    required this.content,
+    required this.sourceRef,
+  }) {
+    if (partIndex < 0) {
+      throw const FormatException(
+        'Answer part segments require a non-negative source part index.',
+      );
+    }
+    if (answerNodeStart < 0 || answerNodeEnd <= answerNodeStart) {
+      throw const FormatException(
+        'Answer part segments require one non-empty answer node range.',
+      );
+    }
+    if (content.nodes.length != answerNodeEnd - answerNodeStart) {
+      throw const FormatException(
+        'Answer part segment content must match its answer node range.',
+      );
+    }
+  }
+
+  /// Index of the source part that really produced this segment.
+  final int partIndex;
+
+  /// Inclusive start of the segment inside the answer node list.
+  final int answerNodeStart;
+
+  /// Exclusive end of the segment inside the answer node list.
+  final int answerNodeEnd;
+
+  /// Exactly the content that part contributed, in answer node order.
+  final RichContent content;
+
+  /// Source ref of that same part.
+  final SourceRef sourceRef;
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        other is SupplementalAnswerPartSegment &&
+            partIndex == other.partIndex &&
+            answerNodeStart == other.answerNodeStart &&
+            answerNodeEnd == other.answerNodeEnd &&
+            richContentEquals(content, other.content) &&
+            sourceRef == other.sourceRef;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+        partIndex,
+        answerNodeStart,
+        answerNodeEnd,
+        richContentHash(content),
+        sourceRef,
       );
 }
 

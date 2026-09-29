@@ -732,6 +732,170 @@ void main() {
       expect(result.fragments.single.normalizedMainNumber, '18');
     });
   });
+
+  group('answer part-boundary evidence', () {
+    SourceDocument documentOf(List<SourcePart> parts) {
+      return SourceDocument(sourceId: 'artifact_001', parts: parts);
+    }
+
+    test('binds every fragmented answer part to its own source part', () {
+      final document = documentOf([
+        _paragraphAt('(6)', role: SourceContentRole.paragraph, page: 1),
+        _paragraphAt('【答案】', role: SourceContentRole.paragraph, page: 1),
+        _paragraphAt('(', role: SourceContentRole.paragraph, page: 2),
+        _paragraphAt('A).', role: SourceContentRole.paragraph, page: 2),
+        _paragraphAt(
+          'solution prose',
+          role: SourceContentRole.paragraph,
+          page: 3,
+        ),
+      ]);
+
+      final result = projector.project(document);
+
+      expect(result.fragments, hasLength(1));
+      final fragment = result.fragments.single;
+      expect(fragment.normalizedMainNumber, '6');
+      // The answer is never truncated to fit a seal candidate.
+      expect(_texts(fragment.answerContent), ['(', 'A).', 'solution prose']);
+      expect(fragment.explanationContent, isNull);
+      expect(
+        fragment.answerPartEvidence.map((segment) => segment.partIndex),
+        [2, 3, 4],
+      );
+      expect(
+        fragment.answerPartEvidence.map(
+          (segment) => (segment.answerNodeStart, segment.answerNodeEnd),
+        ),
+        [(0, 1), (1, 2), (2, 3)],
+      );
+      expect(
+        fragment.answerPartEvidence.map(
+          (segment) => _texts(segment.content).join(),
+        ),
+        ['(', 'A).', 'solution prose'],
+      );
+      for (final segment in fragment.answerPartEvidence) {
+        expect(segment.sourceRef,
+            same(document.parts[segment.partIndex].sourceRef));
+      }
+    });
+
+    test('keeps part order and node ranges across a recovered marker', () {
+      final result = projector.project(
+        documentOf([
+          _paragraph('(1)', role: SourceContentRole.paragraph),
+          _paragraph('【', role: SourceContentRole.paragraph),
+          _paragraph('答案', role: SourceContentRole.paragraph),
+          _paragraph('】', role: SourceContentRole.paragraph),
+          _paragraph('(C).', role: SourceContentRole.paragraph),
+          _paragraph('【', role: SourceContentRole.paragraph),
+          _paragraph('解', role: SourceContentRole.paragraph),
+          _paragraph('】', role: SourceContentRole.paragraph),
+          _paragraph('reason', role: SourceContentRole.paragraph),
+        ]),
+      );
+
+      final fragment = result.fragments.single;
+      expect(_texts(fragment.answerContent), ['(C).']);
+      final segment = fragment.answerPartEvidence.single;
+      expect(segment.partIndex, 4);
+      expect(segment.answerNodeStart, 0);
+      expect(segment.answerNodeEnd, 1);
+      expect(_texts(segment.content), ['(C).']);
+      // The explanation keeps its own marker-proven content only.
+      expect(_texts(fragment.explanationContent!), contains('reason'));
+      expect(_texts(fragment.explanationContent!), isNot(contains('(C).')));
+    });
+
+    test('a same-part answer keeps exactly one segment', () {
+      final result = projector.project(
+        documentOf([
+          _paragraph('(3)【答案】D', role: SourceContentRole.answerLike),
+        ]),
+      );
+
+      final fragment = result.fragments.single;
+      expect(_texts(fragment.answerContent), ['D']);
+      final segments = fragment.answerPartEvidence;
+      expect(segments, hasLength(1));
+      expect(segments.single.partIndex, 0);
+      expect(segments.single.answerNodeStart, 0);
+      expect(segments.single.answerNodeEnd, 1);
+    });
+
+    test('an answer without a part boundary keeps absent evidence', () {
+      final result = projector.project(
+        documentOf([
+          _paragraph('1. ', role: SourceContentRole.answerLike),
+        ]),
+      );
+
+      expect(result.fragments, isEmpty);
+    });
+
+    test('table and asset parts never fabricate text-part evidence', () {
+      final tableDocument = documentOf([
+        SourceTablePart(
+          sourceRef: SourceRef.document(sourceId: 'artifact_001'),
+          rows: [
+            [_text('题号'), _text('1'), _text('2')],
+            [_text('答案'), _text('A'), _text('C')],
+          ],
+        ),
+      ]);
+
+      final tableFragments = projector.project(tableDocument).fragments;
+
+      expect(
+        tableFragments.map((fragment) => _texts(fragment.answerContent)),
+        [
+          ['A'],
+          ['C'],
+        ],
+      );
+      expect(
+        tableFragments.every(
+          (fragment) => fragment.answerPartEvidence.isEmpty,
+        ),
+        isTrue,
+      );
+
+      final assetDocument = documentOf([
+        _paragraph('(4)【答案】', role: SourceContentRole.paragraph),
+        SourceAssetPart(
+          sourceRef: SourceRef.document(sourceId: 'artifact_001'),
+          asset: AssetRef(assetId: 'asset_001', kind: AssetKind.image),
+          alternativeText: _text('figure one'),
+        ),
+        UnsupportedSourcePart(
+          sourceRef: SourceRef.document(sourceId: 'artifact_001'),
+          kindCode: 'parsed_source_boundary',
+          fallbackContent: _text('[Source]'),
+        ),
+      ]);
+
+      final assetFragment = projector.project(assetDocument).fragments.single;
+
+      expect(_texts(assetFragment.answerContent), ['figure one']);
+      expect(assetFragment.sourceRefs, hasLength(1));
+      expect(assetFragment.answerPartEvidence, isEmpty);
+    });
+
+    test('a solution block never claims answer part evidence', () {
+      final result = projector.project(
+        documentOf([
+          _paragraph('(15)【解】', role: SourceContentRole.answerLike),
+          _paragraph('step-a', role: SourceContentRole.paragraph),
+        ]),
+      );
+
+      final fragment = result.fragments.single;
+      expect(fragment.source, SupplementalAnswerSource.solutionBlock);
+      expect(_texts(fragment.answerContent), ['【解】', 'step-a']);
+      expect(fragment.answerPartEvidence, isEmpty);
+    });
+  });
 }
 
 List<String> _texts(RichContent content) {
@@ -747,6 +911,21 @@ SourceContentPart _paragraph(
 }) {
   return SourceContentPart(
     sourceRef: SourceRef.document(sourceId: 'artifact_001'),
+    content: _text(text),
+    role: role,
+  );
+}
+
+SourceContentPart _paragraphAt(
+  String text, {
+  required SourceContentRole role,
+  required int page,
+}) {
+  return SourceContentPart(
+    sourceRef: SourceRef.at(
+      sourceId: 'artifact_001',
+      point: SourcePoint.page(pageNumber: page),
+    ),
     content: _text(text),
     role: role,
   );
