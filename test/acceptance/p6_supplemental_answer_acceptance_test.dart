@@ -419,6 +419,60 @@ void main() {
     });
   });
 
+  group('sealed fragmented explicit token', () {
+    test('a sealed choice candidate fills through the typed authority',
+        () async {
+      await _seedChoiceTarget(storageId: _storageId);
+      await _seedArtifact(revision: 1);
+
+      final match = await _match(_fragmentedChoice());
+      final record = match.records.single;
+      expect(record.disposition, AnswerMatchDisposition.matched);
+      final candidate = record.candidate!;
+      expect(candidate.writeIntent, CandidateWriteIntent.fill);
+      expect(candidate.answer, ChoiceAnswer(optionIds: ['opt_a']));
+      // The marker-less residual is neither answer nor explanation.
+      expect(candidate.reviewOnlyExplanation, isNull);
+
+      final session = await _session(match);
+      final confirmation = session.confirmFill(candidate.candidateId);
+      await _confirmCommand().confirm(confirmation.confirmation);
+
+      // The write reuses the existing typed mutation authority: exactly one
+      // choice answer, no second write path and no residual content.
+      expect(await _persistedAnswer(), <String, Object?>{
+        'type': 'choice',
+        'optionIds': <String>['opt_a'],
+      });
+    });
+
+    test('a sealed choice candidate still fails closed on revision drift',
+        () async {
+      await _seedChoiceTarget(storageId: _storageId);
+      await _seedArtifact(revision: 1);
+
+      final match = await _match(_fragmentedChoice());
+      final session = await _session(match);
+      final confirmation = session.confirmFill(
+        match.records.single.candidate!.candidateId,
+      );
+
+      await _seedArtifact(revision: 2);
+
+      await expectLater(
+        _confirmCommand().confirm(confirmation.confirmation),
+        throwsA(
+          isA<SupplementalAnswerException>().having(
+            (error) => error.failure,
+            'failure',
+            SupplementalAnswerFailure.staleTarget,
+          ),
+        ),
+      );
+      expect(await _persistedAnswer(), isNull);
+    });
+  });
+
   group('stale session revision', () {
     test('every review decision advances the session revision', () async {
       await _seedTarget(storageId: _storageId);
@@ -537,6 +591,38 @@ SourceContentPart _answerPart(String text) {
     sourceRef: SourceRef.document(sourceId: _artifactId),
     content: _text(text),
     role: SourceContentRole.answerLike,
+  );
+}
+
+/// One explicit choice answer whose line arrived as three ordered source parts:
+/// the token itself split across two of them and marker-less prose last.
+SupplementalAnswerFragment _fragmentedChoice() {
+  final parts = <String>['(', 'A).', 'marker-less prose'];
+  final nodes = <ContentNode>[];
+  final evidence = <SupplementalAnswerPartSegment>[];
+  for (var index = 0; index < parts.length; index++) {
+    final content = _text(parts[index]);
+    evidence.add(
+      SupplementalAnswerPartSegment(
+        partIndex: 10 + index,
+        answerNodeStart: nodes.length,
+        answerNodeEnd: nodes.length + 1,
+        content: content,
+        sourceRef: SourceRef.document(sourceId: _artifactId),
+      ),
+    );
+    nodes.addAll(content.nodes);
+  }
+  return SupplementalAnswerFragment(
+    fragmentId: 'frag_1_sealed',
+    normalizedMainNumber: '1',
+    answerContent: RichContent(nodes: nodes),
+    sourceRefs: <SourceRef>[for (final segment in evidence) segment.sourceRef],
+    sequencePosition: const SupplementalSequencePosition(
+      partIndex: 10,
+      continuationOrdinal: 0,
+    ),
+    answerPartEvidence: evidence,
   );
 }
 
@@ -900,6 +986,16 @@ Future<List<String>> _answerNodes() async {
   return (content['nodes'] as List<dynamic>)
       .map((node) => (node as Map<String, dynamic>)['text'] as String)
       .toList();
+}
+
+/// The persisted typed answer exactly as the codec stores it, so a test can
+/// prove which answer shape reached the write authority.
+Future<Map<String, dynamic>?> _persistedAnswer() async {
+  final db = await DatabaseHelper.instance.database;
+  final payload = (await db.query('question_v2_payloads')).single;
+  final decoded =
+      jsonDecode(payload['payload_json']! as String) as Map<String, dynamic>;
+  return decoded['answer'] as Map<String, dynamic>?;
 }
 
 RichContent _text(String text) {

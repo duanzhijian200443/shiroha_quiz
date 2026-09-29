@@ -172,6 +172,45 @@ Rules:
   and never reaches the persisted question answer; like every other P6
   transient object it exists only inside one matching session.
 
+### Cross-part single-choice seal
+
+Part-boundary evidence alone does not identify an answer boundary. After unique
+target resolution only, one `explicitAnswer` fragment of a `singleChoice`
+target may fall back to a bounded source-part prefix seal:
+
+- the scan starts at answer offset zero and never skips non-empty leading
+  content;
+- scanned segments need consecutive answer node ranges and consecutive source
+  part indexes, and every scanned segment must be pure text;
+- the scan joins whole segments only and is bounded to 8 segments and 128
+  UTF-16 code units; beyond either bound it fails closed instead of truncating,
+  and it never cuts a character out of a segment;
+- the shortest full-segment prefix that forms exactly one matching bracket pair
+  around one `A`-`D` letter followed by exactly one terminator (`.` / `．` /
+  `。`) proves the token; a mismatched bracket pair, a missing terminator, or any
+  trailing content keeps the fragment `invalid(ambiguousChoiceLabel)`.
+
+Rules:
+
+- the seal is a deterministic type-conversion proof, not a new target identity
+  proof: it adds no `MatchEvidenceCode`, no score, and no fuzzy/sequence
+  inference, and it runs only after a primary identity proof resolved one
+  target;
+- a complete answer that already maps through the strict single-choice
+  normalization is never rewritten by the seal;
+- only the source refs of the segments that really proved the token become
+  `SupplementalAnswerOrigin.supplementalSourceRefs`; the marker-less residual
+  never becomes answer provenance;
+- the marker-less residual stays transient source context inside the fragment
+  answer content and its part-boundary evidence. It is neither the candidate
+  answer nor `reviewOnlyExplanation`, which continues to equal only the
+  `explanationContent` proven by an explanation or solution marker;
+- `fillBlank` and `shortAnswer` never use this seal and keep the complete
+  `ContentAnswer` of the fragment answer content;
+- whole-fragment raw/unsupported content still fails closed before any seal, and
+  the sealed candidate commits through the existing typed mutation authority and
+  stale/CAS boundary.
+
 ## 4. Matching objects
 
 Three layers:
