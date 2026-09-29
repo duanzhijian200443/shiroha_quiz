@@ -3,28 +3,65 @@ import 'package:flutter/material.dart';
 import '../../application/supplemental_answers/supplemental_answer_command.dart';
 import '../../application/supplemental_answers/supplemental_answer_failure.dart';
 import '../../application/supplemental_answers/supplemental_answer_review_session.dart';
-import '../../domain/content/content_node.dart';
-import '../../domain/content/rich_content.dart';
-import '../../domain/supplemental_answers/answer_candidate.dart';
+import '../../application/supplemental_answers/supplemental_source_inspection.dart';
 import '../../domain/question/question_draft_v2.dart';
+import '../../domain/supplemental_answers/answer_candidate.dart';
+import '../pages/supplemental_source_viewer.dart';
 import '../widgets/structured_content_renderer.dart';
+
+/// Presentation-only seam for opening the original source viewer.
+///
+/// Launching the viewer is never a verification: implementations must not
+/// return any verified/trusted state and must not call `verifySource`.
+typedef SupplementalOriginalSourceLauncher = Future<void> Function(
+  BuildContext context,
+  SupplementalSourceInspection inspection,
+  int? pageHint,
+);
+
+/// Default launcher: pushes the read-only SV-C2 original source viewer.
+Future<void> launchSupplementalOriginalSourceViewer(
+  BuildContext context,
+  SupplementalSourceInspection inspection,
+  int? pageHint,
+) {
+  return Navigator.push<void>(
+    context,
+    MaterialPageRoute<void>(
+      builder: (_) => SupplementalSourceViewerScreen(
+        inspection: inspection,
+        pageHint: pageHint,
+      ),
+    ),
+  );
+}
 
 /// Bounded P6 Preview/Review activation.
 ///
 /// This screen is the only P6 presentation surface in v0: it renders the
-/// transient review session, drives explicit per-candidate confirmation
-/// through the shared typed-answer command, and never mutates anything
-/// itself. It does not add navigation/IA, file picking, OCR, or candidate
-/// editing.
+/// transient review session, drives explicit per-candidate source
+/// verification and confirmation through the shared typed-answer command,
+/// and never mutates anything itself. Opening the original file never marks
+/// a candidate verified; only the explicit per-candidate confirmation does.
 class SupplementalAnswerReviewScreen extends StatefulWidget {
   const SupplementalAnswerReviewScreen({
     super.key,
     required this.session,
     required this.confirmCommand,
+    this.sourceInspectionService,
+    this.originalSourceLauncher = launchSupplementalOriginalSourceViewer,
   });
 
   final SupplementalAnswerReviewSession session;
   final SupplementalAnswerConfirmCommand confirmCommand;
+
+  /// SV-C1 inspection capability. Null keeps the review readable but makes
+  /// source verification unavailable and keeps every write action closed;
+  /// nothing is ever auto-trusted.
+  final SupplementalSourceInspectionService? sourceInspectionService;
+
+  /// Presentation test seam; owns no verification authority.
+  final SupplementalOriginalSourceLauncher originalSourceLauncher;
 
   @override
   State<SupplementalAnswerReviewScreen> createState() =>
@@ -38,6 +75,13 @@ class _SupplementalAnswerReviewScreenState
   final Set<String> _replaceArmedIds = <String>{};
   bool _confirming = false;
   String? _errorMessage;
+
+  /// One inspected original per candidate. Obtaining an inspection only
+  /// enables the explicit verify action; it never verifies by itself.
+  final Map<String, SupplementalSourceInspection> _inspections =
+      <String, SupplementalSourceInspection>{};
+  final Set<String> _inspectingIds = <String>{};
+  final Set<String> _unsupportedSourceIds = <String>{};
 
   @override
   void initState() {
@@ -69,7 +113,7 @@ class _SupplementalAnswerReviewScreenState
       if (!mounted) return;
       setState(() {
         _confirming = false;
-        _errorMessage = error.toString();
+        _errorMessage = _reviewFailureMessage(error.failure);
       });
     }
   }
@@ -98,7 +142,7 @@ class _SupplementalAnswerReviewScreenState
       if (!mounted) return;
       setState(() {
         _confirming = false;
-        _errorMessage = error.toString();
+        _errorMessage = _reviewFailureMessage(error.failure);
       });
     }
   }
@@ -116,6 +160,78 @@ class _SupplementalAnswerReviewScreenState
       _session = _session.reject(candidate.candidateId);
       _selectedFillIds.remove(candidate.candidateId);
       _errorMessage = null;
+    });
+  }
+
+  /// Inspects the exact candidate origin through the SV-C1 service and opens
+  /// the read-only viewer. Inspection failure never opens the viewer and
+  /// never verifies anything; the same candidate never runs two inspections
+  /// at once.
+  Future<void> _viewOriginalSource(AnswerCandidate candidate) async {
+    final service = widget.sourceInspectionService;
+    final candidateId = candidate.candidateId;
+    final origin = candidate.origin;
+    if (service == null ||
+        _confirming ||
+        _inspectingIds.contains(candidateId) ||
+        origin is! SupplementalAnswerOrigin) {
+      return;
+    }
+    setState(() {
+      _errorMessage = null;
+      _inspectingIds.add(candidateId);
+    });
+    try {
+      final inspection = await service.inspect(origin.supplementalFileId);
+      if (!mounted) return;
+      if (!_isViewerSupportedMimeType(inspection.mimeType)) {
+        setState(() {
+          _inspectingIds.remove(candidateId);
+          _inspections.remove(candidateId);
+          _unsupportedSourceIds.add(candidateId);
+        });
+        return;
+      }
+      final pageHint = _pageHintOf(origin);
+      setState(() {
+        _inspectingIds.remove(candidateId);
+        _unsupportedSourceIds.remove(candidateId);
+        _inspections[candidateId] = inspection;
+      });
+      await widget.originalSourceLauncher(context, inspection, pageHint);
+    } on SupplementalSourceInspectionException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _inspectingIds.remove(candidateId);
+        _inspections.remove(candidateId);
+        _errorMessage = _inspectionFailureMessage(error.failure);
+      });
+    }
+  }
+
+  /// The one explicit per-candidate verification action. Opening or viewing
+  /// the original file never reaches this transition by itself.
+  void _confirmVerifiedSource(String candidateId) {
+    final inspection = _inspections[candidateId];
+    if (inspection == null) {
+      return;
+    }
+    setState(() {
+      _errorMessage = null;
+      try {
+        _session = _session.verifySource(candidateId, inspection);
+      } on SupplementalAnswerReviewException catch (error) {
+        switch (error.failure) {
+          case SupplementalAnswerReviewFailure.sourceInspectionRequired:
+          case SupplementalAnswerReviewFailure.staleSessionRevision:
+            // The cached inspection no longer proves the candidate origin;
+            // require a fresh look before anything can be verified again.
+            _inspections.remove(candidateId);
+            _errorMessage = '原文状态已变化，请重新查看原文件后再确认。';
+          default:
+            _errorMessage = '当前状态无法记录原文核验。';
+        }
+      }
     });
   }
 
@@ -142,6 +258,8 @@ class _SupplementalAnswerReviewScreenState
       }
     }
 
+    final verificationAvailable = widget.sourceInspectionService != null;
+
     return Scaffold(
       appBar: AppBar(title: const Text('补充答案确认')),
       body: ListView(
@@ -164,6 +282,14 @@ class _SupplementalAnswerReviewScreenState
                 selected: _selectedFillIds.contains(candidate.candidateId),
                 outcome: _session.outcomeOf(candidate.candidateId),
                 confirming: _confirming,
+                verificationState:
+                    _session.verificationStateOf(candidate.candidateId),
+                verificationAvailable: verificationAvailable,
+                inspectionReady:
+                    _inspections.containsKey(candidate.candidateId),
+                inspecting: _inspectingIds.contains(candidate.candidateId),
+                sourceUnsupported:
+                    _unsupportedSourceIds.contains(candidate.candidateId),
                 onToggle: (selected) {
                   setState(() {
                     if (selected) {
@@ -173,6 +299,9 @@ class _SupplementalAnswerReviewScreenState
                     }
                   });
                 },
+                onViewSource: () => _viewOriginalSource(candidate),
+                onConfirmVerifiedSource: () =>
+                    _confirmVerifiedSource(candidate.candidateId),
                 onConfirm: () => _confirmFill(candidate),
                 onReject: () => _reject(candidate),
               ),
@@ -189,7 +318,18 @@ class _SupplementalAnswerReviewScreenState
                 candidate: candidate,
                 outcome: _session.outcomeOf(candidate.candidateId),
                 confirming: _confirming,
+                verificationState:
+                    _session.verificationStateOf(candidate.candidateId),
+                verificationAvailable: verificationAvailable,
+                inspectionReady:
+                    _inspections.containsKey(candidate.candidateId),
+                inspecting: _inspectingIds.contains(candidate.candidateId),
+                sourceUnsupported:
+                    _unsupportedSourceIds.contains(candidate.candidateId),
                 replaceArmed: _replaceArmedIds.contains(candidate.candidateId),
+                onViewSource: () => _viewOriginalSource(candidate),
+                onConfirmVerifiedSource: () =>
+                    _confirmVerifiedSource(candidate.candidateId),
                 onArmReplace: () => _armReplace(candidate),
                 onConfirmReplace: () => _confirmReplace(candidate),
                 onReject: () => _reject(candidate),
@@ -235,12 +375,215 @@ String _messageFor(SupplementalAnswerFailure failure) {
   };
 }
 
-RichContent _answerContent(QuestionAnswer answer) {
-  return switch (answer) {
-    ContentAnswer(:final content) => content,
-    ChoiceAnswer(:final optionIds) =>
-      RichContent(nodes: [TextNode(optionIds.join(', '))]),
+/// Fixed safe messages for review-lifecycle failures; no raw exception text
+/// ever reaches the UI.
+String _reviewFailureMessage(SupplementalAnswerReviewFailure failure) {
+  return switch (failure) {
+    SupplementalAnswerReviewFailure.sourceVerificationRequired =>
+      '请先对照原文件完成原文核验，再进行确认。',
+    SupplementalAnswerReviewFailure.sourceInspectionRequired =>
+      '原文状态已变化，请重新查看原文件后再确认。',
+    SupplementalAnswerReviewFailure.staleSessionRevision => '评审状态已更新，请重试。',
+    SupplementalAnswerReviewFailure.unknownCandidate ||
+    SupplementalAnswerReviewFailure.alreadyDecided =>
+      '该候选答案已处理或不在当前评审中。',
+    SupplementalAnswerReviewFailure.ambiguousNotCommittable ||
+    SupplementalAnswerReviewFailure.unmatchedNotCommittable ||
+    SupplementalAnswerReviewFailure.invalidNotCommittable =>
+      '当前匹配状态不可写入。',
+    SupplementalAnswerReviewFailure.conflictRequiresReplaceReconfirmation =>
+      '答案冲突需逐题二次确认替换。',
+    SupplementalAnswerReviewFailure.fillOnlyForMissingAnswers ||
+    SupplementalAnswerReviewFailure.noOpTerminal =>
+      '当前候选状态不可写入。',
   };
+}
+
+/// Fixed safe messages for SV-C1 inspection failures; never a path, key, or
+/// raw exception.
+String _inspectionFailureMessage(SupplementalSourceInspectionFailure failure) {
+  return switch (failure) {
+    SupplementalSourceInspectionFailure.artifactUnavailable ||
+    SupplementalSourceInspectionFailure.artifactChanged =>
+      '补充文档解析状态已变化，请重新匹配。',
+    SupplementalSourceInspectionFailure.fileUnavailable ||
+    SupplementalSourceInspectionFailure.sourceReadFailed ||
+    SupplementalSourceInspectionFailure.sourceIntegrityMismatch =>
+      '原文件不可用或已变化，请重新选择或重新匹配。',
+    SupplementalSourceInspectionFailure.resourceLimitExceeded =>
+      '文件较大，当前无法在应用内完成原文核验。',
+  };
+}
+
+bool _isViewerSupportedMimeType(String mimeType) {
+  return mimeType == 'application/pdf' ||
+      mimeType == 'text/plain' ||
+      mimeType == 'text/markdown' ||
+      mimeType.startsWith('image/');
+}
+
+/// First real page provenance in the candidate's own ordered source refs.
+/// Without one, the viewer opens the whole document; page numbers are never
+/// guessed from question numbers or positions.
+int? _pageHintOf(SupplementalAnswerOrigin origin) {
+  for (final ref in origin.supplementalSourceRefs) {
+    final start = ref.start;
+    if (start != null) {
+      return start.pageNumber;
+    }
+  }
+  return null;
+}
+
+/// Human-readable option labels for a ChoiceAnswer. Display only: the
+/// original typed answer is still what gets written.
+String _choiceAnswerLabels(List<String> optionIds, QuestionDraftV2 draft) {
+  final labels = <String>[];
+  for (final optionId in optionIds) {
+    String? label;
+    for (final option in draft.options) {
+      if (option.optionId == optionId) {
+        label = option.label;
+        break;
+      }
+    }
+    labels.add(label ?? optionId);
+  }
+  return labels.join('、');
+}
+
+Widget _answerView(QuestionAnswer answer, QuestionDraftV2 draft) {
+  return switch (answer) {
+    ContentAnswer(:final content) => RichContentRenderer(content: content),
+    ChoiceAnswer(:final optionIds) =>
+      Text(_choiceAnswerLabels(optionIds, draft)),
+  };
+}
+
+/// Bounded, locally scrollable content host so large stems, options, images,
+/// or answers cannot stretch a review card without limit. This never changes
+/// the shared renderer.
+Widget _boundedReviewContent({
+  required String keyName,
+  required double maxHeight,
+  required Widget child,
+}) {
+  return ConstrainedBox(
+    key: ValueKey<String>(keyName),
+    constraints: BoxConstraints(maxHeight: maxHeight),
+    child: SingleChildScrollView(child: child),
+  );
+}
+
+class _QuestionContextView extends StatelessWidget {
+  const _QuestionContextView({required this.draft});
+
+  final QuestionDraftV2 draft;
+
+  @override
+  Widget build(BuildContext context) {
+    return _boundedReviewContent(
+      keyName: 'supplemental-review-bounded-context',
+      maxHeight: 240,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          RichContentRenderer(content: draft.stem),
+          for (final option in draft.options)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('${option.label}. '),
+                  Expanded(child: RichContentRenderer(content: option.content)),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SourceVerificationSection extends StatelessWidget {
+  const _SourceVerificationSection({
+    required this.state,
+    required this.verificationAvailable,
+    required this.inspectionReady,
+    required this.inspecting,
+    required this.sourceUnsupported,
+    required this.terminal,
+    required this.onViewSource,
+    required this.onConfirmVerified,
+  });
+
+  final SupplementalSourceVerificationState state;
+  final bool verificationAvailable;
+  final bool inspectionReady;
+  final bool inspecting;
+  final bool sourceUnsupported;
+  final bool terminal;
+  final VoidCallback onViewSource;
+  final VoidCallback onConfirmVerified;
+
+  @override
+  Widget build(BuildContext context) {
+    if (state == SupplementalSourceVerificationState.notRequired) {
+      return const SizedBox.shrink();
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionLabel('原文核验'),
+        const SizedBox(height: 4),
+        const Text(
+          '请对照原文件确认候选答案。文件解析结果可能存在字符识别或排版差异。'
+          '打开原文件不会自动标记为已核对。',
+          style: TextStyle(fontSize: 12, color: Colors.grey),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          state == SupplementalSourceVerificationState.verified
+              ? '已核对原文'
+              : '待核对原文',
+          style: TextStyle(
+            color: state == SupplementalSourceVerificationState.verified
+                ? Colors.green
+                : Colors.orange,
+            fontSize: 13,
+          ),
+        ),
+        if (sourceUnsupported)
+          const Text(
+            '当前格式暂不支持应用内原文核验。',
+            style: TextStyle(color: Colors.orange, fontSize: 13),
+          )
+        else if (!verificationAvailable)
+          const Text(
+            '原文核验不可用，无法完成原文核验确认。',
+            style: TextStyle(color: Colors.orange, fontSize: 13),
+          ),
+        if (!terminal && verificationAvailable && !sourceUnsupported) ...[
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              OutlinedButton(
+                onPressed: inspecting ? null : onViewSource,
+                child: const Text('查看原文件'),
+              ),
+              const SizedBox(width: 8),
+              FilledButton.tonal(
+                onPressed:
+                    inspectionReady && !inspecting ? onConfirmVerified : null,
+                child: const Text('我已对照原文件确认此候选答案'),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
 }
 
 class _FillCandidateCard extends StatelessWidget {
@@ -249,7 +592,14 @@ class _FillCandidateCard extends StatelessWidget {
     required this.selected,
     required this.outcome,
     required this.confirming,
+    required this.verificationState,
+    required this.verificationAvailable,
+    required this.inspectionReady,
+    required this.inspecting,
+    required this.sourceUnsupported,
     required this.onToggle,
+    required this.onViewSource,
+    required this.onConfirmVerifiedSource,
     required this.onConfirm,
     required this.onReject,
   });
@@ -258,7 +608,14 @@ class _FillCandidateCard extends StatelessWidget {
   final bool selected;
   final CandidateReviewOutcome outcome;
   final bool confirming;
+  final SupplementalSourceVerificationState verificationState;
+  final bool verificationAvailable;
+  final bool inspectionReady;
+  final bool inspecting;
+  final bool sourceUnsupported;
   final ValueChanged<bool> onToggle;
+  final VoidCallback onViewSource;
+  final VoidCallback onConfirmVerifiedSource;
   final VoidCallback onConfirm;
   final VoidCallback onReject;
 
@@ -266,6 +623,9 @@ class _FillCandidateCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final committed = outcome == CandidateReviewOutcome.committed;
     final rejected = outcome == CandidateReviewOutcome.rejected;
+    final draft = candidate.expectedDraft;
+    final verified =
+        verificationState == SupplementalSourceVerificationState.verified;
     return Card(
       margin: const EdgeInsets.only(top: 8),
       child: Padding(
@@ -273,12 +633,56 @@ class _FillCandidateCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            RichContentRenderer(content: candidate.expectedDraft.stem),
+            Row(
+              children: [
+                Text(
+                  draft.questionNumber != null
+                      ? '第 ${draft.questionNumber} 题'
+                      : '题目',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+            ),
+            const SizedBox(height: 4),
+            _QuestionContextView(draft: draft),
             const SizedBox(height: 8),
             const _SectionLabel('候选答案'),
             const SizedBox(height: 4),
-            RichContentRenderer(
-              content: _answerContent(candidate.answer),
+            _boundedReviewContent(
+              keyName: 'supplemental-review-bounded-answer',
+              maxHeight: 280,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: _answerView(candidate.answer, draft),
+              ),
+            ),
+            if (candidate.reviewOnlyExplanation case final explanation?) ...[
+              const SizedBox(height: 8),
+              const _SectionLabel('解析（仅预览，不会写入题目答案）'),
+              const SizedBox(height: 4),
+              _boundedReviewContent(
+                keyName: 'supplemental-review-bounded-explanation',
+                maxHeight: 240,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: RichContentRenderer(content: explanation),
+                ),
+              ),
+            ],
+            const SizedBox(height: 8),
+            _SourceVerificationSection(
+              state: verificationState,
+              verificationAvailable: verificationAvailable,
+              inspectionReady: inspectionReady,
+              inspecting: inspecting,
+              sourceUnsupported: sourceUnsupported,
+              terminal: committed || rejected,
+              onViewSource: onViewSource,
+              onConfirmVerified: onConfirmVerifiedSource,
             ),
             const SizedBox(height: 8),
             if (committed)
@@ -307,7 +711,10 @@ class _FillCandidateCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   FilledButton(
-                    onPressed: (confirming || !selected) ? null : onConfirm,
+                    // Disabled until the explicit source verification exists;
+                    // the Application authority remains the real gate.
+                    onPressed:
+                        confirming || !selected || !verified ? null : onConfirm,
                     child: const Text('确认填写'),
                   ),
                 ],
@@ -324,7 +731,14 @@ class _ConflictCandidateCard extends StatelessWidget {
     required this.candidate,
     required this.outcome,
     required this.confirming,
+    required this.verificationState,
+    required this.verificationAvailable,
+    required this.inspectionReady,
+    required this.inspecting,
+    required this.sourceUnsupported,
     required this.replaceArmed,
+    required this.onViewSource,
+    required this.onConfirmVerifiedSource,
     required this.onArmReplace,
     required this.onConfirmReplace,
     required this.onReject,
@@ -333,7 +747,14 @@ class _ConflictCandidateCard extends StatelessWidget {
   final AnswerCandidate candidate;
   final CandidateReviewOutcome outcome;
   final bool confirming;
+  final SupplementalSourceVerificationState verificationState;
+  final bool verificationAvailable;
+  final bool inspectionReady;
+  final bool inspecting;
+  final bool sourceUnsupported;
   final bool replaceArmed;
+  final VoidCallback onViewSource;
+  final VoidCallback onConfirmVerifiedSource;
   final VoidCallback onArmReplace;
   final VoidCallback onConfirmReplace;
   final VoidCallback onReject;
@@ -342,6 +763,9 @@ class _ConflictCandidateCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final committed = outcome == CandidateReviewOutcome.committed;
     final rejected = outcome == CandidateReviewOutcome.rejected;
+    final draft = candidate.expectedDraft;
+    final verified =
+        verificationState == SupplementalSourceVerificationState.verified;
     return Card(
       margin: const EdgeInsets.only(top: 8),
       child: Padding(
@@ -349,17 +773,68 @@ class _ConflictCandidateCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            RichContentRenderer(content: candidate.expectedDraft.stem),
+            Row(
+              children: [
+                Text(
+                  draft.questionNumber != null
+                      ? '第 ${draft.questionNumber} 题'
+                      : '题目',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+            ),
+            const SizedBox(height: 4),
+            _QuestionContextView(draft: draft),
             const SizedBox(height: 8),
             const _SectionLabel('现有答案'),
             const SizedBox(height: 4),
             if (candidate.expectedDraft.answer case final existing?)
-              RichContentRenderer(content: _answerContent(existing)),
+              _boundedReviewContent(
+                keyName: 'supplemental-review-bounded-existing-answer',
+                maxHeight: 280,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: _answerView(existing, draft),
+                ),
+              ),
             const SizedBox(height: 8),
             const _SectionLabel('补充候选答案'),
             const SizedBox(height: 4),
-            RichContentRenderer(
-              content: _answerContent(candidate.answer),
+            _boundedReviewContent(
+              keyName: 'supplemental-review-bounded-answer',
+              maxHeight: 280,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: _answerView(candidate.answer, draft),
+              ),
+            ),
+            if (candidate.reviewOnlyExplanation case final explanation?) ...[
+              const SizedBox(height: 8),
+              const _SectionLabel('解析（仅预览，不会写入题目答案）'),
+              const SizedBox(height: 4),
+              _boundedReviewContent(
+                keyName: 'supplemental-review-bounded-explanation',
+                maxHeight: 240,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: RichContentRenderer(content: explanation),
+                ),
+              ),
+            ],
+            const SizedBox(height: 8),
+            _SourceVerificationSection(
+              state: verificationState,
+              verificationAvailable: verificationAvailable,
+              inspectionReady: inspectionReady,
+              inspecting: inspecting,
+              sourceUnsupported: sourceUnsupported,
+              terminal: committed || rejected,
+              onViewSource: onViewSource,
+              onConfirmVerified: onConfirmVerifiedSource,
             ),
             const SizedBox(height: 8),
             if (committed)
@@ -381,7 +856,10 @@ class _ConflictCandidateCard extends StatelessWidget {
                   ),
                   const Spacer(),
                   FilledButton(
-                    onPressed: confirming
+                    // Verify first, then arm, then the explicit second
+                    // confirmation; the Application replace authority still
+                    // enforces the same order as a backstop.
+                    onPressed: confirming || !verified
                         ? null
                         : (replaceArmed ? onConfirmReplace : onArmReplace),
                     child: Text(replaceArmed ? '二次确认替换' : '确认替换'),

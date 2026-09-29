@@ -38,6 +38,7 @@ import 'application/safe_write/typed_answer_command.dart';
 import 'application/supplemental_answers/supplemental_answer_activation_service.dart';
 import 'application/supplemental_answers/supplemental_answer_command.dart';
 import 'application/supplemental_answers/supplemental_answer_source_acquisition_service.dart';
+import 'application/supplemental_answers/supplemental_source_inspection.dart';
 import 'application/supplemental_answers/target_question_snapshot_service.dart';
 import 'application/conversations/conversation_service.dart';
 import 'application/content/content_asset_authority.dart';
@@ -101,6 +102,7 @@ import 'services/file_library/library_file_deletion_service.dart';
 import 'services/file_library/managed_file_storage_adapter.dart';
 import 'services/file_library/managed_artifact_storage_adapter.dart';
 import 'services/file_library/managed_content_asset_store.dart';
+import 'services/file_library/supplemental_source_reader.dart';
 import 'services/file_library/content_asset_lifecycle_maintenance_service.dart';
 import 'application/content/content_asset_maintenance.dart';
 import 'data/repositories/content_asset_root_page_repository.dart';
@@ -493,6 +495,19 @@ void main() {
             mapper: productionQuestionMapper,
           ),
         );
+        // P6 SV-B composition: the original-source inspection capability is
+        // assembled once here and handed to the review flow through the
+        // Answer Completion dependency scope.
+        const supplementalSourceInspectionMaxBytes = 64 * 1024 * 1024;
+        final supplementalSourceInspection =
+            SupplementalSourceInspectionService(
+          fileCatalog: libraryFileRepository,
+          artifactPort: parsedArtifactLifecycle,
+          sourceReader: SupplementalSourceReader(
+            managedStorage: managedFileStorage,
+          ),
+          maxBytes: supplementalSourceInspectionMaxBytes,
+        );
         final contentAssetMaintenance = ContentAssetLifecycleMaintenanceService(
           rootPages: SqliteContentAssetRootPageRepository(
             databaseHelper: databaseHelper,
@@ -749,6 +764,7 @@ void main() {
             supplementalAnswerSourceAcquisitionService:
                 supplementalAnswerSourceAcquisition,
             supplementalAnswerConfirmCommand: supplementalAnswerConfirmCommand,
+            supplementalSourceInspectionService: supplementalSourceInspection,
             onRestoreCompleted: () {},
           ),
         );
@@ -811,6 +827,7 @@ class ShirohaQuizApp extends StatelessWidget {
     this.supplementalAnswerActivationService,
     this.supplementalAnswerSourceAcquisitionService,
     this.supplementalAnswerConfirmCommand,
+    this.supplementalSourceInspectionService,
     this.onRestoreCompleted,
   });
 
@@ -864,6 +881,10 @@ class ShirohaQuizApp extends StatelessWidget {
   final SupplementalAnswerSourceAcquisitionService?
       supplementalAnswerSourceAcquisitionService;
   final SupplementalAnswerConfirmCommand? supplementalAnswerConfirmCommand;
+
+  /// P6 SV-B original-source inspection capability for the review flow.
+  final SupplementalSourceInspectionService?
+      supplementalSourceInspectionService;
   final VoidCallback? onRestoreCompleted;
 
   @override
@@ -946,6 +967,7 @@ class ShirohaQuizApp extends StatelessWidget {
                   query: answerCompletionQuery!,
                   supplemental: answerCompletionSupplemental,
                   confirmCommand: supplementalAnswerConfirmCommand,
+                  sourceInspectionService: supplementalSourceInspectionService,
                   generationService: answerGenerationService,
                   aiCommitCommand: answerCommitCommand,
                   child: withSupplementalAnswers),

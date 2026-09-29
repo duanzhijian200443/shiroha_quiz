@@ -17,6 +17,7 @@ import 'package:shiroha_quiz/application/file_library/file_library_ports.dart';
 import 'package:shiroha_quiz/application/parsed_artifacts/parsed_artifact_lifecycle.dart';
 import 'package:shiroha_quiz/application/supplemental_answers/supplemental_answer_command.dart';
 import 'package:shiroha_quiz/application/supplemental_answers/supplemental_answer_target_port.dart';
+import 'package:shiroha_quiz/application/supplemental_answers/supplemental_source_inspection.dart';
 import 'package:shiroha_quiz/domain/answers/answer_candidate.dart';
 import 'package:shiroha_quiz/domain/assets/library_file.dart';
 import 'package:shiroha_quiz/domain/assets/parsed_artifact.dart';
@@ -85,6 +86,58 @@ void main() {
     expect(artifacts.reparseCalls, 0);
     expect(ingestion.ingestedPaths, isEmpty);
     expect(persistence.confirmed, isEmpty);
+  });
+
+  testWidgets(
+      'the connected review starts unverified with the original-source entry',
+      (tester) async {
+    final targets = _TargetFixture([_typedRead()]);
+    final artifacts = _FakeArtifactPort(
+      snapshot: _snapshot(revision: 2, parts: [_answerParagraph('1. x = 1')]),
+    );
+    final persistence = _FakePersistencePort();
+
+    await _pumpSetDetail(
+      tester,
+      files: [_libraryFile('supplemental.pdf')],
+      targets: targets,
+      artifacts: artifacts,
+      persistence: persistence,
+    );
+
+    await tester.tap(find.text('从答案文件补充'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('supplemental.pdf'));
+    await tester.pumpAndSettle();
+
+    // SV-B: the review flow carries the inspection capability, exposes the
+    // original-source entry, and every candidate starts at 待核对原文 with
+    // zero writes.
+    expect(find.byType(SupplementalAnswerReviewScreen), findsOneWidget);
+    expect(find.text('查看原文件'), findsWidgets);
+    expect(find.text('待核对原文'), findsWidgets);
+    expect(find.text('已核对原文'), findsNothing);
+    expect(find.text('我已对照原文件确认此候选答案'), findsOneWidget);
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.widgetWithText(FilledButton, '我已对照原文件确认此候选答案'),
+          )
+          .onPressed,
+      isNull,
+      reason: 'verification stays closed until an inspection exists',
+    );
+    expect(find.byType(Checkbox), findsOneWidget,
+        reason: 'the target has no typed answer, so this is a fill candidate');
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, '确认填写'))
+          .onPressed,
+      isNull,
+      reason: 'fill stays disabled before source verification',
+    );
+    expect(persistence.confirmed, isEmpty);
+    expect(artifacts.ensureCalls, 0);
   });
 
   testWidgets('cancelling the picker starts no session', (tester) async {
@@ -204,6 +257,12 @@ Future<void> _pumpSetDetail(
     artifactPort: artifacts,
     persistencePort: persistence ?? _FakePersistencePort(),
   );
+  final sourceInspection = SupplementalSourceInspectionService(
+    fileCatalog: _FakeFileCatalog(files),
+    artifactPort: artifacts,
+    sourceReader: _FakeSourceReader(const <int>[]),
+    maxBytes: 1 << 30,
+  );
   await tester.pumpWidget(
     AnswerCompletionDependenciesScope(
       query: _CompletionQuery(targets.reads),
@@ -215,6 +274,7 @@ Future<void> _pumpSetDetail(
           ingestion: ingestion ?? _RecordingIngestionPort()),
       confirmCommand: command,
       pickFile: () async => null,
+      sourceInspectionService: sourceInspection,
       child: const MaterialApp(
           home: AnswerCompletionScreen(bankName: _bankName, setId: _setId)),
     ),
@@ -310,6 +370,24 @@ class _FakeFileCatalog implements LibraryFileRepositoryPort {
 
   @override
   Future<List<LibraryFile>> findAll() async => files;
+}
+
+class _FakeSourceReader implements SupplementalSourceReaderPort {
+  _FakeSourceReader(this.bytes);
+
+  final List<int> bytes;
+
+  @override
+  Future<SupplementalSourceReadResult> readOriginalBytes({
+    required LibraryFile file,
+    required int maxBytes,
+  }) async {
+    return SupplementalSourceReadResult(
+      bytes: bytes,
+      actualSizeBytes: bytes.length,
+      actualSha256: file.sha256,
+    );
+  }
 }
 
 class _TargetFixture {
