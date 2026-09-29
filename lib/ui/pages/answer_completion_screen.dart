@@ -79,7 +79,9 @@ class _AnswerCompletionScreenState extends State<AnswerCompletionScreen> {
           MaterialPageRoute<void>(
               builder: (_) => SupplementalAnswerReviewScreen(
                   session: session,
-                  confirmCommand: dependencies.confirmCommand!)));
+                  confirmCommand: dependencies.confirmCommand!,
+                  sourceInspectionService:
+                      dependencies.sourceInspectionService)));
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context)
