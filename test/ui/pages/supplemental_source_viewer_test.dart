@@ -10,6 +10,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdfx/pdfx.dart' as pdfx;
 import 'package:shiroha_quiz/application/file_library/file_library_ports.dart';
 import 'package:shiroha_quiz/application/parsed_artifacts/parsed_artifact_lifecycle.dart';
 import 'package:shiroha_quiz/application/supplemental_answers/supplemental_source_inspection.dart';
@@ -267,6 +268,36 @@ void main() {
     expect(opener.buildViewCount, 0);
     expect(opener.disposeCount, 1);
   });
+
+  testWidgets(
+      'PDF page render failure after a successful open falls back to the '
+      'fixed safe state', (tester) async {
+    final inspection = await _inspect(
+      bytes: utf8.encode('%PDF-1.7 synthetic'),
+      mimeType: 'application/pdf',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SupplementalSourceViewerScreen(
+          inspection: inspection,
+          pdfSurfaceOpener: (_) => openSupplementalPdfSurfaceFromDocument(
+            Future<pdfx.PdfDocument>.value(_RenderFailurePdfDocument()),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(_unableMessage),
+      findsOneWidget,
+      reason: 'a failed page render must land in the fixed safe error state',
+    );
+    expect(find.textContaining('synthetic page render failure'), findsNothing);
+    expect(find.textContaining('Exception'), findsNothing);
+    expect(find.textContaining('sv-c2-fake'), findsNothing);
+  });
 }
 
 bool _sameBytes(Uint8List actual, List<int> expected) {
@@ -321,6 +352,60 @@ Future<void> _pumpViewer(
   );
   await tester.pump();
   await tester.pump();
+}
+
+/// pdfx document whose page rendering always fails after a successful open.
+class _RenderFailurePdfDocument extends pdfx.PdfDocument {
+  _RenderFailurePdfDocument()
+      : super(
+          sourceName: 'memory',
+          id: 'sv-c2-fake-document',
+          pagesCount: 1,
+        );
+
+  @override
+  Future<pdfx.PdfPage> getPage(
+    int pageNumber, {
+    bool autoCloseAndroid = false,
+  }) async {
+    return _RenderFailurePdfPage(document: this);
+  }
+
+  @override
+  Future<void> close() async {}
+}
+
+class _RenderFailurePdfPage extends pdfx.PdfPage {
+  _RenderFailurePdfPage({required super.document})
+      : super(
+          id: 'sv-c2-fake-page',
+          pageNumber: 1,
+          width: 100,
+          height: 140,
+          autoCloseAndroid: false,
+        );
+
+  @override
+  Future<pdfx.PdfPageImage?> render({
+    required double width,
+    required double height,
+    pdfx.PdfPageImageFormat format = pdfx.PdfPageImageFormat.jpeg,
+    String? backgroundColor,
+    Rect? cropRect,
+    int quality = 100,
+    bool forPrint = false,
+    bool removeTempFile = true,
+  }) async {
+    throw Exception('synthetic page render failure');
+  }
+
+  @override
+  Future<pdfx.PdfPageTexture> createTexture() async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> close() async {}
 }
 
 class _FakePdfOpener {

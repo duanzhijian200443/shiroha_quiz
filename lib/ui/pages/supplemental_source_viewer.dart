@@ -59,8 +59,19 @@ typedef SupplementalPdfSurfaceOpener = Future<SupplementalPdfSurface> Function(
 /// memory through pdfx. No temp file, no path, no network, no OCR.
 Future<SupplementalPdfSurface> openSupplementalPdfSurface(
   Uint8List originalBytes,
+) =>
+    openSupplementalPdfSurfaceFromDocument(
+      pdfx.PdfDocument.openData(originalBytes),
+    );
+
+/// Builds the default read-only pdfx surface from one document future.
+///
+/// Presentation-only seam extension so tests can drive the real surface with
+/// a fake document. The surface owns controller/document disposal and holds
+/// no verification authority.
+Future<SupplementalPdfSurface> openSupplementalPdfSurfaceFromDocument(
+  Future<pdfx.PdfDocument> documentFuture,
 ) async {
-  final documentFuture = pdfx.PdfDocument.openData(originalBytes);
   final pdfx.PdfDocument document = await documentFuture;
   pdfx.PdfController? controller;
   var disposed = false;
@@ -310,9 +321,10 @@ class _PdfxPdfSurfacePageState extends State<_PdfxPdfSurfacePage> {
                 setState(() => _documentLoaded = true);
               }
             },
-            builders: const pdfx.PdfViewBuilders<pdfx.DefaultBuilderOptions>(
-              options: pdfx.DefaultBuilderOptions(),
+            builders: pdfx.PdfViewBuilders<pdfx.DefaultBuilderOptions>(
+              options: const pdfx.DefaultBuilderOptions(),
               errorBuilder: _pdfSafeErrorBuilder,
+              pageBuilder: _pdfSafePageBuilder,
             ),
           ),
         ),
@@ -323,3 +335,30 @@ class _PdfxPdfSurfacePageState extends State<_PdfxPdfSurfacePage> {
 
 Widget _pdfSafeErrorBuilder(BuildContext context, Exception error) =>
     const Center(child: Text(_unableToDisplayMessage));
+
+/// Page-level safe surface. PdfViewBuilders.errorBuilder only covers document
+/// loading; after the document is already open, per-page failures surface
+/// through the image pipeline (`getPage` / `render` / page image provider).
+/// The photo_view errorBuilder below is the boundary that converts those
+/// failures into the fixed safe message instead of a blank page or a raw
+/// pipeline error.
+pdfx.PhotoViewGalleryPageOptions _pdfSafePageBuilder(
+  BuildContext context,
+  Future<pdfx.PdfPageImage> pageImage,
+  int index,
+  pdfx.PdfDocument document,
+) =>
+    pdfx.PhotoViewGalleryPageOptions(
+      imageProvider: pdfx.PdfPageImageProvider(
+        pageImage,
+        index,
+        document.id,
+      ),
+      minScale: pdfx.PhotoViewComputedScale.contained,
+      maxScale: pdfx.PhotoViewComputedScale.contained * 3,
+      initialScale: pdfx.PhotoViewComputedScale.contained,
+      heroAttributes:
+          pdfx.PhotoViewHeroAttributes(tag: '${document.id}-$index'),
+      errorBuilder: (_, __, ___) =>
+          const _SafeMessageView(_unableToDisplayMessage),
+    );
