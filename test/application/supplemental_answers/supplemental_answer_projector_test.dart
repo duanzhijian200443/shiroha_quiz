@@ -458,6 +458,280 @@ void main() {
       );
     });
   });
+
+  group('fragmented text-run parts', () {
+    SourceDocument documentOf(List<SourcePart> parts) {
+      return SourceDocument(sourceId: 'artifact_001', parts: parts);
+    }
+
+    List<SupplementalProjectionIssueKind> kindsOf(
+      SupplementalProjectionResult result,
+    ) {
+      return result.issues.map((issue) => issue.kind).toList(growable: false);
+    }
+
+    test('recovers a bracket choice answer split across text runs', () {
+      final result = projector.project(
+        documentOf([
+          _paragraph('(1)', role: SourceContentRole.paragraph),
+          _paragraph('【', role: SourceContentRole.paragraph),
+          _paragraph('答案', role: SourceContentRole.paragraph),
+          _paragraph('】', role: SourceContentRole.paragraph),
+          _paragraph('(C).', role: SourceContentRole.paragraph),
+          _paragraph('【', role: SourceContentRole.paragraph),
+          _paragraph('解', role: SourceContentRole.paragraph),
+          _paragraph('】', role: SourceContentRole.paragraph),
+          _paragraph('reason', role: SourceContentRole.paragraph),
+        ]),
+      );
+
+      expect(result.fragments, hasLength(1));
+      final fragment = result.fragments.single;
+      expect(fragment.normalizedMainNumber, '1');
+      expect(fragment.source, SupplementalAnswerSource.explicitAnswer);
+      expect(_texts(fragment.answerContent), ['(C).']);
+      expect(_texts(fragment.explanationContent!), contains('reason'));
+      expect(_texts(fragment.explanationContent!), isNot(contains('(C).')));
+      expect(fragment.sourceRefs.single.sourceId, 'artifact_001');
+      expect(kindsOf(result), isEmpty);
+    });
+
+    test('recovers a fragmented explicit content answer', () {
+      final result = projector.project(
+        documentOf([
+          _paragraph('(9)', role: SourceContentRole.paragraph),
+          _paragraph('【', role: SourceContentRole.paragraph),
+          _paragraph('答案', role: SourceContentRole.paragraph),
+          _paragraph('】', role: SourceContentRole.paragraph),
+          _paragraph('x + y', role: SourceContentRole.paragraph),
+          _paragraph('【', role: SourceContentRole.paragraph),
+          _paragraph('解', role: SourceContentRole.paragraph),
+          _paragraph('】', role: SourceContentRole.paragraph),
+          _paragraph('derivation', role: SourceContentRole.paragraph),
+        ]),
+      );
+
+      expect(result.fragments, hasLength(1));
+      final fragment = result.fragments.single;
+      expect(fragment.normalizedMainNumber, '9');
+      expect(fragment.source, SupplementalAnswerSource.explicitAnswer);
+      expect(_texts(fragment.answerContent), ['x + y']);
+      expect(_texts(fragment.explanationContent!), contains('derivation'));
+    });
+
+    test('keeps whole markers that were never split', () {
+      final result = projector.project(
+        documentOf([
+          _paragraph('(2)', role: SourceContentRole.paragraph),
+          _paragraph('【答案】', role: SourceContentRole.paragraph),
+          _paragraph('(B).', role: SourceContentRole.paragraph),
+        ]),
+      );
+
+      expect(result.fragments, hasLength(1));
+      expect(result.fragments.single.normalizedMainNumber, '2');
+      expect(_texts(result.fragments.single.answerContent), ['(B).']);
+    });
+
+    test('a document title year never opens a fragment', () {
+      final result = projector.project(
+        documentOf([
+          _paragraph('2019年数学（一）真题解析', role: SourceContentRole.paragraph),
+          _paragraph('一、选择题', role: SourceContentRole.paragraph),
+        ]),
+      );
+
+      expect(result.fragments, isEmpty);
+      expect(
+        result.fragments.map((fragment) => fragment.normalizedMainNumber),
+        isNot(contains('2019')),
+      );
+      expect(
+        kindsOf(result),
+        isNot(
+          contains(
+            SupplementalProjectionIssueKind.contentAdmissionRejected,
+          ),
+        ),
+      );
+    });
+
+    test('a bare number stays content while a fragment is open', () {
+      final result = projector.project(
+        documentOf([
+          _paragraph('1. A', role: SourceContentRole.answerLike),
+          _paragraph('2019', role: SourceContentRole.paragraph),
+        ]),
+      );
+
+      expect(result.fragments, hasLength(1));
+      expect(result.fragments.single.normalizedMainNumber, '1');
+      expect(_texts(result.fragments.single.answerContent), ['A', '2019']);
+    });
+
+    test('separated locators keep their existing contract', () {
+      final result = projector.project(
+        documentOf([
+          _paragraph('1. A', role: SourceContentRole.answerLike),
+          _paragraph('2．B', role: SourceContentRole.answerLike),
+          _paragraph('3、C', role: SourceContentRole.answerLike),
+          _paragraph('第4题：D', role: SourceContentRole.answerLike),
+        ]),
+      );
+
+      expect(
+        result.fragments.map((fragment) => fragment.normalizedMainNumber),
+        ['1', '2', '3', '4'],
+      );
+      expect(
+        result.fragments.map((fragment) => _texts(fragment.answerContent)),
+        [
+          ['A'],
+          ['B'],
+          ['C'],
+          ['D'],
+        ],
+      );
+    });
+
+    test('never joins a locator across a structural part boundary', () {
+      final splitMarker = <SourceContentPart>[
+        _paragraph('【', role: SourceContentRole.paragraph),
+        _paragraph('答案', role: SourceContentRole.paragraph),
+        _paragraph('】', role: SourceContentRole.paragraph),
+        _paragraph('(C).', role: SourceContentRole.paragraph),
+      ];
+      final boundaries = <SourcePart>[
+        SourceTablePart(
+          sourceRef: SourceRef.document(sourceId: 'artifact_001'),
+          rows: [
+            [_text('题号'), _text('7')],
+            [_text('答案'), _text('B')],
+          ],
+        ),
+        SourceAssetPart(
+          sourceRef: SourceRef.document(sourceId: 'artifact_001'),
+          asset: AssetRef(assetId: 'asset_001', kind: AssetKind.image),
+        ),
+        UnsupportedSourcePart(
+          sourceRef: SourceRef.document(sourceId: 'artifact_001'),
+          kindCode: 'parsed_source_boundary',
+          fallbackContent: _text('[Source]'),
+        ),
+      ];
+
+      for (final boundary in boundaries) {
+        final result = projector.project(
+          documentOf([
+            _paragraph('(1)', role: SourceContentRole.paragraph),
+            boundary,
+            ...splitMarker,
+          ]),
+        );
+        expect(
+          result.fragments.map((fragment) => fragment.normalizedMainNumber),
+          isNot(contains('1')),
+          reason: '${boundary.runtimeType} must end the recognition window',
+        );
+      }
+    });
+
+    test('a heading ends the recognition window', () {
+      final result = projector.project(
+        documentOf([
+          _paragraph('(1)', role: SourceContentRole.paragraph),
+          _paragraph('二、填空题', role: SourceContentRole.heading),
+          _paragraph('【', role: SourceContentRole.paragraph),
+          _paragraph('答案', role: SourceContentRole.paragraph),
+          _paragraph('】', role: SourceContentRole.paragraph),
+          _paragraph('(C).', role: SourceContentRole.paragraph),
+        ]),
+      );
+
+      expect(result.fragments, isEmpty);
+    });
+
+    test('a part carrying a structured node ends the recognition window', () {
+      final result = projector.project(
+        documentOf([
+          _paragraph('(1)', role: SourceContentRole.paragraph),
+          SourceContentPart(
+            sourceRef: SourceRef.document(sourceId: 'artifact_001'),
+            content: RichContent(nodes: <ContentNode>[
+              TextNode('【'),
+              InlineMathNode('\\answer'),
+            ]),
+            role: SourceContentRole.formula,
+          ),
+          _paragraph('答案', role: SourceContentRole.paragraph),
+          _paragraph('】', role: SourceContentRole.paragraph),
+        ]),
+      );
+
+      expect(result.fragments, isEmpty);
+    });
+
+    test('recognition never joins more parts than the bounded window', () {
+      final result = projector.project(
+        documentOf([
+          _paragraph('(1)', role: SourceContentRole.paragraph),
+          for (var index = 0; index < 8; index++)
+            _paragraph('x', role: SourceContentRole.paragraph),
+          _paragraph('【', role: SourceContentRole.paragraph),
+          _paragraph('答案', role: SourceContentRole.paragraph),
+          _paragraph('】', role: SourceContentRole.paragraph),
+          _paragraph('(C).', role: SourceContentRole.paragraph),
+        ]),
+      );
+
+      expect(result.fragments, isEmpty);
+    });
+
+    test('recognition never joins beyond the bounded character window', () {
+      final result = projector.project(
+        documentOf([
+          _paragraph('(1)', role: SourceContentRole.paragraph),
+          _paragraph('y' * 200, role: SourceContentRole.paragraph),
+          _paragraph('【', role: SourceContentRole.paragraph),
+          _paragraph('答案', role: SourceContentRole.paragraph),
+          _paragraph('】', role: SourceContentRole.paragraph),
+        ]),
+      );
+
+      expect(result.fragments, isEmpty);
+    });
+
+    test('an adjacent proven locator ends the recognition window', () {
+      final result = projector.project(
+        documentOf([
+          _paragraph('(1)', role: SourceContentRole.paragraph),
+          _paragraph('(2)【答案】B', role: SourceContentRole.paragraph),
+        ]),
+      );
+
+      expect(
+        result.fragments.map((fragment) => fragment.normalizedMainNumber),
+        ['2'],
+      );
+      expect(_texts(result.fragments.single.answerContent), ['B']);
+    });
+
+    test('a fragmented sub-solution under an open question stays content', () {
+      final result = projector.project(
+        documentOf([
+          _paragraph('18.', role: SourceContentRole.answerLike),
+          _paragraph('(1)', role: SourceContentRole.paragraph),
+          _paragraph('【', role: SourceContentRole.paragraph),
+          _paragraph('解', role: SourceContentRole.paragraph),
+          _paragraph('】', role: SourceContentRole.paragraph),
+          _paragraph('sub solution', role: SourceContentRole.paragraph),
+        ]),
+      );
+
+      expect(result.fragments, hasLength(1));
+      expect(result.fragments.single.normalizedMainNumber, '18');
+    });
+  });
 }
 
 List<String> _texts(RichContent content) {

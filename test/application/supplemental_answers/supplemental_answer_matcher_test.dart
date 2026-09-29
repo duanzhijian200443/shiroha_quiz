@@ -253,6 +253,78 @@ void main() {
       );
     });
 
+    test(
+        'a duplicate locator mixing candidate and non-candidate siblings '
+        'keeps both outcomes', () {
+      final snapshot = TargetQuestionSnapshot(
+        targets: [_abcdTarget('q_choice', number: 1)],
+        reports: const [],
+      );
+
+      final result = matcher.match(
+        fragments: [
+          _fragment('frag_writable', main: '1', answer: 'A'),
+          _fragment('frag_unmappable', main: '1', answer: 'Z'),
+        ],
+        snapshot: snapshot,
+        artifact: _artifact,
+      );
+
+      expect(result.records, hasLength(2));
+      final writable = result.records.firstWhere(
+        (record) => record.fragmentId == 'frag_writable',
+      );
+      final unmappable = result.records.firstWhere(
+        (record) => record.fragmentId == 'frag_unmappable',
+      );
+      expect(writable.disposition, AnswerMatchDisposition.matched);
+      expect(
+        (writable.candidate!.answer as ChoiceAnswer).optionIds,
+        <String>['opt_a'],
+      );
+      expect(writable.candidate!.writeIntent, CandidateWriteIntent.fill);
+      expect(unmappable.disposition, AnswerMatchDisposition.invalid);
+      expect(unmappable.candidate, isNull);
+      expect(
+        unmappable.evidence,
+        contains(MatchEvidenceCode.ambiguousChoiceLabel),
+      );
+    });
+
+    test(
+        'a conflicting duplicate locator still reports sourceConflict beside '
+        'its non-candidate sibling', () {
+      final snapshot = TargetQuestionSnapshot(
+        targets: [_abcdTarget('q_choice', number: 1)],
+        reports: const [],
+      );
+
+      final result = matcher.match(
+        fragments: [
+          _fragment('frag_a', main: '1', answer: 'A'),
+          _fragment('frag_b', main: '1', answer: 'B'),
+          _fragment('frag_unmappable', main: '1', answer: 'Z'),
+        ],
+        snapshot: snapshot,
+        artifact: _artifact,
+      );
+
+      expect(result.records, hasLength(2));
+      final conflicted = result.records.firstWhere(
+        (record) => record.evidence.contains(MatchEvidenceCode.sourceConflict),
+      );
+      final unmappable = result.records.firstWhere(
+        (record) => record.fragmentId == 'frag_unmappable',
+      );
+      expect(conflicted.disposition, AnswerMatchDisposition.invalid);
+      expect(conflicted.candidate, isNull);
+      expect(unmappable.disposition, AnswerMatchDisposition.invalid);
+      expect(
+        unmappable.evidence,
+        contains(MatchEvidenceCode.ambiguousChoiceLabel),
+      );
+    });
+
     test('complete subquestion set composes one ContentAnswer in sub-order',
         () {
       final snapshot = TargetQuestionSnapshot(
@@ -571,6 +643,122 @@ void main() {
       }
     });
   });
+
+  group('single-choice label normalization', () {
+    AnswerMatchRecord matchOne(String answer) {
+      return matcher
+          .match(
+            fragments: [_fragment('frag_1', main: '1', answer: answer)],
+            snapshot: TargetQuestionSnapshot(
+              targets: [_abcdTarget('q_choice', number: 1)],
+              reports: const [],
+            ),
+            artifact: _artifact,
+          )
+          .records
+          .single;
+    }
+
+    test('one strict label maps to its option as a fill candidate', () {
+      const expected = <String, String>{
+        '(C).': 'opt_c',
+        '（Ｂ）。': 'opt_b',
+        'c': 'opt_c',
+        'C': 'opt_c',
+        'Ｃ': 'opt_c',
+        '(D)': 'opt_d',
+        'A．': 'opt_a',
+        ' (B) ': 'opt_b',
+      };
+      for (final entry in expected.entries) {
+        final record = matchOne(entry.key);
+        expect(
+          record.disposition,
+          AnswerMatchDisposition.matched,
+          reason: '${entry.key} must normalize to a writable label',
+        );
+        expect(
+          (record.candidate!.answer as ChoiceAnswer).optionIds,
+          <String>[entry.value],
+          reason: entry.key,
+        );
+        expect(record.candidate!.writeIntent, CandidateWriteIntent.fill);
+      }
+    });
+
+    test('anything beyond one strict label stays invalid', () {
+      const rejected = <String>[
+        '(C) explanation',
+        'A/B',
+        'AB',
+        'Z',
+        '(Z)',
+        'option C',
+        '答案 C because',
+        '(C',
+        'C)',
+        'C D',
+      ];
+      for (final answer in rejected) {
+        final record = matchOne(answer);
+        expect(
+          record.disposition,
+          AnswerMatchDisposition.invalid,
+          reason: answer,
+        );
+        expect(record.candidate, isNull, reason: answer);
+        expect(
+          record.evidence,
+          contains(MatchEvidenceCode.ambiguousChoiceLabel),
+          reason: answer,
+        );
+      }
+    });
+
+    test('normalization never rewrites a non-choice target answer', () {
+      final result = matcher.match(
+        fragments: [_fragment('frag_fill', main: '1', answer: '(C).')],
+        snapshot: TargetQuestionSnapshot(
+          targets: [
+            _target('q_fill', number: 1, kind: QuestionKind.fillBlank),
+          ],
+          reports: const [],
+        ),
+        artifact: _artifact,
+      );
+
+      final record = result.records.single;
+      expect(record.disposition, AnswerMatchDisposition.matched);
+      expect(
+        (record.candidate!.answer as ContentAnswer)
+            .content
+            .nodes
+            .map((node) => (node as TextNode).text),
+        ['(C).'],
+      );
+    });
+  });
+}
+
+AnswerTargetReference _abcdTarget(String storageId, {required int number}) {
+  return AnswerTargetReference(
+    storageId: storageId,
+    bankName: 'bank_math',
+    draft: QuestionDraftV2(
+      questionId: storageId,
+      kind: QuestionKind.singleChoice,
+      questionNumber: number,
+      stem: _text('synthetic stem'),
+      options: [
+        for (final label in const <String>['A', 'B', 'C', 'D'])
+          QuestionOption(
+            optionId: 'opt_${label.toLowerCase()}',
+            label: label,
+            content: _text('$label option'),
+          ),
+      ],
+    ),
+  );
 }
 
 AnswerTargetReference _target(

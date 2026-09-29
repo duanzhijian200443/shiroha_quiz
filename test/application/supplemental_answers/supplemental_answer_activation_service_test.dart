@@ -227,6 +227,82 @@ void main() {
       expect(artifacts.ensureCalls, 0);
       expect(artifacts.reparseCalls, 0);
     });
+
+    test('a fragmented artifact still yields choice and content fills',
+        () async {
+      final artifacts = _RecordingArtifactPort(
+        snapshot: _snapshot(
+          revision: 1,
+          parts: <SourcePart>[
+            for (final run in const <String>[
+              '(1)',
+              '【',
+              '答案',
+              '】',
+              '(C).',
+              '(2)',
+              '【',
+              '答案',
+              '】',
+              'x = 1',
+            ])
+              _answerParagraph(_artifactId, run),
+          ],
+        ),
+      );
+      final service = _service(
+        files: [_libraryFile()],
+        targetReads: [
+          _typedRead(
+            number: 1,
+            storageId: 'choice_target',
+            kind: QuestionKind.singleChoice,
+            options: [
+              for (final label in const <String>['A', 'B', 'C', 'D'])
+                QuestionOption(
+                  optionId: 'opt_${label.toLowerCase()}',
+                  label: label,
+                  content: _text('$label option'),
+                ),
+            ],
+          ),
+          _typedRead(
+            number: 2,
+            storageId: 'fill_target',
+            kind: QuestionKind.fillBlank,
+          ),
+        ],
+        artifacts: artifacts,
+      );
+
+      final session = await service.startSession(
+        targetScope: const QuestionBankScope(bankName: _bankName),
+        supplementalFileId: _fileId,
+      );
+
+      final fills = session.records
+          .map((record) => record.candidate)
+          .whereType<AnswerCandidate>()
+          .where(
+            (candidate) => candidate.writeIntent == CandidateWriteIntent.fill,
+          )
+          .toList(growable: false);
+      expect(fills, hasLength(2));
+      expect(
+        fills.map((candidate) => candidate.targetStorageId),
+        containsAll(<String>['choice_target', 'fill_target']),
+      );
+      expect(fills.first.answer, isA<ChoiceAnswer>());
+      expect(
+        (fills.first.answer as ChoiceAnswer).optionIds,
+        <String>['opt_c'],
+      );
+      expect(fills.last.answer, isA<ContentAnswer>());
+
+      expect(artifacts.getCurrentArtifactCalls, 1);
+      expect(artifacts.ensureCalls, 0);
+      expect(artifacts.reparseCalls, 0);
+    });
   });
 }
 
@@ -264,15 +340,18 @@ SupplementalTargetRead _typedRead({
   required int number,
   String storageId = _storageId,
   String bankName = _bankName,
+  QuestionKind kind = QuestionKind.shortAnswer,
+  List<QuestionOption> options = const <QuestionOption>[],
 }) {
   return SupplementalTargetRead(
     storageId: storageId,
     bankName: bankName,
     typedDraft: QuestionDraftV2(
       questionId: storageId,
-      kind: QuestionKind.shortAnswer,
+      kind: kind,
       questionNumber: number,
       stem: _text('stem $number'),
+      options: options,
     ),
   );
 }
