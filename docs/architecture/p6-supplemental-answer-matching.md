@@ -77,6 +77,7 @@ SupplementalAnswerFragment
   optional explanationContent: RichContent
   heading/context
   ordered SourceRefs
+  ordered transient answer part-boundary evidence
   source sequence/table position
   optional stem context
   transient answer source: explicitAnswer | solutionBlock
@@ -140,6 +141,36 @@ Rules:
   yielding a candidate;
 - a second main locator on one line makes that line unwritable: it yields no
   candidate, and no part of it may be swallowed into the previous answer.
+
+### Transient answer part-boundary evidence
+
+- `answerContent` may carry an ordered transient list of part-boundary
+  segments. One segment records the contribution of exactly one real content
+  part: its source `partIndex`, the exact `RichContent` that part contributed,
+  the `SourceRef` of that same part, and the node range that contribution
+  occupies inside `answerContent`;
+- the list is verified at construction and is never trusted by shape alone:
+  each segment's content must be structurally equal to the `answerContent`
+  nodes of its own range, its `SourceRef` must be one of the fragment's own
+  refs, and its `partIndex` must strictly increase. A content mismatch, a
+  foreign ref, a repeated or out-of-order part index, an overlapping range, or
+  a range outside `answerContent` fails closed, so an accepted segment is
+  verified evidence rather than a claim;
+- an absent or empty list means the answer content carries no provable part
+  boundary; fragments built without evidence keep their previous construction
+  and equality behavior;
+- part-boundary evidence is a source fact only. It does not identify an answer
+  boundary by itself, it never carries target kind, question type, or answer
+  semantics, and it never truncates, drops, or re-orders `answerContent`;
+- evidence is recorded only for contributions of real content parts. Table
+  cells, typed asset alternative text, and derived `solutionBlock` answers
+  contribute no text-part evidence, so a missing segment always fails closed
+  instead of being inferred from equal `SourceRef`s or from source order;
+- a marker-less part that follows an explicit answer stays in the answer field:
+  nothing becomes an explanation without an explanation or solution marker;
+- the evidence is never persisted, never joins any `ParsedArtifact` payload,
+  and never reaches the persisted question answer; like every other P6
+  transient object it exists only inside one matching session.
 
 ## 4. Matching objects
 
