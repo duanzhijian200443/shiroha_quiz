@@ -38,6 +38,7 @@ final class SupplementalAnswerConfirmCommand {
   final SupplementalAnswerPersistencePort _persistencePort;
 
   Future<void> confirm(SupplementalAnswerConfirmation confirmation) async {
+    confirmation.claim();
     final candidate = confirmation.candidate;
     // The P6 confirm path is Supplemental-only. A foreign producer origin
     // fails closed with a typed failure before any seam is touched; no
@@ -61,7 +62,8 @@ final class SupplementalAnswerConfirmCommand {
     }
 
     final artifact = snapshot.artifact;
-    if (artifact.artifactId != origin.artifactId ||
+    if (artifact.fileId != origin.supplementalFileId ||
+        artifact.artifactId != origin.artifactId ||
         artifact.revision != origin.artifactRevision) {
       throw const SupplementalAnswerException(
         SupplementalAnswerFailure.staleTarget,

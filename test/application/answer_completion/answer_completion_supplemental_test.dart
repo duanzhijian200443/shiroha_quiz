@@ -5,8 +5,10 @@ import 'package:shiroha_quiz/application/file_library/file_library_ports.dart';
 import 'package:shiroha_quiz/application/parsed_artifacts/parsed_artifact_lifecycle.dart';
 import 'package:shiroha_quiz/application/supplemental_answers/supplemental_answer_failure.dart';
 import 'package:shiroha_quiz/application/supplemental_answers/supplemental_answer_review_session.dart';
+import 'package:shiroha_quiz/application/supplemental_answers/supplemental_source_inspection.dart';
 import 'package:shiroha_quiz/domain/answer_completion/imported_question_set.dart';
 import 'package:shiroha_quiz/domain/answers/answer_candidate.dart';
+import 'package:shiroha_quiz/domain/assets/library_file.dart';
 import 'package:shiroha_quiz/domain/assets/parsed_artifact.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
@@ -115,8 +117,11 @@ void main() {
     expect(() => session.confirmReplace(candidates['q3']!.candidateId),
         throwsA(isA<SupplementalAnswerReviewException>()));
     final armed = session.selectForReplace(candidates['q3']!.candidateId);
+    final inspection = await _inspection();
+    final verified =
+        armed.verifySource(candidates['q3']!.candidateId, inspection);
     expect(
-        armed
+        verified
             .confirmReplace(candidates['q3']!.candidateId)
             .confirmation
             .candidate,
@@ -218,4 +223,42 @@ void main() {
     }
     expect(artifacts.calls, 0);
   });
+}
+
+// Synthetic ports exercise the real inspection authority; no inspection bypass.
+Future<SupplementalSourceInspection> _inspection() =>
+    SupplementalSourceInspectionService(
+      fileCatalog: _InspectionCatalog(),
+      artifactPort: _Artifacts(),
+      sourceReader: _InspectionReader(),
+      maxBytes: 3,
+    ).inspect('file');
+
+const _sourceHash =
+    'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
+
+class _InspectionCatalog extends Fake implements LibraryFileRepositoryPort {
+  @override
+  Future<LibraryFile?> findById(String fileId) async => LibraryFile(
+        fileId: fileId,
+        displayName: 'synthetic.txt',
+        mimeType: 'text/plain',
+        sizeBytes: 3,
+        sha256: _sourceHash,
+        storageKey: 'synthetic/source',
+        createdAt: DateTime.utc(2026),
+      );
+}
+
+class _InspectionReader extends Fake implements SupplementalSourceReaderPort {
+  @override
+  Future<SupplementalSourceReadResult> readOriginalBytes({
+    required LibraryFile file,
+    required int maxBytes,
+  }) async =>
+      SupplementalSourceReadResult(
+        bytes: [97, 98, 99],
+        actualSizeBytes: 3,
+        actualSha256: _sourceHash,
+      );
 }

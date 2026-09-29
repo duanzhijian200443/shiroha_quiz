@@ -12,6 +12,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/file_library/file_library_ports.dart';
 import 'package:shiroha_quiz/application/parsed_artifacts/parsed_artifact_lifecycle.dart';
 import 'package:shiroha_quiz/application/supplemental_answers/supplemental_answer_command.dart';
 import 'package:shiroha_quiz/application/supplemental_answers/supplemental_answer_failure.dart';
@@ -19,11 +20,13 @@ import 'package:shiroha_quiz/application/supplemental_answers/supplemental_answe
 import 'package:shiroha_quiz/application/supplemental_answers/supplemental_answer_projector.dart';
 import 'package:shiroha_quiz/application/supplemental_answers/supplemental_answer_review_session.dart';
 import 'package:shiroha_quiz/application/supplemental_answers/supplemental_answer_target_port.dart';
+import 'package:shiroha_quiz/application/supplemental_answers/supplemental_source_inspection.dart';
 import 'package:shiroha_quiz/application/supplemental_answers/target_question_snapshot_service.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/models/persisted_question.dart';
 import 'package:shiroha_quiz/data/persistence/question_v2_persistence_mapper.dart';
 import 'package:shiroha_quiz/data/repositories/supplemental_answer_persistence_repository.dart';
+import 'package:shiroha_quiz/domain/assets/library_file.dart';
 import 'package:shiroha_quiz/domain/assets/parsed_artifact.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
@@ -400,6 +403,14 @@ void main() {
         match.records.single.candidate!.answer,
         ChoiceAnswer(optionIds: ['opt_b']),
       );
+      final session = await _session(match);
+      final decided =
+          session.confirmFill(match.records.single.candidate!.candidateId);
+      await _confirmCommand().confirm(decided.confirmation);
+      expect(await _persistedAnswer(), {
+        'type': 'choice',
+        'optionIds': ['opt_b']
+      });
     });
 
     test('unknown label is invalidCandidate and never writes', () async {
@@ -482,17 +493,19 @@ void main() {
       final session = await _session(match);
       final candidateId = match.records.single.candidate!.candidateId;
       final decided = session.confirmFill(candidateId);
-      expect(decided.confirmation.sessionRevision, 1);
+      expect(decided.confirmation.sessionRevision, 2);
       expect(
         decided.session.outcomeOf(candidateId),
         CandidateReviewOutcome.confirmed,
       );
-      final rejected = session.reject(candidateId);
-      expect(rejected.sessionRevision, 1);
       expect(
-        rejected.outcomeOf(candidateId),
-        CandidateReviewOutcome.rejected,
-      );
+          () => session.reject(candidateId),
+          throwsA(isA<SupplementalAnswerReviewException>().having(
+              (e) => e.failure,
+              'failure',
+              SupplementalAnswerReviewFailure.staleSessionRevision)));
+      final committed = decided.session.markCommitted(candidateId);
+      expect(committed.sessionRevision, 3);
     });
   });
 
@@ -667,7 +680,7 @@ Future<TargetQuestionSnapshot> _snapshot() async {
 Future<SupplementalAnswerReviewSession> _session(
   SupplementalMatchResult match,
 ) async {
-  return SupplementalAnswerReviewSession(
+  var session = SupplementalAnswerReviewSession(
     request: SupplementalAnswerMatchRequest(
       targetScope: const QuestionBankScope(bankName: _bankName),
       supplementalFileId: _fileId,
@@ -675,6 +688,15 @@ Future<SupplementalAnswerReviewSession> _session(
     snapshot: await _snapshot(),
     matchResult: match,
   );
+  for (final record in match.records) {
+    final candidate = record.candidate;
+    if (candidate != null &&
+        candidate.writeIntent != CandidateWriteIntent.noOp) {
+      final inspection = await _inspection();
+      session = session.verifySource(candidate.candidateId, inspection);
+    }
+  }
+  return session;
 }
 
 SupplementalAnswerConfirmCommand _confirmCommand() {
@@ -1000,4 +1022,42 @@ Future<Map<String, dynamic>?> _persistedAnswer() async {
 
 RichContent _text(String text) {
   return RichContent(nodes: [TextNode(text)]);
+}
+
+// Synthetic ports exercise the real inspection authority; no inspection bypass.
+Future<SupplementalSourceInspection> _inspection() =>
+    SupplementalSourceInspectionService(
+      fileCatalog: _InspectionCatalog(),
+      artifactPort: _AcceptanceArtifactPort(),
+      sourceReader: _InspectionReader(),
+      maxBytes: 3,
+    ).inspect(_fileId);
+
+const _sourceHash =
+    'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
+
+class _InspectionCatalog extends Fake implements LibraryFileRepositoryPort {
+  @override
+  Future<LibraryFile?> findById(String fileId) async => LibraryFile(
+        fileId: fileId,
+        displayName: 'synthetic.txt',
+        mimeType: 'text/plain',
+        sizeBytes: 3,
+        sha256: _sourceHash,
+        storageKey: 'synthetic/source',
+        createdAt: DateTime.utc(2026),
+      );
+}
+
+class _InspectionReader extends Fake implements SupplementalSourceReaderPort {
+  @override
+  Future<SupplementalSourceReadResult> readOriginalBytes({
+    required LibraryFile file,
+    required int maxBytes,
+  }) async =>
+      SupplementalSourceReadResult(
+        bytes: [97, 98, 99],
+        actualSizeBytes: 3,
+        actualSha256: _sourceHash,
+      );
 }

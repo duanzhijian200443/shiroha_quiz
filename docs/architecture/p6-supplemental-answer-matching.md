@@ -318,11 +318,11 @@ Disposition:    matched | ambiguous | unmatched | conflict | invalid
 session -> snapshot -> project fragments -> match -> review
 ```
 
-- missing current answer: matched/fill -> select -> explicit confirm ->
-  commit;
+- missing current answer: matched/fill -> explicit source verification ->
+  explicit confirm -> commit;
 - equivalent: noOp -> terminal -> zero transaction;
-- different: conflict -> per-question replace review -> per-question explicit
-  reconfirm -> commit;
+- different: conflict -> source verification + per-question replace review
+  -> per-question explicit reconfirm -> commit;
 - ambiguous/unmatched/invalid: review-only terminal -> never committable.
 
 Rules:
@@ -330,7 +330,8 @@ Rules:
 - Candidate is immutable;
 - Candidate/session are transient and lost on process exit;
 - `sessionRevision` increments on every review decision;
-- confirm carries exactly `candidateId + sessionRevision`;
+- confirmation is opaque and binds the exact Candidate, current P6
+  session revision, and issuing session authority; it is once-claimable;
 - stale never auto-rematches or retries;
 - P6 v0 has no Candidate answer editor.
 
@@ -355,7 +356,9 @@ label -> option ID; otherwise `invalidCandidate`.
 ```text
 AnswerCandidate
   -> Review
-  -> explicit confirmation
+  -> verifySource with a matching SupplementalSourceInspection
+  -> explicit fill / replace confirmation
+  -> opaque session-issued Confirmation
   -> P6 Application command
   -> existing typed answer mutation authority
 ```
@@ -370,6 +373,47 @@ answer writer.
 - conflict never enters a fill batch; each conflict requires per-question
   replace reconfirmation;
 - Domain/Application never read SQLite directly.
+
+### Explicit original-source verification authority
+
+Target identity, source fidelity, and user verification are distinct:
+`target identity != source fidelity != user verification`. Deterministic
+matching establishes target identity; it does not prove source fidelity or
+record user verification.
+
+- Every P6 `fill` and `replace` begins with verification `required`. Only an
+  explicit `verifySource(candidateId, inspection)` review transition marks
+  that candidate `verified`, after the inspection's `fileId`, `artifactId`,
+  and `artifactRevision` all match its Supplemental origin. A mismatch yields
+  `sourceInspectionRequired` with no state change.
+- `SupplementalSourceInspectionService` supplies immutable inspection
+  evidence. Inspection itself is not user verification; obtaining original
+  bytes does not authorize a write. Confirmation without explicit verification
+  fails as `sourceVerificationRequired` before the command ports.
+- Verification is transient and specific to one review session and candidate;
+  it is neither persisted nor transferred to a new session. `noOp` is terminal,
+  `notRequired`, and never produces a writable authorization.
+- Replace verification and replace reconfirmation are independent. Both
+  `verify -> arm -> confirm` and `arm -> verify -> confirm` are valid; arming
+  preserves verification and does not write data.
+- Every successful verification, arm, confirm, reject, or commit-mark transition
+  advances the P6 revision and invalidates prior snapshots for all further
+  transitions. The shared producer-neutral review core is unchanged.
+- `SupplementalAnswerConfirmation` is opaque and issued only by the P6 review
+  session. It has no public construction or testing bypass. An unclaimed
+  confirmation is invalidated by a later transition in its issuing session.
+- A confirmation is once-claimable. The command claims it synchronously before
+  its first await and before artifact or persistence access. Sequential or
+  concurrent replay, including through another command instance, fails before
+  either port. Artifact or persistence failure still consumes authorization;
+  another attempt requires a new P6 review and explicit verification.
+- Claiming does not replace artifact generation validation or the existing
+  transactional typed-answer CAS. P6 continues to use the same persistence
+  port and typed mutation authority.
+
+The current Review UI has no source-verification interaction. Its fill and
+final replace confirmation therefore fail closed with zero writes until an
+explicitly authorized source-verification surface is provided.
 
 ## 12. Atomic stale protection
 

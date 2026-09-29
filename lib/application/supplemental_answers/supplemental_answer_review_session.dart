@@ -3,6 +3,7 @@ import '../../domain/supplemental_answers/answer_match_record.dart';
 import '../../domain/supplemental_answers/supplemental_answer_scope.dart';
 import '../answers/answer_candidate_review_session.dart';
 import 'supplemental_answer_matcher.dart';
+import 'supplemental_source_inspection.dart';
 import 'target_question_snapshot_service.dart';
 
 /// The producer-neutral review outcome enum re-exported from the shared
@@ -12,6 +13,8 @@ export '../answers/answer_candidate_review_session.dart'
 
 /// Safe failure taxonomy of the transient P6 review lifecycle.
 enum SupplementalAnswerReviewFailure {
+  sourceVerificationRequired,
+  sourceInspectionRequired,
   unknownCandidate,
   staleSessionRevision,
   ambiguousNotCommittable,
@@ -31,6 +34,10 @@ final class SupplementalAnswerReviewException implements Exception {
   @override
   String toString() {
     final detail = switch (failure) {
+      SupplementalAnswerReviewFailure.sourceVerificationRequired =>
+        'Explicit source verification is required before confirmation.',
+      SupplementalAnswerReviewFailure.sourceInspectionRequired =>
+        'A source inspection matching the candidate origin is required.',
       SupplementalAnswerReviewFailure.unknownCandidate =>
         'The candidate is not part of this review session.',
       SupplementalAnswerReviewFailure.staleSessionRevision =>
@@ -54,18 +61,43 @@ final class SupplementalAnswerReviewException implements Exception {
   }
 }
 
-/// One exact confirmation request produced by the P6 review session.
-///
-/// The confirmation carries the candidate plus the exact session revision;
-/// C0 revalidates both inside the linearized write boundary.
+/// Transient, per-candidate user verification, separate from match identity.
+enum SupplementalSourceVerificationState { required, verified, notRequired }
+
+/// Shared only by snapshots of one P6 review session.
+final class _SessionAuthority {
+  int revision = 0;
+}
+
+/// An opaque, session-issued authorization. There is no public constructor.
+/// Claiming consumes it even when the later artifact or persistence check fails.
 final class SupplementalAnswerConfirmation {
-  const SupplementalAnswerConfirmation({
+  SupplementalAnswerConfirmation._({
     required this.candidate,
     required this.sessionRevision,
-  });
+    required _SessionAuthority authority,
+  }) : _authority = authority;
 
   final AnswerCandidate candidate;
   final int sessionRevision;
+  final _SessionAuthority _authority;
+  bool _claimed = false;
+
+  /// Synchronous, irreversible claim used before the command's first await.
+  /// This can only consume an issued authorization, never mint or renew one.
+  void claim() {
+    if (_claimed) {
+      throw const SupplementalAnswerReviewException(
+        SupplementalAnswerReviewFailure.alreadyDecided,
+      );
+    }
+    _claimed = true;
+    if (_authority.revision != sessionRevision) {
+      throw const SupplementalAnswerReviewException(
+        SupplementalAnswerReviewFailure.staleSessionRevision,
+      );
+    }
+  }
 }
 
 /// P6-facing adapter over the shared producer-neutral review-decision core.
@@ -91,7 +123,13 @@ final class SupplementalAnswerReviewSession {
     return SupplementalAnswerReviewSession._(
       request: request,
       snapshot: snapshot,
-      matchResult: matchResult,
+      matchResult: SupplementalMatchResult(
+        records: List<AnswerMatchRecord>.unmodifiable(matchResult.records),
+        coverage: List.unmodifiable(matchResult.coverage),
+      ),
+      authority: _SessionAuthority(),
+      sessionRevision: 0,
+      verifiedIds: const <String>{},
       core: AnswerCandidateReviewSession(
         candidates: <AnswerCandidate>[
           for (final record in matchResult.records)
@@ -106,7 +144,11 @@ final class SupplementalAnswerReviewSession {
     required this.snapshot,
     required this.matchResult,
     required this.core,
-  });
+    required _SessionAuthority authority,
+    required this.sessionRevision,
+    required Set<String> verifiedIds,
+  })  : _authority = authority,
+        _verifiedIds = verifiedIds;
 
   final SupplementalAnswerMatchRequest request;
   final TargetQuestionSnapshot snapshot;
@@ -117,7 +159,72 @@ final class SupplementalAnswerReviewSession {
 
   Map<String, CandidateReviewOutcome> get outcomes => core.outcomes;
 
-  int get sessionRevision => core.sessionRevision;
+  final int sessionRevision;
+  final _SessionAuthority _authority;
+  final Set<String> _verifiedIds;
+
+  SupplementalSourceVerificationState verificationStateOf(String candidateId) {
+    final candidate = _candidate(candidateId);
+    if (candidate.writeIntent == CandidateWriteIntent.noOp) {
+      return SupplementalSourceVerificationState.notRequired;
+    }
+    return _verifiedIds.contains(candidateId)
+        ? SupplementalSourceVerificationState.verified
+        : SupplementalSourceVerificationState.required;
+  }
+
+  /// Records an explicit user verification using inspection of the exact origin.
+  /// Merely obtaining an inspection does not perform this review transition.
+  SupplementalAnswerReviewSession verifySource(
+    String candidateId,
+    SupplementalSourceInspection inspection,
+  ) {
+    _checkCurrent();
+    final candidate = _candidate(candidateId);
+    _checkPending(candidateId);
+    final origin = candidate.origin;
+    if (origin is! SupplementalAnswerOrigin ||
+        inspection.fileId != origin.supplementalFileId ||
+        inspection.artifactId != origin.artifactId ||
+        inspection.artifactRevision != origin.artifactRevision) {
+      throw const SupplementalAnswerReviewException(
+        SupplementalAnswerReviewFailure.sourceInspectionRequired,
+      );
+    }
+    return _wrap(core, verifiedIds: {..._verifiedIds, candidateId});
+  }
+
+  void _checkCurrent() {
+    if (_authority.revision != sessionRevision) {
+      throw const SupplementalAnswerReviewException(
+        SupplementalAnswerReviewFailure.staleSessionRevision,
+      );
+    }
+  }
+
+  void _checkPending(String candidateId) {
+    final outcome = outcomeOf(candidateId);
+    if (outcome == CandidateReviewOutcome.noOp) {
+      throw const SupplementalAnswerReviewException(
+        SupplementalAnswerReviewFailure.noOpTerminal,
+      );
+    }
+    if (outcome != CandidateReviewOutcome.pendingFill &&
+        outcome != CandidateReviewOutcome.pendingReplace) {
+      throw const SupplementalAnswerReviewException(
+        SupplementalAnswerReviewFailure.alreadyDecided,
+      );
+    }
+  }
+
+  void _requireVerified(String candidateId) {
+    _checkPending(candidateId);
+    if (!_verifiedIds.contains(candidateId)) {
+      throw const SupplementalAnswerReviewException(
+        SupplementalAnswerReviewFailure.sourceVerificationRequired,
+      );
+    }
+  }
 
   CandidateReviewOutcome outcomeOf(String candidateId) {
     return core.outcomeOf(candidateId);
@@ -130,6 +237,7 @@ final class SupplementalAnswerReviewSession {
     SupplementalAnswerReviewSession session,
     SupplementalAnswerConfirmation confirmation,
   }) confirmFill(String candidateId) {
+    _checkCurrent();
     final candidate = _candidate(candidateId);
     if (candidate.writeIntent != CandidateWriteIntent.fill) {
       throw SupplementalAnswerReviewException(
@@ -149,18 +257,22 @@ final class SupplementalAnswerReviewSession {
         _notCommittableFailure(record.disposition),
       );
     }
+    _requireVerified(candidateId);
     final decided = _run(() => core.confirmFill(candidateId));
+    final next = _wrap(decided.session);
     return (
-      session: _wrap(decided.session),
-      confirmation: SupplementalAnswerConfirmation(
+      session: next,
+      confirmation: SupplementalAnswerConfirmation._(
         candidate: decided.confirmation.candidate,
-        sessionRevision: decided.confirmation.sessionRevision,
+        sessionRevision: next.sessionRevision,
+        authority: _authority,
       ),
     );
   }
 
   /// First step of the per-question replace review for one conflict.
   SupplementalAnswerReviewSession selectForReplace(String candidateId) {
+    _checkCurrent();
     final candidate = _candidate(candidateId);
     final record = _recordFor(candidateId);
     if (record.disposition != AnswerMatchDisposition.conflict ||
@@ -180,30 +292,36 @@ final class SupplementalAnswerReviewSession {
     SupplementalAnswerReviewSession session,
     SupplementalAnswerConfirmation confirmation,
   }) confirmReplace(String candidateId) {
+    _checkCurrent();
     final candidate = _candidate(candidateId);
     if (candidate.writeIntent != CandidateWriteIntent.replace) {
       throw SupplementalAnswerReviewException(
         SupplementalAnswerReviewFailure.conflictRequiresReplaceReconfirmation,
       );
     }
+    _requireVerified(candidateId);
     final decided = _run(() => core.confirmReplace(candidateId));
+    final next = _wrap(decided.session);
     return (
-      session: _wrap(decided.session),
-      confirmation: SupplementalAnswerConfirmation(
+      session: next,
+      confirmation: SupplementalAnswerConfirmation._(
         candidate: decided.confirmation.candidate,
-        sessionRevision: decided.confirmation.sessionRevision,
+        sessionRevision: next.sessionRevision,
+        authority: _authority,
       ),
     );
   }
 
   /// Explicit rejection: terminal with zero mutation.
   SupplementalAnswerReviewSession reject(String candidateId) {
+    _checkCurrent();
     _candidate(candidateId);
     return _wrap(_run(() => core.reject(candidateId)));
   }
 
   /// Marks one confirmed candidate as committed after C0 succeeded.
   SupplementalAnswerReviewSession markCommitted(String candidateId) {
+    _checkCurrent();
     _candidate(candidateId);
     return _wrap(_run(() => core.markCommitted(candidateId)));
   }
@@ -262,13 +380,21 @@ final class SupplementalAnswerReviewSession {
     };
   }
 
-  SupplementalAnswerReviewSession _wrap(AnswerCandidateReviewSession core) {
-    return SupplementalAnswerReviewSession._(
+  SupplementalAnswerReviewSession _wrap(AnswerCandidateReviewSession core,
+      {Set<String>? verifiedIds}) {
+    _checkCurrent();
+    final nextRevision = sessionRevision + 1;
+    final next = SupplementalAnswerReviewSession._(
       request: request,
       snapshot: snapshot,
       matchResult: matchResult,
       core: core,
+      authority: _authority,
+      sessionRevision: nextRevision,
+      verifiedIds: Set<String>.unmodifiable(verifiedIds ?? _verifiedIds),
     );
+    _authority.revision = nextRevision;
+    return next;
   }
 
   SupplementalAnswerReviewFailure _notCommittableFailure(
