@@ -330,7 +330,8 @@ Rules:
 - Candidate is immutable;
 - Candidate/session are transient and lost on process exit;
 - `sessionRevision` increments on every review decision;
-- confirm carries exactly `candidateId + sessionRevision`;
+- confirmation is opaque and binds the exact Candidate, current P6
+  session revision, and issuing session authority; it is once-claimable;
 - stale never auto-rematches or retries;
 - P6 v0 has no Candidate answer editor.
 
