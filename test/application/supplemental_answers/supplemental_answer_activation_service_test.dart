@@ -235,8 +235,16 @@ void main() {
           revision: 1,
           parts: <SourcePart>[
             for (final run in const <String>[
-              '(1)', '【', '答案', '】', '(C).',
-              '(2)', '【', '答案', '】', 'x = 1',
+              '(1)',
+              '【',
+              '答案',
+              '】',
+              '(C).',
+              '(2)',
+              '【',
+              '答案',
+              '】',
+              'x = 1',
             ])
               _answerParagraph(_artifactId, run),
           ],

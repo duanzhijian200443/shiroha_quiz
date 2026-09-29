@@ -536,8 +536,7 @@ void main() {
     test('a document title year never opens a fragment', () {
       final result = projector.project(
         documentOf([
-          _paragraph('2019年数学（一）真题解析',
-              role: SourceContentRole.paragraph),
+          _paragraph('2019年数学（一）真题解析', role: SourceContentRole.paragraph),
           _paragraph('一、选择题', role: SourceContentRole.paragraph),
         ]),
       );

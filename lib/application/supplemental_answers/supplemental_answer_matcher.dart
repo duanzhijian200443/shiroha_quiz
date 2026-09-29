@@ -402,9 +402,8 @@ List<_MergedItem> _mergeDuplicateLocators(
 
   final merged = <_MergedItem>[];
   for (final items in byLocator.values) {
-    final candidateItems = items
-        .where((item) => item.candidate != null)
-        .toList(growable: false);
+    final candidateItems =
+        items.where((item) => item.candidate != null).toList(growable: false);
     if (items.length == 1 || candidateItems.isEmpty) {
       merged.addAll(items.map(_MergedItem.single));
       continue;
@@ -413,9 +412,8 @@ List<_MergedItem> _mergeDuplicateLocators(
         .where((item) => item.candidate == null)
         .map(_MergedItem.single)
         .toList(growable: false);
-    final candidates = candidateItems
-        .map((item) => item.candidate!)
-        .toList(growable: false);
+    final candidates =
+        candidateItems.map((item) => item.candidate!).toList(growable: false);
     final firstAnswer = candidates.first.answer;
     final allEqual =
         candidates.every((candidate) => candidate.answer == firstAnswer);

@@ -164,8 +164,8 @@ void main() {
     // arrive as several ordered parts, otherwise this proves nothing.
     expect(
       document.parts.length,
-      greaterThan(5 * (_fragmentedChoiceAnswers.length +
-          _fragmentedContentAnswers.length)),
+      greaterThan(5 *
+          (_fragmentedChoiceAnswers.length + _fragmentedContentAnswers.length)),
     );
     expect(
       document.parts

@@ -253,7 +253,8 @@ void main() {
       );
     });
 
-    test('a duplicate locator mixing candidate and non-candidate siblings '
+    test(
+        'a duplicate locator mixing candidate and non-candidate siblings '
         'keeps both outcomes', () {
       final snapshot = TargetQuestionSnapshot(
         targets: [_abcdTarget('q_choice', number: 1)],
@@ -290,7 +291,8 @@ void main() {
       );
     });
 
-    test('a conflicting duplicate locator still reports sourceConflict beside '
+    test(
+        'a conflicting duplicate locator still reports sourceConflict beside '
         'its non-candidate sibling', () {
       final snapshot = TargetQuestionSnapshot(
         targets: [_abcdTarget('q_choice', number: 1)],
@@ -728,7 +730,9 @@ void main() {
       final record = result.records.single;
       expect(record.disposition, AnswerMatchDisposition.matched);
       expect(
-        (record.candidate!.answer as ContentAnswer).content.nodes
+        (record.candidate!.answer as ContentAnswer)
+            .content
+            .nodes
             .map((node) => (node as TextNode).text),
         ['(C).'],
       );
