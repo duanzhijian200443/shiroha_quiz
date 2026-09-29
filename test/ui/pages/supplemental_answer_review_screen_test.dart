@@ -25,7 +25,7 @@ const _artifact = SupplementalArtifactContext(
 );
 
 void main() {
-  testWidgets('renders fill candidate and confirms through the command',
+  testWidgets('unverified fill fails closed before the command ports',
       (tester) async {
     final port = _FakePersistencePort();
     final command = _command(port);
@@ -60,12 +60,14 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(port.confirmed, hasLength(1));
-    expect(port.confirmed.single.candidateId, 'cand_frag_1_q_1');
-    expect(find.text('已写入'), findsOneWidget);
+    expect(port.confirmed, isEmpty);
+    expect(port.artifacts.calls, 0);
+    expect(find.textContaining('sourceVerificationRequired'), findsOneWidget);
+    expect(find.text('已写入'), findsNothing);
   });
 
-  testWidgets('conflict requires two explicit replace steps', (tester) async {
+  testWidgets('armed but unverified replace final confirmation fails closed',
+      (tester) async {
     final port = _FakePersistencePort();
     final command = _command(port);
     final session = _session(
@@ -96,15 +98,13 @@ void main() {
     expect(port.confirmed, isEmpty);
     expect(find.text('二次确认替换'), findsOneWidget);
 
-    // Second explicit action is the reconfirmation that commits.
+    // Final replace still requires source verification, absent from this UI.
     await tester.tap(find.widgetWithText(FilledButton, '二次确认替换'));
     await tester.pumpAndSettle();
-    expect(port.confirmed, hasLength(1));
-    expect(
-      port.confirmed.single.writeIntent,
-      CandidateWriteIntent.replace,
-    );
-    expect(find.text('已替换'), findsOneWidget);
+    expect(port.confirmed, isEmpty);
+    expect(port.artifacts.calls, 0);
+    expect(find.textContaining('sourceVerificationRequired'), findsOneWidget);
+    expect(find.text('已替换'), findsNothing);
   });
 
   testWidgets('reject is terminal with zero mutation', (tester) async {
@@ -135,7 +135,8 @@ void main() {
     expect(port.confirmed, isEmpty);
   });
 
-  testWidgets('stale target failure shows a fixed safe message',
+  testWidgets(
+      'verification gate precedes even a configured persistence failure',
       (tester) async {
     final port = _FakePersistencePort(
       error: const SupplementalAnswerException(
@@ -166,7 +167,8 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, '确认填写'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('已变化'), findsOneWidget);
+    expect(find.textContaining('sourceVerificationRequired'), findsOneWidget);
+    expect(port.artifacts.calls, 0);
     expect(port.confirmed, isEmpty);
   });
 
@@ -261,14 +263,16 @@ SupplementalAnswerFragment _fragment(
 
 SupplementalAnswerConfirmCommand _command(_FakePersistencePort port) {
   return SupplementalAnswerConfirmCommand(
-    artifactPort: _StaticArtifactPort(),
+    artifactPort: port.artifacts,
     persistencePort: port,
   );
 }
 
 class _StaticArtifactPort implements ParsedArtifactLifecyclePort {
+  int calls = 0;
   @override
   Future<ParsedArtifactSnapshot> getCurrentArtifact(String fileId) async {
+    calls++;
     return ParsedArtifactSnapshot(
       artifact: ParsedArtifact(
         fileId: 'file_001',
@@ -310,6 +314,7 @@ class _StaticArtifactPort implements ParsedArtifactLifecyclePort {
 }
 
 class _FakePersistencePort implements SupplementalAnswerPersistencePort {
+  final artifacts = _StaticArtifactPort();
   _FakePersistencePort({this.error});
 
   final SupplementalAnswerException? error;
