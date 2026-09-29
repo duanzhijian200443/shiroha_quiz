@@ -65,10 +65,17 @@ final class SupplementalAnswerFragment {
     final copiedPartEvidence =
         List<SupplementalAnswerPartSegment>.unmodifiable(answerPartEvidence);
     var previousNodeEnd = 0;
+    int? previousPartIndex;
     for (final segment in copiedPartEvidence) {
-      if (!sourceIds.contains(segment.sourceRef.sourceId)) {
+      if (!copiedSourceRefs.contains(segment.sourceRef)) {
         throw const FormatException(
-          'Answer part evidence must stay bound to the fragment source.',
+          'Answer part evidence must stay bound to the fragment source refs.',
+        );
+      }
+      final openPartIndex = previousPartIndex;
+      if (openPartIndex != null && segment.partIndex <= openPartIndex) {
+        throw const FormatException(
+          'Answer part evidence must follow the source part order.',
         );
       }
       if (segment.answerNodeStart < previousNodeEnd) {
@@ -76,12 +83,24 @@ final class SupplementalAnswerFragment {
           'Answer part evidence must stay ordered and non-overlapping.',
         );
       }
-      previousNodeEnd = segment.answerNodeEnd;
-    }
-    if (previousNodeEnd > answerContent.nodes.length) {
-      throw const FormatException(
-        'Answer part evidence must stay inside the answer content.',
+      if (segment.answerNodeEnd > answerContent.nodes.length) {
+        throw const FormatException(
+          'Answer part evidence must stay inside the answer content.',
+        );
+      }
+      final rangeContent = RichContent(
+        nodes: answerContent.nodes.sublist(
+          segment.answerNodeStart,
+          segment.answerNodeEnd,
+        ),
       );
+      if (!richContentEquals(rangeContent, segment.content)) {
+        throw const FormatException(
+          'Answer part evidence content must match the answer content range.',
+        );
+      }
+      previousNodeEnd = segment.answerNodeEnd;
+      previousPartIndex = segment.partIndex;
     }
     return SupplementalAnswerFragment._(
       fragmentId: fragmentId,
@@ -177,6 +196,11 @@ final class SupplementalAnswerFragment {
 /// prove that a chosen answer offset really sits on a source-part boundary. It
 /// never identifies an answer boundary by itself, never carries target
 /// knowledge, and is never persisted.
+///
+/// A fragment accepts a segment only after proving that the segment content
+/// really is the answer content of its own range, that its [sourceRef] is one
+/// of the fragment refs, and that part indexes strictly increase, so an
+/// accepted segment is verified evidence rather than a claim.
 final class SupplementalAnswerPartSegment {
   SupplementalAnswerPartSegment({
     required this.partIndex,

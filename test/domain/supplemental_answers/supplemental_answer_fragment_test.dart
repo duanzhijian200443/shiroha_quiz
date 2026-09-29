@@ -157,6 +157,32 @@ void main() {
       );
     });
 
+    test('rejects a segment whose content is not the answer node range', () {
+      expect(
+        () => _fragment(
+          answerContent: _nodes(['(', 'A).']),
+          evidence: <SupplementalAnswerPartSegment>[
+            SupplementalAnswerPartSegment(
+              partIndex: 2,
+              answerNodeStart: 0,
+              answerNodeEnd: 1,
+              content: _text('('),
+              sourceRef: _ref(),
+            ),
+            // Same node count, same range shape, different content.
+            SupplementalAnswerPartSegment(
+              partIndex: 3,
+              answerNodeStart: 1,
+              answerNodeEnd: 2,
+              content: _text('B).'),
+              sourceRef: _ref(),
+            ),
+          ],
+        ),
+        throwsFormatException,
+      );
+    });
+
     test('rejects evidence that leaves the fragment source', () {
       expect(
         () => _fragment(
@@ -168,6 +194,51 @@ void main() {
               content: _text('x = 2'),
               sourceRef: SourceRef.document(sourceId: 'artifact_other'),
             ),
+          ],
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('rejects a same-artifact ref that is not a fragment ref', () {
+      expect(
+        () => _fragment(
+          evidence: <SupplementalAnswerPartSegment>[
+            SupplementalAnswerPartSegment(
+              partIndex: 0,
+              answerNodeStart: 0,
+              answerNodeEnd: 1,
+              content: _text('x = 2'),
+              sourceRef: SourceRef.at(
+                sourceId: 'artifact_001',
+                point: SourcePoint.page(pageNumber: 9),
+              ),
+            ),
+          ],
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('rejects evidence whose part order does not increase', () {
+      RichContent answer() => _nodes(['a', 'b']);
+
+      expect(
+        () => _fragment(
+          answerContent: answer(),
+          evidence: <SupplementalAnswerPartSegment>[
+            _segment(partIndex: 3, start: 0, end: 1, text: 'a'),
+            _segment(partIndex: 3, start: 1, end: 2, text: 'b'),
+          ],
+        ),
+        throwsFormatException,
+      );
+      expect(
+        () => _fragment(
+          answerContent: answer(),
+          evidence: <SupplementalAnswerPartSegment>[
+            _segment(partIndex: 5, start: 0, end: 1, text: 'a'),
+            _segment(partIndex: 4, start: 1, end: 2, text: 'b'),
           ],
         ),
         throwsFormatException,

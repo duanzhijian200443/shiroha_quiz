@@ -149,10 +149,13 @@ Rules:
   part: its source `partIndex`, the exact `RichContent` that part contributed,
   the `SourceRef` of that same part, and the node range that contribution
   occupies inside `answerContent`;
-- the list is ordered, non-overlapping, and bound to the fragment's own answer
-  nodes; a segment whose content does not match its node range, which leaves
-  the fragment source, or which runs outside `answerContent` fails closed at
-  construction;
+- the list is verified at construction and is never trusted by shape alone:
+  each segment's content must be structurally equal to the `answerContent`
+  nodes of its own range, its `SourceRef` must be one of the fragment's own
+  refs, and its `partIndex` must strictly increase. A content mismatch, a
+  foreign ref, a repeated or out-of-order part index, an overlapping range, or
+  a range outside `answerContent` fails closed, so an accepted segment is
+  verified evidence rather than a claim;
 - an absent or empty list means the answer content carries no provable part
   boundary; fragments built without evidence keep their previous construction
   and equality behavior;

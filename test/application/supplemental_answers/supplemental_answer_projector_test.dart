@@ -6,6 +6,7 @@ import 'package:shiroha_quiz/domain/content/rich_content.dart';
 import 'package:shiroha_quiz/domain/source/source_document.dart';
 import 'package:shiroha_quiz/domain/source/source_part.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
+import 'package:shiroha_quiz/domain/supplemental_answers/rich_content_equality.dart';
 import 'package:shiroha_quiz/domain/supplemental_answers/supplemental_answer_fragment.dart';
 
 void main() {
@@ -778,6 +779,18 @@ void main() {
       for (final segment in fragment.answerPartEvidence) {
         expect(segment.sourceRef,
             same(document.parts[segment.partIndex].sourceRef));
+        expect(
+          richContentEquals(
+            RichContent(
+              nodes: fragment.answerContent.nodes.sublist(
+                segment.answerNodeStart,
+                segment.answerNodeEnd,
+              ),
+            ),
+            segment.content,
+          ),
+          isTrue,
+        );
       }
     });
 
