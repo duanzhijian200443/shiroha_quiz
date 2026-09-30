@@ -6,6 +6,7 @@ import '../../application/supplemental_answers/supplemental_answer_failure.dart'
 import '../../application/supplemental_answers/supplemental_answer_review_session.dart';
 import '../../application/supplemental_answers/supplemental_answer_source_acquisition_service.dart';
 import '../../application/u1_workspace/u1_workspace_dtos.dart';
+import '../../core/observability/diagnostic_summary.dart';
 import '../../domain/supplemental_answers/supplemental_answer_scope.dart';
 import '../dependencies/supplemental_answer_dependencies_scope.dart';
 
@@ -69,7 +70,9 @@ class _SupplementalAnswerSourcePickerSheetState
     extends State<SupplementalAnswerSourcePickerSheet> {
   late Future<List<LibraryFileSummary>> _files;
   String? _errorMessage;
+  String? _errorTrace;
   String? _noticeMessage;
+  String? _noticeTrace;
   String? _busyLabel;
   String? _startingFileId;
   bool _picking = false;
@@ -104,7 +107,9 @@ class _SupplementalAnswerSourcePickerSheetState
     setState(() {
       _picking = true;
       _errorMessage = null;
+      _errorTrace = null;
       _noticeMessage = null;
+      _noticeTrace = null;
     });
 
     final FilePickerResult? result;
@@ -163,7 +168,9 @@ class _SupplementalAnswerSourcePickerSheetState
     setState(() {
       _startingFileId = file.fileId;
       _errorMessage = null;
+      _errorTrace = null;
       _noticeMessage = null;
+      _noticeTrace = null;
     });
     try {
       final session = await widget.service.startSession(
@@ -177,6 +184,7 @@ class _SupplementalAnswerSourcePickerSheetState
       setState(() {
         _startingFileId = null;
         _errorMessage = _messageFor(error.failure);
+        _errorTrace = _traceIdText(error.correlationId, error.traceId);
       });
     } catch (_) {
       if (!mounted) return;
@@ -192,14 +200,22 @@ class _SupplementalAnswerSourcePickerSheetState
       case SupplementalAnswerSourceReady(:final session):
         setState(() => _busyLabel = null);
         Navigator.of(context).pop(session);
-      case SupplementalAnswerSourceOcrRequired(:final fileId):
+      case SupplementalAnswerSourceOcrRequired(
+          :final fileId,
+          :final correlationId,
+          :final traceId,
+        ):
         setState(() => _busyLabel = null);
         _reloadFiles();
-        final confirmed = await _confirmOcr();
+        final confirmed = await _confirmOcr(
+          correlationId: correlationId,
+          traceId: traceId,
+        );
         if (!mounted) return;
         if (confirmed != true) {
           setState(() {
             _noticeMessage = '已取消 OCR 识别。该文件已添加到文件库，可稍后解析。';
+            _noticeTrace = _traceIdText(correlationId, traceId);
           });
           return;
         }
@@ -207,31 +223,55 @@ class _SupplementalAnswerSourcePickerSheetState
         final next = await widget.sourceAcquisition.continueWithOcr(
           targetScope: widget.targetScope,
           fileId: fileId,
+          correlationId: correlationId,
+          parentTraceId: traceId,
           onPhase: _onPhase,
         );
         if (!mounted) return;
         await _handleOutcome(next);
-      case SupplementalAnswerSourceFailed(:final failure):
+      case SupplementalAnswerSourceFailed(
+          :final failure,
+          :final correlationId,
+          :final traceId,
+        ):
         setState(() {
           _busyLabel = null;
           _errorMessage = _messageForSourceFailure(failure);
+          _errorTrace = _traceIdText(correlationId, traceId);
         });
     }
   }
 
   /// The canonical OCR-UX confirmation: OCR happens only after this explicit
   /// user decision, and cancelling keeps the ingested file untouched.
-  Future<bool?> _confirmOcr() {
+  Future<bool?> _confirmOcr({
+    required String? correlationId,
+    required String? traceId,
+  }) {
     return showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         key: const ValueKey<String>('supplemental-ocr-dialog'),
         title: const Text('未检测到可提取文本'),
-        content: const Text(
-          '这个 PDF 可能是扫描版。\n'
-          '是否使用 OCR 识别文件内容？\n\n'
-          '继续后，文件内容会发送到当前配置的 OCR 服务。\n'
-          'OCR 只用于生成可检索的文件内容，不会自动生成或修改题目。',
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '这个 PDF 可能是扫描版。\n'
+              '是否使用 OCR 识别文件内容？\n\n'
+              '继续后，文件内容会发送到当前配置的 OCR 服务。\n'
+              'OCR 只用于生成可检索的文件内容，不会自动生成或修改题目。',
+            ),
+            if (_traceIdText(correlationId, traceId) case final traceText?) ...[
+              const SizedBox(height: 12),
+              SelectableText(
+                traceText,
+                key: const ValueKey<String>('supplemental-ocr-trace-ids'),
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ],
+          ],
         ),
         actions: [
           TextButton(
@@ -302,11 +342,11 @@ class _SupplementalAnswerSourcePickerSheetState
               ],
               if (_noticeMessage case final notice?) ...[
                 const SizedBox(height: 10),
-                _NoticeBanner(message: notice),
+                _NoticeBanner(message: notice, trace: _noticeTrace),
               ],
               if (_errorMessage case final message?) ...[
                 const SizedBox(height: 10),
-                _ErrorBanner(message: message),
+                _ErrorBanner(message: message, trace: _errorTrace),
               ],
               const SizedBox(height: 8),
               const Row(
@@ -431,6 +471,17 @@ String _messageForSourceFailure(SupplementalAnswerSourceFailure failure) {
   };
 }
 
+String? _traceIdText(String? correlationId, String? traceId) {
+  final ids = <String>[
+    if (correlationId != null &&
+        DiagnosticSummaryFormatter.isValidDiagnosticId(correlationId))
+      '诊断编号：$correlationId',
+    if (traceId != null && DiagnosticSummaryFormatter.isSafeToken(traceId))
+      'Trace ID：$traceId',
+  ];
+  return ids.isEmpty ? null : ids.join('\n');
+}
+
 String _formatSize(int bytes) {
   if (bytes < 1024) return '$bytes B';
   if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
@@ -452,9 +503,10 @@ class _SheetNotice extends StatelessWidget {
 }
 
 class _NoticeBanner extends StatelessWidget {
-  const _NoticeBanner({required this.message});
+  const _NoticeBanner({required this.message, this.trace});
 
   final String message;
+  final String? trace;
 
   @override
   Widget build(BuildContext context) {
@@ -465,18 +517,31 @@ class _NoticeBanner extends StatelessWidget {
         color: Colors.grey.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Text(
-        message,
-        style: const TextStyle(fontSize: 13),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            message,
+            style: const TextStyle(fontSize: 13),
+          ),
+          if (trace case final traceText?) ...[
+            const SizedBox(height: 4),
+            SelectableText(
+              traceText,
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ],
       ),
     );
   }
 }
 
 class _ErrorBanner extends StatelessWidget {
-  const _ErrorBanner({required this.message});
+  const _ErrorBanner({required this.message, this.trace});
 
   final String message;
+  final String? trace;
 
   @override
   Widget build(BuildContext context) {
@@ -488,9 +553,21 @@ class _ErrorBanner extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: Colors.redAccent.withValues(alpha: 0.4)),
       ),
-      child: Text(
-        message,
-        style: const TextStyle(color: Colors.redAccent, fontSize: 13),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            message,
+            style: const TextStyle(color: Colors.redAccent, fontSize: 13),
+          ),
+          if (trace case final traceText?) ...[
+            const SizedBox(height: 4),
+            SelectableText(
+              traceText,
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ],
       ),
     );
   }

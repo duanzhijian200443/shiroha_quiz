@@ -119,6 +119,8 @@ final class SupplementalAnswerReviewSession {
     required SupplementalAnswerMatchRequest request,
     required TargetQuestionSnapshot snapshot,
     required SupplementalMatchResult matchResult,
+    String? correlationId,
+    String? traceId,
   }) {
     return SupplementalAnswerReviewSession._(
       request: request,
@@ -127,6 +129,8 @@ final class SupplementalAnswerReviewSession {
         records: List<AnswerMatchRecord>.unmodifiable(matchResult.records),
         coverage: List.unmodifiable(matchResult.coverage),
       ),
+      correlationId: correlationId,
+      traceId: traceId,
       authority: _SessionAuthority(),
       sessionRevision: 0,
       verifiedIds: const <String>{},
@@ -143,6 +147,8 @@ final class SupplementalAnswerReviewSession {
     required this.request,
     required this.snapshot,
     required this.matchResult,
+    required this.correlationId,
+    required this.traceId,
     required this.core,
     required _SessionAuthority authority,
     required this.sessionRevision,
@@ -153,6 +159,13 @@ final class SupplementalAnswerReviewSession {
   final SupplementalAnswerMatchRequest request;
   final TargetQuestionSnapshot snapshot;
   final SupplementalMatchResult matchResult;
+
+  /// User-level diagnostic identifier, shared by child traces in this flow.
+  final String? correlationId;
+
+  /// Trace identifier for the operation that created this review session.
+  final String? traceId;
+
   final AnswerCandidateReviewSession core;
 
   List<AnswerMatchRecord> get records => matchResult.records;
@@ -388,6 +401,8 @@ final class SupplementalAnswerReviewSession {
       request: request,
       snapshot: snapshot,
       matchResult: matchResult,
+      correlationId: correlationId,
+      traceId: traceId,
       core: core,
       authority: _authority,
       sessionRevision: nextRevision,

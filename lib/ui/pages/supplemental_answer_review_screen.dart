@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../application/supplemental_answers/supplemental_answer_command.dart';
 import '../../application/supplemental_answers/supplemental_answer_failure.dart';
 import '../../application/supplemental_answers/supplemental_answer_review_session.dart';
 import '../../application/supplemental_answers/supplemental_source_inspection.dart';
+import '../../core/observability/diagnostic_summary.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../../domain/supplemental_answers/answer_candidate.dart';
 import '../pages/supplemental_source_viewer.dart';
@@ -75,6 +77,23 @@ class _SupplementalAnswerReviewScreenState
   final Set<String> _replaceArmedIds = <String>{};
   bool _confirming = false;
   String? _errorMessage;
+
+  Future<void> _copyTraceInfo() async {
+    final lines = _traceLines(_session.correlationId, _session.traceId);
+    if (lines.isEmpty) return;
+    try {
+      await Clipboard.setData(ClipboardData(text: lines.join('\n')));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('诊断信息已复制')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('诊断信息复制失败')),
+      );
+    }
+  }
 
   /// One inspected original per candidate. Obtaining an inspection only
   /// enables the explicit verify action; it never verifies by itself.
@@ -265,6 +284,15 @@ class _SupplementalAnswerReviewScreenState
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          if (_traceLines(_session.correlationId, _session.traceId)
+              .isNotEmpty) ...[
+            _SupplementalTraceBanner(
+              correlationId: _session.correlationId,
+              traceId: _session.traceId,
+              onCopy: _copyTraceInfo,
+            ),
+            const SizedBox(height: 12),
+          ],
           if (_errorMessage != null) ...[
             _ErrorBanner(message: _errorMessage!),
             const SizedBox(height: 12),
@@ -909,6 +937,66 @@ class _ErrorBanner extends StatelessWidget {
       child: Text(
         message,
         style: const TextStyle(color: Colors.redAccent, fontSize: 13),
+      ),
+    );
+  }
+}
+
+/// The user-facing trace lines, gated by the frozen OBS-1 §21 validation:
+/// only a strictly valid diagnostic id and a safe trace token are rendered
+/// or copied; anything else is omitted.
+List<String> _traceLines(String? correlationId, String? traceId) {
+  return <String>[
+    if (correlationId != null &&
+        DiagnosticSummaryFormatter.isValidDiagnosticId(correlationId))
+      '诊断编号：$correlationId',
+    if (traceId != null && DiagnosticSummaryFormatter.isSafeToken(traceId))
+      'Trace ID：$traceId',
+  ];
+}
+
+class _SupplementalTraceBanner extends StatelessWidget {
+  const _SupplementalTraceBanner({
+    required this.correlationId,
+    required this.traceId,
+    required this.onCopy,
+  });
+
+  final String? correlationId;
+  final String? traceId;
+  final VoidCallback onCopy;
+
+  @override
+  Widget build(BuildContext context) {
+    final lines = _traceLines(correlationId, traceId);
+    if (lines.isEmpty) return const SizedBox.shrink();
+    return Container(
+      key: const ValueKey<String>('supplemental-answer-trace-info'),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Theme.of(context).dividerColor),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          const Icon(Icons.tag, size: 18, color: Colors.grey),
+          const SizedBox(width: 8),
+          Expanded(
+            child: SelectableText(
+              lines.join('\n'),
+              key: const ValueKey<String>('supplemental-answer-trace-ids'),
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ),
+          IconButton(
+            key: const ValueKey<String>('supplemental-answer-copy-trace'),
+            tooltip: '复制诊断信息',
+            onPressed: onCopy,
+            icon: const Icon(Icons.copy, size: 18),
+          ),
+        ],
       ),
     );
   }

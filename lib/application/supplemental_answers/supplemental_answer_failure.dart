@@ -24,9 +24,15 @@ enum SupplementalAnswerFailure {
 /// Retains no raw cause, SQL, path, storage key, provider body, payload, or
 /// user content; [toString] renders one fixed safe message per failure.
 final class SupplementalAnswerException implements Exception {
-  const SupplementalAnswerException(this.failure);
+  const SupplementalAnswerException(
+    this.failure, {
+    this.correlationId,
+    this.traceId,
+  });
 
   final SupplementalAnswerFailure failure;
+  final String? correlationId;
+  final String? traceId;
 
   @override
   String toString() {
