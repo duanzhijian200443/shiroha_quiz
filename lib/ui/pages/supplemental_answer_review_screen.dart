@@ -5,6 +5,7 @@ import '../../application/supplemental_answers/supplemental_answer_command.dart'
 import '../../application/supplemental_answers/supplemental_answer_failure.dart';
 import '../../application/supplemental_answers/supplemental_answer_review_session.dart';
 import '../../application/supplemental_answers/supplemental_source_inspection.dart';
+import '../../core/observability/diagnostic_summary.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../../domain/supplemental_answers/answer_candidate.dart';
 import '../pages/supplemental_source_viewer.dart';
@@ -78,21 +79,18 @@ class _SupplementalAnswerReviewScreenState
   String? _errorMessage;
 
   Future<void> _copyTraceInfo() async {
-    final lines = <String>[
-      if (_session.correlationId case final id?) '诊断编号：$id',
-      if (_session.traceId case final id?) 'Trace ID：$id',
-    ];
+    final lines = _traceLines(_session.correlationId, _session.traceId);
     if (lines.isEmpty) return;
     try {
       await Clipboard.setData(ClipboardData(text: lines.join('\n')));
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('追踪信息已复制')),
+        const SnackBar(content: Text('诊断信息已复制')),
       );
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('复制追踪信息失败')),
+        const SnackBar(content: Text('诊断信息复制失败')),
       );
     }
   }
@@ -286,7 +284,8 @@ class _SupplementalAnswerReviewScreenState
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          if (_session.correlationId != null || _session.traceId != null) ...[
+          if (_traceLines(_session.correlationId, _session.traceId)
+              .isNotEmpty) ...[
             _SupplementalTraceBanner(
               correlationId: _session.correlationId,
               traceId: _session.traceId,
@@ -943,6 +942,19 @@ class _ErrorBanner extends StatelessWidget {
   }
 }
 
+/// The user-facing trace lines, gated by the frozen OBS-1 §21 validation:
+/// only a strictly valid diagnostic id and a safe trace token are rendered
+/// or copied; anything else is omitted.
+List<String> _traceLines(String? correlationId, String? traceId) {
+  return <String>[
+    if (correlationId != null &&
+        DiagnosticSummaryFormatter.isValidDiagnosticId(correlationId))
+      '诊断编号：$correlationId',
+    if (traceId != null && DiagnosticSummaryFormatter.isSafeToken(traceId))
+      'Trace ID：$traceId',
+  ];
+}
+
 class _SupplementalTraceBanner extends StatelessWidget {
   const _SupplementalTraceBanner({
     required this.correlationId,
@@ -956,10 +968,7 @@ class _SupplementalTraceBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final lines = <String>[
-      if (correlationId case final id?) '诊断编号：$id',
-      if (traceId case final id?) 'Trace ID：$id',
-    ];
+    final lines = _traceLines(correlationId, traceId);
     if (lines.isEmpty) return const SizedBox.shrink();
     return Container(
       key: const ValueKey<String>('supplemental-answer-trace-info'),
@@ -983,7 +992,7 @@ class _SupplementalTraceBanner extends StatelessWidget {
           ),
           IconButton(
             key: const ValueKey<String>('supplemental-answer-copy-trace'),
-            tooltip: '复制追踪信息',
+            tooltip: '复制诊断信息',
             onPressed: onCopy,
             icon: const Icon(Icons.copy, size: 18),
           ),

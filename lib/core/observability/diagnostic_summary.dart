@@ -66,6 +66,11 @@ abstract final class DiagnosticSummaryFormatter {
   static bool isValidDiagnosticId(String value) =>
       TraceContext.isValidCorrelationId(value);
 
+  /// True only for values matching the frozen safe token/category pattern
+  /// (letters, digits, underscore, hyphen; 1-64). UI affordances use this to
+  /// gate secondary fields such as `traceId`.
+  static bool isSafeToken(String value) => _tokenPattern.hasMatch(value);
+
   static String? format(DiagnosticSummary summary) {
     final diagnosticId = summary.diagnosticId;
     final operation = summary.operation;

@@ -489,6 +489,47 @@ void main() {
     expect(find.text('不可写入项'), findsOneWidget);
     expect(find.textContaining('ambiguous'), findsOneWidget);
   });
+
+  testWidgets('R15: the banner and copy render strictly valid trace ids',
+      (tester) async {
+    await _pumpReview(
+      tester,
+      session: _session(
+        targets: [_target('q_1', number: 1)],
+        fragments: [_fragment('frag_1', main: '1', answer: 'A')],
+        correlationId: 'OBS-AAAA-BBBB',
+        traceId: 'trace-1-abcd',
+      ),
+    );
+
+    expect(
+      find.byKey(const ValueKey<String>('supplemental-answer-trace-info')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('诊断编号：OBS-AAAA-BBBB'), findsOneWidget);
+    expect(find.textContaining('Trace ID：trace-1-abcd'), findsOneWidget);
+    expect(find.byTooltip('复制诊断信息'), findsOneWidget);
+  });
+
+  testWidgets('R16: invalid trace ids are omitted from the banner and copy',
+      (tester) async {
+    await _pumpReview(
+      tester,
+      session: _session(
+        targets: [_target('q_1', number: 1)],
+        fragments: [_fragment('frag_1', main: '1', answer: 'A')],
+        correlationId: 'not-a-diagnostic-id',
+        traceId: 'bad id!',
+      ),
+    );
+
+    expect(
+      find.byKey(const ValueKey<String>('supplemental-answer-trace-info')),
+      findsNothing,
+    );
+    expect(find.textContaining('诊断编号：'), findsNothing);
+    expect(find.textContaining('Trace ID：'), findsNothing);
+  });
 }
 
 Future<void> _verifyOriginalSource(
@@ -544,6 +585,8 @@ SupplementalAnswerReviewSession _choiceSession() {
 SupplementalAnswerReviewSession _session({
   required List<AnswerTargetReference> targets,
   required List<SupplementalAnswerFragment> fragments,
+  String? correlationId,
+  String? traceId,
 }) {
   const matcher = SupplementalAnswerMatcher();
   final snapshot = TargetQuestionSnapshot(
@@ -562,6 +605,8 @@ SupplementalAnswerReviewSession _session({
     ),
     snapshot: snapshot,
     matchResult: result,
+    correlationId: correlationId,
+    traceId: traceId,
   );
 }
 

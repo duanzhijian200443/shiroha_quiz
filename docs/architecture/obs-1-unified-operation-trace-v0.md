@@ -437,3 +437,33 @@ The successor keeps OBS-1 identity, propagation, privacy and best-effort
 logging invariants. Its fixed lifecycle and safe field whitelist are frozen in
 `dm-d5-destructive-presentation-and-tool-boundary.md`. It adds no telemetry,
 schema, user-content logging, autonomous Agent authority or MCP tool.
+
+## 30. Post-OBS-1 extension note — P6 supplemental-answer diagnostics
+
+OBS-1 v0 above remains historically CLOSED/FROZEN. The P6 supplemental-answer
+flow later adopts the OBS-1 correlation/trace identity as a successor
+extension; this does not retroactively change OBS-1 v0 scope.
+
+- Each direct acquisition (`addSourceAndStart`) and each activation
+  (`startSession`) runs as an operation: a new correlation when none is
+  supplied, a new trace, and `parentTraceId = null` unless a valid parent is
+  supplied. An explicit OCR continuation (`continueWithOcr`) is a new
+  operation that keeps the acquisition correlation and sets `parentTraceId`
+  to the acquisition trace (the frozen Import retry lineage shape).
+  Unrecognized correlation/trace values are replaced with fresh ones instead
+  of being propagated.
+- The P6 review session carries the identity of the operation that created
+  it, and every review transition preserves it.
+- User-facing P6 diagnostics display `诊断编号：OBS-XXXX-XXXX` and the
+  technical `Trace ID：trace-...` on the review banner, the acquisition
+  failure/notice surfaces, and the OCR confirmation. The affordances and the
+  `复制诊断信息` action appear and copy only after the §21 strict validation
+  passes (`DiagnosticSummaryFormatter.isValidDiagnosticId` for the diagnostic
+  id; the fixed safe token pattern for the trace id); values that fail the
+  validation are omitted.
+- P6 diagnostic records stay structured whitelist metadata only (event,
+  stage, status, counts, durations, fixed `failureCode`/`errorType`, opaque
+  structural fragment ids). Question/answer content, file paths, provider
+  bodies and raw exceptions are never logged; logging remains best effort.
+- This extension adds no `TraceOperationKind` value, no schema change, no
+  telemetry, and no P6 matching/write-authority change.

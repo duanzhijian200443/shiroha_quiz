@@ -18,6 +18,8 @@ import 'package:shiroha_quiz/application/file_library/file_library_ports.dart';
 import 'package:shiroha_quiz/application/parsed_artifacts/parsed_artifact_lifecycle.dart';
 import 'package:shiroha_quiz/application/supplemental_answers/supplemental_answer_command.dart';
 import 'package:shiroha_quiz/application/supplemental_answers/supplemental_answer_target_port.dart';
+import 'package:shiroha_quiz/core/observability/log_record.dart';
+import 'package:shiroha_quiz/core/observability/log_writer.dart';
 import 'package:shiroha_quiz/domain/answers/answer_candidate.dart';
 import 'package:shiroha_quiz/domain/assets/library_file.dart';
 import 'package:shiroha_quiz/domain/assets/parsed_artifact.dart';
@@ -246,6 +248,100 @@ void main() {
     expect(find.text('无法添加文件，请确认文件可读取后重试。'), findsOneWidget);
     expect(find.byType(SupplementalAnswerReviewScreen), findsNothing);
     expect(harness.artifacts.ensureRoutes, isEmpty);
+  });
+
+  testWidgets('an ingestion failure shows trace ids consistent with the log',
+      (tester) async {
+    final records = <LogRecord>[];
+    LogWriter.setRecordHandler(records.add);
+    addTearDown(() => LogWriter.setRecordHandler(null));
+
+    final harness = await _pumpSetDetail(
+      tester,
+      ingestionFailure: StateError('copy failed'),
+    );
+    harness.pickedFiles.add(
+      _pickedFile(name: 'answers.pdf', path: r'C:\picked\answers.pdf'),
+    );
+
+    await tester.tap(find.text('从答案文件补充'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('添加答案文件'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('无法添加文件，请确认文件可读取后重试。'), findsOneWidget);
+
+    final failed = records.singleWhere(
+      (record) =>
+          record.message == 'supplemental_source_acquisition_completed' &&
+          record.data['status'] == 'failed',
+    );
+    final correlationId = failed.correlationId;
+    final traceId = failed.traceId;
+    expect(correlationId, isNotNull);
+    expect(traceId, isNotNull);
+    expect(failed.parentTraceId, isNull);
+    expect(find.textContaining('诊断编号：$correlationId'), findsOneWidget);
+    expect(find.textContaining('Trace ID：$traceId'), findsOneWidget);
+  });
+
+  testWidgets(
+      'the confirmed OCR continuation keeps the correlation and links a child trace',
+      (tester) async {
+    final records = <LogRecord>[];
+    LogWriter.setRecordHandler(records.add);
+    addTearDown(() => LogWriter.setRecordHandler(null));
+
+    final harness = await _pumpSetDetail(
+      tester,
+      deterministicFailure: ParsedArtifactLifecycleFailure.sourceUnavailable,
+      displayName: 'scanned.pdf',
+    );
+    harness.pickedFiles.add(
+      _pickedFile(name: 'scanned.pdf', path: r'C:\picked\scanned.pdf'),
+    );
+
+    await tester.tap(find.text('从答案文件补充'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('添加答案文件'));
+    await tester.pumpAndSettle();
+
+    // The OCR confirmation carries the acquisition ids before any OCR runs.
+    final first = records.singleWhere(
+      (record) =>
+          record.message == 'supplemental_source_acquisition_completed' &&
+          record.data['status'] == 'ocr_required',
+    );
+    expect(first.correlationId, isNotNull);
+    expect(first.traceId, isNotNull);
+    expect(first.parentTraceId, isNull);
+    expect(
+      find.textContaining('诊断编号：${first.correlationId}'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Trace ID：${first.traceId}'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('supplemental-ocr-confirm')),
+    );
+    await tester.pumpAndSettle();
+
+    final ready = records.singleWhere(
+      (record) =>
+          record.message == 'supplemental_source_acquisition_completed' &&
+          record.data['status'] == 'ready',
+    );
+    expect(ready.correlationId, first.correlationId);
+    expect(ready.traceId, isNot(first.traceId));
+    expect(ready.parentTraceId, first.traceId);
+
+    final session = tester
+        .widget<SupplementalAnswerReviewScreen>(
+          find.byType(SupplementalAnswerReviewScreen),
+        )
+        .session;
+    expect(session.correlationId, first.correlationId);
+    expect(session.traceId, ready.traceId);
   });
 }
 

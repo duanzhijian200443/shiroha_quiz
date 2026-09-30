@@ -17,6 +17,8 @@ import 'package:shiroha_quiz/application/file_library/file_library_ports.dart';
 import 'package:shiroha_quiz/application/parsed_artifacts/parsed_artifact_lifecycle.dart';
 import 'package:shiroha_quiz/application/supplemental_answers/supplemental_answer_command.dart';
 import 'package:shiroha_quiz/application/supplemental_answers/supplemental_answer_target_port.dart';
+import 'package:shiroha_quiz/core/observability/log_record.dart';
+import 'package:shiroha_quiz/core/observability/log_writer.dart';
 import 'package:shiroha_quiz/application/supplemental_answers/supplemental_source_inspection.dart';
 import 'package:shiroha_quiz/domain/answers/answer_candidate.dart';
 import 'package:shiroha_quiz/domain/assets/library_file.dart';
@@ -211,6 +213,45 @@ void main() {
     expect(artifacts.getCurrentArtifactCalls, 1);
     expect(artifacts.ensureCalls, 0);
     expect(artifacts.reparseCalls, 0);
+  });
+
+  testWidgets('an activation failure shows trace ids consistent with the log',
+      (tester) async {
+    final records = <LogRecord>[];
+    LogWriter.setRecordHandler(records.add);
+    addTearDown(() => LogWriter.setRecordHandler(null));
+
+    final targets = _TargetFixture([_typedRead()]);
+    final artifacts = _FakeArtifactPort(
+      failure: ParsedArtifactLifecycleFailure.artifactMissing,
+    );
+
+    await _pumpSetDetail(
+      tester,
+      files: [_libraryFile('unparsed.pdf')],
+      targets: targets,
+      artifacts: artifacts,
+    );
+
+    await tester.tap(find.text('从答案文件补充'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('unparsed.pdf'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('该文件尚未完成内容解析，请先在文件库中解析后再试。'), findsOneWidget);
+
+    final failed = records.singleWhere(
+      (record) =>
+          record.message == 'supplemental_review_failed' &&
+          record.data['failureCode'] == 'sourceUnavailable',
+    );
+    final correlationId = failed.correlationId;
+    final traceId = failed.traceId;
+    expect(correlationId, isNotNull);
+    expect(traceId, isNotNull);
+    expect(find.textContaining('诊断编号：$correlationId'), findsOneWidget);
+    expect(find.textContaining('Trace ID：$traceId'), findsOneWidget);
+    expect(find.byType(SupplementalAnswerReviewScreen), findsNothing);
   });
 
   testWidgets('tapping again while starting starts no second session',
