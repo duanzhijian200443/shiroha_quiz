@@ -1,3 +1,5 @@
+import '../../core/observability/log_writer.dart';
+import '../../core/observability/trace_context.dart';
 import '../../domain/assets/library_file.dart';
 import '../../domain/supplemental_answers/supplemental_answer_scope.dart';
 import '../file_library/file_library_ports.dart';
@@ -91,17 +93,29 @@ final class SupplementalAnswerSourceReady
 /// it never carries a storage key, managed path, or digest.
 final class SupplementalAnswerSourceOcrRequired
     extends SupplementalAnswerSourceOutcome {
-  const SupplementalAnswerSourceOcrRequired({required this.fileId});
+  const SupplementalAnswerSourceOcrRequired({
+    required this.fileId,
+    this.correlationId,
+    this.traceId,
+  });
 
   final String fileId;
+  final String? correlationId;
+  final String? traceId;
 }
 
 /// The acquisition stopped with one bounded safe failure.
 final class SupplementalAnswerSourceFailed
     extends SupplementalAnswerSourceOutcome {
-  const SupplementalAnswerSourceFailed(this.failure);
+  const SupplementalAnswerSourceFailed(
+    this.failure, {
+    this.correlationId,
+    this.traceId,
+  });
 
   final SupplementalAnswerSourceFailure failure;
+  final String? correlationId;
+  final String? traceId;
 }
 
 /// Direct supplemental-source acquisition: external file -> File Library ->
@@ -136,6 +150,23 @@ final class SupplementalAnswerSourceAcquisitionService {
   /// [externalPath] is a transient picker result: it is passed to ingestion and
   /// never stored, returned, logged, or used as durable identity.
   Future<SupplementalAnswerSourceOutcome> addSourceAndStart({
+    required SupplementalAnswerTargetScope targetScope,
+    required String externalPath,
+    required String displayName,
+    SupplementalAnswerSourceProgress? onPhase,
+  }) async {
+    return _runTracedAcquisition(
+      correlationId: TraceContext.createCorrelationId(),
+      action: () => _addSourceAndStart(
+        targetScope: targetScope,
+        externalPath: externalPath,
+        displayName: displayName,
+        onPhase: onPhase,
+      ),
+    );
+  }
+
+  Future<SupplementalAnswerSourceOutcome> _addSourceAndStart({
     required SupplementalAnswerTargetScope targetScope,
     required String externalPath,
     required String displayName,
@@ -185,6 +216,24 @@ final class SupplementalAnswerSourceAcquisitionService {
   /// Only the Presentation may call this, and only after the user confirmed the
   /// canonical OCR dialog; the `ocr_pdf` route is never selected implicitly.
   Future<SupplementalAnswerSourceOutcome> continueWithOcr({
+    required SupplementalAnswerTargetScope targetScope,
+    required String fileId,
+    String? correlationId,
+    String? parentTraceId,
+    SupplementalAnswerSourceProgress? onPhase,
+  }) async {
+    return _runTracedAcquisition(
+      correlationId: correlationId,
+      parentTraceId: parentTraceId,
+      action: () => _continueWithOcr(
+        targetScope: targetScope,
+        fileId: fileId,
+        onPhase: onPhase,
+      ),
+    );
+  }
+
+  Future<SupplementalAnswerSourceOutcome> _continueWithOcr({
     required SupplementalAnswerTargetScope targetScope,
     required String fileId,
     SupplementalAnswerSourceProgress? onPhase,
@@ -258,6 +307,112 @@ final class SupplementalAnswerSourceAcquisitionService {
         SupplementalAnswerSourceFailure.internalError,
       );
     }
+  }
+
+  Future<SupplementalAnswerSourceOutcome> _runTracedAcquisition({
+    required Future<SupplementalAnswerSourceOutcome> Function() action,
+    String? correlationId,
+    String? parentTraceId,
+  }) {
+    final stopwatch = Stopwatch()..start();
+    final safeCorrelationId = correlationId != null &&
+            TraceContext.isValidCorrelationId(correlationId)
+        ? correlationId
+        : TraceContext.createCorrelationId();
+    return TraceContext.run<SupplementalAnswerSourceOutcome>(
+      traceId: TraceContext.createTraceId(),
+      correlationId: safeCorrelationId,
+      parentTraceId:
+          parentTraceId != null && _traceIdPattern.hasMatch(parentTraceId)
+              ? parentTraceId
+              : null,
+      action: () async {
+        _recordSourceEvent(
+          'supplemental_source_acquisition_started',
+          stage: 'acquisition',
+          status: 'started',
+        );
+        try {
+          final outcome = _attachTraceContext(await action());
+          final status = switch (outcome) {
+            SupplementalAnswerSourceReady() => 'ready',
+            SupplementalAnswerSourceOcrRequired() => 'ocr_required',
+            SupplementalAnswerSourceFailed() => 'failed',
+          };
+          _recordSourceEvent(
+            'supplemental_source_acquisition_completed',
+            stage: 'acquisition',
+            status: status,
+            data: <String, Object?>{
+              if (outcome case SupplementalAnswerSourceFailed(:final failure))
+                'failureCode': failure.name,
+              'durationMs': stopwatch.elapsedMilliseconds,
+            },
+          );
+          return outcome;
+        } catch (error) {
+          _recordSourceEvent(
+            'supplemental_source_acquisition_failed',
+            stage: 'acquisition',
+            status: 'failed',
+            data: <String, Object?>{
+              'failureCode': SupplementalAnswerSourceFailure.internalError.name,
+              'errorType': error.runtimeType.toString(),
+              'durationMs': stopwatch.elapsedMilliseconds,
+            },
+          );
+          return SupplementalAnswerSourceFailed(
+            SupplementalAnswerSourceFailure.internalError,
+            correlationId: TraceContext.correlationId,
+            traceId: TraceContext.traceId,
+          );
+        }
+      },
+    );
+  }
+
+  SupplementalAnswerSourceOutcome _attachTraceContext(
+    SupplementalAnswerSourceOutcome outcome,
+  ) {
+    return switch (outcome) {
+      SupplementalAnswerSourceReady() => outcome,
+      SupplementalAnswerSourceOcrRequired(:final fileId) =>
+        SupplementalAnswerSourceOcrRequired(
+          fileId: fileId,
+          correlationId: TraceContext.correlationId,
+          traceId: TraceContext.traceId,
+        ),
+      SupplementalAnswerSourceFailed(:final failure) =>
+        SupplementalAnswerSourceFailed(
+          failure,
+          correlationId: TraceContext.correlationId,
+          traceId: TraceContext.traceId,
+        ),
+    };
+  }
+}
+
+final _traceIdPattern = RegExp(r'^trace-\d+-[0-9a-f]+$');
+
+void _recordSourceEvent(
+  String event, {
+  required String stage,
+  required String status,
+  Map<String, Object?> data = const <String, Object?>{},
+}) {
+  try {
+    LogWriter.info(
+      event,
+      module: 'SupplementalAnswer',
+      data: <String, Object?>{
+        'event': event,
+        'stage': stage,
+        'status': status,
+        ...data,
+      },
+    );
+  } catch (_) {
+    // Diagnostic logging is best effort and never changes acquisition.
   }
 }
 
