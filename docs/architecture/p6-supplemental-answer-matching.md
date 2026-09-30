@@ -411,9 +411,17 @@ record user verification.
   transactional typed-answer CAS. P6 continues to use the same persistence
   port and typed mutation authority.
 
-The current Review UI has no source-verification interaction. Its fill and
-final replace confirmation therefore fail closed with zero writes until an
-explicitly authorized source-verification surface is provided.
+The P6 Review surface provides that interaction: the user opens the original
+source from an immutable `SupplementalSourceInspection`, then explicitly marks
+the candidate verified through `verifySource(candidateId, inspection)`; fill and
+replace confirmation stay disabled until that transition succeeds. Opening or
+reading the source is never verification, and the control is presentation only —
+the Application gate above remains the authority that rejects an unverified
+confirmation before either port. When no inspection service is wired, the
+inspection cannot be obtained, or the original format cannot be rendered
+in-app (DOCX and other unsupported MIME types never fall back to extracted
+text), the candidate stays `required` and its confirmation fails closed with
+zero writes.
 
 ## 12. Atomic stale protection
 
