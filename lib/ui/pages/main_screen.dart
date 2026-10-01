@@ -7,6 +7,7 @@ import '../../application/safe_write/agent_write_proposal_service.dart';
 import '../../application/study_plan/study_plan_command_service.dart';
 import '../../application/study_plan/study_plan_draft_service.dart';
 import '../../application/study_plan/study_plan_selection_service.dart';
+import '../../application/today/today_context_query.dart';
 import '../../application/u1_workspace/u1_workspace_facade.dart';
 import '../../application/questions/folder_query_port.dart';
 import '../../application/questions/question_bank_mutation_command.dart';
@@ -32,6 +33,7 @@ class MainScreen extends StatefulWidget {
     required this.conversationService,
     required this.agentSettingsService,
     required this.startAgentTurn,
+    this.todayContextQuery,
     this.questionListQuery,
     this.questionMutationPersistence,
     this.typedAnswerPersistence,
@@ -52,6 +54,7 @@ class MainScreen extends StatefulWidget {
   final ConversationService conversationService;
   final AgentSettingsService agentSettingsService;
   final AgentTurnStarter startAgentTurn;
+  final TodayContextQuery? todayContextQuery;
   final QuestionListQueryPort? questionListQuery;
   final QuestionMutationPersistencePort? questionMutationPersistence;
   final TypedAnswerPersistencePort? typedAnswerPersistence;
@@ -155,6 +158,7 @@ class _MainScreenState extends State<MainScreen> {
     final dependencies = AiDependenciesScope.of(context);
     final pages = <Widget>[
       HomePage(
+        todayContextQuery: widget.todayContextQuery,
         questionListQuery: widget.questionListQuery,
         questionMutationPersistence: widget.questionMutationPersistence,
         typedAnswerPersistence: widget.typedAnswerPersistence,

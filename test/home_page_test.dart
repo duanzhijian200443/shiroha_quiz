@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/today/today_context_query.dart';
 import 'package:shiroha_quiz/application/study_plan/study_plan_command_service.dart';
 import 'package:shiroha_quiz/application/study_plan/study_plan_draft_service.dart';
 import 'package:shiroha_quiz/application/study_plan/study_plan_ports.dart';
@@ -16,11 +17,25 @@ import 'package:shiroha_quiz/domain/study_plan/active_study_plan.dart';
 import 'package:shiroha_quiz/domain/study_plan/study_plan_values.dart';
 import 'package:shiroha_quiz/services/study_plan/study_plan_practice_session_launcher.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
+import 'package:shiroha_quiz/services/today/today_context_query_adapter.dart';
 import 'package:shiroha_quiz/ui/pages/home_page.dart';
 import 'package:shiroha_quiz/ui/pages/import_settings_screen.dart';
 import 'package:shiroha_quiz/ui/pages/practice_page.dart';
 import 'package:shiroha_quiz/ui/theme/app_theme.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+final class _StubTodayContextQuery implements TodayContextQuery {
+  _StubTodayContextQuery(this.read);
+
+  final Future<TodayContextSnapshot> Function() read;
+  int calls = 0;
+
+  @override
+  Future<TodayContextSnapshot> loadContext() {
+    calls++;
+    return read();
+  }
+}
 
 final class _StubPersistencePort implements StudyPlanPersistencePort {
   @override
@@ -239,6 +254,7 @@ void main() {
     VoidCallback? onImportRequested,
     VoidCallback? onPhotoImportRequested,
     ValueChanged<String>? onAskAssistant,
+    TodayContextQuery? todayContextQuery,
     StudyPlanSelectionService? studyPlanSelectionService,
     StudyPlanCommandService? studyPlanCommandService,
     StudyPlanPracticeSessionLauncher? studyPlanSessionLauncher,
@@ -259,6 +275,11 @@ void main() {
             textScaler: TextScaler.linear(textScale),
           ),
           child: HomePage(
+            todayContextQuery: todayContextQuery ??
+                TodayContextQueryAdapter(
+                  loadCurrentBank: SettingsRepository.instance.getCurrentBank,
+                  loadBankStats: ReviewEngineService().getBankStats,
+                ),
             taskManager: taskManager,
             onSwitchBank: onSwitchBank,
             onPracticeRequested: onPracticeRequested,
@@ -292,6 +313,39 @@ void main() {
       await pumpUntilFound(tester, find.byKey(waitFor));
     }
   }
+
+  testWidgets('ordinary UI consumes the injected Application snapshot',
+      (tester) async {
+    await tester.runAsync(
+        () => SettingsRepository.instance.setCurrentBank('legacy-bank'));
+    final query = _StubTodayContextQuery(() async => const TodayContextSnapshot(
+        bankName: 'injected-bank',
+        newCount: 7,
+        reviewCount: 3,
+        totalCount: 12,
+        masteredCount: 2));
+    await pumpHome(tester, todayContextQuery: query);
+    expect(query.calls, 1);
+    expect(find.text('injected-bank'), findsOneWidget);
+    expect(find.text('legacy-bank'), findsNothing);
+    expect(find.text('7 道待学习'), findsOneWidget);
+    expect(find.text('3 道待复习'), findsOneWidget);
+    expect(find.text('已掌握 2 / 12'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('unmounted Home ignores a pending ordinary read', (tester) async {
+    final pending = Completer<TodayContextSnapshot>();
+    final query = _StubTodayContextQuery(() => pending.future);
+    await tester.pumpWidget(MaterialApp(
+      home: HomePage(taskManager: taskManager, todayContextQuery: query),
+    ));
+    expect(query.calls, 1);
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    pending.complete(const TodayContextSnapshot(bankName: 'late-bank'));
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('empty home follows the compact today dashboard contract',
       (tester) async {

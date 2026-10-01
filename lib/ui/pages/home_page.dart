@@ -13,8 +13,8 @@ import '../../application/questions/question_bank_mutation_command.dart';
 import '../../application/questions/question_list_query_port.dart';
 import '../../application/questions/question_mutation_command.dart';
 import '../../application/safe_write/typed_answer_command.dart';
-import '../../core/review_engine_service.dart';
-import '../../data/repositories/settings_repository.dart';
+import '../../application/today/today_context_query.dart';
+import '../home/today_controller.dart';
 import '../../domain/study_plan/active_study_plan.dart';
 import '../../domain/study_plan/study_plan_values.dart';
 import '../../services/study_plan/study_plan_practice_session_launcher.dart';
@@ -35,6 +35,7 @@ class HomePage extends StatefulWidget {
   const HomePage({
     super.key,
     this.taskManager,
+    this.todayContextQuery,
     this.onSwitchBank,
     this.onPracticeRequested,
     this.onImportRequested,
@@ -53,6 +54,7 @@ class HomePage extends StatefulWidget {
   });
 
   final TaskManager? taskManager;
+  final TodayContextQuery? todayContextQuery;
   final VoidCallback? onSwitchBank;
   final VoidCallback? onPracticeRequested;
   final VoidCallback? onImportRequested;
@@ -83,41 +85,31 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  String _currentBank = '点击修改选择题库';
-  int _newCount = 0;
-  int _reviewCount = 0;
-  int _totalCount = 0;
-  int _masteredCount = 0;
-  bool _isLoading = true;
+  late final TodayController _controller;
+  String get _currentBank => _controller.contextSnapshot.bankName ?? '点击修改选择题库';
+  int get _newCount => _controller.contextSnapshot.newCount;
+  int get _reviewCount => _controller.contextSnapshot.reviewCount;
+  int get _totalCount => _controller.contextSnapshot.totalCount;
+  int get _masteredCount => _controller.contextSnapshot.masteredCount;
+  bool get _isLoading => _controller.contextLoading;
+  StudyPlanFocusedState? get _focusedState => _controller.focusedState;
 
-  /// Current Today mode; defaults to 普通. Presentation-only, never
-  /// persisted. Mode switching uses an IndexedStack so each mode keeps its
-  /// own state instead of being recreated.
+  /// Presentation-only mode selection remains unchanged during extraction.
   _TodayMode _todayMode = _TodayMode.ordinary;
-
-  /// SPL-1-U0 focused surface state. Null means "not loaded yet".
-  StudyPlanFocusedState? _focusedState;
   bool _focusedLoadScheduled = false;
-
-  /// Bounded focused refresh coordinator:
-  /// - [_focusedLoadInFlight] guards against concurrent live reads;
-  /// - a request made while a load is in flight is NEVER dropped: it becomes
-  ///   [_focusedRefreshPending] and a follow-up refresh is scheduled after
-  ///   the in-flight load settles;
-  /// - [_focusedLoadGeneration] implements latest-wins: only the newest
-  ///   generation may publish its result, so an older in-flight load can
-  ///   never overwrite the result of a newer required refresh.
-  bool _focusedLoadInFlight = false;
-  bool _focusedRefreshPending = false;
-  int _focusedLoadGeneration = 0;
-
-  /// Duplicate-start guard: while a start action is in flight no second
-  /// session may be opened.
-  bool _focusedStartPending = false;
 
   @override
   void initState() {
     super.initState();
+    _controller = TodayController(
+      loadContext: () =>
+          widget.todayContextQuery?.loadContext() ??
+          Future<TodayContextSnapshot>.error(const TodayContextUnavailable()),
+      loadFocusedState: () =>
+          widget.studyPlanSelectionService?.loadFocusedState() ??
+          Future<StudyPlanFocusedState>.value(
+              const StudyPlanFocusedNoActivePlan()),
+    )..addListener(_onControllerChanged);
     _loadContext();
   }
 
@@ -134,40 +126,18 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _loadContext() async {
-    setState(() => _isLoading = true);
-    try {
-      final bank = await SettingsRepository.instance.getCurrentBank();
-
-      String targetBank = bank ?? '点击修改选择题库';
-
-      int newC = 0, reviewC = 0, totalC = 0, masteredC = 0;
-
-      if (targetBank != '点击修改选择题库') {
-        final stats = await ReviewEngineService().getBankStats(targetBank);
-        totalC = stats['total'] ?? 0;
-        newC = stats['new_count'] ?? 0;
-        reviewC = stats['review_count'] ?? 0;
-        masteredC = stats['mastered_count'] ?? 0;
-      }
-
-      if (mounted) {
-        setState(() {
-          _currentBank = targetBank;
-          _totalCount = totalC;
-          _newCount = newC;
-          _reviewCount = reviewC;
-          _masteredCount = masteredC;
-        });
-      }
-    } catch (e) {
-      debugPrint('首页状态加载失败: $e');
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
+  void _onControllerChanged() {
+    if (mounted) setState(() {});
   }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_onControllerChanged);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadContext() => _controller.loadContext();
 
   Future<void> _openImport() async {
     final action = await showModalBottomSheet<_CreateImportAction>(
@@ -509,64 +479,7 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  /// Loads the live focused snapshot through the bounded refresh
-  /// coordinator. Every call re-queries live state; the Start action
-  /// re-invokes this (or a fresh selection) and never reuses a previously
-  /// displayed snapshot.
-  ///
-  /// Safety guarantees:
-  /// - a request made while a load is in flight is NEVER dropped: it is
-  ///   recorded as pending and a follow-up refresh runs after the in-flight
-  ///   load settles;
-  /// - the pending request immediately invalidates the in-flight load's
-  ///   generation, so an older in-flight load can never publish (or overwrite
-  ///   the result of) a newer required refresh.
-  Future<void> _loadFocusedState() async {
-    if (_focusedLoadInFlight) {
-      _focusedRefreshPending = true;
-      _focusedLoadGeneration++;
-      return;
-    }
-    _focusedLoadInFlight = true;
-    final generation = ++_focusedLoadGeneration;
-    try {
-      final service = widget.studyPlanSelectionService;
-      if (service == null) {
-        if (mounted && generation == _focusedLoadGeneration) {
-          setState(() => _focusedState = const StudyPlanFocusedNoActivePlan());
-        }
-        return;
-      }
-      try {
-        final state = await service.loadFocusedState();
-        if (mounted && generation == _focusedLoadGeneration) {
-          setState(() => _focusedState = state);
-        }
-      } catch (_) {
-        if (mounted && generation == _focusedLoadGeneration) {
-          setState(() => _focusedState = const StudyPlanFocusedFailure(
-                StudyPlanFocusedFailureKind.internalError,
-              ));
-        }
-      }
-    } finally {
-      _focusedLoadInFlight = false;
-      if (_focusedRefreshPending) {
-        _focusedRefreshPending = false;
-        // Start the required follow-up refresh INDEPENDENTLY of frame
-        // production. A post-frame callback does not by itself schedule a
-        // frame, so a slow stale load finishing after all current
-        // frame/animation activity could leave the follow-up waiting until
-        // an unrelated future frame. A microtask begins the follow-up on the
-        // current event-loop turn instead; the latest-wins generation guard
-        // already ensured the settled load published nothing stale.
-        Future<void>.microtask(() {
-          if (!mounted) return;
-          _loadFocusedState();
-        });
-      }
-    }
-  }
+  Future<void> _loadFocusedState() => _controller.loadFocusedState();
 
   /// 特训 without an adopted plan: genuine no-plan state, no fake counts.
   Widget _buildFocusedNoPlan(Color textColor, Color subTextColor) {
@@ -850,20 +763,18 @@ class _HomePageState extends State<HomePage> {
     final service = widget.studyPlanSelectionService;
     final launcher = widget.studyPlanSessionLauncher;
     if (service == null || launcher == null) return;
-    if (_focusedStartPending) return; // duplicate start action prevention
-    _focusedStartPending = true;
-    try {
+    await _controller.runFocusedStart(() async {
       final state = await service.loadFocusedState();
       if (!mounted) return;
       switch (state) {
         case StudyPlanFocusedNoActivePlan():
-          setState(() => _focusedState = state);
+          _controller.publishFocusedState(state);
           _showFocusedMessage('当前没有学习计划');
         case StudyPlanFocusedPlanUnavailable():
-          setState(() => _focusedState = state);
+          _controller.publishFocusedState(state);
           _showFocusedMessage('当前计划题库已不可用');
         case StudyPlanFocusedNoCandidates():
-          setState(() => _focusedState = state);
+          _controller.publishFocusedState(state);
           _showFocusedMessage('今日暂无任务');
         case StudyPlanFocusedReady(
             :final activePlan,
@@ -888,9 +799,7 @@ class _HomePageState extends State<HomePage> {
         case StudyPlanFocusedFailure():
           _showFocusedMessage('特训暂时不可用，请稍后重试');
       }
-    } finally {
-      _focusedStartPending = false;
-    }
+    });
   }
 
   /// 停止计划: destructive action with explicit confirmation bound to the
