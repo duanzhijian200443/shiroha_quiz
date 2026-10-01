@@ -448,9 +448,13 @@ boundary remains frozen and applies to any future P7 extension:
 The final Presentation / Navigation IA authority is
 `docs/product/ui-finalization-ia-freeze.md`. The final primary navigation
 is Today / Assistant / Profile (user-facing labels 今日 / 助手 / 我的),
-and Today owns the 普通 / 特训 / 考试 mode organization. UI Finalization v0
-Presentation / Navigation is CLOSED / FROZEN; future UI changes require
-separate explicitly authorized work. The focused UI Finalization contract
+and the original 普通 / 特训 / 考试 organization remains historical UI
+Finalization v0 truth. The current unified Today dashboard and lightweight
+single-plan detail are governed by `docs/product/today-home-refresh-freeze.md`:
+ordinary new/due entries prepare separate typed-aware pools through an
+Application launch port before opening normal Practice; plan selection/CAS
+semantics remain unchanged. Exam opens as a standalone MockCenter route,
+without a hidden embedded polling surface. The focused UI Finalization contract
 governs only those Presentation decisions and does not alter any domain,
 application, persistence, provider, or schema boundary recorded in this
 document.
@@ -468,7 +472,7 @@ through an Application command with a durable transaction-level
   was v24 at SPL-1 closure. ActiveStudyPlan durable singleton persistence exists;
   formal adoption
   remains Application-controlled; Agent planning and Assistant draft/adoption
-  Presentation are implemented; Today/特训 consumes the adopted plan through
+  Presentation are implemented; Today / 当前计划 consumes the adopted plan through
   the deterministic `StudyPlanSelectionService` (live candidate pools,
   priority selection, dailyTarget cap, advisory states only), and 开始特训
   materializes the exact ordered selected storage IDs through the narrow

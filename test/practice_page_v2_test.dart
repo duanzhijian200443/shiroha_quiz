@@ -1,3 +1,6 @@
+import 'package:shiroha_quiz/application/practice/study_session_launch.dart';
+import 'package:shiroha_quiz/services/practice/ordinary_study_session_launcher.dart';
+import 'package:shiroha_quiz/domain/attempt/answer_attempt.dart';
 // R8A PracticePage V2-first acceptance. All evidence is synthetic/offline:
 // sqflite FFI databases, no real OCR, Provider, Replay, network, or private
 // documents.
@@ -262,6 +265,190 @@ void main() {
             .getPersistedStudySessionQuestions(_bankName, 9999999999),
         throwsA(isA<QuestionV2PayloadException>()),
       );
+    });
+  });
+
+  group('Today ordinary candidate pools', () {
+    test(
+        'filters before limit and preserves mixed callers, state and SQL order',
+        () async {
+      final db = await _db();
+      for (var i = 0; i < 45; i++) {
+        await _insertLegacy(db, id: 'due_$i');
+        await db.insert('review_states',
+            _newReviewState('due_$i', state: 2, nextReviewTime: i));
+      }
+      await _insertLegacy(db, id: 'new_early');
+      await _insertLegacy(db, id: 'new_late');
+      await _insertLegacy(db, id: 'future');
+      await _insertLegacy(db, id: 'mastered_due');
+      await _insertLegacy(db, id: 'other_bank', bank: 'other');
+      await db.insert(
+          'review_states', _newReviewState('new_early', nextReviewTime: 5));
+      await db.insert(
+          'review_states', _newReviewState('new_late', nextReviewTime: 999));
+      await db.insert('review_states',
+          _newReviewState('future', state: 2, nextReviewTime: 201));
+      await db.insert('review_states',
+          _newReviewState('mastered_due', state: 3, nextReviewTime: 100));
+      await db.insert('review_states', _newReviewState('other_bank'));
+      final repo = ReviewRepository.instance;
+      final fresh = await repo.getPersistedStudySessionQuestions(_bankName, 200,
+          pool: StudySessionPool.newQuestions);
+      expect(fresh.map((q) => q.storageId), ['new_early', 'new_late']);
+      final due = await repo.getPersistedStudySessionQuestions(_bankName, 200,
+          pool: StudySessionPool.dueReviews);
+      expect(due.length, 40);
+      expect(due.first.storageId, 'mastered_due');
+      expect(due.skip(1).map((q) => q.storageId),
+          [for (var i = 0; i < 39; i++) 'due_$i']);
+      final mixed =
+          await repo.getPersistedStudySessionQuestions(_bankName, 200);
+      expect(mixed.map((q) => q.storageId), due.map((q) => q.storageId));
+      final logs = await db.query('review_logs');
+      expect(logs, isEmpty);
+    });
+
+    test('both pools retain typed authority and legacy decoding', () async {
+      final db = await _db();
+      await _insertTyped(db, _choiceDraft(stem: 'typed pool marker'),
+          storageId: _typedStorageIdA);
+      await _insertLegacy(db, id: 'legacy_pool');
+      for (final pool in [
+        StudySessionPool.newQuestions,
+        StudySessionPool.dueReviews
+      ]) {
+        await db.delete('review_states');
+        for (final id in [_typedStorageIdA, 'legacy_pool']) {
+          await db.insert(
+              'review_states',
+              _newReviewState(id,
+                  state: pool == StudySessionPool.newQuestions ? 0 : 2));
+        }
+        final result = await ReviewRepository.instance
+            .getPersistedStudySessionQuestions(_bankName, 200, pool: pool);
+        expect(
+            result
+                .whereType<TypedPersistedQuestion>()
+                .single
+                .draft
+                .stem
+                .nodes
+                .single,
+            isA<TextNode>());
+        expect(result.whereType<LegacyPersistedQuestion>(), hasLength(1));
+      }
+    });
+
+    test('empty and corrupt pool launches leave the previous queue untouched',
+        () async {
+      final db = await _db();
+      await _insertLegacy(db, id: 'previous', bank: 'previous-bank');
+      await db.insert('review_states', _newReviewState('previous'));
+      final engine = ReviewEngineService();
+      final launcher = OrdinaryStudySessionLauncher(
+          reviewRepository: ReviewRepository.instance,
+          reviewEngine: engine,
+          clock: () =>
+              DateTime.fromMillisecondsSinceEpoch(200000, isUtc: true));
+      for (final pool in [
+        StudySessionPool.newQuestions,
+        StudySessionPool.dueReviews
+      ]) {
+        await engine.initStudySession('previous-bank');
+        expect(await launcher.launch(bankName: _bankName, pool: pool),
+            isA<StudySessionEmpty>());
+        expect(engine.popNextQuestion()!.storageId, 'previous');
+      }
+      await _insertTyped(db, _choiceDraft(), storageId: _typedStorageIdC);
+      await _insertLegacy(db, id: 'valid_in_pool');
+      await db.update('question_v2_payloads', {'payload_json': 'corrupt'},
+          where: 'question_id = ?', whereArgs: [_typedStorageIdC]);
+      for (final pool in [
+        StudySessionPool.newQuestions,
+        StudySessionPool.dueReviews
+      ]) {
+        await db.delete('review_states',
+            where: 'question_id != ?', whereArgs: ['previous']);
+        for (final id in [_typedStorageIdC, 'valid_in_pool']) {
+          await db.insert(
+              'review_states',
+              _newReviewState(id,
+                  state: pool == StudySessionPool.newQuestions ? 0 : 2));
+        }
+        await engine.initStudySession('previous-bank');
+        expect(await launcher.launch(bankName: _bankName, pool: pool),
+            isA<StudySessionUnavailable>());
+        expect(engine.popNextQuestion()!.storageId, 'previous');
+        expect(engine.popNextQuestion(), isNull);
+      }
+    });
+
+    test(
+        'successful ordinary launch prepares exact fresh candidates without writes',
+        () async {
+      final db = await _db();
+      await _insertLegacy(db, id: 'new');
+      await _insertLegacy(db, id: 'due');
+      await db.insert('review_states', _newReviewState('new'));
+      await db.insert('review_states',
+          _newReviewState('due', state: 2, nextReviewTime: 199));
+      final engine = ReviewEngineService();
+      final launcher = OrdinaryStudySessionLauncher(
+          reviewRepository: ReviewRepository.instance,
+          reviewEngine: engine,
+          clock: () =>
+              DateTime.fromMillisecondsSinceEpoch(200000, isUtc: true));
+      expect(
+          await launcher.launch(
+              bankName: _bankName, pool: StudySessionPool.newQuestions),
+          isA<StudySessionReady>());
+      expect(engine.popNextQuestion()!.storageId, 'new');
+      expect(engine.popNextQuestion(), isNull);
+      // Candidate membership is read at click time, rather than the displayed count.
+      await db.update('review_states', {'state': 2, 'next_review_time': 199},
+          where: 'question_id = ?', whereArgs: ['new']);
+      expect(
+          await launcher.launch(
+              bankName: _bankName, pool: StudySessionPool.newQuestions),
+          isA<StudySessionEmpty>());
+      expect(
+          await launcher.launch(
+              bankName: _bankName, pool: StudySessionPool.dueReviews),
+          isA<StudySessionReady>());
+      expect({
+        engine.popNextQuestion()!.storageId,
+        engine.popNextQuestion()!.storageId
+      }, {
+        'new',
+        'due'
+      });
+      expect(await db.query('review_logs'), isEmpty);
+      expect(await db.query('answer_attempts'), isEmpty);
+    });
+
+    test(
+        'virtual wrong book has no new pool; due pool requires a due review state',
+        () async {
+      final db = await _db();
+      for (final id in ['wrong_new', 'wrong_due', 'wrong_future']) {
+        await _insertLegacy(db, id: id);
+        await db.insert(
+            'review_states',
+            _newReviewState(id,
+                state: id == 'wrong_new' ? 0 : 2,
+                nextReviewTime: id == 'wrong_future' ? 201 : 199,
+                lapses: 1));
+      }
+      expect(
+          await ReviewRepository.instance.getPersistedStudySessionQuestions(
+              _globalWrongBookBankName, 200,
+              pool: StudySessionPool.newQuestions),
+          isEmpty);
+      final due = await ReviewRepository.instance
+          .getPersistedStudySessionQuestions(_globalWrongBookBankName, 200,
+              pool: StudySessionPool.dueReviews);
+      expect(due.map((q) => q.storageId), ['wrong_due']);
     });
   });
 
@@ -789,6 +976,50 @@ void main() {
       expect(logs, hasLength(1));
       expect(logs.single['question_id'], _typedStorageIdA);
       expect(logs.single['grade'], 4);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'ordinary prepared pool writes normal attempts and FSRS; retry keeps normal requeue',
+        (tester) async {
+      await tester.runAsync(() async {
+        final db = await _db();
+        await _insertLegacy(db, id: 'ordinary_prepared');
+        await db.insert('review_states', _newReviewState('ordinary_prepared'));
+        final launcher = OrdinaryStudySessionLauncher(
+            reviewRepository: ReviewRepository.instance,
+            reviewEngine: ReviewEngineService());
+        expect(
+            await launcher.launch(
+                bankName: _bankName, pool: StudySessionPool.newQuestions),
+            isA<StudySessionReady>());
+      });
+      await tester.pumpWidget(MaterialApp(
+          home: PracticePage(
+              bankName: _bankName,
+              usePreparedStudySession: true,
+              preparedSessionKind: AnswerAttemptSessionKind.normal)));
+      await settle(tester);
+      expect(find.text('收入题库'), findsNothing);
+      await tester.tap(find.text('first'));
+      await tester.tap(find.text('查看答案'));
+      await settle(tester);
+      await tester.tap(find.text('重来'));
+      await settle(tester);
+      expect(find.text('Legacy stem.'), findsOneWidget);
+      await tester.tap(find.text('first'));
+      await tester.tap(find.text('查看答案'));
+      await settle(tester);
+      await tester.tap(find.text('极易'));
+      await settle(tester);
+      final rows = (await tester
+          .runAsync(() async => (await _db()).query('answer_attempts')))!;
+      expect(rows, isNotEmpty);
+      expect(rows.every((row) => row['session_kind'] == 'normal'), isTrue);
+      final logs = (await tester
+          .runAsync(() async => (await _db()).query('review_logs')))!;
+      expect(logs, hasLength(2));
+      expect(logs.map((row) => row['grade']), [1, 4]);
       expect(tester.takeException(), isNull);
     });
 

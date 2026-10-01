@@ -33,6 +33,7 @@ final class TodayController extends ChangeNotifier {
   bool _focusedRefreshPending = false;
   int _focusedLoadGeneration = 0;
   bool _focusedStartPending = false;
+  bool get practiceStartPending => _focusedStartPending;
 
   Future<void> loadContext() async {
     if (_disposed) return;
@@ -103,10 +104,12 @@ final class TodayController extends ChangeNotifier {
   Future<void> runFocusedStart(Future<void> Function() action) async {
     if (_disposed || _focusedStartPending) return;
     _focusedStartPending = true;
+    notifyListeners();
     try {
       await action();
     } finally {
       _focusedStartPending = false;
+      if (!_disposed) notifyListeners();
     }
   }
 

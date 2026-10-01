@@ -37,7 +37,7 @@ class PracticePage extends StatefulWidget {
   final List<Question>? initialQuestions;
   final int? initialIndex;
 
-  /// Narrow SPL-1-U0 prepared-session seam for 特训.
+  /// Prepared-session seam for explicitly selected ordinary or plan candidates.
   ///
   /// When true, the session queue has already been injected into
   /// [ReviewEngineService] via `initPreparedStudySession` (exact ordered
@@ -49,6 +49,10 @@ class PracticePage extends StatefulWidget {
   /// bypasses normal review/FSRS mutation and must never carry StudyPlan
   /// sessions.
   final bool usePreparedStudySession;
+
+  /// Existing prepared plan callers remain focused; Today ordinary pools
+  /// explicitly request normal attribution, including photo/manual attempts.
+  final AnswerAttemptSessionKind preparedSessionKind;
   final RecordAnswerAttemptCommand? recordAnswerAttemptCommand;
   final Future<void> Function(String questionId, int grade)?
       submitReviewOverride;
@@ -62,6 +66,7 @@ class PracticePage extends StatefulWidget {
     this.initialQuestions,
     this.initialIndex,
     this.usePreparedStudySession = false,
+    this.preparedSessionKind = AnswerAttemptSessionKind.focused,
     this.recordAnswerAttemptCommand,
     this.submitReviewOverride,
     this.photoAnswerCaptureLauncher,
@@ -155,7 +160,7 @@ class _PracticePageState extends State<PracticePage> {
             attemptId: _pendingPhotoAttemptId!,
             questionId: view.storageId,
             sessionKind: widget.usePreparedStudySession
-                ? AnswerAttemptSessionKind.focused
+                ? widget.preparedSessionKind
                 : AnswerAttemptSessionKind.normal,
             answeredAt: now ~/ 1000,
             durationMs: _questionPresentedTimestamp > 0
@@ -459,7 +464,7 @@ class _PracticePageState extends State<PracticePage> {
         attemptId: const Uuid().v4(),
         questionId: view.storageId,
         sessionKind: widget.usePreparedStudySession
-            ? AnswerAttemptSessionKind.focused
+            ? widget.preparedSessionKind
             : AnswerAttemptSessionKind.normal,
         modality: AnswerAttemptModality.choice,
         answerPayloadJson: payloadJson,
@@ -1018,7 +1023,7 @@ class _PracticePageState extends State<PracticePage> {
                               attemptId: const Uuid().v4(),
                               questionId: view.storageId,
                               sessionKind: widget.usePreparedStudySession
-                                  ? AnswerAttemptSessionKind.focused
+                                  ? widget.preparedSessionKind
                                   : AnswerAttemptSessionKind.normal,
                               modality: AnswerAttemptModality.text,
                               answerPayloadJson:
@@ -1088,7 +1093,7 @@ class _PracticePageState extends State<PracticePage> {
                             attemptId: const Uuid().v4(),
                             questionId: view.storageId,
                             sessionKind: widget.usePreparedStudySession
-                                ? AnswerAttemptSessionKind.focused
+                                ? widget.preparedSessionKind
                                 : AnswerAttemptSessionKind.normal,
                             modality: AnswerAttemptModality.text,
                             answerPayloadJson:
