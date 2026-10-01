@@ -23,6 +23,7 @@ import '../models/practice_question_view.dart';
 import 'photo_capture_screen.dart';
 import '../widgets/markdown_extensions.dart';
 import '../widgets/structured_content_renderer.dart';
+import '../theme/design_tokens.dart';
 
 typedef PhotoAnswerCaptureLauncher = Future<ConfirmedPhotoAnswer?> Function(
   BuildContext context,
@@ -86,6 +87,40 @@ class _PracticePageState extends State<PracticePage> {
   RecordAnswerAttemptCommand get _recordAttemptCommand =>
       widget.recordAnswerAttemptCommand ??
       RecordAnswerAttemptCommand(AnswerAttemptRepository.instance);
+
+  ThemeData get _practiceTheme {
+    final base = Theme.of(context);
+    final dark = base.brightness == Brightness.dark;
+    final ink = dark ? const Color(0xFFEAEAF0) : const Color(0xFF303238);
+    final muted = dark ? const Color(0xFFB4B5BE) : const Color(0xFF858891);
+    final surface = dark ? const Color(0xFF24252B) : Colors.white;
+    final tile = dark ? const Color(0xFF2D2E35) : const Color(0xFFF7F7FA);
+    final colors = base.colorScheme.copyWith(
+        primary: ink,
+        onPrimary: surface,
+        primaryContainer: tile,
+        onPrimaryContainer: ink,
+        surface: surface,
+        onSurface: ink,
+        onSurfaceVariant: muted,
+        surfaceContainerLow: tile,
+        surfaceContainerHigh: tile,
+        surfaceContainer: surface,
+        outline: muted,
+        outlineVariant:
+            dark ? const Color(0xFF40414A) : const Color(0xFFE8E8EE));
+    return base.copyWith(
+        colorScheme: colors,
+        scaffoldBackgroundColor:
+            dark ? const Color(0xFF191A20) : const Color(0xFFF7F7FA),
+        textTheme: base.textTheme.apply(bodyColor: ink, displayColor: ink),
+        appBarTheme: base.appBarTheme.copyWith(
+            backgroundColor:
+                dark ? const Color(0xFF191A20) : const Color(0xFFF7F7FA),
+            foregroundColor: ink,
+            scrolledUnderElevation: 0,
+            elevation: 0));
+  }
 
   Timer? _pomodoroTimer;
   int _pomodoroSeconds = 1500; // 25分钟
@@ -510,7 +545,7 @@ class _PracticePageState extends State<PracticePage> {
       {bool isOption = false,
       bool isSelected = false,
       Color? optionTextColor}) {
-    final theme = Theme.of(context);
+    final theme = _practiceTheme;
     final textColor = isOption
         ? (optionTextColor ??
             (isSelected
@@ -519,7 +554,7 @@ class _PracticePageState extends State<PracticePage> {
         : theme.textTheme.bodyLarge?.color;
     final fontWeight =
         (isOption && isSelected) ? FontWeight.bold : FontWeight.normal;
-    final fontSize = isOption ? 15.0 : 16.0;
+    final fontSize = isOption ? 16.0 : 17.0;
 
     return buildLatexWidget(
       context,
@@ -535,44 +570,46 @@ class _PracticePageState extends State<PracticePage> {
   // ==============================
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      Theme(data: _practiceTheme, child: _buildPage());
+
+  Widget _buildPage() {
     if (_isLoading) {
       return Scaffold(
-          backgroundColor: Theme.of(context).colorScheme.surface,
+          backgroundColor: _practiceTheme.scaffoldBackgroundColor,
           appBar: _buildAppBar(),
           body: const Center(child: CircularProgressIndicator()));
     }
     if (_error != null) {
       return Scaffold(
-          backgroundColor: Theme.of(context).colorScheme.surface,
+          backgroundColor: _practiceTheme.scaffoldBackgroundColor,
           appBar: _buildAppBar(),
           body: Center(
               child: Column(mainAxisSize: MainAxisSize.min, children: [
             Icon(Icons.error_outline,
-                size: 48, color: Theme.of(context).colorScheme.error),
+                size: 48, color: _practiceTheme.colorScheme.error),
             const SizedBox(height: 12),
             Text(_error!,
                 style: TextStyle(
                     fontSize: 13,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                    color: _practiceTheme.colorScheme.onSurfaceVariant)),
             const SizedBox(height: 16),
             ElevatedButton(onPressed: _initSession, child: const Text('重试')),
           ])));
     }
     if (_currentQuestion == null) {
       return Scaffold(
-          backgroundColor: Theme.of(context).colorScheme.surface,
+          backgroundColor: _practiceTheme.scaffoldBackgroundColor,
           appBar: _buildAppBar(),
           body: Center(
               child: Column(mainAxisSize: MainAxisSize.min, children: [
             Icon(Icons.inbox_rounded,
-                size: 56,
-                color: Theme.of(context).colorScheme.onSurfaceVariant),
+                size: 56, color: _practiceTheme.colorScheme.onSurfaceVariant),
             const SizedBox(height: 16),
             Text('还没有题目，先去导入题库吧',
                 style: TextStyle(
                     fontSize: 15,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                    color: _practiceTheme.colorScheme.onSurfaceVariant)),
           ])));
     }
 
@@ -594,7 +631,7 @@ class _PracticePageState extends State<PracticePage> {
       },
       child: Scaffold(
         key: const ValueKey<String>('practice-page-scaffold'),
-        backgroundColor: Theme.of(context).colorScheme.surface,
+        backgroundColor: _practiceTheme.scaffoldBackgroundColor,
         appBar: _buildAppBar(),
         body: _buildQuestionContent(),
         bottomNavigationBar: _buildBottomAction(),
@@ -603,107 +640,158 @@ class _PracticePageState extends State<PracticePage> {
   }
 
   PreferredSizeWidget _buildAppBar() {
+    final colors = _practiceTheme.colorScheme;
+    final bank = _currentQuestion?.bankName ?? widget.bankName ?? '当前题库';
     return AppBar(
-      backgroundColor: Colors.transparent,
-      elevation: 0,
-      leading: IconButton(
-          icon: Icon(Icons.close,
-              color: Theme.of(context).colorScheme.onSurfaceVariant),
-          onPressed: () => Navigator.of(context).pop(),
-          tooltip: '退出练习'),
-      title: Text('刷题中',
-          style: TextStyle(
-              fontSize: 15,
-              color: Theme.of(context).colorScheme.onSurfaceVariant)),
-      centerTitle: true,
-      actions: [
-        if (widget.isPomodoroActive)
-          Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: Text(
-                '🍅 ${(_pomodoroSeconds ~/ 60).toString().padLeft(2, '0')}:${(_pomodoroSeconds % 60).toString().padLeft(2, '0')}',
-                style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.deepOrange),
-              ),
-            ),
-          ),
-        _isGeneratingVariant
-            ? const SizedBox(
-                width: 48,
-                height: 48,
+        toolbarHeight:
+            MediaQuery.textScalerOf(context).scale(26).clamp(56.0, 100.0),
+        backgroundColor: _practiceTheme.scaffoldBackgroundColor,
+        elevation: 0,
+        leading: IconButton(
+            icon: const Icon(Icons.close_rounded),
+            tooltip: '退出练习',
+            onPressed: () => Navigator.of(context).pop()),
+        title: Tooltip(
+            message: bank,
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(_currentQuestion?.isPreview == true ? '题目预览' : '专注练习',
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w700)),
+              Text(bank,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style:
+                      TextStyle(fontSize: 11, color: colors.onSurfaceVariant)),
+            ])),
+        centerTitle: false,
+        actions: [
+          if (widget.isPomodoroActive)
+            Center(
+                child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Text(
+                        '🍅 ${(_pomodoroSeconds ~/ 60).toString().padLeft(2, '0')}:${(_pomodoroSeconds % 60).toString().padLeft(2, '0')}',
+                        style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: colors.tertiary)))),
+          if (_isGeneratingVariant)
+            const SizedBox(
+                width: 32,
+                height: 32,
                 child: Center(
-                  child: SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.amber),
-                  ),
-                ),
-              )
-            : IconButton(
-                icon: const Icon(Icons.auto_awesome, color: Colors.amber),
-                onPressed: _generateVariant,
-                tooltip: '生成变种题',
-              ),
-        IconButton(
-          icon: Icon(Icons.delete_outline,
-              color: Theme.of(context).colorScheme.onSurfaceVariant),
-          onPressed: _deleteCurrentQuestion,
-        ),
-      ],
-    );
+                    child: SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2)))),
+          PopupMenuButton<String>(
+              key: const ValueKey('practice-more-menu'),
+              tooltip: '更多操作',
+              onSelected: (action) {
+                if (action == 'variant') {
+                  _generateVariant();
+                } else if (action == 'delete') {
+                  _deleteCurrentQuestion();
+                }
+              },
+              itemBuilder: (_) => [
+                    PopupMenuItem(
+                        value: 'variant',
+                        enabled:
+                            !_isGeneratingVariant && _currentQuestion != null,
+                        child: const Row(children: [
+                          Icon(Icons.auto_awesome_outlined, size: 20),
+                          SizedBox(width: 10),
+                          Text('生成变种题')
+                        ])),
+                    PopupMenuItem(
+                        value: 'delete',
+                        enabled: _currentQuestion != null &&
+                            !_currentQuestion!.isPreview,
+                        child: const Row(children: [
+                          Icon(Icons.delete_outline, size: 20),
+                          SizedBox(width: 10),
+                          Text('删除题目')
+                        ])),
+                  ]),
+        ]);
   }
 
   Widget _buildQuestionContent() {
     if (_currentQuestion == null) return const SizedBox.shrink();
     final view = _currentQuestion!;
-    final opts = view.displayOptions;
-
-    return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-      children: [
-        _buildQuestionCard(view),
-        const SizedBox(height: 16),
-        if (isSubjective)
-          _buildSubjectiveSection(view)
-        else
-          _buildOptionsList(opts),
-        if (_isAnswerRevealed && !isSubjective) ...[
-          const SizedBox(height: 16),
-          _buildAnalysis(view),
-          if (!view.isPreview) _buildPhotoHistory(view),
-        ],
-        const SizedBox(height: 16),
-      ],
-    );
+    return Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+            constraints:
+                const BoxConstraints(maxWidth: DesignTokens.contentMaxWidth),
+            child: ListView(
+                key: const ValueKey('practice-content-scroll'),
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                children: [
+                  _buildQuestionCard(view),
+                  const SizedBox(height: 14),
+                  if (isSubjective)
+                    _buildSubjectiveSection(view)
+                  else
+                    _buildOptionsList(view.displayOptions),
+                  if (_isAnswerRevealed && !isSubjective) ...[
+                    const SizedBox(height: 14),
+                    _buildAnalysis(view),
+                    if (!view.isPreview) _buildPhotoHistory(view),
+                  ],
+                ])));
   }
 
-  Widget _buildQuestionCard(PracticeQuestionView view) {
-    final colors = Theme.of(context).colorScheme;
+  Widget _section(
+      {Key? key,
+      required String title,
+      IconData? icon,
+      required Widget child}) {
+    final colors = _practiceTheme.colorScheme;
     return Container(
-      key: const ValueKey<String>('practice-question-card'),
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-          color: colors.surfaceContainerLow,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-                color: colors.shadow.withValues(alpha: 0.08),
-                blurRadius: 10,
-                offset: const Offset(0, 3))
+        key: key,
+        width: double.infinity,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+            color: colors.surface,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: DesignTokens.surfaceShadow(_practiceTheme.brightness)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            if (icon != null) ...[
+              Icon(icon, size: 18, color: colors.onSurfaceVariant),
+              const SizedBox(width: 7)
+            ],
+            Expanded(
+                child: Text(title,
+                    style: TextStyle(
+                        fontSize: 12,
+                        height: 1.4,
+                        fontWeight: FontWeight.w600,
+                        color: colors.onSurfaceVariant)))
           ]),
-      child: view.isTyped
-          ? RichContentRenderer(content: view.typedStem!, fontSize: 16)
-          : _buildMarkdown(view.legacyStem),
-    );
+          const SizedBox(height: 14),
+          child,
+        ]));
   }
+
+  Widget _buildQuestionCard(PracticeQuestionView view) => _section(
+      key: const ValueKey('practice-question-card'),
+      title: switch (view.kind) {
+        PracticeQuestionKind.singleChoice => '单选题',
+        PracticeQuestionKind.multipleChoice => '选择题',
+        PracticeQuestionKind.fillBlank => '填空题',
+        PracticeQuestionKind.shortAnswer => '简答题',
+        PracticeQuestionKind.unknown => '题目',
+      },
+      child: view.isTyped
+          ? RichContentRenderer(content: view.typedStem!, fontSize: 17)
+          : _buildMarkdown(view.legacyStem));
 
   Widget _buildOptionsList(List<PracticeOptionView> options) {
-    final colors = Theme.of(context).colorScheme;
+    final colors = _practiceTheme.colorScheme;
     return ListView.separated(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -717,9 +805,10 @@ class _PracticePageState extends State<PracticePage> {
         final sel = isTypedOption
             ? _selectedOptionId == option.optionId
             : _selectedOptionIndex == i;
-        Color bg = colors.surfaceContainerLow, border = colors.outlineVariant;
-        Color lBg = colors.secondaryContainer,
-            lFg = colors.onSecondaryContainer;
+        Color bg = colors.surface, border = colors.outlineVariant;
+        Color lBg = colors.surfaceContainerLow, lFg = colors.onSurfaceVariant;
+        String? resultLabel;
+        IconData? resultIcon;
         var bodyFg = colors.onSurface;
 
         if (sel) {
@@ -736,134 +825,149 @@ class _PracticePageState extends State<PracticePage> {
               ? view.answerOptionIds.contains(option.optionId)
               : view.legacyAnswer.trim().toUpperCase() == letter;
           if (isCorrect) {
-            bg = colors.tertiaryContainer;
-            border = colors.tertiary;
-            lBg = colors.tertiary;
-            lFg = colors.onTertiary;
-            bodyFg = colors.onTertiaryContainer;
+            bg = colors.brightness == Brightness.dark
+                ? const Color(0xFF22362E)
+                : const Color(0xFFF0F7F3);
+            border = colors.brightness == Brightness.dark
+                ? const Color(0xFF88C5A3)
+                : const Color(0xFF397B56);
+            lBg = border;
+            lFg = colors.surface;
+            resultLabel = '正确答案';
+            resultIcon = Icons.check_circle_outline;
           } else if (sel && !isCorrect) {
             bg = colors.errorContainer;
             border = colors.error;
             lBg = colors.error;
             lFg = colors.onError;
             bodyFg = colors.onErrorContainer;
+            resultLabel = '选择错误';
+            resultIcon = Icons.cancel_outlined;
           }
         }
 
-        return GestureDetector(
-          onTap: _isAnswerRevealed
-              ? null
-              : () => setState(() {
-                    if (isTypedOption) {
-                      _selectedOptionId = option.optionId;
-                    } else {
-                      _selectedOptionIndex = i;
-                    }
-                  }),
-          child: AnimatedContainer(
-              key: ValueKey<String>('practice-option-$i'),
-              duration: const Duration(milliseconds: 200),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              decoration: BoxDecoration(
-                  color: bg,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                      color: border,
-                      width: sel || _isAnswerRevealed ? 1.5 : 1)),
-              child: Row(children: [
-                Container(
-                    width: 30,
-                    height: 30,
-                    decoration:
-                        BoxDecoration(shape: BoxShape.circle, color: lBg),
-                    alignment: Alignment.center,
-                    child: Text(letter,
-                        style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: lFg))),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Builder(
-                    builder: (context) {
+        return Semantics(
+          button: true,
+          selected: sel,
+          enabled: !_isAnswerRevealed,
+          child: GestureDetector(
+            onTap: _isAnswerRevealed
+                ? null
+                : () => setState(() {
                       if (isTypedOption) {
-                        return RichContentRenderer(
-                          content: option.typedContent!,
-                          fontSize: 15,
-                          textColor: bodyFg,
-                          fontWeight: sel ? FontWeight.bold : FontWeight.normal,
-                        );
+                        _selectedOptionId = option.optionId;
+                      } else {
+                        _selectedOptionIndex = i;
                       }
-                      String optStr = (option.legacyRaw ?? '').trim();
-                      String stripped = optStr
-                          .replaceFirst(
-                              RegExp(r'^(?:[A-D][\.、]?\s*|\([A-D]\)\s*)+'), '')
-                          .trim();
-                      if (stripped.isEmpty) stripped = optStr;
-                      return _buildMarkdown(
-                        stripped,
-                        isOption: true,
-                        isSelected: sel,
-                        optionTextColor: bodyFg,
-                      );
-                    },
+                    }),
+            child: AnimatedContainer(
+                key: ValueKey<String>('practice-option-$i'),
+                duration: const Duration(milliseconds: 200),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                    color: bg,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color: border,
+                        width: sel || _isAnswerRevealed ? 1.5 : 1)),
+                child: Row(children: [
+                  Container(
+                      width: 30,
+                      height: 30,
+                      decoration:
+                          BoxDecoration(shape: BoxShape.circle, color: lBg),
+                      alignment: Alignment.center,
+                      child: Text(letter,
+                          style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: lFg))),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (resultLabel != null) ...[
+                            Row(children: [
+                              Icon(resultIcon, size: 16, color: border),
+                              const SizedBox(width: 5),
+                              Text(resultLabel,
+                                  style: TextStyle(fontSize: 12, color: border))
+                            ]),
+                            const SizedBox(height: 6),
+                          ],
+                          Builder(
+                            builder: (context) {
+                              if (isTypedOption) {
+                                return RichContentRenderer(
+                                  content: option.typedContent!,
+                                  fontSize: 16,
+                                  textColor: bodyFg,
+                                  fontWeight:
+                                      sel ? FontWeight.bold : FontWeight.normal,
+                                );
+                              }
+                              String optStr = (option.legacyRaw ?? '').trim();
+                              String stripped = optStr
+                                  .replaceFirst(
+                                      RegExp(
+                                          r'^(?:[A-D][\.、]?\s*|\([A-D]\)\s*)+'),
+                                      '')
+                                  .trim();
+                              if (stripped.isEmpty) stripped = optStr;
+                              return _buildMarkdown(
+                                stripped,
+                                isOption: true,
+                                isSelected: sel,
+                                optionTextColor: bodyFg,
+                              );
+                            },
+                          ),
+                        ]),
                   ),
-                ),
-              ])),
+                ])),
+          ),
         );
       },
     );
   }
 
   Widget _buildAnalysis(PracticeQuestionView view) {
-    final colors = Theme.of(context).colorScheme;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-          color: colors.surfaceContainerLow,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: colors.primary.withValues(alpha: 0.3))),
+    final colors = _practiceTheme.colorScheme;
+    return _section(
+      title: '答案与解析',
+      icon: Icons.info_outline,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Icon(Icons.info_outline, size: 22, color: colors.primary),
-          const SizedBox(width: 8),
-          Text('答案与解析',
-              style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  color: colors.primary)),
-        ]),
-        const SizedBox(height: 8),
         if (view.isTyped) ...[
           Text('正确答案:',
               style: TextStyle(
-                  fontSize: 13,
+                  fontSize: 16,
                   color: colors.onSurface,
                   fontWeight: FontWeight.bold)),
           const SizedBox(height: 4),
           if (view.typedAnswer != null)
-            RichContentRenderer(content: view.typedAnswer!, fontSize: 13)
+            RichContentRenderer(content: view.typedAnswer!, fontSize: 16)
           else
             Text('无',
                 style: TextStyle(
-                    fontSize: 13,
+                    fontSize: 16,
                     color: colors.onSurface,
                     fontWeight: FontWeight.bold)),
           const SizedBox(height: 10),
           const Divider(height: 1),
           const SizedBox(height: 10),
           if (view.typedExplanation != null)
-            RichContentRenderer(content: view.typedExplanation!, fontSize: 13)
+            RichContentRenderer(content: view.typedExplanation!, fontSize: 16)
           else
             Text('无解析',
                 style: TextStyle(
-                    fontSize: 13,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                    fontSize: 16,
+                    color: _practiceTheme.colorScheme.onSurfaceVariant)),
         ] else ...[
           Text('正确答案: ${view.legacyAnswer}',
               style: TextStyle(
-                  fontSize: 13,
+                  fontSize: 16,
                   color: colors.onSurface,
                   fontWeight: FontWeight.bold)),
           if ((view.legacyRawExplanation != null &&
@@ -917,323 +1021,279 @@ class _PracticePageState extends State<PracticePage> {
   }
 
   Widget _buildSubjectiveSection(PracticeQuestionView view) {
-    final colors = Theme.of(context).colorScheme;
+    final colors = _practiceTheme.colorScheme;
     if (_isAnswerRevealed || _showStandardAnswerDirectly) {
       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        if (_aiFeedback != null)
-          Container(
-            width: double.infinity,
-            margin: const EdgeInsets.only(bottom: 16),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: colors.primaryContainer,
-              border: Border.all(color: colors.primary.withValues(alpha: 0.3)),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.auto_awesome, color: colors.primary, size: 18),
-                    const SizedBox(width: 8),
-                    Text('AI 助教判卷结果',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: colors.primary)),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Text(_aiFeedback!,
-                    style: const TextStyle(fontSize: 14, height: 1.6)),
-              ],
-            ),
-          ),
+        if (_aiFeedback != null) ...[
+          _section(
+              title: 'AI 助教判卷结果',
+              icon: Icons.auto_awesome_outlined,
+              child: Text(_aiFeedback!,
+                  style: const TextStyle(fontSize: 16, height: 1.65))),
+          const SizedBox(height: 14),
+        ],
         _buildAnalysis(view),
         if (!view.isPreview) _buildPhotoHistory(view),
       ]);
     }
-
-    final bool isFillInBlank = view.kind == PracticeQuestionKind.fillBlank;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Column(children: [
-        TextField(
-          controller: _subjectiveController,
-          maxLines: isFillInBlank ? 1 : 5,
-          decoration: InputDecoration(
-            hintText: '请输入你的答案...',
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide(color: colors.outline),
-            ),
-            filled: true,
-            fillColor: colors.surfaceContainerHigh,
-          ),
-        ),
-        const SizedBox(height: 10),
-        if (view.kind == PracticeQuestionKind.fillBlank ||
-            view.kind == PracticeQuestionKind.shortAnswer)
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              key: const ValueKey<String>('subjective-answer-photo-action'),
-              onPressed: _isAiJudging || _isRecordingAttempt
-                  ? null
-                  : _captureSubjectiveAnswer,
-              icon: const Icon(Icons.camera_alt_outlined),
-              label: Text(_pendingPhoto == null ? '拍照作答' : '重试提交作答'),
-            ),
-          ),
-        const SizedBox(height: 16),
-        Column(
-          children: [
-            SizedBox(
-              width: double.infinity,
-              height: 52,
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.auto_awesome),
-                label: const Text('呼叫 AI 助教判卷',
-                    style:
-                        TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+    final isFillInBlank = view.kind == PracticeQuestionKind.fillBlank;
+    return _section(
+        key: const ValueKey('practice-answer-input'),
+        title: '我的作答',
+        icon: Icons.edit_note_rounded,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          TextField(
+              controller: _subjectiveController,
+              minLines: isFillInBlank ? 1 : 5,
+              maxLines: isFillInBlank ? 1 : 5,
+              style: const TextStyle(fontSize: 16, height: 1.6),
+              decoration: InputDecoration(
+                  hintText: isFillInBlank ? '输入填空答案' : '写下你的思路与解答…',
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: colors.outlineVariant)),
+                  enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: colors.outlineVariant)),
+                  focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: colors.primary)),
+                  filled: true,
+                  fillColor: colors.surfaceContainerLow,
+                  contentPadding: const EdgeInsets.all(14))),
+          if (view.kind == PracticeQuestionKind.fillBlank ||
+              view.kind == PracticeQuestionKind.shortAnswer) ...[
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+                key: const ValueKey('subjective-answer-photo-action'),
                 onPressed: _isAiJudging || _isRecordingAttempt
                     ? null
-                    : () async {
-                        final uAnswer = _subjectiveController.text.trim();
-                        if (uAnswer.isEmpty) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('请先输入你的解答')));
-                          return;
-                        }
-                        if (_isRecordingAttempt || _isAiJudging) return;
-                        final aiService =
-                            AiDependenciesScope.of(context).aiService;
-
-                        final view = _currentQuestion!;
-                        if (!view.isPreview &&
-                            !_attemptRecordedForCurrentPresentation) {
-                          setState(() => _isRecordingAttempt = true);
-                          try {
-                            final nowMs = DateTime.now().millisecondsSinceEpoch;
-                            final durationMs = _questionPresentedTimestamp > 0
-                                ? (nowMs - _questionPresentedTimestamp)
-                                    .clamp(0, 86400000)
-                                : null;
-                            final attempt = AnswerAttempt(
-                              attemptId: const Uuid().v4(),
-                              questionId: view.storageId,
-                              sessionKind: widget.usePreparedStudySession
-                                  ? widget.preparedSessionKind
-                                  : AnswerAttemptSessionKind.normal,
-                              modality: AnswerAttemptModality.text,
-                              answerPayloadJson:
-                                  AnswerAttemptPayload.text(text: uAnswer),
-                              correctness: null,
-                              answeredAt: nowMs ~/ 1000,
-                              durationMs: durationMs,
-                            );
-                            await _recordAttemptCommand.recordAttempt(attempt);
-                            _attemptRecordedForCurrentPresentation = true;
-                          } catch (e) {
-                            debugPrint('Record text answer attempt failed: $e');
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('记录本次作答失败，请重试')),
-                              );
-                            }
-                            return;
-                          } finally {
-                            if (mounted) {
-                              setState(() => _isRecordingAttempt = false);
-                            }
-                          }
-                        }
-
-                        if (!mounted) return;
-
-                        setState(() => _isAiJudging = true);
-
-                        final feedback = await aiService.judgeAnswer(
-                            view.stemText, view.answerText, uAnswer);
-
-                        if (mounted) {
-                          setState(() {
-                            _aiFeedback = feedback;
-                            _isAiJudging = false;
-                            _isAnswerRevealed =
-                                true; // Auto reveal answer and grade buttons
-                          });
-                        }
-                      },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: colors.primary,
-                  foregroundColor: colors.onPrimary,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14)),
-                ),
-              ),
-            ),
-            TextButton(
-              onPressed: _isRecordingAttempt
-                  ? null
-                  : () async {
-                      final uAnswer = _subjectiveController.text.trim();
-                      final view = _currentQuestion!;
-                      if (uAnswer.isNotEmpty &&
-                          !view.isPreview &&
-                          !_attemptRecordedForCurrentPresentation) {
-                        setState(() => _isRecordingAttempt = true);
-                        try {
-                          final nowMs = DateTime.now().millisecondsSinceEpoch;
-                          final durationMs = _questionPresentedTimestamp > 0
-                              ? (nowMs - _questionPresentedTimestamp)
-                                  .clamp(0, 86400000)
-                              : null;
-                          final attempt = AnswerAttempt(
-                            attemptId: const Uuid().v4(),
-                            questionId: view.storageId,
-                            sessionKind: widget.usePreparedStudySession
-                                ? widget.preparedSessionKind
-                                : AnswerAttemptSessionKind.normal,
-                            modality: AnswerAttemptModality.text,
-                            answerPayloadJson:
-                                AnswerAttemptPayload.text(text: uAnswer),
-                            correctness: null,
-                            answeredAt: nowMs ~/ 1000,
-                            durationMs: durationMs,
-                          );
-                          await _recordAttemptCommand.recordAttempt(attempt);
-                          _attemptRecordedForCurrentPresentation = true;
-                        } catch (e) {
-                          debugPrint('Record text answer attempt failed: $e');
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('记录本次作答失败，请重试')),
-                            );
-                          }
-                          return;
-                        } finally {
-                          if (mounted) {
-                            setState(() => _isRecordingAttempt = false);
-                          }
-                        }
-                      }
-
-                      if (mounted) {
-                        setState(() {
-                          _showStandardAnswerDirectly = true;
-                          _isAnswerRevealed = true;
-                        });
-                      }
-                    },
-              child: const Text('跳过 AI，直接看答案自评'),
-            )
+                    : _captureSubjectiveAnswer,
+                icon: const Icon(Icons.camera_alt_outlined, size: 18),
+                label: Text(_pendingPhoto == null ? '拍照作答' : '重试提交作答')),
           ],
-        ),
-        if (_isAiJudging)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 20),
-            child: Center(child: CircularProgressIndicator()),
-          )
-      ]),
-    );
+          const SizedBox(height: 4),
+          Text('可以输入答案，也可以在纸上作答后拍照。',
+              style: TextStyle(
+                  fontSize: 12, height: 1.5, color: colors.onSurfaceVariant)),
+        ]));
+  }
+
+  Future<void> _judgeSubjectiveAnswer() async {
+    final uAnswer = _subjectiveController.text.trim();
+    if (uAnswer.isEmpty) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('请先输入你的解答')));
+      return;
+    }
+    if (_isRecordingAttempt || _isAiJudging) return;
+    final aiService = AiDependenciesScope.of(context).aiService;
+
+    final view = _currentQuestion!;
+    if (!view.isPreview && !_attemptRecordedForCurrentPresentation) {
+      setState(() => _isRecordingAttempt = true);
+      try {
+        final nowMs = DateTime.now().millisecondsSinceEpoch;
+        final durationMs = _questionPresentedTimestamp > 0
+            ? (nowMs - _questionPresentedTimestamp).clamp(0, 86400000)
+            : null;
+        final attempt = AnswerAttempt(
+          attemptId: const Uuid().v4(),
+          questionId: view.storageId,
+          sessionKind: widget.usePreparedStudySession
+              ? widget.preparedSessionKind
+              : AnswerAttemptSessionKind.normal,
+          modality: AnswerAttemptModality.text,
+          answerPayloadJson: AnswerAttemptPayload.text(text: uAnswer),
+          correctness: null,
+          answeredAt: nowMs ~/ 1000,
+          durationMs: durationMs,
+        );
+        await _recordAttemptCommand.recordAttempt(attempt);
+        _attemptRecordedForCurrentPresentation = true;
+      } catch (e) {
+        debugPrint('Record text answer attempt failed: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('记录本次作答失败，请重试')),
+          );
+        }
+        return;
+      } finally {
+        if (mounted) {
+          setState(() => _isRecordingAttempt = false);
+        }
+      }
+    }
+
+    if (!mounted) return;
+
+    setState(() => _isAiJudging = true);
+
+    final feedback =
+        await aiService.judgeAnswer(view.stemText, view.answerText, uAnswer);
+
+    if (mounted) {
+      setState(() {
+        _aiFeedback = feedback;
+        _isAiJudging = false;
+        _isAnswerRevealed = true; // Auto reveal answer and grade buttons
+      });
+    }
+  }
+
+  Future<void> _revealSubjectiveAnswer() async {
+    final uAnswer = _subjectiveController.text.trim();
+    final view = _currentQuestion!;
+    if (uAnswer.isNotEmpty &&
+        !view.isPreview &&
+        !_attemptRecordedForCurrentPresentation) {
+      setState(() => _isRecordingAttempt = true);
+      try {
+        final nowMs = DateTime.now().millisecondsSinceEpoch;
+        final durationMs = _questionPresentedTimestamp > 0
+            ? (nowMs - _questionPresentedTimestamp).clamp(0, 86400000)
+            : null;
+        final attempt = AnswerAttempt(
+          attemptId: const Uuid().v4(),
+          questionId: view.storageId,
+          sessionKind: widget.usePreparedStudySession
+              ? widget.preparedSessionKind
+              : AnswerAttemptSessionKind.normal,
+          modality: AnswerAttemptModality.text,
+          answerPayloadJson: AnswerAttemptPayload.text(text: uAnswer),
+          correctness: null,
+          answeredAt: nowMs ~/ 1000,
+          durationMs: durationMs,
+        );
+        await _recordAttemptCommand.recordAttempt(attempt);
+        _attemptRecordedForCurrentPresentation = true;
+      } catch (e) {
+        debugPrint('Record text answer attempt failed: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('记录本次作答失败，请重试')),
+          );
+        }
+        return;
+      } finally {
+        if (mounted) {
+          setState(() => _isRecordingAttempt = false);
+        }
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _showStandardAnswerDirectly = true;
+        _isAnswerRevealed = true;
+      });
+    }
   }
 
   // ==============================
   //  Bottom Actions & FSRS Buttons
   // ==============================
 
-  Widget _buildBottomAction() {
-    if (_currentQuestion == null) return const SizedBox.shrink();
-    final view = _currentQuestion!;
-    final isPreview = view.isPreview;
-    final colors = Theme.of(context).colorScheme;
-
-    if (!_isAnswerRevealed) {
-      if (isSubjective) {
-        return const SizedBox.shrink(); // Subjective has its own buttons
-      }
-
-      return SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: SizedBox(
-            width: double.infinity,
-            height: 54,
-            child: ElevatedButton(
-              key: const ValueKey<String>('practice-reveal-answer'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: colors.primary,
-                foregroundColor: colors.onPrimary,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16)),
-                elevation: 0,
-              ),
-              onPressed: _isRecordingAttempt ? null : _handleRevealAnswer,
-              child: const Text('查看答案',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            ),
-          ),
-        ),
-      );
-    }
-
-    if (isPreview) {
-      return _buildPreviewBottomBar(view);
-    }
-
-    // 当答案揭晓时，底部显示四个 FSRS 评级按钮
-    return SafeArea(
-      child: Container(
-        key: const ValueKey<String>('practice-grade-bar'),
-        padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 12.0),
-        decoration: BoxDecoration(
-          color: colors.surfaceContainer,
-          boxShadow: [
-            BoxShadow(
-                color: colors.shadow.withValues(alpha: 0.10),
-                blurRadius: 10,
-                offset: const Offset(0, -4))
-          ],
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            _buildGradeButton('重来', 1),
-            _buildGradeButton('困难', 2),
-            _buildGradeButton('顺利', 3),
-            _buildGradeButton('极易', 4),
-          ],
-        ),
+  Widget _bottomPanel(Widget child) {
+    return Container(
+      color: _practiceTheme.colorScheme.surface,
+      child: Padding(
+        padding:
+            EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+        child: SafeArea(
+            top: false,
+            child: Align(
+                heightFactor: 1,
+                child: ConstrainedBox(
+                    constraints: const BoxConstraints(
+                        maxWidth: DesignTokens.contentMaxWidth),
+                    child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                        child: child)))),
       ),
     );
   }
 
+  Widget _buildBottomAction() {
+    if (_currentQuestion == null) return const SizedBox.shrink();
+    final view = _currentQuestion!;
+    final colors = _practiceTheme.colorScheme;
+    final primaryStyle = ElevatedButton.styleFrom(
+        backgroundColor: colors.primary,
+        foregroundColor: colors.onPrimary,
+        minimumSize: const Size.fromHeight(52),
+        elevation: 0,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)));
+    if (!_isAnswerRevealed) {
+      if (isSubjective) {
+        return _bottomPanel(Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ElevatedButton(
+                  key: const ValueKey<String>('practice-subjective-reveal'),
+                  style: primaryStyle,
+                  onPressed:
+                      _isRecordingAttempt ? null : _revealSubjectiveAnswer,
+                  child: const Text('查看答案并自评',
+                      style: TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.w600))),
+              const SizedBox(height: 6),
+              TextButton.icon(
+                  key: const ValueKey<String>('practice-ai-judge'),
+                  onPressed: _isAiJudging || _isRecordingAttempt
+                      ? null
+                      : _judgeSubjectiveAnswer,
+                  icon: _isAiJudging
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.auto_awesome_outlined, size: 18),
+                  label: Text(_isAiJudging ? 'AI 正在判卷…' : '呼叫 AI 助教判卷')),
+            ]));
+      }
+      return _bottomPanel(ElevatedButton(
+          key: const ValueKey<String>('practice-reveal-answer'),
+          style: primaryStyle,
+          onPressed: _isRecordingAttempt ? null : _handleRevealAnswer,
+          child: const Text('查看答案',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600))));
+    }
+    if (view.isPreview) return _buildPreviewBottomBar(view);
+    return _bottomPanel(LayoutBuilder(builder: (context, constraints) {
+      final columns = MediaQuery.textScalerOf(context).scale(14) > 19 ||
+              constraints.maxWidth < 300
+          ? 2
+          : 4;
+      final width = (constraints.maxWidth - (columns - 1) * 8) / columns;
+      return Wrap(
+          key: const ValueKey<String>('practice-grade-bar'),
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final item in [('重来', 1), ('困难', 2), ('顺利', 3), ('极易', 4)])
+              SizedBox(
+                  width: width, child: _buildGradeButton(item.$1, item.$2)),
+          ]);
+    }));
+  }
+
   Widget _buildGradeButton(String label, int grade) {
-    final colors = Theme.of(context).colorScheme;
-    final color = switch (grade) {
-      1 => colors.error,
-      2 => colors.tertiary,
-      3 => colors.secondary,
-      _ => colors.primary,
-    };
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4.0),
-        child: ElevatedButton(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: color.withValues(alpha: 0.1),
-            foregroundColor: color,
-            elevation: 0,
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-          onPressed: _isSubmittingGrade ? null : () => _submitGrade(grade),
-          child:
-              Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
-        ),
-      ),
+    final colors = _practiceTheme.colorScheme;
+    return ElevatedButton(
+      style: ElevatedButton.styleFrom(
+          backgroundColor: colors.surfaceContainerLow,
+          foregroundColor: colors.onSurface,
+          minimumSize: const Size.fromHeight(52),
+          elevation: 0,
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 14),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+      onPressed: _isSubmittingGrade ? null : () => _submitGrade(grade),
+      child: Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
     );
   }
 
@@ -1270,62 +1330,39 @@ class _PracticePageState extends State<PracticePage> {
   }
 
   Widget _buildPreviewBottomBar(PracticeQuestionView view) {
-    final colors = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-      decoration: BoxDecoration(color: colors.surfaceContainer, boxShadow: [
-        BoxShadow(
-            color: colors.shadow.withValues(alpha: 0.10),
-            blurRadius: 10,
-            offset: const Offset(0, -2))
-      ]),
-      child: SafeArea(
-        top: false,
-        child: Row(
-          children: [
-            Expanded(
-              child: SizedBox(
-                height: 52,
-                child: ElevatedButton.icon(
-                  icon: const Icon(Icons.delete_sweep_rounded),
-                  label: const Text('丢弃',
-                      style:
-                          TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                  onPressed: _discardPreviewQuestion,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: colors.errorContainer,
-                    foregroundColor: colors.onErrorContainer,
+    final colors = _practiceTheme.colorScheme;
+    return _bottomPanel(LayoutBuilder(builder: (context, constraints) {
+      final stacked = MediaQuery.textScalerOf(context).scale(16) > 22;
+      final width =
+          stacked ? constraints.maxWidth : (constraints.maxWidth - 12) / 2;
+      return Wrap(spacing: 12, runSpacing: 8, children: [
+        SizedBox(
+            width: width,
+            child: OutlinedButton.icon(
+                icon: const Icon(Icons.delete_sweep_outlined),
+                label: const Text('丢弃'),
+                onPressed: _discardPreviewQuestion,
+                style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(52),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14)),
+                        borderRadius: BorderRadius.circular(14))))),
+        SizedBox(
+            width: width,
+            child: ElevatedButton.icon(
+                icon: const Icon(Icons.archive_outlined),
+                label: const Text('收入题库'),
+                onPressed: _savePreviewQuestion,
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: colors.primary,
+                    foregroundColor: colors.onPrimary,
+                    minimumSize: const Size.fromHeight(52),
                     elevation: 0,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: SizedBox(
-                height: 52,
-                child: ElevatedButton.icon(
-                  icon: const Icon(Icons.archive_rounded),
-                  label: const Text('收入题库',
-                      style:
-                          TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                  onPressed: _savePreviewQuestion,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: colors.tertiaryContainer,
-                    foregroundColor: colors.onTertiaryContainer,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14)),
-                    elevation: 0,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+                        borderRadius: BorderRadius.circular(14))))),
+      ]);
+    }));
   }
 
   void _generateVariant() async {

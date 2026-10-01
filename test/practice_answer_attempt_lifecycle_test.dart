@@ -439,11 +439,11 @@ void main() {
 
     await pumpUntilLoaded(tester, bankName: _bankName);
 
-    // Question 1: Enter non-empty text, then "跳过 AI，直接看答案自评"
+    // Question 1: Enter non-empty text, then "查看答案并自评"
     await tester.enterText(find.byType(TextField), 'My subjective answer text');
     await settle(tester);
 
-    await tester.tap(find.text('跳过 AI，直接看答案自评'));
+    await tester.tap(find.text('查看答案并自评'));
     await settle(tester);
 
     await tester.runAsync(() async {
@@ -460,8 +460,8 @@ void main() {
     await tester.tap(find.text('顺利'));
     await settle(tester);
 
-    // Question 2: Leave text empty, click "跳过 AI，直接看答案自评"
-    await tester.tap(find.text('跳过 AI，直接看答案自评'));
+    // Question 2: Leave text empty, click "查看答案并自评"
+    await tester.tap(find.text('查看答案并自评'));
     await settle(tester);
 
     await tester.runAsync(() async {

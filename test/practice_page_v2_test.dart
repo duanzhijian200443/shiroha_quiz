@@ -733,9 +733,19 @@ void main() {
   });
 
   group('PracticePage widget', () {
-    Future<void> pumpUntilLoaded(WidgetTester tester) async {
+    Future<void> pumpUntilLoaded(
+      WidgetTester tester, {
+      ThemeData? theme,
+      double textScale = 1,
+    }) async {
       await tester.pumpWidget(
-        MaterialApp(home: PracticePage(bankName: _bankName)),
+        MaterialApp(
+            theme: theme,
+            builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(context)
+                    .copyWith(textScaler: TextScaler.linear(textScale)),
+                child: child!),
+            home: PracticePage(bankName: _bankName)),
       );
       for (var frame = 0; frame < 60; frame++) {
         await tester.pump();
@@ -761,6 +771,115 @@ void main() {
         );
       }
     }
+
+    for (final profile in [
+      (name: 'phone', size: const Size(390, 844), scale: 1.0, dark: false),
+      (
+        name: 'large text phone',
+        size: const Size(360, 720),
+        scale: 1.6,
+        dark: false
+      ),
+      (name: 'dark phone', size: const Size(360, 720), scale: 1.6, dark: true),
+      (name: 'desktop', size: const Size(1024, 768), scale: 1.0, dark: false),
+    ]) {
+      testWidgets(
+          '${profile.name}: choice feedback and fixed ratings remain reachable',
+          (tester) async {
+        tester.view.physicalSize = profile.size;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        await tester.runAsync(() async {
+          final db = await _db();
+          await _insertTyped(
+              db, _choiceDraft(explanation: _text('Synthetic explanation.')),
+              storageId: _typedStorageIdA);
+          await db.insert('review_states', _newReviewState(_typedStorageIdA));
+        });
+        await pumpUntilLoaded(tester,
+            theme: profile.dark ? ThemeData.dark() : ThemeData.light(),
+            textScale: profile.scale);
+        final card = find.byKey(const ValueKey('practice-question-card'));
+        expect(tester.getSize(card).width, lessThanOrEqualTo(608));
+        expect(find.text('单选题'), findsOneWidget);
+        expect(find.text('正确答案'), findsNothing);
+        final reveal = find.byKey(const ValueKey('practice-reveal-answer'));
+        expect(reveal.hitTestable(), findsOneWidget);
+        await tester.tap(find.byKey(const ValueKey('practice-option-1')));
+        await tester.tap(reveal);
+        await settle(tester);
+        // Correctness is communicated through text/icons as well as color.
+        expect(find.text('正确答案'), findsOneWidget);
+        expect(find.text('选择错误'), findsOneWidget);
+        expect(find.byIcon(Icons.check_circle_outline), findsOneWidget);
+        expect(find.byIcon(Icons.cancel_outlined), findsOneWidget);
+        for (final label in ['重来', '困难', '顺利', '极易']) {
+          expect(find.text(label).hitTestable(), findsOneWidget);
+        }
+        final ratings =
+            tester.getRect(find.byKey(const ValueKey('practice-grade-bar')));
+        expect(ratings.width, lessThanOrEqualTo(608));
+        expect(ratings.bottom, lessThanOrEqualTo(profile.size.height));
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    testWidgets('long typed content scrolls without hiding reveal or ratings',
+        (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.runAsync(() async {
+        final db = await _db();
+        await _insertTyped(
+            db,
+            _choiceDraft(
+              stem: List.filled(12,
+                      'Synthetic long question paragraph with enough text to require scrolling.')
+                  .join('\n'),
+              options: [
+                for (final letter in ['a', 'b', 'c', 'd'])
+                  QuestionOption(
+                      optionId: 'opt_$letter',
+                      label: letter.toUpperCase(),
+                      content: _text(
+                          List.filled(4, 'Synthetic long option $letter.')
+                              .join(' ')))
+              ],
+              explanation: RichContent(nodes: const [
+                TextNode('Synthetic formula explanation.'),
+                BlockMathNode(r'\int_0^1 x^2\,dx=\frac{1}{3}')
+              ]),
+            ),
+            storageId: _typedStorageIdA);
+        await db.insert('review_states', _newReviewState(_typedStorageIdA));
+      });
+      await pumpUntilLoaded(tester);
+      final option = find.byKey(const ValueKey('practice-option-3'));
+      final scroll = find
+          .descendant(
+              of: find.byKey(const ValueKey('practice-content-scroll')),
+              matching: find.byType(Scrollable))
+          .first;
+      await tester.scrollUntilVisible(option, 250,
+          scrollable: scroll, maxScrolls: 30);
+      await tester.pumpAndSettle();
+      expect(option.hitTestable(), findsOneWidget);
+      expect(find.text('查看答案').hitTestable(), findsOneWidget);
+      await tester.tap(option);
+      await tester.tap(find.text('查看答案'));
+      await settle(tester);
+      await tester.scrollUntilVisible(find.text('答案与解析'), 150,
+          scrollable: scroll, maxScrolls: 30);
+      await tester.pumpAndSettle();
+      expect(find.text('答案与解析').hitTestable(), findsOneWidget);
+      for (final label in ['重来', '困难', '顺利', '极易']) {
+        expect(find.text(label).hitTestable(), findsOneWidget);
+      }
+      expect(tester.takeException(), isNull);
+    });
 
     testWidgets('typed row renders sidecar content; V1 decoy never renders',
         (tester) async {
@@ -802,7 +921,9 @@ void main() {
       });
 
       await pumpUntilLoaded(tester);
-      await tester.tap(find.byIcon(Icons.delete_outline));
+      await tester.tap(find.byKey(const ValueKey('practice-more-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('删除题目'));
       await tester.pumpAndSettle();
 
       expect(
@@ -858,7 +979,7 @@ void main() {
       expect(find.text('无题干'), findsNothing);
       expect(find.textContaining('V1 decoy answer'), findsNothing);
 
-      await tester.tap(find.text('跳过 AI，直接看答案自评'));
+      await tester.tap(find.text('查看答案并自评'));
       await settle(tester);
 
       expect(find.text('无'), findsOneWidget);

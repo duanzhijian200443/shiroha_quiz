@@ -365,3 +365,12 @@ prompts. File Library and normal document import stay available, and no
 primary destination or three-tab IA changes. Retained P6 diagnostic surfaces
 are not ordinary navigation entries. Restoration needs separately authorized
 work under the focused Answer Completion and P6 contracts.
+
+## Current Practice presentation amendment
+
+The historical UI-R1 reuse-only restriction for Practice is superseded for
+presentation by `docs/product/practice-ui-refresh-freeze.md`. Practice now uses
+neutral reading cards, a More menu and fixed phase-dependent actions while
+retaining typed/legacy authority, attempt recording, FSRS and preview semantics.
+The closed three-tab IA and the historical UI Finalization delivery remain
+unchanged.
