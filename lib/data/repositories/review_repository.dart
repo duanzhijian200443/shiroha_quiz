@@ -1,3 +1,4 @@
+import '../../application/practice/study_session_launch.dart';
 import '../../application/review/question_data_clear_all.dart';
 import '../../application/study_query/study_query_ports.dart';
 import '../../core/database/database_helper.dart';
@@ -388,6 +389,7 @@ class ReviewRepository implements StudyMetricsQueryPort {
     String? bankName,
     required int nowUnixSeconds,
     required int todayStartUnixSeconds,
+    bool wrongBookOnly = false,
   }) async {
     final rows = await _metricsQueryRows((db) {
       return db.rawQuery(
@@ -408,6 +410,10 @@ class ReviewRepository implements StudyMetricsQueryPort {
         LEFT JOIN review_states rs ON rs.question_id = q.id
         LEFT JOIN review_logs rl ON rl.question_id = q.id
         WHERE (? IS NULL OR q.bank_name = ?)
+        ${wrongBookOnly ? '''AND (
+          EXISTS (SELECT 1 FROM answer_attempts aa WHERE aa.question_id = q.id AND aa.correctness = 0)
+          OR (rs.lapses IS NOT NULL AND rs.lapses > 0)
+        )''' : ''}
       ''',
         <Object?>[nowUnixSeconds, todayStartUnixSeconds, bankName, bankName],
       );
@@ -521,8 +527,26 @@ class ReviewRepository implements StudyMetricsQueryPort {
     int nowUnix, {
     int? type,
     int limit = 40,
+    StudySessionPool pool = StudySessionPool.mixed,
   }) async {
+    // The virtual wrong book has no new-question pool (existing stats = 0).
+    if (bankName == _globalWrongBookBankName &&
+        pool == StudySessionPool.newQuestions) {
+      return [];
+    }
     final db = await _db;
+    final selection = switch (pool) {
+      StudySessionPool.mixed => '(r.state = 0 OR r.next_review_time <= ?)',
+      StudySessionPool.newQuestions => 'r.state = 0',
+      StudySessionPool.dueReviews =>
+        '(r.state > 0 AND r.next_review_time <= ?)',
+    };
+    final timeArgs = pool == StudySessionPool.newQuestions
+        ? <Object?>[]
+        : <Object?>[nowUnix];
+    final wrongSelection = pool == StudySessionPool.mixed
+        ? '(r.state IS NULL OR r.state = 0 OR r.next_review_time <= ?)'
+        : selection;
     String typeCondition = "";
     List<dynamic> args = [];
 
@@ -555,10 +579,10 @@ class ReviewRepository implements StudyMetricsQueryPort {
           )
           OR (r.lapses IS NOT NULL AND r.lapses > 0)
         )
-        AND (r.state IS NULL OR r.state = 0 OR r.next_review_time <= ?) $typeCondition
+        AND $wrongSelection $typeCondition
         ORDER BY COALESCE(r.next_review_time, 0) ASC
         LIMIT ?
-      ''', <Object?>[nowUnix, ...args, limit]);
+      ''', <Object?>[...timeArgs, ...args, limit]);
     } else {
       rows = await db.rawQuery('''
         SELECT q.*, r.state, r.difficulty, r.stability, r.reps, r.next_review_time,
@@ -566,10 +590,10 @@ class ReviewRepository implements StudyMetricsQueryPort {
         FROM questions q
         JOIN review_states r ON q.id = r.question_id
         LEFT JOIN question_v2_payloads p ON q.id = p.question_id
-        WHERE q.bank_name = ? AND (r.state = 0 OR r.next_review_time <= ?) $typeCondition
+        WHERE q.bank_name = ? AND $selection $typeCondition
         ORDER BY r.state DESC, r.next_review_time ASC
         LIMIT ?
-      ''', <Object?>[bankName, nowUnix, ...args, limit]);
+      ''', <Object?>[bankName, ...timeArgs, ...args, limit]);
     }
 
     return rows.map(_mapper.decodeJoinedRow).toList(growable: false);

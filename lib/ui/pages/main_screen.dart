@@ -1,3 +1,4 @@
+import '../../application/practice/study_session_launch.dart';
 import 'package:flutter/material.dart';
 import '../../application/agent/agent_config_service.dart';
 import '../../application/backup/backup_restore_coordinator.dart';
@@ -24,6 +25,7 @@ import '../assistant/workspace_controller.dart';
 import '../assistant/workspace_pages.dart';
 import '../../services/import_review/import_commit_service.dart';
 import '../theme/app_theme.dart';
+import '../home/today_visual_theme.dart';
 import '../theme/design_tokens.dart';
 
 class MainScreen extends StatefulWidget {
@@ -34,6 +36,7 @@ class MainScreen extends StatefulWidget {
     required this.agentSettingsService,
     required this.startAgentTurn,
     this.todayContextQuery,
+    this.studySessionLauncher,
     this.questionListQuery,
     this.questionMutationPersistence,
     this.typedAnswerPersistence,
@@ -55,6 +58,7 @@ class MainScreen extends StatefulWidget {
   final AgentSettingsService agentSettingsService;
   final AgentTurnStarter startAgentTurn;
   final TodayContextQuery? todayContextQuery;
+  final StudySessionLauncher? studySessionLauncher;
   final QuestionListQueryPort? questionListQuery;
   final QuestionMutationPersistencePort? questionMutationPersistence;
   final TypedAnswerPersistencePort? typedAnswerPersistence;
@@ -83,8 +87,7 @@ class _MainScreenState extends State<MainScreen> {
 
   /// Today-activation signal (SPL-1-U0): incremented whenever bottom
   /// navigation transitions INTO Today. HomePage observes it and refreshes
-  /// the live focused state when still in 特训 mode; HomePage itself is
-  /// never recreated (ordinary-mode state stays preserved).
+  /// ordinary and plan snapshots; HomePage itself is never recreated.
   int _todayActivationEpoch = 0;
 
   void _handleNavigation(int index) {
@@ -159,6 +162,7 @@ class _MainScreenState extends State<MainScreen> {
     final pages = <Widget>[
       HomePage(
         todayContextQuery: widget.todayContextQuery,
+        studySessionLauncher: widget.studySessionLauncher,
         questionListQuery: widget.questionListQuery,
         questionMutationPersistence: widget.questionMutationPersistence,
         typedAnswerPersistence: widget.typedAnswerPersistence,
@@ -200,9 +204,11 @@ class _MainScreenState extends State<MainScreen> {
       ), // Tab 2 — 我的
     ];
     final theme = Theme.of(context);
-    final selectedNavigationColor = theme.brightness == Brightness.light
-        ? AppTheme.shirohaCyanForeground
-        : theme.colorScheme.primary;
+    final selectedNavigationColor = _currentIndex == 0
+        ? todayVisualTheme(theme).colorScheme.onSurface
+        : theme.brightness == Brightness.light
+            ? AppTheme.shirohaCyanForeground
+            : theme.colorScheme.primary;
     final assistantDrawerEnabled = _currentIndex == 1 &&
         MediaQuery.sizeOf(context).width < 900 &&
         _assistantDrawerBuilder != null;
@@ -222,18 +228,21 @@ class _MainScreenState extends State<MainScreen> {
           onTap: _handleNavigation,
           type: BottomNavigationBarType.fixed,
           selectedItemColor: selectedNavigationColor,
-          unselectedItemColor: theme.colorScheme.onSurfaceVariant,
+          unselectedItemColor: _currentIndex == 0
+              ? todayVisualTheme(theme).colorScheme.onSurfaceVariant
+              : theme.colorScheme.onSurfaceVariant,
           items: const [
             BottomNavigationBarItem(
-              icon: Icon(Icons.psychology_outlined),
+              icon: Icon(Icons.home_rounded),
               activeIcon: _SelectedNavigationIcon(
-                icon: Icons.psychology_outlined,
+                icon: Icons.home_rounded,
+                neutral: true,
                 itemKey: ValueKey<String>('main-nav-selected-home'),
               ),
               label: '今日',
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.auto_awesome_outlined),
+              icon: _TodayNavigationStar(),
               activeIcon: _SelectedNavigationIcon(
                 icon: Icons.auto_awesome_outlined,
                 itemKey: ValueKey<String>('main-nav-selected-assistant'),
@@ -241,9 +250,9 @@ class _MainScreenState extends State<MainScreen> {
               label: '助手',
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.school_outlined),
+              icon: Icon(Icons.person_rounded),
               activeIcon: _SelectedNavigationIcon(
-                icon: Icons.school_outlined,
+                icon: Icons.person_rounded,
                 itemKey: ValueKey<String>('main-nav-selected-profile'),
               ),
               label: '我的',
@@ -255,8 +264,45 @@ class _MainScreenState extends State<MainScreen> {
   }
 }
 
+/// The single four-point star used by the supplied Today reference.
+class _TodayNavigationStar extends StatelessWidget {
+  const _TodayNavigationStar();
+
+  @override
+  Widget build(BuildContext context) => CustomPaint(
+      size: const Size(24, 24),
+      painter: _TodayStarPainter(
+          todayVisualTheme(Theme.of(context)).colorScheme.onSurfaceVariant));
+}
+
+class _TodayStarPainter extends CustomPainter {
+  const _TodayStarPainter(this.color);
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path()
+      ..moveTo(12, 0)
+      ..quadraticBezierTo(14, 9, 18, 10)
+      ..quadraticBezierTo(24, 12, 18, 14)
+      ..quadraticBezierTo(14, 15, 12, 24)
+      ..quadraticBezierTo(10, 15, 6, 14)
+      ..quadraticBezierTo(0, 12, 6, 10)
+      ..quadraticBezierTo(10, 9, 12, 0)
+      ..close();
+    canvas.drawPath(path, Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(_TodayStarPainter oldDelegate) =>
+      oldDelegate.color != color;
+}
+
 class _SelectedNavigationIcon extends StatelessWidget {
-  const _SelectedNavigationIcon({required this.icon, required this.itemKey});
+  const _SelectedNavigationIcon(
+      {required this.icon, required this.itemKey, this.neutral = false});
+
+  final bool neutral;
 
   final IconData icon;
   final Key itemKey;
@@ -265,6 +311,12 @@ class _SelectedNavigationIcon extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    if (neutral) {
+      return Icon(icon,
+          key: itemKey,
+          color: todayVisualTheme(theme).colorScheme.onSurface,
+          size: 28);
+    }
     return Container(
       key: itemKey,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),

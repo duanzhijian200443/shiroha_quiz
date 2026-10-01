@@ -7,9 +7,20 @@ Navigation is CLOSED / FROZEN.**
 This document freezes the final Shiroha Presentation / Navigation
 information architecture so that the remaining UI Finalization stages
 (UI-R1, then UI-CL) can be implemented without reopening IA decisions. It
-is the current authority for the final primary navigation and the final
-Today mode organization. It is a docs/contract freeze: UI-R0 implemented
+records the primary navigation and historical Today mode organization;
+the current Today supersession is stated below. It is a docs/contract freeze: UI-R0 implemented
 no production code, tests, schema, or workflow change.
+
+## Current Today supersession
+
+The v0 three-mode Today organization and its closure evidence below are
+historical. `today-home-refresh-freeze.md` now governs the unified scrolling
+Today dashboard: independent ordinary new/due entries, one real active-plan
+preview leading to a lightweight current-plan detail, learning activity and a
+standalone MockCenter entry. There is no Today mode selector or embedded exam
+polling surface. Primary navigation remains 今日 | 助手 | 我的. StudyPlan,
+FSRS, import, Assistant and Profile business contracts remain unchanged;
+deferred statistics and full plan management remain deferred.
 
 ## 1. Purpose
 

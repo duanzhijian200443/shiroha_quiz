@@ -141,8 +141,10 @@ void main() {
     });
     await subject.runFocusedStart(() async => starts++);
     expect(starts, 1);
+    expect(subject.practiceStartPending, isTrue);
     route.complete();
     await first;
+    expect(subject.practiceStartPending, isFalse);
     await subject.runFocusedStart(() async => starts++);
     expect(starts, 2);
   });

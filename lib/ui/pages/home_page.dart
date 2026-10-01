@@ -1,3 +1,5 @@
+import 'dart:async';
+import '../../domain/attempt/answer_attempt.dart';
 import 'package:flutter/material.dart';
 import 'bank_detail_screen.dart';
 import 'import_settings_screen.dart';
@@ -16,18 +18,16 @@ import '../../application/safe_write/typed_answer_command.dart';
 import '../../application/today/today_context_query.dart';
 import '../home/today_controller.dart';
 import '../../domain/study_plan/active_study_plan.dart';
-import '../../domain/study_plan/study_plan_values.dart';
 import '../../services/study_plan/study_plan_practice_session_launcher.dart';
 import '../../services/task_manager.dart';
 import '../../services/import_review/import_commit_service.dart';
 
-/// Final Today mode organization (UI-R1 freeze): 普通 / 特训 / 考试.
-///
-/// This is Presentation-only state; it is never persisted.
-enum _TodayMode { ordinary, focused, exam }
-
-/// Focused plan-surface status derived from the typed focused state.
-enum _FocusedPlanStatus { ready, noCandidates, unavailable }
+import '../../application/practice/study_session_launch.dart';
+import '../home/current_plan_screen.dart';
+import '../home/today_plan_card.dart';
+import '../home/today_welcome_banner.dart';
+import '../home/today_visual_theme.dart';
+import '../theme/design_tokens.dart';
 
 enum _CreateImportAction { file, photo }
 
@@ -36,6 +36,7 @@ class HomePage extends StatefulWidget {
     super.key,
     this.taskManager,
     this.todayContextQuery,
+    this.studySessionLauncher,
     this.onSwitchBank,
     this.onPracticeRequested,
     this.onImportRequested,
@@ -55,6 +56,7 @@ class HomePage extends StatefulWidget {
 
   final TaskManager? taskManager;
   final TodayContextQuery? todayContextQuery;
+  final StudySessionLauncher? studySessionLauncher;
   final VoidCallback? onSwitchBank;
   final VoidCallback? onPracticeRequested;
   final VoidCallback? onImportRequested;
@@ -67,17 +69,12 @@ class HomePage extends StatefulWidget {
   final FolderQueryPort? folderQuery;
   final ImportCommitService? importCommitService;
 
-  /// SPL-1-U0 focused seams. When null (legacy embedding), the 特训 surface
-  /// shows the real no-plan state without querying. Production composition
-  /// (main.dart) always wires them.
+  /// Existing singleton-plan seams, supplied by the composition root.
   final StudyPlanSelectionService? studyPlanSelectionService;
   final StudyPlanCommandService? studyPlanCommandService;
   final StudyPlanPracticeSessionLauncher? studyPlanSessionLauncher;
 
-  /// Monotonic Today-activation signal owned by MainScreen: incremented each
-  /// time bottom navigation transitions INTO Today. HomePage never recreates
-  /// itself on epoch changes (ordinary-mode state must be preserved); it
-  /// only requests a focused refresh through the safe refresh coordinator.
+  /// Returning to Today refreshes both ordinary and singleton-plan snapshots.
   final int todayActivationEpoch;
 
   @override
@@ -94,10 +91,6 @@ class _HomePageState extends State<HomePage> {
   bool get _isLoading => _controller.contextLoading;
   StudyPlanFocusedState? get _focusedState => _controller.focusedState;
 
-  /// Presentation-only mode selection remains unchanged during extraction.
-  _TodayMode _todayMode = _TodayMode.ordinary;
-  bool _focusedLoadScheduled = false;
-
   @override
   void initState() {
     super.initState();
@@ -110,19 +103,18 @@ class _HomePageState extends State<HomePage> {
           Future<StudyPlanFocusedState>.value(
               const StudyPlanFocusedNoActivePlan()),
     )..addListener(_onControllerChanged);
-    _loadContext();
+    _refresh();
   }
 
   @override
   void didUpdateWidget(covariant HomePage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Today became active again (bottom navigation returned to 今日): if the
-    // user is still in 特训 mode, refresh the live focused state so an
-    // adopted/replaced plan appears automatically. Ordinary mode state is
-    // preserved because the widget itself is never recreated.
-    if (widget.todayActivationEpoch != oldWidget.todayActivationEpoch &&
-        _todayMode == _TodayMode.focused) {
-      _loadFocusedState();
+    if (widget.todayActivationEpoch != oldWidget.todayActivationEpoch) {
+      // The shared detail route listens too; don't notify a sibling route
+      // while the shell is rebuilding. Microtasks do not require a new frame.
+      scheduleMicrotask(() {
+        if (mounted) _refresh();
+      });
     }
   }
 
@@ -138,6 +130,16 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _loadContext() => _controller.loadContext();
+  Future<void> _loadFocusedState() => _controller.loadFocusedState();
+  Future<void> _refresh() async {
+    await Future.wait([_loadContext(), _loadFocusedState()]);
+  }
+
+  bool get _contextReady =>
+      !_isLoading &&
+      !_controller.contextUnavailable &&
+      _controller.contextSnapshot.bankName != null;
+  String _count(int? value) => _contextReady && value != null ? '$value' : '—';
 
   Future<void> _openImport() async {
     final action = await showModalBottomSheet<_CreateImportAction>(
@@ -169,7 +171,7 @@ class _HomePageState extends State<HomePage> {
         builder: (_) => const ImportSettingsScreen(),
       ),
     ).then((_) {
-      if (mounted) _loadContext();
+      if (mounted) _refresh();
     });
   }
 
@@ -183,578 +185,468 @@ class _HomePageState extends State<HomePage> {
       context,
       MaterialPageRoute<bool>(builder: (_) => const PhotoCaptureScreen()),
     );
+    if (!mounted) return;
+    await _refresh();
     if (!mounted || dispatched != true) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('识别任务已开始，可在解析任务中查看进度。')),
     );
-    await _loadContext();
   }
+
+  ThemeData get _visualTheme => todayVisualTheme(Theme.of(context));
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      Theme(data: _visualTheme, child: Builder(builder: _buildHome));
+
+  Widget _buildHome(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-    final bgColor = theme.scaffoldBackgroundColor;
-    final cardColor = colors.surface;
-    final textColor = colors.onSurface;
-    final subTextColor = colors.onSurfaceVariant;
-    final primaryColor = theme.colorScheme.primary;
-    final taskManager = widget.taskManager ?? TaskManager.instance;
-
     return Scaffold(
-      backgroundColor: bgColor,
-      appBar: AppBar(
-        title: Text.rich(
-          key: const ValueKey<String>('home-brand-title'),
-          TextSpan(
-            children: [
-              TextSpan(
-                text: 'Shiroha',
-                style: TextStyle(color: textColor),
-              ),
-              TextSpan(
-                text: ' Quiz',
-                style: TextStyle(color: primaryColor),
-              ),
-            ],
-          ),
-          style: const TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 0.2,
+      body: SafeArea(
+          child: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints:
+              const BoxConstraints(maxWidth: DesignTokens.contentMaxWidth),
+          child: RefreshIndicator(
+            onRefresh: _refresh,
+            child: SingleChildScrollView(
+              key: const ValueKey('today-scroll'),
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(16, 18, 16, 24),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _brand(),
+                    const SizedBox(height: 22),
+                    Text('今日',
+                        style: theme.textTheme.headlineLarge?.copyWith(
+                            fontSize: 30,
+                            height: 1.2,
+                            fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 4),
+                    Text('继续你的学习节奏',
+                        style: TextStyle(
+                            fontSize: 15,
+                            height: 1.3,
+                            color: colors.onSurfaceVariant)),
+                    const SizedBox(height: 14),
+                    const TodayWelcomeBanner(),
+                    const SizedBox(height: 10),
+                    Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                              child: _summary('题库题量', _count(_totalCount),
+                                  Icons.local_fire_department_rounded)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                              child: _summary('已掌握', _count(_masteredCount),
+                                  Icons.bar_chart_rounded)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                              child: _summary(
+                                  '今日已练',
+                                  _count(_controller
+                                      .contextSnapshot.todayPracticeCount),
+                                  Icons.article_rounded)),
+                        ]),
+                    const SizedBox(height: 12),
+                    _trainingCard(),
+                    const SizedBox(height: 16),
+                    Row(children: [
+                      Expanded(
+                          child: Text('训练计划',
+                              style: theme.textTheme.titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w700))),
+                      TextButton(
+                          key: const ValueKey('home-view-plan'),
+                          style: TextButton.styleFrom(
+                            minimumSize: const Size(0, 36),
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          onPressed: _openPlan,
+                          child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text('查看计划'),
+                                Icon(Icons.chevron_right_rounded, size: 18)
+                              ])),
+                    ]),
+                    TodayPlanCard(
+                        state: _focusedState,
+                        onOpen: _openPlan,
+                        onRetry: _loadFocusedState,
+                        onAskAssistant: widget.onAskAssistant == null
+                            ? null
+                            : _askAssistant),
+                    const SizedBox(height: 10),
+                    _activity(),
+                    const SizedBox(height: 10),
+                    _exam(),
+                    const SizedBox(height: 12),
+                    _tools(),
+                  ]),
+            ),
           ),
         ),
-        centerTitle: false,
-        titleSpacing: 20,
-        elevation: 0,
-        backgroundColor: bgColor,
-        surfaceTintColor: Colors.transparent,
-        actions: [
-          AnimatedBuilder(
-            animation: taskManager,
-            builder: (context, child) {
-              final count = taskManager.processingCount;
-              return TextButton.icon(
-                key: const ValueKey<String>('home-parse-action'),
-                onPressed: () {
-                  Navigator.push(
+      )),
+    );
+  }
+
+  Widget _brand() => LayoutBuilder(builder: (context, constraints) {
+        final largeText = MediaQuery.textScalerOf(context).scale(14) > 18;
+        final brand = Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.import_contacts_outlined,
+              size: 25, color: _visualTheme.colorScheme.outline),
+          const SizedBox(width: 8),
+          Flexible(
+              child: Text('Shiroha Quiz',
+                  key: const ValueKey('home-brand-title'),
+                  style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: _visualTheme.colorScheme.onSurface))),
+        ]);
+        final tagline = Text('让每一次练习，靠近更好的你',
+            style: TextStyle(
+                fontSize: 9, color: _visualTheme.colorScheme.onSurfaceVariant));
+        return largeText
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [brand, const SizedBox(height: 5), tagline])
+            : Row(children: [
+                brand,
+                const SizedBox(width: 12),
+                Expanded(
+                    child:
+                        Align(alignment: Alignment.centerRight, child: tagline))
+              ]);
+      });
+
+  Widget _surface({Key? key, required Widget child, double padding = 12}) =>
+      Container(
+          key: key,
+          padding: EdgeInsets.all(padding),
+          decoration: BoxDecoration(
+              color: _visualTheme.colorScheme.surface,
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: DesignTokens.surfaceShadow(_visualTheme.brightness)),
+          child: child);
+
+  Widget _summary(String label, String count, IconData icon) => _surface(
+      padding: 10,
+      child: LayoutBuilder(builder: (context, constraints) {
+        final texts =
+            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(label,
+              style: TextStyle(
+                  fontSize: 10,
+                  height: 1.3,
+                  color: _visualTheme.colorScheme.onSurfaceVariant)),
+          const SizedBox(height: 3),
+          Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Flexible(
+                child: Text(count,
+                    style: const TextStyle(
+                        fontSize: 19,
+                        height: 1.1,
+                        fontWeight: FontWeight.w600))),
+            const SizedBox(width: 3),
+            const Text('题', style: TextStyle(fontSize: 10, height: 1.3)),
+          ]),
+        ]);
+        final tile = TodayIconTile(icon, size: 30, iconSize: 22);
+        final stack =
+            MediaQuery.textScalerOf(context).scale(14) > 18 || count.length > 4;
+        return stack
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [tile, const SizedBox(height: 8), texts])
+            : Row(children: [
+                tile,
+                const SizedBox(width: 8),
+                Expanded(child: texts)
+              ]);
+      }));
+
+  Widget _trainingCard() => _surface(
+      key: const ValueKey('home-training-card'),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const TodayIconTile(Icons.ads_click_rounded),
+          const SizedBox(width: 10),
+          Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                Text('今日训练',
+                    style: _visualTheme.textTheme.titleMedium
+                        ?.copyWith(fontSize: 17, fontWeight: FontWeight.w700)),
+                InkWell(
+                    key: const ValueKey('home-switch-bank'),
+                    onTap: _handleSwitchBank,
+                    child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Row(
+                            key: const ValueKey('home-bank-card'),
+                            children: [
+                              Flexible(
+                                  child: Text(
+                                      _controller.contextSnapshot.bankName ??
+                                          '选择题库',
+                                      style: const TextStyle(fontSize: 12))),
+                              const SizedBox(width: 4),
+                              const Icon(Icons.keyboard_arrow_down_rounded,
+                                  size: 16),
+                            ]))),
+              ])),
+          if (_controller.contextSnapshot.bankName != null)
+            IconButton(
+                key: const ValueKey('home-bank-detail'),
+                tooltip: '题库详情',
+                onPressed: () => _openBankDetail(_currentBank),
+                icon: const Icon(Icons.chevron_right_rounded)),
+        ]),
+        if (_isLoading)
+          const LinearProgressIndicator(key: ValueKey('home-context-loading')),
+        if (_controller.contextUnavailable)
+          Row(children: [
+            const Expanded(child: Text('暂时无法加载题库，请重试')),
+            TextButton(onPressed: _refresh, child: const Text('重试')),
+          ]),
+        const SizedBox(height: 8),
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(
+              child: _trainingEntry('home-new-task', '新题挑战', _newCount,
+                  Icons.add_rounded, StudySessionPool.newQuestions)),
+          const SizedBox(width: 10),
+          Expanded(
+              child: _trainingEntry('home-review-task', '复习巩固', _reviewCount,
+                  Icons.sync_rounded, StudySessionPool.dueReviews)),
+        ]),
+      ]));
+
+  Widget _trainingEntry(String key, String title, int count, IconData icon,
+      StudySessionPool pool) {
+    final enabled = _contextReady &&
+        count > 0 &&
+        widget.studySessionLauncher != null &&
+        !_controller.practiceStartPending;
+    final colors = _visualTheme.colorScheme;
+    return Semantics(
+        button: true,
+        enabled: enabled,
+        child: Material(
+            color: colors.surface,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: colors.outlineVariant)),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              key: ValueKey(key),
+              onTap: enabled ? () => _startOrdinary(pool) : null,
+              child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 15),
+                  child: LayoutBuilder(builder: (context, constraints) {
+                    final texts = Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text.rich(
+                              TextSpan(text: _count(count), children: [
+                                const TextSpan(
+                                    text: ' 题',
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w400)),
+                              ]),
+                              style: TextStyle(
+                                  fontSize: 21,
+                                  height: 1.2,
+                                  fontWeight: FontWeight.w600,
+                                  color: enabled
+                                      ? colors.onSurface
+                                      : colors.onSurfaceVariant)),
+                          const SizedBox(height: 6),
+                          Text(title,
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: colors.onSurfaceVariant)),
+                        ]);
+                    final tile = TodayIconTile(icon, size: 42, iconSize: 31);
+                    final chevron = Icon(Icons.chevron_right_rounded,
+                        size: 18, color: colors.outline);
+                    if (MediaQuery.textScalerOf(context).scale(14) > 18 ||
+                        constraints.maxWidth < 116) {
+                      return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(children: [tile, const Spacer(), chevron]),
+                            const SizedBox(height: 10),
+                            texts
+                          ]);
+                    }
+                    return Row(children: [
+                      tile,
+                      const SizedBox(width: 10),
+                      Expanded(child: texts),
+                      chevron
+                    ]);
+                  })),
+            )));
+  }
+
+  Widget _activity() => _surface(
+      key: const ValueKey('home-learning-activity'),
+      child: Row(children: [
+        const TodayIconTile(Icons.calendar_today_rounded),
+        const SizedBox(width: 10),
+        Expanded(
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('学习动态',
+              style: _visualTheme.textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 5),
+          Text(
+              _contextReady &&
+                      _controller.contextSnapshot.todayPracticeCount != null
+                  ? '今日已练 ${_controller.contextSnapshot.todayPracticeCount} 题 · 每一次练习，都让理解更进一步。'
+                  : '选择题库并加载学习记录后，查看今日练习情况',
+              style: TextStyle(
+                  fontSize: 11,
+                  height: 1.5,
+                  color: _visualTheme.colorScheme.onSurfaceVariant)),
+        ])),
+      ]));
+
+  Widget _exam() => _surface(
+      padding: 0,
+      child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(14),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+              key: const ValueKey('home-exam-entry'),
+              onTap: () async {
+                await Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => TaskCenterScreen(
-                        onOpenBank: _openBankDetail,
-                        folderQuery: widget.folderQuery,
-                        commitService: widget.importCommitService,
-                      ),
-                    ),
-                  );
-                },
-                icon: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    const Icon(Icons.task_outlined, size: 21),
-                    if (count > 0)
-                      Positioned(
-                        right: -7,
-                        top: -7,
-                        child: Container(
-                          padding: const EdgeInsets.all(3),
-                          decoration: BoxDecoration(
-                            color: colors.error,
-                            shape: BoxShape.circle,
-                          ),
-                          constraints: const BoxConstraints(
-                            minWidth: 15,
-                            minHeight: 15,
-                          ),
-                          child: Text(
-                            '$count',
-                            style: TextStyle(
-                              color: colors.onError,
-                              fontSize: 8,
-                              fontWeight: FontWeight.w700,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                label: const Text('解析'),
-              );
-            },
-          ),
-          IconButton(
-            key: const ValueKey<String>('home-import-action'),
-            tooltip: '创建 / 导入',
-            icon: Icon(Icons.add_rounded, color: textColor, size: 28),
-            onPressed: _openImport,
-          ),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SafeArea(
-              top: false,
-              child: Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
-                    child: _buildModeSelector(),
-                  ),
-                  Expanded(
-                    child: IndexedStack(
-                      index: _todayMode.index,
-                      children: <Widget>[
-                        _buildOrdinaryMode(
-                          cardColor,
-                          textColor,
-                          subTextColor,
-                          primaryColor,
-                        ),
-                        _buildFocusedMode(textColor, subTextColor),
-                        const MockCenterScreen(
-                          embedded: true,
-                          key: ValueKey<String>('today-exam-surface'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-    );
+                        builder: (_) => const MockCenterScreen()));
+                if (mounted) await _refresh();
+              },
+              child: Stack(children: [
+                Positioned(
+                    right: 20,
+                    top: 0,
+                    bottom: 0,
+                    child: IgnorePointer(
+                        child: Opacity(
+                            opacity: .45,
+                            child: Image.asset(
+                                'assets/images/today/paper-pencil.png',
+                                width: 120,
+                                fit: BoxFit.contain,
+                                excludeFromSemantics: true)))),
+                Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(children: [
+                      const TodayIconTile(Icons.description_rounded),
+                      const SizedBox(width: 10),
+                      Expanded(
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                            Text('模考与试卷',
+                                style: _visualTheme.textTheme.titleMedium
+                                    ?.copyWith(fontWeight: FontWeight.w700)),
+                            const SizedBox(height: 5),
+                            Text('开始模考 / 生成试卷 / 历史试卷',
+                                style: TextStyle(
+                                    fontSize: 11,
+                                    height: 1.5,
+                                    color: _visualTheme
+                                        .colorScheme.onSurfaceVariant)),
+                          ])),
+                      const Icon(Icons.chevron_right_rounded),
+                    ])),
+              ]))));
+
+  Widget _tools() {
+    final taskManager = widget.taskManager ?? TaskManager.instance;
+    return Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+      AnimatedBuilder(
+          animation: taskManager,
+          builder: (context, _) => TextButton.icon(
+              key: const ValueKey('home-parse-action'),
+              onPressed: () async {
+                await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => TaskCenterScreen(
+                            onOpenBank: _openBankDetail,
+                            folderQuery: widget.folderQuery,
+                            commitService: widget.importCommitService)));
+                if (mounted) await _refresh();
+              },
+              icon: Badge(
+                  isLabelVisible: taskManager.processingCount > 0,
+                  label: Text('${taskManager.processingCount}'),
+                  child: const Icon(Icons.task_outlined, size: 18)),
+              label: const Text('解析'))),
+      IconButton(
+          key: const ValueKey('home-import-action'),
+          tooltip: '创建 / 导入',
+          onPressed: _openImport,
+          icon: const Icon(Icons.add_rounded)),
+    ]);
   }
 
-  /// Compact three-option Today mode selector (普通 / 特训 / 考试). Stable
-  /// keys are provided for acceptance tests on narrow viewports.
-  Widget _buildModeSelector() {
-    final theme = Theme.of(context);
-    return SizedBox(
-      width: double.infinity,
-      child: SegmentedButton<_TodayMode>(
-        segments: const <ButtonSegment<_TodayMode>>[
-          ButtonSegment<_TodayMode>(
-            value: _TodayMode.ordinary,
-            label: KeyedSubtree(
-              key: ValueKey<String>('today-mode-ordinary'),
-              child: Text('普通'),
-            ),
-          ),
-          ButtonSegment<_TodayMode>(
-            value: _TodayMode.focused,
-            label: KeyedSubtree(
-              key: ValueKey<String>('today-mode-focused'),
-              child: Text('特训'),
-            ),
-          ),
-          ButtonSegment<_TodayMode>(
-            value: _TodayMode.exam,
-            label: KeyedSubtree(
-              key: ValueKey<String>('today-mode-exam'),
-              child: Text('考试'),
-            ),
-          ),
-        ],
-        selected: <_TodayMode>{_todayMode},
-        onSelectionChanged: (Set<_TodayMode> selection) {
-          final mode = selection.single;
-          setState(() => _todayMode = mode);
-          // 特训 loads its live focused snapshot on entry.
-          if (mode == _TodayMode.focused) _loadFocusedState();
-        },
-        showSelectedIcon: false,
-        style: ButtonStyle(
-          visualDensity: VisualDensity.compact,
-          textStyle: WidgetStatePropertyAll<TextStyle>(
-            TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: theme.colorScheme.onSurface,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// 普通: existing regular-learning Presentation continuation.
-  Widget _buildOrdinaryMode(
-    Color cardColor,
-    Color textColor,
-    Color subTextColor,
-    Color primaryColor,
-  ) {
-    return CustomScrollView(
-      slivers: [
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-          sliver: SliverList.list(
-            children: [
-              _buildBankCard(
-                cardColor,
-                textColor,
-                subTextColor,
-                primaryColor,
-              ),
-              const SizedBox(height: 18),
-              _buildTrainingCard(
-                cardColor,
-                textColor,
-                subTextColor,
-                primaryColor,
-              ),
-            ],
-          ),
-        ),
-        SliverFillRemaining(
-          hasScrollBody: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 24, 20, 28),
-            child: _buildReviewState(
-              textColor,
-              subTextColor,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// 特训: consumes only a real ActiveStudyPlan (SPL-1-U0). Without a plan a
-  /// genuine no-plan state is shown — never fabricated counts or
-  /// recommendations, and no provider call ever happens.
-  Widget _buildFocusedMode(Color textColor, Color subTextColor) {
-    if (_focusedState == null) {
-      _scheduleFocusedLoad();
-      return const Center(child: CircularProgressIndicator());
-    }
-    return switch (_focusedState!) {
-      StudyPlanFocusedNoActivePlan() =>
-        _buildFocusedNoPlan(textColor, subTextColor),
-      StudyPlanFocusedPlanUnavailable(:final activePlan) =>
-        _buildFocusedPlanCard(
-          textColor,
-          subTextColor,
-          activePlan,
-          status: _FocusedPlanStatus.unavailable,
-          selectedCount: null,
-          advisory: const StudyPlanFocusedAdvisory(
-            masteryReached: false,
-            horizonElapsed: false,
-          ),
-        ),
-      StudyPlanFocusedNoCandidates(:final activePlan, :final advisory) =>
-        _buildFocusedPlanCard(
-          textColor,
-          subTextColor,
-          activePlan,
-          status: _FocusedPlanStatus.noCandidates,
-          selectedCount: null,
-          advisory: advisory,
-        ),
-      StudyPlanFocusedReady(
-        :final activePlan,
-        :final selectedStorageIds,
-        :final advisory
-      ) =>
-        _buildFocusedPlanCard(
-          textColor,
-          subTextColor,
-          activePlan,
-          status: _FocusedPlanStatus.ready,
-          selectedCount: selectedStorageIds.length,
-          advisory: advisory,
-        ),
-      StudyPlanFocusedFailure() =>
-        _buildFocusedFailure(textColor, subTextColor),
-    };
-  }
-
-  void _scheduleFocusedLoad() {
-    if (_focusedLoadScheduled) return;
-    _focusedLoadScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _focusedLoadScheduled = false;
-      _loadFocusedState();
+  Future<void> _startOrdinary(StudySessionPool pool) async {
+    final bankName = _controller.contextSnapshot.bankName;
+    final launcher = widget.studySessionLauncher;
+    if (!_contextReady || bankName == null || launcher == null) return;
+    await _controller.runFocusedStart(() async {
+      final result = await launcher.launch(bankName: bankName, pool: pool);
+      if (!mounted) return;
+      switch (result) {
+        case StudySessionReady():
+          await Navigator.push(
+              context,
+              MaterialPageRoute(
+                  builder: (_) => PracticePage(
+                      bankName: bankName,
+                      usePreparedStudySession: true,
+                      preparedSessionKind: AnswerAttemptSessionKind.normal)));
+          if (mounted) await _refresh();
+        case StudySessionEmpty():
+          _showFocusedMessage('当前没有可练习的题目');
+          await _refresh();
+        case StudySessionUnavailable():
+          _showFocusedMessage('训练准备失败，请重试');
+      }
     });
   }
 
-  Future<void> _loadFocusedState() => _controller.loadFocusedState();
+  void _askAssistant() => widget.onAskAssistant?.call('请根据我的学习情况，帮我制定并预览学习计划。');
 
-  /// 特训 without an adopted plan: genuine no-plan state, no fake counts.
-  Widget _buildFocusedNoPlan(Color textColor, Color subTextColor) {
-    return Center(
-      key: const ValueKey<String>('today-focused-unavailable'),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.assignment_outlined, size: 56, color: subTextColor),
-            const SizedBox(height: 16),
-            Text(
-              '特训需要学习计划',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: textColor,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              '尚未采用学习计划。\n请先在助手中制定并采用学习计划。',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 14,
-                height: 1.5,
-                color: subTextColor,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Bounded infrastructure failure surface. No raw database/provider text is
-  /// ever shown.
-  Widget _buildFocusedFailure(Color textColor, Color subTextColor) {
-    return Center(
-      key: const ValueKey<String>('today-focused-failure'),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.error_outline_rounded, size: 56, color: subTextColor),
-            const SizedBox(height: 16),
-            Text(
-              '特训暂时不可用，请稍后重试',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
-                color: textColor,
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextButton(
-              key: const ValueKey<String>('today-focused-retry'),
-              onPressed: _loadFocusedState,
-              child: const Text('重新加载'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Compact real plan surface: bank, goal, daily target, priority, horizon,
-  /// current selected workload and Start/Stop actions. Advisory states are
-  /// display-only and never deactivate the plan.
-  Widget _buildFocusedPlanCard(
-    Color textColor,
-    Color subTextColor,
-    ActiveStudyPlan plan, {
-    required _FocusedPlanStatus status,
-    required int? selectedCount,
-    required StudyPlanFocusedAdvisory advisory,
-  }) {
-    final theme = Theme.of(context);
-    final primaryColor = theme.colorScheme.primary;
-    final cardColor = theme.cardTheme.color ?? theme.colorScheme.surface;
-    final priorityLabel = switch (plan.priority) {
-      StudyPlanPriority.balanced => '均衡',
-      StudyPlanPriority.dueFirst => '到期优先',
-      StudyPlanPriority.weakFirst => '薄弱优先',
-      StudyPlanPriority.newFirst => '新题优先',
-    };
-    final statusLine = switch (status) {
-      _FocusedPlanStatus.ready => '今日可特训：$selectedCount 题',
-      _FocusedPlanStatus.noCandidates => '今日暂无任务',
-      _FocusedPlanStatus.unavailable => '当前计划题库已不可用',
-    };
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-      child: Container(
-        key: const ValueKey<String>('today-focused-plan-card'),
-        width: double.infinity,
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: cardColor,
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(
-            color: primaryColor.withValues(alpha: 0.08),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: primaryColor.withValues(alpha: 0.08),
-              blurRadius: 24,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: primaryColor.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(Icons.flag_rounded, color: primaryColor),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    '学习计划',
-                    style: TextStyle(
-                      fontSize: 19,
-                      fontWeight: FontWeight.w800,
-                      color: textColor,
-                    ),
-                  ),
-                ),
-                TextButton(
-                  key: const ValueKey<String>('today-focused-stop'),
-                  onPressed: () => _handleFocusedStop(plan),
-                  style: TextButton.styleFrom(foregroundColor: subTextColor),
-                  child: const Text('停止计划'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            _buildFocusedPlanInfo('题库', plan.bankName, textColor, subTextColor),
-            if (plan.goal != null) ...[
-              const SizedBox(height: 8),
-              _buildFocusedPlanInfo('目标', plan.goal!, textColor, subTextColor),
-            ],
-            const SizedBox(height: 8),
-            _buildFocusedPlanInfo(
-                '每日特训量', '${plan.dailyTarget} 题', textColor, subTextColor),
-            const SizedBox(height: 8),
-            _buildFocusedPlanInfo(
-                '优先级', priorityLabel, textColor, subTextColor),
-            if (plan.horizonDays != null) ...[
-              const SizedBox(height: 8),
-              _buildFocusedPlanInfo(
-                  '期限', '${plan.horizonDays} 天', textColor, subTextColor),
-            ],
-            const SizedBox(height: 16),
-            Container(
-              key: const ValueKey<String>('today-focused-status'),
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                color: status == _FocusedPlanStatus.ready
-                    ? primaryColor.withValues(alpha: 0.10)
-                    : Theme.of(context).colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Text(
-                statusLine,
-                style: TextStyle(
-                  color: status == _FocusedPlanStatus.ready
-                      ? primaryColor
-                      : textColor,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-            if (advisory.masteryReached || advisory.horizonElapsed) ...[
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  if (advisory.masteryReached)
-                    _buildFocusedAdvisoryChip('已掌握全部题目', primaryColor),
-                  if (advisory.horizonElapsed)
-                    _buildFocusedAdvisoryChip('计划期已结束', primaryColor),
-                ],
-              ),
-            ],
-            const SizedBox(height: 18),
-            SizedBox(
-              width: double.infinity,
-              height: 52,
-              child: FilledButton.icon(
-                key: const ValueKey<String>('today-focused-start'),
-                onPressed: status == _FocusedPlanStatus.unavailable
+  Future<void> _openPlan() async {
+    await Navigator.push(
+        context,
+        MaterialPageRoute(
+            builder: (_) => CurrentPlanScreen(
+                controller: _controller,
+                onStart: _handleFocusedStart,
+                onStop: _handleFocusedStop,
+                onAskAssistant: widget.onAskAssistant == null
                     ? null
-                    : _handleFocusedStart,
-                style: FilledButton.styleFrom(
-                  backgroundColor: primaryColor,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
-                icon: const Icon(Icons.play_circle_fill_rounded),
-                label: const Text(
-                  '开始特训',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFocusedAdvisoryChip(String label, Color primaryColor) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: primaryColor.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: primaryColor.withValues(alpha: 0.18)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: primaryColor,
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFocusedPlanInfo(
-    String label,
-    String value,
-    Color textColor,
-    Color subTextColor,
-  ) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: 88,
-          child: Text(
-            label,
-            style: TextStyle(color: subTextColor, fontSize: 13),
-          ),
-        ),
-        Expanded(
-          child: Text(
-            value,
-            style: TextStyle(
-              color: textColor,
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-      ],
-    );
+                    : () {
+                        Navigator.pop(context);
+                        _askAssistant();
+                      })));
+    if (mounted) await _refresh();
   }
 
   /// 开始特训: fresh recomputation only. Never reuses a displayed snapshot;
@@ -764,7 +656,13 @@ class _HomePageState extends State<HomePage> {
     final launcher = widget.studyPlanSessionLauncher;
     if (service == null || launcher == null) return;
     await _controller.runFocusedStart(() async {
-      final state = await service.loadFocusedState();
+      final StudyPlanFocusedState state;
+      try {
+        state = await service.loadFocusedState();
+      } catch (_) {
+        if (mounted) _showFocusedMessage('特训暂时不可用，请稍后重试');
+        return;
+      }
       if (!mounted) return;
       switch (state) {
         case StudyPlanFocusedNoActivePlan():
@@ -792,7 +690,7 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
             );
-            if (mounted) _loadFocusedState();
+            if (mounted) await _refresh();
           } else {
             _showFocusedMessage('特训准备失败，请重试');
           }
@@ -853,446 +751,6 @@ class _HomePageState extends State<HomePage> {
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Widget _buildBankCard(
-    Color cardColor,
-    Color textColor,
-    Color subTextColor,
-    Color primaryColor,
-  ) {
-    final hasSelectedBank = _currentBank != '点击修改选择题库';
-    final title = hasSelectedBank ? _currentBank : '请选择题库';
-    final statusText = _totalCount == 0
-        ? '暂无学习记录'
-        : (_masteredCount == _totalCount ? '已完成本题库' : '学习进行中');
-
-    return Container(
-      key: const ValueKey<String>('home-bank-card'),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-        boxShadow: Theme.of(context).brightness == Brightness.dark
-            ? const []
-            : [
-                BoxShadow(
-                  color: const Color(0xFF375078).withValues(alpha: 0.06),
-                  blurRadius: 18,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 58,
-            height: 68,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  primaryColor.withValues(alpha: 0.82),
-                  primaryColor,
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(14),
-              boxShadow: [
-                BoxShadow(
-                  color: primaryColor.withValues(alpha: 0.22),
-                  blurRadius: 12,
-                  offset: const Offset(0, 5),
-                ),
-              ],
-            ),
-            child: const Center(
-              child: Icon(
-                Icons.menu_book_rounded,
-                color: Colors.white,
-                size: 32,
-              ),
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        title,
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                          color: textColor,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    TextButton(
-                      key: const ValueKey<String>('home-switch-bank'),
-                      onPressed: _handleSwitchBank,
-                      style: TextButton.styleFrom(
-                        foregroundColor: subTextColor,
-                        minimumSize: const Size(48, 48),
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        tapTargetSize: MaterialTapTargetSize.padded,
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            '切换',
-                            style: TextStyle(
-                              color: subTextColor,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(width: 2),
-                          Icon(
-                            Icons.chevron_right_rounded,
-                            color: subTextColor,
-                            size: 18,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(5),
-                  child: LinearProgressIndicator(
-                    value: _totalCount == 0
-                        ? 0
-                        : (_masteredCount / _totalCount).clamp(0, 1),
-                    backgroundColor: primaryColor.withValues(alpha: 0.12),
-                    valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
-                    minHeight: 7,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  alignment: WrapAlignment.spaceBetween,
-                  runSpacing: 4,
-                  spacing: 12,
-                  children: [
-                    Text(
-                      statusText,
-                      style: TextStyle(
-                        color: subTextColor,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    Text(
-                      '已掌握 $_masteredCount / $_totalCount',
-                      style: TextStyle(
-                        color: subTextColor,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTrainingCard(
-    Color cardColor,
-    Color textColor,
-    Color subTextColor,
-    Color primaryColor,
-  ) {
-    return Container(
-      key: const ValueKey<String>('home-training-card'),
-      padding: const EdgeInsets.fromLTRB(18, 20, 18, 18),
-      decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-        boxShadow: Theme.of(context).brightness == Brightness.dark
-            ? const []
-            : [
-                BoxShadow(
-                  color: const Color(0xFF375078).withValues(alpha: 0.06),
-                  blurRadius: 18,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '今日训练',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w800,
-              color: textColor,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Material(
-            color: Colors.transparent,
-            borderRadius: BorderRadius.circular(16),
-            child: Ink(
-              height: 56,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    primaryColor,
-                    themeSafeLerp(primaryColor, Colors.lightBlue, 0.2),
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: primaryColor.withValues(alpha: 0.25),
-                    blurRadius: 14,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
-              ),
-              child: InkWell(
-                key: const ValueKey<String>('home-start-training'),
-                onTap: _handlePracticeRequest,
-                borderRadius: BorderRadius.circular(16),
-                child: const Center(
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.play_circle_fill_rounded,
-                        color: Colors.white,
-                        size: 24,
-                      ),
-                      SizedBox(width: 8),
-                      Flexible(
-                        child: Text(
-                          '开始今日训练',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 18),
-          IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  child: _buildTaskEntry(
-                    key: const ValueKey<String>('home-new-task'),
-                    title: '新题',
-                    countText: '$_newCount 道待学习',
-                    icon: Icons.auto_stories_rounded,
-                    accentColor: Theme.of(context).colorScheme.primary,
-                    accentBackground: Theme.of(
-                      context,
-                    ).colorScheme.primary.withValues(alpha: 0.1),
-                    textColor: textColor,
-                    subTextColor: subTextColor,
-                    onTap: _handlePracticeRequest,
-                  ),
-                ),
-                Container(
-                  width: 1,
-                  margin: const EdgeInsets.symmetric(horizontal: 8),
-                  color: subTextColor.withValues(alpha: 0.16),
-                ),
-                Expanded(
-                  child: _buildTaskEntry(
-                    key: const ValueKey<String>('home-review-task'),
-                    title: '今日复习',
-                    countText: '$_reviewCount 道待复习',
-                    icon: Icons.fact_check_outlined,
-                    accentColor: Theme.of(context).colorScheme.tertiary,
-                    accentBackground: Theme.of(
-                      context,
-                    ).colorScheme.tertiary.withValues(alpha: 0.1),
-                    textColor: textColor,
-                    subTextColor: subTextColor,
-                    onTap: _handlePracticeRequest,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTaskEntry({
-    required Key key,
-    required String title,
-    required String countText,
-    required IconData icon,
-    required Color accentColor,
-    required Color accentBackground,
-    required Color textColor,
-    required Color subTextColor,
-    required VoidCallback onTap,
-  }) {
-    return Material(
-      key: key,
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 64),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-            child: Row(
-              children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: accentBackground,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(icon, color: accentColor, size: 23),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: textColor,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          height: 1.25,
-                          letterSpacing: 0.15,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        countText,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: subTextColor,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildReviewState(
-    Color textColor,
-    Color subTextColor,
-  ) {
-    final colors = Theme.of(context).colorScheme;
-    final hasReview = _reviewCount > 0;
-    return Container(
-      key: const ValueKey<String>('home-learning-suggestion'),
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: colors.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: colors.outlineVariant),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: colors.secondary,
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 9),
-              Text(
-                'Shiroha 学习建议',
-                style: TextStyle(
-                  color: textColor,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Text(
-            hasReview ? '先完成今日复习' : '今天可以开始新题',
-            style: TextStyle(
-              color: textColor,
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            hasReview
-                ? '今日有 $_reviewCount 道题等待复习，建议完成后再继续新题。'
-                : '完成新题或产生错题后，这里会根据本地学习记录更新建议。',
-            style: TextStyle(
-              color: subTextColor,
-              fontSize: 13,
-              height: 1.45,
-            ),
-          ),
-          const SizedBox(height: 10),
-          TextButton.icon(
-            key: const ValueKey<String>('home-ask-assistant'),
-            onPressed: widget.onAskAssistant == null
-                ? null
-                : () => widget.onAskAssistant!(
-                      hasReview
-                          ? '请结合当前学习建议，帮我规划下一步：今日有 $_reviewCount 道题等待复习。'
-                          : '请结合当前学习建议，帮我规划下一步：今天可以开始新题。',
-                    ),
-            icon: const Icon(Icons.auto_awesome_outlined, size: 18),
-            label: const Text('向助手提问 →'),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<void> _openBankSettings() async {
     await Navigator.push(
       context,
@@ -1300,7 +758,7 @@ class _HomePageState extends State<HomePage> {
         builder: (_) => PlanConfigScreen(currentBank: _currentBank),
       ),
     );
-    await _loadContext();
+    if (mounted) await _refresh();
   }
 
   void _handleSwitchBank() {
@@ -1310,15 +768,6 @@ class _HomePageState extends State<HomePage> {
       return;
     }
     _openBankSettings();
-  }
-
-  void _handlePracticeRequest() {
-    final callback = widget.onPracticeRequested;
-    if (callback != null) {
-      callback();
-      return;
-    }
-    _gotoPractice();
   }
 
   void _openBankDetail(String bankName) {
@@ -1334,31 +783,9 @@ class _HomePageState extends State<HomePage> {
               widget.questionBankMutationPersistence,
         ),
       ),
-    ).then((_) => _loadContext());
-  }
-
-  Color themeSafeLerp(Color from, Color to, double amount) {
-    return Color.lerp(from, to, amount) ?? from;
-  }
-
-  void _gotoPractice() {
-    if (_currentBank == '点击修改选择题库') {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('请先选择题库')));
-      return;
-    }
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-          builder: (_) => BankDetailScreen(
-                bankName: _currentBank,
-                questionListQuery: widget.questionListQuery,
-                questionMutationPersistence: widget.questionMutationPersistence,
-                typedAnswerPersistence: widget.typedAnswerPersistence,
-                questionBankMutationPersistence:
-                    widget.questionBankMutationPersistence,
-              )),
-    ).then((_) => _loadContext());
+    ).then((_) {
+      if (mounted) _refresh();
+    });
   }
 }
 

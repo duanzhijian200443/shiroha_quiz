@@ -7,6 +7,7 @@ final class TodayContextSnapshot {
     this.reviewCount = 0,
     this.totalCount = 0,
     this.masteredCount = 0,
+    this.todayPracticeCount,
   });
 
   final String? bankName;
@@ -14,6 +15,9 @@ final class TodayContextSnapshot {
   final int reviewCount;
   final int totalCount;
   final int masteredCount;
+
+  /// Null means the summary reader was not supplied, rather than a real zero.
+  final int? todayPracticeCount;
 }
 
 /// A safe read failure, never containing storage errors or private payloads.

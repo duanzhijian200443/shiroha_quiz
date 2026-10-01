@@ -60,7 +60,6 @@ import 'package:shiroha_quiz/ui/pages/main_screen.dart';
 import 'package:shiroha_quiz/ui/pages/home_page.dart';
 import 'package:shiroha_quiz/ui/pages/agent_settings_screen.dart';
 import 'package:shiroha_quiz/ui/pages/ai_settings_screen.dart';
-import 'package:shiroha_quiz/ui/theme/app_theme.dart';
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -305,7 +304,10 @@ void main() {
 
     // Verify that MainScreen is shown initially.
     expect(find.byType(MainScreen), findsOneWidget);
-    expect(find.text('今日'), findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byType(BottomNavigationBar), matching: find.text('今日')),
+        findsOneWidget);
     expect(find.text('助手'), findsOneWidget);
     expect(find.text('我的'), findsOneWidget);
 
@@ -322,7 +324,7 @@ void main() {
       tester
           .widget<BottomNavigationBar>(find.byType(BottomNavigationBar))
           .selectedItemColor,
-      AppTheme.shirohaCyanForeground,
+      const Color(0xFF303238),
     );
 
     await tester.tap(find.text('助手'));
@@ -448,7 +450,7 @@ void main() {
       final composer = tester.widget<TextField>(
         find.byKey(const ValueKey<String>('u1-ux0-composer')),
       );
-      expect(composer.controller!.text, contains('今天可以开始新题'));
+      expect(composer.controller!.text, '请根据我的学习情况，帮我制定并预览学习计划。');
       expect(
         find.byKey(const ValueKey<String>('u1-ux0-send')),
         findsOneWidget,

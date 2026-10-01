@@ -1,19 +1,17 @@
 # 今日首页重构：内容与行为映射冻结
 
-状态：**目标与本轮范围已冻结；交付 1（首页最小解耦）已实现，交付 2/3 未开始。**
+状态：**内容与行为已冻结；首页最小解耦、独立训练入口与统一首页已实现。实机视觉验收独立进行。**
 
 本文件依据用户提供的《今日首页重构_UI任务.md》和参考图
 `今日首页重构_UI.png`，记录新首页的目标及用户确认的收窄范围：
 **先落地现有能力，展示单一活动计划；新统计与完整计划管理延期，保留目标设计。**
-本次仅交付文档，不授权生产代码、数据库、Git 提交、推送或 PR 操作。
+最初冻结仅交付文档；后续实现采用下述契约，不改数据库 schema。Git 操作仍按独立授权执行。
 
 ## 1. 权威与历史关系
 
-- 当前已实现的首页仍由 `ui-finalization-ia-freeze.md` 记录，内部为
-  普通 / 特训 / 考试；其历史交付与验收不改写。
-- 本文件冻结下一轮首页实现目标：以统一页面取代三个模式切换器。
-  实现交付时须同步修订旧 IA 文档、`ARCHITECTURE.md` 和 roadmap 中的
-  当前首页描述，保留历史状态；现在不声明新布局已经上线。
+- UI Finalization v0 的普通 / 特训 / 考试模式是历史交付；其历史验收不改写。
+- 本文件是当前统一首页的内容与行为权威，以一个纵向页面取代三个模式
+  切换器。旧 IA 文档、`ARCHITECTURE.md` 和 roadmap 保留历史并指向本契约。
 - 一级导航继续为 **今日 | 助手 | 我的**。
 - StudyPlan 业务仍以 `SPL-1 StudyPlan Agent Tool v0.md` 为准：全局单一
   活动计划，显式采用 / 替换 / 停止；不自动完成，不引入多计划存储。
@@ -36,7 +34,9 @@
 | 模考与试卷 | 紧凑入口，副标题「开始模考 / 生成试卷 / 历史试卷」 | 打开现有 `MockCenterScreen` 独立页面（非嵌入模式）；保留其内部创建、历史、评阅和返回路径 |
 | 一级导航 | 今日 / 助手 / 我的 | 沿用当前 shell、助手与设置职责；不增加顶层模考或计划管理 tab |
 
-布局沿用已有 Theme / ColorScheme / Design Token，不锁定灰阶。
+首页视觉以参考图为准：局部灰阶 Theme / ColorScheme、横向摘要与训练卡、
+猫与窗台横幅、纸张与铅笔装饰、柔和阴影与紧凑比例。其他目的地沿用
+既有主题；创建 / 导入和解析任务入口置于首页下方。
 手机端优先，同一套组件适配宽屏，不复制两套完整页面。
 
 ## 3. 数据口径
@@ -50,8 +50,14 @@
 - 题库题量、已掌握和今日已练复用既有 `StudyQueryService.getStudyOverview`
   的 bank-scoped 查询。今日已练是该题库本地当日已有正式 review log 的
   **不同题目数**，重复练同一道题不增加这个数；不是作答次数、会话数或时长。
-- 日期边界使用明确的用户本地时区，经已有时区查询能力解析；不把 UTC
-  日期直接当本地日期，也不在产品代码中固定为某位开发者的时区。
+- Today 的 `StudyQueryService` 单独注入系统本地时区解析器（`local`）：
+  将查询时刻转为系统本地日期，再构造该日的本地午夜转回 UTC，包含午夜的
+  DST 偏移；不使用当前固定 offset 推算午夜，不硬编码上海或使用 UTC 日界。
+  Agent / MCP 的既有 IANA resolver 与接口契约保持不变。
+- 普通配置中可选择的「全局错题本」是虚拟题库：Today-only metrics adapter
+  使用现有错误作答 / lapses 集合读取三项摘要；普通 T0 查询仍按真实 bankName
+  精确作用域读取。该虚拟题库的新题入口保持 0，到期启动只选 state > 0 的
+  到期候选；训练卡显示数量继续沿用其现有统计，不修改旧统计算法。
 - `getStudyOverview.dueCount` 不直接替代普通训练卡的待复习数，两者当前
   生产口径并不相同。新接口只组合既有口径，不以名称相似为由混用。
 - 数量是总可用数量，不承诺一次会话一定加载全部；继续保留现有会话
@@ -80,7 +86,7 @@
 - 停止只影响当前计划，沿用精确对象确认及 CAS；发生 stale 时不自动
   重试。已掌握或期限已过仅为 advisory，不自动停止或禁用正常训练。
 
-## 4. 新题与复习：入口契约及现有缺口
+## 4. 新题与复习：入口契约
 
 冻结的目标行为：
 
@@ -92,16 +98,22 @@
    不启动。点击时重读实际候选，避免显示快照过时导致错开会话；
 5. 两项不能都接回同一个无区分的题库详情或混合会话，以假装已经完成。
 
-已核对的现有缺口：`HomePage` 两个入口当前均调用
-`_handlePracticeRequest`，默认打开 `BankDetailScreen`；普通 session
-读取混合新题和到期题。`PracticePage.filterType` 是**题型**筛选，不是
-新题 / 复习筛选，禁止复用该参数表达学习状态。
+当前实现的最小会话入口为 Application `StudySessionLauncher` 与
+`StudySessionPool`（mixed / newQuestions / dueReviews）。Home 只使用后两者；
+Repository 既有调用默认 mixed，不改其他入口行为。
 
-因此正式 UI 改版前，须另行准备一个有界会话入口包，冻结最小
-Application launch seam、候选口径、现有排序 / limit、typed / legacy
-加载与失败规则，并做直接回归。筛选须先于 limit，不能先取混合队列再
-在 UI 中过滤。本文件不授权修改公开 API 或 Repository，也不冻结具体
-类名 / 参数。若实现需要改变 FSRS、schema 或持久化格式，应另行规划。
+- Repository 在 SQL `LIMIT` 前筛选 `state == 0` 或
+  `state > 0 && next_review_time <= now`；普通题库仍按 state DESC、
+  next_review_time ASC 排序，虚拟错题本保留其 next_review_time 排序。
+  现有题型筛选仍独立，默认上限 40 不变；不把 `filterType` 当学习状态。
+- 点击时重新读取选定题库候选；typed / legacy 全量解码成功且非空后，
+  infrastructure launcher 才替换 ReviewEngine 的 prepared queue。
+  空集合和任何解码 / 读取失败均不替换原队列，不 fallback 或部分注入。
+- 普通池通过非 preview Practice 运行，显式使用 normal 作答归属；既有
+  StudyPlan prepared 调用默认 focused。手动与照片作答均使用该归属，
+  回答、评分、重排、FSRS 与持久化格式不变。
+- 普通与特训启动共用 Presentation guard，覆盖准备和整个 Practice 路由。
+  返回后刷新普通摘要与计划；不自动开练、写入或调用模型。
 
 ## 5. 本轮暂缓与保留的目标设计
 
@@ -133,12 +145,12 @@ Application launch seam、候选口径、现有排序 / limit、typed / legacy
 
 ## 7. 串行交付与验收
 
-本次只冻结内容与行为，后续交付分离：
+交付边界如下；独立训练入口与新布局在同一轮实现中串行落地：
 
 1. **首页最小解耦**：复用已有 Application 查询 / 命令，整理普通摘要、
    focused 刷新及启动状态；旧外观与既有行为先保持。Production wiring
    由 main / composition root 负责。具体 Allowed paths 由执行包另行列明。
-2. **独立训练入口包**：补齐第 4 节缺口，直接验证新题 / 到期集合、
+2. **独立训练入口包**：实现第 4 节入口契约，直接验证新题 / 到期集合、
    limit 前筛选、typed fail-closed、空集合和普通评分 / FSRS 路径。
 3. **新首页与单计划详情**：移除三模式选择器，接入新题 / 复习独立入口，
    完成组件布局和必要导航；同步当前 canonical 首页描述。
@@ -158,4 +170,4 @@ Application launch seam、候选口径、现有排序 / limit、typed / legacy
   回归，执行与改动相关的 architecture / focused analyze / format 门禁。
 - 静态测试不能替代实机视觉验收；实际 App 验收另行记录，不预先宣称通过。
 
-冻结阶段不改变现有运行行为，不创建分支或提交，不启动实际 UI 改版。
+历史冻结阶段未改变运行行为；当前实现仍不包含延期统计、多计划管理或 schema 变更。

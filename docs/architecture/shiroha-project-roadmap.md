@@ -83,7 +83,9 @@ P7 v0 — CLOSED / FROZEN
 UI-R0 Final IA Sync / Freeze — COMPLETE
 UI-R1 Today modes + bounded navigation migration — COMPLETE
 UI-CL Focused UI closure — COMPLETE
-UI Finalization — CLOSED / FROZEN
+UI Finalization v0 — CLOSED / FROZEN (historical three-mode Today)
+Today refresh — unified dashboard + independent ordinary pools + singleton-plan detail implemented
+Today deferred — new statistics, multiple plans and full plan management
 RAG1-P0 through RAG1-CL — COMPLETE
 RAG-1 Lexical Retrieval — COMPLETE
 RAG-2 Semantic Embedding — DEFERRED
@@ -592,3 +594,13 @@ Until separately authorized:
 - `docs/product/SPL-1 StudyPlan Agent Tool v0.md` is the focused SPL-1
   StudyPlan authority.
 - R0-era files marked historical describe the migration origin, not the current runtime state.
+
+## Current Today Presentation amendment
+
+`docs/product/today-home-refresh-freeze.md` supersedes only the historical
+three-mode Today layout. Today now presents one scrolling dashboard with
+bank-scoped summaries, independent new/due normal Practice starts, one active
+plan and its lightweight detail, learning activity and a standalone MockCenter
+route. Existing singleton StudyPlan selection/adoption/stop, import/task,
+Assistant/Profile, normal grading/FSRS and typed authority are retained.
+New statistics, multi-plan previews and full plan management remain deferred.

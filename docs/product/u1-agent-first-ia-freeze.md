@@ -8,8 +8,11 @@ The four-tab primary navigation `今日 | 助手 | 模考 | 我的` recorded bel
 historical U1 truth and remains recorded as such. UI Finalization supersedes
 only the final primary-navigation and Today-organization Presentation
 decisions: the final primary navigation is `今日 | 助手 | 我的`, and Today is
-organized as 普通 / 特训 / 考试. The current authority for those decisions is
-`docs/product/ui-finalization-ia-freeze.md`. All other U1 semantics retained
+now a unified scrolling dashboard, with ordinary pool starts, a single-plan
+detail and a standalone exam entry. Primary navigation authority remains
+`docs/product/ui-finalization-ia-freeze.md`; current Today content and behavior
+are governed by `docs/product/today-home-refresh-freeze.md`. The former
+普通 / 特训 / 考试 organization is historical UI Finalization v0 truth. All other U1 semantics retained
 here — the Assistant identity `Shiroha`, the Assistant workspace and global
 Sidebar, Learning Space, File Library, Conversation, MCP Presentation,
 responsive Assistant behavior, and Project / File / Conversation domain

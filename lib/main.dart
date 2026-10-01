@@ -1,3 +1,5 @@
+import 'services/practice/ordinary_study_session_launcher.dart';
+import 'services/today/system_local_study_time_zone.dart';
 import 'application/answer_completion/answer_completion_query.dart';
 import 'application/answer_completion/answer_completion_supplemental.dart';
 import 'data/repositories/imported_question_set_repository.dart';
@@ -786,6 +788,21 @@ void main() {
   );
 }
 
+// Both normal startup and the database splash route share the same wiring.
+TodayContextQueryAdapter _createTodayContextQuery() {
+  final overview = StudyQueryService(
+    questionQuery: QuestionRepository.instance,
+    metricsQuery: TodayStudyMetricsQuery(),
+    timeZone: const SystemLocalStudyTimeZone(),
+  );
+  return TodayContextQueryAdapter(
+    loadCurrentBank: SettingsRepository.instance.getCurrentBank,
+    loadBankStats: ReviewEngineService().getBankStats,
+    loadStudyOverview: (bank) => overview.getStudyOverview(
+        bankName: bank, timezone: SystemLocalStudyTimeZone.zoneName),
+  );
+}
+
 class ShirohaQuizApp extends StatelessWidget {
   const ShirohaQuizApp({
     super.key,
@@ -900,9 +917,10 @@ class ShirohaQuizApp extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           theme: AppTheme.getTheme(themeName),
           home: MainScreen(
-            todayContextQuery: TodayContextQueryAdapter(
-              loadCurrentBank: SettingsRepository.instance.getCurrentBank,
-              loadBankStats: ReviewEngineService().getBankStats,
+            todayContextQuery: _createTodayContextQuery(),
+            studySessionLauncher: OrdinaryStudySessionLauncher(
+              reviewRepository: ReviewRepository.instance,
+              reviewEngine: ReviewEngineService(),
             ),
             u1WorkspaceFacade: u1WorkspaceFacade,
             conversationService: conversationService,
@@ -1038,9 +1056,10 @@ class _SplashScreenState extends State<SplashScreen> {
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
         builder: (_) => MainScreen(
-          todayContextQuery: TodayContextQueryAdapter(
-            loadCurrentBank: SettingsRepository.instance.getCurrentBank,
-            loadBankStats: ReviewEngineService().getBankStats,
+          todayContextQuery: _createTodayContextQuery(),
+          studySessionLauncher: OrdinaryStudySessionLauncher(
+            reviewRepository: ReviewRepository.instance,
+            reviewEngine: ReviewEngineService(),
           ),
           u1WorkspaceFacade: widget.u1WorkspaceFacade,
           conversationService: widget.conversationService,

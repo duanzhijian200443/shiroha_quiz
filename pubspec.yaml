@@ -44,6 +44,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/images/today/welcome-landscape.png
+    - assets/images/today/paper-pencil.png
 
 hooks:
   user_defines:
