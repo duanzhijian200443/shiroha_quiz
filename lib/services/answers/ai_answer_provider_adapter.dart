@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 import '../../application/answers/ai_answer_provider.dart';
+import '../../core/observability/log_writer.dart';
+import '../../core/observability/trace_context.dart';
 import '../../data/models/ai_engine_profile.dart';
 import '../../data/persistence/engine_credential_store.dart';
 import '../../data/repositories/ai_engine_repository.dart';
@@ -63,6 +65,27 @@ final class AiAnswerProviderAdapter implements AiAnswerProviderPort {
   Future<AiAnswerProviderResult> generateAnswer(
     AiAnswerProviderRequest request,
   ) async {
+    final telemetry = _AnswerProviderTelemetry(request.kind, maxOutputTokens);
+    try {
+      final result = await _generateAnswer(request, telemetry);
+      telemetry.stage = 'complete';
+      telemetry.succeeded = true;
+      return result;
+    } on AiAnswerProviderException catch (error) {
+      telemetry.failure = error.failure;
+      rethrow;
+    } catch (_) {
+      telemetry.failure = AiAnswerProviderFailure.internalError;
+      rethrow;
+    } finally {
+      telemetry.emit();
+    }
+  }
+
+  Future<AiAnswerProviderResult> _generateAnswer(
+    AiAnswerProviderRequest request,
+    _AnswerProviderTelemetry telemetry,
+  ) async {
     final profile = await _resolveActiveProfile();
 
     // Every construction step capable of throwing (kind resolution, request
@@ -71,7 +94,9 @@ final class AiAnswerProviderAdapter implements AiAnswerProviderPort {
     // never surface a raw FormatException/URI text (which could carry the
     // credential) to the caller.
     try {
+      telemetry.stage = 'request';
       final kind = LlmProviderRegistry.kindForBaseUrl(profile.baseUrl);
+      telemetry.providerKind = kind;
       final body = switch (kind) {
         LlmProviderKind.gemini => _buildGeminiBody(profile, request),
         LlmProviderKind.zhipu ||
@@ -80,14 +105,18 @@ final class AiAnswerProviderAdapter implements AiAnswerProviderPort {
       };
       final uri = _buildUri(kind, profile);
 
+      telemetry.stage = 'http';
       final streamed = await _send(uri, profile, body);
+      telemetry.httpStatus = streamed.statusCode;
       if (streamed.statusCode != 200) {
         await _discard(streamed);
         throw _statusFailure(streamed.statusCode);
       }
-      final bytes = await _readBounded(streamed);
-      final envelope = _decodeEnvelope(kind, bytes);
-      final answer = _decodeAnswer(envelope, request.kind, request);
+      telemetry.stage = 'body';
+      final bytes = await _readBounded(streamed, telemetry);
+      final envelope = _decodeEnvelope(kind, bytes, telemetry);
+      telemetry.stage = 'schema';
+      final answer = _decodeAnswer(envelope, request.kind, request, telemetry);
       return AiAnswerProviderResult(
         answer: answer,
         providerProfileId: profile.id,
@@ -282,10 +311,14 @@ final class AiAnswerProviderAdapter implements AiAnswerProviderPort {
     return _httpClient.send(request).timeout(requestTimeout);
   }
 
-  Future<Uint8List> _readBounded(http.StreamedResponse response) {
+  Future<Uint8List> _readBounded(
+    http.StreamedResponse response,
+    _AnswerProviderTelemetry telemetry,
+  ) {
     final completer = Completer<Uint8List>();
     final builder = BytesBuilder(copy: false);
     var total = 0;
+    telemetry.rawResponseBytes = 0;
     late final StreamSubscription<List<int>> subscription;
     final timer = Timer(requestTimeout, () {
       subscription.cancel();
@@ -297,6 +330,7 @@ final class AiAnswerProviderAdapter implements AiAnswerProviderPort {
     subscription = response.stream.listen(
       (chunk) {
         total += chunk.length;
+        telemetry.rawResponseBytes = total;
         if (total > maxRawResponseBytes) {
           // Fail closed on byte overflow: cancel the stream, never buffer
           // the overflow, and never expose or log the body.
@@ -365,7 +399,9 @@ final class AiAnswerProviderAdapter implements AiAnswerProviderPort {
   Map<String, dynamic> _decodeEnvelope(
     LlmProviderKind kind,
     Uint8List bytes,
+    _AnswerProviderTelemetry telemetry,
   ) {
+    telemetry.stage = 'utf8';
     final String text;
     try {
       text = utf8.decode(bytes, allowMalformed: false);
@@ -375,6 +411,7 @@ final class AiAnswerProviderAdapter implements AiAnswerProviderPort {
       );
     }
     final Object? decoded;
+    telemetry.stage = 'providerJson';
     try {
       decoded = jsonDecode(text);
     } on FormatException {
@@ -382,13 +419,15 @@ final class AiAnswerProviderAdapter implements AiAnswerProviderPort {
         AiAnswerProviderFailure.malformedProviderOutput,
       );
     }
+    telemetry.observeEnvelope(kind, decoded);
     final String finalContent;
+    telemetry.stage = 'finalContent';
     try {
       finalContent = switch (kind) {
-        LlmProviderKind.gemini => _geminiFinalContent(decoded),
+        LlmProviderKind.gemini => _geminiFinalContent(decoded, telemetry),
         LlmProviderKind.zhipu ||
         LlmProviderKind.openAiCompatible =>
-          _chatFinalContent(decoded),
+          _chatFinalContent(decoded, telemetry),
       };
     } on AiAnswerProviderException {
       rethrow;
@@ -398,6 +437,7 @@ final class AiAnswerProviderAdapter implements AiAnswerProviderPort {
       );
     }
     final Object? envelope;
+    telemetry.stage = 'answerJson';
     try {
       envelope = jsonDecode(finalContent);
     } on FormatException {
@@ -415,7 +455,10 @@ final class AiAnswerProviderAdapter implements AiAnswerProviderPort {
 
   /// Extracts ONLY `choices[0].message.content`; reasoning_content is never
   /// read, so a provider thought fallback can never become the answer.
-  String _chatFinalContent(Object? decoded) {
+  String _chatFinalContent(
+    Object? decoded,
+    _AnswerProviderTelemetry telemetry,
+  ) {
     final choices = (decoded as Map<String, dynamic>?)?['choices'];
     if (choices is! List || choices.isEmpty) {
       throw const AiAnswerProviderException(
@@ -424,6 +467,9 @@ final class AiAnswerProviderAdapter implements AiAnswerProviderPort {
     }
     final message = (choices.first as Map<String, dynamic>?)?['message'];
     final content = (message as Map<String, dynamic>?)?['content'];
+    telemetry.observeContent(content,
+        present:
+            message is Map<String, dynamic> && message.containsKey('content'));
     if (content is! String || content.trim().isEmpty) {
       throw const AiAnswerProviderException(
         AiAnswerProviderFailure.malformedProviderOutput,
@@ -434,7 +480,10 @@ final class AiAnswerProviderAdapter implements AiAnswerProviderPort {
 
   /// Extracts the final answer text only: the first non-thought text part.
   /// Thought/reasoning parts are skipped and can never become the answer.
-  String _geminiFinalContent(Object? decoded) {
+  String _geminiFinalContent(
+    Object? decoded,
+    _AnswerProviderTelemetry telemetry,
+  ) {
     final candidates = (decoded as Map<String, dynamic>?)?['candidates'];
     if (candidates is! List || candidates.isEmpty) {
       throw const AiAnswerProviderException(
@@ -448,10 +497,14 @@ final class AiAnswerProviderAdapter implements AiAnswerProviderPort {
         AiAnswerProviderFailure.malformedProviderOutput,
       );
     }
+    telemetry.finalContentState = 'missing';
     for (final part in parts) {
       if (part is! Map<String, dynamic>) continue;
       if (part['thought'] == true) continue;
       final text = part['text'];
+      if (part.containsKey('text')) {
+        telemetry.observeContent(text, present: true);
+      }
       if (text is String && text.trim().isNotEmpty) {
         return text;
       }
@@ -474,6 +527,7 @@ final class AiAnswerProviderAdapter implements AiAnswerProviderPort {
     Map<String, dynamic> envelope,
     QuestionKind kind,
     AiAnswerProviderRequest request,
+    _AnswerProviderTelemetry telemetry,
   ) {
     final schemaVersion = envelope['schema_version'];
     if (schemaVersion is! int || schemaVersion != 1) {
@@ -487,6 +541,7 @@ final class AiAnswerProviderAdapter implements AiAnswerProviderPort {
         AiAnswerProviderFailure.malformedProviderOutput,
       );
     }
+    telemetry.stage = 'typedValidation';
     if (kind == QuestionKind.singleChoice) {
       return _decodeChoiceAnswer(answer, request);
     }
@@ -601,6 +656,123 @@ final class AiAnswerProviderAdapter implements AiAnswerProviderPort {
       ImageNode() || TableNode() => 0,
       RawFallbackNode() => 0, // Unreachable: raw fallback is never created.
     };
+  }
+}
+
+/// Per-call scalar snapshot, never a copy of provider/request content.
+/// Optional metadata is untrusted: only bounded integer counters and fixed
+/// finish-reason labels may cross into the logger. No reasoning text is read.
+final class _AnswerProviderTelemetry {
+  _AnswerProviderTelemetry(this.questionKind, this.requestedMaxOutputTokens);
+
+  final QuestionKind questionKind;
+  final int requestedMaxOutputTokens;
+  String stage = 'profile';
+  bool succeeded = false;
+  AiAnswerProviderFailure? failure;
+  LlmProviderKind? providerKind;
+  int? httpStatus;
+  int? rawResponseBytes;
+  String? finishReason;
+  int? promptTokens;
+  int? completionTokens;
+  int? reasoningTokens;
+  int? totalTokens;
+  String finalContentState = 'unavailable';
+  int? finalContentScalars;
+
+  static Map<String, dynamic>? _map(Object? value) =>
+      value is Map<String, dynamic> ? value : null;
+
+  static int? _count(Object? value) =>
+      value is int && value >= 0 && value <= 0x7fffffff ? value : null;
+
+  static String? _finishReason(Object? value) => switch (value) {
+        'stop' || 'STOP' => 'stop',
+        'length' || 'MAX_TOKENS' => 'length',
+        'content_filter' || 'SAFETY' => 'content_filter',
+        'tool_calls' => 'tool_calls',
+        'function_call' => 'function_call',
+        'insufficient_system_resource' => 'insufficient_system_resource',
+        'aborted' => 'aborted',
+        String() => 'other',
+        _ => null,
+      };
+
+  void observeEnvelope(LlmProviderKind kind, Object? decoded) {
+    try {
+      final root = _map(decoded);
+      if (kind == LlmProviderKind.gemini) {
+        final usage = _map(root?['usageMetadata']);
+        promptTokens = _count(usage?['promptTokenCount']);
+        // Native Gemini candidate count excludes thoughts; do not infer or
+        // manufacture combined output counts from optional metadata.
+        completionTokens = _count(usage?['candidatesTokenCount']);
+        reasoningTokens = _count(usage?['thoughtsTokenCount']);
+        totalTokens = _count(usage?['totalTokenCount']);
+        final candidates = root?['candidates'];
+        if (candidates is List && candidates.isNotEmpty) {
+          finishReason = _finishReason(_map(candidates.first)?['finishReason']);
+        }
+      } else {
+        final usage = _map(root?['usage']);
+        promptTokens = _count(usage?['prompt_tokens']);
+        completionTokens = _count(usage?['completion_tokens']);
+        reasoningTokens = _count(
+            _map(usage?['completion_tokens_details'])?['reasoning_tokens']);
+        totalTokens = _count(usage?['total_tokens']);
+        final choices = root?['choices'];
+        if (choices is List && choices.isNotEmpty) {
+          finishReason = _finishReason(_map(choices.first)?['finish_reason']);
+        }
+      }
+    } catch (_) {
+      // Diagnostic metadata never controls provider decoding or its result.
+    }
+  }
+
+  void observeContent(Object? value, {required bool present}) {
+    if (!present) {
+      finalContentState = 'missing';
+    } else if (value == null) {
+      finalContentState = 'null';
+    } else if (value is String) {
+      finalContentState = value.trim().isEmpty ? 'blank' : 'text';
+      finalContentScalars = value.runes.length;
+    } else {
+      finalContentState = 'wrongType';
+    }
+  }
+
+  void emit() {
+    try {
+      LogWriter.info('ai_answer_provider_completed',
+          module: 'AiAnswerProvider',
+          data: {
+            'requestId': TraceContext.createTraceId(),
+            'questionKind': questionKind.name,
+            'providerKind': providerKind?.name,
+            'requestedMaxOutputTokens': _count(requestedMaxOutputTokens),
+            'status': succeeded ? 'success' : 'failed',
+            'stage': stage,
+            'failure': failure?.name,
+            'httpStatus':
+                httpStatus != null && httpStatus! >= 100 && httpStatus! <= 599
+                    ? httpStatus
+                    : null,
+            'rawResponseBytes': _count(rawResponseBytes),
+            'finishReason': finishReason,
+            'promptTokens': promptTokens,
+            'completionTokens': completionTokens,
+            'reasoningTokens': reasoningTokens,
+            'totalTokens': totalTokens,
+            'finalContentState': finalContentState,
+            'finalContentScalars': finalContentScalars,
+          });
+    } catch (_) {
+      // Includes throwing observers/sinks. Telemetry never changes success,
+      // cancellation, or the original safe failure mapping.
+    }
   }
 }
 

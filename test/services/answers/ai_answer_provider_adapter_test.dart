@@ -10,6 +10,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_provider.dart';
+import 'package:shiroha_quiz/core/observability/log_record.dart';
+import 'package:shiroha_quiz/core/observability/log_writer.dart';
+import 'package:shiroha_quiz/core/observability/trace_context.dart';
 import 'package:shiroha_quiz/data/models/ai_engine_profile.dart';
 import 'package:shiroha_quiz/data/persistence/ai_engine_store.dart';
 import 'package:shiroha_quiz/data/persistence/engine_credential_store.dart';
@@ -26,6 +29,299 @@ const _zhipuBase = 'https://api.bigmodel.cn';
 const _geminiBase = 'https://generativelanguage.googleapis.com';
 
 void main() {
+  group('redacted completion telemetry', () {
+    late List<LogRecord> records;
+    setUp(() {
+      records = [];
+      LogWriter.setRecordHandler((record) {
+        if (record.message == 'ai_answer_provider_completed') {
+          records.add(record);
+        }
+      });
+    });
+    tearDown(() => LogWriter.setRecordHandler(null));
+
+    test('success reports native counters once without any private payload',
+        () async {
+      final envelope = _contentEnvelope([
+        {'type': 'block_math', 'latex': r'\sqrt{SENTINEL_FINAL_ANSWER}'},
+      ]);
+      final adapter = _adapter(
+        profile: _profile(
+            baseUrl: 'https://SENTINEL_PRIVATE_HOST/v1',
+            model: 'SENTINEL_PRIVATE_MODEL'),
+        client: _recordingClient((request) async => http.Response(
+            jsonEncode({
+              'id': 'SENTINEL_PROVIDER_ID',
+              'choices': [
+                {
+                  'finish_reason': 'stop',
+                  'message': {
+                    'content': envelope,
+                    'reasoning_content': 'SENTINEL_REASONING',
+                  },
+                }
+              ],
+              'usage': {
+                'prompt_tokens': 352,
+                'completion_tokens': 2048,
+                'total_tokens': 2400,
+                'completion_tokens_details': {'reasoning_tokens': 1800},
+                'private_extra': 'SENTINEL_USAGE_EXTRA',
+              },
+            }),
+            200)),
+      );
+      final result = await adapter.generateAnswer(AiAnswerProviderRequest(
+          kind: QuestionKind.shortAnswer,
+          stem: _safeText('SENTINEL_PRIVATE_QUESTION')));
+      expect(result.answer, isA<ContentAnswer>());
+      final data = records.single.data;
+      expect(data['status'], 'success');
+      expect(data['stage'], 'complete');
+      expect(data['failure'], isNull);
+      expect(data['questionKind'], 'shortAnswer');
+      expect(data['requestedMaxOutputTokens'], 2048);
+      expect(data['httpStatus'], 200);
+      expect(data['finishReason'], 'stop');
+      expect(data['promptTokens'], 352);
+      expect(data['completionTokens'], 2048);
+      expect(data['reasoningTokens'], 1800);
+      expect(data['totalTokens'], 2400);
+      expect(data['rawResponseBytes'], greaterThan(0));
+      expect(data['finalContentState'], 'text');
+      expect(data['finalContentScalars'], envelope.runes.length);
+      expect(data['requestId'], matches(r'^trace-[0-9]+-[0-9a-f]+$'));
+      expect(jsonEncode(records.single.toJson()), isNot(contains('SENTINEL')));
+      expect(jsonEncode(records.single.toJson()), isNot(contains(_apiKey)));
+    });
+
+    for (final entry in <(Object?, String, String)>[
+      (null, 'finalContent', 'null'),
+      ('{"schema_version":1,"answer":', 'answerJson', 'text'),
+    ]) {
+      test('length termination retains original failure at ${entry.$2}',
+          () async {
+        final adapter = _adapter(
+          client: _recordingClient((request) async =>
+              _telemetryChat(content: entry.$1, finishReason: 'length', usage: {
+                'completion_tokens': 2048,
+                'completion_tokens_details': {'reasoning_tokens': 2048},
+              })),
+        );
+        await expectLater(adapter.generateAnswer(_contentRequest()),
+            throwsA(_failure(AiAnswerProviderFailure.malformedProviderOutput)));
+        final data = records.single.data;
+        expect(data['status'], 'failed');
+        expect(data['failure'], 'malformedProviderOutput');
+        expect(data['stage'], entry.$2);
+        expect(data['finishReason'], 'length');
+        expect(data['completionTokens'], 2048);
+        expect(data['finalContentState'], entry.$3);
+      });
+    }
+
+    for (final entry in <(String, String, AiAnswerProviderFailure)>[
+      ('{}', 'schema', AiAnswerProviderFailure.malformedProviderOutput),
+      (
+        _contentEnvelope([]),
+        'typedValidation',
+        AiAnswerProviderFailure.validationFailed
+      ),
+    ]) {
+      test('schema and typed failures remain distinct at ${entry.$2}',
+          () async {
+        final adapter = _adapter(
+            client: _recordingClient(
+                (request) async => _telemetryChat(content: entry.$1)));
+        await expectLater(adapter.generateAnswer(_contentRequest()),
+            throwsA(_failure(entry.$3)));
+        expect(records.single.data['stage'], entry.$2);
+        expect(records.single.data['failure'], entry.$3.name);
+      });
+    }
+
+    test('untrusted metadata is bounded and cannot change a valid answer',
+        () async {
+      final adapter = _adapter(
+          client: _recordingClient((request) async => _telemetryChat(
+                  content: _contentEnvelope(),
+                  finishReason: 'SENTINEL_FINISH_REASON',
+                  usage: {
+                    'prompt_tokens': 'SENTINEL_TOKEN_STRING',
+                    'completion_tokens': -1,
+                    'total_tokens': 0x80000000,
+                    'completion_tokens_details': {'reasoning_tokens': 1.0},
+                  })));
+      expect((await adapter.generateAnswer(_contentRequest())).answer,
+          isA<ContentAnswer>());
+      final data = records.single.data;
+      expect(data['finishReason'], 'other');
+      for (final field in [
+        'promptTokens',
+        'completionTokens',
+        'reasoningTokens',
+        'totalTokens'
+      ]) {
+        expect(data[field], isNull);
+      }
+      expect(jsonEncode(records.single.toJson()), isNot(contains('SENTINEL')));
+    });
+
+    test('concurrent calls retain separate snapshots and inherited trace',
+        () async {
+      final gate = Completer<void>();
+      var calls = 0;
+      final adapter = _adapter(client: _recordingClient((request) async {
+        final call = ++calls;
+        await gate.future;
+        return _telemetryChat(
+            content: call == 1 ? null : _contentEnvelope(),
+            finishReason: call == 1 ? 'length' : 'stop',
+            usage: {'total_tokens': call == 1 ? 2400 : 2416});
+      }));
+      await TraceContext.run(
+          traceId: 'trace-123-abcd',
+          correlationId: 'OBS-ABCD-EFGH',
+          action: () async {
+            final failed = expectLater(
+                adapter.generateAnswer(_contentRequest()),
+                throwsA(
+                    _failure(AiAnswerProviderFailure.malformedProviderOutput)));
+            final success = adapter.generateAnswer(_contentRequest());
+            gate.complete();
+            await failed;
+            expect((await success).answer, isA<ContentAnswer>());
+          });
+      expect(records, hasLength(2));
+      expect(records.map((r) => r.data['requestId']).toSet(), hasLength(2));
+      final failed = records.singleWhere((r) => r.data['status'] == 'failed');
+      final success = records.singleWhere((r) => r.data['status'] == 'success');
+      expect(failed.data['totalTokens'], 2400);
+      expect(failed.data['finishReason'], 'length');
+      expect(success.data['totalTokens'], 2416);
+      expect(success.data['finishReason'], 'stop');
+      for (final record in records) {
+        expect(record.traceId, 'trace-123-abcd');
+        expect(record.correlationId, 'OBS-ABCD-EFGH');
+      }
+    });
+
+    for (final usage in <Object?>[
+      null,
+      ['SENTINEL_WRONG_METADATA']
+    ]) {
+      test('missing or wrong metadata stays unknown: ${usage.runtimeType}',
+          () async {
+        final adapter = _adapter(
+            client: _recordingClient((request) async => _telemetryChat(
+                content: _contentEnvelope(),
+                finishReason: false,
+                usage: usage)));
+        expect((await adapter.generateAnswer(_contentRequest())).answer,
+            isA<ContentAnswer>());
+        expect(records.single.data['completionTokens'], isNull);
+        expect(records.single.data['finishReason'], isNull);
+      });
+    }
+
+    test('profile failure produces exactly one terminal record', () async {
+      final adapter = _adapter(
+          noEngine: true,
+          client: _recordingClient((request) async {
+            fail('unconfigured profile must not send');
+          }));
+      await expectLater(adapter.generateAnswer(_contentRequest()),
+          throwsA(_failure(AiAnswerProviderFailure.providerUnconfigured)));
+      expect(records.single.data['stage'], 'profile');
+      expect(records.single.data['httpStatus'], isNull);
+      expect(records.single.data['rawResponseBytes'], isNull);
+    });
+
+    test('non-200 response is discarded without inspecting or logging its body',
+        () async {
+      final adapter = _adapter(
+          client: _recordingClient(
+              (request) async => http.Response('SENTINEL_ERROR_BODY', 500)));
+      await expectLater(adapter.generateAnswer(_contentRequest()),
+          throwsA(_failure(AiAnswerProviderFailure.providerUnavailable)));
+      expect(records.single.data['stage'], 'http');
+      expect(records.single.data['httpStatus'], 500);
+      expect(records.single.data['rawResponseBytes'], isNull);
+      expect(records.single.data['finishReason'], isNull);
+      expect(jsonEncode(records.single.toJson()), isNot(contains('SENTINEL')));
+    });
+
+    test('byte overflow reports only the count and preserves its failure',
+        () async {
+      final adapter = _adapter(
+          client: _StreamedClient(
+              statusCode: 200, chunks: [List<int>.filled(64 * 1024 + 1, 65)]));
+      await expectLater(adapter.generateAnswer(_contentRequest()),
+          throwsA(_failure(AiAnswerProviderFailure.malformedProviderOutput)));
+      expect(records.single.data['stage'], 'body');
+      expect(records.single.data['rawResponseBytes'], 64 * 1024 + 1);
+      expect(records.single.data['finishReason'], isNull);
+      expect(records.single.data['completionTokens'], isNull);
+    });
+
+    test('Gemini observes native counters and never reads thought text',
+        () async {
+      final adapter = _adapter(
+          profile: _profile(baseUrl: _geminiBase, model: 'gemini-x'),
+          client: _recordingClient((request) async => http.Response(
+              jsonEncode({
+                'candidates': [
+                  {
+                    'finishReason': 'MAX_TOKENS',
+                    'content': {
+                      'parts': [
+                        {'thought': true, 'text': 'SENTINEL_GEMINI_THOUGHT'},
+                        {'text': _contentEnvelope()},
+                      ]
+                    }
+                  }
+                ],
+                'usageMetadata': {
+                  'promptTokenCount': 80,
+                  'candidatesTokenCount': 5,
+                  'thoughtsTokenCount': 20,
+                  'totalTokenCount': 105,
+                }
+              }),
+              200)));
+      expect((await adapter.generateAnswer(_contentRequest())).answer,
+          isA<ContentAnswer>(),
+          reason: 'finish metadata never changes decoding');
+      final data = records.single.data;
+      expect(data['finishReason'], 'length');
+      expect(data['providerKind'], 'gemini');
+      expect(data['completionTokens'], 5);
+      expect(data['reasoningTokens'], 20);
+      expect(data['totalTokens'], 105);
+      expect(jsonEncode(records.single.toJson()), isNot(contains('SENTINEL')));
+    });
+
+    for (final succeeds in [true, false]) {
+      test('throwing log observer cannot change outcome: $succeeds', () async {
+        LogWriter.setRecordHandler(
+            (_) => throw StateError('SENTINEL_LOG_ERROR'));
+        final adapter = _adapter(
+            client: _recordingClient((request) async =>
+                _okChat(succeeds ? _contentEnvelope() : 'not JSON')));
+        if (succeeds) {
+          expect((await adapter.generateAnswer(_contentRequest())).answer,
+              isA<ContentAnswer>());
+        } else {
+          await expectLater(
+              adapter.generateAnswer(_contentRequest()),
+              throwsA(
+                  _failure(AiAnswerProviderFailure.malformedProviderOutput)));
+        }
+      });
+    }
+  });
+
   group('profile resolution', () {
     test('no active text engine is providerUnconfigured', () async {
       final adapter = _adapter(
@@ -904,6 +1200,23 @@ void main() {
 }
 
 // --- fixtures and helpers ---
+
+http.Response _telemetryChat({
+  required Object? content,
+  Object? finishReason = 'stop',
+  Object? usage,
+}) =>
+    http.Response(
+        jsonEncode({
+          'choices': [
+            {
+              'finish_reason': finishReason,
+              'message': {'content': content}
+            }
+          ],
+          if (usage != null) 'usage': usage,
+        }),
+        200);
 
 AiEngineProfile _profile({
   String baseUrl = _openAiBase,
