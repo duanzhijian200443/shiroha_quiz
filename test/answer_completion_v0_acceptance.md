@@ -5,6 +5,45 @@ Package C deterministic Executor evidence, 2026-09-28. Base:
 This is a test evidence map, not canonical contract authority or independent
 Reviewer approval. Exact delivered head and remote CI are recorded in the PR.
 
+## Current shelving acceptance amendment
+
+The original Package C results below remain historical evidence. P6's
+ordinary file-supplement entry is now shelved; its Application/domain and
+diagnostic UI suites remain retained as internal contract evidence. Current
+UI acceptance in `test/answer_completion_ui_acceptance_test.dart` asserts no
+file-supplement action or file-matching eligibility prompt, including when
+P6 service/confirm dependencies are supplied. Existing P7 fill, explicit
+replacement and noOp cases still exercise generation/review/commit and
+assert zero source-picker invocations. Queue categories, set provenance,
+show-all and ungrouped refresh coverage remain. This amendment does not
+claim fresh execution of the historical 22-file suite below.
+
+Retained UI flow coverage is anchored directly to the picker/review surfaces
+in `test/ui/pages/p6_supplemental_answer_activation_test.dart` and
+`test/ui/pages/p6_supplemental_answer_direct_source_test.dart`. Their test-only
+launchers bind the complete synthetic set through Application, then call
+`showSupplementalAnswerSourcePicker` and open
+`SupplementalAnswerReviewScreen` for a returned session. They do not depend
+on the shelved Answer Completion action. Existing source-verification,
+cancellation, failure, duplicate-start, explicit OCR and diagnostic-trace
+assertions remain; the CI allowlist is unchanged. Ordinary-entry absence and
+P7 continuity are covered by the current UI suite above.
+
+Local shelving repair verification (2026-10-01, serial `--concurrency=1`):
+
+- Focused six-file run: both retained UI suites, current Answer Completion
+  UI, set supplemental Application, P6 Review screen and architecture
+  boundaries: 80 tests passed.
+- Contract shard 1: 39 files, 484 tests passed.
+- Contract shard 4: 38 files, 643 tests passed.
+- The shard paths were read from the current `$tests` allowlist in
+  `.github/workflows/pr-contract-checks.yml`, selecting zero-based positions
+  modulo 4 equal to 0 and 3 respectively, matching CI's selection algorithm.
+- Focused analysis, the four changed Dart files' format gate and
+  `git diff --check` passed. These are local Executor checks; remote CI and
+  independent review are separate. No full repository verification or
+  live-provider/device acceptance is claimed.
+
 ## Authoritative suites
 
 Paths below are relative to the repository root.

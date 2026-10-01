@@ -1,11 +1,9 @@
-// P6-ACT-1 ordinary-user activation surface.
+// Retained P6-ACT-1 picker/review surface while ordinary activation is shelved.
 //
 // Synthetic fixtures only: no live OCR/provider, no private PDFs, no network.
-// Proves the selected ImportedQuestionSet entry reaches the existing P6 review screen
-// through the Application activation seam, and that cancel/empty/failure
-// paths stay bounded with zero mutation.
-import 'package:shiroha_quiz/ui/pages/answer_completion_screen.dart';
-import 'package:shiroha_quiz/ui/dependencies/answer_completion_dependencies_scope.dart';
+// A test-only launcher binds a complete ImportedQuestionSet and opens the
+// retained picker/review through Application. Cancel/empty/failure paths stay
+// bounded with zero mutation; this does not reopen a production entry.
 import 'package:shiroha_quiz/domain/answer_completion/imported_question_set.dart';
 import 'package:shiroha_quiz/application/answer_completion/answer_completion_supplemental.dart';
 import 'package:shiroha_quiz/application/answer_completion/answer_completion_query.dart';
@@ -31,6 +29,7 @@ import 'package:shiroha_quiz/domain/source/source_part.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
 import 'package:shiroha_quiz/ui/pages/bank_detail_screen.dart';
 import 'package:shiroha_quiz/ui/pages/supplemental_answer_review_screen.dart';
+import 'package:shiroha_quiz/ui/pages/supplemental_answer_source_picker_sheet.dart';
 
 const _bankName = 'p6_ui_bank';
 const _fileId = 'p6_ui_file';
@@ -60,7 +59,7 @@ void main() {
     final persistence = _FakePersistencePort();
     final ingestion = _RecordingIngestionPort();
 
-    await _pumpSetDetail(
+    await _pumpRetainedFlowHarness(
       tester,
       files: [_libraryFile('supplemental.pdf')],
       targets: targets,
@@ -69,11 +68,11 @@ void main() {
       ingestion: ingestion,
     );
 
-    await tester.tap(find.text('从答案文件补充'));
+    await tester.tap(find.byKey(const ValueKey<String>('p6-retained-flow')));
     await tester.pumpAndSettle();
 
     expect(find.text('supplemental.pdf'), findsOneWidget);
-    expect(find.text('从答案文件补充'), findsOneWidget);
+    expect(find.text('从答案文件补充'), findsNothing);
     expect(find.text('从文件补充答案'), findsOneWidget);
 
     await tester.tap(find.text('supplemental.pdf'));
@@ -99,7 +98,7 @@ void main() {
     );
     final persistence = _FakePersistencePort();
 
-    await _pumpSetDetail(
+    await _pumpRetainedFlowHarness(
       tester,
       files: [_libraryFile('supplemental.pdf')],
       targets: targets,
@@ -107,7 +106,7 @@ void main() {
       persistence: persistence,
     );
 
-    await tester.tap(find.text('从答案文件补充'));
+    await tester.tap(find.byKey(const ValueKey<String>('p6-retained-flow')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('supplemental.pdf'));
     await tester.pumpAndSettle();
@@ -148,14 +147,14 @@ void main() {
       snapshot: _snapshot(revision: 1, parts: [_answerParagraph('1. x = 1')]),
     );
 
-    await _pumpSetDetail(
+    await _pumpRetainedFlowHarness(
       tester,
       files: [_libraryFile('supplemental.pdf')],
       targets: targets,
       artifacts: artifacts,
     );
 
-    await tester.tap(find.text('从答案文件补充'));
+    await tester.tap(find.byKey(const ValueKey<String>('p6-retained-flow')));
     await tester.pumpAndSettle();
     expect(find.text('supplemental.pdf'), findsOneWidget);
 
@@ -175,14 +174,14 @@ void main() {
       snapshot: _snapshot(revision: 1, parts: [_answerParagraph('1. x = 1')]),
     );
 
-    await _pumpSetDetail(
+    await _pumpRetainedFlowHarness(
       tester,
       files: const [],
       targets: targets,
       artifacts: artifacts,
     );
 
-    await tester.tap(find.text('从答案文件补充'));
+    await tester.tap(find.byKey(const ValueKey<String>('p6-retained-flow')));
     await tester.pumpAndSettle();
 
     expect(find.text('文件库中还没有文件，可先添加一份答案文件。'), findsOneWidget);
@@ -196,14 +195,14 @@ void main() {
       failure: ParsedArtifactLifecycleFailure.artifactMissing,
     );
 
-    await _pumpSetDetail(
+    await _pumpRetainedFlowHarness(
       tester,
       files: [_libraryFile('unparsed.pdf')],
       targets: targets,
       artifacts: artifacts,
     );
 
-    await tester.tap(find.text('从答案文件补充'));
+    await tester.tap(find.byKey(const ValueKey<String>('p6-retained-flow')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('unparsed.pdf'));
     await tester.pumpAndSettle();
@@ -226,14 +225,14 @@ void main() {
       failure: ParsedArtifactLifecycleFailure.artifactMissing,
     );
 
-    await _pumpSetDetail(
+    await _pumpRetainedFlowHarness(
       tester,
       files: [_libraryFile('unparsed.pdf')],
       targets: targets,
       artifacts: artifacts,
     );
 
-    await tester.tap(find.text('从答案文件补充'));
+    await tester.tap(find.byKey(const ValueKey<String>('p6-retained-flow')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('unparsed.pdf'));
     await tester.pumpAndSettle();
@@ -261,14 +260,14 @@ void main() {
       snapshot: _snapshot(revision: 1, parts: [_answerParagraph('1. x = 1')]),
     )..hold();
 
-    await _pumpSetDetail(
+    await _pumpRetainedFlowHarness(
       tester,
       files: [_libraryFile('supplemental.pdf')],
       targets: targets,
       artifacts: artifacts,
     );
 
-    await tester.tap(find.text('从答案文件补充'));
+    await tester.tap(find.byKey(const ValueKey<String>('p6-retained-flow')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('supplemental.pdf'));
     await tester.pump();
@@ -286,7 +285,7 @@ void main() {
   });
 }
 
-Future<void> _pumpSetDetail(
+Future<void> _pumpRetainedFlowHarness(
   WidgetTester tester, {
   required List<LibraryFile> files,
   required _TargetFixture targets,
@@ -304,20 +303,46 @@ Future<void> _pumpSetDetail(
     sourceReader: _FakeSourceReader(const <int>[]),
     maxBytes: 1 << 30,
   );
-  await tester.pumpWidget(
-    AnswerCompletionDependenciesScope(
-      query: _CompletionQuery(targets.reads),
-      supplemental: AnswerCompletionSupplementalService(
+  final selected = (await _CompletionQuery(targets.reads).readBank(_bankName)
+          as AnswerCompletionSnapshot)
+      .findSet(_setId)!;
+  final binding = AnswerCompletionSupplementalService(
           query: _CompletionQuery(targets.reads,
               onRead: () => targets.targetResolutionCalls++),
           fileCatalog: _FakeFileCatalog(files),
           artifactPort: artifacts,
-          ingestion: ingestion ?? _RecordingIngestionPort()),
-      confirmCommand: command,
-      pickFile: () async => null,
-      sourceInspectionService: sourceInspection,
-      child: const MaterialApp(
-          home: AnswerCompletionScreen(bankName: _bankName, setId: _setId)),
+          ingestion: ingestion ?? _RecordingIngestionPort())
+      .bind(selected);
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Scaffold(
+        body: Builder(
+          builder: (context) => TextButton(
+            key: const ValueKey<String>('p6-retained-flow'),
+            child: const Text('打开保留的 P6 测试流程'),
+            onPressed: () async {
+              final session = await showSupplementalAnswerSourcePicker(
+                context: context,
+                service: binding.activation,
+                sourceAcquisition: binding.acquisition,
+                targetScope: binding.scope,
+                pickFile: () async => null,
+              );
+              if (!context.mounted || session == null) return;
+              await Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => SupplementalAnswerReviewScreen(
+                    session: session,
+                    confirmCommand: command,
+                    sourceInspectionService: sourceInspection,
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
     ),
   );
   await tester.pumpAndSettle();

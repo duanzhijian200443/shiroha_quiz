@@ -344,6 +344,15 @@ P6-P0 froze the focused canonical contract in
 and COMPLETE, and P6-D0 through P6-V0 implemented the frozen contract and are
 COMPLETE. The following durable boundary applies to the P6 implementation:
 
+Current product availability: file-based supplemental answering (P6) is
+shelved. The ordinary Answer Completion queue/detail exposes only
+single-question AI answering (P7), with no source-picker or P6 review launch.
+P6 services, dependency wiring, diagnostic entrypoint and offline tests remain
+retained but are not ordinary product entries. This does not remove File
+Library, normal document import, committed data, or shared Candidate/Review
+and typed-answer persistence authority. Reopening P6 requires separately
+authorized implementation and acceptance under its retained contracts.
+
 - P6 consumes the current F1 `ParsedArtifact` explicitly through the
   Application lifecycle seam (`getCurrentArtifact(fileId)`), never sidecars,
   SQLite rows, or managed paths directly, and never an implicit
@@ -521,7 +530,7 @@ Seed capture, the QuestionRepository-owned atomic set/member writer with per-doc
 
 - The task-bound `QuestionRepository` transaction stays the only writer of Questions plus set/member rows; historical questions stay ungrouped and are never backfilled.
 - The queue/detail projection is read in one short transaction. Presentation consumes that projection only, so counts, eligibility and set category are never composed from independent repository reads or re-derived in widgets.
-- Activating a set binds its complete membership as a full-set `ExplicitQuestionScope` and revalidates that membership when the supplemental session binds; the existing P6 review and typed-commit authority is reused, and no second answer write path is added.
+- The retained, shelved P6 binding resolves complete set membership as a full-set `ExplicitQuestionScope` and revalidates it when the supplemental session binds; the existing P6 review and typed-commit authority is reused, and no second answer write path is added. Opening set detail currently exposes P7 only.
 - Single-question AI answering reuses the existing P7 generation/review/commit boundary through a transient surface where dismissal is zero mutation.
 - This stage adds no schema beyond v28, no persisted candidate or generation state, and no new provider call site.
 - Source-file deletion, artifact replacement/removal, task cleanup and folder moves preserve committed set identity and membership. Answer/content edits preserve membership and review state; query counts reflect current typed answers, including explicit-empty as answered. Question deletion or bank movement removes membership, and the final removal deletes the empty set.

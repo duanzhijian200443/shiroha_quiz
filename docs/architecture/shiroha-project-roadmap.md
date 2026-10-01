@@ -8,6 +8,18 @@ R1–R8 core refactor and P5 typed manual answer repair are complete. The histor
 
 ## Current stage status snapshot
 
+Current product availability amendment: **P6 file supplemental answering is
+SHELVED**. Ordinary Answer Completion exposes queue/set detail and
+single-question P7 AI generation/review/commit only; supplemental file
+selection and matching/review launch are closed for every file format.
+P6 implementation, dependency wiring, diagnostic entrypoint and offline
+coverage remain retained. File Library, normal document import, committed
+data and shared Candidate/Review/typed persistence contracts are preserved.
+The COMPLETE rows below record delivery history, not P6 availability;
+restoration requires separately authorized implementation and acceptance.
+See `p6-supplemental-answer-matching.md` and
+`answer-completion-question-sets.md` for the current availability boundary.
+
 The canonical sequence below records the original post-P5 dependency and stage
 decisions. Delivery has since advanced some independent read-side stages ahead
 of that historical order. The following stages are now complete:
@@ -444,6 +456,10 @@ Governance:
 See `docs/architecture/f1-parsed-artifact-lifecycle.md`.
 
 ### P6/P7 — Answer candidate producers
+
+P6 is currently shelved at the ordinary UI entry; its producer code remains
+retained. P7 remains the active Answer Completion producer. Historical stage
+completion below does not reopen the P6 product entry.
 
 The long-term shared shape is:
 

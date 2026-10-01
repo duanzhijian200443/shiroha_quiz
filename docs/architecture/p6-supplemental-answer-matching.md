@@ -2,6 +2,24 @@
 
 Status: **Canonical P6 authority. P6-P0 through P6-V0 are COMPLETE.**
 
+## Current availability amendment — file supplemental answering shelved
+
+P6 is shelved at the ordinary product-entry boundary. Answer Completion no
+longer exposes “从答案文件补充”, file selection/acquisition for matching, or
+navigation into P6 Preview/Review. This applies to all supplemental file
+formats, not only PDF. P7 single-question AI generation/review/commit remains
+available through the existing Answer Completion surface.
+
+The P6 implementation, dependency wiring, standalone diagnostic entrypoint
+and offline tests are retained for possible restoration. Historical COMPLETE
+statuses record implementation delivery, not current product availability.
+File Library, normal document import, committed questions/answers/set
+membership and shared Candidate/Review/typed mutation authority are preserved.
+Shelving changes no extraction, matching, schema, persisted format or write
+contract. Reopening P6 requires separately authorized work and renewed
+source-format/recognition/layout and review/write acceptance under the frozen
+boundaries below; retaining code does not authorize reactivation.
+
 This document is the authoritative contract for P6 supplemental-answer
 matching: input boundary, supplemental document projection, deterministic
 matching, transient `AnswerCandidate` lifecycle, Preview/Review and explicit
@@ -622,6 +640,9 @@ Documentation authority:
 - `docs/architecture/shiroha-project-roadmap.md` — stage ordering and current
   status.
 ## ANSWER-COMP-P0 planned set activation amendment
+
+Historical design amendment; current product availability is superseded by
+the shelving amendment above. The set binding remains implemented internally.
 
 The future Answer Completion surface is governed by `docs/architecture/answer-completion-question-sets.md`.
 

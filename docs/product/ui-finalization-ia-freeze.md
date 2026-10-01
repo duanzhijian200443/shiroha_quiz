@@ -340,6 +340,17 @@ Question Bank detail
   -> ImportedQuestionSet detail
 ```
 
-The queue may present per-question “AI补答案” and set-level “从答案文件补充” through existing Application/P6/P7 authorities. It does not expose the old whole-bank matching entry as an ordinary v0 menu.
+The original Answer Completion activation allowed per-question “AI补答案” and set-level “从答案文件补充” through existing Application/P6/P7 authorities. The current availability amendment below supersedes the file-matching entry. The old whole-bank matching entry remains absent from ordinary menus.
 
 This is a bounded future secondary-navigation activation under `docs/architecture/answer-completion-question-sets.md`; P0 itself changes no Flutter UI.
+
+### Current availability amendment — file supplemental answering shelved
+
+The secondary “补充答案” → “待补答案” → imported-set detail navigation remains.
+Only eligible single-question “AI补答案” generation/review/commit is exposed;
+the set-level “从答案文件补充” action, its picker and P6 review launch are
+shelved. The ordinary queue/detail does not show file-matching eligibility
+prompts. File Library and normal document import stay available, and no
+primary destination or three-tab IA changes. Retained P6 diagnostic surfaces
+are not ordinary navigation entries. Restoration needs separately authorized
+work under the focused Answer Completion and P6 contracts.

@@ -10,9 +10,21 @@ P0 froze the design only and added no production Dart, schema, migration, provid
 
 The frozen grouping, import, query and activation contracts in §§2–13 are now implemented. Runtime schema is v28, including strict set/member constraints, lifecycle triggers and B0 validation. `QuestionRepository` owns the task-bound typed/legacy atomic commit and calls `ImportedQuestionSetPersistenceKernel` within that same transaction. `document_v4` captures authoritative seed metadata; compatible v3 remains ungrouped.
 
-The Application queue/detail projection uses one read transaction. Presentation exposes “补充答案” → “待补答案”, full-set P6 activation and single-question P7 review/commit through existing authorities. Cleanup of source files, artifacts or tasks never owns a committed set; member deletion/bank movement and final-member cleanup remain schema-owned. Answer/content edits preserve membership and query counts remain dynamic.
+The Application queue/detail projection uses one read transaction. The original v0 delivery exposed “补充答案” → “待补答案”, full-set P6 activation and single-question P7 review/commit through existing authorities. Current Presentation availability is amended below. Cleanup of source files, artifacts or tasks never owns a committed set; member deletion/bank movement and final-member cleanup remain schema-owned. Answer/content edits preserve membership and query counts remain dynamic.
 
 V0 closes focused deterministic acceptance and standing CI coverage; CL synchronizes the canonical contracts. The executable evidence map is maintained in `test/answer_completion_v0_acceptance.md`, with tests in the unconditional contract list in `.github/workflows/pr-contract-checks.yml`. This closure adds no schema, provider or persistence path and preserves every non-goal in §16. Live-provider/device performance acceptance and future work require their own scope.
+
+## Current availability amendment — P6 shelved, P7 retained
+
+Ordinary Answer Completion exposes the queue, set detail and single-question
+AI generation/review/commit only. The set-level “从答案文件补充” entry and its
+file-matching launch path are removed even when P6 dependencies are supplied.
+File Library and normal document import remain available; existing questions,
+answers, imported sets and membership are preserved. P6 services, dependency
+wiring, diagnostic UI and offline tests remain retained, with no changes to
+shared Candidate/Review, typed persistence, source verification or stale/CAS
+semantics. Historical COMPLETE/CLOSED statuses remain delivery history.
+Reactivation requires separately authorized work and renewed P6 acceptance.
 
 ## 1. Purpose and scope
 
@@ -32,7 +44,6 @@ User-facing flow:
   -> 待补答案
   -> 导入题组详情
        -> 单题 AI补答案
-       -> 从答案文件补充
 ```
 
 This is an Answer Completion work queue, not a second bank browser and not a second answer persistence system.
@@ -234,6 +245,10 @@ It does not mean answers are verified correct.
 
 ## 9. P6 integration
 
+This retained integration is shelved at the ordinary product-entry boundary;
+opening set detail does not start file matching. The following binding
+contract remains implemented internally and covered by offline tests.
+
 Selecting a set resolves its complete ordered `storageIds`, then reuses:
 
 ```text
@@ -274,7 +289,7 @@ Queue:
 - **暂不支持 / 数据异常**: legacy-only, mixed, or corrupt sets shown separately;
 - **已完成**: imported sets satisfying the completed predicate.
 
-Set detail defaults to missing members, can show all, exposes per-question P7 where eligible, and set-level **“从答案文件补充”**.
+Set detail defaults to missing members, can show all, and exposes per-question P7 where eligible. It does not expose **“从答案文件补充”** or file-matching eligibility prompts while P6 is shelved.
 
 The product does not expose the old whole-bank matching menu in v0. Existing `QuestionBankScope`, `ProjectScope`, and `ExplicitQuestionScope` Application contracts/tests remain.
 
