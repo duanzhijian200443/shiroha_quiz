@@ -490,6 +490,37 @@ void main() {
     expect(find.textContaining('ambiguous'), findsOneWidget);
   });
 
+  testWidgets('non-writable items render human-readable explanations',
+      (tester) async {
+    final port = _FakePersistencePort();
+    final command = _command(port);
+    final session = _session(
+      targets: [
+        _choiceTarget('q_1', number: 1),
+      ],
+      fragments: [
+        _fragment('frag_1', main: '1', answer: 'x = 1'),
+        _fragment('frag_2', main: '99', answer: 'A'),
+      ],
+    );
+
+    await _pumpReview(tester, session: session, command: command);
+
+    expect(find.text('不可写入项'), findsOneWidget);
+    expect(
+      find.textContaining(
+        'frag_1: invalid — 无效答案: 选项标签不明确（未能识别出唯一选项）',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining(
+        'frag_2: unmatched — 未匹配: 未在目标题库中找到对应题号',
+      ),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('R15: the banner and copy render strictly valid trace ids',
       (tester) async {
     await _pumpReview(

@@ -535,5 +535,37 @@ void main() {
       ];
       expect(orderYs, orderedEquals(List<double>.from(orderYs)..sort()));
     });
+
+    testWidgets(
+        'soft line breaks within a text node render in a single paragraph, '
+        'while blank lines create paragraph breaks', (tester) async {
+      final singlePara = RichContent(nodes: const [
+        TextNode('line 1\nline 2\r\nline 3'),
+      ]);
+
+      await tester.pumpWidget(host(RichContentRenderer(content: singlePara)));
+
+      expect(tester.takeException(), isNull);
+      // Soft line breaks stay in one paragraph without Column wrapper.
+      expect(find.byType(Column), findsNothing);
+      final richTexts = tester.widgetList<RichText>(find.byType(RichText));
+      expect(richTexts.length, 1);
+      expect(richTexts.first.text.toPlainText(), 'line 1\nline 2\nline 3');
+
+      // Blank line creates separate paragraphs in a Column.
+      final doublePara = RichContent(nodes: const [
+        TextNode('para 1\n\npara 2'),
+      ]);
+
+      await tester.pumpWidget(host(RichContentRenderer(content: doublePara)));
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(Column), findsOneWidget);
+      final paraRichTexts =
+          tester.widgetList<RichText>(find.byType(RichText)).toList();
+      expect(paraRichTexts.length, 2);
+      expect(paraRichTexts[0].text.toPlainText(), 'para 1');
+      expect(paraRichTexts[1].text.toPlainText(), 'para 2');
+    });
   });
 }
