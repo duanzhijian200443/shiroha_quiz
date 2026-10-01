@@ -133,8 +133,11 @@ void main() {
     PhotoAnswerSubmissionCommand? submission,
     PhotoAnswerHistoryQuery? history,
     Future<void> Function(String, int)? grade,
+    Size size = const Size(430, 900),
+    double textScale = 1,
+    double keyboardInset = 0,
   }) async {
-    tester.view.physicalSize = const Size(430, 900);
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -193,6 +196,11 @@ void main() {
         photoAnswerSubmission: submission,
         photoAnswerHistory: history,
         child: MaterialApp(
+          builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context).copyWith(
+                  textScaler: TextScaler.linear(textScale),
+                  viewInsets: EdgeInsets.only(bottom: keyboardInset)),
+              child: child!),
           home: PracticePage(
             initialQuestions: typedKind == null
                 ? const <Question>[_subjectiveQuestion]
@@ -207,6 +215,44 @@ void main() {
     await tester.pumpAndSettle();
     return aiService;
   }
+
+  testWidgets(
+      'subjective input, keyboard and preview actions fit large text phone',
+      (tester) async {
+    final ai = await pumpPractice(tester,
+        size: const Size(360, 720), textScale: 1.6, keyboardInset: 220);
+    expect(find.text('我的作答'), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('practice-subjective-reveal')).hitTestable(),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('practice-ai-judge')).hitTestable(),
+        findsOneWidget);
+    expect(
+        tester.getRect(find.byKey(const ValueKey('practice-ai-judge'))).bottom,
+        lessThanOrEqualTo(500));
+    await tester.enterText(find.byType(TextField), 'Synthetic answer');
+    await tester.ensureVisible(
+        find.byKey(const ValueKey('subjective-answer-photo-action')));
+    await tester.pumpAndSettle();
+    expect(
+        find
+            .byKey(const ValueKey('subjective-answer-photo-action'))
+            .hitTestable(),
+        findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('practice-subjective-reveal')));
+    await tester.pumpAndSettle();
+    expect(ai.submittedAnswer, isNull);
+    expect(find.text('丢弃').hitTestable(), findsOneWidget);
+    expect(find.text('收入题库').hitTestable(), findsOneWidget);
+    expect(tester.getRect(find.text('收入题库')).bottom, lessThanOrEqualTo(500));
+    expect(find.byKey(const ValueKey('practice-grade-bar')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('practice-more-menu')));
+    await tester.pumpAndSettle();
+    final deletion = tester.widget<PopupMenuItem<String>>(find.ancestor(
+        of: find.text('删除题目'), matching: find.byType(PopupMenuItem<String>)));
+    expect(deletion.enabled, isFalse);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('subjective question exposes production photo-answer route',
       (tester) async {
@@ -384,7 +430,7 @@ void main() {
         typedKind: QuestionKind.shortAnswer,
         history: PhotoAnswerHistoryQuery(
             attempts: attempts, files: _MissingFiles()));
-    await tester.tap(find.text('跳过 AI，直接看答案自评'));
+    await tester.tap(find.text('查看答案并自评'));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('拍照作答记录'));
     await tester.tap(find.text('拍照作答记录'));

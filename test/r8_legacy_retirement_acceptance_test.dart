@@ -531,7 +531,7 @@ void main() {
     expect(find.text('无题干'), findsNothing);
     expect(find.textContaining('V1 decoy'), findsNothing);
 
-    await tester.tap(find.text('跳过 AI，直接看答案自评'));
+    await tester.tap(find.byKey(const ValueKey('practice-subjective-reveal')));
     await _settlePractice(tester);
 
     expect(find.text('无'), findsOneWidget);

@@ -459,6 +459,10 @@ governs only those Presentation decisions and does not alter any domain,
 application, persistence, provider, or schema boundary recorded in this
 document.
 
+The current Practice presentation is governed by
+`docs/product/practice-ui-refresh-freeze.md`: reading cards and fixed actions
+preserve the existing typed/legacy, attempt, FSRS and preview boundaries.
+
 ## 13. StudyPlan boundary (SPL-1)
 
 StudyPlan is a strategy/selection layer above the existing review/FSRS
