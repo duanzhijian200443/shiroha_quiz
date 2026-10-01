@@ -567,5 +567,61 @@ void main() {
       expect(paraRichTexts[0].text.toPlainText(), 'para 1');
       expect(paraRichTexts[1].text.toPlainText(), 'para 2');
     });
+
+    testWidgets('a standalone newline node stays a single paragraph break',
+        (tester) async {
+      final content = RichContent(nodes: const [
+        TextNode('a'),
+        TextNode('\n'),
+        TextNode('b'),
+      ]);
+
+      await tester.pumpWidget(host(RichContentRenderer(content: content)));
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('a'), findsOneWidget);
+      expect(find.text('b'), findsOneWidget);
+      // One paragraph break is three 0.35em gaps (two Column rhythm gaps
+      // around one blank box); 28.0 would mean a doubled blank box.
+      final gap = tester.getTopLeft(find.text('b')).dy -
+          tester.getBottomLeft(find.text('a')).dy;
+      expect(gap, closeTo(16.0 * 0.35 * 3, 0.01));
+    });
+
+    testWidgets('trailing newline and empty nodes add no blank box',
+        (tester) async {
+      await tester.pumpWidget(
+        host(RichContentRenderer(
+            content: RichContent(nodes: const [
+          TextNode('a\n'),
+        ]))),
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('a'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(RichContentRenderer),
+          matching: find.byType(SizedBox),
+        ),
+        findsNothing,
+      );
+
+      await tester.pumpWidget(
+        host(RichContentRenderer(
+            content: RichContent(nodes: const [
+          TextNode(''),
+        ]))),
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(
+        find.descendant(
+          of: find.byType(RichContentRenderer),
+          matching: find.byType(SizedBox),
+        ),
+        findsNothing,
+      );
+    });
   });
 }

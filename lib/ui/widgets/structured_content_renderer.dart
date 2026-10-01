@@ -314,7 +314,9 @@ class RichContentRenderer extends StatelessWidget {
         }
       } else {
         flushInline();
-        widgets.add(SizedBox(height: fontSize * 0.35));
+        if (i != parts.length - 1) {
+          widgets.add(SizedBox(height: fontSize * 0.35));
+        }
       }
     }
   }
