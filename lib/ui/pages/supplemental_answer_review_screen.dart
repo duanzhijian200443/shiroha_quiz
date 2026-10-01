@@ -8,6 +8,7 @@ import '../../application/supplemental_answers/supplemental_source_inspection.da
 import '../../core/observability/diagnostic_summary.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../../domain/supplemental_answers/answer_candidate.dart';
+import '../../domain/supplemental_answers/answer_match_record.dart';
 import '../pages/supplemental_source_viewer.dart';
 import '../widgets/structured_content_renderer.dart';
 
@@ -262,9 +263,7 @@ class _SupplementalAnswerReviewScreenState
     for (final record in _session.records) {
       final candidate = record.candidate;
       if (candidate == null) {
-        terminal.add(
-          '${record.fragmentId}: ${record.disposition.name}',
-        );
+        terminal.add(_formatTerminalRecord(record));
         continue;
       }
       switch (candidate.writeIntent) {
@@ -273,7 +272,9 @@ class _SupplementalAnswerReviewScreenState
         case CandidateWriteIntent.replace:
           conflictCandidates.add(candidate);
         case CandidateWriteIntent.noOp:
-          terminal.add('${candidate.candidateId}: noOp');
+          terminal.add(
+            '${candidate.candidateId}: noOp — 内容与现有答案完全一致，无需更新',
+          );
       }
     }
 
@@ -424,6 +425,66 @@ String _reviewFailureMessage(SupplementalAnswerReviewFailure failure) {
     SupplementalAnswerReviewFailure.fillOnlyForMissingAnswers ||
     SupplementalAnswerReviewFailure.noOpTerminal =>
       '当前候选状态不可写入。',
+  };
+}
+
+String _formatTerminalRecord(AnswerMatchRecord record) {
+  final negativeCodes = record.evidence.where((code) => switch (code) {
+        MatchEvidenceCode.ambiguousChoiceLabel ||
+        MatchEvidenceCode.noLocator ||
+        MatchEvidenceCode.missingPrimaryProof ||
+        MatchEvidenceCode.duplicateLocator ||
+        MatchEvidenceCode.multipleTargets ||
+        MatchEvidenceCode.subquestionSetMismatch ||
+        MatchEvidenceCode.typeIncompatible ||
+        MatchEvidenceCode.unsupportedContent ||
+        MatchEvidenceCode.sourceConflict ||
+        MatchEvidenceCode.legacyIneligible ||
+        MatchEvidenceCode.sequenceOnly =>
+          true,
+        _ => false,
+      });
+
+  final dispName = record.disposition.name;
+  final dispLabel = _dispositionLabel(record.disposition);
+  if (negativeCodes.isNotEmpty) {
+    final reasons = negativeCodes.map(_evidenceDescription).join('，');
+    return '${record.fragmentId}: $dispName — $dispLabel: $reasons';
+  }
+  return '${record.fragmentId}: $dispName — $dispLabel';
+}
+
+String _dispositionLabel(AnswerMatchDisposition disposition) {
+  return switch (disposition) {
+    AnswerMatchDisposition.unmatched => '未匹配',
+    AnswerMatchDisposition.invalid => '无效答案',
+    AnswerMatchDisposition.ambiguous => '歧义项',
+    AnswerMatchDisposition.conflict => '存在冲突',
+    AnswerMatchDisposition.matched => '已匹配',
+  };
+}
+
+String _evidenceDescription(MatchEvidenceCode code) {
+  return switch (code) {
+    MatchEvidenceCode.ambiguousChoiceLabel => '选项标签不明确（未能识别出唯一选项）',
+    MatchEvidenceCode.noLocator => '未能识别出有效题号定位',
+    MatchEvidenceCode.missingPrimaryProof => '未在目标题库中找到对应题号',
+    MatchEvidenceCode.duplicateLocator => '文档中存在重复题号',
+    MatchEvidenceCode.multipleTargets => '匹配到多个目标题目，存在歧义',
+    MatchEvidenceCode.subquestionSetMismatch => '子题目编号范围与题库不一致',
+    MatchEvidenceCode.typeIncompatible => '题目类型不兼容（与题库题型不匹配）',
+    MatchEvidenceCode.unsupportedContent => '答案包含暂不支持写入的内容格式',
+    MatchEvidenceCode.sourceConflict => '文档中存在相互冲突的答案',
+    MatchEvidenceCode.legacyIneligible => '旧版本非结构化题目，不支持写入',
+    MatchEvidenceCode.sequenceOnly => '仅有上下文顺序，缺乏明确题号证据',
+    MatchEvidenceCode.uniqueMainNumber => '题号唯一',
+    MatchEvidenceCode.mainNumberAndSubquestion => '题号与子题号明确',
+    MatchEvidenceCode.uniqueStemFingerprint => '题干特征唯一',
+    MatchEvidenceCode.continuationGroup => '连续题组',
+    MatchEvidenceCode.typeCompatible => '题型兼容',
+    MatchEvidenceCode.headingCorroboration => '章节标题吻合',
+    MatchEvidenceCode.sourceCorroboration => '来源关系吻合',
+    MatchEvidenceCode.neighborhoodConsistency => '相邻题号连续',
   };
 }
 

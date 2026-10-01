@@ -160,6 +160,48 @@ void main() {
     );
   });
 
+  test('blank-only continuations never become an answer body', () {
+    final document = SourceDocument(
+      sourceId: 'artifact_001',
+      parts: [
+        _paragraph('23.', role: SourceContentRole.answerLike),
+        _paragraph(' \r\n', role: SourceContentRole.paragraph),
+        _paragraph('\r\n', role: SourceContentRole.paragraph),
+      ],
+    );
+
+    final result = projector.project(document);
+
+    expect(result.fragments, isEmpty);
+    expect(
+      result.issues,
+      contains(
+        const SupplementalProjectionIssue(
+          kind: SupplementalProjectionIssueKind.emptyAnswerSkipped,
+          partIndex: 0,
+        ),
+      ),
+    );
+  });
+
+  test('blank continuations never extend a real answer body', () {
+    final document = SourceDocument(
+      sourceId: 'artifact_001',
+      parts: [
+        _paragraph('1. ', role: SourceContentRole.answerLike),
+        _paragraph('x = 2', role: SourceContentRole.paragraph),
+        _paragraph('\r\n', role: SourceContentRole.paragraph),
+      ],
+    );
+
+    final result = projector.project(document);
+
+    final fragment = result.fragments.single;
+    expect(_texts(fragment.answerContent), ['x = 2']);
+    expect(fragment.sourceRefs, hasLength(1));
+    expect(result.issues, isEmpty);
+  });
+
   test('heading context is captured on following fragments', () {
     final document = SourceDocument(
       sourceId: 'artifact_001',

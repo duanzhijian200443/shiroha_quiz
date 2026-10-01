@@ -4,8 +4,6 @@ import '../../application/answers/ai_answer_generation.dart';
 import '../dependencies/answer_completion_dependencies_scope.dart';
 import '../widgets/structured_content_renderer.dart';
 import 'answer_completion_ai_review.dart';
-import 'supplemental_answer_review_screen.dart';
-import 'supplemental_answer_source_picker_sheet.dart';
 
 /// Secondary work queue and imported-set detail. Counts and eligibility come
 /// only from the Application snapshot; presentation never reads repositories.
@@ -22,7 +20,6 @@ class _AnswerCompletionScreenState extends State<AnswerCompletionScreen> {
   Future<AnswerCompletionRead>? _read;
   AnswerCompletionDependenciesScope? _dependencies;
   bool _showAll = false;
-  bool _opening = false;
 
   @override
   void didChangeDependencies() {
@@ -54,45 +51,6 @@ class _AnswerCompletionScreenState extends State<AnswerCompletionScreen> {
             builder: (_) => AnswerCompletionScreen(
                 bankName: widget.bankName, setId: set.set.setId)));
     if (mounted) _reload();
-  }
-
-  Future<void> _supplement(AnswerCompletionSet selected) async {
-    final dependencies = _dependencies!;
-    if (_opening ||
-        !selected.canSupplement ||
-        dependencies.supplemental == null ||
-        dependencies.confirmCommand == null) {
-      return;
-    }
-    setState(() => _opening = true);
-    try {
-      final binding = dependencies.supplemental!.bind(selected);
-      final session = await showSupplementalAnswerSourcePicker(
-          context: context,
-          service: binding.activation,
-          sourceAcquisition: binding.acquisition,
-          targetScope: binding.scope,
-          pickFile: dependencies.pickFile);
-      if (!mounted || session == null) return;
-      await Navigator.push(
-          context,
-          MaterialPageRoute<void>(
-              builder: (_) => SupplementalAnswerReviewScreen(
-                  session: session,
-                  confirmCommand: dependencies.confirmCommand!,
-                  sourceInspectionService:
-                      dependencies.sourceInspectionService)));
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('题组暂时不可用，请刷新后重试。')));
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _opening = false);
-        _reload();
-      }
-    }
   }
 
   @override
@@ -172,16 +130,7 @@ class _AnswerCompletionScreenState extends State<AnswerCompletionScreen> {
           AnswerCompletionProvenance.available => '源文件在文件库中',
           AnswerCompletionProvenance.unavailable => '源文件不可用或已删除，题组仍保留',
         }),
-        if (!set.canSupplement) const Text('题组包含暂不支持或异常成员，无法进行文件匹配。'),
         if (set.completed) const Text('已完成补充（不代表答案已经验证正确）'),
-        FilledButton.tonal(
-            onPressed: set.canSupplement &&
-                    !_opening &&
-                    _dependencies?.supplemental != null &&
-                    _dependencies?.confirmCommand != null
-                ? () => _supplement(set)
-                : null,
-            child: const Text('从答案文件补充')),
         SwitchListTile(
             title: const Text('显示全部题目'),
             value: _showAll,

@@ -300,14 +300,21 @@ class RichContentRenderer extends StatelessWidget {
     VoidCallback flushInline,
     List<Widget> widgets,
   ) {
-    final parts = text.split('\n');
+    final normalized = text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+    final parts = normalized.split('\n');
     for (var i = 0; i < parts.length; i++) {
       if (parts[i].isNotEmpty) {
         _appendTypedTextLine(parts[i], inlineTokens);
-      }
-      if (i != parts.length - 1) {
+        if (i != parts.length - 1) {
+          if (parts[i + 1].isNotEmpty) {
+            inlineTokens.add(const TextToken('\n'));
+          } else {
+            flushInline();
+          }
+        }
+      } else {
         flushInline();
-        if (parts[i].isEmpty) {
+        if (i != parts.length - 1) {
           widgets.add(SizedBox(height: fontSize * 0.35));
         }
       }

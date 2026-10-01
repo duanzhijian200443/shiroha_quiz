@@ -2,10 +2,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/answer_completion/answer_completion_query.dart';
+import 'package:shiroha_quiz/application/answer_completion/answer_completion_supplemental.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_commit_command.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_generation.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_provider.dart';
+import 'package:shiroha_quiz/application/file_library/file_library_ports.dart';
+import 'package:shiroha_quiz/application/parsed_artifacts/parsed_artifact_lifecycle.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_ports.dart';
+import 'package:shiroha_quiz/application/supplemental_answers/supplemental_answer_command.dart';
 import 'package:shiroha_quiz/domain/answer_completion/imported_question_set.dart';
 import 'package:shiroha_quiz/domain/answers/answer_candidate.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
@@ -54,6 +58,15 @@ class _Query implements AnswerCompletionQuery {
   }
 }
 
+class _Catalog extends Fake implements LibraryFileRepositoryPort {}
+
+class _Artifacts extends Fake implements ParsedArtifactLifecyclePort {}
+
+class _Ingestion extends Fake implements FileIngestionPort {}
+
+class _SupplementalPersistence extends Fake
+    implements SupplementalAnswerPersistencePort {}
+
 class _Study extends Fake implements StudyQuestionQueryPort {
   _Study(this.draft);
   QuestionDraftV2 draft;
@@ -101,9 +114,23 @@ void main() {
       {Widget? home,
       AiAnswerGenerationService? generation,
       AiAnswerCommitCommand? commit,
+      bool withSupplemental = false,
       void Function()? picker}) async {
+    final artifacts = _Artifacts();
     await tester.pumpWidget(AnswerCompletionDependenciesScope(
         query: query,
+        supplemental: withSupplemental
+            ? AnswerCompletionSupplementalService(
+                query: query,
+                fileCatalog: _Catalog(),
+                artifactPort: artifacts,
+                ingestion: _Ingestion())
+            : null,
+        confirmCommand: withSupplemental
+            ? SupplementalAnswerConfirmCommand(
+                artifactPort: artifacts,
+                persistencePort: _SupplementalPersistence())
+            : null,
         generationService: generation,
         aiCommitCommand: commit,
         pickFile: () async {
@@ -182,9 +209,8 @@ void main() {
     expect(find.text('暂不支持：旧版题目'), findsOneWidget);
     expect(find.text('数据异常：无法安全读取题目'), findsOneWidget);
     expect(find.text('AI补答案'), findsNWidgets(2));
-    final button = tester
-        .widget<FilledButton>(find.widgetWithText(FilledButton, '从答案文件补充'));
-    expect(button.onPressed, isNull);
+    expect(find.text('从答案文件补充'), findsNothing);
+    expect(find.textContaining('无法进行文件匹配'), findsNothing);
     query.result = AnswerCompletionSnapshot(sets: [
       _set('mixed set', [_typed()],
           provenance: AnswerCompletionProvenance.unavailable)
@@ -219,10 +245,15 @@ void main() {
           providerPort: provider,
           idFactory: () => 'generation',
           clock: () => DateTime.utc(2026));
+      var picks = 0;
       await pump(tester, query,
           home: const AnswerCompletionScreen(bankName: 'bank', setId: _setId),
           generation: generation,
+          withSupplemental: true,
+          picker: () => picks++,
           commit: AiAnswerCommitCommand(persistencePort: commit));
+      expect(find.text('从答案文件补充'), findsNothing);
+      expect(find.text('从文件补充答案'), findsNothing);
       if (initial != null) {
         await tester.tap(find.byType(SwitchListTile));
         await tester.pumpAndSettle();
@@ -252,6 +283,8 @@ void main() {
         await tester.pumpAndSettle();
         expect(commit.candidates, isEmpty);
       }
+      expect(picks, 0);
+      expect(find.text('从答案文件补充'), findsNothing);
     });
   }
 

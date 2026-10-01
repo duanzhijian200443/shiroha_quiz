@@ -1,11 +1,9 @@
-// P6-ACT-2 direct supplemental-source acquisition widget acceptance.
+// Retained P6-ACT-2 source acquisition while ordinary activation is shelved.
 //
 // Synthetic fixtures only: no live OCR/provider, no private PDFs, no network.
-// Proves the selected ImportedQuestionSet entry can add a new file through the real ingestion and
-// deterministic-parse seams, keeps scanned-PDF OCR behind the canonical
-// confirmation dialog, and leaves the frozen existing-file path untouched.
-import 'package:shiroha_quiz/ui/pages/answer_completion_screen.dart';
-import 'package:shiroha_quiz/ui/dependencies/answer_completion_dependencies_scope.dart';
+// A test-only launcher opens the retained picker through full-set Application
+// binding. It covers ingestion/parse seams, explicit scanned-PDF OCR, and the
+// existing-file path without reopening a production entry.
 import 'package:shiroha_quiz/domain/answer_completion/imported_question_set.dart';
 import 'package:shiroha_quiz/application/answer_completion/answer_completion_supplemental.dart';
 import 'package:shiroha_quiz/application/answer_completion/answer_completion_query.dart';
@@ -30,6 +28,7 @@ import 'package:shiroha_quiz/domain/source/source_document.dart';
 import 'package:shiroha_quiz/domain/source/source_part.dart';
 import 'package:shiroha_quiz/domain/source/source_ref.dart';
 import 'package:shiroha_quiz/ui/pages/supplemental_answer_review_screen.dart';
+import 'package:shiroha_quiz/ui/pages/supplemental_answer_source_picker_sheet.dart';
 
 const _bankName = 'p6_direct_ui_bank';
 const _fileId = 'p6_direct_ui_file';
@@ -39,9 +38,10 @@ const _storageId = 'a3f9c2e4-5b6d-4e7f-8a9b-0c1d2e3f4a5b';
 void main() {
   testWidgets('picker offers direct file adding next to the library list',
       (tester) async {
-    await _pumpSetDetail(tester, existingFiles: [_libraryFile('old.pdf')]);
+    await _pumpRetainedFlowHarness(tester,
+        existingFiles: [_libraryFile('old.pdf')]);
 
-    await tester.tap(find.text('从答案文件补充'));
+    await tester.tap(find.byKey(const ValueKey<String>('p6-retained-flow')));
     await tester.pumpAndSettle();
 
     expect(
@@ -55,12 +55,12 @@ void main() {
 
   testWidgets('adding a PDF ingests, parses deterministically, and reviews',
       (tester) async {
-    final harness = await _pumpSetDetail(tester);
+    final harness = await _pumpRetainedFlowHarness(tester);
     harness.pickedFiles.add(
       _pickedFile(name: 'answers.pdf', path: r'C:\picked\answers.pdf'),
     );
 
-    await tester.tap(find.text('从答案文件补充'));
+    await tester.tap(find.byKey(const ValueKey<String>('p6-retained-flow')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('添加答案文件'));
     await tester.pumpAndSettle();
@@ -84,10 +84,10 @@ void main() {
   });
 
   testWidgets('cancelling the system picker starts nothing', (tester) async {
-    final harness = await _pumpSetDetail(tester);
+    final harness = await _pumpRetainedFlowHarness(tester);
     // No queued selection: the injected picker resolves to null (user cancel).
 
-    await tester.tap(find.text('从答案文件补充'));
+    await tester.tap(find.byKey(const ValueKey<String>('p6-retained-flow')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('添加答案文件'));
     await tester.pumpAndSettle();
@@ -101,7 +101,7 @@ void main() {
 
   testWidgets('a scanned PDF asks for explicit OCR before any OCR call',
       (tester) async {
-    final harness = await _pumpSetDetail(
+    final harness = await _pumpRetainedFlowHarness(
       tester,
       deterministicFailure: ParsedArtifactLifecycleFailure.sourceUnavailable,
       displayName: 'scanned.pdf',
@@ -110,7 +110,7 @@ void main() {
       _pickedFile(name: 'scanned.pdf', path: r'C:\picked\scanned.pdf'),
     );
 
-    await tester.tap(find.text('从答案文件补充'));
+    await tester.tap(find.byKey(const ValueKey<String>('p6-retained-flow')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('添加答案文件'));
     await tester.pumpAndSettle();
@@ -133,7 +133,7 @@ void main() {
 
   testWidgets('cancelling the OCR dialog never runs OCR and keeps the file',
       (tester) async {
-    final harness = await _pumpSetDetail(
+    final harness = await _pumpRetainedFlowHarness(
       tester,
       deterministicFailure: ParsedArtifactLifecycleFailure.sourceUnavailable,
       displayName: 'scanned.pdf',
@@ -142,7 +142,7 @@ void main() {
       _pickedFile(name: 'scanned.pdf', path: r'C:\picked\scanned.pdf'),
     );
 
-    await tester.tap(find.text('从答案文件补充'));
+    await tester.tap(find.byKey(const ValueKey<String>('p6-retained-flow')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('添加答案文件'));
     await tester.pumpAndSettle();
@@ -163,7 +163,7 @@ void main() {
 
   testWidgets('confirming OCR runs ocr_pdf once and then reviews',
       (tester) async {
-    final harness = await _pumpSetDetail(
+    final harness = await _pumpRetainedFlowHarness(
       tester,
       deterministicFailure: ParsedArtifactLifecycleFailure.sourceUnavailable,
       displayName: 'scanned.pdf',
@@ -172,7 +172,7 @@ void main() {
       _pickedFile(name: 'scanned.pdf', path: r'C:\picked\scanned.pdf'),
     );
 
-    await tester.tap(find.text('从答案文件补充'));
+    await tester.tap(find.byKey(const ValueKey<String>('p6-retained-flow')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('添加答案文件'));
     await tester.pumpAndSettle();
@@ -191,12 +191,12 @@ void main() {
 
   testWidgets('an existing library file keeps the frozen existing-file path',
       (tester) async {
-    final harness = await _pumpSetDetail(
+    final harness = await _pumpRetainedFlowHarness(
       tester,
       existingFiles: [_libraryFile('old.pdf')],
     );
 
-    await tester.tap(find.text('从答案文件补充'));
+    await tester.tap(find.byKey(const ValueKey<String>('p6-retained-flow')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('old.pdf'));
     await tester.pumpAndSettle();
@@ -209,12 +209,12 @@ void main() {
 
   testWidgets('tapping add again while the picker is open adds nothing twice',
       (tester) async {
-    final harness = await _pumpSetDetail(tester, holdPicker: true);
+    final harness = await _pumpRetainedFlowHarness(tester, holdPicker: true);
     harness.pickedFiles.add(
       _pickedFile(name: 'answers.pdf', path: r'C:\picked\answers.pdf'),
     );
 
-    await tester.tap(find.text('从答案文件补充'));
+    await tester.tap(find.byKey(const ValueKey<String>('p6-retained-flow')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('添加答案文件'));
     await tester.pump();
@@ -232,7 +232,7 @@ void main() {
 
   testWidgets('an ingestion failure shows one bounded safe message',
       (tester) async {
-    final harness = await _pumpSetDetail(
+    final harness = await _pumpRetainedFlowHarness(
       tester,
       ingestionFailure: StateError('copy failed'),
     );
@@ -240,7 +240,7 @@ void main() {
       _pickedFile(name: 'answers.pdf', path: r'C:\picked\answers.pdf'),
     );
 
-    await tester.tap(find.text('从答案文件补充'));
+    await tester.tap(find.byKey(const ValueKey<String>('p6-retained-flow')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('添加答案文件'));
     await tester.pumpAndSettle();
@@ -256,7 +256,7 @@ void main() {
     LogWriter.setRecordHandler(records.add);
     addTearDown(() => LogWriter.setRecordHandler(null));
 
-    final harness = await _pumpSetDetail(
+    final harness = await _pumpRetainedFlowHarness(
       tester,
       ingestionFailure: StateError('copy failed'),
     );
@@ -264,7 +264,7 @@ void main() {
       _pickedFile(name: 'answers.pdf', path: r'C:\picked\answers.pdf'),
     );
 
-    await tester.tap(find.text('从答案文件补充'));
+    await tester.tap(find.byKey(const ValueKey<String>('p6-retained-flow')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('添加答案文件'));
     await tester.pumpAndSettle();
@@ -292,7 +292,7 @@ void main() {
     LogWriter.setRecordHandler(records.add);
     addTearDown(() => LogWriter.setRecordHandler(null));
 
-    final harness = await _pumpSetDetail(
+    final harness = await _pumpRetainedFlowHarness(
       tester,
       deterministicFailure: ParsedArtifactLifecycleFailure.sourceUnavailable,
       displayName: 'scanned.pdf',
@@ -301,7 +301,7 @@ void main() {
       _pickedFile(name: 'scanned.pdf', path: r'C:\picked\scanned.pdf'),
     );
 
-    await tester.tap(find.text('从答案文件补充'));
+    await tester.tap(find.byKey(const ValueKey<String>('p6-retained-flow')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('添加答案文件'));
     await tester.pumpAndSettle();
@@ -345,7 +345,7 @@ void main() {
   });
 }
 
-Future<_Harness> _pumpSetDetail(
+Future<_Harness> _pumpRetainedFlowHarness(
   WidgetTester tester, {
   List<LibraryFile> existingFiles = const [],
   ParsedArtifactLifecycleFailure? deterministicFailure,
@@ -364,21 +364,48 @@ Future<_Harness> _pumpSetDetail(
     ),
     holdPicker: holdPicker,
   );
-  await tester.pumpWidget(
-    AnswerCompletionDependenciesScope(
-      query: _CompletionQuery([_typedRead()]),
-      supplemental: AnswerCompletionSupplementalService(
-          query: _CompletionQuery([_typedRead()]),
+  final query = _CompletionQuery([_typedRead()]);
+  final selected = (await query.readBank(_bankName) as AnswerCompletionSnapshot)
+      .findSet(_setId)!;
+  final binding = AnswerCompletionSupplementalService(
+          query: query,
           fileCatalog: _FakeFileCatalog(existingFiles),
           ingestion: harness.ingestion,
-          artifactPort: harness.artifacts),
-      confirmCommand: SupplementalAnswerConfirmCommand(
-        artifactPort: harness.artifacts,
-        persistencePort: _FakePersistencePort(),
+          artifactPort: harness.artifacts)
+      .bind(selected);
+  final command = SupplementalAnswerConfirmCommand(
+    artifactPort: harness.artifacts,
+    persistencePort: _FakePersistencePort(),
+  );
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Scaffold(
+        body: Builder(
+          builder: (context) => TextButton(
+            key: const ValueKey<String>('p6-retained-flow'),
+            child: const Text('打开保留的 P6 测试流程'),
+            onPressed: () async {
+              final session = await showSupplementalAnswerSourcePicker(
+                context: context,
+                service: binding.activation,
+                sourceAcquisition: binding.acquisition,
+                targetScope: binding.scope,
+                pickFile: harness.pickFile,
+              );
+              if (!context.mounted || session == null) return;
+              await Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => SupplementalAnswerReviewScreen(
+                    session: session,
+                    confirmCommand: command,
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
       ),
-      pickFile: harness.pickFile,
-      child: const MaterialApp(
-          home: AnswerCompletionScreen(bankName: _bankName, setId: _setId)),
     ),
   );
   await tester.pumpAndSettle();

@@ -1191,7 +1191,7 @@ final class _FragmentBuilder {
   void appendAnswer(RichContent content, SourceRef sourceRef,
       {int? partIndex}) {
     if (!hasOpenFragment) return;
-    if (content.nodes.isEmpty) return;
+    if (_isStructurallyBlankAnswer(content.nodes)) return;
     _collectAnswer(content, sourceRef, partIndex);
     _continuationOrdinal += 1;
   }
@@ -1325,6 +1325,14 @@ final class _FragmentBuilder {
       return false;
     }
   }
+}
+
+/// Mirrors the typed assembler's structural-emptiness rule: a contribution
+/// made only of blank text nodes carries no answer content, so it is treated
+/// exactly like an empty part; any non-text node is always preserved.
+bool _isStructurallyBlankAnswer(List<ContentNode> nodes) {
+  return nodes.isEmpty ||
+      nodes.every((node) => node is TextNode && node.text.trim().isEmpty);
 }
 
 bool _orderedEquals<T>(List<T> left, List<T> right) {
