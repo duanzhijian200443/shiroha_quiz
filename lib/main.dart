@@ -113,6 +113,7 @@ import 'services/import_pipeline/ocr_request_scheduler.dart';
 import 'services/import_pipeline/ocr_request_executor.dart';
 import 'services/import_review/import_commit_service.dart';
 import 'services/task_manager.dart';
+import 'services/today/today_context_query_adapter.dart';
 import 'services/llm_providers/zhipu_ocr_client.dart';
 import 'services/llm_providers/ai_provider_connection.dart';
 import 'services/parsed_artifacts/deterministic_parsed_artifact_generation_adapter.dart';
@@ -899,6 +900,10 @@ class ShirohaQuizApp extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           theme: AppTheme.getTheme(themeName),
           home: MainScreen(
+            todayContextQuery: TodayContextQueryAdapter(
+              loadCurrentBank: SettingsRepository.instance.getCurrentBank,
+              loadBankStats: ReviewEngineService().getBankStats,
+            ),
             u1WorkspaceFacade: u1WorkspaceFacade,
             conversationService: conversationService,
             agentSettingsService: agentSettingsService,
@@ -1033,6 +1038,10 @@ class _SplashScreenState extends State<SplashScreen> {
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
         builder: (_) => MainScreen(
+          todayContextQuery: TodayContextQueryAdapter(
+            loadCurrentBank: SettingsRepository.instance.getCurrentBank,
+            loadBankStats: ReviewEngineService().getBankStats,
+          ),
           u1WorkspaceFacade: widget.u1WorkspaceFacade,
           conversationService: widget.conversationService,
           agentSettingsService: widget.agentSettingsService,
