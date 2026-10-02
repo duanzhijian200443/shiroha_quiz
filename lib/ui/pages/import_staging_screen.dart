@@ -3,45 +3,29 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../domain/content/rich_content.dart';
-import '../../domain/content/rich_content_text_projection.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../../application/questions/folder_query_port.dart';
 import '../../application/import_review/typed_review_snapshot.dart';
 import '../../application/import/import_advanced_preferences.dart';
 import '../../services/task_manager.dart';
-import '../../services/import_pipeline/final_question_latex_audit.dart';
 import '../../services/import_pipeline/import_diagnostic_message.dart';
-import '../../services/import_pipeline/import_diagnostic_formatter.dart';
 import '../../services/import_pipeline/import_question_field_policy.dart';
-import '../../services/import_pipeline/subjective_answer_distillation_policy.dart';
 import '../../services/import_pipeline/subjective_answer_distillation_service.dart';
-import '../../services/import_pipeline/subjective_answer_distillation_snapshot_policy.dart';
-import '../../services/import_pipeline/subjective_answer_expectation.dart';
-import '../../services/import_pipeline/subjective_answer_extractor.dart';
-import '../../services/import_pipeline/import_parse_result.dart';
-import '../../services/import_pipeline/ocr_typed_candidate.dart';
-import '../../services/import_review/import_review_analyzer.dart';
-import '../../services/import_review/import_review_blocking_policy.dart';
 import '../../services/import_review/import_review_item.dart';
 import '../../services/import_review/import_review_issue.dart';
 import '../../services/import_review/import_review_badge_formatter.dart';
-import '../../services/import_review/import_review_batch_controller.dart';
 import '../../services/import_review/import_review_filter.dart';
-import '../../services/import_review/import_review_visible_item.dart';
-import '../../services/import_review/import_review_report.dart';
-import '../../services/import_review/import_review_report_builder.dart';
-import '../../services/import_review/import_review_report_formatter.dart';
 import '../../services/import_review/import_review_metadata.dart';
+import '../../services/import_review/import_review_report_formatter.dart';
 import '../../services/import_review/import_commit_service.dart';
-import '../../services/import_review/review_repair_edit.dart';
 import '../../services/import_review/explanation_edit_provenance.dart';
 import '../../services/import_review/review_legacy_field_content.dart';
-import '../../services/import_review/review_repair_policy.dart';
 import '../../services/import_review/review_repair_service.dart';
-import '../../services/import_review/typed_review_result_builder.dart';
 import '../../services/bank_update_notifier.dart';
 import '../../data/models/question_draft.dart';
 import '../dependencies/ai_dependencies_scope.dart';
+import '../import_review/import_review_controller.dart';
+import '../import_review/import_review_view_state.dart';
 import '../widgets/markdown_extensions.dart';
 import '../widgets/review_repair_proposal_dialog.dart';
 import '../widgets/structured_content_renderer.dart';
@@ -80,231 +64,125 @@ class ImportStagingScreen extends StatefulWidget {
 }
 
 class _ImportStagingScreenState extends State<ImportStagingScreen> {
-  static const _explanationOverrideKey = '_explanation_override';
-  static const _typedCommitBlockedText = '结构化题目缺少必要的审核信息，无法入库，请检查后重试';
-  static const _typedCommitFailedText = '结构化题库入库失败，题目保持待审状态，请检查后重试';
-  static const _typedOptionsBlockedText = '当前结构化题目暂不支持修改选项数量、顺序或标签，请恢复后再入库';
-  static const _invalidStorageRouteText = '当前任务的存储路线无效，无法入库';
-  static const _reviewDraftUnsafeText = '校对结果尚未安全保存，无法入库，请重试';
-  static const _answerDistillationInProgressText = '答案仍在生成中，请等待完成后再入库';
-  static const _reviewRepairInProgressText = '仍有题目正在生成 AI 修补建议，请等待完成后再入库';
-  static const _reviewRepairStaleText = '题目已发生变化，请重新执行 AI 修补';
-  static const _reviewRepairSaveFailedText = 'AI 修补已生成，但校对结果保存失败，请重试';
-  static const _typedTaskExpiredText = '任务已过期或已被替换，请检查后重试';
-  static const _typedCommitInProgressText = '已有入库操作正在进行，请稍后重试';
-  static const _proposedTargetExistsText = '目标题库已存在，本次未入库；请返回选择已有题库后重新导入';
-  static const _legacyCommitFailedText = '题库入库失败，题目保持待审状态，请检查后重试';
-  static const _legacyTaskExpiredText = '任务已过期或已被替换，请检查后重试';
-  static const _safeSnapshotProvenanceKeys = {
-    'q_num',
-    'question_number',
-    'source_page_indices',
-    'source_block_ids',
-    '_import_diagnostics',
-    TypedReviewSnapshotCodec.mapKey,
-    // Carried verbatim so an explicit edit provenance survives every draft
-    // save and reload; it is never inferred from the explanation text.
-    TaskManager.keyExplanationEditProvenance,
-  };
-
-  late List<ImportReviewItem> _allItems;
-  late List<ImportReviewVisibleItem> _visibleItems;
-  late List<String> _importDiagnostics;
-  late List<ImportDiagnosticMessage> _diagnosticMessages;
-  late ImportReviewAnalyzerResult _reviewResult;
-  ImportReviewFilter _activeFilter = ImportReviewFilter.all;
-  ImportReviewSort _activeSort = ImportReviewSort.originalOrder;
-  bool _isSaving = false;
-  bool _selectionMode = false;
-  final Set<int> _selectedOriginalIndices = {};
-  late ExplanationRetentionMode _explanationRetentionMode;
-  final Map<int, QuestionExplanationOverride> _explanationOverrides = {};
-
-  /// See [_isDocumentImportEntryTask]. Captured once so the controls and the
-  /// finalization policy can never disagree while the page is open.
-  late final bool _isDocumentImportEntryTaskMode;
-  final Map<int, String> _answerDistillationStatuses = {};
-  final Map<int, String> _answerDistillationReasons = {};
-  final Map<int, String> _reviewItemIds = {};
-  final Map<int, Map<String, dynamic>> _snapshotProvenance = {};
-  final Map<int, TypedReviewSnapshot> _presentationSnapshots = {};
-  final Map<int, ExplanationEditProvenance> _explanationProvenance = {};
-  Future<void> _reviewDraftOperationTail = Future<void>.value();
-  final SubjectiveAnswerDistillationPolicy _answerDistillationPolicy =
-      const SubjectiveAnswerDistillationPolicy();
-  SubjectiveAnswerDistiller? _answerDistiller;
-  bool _isDistillingAnswers = false;
-  bool _answerDistillationCancellationRequested = false;
-  int _answerDistillationOperationId = 0;
-  int _answerDistillationCompletedCount = 0;
-  int _answerDistillationTotalCount = 0;
-  int? _activeAnswerDistillationIndex;
-  final ReviewRepairPolicy _reviewRepairPolicy = const ReviewRepairPolicy();
-  final Map<int, ReviewRepairEdit> _repairEdits = {};
-  final Map<int, ReviewRepairProposal> _autoRepairProposals = {};
-  ReviewRepairGenerator? _repairGenerator;
-  int? _activeRepairIndex;
-  int _repairOperationId = 0;
-  bool _autoRepairInitialized = false;
-  bool _autoRepairEnabled = false;
-  bool _autoRepairPreparing = false;
-
-  /// Questions the automatic walk already handled: prepared, skipped because
-  /// they are not an auto-repairable LaTeX target, or opened by the user.
-  final Set<int> _autoRepairSettled = <int>{};
-
-  String? get _traceId {
-    final value =
-        widget.diagnostics?[TaskManager.keyTraceId]?.toString().trim();
-    return value == null || value.isEmpty ? null : value;
-  }
+  late final ImportReviewController _controller;
 
   final TextEditingController _bankNameController = TextEditingController();
   final TextEditingController _folderController = TextEditingController();
-  FolderQueryPort? get _folderQuery => widget.folderQuery;
-  late final ImportCommitService _commitService =
-      widget.commitService ?? ImportCommitService();
-  late final TaskManager _taskManager =
-      widget.taskManager ?? TaskManager.instance;
-  List<String> _existingFolders = [];
+  bool _autoRepairInitialized = false;
 
-  ImportTask? get _frozenDocumentTarget {
-    final id = widget.taskId;
-    if (id == null || id.isEmpty) return null;
-    final task =
-        _taskManager.tasks.where((entry) => entry.id == id).firstOrNull;
-    if (task == null ||
-        !isDocumentImportEntryDiagnostics(task.diagnostics) ||
-        task.bankName?.trim().isNotEmpty != true) {
-      return null;
-    }
-    return task;
-  }
-
-  bool get _isBlockedByQualityGate =>
-      ImportReviewBlockingPolicy.isBlocked(_reviewResult);
-
-  bool get _isStemOnlyDocument =>
-      widget.diagnostics?['documentRole']?.toString() == 'stemOnly';
-
-  SubjectiveAnswerDistiller get _resolvedAnswerDistiller {
-    return _answerDistiller ??= widget.answerDistiller ??
-        SubjectiveAnswerDistillationService(
-          engineRepository: AiDependenciesScope.of(context).engineRepository,
-        );
-  }
-
-  ReviewRepairGenerator get _resolvedRepairGenerator {
-    return _repairGenerator ??= widget.reviewRepairGenerator ??
-        ReviewRepairService(
-          engineRepository: AiDependenciesScope.of(context).engineRepository,
-        );
-  }
-
-  String? get _qualityGateReason {
-    if (ImportReviewBlockingPolicy.isBlocked(_reviewResult)) {
-      return '题目结构错误，请修正或删除后再入库';
-    }
-    return null;
-  }
-
-  String get _confirmButtonText {
-    final reason = _qualityGateReason;
-    if (reason != null) return '解析不完整，禁止入库：$reason';
-    if (_isBlockedByQualityGate) return '解析不完整，禁止入库';
-    return '确认无误，收入题库';
-  }
-
-  bool get _hasLowQualityVision {
-    final summary = widget.diagnostics?['visionQualitySummary'];
-    if (summary is! Map) return false;
-    return summary['hasLowQualityVisionParse'] == true;
-  }
-
-  bool get _hasUnsupportedStructure {
-    final summary = widget.diagnostics?['unsupportedStructureSummary'];
-    if (summary is! Map) return false;
-    final imageBlockCount = summary['imageBlockCount'];
-    final tableBlockCount = summary['tableBlockCount'];
-    return (imageBlockCount is int && imageBlockCount > 0) ||
-        (tableBlockCount is int && tableBlockCount > 0);
-  }
+  /// The page renders from this immutable presentation state and forwards
+  /// every user event to [_controller]; it owns no business state itself.
+  ImportReviewViewState get _state => _controller.state;
 
   @override
   void initState() {
     super.initState();
-    _isDocumentImportEntryTaskMode = _isDocumentImportEntryTask();
-    _explanationRetentionMode = _readReviewExplanationRetentionMode();
-    final messages = ImportDiagnosticFormatter.format(
+    _controller = ImportReviewController(
+      parsedQuestions: widget.parsedQuestions,
+      taskId: widget.taskId,
       warnings: widget.warnings,
       diagnostics: widget.diagnostics,
+      folderQuery: widget.folderQuery,
+      commitService: widget.commitService,
+      answerDistiller: widget.answerDistiller,
+      reviewRepairGenerator: widget.reviewRepairGenerator,
+      taskManager: widget.taskManager,
+      initialExplanationRetentionMode: widget.initialExplanationRetentionMode,
+      answerDistillerFactory: () => SubjectiveAnswerDistillationService(
+        engineRepository: AiDependenciesScope.of(context).engineRepository,
+      ),
+      repairGeneratorFactory: () => ReviewRepairService(
+        engineRepository: AiDependenciesScope.of(context).engineRepository,
+      ),
+      effects: _buildEffects(),
     );
-    if (messages.isNotEmpty) {
-      _diagnosticMessages = messages;
-      _importDiagnostics = const [];
-    } else {
-      _importDiagnostics = _readImportDiagnostics(widget.parsedQuestions);
-      _diagnosticMessages = _importDiagnostics
-          .map((w) => ImportDiagnosticMessage(
-                severity: ImportDiagnosticSeverity.warning,
-                title: '导入警告',
-                message: w,
-              ))
-          .toList();
-    }
-    final historicalGateMessage = _historicalQualityGateMessage();
-    if (historicalGateMessage != null) {
-      _diagnosticMessages = [
-        ..._diagnosticMessages,
-        historicalGateMessage,
-      ];
-    }
-    _allItems = widget.parsedQuestions
-        .asMap()
-        .entries
-        .map((e) => ImportReviewItem.fromMap(e.value, e.key))
-        .toList();
-    final snapshotNormalizationNeeded =
-        _restoreReviewDraftMarkers(widget.parsedQuestions);
-    // Presentation decoding never repairs metadata or changes commit routing.
-    const snapshotCodec = TypedReviewSnapshotCodec();
-    for (final entry in _snapshotProvenance.entries) {
-      try {
-        // Read exactly the value the commit path reads. Canonical persistence
-        // stores the envelope itself under the reserved key, so accepting a
-        // second nested layer here would let the preview render typed content
-        // that the commit then rejects, and would widen a fail-closed contract
-        // in the UI only.
-        final snapshot = snapshotCodec.decodeRequired(
-          entry.value[TypedReviewSnapshotCodec.mapKey],
-        );
-        // Mirror TypedReviewResultBuilder's static identity/baseline checks.
-        // Compare the frozen baseline, not the user's editable current type.
-        final baselineType = switch (snapshot.draft.kind) {
-          QuestionKind.singleChoice => 0,
-          QuestionKind.fillBlank => 2,
-          QuestionKind.shortAnswer => 3,
-        };
-        if (_reviewItemIds[entry.key] != snapshot.reviewItemId ||
-            snapshot.baselineLegacy.questionNumber !=
-                snapshot.draft.questionNumber ||
-            snapshot.baselineLegacy.type != baselineType) {
-          continue;
-        }
-        _presentationSnapshots[entry.key] = snapshot;
-      } on TypedReviewSnapshotException {
-        // Keep the original envelope for the existing fail-closed commit gate.
-      }
-    }
-    final extractedLocally = _applyLocalSubjectiveAnswers();
-    _reapplyExplanationPolicy();
-    _refreshReviewState();
-    _loadExistingFolders();
-    if (extractedLocally || snapshotNormalizationNeeded) {
+    final needsFollowUpPersist = _controller.initialize();
+    _controller.addListener(_handleControllerChanged);
+    if (needsFollowUpPersist) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        unawaited(_persistReviewDraft());
+        if (mounted) unawaited(_controller.persistReviewDraft());
       });
     }
+  }
+
+  void _handleControllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  /// Binds the controller's outcomes to this page's presentation primitives.
+  ///
+  /// The controller decides what happened; the page decides how it is shown.
+  /// Every handler re-checks [mounted] before touching build-context UI.
+  ImportReviewEffects _buildEffects() {
+    return ImportReviewEffects(
+      showMessage: (message) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message)),
+        );
+      },
+      showError: (message) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.redAccent,
+        ));
+      },
+      confirmRepairProposal: (proposal) async {
+        if (!mounted) return false;
+        return showDialog<bool>(
+          context: context,
+          builder: (context) => ReviewRepairProposalDialog(proposal: proposal),
+        );
+      },
+      showCommitSuccess: (report, bankName, folderName) {
+        // 触发全局题库刷新事件
+        globalBankUpdateNotifier.value++;
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('🎉 导入成功！'), backgroundColor: Colors.green));
+
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) {
+            return AlertDialog(
+              title: const Text('本次导入报告',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: SingleChildScrollView(
+                  child: SelectableText(
+                    ImportReviewReportFormatter.formatSuccessReport(
+                        report, bankName, folderName),
+                    style:
+                        const TextStyle(fontFamily: 'monospace', fontSize: 13),
+                  ),
+                ),
+              ),
+              actions: [
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    Navigator.pop(context);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Theme.of(context).primaryColor,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: const Text('完成'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
@@ -318,133 +196,19 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
             ?.importPreferencesLoader;
     if (loader == null) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) unawaited(_initializeAutoLatexRepair(loader));
+      if (mounted) unawaited(_controller.initializeAutoLatexRepair(loader));
     });
-  }
-
-  Future<void> _initializeAutoLatexRepair(
-    ImportAdvancedPreferencesLoader loader,
-  ) async {
-    final ImportAdvancedPreferences preferences;
-    try {
-      preferences = await loader();
-    } catch (_) {
-      return;
-    }
-    if (!mounted || !preferences.effectiveLatexRepairEnabled) return;
-    _autoRepairEnabled = true;
-    await _prepareNextAutoLatexProposal();
-  }
-
-  /// Prepares at most the next eligible question, then waits for the user.
-  ///
-  /// Preparing every eligible question up front saved the draft after each
-  /// proposal, and every save advances the draft-wide revision, so all but the
-  /// last prepared proposal went stale and had to be regenerated when opened
-  /// (~2N provider calls for N questions). A ready proposal therefore anchors
-  /// to the revision the user is about to act on; the walk resumes once that
-  /// question is applied or skipped.
-  Future<void> _prepareNextAutoLatexProposal() async {
-    if (!_autoRepairEnabled || _autoRepairPreparing) return;
-    for (final item in List<ImportReviewItem>.of(_allItems)) {
-      if (!mounted) return;
-      if (_autoRepairSettled.contains(item.originalIndex)) continue;
-      final target = _reviewRepairTargetFor(item);
-      if (target == null || !_isAutoLatexRepairTarget(target)) {
-        _autoRepairSettled.add(item.originalIndex);
-        continue;
-      }
-      final cached = _autoRepairProposals[item.originalIndex];
-      if (cached != null && _isRepairProposalReusable(item, cached)) {
-        _autoRepairSettled.add(item.originalIndex);
-        continue;
-      }
-      _autoRepairSettled.add(item.originalIndex);
-      _autoRepairPreparing = true;
-      try {
-        await _requestReviewRepair(item, automatic: true);
-      } finally {
-        _autoRepairPreparing = false;
-      }
-      if (!mounted) return;
-      // A ready proposal waits for the user. A generation that produced
-      // nothing lets the walk continue with the next eligible question.
-      if (_autoRepairProposals.containsKey(item.originalIndex)) return;
-    }
-  }
-
-  /// Whether [target] is the LaTeX anomaly the automatic walk prepares.
-  bool _isAutoLatexRepairTarget(ReviewRepairTarget target) =>
-      target.strategy == ReviewRepairStrategy.latexFragment ||
-      (target.triggerCodes.length == 1 &&
-          target.triggerCodes.single == 'dangling_latex');
-
-  ExplanationRetentionMode _readReviewExplanationRetentionMode() {
-    final diagnostics = widget.diagnostics;
-    final value = diagnostics?[TaskManager.keyReviewExplanationRetentionMode] ??
-        diagnostics?[TaskManager.keyExplanationRetentionMode];
-    if (value == null) return widget.initialExplanationRetentionMode;
-    return parseExplanationRetentionMode(value);
-  }
-
-  /// Whether this task fixes explanation retention, i.e. came from the
-  /// document import entry.
-  ///
-  /// This reads explicit entry provenance, never the retention state. Photo
-  /// capture also dispatches through `ImportTaskCoordinator`, so it records
-  /// retention diagnostics too while still running at `subjectiveOnly`; judging
-  /// the entry by retention would hide the only control that can restore a
-  /// recognized objective explanation on a photo-capture task. A task without
-  /// the marker keeps the controls that describe its own recorded policy.
-  bool _isDocumentImportEntryTask() {
-    return isDocumentImportEntryDiagnostics(widget.diagnostics);
   }
 
   @override
   void dispose() {
-    _answerDistillationCancellationRequested = true;
-    _answerDistillationOperationId++;
+    _controller.removeListener(_handleControllerChanged);
+    _controller.dispose();
     super.dispose();
   }
 
-  ImportDiagnosticMessage? _historicalQualityGateMessage() {
-    final gate = widget.diagnostics?['qualityGate'];
-    if (gate is! Map || gate['blocked'] != true) return null;
-    return ImportDiagnosticMessage(
-      severity: ImportDiagnosticSeverity.warning,
-      title: '初始质量门禁',
-      message: '初始解析曾被质量门禁标记为阻断；最终门禁以当前校对结果为准。',
-      source: 'quality_gate',
-      code: 'HISTORICAL_GATE_BLOCKED',
-    );
-  }
-
-  List<String> _readImportDiagnostics(List<Map<String, dynamic>> questions) {
-    if (questions.isEmpty) return const [];
-
-    final raw = questions.first['_import_diagnostics'];
-    if (raw is List) {
-      return raw
-          .map((item) => item.toString().trim())
-          .where((item) => item.isNotEmpty)
-          .toList(growable: false);
-    }
-
-    return const [];
-  }
-
-  Future<void> _loadExistingFolders() async {
-    final folders =
-        await _folderQuery?.listAvailableFolders() ?? const <String>[];
-    if (mounted) {
-      setState(() {
-        _existingFolders = folders;
-      });
-    }
-  }
-
   Future<void> _copyTraceId() async {
-    final traceId = _traceId;
+    final traceId = _controller.traceId;
     if (traceId == null) return;
     await Clipboard.setData(ClipboardData(text: traceId));
     if (!mounted) return;
@@ -454,7 +218,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   void _validateBeforeSave() {
-    if (_isBlockedByQualityGate) {
+    if (_controller.isBlockedByQualityGate) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('解析不完整，禁止入库'),
@@ -464,7 +228,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
       return;
     }
 
-    if (_allItems.isEmpty) {
+    if (_state.allItems.isEmpty) {
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -482,7 +246,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
       return;
     }
 
-    final report = ImportReviewReportBuilder.build(_allItems, _reviewResult);
+    final report = _controller.buildCommitReport();
 
     if (report.qualityScore < 60) {
       showDialog(
@@ -582,60 +346,15 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     }
   }
 
-  void _enterSelectionMode() {
-    if (_isSaving) return;
-    setState(() {
-      _selectionMode = true;
-      _selectedOriginalIndices.clear();
-    });
-  }
-
-  void _exitSelectionMode() {
-    setState(() {
-      _selectionMode = false;
-      _selectedOriginalIndices.clear();
-    });
-  }
-
-  void _toggleSelection(ImportReviewItem item) {
-    setState(() {
-      if (_selectedOriginalIndices.contains(item.originalIndex)) {
-        _selectedOriginalIndices.remove(item.originalIndex);
-      } else {
-        _selectedOriginalIndices.add(item.originalIndex);
-      }
-    });
-  }
-
-  void _selectAllVisible() {
-    setState(() {
-      for (final vi in _visibleItems) {
-        _selectedOriginalIndices.add(vi.item.originalIndex);
-      }
-    });
-  }
-
-  void _applyBatchResult(List<ImportReviewItem> nextItems) {
-    if (_isSaving) return;
-    setState(() {
-      _allItems = nextItems;
-      _reapplyExplanationPolicy();
-      _selectedOriginalIndices.clear();
-      _selectionMode = false;
-      _refreshReviewState();
-    });
-    unawaited(_persistReviewDraft());
-  }
-
   void _deleteSelectedWithConfirm() {
-    if (_isSaving) return;
-    if (_selectedOriginalIndices.isEmpty) return;
+    if (_state.isSaving) return;
+    if (_state.selectedOriginalIndices.isEmpty) return;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('删除选中题目'),
-        content:
-            Text('将删除 ${_selectedOriginalIndices.length} 道题，此操作仅影响本次导入暂存列表。'),
+        content: Text(
+            '将删除 ${_state.selectedOriginalIndices.length} 道题，此操作仅影响本次导入暂存列表。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -647,11 +366,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                 foregroundColor: Colors.white),
             onPressed: () {
               Navigator.pop(ctx);
-              final nextItems = ImportReviewBatchController.deleteSelected(
-                items: _allItems,
-                selectedOriginalIndices: _selectedOriginalIndices,
-              );
-              _applyBatchResult(nextItems);
+              _controller.deleteSelected();
             },
             child: const Text('确认删除'),
           ),
@@ -660,18 +375,8 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     );
   }
 
-  void _changeSelectedType(QuestionType targetType) {
-    if (_isSaving) return;
-    final nextItems = ImportReviewBatchController.changeTypeSelected(
-      items: _allItems,
-      selectedOriginalIndices: _selectedOriginalIndices,
-      targetType: targetType,
-    );
-    _applyBatchResult(nextItems);
-  }
-
   void _showChangeTypeDialog() {
-    if (_selectedOriginalIndices.isEmpty) return;
+    if (_state.selectedOriginalIndices.isEmpty) return;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -685,7 +390,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
               leading: const Icon(Icons.radio_button_checked),
               onTap: () {
                 Navigator.pop(ctx);
-                _changeSelectedType(QuestionType.singleChoice);
+                _controller.changeSelectedType(QuestionType.singleChoice);
               },
             ),
             ListTile(
@@ -693,7 +398,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
               leading: const Icon(Icons.space_bar),
               onTap: () {
                 Navigator.pop(ctx);
-                _changeSelectedType(QuestionType.fillBlank);
+                _controller.changeSelectedType(QuestionType.fillBlank);
               },
             ),
             ListTile(
@@ -701,7 +406,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
               leading: const Icon(Icons.notes),
               onTap: () {
                 Navigator.pop(ctx);
-                _changeSelectedType(QuestionType.shortAnswer);
+                _controller.changeSelectedType(QuestionType.shortAnswer);
               },
             ),
           ],
@@ -711,7 +416,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   void _showSaveDialog() {
-    final frozen = _frozenDocumentTarget;
+    final frozen = _controller.frozenDocumentTarget;
     if (frozen != null) {
       _confirmAndSave(frozen.bankName!, frozen.folderName ?? '');
       return;
@@ -744,12 +449,12 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                             labelText: '所属学科分类 (选填)',
                             border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(8)))),
-                    if (_existingFolders.isNotEmpty) ...[
+                    if (_state.existingFolders.isNotEmpty) ...[
                       const SizedBox(height: 12),
                       Wrap(
                         spacing: 8.0,
                         runSpacing: 8.0,
-                        children: _existingFolders
+                        children: _state.existingFolders
                             .map((folder) => ActionChip(
                                   label: Text(folder,
                                       style: const TextStyle(
@@ -802,1130 +507,14 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   Future<void> _confirmAndSave(String bankName, String folderName) async {
-    if (_isBlockedByQualityGate) return;
+    if (_controller.isBlockedByQualityGate) return;
 
-    if (_allItems.isEmpty) {
+    if (_state.allItems.isEmpty) {
       Navigator.pop(context);
       return;
     }
 
-    final report = ImportReviewReportBuilder.build(_allItems, _reviewResult);
-
-    final route = _resolveStorageRoute();
-    if (route == null) {
-      _showFixedError(_invalidStorageRouteText);
-      return;
-    }
-    if (route == ImportStorageRoute.typedV2) {
-      await _confirmAndSaveTyped(bankName, folderName, report);
-      return;
-    }
-    await _confirmAndSaveLegacy(bankName, folderName, report);
-  }
-
-  Future<void> _confirmAndSaveLegacy(
-    String bankName,
-    String folderName,
-    ImportReviewReport report,
-  ) async {
-    setState(() => _isSaving = true);
-    try {
-      final taskId = widget.taskId?.trim();
-      final questions = _allItems.map((item) => item.draft).toList();
-      final overrides = _allItems
-          .map(
-            (item) =>
-                _explanationOverrides[item.originalIndex] ??
-                QuestionExplanationOverride.inherit,
-          )
-          .toList(growable: false);
-      if (taskId == null || taskId.isEmpty) {
-        await _commitService.commitLegacy(
-          bankName: bankName,
-          folderName: folderName,
-          questions: questions,
-          taskId: null,
-          diagnostics: widget.diagnostics ?? const <String, dynamic>{},
-          explanationRetentionMode: _explanationRetentionMode,
-          explanationOverrides: overrides,
-        );
-      } else {
-        final flushResult = await _persistReviewDraft(showFailurePrompt: false);
-        if (flushResult == null || !flushResult.saved) {
-          _showFixedError(_reviewDraftUnsafeText);
-          return;
-        }
-        final matches = _taskManager.tasks.where((task) => task.id == taskId);
-        if (matches.isEmpty) {
-          _showFixedError(_legacyTaskExpiredText);
-          return;
-        }
-        final diagnostics = matches.single.diagnostics;
-        final token = diagnostics?[TaskManager.keyAttemptToken];
-        final number = diagnostics?[TaskManager.keyAttemptNumber];
-        final trace = diagnostics?[TaskManager.keyTraceId];
-        final reason = diagnostics?[TaskManager.keyImportStorageReason];
-        if ((token != null && (token is! String || token.isEmpty)) ||
-            (number != null && (number is! int || number <= 0)) ||
-            (trace != null && (trace is! String || trace.isEmpty)) ||
-            (reason != null && reason is! String)) {
-          _showFixedError(_legacyTaskExpiredText);
-          return;
-        }
-        final ImportStorageRoute route;
-        try {
-          route = decodeImportStorageRoute(
-            diagnostics?[TaskManager.keyImportStorageRoute],
-          );
-        } on TypedReviewSnapshotException {
-          _showFixedError(_invalidStorageRouteText);
-          return;
-        }
-        await _commitService.commitLegacyForTask(
-          bankName: bankName,
-          folderName: folderName,
-          questions: questions,
-          taskId: taskId,
-          attemptToken: token as String?,
-          attemptNumber: number as int?,
-          traceId: trace as String?,
-          expectedReviewDraftRevision: flushResult.revision,
-          storageRoute: route,
-          storageReason: reason as String?,
-          diagnostics: diagnostics ?? const <String, dynamic>{},
-          explanationRetentionMode: _explanationRetentionMode,
-          explanationOverrides: overrides,
-        );
-      }
-
-      _showSuccessAfterCommit(report, bankName, folderName);
-    } on LegacyReviewCommitAttemptException catch (error) {
-      _showFixedError(
-        switch (error.failure) {
-          LegacyReviewCommitAttemptFailure.taskMissing ||
-          LegacyReviewCommitAttemptFailure.taskNotPendingReview ||
-          LegacyReviewCommitAttemptFailure.staleAttempt ||
-          LegacyReviewCommitAttemptFailure.staleReviewDraft =>
-            _legacyTaskExpiredText,
-          LegacyReviewCommitAttemptFailure.commitInProgress =>
-            _typedCommitInProgressText,
-          LegacyReviewCommitAttemptFailure.proposedTargetExists =>
-            _proposedTargetExistsText,
-          LegacyReviewCommitAttemptFailure.persistenceFailed =>
-            _legacyCommitFailedText,
-        },
-      );
-    } catch (_) {
-      _showFixedError(_legacyCommitFailedText);
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
-    }
-  }
-
-  Future<void> _confirmAndSaveTyped(
-    String bankName,
-    String folderName,
-    ImportReviewReport report,
-  ) async {
-    // Programmatic distillation gate: the disabled button must never be the
-    // only protection. A bypassed save flow still blocks while answers are
-    // being generated so the commit snapshot cannot race the distillation.
-    if (_isDistillingAnswers) {
-      _showFixedError(_answerDistillationInProgressText);
-      return;
-    }
-    if (_isRepairingAnyItem) {
-      _showFixedError(_reviewRepairInProgressText);
-      return;
-    }
-
-    final taskId = widget.taskId?.trim() ?? '';
-    final attemptToken =
-        widget.diagnostics?[TaskManager.keyAttemptToken]?.toString().trim() ??
-            '';
-    final attemptNumber = _readAttemptNumber();
-    if (taskId.isEmpty || attemptToken.isEmpty || attemptNumber == null) {
-      _showFixedError(_typedCommitBlockedText);
-      return;
-    }
-
-    setState(() => _isSaving = true);
-    try {
-      // Commit-time review draft flush: wait for the queued tail, persist the
-      // latest draft, and require a successful save before committing. The
-      // payload must be rebuilt afterwards so revision N is bound to the
-      // post-flush snapshot, never to an entry-time capture.
-      final flushResult = await _persistReviewDraft(showFailurePrompt: false);
-      if (flushResult == null || !flushResult.saved) {
-        _showFixedError(_reviewDraftUnsafeText);
-        return;
-      }
-      final items = _buildCurrentTypedCommitInputs();
-      if (items == null) {
-        _showFixedError(_typedCommitBlockedText);
-        return;
-      }
-      await _commitService.commitTyped(
-        bankName: bankName,
-        folderName: folderName,
-        items: items,
-        taskId: taskId,
-        attemptToken: attemptToken,
-        attemptNumber: attemptNumber,
-        expectedReviewDraftRevision: flushResult.revision,
-        storageRoute: ImportStorageRoute.typedV2,
-        storageReason: ocrTypedCandidateReadyReason,
-        explanationRetentionMode: _explanationRetentionMode,
-        explanationOverrides: _allItems
-            .map(
-              (item) =>
-                  _explanationOverrides[item.originalIndex] ??
-                  QuestionExplanationOverride.inherit,
-            )
-            .toList(growable: false),
-      );
-      _showSuccessAfterCommit(report, bankName, folderName);
-    } on TypedReviewCommitException catch (error) {
-      _showTypedCommitError(error.failure);
-    } on TypedReviewCommitAttemptException catch (error) {
-      _showTypedCommitAttemptError(error.failure);
-    } catch (_) {
-      _showFixedError(_typedCommitFailedText);
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
-    }
-  }
-
-  /// Builds typed commit inputs from the current `_allItems` snapshot,
-  /// preserving the `originalIndex` association to the review markers and
-  /// typed snapshot envelopes. Strictly validates the envelope presence and
-  /// returns null when any item cannot be bound to its snapshot, so the
-  /// caller can show the fixed blocked text without exposing raw state.
-  List<TypedReviewCommitInput>? _buildCurrentTypedCommitInputs() {
-    final items = <TypedReviewCommitInput>[];
-    for (final item in _allItems) {
-      final marker = _reviewItemIds[item.originalIndex];
-      final provenance = _snapshotProvenance[item.originalIndex];
-      if (marker == null ||
-          provenance == null ||
-          !provenance.containsKey(TypedReviewSnapshotCodec.mapKey)) {
-        return null;
-      }
-      items.add(
-        TypedReviewCommitInput(
-          reviewItemId: marker,
-          envelope: provenance[TypedReviewSnapshotCodec.mapKey],
-          currentDraft: item.draft,
-          repairEdit: _repairEdits[item.originalIndex],
-          // Same resolved decisions the preview used, so a structure rendered
-          // in Review is committed rather than flattened.
-          explanationRetained: _isQuestionExplanationRetained(item),
-          explanationEditProvenance:
-              _explanationProvenance[item.originalIndex] ??
-                  ExplanationEditProvenance.legacyUnknown,
-        ),
-      );
-    }
-    if (items.isEmpty) return null;
-    return items;
-  }
-
-  void _showTypedCommitError(TypedReviewCommitFailure failure) {
-    _showFixedError(
-      failure == TypedReviewCommitFailure.unsupportedOptionEdit
-          ? _typedOptionsBlockedText
-          : _typedCommitFailedText,
-    );
-  }
-
-  void _showTypedCommitAttemptError(
-    TypedReviewCommitAttemptFailure failure,
-  ) {
-    _showFixedError(
-      switch (failure) {
-        TypedReviewCommitAttemptFailure.taskMissing ||
-        TypedReviewCommitAttemptFailure.taskNotPendingReview ||
-        TypedReviewCommitAttemptFailure.staleAttempt ||
-        TypedReviewCommitAttemptFailure.staleReviewDraft =>
-          _typedTaskExpiredText,
-        TypedReviewCommitAttemptFailure.commitInProgress =>
-          _typedCommitInProgressText,
-        TypedReviewCommitAttemptFailure.proposedTargetExists =>
-          _proposedTargetExistsText,
-        TypedReviewCommitAttemptFailure.persistenceFailed =>
-          _typedCommitFailedText,
-      },
-    );
-  }
-
-  void _showSuccessAfterCommit(
-    ImportReviewReport report,
-    String bankName,
-    String folderName,
-  ) {
-    // 触发全局题库刷新事件
-    globalBankUpdateNotifier.value++;
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('🎉 导入成功！'), backgroundColor: Colors.green));
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) {
-        return AlertDialog(
-          title: const Text('本次导入报告',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: SingleChildScrollView(
-              child: SelectableText(
-                ImportReviewReportFormatter.formatSuccessReport(
-                    report, bankName, folderName),
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
-              ),
-            ),
-          ),
-          actions: [
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(ctx);
-                Navigator.pop(context);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Theme.of(context).primaryColor,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8)),
-              ),
-              child: const Text('完成'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _showFixedError(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(message),
-      backgroundColor: Colors.redAccent,
-    ));
-  }
-
-  /// Strict route resolution: missing route -> legacyV1, legacyV1 with any
-  /// legal reason -> legacyV1, typedV2 + typed_candidate_ready -> typedV2,
-  /// every other combination -> null (block).
-  ImportStorageRoute? _resolveStorageRoute() {
-    final value = widget.diagnostics?[TaskManager.keyImportStorageRoute];
-    final ImportStorageRoute route;
-    try {
-      route = value == null
-          ? ImportStorageRoute.legacyV1
-          : decodeImportStorageRoute(value);
-    } on TypedReviewSnapshotException {
-      return null;
-    }
-    try {
-      validateImportStorageMetadata(
-        route: route,
-        reason: widget.diagnostics?[TaskManager.keyImportStorageReason],
-      );
-    } on TypedReviewSnapshotException {
-      return null;
-    }
-    return route;
-  }
-
-  int? _readAttemptNumber() {
-    final value = widget.diagnostics?[TaskManager.keyAttemptNumber];
-    if (value is int && value > 0) return value;
-    if (value is num && value > 0) return value.toInt();
-    if (value is String) {
-      final parsed = int.tryParse(value.trim());
-      if (parsed != null && parsed > 0) return parsed;
-    }
-    return null;
-  }
-
-  void _refreshReviewState() {
-    _reviewResult = ImportReviewAnalyzer.analyzeItems(_allItems);
-    _refreshVisibleItems();
-  }
-
-  bool _restoreReviewDraftMarkers(List<Map<String, dynamic>> questions) {
-    var normalizationNeeded = false;
-    for (var index = 0; index < questions.length; index++) {
-      final source = questions[index];
-      _snapshotProvenance[index] = <String, dynamic>{
-        for (final key in _safeSnapshotProvenanceKeys)
-          if (source.containsKey(key)) key: source[key],
-      };
-      final storedItemId = source[TaskManager.keyReviewItemId]?.toString();
-      String? envelopeReviewItemId;
-      final envelope = source[TypedReviewSnapshotCodec.mapKey];
-      if (envelope is Map && envelope['reviewItemId'] is String) {
-        envelopeReviewItemId = envelope['reviewItemId'] as String;
-      }
-      _reviewItemIds[index] = storedItemId ??
-          envelopeReviewItemId ??
-          '${widget.taskId ?? 'local'}:${source['question_number'] ?? source['q_num'] ?? 'unknown'}:$index';
-      normalizationNeeded |= storedItemId == null;
-      final override = questions[index][_explanationOverrideKey]?.toString();
-      for (final value in QuestionExplanationOverride.values) {
-        if (value.name == override) {
-          _explanationOverrides[index] = value;
-          break;
-        }
-      }
-      // Missing or unrecognized marker reads as legacyUnknown: an older draft
-      // may have been edited before provenance existed, and absence must never
-      // be upgraded to "untouched".
-      _explanationProvenance[index] = decodeExplanationEditProvenance(
-        questions[index][TaskManager.keyExplanationEditProvenance],
-      );
-      final status = SubjectiveAnswerDistillationSnapshotPolicy.sanitizeStatus(
-        questions[index][TaskManager.keyAnswerDistillationStatus],
-      );
-      if (status != null) {
-        _answerDistillationStatuses[index] = status;
-      }
-      final repairEdit = ReviewRepairEdit.fromMap(
-        questions[index][TaskManager.keyReviewRepairEdit],
-      );
-      if (repairEdit != null) {
-        _repairEdits[index] = repairEdit;
-      } else {
-        _repairEdits.remove(index);
-      }
-      final reason = SubjectiveAnswerDistillationSnapshotPolicy.sanitizeReason(
-        status: status,
-        value: questions[index][TaskManager.keyAnswerDistillationReason],
-      );
-      if (reason != null) {
-        _answerDistillationReasons[index] = reason;
-      }
-    }
-    return normalizationNeeded;
-  }
-
-  bool _applyLocalSubjectiveAnswers() {
-    if (_isStemOnlyDocument) return false;
-    const extractor = SubjectiveAnswerExtractor();
-    const expectationPolicy = SubjectiveAnswerExpectationPolicy();
-    var changed = false;
-
-    for (var index = 0; index < _allItems.length; index++) {
-      final item = _allItems[index];
-      final question = item.draft;
-      if (question.type != QuestionType.shortAnswer) continue;
-
-      final expectation = expectationPolicy.classify(question);
-      if (expectation == SubjectiveAnswerExpectation.proofExplanation &&
-          question.explanation.trim().isNotEmpty) {
-        if (_answerDistillationStatuses[item.originalIndex] !=
-            'proof_explanation_recognized') {
-          _answerDistillationStatuses[item.originalIndex] =
-              'proof_explanation_recognized';
-          _answerDistillationReasons.remove(item.originalIndex);
-          changed = true;
-        }
-        continue;
-      }
-
-      final result = extractor.extract(
-        questionNumber: item.originalIndex + 1,
-        content: question.content,
-        standardAnswer: question.standardAnswer,
-        explanation: question.explanation,
-      );
-      if (!result.matched || result.answer == null) continue;
-
-      _allItems[index] = item.copyWith(
-        draft: question.copyWith(standardAnswer: result.answer),
-      );
-      _answerDistillationStatuses[item.originalIndex] = 'local_extracted';
-      _answerDistillationReasons.remove(item.originalIndex);
-      changed = true;
-    }
-    return changed;
-  }
-
-  Future<T> _enqueueReviewDraftOperation<T>(Future<T> Function() operation) {
-    final completer = Completer<T>();
-    _reviewDraftOperationTail = _reviewDraftOperationTail.then((_) async {
-      try {
-        completer.complete(await operation());
-      } catch (error, stackTrace) {
-        completer.completeError(error, stackTrace);
-      }
-    });
-    return completer.future;
-  }
-
-  Future<ReviewDraftSaveResult?> _persistReviewDraft({
-    bool showFailurePrompt = true,
-  }) {
-    final taskId = widget.taskId;
-    if (taskId == null || taskId.trim().isEmpty) {
-      return Future<ReviewDraftSaveResult?>.value();
-    }
-
-    return _enqueueReviewDraftOperation(() async {
-      final questions = _allItems.map((item) {
-        final question = <String, dynamic>{
-          ...?_snapshotProvenance[item.originalIndex],
-          ...item.draft.toMap(),
-          TaskManager.keyReviewItemId: _reviewItemIds[item.originalIndex],
-          _explanationOverrideKey: (_explanationOverrides[item.originalIndex] ??
-                  QuestionExplanationOverride.inherit)
-              .name,
-        };
-        final persistedMetadata = item.toPersistedMetadata();
-        if (persistedMetadata != null) {
-          question[ImportReviewMetadata.key] = persistedMetadata;
-        }
-        // legacyUnknown has no persisted token, so an old draft keeps its
-        // unknown state instead of being silently upgraded on the next save.
-        final provenance = encodeExplanationEditProvenance(
-          _explanationProvenance[item.originalIndex] ??
-              ExplanationEditProvenance.legacyUnknown,
-        );
-        if (provenance != null) {
-          question[TaskManager.keyExplanationEditProvenance] = provenance;
-        }
-        final status =
-            SubjectiveAnswerDistillationSnapshotPolicy.sanitizeStatus(
-          _answerDistillationStatuses[item.originalIndex],
-        );
-        if (status != null) {
-          question[TaskManager.keyAnswerDistillationStatus] = status;
-        }
-        final reason =
-            SubjectiveAnswerDistillationSnapshotPolicy.sanitizeReason(
-          status: status,
-          value: _answerDistillationReasons[item.originalIndex],
-        );
-        if (reason != null) {
-          question[TaskManager.keyAnswerDistillationReason] = reason;
-        }
-        final repairEdit = _repairEdits[item.originalIndex];
-        if (repairEdit != null && repairEdit.isNotEmpty) {
-          question[TaskManager.keyReviewRepairEdit] = repairEdit.toMap();
-        }
-        return question;
-      }).toList(growable: false);
-
-      final result = await _taskManager.saveReviewDraft(
-        taskId,
-        questions: questions,
-        explanationRetentionMode: _explanationRetentionMode,
-      );
-      if (!result.saved && showFailurePrompt && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('校对结果尚未保存，请重试')),
-        );
-      }
-      return result;
-    });
-  }
-
-  List<ImportReviewItem> get _answerDistillationCandidates {
-    return _allItems
-        .where(
-          (item) => _answerDistillationPolicy.isCandidate(
-            item.draft,
-            isStemOnly: _isStemOnlyDocument,
-          ),
-        )
-        .toList(growable: false);
-  }
-
-  bool _isAnswerDistillationCandidate(ImportReviewItem item) {
-    return _answerDistillationPolicy.isCandidate(
-      item.draft,
-      isStemOnly: _isStemOnlyDocument,
-    );
-  }
-
-  Future<SubjectiveAnswerDistillationResult> _distillAnswer(
-    ImportReviewItem item, {
-    required Duration timeout,
-  }) async {
-    try {
-      return await _resolvedAnswerDistiller.distill(
-        questionNumber: item.originalIndex + 1,
-        question: item.draft,
-        isStemOnly: _isStemOnlyDocument,
-        timeout: timeout,
-      );
-    } catch (error) {
-      return SubjectiveAnswerDistillationResult.failed(
-        diagnostics: [
-          'answer_distillation_failed',
-          'answer_distillation_failure_type:${error.runtimeType}',
-        ],
-      );
-    }
-  }
-
-  bool _applyDistillationResult(
-    int originalIndex,
-    SubjectiveAnswerDistillationResult result,
-  ) {
-    final answer = result.standardAnswer?.trim();
-    if (result.applied && (answer == null || answer.isEmpty)) return false;
-
-    final itemIndex = _allItems.indexWhere(
-      (item) => item.originalIndex == originalIndex,
-    );
-    if (itemIndex < 0) return false;
-    if (result.applied) {
-      final current = _allItems[itemIndex];
-      _allItems[itemIndex] = current.copyWith(
-        draft: current.draft.copyWith(standardAnswer: answer),
-      );
-      _answerDistillationReasons.remove(originalIndex);
-    } else {
-      final reason = SubjectiveAnswerDistillationSnapshotPolicy.sanitizeReason(
-        status: result.snapshotStatus,
-        value: result.safeReasonCode,
-      );
-      if (reason == null) {
-        _answerDistillationReasons.remove(originalIndex);
-      } else {
-        _answerDistillationReasons[originalIndex] = reason;
-      }
-    }
-    _answerDistillationStatuses[originalIndex] = result.snapshotStatus;
-    return true;
-  }
-
-  Future<bool> _mergeDistillationResult(
-    ImportReviewItem item,
-    SubjectiveAnswerDistillationResult result, {
-    required int? expectedRevision,
-  }) async {
-    final answer = result.standardAnswer?.trim();
-    if (result.applied && (answer == null || answer.isEmpty)) return false;
-
-    final taskId = widget.taskId;
-    if (taskId == null || taskId.trim().isEmpty) {
-      if (!mounted) return false;
-      return _applyDistillationResult(item.originalIndex, result);
-    }
-    if (expectedRevision == null) return false;
-
-    return _enqueueReviewDraftOperation(() async {
-      final saveResult = await _taskManager.mergeReviewDraftAnswerDistillation(
-        taskId,
-        reviewItemId: _reviewItemIds[item.originalIndex]!,
-        expectedRevision: expectedRevision,
-        standardAnswer: result.applied ? answer : null,
-        status: result.snapshotStatus,
-        reasonCode: result.safeReasonCode,
-      );
-      if (!saveResult.saved) {
-        if (mounted && saveResult.status == ReviewDraftSaveStatus.failed) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('答案已生成，但校对快照保存失败')),
-          );
-        }
-        return false;
-      }
-      return _applyDistillationResult(item.originalIndex, result);
-    });
-  }
-
-  Future<void> _distillSingleAnswer(ImportReviewItem item) async {
-    if (_isSaving ||
-        _isDistillingAnswers ||
-        !_isAnswerDistillationCandidate(item)) {
-      return;
-    }
-    final operationId = ++_answerDistillationOperationId;
-    setState(() {
-      _isDistillingAnswers = true;
-      _answerDistillationCancellationRequested = false;
-      _answerDistillationCompletedCount = 0;
-      _answerDistillationTotalCount = 1;
-      _activeAnswerDistillationIndex = item.originalIndex;
-    });
-
-    final baseSnapshot = await _persistReviewDraft();
-    if (widget.taskId != null && baseSnapshot?.saved != true) {
-      if (!mounted || operationId != _answerDistillationOperationId) return;
-      setState(() {
-        _isDistillingAnswers = false;
-        _activeAnswerDistillationIndex = null;
-      });
-      return;
-    }
-    final result = await _distillAnswer(
-      item,
-      timeout: const Duration(seconds: 30),
-    );
-    if (mounted && operationId != _answerDistillationOperationId) return;
-
-    final recorded = await _mergeDistillationResult(
-      item,
-      result,
-      expectedRevision: baseSnapshot?.revision,
-    );
-    if (!mounted || operationId != _answerDistillationOperationId) return;
-    setState(() {
-      _answerDistillationCompletedCount = 1;
-      _isDistillingAnswers = false;
-      _activeAnswerDistillationIndex = null;
-      if (recorded && result.applied) _refreshReviewState();
-    });
-    _showAnswerDistillationOutcome(
-      single: true,
-      appliedCount: recorded && result.applied ? 1 : 0,
-      rejectedCount: recorded &&
-              result.outcome == SubjectiveAnswerDistillationOutcome.rejected
-          ? 1
-          : 0,
-      failedCount: !recorded ||
-              result.outcome == SubjectiveAnswerDistillationOutcome.failed
-          ? 1
-          : 0,
-    );
-  }
-
-  Future<void> _distillAllAnswers() async {
-    if (_isSaving || _isDistillingAnswers) return;
-    final candidates = _answerDistillationCandidates;
-    if (candidates.isEmpty) return;
-
-    final operationId = ++_answerDistillationOperationId;
-    final stopwatch = Stopwatch()..start();
-    var appliedCount = 0;
-    var rejectedCount = 0;
-    var failedCount = 0;
-    setState(() {
-      _isDistillingAnswers = true;
-      _answerDistillationCancellationRequested = false;
-      _answerDistillationCompletedCount = 0;
-      _answerDistillationTotalCount = candidates.length;
-      _activeAnswerDistillationIndex = null;
-    });
-
-    for (var index = 0; index < candidates.length; index++) {
-      if (_answerDistillationCancellationRequested) break;
-      final remaining = const Duration(seconds: 90) - stopwatch.elapsed;
-      if (remaining <= Duration.zero) break;
-      final timeout = remaining.compareTo(const Duration(seconds: 30)) < 0
-          ? remaining
-          : const Duration(seconds: 30);
-      final candidate = candidates[index];
-      if (!mounted || operationId != _answerDistillationOperationId) return;
-      setState(() {
-        _activeAnswerDistillationIndex = candidate.originalIndex;
-      });
-
-      final baseSnapshot = await _persistReviewDraft();
-      if (widget.taskId != null && baseSnapshot?.saved != true) break;
-      final result = await _distillAnswer(candidate, timeout: timeout);
-      if (mounted && operationId != _answerDistillationOperationId) return;
-      final recorded = await _mergeDistillationResult(
-        candidate,
-        result,
-        expectedRevision: baseSnapshot?.revision,
-      );
-      if (recorded) {
-        switch (result.outcome) {
-          case SubjectiveAnswerDistillationOutcome.applied:
-            appliedCount++;
-            break;
-          case SubjectiveAnswerDistillationOutcome.rejected:
-            rejectedCount++;
-            break;
-          case SubjectiveAnswerDistillationOutcome.failed:
-            failedCount++;
-            break;
-        }
-      } else {
-        failedCount++;
-      }
-      if (!mounted || operationId != _answerDistillationOperationId) return;
-      setState(() {
-        _answerDistillationCompletedCount = index + 1;
-        if (recorded && result.applied) _refreshReviewState();
-      });
-      if (_answerDistillationCancellationRequested) break;
-    }
-    stopwatch.stop();
-    if (!mounted || operationId != _answerDistillationOperationId) return;
-    final cancelled = _answerDistillationCancellationRequested;
-    setState(() {
-      _isDistillingAnswers = false;
-      _activeAnswerDistillationIndex = null;
-    });
-    _showAnswerDistillationOutcome(
-      cancelled: cancelled,
-      appliedCount: appliedCount,
-      rejectedCount: rejectedCount,
-      failedCount: failedCount,
-    );
-  }
-
-  void _cancelAnswerDistillation() {
-    if (!_isDistillingAnswers) return;
-    setState(() {
-      _answerDistillationCancellationRequested = true;
-    });
-  }
-
-  void _showAnswerDistillationOutcome({
-    required int appliedCount,
-    required int rejectedCount,
-    required int failedCount,
-    bool cancelled = false,
-    bool single = false,
-  }) {
-    if (!mounted) return;
-    final message = cancelled
-        ? '已停止生成：补全 $appliedCount 道，未提炼 $rejectedCount 道，失败 $failedCount 道'
-        : single && appliedCount == 1
-            ? '标准答案已生成'
-            : single && rejectedCount == 1
-                ? '解析中未找到可安全提炼的明确答案'
-                : single && failedCount == 1
-                    ? '标准答案生成失败，可重试'
-                    : '处理完成：补全 $appliedCount 道，未提炼 $rejectedCount 道，失败 $failedCount 道';
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
-  }
-
-  /// Finalizes one review item under the current retention policy.
-  ///
-  /// This is the single finalization path shared by the document retention
-  /// toggle and the AI repair apply step, so an applied repair produces exactly
-  /// the values that a policy re-apply would produce.
-  ImportReviewItem _finalizeReviewItem(ImportReviewItem item) {
-    final question = <String, dynamic>{
-      ...item.draft.toMap(),
-    };
-    final persistedMetadata = item.toPersistedMetadata();
-    if (persistedMetadata != null) {
-      question[ImportReviewMetadata.key] = persistedMetadata;
-    }
-    final finalized = finalizeAndAuditImportQuestion(
-      question,
-      mode: _explanationRetentionMode,
-      override: _explanationOverrides[item.originalIndex] ??
-          QuestionExplanationOverride.inherit,
-    );
-    final finalizedItem =
-        ImportReviewItem.fromMap(finalized, item.originalIndex);
-    final projectionState = switch (item.metadataProjectionState) {
-      ImportReviewMetadataProjectionState.unavailable =>
-        ImportReviewMetadataProjectionState.unavailable,
-      ImportReviewMetadataProjectionState.available =>
-        finalizedItem.metadataProjectionState,
-      ImportReviewMetadataProjectionState.notProvided =>
-        finalizedItem.metadata.hasMeaningfulReviewMetadata
-            ? ImportReviewMetadataProjectionState.available
-            : ImportReviewMetadataProjectionState.notProvided,
-    };
-    return finalizedItem.copyWith(metadataProjectionState: projectionState);
-  }
-
-  void _reapplyExplanationPolicy() {
-    _allItems = _allItems.map(_finalizeReviewItem).toList();
-  }
-
-  int _reviewItemPosition(ImportReviewItem item) {
-    return _allItems.indexWhere((candidate) => identical(candidate, item));
-  }
-
-  ReviewRepairTarget? _reviewRepairTargetFor(ImportReviewItem item) {
-    final position = _reviewItemPosition(item);
-    if (position < 0) return null;
-    return _reviewRepairPolicy.targetFor(
-      originalIndex: item.originalIndex,
-      questionNumber: item.originalIndex + 1,
-      draft: item.draft,
-      metadata: item.metadata,
-      metadataProjectionState: item.metadataProjectionState,
-      issues: _reviewResult.issues
-          .where((issue) => issue.questionIndex == position)
-          .toList(growable: false),
-      hasTypedSnapshot: _presentationSnapshots.containsKey(item.originalIndex),
-    );
-  }
-
-  bool _isReviewRepairEligible(ImportReviewItem item) =>
-      _reviewRepairTargetFor(item) != null;
-
-  bool get _isRepairingAnyItem => _activeRepairIndex != null;
-
-  /// Whether a cached proposal can still be applied without regenerating.
-  ///
-  /// The revision anchor is draft-wide: saving or repairing any other question
-  /// moves it, so a proposal kept across that change could only fail closed at
-  /// the CAS. Regenerating is the only way it can still be applied.
-  bool _isRepairProposalReusable(
-    ImportReviewItem item,
-    ReviewRepairProposal proposal,
-  ) {
-    if (proposal.isStaleFor(item.draft)) return false;
-    final taskId = widget.taskId?.trim() ?? '';
-    if (taskId.isEmpty) return true;
-    return proposal.request.expectedRevision ==
-        _taskManager.reviewDraftRevision(taskId);
-  }
-
-  /// Generates a proposal for one eligible item.
-  ///
-  /// Generating never mutates the review items: the item is only replaced after
-  /// the user accepts a proposal.
-  Future<void> _requestReviewRepair(
-    ImportReviewItem item, {
-    bool automatic = false,
-  }) async {
-    if (_isSaving || _isRepairingAnyItem || _isDistillingAnswers) return;
-    if (!automatic) _autoRepairSettled.add(item.originalIndex);
-    final cached = _autoRepairProposals[item.originalIndex];
-    if (!automatic &&
-        cached != null &&
-        _isRepairProposalReusable(item, cached)) {
-      final apply = await showDialog<bool>(
-        context: context,
-        builder: (context) => ReviewRepairProposalDialog(proposal: cached),
-      );
-      if (mounted && apply == true) {
-        await _applyReviewRepairProposal(item, cached);
-        _autoRepairProposals.remove(item.originalIndex);
-      }
-      unawaited(_prepareNextAutoLatexProposal());
-      return;
-    }
-    _autoRepairProposals.remove(item.originalIndex);
-    final target = _reviewRepairTargetFor(item);
-    if (target == null) return;
-
-    setState(() => _activeRepairIndex = item.originalIndex);
-    final operationId = ++_repairOperationId;
-    try {
-      // Durability anchor: the CAS revision must be captured before the model
-      // is called so a stale proposal can never be applied silently.
-      final baseSnapshot = await _persistReviewDraft(showFailurePrompt: false);
-      if (widget.taskId != null && baseSnapshot?.saved != true) {
-        if (!mounted || operationId != _repairOperationId) return;
-        _showFixedError(_reviewDraftUnsafeText);
-        return;
-      }
-      final reviewItemId = _reviewItemIds[item.originalIndex];
-      if (reviewItemId == null) {
-        if (!mounted || operationId != _repairOperationId) return;
-        _showFixedError(_typedCommitBlockedText);
-        return;
-      }
-
-      final result = await _resolvedRepairGenerator.generateProposal(
-        request: ReviewRepairRequest(
-          target: target,
-          reviewItemId: reviewItemId,
-          inputDraft: item.draft,
-          expectedRevision: baseSnapshot?.revision,
-        ),
-        snapshot: _presentationSnapshots[item.originalIndex],
-      );
-      if (!mounted || operationId != _repairOperationId) return;
-      final proposal = result.proposal;
-      if (!result.hasProposal || proposal == null || !proposal.applicable) {
-        if (!automatic) {
-          _showFixedError(_reviewRepairFailureText(result.outcome));
-        }
-        return;
-      }
-      if (automatic) {
-        setState(() => _autoRepairProposals[item.originalIndex] = proposal);
-        return;
-      }
-      // Generation is finished: the card leaves its loading state before the
-      // proposal is reviewed. The modal dialog owns the interaction from here.
-      setState(() => _activeRepairIndex = null);
-      final apply = await showDialog<bool>(
-        context: context,
-        builder: (context) => ReviewRepairProposalDialog(proposal: proposal),
-      );
-      if (!mounted || operationId != _repairOperationId) return;
-      if (apply != true) return;
-      await _applyReviewRepairProposal(item, proposal);
-    } finally {
-      if (mounted && operationId == _repairOperationId) {
-        setState(() => _activeRepairIndex = null);
-      }
-      // The user handled this question: preparation may continue with the next
-      // eligible one against the now settled revision.
-      if (!automatic) unawaited(_prepareNextAutoLatexProposal());
-    }
-  }
-
-  /// Applies an accepted proposal through the existing review draft CAS.
-  ///
-  /// Any staleness, missing item or failed save performs zero mutation and
-  /// reports a fixed failure instead of a success state.
-  Future<void> _applyReviewRepairProposal(
-    ImportReviewItem item,
-    ReviewRepairProposal proposal,
-  ) async {
-    final position = _reviewItemPosition(item);
-    if (position < 0) {
-      _showFixedError(_reviewRepairStaleText);
-      return;
-    }
-    final current = _allItems[position];
-    if (proposal.isStaleFor(current.draft)) {
-      _showFixedError(_reviewRepairStaleText);
-      return;
-    }
-
-    final repaired = _finalizeReviewItem(
-      current.copyWith(draft: proposal.proposedDraft),
-    );
-    final ReviewRepairEdit repairEdit;
-    try {
-      final fragment = proposal.fragment;
-      repairEdit = fragment == null
-          ? ReviewRepairEdit.applied(
-              before: current.draft,
-              after: repaired.draft,
-              fields: proposal.changedFields,
-            )
-          : ReviewRepairEdit.latexFragment(
-              before: current.draft,
-              after: repaired.draft,
-              target: fragment.target,
-              replacementLatex: fragment.correctedLatex,
-            );
-    } on FormatException {
-      _showFixedError(_reviewRepairSaveFailedText);
-      return;
-    }
-
-    final taskId = widget.taskId?.trim() ?? '';
-    final expectedRevision = proposal.request.expectedRevision;
-    if (taskId.isEmpty) {
-      setState(() {
-        _allItems[position] = repaired;
-        _repairEdits[item.originalIndex] = repairEdit;
-      });
-      _refreshReviewState();
-      _showReviewRepairApplied();
-      return;
-    }
-    if (expectedRevision == null) {
-      _showFixedError(_reviewRepairSaveFailedText);
-      return;
-    }
-
-    final saveResult = await _enqueueReviewDraftOperation(
-      () => _taskManager.mergeReviewDraftRepair(
-        taskId,
-        reviewItemId: proposal.request.reviewItemId,
-        expectedRevision: expectedRevision,
-        content: repaired.draft.content,
-        options: repaired.draft.options,
-        standardAnswer: repaired.draft.standardAnswer,
-        explanation: repaired.draft.explanation,
-        reviewMetadata: repaired.toPersistedMetadata(),
-        repairEdit: repairEdit,
-      ),
-    );
-    if (!mounted) return;
-    if (saveResult.status == ReviewDraftSaveStatus.stale ||
-        saveResult.status == ReviewDraftSaveStatus.itemMissing ||
-        saveResult.status == ReviewDraftSaveStatus.taskMissing) {
-      _showFixedError(_reviewRepairStaleText);
-      return;
-    }
-    if (!saveResult.saved) {
-      _showFixedError(_reviewRepairSaveFailedText);
-      return;
-    }
-    setState(() {
-      _allItems[position] = repaired;
-      _repairEdits[item.originalIndex] = repairEdit;
-    });
-    _refreshReviewState();
-    _showReviewRepairApplied();
-  }
-
-  void _showReviewRepairApplied() {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('AI 修补已应用，请复核后入库')),
-    );
-  }
-
-  String _reviewRepairFailureText(ReviewRepairOutcome outcome) {
-    return switch (outcome) {
-      ReviewRepairOutcome.proposalReady => 'AI 修补未生成有效结果',
-      ReviewRepairOutcome.notEligible => '本题当前不支持 AI 修补',
-      ReviewRepairOutcome.noActiveEngine => '未配置可用的文本模型，无法执行 AI 修补',
-      ReviewRepairOutcome.providerFailure => 'AI 修补请求失败，请稍后重试',
-      ReviewRepairOutcome.invalidJson => 'AI 返回格式不符合要求，未生成修补建议',
-      ReviewRepairOutcome.questionIdentityChanged => 'AI 返回的题号与原题不一致，已拒绝',
-      ReviewRepairOutcome.unexpectedFieldChange => 'AI 修改了不允许修改的字段，已拒绝',
-      ReviewRepairOutcome.unsupportedOptionChange => 'AI 改动了选项数量或标签，已拒绝',
-      ReviewRepairOutcome.emptyResult => 'AI 未提出有效修改',
-      ReviewRepairOutcome.structuralInvalid => 'AI 修补未通过结构校验，已拒绝',
-      ReviewRepairOutcome.latexStillInvalid => 'LaTeX 仍无法可靠渲染，已拒绝',
-      ReviewRepairOutcome.unsupportedTargetField =>
-        '本题字段包含无法安全重建的内容，暂不支持 AI 修补',
-      ReviewRepairOutcome.staleInput => _reviewRepairStaleText,
-      ReviewRepairOutcome.fragmentTargetUnavailable =>
-        '未能唯一定位需要修补的 LaTeX，请继续人工审核',
-      ReviewRepairOutcome.invalidFragmentOutput => 'AI 未返回有效的 LaTeX 修补建议',
-      ReviewRepairOutcome.fragmentRenderabilityFailed =>
-        'AI 返回的 LaTeX 仍无法可靠渲染，已拒绝',
-      ReviewRepairOutcome.fieldReauditFailed => 'LaTeX 修补未通过完整字段校验，已拒绝',
-    };
-  }
-
-  void _setDocumentExplanationRetention(bool retainObjectiveExplanations) {
-    if (_isSaving) return;
-    setState(() {
-      _explanationRetentionMode = retainObjectiveExplanations
-          ? ExplanationRetentionMode.allQuestionTypes
-          : ExplanationRetentionMode.subjectiveOnly;
-      _reapplyExplanationPolicy();
-      _refreshReviewState();
-    });
-    unawaited(_persistReviewDraft());
-  }
-
-  void _setQuestionExplanationRetention(
-    ImportReviewItem item,
-    bool retain,
-  ) {
-    if (_isSaving) return;
-    setState(() {
-      _explanationOverrides[item.originalIndex] = retain
-          ? QuestionExplanationOverride.keep
-          : QuestionExplanationOverride.discard;
-      _reapplyExplanationPolicy();
-      _refreshReviewState();
-    });
-    unawaited(_persistReviewDraft());
-  }
-
-  bool _isQuestionExplanationRetained(ImportReviewItem item) {
-    return const ImportQuestionFieldPolicy().shouldRetainExplanation(
-      type: item.draft.type.code,
-      mode: _explanationRetentionMode,
-      override: _explanationOverrides[item.originalIndex] ??
-          QuestionExplanationOverride.inherit,
-    );
+    await _controller.commit(bankName: bankName, folderName: folderName);
   }
 
   /// Opens the explanation editor for one review item.
@@ -1936,20 +525,8 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   /// dialog without changing anything is not an edit and leaves the typed
   /// structure and its provenance untouched.
   Future<void> _editExplanation(ImportReviewItem item) async {
-    if (_isSaving) return;
-    final snapshot = _presentationSnapshots[item.originalIndex];
-    final provenance = _explanationProvenance[item.originalIndex] ??
-        ExplanationEditProvenance.legacyUnknown;
-    final typed = resolveExplanationReviewContent(
-      originalContent: snapshot?.draft.explanation,
-      baselineText: snapshot?.baselineLegacy.explanation ?? '',
-      currentText: item.draft.explanation,
-      retained: _isQuestionExplanationRetained(item),
-      provenance: provenance,
-    );
-    final seed = typed == null
-        ? item.draft.explanation
-        : const RichContentTextProjection().project(typed);
+    if (_state.isSaving) return;
+    final seed = _controller.explanationEditorSeed(item);
     final edited = await showDialog<String>(
       context: context,
       builder: (_) => _ExplanationEditDialog(initialText: seed),
@@ -1961,53 +538,12 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     // the legacy text are different representations, so a no-op save would look
     // like an edit and permanently flatten the structure.
     if (edited == seed) return;
-    _saveManualExplanationEdit(item, edited);
-  }
-
-  /// Records one direct user edit of the explanation content.
-  ///
-  /// Calling this means a real manual edit has already been confirmed: the
-  /// caller established that the interaction changed the editor's seed. It must
-  /// not re-derive that from text, because the typed and legacy explanations are
-  /// different representations and a user edit whose result happens to equal
-  /// the stored legacy text would otherwise be silently discarded.
-  ///
-  /// The edited value is kept as exact literal text and is never reparsed into
-  /// typed nodes.
-  void _saveManualExplanationEdit(ImportReviewItem item, String edited) {
-    if (_isSaving) return;
-    setState(() {
-      _allItems = _allItems
-          .map(
-            (candidate) => identical(candidate, item)
-                ? candidate.copyWith(
-                    draft: candidate.draft.copyWith(explanation: edited),
-                  )
-                : candidate,
-          )
-          .toList();
-      _explanationProvenance[item.originalIndex] =
-          markExplanationManuallyEdited();
-      _refreshReviewState();
-    });
-    unawaited(_persistReviewDraft());
-  }
-
-  void _refreshVisibleItems() {
-    _visibleItems = ImportReviewFilterService.apply(
-      items: _allItems,
-      analysis: _reviewResult,
-      filter: _activeFilter,
-      sort: _activeSort,
-    );
+    _controller.saveManualExplanationEdit(item, edited);
   }
 
   Widget _buildToolbar() {
     final theme = Theme.of(context);
-    final counts = ImportReviewFilterService.countByFilter(
-      items: _allItems,
-      analysis: _reviewResult,
-    );
+    final counts = _controller.filterCounts;
 
     String getFilterLabel(ImportReviewFilter filter) {
       switch (filter) {
@@ -2059,7 +595,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
             child: Row(
               children: ImportReviewFilter.values.map((filter) {
                 final count = counts[filter] ?? 0;
-                final isSelected = _activeFilter == filter;
+                final isSelected = _state.activeFilter == filter;
                 return Padding(
                   padding: const EdgeInsets.only(right: 8.0),
                   child: FilterChip(
@@ -2067,12 +603,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                     selected: isSelected,
                     onSelected: (selected) {
                       if (selected) {
-                        setState(() {
-                          _activeFilter = filter;
-                          _selectionMode = false;
-                          _selectedOriginalIndices.clear();
-                          _refreshVisibleItems();
-                        });
+                        _controller.setFilter(filter);
                       }
                     },
                     selectedColor: theme.primaryColor.withValues(alpha: 0.2),
@@ -2099,7 +630,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  '已筛选出 ${_visibleItems.length} 道题',
+                  '已筛选出 ${_state.visibleItems.length} 道题',
                   style: TextStyle(
                     fontSize: 12,
                     color: Colors.grey.shade600,
@@ -2107,14 +638,9 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                   ),
                 ),
                 PopupMenuButton<ImportReviewSort>(
-                  initialValue: _activeSort,
+                  initialValue: _state.activeSort,
                   onSelected: (sort) {
-                    setState(() {
-                      _activeSort = sort;
-                      _selectionMode = false;
-                      _selectedOriginalIndices.clear();
-                      _refreshVisibleItems();
-                    });
+                    _controller.setSort(sort);
                   },
                   itemBuilder: (context) => ImportReviewSort.values.map((sort) {
                     return PopupMenuItem<ImportReviewSort>(
@@ -2128,7 +654,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                       Icon(Icons.sort, size: 16, color: theme.primaryColor),
                       const SizedBox(width: 4),
                       Text(
-                        getSortLabel(_activeSort),
+                        getSortLabel(_state.activeSort),
                         style: TextStyle(
                           fontSize: 12,
                           color: theme.primaryColor,
@@ -2192,10 +718,10 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
             ],
             Expanded(
               child: ListView.separated(
-                itemCount: _diagnosticMessages.length,
+                itemCount: _state.diagnosticMessages.length,
                 separatorBuilder: (_, __) => const Divider(height: 16),
                 itemBuilder: (context, index) {
-                  final msg = _diagnosticMessages[index];
+                  final msg = _state.diagnosticMessages[index];
                   IconData icon;
                   Color color;
                   switch (msg.severity) {
@@ -2267,7 +793,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   Widget _buildSummaryBar() {
-    final summary = _reviewResult.summary;
+    final summary = _state.reviewResult.summary;
     Color scoreColor;
     if (summary.qualityScore >= 80) {
       scoreColor = Colors.green;
@@ -2330,9 +856,10 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   Widget _buildExplanationRetentionControl() {
     return SwitchListTile.adaptive(
       key: const ValueKey('objective-explanation-document-switch'),
-      value: _explanationRetentionMode ==
+      value: _state.explanationRetentionMode ==
           ExplanationRetentionMode.allQuestionTypes,
-      onChanged: _isSaving ? null : _setDocumentExplanationRetention,
+      onChanged:
+          _state.isSaving ? null : _controller.setDocumentExplanationRetention,
       title: const Text(
         '同时导入选择题、填空题解析',
         style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
@@ -2346,8 +873,8 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   Widget _buildAnswerDistillationControl() {
-    final candidateCount = _answerDistillationCandidates.length;
-    if (candidateCount == 0 && !_isDistillingAnswers) {
+    final candidateCount = _controller.answerDistillationCandidateCount;
+    if (candidateCount == 0 && !_state.isDistillingAnswers) {
       return const SizedBox.shrink();
     }
 
@@ -2366,8 +893,8 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _isDistillingAnswers
-                      ? '正在生成答案 $_answerDistillationCompletedCount/$_answerDistillationTotalCount'
+                  _state.isDistillingAnswers
+                      ? '正在生成答案 ${_state.answerDistillationCompletedCount}/${_state.answerDistillationTotalCount}'
                       : '可用解析补全 $candidateCount 道主观题标准答案',
                   style: const TextStyle(
                     fontSize: 13,
@@ -2382,18 +909,18 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
             ),
           ),
           const SizedBox(width: 8),
-          if (_isDistillingAnswers)
+          if (_state.isDistillingAnswers)
             TextButton(
               key: const ValueKey('answer-distillation-cancel'),
-              onPressed: _answerDistillationCancellationRequested
+              onPressed: _state.answerDistillationCancellationRequested
                   ? null
-                  : _cancelAnswerDistillation,
+                  : _controller.cancelAnswerDistillation,
               child: const Text('停止生成'),
             )
           else
             FilledButton(
               key: const ValueKey('answer-distillation-batch'),
-              onPressed: _isSaving ? null : _distillAllAnswers,
+              onPressed: _state.isSaving ? null : _controller.distillAllAnswers,
               child: Text('补全 $candidateCount 道'),
             ),
         ],
@@ -2408,23 +935,24 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: Text(
-            _selectionMode
-                ? '已选 ${_selectedOriginalIndices.length} 题'
+            _state.selectionMode
+                ? '已选 ${_state.selectedOriginalIndices.length} 题'
                 : '解析结果校对',
             style: const TextStyle(fontWeight: FontWeight.bold)),
         elevation: 0,
-        leading: _selectionMode
+        leading: _state.selectionMode
             ? IconButton(
                 icon: const Icon(Icons.close),
-                onPressed: _exitSelectionMode,
+                onPressed: _controller.exitSelectionMode,
               )
             : null,
         actions: [
-          if (!_selectionMode)
+          if (!_state.selectionMode)
             IconButton(
               icon: const Icon(Icons.checklist),
               tooltip: '批量操作',
-              onPressed: _isSaving ? null : _enterSelectionMode,
+              onPressed:
+                  _state.isSaving ? null : _controller.enterSelectionMode,
             ),
         ],
       ),
@@ -2444,8 +972,8 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
               ],
             ),
           ),
-          if (_traceId != null) _buildTraceBar(),
-          if (_frozenDocumentTarget case final target?)
+          if (_controller.traceId != null) _buildTraceBar(),
+          if (_controller.frozenDocumentTarget case final target?)
             ListTile(
               key: const ValueKey<String>('review-frozen-target'),
               title: const Text('导入到'),
@@ -2453,14 +981,15 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                   ? '${target.folderName} / ${target.bankName}'
                   : target.bankName!),
             ),
-          if (_diagnosticMessages.isNotEmpty) ...[
+          if (_state.diagnosticMessages.isNotEmpty) ...[
             _buildDiagnosticBanner(),
           ],
-          if (_hasLowQualityVision) _buildVisionLowQualityBanner(),
-          if (_hasUnsupportedStructure) _buildUnsupportedStructureBanner(),
+          if (_controller.hasLowQualityVision) _buildVisionLowQualityBanner(),
+          if (_controller.hasUnsupportedStructure)
+            _buildUnsupportedStructureBanner(),
           // Document import fixes retention, so only compatibility tasks keep
           // the document-level switch.
-          if (!_isDocumentImportEntryTaskMode)
+          if (!_state.isDocumentImportEntryTask)
             _buildExplanationRetentionControl(),
           _buildAnswerDistillationControl(),
           const Divider(height: 1),
@@ -2469,7 +998,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
           _buildToolbar(),
           const Divider(height: 1),
           Expanded(
-            child: _allItems.isEmpty
+            child: _state.allItems.isEmpty
                 ? Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -2490,7 +1019,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                       ],
                     ),
                   )
-                : (_visibleItems.isEmpty
+                : (_state.visibleItems.isEmpty
                     ? Center(
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -2513,13 +1042,13 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                       )
                     : ListView.builder(
                         padding: const EdgeInsets.all(16),
-                        itemCount: _visibleItems.length,
+                        itemCount: _state.visibleItems.length,
                         itemBuilder: (context, index) {
-                          final visibleItem = _visibleItems[index];
+                          final visibleItem = _state.visibleItems[index];
                           final item = visibleItem.item;
                           return Dismissible(
                             key: ValueKey(item.originalIndex),
-                            direction: (_selectionMode || _isSaving)
+                            direction: (_state.selectionMode || _state.isSaving)
                                 ? DismissDirection.none
                                 : DismissDirection.endToStart,
                             background: Container(
@@ -2530,88 +1059,88 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                                   color: Colors.white),
                             ),
                             onDismissed: (direction) {
-                              if (_isSaving) return;
-                              setState(() {
-                                _allItems.removeWhere((it) =>
-                                    it.originalIndex == item.originalIndex);
-                                _refreshReviewState();
-                              });
-                              unawaited(_persistReviewDraft());
+                              _controller.removeReviewItem(item);
                             },
                             child: Row(
                               children: [
-                                if (_selectionMode)
+                                if (_state.selectionMode)
                                   Checkbox(
-                                    value: _selectedOriginalIndices
+                                    value: _state.selectedOriginalIndices
                                         .contains(item.originalIndex),
                                     onChanged: (val) {
-                                      _toggleSelection(item);
+                                      _controller.toggleSelection(item);
                                     },
                                   ),
                                 Expanded(
                                   child: GestureDetector(
-                                    onTap: _selectionMode
-                                        ? () => _toggleSelection(item)
+                                    onTap: _state.selectionMode
+                                        ? () =>
+                                            _controller.toggleSelection(item)
                                         : null,
                                     child: _QuestionCard(
                                       item: item,
-                                      snapshot: _presentationSnapshots[
+                                      snapshot: _state.presentationSnapshots[
                                           item.originalIndex],
                                       index: visibleItem.canonicalIndex,
                                       issues: visibleItem.issues,
-                                      explanationRetained:
-                                          _isQuestionExplanationRetained(item),
+                                      explanationRetained: _controller
+                                          .isQuestionExplanationRetained(item),
                                       onEditExplanation:
-                                          (_selectionMode || _isSaving)
+                                          (_state.selectionMode ||
+                                                  _state.isSaving)
                                               ? null
                                               : () => _editExplanation(item),
                                       explanationProvenance:
-                                          _explanationProvenance[
+                                          _state.explanationProvenance[
                                                   item.originalIndex] ??
                                               ExplanationEditProvenance
                                                   .legacyUnknown,
-                                      onExplanationRetentionChanged:
-                                          (_selectionMode ||
-                                                  _isSaving ||
-                                                  _isDocumentImportEntryTaskMode)
-                                              ? null
-                                              : (retain) =>
-                                                  _setQuestionExplanationRetention(
-                                                    item,
-                                                    retain,
-                                                  ),
-                                      answerDistillationCandidate:
-                                          _isAnswerDistillationCandidate(item),
+                                      onExplanationRetentionChanged: (_state
+                                                  .selectionMode ||
+                                              _state.isSaving ||
+                                              _state.isDocumentImportEntryTask)
+                                          ? null
+                                          : (retain) => _controller
+                                                  .setQuestionExplanationRetention(
+                                                item,
+                                                retain,
+                                              ),
+                                      answerDistillationCandidate: _controller
+                                          .isAnswerDistillationCandidate(item),
                                       answerDistillationStatus:
-                                          _answerDistillationStatuses[
+                                          _state.answerDistillationStatuses[
                                               item.originalIndex],
                                       proofExplanationRecognized:
-                                          _answerDistillationStatuses[
+                                          _state.answerDistillationStatuses[
                                                   item.originalIndex] ==
                                               'proof_explanation_recognized',
-                                      answerDistillationInProgress:
-                                          _activeAnswerDistillationIndex ==
-                                              item.originalIndex,
-                                      onAnswerDistillation: _selectionMode ||
-                                              _isSaving ||
-                                              _isRepairingAnyItem ||
-                                              _isDistillingAnswers
-                                          ? null
-                                          : () => _distillSingleAnswer(item),
-                                      reviewRepairEligible:
-                                          _isReviewRepairEligible(item),
+                                      answerDistillationInProgress: _state
+                                              .activeAnswerDistillationIndex ==
+                                          item.originalIndex,
+                                      onAnswerDistillation:
+                                          _state.selectionMode ||
+                                                  _state.isSaving ||
+                                                  _state.activeRepairIndex !=
+                                                      null ||
+                                                  _state.isDistillingAnswers
+                                              ? null
+                                              : () => _controller
+                                                  .distillSingleAnswer(item),
+                                      reviewRepairEligible: _controller
+                                          .isReviewRepairEligible(item),
                                       reviewRepairInProgress:
-                                          _activeRepairIndex ==
+                                          _state.activeRepairIndex ==
                                               item.originalIndex,
-                                      reviewRepairProposalReady:
-                                          _autoRepairProposals
-                                              .containsKey(item.originalIndex),
-                                      onReviewRepair: _selectionMode ||
-                                              _isSaving ||
-                                              _isDistillingAnswers ||
-                                              _isRepairingAnyItem
+                                      reviewRepairProposalReady: _state
+                                          .autoRepairProposalIndices
+                                          .contains(item.originalIndex),
+                                      onReviewRepair: _state.selectionMode ||
+                                              _state.isSaving ||
+                                              _state.isDistillingAnswers ||
+                                              _state.activeRepairIndex != null
                                           ? null
-                                          : () => _requestReviewRepair(item),
+                                          : () => _controller
+                                              .requestReviewRepair(item),
                                     ),
                                   ),
                                 ),
@@ -2623,7 +1152,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
           ),
         ],
       ),
-      bottomNavigationBar: _selectionMode
+      bottomNavigationBar: _state.selectionMode
           ? SafeArea(
               child: Container(
                 padding:
@@ -2643,27 +1172,27 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                     TextButton.icon(
                       icon: const Icon(Icons.select_all),
                       label: const Text('全选当前'),
-                      onPressed: _selectAllVisible,
+                      onPressed: _controller.selectAllVisible,
                     ),
                     Row(
                       children: [
                         TextButton.icon(
                           icon: const Icon(Icons.edit),
                           label: const Text('改题型'),
-                          onPressed:
-                              (_selectedOriginalIndices.isEmpty || _isSaving)
-                                  ? null
-                                  : _showChangeTypeDialog,
+                          onPressed: (_state.selectedOriginalIndices.isEmpty ||
+                                  _state.isSaving)
+                              ? null
+                              : _showChangeTypeDialog,
                         ),
                         TextButton.icon(
                           icon:
                               const Icon(Icons.delete, color: Colors.redAccent),
                           label: const Text('删除',
                               style: TextStyle(color: Colors.redAccent)),
-                          onPressed:
-                              (_selectedOriginalIndices.isEmpty || _isSaving)
-                                  ? null
-                                  : _deleteSelectedWithConfirm,
+                          onPressed: (_state.selectedOriginalIndices.isEmpty ||
+                                  _state.isSaving)
+                              ? null
+                              : _deleteSelectedWithConfirm,
                         ),
                       ],
                     ),
@@ -2677,33 +1206,33 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
                 child: ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 16),
-                    backgroundColor: _isBlockedByQualityGate
+                    backgroundColor: _controller.isBlockedByQualityGate
                         ? Colors.grey
                         : theme.primaryColor,
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
                   ),
-                  icon: _isSaving
+                  icon: _state.isSaving
                       ? const SizedBox(
                           width: 20,
                           height: 20,
                           child: CircularProgressIndicator(
                               color: Colors.white, strokeWidth: 2))
-                      : (_isBlockedByQualityGate
+                      : (_controller.isBlockedByQualityGate
                           ? const Icon(Icons.block)
                           : const Icon(Icons.check_circle_outline)),
                   label: Text(
-                      _isBlockedByQualityGate
-                          ? _confirmButtonText
-                          : (_isSaving
+                      _controller.isBlockedByQualityGate
+                          ? _controller.confirmButtonText
+                          : (_state.isSaving
                               ? '正在入库...'
-                              : '确认无误，将 ${_allItems.length} 题收入题库'),
+                              : '确认无误，将 ${_state.allItems.length} 题收入题库'),
                       style: const TextStyle(
                           fontSize: 16, fontWeight: FontWeight.bold)),
-                  onPressed: (_isSaving ||
-                          _isBlockedByQualityGate ||
-                          _isDistillingAnswers)
+                  onPressed: (_state.isSaving ||
+                          _controller.isBlockedByQualityGate ||
+                          _state.isDistillingAnswers)
                       ? null
                       : _validateBeforeSave,
                 ),
@@ -2717,9 +1246,9 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
     // Moved to a separate method so new banners (like vision low quality) can
     // live alongside it without nesting.
     return Builder(builder: (context) {
-      final hasError = _diagnosticMessages
+      final hasError = _state.diagnosticMessages
           .any((m) => m.severity == ImportDiagnosticSeverity.error);
-      final hasWarning = _diagnosticMessages
+      final hasWarning = _state.diagnosticMessages
           .any((m) => m.severity == ImportDiagnosticSeverity.warning);
 
       Color bannerBg;
@@ -2754,7 +1283,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                '$bannerTitle (${_diagnosticMessages.length} 条记录)',
+                '$bannerTitle (${_state.diagnosticMessages.length} 条记录)',
                 style: TextStyle(
                   color: textAndIconColor,
                   fontSize: 13,
@@ -2785,7 +1314,7 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   }
 
   Widget _buildTraceBar() {
-    final traceId = _traceId!;
+    final traceId = _controller.traceId!;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
