@@ -65,6 +65,9 @@ class ImportStagingScreen extends StatefulWidget {
 class _ImportStagingScreenState extends State<ImportStagingScreen> {
   late final ImportReviewController _controller;
 
+  // Page-owned on purpose: reopening the save dialog must preserve whatever
+  // the user already typed, so the controllers outlive the dialog and are
+  // released only when the screen itself is disposed.
   final TextEditingController _bankNameController = TextEditingController();
   final TextEditingController _folderController = TextEditingController();
   bool _autoRepairInitialized = false;
@@ -175,6 +178,10 @@ class _ImportStagingScreenState extends State<ImportStagingScreen> {
   void dispose() {
     _controller.removeListener(_handleControllerChanged);
     _controller.dispose();
+
+    _bankNameController.dispose();
+    _folderController.dispose();
+
     super.dispose();
   }
 
