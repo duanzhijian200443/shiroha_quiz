@@ -28,6 +28,10 @@ import 'package:shiroha_quiz/application/file_library/library_folder_repository.
 import 'package:shiroha_quiz/application/file_library/library_folder_service.dart';
 import 'package:shiroha_quiz/application/projects/project_repository.dart';
 import 'package:shiroha_quiz/application/projects/project_service.dart';
+import 'package:shiroha_quiz/application/practice/practice_session_mutation_command.dart';
+import 'package:shiroha_quiz/application/practice/record_answer_attempt_command.dart';
+import 'package:shiroha_quiz/application/questions/question_mutation_command.dart';
+import 'package:shiroha_quiz/application/questions/question_write_mutation_command.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_dtos.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_ports.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_service.dart';
@@ -37,6 +41,7 @@ import 'package:shiroha_quiz/application/u1_workspace/u1_workspace_dtos.dart';
 import 'package:shiroha_quiz/application/u1_workspace/u1_workspace_facade.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/repositories/ai_engine_repository.dart';
+import 'package:shiroha_quiz/data/repositories/answer_attempt_repository.dart';
 import 'package:shiroha_quiz/data/repositories/question_repository.dart';
 import 'package:shiroha_quiz/data/persistence/question_v2_persistence_mapper.dart';
 import 'package:shiroha_quiz/domain/answers/answer_candidate.dart';
@@ -56,6 +61,7 @@ import 'package:shiroha_quiz/services/import_pipeline/ocr_request_scheduler.dart
 import 'package:shiroha_quiz/services/practice/photo_answer_judgement_adapter.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:shiroha_quiz/ui/dependencies/ai_dependencies_scope.dart';
+import 'package:shiroha_quiz/ui/dependencies/practice_command_dependencies.dart';
 import 'package:shiroha_quiz/ui/pages/main_screen.dart';
 import 'package:shiroha_quiz/ui/pages/home_page.dart';
 import 'package:shiroha_quiz/ui/pages/agent_settings_screen.dart';
@@ -875,6 +881,23 @@ void main() {
   });
 }
 
+/// Practice mutation bundle mirroring the composition-root wiring in
+/// lib/main.dart: the same test-database repositories this harness already uses
+/// for its other persistence seams.
+///
+/// The navigation smoke never enters a mutating practice flow, so none of these
+/// commands is invoked; the bundle exists because [ShirohaQuizApp] requires it.
+PracticeCommandDependencies _practiceCommands(QuestionRepository repository) {
+  return PracticeCommandDependencies(
+    questionMutation: QuestionMutationCommand(repository),
+    practiceSessionMutation: PracticeSessionMutationCommand(repository),
+    questionWriteMutation: QuestionWriteMutationCommand(repository),
+    recordAttempt: RecordAnswerAttemptCommand(
+      AnswerAttemptRepository(databaseHelper: DatabaseHelper.instance),
+    ),
+  );
+}
+
 /// Builds the full app with deterministic fail-closed fakes. Never touches a
 /// live provider, network, or real credential store.
 Widget _buildTestApp({
@@ -938,6 +961,7 @@ Widget _buildTestApp({
     answerCommitCommand: answerCommitCommand,
     answerEntryGuard: answerEntryGuard,
     examMutationCommand: examMutationCommand,
+    practiceCommands: _practiceCommands(configuredQuestionRepository),
     photoAnswerJudgement: PhotoAnswerJudgementAdapter(
       contentAssetResolver: contentAssetResolver ?? _EmptyContentAssets(),
       engineRepository: engineRepository,
