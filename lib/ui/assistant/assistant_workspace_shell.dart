@@ -7,6 +7,7 @@ import '../../application/safe_write/agent_write_proposal_service.dart';
 import '../../application/study_plan/study_plan_command_service.dart';
 import '../../application/study_plan/study_plan_draft_service.dart';
 import '../../application/u1_workspace/u1_workspace_facade.dart';
+import '../dependencies/practice_command_dependencies.dart';
 import 'assistant_screen.dart';
 import 'conversation_controller.dart';
 import 'global_sidebar.dart';
@@ -33,6 +34,7 @@ class AssistantWorkspaceShell extends StatefulWidget {
     this.proposalService,
     this.studyPlanDraftService,
     this.studyPlanCommandService,
+    this.practiceCommands,
     this.conversationFocusEpoch = 0,
   });
 
@@ -44,6 +46,7 @@ class AssistantWorkspaceShell extends StatefulWidget {
   final AgentWriteProposalService? proposalService;
   final StudyPlanDraftService? studyPlanDraftService;
   final StudyPlanCommandService? studyPlanCommandService;
+  final PracticeCommandDependencies? practiceCommands;
   final int conversationFocusEpoch;
 
   @override
@@ -187,6 +190,7 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
                 fileController: _fileController,
                 conversationController: _conversationController,
                 showGlobalMenu: false,
+                practiceCommands: widget.practiceCommands,
               ),
             ),
           ],
@@ -199,6 +203,7 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
           fileController: _fileController,
           onOpenProject: _openSpaceHome,
           onCreateProject: _createSpace,
+          practiceCommands: widget.practiceCommands,
         ),
       _WorkspaceDestination.learningSpaceHome => _projectId != null &&
               _spacesController.spaces
@@ -218,6 +223,7 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
               fileController: _fileController,
               onOpenProject: _openSpaceHome,
               onCreateProject: _createSpace,
+              practiceCommands: widget.practiceCommands,
             ),
       _WorkspaceDestination.mcp => McpWorkspace(
           projection: _spacesController.mcpProjection,
@@ -234,6 +240,7 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
             spacesController: _spacesController,
             fileController: _fileController,
             conversationController: _conversationController,
+            practiceCommands: widget.practiceCommands,
           );
         }
         return Scaffold(

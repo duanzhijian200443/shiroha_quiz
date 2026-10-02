@@ -14,11 +14,10 @@ import '../../application/questions/question_write_mutation_command.dart';
 import '../../core/review_engine_service.dart';
 import '../../data/models/persisted_question.dart';
 import '../../data/models/question.dart';
-import '../../data/repositories/answer_attempt_repository.dart';
-import '../../data/repositories/question_repository.dart';
 import '../../domain/attempt/answer_attempt.dart';
 import '../../services/llm_service.dart';
 import '../dependencies/ai_dependencies_scope.dart';
+import '../dependencies/practice_command_dependencies.dart';
 import '../models/practice_question_view.dart';
 import 'photo_capture_screen.dart';
 import '../widgets/markdown_extensions.dart';
@@ -54,7 +53,13 @@ class PracticePage extends StatefulWidget {
   /// Existing prepared plan callers remain focused; Today ordinary pools
   /// explicitly request normal attribution, including photo/manual attempts.
   final AnswerAttemptSessionKind preparedSessionKind;
-  final RecordAnswerAttemptCommand? recordAnswerAttemptCommand;
+
+  /// Assembled Application mutation commands, supplied by the composition
+  /// root (or a test bundle over fake persistence). Required in practice for
+  /// every mutating flow — attempts, grades-adjacent writes, preview saves,
+  /// question deletion and Pomodoro summaries fail closed without it — while
+  /// pure rendering and session loading never touch it.
+  final PracticeCommandDependencies? practiceCommands;
   final Future<void> Function(String questionId, int grade)?
       submitReviewOverride;
   final PhotoAnswerCaptureLauncher? photoAnswerCaptureLauncher;
@@ -68,7 +73,7 @@ class PracticePage extends StatefulWidget {
     this.initialIndex,
     this.usePreparedStudySession = false,
     this.preparedSessionKind = AnswerAttemptSessionKind.focused,
-    this.recordAnswerAttemptCommand,
+    this.practiceCommands,
     this.submitReviewOverride,
     this.photoAnswerCaptureLauncher,
   });
@@ -78,15 +83,24 @@ class PracticePage extends StatefulWidget {
 }
 
 class _PracticePageState extends State<PracticePage> {
-  final QuestionMutationCommand _questionMutation =
-      QuestionMutationCommand(QuestionRepository.instance);
-  final PracticeSessionMutationCommand _practiceSessionMutation =
-      PracticeSessionMutationCommand(QuestionRepository.instance);
-  final QuestionWriteMutationCommand _questionWriteMutation =
-      QuestionWriteMutationCommand(QuestionRepository.instance);
+  /// The assembled mutation commands are read lazily and fail closed, so a
+  /// surface that only renders or loads never depends on persistence wiring.
+  PracticeCommandDependencies get _practiceDependencies {
+    final dependencies = widget.practiceCommands;
+    if (dependencies == null) {
+      throw StateError('Practice mutation dependencies are not configured.');
+    }
+    return dependencies;
+  }
+
+  QuestionMutationCommand get _questionMutation =>
+      _practiceDependencies.questionMutation;
+  PracticeSessionMutationCommand get _practiceSessionMutation =>
+      _practiceDependencies.practiceSessionMutation;
+  QuestionWriteMutationCommand get _questionWriteMutation =>
+      _practiceDependencies.questionWriteMutation;
   RecordAnswerAttemptCommand get _recordAttemptCommand =>
-      widget.recordAnswerAttemptCommand ??
-      RecordAnswerAttemptCommand(AnswerAttemptRepository.instance);
+      _practiceDependencies.recordAttempt;
 
   ThemeData get _practiceTheme {
     final base = Theme.of(context);

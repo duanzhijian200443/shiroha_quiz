@@ -21,7 +21,13 @@ import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/core/review_engine_service.dart';
 import 'package:shiroha_quiz/data/models/persisted_question.dart';
 import 'package:shiroha_quiz/data/persistence/question_v2_persistence_mapper.dart';
+import 'package:shiroha_quiz/application/practice/practice_session_mutation_command.dart';
+import 'package:shiroha_quiz/application/practice/record_answer_attempt_command.dart';
+import 'package:shiroha_quiz/application/questions/question_mutation_command.dart';
+import 'package:shiroha_quiz/application/questions/question_write_mutation_command.dart';
+import 'package:shiroha_quiz/data/repositories/answer_attempt_repository.dart';
 import 'package:shiroha_quiz/data/repositories/question_repository.dart';
+import 'package:shiroha_quiz/ui/dependencies/practice_command_dependencies.dart';
 import 'package:shiroha_quiz/data/repositories/review_repository.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
 import 'package:shiroha_quiz/domain/content/rich_content.dart';
@@ -259,7 +265,12 @@ void _setTallViewport(WidgetTester tester) {
 
 Future<void> _pumpPracticeUntilLoaded(WidgetTester tester) async {
   await tester.pumpWidget(
-    MaterialApp(home: PracticePage(bankName: _bankName)),
+    MaterialApp(
+      home: PracticePage(
+        bankName: _bankName,
+        practiceCommands: _practiceCommands(),
+      ),
+    ),
   );
   for (var frame = 0; frame < 60; frame++) {
     await tester.pump();
@@ -284,6 +295,22 @@ Future<void> _settlePractice(WidgetTester tester) async {
       () => Future<void>.delayed(const Duration(milliseconds: 10)),
     );
   }
+}
+
+/// Mirrors the composition-root wiring with the real test-database
+/// repositories, replacing the page's former self-assembly fallback.
+PracticeCommandDependencies _practiceCommands({
+  RecordAnswerAttemptCommand? recordAttempt,
+}) {
+  return PracticeCommandDependencies(
+    questionMutation: QuestionMutationCommand(QuestionRepository.instance),
+    practiceSessionMutation:
+        PracticeSessionMutationCommand(QuestionRepository.instance),
+    questionWriteMutation:
+        QuestionWriteMutationCommand(QuestionRepository.instance),
+    recordAttempt: recordAttempt ??
+        RecordAnswerAttemptCommand(AnswerAttemptRepository.instance),
+  );
 }
 
 void main() {

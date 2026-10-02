@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../dependencies/practice_command_dependencies.dart';
 import '../pages/data_center_screen.dart';
 import 'workspace_controller.dart';
 import 'workspace_pages.dart';
@@ -11,12 +12,17 @@ class LearningSpacesScreen extends StatelessWidget {
     this.fileController,
     this.onOpenProject,
     this.onCreateProject,
+    this.practiceCommands,
   });
 
   final LearningSpacesController controller;
   final FileLibraryController? fileController;
   final ValueChanged<String>? onOpenProject;
   final VoidCallback? onCreateProject;
+
+  /// Forwarded to the data center so its bank-detail practice entry stays
+  /// wired; assembled at the composition root.
+  final PracticeCommandDependencies? practiceCommands;
 
   Future<void> _create(BuildContext context) async {
     if (onCreateProject != null) {
@@ -82,7 +88,9 @@ class LearningSpacesScreen extends StatelessWidget {
           TextButton(
             key: const ValueKey<String>('u1-open-legacy-library'),
             onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const DataCenterScreen()),
+              MaterialPageRoute<void>(
+                  builder: (_) =>
+                      DataCenterScreen(practiceCommands: practiceCommands)),
             ),
             child: const Text('按旧分类浏览'),
           ),

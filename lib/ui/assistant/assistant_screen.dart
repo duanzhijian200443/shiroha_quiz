@@ -7,6 +7,7 @@ import '../../application/u1_workspace/u1_workspace_dtos.dart';
 import '../../domain/study_plan/study_plan_values.dart';
 import '../../domain/conversations/conversation.dart';
 import '../../domain/conversations/conversation_message.dart';
+import '../dependencies/practice_command_dependencies.dart';
 import '../theme/app_theme.dart';
 import 'assistant_content_renderer.dart';
 import 'conversation_controller.dart';
@@ -78,12 +79,17 @@ class AssistantScreen extends StatefulWidget {
     required this.fileController,
     required this.conversationController,
     this.showGlobalMenu = true,
+    this.practiceCommands,
   });
 
   final LearningSpacesController spacesController;
   final FileLibraryController fileController;
   final ConversationController conversationController;
   final bool showGlobalMenu;
+
+  /// Forwarded to learning spaces so the data-center practice entry stays
+  /// wired; assembled at the composition root.
+  final PracticeCommandDependencies? practiceCommands;
 
   @override
   State<AssistantScreen> createState() => _AssistantScreenState();
@@ -383,6 +389,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
         builder: (_) => LearningSpacesScreen(
           controller: widget.spacesController,
           fileController: widget.fileController,
+          practiceCommands: widget.practiceCommands,
         ),
       ),
     );
@@ -468,6 +475,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
           LearningSpacesScreen(
             controller: widget.spacesController,
             fileController: widget.fileController,
+            practiceCommands: widget.practiceCommands,
           ),
         ),
         onOpenMcp: () => _pushFromDrawer(

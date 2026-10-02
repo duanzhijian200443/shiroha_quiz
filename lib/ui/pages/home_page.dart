@@ -14,6 +14,7 @@ import '../../application/questions/folder_query_port.dart';
 import '../../application/questions/question_bank_mutation_command.dart';
 import '../../application/questions/question_list_query_port.dart';
 import '../../application/questions/question_mutation_command.dart';
+import '../dependencies/practice_command_dependencies.dart';
 import '../../application/safe_write/typed_answer_command.dart';
 import '../../application/today/today_context_query.dart';
 import '../home/today_controller.dart';
@@ -48,6 +49,7 @@ class HomePage extends StatefulWidget {
     this.questionBankMutationPersistence,
     this.folderQuery,
     this.importCommitService,
+    this.practiceCommands,
     this.studyPlanSelectionService,
     this.studyPlanCommandService,
     this.studyPlanSessionLauncher,
@@ -68,6 +70,10 @@ class HomePage extends StatefulWidget {
   final QuestionBankMutationPersistencePort? questionBankMutationPersistence;
   final FolderQueryPort? folderQuery;
   final ImportCommitService? importCommitService;
+
+  /// Assembled practice mutation commands, supplied by the composition root
+  /// and forwarded to every practice entry this page opens.
+  final PracticeCommandDependencies? practiceCommands;
 
   /// Existing singleton-plan seams, supplied by the composition root.
   final StudyPlanSelectionService? studyPlanSelectionService;
@@ -619,7 +625,8 @@ class _HomePageState extends State<HomePage> {
                   builder: (_) => PracticePage(
                       bankName: bankName,
                       usePreparedStudySession: true,
-                      preparedSessionKind: AnswerAttemptSessionKind.normal)));
+                      preparedSessionKind: AnswerAttemptSessionKind.normal,
+                      practiceCommands: widget.practiceCommands)));
           if (mounted) await _refresh();
         case StudySessionEmpty():
           _showFocusedMessage('当前没有可练习的题目');
@@ -687,6 +694,7 @@ class _HomePageState extends State<HomePage> {
                 builder: (_) => PracticePage(
                   bankName: activePlan.bankName,
                   usePreparedStudySession: true,
+                  practiceCommands: widget.practiceCommands,
                 ),
               ),
             );
@@ -781,6 +789,7 @@ class _HomePageState extends State<HomePage> {
           typedAnswerPersistence: widget.typedAnswerPersistence,
           questionBankMutationPersistence:
               widget.questionBankMutationPersistence,
+          practiceCommands: widget.practiceCommands,
         ),
       ),
     ).then((_) {

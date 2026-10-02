@@ -1,4 +1,11 @@
+import 'package:shiroha_quiz/application/practice/practice_session_mutation_command.dart';
+import 'package:shiroha_quiz/application/questions/question_mutation_command.dart';
+import 'package:shiroha_quiz/application/questions/question_write_mutation_command.dart';
+import 'package:shiroha_quiz/ui/dependencies/practice_command_dependencies.dart';
+import 'package:shiroha_quiz/application/practice/record_answer_attempt_command.dart';
 import 'package:shiroha_quiz/application/practice/study_session_launch.dart';
+import 'package:shiroha_quiz/data/repositories/answer_attempt_repository.dart';
+import 'package:shiroha_quiz/data/repositories/question_repository.dart';
 import 'package:shiroha_quiz/services/practice/ordinary_study_session_launcher.dart';
 import 'package:shiroha_quiz/domain/attempt/answer_attempt.dart';
 // R8A PracticePage V2-first acceptance. All evidence is synthetic/offline:
@@ -122,6 +129,22 @@ Future<void> _insertLegacy(
     'explanation': explanation,
     'raw_explanation': rawExplanation,
   });
+}
+
+/// Mirrors the composition-root wiring with the real test-database
+/// repositories, replacing the page's former self-assembly fallback.
+PracticeCommandDependencies _practiceCommands({
+  RecordAnswerAttemptCommand? recordAttempt,
+}) {
+  return PracticeCommandDependencies(
+    questionMutation: QuestionMutationCommand(QuestionRepository.instance),
+    practiceSessionMutation:
+        PracticeSessionMutationCommand(QuestionRepository.instance),
+    questionWriteMutation:
+        QuestionWriteMutationCommand(QuestionRepository.instance),
+    recordAttempt: recordAttempt ??
+        RecordAnswerAttemptCommand(AnswerAttemptRepository.instance),
+  );
 }
 
 void main() {
@@ -745,7 +768,8 @@ void main() {
                 data: MediaQuery.of(context)
                     .copyWith(textScaler: TextScaler.linear(textScale)),
                 child: child!),
-            home: PracticePage(bankName: _bankName)),
+            home: PracticePage(
+                bankName: _bankName, practiceCommands: _practiceCommands())),
       );
       for (var frame = 0; frame < 60; frame++) {
         await tester.pump();
@@ -1119,7 +1143,8 @@ void main() {
           home: PracticePage(
               bankName: _bankName,
               usePreparedStudySession: true,
-              preparedSessionKind: AnswerAttemptSessionKind.normal)));
+              preparedSessionKind: AnswerAttemptSessionKind.normal,
+              practiceCommands: _practiceCommands())));
       await settle(tester);
       expect(find.text('收入题库'), findsNothing);
       await tester.tap(find.text('first'));
@@ -1175,6 +1200,7 @@ void main() {
           home: PracticePage(
             bankName: _bankName,
             usePreparedStudySession: true,
+            practiceCommands: _practiceCommands(),
           ),
         ),
       );
