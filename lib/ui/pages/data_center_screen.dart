@@ -7,11 +7,16 @@ import '../../data/repositories/question_repository.dart';
 import '../../services/latex_migration_service.dart';
 import '../dependencies/ai_dependencies_scope.dart';
 import '../dependencies/content_asset_maintenance_scope.dart';
+import '../dependencies/practice_command_dependencies.dart';
 import 'bank_detail_screen.dart';
 import 'import_settings_screen.dart';
 
 class DataCenterScreen extends StatefulWidget {
-  const DataCenterScreen({super.key});
+  const DataCenterScreen({super.key, this.practiceCommands});
+
+  /// Forwarded to bank detail so its practice entry stays wired; assembled at
+  /// the composition root.
+  final PracticeCommandDependencies? practiceCommands;
 
   @override
   State<DataCenterScreen> createState() => _DataCenterScreenState();
@@ -531,12 +536,13 @@ class _DataCenterScreenState extends State<DataCenterScreen> {
                                   size: 14, color: iconLevel3),
                               onTap: () {
                                 Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                            builder: (context) =>
-                                                BankDetailScreen(
-                                                    bankName: bank.name)))
-                                    .then((_) => _loadRealData()); // 退出时刷新题库概览
+                                    context,
+                                    MaterialPageRoute(
+                                        builder: (context) => BankDetailScreen(
+                                            bankName: bank.name,
+                                            practiceCommands:
+                                                widget.practiceCommands))).then(
+                                    (_) => _loadRealData()); // 退出时刷新题库概览
                               },
                               onLongPress: () =>
                                   _showMoveFolderDialog(bank.name),

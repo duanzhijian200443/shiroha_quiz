@@ -8,6 +8,8 @@ import 'application/practice/photo_answer_history.dart';
 import 'core/observability/log_writer.dart';
 import 'application/practice/photo_answer_submission.dart';
 import 'application/practice/record_answer_attempt_command.dart';
+import 'application/practice/practice_session_mutation_command.dart';
+import 'application/questions/question_write_mutation_command.dart';
 import 'data/repositories/answer_attempt_repository.dart';
 import 'dart:async';
 import 'dart:io';
@@ -129,6 +131,7 @@ import 'services/retrieval/deterministic_source_chunker.dart';
 import 'services/study_plan/study_plan_practice_session_launcher.dart';
 import 'ui/dependencies/ai_dependencies_scope.dart';
 import 'ui/dependencies/content_asset_maintenance_scope.dart';
+import 'ui/dependencies/practice_command_dependencies.dart';
 import 'ui/dependencies/supplemental_answer_dependencies_scope.dart';
 import 'ui/pages/backup/backup_restore_screen.dart';
 import 'ui/pages/home_page.dart';
@@ -611,6 +614,16 @@ void main() {
               module: 'Practice',
               data: {'failure': failure.name}),
         );
+        final practiceCommands = PracticeCommandDependencies(
+          questionMutation:
+              QuestionMutationCommand(QuestionRepository.instance),
+          practiceSessionMutation:
+              PracticeSessionMutationCommand(QuestionRepository.instance),
+          questionWriteMutation:
+              QuestionWriteMutationCommand(QuestionRepository.instance),
+          recordAttempt: RecordAnswerAttemptCommand(
+              AnswerAttemptRepository(databaseHelper: databaseHelper)),
+        );
         final importPipelineService = ImportPipelineService(
           aiService: aiService,
           engineRepository: engineRepository,
@@ -740,6 +753,7 @@ void main() {
             answerCommitCommand: answerCommitCommand,
             answerEntryGuard: answerEntryGuard,
             examMutationCommand: examMutationCommand,
+            practiceCommands: practiceCommands,
             photoAnswerJudgement: photoAnswerJudgement,
             photoAnswerSubmission: photoAnswerSubmission,
             photoAnswerHistory: photoAnswerHistory,
@@ -819,6 +833,7 @@ class ShirohaQuizApp extends StatelessWidget {
     required this.answerCommitCommand,
     required this.answerEntryGuard,
     required this.examMutationCommand,
+    required this.practiceCommands,
     required this.photoAnswerJudgement,
     this.photoAnswerSubmission,
     this.photoAnswerHistory,
@@ -866,6 +881,9 @@ class ShirohaQuizApp extends StatelessWidget {
   /// ANSWER-ENTRY-GUARD routing seam for the legacy editor AI entry.
   final AiAnswerEntryGuard answerEntryGuard;
   final ExamMutationCommand examMutationCommand;
+
+  /// Assembled practice mutation commands for the practice surfaces.
+  final PracticeCommandDependencies practiceCommands;
   final PhotoAnswerJudgementPort photoAnswerJudgement;
   final PhotoAnswerSubmissionCommand? photoAnswerSubmission;
   final PhotoAnswerHistoryQuery? photoAnswerHistory;
@@ -931,6 +949,7 @@ class ShirohaQuizApp extends StatelessWidget {
             typedAnswerPersistence: typedAnswerPersistence,
             questionBankMutationPersistence: questionBankMutationPersistence,
             folderQuery: folderQuery,
+            practiceCommands: practiceCommands,
             importCommitService: importCommitService,
             startRetrievalTurn: startRetrievalTurn,
             proposalService: proposalService,

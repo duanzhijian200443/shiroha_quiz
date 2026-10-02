@@ -19,6 +19,7 @@ import '../../services/study_plan/study_plan_practice_session_launcher.dart';
 import 'home_page.dart';
 import 'profile_screen.dart';
 import '../dependencies/ai_dependencies_scope.dart';
+import '../dependencies/practice_command_dependencies.dart';
 import '../assistant/assistant_workspace_shell.dart';
 import '../assistant/assistant_screen.dart';
 import '../assistant/workspace_controller.dart';
@@ -43,6 +44,7 @@ class MainScreen extends StatefulWidget {
     this.questionBankMutationPersistence,
     this.folderQuery,
     this.importCommitService,
+    this.practiceCommands,
     this.startRetrievalTurn,
     this.proposalService,
     this.studyPlanDraftService,
@@ -65,6 +67,7 @@ class MainScreen extends StatefulWidget {
   final QuestionBankMutationPersistencePort? questionBankMutationPersistence;
   final FolderQueryPort? folderQuery;
   final ImportCommitService? importCommitService;
+  final PracticeCommandDependencies? practiceCommands;
   final AgentRetrievalTurnStarter? startRetrievalTurn;
   final AgentWriteProposalService? proposalService;
   final StudyPlanDraftService? studyPlanDraftService;
@@ -169,6 +172,7 @@ class _MainScreenState extends State<MainScreen> {
         questionBankMutationPersistence: widget.questionBankMutationPersistence,
         folderQuery: widget.folderQuery,
         importCommitService: widget.importCommitService,
+        practiceCommands: widget.practiceCommands,
         studyPlanSelectionService: widget.studyPlanSelectionService,
         studyPlanCommandService: widget.studyPlanCommandService,
         studyPlanSessionLauncher: widget.studyPlanSessionLauncher,
@@ -192,6 +196,7 @@ class _MainScreenState extends State<MainScreen> {
           proposalService: widget.proposalService,
           studyPlanDraftService: widget.studyPlanDraftService,
           studyPlanCommandService: widget.studyPlanCommandService,
+          practiceCommands: widget.practiceCommands,
           conversationFocusEpoch: _assistantPrefillEpoch,
         ),
       ), // Tab 1 — 助手

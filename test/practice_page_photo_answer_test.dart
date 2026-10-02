@@ -1,6 +1,12 @@
 import 'package:shiroha_quiz/application/practice/photo_answer_history.dart';
 import 'package:shiroha_quiz/application/practice/photo_answer_submission.dart';
+import 'package:shiroha_quiz/application/practice/practice_session_mutation_command.dart';
+import 'package:shiroha_quiz/application/questions/question_mutation_command.dart';
+import 'package:shiroha_quiz/application/questions/question_write_mutation_command.dart';
+import 'package:shiroha_quiz/ui/dependencies/practice_command_dependencies.dart';
 import 'package:shiroha_quiz/application/practice/record_answer_attempt_command.dart';
+import 'package:shiroha_quiz/data/repositories/answer_attempt_repository.dart';
+import 'package:shiroha_quiz/data/repositories/question_repository.dart';
 import 'package:shiroha_quiz/application/file_library/file_library_ports.dart';
 import 'package:shiroha_quiz/application/file_library/library_file_deletion.dart';
 import 'package:shiroha_quiz/core/review_engine_service.dart';
@@ -124,6 +130,22 @@ class _MissingFiles extends Fake implements LibraryFileRepositoryPort {
 
 class _UnusedDelete extends Fake implements LibraryFileDeletionPort {}
 
+/// Mirrors the composition-root wiring with the real test-database
+/// repositories, replacing the page's former self-assembly fallback.
+PracticeCommandDependencies _practiceCommands({
+  RecordAnswerAttemptCommand? recordAttempt,
+}) {
+  return PracticeCommandDependencies(
+    questionMutation: QuestionMutationCommand(QuestionRepository.instance),
+    practiceSessionMutation:
+        PracticeSessionMutationCommand(QuestionRepository.instance),
+    questionWriteMutation:
+        QuestionWriteMutationCommand(QuestionRepository.instance),
+    recordAttempt: recordAttempt ??
+        RecordAnswerAttemptCommand(AnswerAttemptRepository.instance),
+  );
+}
+
 void main() {
   Future<_RecordingAiService> pumpPractice(
     WidgetTester tester, {
@@ -206,6 +228,7 @@ void main() {
                 ? const <Question>[_subjectiveQuestion]
                 : null,
             usePreparedStudySession: typedKind != null,
+            practiceCommands: _practiceCommands(),
             submitReviewOverride: grade,
             photoAnswerCaptureLauncher: launcher,
           ),

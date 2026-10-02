@@ -8,6 +8,10 @@ import 'package:shiroha_quiz/application/answers/ai_answer_generation.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_provider.dart';
 import 'package:shiroha_quiz/application/ai_config/ai_config_service.dart';
 import 'package:shiroha_quiz/application/exam/exam_mutation_command.dart';
+import 'package:shiroha_quiz/application/practice/practice_session_mutation_command.dart';
+import 'package:shiroha_quiz/application/questions/question_mutation_command.dart';
+import 'package:shiroha_quiz/application/questions/question_write_mutation_command.dart';
+import 'package:shiroha_quiz/ui/dependencies/practice_command_dependencies.dart';
 import 'package:shiroha_quiz/application/practice/record_answer_attempt_command.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_ports.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
@@ -120,6 +124,22 @@ Future<void> _insertTyped(
   });
 }
 
+/// Mirrors the composition-root wiring with the real test-database
+/// repositories, replacing the page's former self-assembly fallback.
+PracticeCommandDependencies _practiceCommands({
+  RecordAnswerAttemptCommand? recordAttempt,
+}) {
+  return PracticeCommandDependencies(
+    questionMutation: QuestionMutationCommand(QuestionRepository.instance),
+    practiceSessionMutation:
+        PracticeSessionMutationCommand(QuestionRepository.instance),
+    questionWriteMutation:
+        QuestionWriteMutationCommand(QuestionRepository.instance),
+    recordAttempt: recordAttempt ??
+        RecordAnswerAttemptCommand(AnswerAttemptRepository.instance),
+  );
+}
+
 Future<void> pumpUntilLoaded(
   WidgetTester tester, {
   String? bankName,
@@ -132,6 +152,7 @@ Future<void> pumpUntilLoaded(
         bankName: bankName,
         usePreparedStudySession: usePrepared,
         initialQuestions: initialQuestions,
+        practiceCommands: _practiceCommands(),
       ),
     ),
   );
@@ -526,7 +547,8 @@ void main() {
                   MaterialPageRoute<void>(
                     builder: (_) => PracticePage(
                       bankName: _bankName,
-                      recordAnswerAttemptCommand: command,
+                      practiceCommands:
+                          _practiceCommands(recordAttempt: command),
                     ),
                   ),
                 );
@@ -601,6 +623,7 @@ void main() {
                 MaterialPageRoute<void>(
                   builder: (_) => PracticePage(
                     bankName: _bankName,
+                    practiceCommands: _practiceCommands(),
                     submitReviewOverride: (questionId, grade) async {
                       await gradeGate.future;
                       await ReviewEngineService()

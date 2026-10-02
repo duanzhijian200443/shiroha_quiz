@@ -6,6 +6,7 @@ import 'question_list_screen.dart';
 import '../../application/questions/question_list_query_port.dart';
 import '../../application/questions/question_mutation_command.dart';
 import '../../application/questions/question_bank_mutation_command.dart';
+import '../dependencies/practice_command_dependencies.dart';
 import '../../application/safe_write/typed_answer_command.dart';
 
 class BankDetailScreen extends StatefulWidget {
@@ -18,6 +19,9 @@ class BankDetailScreen extends StatefulWidget {
   @visibleForTesting
   final QuestionBankMutationCommand? questionBankMutation;
 
+  /// Assembled practice mutation commands, forwarded to the practice page.
+  final PracticeCommandDependencies? practiceCommands;
+
   const BankDetailScreen({
     super.key,
     required this.bankName,
@@ -26,6 +30,7 @@ class BankDetailScreen extends StatefulWidget {
     this.typedAnswerPersistence,
     this.questionBankMutationPersistence,
     this.questionBankMutation,
+    this.practiceCommands,
   });
 
   @override
@@ -58,6 +63,7 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
           bankName: widget.bankName,
           filterType: filterType,
           isPomodoroActive: _isPomodoroActive,
+          practiceCommands: widget.practiceCommands,
         ),
       ),
     );
