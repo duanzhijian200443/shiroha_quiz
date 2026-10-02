@@ -16,34 +16,54 @@ import '../../services/import_review/import_review_visible_item.dart';
 /// safely projected review markers. It never holds a build context, a widget,
 /// theme data, a messenger, a service handle or any writable business state.
 ///
+/// The publish boundary is enforced here: every collection handed to the
+/// constructor is copied into an unmodifiable view, so a published state can
+/// never be mutated through its fields. Every change must go through the
+/// controller and produce a new state value.
+///
 /// The controller replaces the whole value on every change; the page rebuilds
 /// from it and forwards user events back to the controller.
 @immutable
 class ImportReviewViewState {
-  const ImportReviewViewState({
-    required this.allItems,
-    required this.visibleItems,
+  ImportReviewViewState({
+    required List<ImportReviewItem> allItems,
+    required List<ImportReviewVisibleItem> visibleItems,
     required this.reviewResult,
     required this.activeFilter,
     required this.activeSort,
     required this.isSaving,
     required this.selectionMode,
-    required this.selectedOriginalIndices,
+    required Set<int> selectedOriginalIndices,
     required this.explanationRetentionMode,
     required this.isDocumentImportEntryTask,
-    required this.diagnosticMessages,
-    required this.existingFolders,
-    required this.presentationSnapshots,
-    required this.explanationProvenance,
-    required this.answerDistillationStatuses,
+    required List<ImportDiagnosticMessage> diagnosticMessages,
+    required List<String> existingFolders,
+    required Map<int, TypedReviewSnapshot> presentationSnapshots,
+    required Map<int, ExplanationEditProvenance> explanationProvenance,
+    required Map<int, String> answerDistillationStatuses,
     required this.isDistillingAnswers,
     required this.answerDistillationCancellationRequested,
     required this.answerDistillationCompletedCount,
     required this.answerDistillationTotalCount,
     required this.activeAnswerDistillationIndex,
     required this.activeRepairIndex,
-    required this.autoRepairProposalIndices,
-  });
+    required Set<int> autoRepairProposalIndices,
+  })  : allItems = List<ImportReviewItem>.unmodifiable(allItems),
+        visibleItems = List<ImportReviewVisibleItem>.unmodifiable(visibleItems),
+        selectedOriginalIndices =
+            Set<int>.unmodifiable(selectedOriginalIndices),
+        diagnosticMessages =
+            List<ImportDiagnosticMessage>.unmodifiable(diagnosticMessages),
+        existingFolders = List<String>.unmodifiable(existingFolders),
+        presentationSnapshots =
+            Map<int, TypedReviewSnapshot>.unmodifiable(presentationSnapshots),
+        explanationProvenance =
+            Map<int, ExplanationEditProvenance>.unmodifiable(
+                explanationProvenance),
+        answerDistillationStatuses =
+            Map<int, String>.unmodifiable(answerDistillationStatuses),
+        autoRepairProposalIndices =
+            Set<int>.unmodifiable(autoRepairProposalIndices);
 
   /// Every item still staged for this import, in original order.
   final List<ImportReviewItem> allItems;
