@@ -289,7 +289,7 @@ final class TrainingConfigurationRepository
           UpdateTrainingContentRequest request) =>
       _transaction((txn) async {
         final old = await _target(txn, request.target);
-        // Explicit recovery of an invalidated relation belongs to P2b rebind.
+        // Explicit recovery of an invalidated relation uses rebindMember only.
         if (old.members.any((member) =>
             member.bindingStatus == TrainingBindingStatus.invalidated &&
             request.edit.members.any((next) =>
@@ -310,6 +310,70 @@ final class TrainingConfigurationRepository
         await txn.delete(trainingContentMembersTable,
             where: 'content_id = ?', whereArgs: [old.contentId]);
         await _members(txn, content);
+        return content;
+      });
+
+  @override
+  Future<HomeTrainingResult<TrainingContent>> rebindMember(
+          RebindTrainingContentMemberRequest request) =>
+      _transaction((txn) async {
+        final old = await _target(txn, request.target);
+        final member = old.members
+            .where((member) => member.bankName == request.bankName)
+            .firstOrNull;
+        if (member == null) {
+          throw const _ConfigurationFailure(HomeTrainingFailure.notFound);
+        }
+        if (member.bindingStatus != TrainingBindingStatus.invalidated) {
+          throw const _ConfigurationFailure(HomeTrainingFailure.conflict);
+        }
+        final catalog = await _catalog(txn);
+        final bank = catalog.banks
+            .where((bank) => bank.bankName == request.bankName)
+            .firstOrNull;
+        if (bank == null ||
+            !bank.ordinaryTrainingEligible ||
+            bank.categoryKey != old.categoryKey) {
+          throw const _ConfigurationFailure(HomeTrainingFailure.invalidInput);
+        }
+        final content = TrainingContent(
+          contentId: old.contentId,
+          categoryKey: old.categoryKey,
+          name: old.name,
+          questionLimit: old.questionLimit,
+          sortOrder: old.sortOrder,
+          revision: old.revision + 1,
+          members: [
+            for (final binding in old.members)
+              if (binding.bankName == request.bankName)
+                TrainingContentMember(
+                  bankName: binding.bankName,
+                  weightPercent: binding.weightPercent,
+                  position: binding.position,
+                )
+              else
+                binding
+          ],
+        );
+        final changed = await txn.update(
+            trainingContentMembersTable,
+            {
+              'binding_status': 'valid',
+              'invalidation_reason': null,
+            },
+            where:
+                "content_id = ? AND bank_name = ? AND binding_status = 'invalidated'",
+            whereArgs: [old.contentId, request.bankName]);
+        if (changed != 1) {
+          throw const _ConfigurationFailure(HomeTrainingFailure.conflict);
+        }
+        final revised = await txn.update(
+            trainingContentsTable, {'revision': content.revision},
+            where: 'content_id = ? AND revision = ?',
+            whereArgs: [old.contentId, request.target.expectedRevision]);
+        if (revised != 1) {
+          throw const _ConfigurationFailure(HomeTrainingFailure.stale);
+        }
         return content;
       });
 

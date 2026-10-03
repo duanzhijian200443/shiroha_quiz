@@ -20,6 +20,7 @@ import '../../core/database/database_helper.dart';
 import '../../application/backup/backup_restore_gate.dart';
 import 'content_asset_reclamation_observation_repository.dart';
 import '../../core/database/sqflite_runtime.dart';
+import '../../core/database/training_content_binding_lifecycle.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../models/persisted_question.dart';
 import '../models/question_draft.dart';
@@ -168,7 +169,12 @@ class QuestionRepository
           frozenWrites: frozenWrites,
           assetIdentities: assetIdentities,
         );
+        await invalidateTrainingBindingsAtFinalState(txn,
+            affectedBankNames: [trimmedBankName]);
       });
+    } on TrainingBindingLifecycleException {
+      throw const QuestionV2WriteException(
+          QuestionV2WriteFailure.transactionFailed);
     } on DatabaseException {
       throw const QuestionV2WriteException(
         QuestionV2WriteFailure.transactionFailed,
@@ -278,6 +284,8 @@ class QuestionRepository
             TypedImportCommitPersistenceFailure.transactionFailed,
           );
         }
+        await invalidateTrainingBindingsAtFinalState(txn,
+            affectedBankNames: [trimmedBankName]);
         return TypedImportCommitPersistenceResult(
           questionCount: frozenWrites.length,
           completedAt: nowUtcSeconds,
@@ -289,6 +297,9 @@ class QuestionRepository
       );
     } on TypedImportCommitPersistenceException {
       rethrow;
+    } on TrainingBindingLifecycleException {
+      throw const TypedImportCommitPersistenceException(
+          TypedImportCommitPersistenceFailure.transactionFailed);
     } on DatabaseException {
       throw const TypedImportCommitPersistenceException(
         TypedImportCommitPersistenceFailure.transactionFailed,
@@ -398,6 +409,8 @@ class QuestionRepository
             LegacyImportCommitPersistenceFailure.transactionFailed,
           );
         }
+        await invalidateTrainingBindingsAtFinalState(txn,
+            affectedBankNames: [trimmedBankName]);
         return LegacyImportCommitPersistenceResult(
           questionCount: frozenRows.length,
           completedAt: nowUtcSeconds,
@@ -409,6 +422,9 @@ class QuestionRepository
       );
     } on LegacyImportCommitPersistenceException {
       rethrow;
+    } on TrainingBindingLifecycleException {
+      throw const LegacyImportCommitPersistenceException(
+          LegacyImportCommitPersistenceFailure.transactionFailed);
     } on DatabaseException {
       throw const LegacyImportCommitPersistenceException(
         LegacyImportCommitPersistenceFailure.transactionFailed,
@@ -1625,6 +1641,8 @@ class QuestionRepository
       if (sidecar.isNotEmpty) {
         throw const QuestionV2LegacyMutationBlockedException();
       }
+      final oldRows = await txn.query('questions',
+          columns: ['bank_name'], where: 'id = ?', whereArgs: [cleanId]);
       await txn.insert(
         'questions',
         row,
@@ -1643,6 +1661,10 @@ class QuestionRepository
         },
         conflictAlgorithm: ConflictAlgorithm.ignore,
       );
+      await invalidateTrainingBindingsAtFinalState(txn, affectedBankNames: [
+        ...oldRows.map((old) => old['bank_name']).whereType<String>(),
+        row['bank_name'] as String,
+      ]);
     });
   }
 
