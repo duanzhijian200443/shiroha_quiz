@@ -41,7 +41,7 @@ Validation or review of a moving target is invalid.
 | Coordinator | Orchestration/integration | Coordinator-owned integration only |
 | Planner | Contract/architecture planning when needed | No |
 | Diagnostician | Uncertain root cause | No |
-| Executor | Implementation + mechanical verification + PR delivery | Yes, assigned paths only |
+| Executor | Implementation + mechanical verification + PR delivery | Yes, assigned responsibility |
 | Verifier | Optional independent deterministic verification | No |
 | Reviewer | Independent final semantic review | No |
 
