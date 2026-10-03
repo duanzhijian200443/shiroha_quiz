@@ -35,6 +35,8 @@
 
 实施状态 amendment（P1c）：P1a Domain 和 P1b Application contracts 已存在，runtime schema 已升级为 v29；TrainingContent 三表、一次性旧 current bank seed 和 B0 INCLUDE / staged validation 已实现。v30 / v31、配置 CRUD、binding lifecycle、Home/Today 新入口、训练启动和 Activity / TaskCenter runtime 仍待实施。本 amendment 不宣称这些功能已经 production-activated。
 
+实施状态 amendment（P2a）：真实只读 TrainingCatalog、TrainingContent Query/Command、配置 CRUD、current selection 和 Category Visual preference CAS 已实现，继续使用 v29 schema 和单一数据库 eligibility adapter。Application 负责 captured catalog 的 usability 与 deterministic runtime fallback；query 不写回 fallback，也不持久化 binding invalidation。配置 mutation 在同一事务内重验并原子提交，content 与 preference revision 独立。P2b invalidation/rebind、Home/配置 UI、新训练启动与后续 runtime 接入仍待实施，当前生产入口未因此激活。
+
 如发现本文与更高层 canonical contract 存在未明确处理的实质冲突，停止受影响任务并报告冲突。不得自行选边、降级、扩大范围或通过“兼容实现”绕过冲突。
 
 ## 1.2 本轮包含
