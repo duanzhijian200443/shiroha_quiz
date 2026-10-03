@@ -1,104 +1,106 @@
 # Agent Model Routing and Cost Discipline
 
-This file defines repository-specific model routing. Safety, scope, Git authority, privacy, fixed-target rules, evidence inheritance and repair semantics live in `AGENTS.md`.
+This file defines repository-specific model routing. Safety, scope, Git
+authority, privacy, fixed-target rules, evidence inheritance and repair semantics
+live in `AGENTS.md`.
 
-## Principles
+## Precedence
 
-- Route by remaining uncertainty and blast radius.
-- Use the cheapest route that safely fits implementation, but keep final semantic review independent.
-- Reuse parent-attested evidence and avoid duplicate topology/hash/root-cause work.
-- DeepSeek default reasoning = MAX whenever a DeepSeek route is selected unless the user overrides it.
-- A green Executor verification lane is not semantic approval.
+Model routing follows this order:
 
-## Ordinary implementation + mechanical verification
+1. explicit current-user instruction;
+2. explicit current-task / project override;
+3. this repository default.
 
-```text
-Preferred model: deepseek/deepseek-v4-flash
-Reasoning: max
-Fallback: same model at the highest supported reasoning setting
-```
+A current explicit user choice overrides every repository fallback below.
 
-Use for bounded implementation where behavior/contracts are frozen, including production changes, regressions, adapters/mappers, compatibility glue and deterministic in-contract repairs.
+Do not put model names in task titles. A task package may mention the active
+model only when routing itself is relevant.
 
-The Executor owns focused mechanical verification and bounded self-repair by default. A standalone Verifier is not inserted merely to rerun the same checks.
+## Current repository default
 
-## Optional independent verification
-
-Preferred order when `AGENTS.md` risk triggers require a Verifier:
-
-1. local deterministic runner/CI when sufficient;
-2. inexpensive tool-capable Verifier;
-3. Gemini Flash high;
-4. DeepSeek V4 Flash max when other routes are unavailable.
-
-Verifier runs exact assigned checks and never repairs failures.
-
-## Independent final semantic review
-
-The current project workflow assigns the final semantic review to **GPT-5.6 Sol** independently from the Executor.
-
-Every review states:
+For this project, use:
 
 ```text
-Review difficulty: light | ordinary | high
-Reason: <one concrete sentence>
+GPT-6.1 Sol
 ```
 
-Recommended reasoning:
+for Planning, Execution, Diagnosis and Independent Review when available.
 
-- light: small docs/mechanical/test-only/frozen low-risk changes;
-- ordinary: bounded business/domain logic and multi-file changes under a frozen contract;
-- high: public contract/API changes, CAS/revision/concurrency semantics, persistence/schema/migrations, security/privacy/authorization, or meaningful cross-module data-loss risk.
+Reasoning level should match the task:
 
-Preferred final Reviewer:
+- light: docs/mechanical/frozen low-risk work;
+- ordinary: bounded business/domain logic and multi-file changes;
+- high: public contracts, persistence/schema/migrations, CAS/concurrency,
+  security/privacy/authorization, or meaningful data-loss risk.
 
-```text
-Model: gpt-5.6-sol
-Reasoning: match review difficulty; use high for high-risk review
-```
+Independence means a separate review pass/context over a frozen target. It does
+not require a different model family.
 
-Reviewer reads the final PR independently and does not accept Executor self-assessment as proof.
+## Executor
+
+The Executor owns:
+
+- implementation;
+- focused mechanical verification;
+- policy-permitted bounded self-repair;
+- commit/push/PR delivery when authorized.
+
+Do not insert a separate Verifier merely to repeat the Executor's deterministic
+checks.
+
+## Optional independent Verifier
+
+Use a Verifier only for the risk triggers in `AGENTS.md`.
+
+Preferred order:
+
+1. deterministic CI/local runner when sufficient;
+2. GPT-6.1 Sol in a separate verification context when an agent is needed.
+
+The Verifier runs assigned checks only and never repairs failures.
+
+## Independent Reviewer
+
+Final semantic review uses GPT-6.1 Sol in a separate review context unless the
+user explicitly chooses another route.
+
+The Reviewer must independently inspect the frozen PR head and may not accept
+Executor self-assessment as proof.
 
 ## Repair routing
 
-During implementation/verification:
+During implementation:
 
 ```text
 Executor check fails
--> bounded self-repair when AGENTS.md conditions are satisfied
+-> bounded self-repair when AGENTS.md permits
 -> rerun failed/direct regression checks
--> up to two bounded semantic repair cycles
--> mandatory STOP when limits/boundaries are crossed
+-> STOP only at the actual scope/contract/risk boundary
 ```
 
-After Reviewer findings:
+After review:
 
 ```text
 P0/P1/P2
--> bounded Repair Executor on same PR when in scope
+-> bounded Repair Executor on the same PR
 -> mechanical verification
 -> push updated PR
 -> STOP
--> GPT-5.6 Sol targeted fresh review
+-> targeted fresh Reviewer pass
 ```
 
 P3 does not automatically trigger repair.
 
-A second full review is exceptional; use targeted closure unless the repair changed architecture/public contract/schema/security/concurrency semantics or invalidated the original review scope.
-
 ## Execution economy
 
-Executor should run:
-
-- directly affected focused tests;
-- relevant architecture/boundary checks;
-- focused analyze;
-- format gate;
-- `git diff --check`;
-- only broader checks explicitly required by the task/repository.
-
-Do not run live provider/OCR, generated apps, full Release builds, or broad suites merely for reassurance.
+Run directly affected tests, relevant architecture/boundary checks, focused
+analyze, format gate and `git diff --check`. Do not run live provider/OCR,
+full Release builds, or broad suites merely for reassurance.
 
 ## User overrides
 
-An explicit current-user choice of model, reasoning level, review limit, repair permission, stop condition, or Git authority overrides these routing defaults. Safety, privacy, scope and fixed-target rules remain unchanged.
+An explicit current-user choice of model, reasoning level, review limit, repair
+permission, stop condition or Git authority wins over repository routing
+defaults. Safety, privacy, frozen contract and fixed-target rules remain
+unchanged.

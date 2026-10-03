@@ -22,7 +22,7 @@ When the task touches OCR, `import_pipeline`, `import_review`, `QuestionDraft`, 
 
 Reuse explicit parent-attested evidence. Recheck only the minimum current facts needed to avoid writing the wrong target, normally `git status --short` plus branch/HEAD when required by the package or drift is observed.
 
-- Modify only explicitly allowed files.
+- Treat package paths as expected ownership paths by default, not an exhaustive whitelist. Directly necessary coupled files may be added under `AGENTS.md` unless `Strict path whitelist: yes` is set.
 - Make the smallest coherent change that satisfies frozen behavior.
 - Do not broaden the task because of nearby issues.
 - Do not refactor/rename/reformat unrelated code.
@@ -30,7 +30,7 @@ Reuse explicit parent-attested evidence. Recheck only the minimum current facts 
 - Do not add/upgrade dependencies or change CI/schema/migrations/release/signing unless explicitly in scope.
 - Never edit generated files manually.
 
-If another write path is required, STOP and report exact path/reason/minimal change/risk.
+If a newly required path is directly coupled to the same authorized responsibility, does not cross another writer's ownership, and does not change frozen semantics, modify it and report the path/reason in handoff. STOP only when the new path crosses those boundaries or a strict whitelist.
 
 ## Canonical contract discipline
 
@@ -67,7 +67,7 @@ You MAY repair and rerun when all are true:
 
 1. failure is caused by the current authorized task;
 2. root cause is concrete and evidence-backed;
-3. repair stays within allowed/commit paths;
+3. repair stays within the authorized responsibility and path-ownership rule in `AGENTS.md`;
 4. frozen architecture/canonical semantics do not change;
 5. the failing check/test is not weakened, skipped, deleted, relaxed or bypassed;
 6. no unrelated bug or feature is introduced.
@@ -82,7 +82,7 @@ You MAY repair and rerun when all are true:
 
 STOP when:
 
-- another write path is required;
+- another write path would cross the task responsibility, another writer's ownership, or an explicit strict whitelist;
 - schema/migration/public API/frozen contract changes become necessary;
 - a separate pre-existing defect is exposed;
 - root cause remains uncertain;
@@ -109,22 +109,32 @@ Do not run full suites, Release builds, generated apps, real OCR/provider smokes
 
 Executor role alone grants no Git write authority.
 
+For write work, use the assigned dedicated non-default branch. If that branch
+does not yet exist and branch creation is authorized by the package/user, create
+it from the authorized base before editing. Do not implement directly on
+`master`.
+
+A separate worktree is optional. Use one only for parallel writers, dirty
+checkout isolation, or an explicit Coordinator requirement.
+
 When the package supplies:
 
 ```text
-Local commits authorized: yes
-Branch: <assigned branch>
-Commit paths: <exact paths>
+Branch: <assigned new branch>
+Expected ownership paths: <primary files/modules>
+Strict path whitelist: no | yes
+Local commits authorized: yes | no
 Push authorized: no | yes
 PR creation authorized: no | yes
 Merge authorized: no | yes
 ```
 
-then append-only commits and policy-permitted bounded self-repairs are allowed within that exact task/branch/path scope.
+append-only commits and policy-permitted bounded self-repairs are allowed within
+the authorized task responsibility.
 
-- Stage exact paths only; never `git add .` or `git add -A`.
+- Stage the **actual final changed paths** exactly; never `git add .` or `git add -A`.
 - Never amend/rebase/squash/rewrite history unless separately authorized.
-- Do not switch branches or touch another writer's worktree.
+- Do not touch another writer's branch/worktree.
 - Push/create PR only when explicitly authorized.
 - **After PR creation, STOP.** Do not self-review, self-approve, merge, or begin the next stage unless the user separately authorizes it.
 
@@ -142,7 +152,7 @@ For migration work:
 Return `COMPLETE`, `BLOCKED`, or `FAILED` and include only:
 
 - target/branch/base needed to identify the result;
-- files changed and behavior;
+- files changed and behavior, including any directly necessary coupled paths added beyond the expected list and why;
 - tests/checks actually run and results;
 - bounded self-repairs performed;
 - checks not run;

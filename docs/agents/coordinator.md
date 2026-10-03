@@ -37,39 +37,44 @@ Standalone Verifier is optional/risk-triggered, not a default handoff.
 ## Standard orchestration
 
 1. Capture base commit, branch/worktree topology, ownership and dirty state once.
-2. Confirm allowed paths, Git authority, stop conditions and current stage only.
-3. Use Planner/Diagnostician only when architecture/root cause is genuinely unresolved.
-4. Freeze shared contract decisions, rollback point and parent-attested evidence.
-5. Split into the smallest coherent tasks and assign each production path to one writer.
-6. Dispatch only runnable Executors; default global active-child budget is two.
-7. Executor implements, performs required focused verification and may use the bounded self-repair policy in `AGENTS.md`.
-8. When verification is clean and Git authority allows, Executor commits/pushes/creates PR, then stops.
-9. Insert an independent Verifier only for the explicit risk triggers in `AGENTS.md` or when the Reviewer requests one.
-10. Run one initial full Independent Reviewer on the final PR head. Require all assigned P0/P1/P2 findings together.
-11. Batch compatible in-scope findings into a bounded Repair Executor pass on the same PR where possible.
-12. Repair Executor re-verifies, pushes and stops; run one targeted Reviewer closure pass.
-13. P3 does not trigger repair by itself.
-14. Integrate/merge only when explicitly authorized and required gates are satisfied.
-15. Stop after the current stage; later roadmap stages require a new user request.
+2. Assign a dedicated non-default branch for every writer. Use a separate worktree only for parallel writers or when checkout isolation is needed.
+3. Confirm expected ownership paths/modules, strict-whitelist status, Git authority, stop conditions and current stage only.
+4. Use Planner/Diagnostician only when architecture/root cause is genuinely unresolved.
+5. Freeze shared contract decisions, rollback point and parent-attested evidence.
+6. Split into the smallest coherent tasks and assign each shared/high-risk production path to one writer; do not require exhaustive path prediction for ordinary directly coupled files.
+7. Dispatch only runnable Executors; default global active-child budget is two.
+8. Executor implements, performs required focused verification and may use the bounded self-repair/path-ownership policy in `AGENTS.md`.
+9. When verification is clean and Git authority allows, Executor commits/pushes/creates PR, then stops.
+10. Insert an independent Verifier only for the explicit risk triggers in `AGENTS.md` or when the Reviewer requests one.
+11. Run one initial full Independent Reviewer on the final PR head. Require all assigned P0/P1/P2 findings together.
+12. Batch compatible in-scope findings into a bounded Repair Executor pass on the same PR where possible.
+13. Repair Executor re-verifies, pushes and stops; run one targeted Reviewer closure pass.
+14. P3 does not trigger repair by itself.
+15. Integrate/merge only when explicitly authorized and required gates are satisfied.
+16. Stop after the current stage; later roadmap stages require a new user request.
 
 ## Delegation package
 
-A normal package contains only:
+Keep packages compact and task-specific. A normal writable package contains:
 
 ```text
 角色：<role>
-目标：<bounded objective>
+任务：<bounded objective>
 
-Base/Branch: <commit + assigned branch/worktree when relevant>
-Allowed paths: <exact paths>
-Parent-attested evidence: <frozen facts>
-Task-specific invariant/constraints: <current-stage semantics only>
+Base: <authorized commit/ref>
+Branch: <assigned new branch>
+Expected ownership paths: <primary files/modules>
+Strict path whitelist: no | yes
+Frozen task semantics: <only current-stage invariants>
 Acceptance: <bounded criteria>
-Validation: <exact focused commands/timeouts>
-Git authority: <commit/push/PR/merge fields when relevant>
-Model: <preferred route/fallback only when needed>
-Stop only if: <scope / Class-C / target drift / environment blockers>
+Validation: <focused commands/checks>
+Git: <commit/push/PR/merge authority>
+Stop only if: <real scope/contract/version/cross-writer/environment blocker>
 ```
+
+A worktree field is added only for parallel writers or explicit isolation.
+Directly necessary coupled files may be added under `AGENTS.md` when the
+strict whitelist is off; the Executor reports them in handoff.
 
 Do not ask children to rediscover frozen facts merely for reassurance.
 
