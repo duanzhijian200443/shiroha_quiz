@@ -545,7 +545,7 @@ Seed capture, the QuestionRepository-owned atomic set/member writer with per-doc
 - Source-file deletion, artifact replacement/removal, task cleanup and folder moves preserve committed set identity and membership. Answer/content edits preserve membership and review state; query counts reflect current typed answers, including explicit-empty as answered. Question deletion or bank movement removes membership, and the final removal deletes the empty set.
 - B0 preserves set identity and ordered membership while treating provenance as soft evidence; strict v28 schema/trigger and relationship validation remains mandatory. V0/CL adds no production mutation path and does not activate typed-admission R1, stable bank identity, batch AI or RAG-2.
 
-## Home Training V3 — contracts and v29 persistence implemented
+## Home Training V3 — configuration ports and v29 persistence implemented
 
 `docs/product/home-training-implementation-freeze-v3.md` freezes
 `SHIROHA-HOME-TRAINING-IPF-V3` as the planned successor to the current
@@ -563,8 +563,16 @@ the upgrade transaction seeds only the eligible old current bank once, without
 changing learning data. B0 includes configuration and validates bindings,
 weights and references before restore swap, retaining invalidated bindings and
 unavailable-but-existing current content. There is no bank foreign key or new
-bank registry. Configuration CRUD, binding lifecycle, Home/Today activation,
-training launch, Activity and TaskCenter implementations remain planned.
+bank registry. P2a implements the read-only TrainingCatalog and TrainingContent
+queries plus atomic create/update/delete, separate preference CAS, current
+selection and Category Visual writes through TrainingConfigurationRepository.
+Application projects usability from the captured catalog and resolves
+deterministic runtime fallback without persisting it. All admission and CAS
+checks run in the writing transaction and reuse the v29 ordinary-bank eligibility
+adapter. Deleting configuration preserves learning data and advances a referencing
+preference's independent revision while clearing only its current content.
+Persistent binding invalidation/rebind, Home/Today activation, training launch,
+Activity and TaskCenter implementations remain planned.
 The existing Today, ordinary-training, StudyPlan and TaskCenter boundaries
 above remain current truth. StudyPlan remains the single
 global ActiveStudyPlan and stays independent of TrainingContent. Delivery

@@ -2,7 +2,7 @@
 
 **契约入口：docs/product/home-training-implementation-freeze-v3.md**
 **性质：派生执行附录；不定义或修改产品语义。**
-**状态：实施中；P0、P1a、P1b、P1c 已完成，下一包为 P2a。**
+**状态：实施中；P0～P2a 已完成，下一包为 P2b。**
 
 本附录不授予 merge/tag/release 权限。每个写任务使用独立非默认分支；单写者默认不建 worktree，只有并行 writer、脏工作区隔离或 Coordinator 明确要求时才创建 worktree。commit/push/PR 仍按任务包或用户授权执行。
 
@@ -10,7 +10,7 @@
 
 # A0. 当前交付状态
 
-截至 master `a388b5c64261ad8cd014ca4282ee69e81c507fdd`：
+截至 PR #219 head `5d563aea3cc0ecc605cf4f7f114d563b167d0852`（master 已含 `a388b5c64261ad8cd014ca4282ee69e81c507fdd` 的 P0～P1c，P2a 尚未合入 master）：
 
 | Package | Status |
 |---|---|
@@ -18,7 +18,8 @@
 | P1a | COMPLETE |
 | P1b | COMPLETE / CP1 passed |
 | P1c | COMPLETE |
-| P2a | NEXT |
+| P2a | COMPLETE |
+| P2b | NEXT |
 
 当前 runtime schema：
 
@@ -27,6 +28,8 @@ v29
 ```
 
 v29 TrainingContent persistence / migration / B0 compatibility 已进入当前 runtime truth。v30 StudyActivity 与 v31 ImportTask event timestamps 仍为 planned。
+
+P2a 已交付 configuration capability：真实只读 TrainingCatalog、TrainingContent Query/Command、配置 CRUD、current selection 与 Category Visual preference CAS。persistent binding invalidation/rebind（P2b）、Home 与配置 UI、新训练启动仍未实施，当前生产入口未因此激活。
 
 以下 A 节保留最初规划基线，仅作为历史 planning evidence，不得覆盖本节 current delivery state。
 
