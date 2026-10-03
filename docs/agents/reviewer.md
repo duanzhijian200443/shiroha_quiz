@@ -29,7 +29,7 @@ Prefer an explicit PR head/target commit and base commit. For an uncommitted tar
 Read only what is needed, in this order:
 
 1. `AGENTS.md`, `ARCHITECTURE.md`, and this role file;
-2. original task/frozen contract and parent-attested evidence;
+2. the original task and the governing canonical/frozen contract source file itself; if the task belongs to a staged plan, also read the active execution appendix; parent-attested summaries are context, not substitutes for those sources;
 3. Executor verification evidence, CI, and optional Verifier evidence;
 4. diff stat/name-only and focused diff;
 5. caller/callee/full files only when a concrete semantic question requires them.
