@@ -48,6 +48,7 @@ final class _EligibilityFake implements OrdinaryTrainingBankEligibility {
 final class _CommandFake implements TrainingContentCommand {
   UpdateTrainingContentRequest? updateRequest;
   TrainingContentTarget? deleted;
+  RebindTrainingContentMemberRequest? rebound;
   SelectTrainingContentRequest? selected;
   UpdateCategoryVisualRequest? visual;
   @override
@@ -69,6 +70,13 @@ final class _CommandFake implements TrainingContentCommand {
   }
 
   @override
+  Future<HomeTrainingResult<TrainingContent>> rebindMember(
+      RebindTrainingContentMemberRequest request) async {
+    rebound = request;
+    return const HomeTrainingFailed(HomeTrainingFailure.stale);
+  }
+
+  @override
   Future<HomeTrainingResult<TrainingCurrentSelection>> selectCurrent(
       SelectTrainingContentRequest request) async {
     selected = request;
@@ -84,6 +92,24 @@ final class _CommandFake implements TrainingContentCommand {
 }
 
 void main() {
+  test(
+      'rebind contract preserves exact bank and content CAS without editable fields',
+      () async {
+    final target =
+        TrainingContentTarget(contentId: 'content', expectedRevision: 4);
+    final request =
+        RebindTrainingContentMemberRequest(target: target, bankName: ' Bank ');
+    final command = _CommandFake();
+    final result = await command.rebindMember(request);
+    expect(command.rebound, same(request));
+    expect(request.bankName, ' Bank ');
+    expect(request.target.expectedRevision, 4);
+    expect((result as HomeTrainingFailed<TrainingContent>).failure,
+        HomeTrainingFailure.stale);
+    expect(
+        () => RebindTrainingContentMemberRequest(target: target, bankName: ' '),
+        throwsA(isA<HomeTrainingContractException>()));
+  });
   test('eligibility is independently fakeable and preserves exact bank input',
       () async {
     final fake = _EligibilityFake();

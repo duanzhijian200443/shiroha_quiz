@@ -327,6 +327,96 @@ void main() {
     }
   });
 
+  for (final typed in [true, false]) {
+    test(
+        '${typed ? 'typed' : 'legacy'} import completion and binding lifecycle commit together',
+        () async {
+      final db = await _singletonDb();
+      await _insertLegacyRow(db, id: 'binding-original', createdAt: 1);
+      await db.insert('training_contents', {
+        'content_id': 'import-training',
+        'category_key': '["uncategorized"]',
+        'name': 'Synthetic training',
+        'question_limit': 40,
+        'sort_order': 0,
+        'revision': 1,
+      });
+      await db.insert('training_content_members', {
+        'content_id': 'import-training',
+        'bank_name': _bankName,
+        'weight_percent': 100,
+        'position': 0,
+        'binding_status': 'valid',
+      });
+      await _insertImportTask(db,
+          id: typed ? 'import-task' : 'legacy-import-task',
+          diagnostics:
+              typed ? _importDiagnostics() : _legacyImportDiagnostics());
+      Future<Map<String, Object?>> snapshot() async => {
+            for (final table in [
+              'questions',
+              'question_v2_payloads',
+              'review_states',
+              'bank_folders',
+              'import_tasks',
+              'training_contents',
+              'training_content_members',
+              'imported_question_sets',
+              'imported_question_set_items',
+            ])
+              table: await db.query(table),
+          };
+      Future<void> commit() async {
+        final repository = QuestionRepository();
+        if (typed) {
+          await repository.commitQuestionDraftsV2ForImport(
+            bankName: _bankName,
+            folderName: 'Math',
+            questions: [_draft('new-import-question')],
+            guard: _importGuard(),
+            completionText: 'done',
+          );
+        } else {
+          await repository.commitQuestionDraftsLegacyForImport(
+            bankName: _bankName,
+            folderName: 'Math',
+            questions: [_legacyImportDraft],
+            guard: _legacyImportGuard(),
+            completionText: 'done',
+          );
+        }
+      }
+
+      final before = await snapshot();
+      await db.execute('''
+        CREATE TRIGGER fail_binding BEFORE UPDATE ON training_content_members
+        BEGIN SELECT RAISE(ABORT, 'synthetic lifecycle failure'); END
+      ''');
+      await expectLater(
+        commit(),
+        throwsA(typed
+            ? isA<TypedImportCommitPersistenceException>().having(
+                (e) => e.failure,
+                'failure',
+                TypedImportCommitPersistenceFailure.transactionFailed)
+            : isA<LegacyImportCommitPersistenceException>().having(
+                (e) => e.failure,
+                'failure',
+                LegacyImportCommitPersistenceFailure.transactionFailed)),
+      );
+      expect(await snapshot(), before);
+      await db.execute('DROP TRIGGER fail_binding');
+      await commit();
+      expect((await db.query('import_tasks')).single['status'], 2);
+      expect(await db.query('questions'), hasLength(2));
+      expect(await db.query('question_v2_payloads'), hasLength(typed ? 1 : 0));
+      final member = (await db.query('training_content_members')).single;
+      expect(member['binding_status'], 'invalidated');
+      expect(member['invalidation_reason'], 'categoryChanged');
+      expect((await db.query('training_contents')).single['revision'], 2);
+    });
+  }
+
   group('typed save atomic batch', () {
     test('writes parent, sidecar, and initial review state for every draft',
         () async {

@@ -816,4 +816,114 @@ void main() {
         HomeTrainingFailure.stale);
     expect(_success(await repository.current()).preference!.revision, 1);
   });
+
+  test('explicit rebind restores one exact member, reason and revision only',
+      () async {
+    await bank('Bank');
+    await bank('Second');
+    final content = await create(banks: ['Bank', 'Second']);
+    await invalidate(content);
+    _success(await repository.selectCurrent(SelectTrainingContentRequest(
+        target: _pref(_uncategorized, null), contentId: content.contentId)));
+    final prefs = await db.query(trainingCategoryPreferencesTable);
+    final settings = await db.query('app_settings');
+    final rebound = _success(await repository.rebindMember(
+        RebindTrainingContentMemberRequest(
+            target: _target(content), bankName: 'Second')));
+    expect(rebound.revision, 2);
+    expect(
+        rebound.members.first.bindingStatus, TrainingBindingStatus.invalidated);
+    expect(rebound.members.last.bindingStatus, TrainingBindingStatus.valid);
+    expect(rebound.members.last.invalidationReason, isNull);
+    expect(rebound.members.map((member) => member.weightPercent), [100, 0]);
+    expect(
+        _success(await repository.getById(content.contentId)).usable, isFalse);
+    final allValid = _success(await repository.rebindMember(
+        RebindTrainingContentMemberRequest(
+            target: _target(rebound), bankName: 'Bank')));
+    expect(allValid.revision, 3);
+    expect(
+        _success(await repository.getById(content.contentId)).usable, isTrue);
+    expect(await db.query(trainingCategoryPreferencesTable), prefs);
+    expect(await db.query('app_settings'), settings);
+    await validateTrainingContentV29Data(db);
+  });
+
+  for (final rejection in [
+    'stale',
+    'missing bank',
+    'ineligible',
+    'wrong Category',
+    'valid member',
+    'missing member',
+    'missing content'
+  ]) {
+    test('explicit rebind rejects $rejection with zero mutation', () async {
+      await bank('Bank');
+      final content = await create();
+      if (rejection != 'valid member') await invalidate(content);
+      var name = 'Bank';
+      var target = _target(content);
+      var failure = HomeTrainingFailure.invalidInput;
+      switch (rejection) {
+        case 'stale':
+          target = _target(content, revision: 2);
+          failure = HomeTrainingFailure.stale;
+        case 'missing bank':
+          await db.delete('questions');
+        case 'ineligible':
+          name = hiddenExamBankName;
+          await bank(name);
+          await db.update(trainingContentMembersTable, {'bank_name': name});
+        case 'wrong Category':
+          await db.insert('bank_folders',
+              {'bank_name': 'Bank', 'folder_name': 'Elsewhere'});
+        case 'valid member':
+          failure = HomeTrainingFailure.conflict;
+        case 'missing member':
+          name = 'Other';
+          failure = HomeTrainingFailure.notFound;
+        case 'missing content':
+          target =
+              TrainingContentTarget(contentId: 'missing', expectedRevision: 1);
+          failure = HomeTrainingFailure.notFound;
+      }
+      await unchanged(() async {
+        _failure(
+            await repository.rebindMember(RebindTrainingContentMemberRequest(
+                target: target, bankName: name)),
+            failure);
+      });
+    });
+  }
+
+  test('rebind parent CAS write failure rolls member restoration back',
+      () async {
+    await bank('Bank');
+    final content = await create();
+    await invalidate(content);
+    await db.execute(
+        "CREATE TRIGGER reject_rebind BEFORE UPDATE ON training_contents BEGIN SELECT RAISE(ABORT, 'synthetic'); END");
+    await unchanged(() async {
+      _failure(
+          await repository.rebindMember(RebindTrainingContentMemberRequest(
+              target: _target(content), bankName: 'Bank')),
+          HomeTrainingFailure.unavailable);
+    });
+  });
+
+  test(
+      'ordinary update may explicitly replace invalidated member with a different legal bank',
+      () async {
+    await bank('Bank');
+    await bank('Second');
+    final content = await create();
+    await invalidate(content);
+    final updated = _success(await repository.update(
+        UpdateTrainingContentRequest(
+            target: _target(content), edit: _edit(banks: ['Second']))));
+    expect(updated.revision, 2);
+    expect(updated.members.single.bankName, 'Second');
+    expect(updated.members.single.bindingStatus, TrainingBindingStatus.valid);
+  });
 }
