@@ -1,8 +1,8 @@
 # Shiroha Quiz Implementation Planning Freeze V3
 
-**契约标识：SHIROHA-HOME-TRAINING-IPF-V3**  
-**冻结日期：2026-10-03**  
-**状态：产品与实施规划已冻结；尚未实施。**  
+**契约标识：SHIROHA-HOME-TRAINING-IPF-V3**
+**冻结日期：2026-10-03**
+**状态：产品与实施规划已冻结；尚未实施。**
 **替代关系：完整替代本专项 V2、V1，以及此前针对本专项的候选分析与修订建议。**
 
 本契约冻结训练内容配置、今日首页 v2、真实学习时长和解析任务页面的实施依据。后续 Agent 不得自行改变本文定义的产品语义、状态 authority、生命周期、迁移、架构边界或交付顺序。
@@ -652,7 +652,7 @@ widget dispose、lifecycle callback、route pop、submit callback、checkpoint t
 
 ## 7.4 新题与复习入口
 
-新题：current TrainingContent + positive-weight NEW pool。  
+新题：current TrainingContent + positive-weight NEW pool。
 复习：current Category complete due review pool。
 
 同一 Category 切换 content 时，新题 count 与三项 content summary 更新，但 Category review count 与 StudyPlan 不应变化。
