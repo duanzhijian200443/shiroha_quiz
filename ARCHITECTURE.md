@@ -96,7 +96,7 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
 6. Typed content mutation must not pass through the legacy editor or reconstruct authority from a V1 projection.
 7. Review/FSRS state is separate from typed question content mutation.
 8. `RichContent` is structural: a persisted `TextNode` is not reparsed later as Markdown/math/image syntax.
-9. Current database schema is **v28**: the frozen v15 typed sidecar remains
+9. Current database schema is **v29**: the frozen v15 typed sidecar remains
    authoritative, with the additive v16 File Library, v17 Project, v18 flat
    File Library Folder, v19 Conversation, and v20 parsed-artifact tables, the
    additive RAG-1 derived lexical-retrieval cache and FTS5 objects, the
@@ -105,7 +105,8 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
    origin/binding policy, v26 image AnswerAttempt modality, the v27 derived
    ContentAsset reclamation-observation table, and the v28 durable
    `ImportedQuestionSet` / ordered-membership schema with database-owned
-   relationship invariants. The v27 table records only
+   relationship invariants, plus the v29 TrainingContent / members / Category
+   preferences configuration schema. The v27 table records only
    continuous grace evidence; it is neither an ownership registry, a refcount,
    nor a persisted live-set authority. V26 only extends
    the modality CHECK; all columns, indexes, nullable correctness and append-only
@@ -197,7 +198,7 @@ Rules:
 - F1-D1 implemented the additive v20 artifact tables without modifying any
   earlier table. RAG-1 subsequently raised the runtime schema to v21 at its
   closure with derived lexical-retrieval cache tables and a dedicated FTS5
-  index; the current runtime is v28.
+  index; the current runtime is v29.
 
 See `docs/architecture/f1-parsed-artifact-lifecycle.md`.
 
@@ -441,7 +442,7 @@ boundary remains frozen and applies to any future P7 extension:
   READ_ONLY tools, A0 stays exactly six tools, and W0 is not a P7 workflow.
 - P7 adds no schema change and no persisted candidate/generation state/
   provenance/provider request/result/review state; runtime schema was v21 at
-  P7 closure. The current runtime is v28.
+  P7 closure. The current runtime is v29.
 
 ## 12. UI Finalization Presentation boundary
 
@@ -483,7 +484,7 @@ through an Application command with a durable transaction-level
   non-preview Practice seam (never `PracticePage.initialQuestions`, which
   remains preview-only). SPL-1 StudyPlan Agent Tool v0 is CLOSED / FROZEN
   (P0–D0–D1–I0–U0–V0–CL COMPLETE; stage schema v22, v24 at closure;
-  current runtime v28).
+  current runtime v29).
 
   The focused SPL-1 authority is
 `docs/product/SPL-1 StudyPlan Agent Tool v0.md`.
@@ -532,7 +533,7 @@ FSRS grading authority. See `docs/architecture/photo-answer-v1.md`.
 
 The design keeps Presentation behind Answer Completion Application services, preserves `PersistedQuestion.storageId` as Question identity, reuses existing P6/P7 answer mutation authority, and makes the existing task-bound `QuestionRepository` transaction the only import transaction owner. `LibraryFile`, `ParsedArtifact`, and `ImportTask` do not become QuestionSet identity.
 
-**ANSWER-COMP-D1 implemented this relation as the additive v28 schema; the runtime is now v28.** The `imported_question_sets` / `imported_question_set_items` tables, their constraints, the bank lookup index, and the required relationship triggers exist and are strictly validated, while historical questions remain ungrouped.
+**ANSWER-COMP-D1 implemented this relation as the additive v28 schema; the current runtime is v29.** The `imported_question_sets` / `imported_question_set_items` tables, their constraints, the bank lookup index, and the required relationship triggers exist and are strictly validated, while historical questions remain ungrouped.
 
 Seed capture, the QuestionRepository-owned atomic set/member writer with per-document dispatch, the Answer Completion read projection, the queue/detail Presentation, and set-scoped P6 plus single-question P7 activation are implemented. ANSWER-COMP-P0, ANSWER-ENTRY-GUARD, D0/D1/B0, I0a/I0b/I0c, Q0/U0/P6/P7, V0 and CL are COMPLETE; Answer Completion v0 is CLOSED / FROZEN. These durable boundaries apply:
 
@@ -544,7 +545,7 @@ Seed capture, the QuestionRepository-owned atomic set/member writer with per-doc
 - Source-file deletion, artifact replacement/removal, task cleanup and folder moves preserve committed set identity and membership. Answer/content edits preserve membership and review state; query counts reflect current typed answers, including explicit-empty as answered. Question deletion or bank movement removes membership, and the final removal deletes the empty set.
 - B0 preserves set identity and ordered membership while treating provenance as soft evidence; strict v28 schema/trigger and relationship validation remains mandatory. V0/CL adds no production mutation path and does not activate typed-admission R1, stable bank identity, batch AI or RAG-2.
 
-## Home Training V3 planned successor — PLANNED, not implemented
+## Home Training V3 — contracts and v29 persistence implemented
 
 `docs/product/home-training-implementation-freeze-v3.md` freezes
 `SHIROHA-HOME-TRAINING-IPF-V3` as the planned successor to the current
@@ -552,12 +553,20 @@ Today/Home and ordinary-training configuration contracts: Category-driven
 TrainingContent configuration (Category → TrainingContent → ordinary
 new-question pools, Category-scoped due review pools), Today/Home v2, durable
 StudyActivity timing, ImportTask attempt event timestamps, and a TaskCenter
-Application facade, with planned additive migrations v29 (TrainingContent),
-v30 (StudyActivity) and v31 (ImportTask event timestamps).
+Application facade. P1a Domain values and P1b Application contracts exist;
+P1c implements additive v29 TrainingContent persistence. Additive migrations
+v30 (StudyActivity) and v31 (ImportTask event timestamps) remain planned.
 
-Nothing in this successor is implemented or production-activated; the current
-runtime is v28 and the existing Today, ordinary-training, StudyPlan and
-TaskCenter boundaries above remain current truth. StudyPlan remains the single
+Runtime schema is v29. The three configuration tables and independent
+`app_settings.current_training_category` use canonical CategoryKey encoding;
+the upgrade transaction seeds only the eligible old current bank once, without
+changing learning data. B0 includes configuration and validates bindings,
+weights and references before restore swap, retaining invalidated bindings and
+unavailable-but-existing current content. There is no bank foreign key or new
+bank registry. Configuration CRUD, binding lifecycle, Home/Today activation,
+training launch, Activity and TaskCenter implementations remain planned.
+The existing Today, ordinary-training, StudyPlan and TaskCenter boundaries
+above remain current truth. StudyPlan remains the single
 global ActiveStudyPlan and stays independent of TrainingContent. Delivery
 order and ownership are governed by
 `docs/agents/home-training-v3-execution-plan.md` (P1a → P1b → CP1 →

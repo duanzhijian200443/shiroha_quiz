@@ -16,7 +16,7 @@ AnswerAttempt migration followed the original B0-P0 v22 freeze.
 
 ### Current-state amendment: AnswerAttempt schema v26
 
-This amendment raised the runtime to v26; the current runtime is v28 as stated
+This amendment raised the runtime to v26; the current runtime is v29 as stated
 below. Staged v25 databases rebuild `answer_attempts` inside
 DatabaseHelper's upgrade transaction, preserving all rows and both indexes;
 only the modality CHECK gains `image`. Image payload v1 uses `source_file_id`
@@ -30,7 +30,7 @@ prior schema boundary.
 ### Current-state amendment: Answer Completion schema v28
 
 ANSWER-COMP-D1 implemented the frozen Answer Completion relation as the
-additive v28 schema; **the current runtime is v28**. `imported_question_sets` /
+additive v28 schema; **the current runtime is v29**. `imported_question_sets` /
 `imported_question_set_items` — with their constraints, bank lookup index and
 required relationship triggers — are durable INCLUDE state, protected by the
 existing strict schema validator and by B0 portable-data relationship
@@ -39,17 +39,28 @@ validation (§3, §9). Historical questions stay ungrouped, provenance
 `parsed_artifacts` scrubbing is unchanged. No package-version change and no
 credential behavior change are involved.
 
-### Planned successor note: home training V3 (not implemented)
+### Current-state amendment: home training schema v29
 
-`docs/product/home-training-implementation-freeze-v3.md` plans further
-additive migrations **beyond** the current runtime schema: **v29**
-TrainingContent / members / Category preferences, **v30** StudyActivity
-session + segment, and **v31** ImportTask current-attempt event timestamps.
-None of these is implemented: the runtime stays v28 and nothing in this
-document describes v29–v31 as current. When that contract's implementation
-lands, it defines the B0 INCLUDE/SCRUB follow-up (TrainingContent,
-preferences and StudyActivity become INCLUDE; ImportTask rows, including any
-new event timestamps, remain scrubbed).
+P1c implements v29 `training_contents`, `training_content_members` and
+`training_category_preferences`, plus the independent
+`app_settings.current_training_category` key. These are durable INCLUDE state:
+weights, positions, binding status/reason, visual preference and current-content
+reference are retained exactly. Package versions/layout and all existing SCRUB
+rules remain unchanged. DatabaseHelper owns the additive upgrade and one-time
+old-current-bank seed; restore migrates only the staged database.
+
+Export and pre-swap staged validation share the strict v29 shape and portable
+data validators. They require canonical CategoryKey strings, non-empty unique
+members, 0..100 weights totaling 100 with a positive member, and valid-binding
+real-bank existence/ordinary eligibility/exact Category. Invalidated bindings
+may retain missing, moved or ineligible banks. A preference must reference an
+existing same-Category content, which may be unavailable; the global Category
+only needs valid encoding and may no longer be displayable. Validation never
+repairs configuration or persists runtime fallback.
+
+StudyActivity v30 and ImportTask event timestamps v31 remain planned under
+`docs/product/home-training-implementation-freeze-v3.md`. StudyActivity is not
+yet implemented or included; ImportTask remains scrubbed.
 
 ### ContentAsset lifecycle successor (docs-only)
 
@@ -80,7 +91,7 @@ closure are both implemented; the successor document records the evidence.
 ### Historical amendment: AI Config schema v24
 
 At that amendment's closure, runtime and current-runtime backup fixtures used
-schema **v24**; the current runtime is v28 as stated above.
+schema **v24**; the current runtime is v29 as stated above.
 The four additive AI configuration tables (`ai_providers`, `ai_models`,
 `ai_model_capability_claims`, `ai_capability_bindings`) are authoritative
 INCLUDE state. None has a credential column. Legacy `ai_engines.api_key` and
@@ -136,10 +147,11 @@ schemaVersion  = SQLite PRAGMA user_version
 - `schemaVersion` versions the SQLite schema carried inside the snapshot.
 - The manifest carries both; compatibility checks for each are separate
   (§8).
-- Current runtime schema is **v28**: v27 added the derived ContentAsset
+- Current runtime schema is **v29**: v27 added the derived ContentAsset
   reclamation-observation ledger, which the package excludes and scrubs like
   other derived state, and v28 is the additive durable `ImportedQuestionSet` /
-  ordered-membership schema. v24 and v26 references below retain their
+  ordered-membership schema. v29 adds durable TrainingContent configuration.
+  v24 and v26 references below retain their
   historical amendment or compatibility-fixture meaning.
 
 ## 2. Frozen package structure
@@ -210,7 +222,7 @@ payloads, or user file bytes. Those bytes remain only inside
 ## 3. Portable snapshot — INCLUDE
 
 The sanitized SQLite snapshot must preserve all authoritative durable user
-state. The v24 amendment froze the INCLUDE set below; current runtime is v28
+state. The v24 amendment froze the INCLUDE set below; current runtime is v29
 and retains these authoritative rows, including `answer_attempts` with image
 modality and the v28 Answer Completion question-set rows:
 
@@ -219,6 +231,7 @@ modality and the v28 Answer Completion question-set rows:
 | Questions | `questions` compatibility rows and all question columns |
 | Question V2 typed persistence | `question_v2_payloads` (typed sidecar remains authority) |
 | Answer Completion question sets | `imported_question_sets` and ordered `imported_question_set_items` membership |
+| TrainingContent configuration | `training_contents`, `training_content_members`, `training_category_preferences`; binding status/reason, weights/positions and visual/current-content preferences |
 | Question-bank compatibility data | `questions.bank_name`, `bank_folders`, `custom_folders` |
 | Review / FSRS | `review_states` |
 | Review logs / learning history | `review_logs` |
@@ -234,7 +247,7 @@ modality and the v28 Answer Completion question-set rows:
 | Non-secret AI engine metadata | `ai_engines` metadata columns only; credential columns scrubbed (§4) |
 | Provider / Model Registry authority | `ai_providers`, `ai_models`, `ai_model_capability_claims`, `ai_capability_bindings` |
 | Legacy AI metadata compatibility | `ai_profiles` metadata columns only, if retained; credential columns scrubbed (§4) |
-| Non-secret durable app/Agent configuration | audited `app_settings` rows such as `agent_config_v0`, active engine ids, current-bank and daily-quota settings; purely UI-local keys (currently `app_theme`) are excluded |
+| Non-secret durable app/Agent configuration | audited `app_settings` rows such as `agent_config_v0`, active engine ids, current-bank and daily-quota settings, and V3 `current_training_category`; purely UI-local keys (currently `app_theme`) are excluded |
 
 Additional SQLite rows may be included only after an explicit B0-D0/E0 audit
 confirms they are authoritative durable user state and are not in the EXCLUDE
@@ -269,7 +282,7 @@ The package must never contain:
 - secrets.
 
 In the sanitized snapshot, all legacy/current credential columns must be in an
-empty/null safe state. For current schema v28 this includes at least:
+empty/null safe state. For current schema v29 this includes at least:
 
 ```text
 ai_engines.api_key
@@ -557,6 +570,10 @@ Before commit, the staged DB must pass at least:
 - Answer Completion relation invariant (§3): `imported_question_sets` /
   `imported_question_set_items` contain non-empty, duplicate-free, same-bank
   ordered membership whose set and question references are intact;
+- TrainingContent relation invariant: canonical Category identities, non-empty
+  unique weighted members, valid-binding existence/eligibility/same-Category,
+  and non-dangling same-Category preferences; invalidated bindings and
+  unavailable current content remain legal (§ current-state v29 amendment);
 - `library_files` rows and manifest `managedFiles[]` are exactly 1:1, with
   matching `fileId`, `storageKey`, `sizeBytes`, and `sha256`;
 - every staged managed original exists and matches manifest/snapshot size and
@@ -921,7 +938,7 @@ B0 v0 explicitly excludes:
 - credential backup;
 - ParsedArtifact backup;
 - RAG cache backup;
-- future database schema migrations beyond the current runtime (v28);
+- future database schema migrations beyond the current runtime (v29);
 - DATA-MGMT destructive features;
 - UI redesign.
 
@@ -980,7 +997,7 @@ B0 .shiroha Backup / Restore — CLOSED / FROZEN
 The B0-V0 acceptance suite must cover:
 
 1. empty/fresh app export + restore;
-2. realistic populated current-schema v28 round trip;
+2. realistic populated current-schema v29 round trip;
 3. Questions + typed sidecars + `answer_attempts` preserved;
 4. FSRS/review history preserved;
 5. Library files + bytes/digests preserved;

@@ -22,9 +22,11 @@ import 'answer_attempt_v23_schema.dart';
 import 'answer_attempt_v26_schema.dart';
 import 'answer_completion_v28_schema.dart';
 import 'content_asset_reclamation_v27_schema.dart';
+import 'ordinary_training_bank_policy.dart';
 import 'question_v2_schema_exception.dart';
 import 'retrieval_v21_schema.dart';
 import 'study_plan_v22_schema.dart';
+import 'training_content_v29_schema.dart';
 import 'sqflite_runtime.dart';
 
 enum QuestionDeletePersistenceFailure {
@@ -84,7 +86,7 @@ class DatabaseHelper
   DatabaseHelper._();
 
   static const String _dbName = 'shiroha_core_v1.db';
-  static const int _dbVersion = answerCompletionSchemaVersion;
+  static const int _dbVersion = trainingContentSchemaVersion;
 
   static String get databaseFileName => _dbName;
   static int get databaseVersion => _dbVersion;
@@ -690,6 +692,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await validateContentAssetReclamationV27Schema(db);
     await validateAnswerCompletionV28Schema(db);
     await validateAiConfigV25Schema(db);
+    await validateTrainingContentV29Schema(db);
   }
 
   /// Opens a database handle with the current production schema callbacks.
@@ -941,6 +944,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await createAnswerAttemptV26Schema(db);
     await createContentAssetReclamationV27Schema(db);
     await createAnswerCompletionV28Schema(db);
+    await createTrainingContentV29Schema(db);
     await _validateV15Schema(db);
     await _validateLibraryFilesSchema(db);
     await _validateProjectSchema(db);
@@ -953,6 +957,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await validateContentAssetReclamationV27Schema(db);
     await validateAnswerCompletionV28Schema(db);
     await validateAiConfigV25Schema(db);
+    await validateTrainingContentV29Schema(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -1129,10 +1134,14 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     if (oldVersion < 28) {
       await migrateAnswerCompletionToV28(db);
     }
+    if (oldVersion < 29) {
+      await migrateTrainingContentToV29(db);
+    }
     await validateAnswerAttemptV26Schema(db);
     await validateContentAssetReclamationV27Schema(db);
     await validateAnswerCompletionV28Schema(db);
     await validateAiConfigV25Schema(db);
+    await validateTrainingContentV29Schema(db);
   }
 
   /// Validates the frozen v15 schema before the open/upgrade can succeed.
@@ -2758,7 +2767,7 @@ SELECT
     final db = await database;
 
     // 核心拦截：虚空错题本映射
-    if (bankName == '🔥 全局错题本') {
+    if (bankName == globalWrongBookBankName) {
       return await db.rawQuery('''
         SELECT q.* 
         FROM questions q
@@ -2978,7 +2987,7 @@ SELECT
           qId = 'ai_q_${DateTime.now().millisecondsSinceEpoch}_$i';
           await txn.insert('questions', {
             'id': qId,
-            'bank_name': '📦 模考专属题库', // 隐藏题库，不污染日常刷题
+            'bank_name': hiddenExamBankName, // 隐藏题库，不污染日常刷题
             'type': q['type'] ?? 0,
             'content': q['content'],
             'options': q['options'] != null ? jsonEncode(q['options']) : '[]',
@@ -3176,7 +3185,7 @@ SELECT
       // FTS5 O(1) 匹配模式
       final safeMatchStr = '"${keyword.replaceAll('"', '""')}"';
       // 如果是虚空错题本，特殊处理
-      if (bankName == '🔥 全局错题本') {
+      if (bankName == globalWrongBookBankName) {
         return await db.rawQuery('''
           SELECT q.* FROM questions q
           LEFT JOIN review_states r ON q.id = r.question_id
@@ -3199,7 +3208,7 @@ SELECT
     } catch (e) {
       // 优雅降级：遇到无法解析的特殊符号，退回 O(N) 的 LIKE 兜底
       String likeQuery = '%$keyword%';
-      if (bankName == '🔥 全局错题本') {
+      if (bankName == globalWrongBookBankName) {
         return await db.rawQuery('''
           SELECT q.* FROM questions q
           LEFT JOIN review_states r ON q.id = r.question_id

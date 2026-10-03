@@ -116,9 +116,8 @@ void main() {
   test('fresh v28 exposes the frozen schema authority', () async {
     final db = await openSeam('fresh.db');
     try {
-      expect(DatabaseHelper.databaseVersion, answerCompletionSchemaVersion);
-      expect(DatabaseHelper.databaseVersion, 28);
-      expect(await db.getVersion(), 28);
+      expect(answerCompletionSchemaVersion, 28);
+      expect(await db.getVersion(), DatabaseHelper.databaseVersion);
 
       final tables = await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type = 'table' "
@@ -217,7 +216,7 @@ void main() {
 
     final migrated = await DatabaseHelper.instance.openPathForTesting(path);
     try {
-      expect(await migrated.getVersion(), 28);
+      expect(await migrated.getVersion(), DatabaseHelper.databaseVersion);
       await validateAnswerCompletionV28Schema(migrated);
       expect(await migrated.query(importedQuestionSetsTable), isEmpty);
       expect(await migrated.query(importedQuestionSetItemsTable), isEmpty);
