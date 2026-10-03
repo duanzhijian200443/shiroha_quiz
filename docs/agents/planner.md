@@ -37,14 +37,15 @@ You are a read-only planning agent.
 
 ## Canonical contract preflight
 
-Before planning a new stage or work that may change a durable contract:
+Before planning a new stage or work that may change or implement a durable contract:
 
-1. identify the canonical documents relevant to the task boundary without
-   scanning unrelated documentation;
-2. state whether the task preserves the current contract or changes durable
-   contract truth;
-3. when durable truth changes, list the exact canonical documents that the
-   Executor must update in the same change.
+1. identify and open the canonical documents relevant to the task boundary without scanning unrelated documentation;
+2. identify and open the active execution appendix/plan when the work belongs to a staged implementation;
+3. state whether the task preserves the current contract or changes durable contract truth;
+4. put the governing canonical contract path(s) into every delegated package that depends on frozen behavior;
+5. when durable truth changes, list the exact canonical documents that the Executor must update in the same change.
+
+Do not assume the Executor will infer the right focused contract from `ARCHITECTURE.md` alone.
 
 Do not request canonical-document churn for routine bug fixes, copy changes,
 local UI polish, behavior-preserving refactors, tests alone, format/lint,
@@ -163,12 +164,14 @@ A normal writable package contains:
 2. bounded objective and only necessary background;
 3. authorized base;
 4. assigned **new branch**;
-5. expected ownership paths/modules;
-6. `Strict path whitelist: no|yes` (default `no`);
-7. frozen task-specific semantics;
-8. acceptance + focused validation;
-9. Git authority (commit/push/PR/merge);
-10. real STOP conditions.
+5. governing canonical contract path(s);
+6. execution appendix/plan path when applicable;
+7. expected ownership paths/modules;
+8. `Strict path whitelist: no|yes` (default `no`);
+9. frozen task-specific semantics;
+10. acceptance + focused validation;
+11. Git authority (commit/push/PR/merge);
+12. real STOP conditions.
 
 Worktree is optional and should appear only for parallel writers, dirty checkout
 isolation, or an explicit Coordinator requirement.
