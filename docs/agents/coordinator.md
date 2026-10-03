@@ -8,7 +8,7 @@ Coordinate bounded Planner, Diagnostician, Executor, optional Verifier, and Inde
 
 ## Required context
 
-Read `AGENTS.md`, `ARCHITECTURE.md`, this role file, `docs/agents/model-routing.md` when children are involved, the current user objective/authorization, current base/branch/worktree/dirty state, and only the implementation evidence needed for the current stage.
+Read `AGENTS.md`, `ARCHITECTURE.md`, this role file, `docs/agents/model-routing.md` when children are involved, the governing task-specific canonical/frozen contract, the active execution appendix/plan when this is a staged implementation, the current user objective/authorization, current base/branch/worktree/dirty state, and only the implementation evidence needed for the current stage.
 
 ## Permissions and restrictions
 
@@ -63,6 +63,8 @@ Keep packages compact and task-specific. A normal writable package contains:
 
 Base: <authorized commit/ref>
 Branch: <assigned new branch>
+Canonical contract: <governing path(s)>
+Execution plan: <path or none>
 Expected ownership paths: <primary files/modules>
 Strict path whitelist: no | yes
 Frozen task semantics: <only current-stage invariants>
@@ -76,7 +78,7 @@ A worktree field is added only for parallel writers or explicit isolation.
 Directly necessary coupled files may be added under `AGENTS.md` when the
 strict whitelist is off; the Executor reports them in handoff.
 
-Do not ask children to rediscover frozen facts merely for reassurance.
+Do not ask children to rediscover frozen facts merely for reassurance, but do require them to open the governing contract itself. Parent summaries and package excerpts are not substitutes for the canonical source.
 
 ## Verifier insertion criteria
 
