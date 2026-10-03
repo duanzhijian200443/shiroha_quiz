@@ -22,8 +22,12 @@ Before a non-trivial task, read:
 
 - `ARCHITECTURE.md`;
 - the active role file under `docs/agents/`;
+- the relevant task-specific canonical/frozen contract when the task belongs to a frozen project/stage, names a contract ID, or changes behavior governed by a focused contract;
+- the relevant execution appendix/plan when the task is one package inside a staged implementation plan;
 - relevant implementation/tests/current diff;
 - only the `.agents/rules/` files needed for the current task.
+
+Do not rely on a task-package summary as a substitute for opening the governing canonical contract. If the task, roadmap, architecture docs, or execution plan names a contract, open that contract before editing or semantic review.
 
 Do not claim a file was reviewed unless it was opened during the current task.
 
@@ -351,7 +355,7 @@ A child has one bounded role/task, may not create descendants, switch roles, exp
 
 A canonical document records durable current truth, not a development log, review-findings dump, test report, or substitute for Git history.
 
-Before planning a stage that may change durable truth, identify only the relevant canonical documents.
+Before planning or executing a stage governed by frozen behavior, identify and open only the relevant canonical documents. When a task belongs to a staged implementation plan, also open the current execution appendix/plan that owns the package sequence and current delivery state.
 
 Role responsibilities:
 
