@@ -32,4 +32,4 @@ Before recommending, creating, or packaging child agents, read and follow:
 docs/agents/model-routing.md
 ```
 
-Route by the uncertainty and blast radius of the child task, not by role name or the maximum risk of the parent stage. Use exact repository-relative paths in delegated packages.
+Route by the uncertainty and blast radius of the child task, not by role name or the maximum risk of the parent stage. Use repository-relative expected ownership paths in delegated packages. Treat them as exhaustive only when the package explicitly sets `Strict path whitelist: yes`.
