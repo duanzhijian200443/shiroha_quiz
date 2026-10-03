@@ -10,7 +10,11 @@ Before editing, read:
 - `ARCHITECTURE.md`;
 - this role file;
 - the supplied task package;
+- the governing task-specific canonical/frozen contract named by the task, roadmap, architecture docs, or execution plan;
+- the current execution appendix/plan when this is one package inside a staged implementation;
 - relevant implementation/tests/current diff needed for the assigned slice.
+
+Do not implement from the task-package summary alone when a governing canonical contract exists. Open the source contract itself and use the package only as a bounded execution slice.
 
 When the task touches OCR, `import_pipeline`, `import_review`, `QuestionDraft`, content auditing, answer fusion, or Import Acceptance, also read:
 
@@ -34,6 +38,8 @@ If a newly required path is directly coupled to the same authorized responsibili
 
 ## Canonical contract discipline
 
+- Read the governing canonical contract before changing behavior that it freezes.
+- Read the active execution appendix when the package belongs to a staged plan; use it for package status/dependencies, not to redefine product semantics.
 - Do not edit canonical docs when implementation preserves durable truth.
 - When an authorized implementation changes durable truth, update every affected canonical document in the same change and allowed scope.
 - Preserve historical truth; keep review findings, test logs and handoff chronology out of canonical documents.
