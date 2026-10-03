@@ -543,3 +543,22 @@ Seed capture, the QuestionRepository-owned atomic set/member writer with per-doc
 - This stage adds no schema beyond v28, no persisted candidate or generation state, and no new provider call site.
 - Source-file deletion, artifact replacement/removal, task cleanup and folder moves preserve committed set identity and membership. Answer/content edits preserve membership and review state; query counts reflect current typed answers, including explicit-empty as answered. Question deletion or bank movement removes membership, and the final removal deletes the empty set.
 - B0 preserves set identity and ordered membership while treating provenance as soft evidence; strict v28 schema/trigger and relationship validation remains mandatory. V0/CL adds no production mutation path and does not activate typed-admission R1, stable bank identity, batch AI or RAG-2.
+
+## Home Training V3 planned successor — PLANNED, not implemented
+
+`docs/product/home-training-implementation-freeze-v3.md` freezes
+`SHIROHA-HOME-TRAINING-IPF-V3` as the planned successor to the current
+Today/Home and ordinary-training configuration contracts: Category-driven
+TrainingContent configuration (Category → TrainingContent → ordinary
+new-question pools, Category-scoped due review pools), Today/Home v2, durable
+StudyActivity timing, ImportTask attempt event timestamps, and a TaskCenter
+Application facade, with planned additive migrations v29 (TrainingContent),
+v30 (StudyActivity) and v31 (ImportTask event timestamps).
+
+Nothing in this successor is implemented or production-activated; the current
+runtime is v28 and the existing Today, ordinary-training, StudyPlan and
+TaskCenter boundaries above remain current truth. StudyPlan remains the single
+global ActiveStudyPlan and stays independent of TrainingContent. Delivery
+order and ownership are governed by
+`docs/agents/home-training-v3-execution-plan.md` (P1a → P1b → CP1 →
+subsequent implementation packages).
