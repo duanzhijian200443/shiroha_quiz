@@ -55,6 +55,8 @@ Keep packages compact. Repository-wide rules stay in `AGENTS.md`; task packages 
 
 Base: <authorized base>
 Branch: <assigned new branch>
+Canonical contract: <governing path(s)>
+Execution plan: <path or none>
 Expected ownership paths: <primary files/modules>
 Strict path whitelist: no | yes
 Frozen task semantics: <only current-stage invariants>
@@ -63,6 +65,8 @@ Validation: <focused tests/checks>
 Git: commit yes|no; push yes|no; PR yes|no; merge yes|no
 Stop only if: <real scope/contract/version/cross-writer/environment blocker>
 ```
+
+Before editing, the Executor must open the governing canonical contract named by the package; when an execution plan is provided, open it too. Do not rely on the package summary alone.
 
 Directly necessary coupled files may be added when `Strict path whitelist: no` and the change remains inside the same task responsibility. Report added paths and reasons in the handoff.
 
