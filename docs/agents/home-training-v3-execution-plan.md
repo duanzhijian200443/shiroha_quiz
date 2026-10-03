@@ -2,9 +2,33 @@
 
 **契约入口：docs/product/home-training-implementation-freeze-v3.md**
 **性质：派生执行附录；不定义或修改产品语义。**
-**状态：规划已冻结；尚未实施。**
+**状态：实施中；P0、P1a、P1b、P1c 已完成，下一包为 P2a。**
 
-本附录不授予任何 Git、worktree、push、PR 或 merge 权限。每个执行包仍需用户/Coordinator 明确授权。
+本附录不授予 merge/tag/release 权限。每个写任务使用独立非默认分支；单写者默认不建 worktree，只有并行 writer、脏工作区隔离或 Coordinator 明确要求时才创建 worktree。commit/push/PR 仍按任务包或用户授权执行。
+
+---
+
+# A0. 当前交付状态
+
+截至 master `a388b5c64261ad8cd014ca4282ee69e81c507fdd`：
+
+| Package | Status |
+|---|---|
+| P0 | COMPLETE |
+| P1a | COMPLETE |
+| P1b | COMPLETE / CP1 passed |
+| P1c | COMPLETE |
+| P2a | NEXT |
+
+当前 runtime schema：
+
+```text
+v29
+```
+
+v29 TrainingContent persistence / migration / B0 compatibility 已进入当前 runtime truth。v30 StudyActivity 与 v31 ImportTask event timestamps 仍为 planned。
+
+以下 A 节保留最初规划基线，仅作为历史 planning evidence，不得覆盖本节 current delivery state。
 
 ---
 
@@ -30,7 +54,8 @@
 - master；
 - schema；
 - canonical docs；
-- worktree；
+- 当前 branch / dirty state；
+- worktree（仅当当前任务实际使用 worktree 时）；
 - accepted prerequisite PR。
 
 若出现非预期漂移，STOP 并重新评估。
@@ -88,7 +113,7 @@ P4b 不与 P1c 或 P2 的共享 persistence writers 并行修改共享 database/
 
 # C. 文件 Ownership
 
-CP1 后必须将每个 package 展开为精确 Allowed paths。禁止直接以目录通配符授权写入；展开路径只是执行绑定，不重新决定产品或架构。
+每个 package 声明预计 ownership 路径/模块，用于标识主要责任，不要求 Planner 在开工前穷举所有必然联动文件。除非任务明确写 `Strict path whitelist: yes`，Executor 可以补充完成当前责任所必需的直接关联文件，但不得跨另一个 writer 的 ownership、扩大产品范围或改变冻结语义；新增路径必须在 handoff 中说明原因。
 
 | Group | Ownership |
 |---|---|
@@ -128,9 +153,9 @@ CP1 后必须将每个 package 展开为精确 Allowed paths。禁止直接以�
 - shared architecture/B0/Home tests；
 - canonical docs。
 
-测试 ownership 跟随叶子包。新增行为增加 focused tests；修改既有行为时只改直接相关测试。未列明测试不得借“补覆盖”顺带改动。
+测试 ownership 跟随叶子包。新增行为增加 focused tests；修改既有行为时只改直接相关测试。必要的版本 pin、B0/schema 同步、直接 regression 可以作为同一责任的联动路径追加；不得借“补覆盖”顺带做无关改动。
 
-若执行包需要清单外路径，STOP，报告最小追加路径及因果关系。
+只有新增路径跨责任边界、另一个 active writer、显式 strict whitelist，或会改变 schema/public contract/产品语义时才 STOP。
 
 ---
 
@@ -192,73 +217,43 @@ P8b 开始条件：
 - canonical docs；
 - I1 → I2 → I3 → P11a → P11b。
 
-每个 parallel writer 必须有独立 worktree、独立 branch 与显式授权；不得在同一 checkout 同时写入。
+每个 writer 必须有独立 branch。单 writer 默认可在当前 checkout 工作；并行 writer 必须使用独立 worktree 且 ownership 不重叠。
 
 ---
 
-# E. 每个执行包 14 字段
+# E. 执行包格式
 
-每个叶子包派发时必须完整填写：
+执行包保持集中、简洁，不重复 `AGENTS.md` 的全局规则。普通写任务包含：
 
-1. **Active role**
-   角色：执行；Reviewer/Verifier 另开独立包。
+```text
+角色：执行
+任务：<bounded objective>
 
-2. **Objective and background**
-   唯一 leaf responsibility，并引用 V3 对应条款。
+Base: <authorized base>
+Branch: <assigned new branch>
+Expected ownership paths: <primary files/modules>
+Strict path whitelist: no | yes
+Frozen task semantics: <only current-stage invariants>
+Acceptance: <focused criteria>
+Validation: <focused tests/checks>
+Git: commit/push/PR/merge authority
+Stop only if: <real scope/contract/version/cross-writer/environment blocker>
+```
 
-3. **Base commit**
-   已重新核验的授权基线，包含已接受 prerequisite PR。
+Worktree 仅在并行 writer、脏工作区隔离或 Coordinator 明确要求时加入。
 
-4. **Assigned worktree path**
-   Coordinator 显式指定。
+默认 `Strict path whitelist: no`。直接必要联动文件由 Executor 自行处理并在 handoff 说明，不因单纯多出一个文件停下询问。
 
-5. **Assigned branch**
-   Coordinator 显式指定。
+T3 包只额外写当前任务真正需要的：authoritative path、compatibility bridge/deletion condition、rollback point、evidence class、checkpoint reopening condition。
 
-6. **Allowed files**
-   production/test/docs 精确路径。
-
-7. **Forbidden files/worktrees**
-   所有未列路径、其他 worktree 与延期模块。
-
-8. **Dependencies/checkpoint**
-   必须有真实固定证据，不能只凭前置 Agent 自报完成。
-
-9. **Acceptance**
-   对应 V3 test matrix 与当前 leaf gate。
-
-10. **Validation/timeouts**
-    focused tests、相关 architecture gate、focused analyze、format gate、diff check；单项连续 3 分钟无进展按 repo stalled policy。
-
-11. **Execution window**
-    ordinary 目标 8～12 分钟；T3 约 15～20 分钟 checkpoint。超过时交接已验证边界，不牺牲验证赶完成。
-
-12. **Commit/Git authority**
-    默认 commit/push/PR/merge 全部 no；只有用户单独授权才改变。
-
-13. **Stop conditions**
-    path overrun、baseline drift、schema conflict、unresolved public semantic issue、root cause unknown、validation weakening、two bounded repair rounds unresolved。
-
-14. **Handoff budget**
-    ≤800 tokens，包含 fixed head、files、behavior、checks、unresolved、PR status。
-
-T3 包额外记录：
-
-- authoritative path；
-- compatibility bridge；
-- bridge removal condition；
-- rollback point；
-- evidence class；
-- checkpoint reopening condition。
-
-不得把 worktree、branch 或 Git permission 留给 Executor 自选。
+Handoff 只保留：fixed head/PR、实际 changed files、行为、验证、必要联动路径原因、未解决风险。
 
 ---
 
 # F. PR 与独立审查
 
 - 一个 leaf package 对应一个 bounded PR；
-- 未获 PR authority 时只交接；
+- commit/push/PR authority 由任务包或当前用户明确给出；
 - Executor 完成机械验证后，只有在授权下才能 commit/push/PR，然后 STOP；
 - Reviewer 使用固定 PR head，不复用 Executor 的主观结论作为 evidence。
 
