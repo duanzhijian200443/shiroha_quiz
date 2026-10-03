@@ -26,7 +26,7 @@ A standalone Verifier is no longer a default phase. Use it only for risk-trigger
 
 ## Hard gates
 
-1. **Scope/contract gate:** behavior, allowed paths and relevant durable contract are frozen before writing.
+1. **Scope/contract gate:** behavior, task responsibility, expected ownership paths and relevant durable contract are frozen before writing. Use an exhaustive path whitelist only when the task explicitly requires one.
 2. **Executor verification gate:** required focused mechanical checks must pass before completion PR delivery.
 3. **Independent review gate:** the Reviewer evaluates the fixed final PR head independently; green Executor checks do not equal semantic approval.
 4. **Repair gate:** open P0/P1/P2 findings require bounded repair + fresh Reviewer closure before merge.
@@ -47,24 +47,24 @@ Validation or review of a moving target is invalid.
 
 ## Executor package template
 
+Keep packages compact. Repository-wide rules stay in `AGENTS.md`; task packages contain only task-specific information.
+
 ```text
 角色：执行
-目标：<bounded objective>
+任务：<bounded objective>
 
-Base/Branch: <target identity>
-Allowed paths: <exact paths>
-Parent-attested evidence: <frozen facts>
-Task-specific invariant/constraints: <only current semantics>
-Acceptance: <criteria>
-Validation: <focused tests/checks/timeouts>
-Local commits authorized: yes | no
-Branch: <assigned branch>
-Commit paths: <exact paths>
-Push authorized: yes | no
-PR creation authorized: yes | no
-Merge authorized: yes | no
-Stop only if: <scope/contract/environment/repair-budget conditions>
+Base: <authorized base>
+Branch: <assigned new branch>
+Expected ownership paths: <primary files/modules>
+Strict path whitelist: no | yes
+Frozen task semantics: <only current-stage invariants>
+Acceptance: <focused criteria>
+Validation: <focused tests/checks>
+Git: commit yes|no; push yes|no; PR yes|no; merge yes|no
+Stop only if: <real scope/contract/version/cross-writer/environment blocker>
 ```
+
+Directly necessary coupled files may be added when `Strict path whitelist: no` and the change remains inside the same task responsibility. Report added paths and reasons in the handoff.
 
 Executor may self-repair verification failures only under `AGENTS.md` bounded policy. After PR creation it stops for independent review.
 
@@ -112,7 +112,8 @@ P3 is deferred by default.
 
 ## Worktrees and ownership
 
-- one active writer per working directory;
+- every write task uses a dedicated non-default branch;
+- a separate worktree is optional for a single writer and required only for parallel writers or when checkout isolation is needed;
 - concurrent writers require separate worktrees and non-overlapping ownership;
 - shared contract/model/schema files remain frozen/Coordinator-owned until explicitly assigned;
 - read-only agents do not review a writer's moving target.
