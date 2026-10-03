@@ -374,3 +374,22 @@ neutral reading cards, a More menu and fixed phase-dependent actions while
 retaining typed/legacy authority, attempt recording, FSRS and preview semantics.
 The closed three-tab IA and the historical UI Finalization delivery remain
 unchanged.
+
+## HOME-TRAINING-V3 planned amendment (not implemented)
+
+`docs/product/home-training-implementation-freeze-v3.md` freezes the planned
+successor `SHIROHA-HOME-TRAINING-IPF-V3` covering TrainingContent
+configuration and Today/Home v2 (Category cards, current TrainingContent,
+Category-scoped review pool, weekly activity). The **configuration and
+Home v2 pages are frozen as planned design only**: production navigation and
+page replacement have **not happened**, and the current Today surfaces and
+configuration entries described above remain the implemented truth.
+
+The legacy ordinary-training configuration page (`PlanConfigScreen`) **still
+exists and remains reachable**. It is not deleted, and no page, tab or entry
+has been retired. Retiring it is planned only after its replacement entry is
+fully reachable (V3 execution P11a); until then the frozen three-tab IA
+(今日 | 助手 | 我的) and the current configuration navigation are unchanged.
+
+This amendment adds no primary navigation destination, reopens no UI
+Finalization v0 decision, and claims no implemented V3 page.

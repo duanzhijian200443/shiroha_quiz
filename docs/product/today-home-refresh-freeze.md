@@ -171,3 +171,36 @@ Repository 既有调用默认 mixed，不改其他入口行为。
 - 静态测试不能替代实机视觉验收；实际 App 验收另行记录，不预先宣称通过。
 
 历史冻结阶段未改变运行行为；当前实现仍不包含延期统计、多计划管理或 schema 变更。
+
+## HOME-TRAINING-V3 planned successor（尚未实施）
+
+`docs/product/home-training-implementation-freeze-v3.md` 已冻结
+**SHIROHA-HOME-TRAINING-IPF-V3**（执行附录：`docs/agents/home-training-v3-execution-plan.md`），
+作为本契约的 planned successor。它目前是 **PLANNED，尚未 production
+implemented**：本文件上述统一首页、普通新题 / 到期复习入口与单一计划展示
+仍是当前已实现的运行事实。
+
+冻结的未来目标包括：
+
+- **Category → TrainingContent → 普通新题**：普通训练范围从当前单题库
+  切换入口改为按 Category 配置的 TrainingContent（名称、题量、权重、
+  顺序），新题候选来自正权重 member 题库；
+- **Category → Category review pool**：到期复习改为当前 Category 下全部
+  ordinary-training eligible 题库的完整到期池，不受当前 TrainingContent、
+  member 或权重影响；
+- **今日首页 v2**：Category 横滑卡、当前 TrainingContent 与翻页角、真实
+  本周学习时长与轻量学习日历；
+- 真实学习时长（StudyActivity durable timing）、任务事件时间与 TaskCenter
+  Application facade；
+- planned additive migrations：v29 TrainingContent、v30 StudyActivity、
+  v31 ImportTask event timestamps——当前 runtime（v28）均不存在这些表或类型。
+
+**StudyPlan** 继续保持全局单一 ActiveStudyPlan（沿用 SPL-1），独立于
+TrainingContent：TrainingContent 是普通训练范围配置，不是多计划能力；
+切换 TrainingContent、题量或权重不改变已采用计划与计划题库。V3 排除
+多计划、stable bankId、Category rename、第二套 taxonomy 与 AI Category
+Visual 等能力。
+
+替代能力完整可达前，本文件的当前入口、页面与 persisted 行为不发生改变；
+V3 的实施包另行授权后按执行附录顺序推进。本 amendment 只记录 planned
+范围，不宣称任何未来能力已实现。
