@@ -280,7 +280,7 @@ void main() {
     await snapshots.openStagedAndValidate(path);
     final migrated = await databaseFactory.openDatabase(path);
     try {
-      expect(await migrated.getVersion(), 28);
+      expect(await migrated.getVersion(), DatabaseHelper.databaseVersion);
       await validateAnswerCompletionV28Schema(migrated);
       expect(await migrated.query(importedQuestionSetsTable), isEmpty);
       expect(await migrated.query(importedQuestionSetItemsTable), isEmpty);

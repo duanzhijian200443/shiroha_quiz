@@ -7,6 +7,7 @@ import 'package:sqflite/sqflite.dart';
 import '../../application/backup/backup_contracts.dart';
 import '../../core/database/answer_completion_v28_schema.dart';
 import '../../core/database/database_helper.dart';
+import '../../core/database/training_content_v29_schema.dart';
 import '../../domain/backup/backup_failure.dart';
 import '../../domain/backup/backup_manifest.dart';
 import '../../domain/content/content_node.dart';
@@ -201,6 +202,12 @@ final class BackupSnapshotRepository {
       throw const BackupException(BackupFailure.databaseInvalid);
     }
     await _validateQuestionSetPortableData(db);
+    try {
+      await validateTrainingContentV29Schema(db);
+      await validateTrainingContentV29Data(db);
+    } catch (_) {
+      throw const BackupException(BackupFailure.databaseInvalid);
+    }
 
     final excludedTables = <String>[
       'parsed_artifacts',

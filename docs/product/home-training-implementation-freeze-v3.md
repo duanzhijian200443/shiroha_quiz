@@ -33,6 +33,8 @@
 
 本 V3 是待实施目标契约。保存本规划不代表 v29～v31 已存在，不代表新页面已经实现，不代表生产入口已经激活，也不代表 runtime 验收已经完成。
 
+实施状态 amendment（P1c）：P1a Domain 和 P1b Application contracts 已存在，runtime schema 已升级为 v29；TrainingContent 三表、一次性旧 current bank seed 和 B0 INCLUDE / staged validation 已实现。v30 / v31、配置 CRUD、binding lifecycle、Home/Today 新入口、训练启动和 Activity / TaskCenter runtime 仍待实施。本 amendment 不宣称这些功能已经 production-activated。
+
 如发现本文与更高层 canonical contract 存在未明确处理的实质冲突，停止受影响任务并报告冲突。不得自行选边、降级、扩大范围或通过“兼容实现”绕过冲突。
 
 ## 1.2 本轮包含
@@ -810,6 +812,8 @@ training_contents：content_id PK、category_key、name、question_limit CHECK 1
 training_content_members：content_id FK cascade、bank_name、weight_percent CHECK 0～100、position、binding_status、nullable invalidation_reason；同 content bankName unique、position unique。不建立 bank FK，因为本轮没有 bank entity registry。
 
 training_category_preferences：category_key PK、visual_key、nullable current_content_id、revision。全局 current Category 使用独立 app_settings key，不复用 current_bank。
+
+P1c persisted key 为 `current_training_category`，value 使用 P1a `CategoryKeyCodec.encodeString` 的 canonical string。B0 只校验其结构，不要求对应 Category 当前可展示。Schema authority 为 `training_content_v29_schema.dart`；migration / B0 使用 transaction-bound `DatabaseOrdinaryTrainingBankEligibility` 最窄只读 bridge，复用现有全局错题本和隐藏模考题库精确 reserved identity，不调用带自愈写入的旧 subject-tree query，也不推断任意 emoji 名称。
 
 跨 row invariant（non-empty member、weight sum 100、positive member、same Category、eligibility、preference relation）由 transaction-level validation 保证，B0 staged validation 同样验证。
 
