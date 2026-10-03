@@ -1,7 +1,7 @@
 # Shiroha Quiz Home Training V3 Execution Plan
 
-**契约入口：docs/product/home-training-implementation-freeze-v3.md**  
-**性质：派生执行附录；不定义或修改产品语义。**  
+**契约入口：docs/product/home-training-implementation-freeze-v3.md**
+**性质：派生执行附录；不定义或修改产品语义。**
 **状态：规划已冻结；尚未实施。**
 
 本附录不授予任何 Git、worktree、push、PR 或 merge 权限。每个执行包仍需用户/Coordinator 明确授权。
@@ -200,46 +200,46 @@ P8b 开始条件：
 
 每个叶子包派发时必须完整填写：
 
-1. **Active role**  
+1. **Active role**
    角色：执行；Reviewer/Verifier 另开独立包。
 
-2. **Objective and background**  
+2. **Objective and background**
    唯一 leaf responsibility，并引用 V3 对应条款。
 
-3. **Base commit**  
+3. **Base commit**
    已重新核验的授权基线，包含已接受 prerequisite PR。
 
-4. **Assigned worktree path**  
+4. **Assigned worktree path**
    Coordinator 显式指定。
 
-5. **Assigned branch**  
+5. **Assigned branch**
    Coordinator 显式指定。
 
-6. **Allowed files**  
+6. **Allowed files**
    production/test/docs 精确路径。
 
-7. **Forbidden files/worktrees**  
+7. **Forbidden files/worktrees**
    所有未列路径、其他 worktree 与延期模块。
 
-8. **Dependencies/checkpoint**  
+8. **Dependencies/checkpoint**
    必须有真实固定证据，不能只凭前置 Agent 自报完成。
 
-9. **Acceptance**  
+9. **Acceptance**
    对应 V3 test matrix 与当前 leaf gate。
 
-10. **Validation/timeouts**  
+10. **Validation/timeouts**
     focused tests、相关 architecture gate、focused analyze、format gate、diff check；单项连续 3 分钟无进展按 repo stalled policy。
 
-11. **Execution window**  
+11. **Execution window**
     ordinary 目标 8～12 分钟；T3 约 15～20 分钟 checkpoint。超过时交接已验证边界，不牺牲验证赶完成。
 
-12. **Commit/Git authority**  
+12. **Commit/Git authority**
     默认 commit/push/PR/merge 全部 no；只有用户单独授权才改变。
 
-13. **Stop conditions**  
+13. **Stop conditions**
     path overrun、baseline drift、schema conflict、unresolved public semantic issue、root cause unknown、validation weakening、two bounded repair rounds unresolved。
 
-14. **Handoff budget**  
+14. **Handoff budget**
     ≤800 tokens，包含 fixed head、files、behavior、checks、unresolved、PR status。
 
 T3 包额外记录：
