@@ -17,14 +17,16 @@ const _noActions = TaskCenterActionEligibility(
     review: false,
     clearCompleted: false);
 
-TaskCenterItem _item(TaskCenterDetailedStatus status, TaskCenterEventKind? kind,
+TaskCenterItem _item(TaskCenterCoarseStatus coarseStatus,
+        TaskCenterAttemptStatus? attemptStatus, TaskCenterEventKind? kind,
         {String name = '试卷.pdf',
         int? time,
         TaskCenterActionEligibility actions = _noActions}) =>
     TaskCenterItem(
         target: _target('task-a'),
         fileDisplayName: name,
-        status: status,
+        coarseStatus: coarseStatus,
+        attemptStatus: attemptStatus,
         counts: TaskCenterCounts(questionCount: 10, warningCount: null),
         eventTime: TaskCenterEventTime(kind: kind, utcSeconds: time),
         actions: actions);
@@ -66,69 +68,168 @@ final class _TaskCommandFake implements TaskCenterCommand {
 }
 
 void main() {
-  test('DTO expresses all detailed/coarse states and exact event-time meaning',
-      () {
-    final cases = [
+  test('coarse tab and existing attempt state stay independent axes', () {
+    final cases = <(
+      TaskCenterCoarseStatus,
+      TaskCenterAttemptStatus?,
+      TaskCenterEventKind?,
+      int?
+    )>[
       (
-        TaskCenterDetailedStatus.queued,
         TaskCenterCoarseStatus.inProgress,
-        TaskCenterEventKind.queuedAt
+        TaskCenterAttemptStatus.queued,
+        TaskCenterEventKind.queuedAt,
+        101
       ),
       (
-        TaskCenterDetailedStatus.running,
         TaskCenterCoarseStatus.inProgress,
-        TaskCenterEventKind.startedAt
-      ),
-      (
-        TaskCenterDetailedStatus.cancelRequested,
-        TaskCenterCoarseStatus.inProgress,
-        TaskCenterEventKind.startedAt
-      ),
-      (
-        TaskCenterDetailedStatus.readyForReview,
-        TaskCenterCoarseStatus.pendingReview,
-        TaskCenterEventKind.parsedAt
-      ),
-      (
-        TaskCenterDetailedStatus.completed,
-        TaskCenterCoarseStatus.completed,
-        TaskCenterEventKind.completedAt
-      ),
-      (
-        TaskCenterDetailedStatus.failed,
-        TaskCenterCoarseStatus.error,
-        TaskCenterEventKind.failedAt
-      ),
-      (TaskCenterDetailedStatus.cancelled, TaskCenterCoarseStatus.error, null),
-      (
-        TaskCenterDetailedStatus.interrupted,
-        TaskCenterCoarseStatus.error,
+        TaskCenterAttemptStatus.running,
+        TaskCenterEventKind.startedAt,
         null
       ),
+      (
+        TaskCenterCoarseStatus.inProgress,
+        TaskCenterAttemptStatus.cancelRequested,
+        TaskCenterEventKind.startedAt,
+        102
+      ),
+      (
+        TaskCenterCoarseStatus.pendingReview,
+        TaskCenterAttemptStatus.readyForReview,
+        TaskCenterEventKind.parsedAt,
+        103
+      ),
+      (
+        TaskCenterCoarseStatus.error,
+        TaskCenterAttemptStatus.readyForReview,
+        TaskCenterEventKind.parsedAt,
+        null
+      ),
+      (
+        TaskCenterCoarseStatus.completed,
+        TaskCenterAttemptStatus.readyForReview,
+        TaskCenterEventKind.completedAt,
+        104
+      ),
+      (
+        TaskCenterCoarseStatus.error,
+        TaskCenterAttemptStatus.failed,
+        TaskCenterEventKind.failedAt,
+        null
+      ),
+      (
+        TaskCenterCoarseStatus.error,
+        TaskCenterAttemptStatus.cancelled,
+        null,
+        null
+      ),
+      (
+        TaskCenterCoarseStatus.error,
+        TaskCenterAttemptStatus.interrupted,
+        null,
+        null
+      ),
+      (TaskCenterCoarseStatus.inProgress, null, null, null),
+      (
+        TaskCenterCoarseStatus.pendingReview,
+        null,
+        TaskCenterEventKind.parsedAt,
+        null
+      ),
+      (
+        TaskCenterCoarseStatus.completed,
+        null,
+        TaskCenterEventKind.completedAt,
+        105
+      ),
+      (TaskCenterCoarseStatus.error, null, null, null),
     ];
-    for (final (status, coarse, eventKind) in cases) {
-      final item = _item(status, eventKind);
+    for (final (coarse, attempt, kind, time) in cases) {
+      final item = _item(coarse, attempt, kind, time: time);
       expect(item.coarseStatus, coarse);
-      expect(item.eventTime.kind, eventKind);
-      expect(item.eventTime.utcSeconds, isNull);
+      expect(item.attemptStatus, attempt);
+      expect(item.eventTime.kind, kind);
+      expect(item.eventTime.utcSeconds, time);
       expect(item.counts.questionCount, 10);
       expect(item.counts.warningCount, isNull);
     }
+
+    // Previously inexpressible: an error task still holding a parsed review
+    // candidate keeps the coarse 'error' tab while the attempt truth and the
+    // application-supplied eligibility stay intact.
+    final protected = _item(TaskCenterCoarseStatus.error,
+        TaskCenterAttemptStatus.readyForReview, TaskCenterEventKind.parsedAt,
+        time: 8,
+        actions: const TaskCenterActionEligibility(
+            cancel: false,
+            retry: false,
+            delete: false,
+            review: true,
+            clearCompleted: false));
+    expect(protected.coarseStatus, TaskCenterCoarseStatus.error);
+    expect(protected.attemptStatus, TaskCenterAttemptStatus.readyForReview);
+    expect(protected.actions.review, isTrue);
+    expect(protected.actions.delete, isFalse);
+
+    // Legacy/non-OCR reviewable tasks stay expressible without a fabricated
+    // attempt state.
     expect(
-        _item(TaskCenterDetailedStatus.completed,
-                TaskCenterEventKind.completedAt,
-                time: 123)
-            .eventTime
-            .utcSeconds,
-        123);
+        _item(TaskCenterCoarseStatus.pendingReview, null,
+                TaskCenterEventKind.parsedAt,
+                actions: const TaskCenterActionEligibility(
+                    cancel: false,
+                    retry: false,
+                    delete: false,
+                    review: true,
+                    clearCompleted: false))
+            .actions
+            .review,
+        isTrue);
+  });
+
+  test(
+      'event time kind is pinned per axis pair, existing authority times are '
+      'mandatory', () {
     expect(
-        () => _item(TaskCenterDetailedStatus.readyForReview,
-            TaskCenterEventKind.completedAt,
-            time: 123),
+        () => TaskCenterEventTime(
+            kind: TaskCenterEventKind.queuedAt, utcSeconds: null),
+        throwsA(isA<HomeTrainingContractException>()));
+    expect(
+        () => TaskCenterEventTime(
+            kind: TaskCenterEventKind.completedAt, utcSeconds: null),
+        throwsA(isA<HomeTrainingContractException>()));
+    expect(
+        () => _item(TaskCenterCoarseStatus.inProgress,
+            TaskCenterAttemptStatus.queued, TaskCenterEventKind.queuedAt),
+        throwsA(isA<HomeTrainingContractException>()));
+
+    // Cross-axis or unsupported event-time claims stay rejected.
+    expect(
+        () => _item(
+            TaskCenterCoarseStatus.pendingReview,
+            TaskCenterAttemptStatus.readyForReview,
+            TaskCenterEventKind.startedAt,
+            time: 7),
+        throwsA(isA<HomeTrainingContractException>()));
+    expect(
+        () => _item(TaskCenterCoarseStatus.inProgress,
+            TaskCenterAttemptStatus.queued, TaskCenterEventKind.startedAt,
+            time: 7),
+        throwsA(isA<HomeTrainingContractException>()));
+    expect(
+        () => _item(TaskCenterCoarseStatus.error,
+            TaskCenterAttemptStatus.interrupted, TaskCenterEventKind.failedAt,
+            time: 7),
+        throwsA(isA<HomeTrainingContractException>()));
+    expect(
+        () => _item(TaskCenterCoarseStatus.inProgress, null,
+            TaskCenterEventKind.queuedAt,
+            time: 7),
         throwsA(isA<HomeTrainingContractException>()));
     expect(
         () => _item(
-            TaskCenterDetailedStatus.interrupted, TaskCenterEventKind.failedAt),
+            TaskCenterCoarseStatus.error, null, TaskCenterEventKind.failedAt,
+            time: 7),
         throwsA(isA<HomeTrainingContractException>()));
   });
 
@@ -139,12 +240,13 @@ void main() {
       r'C:\private\exam.pdf',
       '/private/exam.pdf',
       'file:///private/exam.pdf',
-      r'\\server\exam.pdf'
+      r'\\server\exam.pdf',
+      'exam\n.pdf'
     ]) {
       expect(
-          () => _item(
-              TaskCenterDetailedStatus.queued, TaskCenterEventKind.queuedAt,
-              name: path),
+          () => _item(TaskCenterCoarseStatus.inProgress,
+              TaskCenterAttemptStatus.queued, TaskCenterEventKind.queuedAt,
+              name: path, time: 1),
           throwsA(isA<HomeTrainingContractException>()));
     }
     expect(() => TaskCenterCounts(questionCount: -1, warningCount: 0),
@@ -154,8 +256,9 @@ void main() {
             kind: TaskCenterEventKind.failedAt, utcSeconds: -1),
         throwsA(isA<HomeTrainingContractException>()));
     expect(
-        () => _item(
-            TaskCenterDetailedStatus.failed, TaskCenterEventKind.failedAt,
+        () => _item(TaskCenterCoarseStatus.error,
+            TaskCenterAttemptStatus.failed, TaskCenterEventKind.failedAt,
+            time: 2,
             actions: const TaskCenterActionEligibility(
                 cancel: false,
                 retry: true,
@@ -163,12 +266,61 @@ void main() {
                 review: false,
                 clearCompleted: true)),
         throwsA(isA<HomeTrainingContractException>()));
+    expect(
+        () => _item(
+            TaskCenterCoarseStatus.error,
+            TaskCenterAttemptStatus.readyForReview,
+            TaskCenterEventKind.parsedAt,
+            time: 2,
+            actions: const TaskCenterActionEligibility(
+                cancel: false,
+                retry: false,
+                delete: false,
+                review: false,
+                clearCompleted: true)),
+        throwsA(isA<HomeTrainingContractException>()));
+    expect(
+        () => _item(TaskCenterCoarseStatus.error,
+            TaskCenterAttemptStatus.failed, TaskCenterEventKind.failedAt,
+            time: 2,
+            actions: const TaskCenterActionEligibility(
+                cancel: false,
+                retry: true,
+                delete: true,
+                review: true,
+                clearCompleted: false)),
+        throwsA(isA<HomeTrainingContractException>()));
+  });
+
+  test('display name admits ordinary filenames and rejects path leakage', () {
+    expect(isSafeTaskCenterDisplayName('chapter:1.pdf'), isTrue);
+    expect(isSafeTaskCenterDisplayName('2024: 期末 试卷.pdf'), isTrue);
+    expect(isSafeTaskCenterDisplayName(r'C:\exam.pdf'), isFalse);
+    expect(isSafeTaskCenterDisplayName(r'..\exam.pdf'), isFalse);
+    expect(isSafeTaskCenterDisplayName('/exam.pdf'), isFalse);
+    expect(isSafeTaskCenterDisplayName('file:///exam.pdf'), isFalse);
+    expect(isSafeTaskCenterDisplayName(''), isFalse);
+    expect(isSafeTaskCenterDisplayName('   '), isFalse);
+    expect(isSafeTaskCenterDisplayName('exam\u0000.pdf'), isFalse);
+    expect(
+        _item(
+                TaskCenterCoarseStatus.pendingReview,
+                TaskCenterAttemptStatus.readyForReview,
+                TaskCenterEventKind.parsedAt,
+                time: 3,
+                name: 'chapter:1.pdf')
+            .fileDisplayName,
+        'chapter:1.pdf');
   });
 
   test('list and completed confirmation snapshot copy immutable exact targets',
       () {
     final items = [
-      _item(TaskCenterDetailedStatus.completed, TaskCenterEventKind.completedAt)
+      _item(
+          TaskCenterCoarseStatus.completed,
+          TaskCenterAttemptStatus.readyForReview,
+          TaskCenterEventKind.completedAt,
+          time: 4)
     ];
     final list = TaskCenterSnapshot(items);
     items.clear();

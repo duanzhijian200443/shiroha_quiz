@@ -3,14 +3,15 @@ import 'retry_file_selection.dart';
 
 enum TaskCenterCoarseStatus { inProgress, pendingReview, completed, error }
 
-/// Safe projection, independent of mutable infrastructure attempt enums.
-enum TaskCenterDetailedStatus {
+/// Safe projection of the existing attempt state, independent of mutable
+/// infrastructure attempt enums. Exactly the seven real attempt states; the
+/// coarse tab never becomes a derived eighth value.
+enum TaskCenterAttemptStatus {
   queued,
   running,
   cancelRequested,
   cancelled,
   readyForReview,
-  completed,
   failed,
   interrupted,
 }
@@ -27,11 +28,18 @@ final class TaskCenterEventTime {
   TaskCenterEventTime({required this.kind, required this.utcSeconds}) {
     requireHomeTrainingInput(
         utcSeconds == null || (kind != null && utcSeconds! >= 0));
+    requireHomeTrainingInput(
+        kind != TaskCenterEventKind.queuedAt || utcSeconds != null);
+    requireHomeTrainingInput(
+        kind != TaskCenterEventKind.completedAt || utcSeconds != null);
   }
   final TaskCenterEventKind? kind;
 
-  /// Missing historical time remains null, never substituted with createdAt
-  /// or legacy completedAt. Cancelled/interrupted do not masquerade as failed.
+  /// queuedAt/completedAt project the existing created_at/completed_at
+  /// authority and always carry their recorded time. Only the additive v31
+  /// attempt times (startedAt/parsedAt/failedAt) may be missing and remain
+  /// null, never substituted with createdAt or legacy completedAt.
+  /// Cancelled/interrupted do not masquerade as failed.
   final int? utcSeconds;
 }
 
@@ -60,54 +68,65 @@ final class TaskCenterActionEligibility {
 
 /// Immutable safe read projection. No raw diagnostics/error/provider content,
 /// mutable task, storage row, platform object or source location is retained.
+/// The coarse tab axis and the existing attempt-state axis stay independent
+/// projections; action eligibility is application-supplied, never re-derived
+/// here from either enum.
 final class TaskCenterItem {
   TaskCenterItem({
     required this.target,
     required this.fileDisplayName,
-    required this.status,
+    required this.coarseStatus,
+    required this.attemptStatus,
     required this.counts,
     required this.eventTime,
     required this.actions,
   }) {
-    requireHomeTrainingInput(isSafeTaskCenterToken(fileDisplayName));
-    final expectedEvent = switch (status) {
-      TaskCenterDetailedStatus.queued => TaskCenterEventKind.queuedAt,
-      TaskCenterDetailedStatus.running ||
-      TaskCenterDetailedStatus.cancelRequested =>
-        TaskCenterEventKind.startedAt,
-      TaskCenterDetailedStatus.readyForReview => TaskCenterEventKind.parsedAt,
-      TaskCenterDetailedStatus.completed => TaskCenterEventKind.completedAt,
-      TaskCenterDetailedStatus.failed => TaskCenterEventKind.failedAt,
-      TaskCenterDetailedStatus.cancelled ||
-      TaskCenterDetailedStatus.interrupted =>
-        null,
-    };
-    requireHomeTrainingInput(eventTime.kind == expectedEvent);
-    requireHomeTrainingInput(!actions.clearCompleted ||
-        status == TaskCenterDetailedStatus.completed);
+    requireHomeTrainingInput(isSafeTaskCenterDisplayName(fileDisplayName));
     requireHomeTrainingInput(
-        !actions.review || status == TaskCenterDetailedStatus.readyForReview);
+        eventTime.kind == _expectedEventKind(coarseStatus, attemptStatus));
+    requireHomeTrainingInput(!actions.clearCompleted ||
+        coarseStatus == TaskCenterCoarseStatus.completed);
+    requireHomeTrainingInput(!actions.review ||
+        attemptStatus == TaskCenterAttemptStatus.readyForReview ||
+        (attemptStatus == null &&
+            coarseStatus == TaskCenterCoarseStatus.pendingReview));
   }
   final TaskCenterTaskTarget target;
   final String fileDisplayName;
-  final TaskCenterDetailedStatus status;
+  final TaskCenterCoarseStatus coarseStatus;
+
+  /// Null when the task has no authoritative detailed attempt metadata
+  /// (legacy/non-OCR tasks), never a fabricated attempt state.
+  final TaskCenterAttemptStatus? attemptStatus;
   final TaskCenterCounts counts;
   final TaskCenterEventTime eventTime;
   final TaskCenterActionEligibility actions;
 
-  TaskCenterCoarseStatus get coarseStatus => switch (status) {
-        TaskCenterDetailedStatus.queued ||
-        TaskCenterDetailedStatus.running ||
-        TaskCenterDetailedStatus.cancelRequested =>
-          TaskCenterCoarseStatus.inProgress,
-        TaskCenterDetailedStatus.readyForReview =>
-          TaskCenterCoarseStatus.pendingReview,
-        TaskCenterDetailedStatus.completed => TaskCenterCoarseStatus.completed,
-        TaskCenterDetailedStatus.cancelled ||
-        TaskCenterDetailedStatus.failed ||
-        TaskCenterDetailedStatus.interrupted =>
-          TaskCenterCoarseStatus.error,
-      };
+  static TaskCenterEventKind? _expectedEventKind(
+      TaskCenterCoarseStatus coarseStatus,
+      TaskCenterAttemptStatus? attemptStatus) {
+    return switch (attemptStatus) {
+      TaskCenterAttemptStatus.queued => TaskCenterEventKind.queuedAt,
+      TaskCenterAttemptStatus.running ||
+      TaskCenterAttemptStatus.cancelRequested =>
+        TaskCenterEventKind.startedAt,
+      TaskCenterAttemptStatus.failed => TaskCenterEventKind.failedAt,
+      TaskCenterAttemptStatus.cancelled ||
+      TaskCenterAttemptStatus.interrupted =>
+        null,
+      TaskCenterAttemptStatus.readyForReview =>
+        coarseStatus == TaskCenterCoarseStatus.completed
+            ? TaskCenterEventKind.completedAt
+            : TaskCenterEventKind.parsedAt,
+      null => switch (coarseStatus) {
+          TaskCenterCoarseStatus.completed => TaskCenterEventKind.completedAt,
+          TaskCenterCoarseStatus.pendingReview => TaskCenterEventKind.parsedAt,
+          TaskCenterCoarseStatus.inProgress ||
+          TaskCenterCoarseStatus.error =>
+            null,
+        },
+    };
+  }
 }
 
 final class TaskCenterSnapshot {
@@ -196,3 +215,9 @@ abstract interface class TaskCenterCommand {
   Future<HomeTrainingResult<TaskCenterReviewNavigationRequest>> requestReview(
       TaskCenterTaskTarget target);
 }
+
+/// Display-name admission rejects path separators, control characters and
+/// blank values while still admitting ordinary filename characters such as
+/// ':' that the stricter taskId/traceId token validator must reject.
+bool isSafeTaskCenterDisplayName(String value) =>
+    value.trim().isNotEmpty && !RegExp(r'[/\\\x00-\x1f\x7f]').hasMatch(value);
