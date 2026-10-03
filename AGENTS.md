@@ -120,7 +120,7 @@ For implementation:
 
 1. inspect relevant code/tests/current diff;
 2. verify the reported problem unless an evidence-backed root cause is already frozen;
-3. freeze task-specific behavior and allowed paths;
+3. freeze task-specific behavior and expected ownership paths; use a strict path whitelist only when the task explicitly requires one;
 4. add/update the minimum regression evidence;
 5. make the smallest coherent change;
 6. run focused tests/checks, relevant architecture gates, focused analyze, format gate and `git diff --check` as applicable;
@@ -146,7 +146,7 @@ Executor MAY self-repair only when all are true:
 
 1. the failure is causally related to the current authorized task;
 2. the root cause is identified with concrete evidence;
-3. the repair stays entirely inside `Allowed paths` / `Commit paths`;
+3. the repair stays inside the authorized task responsibility; directly necessary coupled files may be added unless the task explicitly sets `Strict path whitelist: yes`, provided the added path does not cross another writer's ownership and is reported in the handoff;
 4. the repair does not alter frozen architecture/canonical semantics;
 5. the repair does not weaken, skip, delete, relax, or bypass the failing verification;
 6. no unrelated bug fix or new feature is introduced.
@@ -163,7 +163,7 @@ After repair, rerun the failed check and the directly affected regression set.
 
 STOP instead of self-repair when:
 
-- an additional write path is required;
+- a new write path would cross the task's responsibility, another writer's ownership, or an explicit `Strict path whitelist: yes` boundary;
 - schema/migration/public API/frozen contract changes become necessary;
 - the failure reveals a separate pre-existing defect rather than the current task;
 - root cause is uncertain;
@@ -209,27 +209,52 @@ Executor + self-verification -> Independent Reviewer
 
 Never run destructive/history-rewriting Git operations, including `git reset --hard`, destructive `git checkout`/`git restore`, `git clean -fd[x]`, force push, or history rewriting.
 
-Git authority is action-specific. Staging does not authorize commit; commit does not authorize push; push does not authorize PR creation; PR creation does not authorize merge/tag/release. Branch/worktree creation also requires explicit authority.
+Git authority is action-specific. Staging does not authorize commit; commit does not authorize push; push does not authorize PR creation; PR creation does not authorize merge/tag/release.
 
-Never use `git add .` or `git add -A`. Use exact paths. Do not create/update `DEVELOPMENT_LOG.md` unless explicitly in scope.
+### Branch and worktree defaults
 
-An Executor may create local commits only when its package supplies all of:
+Every Executor write task uses a dedicated non-default branch created from the authorized base. Do not implement directly on `master` / the default branch.
+
+A separate worktree is **optional**, not the default. Create one only when:
+
+- multiple writers are active in parallel;
+- the current checkout contains unrelated work that must not be disturbed; or
+- the Coordinator/task explicitly requires isolation.
+
+A task package may authorize creation of its assigned branch as part of the write task. Worktree creation still requires explicit need/authorization.
+
+### Path ownership
+
+Task packages normally declare **expected ownership paths**, not an exhaustive whitelist. An Executor may add a directly necessary coupled file without pausing when all are true:
+
+- the change is causally required to complete the authorized task;
+- it remains inside the same responsibility and frozen semantics;
+- it does not overlap another active writer;
+- it does not introduce a new feature, dependency, migration, public contract, or unrelated refactor;
+- the added path is listed with its reason in the final handoff.
+
+If the package states `Strict path whitelist: yes`, paths outside that whitelist require STOP.
+
+Staging remains exact-path only. Never use `git add .` or `git add -A`. Do not create/update `DEVELOPMENT_LOG.md` unless explicitly in scope.
+
+A normal writable package supplies:
 
 ```text
-Local commits authorized: yes
-Branch: <assigned branch>
-Commit paths: <exact allowed paths>
+Branch: <assigned new branch>
+Expected ownership paths: <primary files/modules>
+Strict path whitelist: no | yes
+Local commits authorized: yes | no
 Push authorized: no | yes
 PR creation authorized: no | yes
 Merge authorized: no | yes
 ```
 
-When authorized, append-only commits required by the current task and policy-permitted bounded self-repair are allowed within the same branch/path limits. Commit count is not a safety boundary.
+When authorized, append-only commits required by the current task and policy-permitted bounded self-repair are allowed on the assigned branch. Commit count is not a safety boundary.
 
 The following remain forbidden unless separately authorized:
 
 - amend/rebase/squash/history rewrite;
-- paths outside `Commit paths`;
+- cross-responsibility or cross-writer path changes;
 - repair passes beyond the closure limits;
 - push, PR, merge, tag, or release when not separately authorized.
 
@@ -310,7 +335,7 @@ Coordinator responsibilities:
 
 - freeze base/branch/worktree/dirty state and shared contracts once before dispatch;
 - serialize by default; parallel writers require isolated worktrees and non-overlapping ownership;
-- delegate bounded tasks with exact file ownership and parent-attested evidence;
+- delegate bounded tasks with clear responsibility, expected ownership paths and parent-attested evidence; reserve exhaustive path whitelists for tasks that truly need them;
 - never edit production/test files itself;
 - stop writers before reviewing/verifying a frozen target;
 - route ordinary completed implementation directly to Independent Reviewer;
