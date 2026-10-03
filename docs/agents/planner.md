@@ -120,7 +120,7 @@ separately authorized runtime package.
 - List the expected ownership paths/modules for the current package. They are not an exhaustive whitelist unless the package explicitly says `Strict path whitelist: yes`.
 - Allow directly necessary coupled files to be added by the Executor under the repository path-ownership rule; require those additions to be reported in handoff.
 - Make each package specific enough that the Executor need not repeat a repository-wide design pass.
-- Assign T0, T1, T2, or T3 using `AGENTS.md`.
+- Use the active execution plan's risk labels when it defines them (for example T1/T2/T3). Do not invent a repository-wide risk taxonomy that `AGENTS.md` does not define.
 - Route deterministic validation to local scripts, CI, or a Verifier.
 - Route public-contract, persistence, security, concurrency, and uncertain
   semantic decisions to high-capability planning or review.
