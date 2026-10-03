@@ -68,29 +68,25 @@ Do not migrate the source model, renderer, database schema, and review state in
 one package. Put adjacent migration work into later packages with explicit
 dependencies.
 
-### Mandatory split gate
+### Split gate
 
-Split the work into multiple packages when any of the following is true:
+Split work when responsibilities are independently reviewable or carry different
+high-risk authorities. Do **not** split merely because a change touches more
+than two files; schema/B0/version pins or another directly coupled change may
+need several files to remain coherent.
 
-- more than two production files carry different responsibilities;
-- three or more independent acceptance groups are present;
-- typed assembly and legacy projection are both in scope;
-- more than one compatibility profile is being changed;
-- implementation, independent verification, and semantic review are combined;
-- one Executor would need to repeat a repository-wide design investigation;
-- a package cannot be explained as one behavior with one clear stop condition.
+Split when one package would otherwise combine materially independent concerns,
+for example:
 
-A normal implementation package should aim for:
+- unrelated domain and UI behavior;
+- more than one separately versioned migration;
+- implementation plus independent verification/review;
+- multiple compatibility profiles with independent rollback;
+- a task that cannot be explained as one bounded responsibility with one stop condition.
 
-- one primary behavior;
-- one or two production files when practical;
-- one corresponding regression-test group;
-- one minimal implementation self-check;
-- an 8-12 minute execution window;
-- a terminal handoff of at most 800 tokens.
-
-Do not split work merely to create more agents. Keep strongly coupled changes
-serial when they share a public contract or modify the same production file.
+Keep strongly coupled changes together when separating them would create an
+invalid intermediate state or duplicate authority. Prefer coherent scope over
+arbitrary file-count or minute-count targets.
 
 ### Compatibility and rollback
 
@@ -121,9 +117,9 @@ separately authorized runtime package.
 
 ### Task size and routing
 
-- List only files required for the current package.
-- Make each package specific enough that the Executor need not repeat a
-  repository-wide design pass.
+- List the expected ownership paths/modules for the current package. They are not an exhaustive whitelist unless the package explicitly says `Strict path whitelist: yes`.
+- Allow directly necessary coupled files to be added by the Executor under the repository path-ownership rule; require those additions to be reported in handoff.
+- Make each package specific enough that the Executor need not repeat a repository-wide design pass.
 - Assign T0, T1, T2, or T3 using `AGENTS.md`.
 - Route deterministic validation to local scripts, CI, or a Verifier.
 - Route public-contract, persistence, security, concurrency, and uncertain
@@ -154,61 +150,42 @@ not overlap, acceptance criteria are independent, and integration order is
 explicit. Reserve shared public contracts, models, schemas, migrations, and
 cross-module bridge files to the shared-contract checkpoint.
 
-For serial packages, state the exact order and the evidence required before the
-next package may start. For parallel packages, state the required worktree for
-each writer and the serial integration order.
+For serial packages, state the exact order and evidence required before the next package may start. A single writer normally uses a dedicated branch in the current checkout. For parallel writers, assign separate worktrees and non-overlapping ownership, then state the serial integration order.
 
 ## Required output
 
-Return either one compact package or a numbered package set. Every delegated
-package must contain the 14 fields required by section 15.3 of `AGENTS.md`:
+Return one compact package or a bounded package set. Do not repeat repository-
+wide safety/Git/verification rules already defined in `AGENTS.md`.
 
-1. Active role
-2. Objective and necessary background
-3. Base commit
-4. Assigned worktree path
-5. Assigned branch or detached state
-6. Allowed files
-7. Forbidden files and worktrees
-8. Dependencies and shared-contract checkpoint
-9. Acceptance criteria
-10. Focused validation and per-command timeouts
-11. Child execution window
-12. Commit authorization and allowed commit paths
-13. Stop conditions
-14. Handoff token budget
+A normal writable package contains:
 
-For T2/T3 migration packages, add only the applicable appendix fields:
+1. active role;
+2. bounded objective and only necessary background;
+3. authorized base;
+4. assigned **new branch**;
+5. expected ownership paths/modules;
+6. `Strict path whitelist: no|yes` (default `no`);
+7. frozen task-specific semantics;
+8. acceptance + focused validation;
+9. Git authority (commit/push/PR/merge);
+10. real STOP conditions.
 
-- current authoritative path;
-- compatibility bridge and deletion condition;
-- rollback point;
-- evidence class;
-- checkpoint reopening condition.
+Worktree is optional and should appear only for parallel writers, dirty checkout
+isolation, or an explicit Coordinator requirement.
 
-Do not repeat repository-wide rules already defined in `AGENTS.md` or the role
-files. Reference them instead.
+For T2/T3 migration packages, add only applicable risk notes: current authority,
+compatibility bridge/deletion condition, rollback point, evidence class, and
+checkpoint reopening condition.
 
-For a package set, also provide one concise dependency table:
+For a package set, provide one concise dependency table:
 
-| Package | Risk | May start | Owns | Depends on | Recommended model |
-|---|---|---|---|---|---|
+| Package | Risk | May start | Owns | Depends on |
+|---|---|---|---|---|
 
-Mark each package as:
-
-- `RUN_NOW`;
-- `WAIT_FOR:<package>`;
-- `PARALLEL_AFTER_CHECKPOINT`.
-
-Also state one package-set execution route:
-
-- `MANUAL_DELEGATED` by default; or
-- `AUTO_DELEGATED_WAIT` only when explicitly user-authorized.
-
-Under `MANUAL_DELEGATED`, the Coordinator outputs packages for separate agent
-threads and yields. Under `AUTO_DELEGATED_WAIT`, the Coordinator may create the
-bounded child set and wait, but non-terminal commentary is governed by the
-10-minute throttle in `docs/agents/coordinator.md`.
+Mark packages as `RUN_NOW`, `WAIT_FOR:<package>`, or
+`PARALLEL_AFTER_CHECKPOINT`, and state the package-set route
+(`MANUAL_DELEGATED` by default; `AUTO_DELEGATED_WAIT` only when explicitly
+authorized).
 
 ### Modes and budgets
 
@@ -219,8 +196,8 @@ Survey mode:
 
 Task-package mode:
 - one package or bounded package set;
-- default 1600 tokens total;
-- complex T3 migration may be raised to 2400 tokens by the Coordinator.
+- keep the package compact enough to execute without re-planning;
+- prefer concise task-specific instructions over duplicated repository rules.
 
 Do not provide complete implementation code. Keep every package concise enough
 that another agent can execute it without re-analyzing the entire repository.
