@@ -62,24 +62,37 @@ worker 不加载整个自动化协议或后续队列。若当前任务包本身�
 
 ## 4. 实现、验证、审查与修复
 
+Automation 复用正常流程，不维护第二套验收规则：
+
 ```text
-冻结当前任务和权限
-→ Executor 实现、机械验证、已授权交付，然后 STOP
-→ 必要时独立 Verifier
-→ 独立 Reviewer
+冻结当前任务、Documentation responsibility 和权限
+→ Executor 实现、机械检查、已授权 PR 交付，然后 STOP
+→ 当前 merge target 的 standing PR CI
+→ 仅当 CI 无法可信覆盖 required acceptance 时独立 Verifier
+→ 强制 Independent Reviewer
 → 有阻塞 finding：同任务修复、复验、fresh targeted review
+→ provisional APPROVE 后执行已授权 Documentation Closure
+→ final-head PR CI + final Reviewer [REVIEW APPROVAL]
 → 控制者检查并执行已授权 conditional merge
 → 刷新 base、契约、任务状态
 → 下一已授权任务
 ```
 
-Executor 的 STOP 结束 worker assignment，控制者继续调度。Reviewer/Verifier 仍只读，不能修复或合并；控制者不能用自己的实现自检替代独立审查。
+Executor 的 STOP 结束 worker assignment，控制者继续调度。控制者不能用
+自己的实现自检替代 standing CI、必要 Verifier 或独立 Reviewer。
 
-独立审查使用与 implementation assignment 分离的审查上下文，读取停止 writer 后的固定目标、原始任务、契约和必要证据。同一模型可以承担不同 assignment；仅在原实现上下文中声明“现在我是 Reviewer”不构成独立审查。
+独立审查使用与 implementation assignment 分离的上下文，读取停止 writer
+后的固定目标、原始任务、契约和必要证据。同一模型可以承担不同
+assignment；仅在原实现上下文中声明“现在我是 Reviewer”不构成独立审查。
 
-Verifier 只按 `AGENTS.md` 的风险触发条件插入。保留 focused 检查、只读 check helper、Windows 串行 Flutter tests、真实执行结果和 `NOT_EVALUATED` 全局默认值，不为自动化重复无关扫描或运行完整全仓验收。
+standing `PR contract checks` 是默认 deterministic verification authority。
+只有 required acceptance 存在 CI coverage gap 时才派 Verifier；高风险但
+已经被明确 hard-failing CI matrix 覆盖的行为不重复消耗 Verifier。
+Reviewer 和 Documentation Closure 完全复用 `AGENTS.md` / 角色规则。
 
-两类修复预算继承 `AGENTS.md`，切换 worker、推进 head 或重启不会重置计数。修复后重跑失败检查和直接受影响的回归。
+两类修复预算继承 `AGENTS.md`，切换 worker、推进 head 或重启不会重置
+计数。修复后重跑失败检查和直接受影响的回归，并重新建立被 head 变化
+失效的 CI/Review/Verifier 证据。
 
 ## 5. 先解决阻塞
 
@@ -109,16 +122,34 @@ Verifier 只按 `AGENTS.md` 的风险触发条件插入。保留 focused 检查�
 
 ## 6. Conditional merge 与 checkpoint
 
-控制者只在已有明确 merge 授权且当前任务允许自动合并时合并；`Auto-Merge: no` 或用户指定的交付停止点仍生效。用户已批准条件式 merge 后，不再逐个请求确认。合并前同时满足：
+控制者只在已有明确 merge 授权且当前任务允许自动合并时合并；
+`Auto-Merge: no` 或用户指定的交付停止点仍生效。用户已批准条件式 merge
+后，不再逐个请求确认。Automation 不降低正常流程的 merge gate。
 
-1. writer 已停止；当前 PR head 正是 Reviewer 批准且必需检查覆盖的 head。
-2. 必需本地检查和 required CI 全部通过；仓库自动触发的 `PR contract checks` 是 Automation conditional merge 的 standing required CI gate，即使 GitHub branch protection 没有把它配置为 required status。接受的自动 PR run 必须对应当前 PR head 与当前 base 形成的当前 merge target；旧 head、旧 base/merge target、未运行、失败或过期结果都不能当作成功。
-3. 需要 Verifier 时，其固定目标结果为 PASS；独立 Reviewer 为 APPROVE。
-4. 当前任务无开放 P0/P1/P2，无未解决的契约、scope 或前置验收阻塞。
-5. 目标 base/branch/repository 正确、PR 可合并，使用已授权且符合仓库 Git 规则的合并方式；不采用被禁止的 squash/rebase 或绕过分支保护。
+合并前同时满足：
 
-修复推进 head 后，旧批准失效，需要 fresh targeted closure。base 在审查后变化时，核对相关契约/依赖差异并重新确认当前 merge target 的 standing `PR contract checks` 已成功；旧 base/merge target 的 CI 结果不能满足自动合并门禁。Reviewer/Verifier 的旧语义证据只有在确认仍适用时才可继续复用，否则重新冻结受影响审查。意外漂移或无法确认的合并状态不允许盲目重试。
+1. writer 已停止，Documentation responsibility 已关闭；最终 PR head 正是
+   final Reviewer approval 与必需检查覆盖的 head。
+2. 当前 PR head + 当前 base/merge target 对应的自动 `PR contract checks`
+   全部 SUCCESS；branch protection 未配置 required status 也不构成例外。
+3. 独立 Reviewer 已在 PR 上记录针对 final head 的 `[REVIEW APPROVAL]`，
+   且 P0/P1/P2 为 0。
+4. 只有 standing CI 无法可信覆盖 required acceptance 时才要求 Verifier；
+   一旦要求，其适用的 `[VERIFICATION APPROVAL]` PR evidence 必须存在。
+5. 无未解决 contract/scope/前置验收阻塞，目标 base/branch/repository 正确、
+   PR 可合并，并使用已授权且符合仓库 Git 规则的合并方式。
 
-合并后核对真实 merge 结果，按已授权 fetch 刷新远端 base，再读取当前任务所需契约/计划和队列。只有该 checkpoint 已满足独立验收和接受条件，才开放下游依赖。不能仅凭提交存在就宣称验收通过。
+修复或 Documentation Closure 推进 head 后，按共享规则重新建立 final-head
+CI 和 Review 证据。旧 Verifier PASS 只有在后续变化严格限于已授权的
+documentation/PR-metadata closure、且 Reviewer 明确确认 verified behavior
+未变时才可沿用；否则重新 Verifier。base 漂移同样必须重新确认当前
+merge target 的 standing CI，不能复用旧 base 的结果。
 
-结束时报告已完成、仍阻塞、实际 Git 动作、必要检查/审查和恢复入口。具体 SHA/CI/运行状态属于 Git 和本次交接，canonical documents 只按已授权职责更新发生变化的持久事实。
+合并后核对真实 merge 结果，按已授权 fetch 刷新远端 base，再读取当前
+任务所需契约/计划和队列。只有该 checkpoint 已满足独立验收和接受条件，
+才开放下游依赖。不能仅凭提交存在就宣称验收通过。
+
+结束时报告已完成、仍阻塞、实际 Git 动作、final-head CI、Reviewer PR
+approval、必要 Verifier evidence、Documentation Closure 和恢复入口。
+具体 SHA/CI/运行状态属于 Git 和本次交接，canonical documents 只按已授权
+职责更新发生变化的持久事实。
