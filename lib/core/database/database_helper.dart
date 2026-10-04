@@ -28,6 +28,10 @@ import 'retrieval_v21_schema.dart';
 import 'study_plan_v22_schema.dart';
 import 'training_content_v29_schema.dart';
 import 'study_activity_v30_schema.dart';
+import 'import_task_v31_schema.dart';
+import '../../application/task_center/retry_file_selection.dart';
+import '../../data/models/task_center_task_identity.dart';
+import '../../application/home_training_result.dart';
 import 'training_content_binding_lifecycle.dart';
 import 'sqflite_runtime.dart';
 
@@ -88,7 +92,7 @@ class DatabaseHelper
   DatabaseHelper._();
 
   static const String _dbName = 'shiroha_core_v1.db';
-  static const int _dbVersion = studyActivitySchemaVersion;
+  static const int _dbVersion = importTaskSchemaVersion;
 
   static String get databaseFileName => _dbName;
   static int get databaseVersion => _dbVersion;
@@ -697,6 +701,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await validateTrainingContentV29Schema(db);
     await validateStudyActivityV30Schema(db);
     await validateStudyActivityV30Data(db);
+    await validateImportTaskV31Schema(db);
   }
 
   /// Opens a database handle with the current production schema callbacks.
@@ -921,7 +926,10 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
         pending_chunks TEXT,
         failed_chunks TEXT,
         warnings TEXT,
-        diagnostics TEXT
+        diagnostics TEXT,
+        attempt_started_at INTEGER,
+        parsed_at INTEGER,
+        failed_at INTEGER
       );
     ''');
 
@@ -965,6 +973,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await validateTrainingContentV29Schema(db);
     await validateStudyActivityV30Schema(db);
     await validateStudyActivityV30Data(db);
+    await validateImportTaskV31Schema(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -1147,6 +1156,9 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     if (oldVersion < 30) {
       await migrateStudyActivityToV30(db);
     }
+    if (oldVersion < 31) {
+      await migrateImportTaskToV31(db);
+    }
     await validateAnswerAttemptV26Schema(db);
     await validateContentAssetReclamationV27Schema(db);
     await validateAnswerCompletionV28Schema(db);
@@ -1154,6 +1166,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await validateTrainingContentV29Schema(db);
     await validateStudyActivityV30Schema(db);
     await validateStudyActivityV30Data(db);
+    await validateImportTaskV31Schema(db);
   }
 
   /// Validates the frozen v15 schema before the open/upgrade can succeed.
@@ -3275,6 +3288,84 @@ SELECT
         taskData,
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
+    });
+  }
+
+  /// Current-attempt transitions never INSERT a missing row or overwrite a
+  /// concurrently committed review draft/completion. The caller publishes only
+  /// after this exact persisted snapshot comparison succeeds.
+  Future<bool> saveImportTaskTransition(
+      Map<String, dynamic> previous, Map<String, dynamic> next) async {
+    final db = await database;
+    return db.transaction((txn) async {
+      final rows = await txn.query('import_tasks',
+          where: 'id = ?', whereArgs: [previous['id']], limit: 1);
+      if (rows.isEmpty ||
+          !sameImportTaskPersistedSnapshot(rows.single, previous)) {
+        return false;
+      }
+      await _resetReclamationForImportTask(txn, next);
+      return await txn.update('import_tasks', next,
+              where: 'id = ?', whereArgs: [previous['id']]) ==
+          1;
+    });
+  }
+
+  Future<HomeTrainingFailure?> validateTaskCenterTarget(
+      TaskCenterTaskTarget target,
+      {required int expectedStatus,
+      required Object? expectedAttemptState}) async {
+    final db = await database;
+    final rows = await db.query('import_tasks',
+        where: 'id = ?', whereArgs: [target.taskId], limit: 1);
+    if (rows.isEmpty ||
+        !persistedTaskCenterTargetMatches(rows.single, target)) {
+      return HomeTrainingFailure.stale;
+    }
+    final raw = rows.single['diagnostics'];
+    final diagnostics = raw == null ? null : jsonDecode(raw as String) as Map;
+    return rows.single['status'] == expectedStatus &&
+            diagnostics?['_attemptState'] == expectedAttemptState
+        ? null
+        : HomeTrainingFailure.conflict;
+  }
+
+  /// Used under the existing TaskManager cleanup reservation and mutation gate.
+  /// Only the task row is removed; learning data and source bytes are untouched.
+  Future<HomeTrainingFailure?> deleteTaskCenterTarget(
+      TaskCenterTaskTarget target,
+      {required bool completedOnly}) async {
+    final db = await database;
+    return db.transaction((txn) async {
+      final rows = await txn.query('import_tasks',
+          where: 'id = ?', whereArgs: [target.taskId], limit: 1);
+      if (rows.isEmpty ||
+          !persistedTaskCenterTargetMatches(rows.single, target)) {
+        return HomeTrainingFailure.stale;
+      }
+      final row = rows.single;
+      final raw = row['diagnostics'];
+      final diagnostics = raw == null ? null : jsonDecode(raw as String) as Map;
+      final state = diagnostics?['_attemptState'];
+      if (state != null &&
+          !const {
+            'queued',
+            'running',
+            'cancelRequested',
+            'cancelled',
+            'readyForReview',
+            'failed',
+            'interrupted'
+          }.contains(state)) {
+        return HomeTrainingFailure.conflict;
+      }
+      if ((completedOnly && row['status'] != 2) ||
+          _isImportTaskCleanupBusy(row['status'] as int?, row['diagnostics'])) {
+        return HomeTrainingFailure.conflict;
+      }
+      await txn
+          .delete('import_tasks', where: 'id = ?', whereArgs: [target.taskId]);
+      return null;
     });
   }
 

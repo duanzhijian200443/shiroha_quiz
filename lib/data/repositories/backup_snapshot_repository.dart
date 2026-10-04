@@ -9,6 +9,7 @@ import '../../core/database/answer_completion_v28_schema.dart';
 import '../../core/database/database_helper.dart';
 import '../../core/database/training_content_v29_schema.dart';
 import '../../core/database/study_activity_v30_schema.dart';
+import '../../core/database/import_task_v31_schema.dart';
 import '../../domain/study_activity/study_activity_values.dart';
 import '../../domain/backup/backup_failure.dart';
 import '../../domain/backup/backup_manifest.dart';
@@ -216,6 +217,7 @@ final class BackupSnapshotRepository {
     try {
       await validateTrainingContentV29Schema(db);
       await validateTrainingContentV29Data(db);
+      await validateImportTaskV31Schema(db);
       await validateStudyActivityV30Schema(db);
       await validateStudyActivityV30Data(db);
       if ((await db.query(studyActivitySessionsTable,

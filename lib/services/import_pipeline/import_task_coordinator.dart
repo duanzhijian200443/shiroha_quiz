@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../../application/task_center/retry_file_selection.dart';
 
 import 'package:path/path.dart' as p;
 import '../../application/answer_completion/document_question_set_seed.dart';
@@ -557,20 +558,25 @@ class ImportTaskCoordinator {
     );
   }
 
-  Future<ImportAttemptWriteStatus> cancelOcrTask(String taskId) async {
+  Future<ImportAttemptWriteStatus> cancelOcrTask(String taskId,
+      {TaskCenterTaskTarget? expectedTarget}) async {
     return BackupRestoreMutationGate.instance.runMutation(() async {
       await _readiness;
       final matches = _taskManager.tasks.where((task) => task.id == taskId);
       if (matches.isEmpty) return ImportAttemptWriteStatus.taskMissing;
       final task = matches.first;
+      if (expectedTarget != null &&
+          !_taskManager.matchesTaskCenterTarget(expectedTarget)) {
+        return ImportAttemptWriteStatus.stale;
+      }
       if (task.parseMode != ImportParseMode.ocr.name) {
         return ImportAttemptWriteStatus.invalidState;
       }
       final attempt = task.attemptRef;
       if (attempt == null) return ImportAttemptWriteStatus.invalidState;
 
-      final persistence =
-          await _taskManager.requestAttemptCancellation(attempt);
+      final persistence = await _taskManager.requestAttemptCancellation(attempt,
+          expectedTarget: expectedTarget);
       if (persistence != ImportAttemptWriteStatus.applied) {
         return persistence;
       }
@@ -594,6 +600,7 @@ class ImportTaskCoordinator {
     required String taskId,
     required List<String> filePaths,
     required List<String> fileNames,
+    TaskCenterTaskTarget? expectedTarget,
   }) async {
     BackupRestoreMutationGate.instance.ensureMutationAllowed();
     final parser = _parser;
@@ -633,6 +640,7 @@ class ImportTaskCoordinator {
         : '${immutableNames.first} 等 ${immutableNames.length} 个文件';
 
     return retryOcrTask(
+      expectedTarget: expectedTarget,
       taskId: taskId,
       sourceDescription: sourceDescription,
       explanationRetentionMode: task.explanationRetentionMode,
@@ -660,6 +668,7 @@ class ImportTaskCoordinator {
     required String taskId,
     required String sourceDescription,
     required ImportTaskParseAction parse,
+    TaskCenterTaskTarget? expectedTarget,
     ExplanationRetentionMode explanationRetentionMode =
         ExplanationRetentionMode.subjectiveOnly,
   }) async {
@@ -668,6 +677,7 @@ class ImportTaskCoordinator {
     try {
       return await _retryOcrTaskUnchecked(
         lease,
+        expectedTarget: expectedTarget,
         taskId: taskId,
         sourceDescription: sourceDescription,
         parse: parse,
@@ -684,6 +694,7 @@ class ImportTaskCoordinator {
     required String taskId,
     required String sourceDescription,
     required ImportTaskParseAction parse,
+    TaskCenterTaskTarget? expectedTarget,
     ExplanationRetentionMode explanationRetentionMode =
         ExplanationRetentionMode.subjectiveOnly,
   }) async {
@@ -694,6 +705,11 @@ class ImportTaskCoordinator {
       throw const ImportTaskRetryRejectedException();
     }
     final task = matches.first;
+    if (expectedTarget != null &&
+        !_taskManager.matchesTaskCenterTarget(expectedTarget)) {
+      throw const ImportTaskRetryRejectedException();
+    }
+
     final previousLease = task.status != TaskStatus.completed
         ? _readLeaseFromDiagnostics(task.diagnostics)
         : null;
@@ -754,6 +770,7 @@ class ImportTaskCoordinator {
     );
     final writeStatus = await _taskManager.restartAttempt(
       handle.attempt,
+      expectedTarget: expectedTarget,
       parseMode: ImportParseMode.ocr.name,
       explanationRetentionMode: explanationRetentionMode,
     );

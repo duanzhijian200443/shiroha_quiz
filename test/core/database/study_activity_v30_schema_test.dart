@@ -59,9 +59,9 @@ void main() {
       () async {
     final db = await fresh('fresh');
     try {
-      expect(await db.getVersion(), studyActivitySchemaVersion);
-      expect(DatabaseHelper.databaseVersion, 30);
-      expect(BackupValues.currentSchemaVersion, 30);
+      expect(await db.getVersion(), DatabaseHelper.databaseVersion);
+      expect(DatabaseHelper.databaseVersion, BackupValues.currentSchemaVersion);
+      expect(studyActivitySchemaVersion, 30);
       expect(BackupValues.currentPackageVersion, 2);
       await validateStudyActivityV30Schema(db);
       await validateStudyActivityV30Data(db);
@@ -184,7 +184,7 @@ void main() {
     await old.close();
     final upgraded = await helper.openPathForTesting(path);
     try {
-      expect(await upgraded.getVersion(), 30);
+      expect(await upgraded.getVersion(), DatabaseHelper.databaseVersion);
       expect((await upgraded.query('questions')).single['id'], 'keep');
       expect(await upgraded.query(studyActivitySessionsTable), isEmpty);
       expect(await upgraded.query(studyActivitySegmentsTable), isEmpty);

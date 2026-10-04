@@ -346,7 +346,12 @@ jobs:
             'test/services/file_library/managed_file_storage_adapter_test.dart',
             'test/ocr_smoke_report_test.dart',
             'test/ui/assistant/u1_lifecycle_ux_reviewer_regression_test.dart',
-            'test/core/database/rag1_fts5_capability_test.dart'
+            'test/core/database/rag1_fts5_capability_test.dart',
+            'test/core/database/import_task_v31_schema_test.dart',
+            'test/task_manager_event_time_test.dart',
+            'test/application/task_center/task_center_facade_test.dart',
+            'test/application/task_center/task_center_contracts_test.dart',
+            'test/application/task_center/retry_file_selection_test.dart'
           )
 
           $shardCount = 4

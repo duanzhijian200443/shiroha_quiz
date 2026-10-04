@@ -120,7 +120,7 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
 6. Typed content mutation must not pass through the legacy editor or reconstruct authority from a V1 projection.
 7. Review/FSRS state is separate from typed question content mutation.
 8. `RichContent` is structural: a persisted `TextNode` is not reparsed later as Markdown/math/image syntax.
-9. Current database schema is **v30**: the frozen v15 typed sidecar remains
+9. Current database schema is **v31**: the frozen v15 typed sidecar remains
    authoritative, with the additive v16 File Library, v17 Project, v18 flat
    File Library Folder, v19 Conversation, and v20 parsed-artifact tables, the
    additive RAG-1 derived lexical-retrieval cache and FTS5 objects, the
@@ -130,7 +130,8 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
    ContentAsset reclamation-observation table, and the v28 durable
    `ImportedQuestionSet` / ordered-membership schema with database-owned
    relationship invariants, plus the v29 TrainingContent / members / Category
-   preferences configuration schema and v30 StudyActivity sessions/segments.
+   preferences configuration schema, v30 StudyActivity sessions/segments and v31
+   nullable ImportTask current-attempt event timestamps.
    The v27 table records only
    continuous grace evidence; it is neither an ownership registry, a refcount,
    nor a persisted live-set authority. V26 only extends
@@ -223,7 +224,7 @@ Rules:
 - F1-D1 implemented the additive v20 artifact tables without modifying any
   earlier table. RAG-1 subsequently raised the runtime schema to v21 at its
   closure with derived lexical-retrieval cache tables and a dedicated FTS5
-  index; the current runtime is v30.
+  index; the current runtime is v31.
 
 See `docs/architecture/f1-parsed-artifact-lifecycle.md`.
 
@@ -467,7 +468,7 @@ boundary remains frozen and applies to any future P7 extension:
   READ_ONLY tools, A0 stays exactly six tools, and W0 is not a P7 workflow.
 - P7 adds no schema change and no persisted candidate/generation state/
   provenance/provider request/result/review state; runtime schema was v21 at
-  P7 closure. The current runtime is v30.
+  P7 closure. The current runtime is v31.
 
 ## 12. UI Finalization Presentation boundary
 
@@ -509,7 +510,7 @@ through an Application command with a durable transaction-level
   non-preview Practice seam (never `PracticePage.initialQuestions`, which
   remains preview-only). SPL-1 StudyPlan Agent Tool v0 is CLOSED / FROZEN
   (P0–D0–D1–I0–U0–V0–CL COMPLETE; stage schema v22, v24 at closure;
-  current runtime v30).
+  current runtime v31).
 
   The focused SPL-1 authority is
 `docs/product/SPL-1 StudyPlan Agent Tool v0.md`.
@@ -558,7 +559,7 @@ FSRS grading authority. See `docs/architecture/photo-answer-v1.md`.
 
 The design keeps Presentation behind Answer Completion Application services, preserves `PersistedQuestion.storageId` as Question identity, reuses existing P6/P7 answer mutation authority, and makes the existing task-bound `QuestionRepository` transaction the only import transaction owner. `LibraryFile`, `ParsedArtifact`, and `ImportTask` do not become QuestionSet identity.
 
-**ANSWER-COMP-D1 implemented this relation as the additive v28 schema; the current runtime is v30.** The `imported_question_sets` / `imported_question_set_items` tables, their constraints, the bank lookup index, and the required relationship triggers exist and are strictly validated, while historical questions remain ungrouped.
+**ANSWER-COMP-D1 implemented this relation as the additive v28 schema; the current runtime is v31.** The `imported_question_sets` / `imported_question_set_items` tables, their constraints, the bank lookup index, and the required relationship triggers exist and are strictly validated, while historical questions remain ungrouped.
 
 Seed capture, the QuestionRepository-owned atomic set/member writer with per-document dispatch, the Answer Completion read projection, the queue/detail Presentation, and set-scoped P6 plus single-question P7 activation are implemented. ANSWER-COMP-P0, ANSWER-ENTRY-GUARD, D0/D1/B0, I0a/I0b/I0c, Q0/U0/P6/P7, V0 and CL are COMPLETE; Answer Completion v0 is CLOSED / FROZEN. These durable boundaries apply:
 
@@ -570,7 +571,7 @@ Seed capture, the QuestionRepository-owned atomic set/member writer with per-doc
 - Source-file deletion, artifact replacement/removal, task cleanup and folder moves preserve committed set identity and membership. Answer/content edits preserve membership and review state; query counts reflect current typed answers, including explicit-empty as answered. Question deletion or bank movement removes membership, and the final removal deletes the empty set.
 - B0 preserves set identity and ordered membership while treating provenance as soft evidence; strict v28 schema/trigger and relationship validation remains mandatory. V0/CL adds no production mutation path and does not activate typed-admission R1, stable bank identity, batch AI or RAG-2.
 
-## Home Training V3 — configuration, launch and v30 Activity persistence implemented
+## Home Training V3 — configuration, launch, Activity and TaskCenter backend implemented
 
 `docs/product/home-training-implementation-freeze-v3.md` freezes
 `SHIROHA-HOME-TRAINING-IPF-V3` as the planned successor to the current
@@ -580,9 +581,10 @@ new-question pools, Category-scoped due review pools), Today/Home v2, durable
 StudyActivity timing, ImportTask attempt event timestamps, and a TaskCenter
 Application facade. P1a Domain values and P1b Application contracts exist;
 P1c implements additive v29 TrainingContent persistence; P4b implements additive
-v30 StudyActivity persistence. V31 ImportTask event timestamps remain planned.
+v30 StudyActivity persistence. B1 implements additive v31 ImportTask event
+timestamps and the TaskCenter Application backend.
 
-Runtime schema is v30. The three configuration tables and independent
+Runtime schema is v31. The three configuration tables and independent
 `app_settings.current_training_category` use canonical CategoryKey encoding;
 the upgrade transaction seeds only the eligible old current bank once, without
 changing learning data. B0 includes configuration and validates bindings,
@@ -640,7 +642,7 @@ preserving exact P3a order; every failed preparation leaves the old queue intact
 RNG is injected per new launch. No launch writes learning/configuration state or
 adds a durable queue. CP2-T implementation is complete.
 Legacy bank-scoped and StudyPlan launchers remain independent. Home/Today
-activation, Activity route wiring, route guards/lifetime and TaskCenter remain planned;
+activation, Activity route wiring, route guards/lifetime and TaskCenter Presentation remain planned;
 future ordinary Practice composition must use the prepared session with normal
 attribution, while StudyPlan retains focused attribution and its 200-ID bound.
 P4a implements the pure StudyActivity lifecycle/time core. Application's
@@ -676,9 +678,31 @@ and rejects malformed or nonterminal portable Activity before swap. Weekly reads
 sum persisted local-date segment durations for seven Monday–Sunday dates, using an
 injected current local date; read failure remains unavailable. P4b is merged via
 PR #224, and CP2-A is PASSED after independent T3 verification and fresh review.
-Runtime remains
-v30; Practice/MockExam Activity wiring, scheduling, weekly UI and production
-activation remain unimplemented. P5a is the next serial mainline package.
+Runtime is now v31; Practice/MockExam Activity wiring, scheduling, weekly UI and
+production activation remain unimplemented.
+B1 delivers P5a/P5b together. ImportTask adds three nullable UTC-second columns
+with no historical backfill. TaskManager owns accepted-attempt started/parsed/
+failed times and retry resets; repeated running does not refresh started time.
+Current-attempt transitions compare the previous durable snapshot inside one
+transaction and UPDATE only; stale callbacks do not recreate a missing task or
+overwrite committed review/completion. JSON formatting is not an identity change.
+QuestionRepository remains the formal completedAt transaction owner.
+TaskCenterFacade is an infrastructure implementation of the immutable Application
+query/command/file-selection contracts, keeping mutable tasks, diagnostics and
+source locations private. Commands revalidate exact nullable attempt/trace/review
+identity and current eligibility. Completed cleanup uses an immutable issued
+snapshot, the existing cleanup reservation/write tails/commit leases, and a
+transaction-bound exact target check. It deletes only still-eligible completed
+snapshot members, preserves new/changed/busy records and all learning/source data,
+and removes memory projections only after durable success. The legacy UI cleanup
+API remains a compatibility path, not the new completed-only command authority.
+Retry emits a picker request without mutation; selected input stays ephemeral in
+the ingestion adapter and revalidates again at accepted retry. Review emits only
+an exact navigation target; the later composition bridge must retain review CAS.
+B0 retains package v2, migrates staged schema to v31 and continues to scrub all
+ImportTask rows including event times. P5a/P5b and CP2-I implementation are complete;
+independent T3 verification/review remain required. TaskCenter UI, I3 and production
+injection are not activated. The next package is P6/B2 after independent acceptance.
 The existing Today, ordinary-training, StudyPlan and TaskCenter boundaries
 above remain current truth. StudyPlan remains the single
 global ActiveStudyPlan and stays independent of TrainingContent. Delivery
