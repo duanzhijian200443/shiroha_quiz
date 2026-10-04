@@ -2,7 +2,7 @@
 
 **契约入口：docs/product/home-training-implementation-freeze-v3.md**
 **性质：派生执行附录；不定义或修改产品语义。**
-**状态：实施中；P0～P4b 已合并，CP2-T implementation COMPLETE / CP2-A PASSED；B1 已实现 P5a + P5b / CP2-I implementation COMPLETE，独立 T3 验收待完成，下一包为 P6/B2。**
+**状态：实施中；B1 / CP2-I 已验收并合并；B2（P6 + P7a + P7b + P7c）implementation COMPLETE，独立 Reviewer 待完成；下一包为 B3（P8a + P8b + I1）。**
 
 本附录不授予 merge/tag/release 权限。每个写任务使用独立非默认分支；单写者默认不建 worktree，只有并行 writer、脏工作区隔离或 Coordinator 明确要求时才创建 worktree。commit/push/PR 仍按任务包或用户授权执行。
 
@@ -10,33 +10,28 @@
 
 # A0. 当前交付状态
 
-B1 当前授权 master 基线为 `7eb4a61a5195fbdc0f0a23e4d90ee2c4e12ce353`，包含已接受的 P4b（PR #224）及 CI coverage/balance（PR #226）。该 base runtime v30，CP2-A PASSED。分支 `codex/home-training-v3-taskcenter-backend` 实现 P5a + P5b；本次用户明确授权两个 leaf package 作为一个 TaskCenter Backend bounded PR 交付。分支 runtime v31，最终 fixed head 由 Git / PR 记录；不把未合并 B1 描述为 master 能力。CP2-I implementation COMPLETE，独立 deterministic T3 Verifier → Independent Reviewer 尚待完成；独立验收后才标记 CP2-I PASSED / 进入 P6/B2，merge 仍需用户独立授权。
+B1 / CP2-I 已验收并由 PR #227 合并，runtime schema 为 v31。此前记录的 B1 独立验收 pending 是交付时状态，现已被本节 supersede。
 
 | Package | Status |
 |---|---|
-| P0 | COMPLETE |
-| P1a | COMPLETE |
-| P1b | COMPLETE / CP1 passed |
-| P1c | COMPLETE |
-| P2a | COMPLETE |
-| P2b | COMPLETE |
-| P3a | COMPLETE |
-| P3b | COMPLETE / CP2-T implementation complete |
-| P4a | COMPLETE |
-| P4b | COMPLETE / CP2-A PASSED / MERGED (PR #224) |
-| P5a | COMPLETE / B1 implementation |
-| P5b | COMPLETE / B1 implementation; CP2-I independent T3 acceptance pending |
-| P6 / B2 | NEXT after B1 acceptance |
+| P0–P2b | COMPLETE / accepted and merged |
+| P3a/P3b | COMPLETE / CP2-T implementation complete / merged |
+| P4a/P4b | COMPLETE / CP2-A PASSED / merged |
+| P5a/P5b / B1 | COMPLETE / CP2-I PASSED / merged (PR #227) |
+| P6 | COMPLETE / B2 implementation |
+| P7a | COMPLETE / B2 implementation |
+| P7b | COMPLETE / B2 implementation |
+| P7c | COMPLETE / B2 implementation |
+| B2 | implementation COMPLETE; independent Reviewer pending; not merged |
+| B3 / P8a + P8b + I1 | NEXT after B2 delivery acceptance |
 
-当前 runtime schema：
+B2 已实现可注入的 Training Config 列表、共用题库选择器、编辑器和 controller：Category-wide Visual、纯 draft、1..100 题量、Domain 比例/理想 quota、失效成员上下文、显式重绑、独立 content/preference CAS、部分保存提示、latest-wins 和 mutation busy/dispose guard。完整配置 Query 在同一只读事务中包含空分类及题库消失后仍有配置的分类。顺序调整捕获 Category 全部 ordered targets/revisions，在单事务重验后调整 dense ranks；插入/删除/编辑/排序竞争为 stale 零写入，不采用两个独立 update 的半交换。
 
-```text
-v31
-```
+Category Visual/current preference 与 content revisions 分离，runtime fallback 不写回。配置页删除只删除配置并读取 authoritative selection；重绑为显式二次确认的独立 durable action，确认文字说明取消其它草稿不会撤销已确认重绑。
 
-B1 分支 runtime 已包含 v29 TrainingContent、v30 StudyActivity 和 v31 ImportTask event columns / staged B0 compatibility；授权 master base runtime 为 v30。P5a + P5b delivered together as one authorized TaskCenter Backend package，尚未宣称 B1 已合并或 UI production activated。
+Training Config UI implemented；Home/config production composition（I2）尚未激活，旧 PlanConfigScreen 与 legacy entry 保留。Practice/MockExam StudyActivity wiring、I1、Today v2、Home v2、TaskCenter UI/I3、CP3/CP4 仍待后续包。schema 保持 v31，不新增迁移或依赖；StudyPlan 不变。
 
-P2a 已交付 configuration capability：真实只读 TrainingCatalog、TrainingContent Query/Command、配置 CRUD、current selection 与 Category Visual preference CAS。P2b 已合并同事务最终状态 invalidation 与显式 rebind（含针对 P2a 遗留 valid-but-drifted binding 的 recreate/re-map writer 同事务 preflight reconciliation），继续使用 v29 和既有 bankName identity。P3a 已合并正权重 quota/refill、有界 ordered ID windows、注入 RNG offset/shuffle、exact typed materialization 与独立 Category review pool。P3b 已合并 exact target fresh admission 与 selection 共用同一只读事务、单次 clock 捕获的 Category review，以及完整 success 后一次 prepared queue 替换；stale/empty/unavailable 不替换旧 queue，也不 retry/fallback 或写 durable state。StudyPlan 保持 200-bound/exact-order/focused，legacy ordinary launcher 保持。CP2-T 实现 COMPLETE。P4a 已实现 single-owner pure lifecycle、monotonic/wall sample abstraction、actual local-day/DST split、observed mapping change 和 persistence-ready segment proposals；P4b 已实现 v30 sessions/segments、gated atomic checkpoint CAS/replay、Application 串行与提交后发布、显式 startup processInterrupted recovery、snapshot-copy snapshotInterrupted 与 portable validation、七天 localDate segment SUM。已知 recording failure 停止当前 session 后续 attribution，partial 仅进程内投影，退出失败仍释放 owner。P4b COMPLETE / CP2-A PASSED，独立 T3 Verifier 与 fresh Reviewer 已通过，并由 PR #224 合并；B1 已实现 accepted-attempt event times/reset/stale isolation、immutable facade、snapshot-only completed cleanup、ephemeral retry input 与 review target request；CP2-I implementation COMPLETE，独立 T3 gate pending，下一包 P6/B2。Practice/MockExam Activity wiring、Timer 与 weekly UI 均未实施。Home/配置 UI、Practice route composition/guard/lifetime 与 production activation 仍待后续 owner 接入，当前生产入口未因此激活；Executor self-check 不替代独立审查或授予 merge 权限。
+B2 Executor mechanical verification 不替代 independent semantic review，不授予 merge 权限。具体 fixed head、CI 和验证命令由 Git/PR 与交接记录；本节仅记录阶段交付状态。
 
 以下 A 节保留最初规划基线，仅作为历史 planning evidence，不得覆盖本节 current delivery state。
 

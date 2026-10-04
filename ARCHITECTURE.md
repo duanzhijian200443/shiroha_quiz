@@ -701,8 +701,26 @@ the ingestion adapter and revalidates again at accepted retry. Review emits only
 an exact navigation target; the later composition bridge must retain review CAS.
 B0 retains package v2, migrates staged schema to v31 and continues to scrub all
 ImportTask rows including event times. P5a/P5b and CP2-I implementation are complete;
-independent T3 verification/review remain required. TaskCenter UI, I3 and production
-injection are not activated. The next package is P6/B2 after independent acceptance.
+B1 / CP2-I has been independently accepted and merged. TaskCenter UI, I3 and
+production injection are not activated.
+
+B2 implements injectable Training Config list, shared selector/editor and
+Presentation controller through Application ports. A single read transaction
+returns the complete configuration snapshot, retaining empty custom Categories
+and unavailable configurations after their banks disappear. Category Visual
+presets are Category-wide preference values, separate from content revisions.
+Draft weights and ideal quotas reuse Domain TrainingAllocation. Cancellation
+writes nothing; a separately confirmed rebind commits immediately and is clearly
+identified as independent of unsaved edits. Content and visual saves use separate
+CAS and report partial success without retry or fictitious rollback. Category
+reorder validates the complete captured ordered content/revision set and applies
+dense ranks atomically; only changed rows advance revisions, with no member or
+preference writes. Stale or failed moves leave no partial ordering changes.
+Controller generation/dispose guards reject late loads, and busy state prevents
+overlapping UI mutations. Configuration CRUD never changes learning facts.
+Home/config production composition remains I2-owned and inactive; the legacy
+PlanConfigScreen remains. B2 implementation is complete, with independent review
+pending. Runtime schema remains v31.
 The existing Today, ordinary-training, StudyPlan and TaskCenter boundaries
 above remain current truth. StudyPlan remains the single
 global ActiveStudyPlan and stays independent of TrainingContent. Delivery

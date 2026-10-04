@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:shiroha_quiz/application/home_training_result.dart';
+import 'package:shiroha_quiz/application/training/training_configuration_contracts.dart';
 import 'package:shiroha_quiz/application/training/training_contracts.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/core/database/ordinary_training_bank_policy.dart';
@@ -13,6 +14,8 @@ import 'package:shiroha_quiz/data/repositories/training_configuration_repository
 import 'package:shiroha_quiz/domain/training/category_key.dart';
 import 'package:shiroha_quiz/domain/training/training_content.dart';
 import 'package:shiroha_quiz/domain/training/training_content_member.dart';
+import 'package:shiroha_quiz/ui/training/training_configuration_controller.dart';
+import 'package:shiroha_quiz/ui/training/training_content_draft.dart';
 
 const _uncategorized = UncategorizedCategoryKey();
 const _codec = CategoryKeyCodec();
@@ -131,6 +134,138 @@ void main() {
         where: 'content_id = ?',
         whereArgs: [content.contentId]);
   }
+
+  test(
+      'configuration controller integrates real ports, separate visual CAS and explicit rebind',
+      () async {
+    await bank('Bank');
+    final content = await create();
+    final controller = TrainingConfigurationController(
+        query: repository, command: repository, orderCommand: repository);
+    addTearDown(controller.dispose);
+    await controller.load();
+    final category = controller.snapshot!.categories.single;
+    final draft = TrainingContentDraft(
+        categoryKey: _uncategorized,
+        preference: category.preference,
+        content: content)
+      ..name = 'Saved content'
+      ..visualKey = CategoryVisualKey.math;
+    // Competing preference change makes only the visual half stale.
+    _success(await repository.updateCategoryVisual(UpdateCategoryVisualRequest(
+        target: _pref(_uncategorized, null),
+        visualKey: CategoryVisualKey.english)));
+    final outcome = await controller.save(draft);
+    expect(outcome.content!.name, 'Saved content');
+    expect(outcome.visualSaved, isFalse);
+    expect(outcome.failure, HomeTrainingFailure.stale);
+    final refreshed = controller.snapshot!.categories.single;
+    expect(refreshed.preference.visualKey, CategoryVisualKey.english);
+    expect(refreshed.contents.single.content.revision, 2);
+    expect(refreshed.preference.revision, 1);
+    _success(await controller.select(refreshed, content.contentId));
+    expect(controller.snapshot!.categories.single.preference.currentContentId,
+        content.contentId);
+    await invalidate(outcome.content!);
+    final rebound = _success(await controller.rebind(outcome.content!, 'Bank'));
+    expect(rebound.revision, 3);
+    expect(
+        controller.snapshot!.categories.single.contents.single.usable, isTrue);
+    _success(await controller.delete(rebound));
+    expect(controller.snapshot!.categories.single.contents, isEmpty);
+    expect(controller.snapshot!.categories.single.preference.currentContentId,
+        isNull);
+    expect((await db.query('questions')).length, 1);
+  });
+
+  test(
+      'configuration snapshot retains orphan configuration and empty folders without writes',
+      () async {
+    await bank('Bank', folder: 'Gone category');
+    final content = await create(key: FolderCategoryKey('Gone category'));
+    await invalidate(content);
+    await db.delete('questions');
+    await db.delete('bank_folders');
+    await db.execute('CREATE TABLE custom_folders (name TEXT PRIMARY KEY)');
+    await db.insert('custom_folders', {'name': 'Empty'});
+    await unchanged(() async {
+      final snapshot = _success(await repository.readConfiguration());
+      expect(snapshot.categories.map((c) => c.categoryKey),
+          [FolderCategoryKey('Empty'), FolderCategoryKey('Gone category')]);
+      expect(snapshot.catalog.banks, isEmpty);
+      expect(snapshot.categories.last.contents.single.content.contentId,
+          content.contentId);
+      expect(snapshot.categories.last.contents.single.usable, isFalse);
+    });
+  });
+
+  Future<MoveTrainingContentRequest> moveRequest(
+      String id, TrainingContentMove direction) async {
+    final category = _success(await repository.listByCategory(_uncategorized));
+    return MoveTrainingContentRequest(
+        categoryKey: _uncategorized,
+        orderedTargets: category.contents.map((v) => _target(v.content)),
+        contentId: id,
+        direction: direction);
+  }
+
+  test('atomic reorder resolves equal ranks, preserves members and preference',
+      () async {
+    await bank('Bank');
+    await create(name: 'A');
+    await create(name: 'B');
+    await create(name: 'C');
+    final before = _success(await repository.listByCategory(_uncategorized));
+    final last = before.contents.last.content;
+    final members = await db.query(trainingContentMembersTable);
+    _success(await repository.moveContent(
+        await moveRequest(last.contentId, TrainingContentMove.up)));
+    final after = _success(await repository.listByCategory(_uncategorized));
+    expect(after.contents.map((v) => v.content.contentId), [
+      before.contents[0].content.contentId,
+      last.contentId,
+      before.contents[1].content.contentId
+    ]);
+    expect(after.contents.map((v) => v.content.sortOrder), [0, 1, 2]);
+    expect(await db.query(trainingContentMembersTable), members);
+    expect(after.preference.revision, isNull);
+  });
+
+  test(
+      'reorder stale competitor, inserted row and cross-category targets write nothing',
+      () async {
+    await bank('Bank');
+    final a = await create(name: 'A', order: 0);
+    final b = await create(name: 'B', order: 1);
+    final request = await moveRequest(b.contentId, TrainingContentMove.up);
+    _success(await repository.update(UpdateTrainingContentRequest(
+        target: _target(a), edit: _edit(name: 'changed'))));
+    await unchanged(() async => _failure(
+        await repository.moveContent(request), HomeTrainingFailure.stale));
+    final captured = await moveRequest(b.contentId, TrainingContentMove.up);
+    await create(name: 'C', order: 2);
+    await unchanged(() async => _failure(
+        await repository.moveContent(captured), HomeTrainingFailure.stale));
+    await unchanged(() async => _failure(
+        await repository.moveContent(MoveTrainingContentRequest(
+            categoryKey: FolderCategoryKey('other'),
+            orderedTargets: captured.orderedTargets,
+            contentId: b.contentId,
+            direction: TrainingContentMove.up)),
+        HomeTrainingFailure.stale));
+  });
+
+  test('second reorder write abort rolls back first row and every revision',
+      () async {
+    await bank('Bank');
+    final a = await create(name: 'A', order: 0);
+    final b = await create(name: 'B', order: 1);
+    await db.execute(
+        "CREATE TRIGGER reject_order BEFORE UPDATE ON training_contents WHEN OLD.content_id = '${a.contentId}' BEGIN SELECT RAISE(ABORT, 'synthetic'); END");
+    final request = await moveRequest(b.contentId, TrainingContentMove.up);
+    await unchanged(() async => _failure(await repository.moveContent(request),
+        HomeTrainingFailure.unavailable));
+  });
 
   test(
       'catalog keeps exact folders, empty folders and one real-bank eligibility decision; read only',
