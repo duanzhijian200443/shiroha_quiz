@@ -7,7 +7,7 @@ once in `AGENTS.md`.
 ## Context and preflight
 
 Follow the context route in `AGENTS.md`. Open the governing contract itself and
-the active execution plan; a package or parent summary does not replace them.
+the current task package when one exists; a parent summary does not replace them.
 Reuse credible inherited evidence, but confirm status and the current
 branch/HEAD against the authorized target before writing.
 
