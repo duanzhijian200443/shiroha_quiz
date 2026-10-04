@@ -1,73 +1,87 @@
 # 用户发布的自动化任务队列
 
-本目录存放用户预先发布的任务包，由显式自动化运行的控制者选择。普通角色不扫描队列；被派发的 worker 只读取当前任务包。
+本目录只用于用户临时发布的本地任务包。普通角色不扫描本目录；显式
+`角色：自动化` 才读取。若某项工作已经在
+`docs/product/<capability>/` 下有正式 task package，不要为了调度再复制一份
+同内容到本目录；在已授权的 roadmap/contract continuation 中直接消费正式
+package 即可。
 
-本 README 的模板和示例不是可执行任务。目录中没有任务文件时，不代表获准执行整个 roadmap。
+## 1. 文件名就是调度信息
 
-## 1. 任务身份与最小头部
+不使用 `Task-ID`、`Status`、`READY`、`ACTIVE`、`DONE` 等额外状态字段。
 
-每个任务使用一个 Markdown 文件，保持稳定 `Task-ID`。文件名表达相对优先级，例如 `010-b1-taskcenter-backend.md`、`020-b2-training-config-ui.md`；不要另外维护 `Order` 字段。
-
-任务头部：
+示例：
 
 ```text
-# <任务标题>
-
-Task-ID: <稳定且唯一的任务 ID>
-Status: READY
-Depends-On: none | <任务 ID 列表>
-Risk: T1 | T2 | T3
-Auto-Merge: yes | no
-Authorization: <明确用户授权的来源/适用范围>
+10-b2-training-config-ui.md
+20-b3-study-activity-runtime.md
+30-b4-home-v2.md
 ```
 
-正文使用 `docs/agents/README.md` 的唯一 writable-package 模板，不另维护第二份模板。包含授权 base、专用 branch/create-or-reuse、contract/plan、ownership、冻结语义、acceptance、validation、具体 Git 权限和修复计数；必要独立验收属于 acceptance。
+数字前缀表达相对优先级，不覆盖 governing contract、硬前置或 Git/PR 事实。
+文件路径/文件名已经足够标识当前任务，不再维护第二套任务 ID。
 
-Base 可以是固定授权值，或用户明确允许开工时冻结的远端 base。需要的 fetch、worktree、PR metadata 更新等独立动作另列实际授权；权限可以引用本次已批准运行范围，由控制者派发时展开。
+完成后的本地文件改名：
 
-`READY` 表示用户已发布任务，`Auto-Merge` 表示任务偏好；均不单独授予 implementation/Git 权限。用户必须明确批准队列或对应任务的执行及所需动作。自动生成文件、修改状态或机器提交不构成用户发布/授权。
+```text
+10-b2-training-config-ui.md
+→ 10-b2-training-config-ui-完成.md
+```
 
-## 2. 五个状态与事实核对
+Automation 扫描目录时先只列文件名：
 
-| Status | 含义 |
-|---|---|
-| READY | 用户已发布，尚未开始；开工仍需权限、前置条件核对 |
-| ACTIVE | 已开始，优先恢复 |
-| BLOCKED | 当前不能继续，优先定位并解除阻塞 |
-| DONE | 已满足任务验收，且其 PR 已真实合并 |
-| CANCELLED | 用户已取消，不再执行 |
+- `README.md`：协议文件，忽略；
+- `*-完成.md`：已关闭，直接跳过，不打开正文；
+- 其他 `*.md`：待执行候选。
 
-同时只有一个 ACTIVE task。未知/重复 Task-ID、未知状态、缺失依赖或依赖环需要报告，不凭猜测启动有关任务。
+本地 queue 已被仓库 `.gitignore` 忽略，因此完成改名不要求 Git 提交。
+只有对应实现 PR 已确认 merge 后，控制者才把本地 queue 文件改成
+`-完成.md`。
 
-Status 是调度提示，Git/PR 和固定目标验收证据决定实际完成状态。恢复时关联 Task-ID、分支/PR、head 和接受条件：
+## 2. 任务正文
 
-- PR 已合并、文件仍是 READY/ACTIVE：核对任务范围和验收后视为已完成，不重复实施。
-- 文件写 DONE、PR 未合并或验收未满足：不能放行依赖，报告状态不一致。
-- 已存在未完成 PR：恢复原分支/任务，不另建重复 PR。
-- BLOCKED 不自动变 CANCELLED/DONE；解除后可恢复 ACTIVE。
-- CANCELLED 的遗留分支/PR 不继续，不擅自关闭或删除。
+正文直接使用 `docs/agents/README.md` 的 writable-package 结构，或给出
+等价的明确用户指令。无需固定头部，也不要为了调度增加 Task-ID/Status。
 
-任务文件保持原路径，不通过移动文件表示状态。仅在已授权的队列文件责任内更新状态；不要求每次切换阶段都产生 Git 提交，不要求为标记完成单独创建 PR。
+任务可以写自然语言前置，例如：
 
-真实 merge commit 只有合并后才存在，不在实施 PR 中预填。可选的 PR/merge 关联记录必须来自已确认事实；中断恢复交接可保留在运行上下文，不创建第二套产品状态 authority。
+```text
+Prerequisites:
+- B1 已合并；
+- governing contract 的 CP2-I 前置满足。
+```
 
-## 3. 选择与依赖
+前置可由 contract、Git/PR 和当前仓库事实推导时，不要求重复抄写。
+Risk、Auto-Merge、Git/PR 权限等只有在任务确实需要覆盖当前运行默认值时
+才写；权限始终来自用户明确授权，文件存在本身不授予权限。
 
-1. 恢复授权范围内 ACTIVE、未完成 PR 或 BLOCKED 任务，先解决其阻塞。
-2. 没有未完成当前任务时，扫描用户发布的 READY 文件头。
-3. `Depends-On` 是硬约束；依赖满足要求对应任务已合并并通过必要验收，不仅是文件写 DONE。
-4. 根据当前 base、governing contract、active execution plan、ownership 和实际接受状态判断候选是否可执行。
-5. 可执行候选按文件名自然排序，数字段按数值比较；同一优先级按完整文件名排序。多个独立候选不因此 STOP，取优先级最前者。
-6. 文件名不覆盖依赖或契约。较前任务前置条件不满足时先诊断；无法在现有授权内解除，才可选契约明确允许乱序且已证实独立的后续任务，并保留原阻塞。
-7. 缺失依赖不是“没有依赖”；顺序/契约冲突无法解析时停止有关任务，不只凭文件名猜测。
-8. 用户任务优先。用户队列全部完成或取消且没有遗留阻塞，才按控制协议检查是否存在已授权的 roadmap 续作范围。
+## 3. 选择与恢复
 
-自动派生的 NEXT 留在运行上下文，不写成用户发布的 READY 文件，也不增加本次授权。只读排序/扫描不授权改任务包中的契约、权限或依赖。
+1. 启动时先恢复当前仓库里已经存在的未完成 branch/PR；不要仅凭目录文件
+   又创建同一任务。
+2. 没有待恢复工作时，只列 queue 文件名并跳过所有 `*-完成.md`。
+3. 对剩余候选按文件名自然排序；在准备打开候选前先用 contract/Git 事实
+   判断明显硬前置。
+4. 只打开当前选中的一个任务包。不要为了找 NEXT 把整个 queue 全部读入。
+5. 较前候选被前置阻塞时先处理阻塞；只有 contract 明确允许乱序且后项
+   被证实独立时才选择后项。
+6. queue 中没有待办后，只有用户已经授权 roadmap/contract continuation
+   时，才扫描当前 focused contract 目录下的正式 task package；同样先看
+   文件名、跳过 `*-完成.md`，再只打开当前候选。
+7. 无法从 contract、Git/PR 和候选文件唯一、安全确定下一步时才 STOP。
 
-## 4. 发布与更新
+Git/PR/CI/Reviewer evidence 是精确执行事实；文件名后缀是快速调度标记，
+不是替代 Git 历史的审计数据库。
 
-用户发布任务时给出明确执行授权和范围；只需一次，不要求每个 checkpoint 重复确认。控制者在派发前冻结实际 base/head、动作权限、验收和修复计数。
+## 4. 完成标记
 
-用户更改当前任务的 scope、权限或 frozen semantics 时，在下一安全边界暂停旧 assignment，重新冻结受影响任务；已有审查证据是否仍有效按目标变化判断。无关队列文件变化无需重复当前任务验证。
+正式 tracked task package 与本地 queue 的完成时机不同：
 
-每次成功合并是 checkpoint：核对合并事实、更新本次交接、刷新当前 base/契约并重新选择。队列完成必须没有遗留 ACTIVE/BLOCKED 或未取消任务的未完成 PR；跳过阻塞不能宣称整队列完成。CANCELLED 的遗留 PR 单列报告，不算作已完成交付。
+- 正式 package：在实现已通过 required verification、Reviewer 已达到
+  provisional APPROVE 后，由授权 Documentation Closure 在 PR head 上把
+  `NN-name.md` 重命名为 `NN-name-完成.md`；随后仍需 final-head CI 和
+  final Reviewer approval。只有 PR merge 后，默认分支才会看到完成后缀。
+- 本地 queue：等待对应 PR merge 已确认后再本地改名为 `-完成.md`。
+
+因此默认分支目录本身就是低成本进度视图：看到 `-完成.md` 即可跳过，
+不必读取文件正文。
