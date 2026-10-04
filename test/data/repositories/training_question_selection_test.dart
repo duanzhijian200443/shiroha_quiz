@@ -635,7 +635,7 @@ void main() {
         // ignore: avoid_print
         print('P3a query plan: $details');
       }
-      expect(await db.getVersion(), 29);
+      expect(await db.getVersion(), DatabaseHelper.databaseVersion);
       expect(trace.transactions, 1);
       expect(trace.writes, 0);
     });

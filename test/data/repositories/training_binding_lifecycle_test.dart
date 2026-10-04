@@ -551,7 +551,7 @@ void main() {
       await expectBinding(config);
       expect(_success(await configs.current()).state,
           TrainingCurrentContentState.unavailable);
-      expect(await db.getVersion(), 29);
+      expect(await db.getVersion(), DatabaseHelper.databaseVersion);
     } finally {
       await DatabaseHelper.resetRuntimeProfileForTesting();
       await temp.delete(recursive: true);
