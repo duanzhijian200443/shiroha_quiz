@@ -703,6 +703,40 @@ void main() {
         isA<TrainingQuestionSelectionUnavailable>());
   });
 
+  test(
+      'cross-chunk due ties preserve SQLite storage-ID order for Unicode legacy IDs',
+      () async {
+    final batch = db.batch();
+    for (var i = 0; i < 401; i++) {
+      final id =
+          switch (i) { 0 => '\uE000', 400 => '\u{10000}', _ => 'unused$i' };
+      batch.insert('questions', {
+        'id': id,
+        'bank_name': 'bank${i.toString().padLeft(3, '0')}',
+        'type': 1,
+        'content': 'synthetic',
+        'options': '["A"]',
+        'standard_answer': 'A',
+        'created_at': 1
+      });
+      batch.insert('review_states', {
+        'question_id': id,
+        'state': 1,
+        'next_review_time': i == 0 || i == 400 ? 0 : 100
+      });
+    }
+    await batch.commit(noResult: true);
+    final sqlOrder = (await db.rawQuery(
+            'SELECT q.id FROM questions q JOIN review_states r ON r.question_id = q.id WHERE r.state > 0 AND r.next_review_time <= 0 ORDER BY r.next_review_time ASC, q.id ASC LIMIT 40'))
+        .map((r) => r['id'])
+        .toList();
+    expect(sqlOrder, ['\uE000', '\u{10000}']);
+    expect(
+        _ids(await selection.selectCategoryReview(_uncategorized,
+            nowUnixSeconds: 0)),
+        sqlOrder);
+  });
+
   test('unselected or zero-weight corrupt sidecars are never materialized',
       () async {
     await pool(3);

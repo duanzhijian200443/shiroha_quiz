@@ -197,14 +197,26 @@ final class TrainingQuestionSelection {
       WHERE r.state > 0 AND r.next_review_time <= ?
       ORDER BY r.next_review_time ASC, q.id ASC LIMIT 40
     ''', [...chunk, nowUnixSeconds]));
-          rows.sort((a, b) {
-            final due = (a['next_review_time'] as int)
-                .compareTo(b['next_review_time'] as int);
-            return due != 0
-                ? due
-                : (a['id'] as String).compareTo(b['id'] as String);
-          });
-          if (rows.length > 40) rows.removeRange(40, rows.length);
+          if (start > 0 && rows.isNotEmpty) {
+            // Let SQLite order the at-most-80 captured identities. Dart's
+            // UTF-16 String order differs from SQLite BINARY for some legacy
+            // Unicode storage IDs; no question/payload row is read here.
+            final ordered = await db.rawQuery('''
+              WITH selected(id, bank_name, next_review_time) AS
+                (VALUES ${List.filled(rows.length, '(?, ?, ?)').join(',')})
+              SELECT id, bank_name, next_review_time FROM selected
+              ORDER BY next_review_time ASC, id ASC LIMIT 40
+            ''', [
+              for (final row in rows) ...[
+                row['id'],
+                row['bank_name'],
+                row['next_review_time'],
+              ]
+            ]);
+            rows
+              ..clear()
+              ..addAll(ordered);
+          }
         }
         final ids = [for (final row in rows) row['id'] as String];
         if (ids.isEmpty) return const TrainingQuestionSelectionEmpty();
