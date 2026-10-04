@@ -58,7 +58,7 @@ worker 不加载整个自动化协议或后续队列。若当前任务包本身�
 
 启动或中断恢复时，先核对任务身份、分支、当前 head、PR 和真实 merge 状态。对已经合并的任务不重复实施；对未合并分支恢复原任务，不重新创建同一 PR。遇到意外 HEAD/dirty state/其他 writer，先只读核对原因；不得 reset、restore、rebase 或覆盖其工作来恢复运行。
 
-额度、环境或可用工具不足时，留下精简交接：任务、阶段、branch/base/head/PR、未完成检查、阻塞证据、两类修复计数和下一安全动作。恢复时重新核对事实，不沿用过期批准。
+额度、环境或可用工具不足时，留下精简交接：任务、阶段、branch/base/head/PR、未完成检查、阻塞证据、两类修复计数和下一安全动作。额度或工具导致的中断本身不撤销仍处于用户明确范围与完成终点内的授权；恢复时重新核对 scope、Git/PR 事实和授权终点。用户明确结束、授权终点已到达、显式撤销/缩小权限，或目标/责任变化使原批准不再适用时，该批准失效，不得继续沿用。
 
 ## 4. 实现、验证、审查与修复
 
@@ -112,12 +112,12 @@ Verifier 只按 `AGENTS.md` 的风险触发条件插入。保留 focused 检查�
 控制者只在已有明确 merge 授权且当前任务允许自动合并时合并；`Auto-Merge: no` 或用户指定的交付停止点仍生效。用户已批准条件式 merge 后，不再逐个请求确认。合并前同时满足：
 
 1. writer 已停止；当前 PR head 正是 Reviewer 批准且必需检查覆盖的 head。
-2. 必需本地检查和 required CI 全部通过；未运行/失败/过期结果不能当作成功。
+2. 必需本地检查和 required CI 全部通过；仓库自动触发的 `PR contract checks` 是 Automation conditional merge 的 standing required CI gate，即使 GitHub branch protection 没有把它配置为 required status。接受的自动 PR run 必须对应当前 PR head 与当前 base 形成的当前 merge target；旧 head、旧 base/merge target、未运行、失败或过期结果都不能当作成功。
 3. 需要 Verifier 时，其固定目标结果为 PASS；独立 Reviewer 为 APPROVE。
 4. 当前任务无开放 P0/P1/P2，无未解决的契约、scope 或前置验收阻塞。
 5. 目标 base/branch/repository 正确、PR 可合并，使用已授权且符合仓库 Git 规则的合并方式；不采用被禁止的 squash/rebase 或绕过分支保护。
 
-修复推进 head 后，旧批准失效，需要 fresh targeted closure。base 在审查后变化时，核对相关契约/依赖差异和当前所需 CI；只有确认旧语义证据仍适用才可继续，否则重新冻结受影响审查。意外漂移或无法确认的合并状态不允许盲目重试。
+修复推进 head 后，旧批准失效，需要 fresh targeted closure。base 在审查后变化时，核对相关契约/依赖差异并重新确认当前 merge target 的 standing `PR contract checks` 已成功；旧 base/merge target 的 CI 结果不能满足自动合并门禁。Reviewer/Verifier 的旧语义证据只有在确认仍适用时才可继续复用，否则重新冻结受影响审查。意外漂移或无法确认的合并状态不允许盲目重试。
 
 合并后核对真实 merge 结果，按已授权 fetch 刷新远端 base，再读取当前任务所需契约/计划和队列。只有该 checkpoint 已满足独立验收和接受条件，才开放下游依赖。不能仅凭提交存在就宣称验收通过。
 
