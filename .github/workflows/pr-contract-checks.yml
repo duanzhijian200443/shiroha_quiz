@@ -16,7 +16,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: pr-contract-${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
+  # A push checks the branch head while a pull_request checks the merge ref, and both
+  # can carry the same branch name; sharing one group would let a branch push cancel
+  # the required PR run. Manual dispatch stays with the PR run and only queues.
+  group: pr-contract-${{ github.event_name == 'push' && 'push' || 'review' }}-${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
@@ -369,6 +372,7 @@ jobs:
 
       - name: Upload test timings (paths and durations only)
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: contract-timings-${{ matrix.shard }}

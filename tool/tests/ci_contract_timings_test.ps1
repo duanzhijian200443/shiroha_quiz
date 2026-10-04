@@ -70,6 +70,9 @@ $partitions = @(0..3 | ForEach-Object { $shard=$_; for ($i=$shard; $i -lt $paths
 Assert-True ($partitions.Count -eq $paths.Count -and @($partitions | Select-Object -Unique).Count -eq $paths.Count) 'modulo assignment exactly once'
 Assert-True ($workflow.Contains('github.head_ref || github.ref_name')) 'branch identity shared across events'
 Assert-True ($workflow.Contains("github.event_name != 'workflow_dispatch'")) 'manual cannot cancel required PR run'
+Assert-True ($workflow.Contains("github.event_name == 'push' && 'push' || 'review'")) 'push owns a separate concurrency namespace'
+$uploadStep = [regex]::Match($workflow, '(?s)- name: Upload test timings.*?(?=\r?\n      - |\r?\n\r?\n  verify:)')
+Assert-True ($uploadStep.Success -and $uploadStep.Value.Contains('continue-on-error: true')) 'timing upload never gates the required result'
 Assert-True ($workflow.Contains('if ($testExit -ne 0) { exit $testExit }')) 'original Flutter failure propagated'
 Assert-True (!$workflow.Contains('path: .dart_tool/ci-contract-timings/raw')) 'raw reporter never uploaded'
 Write-Output "PASS: timing/redaction/failure boundaries; $($paths.Count) standing tests including $($v3.Count) V3 suites"
