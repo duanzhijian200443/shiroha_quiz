@@ -585,8 +585,25 @@ Same-name recreation,
 move-back, reads, startup and migration never restore a relation. The explicit
 rebind command revalidates content CAS and fresh bank admission, restores only the
 target member and advances the content revision atomically. Schema remains v29.
+P3a adds read-only bounded selection through ReviewRepository and the narrow
+TrainingQuestionSelection Data seam. Domain TrainingAllocation caps initial
+quotas and refills shortages with original positive weights and Largest
+Remainder; zero weights never count or refill. A caller-injected Random owns
+both ordered ID-window offsets (at most two per positive bank) and final
+distinct-ID shuffle. Counts, windows and exact typed materialization share one
+read transaction. Home batches are immutable and capped at 100; Category review
+independently admits all ordinary eligible real banks, sorts due state>0 IDs by
+next review time then storage ID, and caps at 40 without randomness. Existing
+QuestionV2PersistenceMapper remains the union decoding authority through a
+shared transaction-bound exact materializer; Home requires ReviewState and
+selection-predicate consistency, while StudyPlan retains its 200-ID semantics.
+Missing/unsafe/corrupt selected rows fail the entire batch with no replacement.
+No learning/configuration state, queue, cache or schema is written. SQL OFFSET
+can scan metadata; returned-row bounds do not imply constant query cost or
+uniform subset sampling, and the existing bank-name index may be absent on a
+fresh DB until the historical catalog writer has created it.
 Home/Today activation, training launch, Activity and TaskCenter implementations
-remain planned; CP2-T still requires P3a/P3b.
+remain planned; CP2-T still requires P3b launch orchestration.
 The existing Today, ordinary-training, StudyPlan and TaskCenter boundaries
 above remain current truth. StudyPlan remains the single
 global ActiveStudyPlan and stays independent of TrainingContent. Delivery

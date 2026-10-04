@@ -91,6 +91,52 @@ final class TrainingAllocation {
     });
   }
 
+  /// Caps ideal quotas by availability, then repeatedly redistributes missing
+  /// seats using the original positive weights and the same remainder rule.
+  /// Zero-weight members need no count and can never receive refill seats.
+  static Map<String, int> newQuestionTakes({
+    required int questionLimit,
+    required List<TrainingContentMember> members,
+    required Map<String, int> availableNewCounts,
+  }) {
+    final quotas =
+        newQuestionQuotas(questionLimit: questionLimit, members: members);
+    final positive = members.where((m) => m.weightPercent > 0).toList();
+    for (final member in positive) {
+      final count = availableNewCounts[member.bankName];
+      if (count == null || count < 0) {
+        throw const FormatException(
+            'Positive member availability is required.');
+      }
+    }
+    final takes = <String, int>{
+      for (final member in members)
+        member.bankName: member.weightPercent == 0
+            ? 0
+            : (quotas[member.bankName]! < availableNewCounts[member.bankName]!
+                ? quotas[member.bankName]!
+                : availableNewCounts[member.bankName]!),
+    };
+    var missing =
+        questionLimit - takes.values.fold<int>(0, (sum, n) => sum + n);
+    while (missing > 0) {
+      final remaining = positive
+          .where((member) =>
+              availableNewCounts[member.bankName]! > takes[member.bankName]!)
+          .toList();
+      if (remaining.isEmpty) break;
+      final refill = _allocate(missing, remaining);
+      for (var i = 0; i < remaining.length; i++) {
+        final bank = remaining[i].bankName;
+        final capacity = availableNewCounts[bank]! - takes[bank]!;
+        final added = refill[i] < capacity ? refill[i] : capacity;
+        takes[bank] = takes[bank]! + added;
+        missing -= added;
+      }
+    }
+    return Map.unmodifiable(takes);
+  }
+
   static void _validateSelection(List<TrainingContentMember> members) {
     if (members.isEmpty) {
       throw const FormatException(

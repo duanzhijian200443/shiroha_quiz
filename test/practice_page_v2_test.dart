@@ -609,6 +609,31 @@ void main() {
       expect(result, isA<StudyPlanSessionMaterializationUnavailable>());
     });
 
+    test('exact materialization keeps the StudyPlan 200 bound and caller order',
+        () async {
+      final db = await _db();
+      final ids =
+          List.generate(200, (i) => 'study-${i.toString().padLeft(3, '0')}');
+      for (final id in ids) {
+        // StudyPlan's existing exact materializer does not require ReviewState.
+        await _insertLegacy(db, id: id);
+      }
+      final reversed = ids.reversed.toList();
+      final result =
+          await ReviewRepository.instance.materializeStudyPlanSession(reversed);
+      expect(result, isA<StudyPlanSessionMaterializationSuccess>());
+      expect(
+          (result as StudyPlanSessionMaterializationSuccess)
+              .questions
+              .map((q) => q.storageId),
+          reversed);
+      expect(() => result.questions.clear(), throwsUnsupportedError);
+      expect(
+          await ReviewRepository.instance
+              .materializeStudyPlanSession([...ids, 'extra']),
+          isA<StudyPlanSessionMaterializationUnavailable>());
+    });
+
     test('empty / oversized / duplicate inputs fail boundedly', () async {
       final db = await _db();
       await _insertLegacy(db, id: 'present');
