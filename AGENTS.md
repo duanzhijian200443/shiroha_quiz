@@ -26,7 +26,7 @@ Memory writes still require an explicit user request.
 
 Before a non-trivial task, read:
 
-- the active role file under `docs/agents/`;
+- the active role entry mapped in section 3;
 - the reading guide and core sections 1–3 and 7–8 of `ARCHITECTURE.md`,
   plus sections relevant to the affected capability;
 - the governing task-specific canonical/frozen contract source when the task
@@ -60,6 +60,7 @@ The first line of a user task may activate exactly one role:
 | `角色：验证` | `docs/agents/verifier.md` |
 | `角色：审查` | `docs/agents/reviewer.md` |
 | `角色：诊断` | `docs/agents/diagnostician.md` |
+| `角色：自动化` | `docs/automation/README.md` |
 
 Read the mapped file before continuing. The active role persists through follow-up
 messages for the same task until the user explicitly changes it or starts a new
@@ -71,6 +72,23 @@ responsibility. Branch/worktree, staging, commit, push, PR, merge, tag and relea
 authority remain action-specific. Preserve already-granted authority for the same
 task; do not ask for it again. Missing authority for one action does not prevent
 independent authorized work.
+
+### Explicit automation mode
+
+Only an explicit current-user `角色：自动化` activates the isolated protocol.
+Normal roles do not load `docs/automation/**` except assigned task artifacts.
+The controller reads the protocol/queue; workers receive only their bounded task.
+
+Within existing user authority, the protocol replaces only controller stops at
+worker delivery, per-package handback/new-request requirements, and handling of
+confirmed unrelated pre-existing verification failures. It may continue across
+checkpoints and perform pre-authorized conditional merges. A dispatched Executor
+package must carry any applicable bounded verification-repair exception.
+Workers retain their roles, independent review and delivery stops.
+
+No Git, runtime or scope authority is inferred from activation or queue status.
+All other safety, privacy, canonical-contract, ownership, destructive-Git,
+evidence, required-gate and repair-budget rules remain unchanged.
 
 ## 4. Architecture and scope
 
@@ -274,7 +292,7 @@ explicit user merge authority. Repository/global status defaults to
 
 ## 11. Orchestration
 
-Repository orchestration uses `角色：总控`. The Coordinator freezes
+Normal repository orchestration uses `角色：总控`. The Coordinator freezes
 base/branch/worktree/dirty state, contracts and ownership before dispatch.
 Serialize by default. Parallel writers require isolated worktrees and
 non-overlapping ownership. Stop writers before review/verification.
