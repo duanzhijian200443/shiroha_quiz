@@ -9,6 +9,7 @@ import '../../domain/training/training_allocation.dart';
 import '../../domain/training/training_content.dart';
 import '../models/persisted_question.dart';
 import 'exact_question_materializer.dart';
+import 'training_content_reader.dart';
 
 sealed class TrainingQuestionSelectionResult {
   const TrainingQuestionSelectionResult();
@@ -30,13 +31,20 @@ final class TrainingQuestionSelectionEmpty
   const TrainingQuestionSelectionEmpty();
 }
 
+/// A caller-held configuration target no longer identifies the current version.
+final class TrainingQuestionSelectionStaleConfiguration
+    extends TrainingQuestionSelectionResult {
+  const TrainingQuestionSelectionStaleConfiguration();
+}
+
 /// Safe whole failure; never carries SQL, raw causes or a partial batch.
 final class TrainingQuestionSelectionUnavailable
     extends TrainingQuestionSelectionResult {
   const TrainingQuestionSelectionUnavailable();
 }
 
-/// Read-only bounded training preparation. No configuration CAS or queue write.
+/// Read-only bounded preparation, with optional fresh target admission.
+/// Configuration admission and selection share the same snapshot; no writes.
 final class TrainingQuestionSelection {
   const TrainingQuestionSelection({required this.database});
   final Future<Database> Function() database;
@@ -102,59 +110,81 @@ final class TrainingQuestionSelection {
 
   Future<TrainingQuestionSelectionResult> selectNew(TrainingContent content,
           {required Random random}) =>
+      _read((db) => _selectNew(db, content, random));
+
+  /// One fresh read snapshot from exact content revision through materialization.
+  /// Never substitutes a newer revision or redirects to runtime current content.
+  Future<TrainingQuestionSelectionResult> selectNewTarget(
+    TrainingContentTarget target, {
+    required Random random,
+  }) =>
       _read((db) async {
-        await _admit(db, content);
-        final positive =
-            content.members.where((m) => m.weightPercent > 0).toList()
-              ..sort((a, b) {
-                final order = a.position.compareTo(b.position);
-                return order != 0 ? order : a.bankName.compareTo(b.bankName);
-              });
-        final counts = <String, int>{};
-        for (final member in positive) {
-          final rows = await db.rawQuery(newCountSql, [member.bankName]);
-          counts[member.bankName] = rows.single['candidate_count'] as int;
+        final TrainingContent? content;
+        try {
+          content = await readTrainingContent(db, target.contentId,
+              expectedRevision: target.expectedRevision);
+        } on TrainingContentRevisionMismatch {
+          return const TrainingQuestionSelectionStaleConfiguration();
         }
-        final takes = TrainingAllocation.newQuestionTakes(
-            questionLimit: content.questionLimit,
-            members: content.members,
-            availableNewCounts: counts);
-        final selected = <String, String>{};
-        for (final member in positive) {
-          final take = takes[member.bankName]!;
-          if (take == 0) continue;
-          final offset = random.nextInt(counts[member.bankName]!);
-          final first =
-              await db.rawQuery(newWindowSql, [member.bankName, take, offset]);
-          final rows = [...first];
-          if (rows.length < take) {
-            rows.addAll(await db.rawQuery(
-                newWindowSql, [member.bankName, take - rows.length, 0]));
-          }
-          if (rows.length != take) {
-            throw const FormatException('Unavailable training window.');
-          }
-          for (final row in rows) {
-            final id = row['id'] as String;
-            if (selected.containsKey(id)) {
-              throw const FormatException('Duplicate training candidate.');
-            }
-            selected[id] = member.bankName;
-          }
+        if (content == null) {
+          return const TrainingQuestionSelectionStaleConfiguration();
         }
-        // Defend the final set even though storage IDs have a single bank owner.
-        final ids = selected.keys.toSet().toList()..shuffle(random);
-        if (ids.isEmpty) return const TrainingQuestionSelectionEmpty();
-        await _admit(db, content);
-        final questions = await materializeExactQuestions(db, ids,
-            maxIds: 100,
-            requireReviewState: true,
-            acceptsRow: (row) =>
-                row['selected_state'] == 0 &&
-                selected[row['id']] == row['bank_name'] &&
-                _category(row['selected_folder']) == content.categoryKey);
-        return TrainingQuestionSelectionSuccess(questions);
+        return _selectNew(db, content, random);
       });
+
+  Future<TrainingQuestionSelectionResult> _selectNew(
+      DatabaseExecutor db, TrainingContent content, Random random) async {
+    await _admit(db, content);
+    final positive = content.members.where((m) => m.weightPercent > 0).toList()
+      ..sort((a, b) {
+        final order = a.position.compareTo(b.position);
+        return order != 0 ? order : a.bankName.compareTo(b.bankName);
+      });
+    final counts = <String, int>{};
+    for (final member in positive) {
+      final rows = await db.rawQuery(newCountSql, [member.bankName]);
+      counts[member.bankName] = rows.single['candidate_count'] as int;
+    }
+    final takes = TrainingAllocation.newQuestionTakes(
+        questionLimit: content.questionLimit,
+        members: content.members,
+        availableNewCounts: counts);
+    final selected = <String, String>{};
+    for (final member in positive) {
+      final take = takes[member.bankName]!;
+      if (take == 0) continue;
+      final offset = random.nextInt(counts[member.bankName]!);
+      final first =
+          await db.rawQuery(newWindowSql, [member.bankName, take, offset]);
+      final rows = [...first];
+      if (rows.length < take) {
+        rows.addAll(await db
+            .rawQuery(newWindowSql, [member.bankName, take - rows.length, 0]));
+      }
+      if (rows.length != take) {
+        throw const FormatException('Unavailable training window.');
+      }
+      for (final row in rows) {
+        final id = row['id'] as String;
+        if (selected.containsKey(id)) {
+          throw const FormatException('Duplicate training candidate.');
+        }
+        selected[id] = member.bankName;
+      }
+    }
+    // Defend the final set even though storage IDs have a single bank owner.
+    final ids = selected.keys.toSet().toList()..shuffle(random);
+    if (ids.isEmpty) return const TrainingQuestionSelectionEmpty();
+    await _admit(db, content);
+    final questions = await materializeExactQuestions(db, ids,
+        maxIds: 100,
+        requireReviewState: true,
+        acceptsRow: (row) =>
+            row['selected_state'] == 0 &&
+            selected[row['id']] == row['bank_name'] &&
+            _category(row['selected_folder']) == content.categoryKey);
+    return TrainingQuestionSelectionSuccess(questions);
+  }
 
   Future<TrainingQuestionSelectionResult> selectCategoryReview(
           CategoryKey category,

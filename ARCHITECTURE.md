@@ -602,8 +602,22 @@ No learning/configuration state, queue, cache or schema is written. SQL OFFSET
 can scan metadata; returned-row bounds do not imply constant query cost or
 uniform subset sampling, and the existing bank-name index may be absent on a
 fresh DB until the historical catalog writer has created it.
-Home/Today activation, training launch, Activity and TaskCenter implementations
-remain planned; CP2-T still requires P3b launch orchestration.
+P3b implements DefaultTrainingSessionApplicationService behind the existing
+Application launch contract. New training admits the exact contentId/revision
+through a transaction-bound configuration reader shared with configuration CRUD;
+parent, members, eligibility, live NEW counts/windows and typed materialization
+use one short read snapshot. Deleted/revised targets return staleConfiguration;
+valid empty pools return empty; malformed/admission/storage failures return
+unavailable. Category review captures one injected clock value and remains
+independent of TrainingContent. Only a complete successful batch calls the
+existing initPreparedStudySession seam once, after the read transaction ends,
+preserving exact P3a order; every failed preparation leaves the old queue intact.
+RNG is injected per new launch. No launch writes learning/configuration state or
+adds a durable queue. CP2-T implementation is complete, with runtime still v29.
+Legacy bank-scoped and StudyPlan launchers remain independent. Home/Today
+activation, Activity, route guards/lifetime and TaskCenter remain planned;
+future ordinary Practice composition must use the prepared session with normal
+attribution, while StudyPlan retains focused attribution and its 200-ID bound.
 The existing Today, ordinary-training, StudyPlan and TaskCenter boundaries
 above remain current truth. StudyPlan remains the single
 global ActiveStudyPlan and stays independent of TrainingContent. Delivery
