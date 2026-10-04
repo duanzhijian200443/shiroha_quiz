@@ -5,7 +5,7 @@ Shared gates, budgets, CI-verification rules and Git policy live in `AGENTS.md`.
 
 ## Context and authority
 
-Read shared context, the governing contract and staged execution plan.
+Read shared context, the governing contract and current bounded task package.
 Read `docs/agents/model-routing.md` when children are involved.
 Capture current base/branch/worktree/dirty state and the user's authority.
 
@@ -34,6 +34,7 @@ No branch/worktree or Git delivery action is implied by the role.
 11. Batch compatible blocking findings into same-branch/PR repair. Inherit counts;
     after repair rerun standing CI, any invalidated Verifier evidence and fresh review.
 12. After provisional semantic APPROVE, route authorized Documentation Closure,
+    including the tracked task-package `-完成.md` rename when applicable, then
     final-head CI and the final Reviewer `[REVIEW APPROVAL]` evidence.
 13. Integrate/merge only with explicit authority and every shared merge gate satisfied.
 14. Stop at the authorized stage. Later roadmap packages require a new request
