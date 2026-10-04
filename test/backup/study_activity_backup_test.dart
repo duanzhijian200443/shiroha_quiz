@@ -120,7 +120,7 @@ void main() {
         await live.query(studyActivitySegmentsTable, orderBy: 'session_id');
     final path = p.join(temp.path, 'snapshot.db');
     final snap = await snapshots.createSanitizedSnapshot(path);
-    expect(snap.schemaVersion, 30);
+    expect(snap.schemaVersion, DatabaseHelper.databaseVersion);
     final copy = await databaseFactory.openDatabase(path);
     try {
       for (final row in await copy.query(studyActivitySessionsTable)) {
@@ -153,7 +153,7 @@ void main() {
     await runtime().exportTo(file);
     final manifest = await BackupArchiveIo.readManifestOnly(file);
     expect(manifest.packageVersion, 2);
-    expect(manifest.schemaVersion, 30);
+    expect(manifest.schemaVersion, DatabaseHelper.databaseVersion);
     await live.delete(studyActivitySessionsTable);
     final restoring = runtime();
     await restoring.prepareRestore(file);
@@ -275,7 +275,7 @@ void main() {
     await source.close();
     await restoring.commitPreparedRestore();
     final restored = await helper.database;
-    expect(await restored.getVersion(), 30);
+    expect(await restored.getVersion(), DatabaseHelper.databaseVersion);
     expect(await restored.query(studyActivitySessionsTable), isEmpty);
     expect(await restored.query(studyActivitySegmentsTable), isEmpty);
   });

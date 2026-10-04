@@ -1,6 +1,8 @@
 import '../../core/database/database_helper.dart';
 import '../models/import_task_cleanup.dart';
 import '../models/review_draft_cas.dart';
+import '../../application/task_center/retry_file_selection.dart';
+import '../../application/home_training_result.dart';
 
 class ImportTaskRepository {
   ImportTaskRepository({DatabaseHelper? databaseHelper})
@@ -21,6 +23,24 @@ class ImportTaskRepository {
   Future<void> saveImportTask(Map<String, dynamic> taskMap) async {
     return _databaseHelper.saveImportTask(taskMap);
   }
+
+  Future<bool> saveImportTaskTransition(
+          Map<String, dynamic> previous, Map<String, dynamic> next) =>
+      _databaseHelper.saveImportTaskTransition(previous, next);
+
+  Future<HomeTrainingFailure?> validateTaskCenterTarget(
+          TaskCenterTaskTarget target,
+          {required int expectedStatus,
+          required Object? expectedAttemptState}) =>
+      _databaseHelper.validateTaskCenterTarget(target,
+          expectedStatus: expectedStatus,
+          expectedAttemptState: expectedAttemptState);
+
+  Future<HomeTrainingFailure?> deleteTaskCenterTarget(
+          TaskCenterTaskTarget target,
+          {required bool completedOnly}) =>
+      _databaseHelper.deleteTaskCenterTarget(target,
+          completedOnly: completedOnly);
 
   Future<ReviewDraftCasResult> saveReviewDraftCas({
     required String taskId,

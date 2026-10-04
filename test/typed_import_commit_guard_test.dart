@@ -47,6 +47,7 @@ void main() {
         TypedImportCommitPersistenceFailure.invalidTaskMetadata,
         TypedImportCommitPersistenceFailure.staleReviewDraft,
         TypedImportCommitPersistenceFailure.alreadyCompleted,
+        TypedImportCommitPersistenceFailure.proposedTargetExists,
         TypedImportCommitPersistenceFailure.transactionFailed,
       ],
     );

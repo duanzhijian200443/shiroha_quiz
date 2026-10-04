@@ -11,6 +11,7 @@
 // messages are covered by the exception contract tests and positive FK
 // enforcement is asserted on every opened connection.
 import 'dart:convert';
+import 'package:shiroha_quiz/core/database/import_task_v31_schema.dart';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -559,13 +560,15 @@ void main() {
         );
 
         final importColumns = await columnNames(upgraded, 'import_tasks');
-        expect(importColumns.length, 16, reason: 'v$oldVersion');
+        expect(importColumns.length, 16 + importTaskEventColumns.length,
+            reason: 'v$oldVersion');
         for (final column in <String>[
           'source_type',
           'pending_chunks',
           'failed_chunks',
           'warnings',
           'diagnostics',
+          ...importTaskEventColumns,
         ]) {
           expect(importColumns, contains(column), reason: 'v$oldVersion');
         }
