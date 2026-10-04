@@ -23,7 +23,7 @@ worktree with captured HEAD/status/changed paths/diff.
 Read, in order:
 
 1. Shared instructions, this role and applicable architecture sections.
-2. Original task, governing contract source and applicable execution plan.
+2. Original task, governing contract source and current task package.
 3. Executor evidence, current standing CI and optional Verifier evidence.
 4. Documentation responsibility and authorized closure/PR actions.
 5. Changed paths/stat and focused diff.
@@ -58,6 +58,8 @@ then switch from read-only review to this narrow closure writer:
 
 - modify only Documentation responsibility paths marked `UPDATE`;
 - update only PR title/body metadata that the package explicitly authorizes;
+- when the current tracked task package is pending, rename it by appending
+  `-完成` before `.md` as the completion marker;
 - commit/push those documentation changes only with the listed actions authorized;
 - never modify production, tests, CI, configuration, dependencies or frozen
   product semantics;
