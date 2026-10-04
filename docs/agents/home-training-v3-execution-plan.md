@@ -30,7 +30,7 @@ v29
 
 v29 TrainingContent persistence / migration / B0 compatibility 已进入当前 runtime truth。v30 StudyActivity 与 v31 ImportTask event timestamps 仍为 planned。
 
-P2a 已交付 configuration capability：真实只读 TrainingCatalog、TrainingContent Query/Command、配置 CRUD、current selection 与 Category Visual preference CAS。P2b 已实现同事务最终状态 invalidation 与显式 rebind，继续使用 v29 和既有 bankName identity。P3a/P3b、Home 与配置 UI、新训练启动仍未实施；CP2-T 尚未完成，当前生产入口未因此激活。
+P2a 已交付 configuration capability：真实只读 TrainingCatalog、TrainingContent Query/Command、配置 CRUD、current selection 与 Category Visual preference CAS。P2b 已实现同事务最终状态 invalidation 与显式 rebind（含针对 P2a 遗留 valid-but-drifted binding 的 recreate/re-map writer 同事务 preflight reconciliation），继续使用 v29 和既有 bankName identity。P3a/P3b、Home 与配置 UI、新训练启动仍未实施；CP2-T 尚未完成，当前生产入口未因此激活。
 
 以下 A 节保留最初规划基线，仅作为历史 planning evidence，不得覆盖本节 current delivery state。
 

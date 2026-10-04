@@ -13,11 +13,36 @@ final class TrainingBindingLifecycleException implements Exception {
   String toString() => 'TrainingBindingLifecycleException(unavailable)';
 }
 
+/// Invoke once, before the causal business write, on the caller-owned
+/// transaction, and only from writers that can make a drifted bank legal
+/// again (exact-name recreation, folder re-mapping, cross-bank question
+/// moves). P2a left valid relations whose bank was already missing,
+/// ineligible or in another Category; a final-state pass alone cannot see
+/// that drift once the write repairs the bank, which would resurrect the
+/// relation without an explicit rebind. Evaluates the committed pre-write
+/// state with the same evaluation authority as the final-state pass. Does
+/// not open a DB, start a transaction, repair data, modify
+/// preference/weights, or restore an already-invalidated relation.
+Future<void> reconcilePreexistingTrainingBindingDrift(
+  DatabaseExecutor db, {
+  Iterable<String>? affectedBankNames,
+}) =>
+    _reconcileTrainingBindingDrift(db, affectedBankNames: affectedBankNames);
+
 /// Invoke once, after ALL business writes, on the caller-owned transaction.
 /// Supply the complete set of affected exact bank names; null scans all valid
-/// relations (clear-all). Does not open a DB, start a transaction, repair data,
-/// modify preference/weights, or restore an already-invalidated relation.
+/// relations (clear-all). Each reconciliation pass advances every affected
+/// content revision exactly once, so a transaction running both passes
+/// advances once per invalidation event. Does not open a DB, start a
+/// transaction, repair data, modify preference/weights, or restore an
+/// already-invalidated relation.
 Future<void> invalidateTrainingBindingsAtFinalState(
+  DatabaseExecutor db, {
+  Iterable<String>? affectedBankNames,
+}) =>
+    _reconcileTrainingBindingDrift(db, affectedBankNames: affectedBankNames);
+
+Future<void> _reconcileTrainingBindingDrift(
   DatabaseExecutor db, {
   Iterable<String>? affectedBankNames,
 }) async {

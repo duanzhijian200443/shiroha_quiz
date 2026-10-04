@@ -575,9 +575,13 @@ P2b maintains persistent binding invalidation through one caller-transaction
 final-state helper. Single/bank deletion, legacy/preview bank movement, folder
 updates (including import/batch folder writers), and clear-all invalidate only
 valid relations when the final bank is missing, ineligible or in another Category.
-Each affected content revision advances once per lifecycle transaction; weights,
+Each affected content revision advances once per reconciliation pass; weights,
 preferences and persisted current references remain unchanged. Temporary
-delete/replace with a legal final bank does not invalidate. Same-name recreation,
+delete/replace with a legal final bank does not invalidate. Drift inherited from
+P2a (a valid relation whose bank was already missing, ineligible or moved) is
+reconciled by a narrow same-transaction preflight pass in writers that can
+recreate or re-map a bank; there is no startup sweep and no schema change.
+Same-name recreation,
 move-back, reads, startup and migration never restore a relation. The explicit
 rebind command revalidates content CAS and fresh bank admission, restores only the
 target member and advances the content revision atomically. Schema remains v29.

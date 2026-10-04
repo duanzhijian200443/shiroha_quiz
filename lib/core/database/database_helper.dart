@@ -2573,6 +2573,8 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
   Future<void> updateBankFolder(String bankName, String folderName) async {
     final db = await database;
     await db.transaction((txn) async {
+      await reconcilePreexistingTrainingBindingDrift(txn,
+          affectedBankNames: [bankName]);
       await txn.insert(
         'bank_folders',
         {'bank_name': bankName, 'folder_name': folderName},
@@ -2887,17 +2889,21 @@ SELECT
       }
       final oldRows = await txn.query('questions',
           columns: ['bank_name'], where: 'id = ?', whereArgs: [questionId]);
+      final affectedBanks = [
+        ...oldRows.map((row) => row['bank_name']).whereType<String>(),
+        if (questionData['bank_name'] is String)
+          questionData['bank_name'] as String,
+      ];
+      await reconcilePreexistingTrainingBindingDrift(txn,
+          affectedBankNames: affectedBanks);
       await txn.update(
         'questions',
         questionData,
         where: 'id = ?',
         whereArgs: [questionId],
       );
-      await invalidateTrainingBindingsAtFinalState(txn, affectedBankNames: [
-        ...oldRows.map((row) => row['bank_name']).whereType<String>(),
-        if (questionData['bank_name'] is String)
-          questionData['bank_name'] as String,
-      ]);
+      await invalidateTrainingBindingsAtFinalState(txn,
+          affectedBankNames: affectedBanks);
     });
   }
 

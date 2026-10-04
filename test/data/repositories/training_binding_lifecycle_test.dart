@@ -313,6 +313,64 @@ void main() {
   });
 
   test(
+      'P2a carry-over missing bank is invalidated before same-name recreation heals it',
+      () async {
+    await question('q');
+    final config = await content();
+    // P2a-era durable deletion: no P2b writer runs, so the binding stays
+    // valid while the bank is already gone.
+    await db.delete('questions', where: 'bank_name = ?', whereArgs: ['Bank']);
+    await expectBinding(config,
+        revision: 1, status: TrainingBindingStatus.valid, reason: null);
+    expect(_success(await configs.getById(config.contentId)).usable, isFalse);
+    // A P2b writer recreates the exact bank name.
+    await questions.savePreviewQuestion({
+      'id': 'new-q',
+      'bank_name': 'Bank',
+      'content': 'synthetic',
+      'standard_answer': 'A'
+    });
+    await expectBinding(config);
+    expect(_success(await configs.getById(config.contentId)).usable, isFalse);
+    await validateTrainingContentV29Data(db);
+    final rebound = _success(await configs.rebindMember(
+        RebindTrainingContentMemberRequest(
+            target: TrainingContentTarget(
+                contentId: config.contentId, expectedRevision: 2),
+            bankName: 'Bank')));
+    expect(rebound.revision, 3);
+    expect(rebound.members.single.bindingStatus, TrainingBindingStatus.valid);
+    expect(_success(await configs.getById(config.contentId)).usable, isTrue);
+  });
+
+  test('P2a carry-over moved bank is invalidated before move-back heals it',
+      () async {
+    await question('q', folder: 'Math');
+    final config = await content(key: FolderCategoryKey('Math'));
+    // P2a-era durable folder move: no P2b writer runs, so the binding stays
+    // valid while the bank is in another Category.
+    await db.update('bank_folders', {'folder_name': 'English'},
+        where: 'bank_name = ?', whereArgs: ['Bank']);
+    await expectBinding(config,
+        revision: 1, status: TrainingBindingStatus.valid, reason: null);
+    expect(_success(await configs.getById(config.contentId)).usable, isFalse);
+    // A P2b writer moves the bank back into the content Category.
+    await questions.updateBankFolder('Bank', 'Math');
+    await expectBinding(config,
+        reason: TrainingBindingInvalidationReason.categoryChanged);
+    expect(_success(await configs.getById(config.contentId)).usable, isFalse);
+    await validateTrainingContentV29Data(db);
+    final rebound = _success(await configs.rebindMember(
+        RebindTrainingContentMemberRequest(
+            target: TrainingContentTarget(
+                contentId: config.contentId, expectedRevision: 2),
+            bankName: 'Bank')));
+    expect(rebound.revision, 3);
+    expect(rebound.members.single.bindingStatus, TrainingBindingStatus.valid);
+    expect(_success(await configs.getById(config.contentId)).usable, isTrue);
+  });
+
+  test(
       'clear-all invalidates multiple members once per content and is idempotent',
       () async {
     await question('q1');

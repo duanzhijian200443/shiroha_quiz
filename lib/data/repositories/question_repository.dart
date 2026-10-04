@@ -103,6 +103,8 @@ class QuestionRepository
     final nowUnix = DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
     await db.transaction((txn) async {
+      await reconcilePreexistingTrainingBindingDrift(txn,
+          affectedBankNames: [trimmedBankName]);
       for (final question in questions) {
         final row = _questionToRow(
           question,
@@ -162,6 +164,8 @@ class QuestionRepository
       await db.transaction((txn) async {
         final resolvedFolderName =
             await _resolveV2FolderAction(txn, trimmedBankName, folderName);
+        await reconcilePreexistingTrainingBindingDrift(txn,
+            affectedBankNames: [trimmedBankName]);
         await _writeFrozenV2Batch(
           txn,
           bankName: trimmedBankName,
@@ -243,6 +247,8 @@ class QuestionRepository
           folderName: folderName,
           targetKind: authority.targetKind,
         );
+        await reconcilePreexistingTrainingBindingDrift(txn,
+            affectedBankNames: [trimmedBankName]);
         await _writeFrozenV2Batch(
           txn,
           bankName: trimmedBankName,
@@ -357,6 +363,8 @@ class QuestionRepository
           folderName: folderName,
           targetKind: authority.targetKind,
         );
+        await reconcilePreexistingTrainingBindingDrift(txn,
+            affectedBankNames: [trimmedBankName]);
         for (final row in frozenRows) {
           await txn.insert('questions', row);
           await txn.insert(
@@ -1643,6 +1651,12 @@ class QuestionRepository
       }
       final oldRows = await txn.query('questions',
           columns: ['bank_name'], where: 'id = ?', whereArgs: [cleanId]);
+      final affectedBanks = [
+        ...oldRows.map((old) => old['bank_name']).whereType<String>(),
+        row['bank_name'] as String,
+      ];
+      await reconcilePreexistingTrainingBindingDrift(txn,
+          affectedBankNames: affectedBanks);
       await txn.insert(
         'questions',
         row,
@@ -1661,10 +1675,8 @@ class QuestionRepository
         },
         conflictAlgorithm: ConflictAlgorithm.ignore,
       );
-      await invalidateTrainingBindingsAtFinalState(txn, affectedBankNames: [
-        ...oldRows.map((old) => old['bank_name']).whereType<String>(),
-        row['bank_name'] as String,
-      ]);
+      await invalidateTrainingBindingsAtFinalState(txn,
+          affectedBankNames: affectedBanks);
     });
   }
 
