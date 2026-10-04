@@ -172,13 +172,14 @@ Repository 既有调用默认 mixed，不改其他入口行为。
 
 历史冻结阶段未改变运行行为；当前实现仍不包含延期统计、多计划管理或 schema 变更。
 
-## HOME-TRAINING-V3 planned successor（尚未实施）
+## HOME-TRAINING-V3 successor（后端部分已实施，Home v2 尚未激活）
 
-`docs/product/home-training-implementation-freeze-v3.md` 已冻结
-**SHIROHA-HOME-TRAINING-IPF-V3**（执行附录：`docs/agents/home-training-v3-execution-plan.md`），
-作为本契约的 planned successor。它目前是 **PLANNED，尚未 production
-implemented**：本文件上述统一首页、普通新题 / 到期复习入口与单一计划展示
-仍是当前已实现的运行事实。
+`docs/product/home-training-v3/00-contract.md` 已冻结
+**SHIROHA-HOME-TRAINING-IPF-V3** 作为本契约的 successor。TrainingContent、
+launch、durable StudyActivity、v31 ImportTask event timestamps 与 TaskCenter
+backend 已分阶段合并，但 Home/configuration Presentation 与 production
+activation 尚未完成。因此本文件上述统一首页仍是当前 production UI truth，
+直到 B4 / I2 的替代入口通过验收并合并。
 
 冻结的未来目标包括：
 
@@ -192,8 +193,9 @@ implemented**：本文件上述统一首页、普通新题 / 到期复习入口�
   本周学习时长与轻量学习日历；
 - 真实学习时长（StudyActivity durable timing）、任务事件时间与 TaskCenter
   Application facade；
-- planned additive migrations：v29 TrainingContent、v30 StudyActivity、
-  v31 ImportTask event timestamps——当前 runtime（v28）均不存在这些表或类型。
+- additive migrations v29 TrainingContent、v30 StudyActivity、v31 ImportTask
+  event timestamps 已进入当前 runtime v31；这些后端事实本身不代表 Home v2
+  Presentation 已 production-activated。
 
 **StudyPlan** 继续保持全局单一 ActiveStudyPlan（沿用 SPL-1），独立于
 TrainingContent：TrainingContent 是普通训练范围配置，不是多计划能力；
@@ -202,5 +204,5 @@ TrainingContent：TrainingContent 是普通训练范围配置，不是多计划�
 Visual 等能力。
 
 替代能力完整可达前，本文件的当前入口、页面与 persisted 行为不发生改变；
-V3 的实施包另行授权后按执行附录顺序推进。本 amendment 只记录 planned
-范围，不宣称任何未来能力已实现。
+V3 后续按同目录正式 task package 与当前用户/Automation 授权推进；本 amendment
+不因后端阶段已完成而提前宣称尚未合并的 Home v2 / TaskCenter UI 能力。
