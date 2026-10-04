@@ -16,7 +16,7 @@ AnswerAttempt migration followed the original B0-P0 v22 freeze.
 
 ### Current-state amendment: AnswerAttempt schema v26
 
-This amendment raised the runtime to v26; the current runtime is v29 as stated
+This amendment raised the runtime to v26; the current runtime is v30 as stated
 below. Staged v25 databases rebuild `answer_attempts` inside
 DatabaseHelper's upgrade transaction, preserving all rows and both indexes;
 only the modality CHECK gains `image`. Image payload v1 uses `source_file_id`
@@ -30,7 +30,7 @@ prior schema boundary.
 ### Current-state amendment: Answer Completion schema v28
 
 ANSWER-COMP-D1 implemented the frozen Answer Completion relation as the
-additive v28 schema; **the current runtime is v29**. `imported_question_sets` /
+additive v28 schema; **the current runtime is v30**. `imported_question_sets` /
 `imported_question_set_items` — with their constraints, bank lookup index and
 required relationship triggers — are durable INCLUDE state, protected by the
 existing strict schema validator and by B0 portable-data relationship
@@ -58,9 +58,30 @@ existing same-Category content, which may be unavailable; the global Category
 only needs valid encoding and may no longer be displayable. Validation never
 repairs configuration or persists runtime fallback.
 
-StudyActivity v30 and ImportTask event timestamps v31 remain planned under
-`docs/product/home-training-implementation-freeze-v3.md`. StudyActivity is not
-yet implemented or included; ImportTask remains scrubbed.
+### Current-state amendment: StudyActivity schema v30
+
+P4b raises the runtime to v30. StudyActivity sessions and segments are durable
+INCLUDE facts; package version remains 2, and existing credential/import-task
+SCRUB rules remain unchanged. Session context is soft historical reference,
+not an existence requirement. Only the four enabled scenes are stored; shared
+schema/Domain validation enforces the lifecycle/reason/null matrix, canonical
+nullable CategoryKey, valid local dates, nonnegative integer duration and segment
+sequence uniqueness. Segment-to-session is the only Activity foreign key.
+Checkpoint and segment sequences are independent; duration is not inferred from
+UTC boundaries, and cross-segment UTC chronology is not required.
+
+Export validates Activity before closing active/paused sessions only in the
+snapshot copy as interrupted/snapshotInterrupted at their last successful
+checkpoint. Revision advances once, checkpoint sequence and segments stay
+unchanged; live state is untouched. Portable validation rejects remaining
+active/paused sessions and malformed Activity before restore swap. Rollback
+baselines may retain live active/paused rows. Migration is confined to staged
+copies and creates empty Activity for older schemas, with no duration backfill
+or owner/queue reconstruction. Startup recovery is a separate gated live writer
+using processInterrupted, never a query side effect. P4b independent T3
+Verifier/Reviewer acceptance remains pending; no Activity production wiring is
+claimed. ImportTask event timestamps v31 remain planned under
+`docs/product/home-training-implementation-freeze-v3.md`; ImportTask remains scrubbed.
 
 ### ContentAsset lifecycle successor (docs-only)
 
@@ -91,7 +112,7 @@ closure are both implemented; the successor document records the evidence.
 ### Historical amendment: AI Config schema v24
 
 At that amendment's closure, runtime and current-runtime backup fixtures used
-schema **v24**; the current runtime is v29 as stated above.
+schema **v24**; the current runtime is v30 as stated above.
 The four additive AI configuration tables (`ai_providers`, `ai_models`,
 `ai_model_capability_claims`, `ai_capability_bindings`) are authoritative
 INCLUDE state. None has a credential column. Legacy `ai_engines.api_key` and
@@ -147,10 +168,11 @@ schemaVersion  = SQLite PRAGMA user_version
 - `schemaVersion` versions the SQLite schema carried inside the snapshot.
 - The manifest carries both; compatibility checks for each are separate
   (§8).
-- Current runtime schema is **v29**: v27 added the derived ContentAsset
+- Current runtime schema is **v30**: v27 added the derived ContentAsset
   reclamation-observation ledger, which the package excludes and scrubs like
   other derived state, and v28 is the additive durable `ImportedQuestionSet` /
-  ordered-membership schema. v29 adds durable TrainingContent configuration.
+  ordered-membership schema. v29 adds durable TrainingContent configuration;
+  v30 adds durable StudyActivity session/segment facts.
   v24 and v26 references below retain their
   historical amendment or compatibility-fixture meaning.
 
@@ -222,7 +244,7 @@ payloads, or user file bytes. Those bytes remain only inside
 ## 3. Portable snapshot — INCLUDE
 
 The sanitized SQLite snapshot must preserve all authoritative durable user
-state. The v24 amendment froze the INCLUDE set below; current runtime is v29
+state. The v24 amendment froze the INCLUDE set below; current runtime is v30
 and retains these authoritative rows, including `answer_attempts` with image
 modality and the v28 Answer Completion question-set rows:
 
@@ -282,7 +304,7 @@ The package must never contain:
 - secrets.
 
 In the sanitized snapshot, all legacy/current credential columns must be in an
-empty/null safe state. For current schema v29 this includes at least:
+empty/null safe state. For current schema v30 this includes at least:
 
 ```text
 ai_engines.api_key
@@ -938,7 +960,7 @@ B0 v0 explicitly excludes:
 - credential backup;
 - ParsedArtifact backup;
 - RAG cache backup;
-- future database schema migrations beyond the current runtime (v29);
+- future database schema migrations beyond the current runtime (v30);
 - DATA-MGMT destructive features;
 - UI redesign.
 
@@ -997,7 +1019,7 @@ B0 .shiroha Backup / Restore — CLOSED / FROZEN
 The B0-V0 acceptance suite must cover:
 
 1. empty/fresh app export + restore;
-2. realistic populated current-schema v29 round trip;
+2. realistic populated current-schema v30 round trip;
 3. Questions + typed sidecars + `answer_attempts` preserved;
 4. FSRS/review history preserved;
 5. Library files + bytes/digests preserved;

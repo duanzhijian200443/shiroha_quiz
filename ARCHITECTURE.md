@@ -96,7 +96,7 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
 6. Typed content mutation must not pass through the legacy editor or reconstruct authority from a V1 projection.
 7. Review/FSRS state is separate from typed question content mutation.
 8. `RichContent` is structural: a persisted `TextNode` is not reparsed later as Markdown/math/image syntax.
-9. Current database schema is **v29**: the frozen v15 typed sidecar remains
+9. Current database schema is **v30**: the frozen v15 typed sidecar remains
    authoritative, with the additive v16 File Library, v17 Project, v18 flat
    File Library Folder, v19 Conversation, and v20 parsed-artifact tables, the
    additive RAG-1 derived lexical-retrieval cache and FTS5 objects, the
@@ -106,7 +106,8 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
    ContentAsset reclamation-observation table, and the v28 durable
    `ImportedQuestionSet` / ordered-membership schema with database-owned
    relationship invariants, plus the v29 TrainingContent / members / Category
-   preferences configuration schema. The v27 table records only
+   preferences configuration schema and v30 StudyActivity sessions/segments.
+   The v27 table records only
    continuous grace evidence; it is neither an ownership registry, a refcount,
    nor a persisted live-set authority. V26 only extends
    the modality CHECK; all columns, indexes, nullable correctness and append-only
@@ -198,7 +199,7 @@ Rules:
 - F1-D1 implemented the additive v20 artifact tables without modifying any
   earlier table. RAG-1 subsequently raised the runtime schema to v21 at its
   closure with derived lexical-retrieval cache tables and a dedicated FTS5
-  index; the current runtime is v29.
+  index; the current runtime is v30.
 
 See `docs/architecture/f1-parsed-artifact-lifecycle.md`.
 
@@ -442,7 +443,7 @@ boundary remains frozen and applies to any future P7 extension:
   READ_ONLY tools, A0 stays exactly six tools, and W0 is not a P7 workflow.
 - P7 adds no schema change and no persisted candidate/generation state/
   provenance/provider request/result/review state; runtime schema was v21 at
-  P7 closure. The current runtime is v29.
+  P7 closure. The current runtime is v30.
 
 ## 12. UI Finalization Presentation boundary
 
@@ -484,7 +485,7 @@ through an Application command with a durable transaction-level
   non-preview Practice seam (never `PracticePage.initialQuestions`, which
   remains preview-only). SPL-1 StudyPlan Agent Tool v0 is CLOSED / FROZEN
   (P0–D0–D1–I0–U0–V0–CL COMPLETE; stage schema v22, v24 at closure;
-  current runtime v29).
+  current runtime v30).
 
   The focused SPL-1 authority is
 `docs/product/SPL-1 StudyPlan Agent Tool v0.md`.
@@ -533,7 +534,7 @@ FSRS grading authority. See `docs/architecture/photo-answer-v1.md`.
 
 The design keeps Presentation behind Answer Completion Application services, preserves `PersistedQuestion.storageId` as Question identity, reuses existing P6/P7 answer mutation authority, and makes the existing task-bound `QuestionRepository` transaction the only import transaction owner. `LibraryFile`, `ParsedArtifact`, and `ImportTask` do not become QuestionSet identity.
 
-**ANSWER-COMP-D1 implemented this relation as the additive v28 schema; the current runtime is v29.** The `imported_question_sets` / `imported_question_set_items` tables, their constraints, the bank lookup index, and the required relationship triggers exist and are strictly validated, while historical questions remain ungrouped.
+**ANSWER-COMP-D1 implemented this relation as the additive v28 schema; the current runtime is v30.** The `imported_question_sets` / `imported_question_set_items` tables, their constraints, the bank lookup index, and the required relationship triggers exist and are strictly validated, while historical questions remain ungrouped.
 
 Seed capture, the QuestionRepository-owned atomic set/member writer with per-document dispatch, the Answer Completion read projection, the queue/detail Presentation, and set-scoped P6 plus single-question P7 activation are implemented. ANSWER-COMP-P0, ANSWER-ENTRY-GUARD, D0/D1/B0, I0a/I0b/I0c, Q0/U0/P6/P7, V0 and CL are COMPLETE; Answer Completion v0 is CLOSED / FROZEN. These durable boundaries apply:
 
@@ -545,7 +546,7 @@ Seed capture, the QuestionRepository-owned atomic set/member writer with per-doc
 - Source-file deletion, artifact replacement/removal, task cleanup and folder moves preserve committed set identity and membership. Answer/content edits preserve membership and review state; query counts reflect current typed answers, including explicit-empty as answered. Question deletion or bank movement removes membership, and the final removal deletes the empty set.
 - B0 preserves set identity and ordered membership while treating provenance as soft evidence; strict v28 schema/trigger and relationship validation remains mandatory. V0/CL adds no production mutation path and does not activate typed-admission R1, stable bank identity, batch AI or RAG-2.
 
-## Home Training V3 — configuration ports and v29 persistence implemented
+## Home Training V3 — configuration, launch and v30 Activity persistence implemented
 
 `docs/product/home-training-implementation-freeze-v3.md` freezes
 `SHIROHA-HOME-TRAINING-IPF-V3` as the planned successor to the current
@@ -554,10 +555,10 @@ TrainingContent configuration (Category → TrainingContent → ordinary
 new-question pools, Category-scoped due review pools), Today/Home v2, durable
 StudyActivity timing, ImportTask attempt event timestamps, and a TaskCenter
 Application facade. P1a Domain values and P1b Application contracts exist;
-P1c implements additive v29 TrainingContent persistence. Additive migrations
-v30 (StudyActivity) and v31 (ImportTask event timestamps) remain planned.
+P1c implements additive v29 TrainingContent persistence; P4b implements additive
+v30 StudyActivity persistence. V31 ImportTask event timestamps remain planned.
 
-Runtime schema is v29. The three configuration tables and independent
+Runtime schema is v30. The three configuration tables and independent
 `app_settings.current_training_category` use canonical CategoryKey encoding;
 the upgrade transaction seeds only the eligible old current bank once, without
 changing learning data. B0 includes configuration and validates bindings,
@@ -584,7 +585,7 @@ recreate or re-map a bank; there is no startup sweep and no schema change.
 Same-name recreation,
 move-back, reads, startup and migration never restore a relation. The explicit
 rebind command revalidates content CAS and fresh bank admission, restores only the
-target member and advances the content revision atomically. Schema remains v29.
+target member and advances the content revision atomically. P2b added no schema change.
 P3a adds read-only bounded selection through ReviewRepository and the narrow
 TrainingQuestionSelection Data seam. Domain TrainingAllocation caps initial
 quotas and refills shortages with original positive weights and Largest
@@ -613,15 +614,15 @@ independent of TrainingContent. Only a complete successful batch calls the
 existing initPreparedStudySession seam once, after the read transaction ends,
 preserving exact P3a order; every failed preparation leaves the old queue intact.
 RNG is injected per new launch. No launch writes learning/configuration state or
-adds a durable queue. CP2-T implementation is complete, with runtime still v29.
+adds a durable queue. CP2-T implementation is complete.
 Legacy bank-scoped and StudyPlan launchers remain independent. Home/Today
-activation, Activity, route guards/lifetime and TaskCenter remain planned;
+activation, Activity route wiring, route guards/lifetime and TaskCenter remain planned;
 future ordinary Practice composition must use the prepared session with normal
 attribution, while StudyPlan retains focused attribution and its 200-ID bound.
 P4a implements the pure StudyActivity lifecycle/time core. Application's
 StudyActivityTransitionEngine proposes an immutable single-owner state,
 existing lifecycle snapshot and confirmed segment drafts; publication belongs
-to the caller, after P4b's future atomic persistence. Four explicit scenes are
+to the caller, after atomic persistence. Four explicit scenes are
 admitted; the definition-only fifth scene and runtime interruption reasons
 remain rejected. Pause/resume check both owner identities, repeated pause/resume
 are no-ops, and ended proposals release the owner and reject later events.
@@ -634,9 +635,25 @@ observed wall/zone changes: elapsed until observation keeps the old mapping,
 subsequent anchors use the new one, and no unobserved change instant is guessed.
 Invalid samples/splits produce safe failures without partially advancing state.
 No IANA ID/package, duration total cache, timer, queue payload or platform object
-is introduced. StudyActivity durable storage, replay/CAS, recovery, B0, weekly
-queries and Practice/Exam production wiring remain unimplemented; CP2-A is not
-complete and runtime remains v29.
+is introduced.
+P4b implements StudyActivityPersistence as an Application port and
+StudyActivityRepository as the Data adapter. V30 stores sessions and immutable
+segment facts, with soft context references and a segment-to-session cascade;
+there is no owner token, queue, cumulative-duration cache or persisted quality.
+PersistentStudyActivityService serializes immutable P4a proposals, captures event
+time before awaiting prior writes, and publishes owner/state only after a short
+gated transaction commits. Exact checkpoint replay is idempotent; conflicting
+segment facts and stale/terminal append fail without partial writes. Failed
+recording stops that session's attribution and marks process-local quality partial;
+exit still releases the local owner. Explicit startup recovery closes active/paused
+residue at its last successful checkpoint without estimating elapsed or restoring
+an owner. B0 closes only the snapshot copy as snapshotInterrupted, preserves facts,
+and rejects malformed or nonterminal portable Activity before swap. Weekly reads
+sum persisted local-date segment durations for seven Monday–Sunday dates, using an
+injected current local date; read failure remains unavailable. CP2-A implementation
+is complete pending independent T3 Verifier/Reviewer acceptance. Runtime remains
+v30; Practice/MockExam Activity wiring, scheduling, weekly UI and production
+activation remain unimplemented. P5a is the next serial mainline package.
 The existing Today, ordinary-training, StudyPlan and TaskCenter boundaries
 above remain current truth. StudyPlan remains the single
 global ActiveStudyPlan and stays independent of TrainingContent. Delivery

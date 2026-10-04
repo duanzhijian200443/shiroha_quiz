@@ -106,9 +106,9 @@ void main() {
       diskSpaceProbe: const _InfiniteDisk());
 
   Future<String> packageDatabase(String path, String name,
-      {int version = 29}) async {
+      {int? version}) async {
     final manifest = BackupManifest(
-        schemaVersion: version,
+        schemaVersion: version ?? DatabaseHelper.databaseVersion,
         createdAtUtc: DateTime.utc(2026),
         database: BackupDatabaseEntry(
             archivePath: BackupValues.databaseArchivePath,
@@ -195,7 +195,7 @@ void main() {
     final package = p.join(temp.path, 'round-trip.shiroha');
     final exported = runtime();
     await exported.exportTo(package);
-    expect(BackupValues.currentSchemaVersion, 29);
+    expect(BackupValues.currentSchemaVersion, DatabaseHelper.databaseVersion);
     expect(await db.query('import_tasks'), hasLength(1));
     expect(
         await db.query(trainingContentMembersTable,
@@ -345,7 +345,7 @@ void main() {
     expect(await live.query(trainingContentsTable), isEmpty);
     await restoring.commitPreparedRestore();
     final restored = await helper.database;
-    expect(await restored.getVersion(), 29);
+    expect(await restored.getVersion(), DatabaseHelper.databaseVersion);
     expect(
         (await restored.query(trainingContentsTable)).single['name'], 'Legacy');
     expect((await restored.query('questions')).single['id'], 'legacy');
@@ -358,14 +358,15 @@ void main() {
     await _question(live, 'live', 'Live');
     final path = p.join(temp.path, 'newer.db');
     final db = await helper.openPathForTesting(path);
-    await db.setVersion(30);
+    await db.setVersion(DatabaseHelper.databaseVersion + 1);
     await db.close();
-    final package = await packageDatabase(path, 'newer', version: 30);
+    final package = await packageDatabase(path, 'newer',
+        version: DatabaseHelper.databaseVersion + 1);
     await expectLater(
         runtime().prepareRestore(package),
         throwsA(isA<BackupException>().having((error) => error.failure,
             'failure', BackupFailure.unsupportedSchemaVersion)));
     expect((await live.query('questions')).single['id'], 'live');
-    expect(await live.getVersion(), 29);
+    expect(await live.getVersion(), DatabaseHelper.databaseVersion);
   });
 }

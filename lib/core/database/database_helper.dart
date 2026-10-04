@@ -27,6 +27,7 @@ import 'question_v2_schema_exception.dart';
 import 'retrieval_v21_schema.dart';
 import 'study_plan_v22_schema.dart';
 import 'training_content_v29_schema.dart';
+import 'study_activity_v30_schema.dart';
 import 'training_content_binding_lifecycle.dart';
 import 'sqflite_runtime.dart';
 
@@ -87,7 +88,7 @@ class DatabaseHelper
   DatabaseHelper._();
 
   static const String _dbName = 'shiroha_core_v1.db';
-  static const int _dbVersion = trainingContentSchemaVersion;
+  static const int _dbVersion = studyActivitySchemaVersion;
 
   static String get databaseFileName => _dbName;
   static int get databaseVersion => _dbVersion;
@@ -694,6 +695,8 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await validateAnswerCompletionV28Schema(db);
     await validateAiConfigV25Schema(db);
     await validateTrainingContentV29Schema(db);
+    await validateStudyActivityV30Schema(db);
+    await validateStudyActivityV30Data(db);
   }
 
   /// Opens a database handle with the current production schema callbacks.
@@ -946,6 +949,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await createContentAssetReclamationV27Schema(db);
     await createAnswerCompletionV28Schema(db);
     await createTrainingContentV29Schema(db);
+    await createStudyActivityV30Schema(db);
     await _validateV15Schema(db);
     await _validateLibraryFilesSchema(db);
     await _validateProjectSchema(db);
@@ -959,6 +963,8 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await validateAnswerCompletionV28Schema(db);
     await validateAiConfigV25Schema(db);
     await validateTrainingContentV29Schema(db);
+    await validateStudyActivityV30Schema(db);
+    await validateStudyActivityV30Data(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -1138,11 +1144,16 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     if (oldVersion < 29) {
       await migrateTrainingContentToV29(db);
     }
+    if (oldVersion < 30) {
+      await migrateStudyActivityToV30(db);
+    }
     await validateAnswerAttemptV26Schema(db);
     await validateContentAssetReclamationV27Schema(db);
     await validateAnswerCompletionV28Schema(db);
     await validateAiConfigV25Schema(db);
     await validateTrainingContentV29Schema(db);
+    await validateStudyActivityV30Schema(db);
+    await validateStudyActivityV30Data(db);
   }
 
   /// Validates the frozen v15 schema before the open/upgrade can succeed.
