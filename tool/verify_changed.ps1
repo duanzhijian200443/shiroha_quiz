@@ -164,10 +164,7 @@ if ($changeCollectionFailed) {
         Write-Output 'Format check: PASS'
     } else {
         Write-Output "Format check: FAIL (exit $formatExitCode)"
-        Write-Output 'Formatter diff:'
-        & dart format @formatTargets | Out-Null
-        & git diff -- @formatTargets
-        & git restore --worktree -- @formatTargets
+        Write-Output 'Source files unchanged; format separately within Executor write authority, then rerun this check.'
         Stop-Verification
     }
 }
