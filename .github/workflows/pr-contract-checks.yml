@@ -16,8 +16,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: pr-contract-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: pr-contract-${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
   static:
@@ -59,6 +59,10 @@ jobs:
 
       - name: Resolve packages
         run: flutter pub get
+
+      - name: Check CI coverage and timing parser
+        shell: pwsh
+        run: ./tool/tests/ci_contract_timings_test.ps1
 
       - name: Verify changed Dart
         shell: pwsh
@@ -313,7 +317,32 @@ jobs:
             'test/services/file_library/content_asset_lifecycle_maintenance_test.dart',
             'test/backup/backup_content_asset_round_trip_test.dart',
             'test/dm_d1e_destructive_confirmation_test.dart',
-            'test/ocr_smoke_report_test.dart'
+            'test/ocr_smoke_report_test.dart',
+            'test/domain/training/category_key_test.dart',
+            'test/domain/training/training_allocation_test.dart',
+            'test/domain/training/training_content_test.dart',
+            'test/domain/training/training_content_member_test.dart',
+            'test/application/home_training_result_test.dart',
+            'test/application/training/training_contracts_test.dart',
+            'test/application/training/training_session_contracts_test.dart',
+            'test/application/training/today_training_contracts_test.dart',
+            'test/application/training/training_configuration_projection_test.dart',
+            'test/domain/study_activity/study_activity_values_test.dart',
+            'test/application/study_activity/study_activity_contracts_test.dart',
+            'test/core/database/training_content_v29_schema_test.dart',
+            'test/core/database/training_content_binding_lifecycle_test.dart',
+            'test/data/repositories/training_binding_lifecycle_test.dart',
+            'test/data/repositories/training_configuration_repository_test.dart',
+            'test/backup/training_content_backup_test.dart',
+            'test/data/repositories/training_question_selection_test.dart',
+            'test/domain/training/training_shortage_allocation_test.dart',
+            'test/services/practice/training_session_application_service_test.dart',
+            'test/application/study_activity/study_activity_transition_engine_test.dart',
+            'test/domain/study_activity/study_activity_time_test.dart',
+            'test/application/study_activity/study_activity_service_test.dart',
+            'test/backup/study_activity_backup_test.dart',
+            'test/core/database/study_activity_v30_schema_test.dart',
+            'test/data/repositories/study_activity_repository_test.dart'
           )
 
           $shardCount = 4
@@ -328,10 +357,23 @@ jobs:
             Write-Output "  $test"
           }
 
-          & flutter test --concurrency=1 @selected
-          if ($LASTEXITCODE -ne 0) {
-            exit $LASTEXITCODE
-          }
+          $reportDirectory = '.dart_tool/ci-contract-timings'
+          New-Item -ItemType Directory -Path $reportDirectory -Force | Out-Null
+          $rawReport = "$reportDirectory/raw-${{ matrix.shard }}.jsonl"
+          $summary = "$reportDirectory/shard-${{ matrix.shard }}.json"
+          & flutter test --concurrency=1 --file-reporter "json:$rawReport" @selected
+          $testExit = $LASTEXITCODE
+          & ./tool/ci/summarize_flutter_test_times.ps1 -InputPath $rawReport -OutputPath $summary
+          if ($testExit -ne 0) { exit $testExit }
+
+      - name: Upload test timings (paths and durations only)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-timings-${{ matrix.shard }}
+          path: .dart_tool/ci-contract-timings/shard-${{ matrix.shard }}.json
+          retention-days: 7
+          if-no-files-found: warn
 
   verify:
     name: Changed Dart and focused contracts
