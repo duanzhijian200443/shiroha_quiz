@@ -618,6 +618,25 @@ Legacy bank-scoped and StudyPlan launchers remain independent. Home/Today
 activation, Activity, route guards/lifetime and TaskCenter remain planned;
 future ordinary Practice composition must use the prepared session with normal
 attribution, while StudyPlan retains focused attribution and its 200-ID bound.
+P4a implements the pure StudyActivity lifecycle/time core. Application's
+StudyActivityTransitionEngine proposes an immutable single-owner state,
+existing lifecycle snapshot and confirmed segment drafts; publication belongs
+to the caller, after P4b's future atomic persistence. Four explicit scenes are
+admitted; the definition-only fifth scene and runtime interruption reasons
+remain rejected. Pause/resume check both owner identities, repeated pause/resume
+are no-ops, and ended proposals release the owner and reject later events.
+Injected coherent monotonic/wall samples and immutable local calendar mappings
+own time input; confirmed duration comes only from integer monotonic deltas.
+Domain splitting walks actual local-midnight/offset-transition UTC intervals,
+including multi-day and 23/25-hour DST days, emitting local date and observed
+offset with deterministic sequences. An explicit source mapping revision marks
+observed wall/zone changes: elapsed until observation keeps the old mapping,
+subsequent anchors use the new one, and no unobserved change instant is guessed.
+Invalid samples/splits produce safe failures without partially advancing state.
+No IANA ID/package, duration total cache, timer, queue payload or platform object
+is introduced. StudyActivity durable storage, replay/CAS, recovery, B0, weekly
+queries and Practice/Exam production wiring remain unimplemented; CP2-A is not
+complete and runtime remains v29.
 The existing Today, ordinary-training, StudyPlan and TaskCenter boundaries
 above remain current truth. StudyPlan remains the single
 global ActiveStudyPlan and stays independent of TrainingContent. Delivery
