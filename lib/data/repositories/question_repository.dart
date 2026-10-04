@@ -20,6 +20,7 @@ import '../../core/database/database_helper.dart';
 import '../../application/backup/backup_restore_gate.dart';
 import 'content_asset_reclamation_observation_repository.dart';
 import '../../core/database/sqflite_runtime.dart';
+import '../../core/database/training_content_binding_lifecycle.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../models/persisted_question.dart';
 import '../models/question_draft.dart';
@@ -102,6 +103,8 @@ class QuestionRepository
     final nowUnix = DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
     await db.transaction((txn) async {
+      await reconcilePreexistingTrainingBindingDrift(txn,
+          affectedBankNames: [trimmedBankName]);
       for (final question in questions) {
         final row = _questionToRow(
           question,
@@ -161,6 +164,8 @@ class QuestionRepository
       await db.transaction((txn) async {
         final resolvedFolderName =
             await _resolveV2FolderAction(txn, trimmedBankName, folderName);
+        await reconcilePreexistingTrainingBindingDrift(txn,
+            affectedBankNames: [trimmedBankName]);
         await _writeFrozenV2Batch(
           txn,
           bankName: trimmedBankName,
@@ -168,7 +173,12 @@ class QuestionRepository
           frozenWrites: frozenWrites,
           assetIdentities: assetIdentities,
         );
+        await invalidateTrainingBindingsAtFinalState(txn,
+            affectedBankNames: [trimmedBankName]);
       });
+    } on TrainingBindingLifecycleException {
+      throw const QuestionV2WriteException(
+          QuestionV2WriteFailure.transactionFailed);
     } on DatabaseException {
       throw const QuestionV2WriteException(
         QuestionV2WriteFailure.transactionFailed,
@@ -237,6 +247,8 @@ class QuestionRepository
           folderName: folderName,
           targetKind: authority.targetKind,
         );
+        await reconcilePreexistingTrainingBindingDrift(txn,
+            affectedBankNames: [trimmedBankName]);
         await _writeFrozenV2Batch(
           txn,
           bankName: trimmedBankName,
@@ -278,6 +290,8 @@ class QuestionRepository
             TypedImportCommitPersistenceFailure.transactionFailed,
           );
         }
+        await invalidateTrainingBindingsAtFinalState(txn,
+            affectedBankNames: [trimmedBankName]);
         return TypedImportCommitPersistenceResult(
           questionCount: frozenWrites.length,
           completedAt: nowUtcSeconds,
@@ -289,6 +303,9 @@ class QuestionRepository
       );
     } on TypedImportCommitPersistenceException {
       rethrow;
+    } on TrainingBindingLifecycleException {
+      throw const TypedImportCommitPersistenceException(
+          TypedImportCommitPersistenceFailure.transactionFailed);
     } on DatabaseException {
       throw const TypedImportCommitPersistenceException(
         TypedImportCommitPersistenceFailure.transactionFailed,
@@ -346,6 +363,8 @@ class QuestionRepository
           folderName: folderName,
           targetKind: authority.targetKind,
         );
+        await reconcilePreexistingTrainingBindingDrift(txn,
+            affectedBankNames: [trimmedBankName]);
         for (final row in frozenRows) {
           await txn.insert('questions', row);
           await txn.insert(
@@ -398,6 +417,8 @@ class QuestionRepository
             LegacyImportCommitPersistenceFailure.transactionFailed,
           );
         }
+        await invalidateTrainingBindingsAtFinalState(txn,
+            affectedBankNames: [trimmedBankName]);
         return LegacyImportCommitPersistenceResult(
           questionCount: frozenRows.length,
           completedAt: nowUtcSeconds,
@@ -409,6 +430,9 @@ class QuestionRepository
       );
     } on LegacyImportCommitPersistenceException {
       rethrow;
+    } on TrainingBindingLifecycleException {
+      throw const LegacyImportCommitPersistenceException(
+          LegacyImportCommitPersistenceFailure.transactionFailed);
     } on DatabaseException {
       throw const LegacyImportCommitPersistenceException(
         LegacyImportCommitPersistenceFailure.transactionFailed,
@@ -1625,6 +1649,14 @@ class QuestionRepository
       if (sidecar.isNotEmpty) {
         throw const QuestionV2LegacyMutationBlockedException();
       }
+      final oldRows = await txn.query('questions',
+          columns: ['bank_name'], where: 'id = ?', whereArgs: [cleanId]);
+      final affectedBanks = [
+        ...oldRows.map((old) => old['bank_name']).whereType<String>(),
+        row['bank_name'] as String,
+      ];
+      await reconcilePreexistingTrainingBindingDrift(txn,
+          affectedBankNames: affectedBanks);
       await txn.insert(
         'questions',
         row,
@@ -1643,6 +1675,8 @@ class QuestionRepository
         },
         conflictAlgorithm: ConflictAlgorithm.ignore,
       );
+      await invalidateTrainingBindingsAtFinalState(txn,
+          affectedBankNames: affectedBanks);
     });
   }
 

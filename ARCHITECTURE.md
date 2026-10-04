@@ -571,8 +571,22 @@ deterministic runtime fallback without persisting it. All admission and CAS
 checks run in the writing transaction and reuse the v29 ordinary-bank eligibility
 adapter. Deleting configuration preserves learning data and advances a referencing
 preference's independent revision while clearing only its current content.
-Persistent binding invalidation/rebind, Home/Today activation, training launch,
-Activity and TaskCenter implementations remain planned.
+P2b maintains persistent binding invalidation through one caller-transaction
+final-state helper. Single/bank deletion, legacy/preview bank movement, folder
+updates (including import/batch folder writers), and clear-all invalidate only
+valid relations when the final bank is missing, ineligible or in another Category.
+Each affected content revision advances once per reconciliation pass; weights,
+preferences and persisted current references remain unchanged. Temporary
+delete/replace with a legal final bank does not invalidate. Drift inherited from
+P2a (a valid relation whose bank was already missing, ineligible or moved) is
+reconciled by a narrow same-transaction preflight pass in writers that can
+recreate or re-map a bank; there is no startup sweep and no schema change.
+Same-name recreation,
+move-back, reads, startup and migration never restore a relation. The explicit
+rebind command revalidates content CAS and fresh bank admission, restores only the
+target member and advances the content revision atomically. Schema remains v29.
+Home/Today activation, training launch, Activity and TaskCenter implementations
+remain planned; CP2-T still requires P3a/P3b.
 The existing Today, ordinary-training, StudyPlan and TaskCenter boundaries
 above remain current truth. StudyPlan remains the single
 global ActiveStudyPlan and stays independent of TrainingContent. Delivery

@@ -202,6 +202,17 @@ final class UpdateTrainingContentRequest {
   final TrainingContentEdit edit;
 }
 
+/// Explicit recovery of one exact invalidated relation. Ordinary editing must
+/// not restore the same binding; rebind revalidates fresh bank admission and CAS.
+final class RebindTrainingContentMemberRequest {
+  RebindTrainingContentMemberRequest(
+      {required this.target, required this.bankName}) {
+    requireHomeTrainingInput(bankName.trim().isNotEmpty);
+  }
+  final TrainingContentTarget target;
+  final String bankName;
+}
+
 /// Separate preference CAS. Null expectedRevision requires the row to remain
 /// absent; it is never a wildcard/upsert permission. Non-null uses exact CAS.
 final class TrainingPreferenceTarget {
@@ -239,6 +250,8 @@ abstract interface class TrainingContentCommand {
       CreateTrainingContentRequest request);
   Future<HomeTrainingResult<TrainingContent>> update(
       UpdateTrainingContentRequest request);
+  Future<HomeTrainingResult<TrainingContent>> rebindMember(
+      RebindTrainingContentMemberRequest request);
   Future<HomeTrainingResult<HomeTrainingUnit>> delete(
       TrainingContentTarget target);
   Future<HomeTrainingResult<TrainingCurrentSelection>> selectCurrent(

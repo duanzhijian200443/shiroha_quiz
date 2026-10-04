@@ -3,6 +3,7 @@ import '../../application/review/question_data_clear_all.dart';
 import '../../application/study_query/study_query_ports.dart';
 import '../../core/database/database_helper.dart';
 import '../../core/database/sqflite_runtime.dart';
+import '../../core/database/training_content_binding_lifecycle.dart';
 import '../models/persisted_question.dart';
 import '../persistence/question_v2_persistence_mapper.dart';
 
@@ -202,6 +203,7 @@ class ReviewRepository implements StudyMetricsQueryPort {
         await txn.delete('review_states');
         await txn.delete('review_logs');
         await txn.delete('questions');
+        await invalidateTrainingBindingsAtFinalState(txn);
       });
     } on QuestionDataClearAllException {
       rethrow;

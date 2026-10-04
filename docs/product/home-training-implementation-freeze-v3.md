@@ -37,6 +37,8 @@
 
 实施状态 amendment（P2a）：真实只读 TrainingCatalog、TrainingContent Query/Command、配置 CRUD、current selection 和 Category Visual preference CAS 已实现，继续使用 v29 schema 和单一数据库 eligibility adapter。Application 负责 captured catalog 的 usability 与 deterministic runtime fallback；query 不写回 fallback，也不持久化 binding invalidation。配置 mutation 在同一事务内重验并原子提交，content 与 preference revision 独立。P2b invalidation/rebind、Home/配置 UI、新训练启动与后续 runtime 接入仍待实施，当前生产入口未因此激活。
 
+实施状态 amendment（P2b）：持久 binding lifecycle 和显式 rebind 已实现，schema 保持 v29。集中 helper 在调用方事务最终状态接入单题/整库删除、legacy 与 preview bank movement、folder 更新（含 batch/import writer）和 clear-all；只将不再合法的 valid relation 标为 invalidated，每个受影响 content 在单次 reconciliation 中 revision 只 +1，不改权重、preference 或 current references。临时 delete→replace 不误失效；P2a 遗留的 valid-but-drifted binding 由可能重建或改映射 bank 的 writer 在同事务业务写入之前执行窄 preflight reconciliation 失效，不使用启动扫描、schema 升级或逐行 trigger；同名重建、移回 Category、query/startup/migration 不自动恢复。新增最小 rebind request/command，以 exact content CAS 和事务内 fresh catalog admission 显式恢复一个 member。P3a/P3b、配置/Home UI 与后续 runtime 接入仍待实施，CP2-T 尚未完成。
+
 如发现本文与更高层 canonical contract 存在未明确处理的实质冲突，停止受影响任务并报告冲突。不得自行选边、降级、扩大范围或通过“兼容实现”绕过冲突。
 
 ## 1.2 本轮包含

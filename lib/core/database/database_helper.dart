@@ -27,6 +27,7 @@ import 'question_v2_schema_exception.dart';
 import 'retrieval_v21_schema.dart';
 import 'study_plan_v22_schema.dart';
 import 'training_content_v29_schema.dart';
+import 'training_content_binding_lifecycle.dart';
 import 'sqflite_runtime.dart';
 
 enum QuestionDeletePersistenceFailure {
@@ -2370,6 +2371,8 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
             whereArgs: ['current_bank', bankName],
           );
         }
+        await invalidateTrainingBindingsAtFinalState(txn,
+            affectedBankNames: [bankName]);
       });
     } on QuestionBankDeletePersistenceException {
       rethrow;
@@ -2411,6 +2414,8 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
           );
         }
 
+        final oldRows = await txn.query('questions',
+            columns: ['bank_name'], where: 'id = ?', whereArgs: [questionId]);
         await txn.rawDelete(
             'DELETE FROM review_logs WHERE question_id = ?', [questionId]);
         await txn.rawDelete(
@@ -2438,6 +2443,9 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
           );
         }
         await txn.rawDelete('DELETE FROM questions WHERE id = ?', [questionId]);
+        await invalidateTrainingBindingsAtFinalState(txn,
+            affectedBankNames:
+                oldRows.map((row) => row['bank_name']).whereType<String>());
       });
     } on QuestionDeletePersistenceException {
       rethrow;
@@ -2564,11 +2572,17 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
 
   Future<void> updateBankFolder(String bankName, String folderName) async {
     final db = await database;
-    await db.insert(
-      'bank_folders',
-      {'bank_name': bankName, 'folder_name': folderName},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.transaction((txn) async {
+      await reconcilePreexistingTrainingBindingDrift(txn,
+          affectedBankNames: [bankName]);
+      await txn.insert(
+        'bank_folders',
+        {'bank_name': bankName, 'folder_name': folderName},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      await invalidateTrainingBindingsAtFinalState(txn,
+          affectedBankNames: [bankName]);
+    });
   }
 
   Future<void> addCustomFolder(String folderName) async {
@@ -2873,12 +2887,23 @@ SELECT
       if (sidecar.isNotEmpty) {
         throw const QuestionV2LegacyMutationBlockedException();
       }
+      final oldRows = await txn.query('questions',
+          columns: ['bank_name'], where: 'id = ?', whereArgs: [questionId]);
+      final affectedBanks = [
+        ...oldRows.map((row) => row['bank_name']).whereType<String>(),
+        if (questionData['bank_name'] is String)
+          questionData['bank_name'] as String,
+      ];
+      await reconcilePreexistingTrainingBindingDrift(txn,
+          affectedBankNames: affectedBanks);
       await txn.update(
         'questions',
         questionData,
         where: 'id = ?',
         whereArgs: [questionId],
       );
+      await invalidateTrainingBindingsAtFinalState(txn,
+          affectedBankNames: affectedBanks);
     });
   }
 

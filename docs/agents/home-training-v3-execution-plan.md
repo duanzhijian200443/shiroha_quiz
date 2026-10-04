@@ -2,7 +2,7 @@
 
 **契约入口：docs/product/home-training-implementation-freeze-v3.md**
 **性质：派生执行附录；不定义或修改产品语义。**
-**状态：实施中；P0～P2a 已完成，下一包为 P2b。**
+**状态：实施中；P0～P2b 实现已完成，下一包为 P3a。**
 
 本附录不授予 merge/tag/release 权限。每个写任务使用独立非默认分支；单写者默认不建 worktree，只有并行 writer、脏工作区隔离或 Coordinator 明确要求时才创建 worktree。commit/push/PR 仍按任务包或用户授权执行。
 
@@ -10,7 +10,7 @@
 
 # A0. 当前交付状态
 
-截至 PR #219 head `5d563aea3cc0ecc605cf4f7f114d563b167d0852`（master 已含 `a388b5c64261ad8cd014ca4282ee69e81c507fdd` 的 P0～P1c，P2a 尚未合入 master）：
+P2b 授权基线为 master `f6611454d68a31aa6dfeb02b40b61c858042a51b`，已包含 P0～P2a。下表同时记录分支 `codex/home-training-v3-p2b-binding-lifecycle` 的 P2b 实现交付；最终 fixed head 由该分支 Git / PR 记录，不把未合并 P2b 描述为 master 能力。P2b 仍需 Independent deterministic Verifier → Independent Reviewer 后才可在用户授权下合并。
 
 | Package | Status |
 |---|---|
@@ -19,7 +19,8 @@
 | P1b | COMPLETE / CP1 passed |
 | P1c | COMPLETE |
 | P2a | COMPLETE |
-| P2b | NEXT |
+| P2b | COMPLETE |
+| P3a | NEXT |
 
 当前 runtime schema：
 
@@ -29,7 +30,7 @@ v29
 
 v29 TrainingContent persistence / migration / B0 compatibility 已进入当前 runtime truth。v30 StudyActivity 与 v31 ImportTask event timestamps 仍为 planned。
 
-P2a 已交付 configuration capability：真实只读 TrainingCatalog、TrainingContent Query/Command、配置 CRUD、current selection 与 Category Visual preference CAS。persistent binding invalidation/rebind（P2b）、Home 与配置 UI、新训练启动仍未实施，当前生产入口未因此激活。
+P2a 已交付 configuration capability：真实只读 TrainingCatalog、TrainingContent Query/Command、配置 CRUD、current selection 与 Category Visual preference CAS。P2b 已实现同事务最终状态 invalidation 与显式 rebind（含针对 P2a 遗留 valid-but-drifted binding 的 recreate/re-map writer 同事务 preflight reconciliation），继续使用 v29 和既有 bankName identity。P3a/P3b、Home 与配置 UI、新训练启动仍未实施；CP2-T 尚未完成，当前生产入口未因此激活。
 
 以下 A 节保留最初规划基线，仅作为历史 planning evidence，不得覆盖本节 current delivery state。
 
