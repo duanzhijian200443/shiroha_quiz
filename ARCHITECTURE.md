@@ -573,7 +573,7 @@ Seed capture, the QuestionRepository-owned atomic set/member writer with per-doc
 
 ## Home Training V3 — configuration, launch, Activity and TaskCenter backend implemented
 
-`docs/product/home-training-implementation-freeze-v3.md` freezes
+`docs/product/home-training-v3/00-contract.md` freezes
 `SHIROHA-HOME-TRAINING-IPF-V3` as the planned successor to the current
 Today/Home and ordinary-training configuration contracts: Category-driven
 TrainingContent configuration (Category → TrainingContent → ordinary
@@ -700,12 +700,11 @@ Retry emits a picker request without mutation; selected input stays ephemeral in
 the ingestion adapter and revalidates again at accepted retry. Review emits only
 an exact navigation target; the later composition bridge must retain review CAS.
 B0 retains package v2, migrates staged schema to v31 and continues to scrub all
-ImportTask rows including event times. P5a/P5b and CP2-I implementation are complete;
-independent T3 verification/review remain required. TaskCenter UI, I3 and production
-injection are not activated. The next package is P6/B2 after independent acceptance.
-The existing Today, ordinary-training, StudyPlan and TaskCenter boundaries
-above remain current truth. StudyPlan remains the single
-global ActiveStudyPlan and stays independent of TrainingContent. Delivery
-order and ownership are governed by
-`docs/agents/home-training-v3-execution-plan.md` (P1a → P1b → CP1 →
-subsequent implementation packages).
+ImportTask rows including event times. B1 / P5a+P5b fixed-head CI and independent
+T3 verification passed and PR #227 is merged; it is treated as an accepted historical
+completion. TaskCenter UI, I3 and production injection are not activated. The next
+uncompleted formal package is `docs/product/home-training-v3/20-b2-training-config-ui.md`.
+The existing Today, ordinary-training, StudyPlan and TaskCenter boundaries above
+remain current truth. StudyPlan remains the single global ActiveStudyPlan and stays
+independent of TrainingContent. Delivery packages live beside the focused contract;
+there is no standalone execution-plan authority.
