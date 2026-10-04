@@ -1,4 +1,4 @@
-import 'package:sqflite/sqflite.dart';
+import 'sqflite_runtime.dart';
 
 const importTaskSchemaVersion = 31;
 const importTaskEventColumns = ['attempt_started_at', 'parsed_at', 'failed_at'];
