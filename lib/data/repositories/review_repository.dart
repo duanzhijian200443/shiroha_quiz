@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import '../../application/practice/study_session_launch.dart';
 import '../../application/review/question_data_clear_all.dart';
 import '../../application/study_query/study_query_ports.dart';
@@ -6,6 +8,17 @@ import '../../core/database/sqflite_runtime.dart';
 import '../../core/database/training_content_binding_lifecycle.dart';
 import '../models/persisted_question.dart';
 import '../persistence/question_v2_persistence_mapper.dart';
+import '../../domain/training/category_key.dart';
+import '../../domain/training/training_content.dart';
+import 'exact_question_materializer.dart';
+import 'training_question_selection.dart';
+
+export 'training_question_selection.dart'
+    show
+        TrainingQuestionSelectionResult,
+        TrainingQuestionSelectionSuccess,
+        TrainingQuestionSelectionEmpty,
+        TrainingQuestionSelectionUnavailable;
 
 const _globalWrongBookBankName = '🔥 全局错题本';
 
@@ -57,6 +70,18 @@ class ReviewRepository implements StudyMetricsQueryPort {
   static const int _maxStudyPlanSessionIds = 200;
 
   Future<Database> get _db async => await _databaseHelper.database;
+
+  Future<TrainingQuestionSelectionResult> selectTrainingNewQuestions(
+          TrainingContent content,
+          {required Random random}) =>
+      TrainingQuestionSelection(database: () => _db)
+          .selectNew(content, random: random);
+
+  Future<TrainingQuestionSelectionResult> selectTrainingCategoryReview(
+          CategoryKey category,
+          {required int nowUnixSeconds}) =>
+      TrainingQuestionSelection(database: () => _db)
+          .selectCategoryReview(category, nowUnixSeconds: nowUnixSeconds);
 
   Future<List<Map<String, dynamic>>> fetchDueQuestions({
     String? bankName,
@@ -613,6 +638,7 @@ class ReviewRepository implements StudyMetricsQueryPort {
   Future<StudyPlanSessionMaterialization> materializeStudyPlanSession(
     List<String> storageIds,
   ) async {
+    storageIds = List<String>.of(storageIds);
     if (storageIds.isEmpty ||
         storageIds.length > _maxStudyPlanSessionIds ||
         storageIds.toSet().length != storageIds.length) {
@@ -620,40 +646,14 @@ class ReviewRepository implements StudyMetricsQueryPort {
     }
     try {
       final db = await _db;
-      final placeholders = List.filled(storageIds.length, '?').join(',');
-      final payloadColumns = '''
-        p.payload_schema_version AS ${QuestionV2PersistenceMapper.payloadSchemaVersionAlias},
-        p.payload_json AS ${QuestionV2PersistenceMapper.payloadJsonAlias}
-      ''';
-      final rows = await db.rawQuery('''
-        SELECT q.*, $payloadColumns
-        FROM questions q
-        LEFT JOIN question_v2_payloads p ON q.id = p.question_id
-        WHERE q.id IN ($placeholders)
-      ''', storageIds);
-
-      final byId = <String, PersistedQuestion>{};
-      try {
-        for (final row in rows) {
-          final decoded = _mapper.decodeJoinedRow(row);
-          byId[decoded.storageId] = decoded;
-        }
-      } on QuestionV2PayloadException {
-        return const StudyPlanSessionMaterializationUnavailable();
-      }
-
-      final ordered = <PersistedQuestion>[];
-      for (final storageId in storageIds) {
-        final decoded = byId[storageId];
-        if (decoded == null) {
-          return const StudyPlanSessionMaterializationUnavailable();
-        }
-        ordered.add(decoded);
-      }
+      final ordered = await materializeExactQuestions(db, storageIds,
+          maxIds: _maxStudyPlanSessionIds);
       return StudyPlanSessionMaterializationSuccess(ordered);
     } on DatabaseRuntimeException {
       return const StudyPlanSessionMaterializationUnavailable();
     } on DatabaseException {
+      return const StudyPlanSessionMaterializationUnavailable();
+    } catch (_) {
       return const StudyPlanSessionMaterializationUnavailable();
     }
   }
