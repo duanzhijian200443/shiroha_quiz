@@ -2,7 +2,7 @@
 
 **契约入口：docs/product/home-training-implementation-freeze-v3.md**
 **性质：派生执行附录；不定义或修改产品语义。**
-**状态：实施中；P0～P3a 实现已完成，下一包为 P3b。**
+**状态：实施中；P0～P3b 实现已完成，CP2-T 实现 COMPLETE，下一主线包为 P4a。**
 
 本附录不授予 merge/tag/release 权限。每个写任务使用独立非默认分支；单写者默认不建 worktree，只有并行 writer、脏工作区隔离或 Coordinator 明确要求时才创建 worktree。commit/push/PR 仍按任务包或用户授权执行。
 
@@ -10,7 +10,7 @@
 
 # A0. 当前交付状态
 
-P3a 授权基线为 master `af4fe7c6797a53cdccd61340d59b501515627b1a`，已包含 PR #220 merge commit 与 P0～P2b。下表同时记录分支 `codex/home-training-v3-p3a-selection` 的 P3a 实现交付；最终 fixed head 由该分支 Git / PR 记录，不把未合并 P3a 描述为 master 能力。P3a 为 T2，Executor self-check → Independent Reviewer；merge 仍需用户独立授权。
+P3b 授权基线为 master `3fec55c116dc3c92d96ca08079078b6ddd13b689`，已包含 PR #221 merge commit 与 P0～P3a。下表同时记录分支 `codex/home-training-v3-p3b-launch` 的 P3b 实现交付；最终 fixed head 由该分支 Git / PR 记录，不把未合并 P3b 描述为 master 能力。P3b 为 T2，Executor self-check → Independent Reviewer；merge 仍需用户独立授权。
 
 | Package | Status |
 |---|---|
@@ -21,7 +21,8 @@ P3a 授权基线为 master `af4fe7c6797a53cdccd61340d59b501515627b1a`，已包�
 | P2a | COMPLETE |
 | P2b | COMPLETE |
 | P3a | COMPLETE |
-| P3b | NEXT |
+| P3b | COMPLETE / CP2-T implementation complete |
+| P4a | NEXT |
 
 当前 runtime schema：
 
@@ -31,7 +32,7 @@ v29
 
 v29 TrainingContent persistence / migration / B0 compatibility 已进入当前 runtime truth。v30 StudyActivity 与 v31 ImportTask event timestamps 仍为 planned。
 
-P2a 已交付 configuration capability：真实只读 TrainingCatalog、TrainingContent Query/Command、配置 CRUD、current selection 与 Category Visual preference CAS。P2b 已合并同事务最终状态 invalidation 与显式 rebind（含针对 P2a 遗留 valid-but-drifted binding 的 recreate/re-map writer 同事务 preflight reconciliation），继续使用 v29 和既有 bankName identity。P3a 已实现正权重 quota/refill、有界 ordered ID windows、注入 RNG offset/shuffle、exact typed materialization 与独立 Category review pool；读取全过程不持久化学习/配置状态或队列。StudyPlan 保持 200-bound/exact-order。P3b launch admission/orchestration 与 prepared queue 接入、Home 与配置 UI、新训练启动仍未实施；CP2-T NOT COMPLETE，当前生产入口未因此激活。
+P2a 已交付 configuration capability：真实只读 TrainingCatalog、TrainingContent Query/Command、配置 CRUD、current selection 与 Category Visual preference CAS。P2b 已合并同事务最终状态 invalidation 与显式 rebind（含针对 P2a 遗留 valid-but-drifted binding 的 recreate/re-map writer 同事务 preflight reconciliation），继续使用 v29 和既有 bankName identity。P3a 已合并正权重 quota/refill、有界 ordered ID windows、注入 RNG offset/shuffle、exact typed materialization 与独立 Category review pool。P3b 已实现 exact target fresh admission 与 selection 共用同一只读事务、单次 clock 捕获的 Category review，以及完整 success 后一次 prepared queue 替换；stale/empty/unavailable 不替换旧 queue，也不 retry/fallback 或写 durable state。StudyPlan 保持 200-bound/exact-order/focused，legacy ordinary launcher 保持。CP2-T 实现 COMPLETE；下一主线包 P4a。StudyActivity、Home/配置 UI、Practice route composition/guard/lifetime 与 production activation 仍待后续 owner 接入，当前生产入口未因此激活；Executor self-check 不替代独立审查或授予 merge 权限。
 
 以下 A 节保留最初规划基线，仅作为历史 planning evidence，不得覆盖本节 current delivery state。
 

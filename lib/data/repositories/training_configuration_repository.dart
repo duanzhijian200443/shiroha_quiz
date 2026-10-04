@@ -10,6 +10,7 @@ import '../../core/database/training_content_v29_schema.dart';
 import '../../domain/training/category_key.dart';
 import '../../domain/training/training_content.dart';
 import '../../domain/training/training_content_member.dart';
+import 'training_content_reader.dart';
 
 /// Transaction owner for the frozen configuration ports. All admission and CAS
 /// reads use the same executor as their writes. No bank lifecycle hooks or UI
@@ -96,38 +97,8 @@ final class TrainingConfigurationRepository
     return key;
   }
 
-  Future<TrainingContent?> _content(DatabaseExecutor db, String id) async {
-    final rows = await db
-        .query(trainingContentsTable, where: 'content_id = ?', whereArgs: [id]);
-    if (rows.isEmpty) return null;
-    final row = rows.single;
-    final members = await db.query(trainingContentMembersTable,
-        where: 'content_id = ?',
-        whereArgs: [id],
-        orderBy: 'position ASC, bank_name ASC');
-    return TrainingContent(
-      contentId: row['content_id'] as String,
-      categoryKey: _category(row['category_key']),
-      name: row['name'] as String,
-      questionLimit: row['question_limit'] as int,
-      sortOrder: row['sort_order'] as int,
-      revision: row['revision'] as int,
-      members: [
-        for (final member in members)
-          TrainingContentMember(
-            bankName: member['bank_name'] as String,
-            weightPercent: member['weight_percent'] as int,
-            position: member['position'] as int,
-            bindingStatus: TrainingBindingStatus.values
-                .byName(member['binding_status'] as String),
-            invalidationReason: member['invalidation_reason'] == null
-                ? null
-                : TrainingBindingInvalidationReason.values
-                    .byName(member['invalidation_reason'] as String),
-          )
-      ],
-    );
-  }
+  Future<TrainingContent?> _content(DatabaseExecutor db, String id) =>
+      readTrainingContent(db, id);
 
   Future<TrainingCategoryPreference> _preference(
       DatabaseExecutor db, CategoryKey key) async {
