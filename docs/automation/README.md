@@ -32,7 +32,7 @@
 
 ## 2. 最小阅读与控制边界
 
-控制者遵循 `AGENTS.md` 的共享上下文路由，读取本协议、队列协议和候选任务。先按文件头筛选，再读取当前任务全文、governing contract 和 active execution plan；仅在已授权续作需要时读取对应 roadmap。每次冻结目标前核对当前 Git、必要的远端 PR 状态、dirty state 和已有 writer。
+控制者遵循 `AGENTS.md` 的共享上下文路由，读取本协议和队列协议。选择任务时先只列文件名，跳过 `*-完成.md`，再只读取当前候选任务、governing contract 和必要仓库事实；不要预读整队列。仅在已授权续作需要时读取对应 roadmap。每次冻结目标前核对当前 Git、必要的远端 PR 状态、dirty state 和已有 writer。
 
 控制者负责选择、冻结、派发、接收交接、检查合并条件和推进，不直接修改 production/test 文件。正常 `角色：总控` 的权限和停止边界不变。
 
@@ -40,7 +40,7 @@
 
 worker 只收到：
 
-- 当前 bounded package、必要 contract/plan 路径及必须自行打开的 governing source；
+- 当前 bounded package、必要 contract 路径及必须自行打开的 governing source；
 - 从真实用户授权继承的具体动作、目标、ownership、验收和停止条件；
 - 实际验证证据，以及需要继承的修复计数。
 
@@ -48,13 +48,26 @@ worker 不加载整个自动化协议或后续队列。若当前任务包本身�
 
 ## 3. 选择任务与恢复
 
-遵循 `task-queue/README.md`：优先恢复未完成任务，之后按文件名优先级和硬依赖选择用户任务。任务顺序服从当前契约、已接受前置能力和 Git/PR 事实。
+遵循 `task-queue/README.md`。先恢复已经存在的未完成 branch/PR；只有没有
+待恢复工作时才选新任务。
 
-当前任务受阻时，先定位、解决并验证阻塞，再恢复当前任务。不能仅因队列没有可执行任务而去 roadmap 找新工作。
+选择新任务时先只列文件名。对本地 queue 和正式 contract 目录都执行同一
+快速规则：`*-完成.md` 直接跳过且不打开；其余候选按数字文件名前缀作为
+相对优先级，再服从 governing contract、硬前置和 Git/PR 事实。只打开最终
+选中的当前 package，不预读后续任务。
 
-只有用户任务全部完成或取消、没有未取消任务的遗留 PR/阻塞，而且用户已授权某个 roadmap 续作范围时，才从当前契约和执行计划推导该范围内唯一明确的 NEXT。不能确定、阶段尚未验收或需要新设计决策时，结束推进并报告需要的决定。已取消任务的遗留 PR 单列交接，不继续、不擅自关闭。
+当前任务受阻时，先定位、解决并验证阻塞，再恢复当前任务。不能仅因本地
+queue 没有可执行任务就自行扩大范围。
 
-派生任务使用现有 writable-package 模板，在本次上下文中冻结为一个 bounded package；不写回用户队列，也不把自身规划当成新增授权。每完成一个 checkpoint 都重新核对下一任务，不无限提前规划。
+只有本地用户任务都已完成、没有遗留未完成 PR/阻塞，而且用户已授权某个
+roadmap/contract continuation 时，才扫描该 focused contract 目录中的正式
+task packages。正式 package 与 `00-contract.md` 同目录；不再依赖单独的
+execution-plan 文档。若目录没有 package，可从 contract/roadmap 推导一个
+bounded package 留在本次上下文，但不能把自身规划当成新增授权。
+
+不能唯一、安全确定下一任务，阶段需要新产品决策，或 contract 与 Git 事实
+冲突时，结束推进并报告需要的决定。每完成一个 checkpoint 都刷新 base、
+contract directory 和 Git/PR 事实，不无限提前规划。
 
 启动或中断恢复时，先核对任务身份、分支、当前 head、PR 和真实 merge 状态。对已经合并的任务不重复实施；对未合并分支恢复原任务，不重新创建同一 PR。遇到意外 HEAD/dirty state/其他 writer，先只读核对原因；不得 reset、restore、rebase 或覆盖其工作来恢复运行。
 
@@ -71,7 +84,7 @@ Automation 复用正常流程，不维护第二套验收规则：
 → 仅当 CI 无法可信覆盖 required acceptance 时独立 Verifier
 → 强制 Independent Reviewer
 → 有阻塞 finding：同任务修复、复验、fresh targeted review
-→ provisional APPROVE 后执行已授权 Documentation Closure
+→ provisional APPROVE 后执行已授权 Documentation Closure（含 tracked task package `-完成` 重命名）
 → final-head PR CI + final Reviewer [REVIEW APPROVAL]
 → 控制者检查并执行已授权 conditional merge
 → 刷新 base、契约、任务状态
@@ -145,8 +158,9 @@ documentation/PR-metadata closure、且 Reviewer 明确确认 verified behavior
 未变时才可沿用；否则重新 Verifier。base 漂移同样必须重新确认当前
 merge target 的 standing CI，不能复用旧 base 的结果。
 
-合并后核对真实 merge 结果，按已授权 fetch 刷新远端 base，再读取当前
-任务所需契约/计划和队列。只有该 checkpoint 已满足独立验收和接受条件，
+合并后核对真实 merge 结果；若当前任务来自本地 ignored queue，再把该本地
+文件重命名为 `-完成.md`。随后按已授权 fetch 刷新远端 base，再读取当前
+任务所需 contract directory 和 queue。只有该 checkpoint 已满足独立验收和接受条件，
 才开放下游依赖。不能仅凭提交存在就宣称验收通过。
 
 结束时报告已完成、仍阻塞、实际 Git 动作、final-head CI、Reviewer PR
