@@ -199,8 +199,13 @@ Inspect status before/after writes and preserve unrelated tracked/untracked file
 Use the single writable-package template in `docs/agents/README.md`.
 Record base, branch, `Branch mode: create | reuse`, ownership, acceptance and
 specific Git authority. A missing action is unauthorized; implementation or
-staging never implies commit, push, PR, merge, tag or release.
+staging never implies commit, push, PR creation, merge, tag or release.
 Only perform the authorized delivery steps.
+
+`PR-create` authorizes PR creation only. PR title/body updates, comment or review
+submission, close/reopen and all other PR mutations are separate actions requiring
+explicit task/user authorization. A generic `PR yes` is not blanket authority;
+clarify the intended mutation before performing it.
 
 ## 8. Security, privacy and network
 

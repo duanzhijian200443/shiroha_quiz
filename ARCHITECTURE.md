@@ -674,8 +674,9 @@ residue at its last successful checkpoint without estimating elapsed or restorin
 an owner. B0 closes only the snapshot copy as snapshotInterrupted, preserves facts,
 and rejects malformed or nonterminal portable Activity before swap. Weekly reads
 sum persisted local-date segment durations for seven Monday–Sunday dates, using an
-injected current local date; read failure remains unavailable. CP2-A implementation
-is complete pending independent T3 Verifier/Reviewer acceptance. Runtime remains
+injected current local date; read failure remains unavailable. P4b is merged via
+PR #224, and CP2-A is PASSED after independent T3 verification and fresh review.
+Runtime remains
 v30; Practice/MockExam Activity wiring, scheduling, weekly UI and production
 activation remain unimplemented. P5a is the next serial mainline package.
 The existing Today, ordinary-training, StudyPlan and TaskCenter boundaries

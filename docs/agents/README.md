@@ -49,13 +49,16 @@ Strict path whitelist: no | yes
 Frozen task semantics: <current-stage invariants>
 Acceptance: <focused criteria>
 Validation: <focused checks>
-Git: branch-create yes|no; stage yes|no; commit yes|no; push yes|no; PR yes|no; merge yes|no
+Git: branch-create yes|no; stage yes|no; commit yes|no; push yes|no; PR-create yes|no; merge yes|no
 Review repair rounds used: <0 initially; inherited count for repair>
 Stop conditions: <task-specific blockers beyond AGENTS.md>
 ```
 
 Use `create` for authorized initial branch creation and `reuse` for same-task
 follow-ups/repair. Missing Git actions are unauthorized.
+`PR-create` covers creation only. Title/body updates, comment/review submission,
+close/reopen and other PR mutations require separate explicit task/user authority
+under `AGENTS.md`; do not infer them from PR creation or push authority.
 Add Worktree and its authority only when isolation is needed.
 Add directly necessary coupled paths under the shared ownership policy and
 report why; strict whitelists require explicit authorization to expand.

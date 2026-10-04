@@ -62,7 +62,10 @@ without task/repository authority.
 Use the writable-package template in `docs/agents/README.md`.
 Initial work creates the authorized dedicated branch; follow-up/repair reuses
 the existing task branch and PR. Executor role alone grants no Git action.
-Commit only when commit authority is yes; push and PR need their own authority.
+Commit only when commit authority is yes; push and PR creation need their own
+authority. `PR-create` does not authorize metadata updates, comments, review
+submission, close/reopen or any other PR mutation; follow the separate-action
+rule in `AGENTS.md`.
 Do not self-review, self-approve, merge or begin a later stage.
 
 For migrations retain required compatibility bridges until their deletion
