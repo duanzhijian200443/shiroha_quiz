@@ -50,7 +50,9 @@ void main() {
     final fake = ConfigurationFake()
       ..contentFailure = HomeTrainingFailure.stale;
     final controller = fake.controller();
-    final edit = draft()..visualKey = CategoryVisualKey.math;
+    final edit = draft()
+      ..name = '改名'
+      ..visualKey = CategoryVisualKey.math;
     final result = await controller.save(edit);
     expect(result.content, isNull);
     expect(result.failure, HomeTrainingFailure.stale);
@@ -66,8 +68,9 @@ void main() {
       () async {
     final fake = ConfigurationFake()..visualFailure = HomeTrainingFailure.stale;
     final controller = fake.controller();
-    final result =
-        await controller.save(draft()..visualKey = CategoryVisualKey.math);
+    final result = await controller.save(draft()
+      ..name = '改名'
+      ..visualKey = CategoryVisualKey.math);
     expect(result.content!.revision, 5);
     expect(result.visualSaved, isFalse);
     expect(fake.calls.length, 2);
@@ -79,12 +82,57 @@ void main() {
     controller.dispose();
   });
 
+  test(
+      'visual-only edit consumes only the preference CAS; content revision stays',
+      () async {
+    final fake = ConfigurationFake();
+    final controller = fake.controller();
+    final result =
+        await controller.save(draft()..visualKey = CategoryVisualKey.math);
+    expect(result.failure, isNull);
+    expect(result.visualSaved, isTrue);
+    expect(result.content!.revision, 4);
+    final request = fake.calls.single as UpdateCategoryVisualRequest;
+    expect(request.target.expectedRevision, 7);
+    expect(request.visualKey, CategoryVisualKey.math);
+    expect(fake.reads, 1);
+    controller.dispose();
+  });
+
+  test('invalidated content cannot block a visual-only preference save',
+      () async {
+    final fake = ConfigurationFake()
+      ..value = fixtureSnapshot(invalid: true)
+      ..contentFailure = HomeTrainingFailure.invalidInput;
+    final controller = fake.controller();
+    final result = await controller
+        .save(draft(invalid: true)..visualKey = CategoryVisualKey.math);
+    expect(result.failure, isNull);
+    expect(result.visualSaved, isTrue);
+    expect(result.content!.revision, 4);
+    expect(fake.calls.single, isA<UpdateCategoryVisualRequest>());
+    controller.dispose();
+  });
+
+  test('unchanged edit closes without consuming any command', () async {
+    final fake = ConfigurationFake();
+    final controller = fake.controller();
+    final result = await controller.save(draft());
+    expect(result.failure, isNull);
+    expect(result.visualSaved, isTrue);
+    expect(result.content!.revision, 4);
+    expect(fake.calls, isEmpty);
+    controller.dispose();
+  });
+
   test('busy blocks duplicate command; dispose prevents second durable command',
       () async {
     final fake = ConfigurationFake()
       ..pendingContent = Completer<HomeTrainingResult<TrainingContent>>();
     final controller = fake.controller();
-    final edited = draft()..visualKey = CategoryVisualKey.math;
+    final edited = draft()
+      ..name = '改名'
+      ..visualKey = CategoryVisualKey.math;
     final saving = controller.save(edited);
     final duplicate = await controller.save(edited);
     expect(duplicate.failure, HomeTrainingFailure.conflict);
@@ -104,7 +152,7 @@ void main() {
     fake.pendingReads.add(old);
     final controller = fake.controller();
     final reading = controller.load();
-    await controller.save(draft());
+    await controller.save(draft()..name = '改名');
     old.complete(HomeTrainingSuccess(fixtureSnapshot(invalid: true)));
     await reading;
     expect(controller.snapshot, same(fake.value));

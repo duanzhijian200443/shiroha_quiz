@@ -236,6 +236,8 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('高数 + 线代'));
       await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), '修改后的名称');
+      await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(ChoiceChip, '数学'));
       await tester.tap(find.text('完成'));
       await tester.pumpAndSettle();
@@ -245,6 +247,28 @@ void main() {
       await tester.pumpWidget(const SizedBox());
       controller.dispose();
     }
+  });
+
+  testWidgets('visual-only edit saves the preference and closes the editor',
+      (tester) async {
+    final fake = ConfigurationFake();
+    final controller = fake.controller();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+        MaterialApp(home: TrainingConfigurationPage(controller: controller)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('高数 + 线代'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ChoiceChip, '数学'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('完成'));
+    await tester.pumpAndSettle();
+    expect(find.text('编辑训练内容'), findsNothing);
+    expect(find.text('训练内容配置'), findsOneWidget);
+    expect(find.text('分类视觉已保存'), findsOneWidget);
+    final request = fake.calls.single as UpdateCategoryVisualRequest;
+    expect(request.target.expectedRevision, 7);
+    expect(request.visualKey, CategoryVisualKey.math);
   });
 
   testWidgets(
@@ -257,6 +281,8 @@ void main() {
         MaterialApp(home: TrainingConfigurationPage(controller: controller)));
     await tester.pumpAndSettle();
     await tester.tap(find.text('高数 + 线代'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '重新绑定后改名');
     await tester.pumpAndSettle();
     await reveal(tester, find.text('重新绑定'));
     await tester.tap(find.text('重新绑定'));

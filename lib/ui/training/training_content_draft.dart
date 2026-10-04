@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../../application/training/training_contracts.dart';
 import '../../domain/training/category_key.dart';
 import '../../domain/training/training_allocation.dart';
@@ -28,6 +30,18 @@ final class TrainingContentDraft {
   List<TrainingContentMember> members;
 
   bool get visualChanged => visualKey != preference.visualKey;
+
+  /// Distinguishes a pure Category-visual edit from a content edit so a Save
+  /// consumes only the independent CAS pair(s) it actually changed.
+  bool get contentChanged {
+    final current = original;
+    if (current == null) return true;
+    return name.trim() != current.name ||
+        questionLimit != current.questionLimit ||
+        sortOrder != current.sortOrder ||
+        !listEquals(members, current.members);
+  }
+
   bool get canSave => name.trim().isNotEmpty && members.isNotEmpty;
   TrainingContentEdit get edit => TrainingContentEdit(
         name: name,

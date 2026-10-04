@@ -87,14 +87,37 @@ final class TrainingConfigurationController extends ChangeNotifier {
   }
 
   Future<TrainingSaveOutcome> save(TrainingContentDraft draft) async {
-    if (!_begin()) {
-      return const TrainingSaveOutcome(failure: HomeTrainingFailure.conflict);
-    }
     // Freeze fields before the first await; later draft edits cannot join a save.
     final original = draft.original;
     final visual = draft.visualKey;
+    final contentChanged = draft.contentChanged;
     final visualChanged = draft.visualChanged;
+    final visualUpdate = visualChanged && visual != null;
     final preference = draft.preference;
+    if (!contentChanged && !visualUpdate) {
+      // An unchanged draft consumes no CAS pair and rewrites no revision.
+      return TrainingSaveOutcome(content: original);
+    }
+    if (!_begin()) {
+      return const TrainingSaveOutcome(failure: HomeTrainingFailure.conflict);
+    }
+    if (!contentChanged) {
+      // Visual-only edit: a pure Category preference CAS, independent of the
+      // persisted content revision and of content usability.
+      final saved = await _call(() => command.updateCategoryVisual(
+          UpdateCategoryVisualRequest(
+              target: preferenceTarget(preference), visualKey: visual!)));
+      switch (saved) {
+        case HomeTrainingSuccess():
+          message = '分类视觉已保存';
+          await _finish();
+          return TrainingSaveOutcome(content: original);
+        case HomeTrainingFailed(:final failure):
+          message = failureMessage(failure);
+          await _finish();
+          return TrainingSaveOutcome(failure: failure, visualSaved: false);
+      }
+    }
     final result = await _call(() => original == null
         ? command.create(CreateTrainingContentRequest(
             categoryKey: draft.categoryKey, edit: draft.edit))
@@ -108,7 +131,7 @@ final class TrainingConfigurationController extends ChangeNotifier {
       case HomeTrainingSuccess(:final value):
         var visualSaved = !visualChanged;
         HomeTrainingFailure? visualFailure;
-        if (visualChanged && visual != null && !_disposed) {
+        if (visualUpdate && !_disposed) {
           final saved = await _call(() => command.updateCategoryVisual(
               UpdateCategoryVisualRequest(
                   target: preferenceTarget(preference), visualKey: visual)));
