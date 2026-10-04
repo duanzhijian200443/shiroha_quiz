@@ -85,7 +85,8 @@ final class StudyActivityEndRequest {
 /// The service owns injectable elapsed/wall clocks, sequences and serialization;
 /// callers never supply guessed durations. Checkpoints are atomic/idempotent,
 /// terminal sessions reject append, stale owners fail, and failures do not block
-/// answer/grading/exit. No timer, transition engine or storage exists here.
+/// answer/grading/exit. P4a supplies pure transition/segment proposals;
+/// the durable service implementation and runtime scheduling remain for P4b/P8.
 abstract interface class StudyActivityService {
   Future<HomeTrainingResult<StudyActivityOwner>> begin(
       StudyActivityBeginRequest request);

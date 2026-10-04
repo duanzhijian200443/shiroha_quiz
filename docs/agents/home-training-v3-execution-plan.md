@@ -2,7 +2,7 @@
 
 **契约入口：docs/product/home-training-implementation-freeze-v3.md**
 **性质：派生执行附录；不定义或修改产品语义。**
-**状态：实施中；P0～P3b 实现已完成，CP2-T 实现 COMPLETE，下一主线包为 P4a。**
+**状态：实施中；P0～P4a 实现已完成，CP2-T 实现 COMPLETE，下一主线包为 P4b；CP2-A NOT COMPLETE。**
 
 本附录不授予 merge/tag/release 权限。每个写任务使用独立非默认分支；单写者默认不建 worktree，只有并行 writer、脏工作区隔离或 Coordinator 明确要求时才创建 worktree。commit/push/PR 仍按任务包或用户授权执行。
 
@@ -10,7 +10,7 @@
 
 # A0. 当前交付状态
 
-P3b 授权基线为 master `3fec55c116dc3c92d96ca08079078b6ddd13b689`，已包含 PR #221 merge commit 与 P0～P3a。下表同时记录分支 `codex/home-training-v3-p3b-launch` 的 P3b 实现交付；最终 fixed head 由该分支 Git / PR 记录，不把未合并 P3b 描述为 master 能力。P3b 为 T2，Executor self-check → Independent Reviewer；merge 仍需用户独立授权。
+P4a 授权基线为 master `96a3c00cae9c3bd1b86c80bd7dc6eaa92a7dd725`，已包含 PR #222 merge commit 与 P0～P3b、CP2-T implementation。下表同时记录分支 `codex/home-training-v3-p4a-activity-core` 的 P4a 实现交付；最终 fixed head 由该分支 Git / PR 记录，不把未合并 P4a 描述为 master 能力。P4a 为 T2，Executor self-check → Independent Reviewer；merge 仍需用户独立授权。
 
 | Package | Status |
 |---|---|
@@ -22,7 +22,8 @@ P3b 授权基线为 master `3fec55c116dc3c92d96ca08079078b6ddd13b689`，已包�
 | P2b | COMPLETE |
 | P3a | COMPLETE |
 | P3b | COMPLETE / CP2-T implementation complete |
-| P4a | NEXT |
+| P4a | COMPLETE |
+| P4b | NEXT |
 
 当前 runtime schema：
 
@@ -32,7 +33,7 @@ v29
 
 v29 TrainingContent persistence / migration / B0 compatibility 已进入当前 runtime truth。v30 StudyActivity 与 v31 ImportTask event timestamps 仍为 planned。
 
-P2a 已交付 configuration capability：真实只读 TrainingCatalog、TrainingContent Query/Command、配置 CRUD、current selection 与 Category Visual preference CAS。P2b 已合并同事务最终状态 invalidation 与显式 rebind（含针对 P2a 遗留 valid-but-drifted binding 的 recreate/re-map writer 同事务 preflight reconciliation），继续使用 v29 和既有 bankName identity。P3a 已合并正权重 quota/refill、有界 ordered ID windows、注入 RNG offset/shuffle、exact typed materialization 与独立 Category review pool。P3b 已实现 exact target fresh admission 与 selection 共用同一只读事务、单次 clock 捕获的 Category review，以及完整 success 后一次 prepared queue 替换；stale/empty/unavailable 不替换旧 queue，也不 retry/fallback 或写 durable state。StudyPlan 保持 200-bound/exact-order/focused，legacy ordinary launcher 保持。CP2-T 实现 COMPLETE；下一主线包 P4a。StudyActivity、Home/配置 UI、Practice route composition/guard/lifetime 与 production activation 仍待后续 owner 接入，当前生产入口未因此激活；Executor self-check 不替代独立审查或授予 merge 权限。
+P2a 已交付 configuration capability：真实只读 TrainingCatalog、TrainingContent Query/Command、配置 CRUD、current selection 与 Category Visual preference CAS。P2b 已合并同事务最终状态 invalidation 与显式 rebind（含针对 P2a 遗留 valid-but-drifted binding 的 recreate/re-map writer 同事务 preflight reconciliation），继续使用 v29 和既有 bankName identity。P3a 已合并正权重 quota/refill、有界 ordered ID windows、注入 RNG offset/shuffle、exact typed materialization 与独立 Category review pool。P3b 已合并 exact target fresh admission 与 selection 共用同一只读事务、单次 clock 捕获的 Category review，以及完整 success 后一次 prepared queue 替换；stale/empty/unavailable 不替换旧 queue，也不 retry/fallback 或写 durable state。StudyPlan 保持 200-bound/exact-order/focused，legacy ordinary launcher 保持。CP2-T 实现 COMPLETE。P4a 已实现 single-owner pure lifecycle、monotonic/wall sample abstraction、actual local-day/DST split、observed mapping change 和 persistence-ready segment proposals；下一主线包 P4b。Durable StudyActivity、checkpoint concurrency/replay、crash recovery、B0 Activity、weekly SQL、Practice/MockExam Activity wiring 均未实现，CP2-A NOT COMPLETE。Home/配置 UI、Practice route composition/guard/lifetime 与 production activation 仍待后续 owner 接入，当前生产入口未因此激活；Executor self-check 不替代独立审查或授予 merge 权限。
 
 以下 A 节保留最初规划基线，仅作为历史 planning evidence，不得覆盖本节 current delivery state。
 
