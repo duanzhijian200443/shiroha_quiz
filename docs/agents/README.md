@@ -47,7 +47,7 @@ Base: <authorized base>
 Branch: <assigned task branch>
 Branch mode: create | reuse
 Canonical contract: <governing paths or none>
-Execution plan: <path or none>
+Task package: <current package path or inline task>
 Documentation responsibility:
 - <exact path>: UPDATE | CHECK_ONLY
 # or: none
@@ -75,6 +75,13 @@ Add Worktree and its authority only when isolation is needed.
 closed before final approval; `CHECK_ONLY` means the Reviewer verifies that the
 existing text is not stale or contradictory. Use explicit `none` when no durable
 document can change. Do not make agents rediscover closure paths from memory.
+
+For durable staged work, prefer `docs/product/<capability>/00-contract.md` plus
+optional numerically ordered sibling task packages. Do not add `Task-ID`,
+`Status`, or a separate execution-plan file just to mirror progress. The package
+path/filename is sufficient scheduling identity. A tracked package is renamed with
+the `-完成.md` suffix only in final Documentation Closure as defined by
+`AGENTS.md`.
 
 Add directly necessary coupled paths under the shared ownership policy and report
 why; strict whitelists require explicit authorization to expand.
