@@ -8,6 +8,8 @@ import '../../application/backup/backup_contracts.dart';
 import '../../core/database/answer_completion_v28_schema.dart';
 import '../../core/database/database_helper.dart';
 import '../../core/database/training_content_v29_schema.dart';
+import '../../core/database/study_activity_v30_schema.dart';
+import '../../domain/study_activity/study_activity_values.dart';
 import '../../domain/backup/backup_failure.dart';
 import '../../domain/backup/backup_manifest.dart';
 import '../../domain/content/content_node.dart';
@@ -67,6 +69,15 @@ final class BackupSnapshotRepository {
     }
     try {
       await candidate.execute('PRAGMA foreign_keys = ON');
+      try {
+        await candidate.transaction((txn) async {
+          await validateStudyActivityV30Schema(txn);
+          await interruptStudyActivitySessions(
+              txn, StudyActivityEndReason.snapshotInterrupted);
+        });
+      } catch (_) {
+        throw const BackupException(BackupFailure.databaseInvalid);
+      }
       await _scrub(candidate);
       await _validateInvariants(candidate);
 
@@ -205,6 +216,13 @@ final class BackupSnapshotRepository {
     try {
       await validateTrainingContentV29Schema(db);
       await validateTrainingContentV29Data(db);
+      await validateStudyActivityV30Schema(db);
+      await validateStudyActivityV30Data(db);
+      if ((await db.query(studyActivitySessionsTable,
+              where: "lifecycle_status IN ('active','paused')", limit: 1))
+          .isNotEmpty) {
+        throw const BackupException(BackupFailure.databaseInvalid);
+      }
     } catch (_) {
       throw const BackupException(BackupFailure.databaseInvalid);
     }
