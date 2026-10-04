@@ -231,22 +231,9 @@ P8b 开始条件：
 
 # E. 执行包格式
 
-执行包保持集中、简洁，不重复 `AGENTS.md` 的全局规则。普通写任务包含：
-
-```text
-角色：执行
-任务：<bounded objective>
-
-Base: <authorized base>
-Branch: <assigned new branch>
-Expected ownership paths: <primary files/modules>
-Strict path whitelist: no | yes
-Frozen task semantics: <only current-stage invariants>
-Acceptance: <focused criteria>
-Validation: <focused tests/checks>
-Git: commit/push/PR/merge authority
-Stop only if: <real scope/contract/version/cross-writer/environment blocker>
-```
+执行包保持集中、简洁，使用 `docs/agents/README.md` 的统一模板，不重复 `AGENTS.md` 的全局规则。
+初始任务使用 `Branch mode: create`；后续任务与同 PR 修复使用 `reuse`，并继承已使用的 review-repair round 计数。
+契约入口必须包含本附录顶部的 governing product contract，Execution plan 指向本附录。
 
 Worktree 仅在并行 writer、脏工作区隔离或 Coordinator 明确要求时加入。
 
