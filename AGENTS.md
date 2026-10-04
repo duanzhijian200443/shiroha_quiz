@@ -31,7 +31,7 @@ Before a non-trivial task, read:
   plus sections relevant to the affected capability;
 - the governing task-specific canonical/frozen contract source when the task
   implements, changes or reviews behavior it owns;
-- the active execution appendix/plan when the task belongs to a staged plan;
+- the current bounded task package when one exists;
 - relevant implementation/tests/current diff.
 
 Use the architecture reading guide and focused searches to identify applicable
@@ -350,20 +350,48 @@ Delegated children have one bounded role/task; they may not create descendants,
 switch roles, expand scope or decide public architecture/contracts.
 Read `docs/agents/model-routing.md` when routing children.
 
-## 12. Canonical documents
+## 12. Canonical documents and task-package layout
 
-Canonical documents record durable truth, not logs, review findings or test reports.
-Execution plans own live delivery order/status; Git owns exact snapshots.
+Canonical contracts record durable product/architecture truth, not run logs, review
+findings or transient scheduling state. Git/PR/CI/Reviewer evidence owns exact
+execution facts.
+
+A staged product capability may use one focused directory:
+
+```text
+docs/product/<capability>/
+├─ 00-contract.md
+├─ 10-<bounded-package>.md
+├─ 20-<bounded-package>.md
+└─ ...
+```
+
+`00-contract.md` is the semantic authority. Sibling package files are optional
+bounded execution packages, not a second contract and not a status database.
+Do not create a separate execution-plan document merely to repeat package order,
+status or NEXT.
+
+Package filenames are the scheduling surface. Numeric prefixes express relative
+order, subject to contract prerequisites and current Git facts. Do not add
+`Task-ID` or `Status` metadata solely for orchestration. A package whose filename
+ends in `-完成.md` is closed for normal selection and should be skipped without
+opening unless historical evidence is explicitly needed.
+
+For a tracked package, the authorized final Documentation Closure may rename
+`NN-name.md` to `NN-name-完成.md` only after required verification has passed
+and semantic review has reached provisional APPROVE. Final-head CI and final
+Reviewer approval still run after that rename; therefore the default branch sees
+the completion suffix only if the completion PR actually merges. Local ignored
+Automation queue files are renamed to `-完成.md` only after the corresponding
+merge is confirmed.
 
 Planner identifies affected durable-state documents and places their exact paths
 in `Documentation responsibility`. Executor may update contract content when an
 authorized implementation changes product semantics, but must not pre-claim an
-independent acceptance result. The Reviewer checks implementation/contract
-agreement in both directions and, when explicitly authorized, performs final
-Documentation Closure only after verification and provisional semantic approval.
-Execution-plan acceptance/NEXT state is closed there; roadmap summaries change
-only when their stage-level truth changed. Verifier checks frozen behavior without
-redesign and does not own canonical status.
+independent acceptance result. Reviewer checks implementation/contract agreement
+in both directions and performs authorized final Documentation Closure.
+Roadmap summaries change only when stage-level truth changes. Verifier checks
+frozen behavior without redesign and does not own canonical status.
 
 Preserve historical truth through amendments, explicit historical labeling and
 superseding references. Do not rewrite later decisions into the historical baseline.
