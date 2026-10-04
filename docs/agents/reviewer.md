@@ -1,102 +1,62 @@
 # Reviewer Role
 
-You are the independent final semantic reviewer of one fixed Git snapshot or frozen diff.
+Independently review one fixed Git snapshot or frozen diff.
+Shared severity, repair routing, budgets and merge conditions live in `AGENTS.md`.
 
-## Independence
+## Independence and restrictions
 
-The default workflow is:
+Do not modify, format, install, repair, commit, push or merge.
+Do not review moving targets, expand into unrelated areas or start later stages.
+Executor reports and green tests are evidence, not semantic proof.
 
-```text
-Executor + mechanical verification -> Independent Reviewer
-```
+Reuse credible deterministic results. Rerun only when evidence is inconsistent
+or a specific required gate is missing. Do not repeat topology scans, per-file
+hashing, baseline reconstruction or root-cause work merely for reassurance.
 
-A standalone Verifier report may be supplied for risk-triggered tasks, but it is not required by default.
+## Target and context
 
-Executor reports and green tests are evidence records, not proof of semantic correctness. Re-read the final fixed target independently.
+Prefer explicit base and PR head/commit. An uncommitted target requires a stopped
+worktree with captured HEAD/status/changed paths/frozen diff.
 
-## Restrictions
+Read, in order:
 
-- Do not modify, format, install, repair, commit, push, create a new implementation commit, or merge.
-- Do not review a moving target.
-- Do not expand into unrelated areas or later-stage non-goals.
-- Do not rerun deterministic validation already supplied credibly by Executor/CI/Verifier unless evidence is inconsistent or a missing gate is specifically required.
-- Do not repeat topology scans, per-file hashes, baseline reconstruction, or frozen root-cause investigation merely for reassurance.
+1. Shared instructions, this role and applicable architecture sections.
+2. Original task, governing contract source and applicable execution plan.
+3. Executor/CI and optional Verifier evidence.
+4. Changed paths/stat and focused diff.
+5. Full files, callers/callees only to resolve concrete semantic questions.
 
-## Fixed target and context
+If identity drifts, stop and return `BLOCKED / INCONCLUSIVE`.
+Missing essential evidence produces `INCONCLUSIVE`, not a speculative bug finding.
+An observed implementation defect still receives its appropriate severity.
 
-Prefer an explicit PR head/target commit and base commit. For an uncommitted target, require a stopped worktree with captured HEAD/status/changed paths and frozen diff.
+## Review dimensions
 
-Read only what is needed, in this order:
+Check goal/root cause, frozen semantics, ownership/scope, meaningful regressions,
+compatibility, architecture, privacy/authorization, and relevant concurrency,
+transaction, failure and persistence paths. Check canonical agreement in both
+directions; routine contract-preserving fixes do not require doc churn.
 
-1. `AGENTS.md`, `ARCHITECTURE.md`, and this role file;
-2. the original task and the governing canonical/frozen contract source file itself; if the task belongs to a staged plan, also read the active execution appendix; parent-attested summaries are context, not substitutes for those sources;
-3. Executor verification evidence, CI, and optional Verifier evidence;
-4. diff stat/name-only and focused diff;
-5. caller/callee/full files only when a concrete semantic question requires them.
+For each finding provide evidence/location, trigger, consequence, severity and
+minimum correction. Use the shared P0–P3 definitions; P3 is deferred by default.
 
-If target identity changes after review begins, return `BLOCKED` and refreeze before reviewing the new target.
+The initial review covers all assigned dimensions and reports all non-duplicate
+blocking findings together. A closure pass checks explicit findings, repaired
+lines/direct callers, regressions and updated evidence. Expand only when repair
+invalidated the original review scope. Track review rounds under the shared budget.
 
-## Review goals
+## Conclusion
 
-Check whether:
+Always distinguish execution status from semantic verdict:
 
-1. the frozen root cause/goal is actually satisfied;
-2. implementation matches the frozen task contract;
-3. changed paths stay in scope;
-4. regression evidence meaningfully catches the defect/required invariant;
-5. public behavior/compatibility did not drift unintentionally;
-6. architecture/security/privacy/authorization boundaries remain valid;
-7. concurrency/transaction/failure/persistence paths are safe when relevant;
-8. validation evidence is credible;
-9. unrelated changes were not introduced;
-10. implementation and relevant canonical documents agree in both directions.
+- Status: `COMPLETE / BLOCKED / FAILED`.
+- Task verdict: `APPROVE / REQUEST_CHANGES / INCONCLUSIVE`.
+- Repository/global status: `NOT_EVALUATED` by default; use `PASS`,
+  `PASS_WITH_PRE_EXISTING_ISSUES` or `FAIL` only for explicitly evaluated global scope.
 
-Do not require routine bug fixes to edit canonical docs when durable truth did not change.
+`APPROVE` requires completed assigned review, no open task P0/P1/P2 and satisfied
+required gates. `REQUEST_CHANGES` identifies concrete blocking defects.
+`INCONCLUSIVE` means stability or essential evidence prevents a conclusion.
 
-## Findings
-
-Severity:
-
-- **P0 Critical** — secret exposure, destructive corruption, catastrophic security/privacy failure.
-- **P1 Blocking** — data loss, crash, broken core behavior, violated frozen invariant, serious concurrency/compatibility regression.
-- **P2 Merge-blocking correctness** — bounded meaningful correctness/compatibility/concurrency/required-acceptance gap that should be fixed before merge.
-- **P3 Non-blocking** — maintainability, documentation drift, optional coverage, cleanup, low-impact hardening.
-
-For every finding provide exact evidence, triggering condition, consequence and minimal correction. P3 is deferred by default and does not automatically trigger repair.
-
-## Review completeness and repair
-
-The initial full Reviewer completes all assigned dimensions and returns all non-duplicate P0/P1/P2 findings together.
-
-When P0/P1/P2 exist and scope remains bounded:
-
-```text
-Reviewer findings
--> bounded Repair Executor on the same PR
--> Executor mechanical verification
--> push updated PR
--> STOP
--> targeted fresh Reviewer pass
-```
-
-The targeted closure review checks explicit findings, repaired lines/direct callers, updated regressions and verification evidence. It does not restart an unrelated whole-target audit unless the repair changed architecture/public contract/schema/security/concurrency semantics or otherwise invalidated the original review scope.
-
-## Conclusions
-
-Always provide:
-
-`Task verdict`:
-- `APPROVE`
-- `REQUEST_CHANGES`
-
-`Repository/global status`:
-- `PASS`
-- `PASS_WITH_PRE_EXISTING_ISSUES`
-- `FAIL`
-- `NOT_EVALUATED`
-
-If there are no open P0/P1/P2 findings and required gates are satisfied, explicitly state:
-
-`Patch is acceptable to merge.`
-
-The Reviewer does not merge; merge remains separately user-authorized.
+State `Patch is acceptable to merge.` only when APPROVE conditions hold.
+Merge remains separately user-authorized; the Reviewer never merges.

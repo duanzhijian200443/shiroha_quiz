@@ -2,7 +2,7 @@
 
 **契约入口：docs/product/home-training-implementation-freeze-v3.md**
 **性质：派生执行附录；不定义或修改产品语义。**
-**状态：实施中；P0～P4b 实现已完成，CP2-T / CP2-A implementation COMPLETE；P4b 独立 T3 验收待完成，下一主线包为 P5a。**
+**状态：实施中；P0～P4b 已合并，CP2-T implementation COMPLETE；P4b COMPLETE / CP2-A PASSED，下一主线包为 P5a。**
 
 本附录不授予 merge/tag/release 权限。每个写任务使用独立非默认分支；单写者默认不建 worktree，只有并行 writer、脏工作区隔离或 Coordinator 明确要求时才创建 worktree。commit/push/PR 仍按任务包或用户授权执行。
 
@@ -10,7 +10,7 @@
 
 # A0. 当前交付状态
 
-P4b 授权基线为 master `996620200786943f43c9f8a52d1714331e724411`，已包含 PR #223 merge commit 与 P0～P4a、CP2-T implementation。下表同时记录分支 `codex/home-training-v3-p4b-activity-persistence` 的 P4b 实现交付；最终 fixed head 由该分支 Git / PR 记录，不把未合并 P4b 描述为 master 能力。P4b 为 T3，Executor self-check → Independent deterministic Verifier → Independent Reviewer；独立验收通过后才进入 P5a，merge 仍需用户独立授权。
+P4b 的历史实施授权基线为 master `996620200786943f43c9f8a52d1714331e724411`（PR #223 merge，P0～P4a 与 CP2-T implementation）；该历史基线不作为当前 master。P4b 的固定交付 head `77957eb1c60b6022f9cc76a68e41dfcee41cff58` 已通过 Independent deterministic T3 Verifier、fresh Independent Reviewer 与 required CI，并由 PR #224 合并至 master，合并点为 `45d0f642a72000ed781c0f0e9edb1bc82bdf2de1`。本节记录该合并点的已接受交付：P4b COMPLETE / CP2-A PASSED，master runtime v30，P5a NEXT。后续开工仍核验当前 Git；该 gate 通过不授权自动开始 P5a 或后续 merge。
 
 | Package | Status |
 |---|---|
@@ -23,7 +23,7 @@ P4b 授权基线为 master `996620200786943f43c9f8a52d1714331e724411`，已包�
 | P3a | COMPLETE |
 | P3b | COMPLETE / CP2-T implementation complete |
 | P4a | COMPLETE |
-| P4b | COMPLETE / CP2-A implementation complete; independent T3 acceptance pending |
+| P4b | COMPLETE / CP2-A PASSED / MERGED (PR #224) |
 | P5a | NEXT |
 
 当前 runtime schema：
@@ -32,9 +32,9 @@ P4b 授权基线为 master `996620200786943f43c9f8a52d1714331e724411`，已包�
 v30
 ```
 
-分支 runtime 已包含 v29 TrainingContent 与 v30 StudyActivity persistence / migration / B0 compatibility；v31 ImportTask event timestamps 仍为 planned。授权 master 的 runtime 为 v29，P4b 尚未合并。
+PR #224 合并点的 master runtime 为 v30，已包含 v29 TrainingContent 与 v30 StudyActivity persistence / migration / B0 compatibility；v31 ImportTask event timestamps 仍为 planned。
 
-P2a 已交付 configuration capability：真实只读 TrainingCatalog、TrainingContent Query/Command、配置 CRUD、current selection 与 Category Visual preference CAS。P2b 已合并同事务最终状态 invalidation 与显式 rebind（含针对 P2a 遗留 valid-but-drifted binding 的 recreate/re-map writer 同事务 preflight reconciliation），继续使用 v29 和既有 bankName identity。P3a 已合并正权重 quota/refill、有界 ordered ID windows、注入 RNG offset/shuffle、exact typed materialization 与独立 Category review pool。P3b 已合并 exact target fresh admission 与 selection 共用同一只读事务、单次 clock 捕获的 Category review，以及完整 success 后一次 prepared queue 替换；stale/empty/unavailable 不替换旧 queue，也不 retry/fallback 或写 durable state。StudyPlan 保持 200-bound/exact-order/focused，legacy ordinary launcher 保持。CP2-T 实现 COMPLETE。P4a 已实现 single-owner pure lifecycle、monotonic/wall sample abstraction、actual local-day/DST split、observed mapping change 和 persistence-ready segment proposals；P4b 已实现 v30 sessions/segments、gated atomic checkpoint CAS/replay、Application 串行与提交后发布、显式 startup processInterrupted recovery、snapshot-copy snapshotInterrupted 与 portable validation、七天 localDate segment SUM。已知 recording failure 停止当前 session 后续 attribution，partial 仅进程内投影，退出失败仍释放 owner。P4b / CP2-A implementation COMPLETE，独立 T3 Verifier/Reviewer 验收待完成；下一主线包 P5a。Practice/MockExam Activity wiring、Timer 与 weekly UI 均未实施。Home/配置 UI、Practice route composition/guard/lifetime 与 production activation 仍待后续 owner 接入，当前生产入口未因此激活；Executor self-check 不替代独立审查或授予 merge 权限。
+P2a 已交付 configuration capability：真实只读 TrainingCatalog、TrainingContent Query/Command、配置 CRUD、current selection 与 Category Visual preference CAS。P2b 已合并同事务最终状态 invalidation 与显式 rebind（含针对 P2a 遗留 valid-but-drifted binding 的 recreate/re-map writer 同事务 preflight reconciliation），继续使用 v29 和既有 bankName identity。P3a 已合并正权重 quota/refill、有界 ordered ID windows、注入 RNG offset/shuffle、exact typed materialization 与独立 Category review pool。P3b 已合并 exact target fresh admission 与 selection 共用同一只读事务、单次 clock 捕获的 Category review，以及完整 success 后一次 prepared queue 替换；stale/empty/unavailable 不替换旧 queue，也不 retry/fallback 或写 durable state。StudyPlan 保持 200-bound/exact-order/focused，legacy ordinary launcher 保持。CP2-T 实现 COMPLETE。P4a 已实现 single-owner pure lifecycle、monotonic/wall sample abstraction、actual local-day/DST split、observed mapping change 和 persistence-ready segment proposals；P4b 已实现 v30 sessions/segments、gated atomic checkpoint CAS/replay、Application 串行与提交后发布、显式 startup processInterrupted recovery、snapshot-copy snapshotInterrupted 与 portable validation、七天 localDate segment SUM。已知 recording failure 停止当前 session 后续 attribution，partial 仅进程内投影，退出失败仍释放 owner。P4b COMPLETE / CP2-A PASSED，独立 T3 Verifier 与 fresh Reviewer 已通过，并由 PR #224 合并；下一主线包 P5a。Practice/MockExam Activity wiring、Timer 与 weekly UI 均未实施。Home/配置 UI、Practice route composition/guard/lifetime 与 production activation 仍待后续 owner 接入，当前生产入口未因此激活；Executor self-check 不替代独立审查或授予 merge 权限。
 
 以下 A 节保留最初规划基线，仅作为历史 planning evidence，不得覆盖本节 current delivery state。
 
@@ -231,22 +231,9 @@ P8b 开始条件：
 
 # E. 执行包格式
 
-执行包保持集中、简洁，不重复 `AGENTS.md` 的全局规则。普通写任务包含：
-
-```text
-角色：执行
-任务：<bounded objective>
-
-Base: <authorized base>
-Branch: <assigned new branch>
-Expected ownership paths: <primary files/modules>
-Strict path whitelist: no | yes
-Frozen task semantics: <only current-stage invariants>
-Acceptance: <focused criteria>
-Validation: <focused tests/checks>
-Git: commit/push/PR/merge authority
-Stop only if: <real scope/contract/version/cross-writer/environment blocker>
-```
+执行包保持集中、简洁，使用 `docs/agents/README.md` 的统一模板，不重复 `AGENTS.md` 的全局规则。
+初始任务使用 `Branch mode: create`；后续任务与同 PR 修复使用 `reuse`，并继承已使用的 review-repair round 计数。
+契约入口必须包含本附录顶部的 governing product contract，Execution plan 指向本附录。
 
 Worktree 仅在并行 writer、脏工作区隔离或 Coordinator 明确要求时加入。
 

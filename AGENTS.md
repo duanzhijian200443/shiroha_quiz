@@ -4,46 +4,53 @@
 
 These instructions apply to all agent work in this repository.
 
-When instructions conflict:
+Resolve conflicts in this order:
 
-1. Follow higher-level platform and explicit current-user instructions.
-2. Follow the more restrictive repository safety/privacy/Git rule.
-3. Follow this file before role-specific workflow text.
-4. Follow the active role file.
-5. Stop for user direction only when the conflict cannot be resolved safely.
+1. Higher-level platform instructions and explicit current-user instructions.
+2. The more restrictive repository safety/privacy/Git rule.
+3. This file.
+4. The active role file and task-specific execution instructions.
 
+Stop for user direction only when the conflict cannot be resolved safely.
 Operate only inside this repository unless the user explicitly authorizes otherwise.
+Tool-managed caches and temporary validation artifacts do not authorize access to
+private application data or unrelated workspaces.
 
----
+Current Git and canonical documents are authoritative for project state.
+Do not use memory to infer current HEAD, branch, delivery status or capabilities.
+Only stable cross-task preferences and principles belong in long-term memory;
+do not duplicate Git state, test results or canonical project facts there.
+Memory writes still require an explicit user request.
 
-## 2. Required context and rule routing
+## 2. Context and rule routing
 
 Before a non-trivial task, read:
 
-- `ARCHITECTURE.md`;
 - the active role file under `docs/agents/`;
-- the relevant task-specific canonical/frozen contract when the task belongs to a frozen project/stage, names a contract ID, or changes behavior governed by a focused contract;
-- the relevant execution appendix/plan when the task is one package inside a staged implementation plan;
-- relevant implementation/tests/current diff;
-- only the `.agents/rules/` files needed for the current task.
+- the reading guide and core sections 1–3 and 7–8 of `ARCHITECTURE.md`,
+  plus sections relevant to the affected capability;
+- the governing task-specific canonical/frozen contract source when the task
+  implements, changes or reviews behavior it owns;
+- the active execution appendix/plan when the task belongs to a staged plan;
+- relevant implementation/tests/current diff.
 
-Do not rely on a task-package summary as a substitute for opening the governing canonical contract. If the task, roadmap, architecture docs, or execution plan names a contract, open that contract before editing or semantic review.
-
-Do not claim a file was reviewed unless it was opened during the current task.
+Use the architecture reading guide and focused searches to identify applicable
+contracts. Do not recursively load every document linked by an unrelated section.
+A task-package summary or parent-attested excerpt never replaces the governing
+contract itself. Do not claim a file was reviewed unless opened during this task.
 
 | Rule file | Read when |
 |---|---|
 | `.agents/rules/architectural-discipline.md` | Every non-trivial repository task |
-| `.agents/rules/git_work.md` | Git status/diff/staging/commit/branch/history/push decisions are involved |
-| `.agents/rules/reviewer.md` | Only when the first line activates `角色：审查` |
+| `.agents/rules/git_work.md` | Git inspection or action is involved |
+| `.agents/rules/reviewer.md` | Reviewer role is active |
 
-Do not enumerate or load unrelated rule files.
+Load only applicable rules. Instructions themselves may be read as task artifacts
+when the user asks to inspect or optimize them; this does not activate their roles.
 
----
+## 3. Roles and authorization
 
-## 3. Role activation
-
-The first line may activate exactly one role:
+The first line of a user task may activate exactly one role:
 
 | Identifier | Role file |
 |---|---|
@@ -54,314 +61,239 @@ The first line may activate exactly one role:
 | `角色：审查` | `docs/agents/reviewer.md` |
 | `角色：诊断` | `docs/agents/diagnostician.md` |
 
-Read the mapped role file before continuing. Do not silently switch roles. Without an explicit role, do not assume write authority.
+Read the mapped file before continuing. The active role persists through follow-up
+messages for the same task until the user explicitly changes it or starts a new
+task. Do not silently switch roles. Without an active explicit role, default to
+read-only investigation; a pasted package alone does not grant write authority.
 
----
+An Executor instruction authorizes implementation only within the requested
+responsibility. Branch/worktree, staging, commit, push, PR, merge, tag and release
+authority remain action-specific. Preserve already-granted authority for the same
+task; do not ask for it again. Missing authority for one action does not prevent
+independent authorized work.
 
-## 4. Architecture and change discipline
+## 4. Architecture and scope
 
-Preserve the canonical dependency direction in `ARCHITECTURE.md`:
+Preserve the dependency direction and invariants in `ARCHITECTURE.md`:
 
 ```text
-Flutter UI / Built-in Agent / MCP Adapter
-                  -> Application
-                  -> Domain
-
+Flutter UI / Built-in Agent / MCP Adapter -> Application -> Domain
 Data / Infrastructure -> Application ports / Domain
 ```
 
-`main.dart` or another explicit composition root may wire concrete repositories, databases and providers.
+Composition roots may wire concrete repositories, databases and providers.
+UI/Agent/MCP never access SQLite or `DatabaseHelper` directly. New presentation
+features stay behind Application seams. Cross-surface semantics belong in
+Application, persistence in Data, and Domain stays free of Flutter, SQLite,
+provider DTOs, HTTP and file-system APIs. Built-in Agent and MCP are peer adapters.
 
-Requirements:
+Preserve typed sidecar authority, corrupt-sidecar hard failure, explicit-empty
+semantics, structural RichContent rendering, review/content separation and frozen
+Application approval boundaries.
 
-- UI, Agent and MCP adapters do not access SQLite/`DatabaseHelper` directly.
-- New presentation features do not add direct Repository dependencies when an Application seam exists.
-- Cross-surface use-case semantics belong in Application services/facades.
-- Persistence belongs in Repositories/data infrastructure.
-- Domain code does not depend on Flutter, SQLite, provider DTOs, HTTP clients or file-system APIs.
-- The built-in Agent does not call the app's own MCP transport; they are peer adapters.
-- New AI/MCP mutation flows stage through Application commands and the frozen approval boundary.
-- Preserve typed sidecar authority, strict corrupt-sidecar failure, typed explicit-empty semantics, RichContent structural rendering and review-state/content separation.
-- Reuse existing abstractions before adding new ones.
-- Verify the actual failure boundary before escalating upstream.
-- Make the smallest coherent change that satisfies the frozen contract.
-- Do not refactor, rename, reformat, generalize, or future-proof unrelated code.
-- Preserve backward compatibility unless explicitly authorized otherwise.
-- Do not change public APIs, persisted formats, schema, dependencies, CI/release/signing, or security/privacy contracts unless explicitly in scope.
-- Preserve unrelated user changes. Report nearby issues instead of fixing them automatically.
+Reuse existing abstractions and verify the actual failure boundary. Make the
+smallest coherent change. Preserve compatibility and unrelated user changes.
+Do not refactor, rename, reformat or generalize unrelated code. Public APIs,
+persisted formats, schema, dependencies, CI/release/signing and security/privacy
+contracts require explicit scope.
 
-High-risk areas include persistence/migrations, managed-file lifecycle, async recovery/concurrency, logging/redaction, credentials, OCR/AI boundaries, Agent/MCP write permissions, authorization, and global exception handling.
+High-risk areas include persistence/migrations, managed-file lifecycle, async
+recovery/concurrency, redaction, credentials, OCR/AI, Agent/MCP write permissions,
+authorization and global exception handling.
 
----
+## 5. Workflow and independent verification
 
-## 5. Default development workflow
-
-The default workflow is now:
+Default route:
 
 ```text
-Planner (only when needed)
-  -> Executor + mechanical verification
-  -> commit / push / PR when authorized
-  -> STOP
-  -> Independent Reviewer
-  -> APPROVE or bounded repair
-  -> user-authorized merge
+Planner/Diagnostician only when needed
+-> Executor + mechanical verification
+-> authorized Git delivery -> STOP
+-> Independent Reviewer
+-> bounded repair when needed
+-> user-authorized merge
 ```
 
-A standalone Verifier is **not** a default phase.
+Use planning when durable contracts, architecture/root cause or high-risk
+cross-layer semantics are unresolved, or when explicitly requested.
 
-### Planner is used only when
+Executor owns implementation, minimum meaningful regressions, focused tests and
+architecture gates, analyze, format, diff-check and final scope inspection.
+Green Executor checks are mechanical evidence, not independent semantic approval.
+Stop at the authorized delivery boundary, even when no PR is authorized.
 
-- a new durable contract must be frozen;
-- architecture or root cause is unresolved;
-- a high-risk cross-layer change needs design first;
-- schema/public API/security/privacy/concurrency semantics are not already frozen;
-- the user/Coordinator explicitly requests planning.
+Insert an independent Verifier only for:
 
-### Executor owns implementation + mechanical verification
+- schema/data migration or destructive operations;
+- high-risk transaction/concurrency or security/privacy/authorization behavior;
+- inconsistent Executor evidence or flaky/environment-dependent failures;
+- real-provider/device/release/runtime acceptance;
+- an explicit user or Reviewer request for independent checks.
 
-For implementation:
+Then use `Executor -> Verifier -> Reviewer`; otherwise go directly to Reviewer.
+Reviewers independently read a fixed target and never implement repairs or merge.
 
-1. inspect relevant code/tests/current diff;
-2. verify the reported problem unless an evidence-backed root cause is already frozen;
-3. freeze task-specific behavior and expected ownership paths; use a strict path whitelist only when the task explicitly requires one;
-4. add/update the minimum regression evidence;
-5. make the smallest coherent change;
-6. run focused tests/checks, relevant architecture gates, focused analyze, format gate and `git diff --check` as applicable;
-7. inspect final changed paths/diff for scope drift;
-8. when Git authority allows, commit exact paths, push the assigned branch and create the PR;
-9. STOP after PR creation and hand off the fixed PR head to the Independent Reviewer.
+## 6. Failure handling and budgets
 
-Executor verification is self-check evidence, not semantic approval.
+A failed Executor check does not automatically end the task. Self-repair is
+allowed only when the failure is caused by the authorized change, the root cause
+is concrete, the repair stays within responsibility/ownership and frozen semantics,
+introduces no unrelated bug fix or feature, and no verification is weakened,
+removed, skipped or bypassed.
 
-### Independent Reviewer
+Default budgets:
 
-The Reviewer re-reads the final fixed PR target independently. Executor reports are evidence records, not proof of correctness. The Reviewer checks semantics, architecture, frozen contracts, privacy/authorization, concurrency/transaction/persistence boundaries when relevant, regression strength and scope discipline.
+- At most two semantic/implementation self-repair cycles per Executor assignment.
+- At most two review-driven repair rounds for the same delivery target/task.
+  A round batches compatible findings, repairs them and receives fresh review.
+- Mechanical format/import/lint/trivial compile cleanup does not consume a
+  semantic cycle.
+- Changing agents, renaming packages or advancing the PR head does not reset the
+  review-round budget. Track both counts in handoffs.
+- Different limits require explicit task/user authority.
 
-The Reviewer returns P0/P1/P2/P3 findings and `APPROVE` or `REQUEST_CHANGES`. The Reviewer does not implement repairs or merge.
+Rerun the failed check and directly affected regressions after repair.
 
----
+Stop affected writes and delivery when:
 
-## 6. Verification failure and bounded self-repair policy
+- responsibility, another writer's ownership or a strict whitelist would be crossed;
+- an unapproved schema/migration/public API/frozen-contract change is necessary;
+- required verification exposes a separate pre-existing defect;
+- root cause or privacy/authorization/concurrency/transaction/persistence semantics
+  cannot be resolved through bounded investigation;
+- passing would require weakening verification;
+- a repair budget is exhausted or scope would materially broaden.
 
-A failed Executor check does **not** automatically require STOP.
+STOP allows bounded read-only diagnosis and preservation of safe evidence. It
+does not authorize a repair, a retry loop or the next roadmap stage.
+Report the failed command, first useful failure, root-cause evidence, attempts,
+current diff/status and smallest proposed next scope.
+Do not create a completion PR while required verification is failing.
 
-Executor MAY self-repair only when all are true:
+## 7. Git, branches and ownership
 
-1. the failure is causally related to the current authorized task;
-2. the root cause is identified with concrete evidence;
-3. the repair stays inside the authorized task responsibility; directly necessary coupled files may be added unless the task explicitly sets `Strict path whitelist: yes`, provided the added path does not cross another writer's ownership and is reported in the handoff;
-4. the repair does not alter frozen architecture/canonical semantics;
-5. the repair does not weaken, skip, delete, relax, or bypass the failing verification;
-6. no unrelated bug fix or new feature is introduced.
+Never run destructive or history-rewriting Git operations, including hard reset,
+destructive checkout/restore, clean, force push, amend, rebase or squash.
+Any current-user exception must be explicit and must comply with platform rules;
+a task template or role cannot grant that exception.
 
-After repair, rerun the failed check and the directly affected regression set.
+Each write task uses a dedicated non-default branch:
+initial implementation creates the assigned branch from the authorized base;
+follow-ups and review repair reuse that task's branch/PR.
+Never implement directly on the default branch.
+Assigned branch creation may be authorized by a writable task package.
+Worktrees are optional for a single writer; use them only for parallel writers,
+needed dirty-checkout isolation or an explicit Coordinator requirement, with
+applicable authorization.
 
-### Repair budget
+Expected ownership paths are not an exhaustive whitelist unless
+`Strict path whitelist: yes`. Directly necessary coupled paths may be added when
+they remain in the same responsibility, do not overlap another writer, and add
+no unauthorized feature, dependency, migration, public contract or refactor.
+Report added paths and reasons. With a strict whitelist, stop before crossing it.
 
-- Up to **two bounded semantic/implementation repair cycles** are allowed by default during one Executor task.
-- Mechanical cleanup such as format, import ordering, lint-only cleanup, or a trivial compile fix does not consume a semantic repair cycle.
-- Do not turn this budget into permission for speculative trial-and-error.
+Stage exact paths only; never `git add .` or `git add -A`.
+Do not create/update `DEVELOPMENT_LOG.md` unless explicitly requested.
+Inspect status before/after writes and preserve unrelated tracked/untracked files.
 
-### Mandatory STOP
+Use the single writable-package template in `docs/agents/README.md`.
+Record base, branch, `Branch mode: create | reuse`, ownership, acceptance and
+specific Git authority. A missing action is unauthorized; implementation or
+staging never implies commit, push, PR creation, merge, tag or release.
+Only perform the authorized delivery steps.
 
-STOP instead of self-repair when:
+`PR-create` authorizes PR creation only. PR title/body updates, comment or review
+submission, close/reopen and all other PR mutations are separate actions requiring
+explicit task/user authorization. A generic `PR yes` is not blanket authority;
+clarify the intended mutation before performing it.
 
-- a new write path would cross the task's responsibility, another writer's ownership, or an explicit `Strict path whitelist: yes` boundary;
-- schema/migration/public API/frozen contract changes become necessary;
-- the failure reveals a separate pre-existing defect rather than the current task;
-- root cause is uncertain;
-- fixing requires weakening/removing a test or check;
-- privacy, authorization, concurrency, transaction, or persistence semantics become ambiguous;
-- two bounded repair cycles fail to reach clean verification;
-- the repair would materially broaden the task.
+## 8. Security, privacy and network
 
-On STOP, report the failing command/test, first useful failure, root-cause evidence, repairs attempted, current diff/status, and the smallest proposed next scope. Do not create a completion PR with mandatory verification still failing.
+Never expose or persist secrets, private configuration or complete private file
+contents. Do not log/report complete prompts, answers, raw OCR/provider bodies,
+Base64, sensitive absolute paths or unsafe exception messages. Use IDs, stages,
+counts, safe categories and redacted summaries.
 
----
+Network authority is specific to purpose and destination:
 
-## 7. When to use an independent Verifier
+- Git fetch/push and connected PR actions require the corresponding Git authority.
+- Read-only inspection of a task's remote target is permitted when the task
+  explicitly requires that comparison; it does not grant push or PR mutation.
+- Public documentation lookup requires task/user authority and sends no private
+  source, document or configuration content.
+- Real OCR/AI/provider calls, private-document processing, saved-key loading and
+  Replay writes require an explicitly authorized runtime scope.
 
-`角色：验证` remains available but is optional/risk-triggered.
+Authority for one category never grants another. Network/provider use is
+otherwise disabled by default.
 
-Use an independent Verifier when one or more apply:
+## 9. Validation and evidence economy
 
-- schema migration or data migration;
-- destructive data operation;
-- high-risk transaction/concurrency behavior;
-- security/privacy/authorization boundary;
-- Executor evidence is internally inconsistent or not credible;
-- flaky/environment-dependent failure needs independent classification;
-- real-provider, real-device, release/runtime acceptance;
-- the Reviewer explicitly requests an independent deterministic re-check.
-
-Then the route is:
+Use focused checks appropriate to the change:
 
 ```text
-Executor + self-verification -> Independent Verifier -> Independent Reviewer
-```
-
-Otherwise use the default:
-
-```text
-Executor + self-verification -> Independent Reviewer
-```
-
----
-
-## 8. Git authority
-
-Never run destructive/history-rewriting Git operations, including `git reset --hard`, destructive `git checkout`/`git restore`, `git clean -fd[x]`, force push, or history rewriting.
-
-Git authority is action-specific. Staging does not authorize commit; commit does not authorize push; push does not authorize PR creation; PR creation does not authorize merge/tag/release.
-
-### Branch and worktree defaults
-
-Every Executor write task uses a dedicated non-default branch created from the authorized base. Do not implement directly on `master` / the default branch.
-
-A separate worktree is **optional**, not the default. Create one only when:
-
-- multiple writers are active in parallel;
-- the current checkout contains unrelated work that must not be disturbed; or
-- the Coordinator/task explicitly requires isolation.
-
-A task package may authorize creation of its assigned branch as part of the write task. Worktree creation still requires explicit need/authorization.
-
-### Path ownership
-
-Task packages normally declare **expected ownership paths**, not an exhaustive whitelist. An Executor may add a directly necessary coupled file without pausing when all are true:
-
-- the change is causally required to complete the authorized task;
-- it remains inside the same responsibility and frozen semantics;
-- it does not overlap another active writer;
-- it does not introduce a new feature, dependency, migration, public contract, or unrelated refactor;
-- the added path is listed with its reason in the final handoff.
-
-If the package states `Strict path whitelist: yes`, paths outside that whitelist require STOP.
-
-Staging remains exact-path only. Never use `git add .` or `git add -A`. Do not create/update `DEVELOPMENT_LOG.md` unless explicitly in scope.
-
-A normal writable package supplies:
-
-```text
-Branch: <assigned new branch>
-Expected ownership paths: <primary files/modules>
-Strict path whitelist: no | yes
-Local commits authorized: yes | no
-Push authorized: no | yes
-PR creation authorized: no | yes
-Merge authorized: no | yes
-```
-
-When authorized, append-only commits required by the current task and policy-permitted bounded self-repair are allowed on the assigned branch. Commit count is not a safety boundary.
-
-The following remain forbidden unless separately authorized:
-
-- amend/rebase/squash/history rewrite;
-- cross-responsibility or cross-writer path changes;
-- repair passes beyond the closure limits;
-- push, PR, merge, tag, or release when not separately authorized.
-
-Before and after write work, inspect `git status --short`. Preserve unrelated tracked/untracked files.
-
----
-
-## 9. Security and privacy
-
-Never expose, copy, persist, test-log, or report secrets such as API keys, tokens, authorization headers, signing material, passwords, credentials, private configuration, or complete private file contents.
-
-Avoid logs/reports containing complete prompts, answers/explanations, raw OCR text, provider bodies, Base64 payloads, sensitive absolute paths, or raw exception messages that may contain private data. Prefer counts, IDs, stages, statuses, safe error categories, runtime types, and redacted metrics.
-
-Network/provider use is disabled by default unless the task explicitly requires it.
-
----
-
-## 10. Validation and evidence economy
-
-Use focused validation during implementation. Typical checks:
-
-```bash
 dart format --output=none --set-exit-if-changed <changed-dart-files>
-flutter analyze <changed-production-files>
+flutter analyze <changed-dart-files>
 flutter test --concurrency=1 <focused-tests>
 git diff --check
 ```
 
-Rules:
+Check helpers must not format, fix, restore, stage or modify tracked inputs,
+including on failure. Executors perform necessary format/fix actions separately,
+then rerun the read-only gate. Tool-managed caches may be created.
 
-- Do not run full-repository formatting for a focused task.
-- Do not fix unrelated historical analyze findings.
-- Never claim a command passed unless it ran.
-- Report skipped/failed checks.
-- On Windows, run Flutter tests serially unless parallel safety is established.
-- Full workflow (`.\scripts\verify.ps1`) is for explicit release/global acceptance or direct user request.
-- Regression tests prove behaviors/invariants, not implementation lines.
-- Prefer one direct regression plus only materially necessary boundary/failure/concurrency coverage.
-- Test volume is not evidence quality.
+Do not run full-repository formatting or fix historical unrelated analyze issues.
+Include changed tests/helpers in focused analysis when applicable.
+Run Windows Flutter tests serially unless parallel safety is established.
+Full `.\scripts\verify.ps1` is for explicit global/release acceptance or user request.
+Prefer one direct regression plus necessary boundary/failure/concurrency coverage.
 
-A command with no meaningful progress for 3 minutes is stalled. Preserve evidence; do not silently raise timeouts or retry indefinitely.
+Never claim an unrun check passed; report skipped/failed checks.
+A command with no meaningful progress for three minutes is stalled. Preserve
+evidence; do not silently extend timeouts or retry indefinitely.
 
----
+## 10. Review, findings and closure
 
-## 11. Findings and review-driven repair
+| Severity | Meaning |
+|---|---|
+| P0 | Secret exposure, destructive corruption or catastrophic security/privacy failure |
+| P1 | Data loss, crash, broken core behavior, violated frozen invariant or serious compatibility/concurrency failure |
+| P2 | Meaningful correctness/compatibility/concurrency/required-acceptance gap blocking merge |
+| P3 | Non-blocking maintenance, documentation drift, optional coverage or cleanup |
 
-Severity:
+P3 is deferred by default. Completed reviews return all non-duplicate blocking
+findings together. Incomplete/unstable targets return `INCONCLUSIVE`, never approval.
 
-- **P0 Critical**: secret exposure, destructive corruption, catastrophic security/privacy failure.
-- **P1 Blocking**: data loss, crash, broken core behavior, violated frozen invariant, serious compatibility/concurrency failure.
-- **P2 Merge-blocking correctness**: bounded but meaningful correctness/compatibility/concurrency/required-acceptance gap that should be fixed before merge.
-- **P3 Non-blocking**: maintainability, documentation drift, optional/extra coverage, cleanup, low-impact hardening.
+P0/P1/P2 -> bounded Repair Executor on the same branch/PR -> mechanical checks
+-> authorized push -> STOP -> fresh targeted Reviewer closure.
+Targeted review expands only if the repair invalidated the original scope.
 
-P3 does not automatically trigger repair.
+Merge requires zero open task P0/P1/P2 findings, satisfied required gates and
+explicit user merge authority. Repository/global status defaults to
+`NOT_EVALUATED` for focused tasks; local evidence never implies global acceptance.
 
-After the Independent Reviewer:
+## 11. Orchestration
 
-```text
-P0/P1/P2 finding
-  -> bounded Repair Executor on the same PR when scope remains valid
-  -> Executor mechanical verification + bounded self-repair policy
-  -> push updated PR
-  -> STOP
-  -> fresh targeted Reviewer pass
-```
+Repository orchestration uses `角色：总控`. The Coordinator freezes
+base/branch/worktree/dirty state, contracts and ownership before dispatch.
+Serialize by default. Parallel writers require isolated worktrees and
+non-overlapping ownership. Stop writers before review/verification.
 
-Repeat only within the task's repair limits. If repair changes architecture/public contract/schema/security/concurrency semantics or invalidates the original review scope, stop and re-plan/review at the appropriate level.
+Coordinator never edits production/tests itself or automatically pushes/merges.
+Delegated children have one bounded role/task; they may not create descendants,
+switch roles, expand scope or decide public architecture/contracts.
+Read `docs/agents/model-routing.md` when routing children.
 
-Merge is acceptable only when open task P0/P1/P2 findings are zero and required CI/gates are satisfied.
+## 12. Canonical documents
 
----
+Canonical documents record durable truth, not logs, review findings or test reports.
+Execution plans own delivery order/status; Git owns exact snapshots.
 
-## 12. Multi-agent orchestration
+Planner identifies whether durable truth changes and the affected documents.
+Executor updates canonical docs only when authorized implementation changes that
+truth; routine fixes preserving the contract do not require documentation churn.
+Reviewer checks implementation/contract agreement in both directions.
+Verifier checks frozen behavior without redesign.
 
-Repository-wide orchestration uses `角色：总控`.
-
-Coordinator responsibilities:
-
-- freeze base/branch/worktree/dirty state and shared contracts once before dispatch;
-- serialize by default; parallel writers require isolated worktrees and non-overlapping ownership;
-- delegate bounded tasks with clear responsibility, expected ownership paths and parent-attested evidence; reserve exhaustive path whitelists for tasks that truly need them;
-- never edit production/test files itself;
-- stop writers before reviewing/verifying a frozen target;
-- route ordinary completed implementation directly to Independent Reviewer;
-- insert a standalone Verifier only under the risk triggers in section 7;
-- integrate only when explicitly authorized;
-- never automatically push/merge unless explicitly authorized.
-
-A child has one bounded role/task, may not create descendants, switch roles, expand scope, or decide public architecture/contracts.
-
----
-
-## 13. Canonical contract discipline
-
-A canonical document records durable current truth, not a development log, review-findings dump, test report, or substitute for Git history.
-
-Before planning or executing a stage governed by frozen behavior, identify and open only the relevant canonical documents. When a task belongs to a staged implementation plan, also open the current execution appendix/plan that owns the package sequence and current delivery state.
-
-Role responsibilities:
-
-- **Planner:** states whether the task preserves or changes durable contract truth and which canonical docs would be affected.
-- **Executor:** updates canonical docs only when an authorized implementation changes durable truth; ordinary bug fixes do not edit docs merely for completeness.
-- **Reviewer:** checks both directions of implementation/contract drift.
-- **Verifier:** when explicitly used, checks conformance to already-frozen contract and does not redesign it.
-
-Preserve historical truth through amendments/status updates/superseding docs rather than rewriting history as though later decisions always existed.
+Preserve historical truth through amendments, explicit historical labeling and
+superseding references. Do not rewrite later decisions into the historical baseline.

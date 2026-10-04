@@ -37,14 +37,17 @@ Before a Git write, verify all of the following:
 3. every affected path is inside the authorized task responsibility; if `Strict path whitelist: yes` is set, every affected path is also explicitly listed;
 4. staged content contains no unrelated user changes;
 5. the action is not destructive or history-rewriting;
-6. any role-specific authorization fields in `AGENTS.md` are present.
+6. task/user authority is known; omitted actions remain unauthorized. Use the
+   template in `docs/agents/README.md` when preparing a package.
 
 Authorization is action-specific:
 
 - staging does not authorize a commit;
 - a commit does not authorize a push;
-- a push does not authorize a merge, tag, or release;
-- every write task must use a dedicated non-default branch; creating the assigned branch is allowed when the task/user authorizes branch creation or the normal writable package assigns that new branch;
+- a push does not authorize PR creation, merge, tag, or release;
+- initial work creates an authorized dedicated non-default branch; follow-ups
+  and same-PR repair reuse the task branch. Assigned creation may be authorized
+  by the writable package;
 - worktree creation is separate and only needed for parallel writers or explicit checkout isolation.
 
 Task packages normally provide expected ownership paths, not an exhaustive file list. Directly necessary coupled paths may be added under the repository rules and must be reported in handoff. Staging remains exact-path scoped.

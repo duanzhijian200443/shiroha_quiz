@@ -4,6 +4,30 @@ Status: **Canonical architecture contract after R1–R8 and P5**.
 
 This file describes the current dependency direction and the boundaries that all new post-P5 work must preserve. Historical R0/R1 migration documents remain useful as design provenance, but they are not current-state authority.
 
+## Reading guide
+
+Read sections 1–3 and 7–8 for the shared architecture baseline, then the
+sections and focused contracts that own the affected capability. A reference in
+an unrelated section does not require loading that contract. This guide changes
+reading order only; all existing contracts and historical amendments remain valid.
+
+| Task boundary | Relevant sections |
+|---|---|
+| Typed content / rendering / imports | 3–4 and the focused RichContent contracts |
+| File Library / artifacts / retrieval | 4 and its focused lifecycle/RAG contracts |
+| Conversation / Agent / MCP / write approval | 5–6 |
+| Credentials / provider configuration | 9 |
+| Supplemental / single-question AI answers | 10–11 and Answer Completion v0 |
+| Navigation / Practice / Today | 12 and applicable product contracts |
+| StudyPlan | 13 |
+| Runtime data locations | 14 |
+| Review repair / photo answers | 15–16 |
+| TrainingContent / StudyActivity / TaskCenter | Home Training V3 and its execution plan |
+
+Stage order and delivery status belong to the roadmap/active execution plan;
+Git identifies the exact implementation snapshot. The stage summaries below
+retain their recorded context and do not replace those sources.
+
 ## 1. Canonical dependency direction
 
 ```text
@@ -650,8 +674,9 @@ residue at its last successful checkpoint without estimating elapsed or restorin
 an owner. B0 closes only the snapshot copy as snapshotInterrupted, preserves facts,
 and rejects malformed or nonterminal portable Activity before swap. Weekly reads
 sum persisted local-date segment durations for seven Monday–Sunday dates, using an
-injected current local date; read failure remains unavailable. CP2-A implementation
-is complete pending independent T3 Verifier/Reviewer acceptance. Runtime remains
+injected current local date; read failure remains unavailable. P4b is merged via
+PR #224, and CP2-A is PASSED after independent T3 verification and fresh review.
+Runtime remains
 v30; Practice/MockExam Activity wiring, scheduling, weekly UI and production
 activation remain unimplemented. P5a is the next serial mainline package.
 The existing Today, ordinary-training, StudyPlan and TaskCenter boundaries

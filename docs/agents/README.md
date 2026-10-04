@@ -1,127 +1,84 @@
-# Multi-Agent Development Workflow
+# Agent Workflow Guide
 
-This directory defines role-specific instructions for AI-assisted development. All agents also follow repository-level `AGENTS.md`.
+`AGENTS.md` owns shared permissions, safety, budgets, verification triggers and
+Git policy. Role files own only their role's operations and outputs.
+`ARCHITECTURE.md` and focused contracts own product/architecture semantics.
 
-## Default workflow
+## Route
 
 ```text
 Human / Coordinator
-  -> Planner or Diagnostician only when needed
-  -> Executor
-       - implement
-       - add/update regressions
-       - focused tests / architecture checks
-       - analyze / format / diff-check
-       - bounded self-repair when permitted
-       - commit / push / create PR when authorized
-       - STOP
-  -> Independent Reviewer
-       - read final PR independently
-       - semantic / architecture / contract review
-       - P0/P1/P2/P3
-  -> Human-authorized merge
+-> Planner or Diagnostician when needed
+-> Executor + mechanical checks + authorized delivery -> STOP
+-> optional risk-triggered Verifier
+-> Independent Reviewer
+-> bounded same-PR repair and targeted closure when needed
+-> user-authorized merge
 ```
 
-A standalone Verifier is no longer a default phase. Use it only for risk-triggered independent verification defined in `AGENTS.md`.
-
-## Hard gates
-
-1. **Scope/contract gate:** behavior, task responsibility, expected ownership paths and relevant durable contract are frozen before writing. Use an exhaustive path whitelist only when the task explicitly requires one.
-2. **Executor verification gate:** required focused mechanical checks must pass before completion PR delivery.
-3. **Independent review gate:** the Reviewer evaluates the fixed final PR head independently; green Executor checks do not equal semantic approval.
-4. **Repair gate:** open P0/P1/P2 findings require bounded repair + fresh Reviewer closure before merge.
-5. **Human Git gate:** branch/commit/push/PR/merge remain separately authorization-gated.
-
-Validation or review of a moving target is invalid.
+Review/verification require a frozen target and a stopped writer.
+Green self-checks do not constitute independent approval.
 
 ## Roles
 
-| Role | Default use | May edit tracked files |
-|---|---|---:|
-| Coordinator | Orchestration/integration | Coordinator-owned integration only |
-| Planner | Contract/architecture planning when needed | No |
-| Diagnostician | Uncertain root cause | No |
-| Executor | Implementation + mechanical verification + PR delivery | Yes, assigned responsibility |
-| Verifier | Optional independent deterministic verification | No |
-| Reviewer | Independent final semantic review | No |
+| Role | Responsibility | Tracked edits |
+|---|---|---|
+| Coordinator | Freeze, dispatch, inspect, authorized integration | Explicit Coordinator-owned integration only; no production/tests |
+| Planner | Contract/design and runnable packages | No |
+| Diagnostician | Failure boundary/root cause | No |
+| Executor | Implementation, checks and authorized delivery | Assigned responsibility |
+| Verifier | Assigned independent deterministic checks | No |
+| Reviewer | Independent semantic verdict | No |
 
-## Executor package template
+## Writable package
 
-Keep packages compact. Repository-wide rules stay in `AGENTS.md`; task packages contain only task-specific information.
+Use this template for initial execution and repair; keep only task-specific facts.
+Explicit user instructions may supply the same information without a formal package.
 
 ```text
 角色：执行
 任务：<bounded objective>
 
 Base: <authorized base>
-Branch: <assigned new branch>
-Canonical contract: <governing path(s)>
+Branch: <assigned task branch>
+Branch mode: create | reuse
+Canonical contract: <governing paths or none>
 Execution plan: <path or none>
 Expected ownership paths: <primary files/modules>
 Strict path whitelist: no | yes
-Frozen task semantics: <only current-stage invariants>
+Frozen task semantics: <current-stage invariants>
 Acceptance: <focused criteria>
-Validation: <focused tests/checks>
-Git: commit yes|no; push yes|no; PR yes|no; merge yes|no
-Stop only if: <real scope/contract/version/cross-writer/environment blocker>
+Validation: <focused checks>
+Git: branch-create yes|no; stage yes|no; commit yes|no; push yes|no; PR-create yes|no; merge yes|no
+Review repair rounds used: <0 initially; inherited count for repair>
+Stop conditions: <task-specific blockers beyond AGENTS.md>
 ```
 
-Before editing, the Executor must open the governing canonical contract named by the package; when an execution plan is provided, open it too. Do not rely on the package summary alone.
+Use `create` for authorized initial branch creation and `reuse` for same-task
+follow-ups/repair. Missing Git actions are unauthorized.
+`PR-create` covers creation only. Title/body updates, comment/review submission,
+close/reopen and other PR mutations require separate explicit task/user authority
+under `AGENTS.md`; do not infer them from PR creation or push authority.
+Add Worktree and its authority only when isolation is needed.
+Add directly necessary coupled paths under the shared ownership policy and
+report why; strict whitelists require explicit authorization to expand.
 
-Directly necessary coupled files may be added when `Strict path whitelist: no` and the change remains inside the same task responsibility. Report added paths and reasons in the handoff.
+## Independent checks/review packages
 
-Executor may self-repair verification failures only under `AGENTS.md` bounded policy. After PR creation it stops for independent review.
+Verifier package: role, objective, fixed target, governing contract, exact assigned
+commands and the risk trigger. Verifier never repairs.
 
-## Optional Verifier package
+Reviewer package: role, base/final target, original task/contract/plan,
+Executor/CI evidence, optional Verifier evidence, assigned review dimensions
+and inherited review-round count.
 
-```text
-角色：验证
-目标：<independent verification objective>
+Review status and verdict are separate: a stable completed review gives
+`APPROVE / REQUEST_CHANGES`; incomplete evidence gives `INCONCLUSIVE`.
+Focused tasks default to global status `NOT_EVALUATED`.
 
-Verification target: <fixed PR head/commit>
-Allowed commands: <exact deterministic checks>
-Reason for independent verification: <risk trigger>
-```
+## Evidence and closure
 
-Verifier never fixes failures.
-
-## Reviewer package template
-
-```text
-角色：审查
-目标：最终独立语义审查
-
-Review target: <base..final PR head>
-Frozen contract: <task/contract refs>
-Executor verification evidence: <summary>
-Optional Verifier evidence: <summary or none>
-Review difficulty: light | ordinary | high
-Reason: <one concrete sentence>
-```
-
-Reviewer does not modify or merge. It returns `APPROVE` or `REQUEST_CHANGES` plus P0/P1/P2/P3.
-
-## Repair flow
-
-```text
-Reviewer P0/P1/P2
--> bounded Repair Executor on same PR
--> Executor verification
--> push
--> STOP
--> targeted fresh Reviewer pass
-```
-
-P3 is deferred by default.
-
-## Worktrees and ownership
-
-- every write task uses a dedicated non-default branch;
-- a separate worktree is optional for a single writer and required only for parallel writers or when checkout isolation is needed;
-- concurrent writers require separate worktrees and non-overlapping ownership;
-- shared contract/model/schema files remain frozen/Coordinator-owned until explicitly assigned;
-- read-only agents do not review a writer's moving target.
-
-## Deterministic validation
-
-Focused deterministic validation normally belongs to the Executor. CI can repeat repository-required gates. Full validation (`.\scripts\verify.ps1`) is only for explicit release/global acceptance or user request.
+Use concise target identity, changed behavior/paths, actual checks, skipped gates,
+repair counts and unresolved risks. Do not duplicate shared rules or full logs.
+Each writer owns one coherent responsibility; shared paths have one owner.
+Merge and later-stage work always require their own authority.

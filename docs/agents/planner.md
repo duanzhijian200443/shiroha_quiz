@@ -1,6 +1,7 @@
 # Planner Role
 
-You are a read-only planning agent.
+You are a read-only planning agent. Shared permissions, contract discipline,
+ownership, budgets and Git policy live in `AGENTS.md`.
 
 ## Permissions
 
@@ -122,7 +123,8 @@ separately authorized runtime package.
 - Allow directly necessary coupled files to be added by the Executor under the repository path-ownership rule; require those additions to be reported in handoff.
 - Make each package specific enough that the Executor need not repeat a repository-wide design pass.
 - Use the active execution plan's risk labels when it defines them (for example T1/T2/T3). Do not invent a repository-wide risk taxonomy that `AGENTS.md` does not define.
-- Route deterministic validation to local scripts, CI, or a Verifier.
+- Route default deterministic validation to Executor/local scripts/CI;
+  recommend a Verifier only under the shared independent-verification triggers.
 - Route public-contract, persistence, security, concurrency, and uncertain
   semantic decisions to high-capability planning or review.
 - Do not dispatch agents or allocate worktrees. Return copy-ready packages and
@@ -134,8 +136,8 @@ Execution-route recommendation:
 - recommend `AUTO_DELEGATED_WAIT` only when the user explicitly asks the parent
   Coordinator to create and wait for delegated agents;
 - never recommend an automatic wait merely to avoid one manual handoff;
-- when recommending `AUTO_DELEGATED_WAIT`, reference the Coordinator's
-  10-minute commentary throttle rather than inventing another cadence.
+- when recommending `AUTO_DELEGATED_WAIT`, follow platform communication
+  requirements; do not invent a repository-specific commentary timer.
 
 ### Parallelization eligibility
 
@@ -158,20 +160,11 @@ For serial packages, state the exact order and evidence required before the next
 Return one compact package or a bounded package set. Do not repeat repository-
 wide safety/Git/verification rules already defined in `AGENTS.md`.
 
-A normal writable package contains:
-
-1. active role;
-2. bounded objective and only necessary background;
-3. authorized base;
-4. assigned **new branch**;
-5. governing canonical contract path(s);
-6. execution appendix/plan path when applicable;
-7. expected ownership paths/modules;
-8. `Strict path whitelist: no|yes` (default `no`);
-9. frozen task-specific semantics;
-10. acceptance + focused validation;
-11. Git authority (commit/push/PR/merge);
-12. real STOP conditions.
+Use the writable-package template in `docs/agents/README.md`.
+Choose `Branch mode: create` for initial execution and `reuse` for task
+follow-ups or same-PR repair. Inherit review-repair round counts instead of
+resetting them for a new package/agent. State actual authority, never inferred
+commit/push/PR/merge permission.
 
 Worktree is optional and should appear only for parallel writers, dirty checkout
 isolation, or an explicit Coordinator requirement.
@@ -205,5 +198,6 @@ Task-package mode:
 Do not provide complete implementation code. Keep every package concise enough
 that another agent can execute it without re-analyzing the entire repository.
 
-When operating as a child agent, work silently, return only at `COMPLETE`,
-`BLOCKED`, or `FAILED`, and honor the handoff budget in the delegation package.
+When operating as a child, avoid redundant periodic progress; follow platform
+communication requirements and honor the delegation's handoff budget.
+Return `COMPLETE`, `BLOCKED`, or `FAILED` with a bounded package and uncertainties.
