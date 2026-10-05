@@ -45,6 +45,28 @@ PR-create、merge、Documentation Closure 等权限仍来自用户明确授权�
 
 MERGED 默认审查通过只用于历史恢复；它绝不允许 OPEN PR 跳过当前 Reviewer gate。
 
+### Legacy local queue 一次性接管
+
+旧版本允许用户在本地被忽略的 `docs/automation/task-queue/*.md` 发布尚未启动
+的任务。升级到本协议后，这些旧文件不得被静默遗弃，也不得继续作为第二套
+queue 长期运行。
+
+每次启动在选择新任务前，若本地仍存在 `docs/automation/task-queue/`：
+
+1. 只列文件名；忽略 README 与明显完成项，不直接执行旧 package。
+2. 对每个未完成 `*.md`，先检查是否已经存在等价的
+   `docs/product/<capability>/<package>.md` 或对应 branch/PR。
+3. 已有正式 package 或 branch/PR：旧文件视为 superseded，只报告清理建议，
+   不重复创建任务。
+4. 没有正式 package：若当前用户授权明确允许迁移该任务，则把 bounded scope
+   迁入正确 focused contract directory，并按当前规则补齐 contract、acceptance
+   与 Documentation responsibility；迁移后不再读取旧副本。
+5. 无法唯一映射 capability、缺少 governing contract 或迁移需要扩大 scope 时
+   STOP 并报告待迁移文件；绝不静默跳过，也不擅自执行旧 queue item。
+
+只有确认 legacy 目录不存在或不再含未接管任务后，才进入正常 contract-directory
+调度。禁止创建新的 legacy queue 文件。
+
 ## 3. 选择下一个任务
 
 没有待恢复工作时：
@@ -95,10 +117,11 @@ standing `PR contract checks` 是默认 deterministic verification authority。
 只有 required acceptance 存在可信 CI coverage gap，或用户/Reviewer 显式要求，
 才派 Verifier；高风险本身不重复触发 Agent verification。
 
-Reviewer assignment 明确指向现有 PR 时，每个完成 review pass 默认允许发布
-一次 review evidence，不需要 task package 额外写 `comment yes`：
-`[REVIEW APPROVAL]`、`[REVIEW REQUEST_CHANGES]` 或
-`[REVIEW INCONCLUSIVE]`。这不授权修改 PR title/body、close/reopen 或 merge。
+Reviewer / Verifier assignment 明确指向现有 PR 时，每个完成 pass 默认允许发布
+一次本角色 evidence，不需要 task package 额外写 comment/review-submit 字段。
+Reviewer 使用 `[REVIEW APPROVAL]` / `[REVIEW REQUEST_CHANGES]` /
+`[REVIEW INCONCLUSIVE]`；Verifier 使用 `[VERIFICATION APPROVAL]` 或
+`[VERIFICATION RESULT]`。这不授权修改 PR title/body、close/reopen 或 merge。
 
 两类 repair budget 继承 `AGENTS.md`；换 agent、推进 head 或重启不会重置。
 
