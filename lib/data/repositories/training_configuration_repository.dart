@@ -1,6 +1,7 @@
 import 'package:uuid/uuid.dart';
 
 import '../../application/home_training_result.dart';
+import '../../application/training/training_configuration_contracts.dart';
 import '../../application/training/training_configuration_projection.dart';
 import '../../application/training/training_contracts.dart';
 import '../../core/database/database_helper.dart';
@@ -19,6 +20,8 @@ final class TrainingConfigurationRepository
     implements
         TrainingCatalogQuery,
         TrainingContentQuery,
+        TrainingConfigurationQuery,
+        TrainingContentOrderCommand,
         TrainingContentCommand {
   TrainingConfigurationRepository({
     DatabaseHelper? databaseHelper,
@@ -46,6 +49,67 @@ final class TrainingConfigurationRepository
   @override
   Future<HomeTrainingResult<TrainingCatalogSnapshot>> capture() =>
       _transaction(_catalog);
+
+  @override
+  Future<HomeTrainingResult<TrainingConfigurationSnapshot>>
+      readConfiguration() => _transaction((txn) async {
+            final catalog = await _catalog(txn);
+            final keys = catalog.categories.toSet();
+            for (final row in await txn
+                .query(trainingContentsTable, columns: ['category_key'])) {
+              keys.add(_category(row['category_key']));
+            }
+            final ordered = keys.toList()..sort(compareTrainingCategories);
+            return TrainingConfigurationSnapshot(catalog: catalog, categories: [
+              for (final key in ordered) await _list(txn, key, catalog),
+            ]);
+          });
+
+  @override
+  Future<HomeTrainingResult<HomeTrainingUnit>> moveContent(
+          MoveTrainingContentRequest request) =>
+      _transaction((txn) async {
+        final rows = (await txn.query(trainingContentsTable,
+                columns: ['content_id', 'revision', 'sort_order'],
+                where: 'category_key = ?',
+                whereArgs: [_codec.encodeString(request.categoryKey)],
+                orderBy: 'sort_order ASC, content_id ASC'))
+            .toList();
+        if (rows.length != request.orderedTargets.length) {
+          throw const _ConfigurationFailure(HomeTrainingFailure.stale);
+        }
+        for (var i = 0; i < rows.length; i++) {
+          final target = request.orderedTargets[i];
+          if (rows[i]['content_id'] != target.contentId ||
+              rows[i]['revision'] != target.expectedRevision) {
+            throw const _ConfigurationFailure(HomeTrainingFailure.stale);
+          }
+        }
+        final from =
+            rows.indexWhere((r) => r['content_id'] == request.contentId);
+        final to =
+            from + (request.direction == TrainingContentMove.up ? -1 : 1);
+        if (to < 0 || to >= rows.length) {
+          throw const _ConfigurationFailure(HomeTrainingFailure.invalidInput);
+        }
+        final moving = rows.removeAt(from);
+        rows.insert(to, moving);
+        // Dense ranks also handle equal or extreme existing sortOrder values.
+        // Only changed rows receive a revision; members/preferences are untouched.
+        for (var i = 0; i < rows.length; i++) {
+          final row = rows[i];
+          if (row['sort_order'] == i) continue;
+          final revision = row['revision'] as int;
+          final changed = await txn.update(trainingContentsTable,
+              {'sort_order': i, 'revision': revision + 1},
+              where: 'content_id = ? AND revision = ?',
+              whereArgs: [row['content_id'], revision]);
+          if (changed != 1) {
+            throw const _ConfigurationFailure(HomeTrainingFailure.stale);
+          }
+        }
+        return const HomeTrainingUnit();
+      });
 
   Future<TrainingCatalogSnapshot> _catalog(DatabaseExecutor db) async {
     final mappings = {
