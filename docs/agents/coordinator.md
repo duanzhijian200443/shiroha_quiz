@@ -34,11 +34,14 @@ No branch/worktree or Git delivery action is implied by the role.
 11. Batch compatible blocking findings into same-branch/PR repair. Inherit counts;
     after repair rerun standing CI, any invalidated Verifier evidence and fresh review.
 12. After provisional semantic APPROVE, route authorized Documentation Closure,
-    including the tracked task-package `-完成.md` rename when applicable, then
-    final-head CI and the final Reviewer `[REVIEW APPROVAL]` evidence.
+    including the tracked task-package `-完成.md` rename and, for a final closure,
+    the capability-directory `-完成/` rename when applicable; then require final-
+    head CI and final Reviewer `[REVIEW APPROVAL]` evidence.
 13. Integrate/merge only with explicit authority and every shared merge gate satisfied.
 14. Stop at the authorized stage. Later roadmap packages require a new request
-    unless an explicitly activated Automation run owns that continuation.
+    unless an explicitly activated Automation run owns that continuation. Treat
+    an already-MERGED historical PR as review-approved for recovery; do not reopen
+    it solely because older review evidence was not posted.
 
 Children must open governing contracts; parent evidence prevents redundant
 rediscovery but never replaces the source.
