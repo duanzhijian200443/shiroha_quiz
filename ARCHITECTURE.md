@@ -22,11 +22,11 @@ reading order only; all existing contracts and historical amendments remain vali
 | StudyPlan | 13 |
 | Runtime data locations | 14 |
 | Review repair / photo answers | 15–16 |
-| TrainingContent / StudyActivity / TaskCenter | Home Training V3 and its execution plan |
+| TrainingContent / StudyActivity / TaskCenter | Home Training V3 focused contract directory |
 
-Stage order and delivery status belong to the roadmap/active execution plan;
-Git identifies the exact implementation snapshot. The stage summaries below
-retain their recorded context and do not replace those sources.
+Stage order and durable stage status belong to the focused contract/task-package
+layout and roadmap; Git/PR/CI identify the exact execution state. The stage
+summaries below retain their recorded context and do not replace those sources.
 
 ## 1. Canonical dependency direction
 
@@ -700,11 +700,30 @@ Retry emits a picker request without mutation; selected input stays ephemeral in
 the ingestion adapter and revalidates again at accepted retry. Review emits only
 an exact navigation target; the later composition bridge must retain review CAS.
 B0 retains package v2, migrates staged schema to v31 and continues to scrub all
-ImportTask rows including event times. B1 / P5a+P5b fixed-head CI and independent
-T3 verification passed and PR #227 is merged; it is treated as an accepted historical
-completion. TaskCenter UI, I3 and production injection are not activated. The next
-uncompleted formal package is `docs/product/home-training-v3/20-b2-training-config-ui.md`.
+ImportTask rows including event times. P5a/P5b and CP2-I implementation are complete;
+B1 / CP2-I has been independently accepted and merged. TaskCenter UI, I3 and
+production injection are not activated.
+
+B2 implements injectable Training Config list, shared selector/editor and
+Presentation controller through Application ports. A single read transaction
+returns the complete configuration snapshot, retaining empty custom Categories
+and unavailable configurations after their banks disappear. Category Visual
+presets are Category-wide preference values, separate from content revisions.
+Draft weights and ideal quotas reuse Domain TrainingAllocation. Cancellation
+writes nothing; a separately confirmed rebind commits immediately and is clearly
+identified as independent of unsaved edits. Content and visual saves use separate
+CAS and report partial success without retry or fictitious rollback. Category
+reorder validates the complete captured ordered content/revision set and applies
+dense ranks atomically; only changed rows advance revisions, with no member or
+preference writes. Stale or failed moves leave no partial ordering changes.
+Controller generation/dispose guards reject late loads, and busy state prevents
+overlapping UI mutations. Configuration CRUD never changes learning facts.
+Home/config production composition remains I2-owned and inactive; the legacy
+PlanConfigScreen remains. B2 implementation was merged by PR #230 with standing
+PR CI success; its formal task package remains unsuffixed until independent
+Reviewer closure is recorded under the current workflow. Runtime schema remains v31.
 The existing Today, ordinary-training, StudyPlan and TaskCenter boundaries above
 remain current truth. StudyPlan remains the single global ActiveStudyPlan and stays
-independent of TrainingContent. Delivery packages live beside the focused contract;
-there is no standalone execution-plan authority.
+independent of TrainingContent. Delivery order and ownership live in the sibling
+task packages under `docs/product/home-training-v3/`; there is no standalone
+execution-plan authority.
