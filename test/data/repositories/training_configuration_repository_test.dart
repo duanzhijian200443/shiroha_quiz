@@ -16,9 +16,27 @@ import 'package:shiroha_quiz/domain/training/training_content.dart';
 import 'package:shiroha_quiz/domain/training/training_content_member.dart';
 import 'package:shiroha_quiz/ui/training/training_configuration_controller.dart';
 import 'package:shiroha_quiz/ui/training/training_content_draft.dart';
+import 'package:shiroha_quiz/application/training/today_training_contracts.dart';
+import 'package:shiroha_quiz/application/study_query/study_query_dtos.dart';
+import 'package:shiroha_quiz/application/study_query/study_query_time_zone.dart';
+import 'package:shiroha_quiz/services/today/today_training_query_adapter.dart';
 
 const _uncategorized = UncategorizedCategoryKey();
 const _codec = CategoryKeyCodec();
+
+final class _FixedLocalZone implements StudyQueryTimeZone {
+  const _FixedLocalZone();
+  @override
+  StudyLocalDate localDateOf(DateTime instant, String name) {
+    final local = instant.toUtc().add(const Duration(hours: 8));
+    return StudyLocalDate(year: local.year, month: local.month, day: local.day);
+  }
+
+  @override
+  DateTime utcInstantOfLocalMidnight(StudyLocalDate date, String name) =>
+      DateTime.utc(date.year, date.month, date.day)
+          .subtract(const Duration(hours: 8));
+}
 
 T _success<T>(HomeTrainingResult<T> result) {
   expect(result, isA<HomeTrainingSuccess<T>>());
@@ -134,6 +152,129 @@ void main() {
         where: 'content_id = ?',
         whereArgs: [content.contentId]);
   }
+
+  TodayTrainingQueryAdapter today({DateTime Function()? clock}) =>
+      TodayTrainingQueryAdapter(
+          configuration: repository,
+          timeZone: const _FixedLocalZone(),
+          zoneName: 'fixed',
+          clock: clock ?? (() => DateTime.utc(2026, 10, 5, 1)));
+
+  Future<void> question(String id, String bank, int state) async {
+    await db.insert('questions', {
+      'id': id,
+      'type': 1,
+      'content': 'synthetic',
+      'options': '["A"]',
+      'standard_answer': 'A',
+      'created_at': 1,
+      'bank_name': bank
+    });
+    await db.insert('review_states', {
+      'question_id': id,
+      'state': state,
+      'next_review_time':
+          DateTime.utc(2026, 10, 5).millisecondsSinceEpoch ~/ 1000
+    });
+  }
+
+  test(
+      'Today transaction counts complete pools, 0% summary and distinct local-day logs without writes',
+      () async {
+    await bank('Positive');
+    await bank('Zero');
+    await bank('Other');
+    for (var i = 0; i < 100; i++) {
+      await question('new-$i', 'Positive', 0);
+    }
+    for (var i = 0; i < 50; i++) {
+      await question('zero-$i', 'Zero', 0);
+    }
+    for (var i = 0; i < 73; i++) {
+      await question('due-$i', 'Other', 1);
+    }
+    await question('mastered', 'Zero', 3);
+    final content = _success(await repository.create(
+        CreateTrainingContentRequest(
+            categoryKey: _uncategorized,
+            edit: _edit(banks: ['Positive', 'Zero'], limit: 20))));
+    for (final (id, time, questionId) in [
+      ('log1', DateTime.utc(2026, 10, 4, 17), 'zero-0'),
+      ('log2', DateTime.utc(2026, 10, 5, 0), 'zero-0'),
+      ('before-local-day', DateTime.utc(2026, 10, 4, 15, 59), 'new-0'),
+      ('next-local-day', DateTime.utc(2026, 10, 5, 16), 'new-1'),
+    ]) {
+      await db.insert('review_logs', {
+        'id': id,
+        'question_id': questionId,
+        'grade': 1,
+        'review_time': time.millisecondsSinceEpoch ~/ 1000,
+        'duration_ms': 1
+      });
+    }
+    var clocks = 0;
+    await unchanged(() async {
+      final view = _success(await today(clock: () {
+        clocks++;
+        return DateTime.utc(2026, 10, 5, 1);
+      }).readCurrent());
+      expect(
+          view.selection.currentContent!.content.contentId, content.contentId);
+      expect(_success(view.newCount).value, 100);
+      expect(_success(view.categoryReviewCount).value, 74);
+      final summary = _success(view.summary);
+      expect(summary.totalCount,
+          153); // Seed questions plus both configured members.
+      expect(summary.masteredCount, 1);
+      expect(summary.todayPracticedCount, 1);
+    });
+    expect(clocks, 1);
+  });
+
+  test(
+      'Today unconfigured and invalidated content keep Category review usable; fallback stays read-only',
+      () async {
+    await bank('Bank');
+    await question('due', 'Bank', 1);
+    final missing = _success(await today().readCurrent());
+    expect(missing.selection.state, TrainingCurrentContentState.unconfigured);
+    expect(missing.newCount, isA<HomeTrainingFailed<TrainingCount>>());
+    expect(_success(missing.categoryReviewCount).value, 1);
+    final a = await create(name: 'A');
+    _success(await repository.selectCurrent(SelectTrainingContentRequest(
+        target: _pref(_uncategorized, null), contentId: a.contentId)));
+    await invalidate(a);
+    await unchanged(() async {
+      final broken = _success(await today().readCurrent());
+      expect(broken.selection.state, TrainingCurrentContentState.unavailable);
+      expect(broken.summary, isA<HomeTrainingFailed<TrainingContentSummary>>());
+      expect(_success(broken.categoryReviewCount).value, 1);
+    });
+    final b = await create(name: 'B');
+    await unchanged(() async {
+      final fallback = _success(await today().readCurrent());
+      expect(fallback.selection.preference!.currentContentId, a.contentId);
+      expect(fallback.selection.currentContent!.content.contentId, b.contentId);
+      expect(_success(fallback.newCount).value,
+          0); // No seeded ReviewState is created.
+    });
+  });
+
+  test(
+      'Today uses shared Category visibility/order and returns failure after DB loss',
+      () async {
+    await bank('Z', folder: 'Z');
+    await bank('A', folder: 'A');
+    await bank('Bank');
+    await unchanged(() async {
+      final view = _success(await today().readCurrent());
+      expect(view.categories,
+          [FolderCategoryKey('A'), FolderCategoryKey('Z'), _uncategorized]);
+    });
+    await db.close();
+    expect(await today().readCurrent(),
+        isA<HomeTrainingFailed<TodayTrainingSnapshot>>());
+  });
 
   test(
       'configuration controller integrates real ports, separate visual CAS and explicit rebind',

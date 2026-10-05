@@ -7,7 +7,7 @@ once in `AGENTS.md`.
 ## Context and preflight
 
 Follow the context route in `AGENTS.md`. Open the governing contract itself and
-the current task package when one exists; a parent summary does not replace them.
+the current temporary task package when one exists (handoff/context or PR body); a parent summary does not replace them.
 Reuse credible inherited evidence, but confirm status and the current
 branch/HEAD against the authorized target before writing.
 
@@ -30,7 +30,7 @@ Never edit generated files manually.
 3. Run focused tests, relevant architecture gates, analyze, the read-only format
    gate and `git diff --check`.
 4. Inspect final paths/diff for scope drift and record actual results.
-5. Perform only authorized Git delivery steps, then STOP for independent review.
+5. Ensure every declared `UPDATE` durable doc is current in the same candidate head, keep the PR body's `## Task package` current when a PR exists, perform authorized Git delivery, then STOP for independent review.
 
 A failed check follows `AGENTS.md` self-repair conditions and budgets. Report
 self-repair cycle and inherited review-repair round counts. Never weaken a check.
@@ -63,9 +63,9 @@ Use the writable-package template in `docs/agents/README.md`.
 Initial work creates the authorized dedicated branch; follow-up/repair reuses
 the existing task branch and PR. Executor role alone grants no Git action.
 Commit only when commit authority is yes; push and PR creation need their own
-authority. `PR-create` does not authorize metadata updates, comments, review
-submission, close/reopen or any other PR mutation; follow the separate-action
-rule in `AGENTS.md`.
+authority. `PR-create` does not authorize general metadata updates, comments, review
+submission, close/reopen or other PR mutation; the bounded `## Task package`
+body-section exception is defined in `AGENTS.md`.
 Do not self-review, self-approve, merge or begin a later stage.
 
 For migrations retain required compatibility bridges until their deletion

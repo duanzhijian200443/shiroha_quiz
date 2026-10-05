@@ -1,127 +1,67 @@
 # Agent Workflow Guide
 
-`AGENTS.md` owns shared permissions, safety, budgets, verification/merge gates
-and Git policy. Role files own only their role's operations and outputs.
-`ARCHITECTURE.md` and focused contracts own product/architecture semantics.
+`AGENTS.md` owns shared permissions, budgets, verification/merge gates and Git
+policy. Role files own only role operations. Canonical contracts own durable
+product/architecture semantics.
 
 ## Route
 
 ```text
-Human / Coordinator
--> Planner or Diagnostician when needed
--> Executor + mechanical checks + authorized PR delivery -> STOP
--> standing PR CI as the default independent verification gate
--> Verifier only when required acceptance is not credibly covered by CI
--> mandatory Independent Reviewer
--> bounded same-PR repair and fresh closure when needed
--> authorized Documentation Closure
--> final-head CI + final Reviewer PR approval
+Planner/Diagnostician when needed
+-> temporary task package
+-> Executor + required durable docs + checks + authorized PR delivery -> STOP
+-> standing PR CI
+-> Verifier only for credible CI coverage gaps
+-> Independent Reviewer
+-> bounded same-PR repair + fresh CI/review when needed
 -> user-authorized merge
 ```
 
-Review/verification require a frozen target and a stopped writer.
-Green Executor checks do not constitute independent approval. Standing CI normally
-owns deterministic verification; Reviewer always owns semantic approval.
+There is no mandatory post-approval documentation commit.
 
-## Roles
-
-| Role | Responsibility | Tracked edits |
-|---|---|---|
-| Coordinator | Freeze, dispatch, inspect, authorized integration | Explicit Coordinator-owned integration only; no production/tests |
-| Planner | Contract/design and runnable packages | No |
-| Diagnostician | Failure boundary/root cause | No |
-| Executor | Implementation, checks and authorized delivery | Assigned responsibility |
-| Verifier | Independent checks CI cannot credibly cover | No |
-| Reviewer | Independent semantic verdict + authorized documentation closure | Read-only during review; listed docs only during closure |
-
-## Writable package
-
-Use this template for initial execution and repair; keep only task-specific facts.
-Explicit user instructions may supply the same information without a formal package.
+## Temporary writable package
 
 ```text
 角色：执行
 任务：<bounded objective>
-
 Base: <authorized base>
-Branch: <assigned task branch>
+Branch: <assigned branch>
 Branch mode: create | reuse
 Canonical contract: <governing paths or none>
-Task package: <current package path or inline task>
+Task package location: current context | PR body ## Task package
 Documentation responsibility:
-- <exact path>: UPDATE | CHECK_ONLY
+- <exact repository path>: UPDATE | CHECK_ONLY
 # or: none
 Expected ownership paths: <primary files/modules>
 Strict path whitelist: no | yes
-Frozen task semantics: <current-stage invariants>
-Acceptance: <focused criteria>
-Validation: <focused checks>
+Frozen task semantics: <invariants>
+Acceptance: <criteria>
+Validation: <checks>
 Git: branch-create yes|no; stage yes|no; commit yes|no; push yes|no; PR-create yes|no; merge yes|no
-PR metadata: title/body-update yes|no
-Documentation closure: reviewer-update yes|no; commit yes|no; push yes|no
-Review repair rounds used: <0 initially; inherited count for repair>
-Stop conditions: <task-specific blockers beyond AGENTS.md>
+PR metadata outside ## Task package: title/body-update yes|no
+Review repair rounds used: <count>
+Stop conditions: <extra blockers>
 ```
 
-Use `create` for authorized initial branch creation and `reuse` for same-task
-follow-ups/repair. Missing Git/PR actions are unauthorized.
-`PR-create` covers creation only. Title/body updates, close/reopen and other PR
-mutations require the corresponding explicit authority under `AGENTS.md`; do not
-infer them from PR creation or push authority. Reviewer and Verifier assignments
-explicitly targeting an existing PR do not need separate package flags for their
-one role-evidence publication per completed pass.
-Add Worktree and its authority only when isolation is needed.
+The package is ephemeral. Before PR creation it stays in handoff/context; after
+PR creation it is maintained in the PR body's `## Task package` section.
+Updating that section within the authorized objective does not change commit SHA
+and does not create new authority. Do not commit sibling task Markdown files,
+task queues, status tables or completion markers.
 
-`Documentation responsibility` is mandatory for a completion package:
-`UPDATE` means accepted delivery changes durable truth/status and the path must be
-closed before final approval; `CHECK_ONLY` means the Reviewer verifies that the
-existing text is not stale or contradictory. Use explicit `none` when no durable
-document can change. Repository-absolute paths are the default; inside a focused
-contract directory, exact relative `./...` paths are allowed and preferred for
-sibling contract/package entries that must remain valid after the directory is
-renamed. Do not make agents rediscover closure paths from memory.
+`UPDATE` docs must already be current on the candidate head before review.
+`CHECK_ONLY` docs are inspected for contradiction. Use `none` when appropriate.
 
-For durable staged work, prefer `docs/product/<capability>/00-contract.md` plus
-optional numerically ordered sibling task packages. The focused contract directory
-is the queue; do not create a second Automation queue. Do not add `Task-ID`,
-`Status`, or a separate execution-plan file just to mirror progress. The package
-path/filename is sufficient scheduling identity. A tracked package is renamed with
-the `-完成.md` suffix only in final Documentation Closure. When the whole capability
-closes, the directory itself becomes `<capability>-完成/` under the rules in
-`AGENTS.md`.
+For durable staged work, keep one focused canonical capability contract where
+practical. Put implementation order/prerequisites there; keep execution history
+in Git/PR/CI/review evidence.
 
-Add directly necessary coupled paths under the shared ownership policy and report
-why; strict whitelists require explicit authorization to expand.
+Standing `PR contract checks` is the default independent deterministic verifier.
+Create a Verifier assignment only for required acceptance not credibly covered by
+CI. Reviewer reads the governing contract, final PR-body task package, evidence,
+Documentation responsibility and focused diff. Missing required durable docs are
+normal review findings routed through same-PR repair; Reviewer does not patch
+tracked files.
 
-## Independent verification and review packages
-
-Standing automatic `PR contract checks` is the default independent verification
-authority for completion PRs and must cover the current head/current merge target.
-
-Create a Verifier package only when required acceptance is not credibly covered by
-standing CI. Include role, objective, fixed target, governing contract, exact
-assigned commands/observations and the CI coverage gap. When the assignment targets
-an existing PR, one Verifier evidence publication is a standing role permission and
-does not need a separate package field. Verifier never repairs.
-
-Reviewer package includes base/final target, original task/contract/package,
-Executor/CI evidence, optional Verifier evidence, assigned review dimensions,
-inherited review-round count, Documentation responsibility and authorized closure
-actions.
-
-A stable semantic review may reach provisional `APPROVE`. Final `APPROVE` for a
-completion PR comes only after authorized documentation closure, final-head CI and
-a targeted final-head check. Final review evidence is recorded on the PR as
-`[REVIEW APPROVAL]`. If a Verifier was required, its PASS is recorded as
-`[VERIFICATION APPROVAL]`.
-
-## Evidence and closure
-
-Use concise target identity, changed behavior/paths, actual checks, skipped gates,
-repair counts and unresolved risks. Do not duplicate shared rules or full logs.
-Each writer owns one coherent responsibility; shared paths have one owner.
-
-Before merge, require final-head/current-target CI success, final Reviewer PR
-approval, any required Verifier PR approval, closed Documentation responsibility
-and explicit merge authority. Later-stage work still requires its own scope and
-authority unless an explicitly activated Automation run provides that continuation.
+Final approval requires exact-head/current-target CI, zero P0/P1/P2, closed
+Documentation responsibility and any required Verifier evidence.

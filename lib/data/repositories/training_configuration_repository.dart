@@ -4,6 +4,7 @@ import '../../application/home_training_result.dart';
 import '../../application/training/training_configuration_contracts.dart';
 import '../../application/training/training_configuration_projection.dart';
 import '../../application/training/training_contracts.dart';
+import '../../application/training/today_training_contracts.dart';
 import '../../core/database/database_helper.dart';
 import '../../core/database/ordinary_training_bank_policy.dart';
 import '../../core/database/sqflite_runtime.dart';
@@ -229,7 +230,12 @@ final class TrainingConfigurationRepository
   Future<HomeTrainingResult<TrainingCurrentSelection>> current() =>
       _transaction(_current);
 
-  Future<TrainingCurrentSelection> _current(DatabaseExecutor db) async {
+  Future<
+      ({
+        TrainingCatalogSnapshot catalog,
+        List<TrainingCategorySnapshot> categories,
+        TrainingCurrentSelection selection
+      })> _context(DatabaseExecutor db) async {
     final catalog = await _catalog(db);
     final keys = catalog.categories.toSet();
     for (final row
@@ -248,13 +254,100 @@ final class TrainingConfigurationRepository
         columns: ['value'],
         where: 'key = ?',
         whereArgs: [currentTrainingCategorySetting]);
-    return resolveTrainingCurrent(
+    final selection = resolveTrainingCurrent(
       persistedCategoryKey:
           settings.isEmpty ? null : _category(settings.single['value']),
       catalog: catalog,
       categories: categories,
     );
+    return (catalog: catalog, categories: categories, selection: selection);
   }
+
+  Future<TrainingCurrentSelection> _current(DatabaseExecutor db) async =>
+      (await _context(db)).selection;
+
+  /// Infrastructure-only projection entry: one short read transaction owns
+  /// catalog admission, runtime fallback, selection and all training counts.
+  Future<HomeTrainingResult<TodayTrainingSnapshot>> readTodayTraining({
+    required DateTime capturedNow,
+    required DateTime dayStartUtc,
+    required DateTime dayEndUtc,
+  }) =>
+      _transaction((txn) async {
+        final context = await _context(txn);
+        final selection = context.selection;
+        final visible = <CategoryKey>{
+          for (final bank in context.catalog.banks)
+            if (bank.ordinaryTrainingEligible) bank.categoryKey,
+          for (final category in context.categories)
+            if (category.contents.isNotEmpty) category.categoryKey,
+        }.toList()
+          ..sort(compareTrainingCategories);
+        const missing = HomeTrainingFailure.unavailable;
+        HomeTrainingResult<TrainingCount> newCount =
+            const HomeTrainingFailed(missing);
+        HomeTrainingResult<TrainingContentSummary> summary =
+            const HomeTrainingFailed(missing);
+        HomeTrainingResult<TrainingCount> review =
+            const HomeTrainingFailed(missing);
+        if (selection.categoryKey != null) {
+          final banks = context.catalog.banks
+              .where((b) =>
+                  b.ordinaryTrainingEligible &&
+                  b.categoryKey == selection.categoryKey)
+              .map((b) => b.bankName)
+              .toList();
+          final count = banks.isEmpty
+              ? 0
+              : (await txn.rawQuery('''
+        SELECT COUNT(DISTINCT q.id) AS n FROM questions q
+        JOIN review_states rs ON rs.question_id = q.id
+        WHERE q.bank_name IN (${List.filled(banks.length, '?').join(',')})
+        AND rs.state > 0 AND rs.next_review_time <= ?
+      ''', [...banks, capturedNow.millisecondsSinceEpoch ~/ 1000])).single['n']
+                  as int;
+          review = HomeTrainingSuccess(TrainingCount(count));
+        }
+        if (selection.state == TrainingCurrentContentState.usable) {
+          final members = selection.currentContent!.content.members;
+          final banks = members.map((m) => m.bankName).toList();
+          final positive = members
+              .where((m) => m.weightPercent > 0)
+              .map((m) => m.bankName)
+              .toList();
+          final count = (await txn.rawQuery('''
+        SELECT COUNT(DISTINCT q.id) AS n FROM questions q
+        JOIN review_states rs ON rs.question_id = q.id
+        WHERE q.bank_name IN (${List.filled(positive.length, '?').join(',')})
+        AND rs.state = 0
+      ''', positive)).single['n'] as int;
+          newCount = HomeTrainingSuccess(TrainingCount(count));
+          final row = (await txn.rawQuery('''
+        SELECT COUNT(DISTINCT q.id) AS total,
+          COUNT(DISTINCT CASE WHEN rs.state = 3 THEN q.id END) AS mastered,
+          COUNT(DISTINCT CASE WHEN rl.review_time >= ? AND rl.review_time < ?
+            THEN q.id END) AS practiced
+        FROM questions q LEFT JOIN review_states rs ON rs.question_id = q.id
+        LEFT JOIN review_logs rl ON rl.question_id = q.id
+        WHERE q.bank_name IN (${List.filled(banks.length, '?').join(',')})
+      ''', [
+            dayStartUtc.millisecondsSinceEpoch ~/ 1000,
+            dayEndUtc.millisecondsSinceEpoch ~/ 1000,
+            ...banks
+          ]))
+              .single;
+          summary = HomeTrainingSuccess(TrainingContentSummary(
+              totalCount: row['total'] as int,
+              masteredCount: row['mastered'] as int,
+              todayPracticedCount: row['practiced'] as int));
+        }
+        return TodayTrainingSnapshot(
+            selection: selection,
+            categories: visible,
+            newCount: newCount,
+            categoryReviewCount: review,
+            summary: summary);
+      });
 
   void _admit(TrainingContent content, TrainingCatalogSnapshot catalog) {
     if (!projectTrainingContent(content, catalog).usable) {

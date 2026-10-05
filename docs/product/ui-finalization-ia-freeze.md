@@ -15,12 +15,17 @@ no production code, tests, schema, or workflow change.
 
 The v0 three-mode Today organization and its closure evidence below are
 historical. `today-home-refresh-freeze.md` now governs the unified scrolling
-Today dashboard: independent ordinary new/due entries, one real active-plan
-preview leading to a lightweight current-plan detail, learning activity and a
+Today dashboard, with the Home Training V3 successor now implemented by B4:
+Category/current TrainingContent pages and independent new/Category-due entries,
+one real active-plan preview leading to a lightweight current-plan detail,
+segment-derived weekly learning days/duration and a
 standalone MockCenter entry. There is no Today mode selector or embedded exam
 polling surface. Primary navigation remains 今日 | 助手 | 我的. StudyPlan,
 FSRS, import, Assistant and Profile business contracts remain unchanged;
-deferred statistics and full plan management remain deferred.
+complex statistics and full plan management remain deferred. The B4 contract at
+`home-training-v3.md` governs selection/count/Activity semantics;
+legacy bank-scoped Today entry and PlanConfigScreen remain compatibility code,
+and are absent from the production Home configuration route.
 
 ## 1. Purpose
 
@@ -377,7 +382,7 @@ unchanged.
 
 ## HOME-TRAINING-V3 amendment (backend partial; UI activation pending)
 
-`docs/product/home-training-v3/00-contract.md` freezes the planned
+`docs/product/home-training-v3.md` freezes the planned
 successor `SHIROHA-HOME-TRAINING-IPF-V3` covering TrainingContent
 configuration and Today/Home v2 (Category cards, current TrainingContent,
 Category-scoped review pool, weekly activity). The **configuration and

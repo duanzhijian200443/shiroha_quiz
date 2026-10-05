@@ -31,7 +31,7 @@ Before a non-trivial task, read:
   plus sections relevant to the affected capability;
 - the governing task-specific canonical/frozen contract source when the task
   implements, changes or reviews behavior it owns;
-- the current bounded task package when one exists;
+- the current temporary task package when one exists (current handoff/context before PR creation, or the PR body's `## Task package` section after PR creation);
 - relevant implementation/tests/current diff.
 
 Use the architecture reading guide and focused searches to identify applicable
@@ -77,7 +77,7 @@ independent authorized work.
 
 Only an explicit current-user `角色：自动化` activates the isolated protocol.
 Normal roles do not load `docs/automation/**` except assigned task artifacts.
-The controller reads the protocol and the selected focused contract directory; workers receive only their bounded task.
+The controller reads the protocol, roadmap/current capability contract and Git/PR facts; workers receive only their bounded temporary task package.
 
 Within existing user authority, the protocol replaces only controller stops at
 worker delivery, per-package handback/new-request requirements, and handling of
@@ -86,7 +86,7 @@ checkpoints and perform pre-authorized conditional merges. A dispatched Executor
 package must carry any applicable bounded verification-repair exception.
 Workers retain their roles, independent review and delivery stops.
 
-No Git, runtime or scope authority is inferred from activation, directory names or completion suffixes.
+No Git, runtime or scope authority is inferred from activation, temporary package text or PR-body state.
 All other safety, privacy, canonical-contract, ownership, destructive-Git,
 evidence, required-gate and repair-budget rules remain unchanged.
 
@@ -125,13 +125,13 @@ Default route:
 
 ```text
 Planner/Diagnostician only when needed
--> Executor + mechanical checks
+-> Executor + required durable-document updates + mechanical checks
 -> authorized PR delivery -> STOP
 -> standing PR CI verification gate
 -> Verifier only when required acceptance is not credibly covered by CI
 -> Independent Reviewer
--> bounded repair when needed
--> documentation closure + final-head CI
+-> bounded same-PR repair when needed
+-> final Reviewer approval
 -> user-authorized merge
 ```
 
@@ -244,6 +244,15 @@ non-PASS result. This evidence mutation does not authorize title/body changes,
 labels, close/reopen, merge, code edits or any other PR mutation. A generic `PR yes`
 is not blanket authority.
 
+For an authorized task PR, the assigned writer or Coordinator may maintain only
+the delimited `## Task package` section of that PR body as a temporary execution
+artifact. This standing permission is limited to the already-authorized objective,
+scope, acceptance, Documentation responsibility and current Git/PR facts. It may
+not grant new authority, broaden product scope, alter unrelated PR-body sections,
+or change title/base/state/labels. Updating this section does not change the commit
+SHA. A material change to objective, acceptance or Documentation responsibility
+after review invalidates that review; factual wording/status corrections do not.
+
 ## 8. Security, privacy and network
 
 Never expose or persist secrets, private configuration or complete private file
@@ -289,7 +298,7 @@ Never claim an unrun check passed; report skipped/failed checks.
 A command with no meaningful progress for three minutes is stalled. Preserve
 evidence; do not silently extend timeouts or retry indefinitely.
 
-## 10. Review, documentation closure and merge evidence
+## 10. Review, documentation responsibility and merge evidence
 
 | Severity | Meaning |
 |---|---|
@@ -306,57 +315,46 @@ P0/P1/P2 -> bounded Repair Executor on the same branch/PR -> mechanical checks
 insufficient -> fresh targeted Reviewer closure. Targeted review expands only if
 the repair invalidated the original scope.
 
-Every writable package must declare `Documentation responsibility` as exact paths
-with `UPDATE` or `CHECK_ONLY`, or explicitly state `none`. Repository-absolute paths
-are the default. Inside a focused contract directory, `./...` is also an exact path:
-it resolves against the current task package directory and is preferred for sibling
-contract/package responsibilities that must survive a final capability-directory rename.
-`UPDATE` means the accepted delivery changes durable truth/status at that path.
-`CHECK_ONLY` means the Reviewer must confirm the file does not materially
-contradict the accepted delivery; it is not write authority.
+Every temporary writable task package must declare `Documentation responsibility`
+as exact repository paths with `UPDATE` or `CHECK_ONLY`, or explicitly state
+`none`. `UPDATE` means the accepted delivery changes durable truth/status at
+that path, and the Executor must bring it current in the same candidate head before
+independent review. `CHECK_ONLY` means the Reviewer confirms the existing text
+does not materially contradict the accepted delivery; it is not write authority.
 
-After required verification is complete and semantic review reaches provisional
-`APPROVE`, an explicitly authorized Reviewer may enter Documentation Closure.
-That exception may modify only paths marked `UPDATE` plus the PR title/body.
-It never permits production/test/CI/config/dependency edits or a change to frozen
-product semantics. Documentation writes, commit/push and PR metadata mutation
-remain separately authorized actions. Without that authority, report the exact
-closure needed to an authorized writer and withhold final approval.
+There is no mandatory post-approval Documentation Closure. Durable docs required
+for the delivery belong in the implementation/repair head before CI and review.
+If review finds a missing/stale durable document, route it through the same-PR
+repair flow. Any tracked documentation repair advances the head and therefore
+requires standing CI and fresh review. Reviewer remains read-only apart from its
+single PR-evidence publication.
 
-Any closure commit advances the PR head. Rerun the standing PR CI on the final
-head/current merge target, then refreeze and inspect the closure diff. A prior
-Verifier PASS may carry forward only when every change since its verified head is
-authorized documentation/PR-metadata closure and the Reviewer confirms that no
-verified behavior changed; otherwise rerun the Verifier.
+The temporary task package may be refined in the PR body without changing the Git
+head, but it cannot create new authority. Material changes to objective, acceptance
+or Documentation responsibility require a fresh review pass even when no commit
+changed.
 
-A completion PR is merge-ready only when all of the following hold:
-
+A completion PR is merge-ready only when:
 - final-head/current-target `PR contract checks` succeeded;
-- the mandatory Independent Reviewer recorded `[REVIEW APPROVAL]` on the PR for
-  the final head, with zero open P0/P1/P2 findings and documentation closure status;
-- when a Verifier was required, its `[VERIFICATION APPROVAL]` PR evidence is
-  present for the applicable verified head;
-- every declared documentation responsibility is closed;
+- the Independent Reviewer recorded `[REVIEW APPROVAL]` for the final head with
+  zero open P0/P1/P2;
+- required Verifier `[VERIFICATION APPROVAL]` evidence is present when applicable;
+- every declared Documentation responsibility is closed on that candidate head;
 - explicit user merge authority exists.
 
-When a Reviewer or Verifier assignment explicitly targets an existing PR,
-publishing one role-evidence comment/submission for that completed pass is part of
-the role and needs no separate task-package field. Reviewer uses
-`[REVIEW APPROVAL]`, `[REVIEW REQUEST_CHANGES]` or `[REVIEW INCONCLUSIVE]`;
-Verifier uses `[VERIFICATION APPROVAL]` on PASS and `[VERIFICATION RESULT]` on
-non-PASS. Final merge readiness still requires the applicable final review and
-verification evidence.
+Reviewer/Verifier assignments explicitly targeting an existing PR may publish one
+role-evidence record per completed pass without a separate package flag. Reviewer
+uses `[REVIEW APPROVAL]` / `[REVIEW REQUEST_CHANGES]` /
+`[REVIEW INCONCLUSIVE]`; Verifier uses `[VERIFICATION APPROVAL]` on PASS and
+`[VERIFICATION RESULT]` on non-PASS.
 
-For historical state reconstruction only, a PR that GitHub reports as `MERGED` is
-by default treated as having satisfied its review gate even when older workflow
-runs did not leave a `[REVIEW APPROVAL]` marker. Do not reopen or re-review that
-merged delivery solely because the marker is absent. Stronger contrary evidence
-(such as a later revert, an explicitly unresolved blocker or a current user
-instruction) may still reopen the capability as new work. This historical rule
-never authorizes merging an open PR or bypassing the current review gate.
+For historical reconstruction, a PR GitHub reports as `MERGED` is treated as
+having satisfied its review gate even when an older workflow left no approval
+marker. Do not reopen/re-review solely to manufacture one. A later revert,
+explicit unresolved blocker or current user instruction may create new bounded
+work. This rule never lets an open PR bypass the current review gate.
 
-Repository/global status defaults to `NOT_EVALUATED` for focused tasks; local
-evidence never implies global acceptance.
+Repository/global status defaults to `NOT_EVALUATED` for focused tasks.
 
 ## 11. Orchestration
 
@@ -370,56 +368,33 @@ Delegated children have one bounded role/task; they may not create descendants,
 switch roles, expand scope or decide public architecture/contracts.
 Read `docs/agents/model-routing.md` when routing children.
 
-## 12. Canonical documents and task-package layout
+## 12. Canonical documents and temporary task packages
 
-Canonical contracts record durable product/architecture truth, not run logs, review
-findings or transient scheduling state. Git/PR/CI/Reviewer evidence owns exact
-execution facts.
+Canonical contracts record durable product/architecture truth; Git/PR/CI/Reviewer
+evidence owns exact execution facts.
 
-A staged product capability may use one focused directory:
+For staged product work, prefer one focused canonical contract per capability,
+normally `docs/product/<capability>.md`. Do not persist implementation task
+packages beside a contract merely to track order, NEXT, status or completion.
 
-```text
-docs/product/<capability>/
-├─ 00-contract.md
-├─ 10-<bounded-package>.md
-├─ 20-<bounded-package>.md
-└─ ...
-```
+Task packages are temporary execution artifacts:
+- before a PR exists, they live only in Planner/Coordinator handoff or active context;
+- once a PR exists, the current package lives in the PR body's `## Task package`;
+- they derive from the governing contract, roadmap and current Git/PR facts;
+- they may be refined within the already-authorized objective but cannot grant
+  new authority or silently broaden semantics;
+- they are not committed as sibling Markdown files and use no Task-ID,
+  READY/ACTIVE/DONE, `-完成` suffix or task-queue mirror.
 
-`00-contract.md` is the semantic authority. Sibling package files are optional
-bounded execution packages, not a second contract and not a status database.
-The focused contract directory itself is the task queue; do not maintain a second
-Automation queue or a standalone execution-plan document merely to repeat package
-order, status or NEXT.
+Completion is represented by merged PR + CI/review evidence. Durable capability
+state belongs in the canonical contract and, when stage-level truth changes, the
+roadmap. Do not make filenames imitate an execution database.
 
-Package filenames are the scheduling surface. Numeric prefixes express relative
-order, subject to contract prerequisites and current Git facts. Do not add
-`Task-ID` or `Status` metadata solely for orchestration. A package whose filename
-ends in `-完成.md` is closed for normal selection and should be skipped without
-opening unless historical evidence is explicitly needed.
-
-For a tracked package, the authorized final Documentation Closure may rename
-`NN-name.md` to `NN-name-完成.md` only after required verification has passed
-and semantic review has reached provisional APPROVE. Final-head CI and final
-Reviewer approval still run after that rename; therefore the default branch sees
-the completion suffix only if the completion PR actually merges.
-
-When every sibling task package is closed and the final capability-closure package
-has reached provisional APPROVE, the same authorized Documentation Closure may
-rename `docs/product/<capability>/` to `docs/product/<capability>-完成/`. That
-directory rename is itself an `UPDATE` responsibility, and every durable external
-reference to the directory must be listed explicitly and updated in the same
-closure. Internal package-to-contract references should be relative (for example
-`./00-contract.md`) so they survive the directory rename. Normal scheduling must
-list `docs/product/` first and skip any `*-完成/` directory without opening it.
-
-Planner identifies affected durable-state documents and places their exact paths
-in `Documentation responsibility`. Executor may update contract content when an
-authorized implementation changes product semantics, but must not pre-claim an
-independent acceptance result. Reviewer checks implementation/contract agreement
-in both directions and performs authorized final Documentation Closure.
-Roadmap summaries change only when stage-level truth changes. Verifier checks
-frozen behavior without redesign and does not own canonical status.
+Planner lists affected durable docs in the temporary package's Documentation
+responsibility. Executor updates required `UPDATE` docs in the same candidate
+head. Reviewer checks implementation/contract agreement in both directions.
+Verifier checks frozen behavior without redesign and never owns canonical status.
 
 Preserve historical truth through amendments, explicit historical labeling and
-superseding references. Do not rewrite later decisions into the historical baseline.
+superseding references.
+

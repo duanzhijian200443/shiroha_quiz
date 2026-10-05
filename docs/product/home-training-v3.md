@@ -15,40 +15,30 @@
 
 ## 1.1 唯一施工入口
 
-本专项使用一个 focused contract 目录：
+本专项唯一长期产品/架构 authority 为：
 
-```text
-docs/product/home-training-v3/
-├─ 00-contract.md
-├─ 10-b1-taskcenter-backend-完成.md
-├─ 20-b2-training-config-ui-完成.md
-├─ 30-b3-study-activity-runtime.md
-├─ 40-b4-home-v2.md
-├─ 50-b5-taskcenter-ui.md
-└─ 60-b6-closure.md
-```
+`docs/product/home-training-v3.md`
 
-`00-contract.md` 是本专项唯一产品、架构和生命周期语义 authority。同目录
-task package 只定义 bounded work、前置、ownership、acceptance 和验证，
-不得重新定义本文语义。文件名前缀表达相对顺序；`-完成.md` 是 package 快速
-完成标记。全部 package 闭环后，最终 Documentation Closure 将本目录重命名为
-`home-training-v3-完成/`，作为 capability 级完成标记；正常 Automation 仅看
-目录名即可跳过整个已关闭 capability。不存在独立 execution-plan authority、
-Automation task queue 或 Task-ID/Status 状态表。
+本文件同时冻结产品语义、状态 authority、生命周期、迁移、实施顺序、
+checkpoint 与验收矩阵。后续施工不再在 `docs/product/` 持久化 B1/B2/B3…
+task package、`-完成` 文件名、capability 完成目录或独立 execution plan。
+
+每个 bounded task 使用临时 task package：PR 创建前只存在于当前 handoff/context；
+PR 创建后保存于 PR body 的 `## Task package`。它可在已授权目标内补充
+ownership、acceptance、validation 和 Documentation responsibility，但不能改变
+本文冻结语义或产生新权限。
 
 权威顺序：
-
 1. 平台要求、用户明确指令、AGENTS.md；
-2. ARCHITECTURE.md 及未被本轮正式 amendment 改变的 focused canonical contracts；
-3. 本 V3 对本轮目标行为的明确冻结；
-4. 当前 bounded task package；
+2. ARCHITECTURE.md 及未被正式 amendment 改变的 focused canonical contracts；
+3. 本 V3 明确冻结；
+4. 当前临时 task package；
 5. Drive 原始任务文档和设计图；
 6. 历史方案、聊天记录、V1/V2、外部审阅建议。
 
-本 V3 是冻结目标契约。§1.1 的实施 amendments 按时间保留交付历史；较早
-段落里的 `NEXT` / “尚未实现”只描述当时状态，不能当作当前调度 authority。
-当前调度看同目录 task package 文件名，精确完成事实看 Git/PR/CI/Reviewer。
-保存本契约本身不代表所有后续 UI/production activation 已完成。
+较早 amendment 中的 NEXT/“尚未实现”只描述当时状态。当前调度由本契约实施
+顺序/前置、roadmap 与 Git/merged PR 事实共同决定；精确执行事实属于
+Git/PR/CI/Reviewer。
 
 实施状态 amendment（P1c）：P1a Domain 和 P1b Application contracts 已存在，runtime schema 已升级为 v29；TrainingContent 三表、一次性旧 current bank seed 和 B0 INCLUDE / staged validation 已实现。v30 / v31、配置 CRUD、binding lifecycle、Home/Today 新入口、训练启动和 Activity / TaskCenter runtime 仍待实施。本 amendment 不宣称这些功能已经 production-activated。
 
@@ -68,7 +58,11 @@ Automation task queue 或 Task-ID/Status 状态表。
 
 如发现本文与更高层 canonical contract 存在未明确处理的实质冲突，停止受影响任务并报告冲突。不得自行选边、降级、扩大范围或通过“兼容实现”绕过冲突。
 
-实施状态 amendment（B2）：B1 / CP2-I 已验收并合并。P6/P7a/P7b/P7c 已实现可注入的 Training Config 配置列表、共用 selector/editor 与真实 Application 集成；PR #230 已合并且 standing PR CI 成功。按当前治理规则，GitHub 已报告为 `MERGED` 的历史 PR 默认视为 review gate 已满足，不要求为旧流程缺失的 approval marker 重新审查。Category Visual 使用四个 preset 和 theme-safe fallback，属于 Category preference。完整配置 snapshot 在一个只读事务中包含 catalog 空分类及仍有配置的缺失题库分类；UI 不重算 usability 或 runtime fallback。草稿复用 Domain percentage/quota authority，取消不写入；显式重绑另行确认并立即保存，UI 明确其不随其它草稿取消撤销。content 和 visual 顺序独立 CAS，content 成功/visual 失败显示部分成功并 reload，stale 不自动重放。新增最小 Category 顺序 command：捕获完整 ordered content targets/revisions，事务内重验成员数、顺序和 revisions，再原子调整 dense sort ranks 与改变行的 revision，保留 members/preference；竞争或写失败零部分调整。schema 保持 v31，无 migration。Home/config I2 未激活，旧 PlanConfigScreen 保留；TaskCenter UI/I3、Practice/MockExam wiring、CP3 尚未完成。
+实施状态 amendment（B2）：B1 / CP2-I 已验收并合并。P6/P7a/P7b/P7c 已实现可注入的 Training Config 配置列表、共用 selector/editor 与真实 Application 集成；PR #230 已合并且 standing PR CI 成功。按当前治理，GitHub 已报告 MERGED 的历史 PR 默认视为 review gate 已满足，不要求补造旧 approval marker。Category Visual 使用四个 preset 和 theme-safe fallback，属于 Category preference。完整配置 snapshot 在一个只读事务中包含 catalog 空分类及仍有配置的缺失题库分类；UI 不重算 usability 或 runtime fallback。草稿复用 Domain percentage/quota authority，取消不写入；显式重绑另行确认并立即保存，UI 明确其不随其它草稿取消撤销。content 和 visual 顺序独立 CAS，content 成功/visual 失败显示部分成功并 reload，stale 不自动重放。新增最小 Category 顺序 command：捕获完整 ordered content targets/revisions，事务内重验成员数、顺序和 revisions，再原子调整 dense sort ranks 与改变行的 revision，保留 members/preference；竞争或写失败零部分调整。schema 保持 v31，无 migration。Home/config I2 未激活，旧 PlanConfigScreen 保留；TaskCenter UI/I3、Practice/MockExam wiring、CP3 尚未完成。
+
+实施状态 amendment（B3）：PR #232 已合并。Practice/MockExam production composition 共享唯一 PersistentStudyActivityService；system time adapter 使用 Stopwatch monotonic elapsed，同 mappingRevision 的 UTC 严格按已发布 anchor + monotonic delta 投影，wall jitter 不直接发布为 continuous sample。共用 route binding 管理 owner/checkpoint/pause/resume/terminal；MockExam durable submit 失败恢复 Activity 与原 countdown，Activity failure fail-open。schema 保持 v31；B3/I1 已成为 production truth。
+
+实施状态 amendment（B4）：PR #234 已合并。TodayTrainingQueryAdapter 在同一短只读事务投影 configuration/catalog/runtime selection/new/review/summary；NEW 只含 positive-weight member，Category due pool 独立且首页不 cap 40，摘要含 0% member。TodayController generation/dispose 拒绝 stale publish，Category/content 切换使用正式 CAS。Home V2 使用真实 Category/行动卡/周日历，新题/复习只在 prepared session ready 后进入 normal Practice，并携带 B3 context；B2 配置页从 Home 可达。单一 TrainingConfigurationRepository 供应 Today/configuration ports；旧 bank-scoped Today/PlanConfigScreen 仅保留兼容。schema 仍 v31；B4/I2 已成为 current runtime truth。TaskCenter UI/I3 与 B6 retirement/closure 仍待实施，CP3 在 I3 前 incomplete。
 
 ## 1.2 本轮包含
 
@@ -130,7 +124,7 @@ V2 其他产品与架构冻结继续有效。V3 新增或修订：
 | current category restore | structurally valid 但当前不可展示的 CategoryKey 不因 runtime fallback 成为损坏数据 |
 | ordinary bank eligibility | 引入单一 OrdinaryTrainingBankEligibility authority |
 | retry file selection | 显式文件选择为 ephemeral command/composition handoff，不进入 TaskCenter read DTO 或持久 snapshot |
-| P8 并行 | 满足各自当前 task package 与本文冻结前置后，P8a/P8b 才可彼此并行 |
+| P8 并行 | 满足本文冻结前置以及当次临时 task package 的 bounded scope 后，P8a/P8b 才可彼此并行 |
 
 继续保留 V2 核心决策：结构化 CategoryKey、继续使用 bankName、不引入 stable bankId、binding 持久 invalidation、同名题库重建不自动恢复、0% 不抽新题且不参与不足回填、只迁移旧 current bank、Category Visual 属于 Category、read fallback 不隐式持久化、injectable RNG bounded sampling、StudyActivitySession 命名、第五场景不在本轮激活、fixture-driven Presentation 可提前并行、schema/B0/composition 按 writer ownership 串行、TaskCenter 最终只消费 Application facade。
 
@@ -938,7 +932,7 @@ migration/restore failure 保留原 DB。可回退尚未 production-activated �
 
 ## 11.1 P0 文档
 
-历史 P0 当时获得文档写授权后保存 V3 正文与执行附录；该旧“执行附录”术语只描述当时的交付形式，现已由 focused contract directory + sibling task packages 取代；当前首页契约标记 V3 successor planned；记录 scope/excluded scope；修正 B0 current-state 为实际 v28/QuestionSet 已存在；保留历史版本记录。
+历史 P0 当时获得文档写授权后保存 V3 正文与执行附录；该旧术语只描述当时交付形式。当前治理已收敛为单一 V3 canonical contract + PR-scoped 临时 task package；当前首页契约标记 V3 successor planned；记录 scope/excluded scope；修正 B0 current-state；保留历史版本记录。
 
 P0 禁止宣称 v29/v30/v31 已存在、Home v2 已 production、Activity timing 已 production、TaskCenter facade 已 production。
 
@@ -954,7 +948,7 @@ P0 禁止宣称 v29/v30/v31 已存在、Home v2 已 production、Activity timing
 | Practice Activity production | Practice lifecycle amendment |
 | Weekly duration production | Today deferred clause |
 | TaskCenter facade production | current TaskCenter implementation truth |
-| final closure | Roadmap + V3 contract + applicable sibling task packages |
+| final closure | Roadmap + V3 canonical contract + 实际发生 durable truth 变化的其他 focused contracts |
 
 StudyPlan focused contract 不为记录“没有变化”而修改。
 

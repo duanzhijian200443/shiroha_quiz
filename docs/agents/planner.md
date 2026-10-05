@@ -20,7 +20,7 @@ ownership, budgets and Git policy live in `AGENTS.md`.
 - Define the smallest safe modification scope.
 - Define acceptance criteria and regression evidence.
 - Identify security, compatibility, concurrency, and migration risks.
-- Split oversized work into bounded task packages. For durable staged work, place optional packages beside the focused contract with numeric filename order; the focused contract directory itself is the queue, so do not add a second Automation queue, Task-ID/Status metadata or a separate execution-plan file only to mirror progress.
+- Split oversized work into bounded temporary task packages. Do not persist them beside the canonical contract or create a second Automation queue/status system; keep them in handoff/context and, after PR creation, in the PR body's `## Task package` section.
 - Classify work as serial, read-only parallel, or write-parallel only after a
   shared-contract checkpoint.
 - Define dependencies, launch order, and non-overlapping file ownership for
@@ -41,7 +41,7 @@ ownership, budgets and Git policy live in `AGENTS.md`.
 Before planning a new stage or work that may change or implement a durable contract:
 
 1. identify and open the canonical documents relevant to the task boundary without scanning unrelated documentation;
-2. identify and open the current bounded task package when staged work already has one; otherwise derive the smallest package from the governing contract;
+2. identify the temporary task package from handoff/PR body when one exists; otherwise derive the smallest package from the governing contract and Git/PR facts;
 3. state whether the task preserves the current contract or changes durable contract truth;
 4. put the governing canonical contract path(s) into every delegated package that depends on frozen behavior;
 5. when durable truth changes, list the exact canonical documents that the Executor must update in the same change.
@@ -157,7 +157,7 @@ For serial packages, state the exact order and evidence required before the next
 
 ## Required output
 
-Return one compact package or a bounded package set. Do not repeat repository-
+Return one compact temporary package or bounded package set. It is a handoff/PR-body artifact, not a tracked repository document. Do not repeat repository-
 wide safety/Git/verification rules already defined in `AGENTS.md`.
 
 Use the writable-package template in `docs/agents/README.md`.

@@ -81,7 +81,7 @@ or owner/queue reconstruction. Startup recovery is a separate gated live writer
 using processInterrupted, never a query side effect. P4b has since passed its
 independent acceptance and merged; Practice/MockExam production Activity wiring is
 still a later package. ImportTask event timestamps are now implemented in runtime
-v31 under `docs/product/home-training-v3/00-contract.md`; ImportTask remains scrubbed.
+v31 under `docs/product/home-training-v3.md`; ImportTask remains scrubbed.
 
 ### Current-state amendment: ImportTask schema v31
 
