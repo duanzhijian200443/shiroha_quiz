@@ -69,6 +69,3 @@ test_regex.exe
 # Local environment / secret files (never commit; nothing in the repo reads them)
 .env
 .env.*
-# Local Automation task packages
-docs/automation/task-queue/*
-!docs/automation/task-queue/README.md
