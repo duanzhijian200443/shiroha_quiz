@@ -97,8 +97,9 @@ authority for completion PRs and must cover the current head/current merge targe
 
 Create a Verifier package only when required acceptance is not credibly covered by
 standing CI. Include role, objective, fixed target, governing contract, exact
-assigned commands/observations, the CI coverage gap and PR evidence authority.
-Verifier never repairs.
+assigned commands/observations and the CI coverage gap. When the assignment targets
+an existing PR, one Verifier evidence publication is a standing role permission and
+does not need a separate package field. Verifier never repairs.
 
 Reviewer package includes base/final target, original task/contract/package,
 Executor/CI evidence, optional Verifier evidence, assigned review dimensions,
