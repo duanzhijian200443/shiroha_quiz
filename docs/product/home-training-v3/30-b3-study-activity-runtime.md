@@ -1,6 +1,6 @@
 # B3 StudyActivity Runtime
 
-Contract: `docs/product/home-training-v3/00-contract.md`
+Contract: `./00-contract.md`
 
 ## 范围
 - P8a：Practice StudyActivity integration；
