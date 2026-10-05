@@ -2,6 +2,10 @@
 
 Contract: `docs/product/home-training-v3/00-contract.md`
 
+## 当前状态
+
+B2 implementation 已由 PR #230 合并到 master，standing PR CI 已通过；旧流程留下的独立 Reviewer closure 尚未记录。不要重复实现已合并的 production/test 代码。当前 package 只负责对已合并 B2 delta 做独立语义审查，并在无 P0/P1/P2 时完成文档 closure；若 Reviewer 发现 blocking defect，再按正常 repair 流程另行修复。
+
 ## 范围
 - P6：Category Visual 与共享纯 UI primitives；
 - P7a：TrainingContent list pure Presentation；
@@ -28,5 +32,5 @@ Contract: `docs/product/home-training-v3/00-contract.md`
 
 ## Documentation responsibility
 - `docs/product/home-training-v3/00-contract.md`: CHECK_ONLY
-- `docs/architecture/shiroha-project-roadmap.md`: UPDATE if stage-level availability changes
-- 当前 task package：final Documentation Closure 时重命名为 `20-b2-training-config-ui-完成.md`
+- `docs/architecture/shiroha-project-roadmap.md`: UPDATE
+- `docs/product/home-training-v3/20-b2-training-config-ui.md`: UPDATE
