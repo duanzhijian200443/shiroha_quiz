@@ -28,9 +28,9 @@ Contract: `./00-contract.md`
 - required standing CI PASS，Independent Reviewer APPROVE。
 
 ## Documentation responsibility
-- `docs/product/home-training-v3/00-contract.md`: CHECK_ONLY
+- `./00-contract.md`: CHECK_ONLY
 - `docs/product/today-home-refresh-freeze.md`: UPDATE
 - `docs/product/ui-finalization-ia-freeze.md`: UPDATE
 - `ARCHITECTURE.md`: UPDATE
 - `docs/architecture/shiroha-project-roadmap.md`: UPDATE
-- `docs/product/home-training-v3/40-b4-home-v2.md`: UPDATE
+- `./40-b4-home-v2.md`: UPDATE
