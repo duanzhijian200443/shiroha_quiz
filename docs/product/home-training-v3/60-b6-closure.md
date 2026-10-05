@@ -28,5 +28,6 @@ Contract: `docs/product/home-training-v3/00-contract.md`
 - `docs/product/home-training-v3/00-contract.md`: UPDATE
 - `ARCHITECTURE.md`: UPDATE
 - `docs/architecture/shiroha-project-roadmap.md`: UPDATE
-- 其他被本轮替代的 focused UI contract：按实际 stage-level truth UPDATE
-- 当前 task package：final Documentation Closure 时重命名为 `60-b6-closure-完成.md`
+- `docs/product/today-home-refresh-freeze.md`: UPDATE
+- `docs/product/ui-finalization-ia-freeze.md`: UPDATE
+- `docs/product/home-training-v3/60-b6-closure.md`: UPDATE
