@@ -24,8 +24,8 @@ reading order only; all existing contracts and historical amendments remain vali
 | Review repair / photo answers | 15–16 |
 | TrainingContent / StudyActivity / TaskCenter | `docs/product/home-training-v3.md` canonical contract |
 
-Stage order and durable stage status belong to the focused contract/task-package
-layout and roadmap; Git/PR/CI identify the exact execution state. The stage
+Stage order and durable capability state belong to the focused canonical contract
+and roadmap; Git/PR/CI/Reviewer own exact execution history. The stage
 summaries below retain their recorded context and do not replace those sources.
 
 ## 1. Canonical dependency direction

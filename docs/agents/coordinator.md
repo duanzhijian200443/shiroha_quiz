@@ -48,7 +48,10 @@ rediscovery but never replaces the source.
 
 A commit identifies tracked contents; an uncommitted target also captures
 HEAD/status/changed paths/diff. Stop writers before review/verification.
-If the target changes, refreeze before a new pass.
+For PRs the frozen target also includes the package revision/recomputed digest
+under `docs/agents/README.md`. Verify the live body in default helper mode before
+dispatch and before merge; approval must match head, current base and both package
+identity fields. If any field changes, refreeze before a new pass.
 
 Each child handles one bounded role/task. Capture terminal evidence and retire
 that assignment before its successor. No descendants or silent role switches.

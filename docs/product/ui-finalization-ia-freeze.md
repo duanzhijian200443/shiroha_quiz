@@ -380,7 +380,12 @@ retaining typed/legacy authority, attempt recording, FSRS and preview semantics.
 The closed three-tab IA and the historical UI Finalization delivery remain
 unchanged.
 
-## HOME-TRAINING-V3 amendment (backend partial; UI activation pending)
+## Historical HOME-TRAINING-V3 amendment — superseded by B4 / PR #234
+
+The following text records the pre-B4 state. PR #234 has since merged and
+implemented Home/configuration activation; Current Today supersession above and
+`docs/product/home-training-v3.md` now own current truth. The historical claims
+below must not determine present navigation, activation status or scheduling.
 
 `docs/product/home-training-v3.md` freezes the planned
 successor `SHIROHA-HOME-TRAINING-IPF-V3` covering TrainingContent

@@ -190,7 +190,8 @@ Stop affected writes and delivery when:
 
 - responsibility, another writer's ownership or a strict whitelist would be crossed;
 - an unapproved schema/migration/public API/frozen-contract change is necessary;
-- required verification exposes a separate pre-existing defect;
+- required verification exposes a separate pre-existing defect outside the
+  explicitly activated Automation exception in `docs/automation/README.md`;
 - root cause or privacy/authorization/concurrency/transaction/persistence semantics
   cannot be resolved through bounded investigation;
 - passing would require weakening verification;
@@ -250,8 +251,18 @@ artifact. This standing permission is limited to the already-authorized objectiv
 scope, acceptance, Documentation responsibility and current Git/PR facts. It may
 not grant new authority, broaden product scope, alter unrelated PR-body sections,
 or change title/base/state/labels. Updating this section does not change the commit
-SHA. A material change to objective, acceptance or Documentation responsibility
-after review invalidates that review; factual wording/status corrections do not.
+SHA. Each PR-body package has a positive `Task-package revision` and SHA256
+`Task-package digest` under the single identity algorithm in `docs/agents/README.md`.
+The writer increments revision on each normalized section change and computes the
+digest before handing off. A digest proves content identity, never user authority.
+
+Reviewer/Verifier freeze head, base/merge target, revision and recomputed digest
+before their pass. Any normalized package change after that freeze invalidates the
+pass and its approval, including factual/wording corrections. Keep volatile CI/run
+updates in evidence outside the package to avoid unnecessary package changes.
+Before merge, recompute from the live PR body with the read-only identity helper
+in verification mode and compare all four identity fields with approval evidence;
+missing/invalid/mismatching identity never satisfies the gate.
 
 ## 8. Security, privacy and network
 
@@ -329,16 +340,19 @@ repair flow. Any tracked documentation repair advances the head and therefore
 requires standing CI and fresh review. Reviewer remains read-only apart from its
 single PR-evidence publication.
 
-The temporary task package may be refined in the PR body without changing the Git
-head, but it cannot create new authority. Material changes to objective, acceptance
-or Documentation responsibility require a fresh review pass even when no commit
-changed.
+The temporary task package may be refined before review without changing the Git
+head, but it cannot create new authority. After the pass freezes the package,
+any normalized section change requires a new revision/digest and a fresh pass,
+even when no commit changed. Corrections outside that section do not change its
+identity and must not redefine the reviewed task.
 
 A completion PR is merge-ready only when:
 - final-head/current-target `PR contract checks` succeeded;
-- the Independent Reviewer recorded `[REVIEW APPROVAL]` for the final head with
-  zero open P0/P1/P2;
-- required Verifier `[VERIFICATION APPROVAL]` evidence is present when applicable;
+- the Independent Reviewer recorded `[REVIEW APPROVAL]` matching final head,
+  current base/merge target and current task-package revision/recomputed digest,
+  with zero open P0/P1/P2;
+- required Verifier `[VERIFICATION APPROVAL]` evidence matches the applicable
+  verified target and frozen package identity when required;
 - every declared Documentation responsibility is closed on that candidate head;
 - explicit user merge authority exists.
 

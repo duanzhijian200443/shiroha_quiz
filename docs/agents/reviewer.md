@@ -20,6 +20,11 @@ per-file hashing, baseline reconstruction or root-cause work merely for reassura
 
 Prefer explicit base and PR head/commit. An uncommitted target requires a stopped
 worktree with captured HEAD/status/changed paths/diff.
+For a PR, verify the live body with the default identity-helper mode in
+`docs/agents/README.md` and freeze head, base/merge target, package revision and
+recomputed digest. Recheck that tuple before publishing. A body-only package edit
+invalidates the pass even if the Git head is unchanged. Do not edit the package to
+repair missing identity; missing/invalid identity cannot receive approval.
 
 Read, in order:
 
@@ -81,8 +86,10 @@ concise PR evidence record without requiring a separate permission field:
 - `REQUEST_CHANGES` -> `[REVIEW REQUEST_CHANGES]`;
 - `INCONCLUSIVE` -> `[REVIEW INCONCLUSIVE]`.
 
-Include the reviewed head, base/merge target, verdict, P0/P1/P2/P3 counts, review
-round, and a bounded summary of blockers or Documentation responsibility status. This
+Include the reviewed head, base/merge target, `Task-package revision`, recomputed
+`Task-package digest`, verdict, P0/P1/P2/P3 counts, review round, and a bounded
+summary of blockers or Documentation responsibility status. If identity is absent
+or invalid, say so rather than inventing it. This
 standing evidence permission authorizes no other PR mutation.
 
 Final `APPROVE` for a completion PR requires final-head standing CI success,

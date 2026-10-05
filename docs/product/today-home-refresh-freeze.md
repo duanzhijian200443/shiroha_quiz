@@ -180,7 +180,8 @@ launch、durable StudyActivity、v31 ImportTask event timestamps 与 TaskCenter
 backend 已分阶段合并，用户已确认 B2/B3 完成。B4 在现有 HomePage 实现
 Home/configuration Presentation 与 I2 production wiring；上述 bank-scoped
 普通训练和学习动态描述保留为历史基线，新的行为由下列 amendment 与
-`00-contract.md` §7 管理。独立 B4 审查、最终 CI 与合并仍按仓库 gate 完成。
+`docs/product/home-training-v3.md` §7 管理。PR #234 已合并，B4/I2 已成为
+当前 production truth；独立审查与 CI 的历史执行证据由该 merged PR 保留。
 
 本轮实施包括：
 

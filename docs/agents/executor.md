@@ -30,7 +30,11 @@ Never edit generated files manually.
 3. Run focused tests, relevant architecture gates, analyze, the read-only format
    gate and `git diff --check`.
 4. Inspect final paths/diff for scope drift and record actual results.
-5. Ensure every declared `UPDATE` durable doc is current in the same candidate head, keep the PR body's `## Task package` current when a PR exists, perform authorized Git delivery, then STOP for independent review.
+5. Ensure every declared `UPDATE` durable doc is current in the same candidate head,
+   finalize the PR body's `## Task package` and its revision/digest under
+   `docs/agents/README.md`, verify the stored body read back from the PR, perform
+   authorized Git delivery, then STOP for independent review. Later run/CI status
+   updates belong outside the frozen package.
 
 A failed check follows `AGENTS.md` self-repair conditions and budgets. Report
 self-repair cycle and inherited review-repair round counts. Never weaken a check.
