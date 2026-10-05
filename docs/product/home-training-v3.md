@@ -23,18 +23,19 @@
 checkpoint 与验收矩阵。后续施工不再在 `docs/product/` 持久化 B1/B2/B3…
 task package、`-完成` 文件名、capability 完成目录或独立 execution plan。
 
-每个 bounded task 使用临时 task package：PR 创建前只存在于当前 handoff/context；
-PR 创建后保存于 PR body 的 `## Task package`。它可在已授权目标内补充
-ownership、acceptance、validation 和 Documentation responsibility，但不能改变
-本文冻结语义或产生新权限。
+正常施工不要求 PR-body task package。Planner/Coordinator 仅在委派执行需要时，
+可在当前 active context 中提供临时 execution handoff，用于记录 bounded scope、
+ownership、acceptance 与已存在的 authority；handoff 是可丢弃上下文，不是
+durable authority，也不得覆盖本文、用户指令或真实 Git/PR 事实。只有显式
+Automation 模式可按 `docs/automation/README.md` 在 PR body 维护非权威的
+`## Automation state` 作为断点恢复提示。
 
 权威顺序：
 1. 平台要求、用户明确指令、AGENTS.md；
 2. ARCHITECTURE.md 及未被正式 amendment 改变的 focused canonical contracts；
 3. 本 V3 明确冻结；
-4. 当前临时 task package；
-5. Drive 原始任务文档和设计图；
-6. 历史方案、聊天记录、V1/V2、外部审阅建议。
+4. Drive 原始任务文档和设计图；
+5. 历史方案、聊天记录、V1/V2、外部审阅建议。
 
 较早 amendment 中的 NEXT/“尚未实现”只描述当时状态。当前调度由本契约实施
 顺序/前置、roadmap 与 Git/merged PR 事实共同决定；精确执行事实属于
@@ -124,7 +125,7 @@ V2 其他产品与架构冻结继续有效。V3 新增或修订：
 | current category restore | structurally valid 但当前不可展示的 CategoryKey 不因 runtime fallback 成为损坏数据 |
 | ordinary bank eligibility | 引入单一 OrdinaryTrainingBankEligibility authority |
 | retry file selection | 显式文件选择为 ephemeral command/composition handoff，不进入 TaskCenter read DTO 或持久 snapshot |
-| P8 并行 | 满足本文冻结前置以及当次临时 task package 的 bounded scope 后，P8a/P8b 才可彼此并行 |
+| P8 并行 | 满足本文冻结前置以及当前用户已授权的 bounded scope 后，P8a/P8b 才可彼此并行 |
 
 继续保留 V2 核心决策：结构化 CategoryKey、继续使用 bankName、不引入 stable bankId、binding 持久 invalidation、同名题库重建不自动恢复、0% 不抽新题且不参与不足回填、只迁移旧 current bank、Category Visual 属于 Category、read fallback 不隐式持久化、injectable RNG bounded sampling、StudyActivitySession 命名、第五场景不在本轮激活、fixture-driven Presentation 可提前并行、schema/B0/composition 按 writer ownership 串行、TaskCenter 最终只消费 Application facade。
 
@@ -932,7 +933,7 @@ migration/restore failure 保留原 DB。可回退尚未 production-activated �
 
 ## 11.1 P0 文档
 
-历史 P0 当时获得文档写授权后保存 V3 正文与执行附录；该旧术语只描述当时交付形式。当前治理已收敛为单一 V3 canonical contract + PR-scoped 临时 task package；当前首页契约标记 V3 successor planned；记录 scope/excluded scope；修正 B0 current-state；保留历史版本记录。
+历史 P0 当时获得文档写授权后保存 V3 正文与执行附录；该旧术语只描述当时交付形式。当前治理已收敛为单一 V3 canonical contract；正常 delegated handoff 只存在于 active context，显式 Automation 才可维护非权威 PR-body resume state。当前首页契约标记 V3 successor planned；记录 scope/excluded scope；修正 B0 current-state；保留历史版本记录。
 
 P0 禁止宣称 v29/v30/v31 已存在、Home v2 已 production、Activity timing 已 production、TaskCenter facade 已 production。
 

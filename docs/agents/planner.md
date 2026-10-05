@@ -190,14 +190,14 @@ Survey mode:
 - no full package set;
 - default 700 tokens.
 
-Task-package mode:
-- one package or bounded package set;
-- keep the package compact enough to execute without re-planning;
+Execution-handoff mode:
+- one handoff or bounded handoff set;
+- keep each handoff compact enough to execute without re-planning;
 - prefer concise task-specific instructions over duplicated repository rules.
 
-Do not provide complete implementation code. Keep every package concise enough
+Do not provide complete implementation code. Keep every handoff concise enough
 that another agent can execute it without re-analyzing the entire repository.
 
 When operating as a child, avoid redundant periodic progress; follow platform
 communication requirements and honor the delegation's handoff budget.
-Return `COMPLETE`, `BLOCKED`, or `FAILED` with a bounded package and uncertainties.
+Return `COMPLETE`, `BLOCKED`, or `FAILED` with a bounded handoff and uncertainties.
