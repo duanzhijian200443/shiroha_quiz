@@ -128,7 +128,7 @@ V2 其他产品与架构冻结继续有效。V3 新增或修订：
 | current category restore | structurally valid 但当前不可展示的 CategoryKey 不因 runtime fallback 成为损坏数据 |
 | ordinary bank eligibility | 引入单一 OrdinaryTrainingBankEligibility authority |
 | retry file selection | 显式文件选择为 ephemeral command/composition handoff，不进入 TaskCenter read DTO 或持久 snapshot |
-| P8 并行 | 只有达到各自执行附录开始条件后，P8a/P8b 才可彼此并行 |
+| P8 并行 | 满足各自当前 task package 与本文冻结前置后，P8a/P8b 才可彼此并行 |
 
 继续保留 V2 核心决策：结构化 CategoryKey、继续使用 bankName、不引入 stable bankId、binding 持久 invalidation、同名题库重建不自动恢复、0% 不抽新题且不参与不足回填、只迁移旧 current bank、Category Visual 属于 Category、read fallback 不隐式持久化、injectable RNG bounded sampling、StudyActivitySession 命名、第五场景不在本轮激活、fixture-driven Presentation 可提前并行、schema/B0/composition 按 writer ownership 串行、TaskCenter 最终只消费 Application facade。
 
@@ -936,7 +936,7 @@ migration/restore failure 保留原 DB。可回退尚未 production-activated �
 
 ## 11.1 P0 文档
 
-获得文档写授权后保存 V3 正文与执行附录；当前首页契约标记 V3 successor planned；记录 scope/excluded scope；修正 B0 current-state 为实际 v28/QuestionSet 已存在；保留历史版本记录。
+历史 P0 当时获得文档写授权后保存 V3 正文与执行附录；该旧“执行附录”术语只描述当时的交付形式，现已由 focused contract directory + sibling task packages 取代；当前首页契约标记 V3 successor planned；记录 scope/excluded scope；修正 B0 current-state 为实际 v28/QuestionSet 已存在；保留历史版本记录。
 
 P0 禁止宣称 v29/v30/v31 已存在、Home v2 已 production、Activity timing 已 production、TaskCenter facade 已 production。
 
@@ -952,7 +952,7 @@ P0 禁止宣称 v29/v30/v31 已存在、Home v2 已 production、Activity timing
 | Practice Activity production | Practice lifecycle amendment |
 | Weekly duration production | Today deferred clause |
 | TaskCenter facade production | current TaskCenter implementation truth |
-| final closure | Roadmap + V3 + execution appendix |
+| final closure | Roadmap + V3 contract + applicable sibling task packages |
 
 StudyPlan focused contract 不为记录“没有变化”而修改。
 
