@@ -1,6 +1,6 @@
 # B1 TaskCenter Backend
 
-Contract: `docs/product/home-training-v3/00-contract.md`
+Contract: `./00-contract.md`
 
 本文件是历史已完成 package，正常任务选择只看文件名即可跳过，不需要读取正文。
 
