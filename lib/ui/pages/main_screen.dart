@@ -29,6 +29,7 @@ import '../theme/app_theme.dart';
 import '../home/today_visual_theme.dart';
 import '../theme/design_tokens.dart';
 import '../dependencies/home_training_dependencies.dart';
+import '../dependencies/task_center_dependencies.dart';
 import '../dependencies/study_activity_dependencies_scope.dart';
 
 class MainScreen extends StatefulWidget {
@@ -40,6 +41,7 @@ class MainScreen extends StatefulWidget {
     required this.startAgentTurn,
     this.todayContextQuery,
     this.homeTraining,
+    this.taskCenter,
     this.studySessionLauncher,
     this.questionListQuery,
     this.questionMutationPersistence,
@@ -64,6 +66,7 @@ class MainScreen extends StatefulWidget {
   final AgentTurnStarter startAgentTurn;
   final TodayContextQuery? todayContextQuery;
   final HomeTrainingDependencies? homeTraining;
+  final TaskCenterDependencies? taskCenter;
   final StudySessionLauncher? studySessionLauncher;
   final QuestionListQueryPort? questionListQuery;
   final QuestionMutationPersistencePort? questionMutationPersistence;
@@ -168,6 +171,7 @@ class _MainScreenState extends State<MainScreen> {
     final dependencies = AiDependenciesScope.of(context);
     final pages = <Widget>[
       HomePage(
+        taskCenter: widget.taskCenter,
         homeTraining: widget.homeTraining,
         studyActivityQuery:
             StudyActivityDependenciesScope.maybeOf(context)?.query,

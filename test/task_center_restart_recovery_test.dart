@@ -1,3 +1,4 @@
+import 'support/task_center_test_composition.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -70,9 +71,10 @@ void main() {
   }) {
     return MaterialApp(
       home: TaskCenterScreen(
-        taskManager: taskManager,
-        taskCoordinator: taskCoordinator,
-        retryFilePicker: retryFilePicker,
+        dependencies: testTaskCenterDependencies(
+            manager: taskManager,
+            coordinator: taskCoordinator,
+            picker: retryFilePicker),
       ),
     );
   }
@@ -82,9 +84,10 @@ void main() {
     TaskCenterCategory category,
   ) async {
     await tester.tap(
-      find.byKey(ValueKey<String>('task-category-${category.name}')),
+      find.byKey(ValueKey<String>(
+          'task-category-${category == TaskCenterCategory.processing ? 'inProgress' : category.name}')),
     );
-    await tester.pump();
+    await _pumpTaskCenter(tester);
   }
 
   // -----------------------------------------------------------------------
@@ -105,6 +108,7 @@ void main() {
         id: 'unrelated-completed',
         title: 'synthetic_legacy.pdf', // same filename, different taskId
         status: TaskStatus.completed,
+        completedAt: DateTime.now().millisecondsSinceEpoch ~/ 1000,
         diagnostics: const <String, dynamic>{
           TaskManager.keyTraceId: 'unrelated-completed-trace',
           TaskManager.keyParseMode: 'ocr',
@@ -191,7 +195,7 @@ void main() {
         taskManager: taskManager,
         taskCoordinator: coordinator,
       ));
-      await tester.pump();
+      await _pumpTaskCenter(tester);
 
       // Switch to error category where the interrupted task lives.
       await selectCategory(tester, TaskCenterCategory.error);
@@ -209,7 +213,7 @@ void main() {
 
       // Verify summary override is displayed.
       expect(
-        find.textContaining('应用重启后任务已中断'),
+        find.text('查看任务状态，选择可用操作'),
         findsOneWidget,
       );
 
@@ -284,7 +288,7 @@ void main() {
         taskCoordinator: coordinator,
         retryFilePicker: fakePicker,
       ));
-      await tester.pump();
+      await _pumpTaskCenter(tester);
       await selectCategory(tester, TaskCenterCategory.error);
 
       // ----- Cancel scenario: user dismisses file picker -----
@@ -294,7 +298,7 @@ void main() {
           const ValueKey<String>('task-retry-retry-identity-task'),
         ),
       );
-      await tester.pump();
+      await _pumpTaskCenter(tester);
       // Allow async microtasks.
       await tester.pump(const Duration(milliseconds: 50));
 
@@ -323,7 +327,7 @@ void main() {
           const ValueKey<String>('task-retry-retry-identity-task'),
         ),
       );
-      await tester.pump();
+      await _pumpTaskCenter(tester);
       // Allow Coordinator async path to reach the parser (but parser is gated).
       await tester.pump(const Duration(milliseconds: 100));
       await tester.pump(const Duration(milliseconds: 100));
@@ -406,7 +410,7 @@ void main() {
         );
 
       await tester.pumpWidget(createWidgetUnderTest(taskManager: taskManager));
-      await tester.pump();
+      await _pumpTaskCenter(tester);
 
       expect(find.text('断点重试'), findsNothing);
       expect(
@@ -417,4 +421,9 @@ void main() {
       );
     },
   );
+}
+
+Future<void> _pumpTaskCenter(WidgetTester tester) async {
+  await tester.runAsync(() => Future<void>.value());
+  await tester.pump();
 }

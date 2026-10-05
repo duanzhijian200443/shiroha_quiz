@@ -3,6 +3,8 @@ import 'services/today/today_training_query_adapter.dart';
 import 'data/repositories/training_configuration_repository.dart';
 import 'data/repositories/training_question_selection.dart';
 import 'ui/dependencies/home_training_dependencies.dart';
+import 'ui/dependencies/task_center_dependencies.dart';
+import 'ui/composition/task_center_composition.dart';
 import 'services/study_activity/study_activity_runtime.dart';
 import 'data/repositories/study_activity_repository.dart';
 import 'ui/dependencies/study_activity_dependencies_scope.dart';
@@ -753,6 +755,11 @@ void main() {
         AppLogger.info('Application started', module: 'Application');
         runApp(
           ShirohaQuizApp(
+            taskCenter: createTaskCenterDependencies(
+                manager: taskManager,
+                coordinator: importTaskCoordinator,
+                folderQuery: questionRepository,
+                commitService: importCommitService),
             studyActivity: studyActivity,
             engineRepository: engineRepository,
             aiConfigService: aiConfigService,
@@ -853,6 +860,7 @@ class ShirohaQuizApp extends StatelessWidget {
     required this.examMutationCommand,
     required this.practiceCommands,
     this.studyActivity,
+    this.taskCenter,
     required this.photoAnswerJudgement,
     this.photoAnswerSubmission,
     this.photoAnswerHistory,
@@ -904,6 +912,7 @@ class ShirohaQuizApp extends StatelessWidget {
   /// Assembled practice mutation commands for the practice surfaces.
   final PracticeCommandDependencies practiceCommands;
   final StudyActivityDependencies? studyActivity;
+  final TaskCenterDependencies? taskCenter;
   final PhotoAnswerJudgementPort photoAnswerJudgement;
   final PhotoAnswerSubmissionCommand? photoAnswerSubmission;
   final PhotoAnswerHistoryQuery? photoAnswerHistory;
@@ -955,6 +964,12 @@ class ShirohaQuizApp extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           theme: AppTheme.getTheme(themeName),
           home: MainScreen(
+            taskCenter: taskCenter ??
+                createTaskCenterDependencies(
+                    manager: TaskManager.instance,
+                    coordinator: importTaskCoordinator,
+                    folderQuery: folderQuery,
+                    commitService: importCommitService),
             homeTraining: _createHomeTrainingDependencies(),
             u1WorkspaceFacade: u1WorkspaceFacade,
             conversationService: conversationService,

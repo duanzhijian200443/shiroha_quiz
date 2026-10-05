@@ -1,3 +1,5 @@
+// Historical infrastructure projection retained for legacy backend tests only.
+// Production TaskCenter uses Application TaskCenterSnapshot and action eligibility.
 import '../../services/import_pipeline/import_attempt_context.dart';
 import '../../services/task_manager.dart';
 

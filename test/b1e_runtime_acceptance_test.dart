@@ -1,3 +1,4 @@
+import 'support/task_center_test_composition.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -356,9 +357,10 @@ Future<void> _selectCategory(
   TaskCenterCategory category,
 ) async {
   await tester.tap(
-    find.byKey(ValueKey<String>('task-category-${category.name}')),
+    find.byKey(ValueKey<String>(
+        'task-category-${category == TaskCenterCategory.processing ? 'inProgress' : category.name}')),
   );
-  await tester.pump();
+  await _pumpTaskCenter(tester);
 }
 
 void main() {
@@ -611,12 +613,12 @@ void main() {
         MaterialApp(
           navigatorObservers: <NavigatorObserver>[navigatorObserver],
           home: TaskCenterScreen(
-            taskManager: manager,
-            taskCoordinator: runtime.coordinator,
+            dependencies: testTaskCenterDependencies(
+                manager: manager, coordinator: runtime.coordinator),
           ),
         ),
       );
-      await tester.pump();
+      await _pumpTaskCenter(tester);
       final initialPushCount = navigatorObserver.pushCount;
       expect(find.byType(ImportStagingScreen), findsNothing);
 
@@ -876,6 +878,7 @@ void main() {
         id: peerId,
         title: '文档解析任务: same.pdf',
         status: TaskStatus.completed,
+        completedAt: 200,
         diagnostics: const <String, dynamic>{
           TaskManager.keyTraceId: 'restart-peer-trace',
           TaskManager.keyParseMode: 'ocr',
@@ -920,21 +923,22 @@ void main() {
         MaterialApp(
           navigatorObservers: <NavigatorObserver>[navigatorObserver],
           home: TaskCenterScreen(
-            taskManager: manager,
-            taskCoordinator: runtime.coordinator,
-            retryFilePicker: () async => FilePickerResult(
-              <PlatformFile>[
-                PlatformFile(
-                  name: 'same.pdf',
-                  size: 0,
-                  path: retryPath,
-                ),
-              ],
-            ),
+            dependencies: testTaskCenterDependencies(
+                manager: manager,
+                coordinator: runtime.coordinator,
+                picker: () async => FilePickerResult(
+                      <PlatformFile>[
+                        PlatformFile(
+                          name: 'same.pdf',
+                          size: 0,
+                          path: retryPath,
+                        ),
+                      ],
+                    )),
           ),
         ),
       );
-      await tester.pump();
+      await _pumpTaskCenter(tester);
       final initialPushCount = navigatorObserver.pushCount;
       await _selectCategory(tester, TaskCenterCategory.error);
       expect(runtime.client.callCount, 0);
@@ -946,7 +950,7 @@ void main() {
       await tester.tap(
         find.byKey(const ValueKey<String>('task-retry-b1e-restart-target')),
       );
-      await tester.pump();
+      await _pumpTaskCenter(tester);
       await runtime.client.waitUntilStarted(retryPath);
 
       final running = _taskById(manager, targetId)!;
@@ -969,7 +973,7 @@ void main() {
       runtime.client.complete(retryPath, _successfulDocument(2));
       final ready = await readyFuture;
       await runtime.counters.waitForReviewCount(1);
-      await tester.pump();
+      await _pumpTaskCenter(tester);
 
       expect(ready.id, targetId);
       expect(ready.attemptNumber, 2);
@@ -992,4 +996,9 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 20)),
   );
+}
+
+Future<void> _pumpTaskCenter(WidgetTester tester) async {
+  await tester.runAsync(() => Future<void>.value());
+  await tester.pump();
 }
