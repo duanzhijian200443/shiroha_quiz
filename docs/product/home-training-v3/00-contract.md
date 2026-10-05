@@ -30,9 +30,11 @@ docs/product/home-training-v3/
 
 `00-contract.md` 是本专项唯一产品、架构和生命周期语义 authority。同目录
 task package 只定义 bounded work、前置、ownership、acceptance 和验证，
-不得重新定义本文语义。文件名前缀表达相对顺序；`-完成.md` 是快速完成
-标记。不存在独立 execution-plan authority，也不使用 Task-ID/Status 来重复
-维护调度状态。
+不得重新定义本文语义。文件名前缀表达相对顺序；`-完成.md` 是 package 快速
+完成标记。全部 package 闭环后，最终 Documentation Closure 将本目录重命名为
+`home-training-v3-完成/`，作为 capability 级完成标记；正常 Automation 仅看
+目录名即可跳过整个已关闭 capability。不存在独立 execution-plan authority、
+Automation task queue 或 Task-ID/Status 状态表。
 
 权威顺序：
 
@@ -66,7 +68,7 @@ task package 只定义 bounded work、前置、ownership、acceptance 和验证�
 
 如发现本文与更高层 canonical contract 存在未明确处理的实质冲突，停止受影响任务并报告冲突。不得自行选边、降级、扩大范围或通过“兼容实现”绕过冲突。
 
-实施状态 amendment（B2）：B1 / CP2-I 已验收并合并。P6/P7a/P7b/P7c 已实现可注入的 Training Config 配置列表、共用 selector/editor 与真实 Application 集成；PR #230 已合并且 standing PR CI 成功，独立 B2 Reviewer closure 已由用户确认完成；此次同步记录用户确认，不代表补发 GitHub approval marker。Category Visual 使用四个 preset 和 theme-safe fallback，属于 Category preference。完整配置 snapshot 在一个只读事务中包含 catalog 空分类及仍有配置的缺失题库分类；UI 不重算 usability 或 runtime fallback。草稿复用 Domain percentage/quota authority，取消不写入；显式重绑另行确认并立即保存，UI 明确其不随其它草稿取消撤销。content 和 visual 顺序独立 CAS，content 成功/visual 失败显示部分成功并 reload，stale 不自动重放。新增最小 Category 顺序 command：捕获完整 ordered content targets/revisions，事务内重验成员数、顺序和 revisions，再原子调整 dense sort ranks 与改变行的 revision，保留 members/preference；竞争或写失败零部分调整。schema 保持 v31，无 migration。Home/config I2 未激活，旧 PlanConfigScreen 保留；TaskCenter UI/I3、Practice/MockExam wiring、CP3 尚未完成。
+实施状态 amendment（B2）：B1 / CP2-I 已验收并合并。P6/P7a/P7b/P7c 已实现可注入的 Training Config 配置列表、共用 selector/editor 与真实 Application 集成；PR #230 已合并且 standing PR CI 成功。按当前治理规则，GitHub 已报告为 `MERGED` 的历史 PR 默认视为 review gate 已满足，不要求为旧流程缺失的 approval marker 重新审查。Category Visual 使用四个 preset 和 theme-safe fallback，属于 Category preference。完整配置 snapshot 在一个只读事务中包含 catalog 空分类及仍有配置的缺失题库分类；UI 不重算 usability 或 runtime fallback。草稿复用 Domain percentage/quota authority，取消不写入；显式重绑另行确认并立即保存，UI 明确其不随其它草稿取消撤销。content 和 visual 顺序独立 CAS，content 成功/visual 失败显示部分成功并 reload，stale 不自动重放。新增最小 Category 顺序 command：捕获完整 ordered content targets/revisions，事务内重验成员数、顺序和 revisions，再原子调整 dense sort ranks 与改变行的 revision，保留 members/preference；竞争或写失败零部分调整。schema 保持 v31，无 migration。Home/config I2 未激活，旧 PlanConfigScreen 保留；TaskCenter UI/I3、Practice/MockExam wiring、CP3 尚未完成。
 
 ## 1.2 本轮包含
 
