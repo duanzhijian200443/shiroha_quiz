@@ -35,7 +35,7 @@ Before a non-trivial task, read:
 
 Use the architecture reading guide and focused searches to identify applicable
 contracts. Do not recursively load every document linked by an unrelated section.
-A task-package summary or parent-attested excerpt never replaces the governing
+A handoff summary or parent-attested excerpt never replaces the governing
 contract itself. Do not claim a file was reviewed unless opened during this task.
 
 | Rule file | Read when |
@@ -64,7 +64,7 @@ The first line of a user task may activate exactly one role:
 Read the mapped file before continuing. The active role persists through follow-up
 messages for the same task until the user explicitly changes it or starts a new
 task. Do not silently switch roles. Without an active explicit role, default to
-read-only investigation; a pasted package alone does not grant write authority.
+read-only investigation; a pasted handoff alone does not grant write authority.
 
 An Executor instruction authorizes implementation only within the requested
 responsibility. Branch/worktree, staging, commit, push, PR, merge, tag and release
@@ -79,10 +79,10 @@ Normal roles do not load `docs/automation/**` except assigned task artifacts.
 The controller reads the protocol, roadmap/current capability contract and Git/PR facts; workers receive only the bounded execution handoff needed for their assigned role.
 
 Within existing user authority, the protocol replaces only controller stops at
-worker delivery, per-package handback/new-request requirements, and handling of
+worker delivery, per-task handback/new-request requirements, and handling of
 confirmed unrelated pre-existing verification failures. It may continue across
 checkpoints and perform pre-authorized conditional merges. A dispatched Executor
-package must carry any applicable bounded verification-repair exception.
+handoff must carry any applicable bounded verification-repair exception.
 Workers retain their roles, independent review and delivery stops.
 
 No Git, runtime or scope authority is inferred from activation, an execution handoff or Automation resume state.
@@ -330,7 +330,7 @@ A completion PR is merge-ready only when:
 - explicit user merge authority exists.
 
 Reviewer/Verifier assignments explicitly targeting an existing PR may publish one
-role-evidence record per completed pass without a separate package flag. Reviewer
+role-evidence record per completed pass without a separate evidence flag. Reviewer
 uses `[REVIEW APPROVAL]` / `[REVIEW REQUEST_CHANGES]` /
 `[REVIEW INCONCLUSIVE]`; Verifier uses `[VERIFICATION APPROVAL]` on PASS and
 `[VERIFICATION RESULT]` on non-PASS.
