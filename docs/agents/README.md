@@ -57,7 +57,7 @@ Frozen task semantics: <current-stage invariants>
 Acceptance: <focused criteria>
 Validation: <focused checks>
 Git: branch-create yes|no; stage yes|no; commit yes|no; push yes|no; PR-create yes|no; merge yes|no
-PR evidence: comment yes|no; review-submit yes|no; title/body-update yes|no
+PR metadata: title/body-update yes|no
 Documentation closure: reviewer-update yes|no; commit yes|no; push yes|no
 Review repair rounds used: <0 initially; inherited count for repair>
 Stop conditions: <task-specific blockers beyond AGENTS.md>
@@ -65,9 +65,11 @@ Stop conditions: <task-specific blockers beyond AGENTS.md>
 
 Use `create` for authorized initial branch creation and `reuse` for same-task
 follow-ups/repair. Missing Git/PR actions are unauthorized.
-`PR-create` covers creation only. Title/body updates, comments/review submissions,
-close/reopen and other PR mutations require the corresponding explicit authority
-under `AGENTS.md`; do not infer them from PR creation or push authority.
+`PR-create` covers creation only. Title/body updates, close/reopen and other PR
+mutations require the corresponding explicit authority under `AGENTS.md`; do not
+infer them from PR creation or push authority. A Reviewer assignment explicitly
+targeting an existing PR does not need a separate package flag for its one review-
+evidence publication per completed pass.
 Add Worktree and its authority only when isolation is needed.
 
 `Documentation responsibility` is mandatory for a completion package:
@@ -77,10 +79,12 @@ existing text is not stale or contradictory. Use explicit `none` when no durable
 document can change. Do not make agents rediscover closure paths from memory.
 
 For durable staged work, prefer `docs/product/<capability>/00-contract.md` plus
-optional numerically ordered sibling task packages. Do not add `Task-ID`,
+optional numerically ordered sibling task packages. The focused contract directory
+is the queue; do not create a second Automation queue. Do not add `Task-ID`,
 `Status`, or a separate execution-plan file just to mirror progress. The package
 path/filename is sufficient scheduling identity. A tracked package is renamed with
-the `-完成.md` suffix only in final Documentation Closure as defined by
+the `-完成.md` suffix only in final Documentation Closure. When the whole capability
+closes, the directory itself becomes `<capability>-完成/` under the rules in
 `AGENTS.md`.
 
 Add directly necessary coupled paths under the shared ownership policy and report
@@ -96,7 +100,7 @@ standing CI. Include role, objective, fixed target, governing contract, exact
 assigned commands/observations, the CI coverage gap and PR evidence authority.
 Verifier never repairs.
 
-Reviewer package includes base/final target, original task/contract/plan,
+Reviewer package includes base/final target, original task/contract/package,
 Executor/CI evidence, optional Verifier evidence, assigned review dimensions,
 inherited review-round count, Documentation responsibility and authorized closure
 actions.
