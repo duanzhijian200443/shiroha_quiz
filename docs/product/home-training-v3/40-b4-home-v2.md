@@ -30,7 +30,7 @@ Contract: `docs/product/home-training-v3/00-contract.md`
 ## Documentation responsibility
 - `docs/product/home-training-v3/00-contract.md`: CHECK_ONLY
 - `docs/product/today-home-refresh-freeze.md`: UPDATE
-- `docs/product/ui-finalization-ia-freeze.md`: UPDATE if navigation availability changes
+- `docs/product/ui-finalization-ia-freeze.md`: UPDATE
 - `ARCHITECTURE.md`: UPDATE
 - `docs/architecture/shiroha-project-roadmap.md`: UPDATE
-- 当前 task package：final Documentation Closure 时重命名为 `40-b4-home-v2-完成.md`
+- `docs/product/home-training-v3/40-b4-home-v2.md`: UPDATE
