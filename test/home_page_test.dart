@@ -1,3 +1,8 @@
+import 'support/task_center_test_composition.dart';
+import 'support/task_center_fakes.dart';
+import 'package:shiroha_quiz/application/home_training_result.dart';
+import 'package:shiroha_quiz/application/task_center/task_center_contracts.dart';
+import 'package:shiroha_quiz/ui/dependencies/task_center_dependencies.dart';
 import 'package:shiroha_quiz/ui/pages/bank_detail_screen.dart';
 import 'package:shiroha_quiz/application/practice/study_session_launch.dart';
 import 'package:shiroha_quiz/domain/attempt/answer_attempt.dart';
@@ -274,6 +279,7 @@ void main() {
     ValueChanged<String>? onAskAssistant,
     TodayContextQuery? todayContextQuery,
     StudySessionLauncher? studySessionLauncher,
+    TaskCenterDependencies? taskCenter,
     bool dark = false,
     StudyPlanSelectionService? studyPlanSelectionService,
     StudyPlanCommandService? studyPlanCommandService,
@@ -298,7 +304,8 @@ void main() {
             todayContextQuery: todayContextQuery ??
                 _StubTodayContextQuery(
                     () async => const TodayContextSnapshot()),
-            taskManager: taskManager,
+            taskCenter:
+                taskCenter ?? testTaskCenterDependencies(manager: taskManager),
             studySessionLauncher: studySessionLauncher,
             onSwitchBank: onSwitchBank,
             onPracticeRequested: onPracticeRequested,
@@ -436,7 +443,7 @@ void main() {
     final launcher = _OrdinaryLauncher();
     await tester.pumpWidget(MaterialApp(
         home: HomePage(
-            taskManager: taskManager,
+            taskCenter: testTaskCenterDependencies(manager: taskManager),
             todayContextQuery: query,
             studySessionLauncher: launcher)));
     expect(
@@ -484,11 +491,16 @@ void main() {
       (tester) async {
     final launcher = _OrdinaryLauncher()
       ..pending = Completer<StudySessionLaunchResult>();
+    final taskCenter = TaskCenterFake();
+    final heldBadgeReads = List.generate(
+        3, (_) => Completer<HomeTrainingResult<TaskCenterSnapshot>>());
+    taskCenter.readGates.addAll(heldBadgeReads);
     final query = _StubTodayContextQuery(() async => const TodayContextSnapshot(
         bankName: 'ordinary-bank', newCount: 7, reviewCount: 3));
     var switches = 0;
     await pumpHome(tester,
         todayContextQuery: query,
+        taskCenter: taskCenter.ports,
         studySessionLauncher: launcher,
         onSwitchBank: () => switches++);
     await tester.ensureVisible(find.byKey(const ValueKey('home-new-task')));
@@ -506,6 +518,11 @@ void main() {
     expect(launcher.pools,
         [StudySessionPool.newQuestions, StudySessionPool.dueReviews]);
     expect(launcher.banks, ['ordinary-bank', 'ordinary-bank']);
+    expect(taskCenter.activeReads, greaterThan(0));
+    for (final read in heldBadgeReads) {
+      read.complete(HomeTrainingSuccess(TaskCenterSnapshot([])));
+    }
+    await tester.pump();
     expect(find.byType(PracticePage), findsNothing);
     await tester.ensureVisible(find.byKey(const ValueKey('home-switch-bank')));
     await tester.tap(find.byKey(const ValueKey('home-switch-bank')));
@@ -554,7 +571,7 @@ void main() {
     final pending = Completer<TodayContextSnapshot>();
     await tester.pumpWidget(MaterialApp(
         home: HomePage(
-            taskManager: taskManager,
+            taskCenter: testTaskCenterDependencies(manager: taskManager),
             todayContextQuery: _StubTodayContextQuery(() => pending.future))));
     await tester.pumpWidget(const MaterialApp(home: SizedBox()));
     pending.complete(const TodayContextSnapshot(bankName: 'late-bank'));

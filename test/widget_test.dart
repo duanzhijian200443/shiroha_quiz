@@ -311,6 +311,12 @@ void main() {
     // Verify that MainScreen is shown initially.
     expect(find.byType(MainScreen), findsOneWidget);
     final home = tester.widget<HomePage>(find.byType(HomePage));
+    expect(home.taskCenter, isNotNull);
+    expect(identical(home.taskCenter!.query, home.taskCenter!.command), isTrue);
+    expect(
+        identical(
+            home.taskCenter!.command, home.taskCenter!.selectedSourceRetry),
+        isTrue);
     expect(home.homeTraining, isNotNull);
     expect(home.todayContextQuery, isNull);
     expect(

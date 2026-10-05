@@ -35,6 +35,7 @@ import 'package:shiroha_quiz/services/llm_providers/zhipu_ocr_client.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:shiroha_quiz/ui/pages/ai_engine_management_screen.dart';
 import 'package:shiroha_quiz/ui/pages/task_center_screen.dart';
+import 'package:shiroha_quiz/ui/composition/task_center_composition.dart';
 import 'package:shiroha_quiz/ui/widgets/structured_content_renderer.dart';
 
 import 'train_c_evidence_collector.dart';
@@ -502,9 +503,10 @@ final class TrainCL1BReviewApp extends StatelessWidget {
       home: ContentAssetResolverScope(
         resolver: composition.contentAssetStore,
         child: TaskCenterScreen(
-          taskManager: composition.taskManager,
-          taskCoordinator: composition.importTaskCoordinator,
-          commitService: composition.importCommitService,
+          dependencies: createTaskCenterDependencies(
+              manager: composition.taskManager,
+              coordinator: composition.importTaskCoordinator,
+              commitService: composition.importCommitService),
         ),
       ),
     );

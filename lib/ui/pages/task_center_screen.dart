@@ -1,1253 +1,273 @@
-import 'package:file_picker/file_picker.dart';
+import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-
-import '../../core/observability/diagnostic_summary.dart';
-import '../../services/import_pipeline/import_diagnostic_message.dart';
-import '../../services/import_pipeline/import_diagnostic_formatter.dart';
-import '../../services/import_pipeline/import_diagnostic_summary.dart';
-import '../../services/import_pipeline/import_task_coordinator.dart';
-import '../../services/task_manager.dart';
-import '../../application/questions/folder_query_port.dart';
-import '../dependencies/ai_dependencies_scope.dart';
-import '../../services/import_review/import_commit_service.dart';
-import '../theme/app_theme.dart';
-import 'import_staging_screen.dart';
-import 'task_center_projection.dart';
-
-typedef TaskReviewPageBuilder = Widget Function(
-  BuildContext context,
-  ImportTask task,
-);
-
-typedef TaskCenterRetryFilePicker = Future<FilePickerResult?> Function();
+import '../../application/home_training_result.dart';
+import '../../application/task_center/task_center_contracts.dart';
+import '../dependencies/task_center_dependencies.dart';
+import '../task_center/task_center_controller.dart';
+import '../task_center/task_center_components.dart';
+import '../theme/design_tokens.dart';
 
 class TaskCenterScreen extends StatefulWidget {
-  const TaskCenterScreen({
-    super.key,
-    this.onOpenReview,
-    this.reviewPageBuilder,
-    this.taskManager,
-    this.taskCoordinator,
-    this.retryFilePicker,
-    this.onOpenBank,
-    this.folderQuery,
-    this.commitService,
-  });
-
-  final ValueChanged<ImportTask>? onOpenReview;
-  final TaskReviewPageBuilder? reviewPageBuilder;
-  final TaskManager? taskManager;
-  final ImportTaskCoordinator? taskCoordinator;
-  final TaskCenterRetryFilePicker? retryFilePicker;
-  final ValueChanged<String>? onOpenBank;
-  final FolderQueryPort? folderQuery;
-  final ImportCommitService? commitService;
-
+  const TaskCenterScreen(
+      {super.key,
+      this.dependencies,
+      this.refreshInterval = const Duration(seconds: 3),
+      this.localize});
+  final TaskCenterDependencies? dependencies;
+  final Duration refreshInterval;
+  final DateTime Function(DateTime)? localize;
   @override
   State<TaskCenterScreen> createState() => _TaskCenterScreenState();
 }
 
-class _TaskCenterScreenState extends State<TaskCenterScreen> {
-  TaskCenterCategory _selectedCategory = TaskCenterCategory.processing;
-  final Set<String> _pendingActionTaskIds = <String>{};
+class _TaskCenterScreenState extends State<TaskCenterScreen>
+    with WidgetsBindingObserver {
+  TaskCenterController? _controller;
+  bool _foreground = true, _covered = false;
+  int _messageRevision = 0, _detailGeneration = 0;
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    final ports = widget.dependencies;
+    if (ports != null) {
+      _controller = TaskCenterController(ports,
+          refreshInterval: widget.refreshInterval,
+          routeVisible: () =>
+              mounted &&
+              _foreground &&
+              !_covered &&
+              ModalRoute.of(context)?.isCurrent == true)
+        ..addListener(_changed)
+        ..setVisible(true);
+      unawaited(_controller!.load());
+    }
+  }
 
-  TaskManager get _taskManager => widget.taskManager ?? TaskManager.instance;
-
-  ImportTaskCoordinator _taskCoordinator(BuildContext context) {
-    return widget.taskCoordinator ??
-        AiDependenciesScope.of(context).importTaskCoordinator;
+  void _changed() {
+    if (!mounted) return;
+    setState(() {});
+    final controller = _controller!;
+    if (controller.messageRevision != _messageRevision) {
+      _messageRevision = controller.messageRevision;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(controller.message!)));
+    }
   }
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
-      appBar: AppBar(
-        title: const Text('解析任务'),
-        centerTitle: true,
-        elevation: 0,
-        actions: [
-          PopupMenuButton<_TaskCenterPageAction>(
-            key: const ValueKey<String>('task-center-page-menu'),
-            tooltip: '更多操作',
-            icon: const Icon(Icons.more_horiz_rounded),
-            onSelected: (action) {
-              switch (action) {
-                case _TaskCenterPageAction.clearCompleted:
-                  _clearCompletedTaskRecords();
-              }
-            },
-            itemBuilder: (context) => const [
-              PopupMenuItem<_TaskCenterPageAction>(
-                value: _TaskCenterPageAction.clearCompleted,
-                child: Text('移除已完成任务记录'),
-              ),
-            ],
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: AnimatedBuilder(
-          animation: _taskManager,
-          builder: (context, _) {
-            final tasks = _taskManager.tasks;
-            final projection = TaskCenterProjection.fromTasks(tasks);
-            final visibleTasks = projection.tasksFor(_selectedCategory);
-
-            return Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                  child: _TaskCategorySelector(
-                    selected: _selectedCategory,
-                    counts: <TaskCenterCategory, int>{
-                      for (final category in TaskCenterCategory.values)
-                        category: projection.countFor(category),
-                    },
-                    onSelected: (category) {
-                      if (_selectedCategory == category) return;
-                      setState(() => _selectedCategory = category);
-                    },
-                  ),
-                ),
-                Expanded(
-                  child: visibleTasks.isEmpty
-                      ? _TaskCategoryEmptyState(category: _selectedCategory)
-                      : ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-                          itemCount: visibleTasks.length,
-                          findChildIndexCallback: (key) {
-                            if (key is! ValueKey<String> ||
-                                !key.value.startsWith('import-task-')) {
-                              return null;
-                            }
-                            final taskId =
-                                key.value.substring('import-task-'.length);
-                            final index = visibleTasks
-                                .indexWhere((task) => task.id == taskId);
-                            return index == -1 ? null : index;
-                          },
-                          itemBuilder: (context, index) {
-                            return _buildTaskCard(
-                              context,
-                              visibleTasks[index],
-                            );
-                          },
-                        ),
-                ),
-              ],
-            );
-          }),
-    );
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _foreground = state == AppLifecycleState.resumed;
+    _controller?.setVisible(_foreground && !_covered);
+    if (_foreground && !_covered) unawaited(_controller?.load());
   }
 
-  Widget _buildTaskCard(BuildContext context, ImportTask task) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    final summary = ImportDiagnosticFormatter.summarize(task);
-    final statusColor = _statusColor(task.status);
-    final progress = task.percent.clamp(0.0, 1.0).toDouble();
-    final presentation = TaskCenterProjection.presentationFor(task);
-    final actionPending = _pendingActionTaskIds.contains(task.id);
-    // OBS-1: the diagnostic affordance only appears for strictly valid
-    // correlation ids (fixed OBS-XXXX-XXXX format).
-    final correlationId = task.correlationId;
-    final hasValidDiagnosticId = correlationId != null &&
-        DiagnosticSummaryFormatter.isValidDiagnosticId(correlationId);
-
-    return Card(
-      key: ValueKey<String>('import-task-${task.id}'),
-      elevation: 0,
-      margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
-        side: BorderSide(color: colors.outlineVariant),
-      ),
-      color: theme.cardTheme.color,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: colors.primary.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(
-                Icons.description_outlined,
-                color: colors.primary,
-                size: 22,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          _displayTitle(task.title),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 15,
-                            color: theme.textTheme.bodyLarge?.color,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      _buildTaskMenu(
-                        context,
-                        task,
-                        presentation,
-                        actionPending,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  _TaskStatusBadge(
-                    label: presentation.statusLabel,
-                    color: statusColor,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    _safeCardSummary(task, summary, presentation),
-                    key: ValueKey<String>('task-summary-${task.id}'),
-                    style: TextStyle(
-                      color: task.status == TaskStatus.error
-                          ? AppTheme.dangerRed
-                          : Colors.grey,
-                      fontSize: 13,
-                      height: 1.4,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  if (task.status == TaskStatus.error &&
-                      hasValidDiagnosticId) ...[
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            '诊断编号：$correlationId',
-                            key:
-                                ValueKey<String>('task-correlation-${task.id}'),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.grey,
-                              fontSize: 12,
-                              fontFamily: 'monospace',
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        IconButton(
-                          key: ValueKey<String>(
-                            'task-copy-diagnostic-${task.id}',
-                          ),
-                          onPressed: () => _copyImportDiagnostic(task),
-                          icon: const Icon(Icons.copy_rounded, size: 16),
-                          tooltip: '复制诊断信息',
-                          visualDensity: VisualDensity.compact,
-                        ),
-                      ],
-                    ),
-                  ],
-                  if (task.status == TaskStatus.processing) ...[
-                    const SizedBox(height: 10),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: LinearProgressIndicator(
-                        value: progress,
-                        minHeight: 6,
-                        backgroundColor: Colors.grey.withValues(alpha: 0.2),
-                        valueColor: const AlwaysStoppedAnimation<Color>(
-                          AppTheme.shirohaCyan,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '${(progress * 100).round()}%',
-                      style: const TextStyle(
-                        color: Colors.grey,
-                        fontSize: 12,
-                      ),
-                    ),
-                    if (task.pendingChunks != null ||
-                        task.failedChunks != null) ...[
-                      const SizedBox(height: 6),
-                      Wrap(
-                        spacing: 12,
-                        runSpacing: 4,
-                        children: [
-                          if (task.pendingChunks != null)
-                            Text(
-                              '待解析: ${task.pendingChunks!.length} 批次',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey,
-                              ),
-                            ),
-                          if (task.failedChunks?.isNotEmpty ?? false)
-                            Text(
-                              '失败: ${task.failedChunks!.length} 批次',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: AppTheme.dangerRed,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ],
-                  ],
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 4,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      Semantics(
-                        button: true,
-                        label: '查看${_displayTitle(task.title)}详情',
-                        child: TextButton.icon(
-                          key: ValueKey<String>(
-                            'task-diagnostics-${task.id}',
-                          ),
-                          onPressed: () => _showDiagnosticsSheet(context, task),
-                          style: TextButton.styleFrom(
-                            padding: EdgeInsets.zero,
-                            minimumSize: const Size(48, 32),
-                            foregroundColor: task.status == TaskStatus.error
-                                ? AppTheme.dangerRed
-                                : theme.primaryColor,
-                          ),
-                          icon: const Icon(Icons.info_outline, size: 16),
-                          label: const Text(
-                            '查看详情',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                      if (task.status == TaskStatus.pendingReview &&
-                          task.parsedData != null)
-                        Semantics(
-                          button: true,
-                          label: '打开${task.title}校对',
-                          child: FilledButton.tonalIcon(
-                            key: ValueKey<String>('task-review-${task.id}'),
-                            onPressed: () => _openReview(context, task),
-                            icon: const Icon(Icons.rule_rounded, size: 16),
-                            label: const Text('去校对'),
-                          ),
-                        ),
-                      if (task.status == TaskStatus.completed &&
-                          task.bankName?.trim().isNotEmpty == true &&
-                          widget.onOpenBank != null)
-                        FilledButton.tonalIcon(
-                          key: ValueKey<String>('task-open-bank-${task.id}'),
-                          onPressed: () =>
-                              widget.onOpenBank!(task.bankName!.trim()),
-                          icon: const Icon(Icons.menu_book_outlined, size: 16),
-                          label: const Text('去题库'),
-                        ),
-                      if (presentation.canCancel ||
-                          presentation.isCancellationPending)
-                        OutlinedButton.icon(
-                          key: ValueKey<String>('task-cancel-${task.id}'),
-                          onPressed: actionPending ||
-                                  presentation.isCancellationPending
-                              ? null
-                              : () => _cancelOcrTask(task.id),
-                          icon:
-                              const Icon(Icons.stop_circle_outlined, size: 16),
-                          label: Text(
-                            presentation.isCancellationPending || actionPending
-                                ? '取消中'
-                                : '取消任务',
-                          ),
-                        ),
-                      if (presentation.canRetry)
-                        FilledButton.tonalIcon(
-                          key: ValueKey<String>('task-retry-${task.id}'),
-                          onPressed: actionPending
-                              ? null
-                              : () => _retryOcrTask(task.id),
-                          icon: const Icon(Icons.refresh_rounded, size: 16),
-                          label: Text(
-                            actionPending ? '选择文件中' : '重试',
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTaskMenu(
-    BuildContext context,
-    ImportTask task,
-    TaskCenterTaskPresentation presentation,
-    bool actionPending,
-  ) {
-    return PopupMenuButton<_TaskCardAction>(
-      key: ValueKey<String>('task-menu-${task.id}'),
-      tooltip: '${_displayTitle(task.title)}更多操作',
-      enabled: !actionPending,
-      icon: Icon(
-        Icons.more_horiz_rounded,
-        color: Theme.of(context).colorScheme.onSurfaceVariant,
-      ),
-      onSelected: (action) {
-        switch (action) {
-          case _TaskCardAction.details:
-            _showDiagnosticsSheet(context, task);
-          case _TaskCardAction.cancel:
-            _cancelOcrTask(task.id);
-          case _TaskCardAction.retry:
-            _retryOcrTask(task.id);
-          case _TaskCardAction.remove:
-            _removeTaskRecord(task.id);
-        }
-      },
-      itemBuilder: (context) => [
-        PopupMenuItem<_TaskCardAction>(
-          value: _TaskCardAction.details,
-          child: const Text('查看详情'),
-        ),
-        if (presentation.canCancel)
-          const PopupMenuItem<_TaskCardAction>(
-            value: _TaskCardAction.cancel,
-            child: Text('取消任务'),
-          ),
-        if (presentation.canRetry)
-          const PopupMenuItem<_TaskCardAction>(
-            value: _TaskCardAction.retry,
-            child: Text('重新解析'),
-          ),
-        if (presentation.canDelete)
-          PopupMenuItem<_TaskCardAction>(
-            key: ValueKey<String>('task-delete-${task.id}'),
-            value: _TaskCardAction.remove,
-            child: const Text('移除任务记录'),
-          ),
-      ],
-    );
-  }
-
-  Future<void> _removeTaskRecord(String taskId) async {
-    final status = await _taskManager.deleteTask(taskId);
-    if (!mounted) return;
-    final message = switch (status) {
-      ImportTaskCleanupStatus.deleted ||
-      ImportTaskCleanupStatus.alreadyAbsent =>
-        null,
-      ImportTaskCleanupStatus.busy => '任务仍在处理中，暂时无法移除',
-      ImportTaskCleanupStatus.failed => '任务记录移除失败，请稍后重试',
-    };
-    if (message != null) _showSafeActionMessage(message);
-  }
-
-  Future<void> _clearCompletedTaskRecords() async {
-    final status = await _taskManager.clearCompletedTasks();
-    if (!mounted) return;
-    final message = switch (status) {
-      ImportTaskCleanupStatus.deleted ||
-      ImportTaskCleanupStatus.alreadyAbsent =>
-        null,
-      ImportTaskCleanupStatus.busy => '仍有任务正在处理，暂时无法清理',
-      ImportTaskCleanupStatus.failed => '任务记录清理失败，请稍后重试',
-    };
-    if (message != null) _showSafeActionMessage(message);
-  }
-
-  Future<void> _cancelOcrTask(String taskId) async {
-    if (!_beginTaskAction(taskId)) return;
+  Future<T> _cover<T>(Future<T> Function() action) async {
+    _covered = true;
+    _controller?.setVisible(false);
     try {
-      final status = await _taskCoordinator(context).cancelOcrTask(taskId);
-      if (!mounted) return;
-      final message = switch (status) {
-        ImportAttemptWriteStatus.applied => '已提交取消请求',
-        ImportAttemptWriteStatus.persistenceFailed => '取消状态保存失败，请稍后重试',
-        ImportAttemptWriteStatus.stale ||
-        ImportAttemptWriteStatus.taskMissing ||
-        ImportAttemptWriteStatus.invalidState =>
-          '任务状态已变化，请刷新后重试',
-      };
-      _showSafeActionMessage(message);
-    } catch (_) {
-      _showSafeActionMessage('无法取消任务，请稍后重试');
+      return await action();
     } finally {
-      _finishTaskAction(taskId);
+      _covered = false;
+      if (mounted) _controller?.setVisible(_foreground);
     }
   }
 
-  Future<void> _retryOcrTask(String taskId) async {
-    if (!_beginTaskAction(taskId)) return;
-    try {
-      final result = await (widget.retryFilePicker?.call() ??
-          FilePicker.platform.pickFiles(
-            type: FileType.custom,
-            allowedExtensions: const <String>['pdf', 'png', 'jpg', 'jpeg'],
-            allowMultiple: true,
-          ));
-      if (!mounted || result == null || result.files.isEmpty) return;
-
-      final currentTask = _taskForId(taskId);
-      if (currentTask == null ||
-          !TaskCenterProjection.presentationFor(currentTask).canRetry) {
-        _showSafeActionMessage('任务状态已变化，请刷新后重试');
-        return;
-      }
-
-      final filePaths = <String>[];
-      final fileNames = <String>[];
-      for (final file in result.files) {
-        final path = file.path?.trim();
-        if (path == null || path.isEmpty) {
-          _showSafeActionMessage('所选文件不可用，请重新选择');
-          return;
-        }
-        filePaths.add(path);
-        fileNames.add(file.name);
-      }
-
-      await _taskCoordinator(context).retryOcrRequest(
-        taskId: taskId,
-        filePaths: filePaths,
-        fileNames: fileNames,
-      );
-      _showSafeActionMessage('任务已重新排队');
-    } on ImportTaskRetryRejectedException {
-      _showSafeActionMessage('任务状态已变化，请刷新后重试');
-    } on ImportTaskCoordinatorDependencyException {
-      _showSafeActionMessage('重试暂不可用，请稍后再试');
-    } catch (_) {
-      _showSafeActionMessage('无法重试任务，请稍后再试');
-    } finally {
-      _finishTaskAction(taskId);
-    }
+  @override
+  void dispose() {
+    ++_detailGeneration;
+    WidgetsBinding.instance.removeObserver(this);
+    _controller
+      ?..removeListener(_changed)
+      ..dispose();
+    super.dispose();
   }
 
-  bool _beginTaskAction(String taskId) {
-    if (_pendingActionTaskIds.contains(taskId)) return false;
-    setState(() => _pendingActionTaskIds.add(taskId));
-    return true;
+  Future<void> _refresh() async {
+    await _controller?.load();
   }
 
-  void _finishTaskAction(String taskId) {
-    if (!mounted || !_pendingActionTaskIds.contains(taskId)) return;
-    setState(() => _pendingActionTaskIds.remove(taskId));
-  }
-
-  ImportTask? _taskForId(String taskId) {
-    for (final task in _taskManager.tasks) {
-      if (task.id == taskId) return task;
-    }
-    return null;
-  }
-
-  void _showSafeActionMessage(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
-  }
-
-  void _openReview(BuildContext context, ImportTask task) {
-    final callback = widget.onOpenReview;
-    if (callback != null) {
-      callback(task);
+  Future<bool> _confirm(String title, String body) async =>
+      await _cover<bool?>(() => showDialog<bool>(
+          context: context,
+          builder: (context) =>
+              AlertDialog(title: Text(title), content: Text(body), actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('取消')),
+                FilledButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('确定')),
+              ]))) ??
+      false;
+  Future<void> _action(TaskCenterItem item, TaskCenterAction action) async {
+    if (action == TaskCenterAction.delete &&
+        !await _confirm('删除任务记录', '仅删除解析任务记录，不影响已经保存的题库。')) {
       return;
     }
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (routeContext) {
-          final pageBuilder = widget.reviewPageBuilder;
-          if (pageBuilder != null) {
-            return pageBuilder(routeContext, task);
-          }
-          return ImportStagingScreen(
-            taskId: task.id,
-            parsedQuestions: task.parsedData!,
-            folderQuery: widget.folderQuery,
-            commitService: widget.commitService,
-            warnings: task.warnings,
-            diagnostics: task.diagnostics,
-            initialExplanationRetentionMode: task.explanationRetentionMode,
-          );
-        },
-      ),
-    );
-  }
-
-  String _safeCardSummary(
-    ImportTask task,
-    ImportDiagnosticSummary summary,
-    TaskCenterTaskPresentation presentation,
-  ) {
-    final override = presentation.summaryOverride;
-    if (override != null) return override;
-    switch (task.status) {
-      case TaskStatus.processing:
-        return _processingStatusText(task.percent, presentation.statusLabel);
-      case TaskStatus.pendingReview:
-        final warningCount = task.warnings?.length ?? 0;
-        final questionCount = task.parsedData?.length ?? 0;
-        if (questionCount > 0 && warningCount > 0) {
-          return '已识别 $questionCount 道题 · $warningCount 项需要确认';
-        }
-        if (questionCount > 0) return '已识别 $questionCount 道题，等待校对';
-        return warningCount == 0 ? '解析完成，等待校对' : '共有 $warningCount 项需要确认';
-      case TaskStatus.completed:
-        return '任务已完成';
-      case TaskStatus.error:
-        final guidance = summary.userGuidance?.trim();
-        if (guidance != null && guidance.isNotEmpty) return guidance;
-        final failedStage = summary.failedStage?.trim();
-        if (failedStage != null && failedStage.isNotEmpty) {
-          return '失败阶段：$failedStage';
-        }
-        final structuredErrorType =
-            task.diagnostics?['errorType']?.toString().trim();
-        if (structuredErrorType != null && structuredErrorType.isNotEmpty) {
-          return '异常类型：$structuredErrorType';
-        }
-        return '解析失败，请查看详情';
+    if (!mounted) return;
+    Future<void> act() async => _controller?.act(item, action,
+        present: (request) =>
+            _cover(() => widget.dependencies!.openReview(context, request)));
+    if (action == TaskCenterAction.retry) {
+      await _cover(act);
+    } else {
+      await act();
     }
   }
 
-  String _processingStatusText(double percent, String statusLabel) {
-    if (statusLabel == '排队中') return '任务已排队，等待开始';
-    if (statusLabel == '取消中') return '正在安全结束当前任务';
-    final progress = percent.clamp(0.0, 1.0);
-    if (progress < 0.15) return '正在读取文件';
-    if (progress < 0.5) return '正在识别内容';
-    if (progress < 0.85) return '正在整理题目';
-    return '正在生成预览';
-  }
-
-  String _displayTitle(String title) {
-    const prefix = '文档解析任务:';
-    final trimmed = title.trim();
-    if (!trimmed.startsWith(prefix)) return trimmed;
-    return trimmed.substring(prefix.length).trim();
-  }
-
-  Color _statusColor(TaskStatus status) {
-    return switch (status) {
-      TaskStatus.processing => AppTheme.shirohaCyan,
-      TaskStatus.pendingReview => AppTheme.warningAmber,
-      TaskStatus.completed => AppTheme.shirohaCyan,
-      TaskStatus.error => AppTheme.dangerRed,
-    };
-  }
-
-  void _showDiagnosticsSheet(BuildContext context, ImportTask task) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (_) => _ImportTaskDiagnosticSheet(task: task),
-    );
-  }
-
-  /// OBS-1: copies only the whitelist diagnostic summary of a failed Import
-  /// attempt. Never copies messages, tool payloads, RAG content, provider
-  /// bodies, paths or stacks.
-  Future<void> _copyImportDiagnostic(ImportTask task) async {
-    final correlationId = task.correlationId;
-    if (correlationId == null) return;
-    final summary = DiagnosticSummary(
-      diagnosticId: correlationId,
-      operation: 'import_attempt',
-      failure: task.diagnostics?['errorType']?.toString(),
-      status: 'failed',
-      taskId: task.id,
-      attemptNumber: task.attemptNumber,
-      traceId: task.traceId,
-    );
-    final text = DiagnosticSummaryFormatter.format(summary);
-    if (text == null) return;
-    await Clipboard.setData(ClipboardData(text: text));
-    if (!mounted) return;
-    _showSafeActionMessage('诊断信息已复制');
-  }
-}
-
-enum _TaskCenterPageAction { clearCompleted }
-
-enum _TaskCardAction { details, cancel, retry, remove }
-
-class _TaskCategorySelector extends StatelessWidget {
-  const _TaskCategorySelector({
-    required this.selected,
-    required this.counts,
-    required this.onSelected,
-  });
-
-  final TaskCenterCategory selected;
-  final Map<TaskCenterCategory, int> counts;
-  final ValueChanged<TaskCenterCategory> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: TaskCenterCategory.values.map((category) {
-          final isSelected = category == selected;
-          final label = switch (category) {
-            TaskCenterCategory.processing => '进行中',
-            TaskCenterCategory.pendingReview => '待校对',
-            TaskCenterCategory.completed => '已完成',
-            TaskCenterCategory.error => '异常',
-          };
-          return Expanded(
-            child: InkWell(
-              key: ValueKey<String>('task-category-${category.name}'),
-              onTap: () => onSelected(category),
-              borderRadius: BorderRadius.circular(12),
-              child: Container(
-                constraints: const BoxConstraints(minHeight: 48),
-                alignment: Alignment.center,
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? Theme.of(context)
-                          .colorScheme
-                          .primary
-                          .withValues(alpha: 0.12)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    '$label（${counts[category] ?? 0}）',
-                    style: TextStyle(
-                      color: isSelected
-                          ? Theme.of(context).colorScheme.primary
-                          : Colors.grey,
-                      fontWeight:
-                          isSelected ? FontWeight.bold : FontWeight.normal,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          );
-        }).toList(growable: false),
-      ),
-    );
-  }
-}
-
-class _TaskCategoryEmptyState extends StatelessWidget {
-  const _TaskCategoryEmptyState({required this.category});
-
-  final TaskCenterCategory category;
-
-  @override
-  Widget build(BuildContext context) {
-    final message = switch (category) {
-      TaskCenterCategory.processing => '当前没有正在导入的文件',
-      TaskCenterCategory.pendingReview => '当前没有等待校对的任务',
-      TaskCenterCategory.completed => '暂无已完成的导入任务',
-      TaskCenterCategory.error => '没有解析失败的任务',
-    };
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.inbox_rounded,
-            size: 72,
-            color: Colors.grey.withValues(alpha: 0.3),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            message,
-            style: const TextStyle(
-              color: Colors.grey,
-              fontSize: 15,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TaskStatusBadge extends StatelessWidget {
-  const _TaskStatusBadge({
-    required this.label,
-    required this.color,
-  });
-
-  final String label;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontSize: 12,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-    );
-  }
-}
-
-class _ImportTaskDiagnosticSheet extends StatefulWidget {
-  final ImportTask task;
-
-  const _ImportTaskDiagnosticSheet({required this.task});
-
-  @override
-  State<_ImportTaskDiagnosticSheet> createState() =>
-      _ImportTaskDiagnosticSheetState();
-}
-
-class _ImportTaskDiagnosticSheetState
-    extends State<_ImportTaskDiagnosticSheet> {
-  bool _isTechnicalDetailsExpanded = false;
-
-  String get _taskStatusLabel => switch (widget.task.status) {
-        TaskStatus.processing => '正在解析',
-        TaskStatus.pendingReview => '等待用户校对',
-        TaskStatus.completed => '成功完成',
-        TaskStatus.error => '解析失败',
-      };
-
-  Duration get _taskElapsed => widget.task.elapsed;
-
-  Future<void> _copyTraceId(String traceId) async {
-    await Clipboard.setData(ClipboardData(text: traceId));
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Trace ID 已复制')),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final summary = ImportDiagnosticFormatter.summarize(widget.task);
-
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.scaffoldBackgroundColor,
-        borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(20),
-          topRight: Radius.circular(20),
-        ),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.85,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                '解析诊断报告',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: theme.textTheme.titleLarge?.color,
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => Navigator.pop(context),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            widget.task.title,
-            style: const TextStyle(fontSize: 13, color: Colors.grey),
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _buildSummaryCard(theme, summary),
-                  const SizedBox(height: 24),
-                  _buildTechnicalDetailsToggle(theme),
-                  if (_isTechnicalDetailsExpanded)
-                    _buildTechnicalDetails(theme, summary),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSummaryCard(ThemeData theme, ImportDiagnosticSummary summary) {
-    Color statusColor;
-    IconData statusIcon;
-
-    switch (widget.task.status) {
-      case TaskStatus.completed:
-        statusColor = Colors.green;
-        statusIcon = Icons.check_circle;
-        break;
-      case TaskStatus.pendingReview:
-        statusColor = Colors.orange;
-        statusIcon = Icons.rule_rounded;
-        break;
-      case TaskStatus.error:
-        statusColor = Colors.redAccent;
-        statusIcon = Icons.error_rounded;
-        break;
-      case TaskStatus.processing:
-        statusColor = Colors.blue;
-        statusIcon = Icons.hourglass_top_rounded;
-        break;
+  Future<void> _details(TaskCenterItem item) async {
+    final generation = ++_detailGeneration;
+    HomeTrainingResult<TaskCenterItem> result;
+    try {
+      result = await widget.dependencies!.query.detail(item.target.taskId);
+    } catch (_) {
+      result = const HomeTrainingFailed(HomeTrainingFailure.unavailable);
     }
+    if (!mounted || generation != _detailGeneration) return;
+    if (result case HomeTrainingSuccess(:final value)) {
+      await _cover(() => showModalBottomSheet<void>(
+          context: context,
+          showDragHandle: true,
+          useSafeArea: true,
+          isScrollControlled: true,
+          builder: (context) => SingleChildScrollView(
+              child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: TaskCenterTaskCard(
+                      item: value,
+                      busy: true,
+                      localize: widget.localize,
+                      onDetail: () {},
+                      onAction: (_) {})))));
+    } else {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('任务详情暂不可用')));
+    }
+  }
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: statusColor.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: statusColor.withValues(alpha: 0.3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(statusIcon, color: statusColor, size: 28),
-              const SizedBox(width: 12),
-              Expanded(
+  @override
+  Widget build(BuildContext context) {
+    final controller = _controller;
+    final loading = controller?.phase == TaskCenterLoadPhase.loading;
+    final unavailable = controller == null ||
+        controller.phase == TaskCenterLoadPhase.unavailable;
+    final selected = controller?.selected ?? TaskCenterCoarseStatus.inProgress;
+    final items = controller?.items ?? <TaskCenterItem>[];
+    return Scaffold(
+        appBar: AppBar(backgroundColor: Colors.transparent, actions: [
+          PopupMenuButton<String>(
+              key: const ValueKey('task-center-page-menu'),
+              tooltip: '更多操作',
+              enabled: controller != null && !controller.cleanupBusy,
+              icon: const Icon(Icons.more_horiz_rounded),
+              onSelected: (_) => controller?.cleanup((count) =>
+                  _confirm('清理已完成记录', '清理 $count 条记录。仅删除解析任务记录，不影响已经保存的题库。')),
+              itemBuilder: (_) =>
+                  const [PopupMenuItem(value: 'clear', child: Text('清理已完成记录'))])
+        ]),
+        body: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                    maxWidth: DesignTokens.contentMaxWidth),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _taskStatusLabel,
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: statusColor,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          const Divider(),
-          const SizedBox(height: 8),
-          _buildMetadataRow(
-            label: 'Trace ID',
-            value: summary.traceId ?? '不可用',
-            trailing: summary.traceId == null
-                ? null
-                : IconButton(
-                    key: ValueKey('copy-trace-${widget.task.id}'),
-                    onPressed: () => _copyTraceId(summary.traceId!),
-                    icon: const Icon(Icons.copy_rounded, size: 18),
-                    tooltip: '复制 Trace ID',
-                    visualDensity: VisualDensity.compact,
-                  ),
-          ),
-          _buildMetadataRow(
-            label: '解析模式',
-            value: summary.parseMode ?? '不可用',
-          ),
-          _buildMetadataRow(label: '任务状态', value: _taskStatusLabel),
-          _buildMetadataRow(
-            label: '导入耗时',
-            value: '${_taskElapsed.inSeconds}s',
-          ),
-          if (summary.lastSuccessStage != null ||
-              summary.failedStage != null) ...[
-            const SizedBox(height: 16),
-            const Divider(),
-            const SizedBox(height: 8),
-            if (summary.lastSuccessStage != null)
-              _buildStageRow(Icons.check_circle_outline, Colors.green, '最后成功阶段',
-                  summary.lastSuccessStage!),
-            if (summary.failedStage != null)
-              _buildStageRow(Icons.error_outline, Colors.redAccent, '失败阶段',
-                  summary.failedStage!),
-          ],
-          if (summary.errorType != null) ...[
-            const SizedBox(height: 8),
-            _buildStageRow(Icons.bug_report_outlined, Colors.redAccent, '异常类型',
-                summary.errorType!),
-          ],
-          if (summary.userGuidance != null) ...[
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: theme.cardColor,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(Icons.lightbulb_outline,
-                      color: Colors.amber, size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      summary.userGuidance!,
-                      style: const TextStyle(fontSize: 13, height: 1.4),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStageRow(
-      IconData icon, Color color, String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 16, color: color),
-          const SizedBox(width: 8),
-          Text('$label: ',
-              style:
-                  const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-          Expanded(
-            child: Text(value, style: const TextStyle(fontSize: 13)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMetadataRow({
-    required String label,
-    required String value,
-    Widget? trailing,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 72,
-            child: Text(
-              label,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-            ),
-          ),
-          Expanded(
-            child: SelectableText(
-              value,
-              style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
-            ),
-          ),
-          if (trailing != null) trailing,
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTechnicalDetailsToggle(ThemeData theme) {
-    return InkWell(
-      onTap: () {
-        setState(() {
-          _isTechnicalDetailsExpanded = !_isTechnicalDetailsExpanded;
-        });
-      },
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8.0),
-        child: Row(
-          children: [
-            Text(
-              '技术诊断详情',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: theme.textTheme.titleMedium?.color,
-              ),
-            ),
-            const SizedBox(width: 4),
-            Icon(
-              _isTechnicalDetailsExpanded
-                  ? Icons.keyboard_arrow_up
-                  : Icons.keyboard_arrow_down,
-              color: Colors.grey,
-            ),
-            const Expanded(child: Divider(indent: 12)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTechnicalDetails(
-      ThemeData theme, ImportDiagnosticSummary summary) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (summary.technicalFields.isNotEmpty) ...[
-          const Text('关键指标:',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: theme.cardColor,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Column(
-              children: summary.technicalFields.entries.map((e) {
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('解析任务',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .headlineLarge
+                                        ?.copyWith(
+                                            fontWeight: FontWeight.w700)),
+                                const SizedBox(height: 6),
+                                const Text('查看文件解析与校对进度'),
+                                const SizedBox(height: 18),
+                                TaskCenterTabs(
+                                    selected: selected,
+                                    counts: {
+                                      for (final status
+                                          in TaskCenterCoarseStatus.values)
+                                        status: controller?.snapshot == null
+                                            ? null
+                                            : controller!.count(status)
+                                    },
+                                    onSelect: (status) =>
+                                        controller?.selectTab(status)),
+                              ])),
+                      if (loading ||
+                          controller?.phase == TaskCenterLoadPhase.refreshing)
+                        const LinearProgressIndicator(),
                       Expanded(
-                        flex: 2,
-                        child: Text(e.key,
-                            style: const TextStyle(
-                                fontSize: 12, color: Colors.grey)),
-                      ),
-                      Expanded(
-                        flex: 3,
-                        child: Text(e.value,
-                            style: const TextStyle(
-                                fontSize: 12, fontFamily: 'monospace')),
-                      ),
-                    ],
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-          const SizedBox(height: 16),
-        ],
-        if (summary.details.isNotEmpty) ...[
-          const Text('详细日志:',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          ...summary.details.map((msg) {
-            IconData icon;
-            Color color;
-            switch (msg.severity) {
-              case ImportDiagnosticSeverity.error:
-                icon = Icons.error_outline_rounded;
-                color = Colors.redAccent;
-                break;
-              case ImportDiagnosticSeverity.warning:
-                icon = Icons.warning_amber_rounded;
-                color = Colors.orange;
-                break;
-              case ImportDiagnosticSeverity.info:
-                icon = Icons.info_outline_rounded;
-                color = Colors.blueAccent;
-                break;
-            }
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(icon, color: color, size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          msg.title,
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: color,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          msg.message,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: theme.textTheme.bodyMedium?.color,
-                          ),
-                        ),
-                        if (msg.source != null || msg.code != null) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            '${msg.source != null ? "来源: ${msg.source!}" : ""}'
-                            '${msg.source != null && msg.code != null ? " | " : ""}'
-                            '${msg.code != null ? "代码: ${msg.code!}" : ""}',
-                            style: const TextStyle(
-                                fontSize: 10, color: Colors.grey),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }),
-        ] else if (summary.technicalFields.isEmpty && summary.traceId == null)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 24),
-            child: Center(
-              child: Text('无技术诊断信息', style: TextStyle(color: Colors.grey)),
-            ),
-          ),
-      ],
-    );
+                          child: RefreshIndicator(
+                              onRefresh: _refresh,
+                              child: ListView(
+                                  physics:
+                                      const AlwaysScrollableScrollPhysics(),
+                                  padding:
+                                      const EdgeInsets.fromLTRB(16, 6, 16, 24),
+                                  children: [
+                                    if (unavailable)
+                                      Column(children: [
+                                        const Icon(Icons.cloud_off_outlined,
+                                            size: 42),
+                                        const Text('任务暂不可用'),
+                                        TextButton(
+                                            onPressed: controller == null
+                                                ? null
+                                                : _refresh,
+                                            child: const Text('重试'))
+                                      ]),
+                                    if (!unavailable &&
+                                        !loading &&
+                                        items.isEmpty)
+                                      Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                              vertical: 40),
+                                          child: Column(children: [
+                                            Icon(taskCenterTabIcon(selected),
+                                                size: 48),
+                                            const SizedBox(height: 16),
+                                            Text(const [
+                                              '暂无正在解析的任务',
+                                              '暂无待校对任务',
+                                              '暂无已完成记录',
+                                              '暂无异常任务'
+                                            ][selected.index]),
+                                            const SizedBox(height: 8),
+                                            const Text('新导入的文件会显示在这里'),
+                                            if (selected !=
+                                                    TaskCenterCoarseStatus
+                                                        .pendingReview &&
+                                                (controller.count(
+                                                        TaskCenterCoarseStatus
+                                                            .pendingReview)) >
+                                                    0)
+                                              TextButton(
+                                                  onPressed: () =>
+                                                      controller.selectTab(
+                                                          TaskCenterCoarseStatus
+                                                              .pendingReview),
+                                                  child: Text(
+                                                      '还有 ${controller.count(TaskCenterCoarseStatus.pendingReview)} 个任务等待校对，去处理')),
+                                          ])),
+                                    for (final item in items)
+                                      TaskCenterTaskCard(
+                                          item: item,
+                                          localize: widget.localize,
+                                          busy: controller!.cleanupBusy ||
+                                              controller.pendingTaskIds
+                                                  .contains(item.target.taskId),
+                                          onDetail: () => _details(item),
+                                          onAction: (action) =>
+                                              _action(item, action)),
+                                  ]))),
+                    ]))));
   }
 }

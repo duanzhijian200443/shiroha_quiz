@@ -1,3 +1,4 @@
+import '../../support/task_center_test_composition.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -79,7 +80,8 @@ void main() {
                         child: HomePage(
                             homeTraining: fake.ports,
                             studyActivityQuery: fake,
-                            taskManager: TaskManager.forTesting(),
+                            taskCenter: testTaskCenterDependencies(
+                                manager: TaskManager.forTesting()),
                             todayActivationEpoch: epoch,
                             localNow: () => DateTime(2026, 10, 5, 9))))))));
     await tester.pumpAndSettle();

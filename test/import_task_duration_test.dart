@@ -1,3 +1,4 @@
+import 'support/task_center_test_composition.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -158,60 +159,31 @@ void main() {
       expect(oldTask.elapsed.inSeconds, equals(0));
     });
 
-    testWidgets('4. 重建 TaskCenterScreen / Widget 后耗时数值保持不变 (非运行状态)',
-        (WidgetTester tester) async {
-      TaskManager.instance.tasks.clear();
-      final startTime = (DateTime.now().millisecondsSinceEpoch ~/ 1000) - 10;
-      final task = ImportTask(
-        id: 't_widget_freeze',
-        title: 'Widget Freeze Task',
-        status: TaskStatus.processing,
-        createdAt: startTime,
-      );
-      TaskManager.instance.addTask(task);
-      TaskManager.instance.requireReview(
-        't_widget_freeze',
-        '等待用户校对',
-        [
-          {'q_num': 1, 'stem': 'Q1'}
-        ],
-        'Bank',
-        'Folder',
-      );
-
-      // 第一次 Build Widget
-      await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(
-            body: TaskCenterScreen(),
-          ),
-        ),
-      );
+    testWidgets('TaskCenter legacy parsed time stays missing after rebuild',
+        (tester) async {
+      final manager = TaskManager.forTesting();
+      addTearDown(manager.dispose);
+      manager.tasks.add(ImportTask(
+          id: 't_widget_freeze',
+          title: 'synthetic.pdf',
+          status: TaskStatus.pendingReview,
+          createdAt: 100,
+          completedAt: 200,
+          parsedData: [
+            {'content': 'synthetic'}
+          ]));
+      await tester.pumpWidget(MaterialApp(
+          home: TaskCenterScreen(
+              dependencies: testTaskCenterDependencies(manager: manager))));
       await tester.pump();
-
-      // 打开 诊断 Details Sheet
-      final diagnosticsBtn = find.byKey(
-        const ValueKey<String>('task-diagnostics-t_widget_freeze'),
-      );
-      await tester.tap(diagnosticsBtn);
-      await tester.pumpAndSettle();
-
-      expect(find.text('导入耗时'), findsOneWidget);
-      final elapsedFinder = find.byWidgetPredicate(
-        (w) => w is SelectableText && (w.data?.endsWith('s') ?? false),
-      );
-      final initialElapsedText =
-          tester.widget<SelectableText>(elapsedFinder).data;
-
-      // 等待时间流逝并重新触发 Build
-      await tester.binding.delayed(const Duration(seconds: 2));
       await tester.pump();
-
-      // 重新获取 UI 文本
-      final rebuiltElapsedText =
-          tester.widget<SelectableText>(elapsedFinder).data;
-
-      expect(rebuiltElapsedText, equals(initialElapsedText));
+      await tester
+          .tap(find.byKey(const ValueKey('task-category-pendingReview')));
+      await tester.pump();
+      expect(find.text('解析完成时间未记录'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 2));
+      expect(find.text('解析完成时间未记录'), findsOneWidget);
+      expect(find.text('导入耗时'), findsNothing);
     });
   });
 }

@@ -30,7 +30,11 @@ final class TaskCenterFacade
 
   TaskCenterItem _project(ImportTask task) {
     final target = _manager.taskCenterTarget(task.id);
-    if (target == null || !isSafeTaskCenterDisplayName(task.title)) {
+    const legacyPrefix = '文档解析任务:';
+    final name = task.title.startsWith(legacyPrefix)
+        ? task.title.substring(legacyPrefix.length).trim()
+        : task.title;
+    if (target == null || !isSafeTaskCenterDisplayName(name)) {
       throw const HomeTrainingContractException(
           HomeTrainingFailure.unavailable);
     }
@@ -91,7 +95,7 @@ final class TaskCenterFacade
             attempt == TaskCenterAttemptStatus.readyForReview);
     return TaskCenterItem(
         target: target,
-        fileDisplayName: task.title,
+        fileDisplayName: name,
         coarseStatus: coarse,
         attemptStatus: attempt,
         counts: TaskCenterCounts(

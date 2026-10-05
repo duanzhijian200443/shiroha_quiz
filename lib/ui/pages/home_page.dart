@@ -23,7 +23,8 @@ import '../../application/today/today_context_query.dart';
 import '../home/today_controller.dart';
 import '../../domain/study_plan/active_study_plan.dart';
 import '../../services/study_plan/study_plan_practice_session_launcher.dart';
-import '../../services/task_manager.dart';
+import '../dependencies/task_center_dependencies.dart';
+import '../../application/task_center/task_center_contracts.dart';
 import '../../services/import_review/import_commit_service.dart';
 
 import '../../application/practice/study_session_launch.dart';
@@ -47,7 +48,7 @@ enum _CreateImportAction { file, photo }
 class HomePage extends StatefulWidget {
   const HomePage({
     super.key,
-    this.taskManager,
+    this.taskCenter,
     this.todayContextQuery,
     this.homeTraining,
     this.studyActivityQuery,
@@ -71,7 +72,7 @@ class HomePage extends StatefulWidget {
     this.todayActivationEpoch = 0,
   });
 
-  final TaskManager? taskManager;
+  final TaskCenterDependencies? taskCenter;
   final TodayContextQuery? todayContextQuery;
   final HomeTrainingDependencies? homeTraining;
   final StudyActivityQuery? studyActivityQuery;
@@ -107,6 +108,8 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   late final TodayController _controller;
+  int? _taskBadge;
+  int _badgeGeneration = 0;
   String get _currentBank => _controller.contextSnapshot.bankName ?? '点击修改选择题库';
   int get _newCount => _controller.contextSnapshot.newCount;
   int get _reviewCount => _controller.contextSnapshot.reviewCount;
@@ -165,11 +168,31 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _loadContext() => _controller.loadContext();
   Future<void> _loadFocusedState() => _controller.loadFocusedState();
   Future<void> _refresh() async {
+    unawaited(_loadTaskBadge());
     await Future.wait([
       widget.homeTraining == null ? _loadContext() : _controller.loadTraining(),
       if (widget.homeTraining != null) _controller.loadWeek(),
       _loadFocusedState()
     ]);
+  }
+
+  Future<void> _loadTaskBadge() async {
+    final generation = ++_badgeGeneration;
+    int? count;
+    try {
+      final result = await widget.taskCenter?.query.read();
+      if (result case HomeTrainingSuccess(:final value)) {
+        count = value.items
+            .where((item) =>
+                item.coarseStatus == TaskCenterCoarseStatus.inProgress)
+            .length;
+      }
+    } catch (_) {
+      count = null;
+    }
+    if (mounted && generation == _badgeGeneration) {
+      setState(() => _taskBadge = count);
+    }
   }
 
   TodayTrainingSnapshot? get _training => switch (_controller.trainingResult) {
@@ -850,7 +873,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               ]))));
 
   Widget _tools() {
-    final taskManager = widget.taskManager ?? TaskManager.instance;
     return Row(mainAxisAlignment: MainAxisAlignment.end, children: [
       if (widget.homeTraining != null)
         IconButton(
@@ -858,25 +880,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             tooltip: '全局错题本',
             onPressed: () => _openBankDetail('🔥 全局错题本'),
             icon: const Icon(Icons.bookmark_outline_rounded)),
-      AnimatedBuilder(
-          animation: taskManager,
-          builder: (context, _) => TextButton.icon(
-              key: const ValueKey('home-parse-action'),
-              onPressed: () async {
-                await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => TaskCenterScreen(
-                            onOpenBank: _openBankDetail,
-                            folderQuery: widget.folderQuery,
-                            commitService: widget.importCommitService)));
-                if (mounted) await _refresh();
-              },
-              icon: Badge(
-                  isLabelVisible: taskManager.processingCount > 0,
-                  label: Text('${taskManager.processingCount}'),
-                  child: const Icon(Icons.task_outlined, size: 18)),
-              label: const Text('解析'))),
+      TextButton.icon(
+          key: const ValueKey('home-parse-action'),
+          onPressed: widget.taskCenter == null
+              ? null
+              : () async {
+                  await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => TaskCenterScreen(
+                              dependencies: widget.taskCenter)));
+                  if (mounted) await _refresh();
+                },
+          icon: Badge(
+              isLabelVisible: (_taskBadge ?? 0) > 0,
+              label: Text('$_taskBadge'),
+              child: const Icon(Icons.task_outlined, size: 18)),
+          label: const Text('解析')),
       IconButton(
           key: const ValueKey('home-import-action'),
           tooltip: '创建 / 导入',

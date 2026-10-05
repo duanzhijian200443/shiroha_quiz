@@ -361,7 +361,14 @@ jobs:
             'test/task_manager_event_time_test.dart',
             'test/application/task_center/task_center_facade_test.dart',
             'test/application/task_center/task_center_contracts_test.dart',
-            'test/application/task_center/retry_file_selection_test.dart'
+            'test/application/task_center/retry_file_selection_test.dart',
+            'test/ui/task_center/task_center_controller_test.dart',
+            'test/ui/task_center/task_center_screen_test.dart',
+            'test/ui/task_center/task_center_composition_test.dart',
+            'test/task_center_restart_recovery_test.dart',
+            'test/import_task_duration_test.dart',
+            'test/b1e_runtime_acceptance_test.dart',
+            'test/data/repositories/import_task_review_draft_cas_test.dart'
           )
 
           $shardCount = 4

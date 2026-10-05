@@ -93,6 +93,18 @@ void main() {
   Future<TaskCenterCompletedSnapshot> snapshot() async =>
       _success(await facade.snapshotCompletedForCleanup());
 
+  test('legacy title prefix is corrected only in safe read projection',
+      () async {
+    final task =
+        await add(_task('legacy', title: '文档解析任务: study: chapter.pdf'));
+    expect((await item(task.id)).fileDisplayName, 'study: chapter.pdf');
+    expect(task.title, '文档解析任务: study: chapter.pdf');
+    final row =
+        (await db.query('import_tasks', where: 'id = ?', whereArgs: [task.id]))
+            .single;
+    expect(row['title'], task.title);
+  });
+
   for (final state in TaskCenterAttemptStatus.values) {
     test('safe projection and actions for ${state.name}', () async {
       final status = switch (state) {

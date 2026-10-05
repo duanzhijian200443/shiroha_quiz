@@ -642,7 +642,7 @@ preserving exact P3a order; every failed preparation leaves the old queue intact
 RNG is injected per new launch. No launch writes learning/configuration state or
 adds a durable queue. CP2-T implementation is complete.
 Legacy bank-scoped and StudyPlan launchers remain independent. Home/Today
-activation and TaskCenter Presentation remain planned;
+activation is implemented by B4; TaskCenter Presentation is implemented by B5;
 ordinary Practice composition uses the prepared session with normal
 attribution, while StudyPlan retains focused attribution and its 200-ID bound.
 P4a implements the pure StudyActivity lifecycle/time core. Application's
@@ -700,8 +700,9 @@ out-of-horizon attribution fails unavailable rather than consulting changed
 calendar rules. No timezone dependency or schema change is introduced.
 PR #232 is merged, so B3/I1 is historical accepted delivery under the merged-PR recovery rule. Home V2 composes the
 TrainingContent ports, prepared ordinary launch and this Activity query. PR #234 is
-also merged, so B4/I2 is current runtime truth. TaskCenter UI/I3 remains
-unactivated and CP3 remains incomplete.
+also merged, so B4/I2 is current runtime truth. B5 implements TaskCenter UI/I3
+production injection, completing the CP3 composition surface; final acceptance
+still requires current-target CI and independent review.
 B1 delivers P5a/P5b together. ImportTask adds three nullable UTC-second columns
 with no historical backfill. TaskManager owns accepted-attempt started/parsed/
 failed times and retry resets; repeated running does not refresh started time.
@@ -720,11 +721,23 @@ and removes memory projections only after durable success. The legacy UI cleanup
 API remains a compatibility path, not the new completed-only command authority.
 Retry emits a picker request without mutation; selected input stays ephemeral in
 the ingestion adapter and revalidates again at accepted retry. Review emits only
-an exact navigation target; the later composition bridge must retain review CAS.
+an exact navigation target; the composition bridge retains existing review CAS.
 B0 retains package v2, migrates staged schema to v31 and continues to scrub all
 ImportTask rows including event times. P5a/P5b and CP2-I implementation are complete;
-B1 / CP2-I has been independently accepted and merged. TaskCenter UI, I3 and
-production injection are not activated.
+B1 / CP2-I has been independently accepted and merged. B5 activates TaskCenter
+UI and I3 through one TaskCenterFacade shared by query, command and selected-source
+retry. Home's parse entry/badge uses the same injected safe query; the screen and
+controller consume immutable Application DTOs only. The controller serializes
+bounded visible-route refreshes, rejects stale/disposed publication, preserves
+captured command/cleanup targets and never auto-replays stale actions. Event
+times use the exact event kind and system local conversion, with no legacy
+timestamp substitution. Legacy `文档解析任务:` titles are corrected only in the
+safe read projection, without rewriting stored titles. FilePicker input stays
+ephemeral inside the picker/ingestion compatibility boundaries. The review
+bridge validates the exact nullable attempt/trace/review identity and eligibility
+again immediately before constructing existing ImportStaging inputs and pushing
+the route. The historical task_center_projection helper remains for compatibility
+tests only. Schema remains v31; PlanConfigScreen retirement and CP4 remain for B6.
 
 B2 implements injectable Training Config list, shared selector/editor and
 Presentation controller through Application ports. A single read transaction
