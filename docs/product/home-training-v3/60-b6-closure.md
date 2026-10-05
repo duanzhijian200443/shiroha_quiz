@@ -28,11 +28,11 @@ Contract: `./00-contract.md`
   上述所有 durable external references。
 
 ## Documentation responsibility
-- `docs/product/home-training-v3/`: UPDATE
-- `docs/product/home-training-v3/00-contract.md`: UPDATE
+- `./`: UPDATE
+- `./00-contract.md`: UPDATE
 - `ARCHITECTURE.md`: UPDATE
 - `docs/architecture/shiroha-project-roadmap.md`: UPDATE
 - `docs/product/today-home-refresh-freeze.md`: UPDATE
 - `docs/product/ui-finalization-ia-freeze.md`: UPDATE
 - `docs/architecture/b0-shiroha-backup-restore.md`: UPDATE
-- `docs/product/home-training-v3/60-b6-closure.md`: UPDATE
+- `./60-b6-closure.md`: UPDATE
