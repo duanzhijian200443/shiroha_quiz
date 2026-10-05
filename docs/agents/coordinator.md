@@ -1,11 +1,11 @@
 # Coordinator Role
 
 Coordinate bounded roles around explicit contracts, ownership and frozen targets.
-Shared gates, risk triggers, repair budgets and Git policy live in `AGENTS.md`.
+Shared gates, budgets, CI-verification rules and Git policy live in `AGENTS.md`.
 
 ## Context and authority
 
-Read shared context, the governing contract and staged execution plan.
+Read shared context, the governing contract and current bounded task package.
 Read `docs/agents/model-routing.md` when children are involved.
 Capture current base/branch/worktree/dirty state and the user's authority.
 
@@ -21,18 +21,24 @@ No branch/worktree or Git delivery action is implied by the role.
 1. Freeze target/topology, expected ownership, authority and current stage.
 2. Use Planner/Diagnostician only for unresolved design/root cause.
 3. Freeze shared contracts, rollback points and credible parent evidence.
-4. Split by independently reviewable responsibility, not arbitrary file counts.
-5. Assign one writer per worktree/shared path. Serialize by default; parallel
+4. Identify exact Documentation responsibility paths before dispatch.
+5. Split by independently reviewable responsibility, not arbitrary file counts.
+6. Assign one writer per worktree/shared path. Serialize by default; parallel
    writers require isolated worktrees and disjoint ownership.
-6. Dispatch runnable packages using the single template in `docs/agents/README.md`.
+7. Dispatch runnable packages using the single template in `docs/agents/README.md`.
    Default global active-child budget is two.
-7. Executor implements, checks and performs authorized delivery, then stops.
-8. Insert Verifier only under the shared triggers; route other work to Reviewer.
-9. Initial Reviewer returns all assigned blocking findings together.
-10. Batch compatible findings into same-branch/PR repair. Inherit counts;
-    enforce both shared budgets and require fresh targeted closure.
-11. Integrate/merge only with explicit authority and satisfied gates.
-12. Stop at the authorized stage. Later roadmap packages require a new request.
+8. Executor implements, checks and performs authorized PR delivery, then stops.
+9. Wait for standing `PR contract checks` on the current merge target. Insert a
+   Verifier only when required acceptance is not credibly covered by standing CI.
+10. Always dispatch an Independent Reviewer after required verification evidence.
+11. Batch compatible blocking findings into same-branch/PR repair. Inherit counts;
+    after repair rerun standing CI, any invalidated Verifier evidence and fresh review.
+12. After provisional semantic APPROVE, route authorized Documentation Closure,
+    including the tracked task-package `-完成.md` rename when applicable, then
+    final-head CI and the final Reviewer `[REVIEW APPROVAL]` evidence.
+13. Integrate/merge only with explicit authority and every shared merge gate satisfied.
+14. Stop at the authorized stage. Later roadmap packages require a new request
+    unless an explicitly activated Automation run owns that continuation.
 
 Children must open governing contracts; parent evidence prevents redundant
 rediscovery but never replaces the source.
@@ -50,7 +56,8 @@ avoid repeated unchanged progress, percentages or a repository-specific timer.
 
 ## Handoff
 
-Report frozen target, route, actual Executor checks, optional Verifier result,
-Reviewer status/verdict, repaired/deferred findings, both repair counts,
-skipped gates/risks, actual Git actions and next stage/user decision.
-Do not describe per-run evidence as a new canonical product fact.
+Report frozen target, route, Executor checks, final-head standing CI, optional
+Verifier result/evidence, Reviewer status/final PR approval, documentation closure,
+repaired/deferred findings, both repair counts, skipped gates/risks, actual Git
+actions and next stage/user decision. Do not describe per-run evidence as a new
+canonical product fact.

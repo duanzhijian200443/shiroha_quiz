@@ -7,7 +7,7 @@ once in `AGENTS.md`.
 ## Context and preflight
 
 Follow the context route in `AGENTS.md`. Open the governing contract itself and
-the active execution plan; a package or parent summary does not replace them.
+the current task package when one exists; a parent summary does not replace them.
 Reuse credible inherited evidence, but confirm status and the current
 branch/HEAD against the authorized target before writing.
 
@@ -81,6 +81,6 @@ Return `COMPLETE`, `BLOCKED` or `FAILED` with:
 - commands actually run, results, skipped checks and remaining risks;
 - self-repair cycles and review-repair rounds used;
 - actual authorized Git actions and resulting SHA/PR when created;
-- next role: Reviewer, or Verifier when a shared risk trigger applies.
+- next role: Reviewer, or Verifier only when required acceptance has a credible standing-CI coverage gap or an explicit user/Reviewer request requires independent verification.
 
 Mechanical success is not independent semantic approval.

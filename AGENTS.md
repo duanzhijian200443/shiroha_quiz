@@ -31,7 +31,7 @@ Before a non-trivial task, read:
   plus sections relevant to the affected capability;
 - the governing task-specific canonical/frozen contract source when the task
   implements, changes or reviews behavior it owns;
-- the active execution appendix/plan when the task belongs to a staged plan;
+- the current bounded task package when one exists;
 - relevant implementation/tests/current diff.
 
 Use the architecture reading guide and focused searches to identify applicable
@@ -125,10 +125,13 @@ Default route:
 
 ```text
 Planner/Diagnostician only when needed
--> Executor + mechanical verification
--> authorized Git delivery -> STOP
+-> Executor + mechanical checks
+-> authorized PR delivery -> STOP
+-> standing PR CI verification gate
+-> Verifier only when required acceptance is not credibly covered by CI
 -> Independent Reviewer
 -> bounded repair when needed
+-> documentation closure + final-head CI
 -> user-authorized merge
 ```
 
@@ -140,16 +143,27 @@ architecture gates, analyze, format, diff-check and final scope inspection.
 Green Executor checks are mechanical evidence, not independent semantic approval.
 Stop at the authorized delivery boundary, even when no PR is authorized.
 
-Insert an independent Verifier only for:
+For every non-trivial completion PR, the automatic `PR contract checks` run is
+the default independent verification authority. It must succeed for the current
+PR head and current base/merge target even when GitHub branch protection does not
+mark any status as required. Results for a stale head or stale base/merge target
+do not satisfy the gate.
 
-- schema/data migration or destructive operations;
-- high-risk transaction/concurrency or security/privacy/authorization behavior;
-- inconsistent Executor evidence or flaky/environment-dependent failures;
-- real-provider/device/release/runtime acceptance;
+Standing CI may fully satisfy deterministic acceptance, including high-risk
+schema/migration, transaction/concurrency or security/authorization behavior,
+when the required acceptance matrix is explicitly covered by hard-failing CI.
+Insert an independent Verifier only when required acceptance cannot be credibly
+proved by current standing CI, including:
+
+- real-provider/device/release/runtime or manual-observation acceptance;
+- OS/platform behavior not exercised by standing CI;
+- flaky, timing-dependent or inconsistent Executor/CI evidence;
+- a required acceptance condition with no deterministic standing-CI coverage;
 - an explicit user or Reviewer request for independent checks.
 
-Then use `Executor -> Verifier -> Reviewer`; otherwise go directly to Reviewer.
-Reviewers independently read a fixed target and never implement repairs or merge.
+When a Verifier is required, verify one fixed target and preserve its PR evidence.
+An Independent Reviewer is mandatory for every non-trivial completion PR.
+Reviewer approval is semantic evidence; green CI never replaces independent review.
 
 ## 6. Failure handling and budgets
 
@@ -270,7 +284,7 @@ Never claim an unrun check passed; report skipped/failed checks.
 A command with no meaningful progress for three minutes is stalled. Preserve
 evidence; do not silently extend timeouts or retry indefinitely.
 
-## 10. Review, findings and closure
+## 10. Review, documentation closure and merge evidence
 
 | Severity | Meaning |
 |---|---|
@@ -283,12 +297,46 @@ P3 is deferred by default. Completed reviews return all non-duplicate blocking
 findings together. Incomplete/unstable targets return `INCONCLUSIVE`, never approval.
 
 P0/P1/P2 -> bounded Repair Executor on the same branch/PR -> mechanical checks
--> authorized push -> STOP -> fresh targeted Reviewer closure.
-Targeted review expands only if the repair invalidated the original scope.
+-> authorized push -> STOP -> standing CI -> required Verifier when CI is
+insufficient -> fresh targeted Reviewer closure. Targeted review expands only if
+the repair invalidated the original scope.
 
-Merge requires zero open task P0/P1/P2 findings, satisfied required gates and
-explicit user merge authority. Repository/global status defaults to
-`NOT_EVALUATED` for focused tasks; local evidence never implies global acceptance.
+Every writable package must declare `Documentation responsibility` as exact paths
+with `UPDATE` or `CHECK_ONLY`, or explicitly state `none`.
+`UPDATE` means the accepted delivery changes durable truth/status at that path.
+`CHECK_ONLY` means the Reviewer must confirm the file does not materially
+contradict the accepted delivery; it is not write authority.
+
+After required verification is complete and semantic review reaches provisional
+`APPROVE`, an explicitly authorized Reviewer may enter Documentation Closure.
+That exception may modify only paths marked `UPDATE` plus the PR title/body.
+It never permits production/test/CI/config/dependency edits or a change to frozen
+product semantics. Documentation writes, commit/push and PR metadata mutation
+remain separately authorized actions. Without that authority, report the exact
+closure needed to an authorized writer and withhold final approval.
+
+Any closure commit advances the PR head. Rerun the standing PR CI on the final
+head/current merge target, then refreeze and inspect the closure diff. A prior
+Verifier PASS may carry forward only when every change since its verified head is
+authorized documentation/PR-metadata closure and the Reviewer confirms that no
+verified behavior changed; otherwise rerun the Verifier.
+
+A completion PR is merge-ready only when all of the following hold:
+
+- final-head/current-target `PR contract checks` succeeded;
+- the mandatory Independent Reviewer recorded `[REVIEW APPROVAL]` on the PR for
+  the final head, with zero open P0/P1/P2 findings and documentation closure status;
+- when a Verifier was required, its `[VERIFICATION APPROVAL]` PR evidence is
+  present for the applicable verified head;
+- every declared documentation responsibility is closed;
+- explicit user merge authority exists.
+
+PR comment/review-submission authority is required to record those approval
+markers. A role may complete its analysis without that mutation authority, but
+the PR is not merge-ready until the required evidence is recorded.
+
+Repository/global status defaults to `NOT_EVALUATED` for focused tasks; local
+evidence never implies global acceptance.
 
 ## 11. Orchestration
 
@@ -302,16 +350,48 @@ Delegated children have one bounded role/task; they may not create descendants,
 switch roles, expand scope or decide public architecture/contracts.
 Read `docs/agents/model-routing.md` when routing children.
 
-## 12. Canonical documents
+## 12. Canonical documents and task-package layout
 
-Canonical documents record durable truth, not logs, review findings or test reports.
-Execution plans own delivery order/status; Git owns exact snapshots.
+Canonical contracts record durable product/architecture truth, not run logs, review
+findings or transient scheduling state. Git/PR/CI/Reviewer evidence owns exact
+execution facts.
 
-Planner identifies whether durable truth changes and the affected documents.
-Executor updates canonical docs only when authorized implementation changes that
-truth; routine fixes preserving the contract do not require documentation churn.
-Reviewer checks implementation/contract agreement in both directions.
-Verifier checks frozen behavior without redesign.
+A staged product capability may use one focused directory:
+
+```text
+docs/product/<capability>/
+├─ 00-contract.md
+├─ 10-<bounded-package>.md
+├─ 20-<bounded-package>.md
+└─ ...
+```
+
+`00-contract.md` is the semantic authority. Sibling package files are optional
+bounded execution packages, not a second contract and not a status database.
+Do not create a separate execution-plan document merely to repeat package order,
+status or NEXT.
+
+Package filenames are the scheduling surface. Numeric prefixes express relative
+order, subject to contract prerequisites and current Git facts. Do not add
+`Task-ID` or `Status` metadata solely for orchestration. A package whose filename
+ends in `-完成.md` is closed for normal selection and should be skipped without
+opening unless historical evidence is explicitly needed.
+
+For a tracked package, the authorized final Documentation Closure may rename
+`NN-name.md` to `NN-name-完成.md` only after required verification has passed
+and semantic review has reached provisional APPROVE. Final-head CI and final
+Reviewer approval still run after that rename; therefore the default branch sees
+the completion suffix only if the completion PR actually merges. Local ignored
+Automation queue files are renamed to `-完成.md` only after the corresponding
+merge is confirmed.
+
+Planner identifies affected durable-state documents and places their exact paths
+in `Documentation responsibility`. Executor may update contract content when an
+authorized implementation changes product semantics, but must not pre-claim an
+independent acceptance result. Reviewer checks implementation/contract agreement
+in both directions and performs authorized final Documentation Closure.
+Roadmap summaries change only when stage-level truth changes. Verifier checks
+frozen behavior without redesign and does not own canonical status.
 
 Preserve historical truth through amendments, explicit historical labeling and
 superseding references. Do not rewrite later decisions into the historical baseline.

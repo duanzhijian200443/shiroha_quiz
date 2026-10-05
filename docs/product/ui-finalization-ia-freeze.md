@@ -375,9 +375,9 @@ retaining typed/legacy authority, attempt recording, FSRS and preview semantics.
 The closed three-tab IA and the historical UI Finalization delivery remain
 unchanged.
 
-## HOME-TRAINING-V3 planned amendment (not implemented)
+## HOME-TRAINING-V3 amendment (backend partial; UI activation pending)
 
-`docs/product/home-training-implementation-freeze-v3.md` freezes the planned
+`docs/product/home-training-v3/00-contract.md` freezes the planned
 successor `SHIROHA-HOME-TRAINING-IPF-V3` covering TrainingContent
 configuration and Today/Home v2 (Category cards, current TrainingContent,
 Category-scoped review pool, weekly activity). The **configuration and

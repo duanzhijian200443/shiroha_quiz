@@ -78,10 +78,10 @@ active/paused sessions and malformed Activity before restore swap. Rollback
 baselines may retain live active/paused rows. Migration is confined to staged
 copies and creates empty Activity for older schemas, with no duration backfill
 or owner/queue reconstruction. Startup recovery is a separate gated live writer
-using processInterrupted, never a query side effect. P4b independent T3
-Verifier/Reviewer acceptance remains pending; no Activity production wiring is
-claimed. ImportTask event timestamps v31 remain planned under
-`docs/product/home-training-implementation-freeze-v3.md`; ImportTask remains scrubbed.
+using processInterrupted, never a query side effect. P4b has since passed its
+independent acceptance and merged; Practice/MockExam production Activity wiring is
+still a later package. ImportTask event timestamps are now implemented in runtime
+v31 under `docs/product/home-training-v3/00-contract.md`; ImportTask remains scrubbed.
 
 ### Current-state amendment: ImportTask schema v31
 
@@ -91,10 +91,9 @@ identity and all historical rows without guessed event times. Runtime is v31;
 package version remains 2. DatabaseHelper's staged migration chain remains the
 only schema upgrade authority; portable candidates must also pass the shared
 v31 schema validator. ImportTask remains entirely SCRUB state, including all
-new event fields. Snapshot export does not mutate live tasks. The prior v30
-paragraph records P4b delivery; P4b has since passed independent T3 acceptance
-and merged. B1 independent T3 acceptance is still required; no TaskCenter UI
-or production composition is claimed.
+new event fields. Snapshot export does not mutate live tasks. The prior v30 paragraph records P4b delivery; P4b has since passed independent
+acceptance and merged. B1 fixed-head CI and independent T3 verification passed and
+PR #227 merged; no TaskCenter UI or production composition is claimed.
 
 ### ContentAsset lifecycle successor (docs-only)
 

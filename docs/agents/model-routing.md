@@ -28,7 +28,9 @@ parent stage's maximum risk:
 
 Map these task descriptions to the actual supported reasoning settings.
 Use deterministic CI/local checks when sufficient; use an independent Verifier
-only when shared risk triggers apply.
+only when required acceptance is not credibly covered by standing CI, or when an
+explicit user/Reviewer request requires independent verification. High risk alone
+does not duplicate deterministic CI coverage.
 
 ## Independence
 
