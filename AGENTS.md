@@ -236,12 +236,13 @@ Only perform the authorized delivery steps.
 
 `PR-create` authorizes PR creation only. PR title/body updates, close/reopen and
 other PR mutations remain separate actions requiring explicit task/user authority.
-A Reviewer assignment that explicitly targets an existing PR has one narrow
-standing exception: each completed review pass may publish exactly one review
-evidence comment/submission on that PR. This evidence mutation may report
-`APPROVE`, `REQUEST_CHANGES` or `INCONCLUSIVE`, but does not authorize title/body
-changes, labels, close/reopen, merge, code edits or any other PR mutation. A generic
-`PR yes` is not blanket authority.
+Reviewer and Verifier assignments that explicitly target an existing PR have one
+narrow standing exception: each completed pass may publish exactly one role evidence
+comment/submission on that PR. Reviewer evidence may report `APPROVE`,
+`REQUEST_CHANGES` or `INCONCLUSIVE`; Verifier evidence may report PASS or a bounded
+non-PASS result. This evidence mutation does not authorize title/body changes,
+labels, close/reopen, merge, code edits or any other PR mutation. A generic `PR yes`
+is not blanket authority.
 
 ## 8. Security, privacy and network
 
@@ -306,7 +307,10 @@ insufficient -> fresh targeted Reviewer closure. Targeted review expands only if
 the repair invalidated the original scope.
 
 Every writable package must declare `Documentation responsibility` as exact paths
-with `UPDATE` or `CHECK_ONLY`, or explicitly state `none`.
+with `UPDATE` or `CHECK_ONLY`, or explicitly state `none`. Repository-absolute paths
+are the default. Inside a focused contract directory, `./...` is also an exact path:
+it resolves against the current task package directory and is preferred for sibling
+contract/package responsibilities that must survive a final capability-directory rename.
 `UPDATE` means the accepted delivery changes durable truth/status at that path.
 `CHECK_ONLY` means the Reviewer must confirm the file does not materially
 contradict the accepted delivery; it is not write authority.
@@ -335,11 +339,13 @@ A completion PR is merge-ready only when all of the following hold:
 - every declared documentation responsibility is closed;
 - explicit user merge authority exists.
 
-When a Reviewer assignment explicitly targets an existing PR, publishing one
-review-evidence comment/submission for that completed pass is part of the role and
-needs no separate task-package field. Use `[REVIEW APPROVAL]`,
-`[REVIEW REQUEST_CHANGES]` or `[REVIEW INCONCLUSIVE]` as applicable. Final merge
-readiness still requires the final-head `[REVIEW APPROVAL]` evidence.
+When a Reviewer or Verifier assignment explicitly targets an existing PR,
+publishing one role-evidence comment/submission for that completed pass is part of
+the role and needs no separate task-package field. Reviewer uses
+`[REVIEW APPROVAL]`, `[REVIEW REQUEST_CHANGES]` or `[REVIEW INCONCLUSIVE]`;
+Verifier uses `[VERIFICATION APPROVAL]` on PASS and `[VERIFICATION RESULT]` on
+non-PASS. Final merge readiness still requires the applicable final review and
+verification evidence.
 
 For historical state reconstruction only, a PR that GitHub reports as `MERGED` is
 by default treated as having satisfied its review gate even when older workflow
