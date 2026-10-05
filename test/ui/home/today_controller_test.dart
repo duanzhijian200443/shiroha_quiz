@@ -4,8 +4,111 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/study_plan/study_plan_selection_service.dart';
 import 'package:shiroha_quiz/application/today/today_context_query.dart';
 import 'package:shiroha_quiz/ui/home/today_controller.dart';
+import '../../support/home_training_fakes.dart';
+import 'package:shiroha_quiz/application/home_training_result.dart';
+import 'package:shiroha_quiz/application/training/today_training_contracts.dart';
+import 'package:shiroha_quiz/application/training/training_contracts.dart';
 
 void main() {
+  test(
+      'V2 late read is invalidated before Category mutation; stale has zero retry',
+      () async {
+    final fake = HomeTrainingFake();
+    final subject = TodayController(
+        training: fake.ports,
+        activityQuery: fake,
+        loadFocusedState: () async => const StudyPlanFocusedNoActivePlan());
+    addTearDown(subject.dispose);
+    final old = fake.snapshot;
+    fake.readGate = Completer<HomeTrainingResult<TodayTrainingSnapshot>>();
+    final pending = subject.loadTraining();
+    final gate = fake.readGate!;
+    fake.readGate = null;
+    await subject.selectCategory(homeB);
+    gate.complete(HomeTrainingSuccess(old));
+    await pending;
+    expect(
+        (subject.trainingResult as HomeTrainingSuccess<TodayTrainingSnapshot>)
+            .value
+            .selection
+            .categoryKey,
+        homeB);
+    expect(fake.selections.single.contentId,
+        isNull); // Preserve persisted absence, not fallback.
+    fake.selectionFailure = HomeTrainingFailure.stale;
+    expect(await subject.selectCategory(homeA), HomeTrainingFailure.stale);
+    expect(fake.selections, hasLength(2));
+    expect(
+        (subject.trainingResult as HomeTrainingSuccess<TodayTrainingSnapshot>)
+            .value
+            .selection
+            .categoryKey,
+        homeB);
+  });
+
+  test(
+      'V2 corner cycles ordered usable contents and ignores overlapping mutations',
+      () async {
+    final fake = HomeTrainingFake();
+    final subject = TodayController(
+        training: fake.ports,
+        loadFocusedState: () async => const StudyPlanFocusedNoActivePlan());
+    addTearDown(subject.dispose);
+    await subject.loadTraining();
+    final first = fake.snapshot.selection.currentContent!.content.contentId;
+    final ordered =
+        fake.groups.first.contents.map((v) => v.content.contentId).toList();
+    fake.selectionGate = Completer<void>();
+    final move = subject.cycleContent();
+    await Future<void>.delayed(Duration.zero);
+    await subject.cycleContent();
+    expect(fake.selections, hasLength(1));
+    fake.selectionGate!.complete();
+    await move;
+    fake.selectionGate = null;
+    expect(
+        fake.snapshot.selection.currentContent!.content.contentId, ordered[1]);
+    await subject.cycleContent();
+    expect(
+        fake.snapshot.selection.currentContent!.content.contentId, ordered[2]);
+    await subject.cycleContent();
+    expect(fake.snapshot.selection.currentContent!.content.contentId, first);
+    fake.groups[0] = TrainingCategorySnapshot(
+        categoryKey: homeA,
+        preference: fake.groups.first.preference,
+        contents: [
+          fake.groups.first.contents[0],
+          TrainingContentView(
+              content: fake.groups.first.contents[1].content, usable: false),
+          fake.groups.first.contents[2]
+        ]);
+    await subject.loadTraining();
+    await subject.cycleContent();
+    expect(
+        fake.snapshot.selection.currentContent!.content.contentId, ordered[2]);
+  });
+
+  test(
+      'V2 week failure stays independent and dispose suppresses late publication',
+      () async {
+    final fake = HomeTrainingFake()..weekFailed = true;
+    final subject = TodayController(
+        training: fake.ports,
+        activityQuery: fake,
+        loadFocusedState: () async => const StudyPlanFocusedNoActivePlan());
+    await Future.wait([subject.loadTraining(), subject.loadWeek()]);
+    expect(subject.trainingResult,
+        isA<HomeTrainingSuccess<TodayTrainingSnapshot>>());
+    expect(subject.weekResult, isA<HomeTrainingFailed>());
+    fake.readGate = Completer<HomeTrainingResult<TodayTrainingSnapshot>>();
+    final pending = subject.loadTraining();
+    var notified = 0;
+    subject.addListener(() => notified++);
+    subject.dispose();
+    fake.readGate!.complete(HomeTrainingSuccess(fake.snapshot));
+    await pending;
+    expect(notified, 0);
+  });
   TodayController controller({
     Future<TodayContextSnapshot> Function()? context,
     Future<StudyPlanFocusedState> Function()? focused,

@@ -310,6 +310,16 @@ void main() {
 
     // Verify that MainScreen is shown initially.
     expect(find.byType(MainScreen), findsOneWidget);
+    final home = tester.widget<HomePage>(find.byType(HomePage));
+    expect(home.homeTraining, isNotNull);
+    expect(home.todayContextQuery, isNull);
+    expect(
+        identical(home.homeTraining!.contentQuery, home.homeTraining!.command),
+        isTrue);
+    expect(
+        identical(
+            home.homeTraining!.configurationQuery, home.homeTraining!.command),
+        isTrue);
     expect(
         find.descendant(
             of: find.byType(BottomNavigationBar), matching: find.text('今日')),
@@ -408,7 +418,7 @@ void main() {
 
       await pumpUntilFound(
         tester,
-        find.byKey(const ValueKey<String>('home-bank-card')),
+        find.byKey(const ValueKey<String>('home-training-card')),
       );
       await tester.tap(
         find.descendant(
@@ -432,7 +442,7 @@ void main() {
       );
       await pumpUntilFound(
         tester,
-        find.byKey(const ValueKey<String>('home-bank-card')),
+        find.byKey(const ValueKey<String>('home-training-card')),
       );
       await tester.scrollUntilVisible(
         find.byKey(const ValueKey<String>('home-ask-assistant')),
@@ -478,7 +488,7 @@ void main() {
       );
       await pumpUntilFound(
         tester,
-        find.byKey(const ValueKey<String>('home-bank-card')),
+        find.byKey(const ValueKey<String>('home-training-card')),
       );
       await tester.scrollUntilVisible(
         find.byKey(const ValueKey<String>('home-ask-assistant')),
@@ -553,7 +563,7 @@ void main() {
 
     await pumpUntilFound(
       tester,
-      find.byKey(const ValueKey<String>('home-bank-card')),
+      find.byKey(const ValueKey<String>('home-training-card')),
     );
     await tester.tap(
       find.descendant(
@@ -586,7 +596,7 @@ void main() {
     );
     await pumpUntilFound(
       tester,
-      find.byKey(const ValueKey<String>('home-bank-card')),
+      find.byKey(const ValueKey<String>('home-training-card')),
     );
     expect(turn.cancelled, isFalse);
     await tester.scrollUntilVisible(
@@ -620,7 +630,7 @@ void main() {
     await pumpApp(tester, const Size(360, 720));
     await pumpUntilFound(
       tester,
-      find.byKey(const ValueKey<String>('home-bank-card')),
+      find.byKey(const ValueKey<String>('home-training-card')),
     );
     await tester.tap(
       find.descendant(
@@ -662,7 +672,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
     await pumpUntilFound(
       tester,
-      find.byKey(const ValueKey<String>('home-bank-card')),
+      find.byKey(const ValueKey<String>('home-training-card')),
     );
     expect(navigationScaffoldState.isDrawerOpen, isFalse);
     await tester.dragFrom(
@@ -707,7 +717,7 @@ void main() {
     await pumpApp(tester, const Size(360, 720));
     await pumpUntilFound(
       tester,
-      find.byKey(const ValueKey<String>('home-bank-card')),
+      find.byKey(const ValueKey<String>('home-training-card')),
     );
     await tester.tap(
       find.descendant(
@@ -747,7 +757,7 @@ void main() {
     await pumpApp(tester, const Size(360, 720));
     await pumpUntilFound(
       tester,
-      find.byKey(const ValueKey<String>('home-bank-card')),
+      find.byKey(const ValueKey<String>('home-training-card')),
     );
     await tester.tap(
       find.descendant(
@@ -1026,7 +1036,7 @@ Future<void> expectResponsiveNavigation(
   // Default Today destination is reachable.
   await pumpUntilFound(
     tester,
-    find.byKey(const ValueKey<String>('home-bank-card')),
+    find.byKey(const ValueKey<String>('home-training-card')),
   );
 
   await tester.tap(find.text('助手'));

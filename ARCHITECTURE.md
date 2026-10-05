@@ -698,8 +698,10 @@ monotonic elapsed; raw wall observations establish an anchor only on a new
 revision. Wall/zone observations change revision without rewriting old samples;
 out-of-horizon attribution fails unavailable rather than consulting changed
 calendar rules. No timezone dependency or schema change is introduced.
-Weekly UI and Home/TaskCenter activation remain unimplemented. B3 implementation
-does not constitute independent semantic approval or complete CP3.
+The user has confirmed B3 completion and merge. Home V2 now composes the
+TrainingContent ports, prepared ordinary launch and this Activity query; TaskCenter
+UI/I3 remains unactivated and CP3 remains incomplete. Implementation evidence
+does not substitute for independent B4 approval.
 B1 delivers P5a/P5b together. ImportTask adds three nullable UTC-second columns
 with no historical backfill. TaskManager owns accepted-attempt started/parsed/
 failed times and retry resets; repeated running does not refresh started time.
@@ -738,13 +740,29 @@ dense ranks atomically; only changed rows advance revisions, with no member or
 preference writes. Stale or failed moves leave no partial ordering changes.
 Controller generation/dispose guards reject late loads, and busy state prevents
 overlapping UI mutations. Configuration CRUD never changes learning facts.
-Home/config production composition remains I2-owned and inactive; the legacy
-PlanConfigScreen remains. B2 implementation was merged by PR #230 with standing
+Home/config production composition is now wired by B4/I2; the legacy
+PlanConfigScreen remains for compatibility pending B6 retirement. B2 implementation was merged by PR #230 with standing
 PR CI success. The user has confirmed B2 independent review/closure; its sibling
 package now carries the completion suffix. This documentation synchronization
 does not issue a GitHub review approval marker. Runtime schema remains v31.
-The existing Today, ordinary-training, StudyPlan and TaskCenter boundaries above
-remain current truth. StudyPlan remains the single global ActiveStudyPlan and stays
+TodayTrainingQueryAdapter captures one clock observation and injected local-day
+boundaries, then TrainingConfigurationRepository reads catalog, configuration,
+selection and counts in one read transaction. It reuses the shared eligibility,
+visibility/order and Application fallback projection without preference writes,
+sampling, materialization or ReviewState creation. NEW counts include only
+positive-weight members; Category due review counts are independent and uncapped;
+relation summaries include 0% members and distinct local-day ReviewLog Questions.
+TodayController rejects old generations, separates week and training failures,
+and uses exact preference CAS for settled Category selection and ordered usable
+content cycling. Stale commands reload without replay. Home consumes Application
+facts through Category pages, a folded corner and a seven-day Activity view.
+Only ready launches open the prepared normal Practice route with explicit
+ordinaryPractice/categoryReview context; the shared guard spans preparation and
+the route lifetime. Home opens the existing B2 configuration page, refreshes on
+return/reactivation/resume, and preserves real member-bank details and secondary
+entries. Production Home no longer consumes bank-scoped TodayContextQuery or
+PlanConfigScreen; their compatibility callers are retained.
+StudyPlan and TaskCenter boundaries above remain current truth. StudyPlan remains the single global ActiveStudyPlan and stays
 independent of TrainingContent. Delivery order and ownership live in the sibling
 task packages under `docs/product/home-training-v3/`; there is no standalone
 execution-plan authority.
