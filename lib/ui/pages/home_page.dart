@@ -7,6 +7,9 @@ import 'photo_capture_screen.dart';
 import 'mock_center_screen.dart';
 import 'plan_config_screen.dart';
 import 'practice_page.dart';
+import '../../application/study_activity/study_activity_contracts.dart';
+import '../../domain/study_activity/study_activity_values.dart';
+import '../study_activity/study_activity_route_binding.dart';
 import 'task_center_screen.dart';
 import '../../application/study_plan/study_plan_command_service.dart';
 import '../../application/study_plan/study_plan_selection_service.dart';
@@ -623,6 +626,9 @@ class _HomePageState extends State<HomePage> {
               context,
               MaterialPageRoute(
                   builder: (_) => PracticePage(
+                      studyActivity: StudyActivityRouteDescriptor(
+                          scene: StudyActivityScene.ordinaryPractice,
+                          context: StudyActivityContext(bankName: bankName)),
                       bankName: bankName,
                       usePreparedStudySession: true,
                       preparedSessionKind: AnswerAttemptSessionKind.normal,
@@ -692,6 +698,12 @@ class _HomePageState extends State<HomePage> {
               context,
               MaterialPageRoute(
                 builder: (_) => PracticePage(
+                  studyActivity: StudyActivityRouteDescriptor(
+                    scene: StudyActivityScene.studyPlanPractice,
+                    context: StudyActivityContext(
+                        bankName: activePlan.bankName,
+                        planId: activePlan.planId),
+                  ),
                   bankName: activePlan.bankName,
                   usePreparedStudySession: true,
                   practiceCommands: widget.practiceCommands,

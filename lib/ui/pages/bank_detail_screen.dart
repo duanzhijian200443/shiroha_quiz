@@ -2,6 +2,9 @@ import 'answer_completion_screen.dart';
 import '../dependencies/answer_completion_dependencies_scope.dart';
 import 'package:flutter/material.dart';
 import 'practice_page.dart';
+import '../../application/study_activity/study_activity_contracts.dart';
+import '../../domain/study_activity/study_activity_values.dart';
+import '../study_activity/study_activity_route_binding.dart';
 import 'question_list_screen.dart';
 import '../../application/questions/question_list_query_port.dart';
 import '../../application/questions/question_mutation_command.dart';
@@ -60,6 +63,9 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
       context,
       MaterialPageRoute(
         builder: (context) => PracticePage(
+          studyActivity: StudyActivityRouteDescriptor(
+              scene: StudyActivityScene.ordinaryPractice,
+              context: StudyActivityContext(bankName: widget.bankName)),
           bankName: widget.bankName,
           filterType: filterType,
           isPomodoroActive: _isPomodoroActive,

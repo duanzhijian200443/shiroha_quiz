@@ -6,6 +6,10 @@ import '../dependencies/ai_dependencies_scope.dart';
 import '../../application/exam/exam_mutation_command.dart';
 import '../../main.dart';
 import '../widgets/markdown_extensions.dart';
+import '../../application/study_activity/study_activity_contracts.dart';
+import '../../domain/study_activity/study_activity_values.dart';
+import '../dependencies/study_activity_dependencies_scope.dart';
+import '../study_activity/study_activity_route_binding.dart';
 
 class MockExamScreen extends StatefulWidget {
   final String paperId; // 核心新增：试卷唯一 ID
@@ -24,6 +28,29 @@ class MockExamScreen extends StatefulWidget {
 }
 
 class _MockExamScreenState extends State<MockExamScreen> {
+  StudyActivityRouteBinding? _activity;
+  bool _activityInitialized = false;
+  bool _submitting = false;
+  bool _confirmationOpen = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_activityInitialized) return;
+    _activityInitialized = true;
+    final runtime = StudyActivityDependenciesScope.maybeOf(context);
+    if (runtime != null) {
+      _activity = StudyActivityRouteBinding(
+          service: runtime.service,
+          descriptor: StudyActivityRouteDescriptor(
+              scene: StudyActivityScene.mockExam,
+              context: StudyActivityContext(paperId: widget.paperId)));
+      unawaited(_activity!.begin());
+    }
+  }
+
+  Future<T> _temporaryCover<T>(Future<T> Function() action) =>
+      _activity?.duringTemporaryCover(action) ?? action();
   late PageController _pageController;
   int _currentIndex = 0;
 
@@ -46,6 +73,10 @@ class _MockExamScreenState extends State<MockExamScreen> {
     WakelockPlus.enable();
 
     // 启动倒计时
+    _startCountdown();
+  }
+
+  void _startCountdown() {
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) return;
       setState(() {
@@ -61,6 +92,7 @@ class _MockExamScreenState extends State<MockExamScreen> {
 
   @override
   void dispose() {
+    _activity?.dispose();
     _timer.cancel();
     WakelockPlus.disable(); // 关闭防息屏
     _pageController.dispose();
@@ -70,7 +102,13 @@ class _MockExamScreenState extends State<MockExamScreen> {
     super.dispose();
   }
 
-  void _processSubmission() async {
+  void _processSubmission() {
+    if (_submitting) return;
+    _submitting = true;
+    unawaited(_temporaryCover(_submit).whenComplete(() => _submitting = false));
+  }
+
+  Future<void> _submit() async {
     _timer.cancel();
     showDialog(
         context: context,
@@ -87,6 +125,7 @@ class _MockExamScreenState extends State<MockExamScreen> {
         _userAnswers,
         widget.questions,
       );
+      _activity?.end(StudyActivityEndReason.submitted);
 
       if (mounted) {
         Navigator.pop(context); // 关闭 Loading
@@ -162,6 +201,9 @@ class _MockExamScreenState extends State<MockExamScreen> {
     } catch (e) {
       if (mounted) {
         Navigator.pop(context);
+        // A failed early submission returns to the same running exam. At
+        // zero, keep time expired and let the user retry without a new timer.
+        if (_remainingSeconds > 0) _startCountdown();
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text('交卷失败: $e'), backgroundColor: Colors.redAccent));
       }
@@ -169,33 +211,41 @@ class _MockExamScreenState extends State<MockExamScreen> {
   }
 
   void _forceSubmit() {
+    if (_confirmationOpen) {
+      Navigator.pop(context, false);
+    }
     ScaffoldMessenger.of(context)
         .showSnackBar(const SnackBar(content: Text('考试时间到！正在强制交卷...')));
     _processSubmission();
   }
 
-  void _manualSubmit() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('确认交卷？'),
-        content: Text(
-            '你已作答 ${_userAnswers.length} / ${widget.questions.length} 道题。交卷后将由 AI 阅卷官进行批改。'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('继续检查')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-            onPressed: () {
-              Navigator.pop(context); // 关闭确认框
-              _processSubmission(); // 执行交卷
-            },
-            child: const Text('确认交卷', style: TextStyle(color: Colors.white)),
-          )
-        ],
-      ),
-    );
+  void _manualSubmit() async {
+    if (_submitting || _confirmationOpen) return;
+    _confirmationOpen = true;
+    final confirmed = await _temporaryCover(() => showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('确认交卷？'),
+            content: Text(
+                '你已作答 ${_userAnswers.length} / ${widget.questions.length} 道题。交卷后将由 AI 阅卷官进行批改。'),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('继续检查')),
+              ElevatedButton(
+                style:
+                    ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                onPressed: () {
+                  Navigator.pop(context, true); // 关闭确认框
+                },
+                child:
+                    const Text('确认交卷', style: TextStyle(color: Colors.white)),
+              )
+            ],
+          ),
+        ));
+    _confirmationOpen = false;
+    if (mounted && confirmed == true) _processSubmission();
   }
 
   String _formatTime(int seconds) {

@@ -2,9 +2,9 @@
 
 Contract: `docs/product/home-training-v3/00-contract.md`
 
-## 当前状态
+## Closure 依据
 
-B2 implementation 已由 PR #230 合并到 master，standing PR CI 已通过；旧流程留下的独立 Reviewer closure 尚未记录。不要重复实现已合并的 production/test 代码。当前 package 只负责对已合并 B2 delta 做独立语义审查，并在无 P0/P1/P2 时完成文档 closure；若 Reviewer 发现 blocking defect，再按正常 repair 流程另行修复。
+用户已确认 B2 独立审查及合并完成，并授权同步文档。PR #230 已合并，standing PR CI 已通过。本次文档同步不代替或补发 GitHub `[REVIEW APPROVAL]`；PR approval evidence 仍以 GitHub 记录为准。不要重复实现已合并的 production/test 代码。
 
 ## 范围
 - P6：Category Visual 与共享纯 UI primitives；

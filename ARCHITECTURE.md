@@ -642,8 +642,8 @@ preserving exact P3a order; every failed preparation leaves the old queue intact
 RNG is injected per new launch. No launch writes learning/configuration state or
 adds a durable queue. CP2-T implementation is complete.
 Legacy bank-scoped and StudyPlan launchers remain independent. Home/Today
-activation, Activity route wiring, route guards/lifetime and TaskCenter Presentation remain planned;
-future ordinary Practice composition must use the prepared session with normal
+activation and TaskCenter Presentation remain planned;
+ordinary Practice composition uses the prepared session with normal
 attribution, while StudyPlan retains focused attribution and its 200-ID bound.
 P4a implements the pure StudyActivity lifecycle/time core. Application's
 StudyActivityTransitionEngine proposes an immutable single-owner state,
@@ -678,8 +678,28 @@ and rejects malformed or nonterminal portable Activity before swap. Weekly reads
 sum persisted local-date segment durations for seven Monday–Sunday dates, using an
 injected current local date; read failure remains unavailable. P4b is merged via
 PR #224, and CP2-A is PASSED after independent T3 verification and fresh review.
-Runtime is now v31; Practice/MockExam Activity wiring, scheduling, weekly UI and
-production activation remain unimplemented.
+Runtime is v31. B3 implements Practice/MockExam Activity wiring and production
+composition. A composition creates one PersistentStudyActivityService after B0
+startup recovery and DB readiness, attempts Activity startup recovery before
+exposing routes, and injects the same service/query through a dependency scope.
+Restore recomposition creates a fresh service and disposes the old route scope.
+Practice launchers supply explicit ordinaryPractice/studyPlanPractice descriptors;
+the prepared Category review seam accepts categoryReview without inferring it
+from AnswerAttempt attribution. Preview does not begin Activity. A shared route
+binding owns opaque route tokens, bounded 30-second checkpoint scheduling,
+background/temporary-cover pause and same-owner resume, plus single-shot
+queueFinished/submitted/exited dispatch. Exam submitted follows durable submission
+success only; failed submit resumes and permits retry. Activity failures never
+gate answering, grading, navigation or background exam grading.
+The system adapter supplies Stopwatch elapsed and observed system local-date /
+offset boundaries as immutable calendar facts, including offset transitions.
+Within a continuous mapping revision, UTC advances exactly by confirmed
+monotonic elapsed; raw wall observations establish an anchor only on a new
+revision. Wall/zone observations change revision without rewriting old samples;
+out-of-horizon attribution fails unavailable rather than consulting changed
+calendar rules. No timezone dependency or schema change is introduced.
+Weekly UI and Home/TaskCenter activation remain unimplemented. B3 implementation
+does not constitute independent semantic approval or complete CP3.
 B1 delivers P5a/P5b together. ImportTask adds three nullable UTC-second columns
 with no historical backfill. TaskManager owns accepted-attempt started/parsed/
 failed times and retry resets; repeated running does not refresh started time.
@@ -720,8 +740,9 @@ Controller generation/dispose guards reject late loads, and busy state prevents
 overlapping UI mutations. Configuration CRUD never changes learning facts.
 Home/config production composition remains I2-owned and inactive; the legacy
 PlanConfigScreen remains. B2 implementation was merged by PR #230 with standing
-PR CI success; its formal task package remains unsuffixed until independent
-Reviewer closure is recorded under the current workflow. Runtime schema remains v31.
+PR CI success. The user has confirmed B2 independent review/closure; its sibling
+package now carries the completion suffix. This documentation synchronization
+does not issue a GitHub review approval marker. Runtime schema remains v31.
 The existing Today, ordinary-training, StudyPlan and TaskCenter boundaries above
 remain current truth. StudyPlan remains the single global ActiveStudyPlan and stays
 independent of TrainingContent. Delivery order and ownership live in the sibling
