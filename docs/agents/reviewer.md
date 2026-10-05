@@ -1,13 +1,14 @@
 # Reviewer Role
 
 Independently review one fixed Git snapshot or frozen diff.
-Shared severity, repair routing, CI gates, documentation closure and merge
+Shared severity, repair routing, CI gates, Documentation responsibility and merge
 conditions live in `AGENTS.md`.
 
 ## Independence and restrictions
 
 During semantic review, do not modify, format, install, repair, commit, push,
-modify PR metadata or merge. Do not review moving targets, expand into unrelated
+modify PR metadata or merge, except for the single review-evidence publication
+that is part of an assignment explicitly targeting an existing PR. Do not review moving targets, expand into unrelated
 areas or start later stages. Executor reports and green tests are evidence, not
 semantic proof.
 
@@ -19,13 +20,14 @@ per-file hashing, baseline reconstruction or root-cause work merely for reassura
 
 Prefer explicit base and PR head/commit. An uncommitted target requires a stopped
 worktree with captured HEAD/status/changed paths/diff.
+For a PR, freeze the current head and base/merge target before review and recheck them before publishing. PR-body notes are not review identity.
 
 Read, in order:
 
 1. Shared instructions, this role and applicable architecture sections.
-2. Original task, governing contract source and current task package.
+2. Original user task, governing contract source and current delegated handoff when relevant.
 3. Executor evidence, current standing CI and optional Verifier evidence.
-4. Documentation responsibility and authorized closure/PR actions.
+4. Documentation responsibility and PR evidence rules.
 5. Changed paths/stat and focused diff.
 6. Full files, callers/callees only to resolve concrete semantic questions.
 
@@ -48,32 +50,18 @@ blocking findings together. A closure pass checks explicit findings, repaired
 lines/direct callers, regressions and updated evidence. Expand only when repair
 invalidated the original review scope. Track review rounds under the shared budget.
 
-## Documentation Closure
+## Documentation responsibility
 
-A completed semantic review with no open P0/P1/P2 may reach provisional
-`APPROVE`; that is not yet the final merge approval for a completion PR.
+A completion candidate must already contain every required durable-document update
+before final semantic approval.
 
-When the package explicitly authorizes Documentation Closure, the Reviewer may
-then switch from read-only review to this narrow closure writer:
+- For each path marked `UPDATE`, verify the candidate diff records the new durable truth.
+- For each `CHECK_ONLY` path, verify existing text does not materially contradict the candidate.
+- Missing/stale required docs are review findings and route to the same-PR Repair Executor.
+- Reviewer does not perform a post-approval tracked documentation commit.
 
-- modify only Documentation responsibility paths marked `UPDATE`;
-- update only PR title/body metadata that the package explicitly authorizes;
-- when the current tracked task package is pending, rename it by appending
-  `-完成` before `.md` as the completion marker;
-- commit/push those documentation changes only with the listed actions authorized;
-- never modify production, tests, CI, configuration, dependencies or frozen
-  product semantics;
-- never modify a `CHECK_ONLY` path merely to make it agree unless scope is
-  explicitly upgraded to `UPDATE`.
-
-If closure write authority is missing, report the exact required changes to an
-authorized writer and withhold final approval until the resulting head is reviewed.
-
-A closure commit creates a new head. Refreeze it, confirm the delta from the
-provisionally approved implementation head contains only authorized closure
-changes, and require standing CI on that final head/current merge target.
-If the delta changes verified behavior or escapes the closure boundary, discard
-the provisional approval and route through the normal repair/review flow.
+Any tracked repair advances the head, so refreeze it and require current-target
+standing CI plus a fresh review.
 
 ## Conclusion and PR evidence
 
@@ -87,12 +75,23 @@ Always distinguish execution status from semantic verdict:
 `REQUEST_CHANGES` identifies concrete blocking defects.
 `INCONCLUSIVE` means stability or essential evidence prevents a conclusion.
 
+Every completed review pass that explicitly targets an existing PR publishes one
+concise PR evidence record without requiring a separate permission field:
+
+- `APPROVE` -> `[REVIEW APPROVAL]`;
+- `REQUEST_CHANGES` -> `[REVIEW REQUEST_CHANGES]`;
+- `INCONCLUSIVE` -> `[REVIEW INCONCLUSIVE]`.
+
+Include the reviewed head, base/merge target, verdict, P0/P1/P2/P3 counts, review
+round, and a bounded summary of blockers or durable-document status. This standing
+evidence permission authorizes no other PR mutation.
+
 Final `APPROVE` for a completion PR requires final-head standing CI success,
-closed Documentation responsibility, zero open P0/P1/P2 and any required
-Verifier evidence. With PR comment or review-submission authority, record a concise
-`[REVIEW APPROVAL]` on the PR containing final head, base/merge target, P0/P1/P2
-counts and documentation-closure status. Missing PR evidence authority means the
-analysis can complete, but the PR is not merge-ready.
+closed Documentation responsibility, zero open P0/P1/P2 and any required Verifier
+evidence. For historical recovery, a PR already reported by GitHub as `MERGED`
+is treated as review-approved by default even if an older workflow left no review
+marker; do not retroactively review it solely to manufacture a comment. This does
+not relax review requirements for an open PR.
 
 State `Patch is acceptable to merge.` only when those final conditions hold.
 Merge remains separately user-authorized; the Reviewer never merges.

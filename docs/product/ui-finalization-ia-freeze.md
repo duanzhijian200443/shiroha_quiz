@@ -23,7 +23,7 @@ standalone MockCenter entry. There is no Today mode selector or embedded exam
 polling surface. Primary navigation remains 今日 | 助手 | 我的. StudyPlan,
 FSRS, import, Assistant and Profile business contracts remain unchanged;
 complex statistics and full plan management remain deferred. The B4 contract at
-`home-training-v3/00-contract.md` governs selection/count/Activity semantics;
+`home-training-v3.md` governs selection/count/Activity semantics;
 legacy bank-scoped Today entry and PlanConfigScreen remain compatibility code,
 and are absent from the production Home configuration route.
 
@@ -380,9 +380,14 @@ retaining typed/legacy authority, attempt recording, FSRS and preview semantics.
 The closed three-tab IA and the historical UI Finalization delivery remain
 unchanged.
 
-## HOME-TRAINING-V3 amendment (backend partial; UI activation pending)
+## Historical HOME-TRAINING-V3 amendment — superseded by B4 / PR #234
 
-`docs/product/home-training-v3/00-contract.md` freezes the planned
+The following text records the pre-B4 state. PR #234 has since merged and
+implemented Home/configuration activation; Current Today supersession above and
+`docs/product/home-training-v3.md` now own current truth. The historical claims
+below must not determine present navigation, activation status or scheduling.
+
+`docs/product/home-training-v3.md` freezes the planned
 successor `SHIROHA-HOME-TRAINING-IPF-V3` covering TrainingContent
 configuration and Today/Home v2 (Category cards, current TrainingContent,
 Category-scoped review pool, weekly activity). The **configuration and

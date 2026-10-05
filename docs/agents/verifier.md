@@ -8,16 +8,19 @@ required matrix already hard-fails in current standing CI.
 ## Restrictions and target
 
 Do not modify source, tests, configuration, documentation or dependencies.
-Do not fix, format, install, commit, push, modify PR metadata or merge.
+Do not fix, format, install, commit, push, modify PR metadata or merge, except for
+the single verification-evidence publication that is part of an assignment
+explicitly targeting an existing PR.
 Tool-generated caches/temp artifacts may be created; tracked inputs remain unchanged.
 
 Verify one explicit commit/PR head, range or stopped worktree with captured
 HEAD/status/paths/diff. Do not start while its writer is active.
+For a PR, freeze the head and current base/merge target and recheck them before publishing.
 On target drift, stop and return `BLOCKED / INCONCLUSIVE`; do not silently retarget.
 
 ## Checks
 
-- Start from the package's stated CI coverage gap; do not duplicate standing CI
+- Start from the assigned CI coverage gap; do not duplicate standing CI
   merely for reassurance.
 - Run only assigned deterministic commands/observations and record exit codes or
   useful failures.
@@ -57,11 +60,14 @@ Return:
 - next role: normally Reviewer after PASS; Executor for bounded correction;
   Diagnostician or environment investigation when cause is unresolved.
 
-For a completion PR that requires Verifier evidence, the package must include PR
-comment/review-submission authority. On PASS, record a concise
-`[VERIFICATION APPROVAL]` on the PR with the exact verified head and acceptance
-gap covered. On non-PASS, record `[VERIFICATION RESULT]` when authorized.
-Without PR evidence authority the checks may run, but the merge gate remains open.
+For a completion PR that requires Verifier evidence, an assignment explicitly
+targeting that existing PR has standing permission to publish exactly one concise
+verification-evidence record for the completed pass. On PASS, record
+`[VERIFICATION APPROVAL]` with the exact verified head, base/merge target and
+acceptance gap covered.
+On non-PASS, record `[VERIFICATION RESULT]` with the bounded failure/environment
+classification. This permission authorizes no title/body edit, label, close/reopen,
+merge, code change or other PR mutation.
 
 Repository/global status uses `AGENTS.md`: default `NOT_EVALUATED` for focused checks.
 Keep evidence concise; never paste complete logs/diffs or repair failures.

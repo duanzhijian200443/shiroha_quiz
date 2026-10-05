@@ -22,10 +22,10 @@ reading order only; all existing contracts and historical amendments remain vali
 | StudyPlan | 13 |
 | Runtime data locations | 14 |
 | Review repair / photo answers | 15–16 |
-| TrainingContent / StudyActivity / TaskCenter | Home Training V3 focused contract directory |
+| TrainingContent / StudyActivity / TaskCenter | `docs/product/home-training-v3.md` canonical contract |
 
-Stage order and durable stage status belong to the focused contract/task-package
-layout and roadmap; Git/PR/CI identify the exact execution state. The stage
+Stage order and durable capability state belong to the focused canonical contract
+and roadmap; Git/PR/CI/Reviewer own exact execution history. The stage
 summaries below retain their recorded context and do not replace those sources.
 
 ## 1. Canonical dependency direction
@@ -573,7 +573,7 @@ Seed capture, the QuestionRepository-owned atomic set/member writer with per-doc
 
 ## Home Training V3 — configuration, launch, Activity and TaskCenter backend implemented
 
-`docs/product/home-training-v3/00-contract.md` freezes
+`docs/product/home-training-v3.md` freezes
 `SHIROHA-HOME-TRAINING-IPF-V3` as the planned successor to the current
 Today/Home and ordinary-training configuration contracts: Category-driven
 TrainingContent configuration (Category → TrainingContent → ordinary
@@ -698,10 +698,10 @@ monotonic elapsed; raw wall observations establish an anchor only on a new
 revision. Wall/zone observations change revision without rewriting old samples;
 out-of-horizon attribution fails unavailable rather than consulting changed
 calendar rules. No timezone dependency or schema change is introduced.
-The user has confirmed B3 completion and merge. Home V2 now composes the
-TrainingContent ports, prepared ordinary launch and this Activity query; TaskCenter
-UI/I3 remains unactivated and CP3 remains incomplete. Implementation evidence
-does not substitute for independent B4 approval.
+PR #232 is merged, so B3/I1 is historical accepted delivery under the merged-PR recovery rule. Home V2 composes the
+TrainingContent ports, prepared ordinary launch and this Activity query. PR #234 is
+also merged, so B4/I2 is current runtime truth. TaskCenter UI/I3 remains
+unactivated and CP3 remains incomplete.
 B1 delivers P5a/P5b together. ImportTask adds three nullable UTC-second columns
 with no historical backfill. TaskManager owns accepted-attempt started/parsed/
 failed times and retry resets; repeated running does not refresh started time.
@@ -742,9 +742,8 @@ Controller generation/dispose guards reject late loads, and busy state prevents
 overlapping UI mutations. Configuration CRUD never changes learning facts.
 Home/config production composition is now wired by B4/I2; the legacy
 PlanConfigScreen remains for compatibility pending B6 retirement. B2 implementation was merged by PR #230 with standing
-PR CI success. The user has confirmed B2 independent review/closure; its sibling
-package now carries the completion suffix. This documentation synchronization
-does not issue a GitHub review approval marker. Runtime schema remains v31.
+PR CI success. PR #230 is merged, so B2 is historical accepted delivery under the current
+merged-PR recovery rule. Runtime schema remains v31.
 TodayTrainingQueryAdapter captures one clock observation and injected local-day
 boundaries, then TrainingConfigurationRepository reads catalog, configuration,
 selection and counts in one read transaction. It reuses the shared eligibility,
@@ -763,6 +762,6 @@ return/reactivation/resume, and preserves real member-bank details and secondary
 entries. Production Home no longer consumes bank-scoped TodayContextQuery or
 PlanConfigScreen; their compatibility callers are retained.
 StudyPlan and TaskCenter boundaries above remain current truth. StudyPlan remains the single global ActiveStudyPlan and stays
-independent of TrainingContent. Delivery order and ownership live in the sibling
-task packages under `docs/product/home-training-v3/`; there is no standalone
-execution-plan authority.
+independent of TrainingContent. Delivery order, prerequisites and durable current
+state live in `docs/product/home-training-v3.md`; bounded execution packages are
+temporary PR/context artifacts, and Git/PR/CI/Reviewer owns exact execution history.
