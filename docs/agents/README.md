@@ -67,16 +67,19 @@ Use `create` for authorized initial branch creation and `reuse` for same-task
 follow-ups/repair. Missing Git/PR actions are unauthorized.
 `PR-create` covers creation only. Title/body updates, close/reopen and other PR
 mutations require the corresponding explicit authority under `AGENTS.md`; do not
-infer them from PR creation or push authority. A Reviewer assignment explicitly
-targeting an existing PR does not need a separate package flag for its one review-
-evidence publication per completed pass.
+infer them from PR creation or push authority. Reviewer and Verifier assignments
+explicitly targeting an existing PR do not need separate package flags for their
+one role-evidence publication per completed pass.
 Add Worktree and its authority only when isolation is needed.
 
 `Documentation responsibility` is mandatory for a completion package:
 `UPDATE` means accepted delivery changes durable truth/status and the path must be
 closed before final approval; `CHECK_ONLY` means the Reviewer verifies that the
 existing text is not stale or contradictory. Use explicit `none` when no durable
-document can change. Do not make agents rediscover closure paths from memory.
+document can change. Repository-absolute paths are the default; inside a focused
+contract directory, exact relative `./...` paths are allowed and preferred for
+sibling contract/package entries that must remain valid after the directory is
+renamed. Do not make agents rediscover closure paths from memory.
 
 For durable staged work, prefer `docs/product/<capability>/00-contract.md` plus
 optional numerically ordered sibling task packages. The focused contract directory
