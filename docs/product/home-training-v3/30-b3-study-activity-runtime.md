@@ -27,6 +27,6 @@ Contract: `docs/product/home-training-v3/00-contract.md`
 
 ## Documentation responsibility
 - `docs/product/home-training-v3/00-contract.md`: CHECK_ONLY
-- `ARCHITECTURE.md`: UPDATE if production activation boundary changes
-- `docs/architecture/shiroha-project-roadmap.md`: UPDATE if stage-level availability changes
-- 当前 task package：final Documentation Closure 时重命名为 `30-b3-study-activity-runtime-完成.md`
+- `ARCHITECTURE.md`: UPDATE
+- `docs/architecture/shiroha-project-roadmap.md`: UPDATE
+- `docs/product/home-training-v3/30-b3-study-activity-runtime.md`: UPDATE
