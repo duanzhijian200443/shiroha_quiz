@@ -2,7 +2,7 @@
 
 **契约入口：docs/product/home-training-implementation-freeze-v3.md**
 **性质：派生执行附录；不定义或修改产品语义。**
-**状态：实施中；B1 / CP2-I 已验收并合并；B2（P6 + P7a + P7b + P7c）implementation COMPLETE，独立 Reviewer 待完成；下一包为 B3（P8a + P8b + I1）。**
+**状态：实施中；B1 / CP2-I 已验收并合并；B2 已由 PR #230 合并；B3（P8a + P8b + I1）implementation COMPLETE，独立 Reviewer 待完成；CP3 NOT COMPLETE。**
 
 本附录不授予 merge/tag/release 权限。每个写任务使用独立非默认分支；单写者默认不建 worktree，只有并行 writer、脏工作区隔离或 Coordinator 明确要求时才创建 worktree。commit/push/PR 仍按任务包或用户授权执行。
 
@@ -22,16 +22,20 @@ B1 / CP2-I 已验收并由 PR #227 合并，runtime schema 为 v31。此前记�
 | P7a | COMPLETE / B2 implementation |
 | P7b | COMPLETE / B2 implementation |
 | P7c | COMPLETE / B2 implementation |
-| B2 | implementation COMPLETE; independent Reviewer pending; not merged |
-| B3 / P8a + P8b + I1 | NEXT after B2 delivery acceptance |
+| B2 | COMPLETE / merged (PR #230) |
+| P8a | COMPLETE / B3 implementation |
+| P8b | COMPLETE / B3 implementation |
+| I1 | COMPLETE / B3 implementation |
+| B3 | implementation COMPLETE; independent Reviewer pending |
+| CP3 | NOT COMPLETE; I2/I3 remain unimplemented |
 
 B2 已实现可注入的 Training Config 列表、共用题库选择器、编辑器和 controller：Category-wide Visual、纯 draft、1..100 题量、Domain 比例/理想 quota、失效成员上下文、显式重绑、独立 content/preference CAS、部分保存提示、latest-wins 和 mutation busy/dispose guard。完整配置 Query 在同一只读事务中包含空分类及题库消失后仍有配置的分类。顺序调整捕获 Category 全部 ordered targets/revisions，在单事务重验后调整 dense ranks；插入/删除/编辑/排序竞争为 stale 零写入，不采用两个独立 update 的半交换。
 
 Category Visual/current preference 与 content revisions 分离，runtime fallback 不写回。配置页删除只删除配置并读取 authoritative selection；重绑为显式二次确认的独立 durable action，确认文字说明取消其它草稿不会撤销已确认重绑。
 
-Training Config UI implemented；Home/config production composition（I2）尚未激活，旧 PlanConfigScreen 与 legacy entry 保留。Practice/MockExam StudyActivity wiring、I1、Today v2、Home v2、TaskCenter UI/I3、CP3/CP4 仍待后续包。schema 保持 v31，不新增迁移或依赖；StudyPlan 不变。
+Training Config UI implemented；Home/config production composition（I2）尚未激活，旧 PlanConfigScreen 与 legacy entry 保留。B3 已实现 Practice/MockExam StudyActivity wiring、I1、system time adapter、startup recovery、dependency scope 与共用 route binding。ordinary / StudyPlan launchers 显式传 scene 与 soft context；Category review descriptor 为 I2 准备，preview 不计时。30 秒 checkpoint 不堆积；background/temporary cover pause，same owner resume；queue terminal 为 queueFinished，真正退出 fallback 为 exited；Exam durable submit 成功才 submitted，失败保持 nonterminal 并 resume。Activity failure 不阻断核心学习。Today v2、Home v2、TaskCenter UI/I3、CP3/CP4 仍待后续包。schema 保持 v31，不新增迁移或依赖；StudyPlan attribution 不变。
 
-B2 Executor mechanical verification 不替代 independent semantic review，不授予 merge 权限。具体 fixed head、CI 和验证命令由 Git/PR 与交接记录；本节仅记录阶段交付状态。
+B3 Executor mechanical verification 不替代 independent semantic review，不授予 merge 权限。具体 fixed head、CI 和验证命令由 Git/PR 与交接记录；本节仅记录阶段交付状态。
 
 以下 A 节保留最初规划基线，仅作为历史 planning evidence，不得覆盖本节 current delivery state。
 

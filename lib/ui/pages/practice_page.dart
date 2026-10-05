@@ -4,6 +4,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
+import '../../domain/study_activity/study_activity_values.dart';
+import '../dependencies/study_activity_dependencies_scope.dart';
+import '../study_activity/study_activity_route_binding.dart';
 
 import '../../application/practice/practice_session_mutation_command.dart';
 import '../../application/practice/record_answer_attempt_command.dart';
@@ -63,6 +66,7 @@ class PracticePage extends StatefulWidget {
   final Future<void> Function(String questionId, int grade)?
       submitReviewOverride;
   final PhotoAnswerCaptureLauncher? photoAnswerCaptureLauncher;
+  final StudyActivityRouteDescriptor? studyActivity;
 
   const PracticePage({
     super.key,
@@ -76,6 +80,7 @@ class PracticePage extends StatefulWidget {
     this.practiceCommands,
     this.submitReviewOverride,
     this.photoAnswerCaptureLauncher,
+    this.studyActivity,
   });
 
   @override
@@ -83,6 +88,29 @@ class PracticePage extends StatefulWidget {
 }
 
 class _PracticePageState extends State<PracticePage> {
+  StudyActivityRouteBinding? _activity;
+  bool _initialized = false;
+  bool _queueFinished = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_initialized) return;
+    _initialized = true;
+    final runtime = StudyActivityDependenciesScope.maybeOf(context);
+    final descriptor = widget.studyActivity;
+    if (widget.initialQuestions == null &&
+        runtime != null &&
+        descriptor != null) {
+      _activity = StudyActivityRouteBinding(
+          service: runtime.service, descriptor: descriptor);
+    }
+    _initSession();
+  }
+
+  Future<T> _temporaryCover<T>(Future<T> Function() action) =>
+      _activity?.duringTemporaryCover(action) ?? action();
+
   /// The assembled mutation commands are read lazily and fail closed, so a
   /// surface that only renders or loads never depends on persistence wiring.
   PracticeCommandDependencies get _practiceDependencies {
@@ -188,9 +216,9 @@ class _PracticePageState extends State<PracticePage> {
     setState(() => _isRecordingAttempt = true);
     try {
       final photo = _pendingPhoto ??
-          await (widget.photoAnswerCaptureLauncher ??
+          await _temporaryCover(() => (widget.photoAnswerCaptureLauncher ??
                   _openSubjectiveAnswerCapture)(
-              context, dependencies.photoAnswerJudgement, view);
+              context, dependencies.photoAnswerJudgement, view));
       if (!mounted || !identical(view, _currentQuestion) || photo == null) {
         return;
       }
@@ -268,7 +296,6 @@ class _PracticePageState extends State<PracticePage> {
   @override
   void initState() {
     super.initState();
-    _initSession();
     if (widget.isPomodoroActive) {
       _pomodoroStartTime = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       _pomodoroTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -305,7 +332,9 @@ class _PracticePageState extends State<PracticePage> {
           limit: 40,
         );
       }
+      if (!mounted) return;
       _loadNextQuestion();
+      if (!_queueFinished) unawaited(_activity?.begin());
     } catch (e) {
       debugPrint('会话初始化失败: $e');
       if (mounted) setState(() => _error = e.toString());
@@ -357,6 +386,9 @@ class _PracticePageState extends State<PracticePage> {
   }
 
   void _handleSessionComplete() {
+    if (_queueFinished) return;
+    _queueFinished = true;
+    _activity?.end(StudyActivityEndReason.queueFinished);
     if (widget.isPomodoroActive) {
       // 如果番茄钟开启，调用番茄钟的结束逻辑
       _handlePomodoroEnd(true);
@@ -384,6 +416,9 @@ class _PracticePageState extends State<PracticePage> {
 
   Future<void> _handlePomodoroEnd(bool isCompleted) async {
     _pomodoroTimer?.cancel();
+    _activity?.end(_queueFinished
+        ? StudyActivityEndReason.queueFinished
+        : StudyActivityEndReason.exited);
 
     final actualDuration = 1500 - _pomodoroSeconds;
 
@@ -546,6 +581,7 @@ class _PracticePageState extends State<PracticePage> {
 
   @override
   void dispose() {
+    _activity?.dispose();
     _pomodoroTimer?.cancel();
     _subjectiveController.dispose();
     super.dispose();
@@ -1430,28 +1466,28 @@ class _PracticePageState extends State<PracticePage> {
     final qId = view.storageId;
     if (qId.isEmpty || view.isPreview) return;
 
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('确认删除'),
-        content: const Text(
-          '将删除此题以及相关的复习状态和复习日志；历史作答记录会保留，'
-          '来源文件不会被删除。如果题目仍被试卷引用，删除会被阻止。'
-          '此操作不可恢复。',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('取消'),
+    final confirm = await _temporaryCover(() => showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('确认删除'),
+            content: const Text(
+              '将删除此题以及相关的复习状态和复习日志；历史作答记录会保留，'
+              '来源文件不会被删除。如果题目仍被试卷引用，删除会被阻止。'
+              '此操作不可恢复。',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                style: TextButton.styleFrom(foregroundColor: Colors.red),
+                child: const Text('彻底删除'),
+              ),
+            ],
           ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('彻底删除'),
-          ),
-        ],
-      ),
-    );
+        ));
 
     if (confirm != true) return;
 

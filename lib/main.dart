@@ -1,4 +1,7 @@
 import 'services/practice/ordinary_study_session_launcher.dart';
+import 'services/study_activity/study_activity_runtime.dart';
+import 'data/repositories/study_activity_repository.dart';
+import 'ui/dependencies/study_activity_dependencies_scope.dart';
 import 'services/today/system_local_study_time_zone.dart';
 import 'application/answer_completion/answer_completion_query.dart';
 import 'application/answer_completion/answer_completion_supplemental.dart';
@@ -269,6 +272,13 @@ void main() {
           ApprovedAgentWriteRepository.instance.clearTransientState();
         }
         isFirstComposition = false;
+
+        await databaseHelper.database;
+        final activityService = await createStudyActivityRuntime(
+            persistence: StudyActivityRepository(
+                database: () => databaseHelper.database));
+        final studyActivity = StudyActivityDependencies(
+            service: activityService, query: activityService);
 
         final libraryFileRepository = LibraryFileRepository(
           databaseHelper: databaseHelper,
@@ -740,6 +750,7 @@ void main() {
         AppLogger.info('Application started', module: 'Application');
         runApp(
           ShirohaQuizApp(
+            studyActivity: studyActivity,
             engineRepository: engineRepository,
             aiConfigService: aiConfigService,
             aiService: aiService,
@@ -834,6 +845,7 @@ class ShirohaQuizApp extends StatelessWidget {
     required this.answerEntryGuard,
     required this.examMutationCommand,
     required this.practiceCommands,
+    this.studyActivity,
     required this.photoAnswerJudgement,
     this.photoAnswerSubmission,
     this.photoAnswerHistory,
@@ -884,6 +896,7 @@ class ShirohaQuizApp extends StatelessWidget {
 
   /// Assembled practice mutation commands for the practice surfaces.
   final PracticeCommandDependencies practiceCommands;
+  final StudyActivityDependencies? studyActivity;
   final PhotoAnswerJudgementPort photoAnswerJudgement;
   final PhotoAnswerSubmissionCommand? photoAnswerSubmission;
   final PhotoAnswerHistoryQuery? photoAnswerHistory;
@@ -961,11 +974,17 @@ class ShirohaQuizApp extends StatelessWidget {
             onRestoreCompleted: onRestoreCompleted,
           ),
         );
-        final content = contentAssetResolver == null
+        final activityContent = studyActivity == null
             ? materialApp
+            : StudyActivityDependenciesScope(
+                key: ObjectKey(studyActivity),
+                dependencies: studyActivity!,
+                child: materialApp);
+        final content = contentAssetResolver == null
+            ? activityContent
             : ContentAssetResolverScope(
                 resolver: contentAssetResolver!,
-                child: materialApp,
+                child: activityContent,
               );
         final withMaintenance = contentAssetMaintenance == null
             ? content
