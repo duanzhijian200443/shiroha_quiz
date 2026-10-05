@@ -31,6 +31,6 @@ PR #230 已合并且 standing PR CI 已通过。按当前治理规则，GitHub �
 - required standing CI PASS，Independent Reviewer APPROVE。
 
 ## Documentation responsibility
-- `docs/product/home-training-v3/00-contract.md`: CHECK_ONLY
+- `./00-contract.md`: CHECK_ONLY
 - `docs/architecture/shiroha-project-roadmap.md`: UPDATE
-- `docs/product/home-training-v3/20-b2-training-config-ui-完成.md`: UPDATE
+- `./20-b2-training-config-ui-完成.md`: UPDATE
