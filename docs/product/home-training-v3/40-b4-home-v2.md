@@ -1,6 +1,6 @@
 # B4 Home V2
 
-Contract: `docs/product/home-training-v3/00-contract.md`
+Contract: `./00-contract.md`
 
 ## 范围
 - P9a：Today v2 real query projection；
