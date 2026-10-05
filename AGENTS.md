@@ -77,7 +77,7 @@ independent authorized work.
 
 Only an explicit current-user `角色：自动化` activates the isolated protocol.
 Normal roles do not load `docs/automation/**` except assigned task artifacts.
-The controller reads the protocol/queue; workers receive only their bounded task.
+The controller reads the protocol and the selected focused contract directory; workers receive only their bounded task.
 
 Within existing user authority, the protocol replaces only controller stops at
 worker delivery, per-package handback/new-request requirements, and handling of
@@ -86,7 +86,7 @@ checkpoints and perform pre-authorized conditional merges. A dispatched Executor
 package must carry any applicable bounded verification-repair exception.
 Workers retain their roles, independent review and delivery stops.
 
-No Git, runtime or scope authority is inferred from activation or queue status.
+No Git, runtime or scope authority is inferred from activation, directory names or completion suffixes.
 All other safety, privacy, canonical-contract, ownership, destructive-Git,
 evidence, required-gate and repair-budget rules remain unchanged.
 
@@ -234,10 +234,14 @@ specific Git authority. A missing action is unauthorized; implementation or
 staging never implies commit, push, PR creation, merge, tag or release.
 Only perform the authorized delivery steps.
 
-`PR-create` authorizes PR creation only. PR title/body updates, comment or review
-submission, close/reopen and all other PR mutations are separate actions requiring
-explicit task/user authorization. A generic `PR yes` is not blanket authority;
-clarify the intended mutation before performing it.
+`PR-create` authorizes PR creation only. PR title/body updates, close/reopen and
+other PR mutations remain separate actions requiring explicit task/user authority.
+A Reviewer assignment that explicitly targets an existing PR has one narrow
+standing exception: each completed review pass may publish exactly one review
+evidence comment/submission on that PR. This evidence mutation may report
+`APPROVE`, `REQUEST_CHANGES` or `INCONCLUSIVE`, but does not authorize title/body
+changes, labels, close/reopen, merge, code edits or any other PR mutation. A generic
+`PR yes` is not blanket authority.
 
 ## 8. Security, privacy and network
 
@@ -331,9 +335,19 @@ A completion PR is merge-ready only when all of the following hold:
 - every declared documentation responsibility is closed;
 - explicit user merge authority exists.
 
-PR comment/review-submission authority is required to record those approval
-markers. A role may complete its analysis without that mutation authority, but
-the PR is not merge-ready until the required evidence is recorded.
+When a Reviewer assignment explicitly targets an existing PR, publishing one
+review-evidence comment/submission for that completed pass is part of the role and
+needs no separate task-package field. Use `[REVIEW APPROVAL]`,
+`[REVIEW REQUEST_CHANGES]` or `[REVIEW INCONCLUSIVE]` as applicable. Final merge
+readiness still requires the final-head `[REVIEW APPROVAL]` evidence.
+
+For historical state reconstruction only, a PR that GitHub reports as `MERGED` is
+by default treated as having satisfied its review gate even when older workflow
+runs did not leave a `[REVIEW APPROVAL]` marker. Do not reopen or re-review that
+merged delivery solely because the marker is absent. Stronger contrary evidence
+(such as a later revert, an explicitly unresolved blocker or a current user
+instruction) may still reopen the capability as new work. This historical rule
+never authorizes merging an open PR or bypassing the current review gate.
 
 Repository/global status defaults to `NOT_EVALUATED` for focused tasks; local
 evidence never implies global acceptance.
@@ -368,8 +382,9 @@ docs/product/<capability>/
 
 `00-contract.md` is the semantic authority. Sibling package files are optional
 bounded execution packages, not a second contract and not a status database.
-Do not create a separate execution-plan document merely to repeat package order,
-status or NEXT.
+The focused contract directory itself is the task queue; do not maintain a second
+Automation queue or a standalone execution-plan document merely to repeat package
+order, status or NEXT.
 
 Package filenames are the scheduling surface. Numeric prefixes express relative
 order, subject to contract prerequisites and current Git facts. Do not add
@@ -381,9 +396,16 @@ For a tracked package, the authorized final Documentation Closure may rename
 `NN-name.md` to `NN-name-完成.md` only after required verification has passed
 and semantic review has reached provisional APPROVE. Final-head CI and final
 Reviewer approval still run after that rename; therefore the default branch sees
-the completion suffix only if the completion PR actually merges. Local ignored
-Automation queue files are renamed to `-完成.md` only after the corresponding
-merge is confirmed.
+the completion suffix only if the completion PR actually merges.
+
+When every sibling task package is closed and the final capability-closure package
+has reached provisional APPROVE, the same authorized Documentation Closure may
+rename `docs/product/<capability>/` to `docs/product/<capability>-完成/`. That
+directory rename is itself an `UPDATE` responsibility, and every durable external
+reference to the directory must be listed explicitly and updated in the same
+closure. Internal package-to-contract references should be relative (for example
+`./00-contract.md`) so they survive the directory rename. Normal scheduling must
+list `docs/product/` first and skip any `*-完成/` directory without opening it.
 
 Planner identifies affected durable-state documents and places their exact paths
 in `Documentation responsibility`. Executor may update contract content when an
