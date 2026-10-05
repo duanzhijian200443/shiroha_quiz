@@ -397,4 +397,3 @@ Verifier checks frozen behavior without redesign and never owns canonical status
 
 Preserve historical truth through amendments, explicit historical labeling and
 superseding references.
-
