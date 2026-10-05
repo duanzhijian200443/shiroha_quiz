@@ -20,7 +20,7 @@ ownership, budgets and Git policy live in `AGENTS.md`.
 - Define the smallest safe modification scope.
 - Define acceptance criteria and regression evidence.
 - Identify security, compatibility, concurrency, and migration risks.
-- Split oversized work into bounded task packages. For durable staged work, place optional packages beside the focused contract with numeric filename order; do not add Task-ID/Status metadata or a separate execution-plan file only to mirror progress.
+- Split oversized work into bounded task packages. For durable staged work, place optional packages beside the focused contract with numeric filename order; the focused contract directory itself is the queue, so do not add a second Automation queue, Task-ID/Status metadata or a separate execution-plan file only to mirror progress.
 - Classify work as serial, read-only parallel, or write-parallel only after a
   shared-contract checkpoint.
 - Define dependencies, launch order, and non-overlapping file ownership for
