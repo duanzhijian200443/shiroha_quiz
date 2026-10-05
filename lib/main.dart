@@ -1,4 +1,8 @@
-import 'services/practice/ordinary_study_session_launcher.dart';
+import 'services/practice/training_session_application_service.dart';
+import 'services/today/today_training_query_adapter.dart';
+import 'data/repositories/training_configuration_repository.dart';
+import 'data/repositories/training_question_selection.dart';
+import 'ui/dependencies/home_training_dependencies.dart';
 import 'services/study_activity/study_activity_runtime.dart';
 import 'data/repositories/study_activity_repository.dart';
 import 'ui/dependencies/study_activity_dependencies_scope.dart';
@@ -120,7 +124,6 @@ import 'services/import_pipeline/ocr_request_scheduler.dart';
 import 'services/import_pipeline/ocr_request_executor.dart';
 import 'services/import_review/import_commit_service.dart';
 import 'services/task_manager.dart';
-import 'services/today/today_context_query_adapter.dart';
 import 'services/llm_providers/zhipu_ocr_client.dart';
 import 'services/llm_providers/ai_provider_connection.dart';
 import 'services/parsed_artifacts/deterministic_parsed_artifact_generation_adapter.dart';
@@ -814,17 +817,21 @@ void main() {
 }
 
 // Both normal startup and the database splash route share the same wiring.
-TodayContextQueryAdapter _createTodayContextQuery() {
-  final overview = StudyQueryService(
-    questionQuery: QuestionRepository.instance,
-    metricsQuery: TodayStudyMetricsQuery(),
-    timeZone: const SystemLocalStudyTimeZone(),
-  );
-  return TodayContextQueryAdapter(
-    loadCurrentBank: SettingsRepository.instance.getCurrentBank,
-    loadBankStats: ReviewEngineService().getBankStats,
-    loadStudyOverview: (bank) => overview.getStudyOverview(
-        bankName: bank, timezone: SystemLocalStudyTimeZone.zoneName),
+HomeTrainingDependencies _createHomeTrainingDependencies() {
+  final configuration = TrainingConfigurationRepository();
+  return HomeTrainingDependencies(
+    today: TodayTrainingQueryAdapter(
+        configuration: configuration,
+        timeZone: const SystemLocalStudyTimeZone(),
+        zoneName: SystemLocalStudyTimeZone.zoneName),
+    contentQuery: configuration,
+    command: configuration,
+    configurationQuery: configuration,
+    orderCommand: configuration,
+    session: DefaultTrainingSessionApplicationService(
+        selection: TrainingQuestionSelection(
+            database: () => DatabaseHelper.instance.database),
+        reviewEngine: ReviewEngineService()),
   );
 }
 
@@ -948,11 +955,7 @@ class ShirohaQuizApp extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           theme: AppTheme.getTheme(themeName),
           home: MainScreen(
-            todayContextQuery: _createTodayContextQuery(),
-            studySessionLauncher: OrdinaryStudySessionLauncher(
-              reviewRepository: ReviewRepository.instance,
-              reviewEngine: ReviewEngineService(),
-            ),
+            homeTraining: _createHomeTrainingDependencies(),
             u1WorkspaceFacade: u1WorkspaceFacade,
             conversationService: conversationService,
             agentSettingsService: agentSettingsService,
@@ -1094,11 +1097,7 @@ class _SplashScreenState extends State<SplashScreen> {
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
         builder: (_) => MainScreen(
-          todayContextQuery: _createTodayContextQuery(),
-          studySessionLauncher: OrdinaryStudySessionLauncher(
-            reviewRepository: ReviewRepository.instance,
-            reviewEngine: ReviewEngineService(),
-          ),
+          homeTraining: _createHomeTrainingDependencies(),
           u1WorkspaceFacade: widget.u1WorkspaceFacade,
           conversationService: widget.conversationService,
           agentSettingsService: widget.agentSettingsService,

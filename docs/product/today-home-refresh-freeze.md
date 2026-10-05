@@ -172,16 +172,17 @@ Repository 既有调用默认 mixed，不改其他入口行为。
 
 历史冻结阶段未改变运行行为；当前实现仍不包含延期统计、多计划管理或 schema 变更。
 
-## HOME-TRAINING-V3 successor（后端部分已实施，Home v2 尚未激活）
+## HOME-TRAINING-V3 successor（B4 Home v2 实施 amendment）
 
 `docs/product/home-training-v3/00-contract.md` 已冻结
 **SHIROHA-HOME-TRAINING-IPF-V3** 作为本契约的 successor。TrainingContent、
 launch、durable StudyActivity、v31 ImportTask event timestamps 与 TaskCenter
-backend 已分阶段合并，但 Home/configuration Presentation 与 production
-activation 尚未完成。因此本文件上述统一首页仍是当前 production UI truth，
-直到 B4 / I2 的替代入口通过验收并合并。
+backend 已分阶段合并，用户已确认 B2/B3 完成。B4 在现有 HomePage 实现
+Home/configuration Presentation 与 I2 production wiring；上述 bank-scoped
+普通训练和学习动态描述保留为历史基线，新的行为由下列 amendment 与
+`00-contract.md` §7 管理。独立 B4 审查、最终 CI 与合并仍按仓库 gate 完成。
 
-冻结的未来目标包括：
+本轮实施包括：
 
 - **Category → TrainingContent → 普通新题**：普通训练范围从当前单题库
   切换入口改为按 Category 配置的 TrainingContent（名称、题量、权重、
@@ -194,8 +195,7 @@ activation 尚未完成。因此本文件上述统一首页仍是当前 producti
 - 真实学习时长（StudyActivity durable timing）、任务事件时间与 TaskCenter
   Application facade；
 - additive migrations v29 TrainingContent、v30 StudyActivity、v31 ImportTask
-  event timestamps 已进入当前 runtime v31；这些后端事实本身不代表 Home v2
-  Presentation 已 production-activated。
+  event timestamps 已进入当前 runtime v31；B4 不增加 schema 或依赖。
 
 **StudyPlan** 继续保持全局单一 ActiveStudyPlan（沿用 SPL-1），独立于
 TrainingContent：TrainingContent 是普通训练范围配置，不是多计划能力；
@@ -203,6 +203,17 @@ TrainingContent：TrainingContent 是普通训练范围配置，不是多计划�
 多计划、stable bankId、Category rename、第二套 taxonomy 与 AI Category
 Visual 等能力。
 
-替代能力完整可达前，本文件的当前入口、页面与 persisted 行为不发生改变；
-V3 后续按同目录正式 task package 与当前用户/Automation 授权推进；本 amendment
-不因后端阶段已完成而提前宣称尚未合并的 Home v2 / TaskCenter UI 能力。
+三项摘要包含 current usable content 全部合法成员（包括 0%）；新题只计
+positive-weight NEW，复习为整个 current Category 的独立到期池。首页 counts
+不使用 queue limit，unconfigured/unavailable 不假装成功零。Today's projection
+在同一短 read transaction 完成，read fallback 不写回；Category settle 与
+corner cycling 通过正式 preference CAS，stale 仅 reload。
+
+周视图只消费 durable StudyActivity 七天 DTO，以毫秒计数、floor minutes
+展示，非零不足一分钟显示“小于 1 分钟”；partial 显示“记录可能不完整”，
+query failure 显示暂不可用。它不显示连续学习、不猜实时 open interval。
+配置入口直接到 B2 页面，融合题库详情先选择真实 member；normal prepared
+新题/Category review 分别传入 B3 ordinaryPractice/categoryReview scene。
+旧 adapter/launcher/PlanConfigScreen 保留兼容而不作为 production Home authority。
+TaskCenter UI/I3、复杂统计与 B6 物理退休仍延期。实机视觉验收仍独立进行，
+合成 widget visual evidence 不等价于实机验收。

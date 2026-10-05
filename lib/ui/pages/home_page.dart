@@ -32,6 +32,15 @@ import '../home/today_plan_card.dart';
 import '../home/today_welcome_banner.dart';
 import '../home/today_visual_theme.dart';
 import '../theme/design_tokens.dart';
+import '../../application/home_training_result.dart';
+import '../../application/training/today_training_contracts.dart';
+import '../../application/training/training_contracts.dart';
+import '../../application/training/training_session_contracts.dart';
+import '../dependencies/home_training_dependencies.dart';
+import '../training/training_configuration_controller.dart';
+import '../training/training_configuration_page.dart';
+import '../home/today_category_training_card.dart';
+import '../home/weekly_activity_card.dart';
 
 enum _CreateImportAction { file, photo }
 
@@ -40,6 +49,9 @@ class HomePage extends StatefulWidget {
     super.key,
     this.taskManager,
     this.todayContextQuery,
+    this.homeTraining,
+    this.studyActivityQuery,
+    this.localNow,
     this.studySessionLauncher,
     this.onSwitchBank,
     this.onPracticeRequested,
@@ -61,6 +73,9 @@ class HomePage extends StatefulWidget {
 
   final TaskManager? taskManager;
   final TodayContextQuery? todayContextQuery;
+  final HomeTrainingDependencies? homeTraining;
+  final StudyActivityQuery? studyActivityQuery;
+  final DateTime Function()? localNow;
   final StudySessionLauncher? studySessionLauncher;
   final VoidCallback? onSwitchBank;
   final VoidCallback? onPracticeRequested;
@@ -90,7 +105,7 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   late final TodayController _controller;
   String get _currentBank => _controller.contextSnapshot.bankName ?? '点击修改选择题库';
   int get _newCount => _controller.contextSnapshot.newCount;
@@ -103,6 +118,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _controller = TodayController(
       loadContext: () =>
           widget.todayContextQuery?.loadContext() ??
@@ -111,8 +127,15 @@ class _HomePageState extends State<HomePage> {
           widget.studyPlanSelectionService?.loadFocusedState() ??
           Future<StudyPlanFocusedState>.value(
               const StudyPlanFocusedNoActivePlan()),
+      training: widget.homeTraining,
+      activityQuery: widget.studyActivityQuery,
     )..addListener(_onControllerChanged);
     _refresh();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _refresh();
   }
 
   @override
@@ -133,6 +156,7 @@ class _HomePageState extends State<HomePage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _controller.removeListener(_onControllerChanged);
     _controller.dispose();
     super.dispose();
@@ -141,8 +165,26 @@ class _HomePageState extends State<HomePage> {
   Future<void> _loadContext() => _controller.loadContext();
   Future<void> _loadFocusedState() => _controller.loadFocusedState();
   Future<void> _refresh() async {
-    await Future.wait([_loadContext(), _loadFocusedState()]);
+    await Future.wait([
+      widget.homeTraining == null ? _loadContext() : _controller.loadTraining(),
+      if (widget.homeTraining != null) _controller.loadWeek(),
+      _loadFocusedState()
+    ]);
   }
+
+  TodayTrainingSnapshot? get _training => switch (_controller.trainingResult) {
+        HomeTrainingSuccess(:final value) => value,
+        _ => null,
+      };
+  TrainingContentSummary? get _trainingSummary =>
+      !_controller.trainingLoading && !_controller.selectionBusy
+          ? switch (_training?.summary) {
+              HomeTrainingSuccess(:final value) => value,
+              _ => null,
+            }
+          : null;
+  String _summaryCount(int? legacy, int? current) =>
+      widget.homeTraining == null ? _count(legacy) : current?.toString() ?? '—';
 
   bool get _contextReady =>
       !_isLoading &&
@@ -247,22 +289,32 @@ class _HomePageState extends State<HomePage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Expanded(
-                              child: _summary('题库题量', _count(_totalCount),
+                              child: _summary(
+                                  '题库题量',
+                                  _summaryCount(_totalCount,
+                                      _trainingSummary?.totalCount),
                                   Icons.local_fire_department_rounded)),
                           const SizedBox(width: 8),
                           Expanded(
-                              child: _summary('已掌握', _count(_masteredCount),
+                              child: _summary(
+                                  '已掌握',
+                                  _summaryCount(_masteredCount,
+                                      _trainingSummary?.masteredCount),
                                   Icons.bar_chart_rounded)),
                           const SizedBox(width: 8),
                           Expanded(
                               child: _summary(
                                   '今日已练',
-                                  _count(_controller
-                                      .contextSnapshot.todayPracticeCount),
+                                  _summaryCount(
+                                      _controller
+                                          .contextSnapshot.todayPracticeCount,
+                                      _trainingSummary?.todayPracticedCount),
                                   Icons.article_rounded)),
                         ]),
                     const SizedBox(height: 12),
-                    _trainingCard(),
+                    widget.homeTraining == null
+                        ? _trainingCard()
+                        : _trainingV2(),
                     const SizedBox(height: 16),
                     Row(children: [
                       Expanded(
@@ -291,7 +343,15 @@ class _HomePageState extends State<HomePage> {
                             ? null
                             : _askAssistant),
                     const SizedBox(height: 10),
-                    _activity(),
+                    widget.homeTraining == null
+                        ? _activity()
+                        : WeeklyActivityCard(
+                            result: _controller.weekResult,
+                            loading: _controller.weekLoading,
+                            todayLocalDate:
+                                (widget.localNow?.call() ?? DateTime.now())
+                                    .toIso8601String()
+                                    .substring(0, 10)),
                     const SizedBox(height: 10),
                     _exam(),
                     const SizedBox(height: 12),
@@ -367,8 +427,9 @@ class _HomePageState extends State<HomePage> {
           ]),
         ]);
         final tile = TodayIconTile(icon, size: 30, iconSize: 22);
-        final stack =
-            MediaQuery.textScalerOf(context).scale(14) > 18 || count.length > 4;
+        final stack = MediaQuery.textScalerOf(context).scale(14) > 18 ||
+            count.length > 4 ||
+            constraints.maxWidth < 96;
         return stack
             ? Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -379,6 +440,211 @@ class _HomePageState extends State<HomePage> {
                 Expanded(child: texts)
               ]);
       }));
+
+  Widget _trainingV2() {
+    final snapshot = _training;
+    final busy = _controller.trainingLoading ||
+        _controller.selectionBusy ||
+        _controller.practiceStartPending;
+    final newCount = snapshot?.newCount;
+    final reviewCount = snapshot?.categoryReviewCount;
+    bool positive(HomeTrainingResult<TrainingCount>? result) =>
+        switch (result) {
+          HomeTrainingSuccess(:final value) => value.value > 0,
+          _ => false,
+        };
+    return _surface(
+        key: const ValueKey('home-training-card'),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            const TodayIconTile(Icons.ads_click_rounded),
+            const SizedBox(width: 10),
+            const Expanded(
+                child: Text('今日训练',
+                    style:
+                        TextStyle(fontSize: 17, fontWeight: FontWeight.w700))),
+            IconButton(
+                key: const ValueKey('home-training-config'),
+                tooltip: '管理训练内容',
+                onPressed: busy ? null : _openTrainingConfig,
+                icon: const Icon(Icons.tune_rounded)),
+            if (snapshot?.selection.currentContent != null)
+              IconButton(
+                  key: const ValueKey('home-bank-detail'),
+                  tooltip: '题库详情',
+                  onPressed: busy ? null : _openMemberDetail,
+                  icon: const Icon(Icons.chevron_right_rounded)),
+          ]),
+          if (_controller.trainingLoading)
+            const LinearProgressIndicator(
+                key: ValueKey('home-context-loading')),
+          if (snapshot == null && !_controller.trainingLoading)
+            Row(children: [
+              const Expanded(child: Text('训练暂不可用')),
+              TextButton(onPressed: _refresh, child: const Text('重试'))
+            ]),
+          if (snapshot != null && snapshot.selection.categoryKey != null)
+            TodayCategoryTrainingCard(
+                snapshot: snapshot,
+                category: _controller.currentCategory,
+                busy: busy,
+                onCategory: (key) async {
+                  final failure = await _controller.selectCategory(key);
+                  if (mounted && failure != null) {
+                    _showFocusedMessage(failure == HomeTrainingFailure.stale
+                        ? '训练配置已变化'
+                        : '切换暂不可用');
+                  }
+                },
+                onCycle: () async {
+                  final failure = await _controller.cycleContent();
+                  if (mounted && failure != null) {
+                    _showFocusedMessage(failure == HomeTrainingFailure.stale
+                        ? '训练配置已变化'
+                        : '切换暂不可用');
+                  }
+                },
+                onConfig: _openTrainingConfig),
+          if (snapshot != null && snapshot.selection.categoryKey == null)
+            TextButton(
+                onPressed: busy ? null : _openTrainingConfig,
+                child: const Text('配置训练内容')),
+          const SizedBox(height: 10),
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(
+                child: TodayTrainingActionCard(
+                    key: const ValueKey('home-new-task'),
+                    title: '新题挑战',
+                    count: newCount,
+                    icon: Icons.add_rounded,
+                    enabled: !busy &&
+                        snapshot?.selection.state ==
+                            TrainingCurrentContentState.usable &&
+                        positive(newCount),
+                    onPressed: () => _startTraining(false))),
+            const SizedBox(width: 10),
+            Expanded(
+                child: TodayTrainingActionCard(
+                    key: const ValueKey('home-review-task'),
+                    title: '复习巩固',
+                    count: reviewCount,
+                    icon: Icons.sync_rounded,
+                    enabled: !busy &&
+                        snapshot?.selection.categoryKey != null &&
+                        positive(reviewCount),
+                    onPressed: () => _startTraining(true))),
+          ]),
+        ]));
+  }
+
+  Future<void> _openTrainingConfig() async {
+    final ports = widget.homeTraining;
+    if (ports == null) {
+      _showFocusedMessage('训练配置暂不可用');
+      return;
+    }
+    final controller = TrainingConfigurationController(
+        query: ports.configurationQuery,
+        command: ports.command,
+        orderCommand: ports.orderCommand);
+    try {
+      await Navigator.push(
+          context,
+          MaterialPageRoute(
+              builder: (_) =>
+                  TrainingConfigurationPage(controller: controller)));
+    } finally {
+      controller.dispose();
+      if (mounted) await _refresh();
+    }
+  }
+
+  Future<void> _openMemberDetail() async {
+    final banks = _training?.selection.currentContent?.content.members
+        .map((m) => m.bankName)
+        .toList();
+    if (banks == null || banks.isEmpty) return;
+    final bank = banks.length == 1
+        ? banks.single
+        : await showModalBottomSheet<String>(
+            context: context,
+            showDragHandle: true,
+            useSafeArea: true,
+            builder: (context) => ListView(shrinkWrap: true, children: [
+                  for (final name in banks)
+                    ListTile(
+                        title: Text(name),
+                        onTap: () => Navigator.pop(context, name)),
+                ]));
+    if (mounted && bank != null) _openBankDetail(bank);
+  }
+
+  Future<void> _startTraining(bool review) async {
+    final snapshot = _training;
+    final ports = widget.homeTraining;
+    if (snapshot == null ||
+        ports == null ||
+        _controller.trainingLoading ||
+        _controller.selectionBusy) {
+      return;
+    }
+    final selection = snapshot.selection;
+    final key = selection.categoryKey;
+    if (key == null) return;
+    await _controller.runFocusedStart(() async {
+      TrainingSessionLaunchResult result;
+      try {
+        if (review) {
+          result = await ports.session.startCategoryReview(key);
+        } else {
+          final content = selection.currentContent?.content;
+          if (content == null ||
+              selection.state != TrainingCurrentContentState.usable) {
+            return;
+          }
+          result = await ports.session.startNew(TrainingContentTarget(
+              contentId: content.contentId,
+              expectedRevision: content.revision));
+        }
+      } catch (_) {
+        result = const TrainingSessionUnavailable();
+      }
+      if (!mounted) return;
+      switch (result) {
+        case TrainingSessionReady():
+          await Navigator.push(
+              context,
+              MaterialPageRoute(
+                  builder: (_) => PracticePage(
+                        bankName: selection.currentContent?.content.members
+                                .first.bankName ??
+                            '',
+                        usePreparedStudySession: true,
+                        preparedSessionKind: AnswerAttemptSessionKind.normal,
+                        practiceCommands: widget.practiceCommands,
+                        studyActivity: StudyActivityRouteDescriptor(
+                            scene: review
+                                ? StudyActivityScene.categoryReview
+                                : StudyActivityScene.ordinaryPractice,
+                            context: StudyActivityContext(
+                                categoryKey: key,
+                                contentId: review
+                                    ? null
+                                    : selection
+                                        .currentContent!.content.contentId)),
+                      )));
+          if (mounted) await _refresh();
+        case TrainingSessionEmpty():
+          _showFocusedMessage('当前没有可练习的题目');
+          await _refresh();
+        case TrainingSessionStaleConfiguration():
+          _showFocusedMessage('训练配置已变化');
+          await _refresh();
+        case TrainingSessionUnavailable():
+          _showFocusedMessage('训练准备暂不可用');
+      }
+    });
+  }
 
   Widget _trainingCard() => _surface(
       key: const ValueKey('home-training-card'),
@@ -586,6 +852,12 @@ class _HomePageState extends State<HomePage> {
   Widget _tools() {
     final taskManager = widget.taskManager ?? TaskManager.instance;
     return Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+      if (widget.homeTraining != null)
+        IconButton(
+            key: const ValueKey('home-wrongbook-entry'),
+            tooltip: '全局错题本',
+            onPressed: () => _openBankDetail('🔥 全局错题本'),
+            icon: const Icon(Icons.bookmark_outline_rounded)),
       AnimatedBuilder(
           animation: taskManager,
           builder: (context, _) => TextButton.icon(
