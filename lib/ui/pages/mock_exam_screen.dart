@@ -73,6 +73,10 @@ class _MockExamScreenState extends State<MockExamScreen> {
     WakelockPlus.enable();
 
     // 启动倒计时
+    _startCountdown();
+  }
+
+  void _startCountdown() {
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) return;
       setState(() {
@@ -197,6 +201,9 @@ class _MockExamScreenState extends State<MockExamScreen> {
     } catch (e) {
       if (mounted) {
         Navigator.pop(context);
+        // A failed early submission returns to the same running exam. At
+        // zero, keep time expired and let the user retry without a new timer.
+        if (_remainingSeconds > 0) _startCountdown();
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text('交卷失败: $e'), backgroundColor: Colors.redAccent));
       }

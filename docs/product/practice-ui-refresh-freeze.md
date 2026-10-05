@@ -43,15 +43,3 @@ user initiated; relocating controls does not introduce a provider call.
 
 This is a presentation pass; unrelated grading/provider defects and broad
 Practice architecture decoupling require separate scope.
-
-## StudyActivity runtime amendment (B3)
-
-Home Training V3 adds Activity orchestration around this preserved presentation.
-Formal routes supply explicit scene/context; preview never begins Activity.
-Successful queue admission begins once. Background and retained temporary covers
-(including photo capture and delete confirmation) pause and resume the same
-owner. Queue terminal dispatches queueFinished once; true exit/dispose dispatches
-exited as a fallback. Pomodoro retains its independent persistence and semantics.
-The composition-injected Application service owns lifecycle/time facts; the
-shared route binding schedules bounded 30-second checkpoints. Activity failures
-never block attempts, grades, requeue, completion UI or navigation.

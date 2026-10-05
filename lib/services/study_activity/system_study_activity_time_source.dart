@@ -64,17 +64,21 @@ final class SystemStudyActivityTimeSource implements StudyActivityTimeSource {
         calendar.contains(utc + Duration.millisecondsPerDay) &&
         calendar.observationAt(utc + Duration.millisecondsPerDay) !=
             _localAt(utc + Duration.millisecondsPerDay);
-    if (calendar == null ||
+    final mappingChanged = calendar == null ||
         wallChanged ||
         zoneChanged ||
         futureChanged ||
-        !calendar.contains(utc + 2 * Duration.millisecondsPerDay)) {
+        !calendar.contains(utc + 2 * Duration.millisecondsPerDay);
+    if (mappingChanged) {
       _calendar = _CapturedCalendar.capture(utc, _localAt);
       if (last != null) _revision++;
     }
     final observation = StudyActivityTimeSample(
         monotonicMs: monotonic,
-        utcMs: utc,
+        // A continuous revision must exactly project the previous published
+        // UTC anchor by monotonic elapsed. Raw wall observations establish
+        // an anchor only when a new mapping revision is captured.
+        utcMs: mappingChanged ? utc : predicted,
         mapping: _calendar!,
         mappingRevision: _revision);
     _last = observation;

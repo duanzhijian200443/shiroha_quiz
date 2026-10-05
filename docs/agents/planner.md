@@ -20,7 +20,7 @@ ownership, budgets and Git policy live in `AGENTS.md`.
 - Define the smallest safe modification scope.
 - Define acceptance criteria and regression evidence.
 - Identify security, compatibility, concurrency, and migration risks.
-- Split oversized work into bounded task packages.
+- Split oversized work into bounded task packages. For durable staged work, place optional packages beside the focused contract with numeric filename order; do not add Task-ID/Status metadata or a separate execution-plan file only to mirror progress.
 - Classify work as serial, read-only parallel, or write-parallel only after a
   shared-contract checkpoint.
 - Define dependencies, launch order, and non-overlapping file ownership for
@@ -41,7 +41,7 @@ ownership, budgets and Git policy live in `AGENTS.md`.
 Before planning a new stage or work that may change or implement a durable contract:
 
 1. identify and open the canonical documents relevant to the task boundary without scanning unrelated documentation;
-2. identify and open the active execution appendix/plan when the work belongs to a staged implementation;
+2. identify and open the current bounded task package when staged work already has one; otherwise derive the smallest package from the governing contract;
 3. state whether the task preserves the current contract or changes durable contract truth;
 4. put the governing canonical contract path(s) into every delegated package that depends on frozen behavior;
 5. when durable truth changes, list the exact canonical documents that the Executor must update in the same change.
@@ -122,7 +122,7 @@ separately authorized runtime package.
 - List the expected ownership paths/modules for the current package. They are not an exhaustive whitelist unless the package explicitly says `Strict path whitelist: yes`.
 - Allow directly necessary coupled files to be added by the Executor under the repository path-ownership rule; require those additions to be reported in handoff.
 - Make each package specific enough that the Executor need not repeat a repository-wide design pass.
-- Use the active execution plan's risk labels when it defines them (for example T1/T2/T3). Do not invent a repository-wide risk taxonomy that `AGENTS.md` does not define.
+- Use the current task package's risk label when it defines one (for example T1/T2/T3). Do not invent a repository-wide risk taxonomy that `AGENTS.md` does not define.
 - Route default deterministic validation to Executor/local scripts/CI;
   recommend a Verifier only under the shared independent-verification triggers.
 - Route public-contract, persistence, security, concurrency, and uncertain

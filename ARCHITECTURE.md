@@ -22,11 +22,11 @@ reading order only; all existing contracts and historical amendments remain vali
 | StudyPlan | 13 |
 | Runtime data locations | 14 |
 | Review repair / photo answers | 15–16 |
-| TrainingContent / StudyActivity / TaskCenter | Home Training V3 and its execution plan |
+| TrainingContent / StudyActivity / TaskCenter | Home Training V3 focused contract directory |
 
-Stage order and delivery status belong to the roadmap/active execution plan;
-Git identifies the exact implementation snapshot. The stage summaries below
-retain their recorded context and do not replace those sources.
+Stage order and durable stage status belong to the focused contract/task-package
+layout and roadmap; Git/PR/CI identify the exact execution state. The stage
+summaries below retain their recorded context and do not replace those sources.
 
 ## 1. Canonical dependency direction
 
@@ -573,7 +573,7 @@ Seed capture, the QuestionRepository-owned atomic set/member writer with per-doc
 
 ## Home Training V3 — configuration, launch, Activity and TaskCenter backend implemented
 
-`docs/product/home-training-implementation-freeze-v3.md` freezes
+`docs/product/home-training-v3/00-contract.md` freezes
 `SHIROHA-HOME-TRAINING-IPF-V3` as the planned successor to the current
 Today/Home and ordinary-training configuration contracts: Category-driven
 TrainingContent configuration (Category → TrainingContent → ordinary
@@ -693,7 +693,9 @@ success only; failed submit resumes and permits retry. Activity failures never
 gate answering, grading, navigation or background exam grading.
 The system adapter supplies Stopwatch elapsed and observed system local-date /
 offset boundaries as immutable calendar facts, including offset transitions.
-Wall/zone observations change mapping revision without rewriting old samples;
+Within a continuous mapping revision, UTC advances exactly by confirmed
+monotonic elapsed; raw wall observations establish an anchor only on a new
+revision. Wall/zone observations change revision without rewriting old samples;
 out-of-horizon attribution fails unavailable rather than consulting changed
 calendar rules. No timezone dependency or schema change is introduced.
 Weekly UI and Home/TaskCenter activation remain unimplemented. B3 implementation
@@ -737,11 +739,12 @@ preference writes. Stale or failed moves leave no partial ordering changes.
 Controller generation/dispose guards reject late loads, and busy state prevents
 overlapping UI mutations. Configuration CRUD never changes learning facts.
 Home/config production composition remains I2-owned and inactive; the legacy
-PlanConfigScreen remains. B2 implementation is complete, with independent review
-pending. Runtime schema remains v31.
-The existing Today, ordinary-training, StudyPlan and TaskCenter boundaries
-above remain current truth. StudyPlan remains the single
-global ActiveStudyPlan and stays independent of TrainingContent. Delivery
-order and ownership are governed by
-`docs/agents/home-training-v3-execution-plan.md` (P1a → P1b → CP1 →
-subsequent implementation packages).
+PlanConfigScreen remains. B2 implementation was merged by PR #230 with standing
+PR CI success. The user has confirmed B2 independent review/closure; its sibling
+package now carries the completion suffix. This documentation synchronization
+does not issue a GitHub review approval marker. Runtime schema remains v31.
+The existing Today, ordinary-training, StudyPlan and TaskCenter boundaries above
+remain current truth. StudyPlan remains the single global ActiveStudyPlan and stays
+independent of TrainingContent. Delivery order and ownership live in the sibling
+task packages under `docs/product/home-training-v3/`; there is no standalone
+execution-plan authority.

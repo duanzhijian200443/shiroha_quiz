@@ -136,6 +136,21 @@ void main() {
     expect(activity.ends, isEmpty);
     expect(activity.events.last, 'resume');
     expect(find.byType(MockExamScreen), findsOneWidget);
+    int remaining() {
+      final text = tester
+          .widget<Text>(find.byWidgetPredicate((widget) =>
+              widget is Text &&
+              RegExp(r'^\d{2}:\d{2}$').hasMatch(widget.data ?? '')))
+          .data!;
+      final parts = text.split(':').map(int.parse).toList();
+      return parts[0] * 60 + parts[1];
+    }
+
+    final before = remaining();
+    expect(before, greaterThan(3));
+    await tester.pump(const Duration(seconds: 3));
+    expect(remaining(), before - 3);
+    expect(exam.calls, 1);
     exam.fail = false;
     exam.hold = Completer();
     await confirm(tester);
@@ -185,6 +200,10 @@ void main() {
         expect(activity.ends, isEmpty);
         expect(activity.events.last, 'resume');
         expect(find.byType(MockExamScreen), findsOneWidget);
+        await tester.pump(const Duration(seconds: 5));
+        expect(find.text('00:00'), findsOneWidget);
+        expect(exam.calls, 1);
+        expect(activity.ends, isEmpty);
       } else {
         expect(activity.ends.single.reason, StudyActivityEndReason.submitted);
         expect(find.byType(MockExamScreen), findsNothing);
