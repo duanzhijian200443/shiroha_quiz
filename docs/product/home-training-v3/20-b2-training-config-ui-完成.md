@@ -1,10 +1,10 @@
 # B2 Training Config UI
 
-Contract: `docs/product/home-training-v3/00-contract.md`
+Contract: `./00-contract.md`
 
 ## Closure 依据
 
-用户已确认 B2 独立审查及合并完成，并授权同步文档。PR #230 已合并，standing PR CI 已通过。本次文档同步不代替或补发 GitHub `[REVIEW APPROVAL]`；PR approval evidence 仍以 GitHub 记录为准。不要重复实现已合并的 production/test 代码。
+PR #230 已合并且 standing PR CI 已通过。按当前治理规则，GitHub 已报告为 `MERGED` 的历史 PR 默认视为 review gate 已满足，不要求为了旧流程缺失的 `[REVIEW APPROVAL]` 标记重新审查或补发评论。不要重复实现已合并的 production/test 代码。
 
 ## 范围
 - P6：Category Visual 与共享纯 UI primitives；
@@ -33,4 +33,4 @@ Contract: `docs/product/home-training-v3/00-contract.md`
 ## Documentation responsibility
 - `docs/product/home-training-v3/00-contract.md`: CHECK_ONLY
 - `docs/architecture/shiroha-project-roadmap.md`: UPDATE
-- `docs/product/home-training-v3/20-b2-training-config-ui.md`: UPDATE
+- `docs/product/home-training-v3/20-b2-training-config-ui-完成.md`: UPDATE
