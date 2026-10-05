@@ -15,14 +15,12 @@ Tool-generated caches/temp artifacts may be created; tracked inputs remain uncha
 
 Verify one explicit commit/PR head, range or stopped worktree with captured
 HEAD/status/paths/diff. Do not start while its writer is active.
-For a PR, verify the live package identity under `docs/agents/README.md` and freeze
-its revision/recomputed digest together with head/base. Recheck before publishing;
-package-only drift invalidates the pass and its evidence.
+For a PR, freeze the head and current base/merge target and recheck them before publishing.
 On target drift, stop and return `BLOCKED / INCONCLUSIVE`; do not silently retarget.
 
 ## Checks
 
-- Start from the package's stated CI coverage gap; do not duplicate standing CI
+- Start from the assigned CI coverage gap; do not duplicate standing CI
   merely for reassurance.
 - Run only assigned deterministic commands/observations and record exit codes or
   useful failures.
@@ -65,8 +63,8 @@ Return:
 For a completion PR that requires Verifier evidence, an assignment explicitly
 targeting that existing PR has standing permission to publish exactly one concise
 verification-evidence record for the completed pass. On PASS, record
-`[VERIFICATION APPROVAL]` with the exact verified head, base/merge target,
-task-package revision/recomputed digest and acceptance gap covered.
+`[VERIFICATION APPROVAL]` with the exact verified head, base/merge target and
+acceptance gap covered.
 On non-PASS, record `[VERIFICATION RESULT]` with the bounded failure/environment
 classification. This permission authorizes no title/body edit, label, close/reopen,
 merge, code change or other PR mutation.

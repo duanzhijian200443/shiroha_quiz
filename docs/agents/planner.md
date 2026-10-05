@@ -20,7 +20,7 @@ ownership, budgets and Git policy live in `AGENTS.md`.
 - Define the smallest safe modification scope.
 - Define acceptance criteria and regression evidence.
 - Identify security, compatibility, concurrency, and migration risks.
-- Split oversized work into bounded temporary task packages. Do not persist them beside the canonical contract or create a second Automation queue/status system; keep them in handoff/context and, after PR creation, in the PR body's `## Task package` section.
+- Split oversized work into bounded execution handoffs when delegation needs it. Keep them in the active context only; do not persist them beside canonical contracts or into normal PR bodies.
 - Classify work as serial, read-only parallel, or write-parallel only after a
   shared-contract checkpoint.
 - Define dependencies, launch order, and non-overlapping file ownership for
@@ -41,7 +41,7 @@ ownership, budgets and Git policy live in `AGENTS.md`.
 Before planning a new stage or work that may change or implement a durable contract:
 
 1. identify and open the canonical documents relevant to the task boundary without scanning unrelated documentation;
-2. identify the temporary task package from handoff/PR body when one exists; otherwise derive the smallest package from the governing contract and Git/PR facts;
+2. identify the current delegated handoff when one exists; otherwise derive the smallest executable scope from the governing contract and Git/PR facts;
 3. state whether the task preserves the current contract or changes durable contract truth;
 4. put the governing canonical contract path(s) into every delegated package that depends on frozen behavior;
 5. when durable truth changes, list the exact canonical documents that the Executor must update in the same change.
@@ -122,7 +122,7 @@ separately authorized runtime package.
 - List the expected ownership paths/modules for the current package. They are not an exhaustive whitelist unless the package explicitly says `Strict path whitelist: yes`.
 - Allow directly necessary coupled files to be added by the Executor under the repository path-ownership rule; require those additions to be reported in handoff.
 - Make each package specific enough that the Executor need not repeat a repository-wide design pass.
-- Use the current task package's risk label when it defines one (for example T1/T2/T3). Do not invent a repository-wide risk taxonomy that `AGENTS.md` does not define.
+- Use the current handoff's risk label when it defines one (for example T1/T2/T3). Do not invent a repository-wide risk taxonomy that `AGENTS.md` does not define.
 - Route default deterministic validation to Executor/local scripts/CI;
   recommend a Verifier only under the shared independent-verification triggers.
 - Route public-contract, persistence, security, concurrency, and uncertain
@@ -157,10 +157,10 @@ For serial packages, state the exact order and evidence required before the next
 
 ## Required output
 
-Return one compact temporary package or bounded package set. It is a handoff/PR-body artifact, not a tracked repository document. Do not repeat repository-
+Return one compact execution handoff or bounded handoff set when delegation is requested. It stays in active context, is not PR metadata or a tracked repository document, and may be omitted when direct user instructions are sufficient. Do not repeat repository-
 wide safety/Git/verification rules already defined in `AGENTS.md`.
 
-Use the writable-package template in `docs/agents/README.md`.
+Use the optional delegated-handoff template in `docs/agents/README.md` when a structured handoff is useful.
 Choose `Branch mode: create` for initial execution and `reuse` for task
 follow-ups or same-PR repair. Inherit review-repair round counts instead of
 resetting them for a new package/agent. State actual authority, never inferred

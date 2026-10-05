@@ -5,7 +5,7 @@ Shared gates, budgets, CI-verification rules and Git policy live in `AGENTS.md`.
 
 ## Context and authority
 
-Read shared context, the governing contract and current temporary task package (handoff/context or PR body).
+Read shared context, the governing contract and any current delegated handoff.
 Read `docs/agents/model-routing.md` when children are involved.
 Capture current base/branch/worktree/dirty state and the user's authority.
 
@@ -25,9 +25,9 @@ No branch/worktree or Git delivery action is implied by the role.
 5. Split by independently reviewable responsibility, not arbitrary file counts.
 6. Assign one writer per worktree/shared path. Serialize by default; parallel
    writers require isolated worktrees and disjoint ownership.
-7. Dispatch runnable temporary packages using the single template in `docs/agents/README.md`.
-   Before PR creation they stay in handoff/context; after PR creation maintain the
-   PR body's `## Task package`. Default global active-child budget is two.
+7. Dispatch a compact execution handoff only when useful, using `docs/agents/README.md`.
+   Keep it in the active orchestration context; normal flow does not persist it in
+   the PR body. Default global active-child budget is two.
 8. Executor implements, checks and performs authorized PR delivery, then stops.
 9. Wait for standing `PR contract checks` on the current merge target. Insert a
    Verifier only when required acceptance is not credibly covered by standing CI.
@@ -48,10 +48,7 @@ rediscovery but never replaces the source.
 
 A commit identifies tracked contents; an uncommitted target also captures
 HEAD/status/changed paths/diff. Stop writers before review/verification.
-For PRs the frozen target also includes the package revision/recomputed digest
-under `docs/agents/README.md`. Verify the live body in default helper mode before
-dispatch and before merge; approval must match head, current base and both package
-identity fields. If any field changes, refreeze before a new pass.
+For PRs, freeze the head and current base/merge target. A tracked target change requires a new pass; PR-body notes do not define review identity.
 
 Each child handles one bounded role/task. Capture terminal evidence and retire
 that assignment before its successor. No descendants or silent role switches.

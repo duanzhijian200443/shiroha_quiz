@@ -31,7 +31,6 @@ Before a non-trivial task, read:
   plus sections relevant to the affected capability;
 - the governing task-specific canonical/frozen contract source when the task
   implements, changes or reviews behavior it owns;
-- the current temporary task package when one exists (current handoff/context before PR creation, or the PR body's `## Task package` section after PR creation);
 - relevant implementation/tests/current diff.
 
 Use the architecture reading guide and focused searches to identify applicable
@@ -77,7 +76,7 @@ independent authorized work.
 
 Only an explicit current-user `角色：自动化` activates the isolated protocol.
 Normal roles do not load `docs/automation/**` except assigned task artifacts.
-The controller reads the protocol, roadmap/current capability contract and Git/PR facts; workers receive only their bounded temporary task package.
+The controller reads the protocol, roadmap/current capability contract and Git/PR facts; workers receive only the bounded execution handoff needed for their assigned role.
 
 Within existing user authority, the protocol replaces only controller stops at
 worker delivery, per-package handback/new-request requirements, and handling of
@@ -86,7 +85,7 @@ checkpoints and perform pre-authorized conditional merges. A dispatched Executor
 package must carry any applicable bounded verification-repair exception.
 Workers retain their roles, independent review and delivery stops.
 
-No Git, runtime or scope authority is inferred from activation, temporary package text or PR-body state.
+No Git, runtime or scope authority is inferred from activation, an execution handoff or Automation resume state.
 All other safety, privacy, canonical-contract, ownership, destructive-Git,
 evidence, required-gate and repair-budget rules remain unchanged.
 
@@ -180,8 +179,8 @@ Default budgets:
   A round batches compatible findings, repairs them and receives fresh review.
 - Mechanical format/import/lint/trivial compile cleanup does not consume a
   semantic cycle.
-- Changing agents, renaming packages or advancing the PR head does not reset the
-  review-round budget. Track both counts in handoffs.
+- Changing agents, rewriting handoff notes or advancing the PR head does not reset
+  the review-round budget. Track both counts in handoffs.
 - Different limits require explicit task/user authority.
 
 Rerun the failed check and directly affected regressions after repair.
@@ -214,7 +213,7 @@ Each write task uses a dedicated non-default branch:
 initial implementation creates the assigned branch from the authorized base;
 follow-ups and review repair reuse that task's branch/PR.
 Never implement directly on the default branch.
-Assigned branch creation may be authorized by a writable task package.
+Assigned branch creation requires explicit user authority or authority inherited from the current user-approved task; a delegated handoff may record that authority but never create it.
 Worktrees are optional for a single writer; use them only for parallel writers,
 needed dirty-checkout isolation or an explicit Coordinator requirement, with
 applicable authorization.
@@ -229,11 +228,12 @@ Stage exact paths only; never `git add .` or `git add -A`.
 Do not create/update `DEVELOPMENT_LOG.md` unless explicitly requested.
 Inspect status before/after writes and preserve unrelated tracked/untracked files.
 
-Use the single writable-package template in `docs/agents/README.md`.
-Record base, branch, `Branch mode: create | reuse`, ownership, acceptance and
-specific Git authority. A missing action is unauthorized; implementation or
-staging never implies commit, push, PR creation, merge, tag or release.
-Only perform the authorized delivery steps.
+For delegated work, Planner/Coordinator may use the optional execution-handoff
+template in `docs/agents/README.md` to make scope, acceptance and already-granted
+authority explicit. Direct user instructions may provide the same facts without a
+formal handoff. A handoff records authority; it never creates authority.
+Implementation or staging never implies commit, push, PR creation, merge, tag or
+release. Only perform actions actually authorized by the user/current task.
 
 `PR-create` authorizes PR creation only. PR title/body updates, close/reopen and
 other PR mutations remain separate actions requiring explicit task/user authority.
@@ -244,25 +244,6 @@ comment/submission on that PR. Reviewer evidence may report `APPROVE`,
 non-PASS result. This evidence mutation does not authorize title/body changes,
 labels, close/reopen, merge, code edits or any other PR mutation. A generic `PR yes`
 is not blanket authority.
-
-For an authorized task PR, the assigned writer or Coordinator may maintain only
-the delimited `## Task package` section of that PR body as a temporary execution
-artifact. This standing permission is limited to the already-authorized objective,
-scope, acceptance, Documentation responsibility and current Git/PR facts. It may
-not grant new authority, broaden product scope, alter unrelated PR-body sections,
-or change title/base/state/labels. Updating this section does not change the commit
-SHA. Each PR-body package has a positive `Task-package revision` and SHA256
-`Task-package digest` under the single identity algorithm in `docs/agents/README.md`.
-The writer increments revision on each normalized section change and computes the
-digest before handing off. A digest proves content identity, never user authority.
-
-Reviewer/Verifier freeze head, base/merge target, revision and recomputed digest
-before their pass. Any normalized package change after that freeze invalidates the
-pass and its approval, including factual/wording corrections. Keep volatile CI/run
-updates in evidence outside the package to avoid unnecessary package changes.
-Before merge, recompute from the live PR body with the read-only identity helper
-in verification mode and compare all four identity fields with approval evidence;
-missing/invalid/mismatching identity never satisfies the gate.
 
 ## 8. Security, privacy and network
 
@@ -326,12 +307,11 @@ P0/P1/P2 -> bounded Repair Executor on the same branch/PR -> mechanical checks
 insufficient -> fresh targeted Reviewer closure. Targeted review expands only if
 the repair invalidated the original scope.
 
-Every temporary writable task package must declare `Documentation responsibility`
-as exact repository paths with `UPDATE` or `CHECK_ONLY`, or explicitly state
-`none`. `UPDATE` means the accepted delivery changes durable truth/status at
-that path, and the Executor must bring it current in the same candidate head before
-independent review. `CHECK_ONLY` means the Reviewer confirms the existing text
-does not materially contradict the accepted delivery; it is not write authority.
+When a change alters durable product/architecture truth, the Executor must update
+the governing canonical documents in the same candidate head. Planner/Coordinator
+handoffs should list known affected docs, but that list is a convenience rather
+than a second authority. Reviewer independently checks contract/diff agreement and
+may report missing or stale durable documentation as a blocking finding.
 
 There is no mandatory post-approval Documentation Closure. Durable docs required
 for the delivery belong in the implementation/repair head before CI and review.
@@ -340,19 +320,12 @@ repair flow. Any tracked documentation repair advances the head and therefore
 requires standing CI and fresh review. Reviewer remains read-only apart from its
 single PR-evidence publication.
 
-The temporary task package may be refined before review without changing the Git
-head, but it cannot create new authority. After the pass freezes the package,
-any normalized section change requires a new revision/digest and a fresh pass,
-even when no commit changed. Corrections outside that section do not change its
-identity and must not redefine the reviewed task.
-
 A completion PR is merge-ready only when:
 - final-head/current-target `PR contract checks` succeeded;
-- the Independent Reviewer recorded `[REVIEW APPROVAL]` matching final head,
-  current base/merge target and current task-package revision/recomputed digest,
+- the Independent Reviewer recorded `[REVIEW APPROVAL]` matching the final head and current base/merge target,
   with zero open P0/P1/P2;
 - required Verifier `[VERIFICATION APPROVAL]` evidence matches the applicable
-  verified target and frozen package identity when required;
+  verified head/base target when required;
 - every declared Documentation responsibility is closed on that candidate head;
 - explicit user merge authority exists.
 
@@ -382,7 +355,7 @@ Delegated children have one bounded role/task; they may not create descendants,
 switch roles, expand scope or decide public architecture/contracts.
 Read `docs/agents/model-routing.md` when routing children.
 
-## 12. Canonical documents and temporary task packages
+## 12. Canonical documents and execution handoffs
 
 Canonical contracts record durable product/architecture truth; Git/PR/CI/Reviewer
 evidence owns exact execution facts.
@@ -391,23 +364,20 @@ For staged product work, prefer one focused canonical contract per capability,
 normally `docs/product/<capability>.md`. Do not persist implementation task
 packages beside a contract merely to track order, NEXT, status or completion.
 
-Task packages are temporary execution artifacts:
-- before a PR exists, they live only in Planner/Coordinator handoff or active context;
-- once a PR exists, the current package lives in the PR body's `## Task package`;
-- they derive from the governing contract, roadmap and current Git/PR facts;
-- they may be refined within the already-authorized objective but cannot grant
-  new authority or silently broaden semantics;
-- they are not committed as sibling Markdown files and use no Task-ID,
-  READY/ACTIVE/DONE, `-完成` suffix or task-queue mirror.
+Normal roles do not require PR-body task packages. Planner/Coordinator may create a
+bounded temporary handoff in the active conversation when delegation benefits from
+explicit scope, ownership, acceptance or authority. That handoff is disposable,
+does not become merge identity, and never overrides the user, canonical contracts
+or Git facts.
+
+Only explicit Automation mode may maintain resumable PR-body scratch state under
+the rules in `docs/automation/README.md`. That state is non-authoritative and is
+ignored by normal Reviewer/Verifier merge identity.
 
 Completion is represented by merged PR + CI/review evidence. Durable capability
 state belongs in the canonical contract and, when stage-level truth changes, the
-roadmap. Do not make filenames imitate an execution database.
-
-Planner lists affected durable docs in the temporary package's Documentation
-responsibility. Executor updates required `UPDATE` docs in the same candidate
-head. Reviewer checks implementation/contract agreement in both directions.
-Verifier checks frozen behavior without redesign and never owns canonical status.
+roadmap. Do not make filenames or PR-body metadata imitate an execution database.
 
 Preserve historical truth through amendments, explicit historical labeling and
 superseding references.
+

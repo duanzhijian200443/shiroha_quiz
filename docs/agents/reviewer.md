@@ -20,16 +20,12 @@ per-file hashing, baseline reconstruction or root-cause work merely for reassura
 
 Prefer explicit base and PR head/commit. An uncommitted target requires a stopped
 worktree with captured HEAD/status/changed paths/diff.
-For a PR, verify the live body with the default identity-helper mode in
-`docs/agents/README.md` and freeze head, base/merge target, package revision and
-recomputed digest. Recheck that tuple before publishing. A body-only package edit
-invalidates the pass even if the Git head is unchanged. Do not edit the package to
-repair missing identity; missing/invalid identity cannot receive approval.
+For a PR, freeze the current head and base/merge target before review and recheck them before publishing. PR-body notes are not review identity.
 
 Read, in order:
 
 1. Shared instructions, this role and applicable architecture sections.
-2. Original task, governing contract source and current temporary task package from handoff/PR body.
+2. Original user task, governing contract source and current delegated handoff when relevant.
 3. Executor evidence, current standing CI and optional Verifier evidence.
 4. Documentation responsibility and PR evidence rules.
 5. Changed paths/stat and focused diff.
@@ -86,11 +82,9 @@ concise PR evidence record without requiring a separate permission field:
 - `REQUEST_CHANGES` -> `[REVIEW REQUEST_CHANGES]`;
 - `INCONCLUSIVE` -> `[REVIEW INCONCLUSIVE]`.
 
-Include the reviewed head, base/merge target, `Task-package revision`, recomputed
-`Task-package digest`, verdict, P0/P1/P2/P3 counts, review round, and a bounded
-summary of blockers or Documentation responsibility status. If identity is absent
-or invalid, say so rather than inventing it. This
-standing evidence permission authorizes no other PR mutation.
+Include the reviewed head, base/merge target, verdict, P0/P1/P2/P3 counts, review
+round, and a bounded summary of blockers or durable-document status. This standing
+evidence permission authorizes no other PR mutation.
 
 Final `APPROVE` for a completion PR requires final-head standing CI success,
 closed Documentation responsibility, zero open P0/P1/P2 and any required Verifier
