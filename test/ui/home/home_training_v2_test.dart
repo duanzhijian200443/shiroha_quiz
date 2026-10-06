@@ -32,10 +32,12 @@ import 'package:shiroha_quiz/ui/theme/app_theme.dart';
 import '../../support/home_training_fakes.dart';
 import '../../support/activity_widget_dependencies.dart';
 import '../../support/study_activity_runtime_fakes.dart';
+import '../../support/theme_visual_evidence.dart';
 
 class _Exam extends Fake implements ExamMutationPersistencePort {}
 
 void main() {
+  setUpAll(loadThemeEvidenceFonts);
   final capture = Platform.environment['B4_VISUAL_EVIDENCE'] == '1';
   final boundaryKey = GlobalKey();
   setUpAll(() async {
@@ -58,6 +60,7 @@ void main() {
     HomeTrainingFake fake, {
     Size size = const Size(360, 720),
     bool dark = false,
+    String? appearance,
     double scale = 1,
     int epoch = 0,
     bool settle = true,
@@ -68,7 +71,11 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    final theme = dark ? AppTheme.darkTheme : AppTheme.lightTheme;
+    final theme = appearance != null
+        ? AppTheme.getTheme(appearance)
+        : dark
+            ? AppTheme.darkTheme
+            : AppTheme.lightTheme;
     await tester.pumpWidget(StudyActivityDependenciesScope(
         dependencies: StudyActivityDependencies(
             service: activity ?? RecordingActivity(), query: fake),
@@ -99,6 +106,31 @@ void main() {
     } else {
       await tester.pump();
     }
+  }
+
+  for (final appearance in ['light', 'dark', 'colorful']) {
+    testWidgets('today appearance sample screenshot: $appearance',
+        (tester) async {
+      await pump(tester, HomeTrainingFake(),
+          appearance: appearance, size: const Size(390, 1000));
+      await tester.runAsync(() async {
+        await precacheImage(
+            const AssetImage('assets/images/today/welcome-landscape.png'),
+            boundaryKey.currentContext!);
+        await precacheImage(
+            const AssetImage('assets/images/today/category-math-v3.png'),
+            boundaryKey.currentContext!);
+      });
+      await tester.pumpAndSettle();
+      await captureThemeEvidence(tester, boundaryKey, 'today-$appearance');
+      expect(
+          Theme.of(tester
+                  .element(find.byKey(const ValueKey('home-training-card'))))
+              .colorScheme
+              .primary,
+          AppTheme.getTheme(appearance).colorScheme.primary);
+      expect(tester.takeException(), isNull);
+    });
   }
 
   Future<void> screenshot(WidgetTester tester, String name,

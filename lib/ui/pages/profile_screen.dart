@@ -10,6 +10,8 @@ import 'backup/backup_restore_screen.dart';
 import 'ai_settings_screen.dart';
 import 'wrong_book_page.dart';
 import '../theme/design_tokens.dart';
+import '../theme/app_theme.dart';
+import '../theme/shiroha_theme_tokens.dart';
 
 typedef ProfileHeatmapLoader = Future<Map<DateTime, int>> Function();
 
@@ -22,6 +24,7 @@ class ProfileScreen extends StatefulWidget {
     this.backupRestore,
     this.onRestoreCompleted,
     this.onOpenFileLibrary,
+    this.appearanceSettings,
   });
 
   final AiConfigPresentationService aiConfigService;
@@ -30,6 +33,7 @@ class ProfileScreen extends StatefulWidget {
   final BackupRestoreCoordinator? backupRestore;
   final VoidCallback? onRestoreCompleted;
   final VoidCallback? onOpenFileLibrary;
+  final SettingsRepository? appearanceSettings;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -41,6 +45,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
   int _learningDays = 0;
   bool _isLoading = true;
   String? _loadErrorMessage;
+  final ValueNotifier<bool> _themeSaving = ValueNotifier(false);
+
+  @override
+  void dispose() {
+    _themeSaving.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -81,8 +92,70 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _setTheme(String themeName) async {
+    themeName = AppTheme.normalizeName(themeName);
+    if (_themeSaving.value || themeName == globalThemeNotifier.value) return;
+    final previous = globalThemeNotifier.value;
+    final settings = widget.appearanceSettings ?? SettingsRepository.instance;
+    _themeSaving.value = true;
     globalThemeNotifier.value = themeName;
-    await SettingsRepository.instance.setAppTheme(themeName);
+    try {
+      await settings.setAppTheme(themeName);
+    } catch (_) {
+      // The existing repository caches before writing. Invalidate on failure.
+      settings.clearCache();
+      globalThemeNotifier.value = previous;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('外观保存失败，已恢复原设置，请重试')),
+        );
+      }
+    } finally {
+      if (mounted) _themeSaving.value = false;
+    }
+  }
+
+  String _themeLabel(String value) => switch (AppTheme.normalizeName(value)) {
+        'dark' => '深色',
+        'colorful' => '彩色',
+        _ => '浅色',
+      };
+
+  void _showAppearance() {
+    showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      builder: (context) => AnimatedBuilder(
+        animation: Listenable.merge([globalThemeNotifier, _themeSaving]),
+        builder: (context, _) => SafeArea(
+          top: false,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(_themeSaving.value ? '正在保存外观…' : '外观设置',
+                  style: Theme.of(context).textTheme.titleMedium),
+            ),
+            for (final name in ['light', 'dark', 'colorful'])
+              Semantics(
+                checked:
+                    AppTheme.normalizeName(globalThemeNotifier.value) == name,
+                inMutuallyExclusiveGroup: true,
+                child: ListTile(
+                  key: ValueKey('appearance-option-$name'),
+                  title: Text(_themeLabel(name)),
+                  selected:
+                      AppTheme.normalizeName(globalThemeNotifier.value) == name,
+                  enabled: !_themeSaving.value,
+                  trailing: Icon(
+                      AppTheme.normalizeName(globalThemeNotifier.value) == name
+                          ? Icons.radio_button_checked
+                          : Icons.radio_button_unchecked),
+                  onTap: _themeSaving.value ? null : () => _setTheme(name),
+                ),
+              ),
+          ]),
+        ),
+      ),
+    );
   }
 
   void _push(Widget page) {
@@ -90,6 +163,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildHeatmap(ThemeData theme) {
+    final tokens = theme.extension<ShirohaThemeTokens>()!;
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final startDate = today.subtract(const Duration(days: 83));
@@ -108,13 +182,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ? theme.colorScheme.outlineVariant.withValues(alpha: 0.72)
                   : theme.colorScheme.outlineVariant;
             } else if (count < 10) {
-              cellColor = theme.colorScheme.primary.withValues(alpha: 0.3);
+              cellColor = Color.lerp(
+                  theme.colorScheme.outlineVariant, tokens.brandAccent, .30)!;
             } else if (count < 30) {
-              cellColor = theme.colorScheme.primary.withValues(alpha: 0.6);
+              cellColor = Color.lerp(
+                  theme.colorScheme.outlineVariant, tokens.brandAccent, .55)!;
             } else if (count < 60) {
-              cellColor = theme.colorScheme.primary.withValues(alpha: 0.8);
+              cellColor = Color.lerp(
+                  theme.colorScheme.outlineVariant, tokens.brandAccent, .78)!;
             } else {
-              cellColor = theme.colorScheme.primary;
+              cellColor = tokens.brandAccent;
             }
 
             return Padding(
@@ -137,6 +214,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildOverviewCard(ThemeData theme) {
     final colors = theme.colorScheme;
+    final tokens = theme.extension<ShirohaThemeTokens>()!;
 
     return _SurfaceCard(
       child: Padding(
@@ -148,11 +226,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
               children: [
                 CircleAvatar(
                   radius: 27,
-                  backgroundColor: colors.primaryContainer,
+                  backgroundColor: tokens.brandFill,
                   child: Icon(
                     Icons.face_retouching_natural,
                     size: 31,
-                    color: colors.primary,
+                    color: tokens.brandAccent,
                   ),
                 ),
                 const SizedBox(width: 14),
@@ -181,15 +259,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               vertical: 3,
                             ),
                             decoration: BoxDecoration(
-                              color: colors.primaryContainer,
+                              color: tokens.subtleFill,
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
                               '学员',
                               style: TextStyle(
-                                color: colors.primary,
+                                color: tokens.textSecondary,
                                 fontSize: 11,
-                                fontWeight: FontWeight.w700,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                           ),
@@ -228,6 +306,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final tokens = theme.extension<ShirohaThemeTokens>()!;
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
@@ -279,7 +358,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       icon: Icons.auto_awesome_outlined,
                       title: 'AI 服务',
                       subtitle: '探索 AI 模型与文档 AI 能力管理',
-                      accentColor: theme.colorScheme.secondary,
+                      accentColor: tokens.featureAi,
+                      iconBackground: tokens.featureAiFill,
                       onTap: () => _push(
                         AiSettingsScreen(
                           configService: widget.aiConfigService,
@@ -292,6 +372,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       icon: Icons.auto_stories_outlined,
                       title: '资料库',
                       subtitle: '管理个人笔记与学习资料（与助手共享）',
+                      accentColor: tokens.featureLibrary,
+                      iconBackground: tokens.featureLibraryFill,
                       onTap: widget.onOpenFileLibrary ??
                           () => ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(content: Text('资料库暂不可用')),
@@ -305,7 +387,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ValueListenableBuilder<String>(
                   valueListenable: globalThemeNotifier,
                   builder: (context, currentTheme, _) {
-                    final isDarkTheme = currentTheme == 'dark';
                     return _SettingsCard(
                       children: [
                         if (widget.backupRestore != null)
@@ -326,18 +407,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           key: const ValueKey<String>('profile-appearance-row'),
                           icon: Icons.palette_outlined,
                           title: '外观设置',
-                          subtitle: isDarkTheme ? '深色模式' : '浅色模式',
-                          trailing: Switch(
-                            key: const ValueKey<String>(
-                              'profile-appearance-switch',
-                            ),
-                            value: isDarkTheme,
-                            activeTrackColor: theme.colorScheme.primary,
-                            onChanged: (value) =>
-                                _setTheme(value ? 'dark' : 'light'),
-                          ),
-                          onTap: () =>
-                              _setTheme(isDarkTheme ? 'light' : 'dark'),
+                          subtitle: _themeLabel(currentTheme),
+                          onTap: _showAppearance,
                         ),
                       ],
                     );
@@ -497,22 +568,23 @@ class _SettingsRow extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.onTap,
-    this.trailing,
     this.accentColor,
+    this.iconBackground,
   });
 
   final IconData icon;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
-  final Widget? trailing;
   final Color? accentColor;
+  final Color? iconBackground;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-    final accent = accentColor ?? colors.primary;
+    final tokens = theme.extension<ShirohaThemeTokens>()!;
+    final accent = accentColor ?? tokens.featureNeutral;
     return ListTile(
       minVerticalPadding: 10,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
@@ -520,9 +592,7 @@ class _SettingsRow extends StatelessWidget {
         width: 38,
         height: 38,
         decoration: BoxDecoration(
-          color: accent.withValues(
-            alpha: theme.brightness == Brightness.dark ? 0.18 : 0.1,
-          ),
+          color: iconBackground ?? tokens.featureNeutralFill,
           borderRadius: BorderRadius.circular(
             DesignTokens.compactIconContainerRadius,
           ),
@@ -552,7 +622,7 @@ class _SettingsRow extends StatelessWidget {
           ),
         ),
       ),
-      trailing: trailing ??
+      trailing:
           Icon(Icons.chevron_right_rounded, color: colors.onSurfaceVariant),
       onTap: onTap,
     );

@@ -9,6 +9,7 @@ import '../../domain/conversations/conversation.dart';
 import '../../domain/conversations/conversation_message.dart';
 import '../dependencies/practice_command_dependencies.dart';
 import '../theme/app_theme.dart';
+import '../theme/shiroha_theme_tokens.dart';
 import 'assistant_content_renderer.dart';
 import 'conversation_controller.dart';
 import 'global_sidebar.dart';
@@ -504,13 +505,16 @@ class _AssistantScreenState extends State<AssistantScreen> {
   Widget _buildScaffold(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
+    final tokens = theme.extension<ShirohaThemeTokens>();
     final conversations = widget.conversationController;
     final globalDrawer = AssistantGlobalDrawerScope.maybeOf(context);
     return Scaffold(
       key: const ValueKey<String>('u1-ux0-assistant-shell'),
       backgroundColor: theme.scaffoldBackgroundColor,
       drawer: globalDrawer == null ? _buildDrawer() : null,
+      drawerScrimColor: tokens?.assistantDrawerScrim,
       appBar: AppBar(
+        backgroundColor: tokens?.assistantCanvasStart,
         automaticallyImplyLeading: false,
         toolbarHeight: 76,
         leading: widget.showGlobalMenu
@@ -584,31 +588,46 @@ class _AssistantScreenState extends State<AssistantScreen> {
           const SizedBox(width: 4),
         ],
       ),
-      body: SafeArea(
-        top: false,
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 760),
-            child: Column(
-              children: [
-                Expanded(child: _buildConversationContent(theme)),
-                _Composer(
-                  controller: _composerController,
-                  selectedFiles: conversations.selectedFiles,
-                  isSending: conversations.isSending ||
-                      conversations.isMovingConversation,
-                  hasActiveTurn: conversations.hasActiveTurn,
-                  retrievalApproved: conversations.retrievalApprovedForNextTurn,
-                  onRetrievalApprovalChanged:
-                      conversations.setRetrievalApproval,
-                  onAddContext: _showContextPicker,
-                  onRemoveContext: (file) {
-                    conversations.toggleFile(file.fileId);
-                  },
-                  onSend: _sendMessage,
-                  onCancel: conversations.cancelActiveTurn,
+      body: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: tokens == null
+              ? null
+              : LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    tokens.assistantCanvasStart,
+                    tokens.assistantCanvasEnd,
+                  ],
                 ),
-              ],
+        ),
+        child: SafeArea(
+          top: false,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 760),
+              child: Column(
+                children: [
+                  Expanded(child: _buildConversationContent(theme)),
+                  _Composer(
+                    controller: _composerController,
+                    selectedFiles: conversations.selectedFiles,
+                    isSending: conversations.isSending ||
+                        conversations.isMovingConversation,
+                    hasActiveTurn: conversations.hasActiveTurn,
+                    retrievalApproved:
+                        conversations.retrievalApprovedForNextTurn,
+                    onRetrievalApprovalChanged:
+                        conversations.setRetrievalApproval,
+                    onAddContext: _showContextPicker,
+                    onRemoveContext: (file) {
+                      conversations.toggleFile(file.fileId);
+                    },
+                    onSend: _sendMessage,
+                    onCancel: conversations.cancelActiveTurn,
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -1551,6 +1570,7 @@ class _Composer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final tokens = Theme.of(context).extension<ShirohaThemeTokens>();
     return SafeArea(
       top: false,
       child: Container(
@@ -1562,7 +1582,7 @@ class _Composer extends StatelessWidget {
           border: Border.all(color: colors.outlineVariant),
           boxShadow: [
             BoxShadow(
-              color: colors.shadow.withValues(alpha: 0.10),
+              color: colors.shadow.withValues(alpha: 0.06),
               blurRadius: 18,
               offset: const Offset(0, 6),
             ),
@@ -1635,6 +1655,12 @@ class _Composer extends StatelessWidget {
                   ),
                 ),
                 IconButton.filled(
+                  style: IconButton.styleFrom(
+                    backgroundColor: tokens?.assistantActionBackground,
+                    foregroundColor: tokens?.assistantOnAction,
+                    disabledBackgroundColor: tokens?.disabledFill,
+                    disabledForegroundColor: tokens?.disabledForeground,
+                  ),
                   key: ValueKey<String>(
                     hasActiveTurn ? 'a0-agent-cancel' : 'u1-ux0-send',
                   ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../application/u1_workspace/u1_workspace_dtos.dart';
 import '../../domain/conversations/conversation.dart';
+import '../theme/shiroha_theme_tokens.dart';
 import 'conversation_controller.dart';
 import 'workspace_controller.dart';
 
@@ -105,6 +106,7 @@ class GlobalSidebar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final tokens = Theme.of(context).extension<ShirohaThemeTokens>();
     return AnimatedBuilder(
       animation: Listenable.merge(<Listenable>[
         controller,
@@ -123,8 +125,10 @@ class GlobalSidebar extends StatelessWidget {
                   children: [
                     CircleAvatar(
                       radius: 17,
-                      backgroundColor: colors.primary,
-                      foregroundColor: colors.onPrimary,
+                      backgroundColor:
+                          tokens?.assistantActionBackground ?? colors.primary,
+                      foregroundColor:
+                          tokens?.assistantOnAction ?? colors.onPrimary,
                       child: const Icon(Icons.auto_awesome_rounded, size: 18),
                     ),
                     const SizedBox(width: 10),
@@ -160,6 +164,8 @@ class GlobalSidebar extends StatelessWidget {
                   label: const Text('新对话'),
                   style: FilledButton.styleFrom(
                     minimumSize: const Size.fromHeight(46),
+                    backgroundColor: tokens?.assistantActionBackground,
+                    foregroundColor: tokens?.assistantOnAction,
                   ),
                 ),
               ),
@@ -218,6 +224,7 @@ class GlobalSidebar extends StatelessWidget {
                     title: Text(space.displayName),
                     subtitle: Text(
                       '${space.bankCount} 个题库 · ${space.fileCount} 个文件',
+                      style: TextStyle(color: colors.onSurfaceVariant),
                     ),
                     trailing: PopupMenuButton<String>(
                       key: ValueKey<String>('u1-space-menu-${space.projectId}'),
@@ -404,7 +411,10 @@ class _ConversationTile extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      subtitle: Text(_formatConversationTime(conversation.updatedAt)),
+      subtitle: Text(
+        _formatConversationTime(conversation.updatedAt),
+        style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+      ),
       onTap: onTap,
       trailing: PopupMenuButton<String>(
         key: ValueKey<String>(
