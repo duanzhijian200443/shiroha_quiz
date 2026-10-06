@@ -2,6 +2,7 @@
 
 **契约标识：SHIROHA-HOME-TRAINING-IPF-V3**
 **冻结日期：2026-10-03**
+**首页 UI 范围修订日期：2026-10-06（用户确认的产品范围变更，见 §1.6）**
 **状态：产品与实施规划已冻结；分阶段实施中。当前调度依据本契约前置、roadmap 与 Git/merged PR 事实；精确执行事实看 Git/PR/CI/Reviewer evidence。**
 **替代关系：完整替代本专项 V2、V1，以及此前针对本专项的候选分析与修订建议。**
 
@@ -74,7 +75,7 @@ Git/PR/CI/Reviewer。
 - 按分类构建统一到期复习池；
 - 今日首页 v2 的 Category 横滑、当前 TrainingContent、翻页角和 Category Visual；
 - 新题/复习独立入口；
-- 真实学习时长、本周学习天数和轻量学习日历；
+- 真实学习时长记录与周聚合能力；首页学习日历、本周七日柱状图及学习时长摘要按 §1.6 退休；
 - 解析任务页面视觉重构；
 - TaskCenter Application facade；
 - ImportTask 当前 attempt 事件时间；
@@ -133,6 +134,43 @@ V2 其他产品与架构冻结继续有效。V3 新增或修订：
 
 ---
 
+## 1.6 今日首页 UI 范围修订（2026-10-06）
+
+性质：用户确认的产品范围变更。本节与 §6.8、§7、§12.8 共同构成后续实施与验收依据；写入契约不代表 UI 删除已经实现或实际视觉验收已经完成。
+
+### 首页信息结构
+
+新的今日首页以用户已确认的灰阶设计图为视觉依据。删除学习日历、本周七日柱状图、学习时长摘要，以及“模考与试卷”卡片和对应首页导航入口。
+
+保留欢迎 Banner、三项学习摘要、Category 横向轮播、TrainingContent 翻页角、新题与复习两个独立入口。训练配置、分类切换、新题及复习的既有冻结业务语义不变。
+
+本次只确认学习日历和模考的首页退休，不删除 StudyPlan，也不修改其他业务功能；§1.4 与 §7.5 的单一活动 StudyPlan、空状态及既有操作继续有效。
+
+### StudyActivity 边界
+
+删除首页展示，不删除学习时长记录能力。保留 StudyActivitySession、StudyActivitySegment、周聚合与原始历史记录；不修改 Practice、FSRS、计时生命周期及数据库 Schema。学习日历、七日柱状图或七日热力图不再是首页验收要求。
+
+### MockExam 暂时退休
+
+MockExam 不再作为 Shiroha V1 的用户可见功能入口，不再要求从今日首页进入 MockCenterScreen，也不将入口迁移到其他用户可见位置。
+
+保留既有 MockExam 实现、ExamRepository、试卷历史、评阅数据和持久化结构；不删除隐藏考试题库，不执行数据迁移或清理。倒计时、提交、StudyActivity wiring 及内部考试语义保留。后续是否彻底移除考试子系统单独评估。
+
+### 历史与覆盖关系
+
+历史 UI-R1 / UI-CL 及本专项已交付记录保持不变。本修订只覆盖其后续首页日历展示、学习时长摘要和 MockExam 产品可达性要求，包括 `ARCHITECTURE.md` §12、`docs/product/ui-finalization-ia-freeze.md` 与 `docs/product/today-home-refresh-freeze.md` 中对应的首页展示/考试入口条款；不改写历史交付事实，不改变这些文档的其他架构与业务约束。
+
+### 实施与验收边界
+
+- HomePage 不再构建学习日历、本周七日柱状图、学习时长摘要及模考入口。
+- 不因删除 UI 而移除 StudyActivity、ExamRepository 或修改数据模型。
+- 更新对应 Widget / Navigation 测试，不再断言上述模块必须出现在首页，并验证首页不再构建这些模块或导航到 MockCenterScreen。
+- 保证 Category 横滑、翻页角、新题、复习、训练配置和导入解析正常，保持 StudyPlan 既有功能。
+- 验证 Light/Dark、窄屏、放大字体及页面滚动。
+- 实际视觉效果必须单独验收；Widget 测试通过不等同于视觉验收。
+
+---
+
 # 2. 来源覆盖与冲突裁决
 
 ## 2.1 Drive 设计来源
@@ -148,6 +186,8 @@ V2 其他产品与架构冻结继续有效。V3 新增或修订：
 
 设计图中的名称、数字、日期、比例、计划卡和示例进度均为设计样例。生产 runtime 必须使用真实数据，不得将图中样例写死。
 
+上述设计来源中关于周视图、学习时长摘要及模考入口的展示要求由 §1.6 的 2026-10-06 修订覆盖；新的今日首页以用户已确认的灰阶设计图为视觉依据。
+
 ## 2.2 冲突裁决
 
 | 冲突 | V3 冻结 |
@@ -158,7 +198,7 @@ V2 其他产品与架构冻结继续有效。V3 新增或修订：
 | 编辑器出现 Visual | Visual 是 Category preference，不属于单个 content |
 | “做过”与 NEW 混淆 | NEW 退出继续由 ReviewState/FSRS 评分决定 |
 | 五类学习场景 | 本轮真正接入四类，第五类不新增入口 |
-| 旧首页暂缓学习时长 | 本轮在独立 durable authority 落地后激活 |
+| 旧首页暂缓学习时长 | 保留已落地的 durable 记录与周聚合；2026-10-06 起首页展示按 §1.6 退休 |
 | TaskCenter 文档说不改业务 | 保留既有业务 authority，只增加事件时间与 facade |
 | retry 可能需要文件 path | 文件选择只允许 ephemeral handoff，不进入 read/persisted DTO |
 
@@ -644,7 +684,9 @@ widget dispose、lifecycle callback、route pop、submit callback、checkpoint t
 
 计时写失败不得阻止 answer/grading/ReviewState/submit/Practice 正常退出，但不能以“0 分钟”冒充完整统计。projection 必须能表达 unavailable/partial/recorded-only。禁止对不确定写入自动 replay 造成重复 duration，也禁止根据 wall-clock 或题数猜补。
 
-## 6.8 首页周聚合
+## 6.8 保留的周聚合能力（首页展示退休）
+
+周聚合与原始历史记录继续保留，首页不再展示学习日历、七日柱状图或学习时长摘要。下述数据口径继续有效，不产生恢复首页展示或新增统计页面的要求。
 
 周定义 Monday→Sunday，使用用户系统当前本地周。
 
@@ -652,7 +694,7 @@ widget dispose、lifecycle callback、route pop、submit callback、checkpoint t
 
 未来日期不显示完成；空成功查询显示真实 0，查询失败显示 unavailable。禁止从 ReviewLog、Question count、Attempt count、Pomodoro 推算时长。不回填历史时长，不把本周学习天数称为连续学习天数。
 
-内部保留毫秒；UI 向下取整整数分钟；0<duration<60s 显示“小于 1 分钟”。
+内部保留毫秒；保留的时长展示口径为向下取整整数分钟，0<duration<60s 显示“小于 1 分钟”；该口径不要求首页继续展示时长。
 
 ---
 
@@ -660,7 +702,9 @@ widget dispose、lifecycle callback、route pop、submit callback、checkpoint t
 
 ## 7.1 信息结构
 
-品牌/今日 → 欢迎 Banner → 三项学习摘要 → 今日训练(Category + 当前 TrainingContent) → 单一活动 StudyPlan → 学习日历与本周时长 → 模考与试卷 → 创建/导入/TaskCenter 等次级入口。
+品牌/今日 → 欢迎 Banner → 三项学习摘要 → 今日训练(Category + 当前 TrainingContent，含翻页角及新题/复习独立入口) → 单一活动 StudyPlan → 创建/导入/TaskCenter 等次级入口。
+
+学习日历、本周七日柱状图、学习时长摘要及“模考与试卷”卡片/首页导航入口按 §1.6 退休。StudyPlan 继续保留，不因本次首页范围修订移除。
 
 一级导航保持：今日｜助手｜我的。不增加 mode selector、第四 tab 或嵌入式考试 polling。
 
@@ -684,7 +728,7 @@ widget dispose、lifecycle callback、route pop、submit callback、checkpoint t
 
 分类卡使用灰阶学习插画和左侧文字衬底；数学使用透明纸绘插画，主体集中在右下区域，不使用摄影背景；卡高至少 180 logical pixels，文字过长或放大时继续增高。数学与英语使用独立插画，计算机与通用学习使用本地学习素材回退。已保存的 Category Visual preference 优先于分类名的默认关键词匹配。装饰图不包含训练标题或统计数据，深色模式保留文字对比度。新题与复习作为分类容器下方的两张独立卡片，正常字号下使用横向图标/数量/标题布局，放大字体时允许纵向展开。
 
-学习日历使用七根细柱展示本周每日真实 segment duration 的相对比例，当前可展示日期中最长的一天为满高，正时长有最小可见高度；未来日期不显示已学习柱。周摘要、零值、失败与 partial 提示保持真实查询语义，放大字体时周视图移到摘要下方。
+首页不再构建学习日历、七日柱状图或学习时长摘要；不以热力图或其他周视图替代。StudyActivity 记录和周聚合按 §6 保留。
 
 ## 7.4 新题与复习入口
 
@@ -699,7 +743,7 @@ loading、real zero、unavailable、unconfigured 必须区分。真实 0 弱化�
 
 继续复用 singleton StudyPlan，保留真实 title/查看计划/开始特训/停止计划，并区分 no plan、unavailable、no candidate、query failure。不得展示多卡 carousel、假名称、假百分比或 N/M 进度。
 
-保留题库详情、补充答案、全局错题本、文件/拍照导入、TaskCenter、MockExam 创建/历史/评阅、Assistant/Profile。
+保留题库详情、补充答案、全局错题本、文件/拍照导入、TaskCenter、Assistant/Profile。MockExam 创建/历史/评阅实现与数据保留，但按 §1.6 暂时退休用户可见入口，不再要求从今日首页进入 MockCenterScreen。
 
 融合 TrainingContent 的题库详情入口应列出真实 member banks，不跳转虚构融合题库。
 
@@ -707,11 +751,11 @@ loading、real zero、unavailable、unconfigured 必须区分。真实 0 弱化�
 
 ## 7.6 页面改造策略
 
-保留现有 HomePage 作为最终装配位置，优先复用 Banner/PlanCard/design token。新增 Category training card、page corner、weekly activity view 等纯展示组件。
+保留现有 HomePage 作为最终装配位置，优先复用 Banner/PlanCard/design token，以及 Category training card、page corner 等纯展示组件。HomePage 不再构建学习日历及模考入口，不因 UI 退休删除 StudyActivity、ExamRepository 或修改数据模型。
 
 TodayController 负责 loading/generation/UI context state，不计算 quota、eligibility、FSRS 或业务 selection。Application query 提供完整 snapshot。
 
-不复制 Mobile/Desktop 两套业务页面。Practice 保留当前视觉只接 scope/StudyActivity 生命周期；MockExam 保留倒计时和提交，只接 StudyActivity。
+不复制 Mobile/Desktop 两套业务页面。Practice、FSRS 与计时生命周期保持；既有 MockExam 倒计时、提交和 StudyActivity wiring 保留，本次不改造考试子系统。
 
 ---
 
@@ -953,7 +997,7 @@ P0 禁止宣称 v29/v30/v31 已存在、Home v2 已 production、Activity timing
 | TrainingContent production | Today/Home current contract |
 | Home v2 production | Today/IA current contract |
 | Practice Activity production | Practice lifecycle amendment |
-| Weekly duration production | Today deferred clause |
+| Weekly duration production | 历史激活同步 Today deferred clause；后续首页展示按 §1.6 退休，保留记录与周聚合 |
 | TaskCenter facade production | current TaskCenter implementation truth |
 | final closure | Roadmap + V3 canonical contract + 实际发生 durable truth 变化的其他 focused contracts |
 
@@ -1022,7 +1066,11 @@ CP4：整体 scope、navigation、current docs、accessibility、visual acceptan
 
 ## 12.8 UI / Reachability
 
-360×720、1024×768、放大字体、Light/Dark、Category peek、pagination、page corner/accessibility/Reduce Motion、无第二层 carousel/chips/dropdown/假多计划、loading/zero/unavailable/unconfigured、invalidated repair、0% 说明、content 切换不改变同 Category review 或 StudyPlan、既有次级入口可达、return refresh/latest-wins/repeated-start guard、无第五 scene 页面。实机视觉验收必须单独记录，静态 widget test 不等价于实机视觉闭合。
+360×720、1024×768、放大字体、Light/Dark、页面滚动、Category peek/横滑、pagination、page corner/accessibility/Reduce Motion、新题/复习独立启动、训练配置与导入解析可用、无第二层 carousel/chips/dropdown/假多计划、loading/zero/unavailable/unconfigured、invalidated repair、0% 说明、content 切换不改变同 Category review 或 StudyPlan、除 §1.6 退休的 MockExam 外既有次级入口可达、return refresh/latest-wins/repeated-start guard、无第五 scene 页面。
+
+Widget / Navigation 测试不再要求学习日历、七日柱状图/热力图、学习时长摘要及模考入口出现在首页，须验证 HomePage 不构建退休模块、没有首页 MockCenterScreen 导航入口，同时保留欢迎 Banner、三项学习摘要、Category 轮播、翻页角、新题/复习、StudyPlan 与其他既有功能。学习时长记录、周聚合及考试实现/历史/持久化结构的保留边界不因 UI 删除而变化。
+
+实际视觉效果必须单独验收并记录；Widget 测试通过不等同于实机视觉验收闭合。
 
 ---
 
