@@ -767,6 +767,8 @@ loading、real zero、unavailable、unconfigured 必须区分。真实 0 弱化�
 
 后续训练配置页承接融合 TrainingContent 的题库详情时，应列出真实 member banks，不跳转虚构融合题库。
 
+题库详情 V2 保留动态真实 bankName 和单列「开始练习」「专项练习」「题库管理」分组，复用 Today 灰阶主题与既有纸张装饰资源。全类型/选择/填空/简答分别沿用 bank-scoped filterType null/0/2/3、ordinaryPractice 的 bank context、Practice commands 和原 route 配置；不转成 Category review、TrainingContent 或 StudyPlan 会话。浏览题库保持原查询/变更/typed answer 依赖；「补充答案」只在既有 AnswerCompletionDependenciesScope 存在时显示。删除入口收进更多菜单，保留原确认、Application mutation guard、保留历史与引用阻断、失败提示和成功返回。仅退休本页番茄钟开关、UI 状态与启用标志传递，启动沿用 PracticePage 的 false 默认值；不删除其公开构造参数、其它调用方、全局计时兼容或 StudyActivity 语义。
+
 刷新触发包括 import/Practice/config/题库删除或分类移动/StudyPlan detail/Today reactivation/app resumed。每次 query 带 context generation，late result 不覆盖新 selection，dispose 后不 publish。Home refresh 禁止触发 Practice、模型、OCR、catalog self-heal 或 durable write。
 
 ## 7.6 页面改造策略
