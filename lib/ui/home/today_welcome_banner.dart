@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 
 /// Decorative reference landscape with live text; no simulated measurements.
 class TodayWelcomeBanner extends StatelessWidget {
-  const TodayWelcomeBanner({super.key});
+  const TodayWelcomeBanner({super.key, this.now});
+  final DateTime? now;
   @override
   Widget build(BuildContext context) {
-    final hour = DateTime.now().hour;
+    final hour = (now ?? DateTime.now()).hour;
     final greeting = hour < 6
         ? '夜深了'
         : hour < 12

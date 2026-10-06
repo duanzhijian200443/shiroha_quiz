@@ -5,6 +5,9 @@ import '../../application/training/training_contracts.dart';
 import '../../application/home_training_result.dart';
 import '../../domain/training/category_key.dart';
 import '../training/training_visuals.dart';
+import 'today_category_visual.dart';
+import 'today_visual_theme.dart';
+import '../theme/design_tokens.dart';
 
 /// Category pages consume captured view facts; scrolling itself never writes.
 class TodayCategoryTrainingCard extends StatefulWidget {
@@ -14,14 +17,12 @@ class TodayCategoryTrainingCard extends StatefulWidget {
       required this.category,
       required this.busy,
       required this.onCategory,
-      required this.onCycle,
-      required this.onConfig});
+      required this.onCycle});
   final TodayTrainingSnapshot snapshot;
   final TrainingCategorySnapshot? category;
   final bool busy;
   final ValueChanged<CategoryKey> onCategory;
   final VoidCallback onCycle;
-  final VoidCallback onConfig;
   @override
   State<TodayCategoryTrainingCard> createState() => _CategoryCardState();
 }
@@ -78,7 +79,7 @@ class _CategoryCardState extends State<TodayCategoryTrainingCard> {
     return LayoutBuilder(builder: (context, constraints) {
       final width = constraints.maxWidth * (keys.length == 1 ? 1 : .83) -
           (keys.length > 1 ? 10 : 0) -
-          96;
+          72;
       double heightOf(String text, TextStyle? style) {
         final painter = TextPainter(
             text: TextSpan(text: text, style: style),
@@ -93,7 +94,7 @@ class _CategoryCardState extends State<TodayCategoryTrainingCard> {
       final titleStyle = Theme.of(context)
           .textTheme
           .headlineSmall
-          ?.copyWith(fontWeight: FontWeight.w700);
+          ?.copyWith(fontSize: 26, height: 1.2, fontWeight: FontWeight.w700);
       final contentTitle = current?.name ??
           (selection.state == TrainingCurrentContentState.unavailable
               ? '训练配置需修复'
@@ -102,12 +103,11 @@ class _CategoryCardState extends State<TodayCategoryTrainingCard> {
           .map((k) => heightOf(trainingCategoryLabel(k), titleStyle))
           .reduce(math.max);
       final cardHeight = math.max(
-          174.0,
-          42 +
+          180.0,
+          56 +
               titleHeight +
               10 +
-              heightOf(contentTitle, Theme.of(context).textTheme.titleMedium) +
-              (current == null ? 80 : 0));
+              heightOf(contentTitle, Theme.of(context).textTheme.titleMedium));
       return Column(children: [
         SizedBox(
             height: cardHeight,
@@ -152,34 +152,26 @@ class _CategoryCardState extends State<TodayCategoryTrainingCard> {
                                 color: colors.surfaceContainerHighest,
                                 borderRadius: BorderRadius.circular(18)),
                             child: Stack(children: [
-                              Positioned(
-                                  right: 18,
-                                  bottom: 16,
-                                  child: Opacity(
-                                      opacity: .7,
-                                      child: Transform.scale(
-                                          scale: 1.5,
-                                          child: CategoryVisualBadge(
-                                              visualKey: isCurrent
-                                                  ? widget.category?.preference
-                                                      .visualKey
-                                                  : null,
-                                              label: trainingCategoryLabel(
-                                                  key))))),
+                              Positioned.fill(
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(18),
+                                  child: TodayCategoryVisual(
+                                    visualKey: isCurrent
+                                        ? widget.category?.preference.visualKey
+                                        : null,
+                                    label: trainingCategoryLabel(key),
+                                  ),
+                                ),
+                              ),
                               Padding(
                                   padding:
-                                      const EdgeInsets.fromLTRB(18, 26, 78, 16),
+                                      const EdgeInsets.fromLTRB(18, 26, 54, 24),
                                   child: Column(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
                                         Text(trainingCategoryLabel(key),
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .headlineSmall
-                                                ?.copyWith(
-                                                    fontWeight:
-                                                        FontWeight.w700)),
+                                            style: titleStyle),
                                         if (isCurrent) ...[
                                           const SizedBox(height: 10),
                                           AnimatedSwitcher(
@@ -201,12 +193,6 @@ class _CategoryCardState extends State<TodayCategoryTrainingCard> {
                                                   style: Theme.of(context)
                                                       .textTheme
                                                       .titleMedium)),
-                                          if (current == null)
-                                            TextButton(
-                                                onPressed: widget.busy
-                                                    ? null
-                                                    : widget.onConfig,
-                                                child: const Text('配置训练内容')),
                                         ],
                                       ])),
                               if (isCurrent && usable > 1)
@@ -224,24 +210,26 @@ class _CategoryCardState extends State<TodayCategoryTrainingCard> {
             )),
         if (keys.length > 1)
           Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child:
-                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                for (var i = 0; i < keys.length; i++)
-                  Semantics(
-                      label: '分类第${i + 1}页',
-                      selected: i == _index,
-                      child: Container(
-                          key: ValueKey('home-category-dot-$i'),
-                          margin: const EdgeInsets.symmetric(horizontal: 4),
-                          width: i == _index ? 10 : 7,
-                          height: i == _index ? 10 : 7,
-                          decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: i == _index
-                                  ? colors.onSurface
-                                  : colors.outlineVariant))),
-              ])),
+              padding: const EdgeInsets.only(top: 10),
+              child: Row(
+                  key: const ValueKey('home-category-pagination'),
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    for (var i = 0; i < keys.length; i++)
+                      Semantics(
+                          label: '分类第${i + 1}页',
+                          selected: i == _index,
+                          child: Container(
+                              key: ValueKey('home-category-dot-$i'),
+                              margin: const EdgeInsets.symmetric(horizontal: 4),
+                              width: i == _index ? 10 : 7,
+                              height: i == _index ? 10 : 7,
+                              decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: i == _index
+                                      ? colors.onSurface
+                                      : colors.outlineVariant))),
+                  ])),
       ]);
     });
   }
@@ -273,11 +261,23 @@ class _CornerPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final path = Path()
       ..moveTo(0, 0)
-      ..lineTo(size.width, size.height)
-      ..quadraticBezierTo(12, size.height - 6, 0, 0)
+      ..cubicTo(20, 0, 9, 33, 30, 29)
+      ..quadraticBezierTo(43, 25, 48, 48)
+      ..lineTo(48, 0)
       ..close();
-    canvas.drawShadow(path, colors.shadow.withValues(alpha: .15), 2, false);
-    canvas.drawPath(path, Paint()..color = colors.surface);
+    canvas.drawShadow(path, colors.shadow.withValues(alpha: .22), 4, false);
+    canvas.drawPath(
+        path,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topRight,
+            end: Alignment.bottomLeft,
+            colors: [
+              colors.surface,
+              colors.surfaceContainerHighest,
+              colors.surface
+            ],
+          ).createShader(Offset.zero & size));
   }
 
   @override
@@ -305,40 +305,61 @@ class TodayTrainingActionCard extends StatelessWidget {
     };
     final colors = Theme.of(context).colorScheme;
     return Semantics(
-        button: true,
-        enabled: enabled,
-        label: '$title $value题${enabled ? '' : '，不可开始'}',
+      button: true,
+      enabled: enabled,
+      label: '$title $value题${enabled ? '' : '，不可开始'}',
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: DesignTokens.surfaceShadow(Theme.of(context).brightness),
+        ),
         child: Material(
-            color: colors.surface,
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: colors.outlineVariant)),
-            child: InkWell(
-                onTap: enabled ? onPressed : null,
-                borderRadius: BorderRadius.circular(12),
-                child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(children: [
-                            Icon(icon,
-                                size: 28,
-                                color: enabled
-                                    ? colors.onSurface
-                                    : colors.outline),
-                            const Spacer(),
-                            const Icon(Icons.chevron_right_rounded, size: 18)
+          color: colors.surface,
+          borderRadius: BorderRadius.circular(14),
+          child: InkWell(
+            onTap: enabled ? onPressed : null,
+            borderRadius: BorderRadius.circular(14),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+              child: LayoutBuilder(builder: (context, constraints) {
+                final stacked = MediaQuery.textScalerOf(context).scale(14) > 20;
+                final tile = TodayIconTile(icon, size: 40, iconSize: 30);
+                final text = Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text.rich(
+                          TextSpan(children: [
+                            TextSpan(
+                                text: value,
+                                style: const TextStyle(
+                                    fontSize: 24, fontWeight: FontWeight.w600)),
+                            const TextSpan(
+                                text: ' 题', style: TextStyle(fontSize: 12)),
                           ]),
-                          const SizedBox(height: 10),
-                          Text('$value 题',
-                              style: TextStyle(
-                                  fontSize: 22,
-                                  color: enabled
-                                      ? colors.onSurface
-                                      : colors.onSurfaceVariant)),
-                          Text(title,
-                              style: Theme.of(context).textTheme.bodySmall),
-                        ])))));
+                          style: TextStyle(
+                              color: enabled
+                                  ? colors.onSurface
+                                  : colors.onSurfaceVariant)),
+                      Text(title,
+                          style: TextStyle(
+                              fontSize: 12, color: colors.onSurfaceVariant)),
+                    ]);
+                return stacked
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [tile, const SizedBox(height: 8), text])
+                    : Row(children: [
+                        tile,
+                        const SizedBox(width: 10),
+                        Expanded(child: text),
+                        Icon(Icons.chevron_right_rounded,
+                            size: 18, color: colors.onSurfaceVariant)
+                      ]);
+              }),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }

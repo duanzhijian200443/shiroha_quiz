@@ -19,6 +19,7 @@ import 'package:shiroha_quiz/services/task_manager.dart';
 import 'package:shiroha_quiz/ui/dependencies/study_activity_dependencies_scope.dart';
 import 'package:shiroha_quiz/ui/home/today_category_training_card.dart';
 import 'package:shiroha_quiz/ui/home/weekly_activity_card.dart';
+import 'package:shiroha_quiz/ui/home/today_category_visual.dart';
 import 'package:shiroha_quiz/ui/pages/home_page.dart';
 import 'package:shiroha_quiz/ui/pages/practice_page.dart';
 import 'package:shiroha_quiz/ui/training/training_configuration_page.dart';
@@ -89,17 +90,94 @@ void main() {
 
   Future<void> screenshot(WidgetTester tester, String name) async {
     if (!capture) return;
-    await tester.runAsync(() async {
-      final image = await (boundaryKey.currentContext!.findRenderObject()
-              as RenderRepaintBoundary)
-          .toImage(pixelRatio: 1);
-      final bytes = (await image.toByteData(format: ui.ImageByteFormat.png))!;
-      await Directory('.dart_tool/b4-visual').create(recursive: true);
-      await File('.dart_tool/b4-visual/$name.png')
-          .writeAsBytes(bytes.buffer.asUint8List());
-      image.dispose();
-    });
+    final previousShadows = debugDisableShadows;
+    debugDisableShadows = false;
+    try {
+      await tester.runAsync(() async {
+        for (final asset in const [
+          'assets/images/today/welcome-landscape.png',
+          'assets/images/today/paper-pencil.png',
+          'assets/images/today/category-math.png',
+          'assets/images/today/category-english.png',
+        ]) {
+          await precacheImage(AssetImage(asset), boundaryKey.currentContext!);
+        }
+      });
+      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        final image = await (boundaryKey.currentContext!.findRenderObject()
+                as RenderRepaintBoundary)
+            .toImage(pixelRatio: 1);
+        final bytes = (await image.toByteData(format: ui.ImageByteFormat.png))!;
+        await Directory('.dart_tool/b4-visual').create(recursive: true);
+        await File('.dart_tool/b4-visual/$name.png')
+            .writeAsBytes(bytes.buffer.asUint8List());
+        image.dispose();
+      });
+    } finally {
+      debugDisableShadows = previousShadows;
+    }
   }
+
+  testWidgets(
+      'reference composition keeps action cards outside category surface',
+      (tester) async {
+    await pump(tester, HomeTrainingFake(), size: const Size(390, 844));
+    final surface = find.byKey(const ValueKey('home-training-card'));
+    final action = find.byKey(const ValueKey('home-new-task'));
+    expect(find.descendant(of: surface, matching: action), findsNothing);
+    expect(tester.getTopLeft(action).dy,
+        greaterThan(tester.getBottomLeft(surface).dy));
+    expect(find.byType(TodayCategoryVisual), findsNWidgets(2));
+    final pages = tester
+        .widget<PageView>(find.byKey(const ValueKey('home-category-pages')));
+    expect(pages.controller!.viewportFraction, .83);
+    final pageFinder = find.byKey(const ValueKey('home-category-pages'));
+    expect(tester.getSize(pageFinder).height, greaterThanOrEqualTo(180));
+    expect(
+        find.byKey(const ValueKey('home-category-pagination')), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-category-dot-0')), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-category-dot-1')), findsOneWidget);
+    expect(find.descendant(of: pageFinder, matching: find.byType(IconButton)),
+        findsNothing);
+    expect(find.descendant(of: pageFinder, matching: find.byType(TextButton)),
+        findsNothing);
+    final visualRects = tester
+        .widgetList<TodayCategoryVisual>(find.byType(TodayCategoryVisual))
+        .map((widget) => tester.getRect(find.byWidget(widget)))
+        .toList();
+    final viewport = tester.getRect(pageFinder);
+    expect(
+        visualRects.first.width / viewport.width, inInclusiveRange(.80, .85));
+    expect((viewport.right - visualRects[1].left) / viewport.width,
+        inInclusiveRange(.15, .20));
+    expect(
+        tester
+            .getBottomLeft(find.byKey(const ValueKey('home-training-config')))
+            .dy,
+        lessThanOrEqualTo(viewport.top));
+    expect(find.text('早上好'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await screenshot(tester, 'reference-390-top');
+    await tester.ensureVisible(find.byType(WeeklyActivityCard));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('home-week-bar-0')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await screenshot(tester, 'reference-390-week');
+  });
+
+  testWidgets('saved category visual overrides inferred category illustration',
+      (tester) async {
+    await tester.pumpWidget(const MaterialApp(
+        home: SizedBox(
+            width: 320,
+            height: 120,
+            child: TodayCategoryVisual(
+                label: '数学', visualKey: CategoryVisualKey.english))));
+    final image = tester.widget<Image>(find.byType(Image));
+    expect((image.image as AssetImage).assetName,
+        'assets/images/today/category-english.png');
+  });
 
   testWidgets(
       'settled Category swipe writes once, authoritative sync never writes, stale swipe returns',
@@ -277,7 +355,7 @@ void main() {
                 result: HomeTrainingSuccess(week),
                 loading: false,
                 todayLocalDate: '2026-10-04'))));
-    expect(find.byIcon(Icons.check_circle),
+    expect(find.byKey(const ValueKey('home-week-bar-0')),
         findsNothing); // Recorded future date never looks completed.
   });
 

@@ -306,7 +306,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             height: 1.3,
                             color: colors.onSurfaceVariant)),
                     const SizedBox(height: 14),
-                    const TodayWelcomeBanner(),
+                    TodayWelcomeBanner(now: widget.localNow?.call()),
                     const SizedBox(height: 10),
                     Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -449,10 +449,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             const Text('题', style: TextStyle(fontSize: 10, height: 1.3)),
           ]),
         ]);
-        final tile = TodayIconTile(icon, size: 30, iconSize: 22);
+        final tile = TodayIconTile(icon, size: 28, iconSize: 21);
         final stack = MediaQuery.textScalerOf(context).scale(14) > 18 ||
             count.length > 4 ||
-            constraints.maxWidth < 96;
+            constraints.maxWidth < 76;
         return stack
             ? Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -476,88 +476,91 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           HomeTrainingSuccess(:final value) => value.value > 0,
           _ => false,
         };
-    return _surface(
-        key: const ValueKey('home-training-card'),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            const TodayIconTile(Icons.ads_click_rounded),
-            const SizedBox(width: 10),
-            const Expanded(
-                child: Text('今日训练',
-                    style:
-                        TextStyle(fontSize: 17, fontWeight: FontWeight.w700))),
-            IconButton(
-                key: const ValueKey('home-training-config'),
-                tooltip: '管理训练内容',
-                onPressed: busy ? null : _openTrainingConfig,
-                icon: const Icon(Icons.tune_rounded)),
-            if (snapshot?.selection.currentContent != null)
-              IconButton(
-                  key: const ValueKey('home-bank-detail'),
-                  tooltip: '题库详情',
-                  onPressed: busy ? null : _openMemberDetail,
-                  icon: const Icon(Icons.chevron_right_rounded)),
-          ]),
-          if (_controller.trainingLoading)
-            const LinearProgressIndicator(
-                key: ValueKey('home-context-loading')),
-          if (snapshot == null && !_controller.trainingLoading)
+    return Column(children: [
+      _surface(
+          key: const ValueKey('home-training-card'),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
-              const Expanded(child: Text('训练暂不可用')),
-              TextButton(onPressed: _refresh, child: const Text('重试'))
+              const TodayIconTile(Icons.ads_click_rounded),
+              const SizedBox(width: 10),
+              const Expanded(
+                  child: Text('今日训练',
+                      style: TextStyle(
+                          fontSize: 17, fontWeight: FontWeight.w700))),
+              IconButton(
+                  key: const ValueKey('home-training-config'),
+                  tooltip: '管理训练内容',
+                  onPressed: busy ? null : _openTrainingConfig,
+                  icon: const Icon(Icons.tune_rounded)),
+              if (snapshot?.selection.currentContent != null)
+                IconButton(
+                    key: const ValueKey('home-bank-detail'),
+                    tooltip: '题库详情',
+                    onPressed: busy ? null : _openMemberDetail,
+                    icon: const Icon(Icons.chevron_right_rounded)),
             ]),
-          if (snapshot != null && snapshot.selection.categoryKey != null)
-            TodayCategoryTrainingCard(
-                snapshot: snapshot,
-                category: _controller.currentCategory,
-                busy: busy,
-                onCategory: (key) async {
-                  final failure = await _controller.selectCategory(key);
-                  if (mounted && failure != null) {
-                    _showFocusedMessage(failure == HomeTrainingFailure.stale
-                        ? '训练配置已变化'
-                        : '切换暂不可用');
-                  }
-                },
-                onCycle: () async {
-                  final failure = await _controller.cycleContent();
-                  if (mounted && failure != null) {
-                    _showFocusedMessage(failure == HomeTrainingFailure.stale
-                        ? '训练配置已变化'
-                        : '切换暂不可用');
-                  }
-                },
-                onConfig: _openTrainingConfig),
-          if (snapshot != null && snapshot.selection.categoryKey == null)
-            TextButton(
-                onPressed: busy ? null : _openTrainingConfig,
-                child: const Text('配置训练内容')),
-          const SizedBox(height: 10),
-          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Expanded(
-                child: TodayTrainingActionCard(
-                    key: const ValueKey('home-new-task'),
-                    title: '新题挑战',
-                    count: newCount,
-                    icon: Icons.add_rounded,
-                    enabled: !busy &&
-                        snapshot?.selection.state ==
-                            TrainingCurrentContentState.usable &&
-                        positive(newCount),
-                    onPressed: () => _startTraining(false))),
-            const SizedBox(width: 10),
-            Expanded(
-                child: TodayTrainingActionCard(
-                    key: const ValueKey('home-review-task'),
-                    title: '复习巩固',
-                    count: reviewCount,
-                    icon: Icons.sync_rounded,
-                    enabled: !busy &&
-                        snapshot?.selection.categoryKey != null &&
-                        positive(reviewCount),
-                    onPressed: () => _startTraining(true))),
-          ]),
-        ]));
+            const SizedBox(height: 8),
+            if (_controller.trainingLoading)
+              const LinearProgressIndicator(
+                  key: ValueKey('home-context-loading')),
+            if (snapshot == null && !_controller.trainingLoading)
+              Row(children: [
+                const Expanded(child: Text('训练暂不可用')),
+                TextButton(onPressed: _refresh, child: const Text('重试'))
+              ]),
+            if (snapshot != null && snapshot.selection.categoryKey != null)
+              TodayCategoryTrainingCard(
+                  snapshot: snapshot,
+                  category: _controller.currentCategory,
+                  busy: busy,
+                  onCategory: (key) async {
+                    final failure = await _controller.selectCategory(key);
+                    if (mounted && failure != null) {
+                      _showFocusedMessage(failure == HomeTrainingFailure.stale
+                          ? '训练配置已变化'
+                          : '切换暂不可用');
+                    }
+                  },
+                  onCycle: () async {
+                    final failure = await _controller.cycleContent();
+                    if (mounted && failure != null) {
+                      _showFocusedMessage(failure == HomeTrainingFailure.stale
+                          ? '训练配置已变化'
+                          : '切换暂不可用');
+                    }
+                  }),
+            if (snapshot != null && snapshot.selection.currentContent == null)
+              TextButton(
+                  onPressed: busy ? null : _openTrainingConfig,
+                  child: const Text('配置训练内容')),
+          ])),
+      const SizedBox(height: 10),
+      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(
+            child: TodayTrainingActionCard(
+                key: const ValueKey('home-new-task'),
+                title: '新题挑战',
+                count: newCount,
+                icon: Icons.add_rounded,
+                enabled: !busy &&
+                    snapshot?.selection.state ==
+                        TrainingCurrentContentState.usable &&
+                    positive(newCount),
+                onPressed: () => _startTraining(false))),
+        const SizedBox(width: 10),
+        Expanded(
+            child: TodayTrainingActionCard(
+                key: const ValueKey('home-review-task'),
+                title: '复习巩固',
+                count: reviewCount,
+                icon: Icons.sync_rounded,
+                enabled: !busy &&
+                    snapshot?.selection.categoryKey != null &&
+                    positive(reviewCount),
+                onPressed: () => _startTraining(true))),
+      ]),
+    ]);
   }
 
   Future<void> _openTrainingConfig() async {

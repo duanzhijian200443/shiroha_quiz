@@ -678,9 +678,13 @@ widget dispose、lifecycle callback、route pop、submit callback、checkpoint t
 
 外层横滑切 Category；当前分类为主卡；下一 Category 露出约 15%～20%；单 Category 不制造假邻卡；pagination dots 只表示 Category；无第二层横滑/chips/dropdown。
 
-当前卡右上角使用固定 folded page corner。点击按 (sortOrder, contentId) 切下一个 usable content。只有一个 usable content 时隐藏；没有 usable content 时显示配置 CTA；invalidated content 不进入快速 cycle。
+当前卡右上角使用固定 folded page corner。点击按 (sortOrder, contentId) 切下一个 usable content。只有一个 usable content 时隐藏；没有 usable content 时在分类卡外显示配置 CTA；invalidated content 不进入快速 cycle。
 
 动画约 200ms 局部替换，不使用 refresh/loop/sync 图标，遵守 Reduce Motion。可访问性 hit target 不能只限装饰尖角，semantic label 为“切换下一个训练内容”。
+
+分类卡使用灰阶学习插画和左侧文字衬底；数学使用透明纸绘插画，主体集中在右下区域，不使用摄影背景；卡高至少 180 logical pixels，文字过长或放大时继续增高。数学与英语使用独立插画，计算机与通用学习使用本地学习素材回退。已保存的 Category Visual preference 优先于分类名的默认关键词匹配。装饰图不包含训练标题或统计数据，深色模式保留文字对比度。新题与复习作为分类容器下方的两张独立卡片，正常字号下使用横向图标/数量/标题布局，放大字体时允许纵向展开。
+
+学习日历使用七根细柱展示本周每日真实 segment duration 的相对比例，当前可展示日期中最长的一天为满高，正时长有最小可见高度；未来日期不显示已学习柱。周摘要、零值、失败与 partial 提示保持真实查询语义，放大字体时周视图移到摘要下方。
 
 ## 7.4 新题与复习入口
 
