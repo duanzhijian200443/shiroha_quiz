@@ -22,7 +22,7 @@ class TodayCategoryVisual extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final dark = Theme.of(context).brightness == Brightness.dark;
     final asset = switch (visual) {
-      CategoryVisualKey.math => 'assets/images/today/category-math.png',
+      CategoryVisualKey.math => 'assets/images/today/category-math-v3.png',
       CategoryVisualKey.english => 'assets/images/today/category-english.png',
       _ => 'assets/images/today/paper-pencil.png',
     };
@@ -34,12 +34,10 @@ class TodayCategoryVisual extends StatelessWidget {
         Align(
           alignment: Alignment.bottomRight,
           child: FractionallySizedBox(
-            widthFactor: visual == CategoryVisualKey.math ? .95 : 1,
-            heightFactor: visual == CategoryVisualKey.math ? .96 : 1,
+            widthFactor: 1,
+            heightFactor: 1,
             child: Image.asset(asset,
-                fit: visual == CategoryVisualKey.math
-                    ? BoxFit.contain
-                    : BoxFit.cover,
+                fit: BoxFit.cover,
                 alignment: Alignment.bottomRight,
                 color: dark ? const Color(0xFF85858D) : null,
                 colorBlendMode: dark ? BlendMode.modulate : null),

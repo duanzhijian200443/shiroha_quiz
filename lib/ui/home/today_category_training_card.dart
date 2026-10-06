@@ -259,13 +259,14 @@ class _CornerPainter extends CustomPainter {
   final ColorScheme colors;
   @override
   void paint(Canvas canvas, Size size) {
+    final dark = colors.brightness == Brightness.dark;
     final path = Path()
       ..moveTo(0, 0)
       ..cubicTo(20, 0, 9, 33, 30, 29)
       ..quadraticBezierTo(43, 25, 48, 48)
       ..lineTo(48, 0)
       ..close();
-    canvas.drawShadow(path, colors.shadow.withValues(alpha: .22), 4, false);
+    canvas.drawShadow(path, colors.shadow.withValues(alpha: .5), 6, false);
     canvas.drawPath(
         path,
         Paint()
@@ -273,11 +274,34 @@ class _CornerPainter extends CustomPainter {
             begin: Alignment.topRight,
             end: Alignment.bottomLeft,
             colors: [
-              colors.surface,
-              colors.surfaceContainerHighest,
-              colors.surface
+              dark ? const Color(0xFF484B55) : colors.surfaceContainerHighest,
+              dark ? const Color(0xFF898C96) : colors.surface,
+              dark ? const Color(0xFFA9ABB2) : colors.surface,
+              dark
+                  ? const Color(0xFF4F525C)
+                  : colors.outline.withValues(alpha: .6),
             ],
+            stops: const [0, .38, .73, 1],
           ).createShader(Offset.zero & size));
+    final crease = Path()
+      ..moveTo(0, 0)
+      ..cubicTo(20, 0, 9, 33, 30, 29)
+      ..quadraticBezierTo(43, 25, 48, 48);
+    canvas.drawPath(
+        crease,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = .9
+          ..color = colors.outline.withValues(alpha: dark ? .8 : .45));
+    final highlight = Path()
+      ..moveTo(5, 1)
+      ..cubicTo(23, 6, 14, 27, 30, 27);
+    canvas.drawPath(
+        highlight,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.2
+          ..color = colors.onSurface.withValues(alpha: .1));
   }
 
   @override
@@ -320,10 +344,11 @@ class TodayTrainingActionCard extends StatelessWidget {
             onTap: enabled ? onPressed : null,
             borderRadius: BorderRadius.circular(14),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
               child: LayoutBuilder(builder: (context, constraints) {
                 final stacked = MediaQuery.textScalerOf(context).scale(14) > 20;
-                final tile = TodayIconTile(icon, size: 40, iconSize: 30);
+                final tile =
+                    TodayIconTile(icon, size: 36, iconSize: 28, circular: true);
                 final text = Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [

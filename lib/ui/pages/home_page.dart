@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'bank_detail_screen.dart';
 import 'import_settings_screen.dart';
 import 'photo_capture_screen.dart';
-import 'mock_center_screen.dart';
 import 'plan_config_screen.dart';
 import 'practice_page.dart';
 import '../../application/study_activity/study_activity_contracts.dart';
@@ -41,7 +40,6 @@ import '../dependencies/home_training_dependencies.dart';
 import '../training/training_configuration_controller.dart';
 import '../training/training_configuration_page.dart';
 import '../home/today_category_training_card.dart';
-import '../home/weekly_activity_card.dart';
 
 enum _CreateImportAction { file, photo }
 
@@ -293,7 +291,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _brand(),
-                    const SizedBox(height: 22),
+                    const SizedBox(height: 12),
                     Text('今日',
                         style: theme.textTheme.headlineLarge?.copyWith(
                             fontSize: 30,
@@ -316,14 +314,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                   '题库题量',
                                   _summaryCount(_totalCount,
                                       _trainingSummary?.totalCount),
-                                  Icons.local_fire_department_rounded)),
+                                  Icons.bar_chart_rounded)),
                           const SizedBox(width: 8),
                           Expanded(
                               child: _summary(
                                   '已掌握',
                                   _summaryCount(_masteredCount,
                                       _trainingSummary?.masteredCount),
-                                  Icons.bar_chart_rounded)),
+                                  Icons.check_box_rounded)),
                           const SizedBox(width: 8),
                           Expanded(
                               child: _summary(
@@ -332,7 +330,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                       _controller
                                           .contextSnapshot.todayPracticeCount,
                                       _trainingSummary?.todayPracticedCount),
-                                  Icons.article_rounded)),
+                                  Icons.local_fire_department_rounded)),
                         ]),
                     const SizedBox(height: 12),
                     widget.homeTraining == null
@@ -340,8 +338,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         : _trainingV2(),
                     const SizedBox(height: 16),
                     Row(children: [
+                      const Icon(Icons.calendar_today_outlined, size: 22),
+                      const SizedBox(width: 10),
                       Expanded(
-                          child: Text('训练计划',
+                          child: Text('学习计划',
                               style: theme.textTheme.titleMedium
                                   ?.copyWith(fontWeight: FontWeight.w700))),
                       TextButton(
@@ -366,19 +366,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             ? null
                             : _askAssistant),
                     const SizedBox(height: 10),
-                    widget.homeTraining == null
-                        ? _activity()
-                        : WeeklyActivityCard(
-                            result: _controller.weekResult,
-                            loading: _controller.weekLoading,
-                            todayLocalDate:
-                                (widget.localNow?.call() ?? DateTime.now())
-                                    .toIso8601String()
-                                    .substring(0, 10)),
-                    const SizedBox(height: 10),
-                    _exam(),
-                    const SizedBox(height: 12),
-                    _tools(),
+                    if (widget.homeTraining != null) _secondaryEntries(),
+                    const SizedBox(
+                        height: 64,
+                        width: double.infinity,
+                        child: TodayLandscapeDecoration()),
                   ]),
             ),
           ),
@@ -388,10 +380,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Widget _brand() => LayoutBuilder(builder: (context, constraints) {
-        final largeText = MediaQuery.textScalerOf(context).scale(14) > 18;
         final brand = Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(Icons.import_contacts_outlined,
-              size: 25, color: _visualTheme.colorScheme.outline),
+          TodayHeaderIcon(color: _visualTheme.colorScheme.outline),
           const SizedBox(width: 8),
           Flexible(
               child: Text('Shiroha Quiz',
@@ -401,21 +391,51 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       fontWeight: FontWeight.w700,
                       color: _visualTheme.colorScheme.onSurface))),
         ]);
-        final tagline = Text('让每一次练习，靠近更好的你',
-            style: TextStyle(
-                fontSize: 9, color: _visualTheme.colorScheme.onSurfaceVariant));
-        return largeText
-            ? Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [brand, const SizedBox(height: 5), tagline])
-            : Row(children: [
+        final actions = Row(mainAxisSize: MainAxisSize.min, children: [
+          IconButton(
+              key: const ValueKey('home-parse-action'),
+              tooltip: '解析任务',
+              constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+              onPressed: widget.taskCenter == null ? null : _openTaskCenter,
+              icon: Badge(
+                  isLabelVisible: (_taskBadge ?? 0) > 0,
+                  label: Text('$_taskBadge'),
+                  child: TodayHeaderIcon(
+                      document: true,
+                      color: _visualTheme.colorScheme.outline))),
+          IconButton(
+              key: const ValueKey('home-training-config'),
+              tooltip: '管理训练内容',
+              constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+              onPressed: widget.homeTraining == null ||
+                      _controller.selectionBusy ||
+                      _controller.practiceStartPending
+                  ? null
+                  : _openTrainingConfig,
+              icon: TodayHeaderIcon(color: _visualTheme.colorScheme.onSurface)),
+          IconButton(
+              key: const ValueKey('home-import-action'),
+              tooltip: '创建 / 导入',
+              constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+              onPressed: _openImport,
+              icon: const Icon(Icons.add_rounded, size: 25)),
+        ]);
+        final largeText = MediaQuery.textScalerOf(context).scale(15) > 19;
+        return largeText || constraints.maxWidth < 300
+            ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 brand,
-                const SizedBox(width: 12),
-                Expanded(
-                    child:
-                        Align(alignment: Alignment.centerRight, child: tagline))
-              ]);
+                Align(alignment: Alignment.centerRight, child: actions)
+              ])
+            : Row(children: [Expanded(child: brand), actions]);
       });
+
+  Future<void> _openTaskCenter() async {
+    await Navigator.push(
+        context,
+        MaterialPageRoute(
+            builder: (_) => TaskCenterScreen(dependencies: widget.taskCenter)));
+    if (mounted) await _refresh();
+  }
 
   Widget _surface({Key? key, required Widget child, double padding = 12}) =>
       Container(
@@ -449,7 +469,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             const Text('题', style: TextStyle(fontSize: 10, height: 1.3)),
           ]),
         ]);
-        final tile = TodayIconTile(icon, size: 28, iconSize: 21);
+        final tile =
+            TodayIconTile(icon, size: 30, iconSize: 22, circular: true);
         final stack = MediaQuery.textScalerOf(context).scale(14) > 18 ||
             count.length > 4 ||
             constraints.maxWidth < 76;
@@ -488,17 +509,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   child: Text('今日训练',
                       style: TextStyle(
                           fontSize: 17, fontWeight: FontWeight.w700))),
-              IconButton(
-                  key: const ValueKey('home-training-config'),
-                  tooltip: '管理训练内容',
-                  onPressed: busy ? null : _openTrainingConfig,
-                  icon: const Icon(Icons.tune_rounded)),
-              if (snapshot?.selection.currentContent != null)
-                IconButton(
-                    key: const ValueKey('home-bank-detail'),
-                    tooltip: '题库详情',
-                    onPressed: busy ? null : _openMemberDetail,
-                    icon: const Icon(Icons.chevron_right_rounded)),
             ]),
             const SizedBox(height: 8),
             if (_controller.trainingLoading)
@@ -540,7 +550,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         Expanded(
             child: TodayTrainingActionCard(
                 key: const ValueKey('home-new-task'),
-                title: '新题挑战',
+                title: '新题',
                 count: newCount,
                 icon: Icons.add_rounded,
                 enabled: !busy &&
@@ -552,7 +562,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         Expanded(
             child: TodayTrainingActionCard(
                 key: const ValueKey('home-review-task'),
-                title: '复习巩固',
+                title: '复习',
                 count: reviewCount,
                 icon: Icons.sync_rounded,
                 enabled: !busy &&
@@ -583,26 +593,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       controller.dispose();
       if (mounted) await _refresh();
     }
-  }
-
-  Future<void> _openMemberDetail() async {
-    final banks = _training?.selection.currentContent?.content.members
-        .map((m) => m.bankName)
-        .toList();
-    if (banks == null || banks.isEmpty) return;
-    final bank = banks.length == 1
-        ? banks.single
-        : await showModalBottomSheet<String>(
-            context: context,
-            showDragHandle: true,
-            useSafeArea: true,
-            builder: (context) => ListView(shrinkWrap: true, children: [
-                  for (final name in banks)
-                    ListTile(
-                        title: Text(name),
-                        onTap: () => Navigator.pop(context, name)),
-                ]));
-    if (mounted && bank != null) _openBankDetail(bank);
   }
 
   Future<void> _startTraining(bool review) async {
@@ -799,114 +789,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             )));
   }
 
-  Widget _activity() => _surface(
-      key: const ValueKey('home-learning-activity'),
-      child: Row(children: [
-        const TodayIconTile(Icons.calendar_today_rounded),
-        const SizedBox(width: 10),
-        Expanded(
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('学习动态',
-              style: _visualTheme.textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w700)),
-          const SizedBox(height: 5),
-          Text(
-              _contextReady &&
-                      _controller.contextSnapshot.todayPracticeCount != null
-                  ? '今日已练 ${_controller.contextSnapshot.todayPracticeCount} 题 · 每一次练习，都让理解更进一步。'
-                  : '选择题库并加载学习记录后，查看今日练习情况',
-              style: TextStyle(
-                  fontSize: 11,
-                  height: 1.5,
-                  color: _visualTheme.colorScheme.onSurfaceVariant)),
-        ])),
-      ]));
-
-  Widget _exam() => _surface(
-      padding: 0,
-      child: Material(
-          color: Colors.transparent,
-          borderRadius: BorderRadius.circular(14),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-              key: const ValueKey('home-exam-entry'),
-              onTap: () async {
-                await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => const MockCenterScreen()));
-                if (mounted) await _refresh();
-              },
-              child: Stack(children: [
-                Positioned(
-                    right: 20,
-                    top: 0,
-                    bottom: 0,
-                    child: IgnorePointer(
-                        child: Opacity(
-                            opacity: .45,
-                            child: Image.asset(
-                                'assets/images/today/paper-pencil.png',
-                                width: 120,
-                                fit: BoxFit.contain,
-                                excludeFromSemantics: true)))),
-                Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Row(children: [
-                      const TodayIconTile(Icons.description_rounded),
-                      const SizedBox(width: 10),
-                      Expanded(
-                          child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                            Text('模考与试卷',
-                                style: _visualTheme.textTheme.titleMedium
-                                    ?.copyWith(fontWeight: FontWeight.w700)),
-                            const SizedBox(height: 5),
-                            Text('开始模考 / 生成试卷 / 历史试卷',
-                                style: TextStyle(
-                                    fontSize: 11,
-                                    height: 1.5,
-                                    color: _visualTheme
-                                        .colorScheme.onSurfaceVariant)),
-                          ])),
-                      const Icon(Icons.chevron_right_rounded),
-                    ])),
-              ]))));
-
-  Widget _tools() {
-    return Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-      if (widget.homeTraining != null)
-        IconButton(
-            key: const ValueKey('home-wrongbook-entry'),
-            tooltip: '全局错题本',
-            onPressed: () => _openBankDetail('🔥 全局错题本'),
-            icon: const Icon(Icons.bookmark_outline_rounded)),
-      TextButton.icon(
-          key: const ValueKey('home-parse-action'),
-          onPressed: widget.taskCenter == null
-              ? null
-              : () async {
-                  await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => TaskCenterScreen(
-                              dependencies: widget.taskCenter)));
-                  if (mounted) await _refresh();
-                },
-          icon: Badge(
-              isLabelVisible: (_taskBadge ?? 0) > 0,
-              label: Text('$_taskBadge'),
-              child: const Icon(Icons.task_outlined, size: 18)),
-          label: const Text('解析')),
-      IconButton(
-          key: const ValueKey('home-import-action'),
-          tooltip: '创建 / 导入',
-          onPressed: _openImport,
-          icon: const Icon(Icons.add_rounded)),
-    ]);
-  }
+  Widget _secondaryEntries() => Align(
+      alignment: Alignment.centerRight,
+      child: TextButton.icon(
+          key: const ValueKey('home-wrongbook-entry'),
+          onPressed: () => _openBankDetail('🔥 全局错题本'),
+          icon: const Icon(Icons.bookmark_outline_rounded, size: 18),
+          label: const Text('全局错题本')));
 
   Future<void> _startOrdinary(StudySessionPool pool) async {
     final bankName = _controller.contextSnapshot.bankName;

@@ -144,6 +144,10 @@ V2 其他产品与架构冻结继续有效。V3 新增或修订：
 
 保留欢迎 Banner、三项学习摘要、Category 横向轮播、TrainingContent 翻页角、新题与复习两个独立入口。训练配置、分类切换、新题及复习的既有冻结业务语义不变。
 
+首页顶部按解析任务、训练内容配置、创建/导入 `+` 顺序提供真实操作入口；解析任务保留现有 facade、真实 badge 与返回刷新。顶部训练配置使用轻线性开书图标，今日训练仍使用靶心。底部不重复解析/导入入口。
+
+同日用户补充确认：本轮不在今日训练增加成员题库详情入口，移除 production TrainingContent 首页直达入口，交由第二次训练配置页重构优化承接；该产品可达性要求延期，不删除题库详情能力或数据，也不重写本轮训练配置编辑器/选择器业务。
+
 本次只确认学习日历和模考的首页退休，不删除 StudyPlan，也不修改其他业务功能；§1.4 与 §7.5 的单一活动 StudyPlan、空状态及既有操作继续有效。
 
 ### StudyActivity 边界
@@ -702,15 +706,19 @@ widget dispose、lifecycle callback、route pop、submit callback、checkpoint t
 
 ## 7.1 信息结构
 
-品牌/今日 → 欢迎 Banner → 三项学习摘要 → 今日训练(Category + 当前 TrainingContent，含翻页角及新题/复习独立入口) → 单一活动 StudyPlan → 创建/导入/TaskCenter 等次级入口。
+品牌与解析任务/训练配置/创建导入顶部操作 → 今日 → 欢迎 Banner → 三项学习摘要 → 今日训练(Category + 当前 TrainingContent，含翻页角及新题/复习独立入口) → 单一活动 StudyPlan → 保留的其他次级入口与轻装饰留白。
 
 学习日历、本周七日柱状图、学习时长摘要及“模考与试卷”卡片/首页导航入口按 §1.6 退休。StudyPlan 继续保留，不因本次首页范围修订移除。
 
 一级导航保持：今日｜助手｜我的。不增加 mode selector、第四 tab 或嵌入式考试 polling。
 
+欢迎 Banner 保留动态时段问候与灰阶山景/猫/植物插画；手机内容宽度下高度约为宽度的 0.40～0.43，放大文字允许增高。没有可靠连续学习天数 authority 时使用不含数字的中性胶囊文案，禁止把本周学习天数当作连续天数。底部轻山景装饰不承载操作或统计，不遮挡滚动与导航。
+
 ## 7.2 三项摘要
 
 继续使用题库题量、已掌握、今日已练。
+
+三卡依序对应柱形统计、勾选、火焰图标；数字与标签使用真实快照。
 
 范围为当前可用 TrainingContent 的所有关联 ordinary-training-eligible banks，Question distinct。0% member 仍属于 relation，因此三项摘要包含 0% member；只有新题候选数排除 0%。
 
@@ -726,6 +734,8 @@ widget dispose、lifecycle callback、route pop、submit callback、checkpoint t
 
 动画约 200ms 局部替换，不使用 refresh/loop/sync 图标，遵守 Reduce Motion。可访问性 hit target 不能只限装饰尖角，semantic label 为“切换下一个训练内容”。
 
+翻页角可见区域应有纸张正反面明度区别、折痕曲线、柔和投影及掀起轮廓，Light/Dark 均可辨认；保留 48×48 logical px 点击区。分类主卡继续保留至少 180 logical px 的冻结高度，用户明确接受其相对参考图更高；不得为匹配图稿比例擅自降低此下限。
+
 分类卡使用灰阶学习插画和左侧文字衬底；数学使用透明纸绘插画，主体集中在右下区域，不使用摄影背景；卡高至少 180 logical pixels，文字过长或放大时继续增高。数学与英语使用独立插画，计算机与通用学习使用本地学习素材回退。已保存的 Category Visual preference 优先于分类名的默认关键词匹配。装饰图不包含训练标题或统计数据，深色模式保留文字对比度。新题与复习作为分类容器下方的两张独立卡片，正常字号下使用横向图标/数量/标题布局，放大字体时允许纵向展开。
 
 首页不再构建学习日历、七日柱状图或学习时长摘要；不以热力图或其他周视图替代。StudyActivity 记录和周聚合按 §6 保留。
@@ -735,6 +745,8 @@ widget dispose、lifecycle callback、route pop、submit callback、checkpoint t
 新题：current TrainingContent + positive-weight NEW pool。
 复习：current Category complete due review pool。
 
+两入口使用分类卡与分页点下方独立横向短卡，显示真实题数与简短标签“新题”“复习”；放大字体允许重排，业务语义不变。
+
 同一 Category 切换 content 时，新题 count 与三项 content summary 更新，但 Category review count 与 StudyPlan 不应变化。
 
 loading、real zero、unavailable、unconfigured 必须区分。真实 0 弱化禁用；新题无 content 时提供配置 CTA；Category review 仍可独立有效。不增加统一“开始训练”按钮。
@@ -743,9 +755,9 @@ loading、real zero、unavailable、unconfigured 必须区分。真实 0 弱化�
 
 继续复用 singleton StudyPlan，保留真实 title/查看计划/开始特训/停止计划，并区分 no plan、unavailable、no candidate、query failure。不得展示多卡 carousel、假名称、假百分比或 N/M 进度。
 
-保留题库详情、补充答案、全局错题本、文件/拍照导入、TaskCenter、Assistant/Profile。MockExam 创建/历史/评阅实现与数据保留，但按 §1.6 暂时退休用户可见入口，不再要求从今日首页进入 MockCenterScreen。
+保留题库详情及补充答案能力、全局错题本、文件/拍照导入、TaskCenter、Assistant/Profile。production TrainingContent 首页的成员题库详情直达入口按 §1.6 用户补充确认移除，其可达性优化延期至第二次训练配置页重构；legacy bank-scoped compatibility 路径保留。MockExam 创建/历史/评阅实现与数据保留，但按 §1.6 暂时退休用户可见入口，不再要求从今日首页进入 MockCenterScreen。
 
-融合 TrainingContent 的题库详情入口应列出真实 member banks，不跳转虚构融合题库。
+后续训练配置页承接融合 TrainingContent 的题库详情时，应列出真实 member banks，不跳转虚构融合题库。
 
 刷新触发包括 import/Practice/config/题库删除或分类移动/StudyPlan detail/Today reactivation/app resumed。每次 query 带 context generation，late result 不覆盖新 selection，dispose 后不 publish。Home refresh 禁止触发 Practice、模型、OCR、catalog self-heal 或 durable write。
 
@@ -1066,7 +1078,7 @@ CP4：整体 scope、navigation、current docs、accessibility、visual acceptan
 
 ## 12.8 UI / Reachability
 
-360×720、1024×768、放大字体、Light/Dark、页面滚动、Category peek/横滑、pagination、page corner/accessibility/Reduce Motion、新题/复习独立启动、训练配置与导入解析可用、无第二层 carousel/chips/dropdown/假多计划、loading/zero/unavailable/unconfigured、invalidated repair、0% 说明、content 切换不改变同 Category review 或 StudyPlan、除 §1.6 退休的 MockExam 外既有次级入口可达、return refresh/latest-wins/repeated-start guard、无第五 scene 页面。
+360×720、390×844、1024×768、放大字体、Light/Dark、页面滚动、Category peek/横滑、pagination、page corner/accessibility/Reduce Motion、新题/复习独立启动、顶部解析/训练配置/+ 顺序与点击区、真实 TaskCenter badge/返回刷新、训练配置与导入解析可用、无第二层 carousel/chips/dropdown/假多计划、loading/zero/unavailable/unconfigured、invalidated repair、0% 说明、content 切换不改变同 Category review 或 StudyPlan、除 §1.6 退休的 MockExam 与明确延期的成员题库详情首页入口外既有次级入口可达、return refresh/latest-wins/repeated-start guard、无第五 scene 页面。
 
 Widget / Navigation 测试不再要求学习日历、七日柱状图/热力图、学习时长摘要及模考入口出现在首页，须验证 HomePage 不构建退休模块、没有首页 MockCenterScreen 导航入口，同时保留欢迎 Banner、三项学习摘要、Category 轮播、翻页角、新题/复习、StudyPlan 与其他既有功能。学习时长记录、周聚合及考试实现/历史/持久化结构的保留边界不因 UI 删除而变化。
 

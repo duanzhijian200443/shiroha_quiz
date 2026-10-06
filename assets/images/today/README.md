@@ -31,3 +31,15 @@ a code symbol. Dark mode modulates the art and uses a theme-aware text scrim.
 `category-english.png` prompt:
 
 > A wide 3:1 background illustration for a minimalist learning app. Monochrome silver gray white, soft paper editorial illustration with subtle depth and delicate shadows. Left 40% light nearly empty gray for interface text later. Right side fills with elegant open books, a small stack of flashcards, upright vocabulary card with only 'Aa', pencil and botanical leafy sprig. No other text, no UI, no frames. Neutral gentle daylight, sophisticated restrained grayscale, objects at lower right fill most of card height.
+
+## V3 paper-drawn mathematics illustration
+
+`category-math-v3.png` is a transparent grayscale illustration generated with
+built-in `image_gen` from the user-supplied V3 UI reference. It replaces the
+photographic appearance of the earlier mathematics backdrop at the rendering
+seam; the old asset remains for historical evidence. Runtime category/content
+names, numbers, pagination and the paper corner remain Flutter widgets.
+
+Prompt (reference role: illustration composition/style only):
+
+> Generate ONLY the decorative math learning illustration behind the mathematics category card in the reference. Standalone transparent PNG, wide landscape about 1.7:1; no phone, UI, lettering, titles, numbers, labels, dots or folded corner. Match soft grayscale paper-drawn illustration, NOT photography or photographic textures. Concentrate an open textbook with illustrated gray page strokes, stacked books, a triangular geometry ruler, pencil, leafy plants and an unlabeled coordinate curve in the lower right 65%. Leave the upper left and left third empty/transparent for live Flutter text. Soft neutral white/silver/charcoal shading and botanical leaves; preserve alpha, no baked checkerboard or opaque rectangular background.

@@ -20,27 +20,39 @@ class TodayWelcomeBanner extends StatelessWidget {
       child: Stack(children: [
         Positioned.fill(
             child: Image.asset('assets/images/today/welcome-landscape.png',
-                fit: BoxFit.cover, excludeFromSemantics: true)),
+                fit: BoxFit.cover,
+                alignment: Alignment.centerRight,
+                excludeFromSemantics: true)),
+        Positioned.fill(
+            child: DecoratedBox(
+                decoration: BoxDecoration(
+                    gradient: LinearGradient(colors: [
+          Colors.white.withValues(alpha: .28),
+          Colors.white.withValues(alpha: 0),
+        ], stops: const [
+          0,
+          .65
+        ])))),
         LayoutBuilder(
             builder: (context, constraints) => ConstrainedBox(
                 constraints:
-                    BoxConstraints(minHeight: constraints.maxWidth / 3.5),
+                    BoxConstraints(minHeight: constraints.maxWidth * .42),
                 child: Padding(
-                    padding: const EdgeInsets.fromLTRB(28, 12, 24, 12),
+                    padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
                     child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const SizedBox(width: double.infinity),
                           Text(greeting,
                               style: const TextStyle(
-                                  fontSize: 22,
+                                  fontSize: 24,
                                   height: 1.3,
                                   fontWeight: FontWeight.w700,
                                   color: Color(0xFF303238))),
                           const SizedBox(height: 4),
                           const Text('今天也继续加油吧！',
                               style: TextStyle(
-                                  fontSize: 13,
+                                  fontSize: 14,
                                   height: 1.4,
                                   color: Color(0xFF747780))),
                           const SizedBox(height: 10),
@@ -53,10 +65,68 @@ class TodayWelcomeBanner extends StatelessWidget {
                                       horizontal: 12, vertical: 4),
                                   child: Text('保持学习，慢慢进步',
                                       style: TextStyle(
-                                          fontSize: 10,
+                                          fontSize: 11,
                                           color: Color(0xFF555760))))),
                         ]))))
       ]),
     );
   }
+}
+
+/// Quiet non-interactive landscape at the end of the scrolling page.
+class TodayLandscapeDecoration extends StatelessWidget {
+  const TodayLandscapeDecoration({super.key});
+  @override
+  Widget build(BuildContext context) => ExcludeSemantics(
+      child: IgnorePointer(
+          child: CustomPaint(
+              painter: _LandscapePainter(
+                  Theme.of(context).colorScheme.onSurfaceVariant))));
+}
+
+class _LandscapePainter extends CustomPainter {
+  _LandscapePainter(this.ink);
+  final Color ink;
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (var i = 0; i < 2; i++) {
+      final baseline = size.height * (.4 + i * .2);
+      final ridge = Path()
+        ..moveTo(0, baseline)
+        ..cubicTo(size.width * .18, baseline - 25, size.width * .26,
+            baseline + 20, size.width * .42, baseline)
+        ..cubicTo(size.width * .65, baseline - 28, size.width * .7,
+            baseline + 24, size.width, baseline - 10)
+        ..lineTo(size.width, size.height)
+        ..lineTo(0, size.height)
+        ..close();
+      canvas.drawPath(ridge, Paint()..color = ink.withValues(alpha: .045));
+    }
+    for (final x in [size.width * .04, size.width * .94]) {
+      canvas.save();
+      canvas.translate(x, size.height);
+      canvas.rotate(x < size.width / 2 ? .2 : -.2);
+      canvas.drawLine(
+          Offset.zero,
+          const Offset(0, -48),
+          Paint()
+            ..strokeWidth = 1
+            ..color = ink.withValues(alpha: .1));
+      for (var i = 0; i < 4; i++) {
+        final y = -12.0 - i * 10;
+        final leaf = Path()
+          ..moveTo(0, y)
+          ..quadraticBezierTo(-18, y - 3, -14, y - 15)
+          ..quadraticBezierTo(-2, y - 13, 0, y)
+          ..moveTo(0, y - 5)
+          ..quadraticBezierTo(17, y - 8, 13, y - 19)
+          ..quadraticBezierTo(2, y - 17, 0, y - 5);
+        canvas.drawPath(leaf, Paint()..color = ink.withValues(alpha: .085));
+      }
+      canvas.restore();
+    }
+  }
+
+  @override
+  bool shouldRepaint(_LandscapePainter oldDelegate) => oldDelegate.ink != ink;
 }

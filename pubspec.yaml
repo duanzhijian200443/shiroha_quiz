@@ -48,6 +48,7 @@ flutter:
     - assets/images/today/welcome-landscape.png
     - assets/images/today/paper-pencil.png
     - assets/images/today/category-math.png
+    - assets/images/today/category-math-v3.png
     - assets/images/today/category-english.png
 
 hooks:
