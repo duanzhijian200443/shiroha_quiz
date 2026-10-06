@@ -36,14 +36,19 @@ final class TodayTrainingSnapshot {
   TodayTrainingSnapshot({
     required this.selection,
     required Iterable<CategoryKey> categories,
+    required Map<CategoryKey, CategoryVisualKey?> categoryVisuals,
     required this.newCount,
     required this.categoryReviewCount,
     required this.summary,
-  }) : categories = List.unmodifiable(categories) {
+  })  : categories = List.unmodifiable(categories),
+        categoryVisuals = Map.unmodifiable(categoryVisuals) {
     requireHomeTrainingInput(
         this.categories.toSet().length == this.categories.length);
     requireHomeTrainingInput(selection.categoryKey == null ||
         this.categories.contains(selection.categoryKey));
+    requireHomeTrainingInput(
+        this.categoryVisuals.length == this.categories.length &&
+            this.categories.every(this.categoryVisuals.containsKey));
     if (selection.state != TrainingCurrentContentState.usable) {
       requireHomeTrainingInput(newCount is HomeTrainingFailed<TrainingCount> &&
           summary is HomeTrainingFailed<TrainingContentSummary>);
@@ -53,6 +58,11 @@ final class TodayTrainingSnapshot {
   }
   final TrainingCurrentSelection selection;
   final List<CategoryKey> categories;
+
+  /// Saved Category Visual preference for every visible Category, including the
+  /// current one. A null value means no explicit preference; Presentation
+  /// applies the default keyword suggestion. Never inferred or repaired here.
+  final Map<CategoryKey, CategoryVisualKey?> categoryVisuals;
 
   /// All eligible NEW in positive-weight members, not questionLimit/queue size.
   final HomeTrainingResult<TrainingCount> newCount;

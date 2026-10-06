@@ -235,6 +235,41 @@ void main() {
   });
 
   testWidgets(
+      'non-current Category preview shows its saved visual and keeps it when selected',
+      (tester) async {
+    final fake = HomeTrainingFake();
+    fake.groups[1] = TrainingCategorySnapshot(
+        categoryKey: homeB,
+        preference: TrainingCategoryPreference(
+            categoryKey: homeB, revision: 1, visualKey: CategoryVisualKey.math),
+        contents: fake.groups[1].contents);
+    await pump(tester, fake);
+    String pageAsset(int index) {
+      final visual = tester
+          .widgetList<TodayCategoryVisual>(find.byType(TodayCategoryVisual))
+          .elementAt(index);
+      final image = tester.widget<Image>(find.descendant(
+          of: find.byWidget(visual), matching: find.byType(Image)));
+      return (image.image as AssetImage).assetName;
+    }
+
+    expect(pageAsset(0), 'assets/images/today/category-math-v3.png');
+    expect(pageAsset(1), 'assets/images/today/category-math-v3.png');
+    expect(fake.selections, isEmpty);
+    final preview = pageAsset(1);
+    await tester
+        .ensureVisible(find.byKey(const ValueKey('home-category-pages')));
+    await tester.drag(find.byKey(const ValueKey('home-category-pages')),
+        const Offset(-280, 0));
+    await tester.pumpAndSettle();
+    expect(fake.selected, homeB);
+    expect(fake.selections, hasLength(1));
+    expect(find.text('词汇 + 阅读'), findsOneWidget);
+    expect(pageAsset(1), preview);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
       'math uses the transparent paper illustration rather than a photographic backdrop',
       (tester) async {
     await tester.pumpWidget(const MaterialApp(
@@ -355,6 +390,7 @@ void main() {
       final practice = tester.widget<PracticePage>(find.byType(PracticePage));
       expect(practice.usePreparedStudySession, isTrue);
       expect(practice.preparedSessionKind, AnswerAttemptSessionKind.normal);
+      expect(practice.isPomodoroActive, isFalse);
       expect(
           activity.begins.single.scene,
           review

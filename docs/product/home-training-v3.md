@@ -150,7 +150,7 @@ V2 其他产品与架构冻结继续有效。V3 新增或修订：
 
 训练配置 V2 后续修订：真实题库详情由配置页的新建/编辑流程中的选择器承接，具体导航与状态保留规则见 §4.1。首页成员题库直达入口仍保持退休。
 
-本次只确认学习日历和模考的首页退休，不删除 StudyPlan，也不修改其他业务功能；§1.4 与 §7.5 的单一活动 StudyPlan、空状态及既有操作继续有效。
+本次只确认学习日历和模考的首页退休，不删除 StudyPlan，也不修改其他业务功能；同日用户另行确认题库详情页番茄钟入口暂停并封存实现（正式决策与保留边界见 §7.5），属显式范围决策。§1.4 与 §7.5 的单一活动 StudyPlan、空状态及既有操作继续有效。
 
 ### StudyActivity 边界
 
@@ -767,7 +767,7 @@ loading、real zero、unavailable、unconfigured 必须区分。真实 0 弱化�
 
 后续训练配置页承接融合 TrainingContent 的题库详情时，应列出真实 member banks，不跳转虚构融合题库。
 
-题库详情 V2 保留动态真实 bankName 和单列「开始练习」「专项练习」「题库管理」分组，复用 Today 灰阶主题与既有纸张装饰资源。全类型/选择/填空/简答分别沿用 bank-scoped filterType null/0/2/3、ordinaryPractice 的 bank context、Practice commands 和原 route 配置；不转成 Category review、TrainingContent 或 StudyPlan 会话。浏览题库保持原查询/变更/typed answer 依赖；「补充答案」只在既有 AnswerCompletionDependenciesScope 存在时显示。删除入口收进更多菜单，保留原确认、Application mutation guard、保留历史与引用阻断、失败提示和成功返回。仅退休本页番茄钟开关、UI 状态与启用标志传递，启动沿用 PracticePage 的 false 默认值；不删除其公开构造参数、其它调用方、全局计时兼容或 StudyActivity 语义。
+题库详情 V2 保留动态真实 bankName 和单列「开始练习」「专项练习」「题库管理」分组，复用 Today 灰阶主题与既有纸张装饰资源。全类型/选择/填空/简答分别沿用 bank-scoped filterType null/0/2/3、ordinaryPractice 的 bank context、Practice commands 和原 route 配置；不转成 Category review、TrainingContent 或 StudyPlan 会话。浏览题库保持原查询/变更/typed answer 依赖；「补充答案」只在既有 AnswerCompletionDependenciesScope 存在时显示。删除入口收进更多菜单，保留原确认、Application mutation guard、保留历史与引用阻断、失败提示和成功返回。题库详情 V2 退休本页番茄钟开关、UI 状态与启用标志传递。按 2026-10-06 用户确认的正式产品决策：番茄钟暂时不对用户开放，底层实现封存保留，供未来重新启用。该开关此前是 production 唯一传入 isPomodoroActive: true 的调用方；退休后 production 已不存在任何用户可见的番茄钟启动入口。PracticePage.isPomodoroActive 公开构造参数、计时与 UI 分支、insertPomodoroSession 持久化路径及 pomodoro_sessions 历史数据全部保留，但当前不可达（启动恒为 false 默认值）。不新增替代入口、不重新设计、不删除数据或兼容代码；这是有意暂停而非功能删除，未来恢复需要单独任务与验收（含入口形态与实机验收）。全局计时兼容与 StudyActivity 语义不变。
 
 刷新触发包括 import/Practice/config/题库删除或分类移动/StudyPlan detail/Today reactivation/app resumed。每次 query 带 context generation，late result 不覆盖新 selection，dispose 后不 publish。Home refresh 禁止触发 Practice、模型、OCR、catalog self-heal 或 durable write。
 

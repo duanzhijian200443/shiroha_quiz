@@ -156,9 +156,8 @@ class _CategoryCardState extends State<TodayCategoryTrainingCard> {
                                 child: ClipRRect(
                                   borderRadius: BorderRadius.circular(18),
                                   child: TodayCategoryVisual(
-                                    visualKey: isCurrent
-                                        ? widget.category?.preference.visualKey
-                                        : null,
+                                    visualKey:
+                                        widget.snapshot.categoryVisuals[key],
                                     label: trainingCategoryLabel(key),
                                   ),
                                 ),

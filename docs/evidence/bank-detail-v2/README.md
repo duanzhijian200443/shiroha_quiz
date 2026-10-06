@@ -35,7 +35,13 @@ Reference comparison:
   preserve raw frames. Dark surfaces and large text follow the same body.
 - Delete is a functional More-menu item with the original destructive confirmation
   and Application command. The page has no timer switch; ordinary Practice uses
-  its existing false default. Global Practice timer compatibility is retained.
+  its existing false default. Per the 2026-10-06 user decision the Pomodoro
+  capability is intentionally suspended rather than deleted: production exposes
+  no user-visible Pomodoro entry anywhere — this switch was the only caller
+  passing `isPomodoroActive: true` — while `PracticePage.isPomodoroActive`, its
+  timer/UI branches, the Pomodoro session persistence path and the
+  `pomodoro_sessions` history remain in place but unreachable. Restoring the
+  capability requires a separate task and acceptance.
 
 Windows capture recipe from the repository root:
 
