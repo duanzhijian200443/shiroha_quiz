@@ -1,3 +1,5 @@
+import 'dart:ui' show PointerDeviceKind;
+
 import 'package:flutter/material.dart';
 import '../../application/training/training_configuration_contracts.dart';
 import '../../application/training/training_contracts.dart';
@@ -342,23 +344,32 @@ class _TrainingCategoryPagerState extends State<_TrainingCategoryPager> {
           ]);
 
   @override
-  Widget build(BuildContext context) => Column(children: [
-        Expanded(
-            child: PageView.builder(
-                key: const ValueKey('training-category-pages'),
-                controller: _pages,
-                physics: widget.busy
-                    ? const NeverScrollableScrollPhysics()
-                    : const PageScrollPhysics(),
-                itemCount: widget.categories.length,
-                onPageChanged: (index) {
-                  setState(() => _index = index);
-                  widget.onChanged(widget.categories[index].categoryKey);
-                },
-                itemBuilder: (_, index) => widget.pageBuilder(
-                    widget.categories[index],
-                    _arrow(previous: true),
-                    _arrow(previous: false),
-                    _pagination()))),
-      ]);
+  Widget build(BuildContext context) {
+    // Mouse drags are excluded from the default drag device set.
+    final scrollBehavior = ScrollConfiguration.of(context);
+    return Column(children: [
+      Expanded(
+          child: ScrollConfiguration(
+              behavior: scrollBehavior.copyWith(dragDevices: {
+                ...scrollBehavior.dragDevices,
+                PointerDeviceKind.mouse,
+              }),
+              child: PageView.builder(
+                  key: const ValueKey('training-category-pages'),
+                  controller: _pages,
+                  physics: widget.busy
+                      ? const NeverScrollableScrollPhysics()
+                      : const PageScrollPhysics(),
+                  itemCount: widget.categories.length,
+                  onPageChanged: (index) {
+                    setState(() => _index = index);
+                    widget.onChanged(widget.categories[index].categoryKey);
+                  },
+                  itemBuilder: (_, index) => widget.pageBuilder(
+                      widget.categories[index],
+                      _arrow(previous: true),
+                      _arrow(previous: false),
+                      _pagination())))),
+    ]);
+  }
 }

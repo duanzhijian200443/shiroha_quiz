@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import '../../application/training/today_training_contracts.dart';
 import '../../application/training/training_contracts.dart';
@@ -108,6 +109,8 @@ class _CategoryCardState extends State<TodayCategoryTrainingCard> {
               titleHeight +
               10 +
               heightOf(contentTitle, Theme.of(context).textTheme.titleMedium));
+      // Mouse drags are excluded from the default drag device set.
+      final scrollBehavior = ScrollConfiguration.of(context);
       return Column(children: [
         SizedBox(
             height: cardHeight,
@@ -130,81 +133,89 @@ class _CategoryCardState extends State<TodayCategoryTrainingCard> {
                 }
                 return false;
               },
-              child: PageView.builder(
-                key: const ValueKey('home-category-pages'),
-                controller: _pages,
-                padEnds: false,
-                physics: widget.busy || keys.length == 1
-                    ? const NeverScrollableScrollPhysics()
-                    : null,
-                itemCount: keys.length,
-                itemBuilder: (context, index) {
-                  final key = keys[index];
-                  final isCurrent = key == selection.categoryKey;
-                  return Semantics(
-                      label:
-                          '分类 ${trainingCategoryLabel(key)}，第${index + 1}页，共${keys.length}页',
-                      child: Padding(
-                          padding:
-                              EdgeInsets.only(right: keys.length > 1 ? 10 : 0),
-                          child: Container(
-                            decoration: BoxDecoration(
-                                color: colors.surfaceContainerHighest,
-                                borderRadius: BorderRadius.circular(18)),
-                            child: Stack(children: [
-                              Positioned.fill(
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(18),
-                                  child: TodayCategoryVisual(
-                                    visualKey:
-                                        widget.snapshot.categoryVisuals[key],
-                                    label: trainingCategoryLabel(key),
+              child: ScrollConfiguration(
+                behavior: scrollBehavior.copyWith(
+                  dragDevices: {
+                    ...scrollBehavior.dragDevices,
+                    PointerDeviceKind.mouse,
+                  },
+                ),
+                child: PageView.builder(
+                  key: const ValueKey('home-category-pages'),
+                  controller: _pages,
+                  padEnds: false,
+                  physics: widget.busy || keys.length == 1
+                      ? const NeverScrollableScrollPhysics()
+                      : null,
+                  itemCount: keys.length,
+                  itemBuilder: (context, index) {
+                    final key = keys[index];
+                    final isCurrent = key == selection.categoryKey;
+                    return Semantics(
+                        label:
+                            '分类 ${trainingCategoryLabel(key)}，第${index + 1}页，共${keys.length}页',
+                        child: Padding(
+                            padding: EdgeInsets.only(
+                                right: keys.length > 1 ? 10 : 0),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                  color: colors.surfaceContainerHighest,
+                                  borderRadius: BorderRadius.circular(18)),
+                              child: Stack(children: [
+                                Positioned.fill(
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(18),
+                                    child: TodayCategoryVisual(
+                                      visualKey:
+                                          widget.snapshot.categoryVisuals[key],
+                                      label: trainingCategoryLabel(key),
+                                    ),
                                   ),
                                 ),
-                              ),
-                              Padding(
-                                  padding:
-                                      const EdgeInsets.fromLTRB(18, 26, 54, 24),
-                                  child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(trainingCategoryLabel(key),
-                                            style: titleStyle),
-                                        if (isCurrent) ...[
-                                          const SizedBox(height: 10),
-                                          AnimatedSwitcher(
-                                              duration: MediaQuery
-                                                      .disableAnimationsOf(
-                                                          context)
-                                                  ? Duration.zero
-                                                  : const Duration(
-                                                      milliseconds: 200),
-                                              child: Text(
-                                                  current?.name ??
-                                                      (selection.state ==
-                                                              TrainingCurrentContentState
-                                                                  .unavailable
-                                                          ? '训练配置需修复'
-                                                          : '未配置'),
-                                                  key: ValueKey(
-                                                      current?.contentId),
-                                                  style: Theme.of(context)
-                                                      .textTheme
-                                                      .titleMedium)),
-                                        ],
-                                      ])),
-                              if (isCurrent && usable > 1)
-                                Positioned(
-                                    right: 0,
-                                    top: 0,
-                                    child: FoldedPageCorner(
-                                        onPressed: widget.busy
-                                            ? null
-                                            : widget.onCycle)),
-                            ]),
-                          )));
-                },
+                                Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                        18, 26, 54, 24),
+                                    child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(trainingCategoryLabel(key),
+                                              style: titleStyle),
+                                          if (isCurrent) ...[
+                                            const SizedBox(height: 10),
+                                            AnimatedSwitcher(
+                                                duration: MediaQuery
+                                                        .disableAnimationsOf(
+                                                            context)
+                                                    ? Duration.zero
+                                                    : const Duration(
+                                                        milliseconds: 200),
+                                                child: Text(
+                                                    current?.name ??
+                                                        (selection.state ==
+                                                                TrainingCurrentContentState
+                                                                    .unavailable
+                                                            ? '训练配置需修复'
+                                                            : '未配置'),
+                                                    key: ValueKey(
+                                                        current?.contentId),
+                                                    style: Theme.of(context)
+                                                        .textTheme
+                                                        .titleMedium)),
+                                          ],
+                                        ])),
+                                if (isCurrent && usable > 1)
+                                  Positioned(
+                                      right: 0,
+                                      top: 0,
+                                      child: FoldedPageCorner(
+                                          onPressed: widget.busy
+                                              ? null
+                                              : widget.onCycle)),
+                              ]),
+                            )));
+                  },
+                ),
               ),
             )),
         if (keys.length > 1)

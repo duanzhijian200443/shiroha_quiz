@@ -524,6 +524,34 @@ void _registerCategoryPagingTests() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('desktop mouse drag pages categories without commands',
+      (tester) async {
+    final fake = ConfigurationFake();
+    final controller = fake.controller();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+        MaterialApp(home: TrainingConfigurationPage(controller: controller)));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byKey(const ValueKey('training-category-pages')),
+        const Offset(-600, 0),
+        kind: ui.PointerDeviceKind.mouse);
+    await tester.pumpAndSettle();
+    expect(
+        tester
+            .widget<Semantics>(find
+                .ancestor(
+                    of: find.byKey(const ValueKey('training-category-dot-1')),
+                    matching: find.byType(Semantics))
+                .first)
+            .properties
+            .selected,
+        isTrue);
+    expect(find.text('空分类'), findsOneWidget);
+    expect(find.text('高数 + 线代'), findsNothing);
+    expect(fake.calls, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
       'refresh retains category identity across reordering; removal falls back safely',
       (tester) async {
