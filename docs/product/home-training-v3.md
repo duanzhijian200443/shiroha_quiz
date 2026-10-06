@@ -842,7 +842,15 @@ TaskCenter → emit RetryFileSelectionRequest(task target) → composition/prese
 
 ## 8.7 视觉
 
-低饱和灰/蓝、无明显蓝色卡片描边、无旧高饱和紫主 CTA、统一线性图标。卡片显示文件名、状态、安全计数、正确事件时间和操作；文件名最多两行；提供 empty state、CTA、refresh。Light/Dark 共用业务组件。渲染、切 tab、自动刷新不得触发 OCR/Provider。
+TaskCenter V2 复用 Today 灰阶主题：中性深灰选择态与 CTA、弱边框/阴影、大圆角和本地纯装饰文档图形；错误仍通过文字/图标识别。四状态优先单行，宽度或文字缩放不允许时横向滚动，完整保留文字/计数和至少 44×44 logical px 点击区。卡片显示文件名、状态、安全计数、正确事件时间和操作；文件名最多两行；提供 empty state、CTA、refresh。Light/Dark 共用业务组件。渲染、切 tab、自动刷新不得触发 OCR/Provider。
+
+## 8.8 只读详情投影
+
+列表卡体与「查看详情」打开同一个独立只读 Bottom Sheet，不复用操作卡片；详情不含校对、重试、取消、删除或清理命令。列表继续只用原 Application eligibility 和 captured target 执行操作。详情等待、失败、dismiss/dispose 与重复点击不得重新打开旧 route 或把旧任务结果发布到新面板；返回任务 ID 不匹配时失败关闭信息投影。
+
+`TaskCenterQuery.detail` 返回窄化 `TaskCenterDetail`：文件显示名、真实状态、nullable 安全计数、事件时间、nullable Trace ID 与 durationSeconds。不带 command target、attempt token、eligibility、raw diagnostics、source path 或异常。列表 DTO 不增加 Trace ID/耗时展示字段。Facade 从现有受控当前 attempt 字段读取；只接受 OCR、已记录的合法 attempt state、正整数 attempt number、合法非空 token、String 类型且匹配 `[A-Za-z0-9][A-Za-z0-9_-]{0,127}` 的 opaque Trace ID，不使用兼容 getter 推测 attempt number，不接受与 parent trace 相同的当前 trace。缺失/不可信信息保持 null。仅点击明确复制按钮后写入此安全 ID，缺失时显示「未记录」并禁用复制。
+
+解析耗时仅在可信当前 attempt 为 readyForReview 且 coarse 为 pendingReview/completed、startedAt/parsedAt 均存在且非负并且 parsedAt ≥ startedAt 时投影 `parsedAt - attemptStartedAt`。界面标注「按记录事件时间计算：解析开始到结果发布」，不承诺单调计时、CPU 或模型耗时。不使用 createdAt/completedAt/legacy elapsed/当前时间推测。历史/缺失/异常顺序/重试后未发布结果保持 null；沿用原 accepted retry 原子清空时间与替换 trace 的权威，不回填或改变生命周期/schema。
 
 ---
 

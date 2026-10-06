@@ -735,7 +735,14 @@ captured command/cleanup targets and never auto-replays stale actions. Event
 times use the exact event kind and system local conversion, with no legacy
 timestamp substitution. Legacy `文档解析任务:` titles are corrected only in the
 safe read projection, without rewriting stored titles. FilePicker input stays
-ephemeral inside the picker/ingestion compatibility boundaries. The review
+ephemeral inside the picker/ingestion compatibility boundaries. TaskCenter V2
+uses the Today gray palette and a separate read-only detail sheet. Its narrow
+detail query whitelists a bounded current-attempt opaque Trace ID and recorded
+start-to-publication duration; it never returns a command target, attempt token
+or raw diagnostics. Missing/untrusted facts stay null, and only an explicit copy
+tap writes the safe ID to the clipboard. Duration uses validated current-attempt
+startedAt/parsedAt wall-clock events, without lifecycle/schema changes or legacy
+elapsed inference; the UI labels its recorded-event basis. The review
 bridge validates the exact nullable attempt/trace/review identity and eligibility
 again immediately before constructing existing ImportStaging inputs and pushing
 the route. The historical task_center_projection helper remains for compatibility

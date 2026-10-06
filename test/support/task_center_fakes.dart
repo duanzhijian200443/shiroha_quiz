@@ -10,6 +10,8 @@ TaskCenterItem taskItem(String id,
     TaskCenterAttemptStatus? attempt = TaskCenterAttemptStatus.readyForReview,
     String name = 'synthetic.pdf',
     int? time = 1791248400,
+    int? questionCount = 22,
+    int? warningCount = 1,
     bool enabled = true}) {
   final kind = switch (attempt) {
     TaskCenterAttemptStatus.queued => TaskCenterEventKind.queuedAt,
@@ -34,7 +36,8 @@ TaskCenterItem taskItem(String id,
       fileDisplayName: name,
       coarseStatus: status,
       attemptStatus: attempt,
-      counts: TaskCenterCounts(questionCount: 22, warningCount: 1),
+      counts: TaskCenterCounts(
+          questionCount: questionCount, warningCount: warningCount),
       eventTime: TaskCenterEventTime(
           kind: kind, utcSeconds: kind == null ? null : time),
       actions: TaskCenterActionEligibility(
@@ -73,6 +76,11 @@ class TaskCenterFake extends Fake
   final List<TaskCenterTaskTarget> targets = [];
   final List<Completer<HomeTrainingResult<TaskCenterSnapshot>>> readGates = [];
   Completer<void>? actionGate, pickerGate;
+  final List<Completer<HomeTrainingResult<TaskCenterDetail>>> detailGates = [];
+  int detailReads = 0;
+  String? detailTrace = 'trace-current';
+  int? detailDuration = 154;
+  bool detailUnavailable = false;
   TaskCenterCompletedSnapshot? issued, submitted;
   TaskCenterDependencies get ports => TaskCenterDependencies(
       query: this,
@@ -100,8 +108,24 @@ class TaskCenterFake extends Fake
   }
 
   @override
-  Future<HomeTrainingResult<TaskCenterItem>> detail(String id) async =>
-      HomeTrainingSuccess(items.firstWhere((i) => i.target.taskId == id));
+  Future<HomeTrainingResult<TaskCenterDetail>> detail(String id) async {
+    detailReads++;
+    if (detailGates.isNotEmpty) return detailGates.removeAt(0).future;
+    if (detailUnavailable) {
+      return const HomeTrainingFailed(HomeTrainingFailure.unavailable);
+    }
+    final item = items.firstWhere((i) => i.target.taskId == id);
+    return HomeTrainingSuccess(TaskCenterDetail(
+        taskId: id,
+        fileDisplayName: item.fileDisplayName,
+        coarseStatus: item.coarseStatus,
+        attemptStatus: item.attemptStatus,
+        counts: item.counts,
+        eventTime: item.eventTime,
+        traceId: detailTrace,
+        durationSeconds: detailDuration));
+  }
+
   @override
   Future<HomeTrainingResult<TaskCenterCompletedSnapshot>>
       snapshotCompletedForCleanup() async {

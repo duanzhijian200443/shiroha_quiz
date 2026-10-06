@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// Reference palette scoped to Today; other destinations keep the app theme.
+/// Reference palette shared by Today and TaskCenter destinations.
 ThemeData todayVisualTheme(ThemeData base) {
   final dark = base.brightness == Brightness.dark;
   final ink = dark ? const Color(0xFFEAEAF0) : const Color(0xFF303238);
