@@ -119,6 +119,10 @@ class HomeTrainingFake extends Fake
                 ? TrainingCurrentContentState.unconfigured
                 : TrainingCurrentContentState.usable),
         categories: groups.map((g) => g.categoryKey),
+        categoryVisuals: {
+          for (final group in groups)
+            group.categoryKey: group.preference.visualKey
+        },
         newCount: content == null
             ? const HomeTrainingFailed(HomeTrainingFailure.unavailable)
             : HomeTrainingSuccess(TrainingCount(newCount)),

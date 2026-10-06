@@ -28,13 +28,17 @@ final class TaskCenterFacade
   static String _newSnapshotId() =>
       'cleanup-${DateTime.now().microsecondsSinceEpoch}-${_random.nextInt(0x7fffffff)}';
 
-  TaskCenterItem _project(ImportTask task) {
-    final target = _manager.taskCenterTarget(task.id);
+  ({
+    String name,
+    TaskCenterCoarseStatus coarse,
+    TaskCenterAttemptStatus? attempt,
+    TaskCenterEventTime event
+  }) _facts(ImportTask task) {
     const legacyPrefix = '文档解析任务:';
     final name = task.title.startsWith(legacyPrefix)
         ? task.title.substring(legacyPrefix.length).trim()
         : task.title;
-    if (target == null || !isSafeTaskCenterDisplayName(name)) {
+    if (!isSafeTaskCenterDisplayName(name)) {
       throw const HomeTrainingContractException(
           HomeTrainingFailure.unavailable);
     }
@@ -73,6 +77,26 @@ final class TaskCenterFacade
           _ => (null, null),
         },
     };
+    return (
+      name: name,
+      coarse: coarse,
+      attempt: attempt,
+      event: TaskCenterEventTime(kind: kind, utcSeconds: time)
+    );
+  }
+
+  TaskCenterCounts _counts(ImportTask task) => TaskCenterCounts(
+      questionCount: task.parsedData?.length,
+      warningCount: task.warnings?.length);
+
+  TaskCenterItem _project(ImportTask task) {
+    final target = _manager.taskCenterTarget(task.id);
+    if (target == null) {
+      throw const HomeTrainingContractException(
+          HomeTrainingFailure.unavailable);
+    }
+    final facts = _facts(task);
+    final attempt = facts.attempt;
     final busy = _manager.isTaskCenterBusy(task.id);
     final ocr = task.parseMode == 'ocr';
     final retry = !busy &&
@@ -95,13 +119,11 @@ final class TaskCenterFacade
             attempt == TaskCenterAttemptStatus.readyForReview);
     return TaskCenterItem(
         target: target,
-        fileDisplayName: name,
-        coarseStatus: coarse,
+        fileDisplayName: facts.name,
+        coarseStatus: facts.coarse,
         attemptStatus: attempt,
-        counts: TaskCenterCounts(
-            questionCount: task.parsedData?.length,
-            warningCount: task.warnings?.length),
-        eventTime: TaskCenterEventTime(kind: kind, utcSeconds: time),
+        counts: _counts(task),
+        eventTime: facts.event,
         actions: TaskCenterActionEligibility(
             cancel: !busy &&
                 ocr &&
@@ -129,7 +151,7 @@ final class TaskCenterFacade
   }
 
   @override
-  Future<HomeTrainingResult<TaskCenterItem>> detail(String taskId) async {
+  Future<HomeTrainingResult<TaskCenterDetail>> detail(String taskId) async {
     try {
       await _manager.ready;
       if (!_manager.taskCenterAvailable) {
@@ -139,7 +161,47 @@ final class TaskCenterFacade
       if (tasks.isEmpty) {
         return const HomeTrainingFailed(HomeTrainingFailure.notFound);
       }
-      return HomeTrainingSuccess(_project(tasks.single));
+      final task = tasks.single;
+      final facts = _facts(task);
+      final raw = task.diagnostics;
+      final number = raw?[TaskManager.keyAttemptNumber];
+      final token = raw?[TaskManager.keyAttemptToken];
+      final trace = raw?[TaskManager.keyTraceId];
+      final mode = raw?[TaskManager.keyParseMode];
+      // Only strict current-attempt metadata is admitted. In particular, never
+      // use ImportTask's legacy number defaults or stringify arbitrary values.
+      final current = mode is String &&
+          mode == 'ocr' &&
+          facts.attempt != null &&
+          number is int &&
+          number > 0 &&
+          token is String &&
+          isSafeTaskCenterToken(token) &&
+          trace is String &&
+          isSafeTaskCenterDetailTrace(trace) &&
+          task.traceId == trace &&
+          raw?[TaskManager.keyParentTraceId] != trace;
+      final started = task.attemptStartedAt;
+      final parsed = task.parsedAt;
+      final duration = current &&
+              facts.attempt == TaskCenterAttemptStatus.readyForReview &&
+              (facts.coarse == TaskCenterCoarseStatus.pendingReview ||
+                  facts.coarse == TaskCenterCoarseStatus.completed) &&
+              started != null &&
+              started >= 0 &&
+              parsed != null &&
+              parsed >= started
+          ? parsed - started
+          : null;
+      return HomeTrainingSuccess(TaskCenterDetail(
+          taskId: task.id,
+          fileDisplayName: facts.name,
+          coarseStatus: facts.coarse,
+          attemptStatus: facts.attempt,
+          counts: _counts(task),
+          eventTime: facts.event,
+          traceId: current ? trace : null,
+          durationSeconds: duration));
     } catch (_) {
       return const HomeTrainingFailed(HomeTrainingFailure.unavailable);
     }
@@ -172,7 +234,11 @@ final class TaskCenterFacade
     try {
       final failure = await _manager.validateTaskCenterTarget(target);
       if (failure != null) return HomeTrainingFailed(failure);
-      final result = await detail(target.taskId);
+      // Command admission remains independent of detail-only diagnostics.
+      final tasks = _manager.tasks.where((task) => task.id == target.taskId);
+      final HomeTrainingResult<TaskCenterItem> result = tasks.isEmpty
+          ? const HomeTrainingFailed(HomeTrainingFailure.notFound)
+          : HomeTrainingSuccess(_project(tasks.single));
       if (result is HomeTrainingSuccess<TaskCenterItem>) {
         if (!_manager.matchesTaskCenterTarget(target)) {
           return const HomeTrainingFailed(HomeTrainingFailure.stale);

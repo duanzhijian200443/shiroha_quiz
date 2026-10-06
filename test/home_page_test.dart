@@ -406,7 +406,7 @@ void main() {
         studySessionLauncher: _OrdinaryLauncher());
     final banner =
         tester.getRect(find.byKey(const ValueKey('home-welcome-banner')));
-    expect(banner.width / banner.height, inInclusiveRange(2.9, 3.6));
+    expect(banner.height / banner.width, inInclusiveRange(.40, .43));
     final summaryIcon = find.descendant(
         of: find.byType(HomePage),
         matching: find.byIcon(Icons.bar_chart_rounded));
@@ -425,10 +425,7 @@ void main() {
             of: find.byType(HomePage), matching: find.byType(Image)))
         .map((image) => (image.image as AssetImage).assetName)
         .toSet();
-    expect(assets, {
-      'assets/images/today/welcome-landscape.png',
-      'assets/images/today/paper-pencil.png'
-    });
+    expect(assets, {'assets/images/today/welcome-landscape.png'});
     final homeContext =
         tester.element(find.byKey(const ValueKey('home-brand-title')));
     expect(Theme.of(homeContext).colorScheme.primary, const Color(0xFF303238));
@@ -646,35 +643,22 @@ void main() {
   });
 
   testWidgets(
-      'standalone exam entry retains creation menu and returns to the unified home',
+      'home retires calendar and exam entry while retaining plan and top actions',
       (tester) async {
     await pumpHome(tester);
     expect(find.byType(MockCenterScreen), findsNothing);
-    await tester.ensureVisible(find.byKey(const ValueKey('home-exam-entry')));
-    await tester.tap(find.byKey(const ValueKey('home-exam-entry')));
-    await tester.pump();
-    await tester.pump(const Duration(seconds: 1));
-    await tester.pump();
-    await pumpUntilFound(tester, find.text('暂无试卷记录'));
-    expect(
-        tester.widget<MockCenterScreen>(find.byType(MockCenterScreen)).embedded,
-        isFalse);
-    await tester.tap(find.byType(FloatingActionButton));
-    await tester.pump();
-    await tester.pump(const Duration(seconds: 1));
-    await tester.pump();
-    expect(find.text('AI 魔法组卷'), findsOneWidget);
-    expect(find.text('经典随机抽卷'), findsOneWidget);
-    Navigator.of(tester.element(find.text('组装新试卷'))).pop();
-    await tester.pump();
-    await tester.pump(const Duration(seconds: 1));
-    await tester.pump();
-    await tester.pageBack();
-    await tester.pump();
-    await tester.pump(const Duration(seconds: 1));
-    await tester.pump();
-    expect(find.byKey(const ValueKey('home-import-action')), findsOneWidget);
-    expect(find.byType(MockCenterScreen), findsNothing);
+    expect(find.byKey(const ValueKey('home-exam-entry')), findsNothing);
+    expect(find.byKey(const ValueKey('home-learning-activity')), findsNothing);
+    expect(find.text('模考与试卷'), findsNothing);
+    expect(find.textContaining('本周学习'), findsNothing);
+    expect(find.byKey(const ValueKey('home-view-plan')), findsOneWidget);
+    for (final key in [
+      'home-parse-action',
+      'home-training-config',
+      'home-import-action'
+    ]) {
+      expect(find.byKey(ValueKey(key)), findsOneWidget);
+    }
     expect(tester.takeException(), isNull);
   });
 
@@ -696,8 +680,7 @@ void main() {
         for (final key in [
           'home-training-card',
           'home-view-plan',
-          'home-learning-activity',
-          'home-exam-entry'
+          'home-import-action'
         ]) {
           await tester.ensureVisible(find.byKey(ValueKey(key)));
           await tester.pump();
@@ -1409,7 +1392,12 @@ void main() {
           find.byKey(const ValueKey<String>('home-parse-action')),
           findsOneWidget,
         );
-        expect(find.text('解析'), findsOneWidget);
+        expect(
+            tester
+                .widget<IconButton>(
+                    find.byKey(const ValueKey('home-parse-action')))
+                .tooltip,
+            '解析任务');
         final actionFinder =
             find.byKey(const ValueKey<String>('home-import-action'));
         expect(actionFinder, findsOneWidget);

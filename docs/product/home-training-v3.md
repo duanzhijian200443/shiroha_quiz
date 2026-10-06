@@ -2,6 +2,7 @@
 
 **契约标识：SHIROHA-HOME-TRAINING-IPF-V3**
 **冻结日期：2026-10-03**
+**首页 UI 范围修订日期：2026-10-06（用户确认的产品范围变更，见 §1.6）**
 **状态：产品与实施规划已冻结；分阶段实施中。当前调度依据本契约前置、roadmap 与 Git/merged PR 事实；精确执行事实看 Git/PR/CI/Reviewer evidence。**
 **替代关系：完整替代本专项 V2、V1，以及此前针对本专项的候选分析与修订建议。**
 
@@ -74,7 +75,7 @@ Git/PR/CI/Reviewer。
 - 按分类构建统一到期复习池；
 - 今日首页 v2 的 Category 横滑、当前 TrainingContent、翻页角和 Category Visual；
 - 新题/复习独立入口；
-- 真实学习时长、本周学习天数和轻量学习日历；
+- 真实学习时长记录与周聚合能力；首页学习日历、本周七日柱状图及学习时长摘要按 §1.6 退休；
 - 解析任务页面视觉重构；
 - TaskCenter Application facade；
 - ImportTask 当前 attempt 事件时间；
@@ -133,6 +134,49 @@ V2 其他产品与架构冻结继续有效。V3 新增或修订：
 
 ---
 
+## 1.6 今日首页 UI 范围修订（2026-10-06）
+
+性质：用户确认的产品范围变更。本节与 §6.8、§7、§12.8 共同构成后续实施与验收依据；写入契约不代表 UI 删除已经实现或实际视觉验收已经完成。
+
+### 首页信息结构
+
+新的今日首页以用户已确认的灰阶设计图为视觉依据。删除学习日历、本周七日柱状图、学习时长摘要，以及“模考与试卷”卡片和对应首页导航入口。
+
+保留欢迎 Banner、三项学习摘要、Category 横向轮播、TrainingContent 翻页角、新题与复习两个独立入口。训练配置、分类切换、新题及复习的既有冻结业务语义不变。
+
+首页顶部按解析任务、训练内容配置、创建/导入 `+` 顺序提供真实操作入口；解析任务保留现有 facade、真实 badge 与返回刷新。顶部训练配置使用轻线性开书图标，今日训练仍使用靶心。底部不重复解析/导入入口。
+
+同日用户补充确认：本轮不在今日训练增加成员题库详情入口，移除 production TrainingContent 首页直达入口，交由第二次训练配置页重构优化承接；该产品可达性要求延期，不删除题库详情能力或数据，也不重写本轮训练配置编辑器/选择器业务。
+
+训练配置 V2 后续修订：真实题库详情由配置页的新建/编辑流程中的选择器承接，具体导航与状态保留规则见 §4.1。首页成员题库直达入口仍保持退休。
+
+本次只确认学习日历和模考的首页退休，不删除 StudyPlan，也不修改其他业务功能；同日用户另行确认题库详情页番茄钟入口暂停并封存实现（正式决策与保留边界见 §7.5），属显式范围决策。§1.4 与 §7.5 的单一活动 StudyPlan、空状态及既有操作继续有效。
+
+### StudyActivity 边界
+
+删除首页展示，不删除学习时长记录能力。保留 StudyActivitySession、StudyActivitySegment、周聚合与原始历史记录；不修改 Practice、FSRS、计时生命周期及数据库 Schema。学习日历、七日柱状图或七日热力图不再是首页验收要求。
+
+### MockExam 暂时退休
+
+MockExam 不再作为 Shiroha V1 的用户可见功能入口，不再要求从今日首页进入 MockCenterScreen，也不将入口迁移到其他用户可见位置。
+
+保留既有 MockExam 实现、ExamRepository、试卷历史、评阅数据和持久化结构；不删除隐藏考试题库，不执行数据迁移或清理。倒计时、提交、StudyActivity wiring 及内部考试语义保留。后续是否彻底移除考试子系统单独评估。
+
+### 历史与覆盖关系
+
+历史 UI-R1 / UI-CL 及本专项已交付记录保持不变。本修订只覆盖其后续首页日历展示、学习时长摘要和 MockExam 产品可达性要求，包括 `ARCHITECTURE.md` §12、`docs/product/ui-finalization-ia-freeze.md` 与 `docs/product/today-home-refresh-freeze.md` 中对应的首页展示/考试入口条款；不改写历史交付事实，不改变这些文档的其他架构与业务约束。
+
+### 实施与验收边界
+
+- HomePage 不再构建学习日历、本周七日柱状图、学习时长摘要及模考入口。
+- 不因删除 UI 而移除 StudyActivity、ExamRepository 或修改数据模型。
+- 更新对应 Widget / Navigation 测试，不再断言上述模块必须出现在首页，并验证首页不再构建这些模块或导航到 MockCenterScreen。
+- 保证 Category 横滑、翻页角、新题、复习、训练配置和导入解析正常，保持 StudyPlan 既有功能。
+- 验证 Light/Dark、窄屏、放大字体及页面滚动。
+- 实际视觉效果必须单独验收；Widget 测试通过不等同于视觉验收。
+
+---
+
 # 2. 来源覆盖与冲突裁决
 
 ## 2.1 Drive 设计来源
@@ -148,6 +192,8 @@ V2 其他产品与架构冻结继续有效。V3 新增或修订：
 
 设计图中的名称、数字、日期、比例、计划卡和示例进度均为设计样例。生产 runtime 必须使用真实数据，不得将图中样例写死。
 
+上述设计来源中关于周视图、学习时长摘要及模考入口的展示要求由 §1.6 的 2026-10-06 修订覆盖；新的今日首页以用户已确认的灰阶设计图为视觉依据。
+
 ## 2.2 冲突裁决
 
 | 冲突 | V3 冻结 |
@@ -158,7 +204,7 @@ V2 其他产品与架构冻结继续有效。V3 新增或修订：
 | 编辑器出现 Visual | Visual 是 Category preference，不属于单个 content |
 | “做过”与 NEW 混淆 | NEW 退出继续由 ReviewState/FSRS 评分决定 |
 | 五类学习场景 | 本轮真正接入四类，第五类不新增入口 |
-| 旧首页暂缓学习时长 | 本轮在独立 durable authority 落地后激活 |
+| 旧首页暂缓学习时长 | 保留已落地的 durable 记录与周聚合；2026-10-06 起首页展示按 §1.6 退休 |
 | TaskCenter 文档说不改业务 | 保留既有业务 authority，只增加事件时间与 facade |
 | retry 可能需要文件 path | 文件选择只允许 ephemeral handoff，不进入 read/persisted DTO |
 
@@ -339,6 +385,12 @@ bindingStatus：
 列表支持查看、新增、编辑、设为当前、简单顺序调整、显示并修复 invalidated 配置。失效配置不隐藏、不自动删除、不进入首页快速 content cycle。空 Category 可进入选择器。不做复杂 drag reorder 或 TrainingContent nesting。
 
 选择器只展示属于当前 Category 且 OrdinaryTrainingBankEligibility == eligible 的真实题库，支持多选、已选数量、编辑时恢复 selection 与 invalidated member 修复上下文。
+
+训练配置 V2 使用灰阶卡片、Category preference 驱动的插画横幅和「新建训练内容」入口。列表左侧排序按钮及更多菜单复用既有上移/下移，不引入拖拽；更多菜单保留编辑与设为当前。编辑器比例总览与滑块在空间足够时并排，窄屏或放大字体时纵向排列；分类视觉控制仍可达，配置删除、显式 rebind、独立 content/preference CAS 和失败反馈语义不变。示例题量、题库类型不作为生产数据。普通训练内容/分类视觉保存成功提示约 2 秒后自动消失；错误和部分成功提示保留，新操作或页面销毁取消旧成功提示的关闭任务，不能误清后续错误。
+
+配置页每页仅显示一个 Category 的横幅、训练内容列表与显示顺序，不纵向重复拼接分类区块。按 Query 提供的 Category 顺序横向分页，横幅卡片左右中间放置小型上一/下一页箭头，保留至少 44×44 logical px 点击区；卡片下方用小圆点表示分页，当前页高亮，不显示数字页码或「分类」文案，支持左右滑动；首尾边界禁用对应按钮，单分类时两侧均禁用。浏览分类仅为本地 Presentation 状态，不写入 currentCategory/currentContent preference。刷新或编辑返回保留浏览的 CategoryKey；该分类已不存在时回到目录首项，无分类时展示原有空态。新建、编辑、设为当前和顺序调整仍作用于正在浏览的分类，CAS 与 admission 由既有 Application 权威裁决。
+
+选择器每条当前可用且无原失效绑定的真实题库，在 checkbox 左侧提供独立「查看题库详情：{bankName}」按钮。上层 composition 注入 typed async navigation callback，复用既有 BankDetailScreen 与 Application 依赖；选择器不访问数据库或全局单例。点击详情不切换选择、不进入下一步、不保存草稿。打开前和返回后通过现有只读配置 Query 刷新 catalog；读失败、缺失、已移出分类、不 eligible 或原绑定 invalidated 时不允许打开。返回保留搜索文本、滚动位置、已选集合及编辑草稿，变化后的原选择保留移除/失效上下文，不自动恢复绑定或重播保存。后续保存继续由既有 fresh admission 与 revision CAS 裁决。题库详情页自身的显式操作继续遵守其原确认契约。
 
 编辑器包含名称、关联题库、1～100 Slider、−/+ 微调、多题库比例、环形总览、每 bank 比例滑块、预计理想 quota、上移/下移、删除 content。
 
@@ -644,7 +696,9 @@ widget dispose、lifecycle callback、route pop、submit callback、checkpoint t
 
 计时写失败不得阻止 answer/grading/ReviewState/submit/Practice 正常退出，但不能以“0 分钟”冒充完整统计。projection 必须能表达 unavailable/partial/recorded-only。禁止对不确定写入自动 replay 造成重复 duration，也禁止根据 wall-clock 或题数猜补。
 
-## 6.8 首页周聚合
+## 6.8 保留的周聚合能力（首页展示退休）
+
+周聚合与原始历史记录继续保留，首页不再展示学习日历、七日柱状图或学习时长摘要。下述数据口径继续有效，不产生恢复首页展示或新增统计页面的要求。
 
 周定义 Monday→Sunday，使用用户系统当前本地周。
 
@@ -652,7 +706,7 @@ widget dispose、lifecycle callback、route pop、submit callback、checkpoint t
 
 未来日期不显示完成；空成功查询显示真实 0，查询失败显示 unavailable。禁止从 ReviewLog、Question count、Attempt count、Pomodoro 推算时长。不回填历史时长，不把本周学习天数称为连续学习天数。
 
-内部保留毫秒；UI 向下取整整数分钟；0<duration<60s 显示“小于 1 分钟”。
+内部保留毫秒；保留的时长展示口径为向下取整整数分钟，0<duration<60s 显示“小于 1 分钟”；该口径不要求首页继续展示时长。
 
 ---
 
@@ -660,13 +714,19 @@ widget dispose、lifecycle callback、route pop、submit callback、checkpoint t
 
 ## 7.1 信息结构
 
-品牌/今日 → 欢迎 Banner → 三项学习摘要 → 今日训练(Category + 当前 TrainingContent) → 单一活动 StudyPlan → 学习日历与本周时长 → 模考与试卷 → 创建/导入/TaskCenter 等次级入口。
+品牌与解析任务/训练配置/创建导入顶部操作 → 今日 → 欢迎 Banner → 三项学习摘要 → 今日训练(Category + 当前 TrainingContent，含翻页角及新题/复习独立入口) → 单一活动 StudyPlan → 保留的其他次级入口与轻装饰留白。
+
+学习日历、本周七日柱状图、学习时长摘要及“模考与试卷”卡片/首页导航入口按 §1.6 退休。StudyPlan 继续保留，不因本次首页范围修订移除。
 
 一级导航保持：今日｜助手｜我的。不增加 mode selector、第四 tab 或嵌入式考试 polling。
+
+欢迎 Banner 保留动态时段问候与灰阶山景/猫/植物插画；手机内容宽度下高度约为宽度的 0.40～0.43，放大文字允许增高。没有可靠连续学习天数 authority 时使用不含数字的中性胶囊文案，禁止把本周学习天数当作连续天数。底部轻山景装饰不承载操作或统计，不遮挡滚动与导航。
 
 ## 7.2 三项摘要
 
 继续使用题库题量、已掌握、今日已练。
+
+三卡依序对应柱形统计、勾选、火焰图标；数字与标签使用真实快照。
 
 范围为当前可用 TrainingContent 的所有关联 ordinary-training-eligible banks，Question distinct。0% member 仍属于 relation，因此三项摘要包含 0% member；只有新题候选数排除 0%。
 
@@ -678,14 +738,22 @@ widget dispose、lifecycle callback、route pop、submit callback、checkpoint t
 
 外层横滑切 Category；当前分类为主卡；下一 Category 露出约 15%～20%；单 Category 不制造假邻卡；pagination dots 只表示 Category；无第二层横滑/chips/dropdown。
 
-当前卡右上角使用固定 folded page corner。点击按 (sortOrder, contentId) 切下一个 usable content。只有一个 usable content 时隐藏；没有 usable content 时显示配置 CTA；invalidated content 不进入快速 cycle。
+当前卡右上角使用固定 folded page corner。点击按 (sortOrder, contentId) 切下一个 usable content。只有一个 usable content 时隐藏；没有 usable content 时在分类卡外显示配置 CTA；invalidated content 不进入快速 cycle。
 
 动画约 200ms 局部替换，不使用 refresh/loop/sync 图标，遵守 Reduce Motion。可访问性 hit target 不能只限装饰尖角，semantic label 为“切换下一个训练内容”。
+
+翻页角可见区域应有纸张正反面明度区别、折痕曲线、柔和投影及掀起轮廓，Light/Dark 均可辨认；保留 48×48 logical px 点击区。分类主卡继续保留至少 180 logical px 的冻结高度，用户明确接受其相对参考图更高；不得为匹配图稿比例擅自降低此下限。
+
+分类卡使用灰阶学习插画和左侧文字衬底；数学使用透明纸绘插画，主体集中在右下区域，不使用摄影背景；卡高至少 180 logical pixels，文字过长或放大时继续增高。数学与英语使用独立插画，计算机与通用学习使用本地学习素材回退。已保存的 Category Visual preference 优先于分类名的默认关键词匹配。装饰图不包含训练标题或统计数据，深色模式保留文字对比度。新题与复习作为分类容器下方的两张独立卡片，正常字号下使用横向图标/数量/标题布局，放大字体时允许纵向展开。
+
+首页不再构建学习日历、七日柱状图或学习时长摘要；不以热力图或其他周视图替代。StudyActivity 记录和周聚合按 §6 保留。
 
 ## 7.4 新题与复习入口
 
 新题：current TrainingContent + positive-weight NEW pool。
 复习：current Category complete due review pool。
+
+两入口使用分类卡与分页点下方独立横向短卡，显示真实题数与简短标签“新题”“复习”；放大字体允许重排，业务语义不变。
 
 同一 Category 切换 content 时，新题 count 与三项 content summary 更新，但 Category review count 与 StudyPlan 不应变化。
 
@@ -695,19 +763,21 @@ loading、real zero、unavailable、unconfigured 必须区分。真实 0 弱化�
 
 继续复用 singleton StudyPlan，保留真实 title/查看计划/开始特训/停止计划，并区分 no plan、unavailable、no candidate、query failure。不得展示多卡 carousel、假名称、假百分比或 N/M 进度。
 
-保留题库详情、补充答案、全局错题本、文件/拍照导入、TaskCenter、MockExam 创建/历史/评阅、Assistant/Profile。
+保留题库详情及补充答案能力、全局错题本、文件/拍照导入、TaskCenter、Assistant/Profile。production TrainingContent 首页的成员题库详情直达入口按 §1.6 用户补充确认移除，由 §4.1 训练配置选择器承接真实题库详情；legacy bank-scoped compatibility 路径保留。MockExam 创建/历史/评阅实现与数据保留，但按 §1.6 暂时退休用户可见入口，不再要求从今日首页进入 MockCenterScreen。
 
-融合 TrainingContent 的题库详情入口应列出真实 member banks，不跳转虚构融合题库。
+后续训练配置页承接融合 TrainingContent 的题库详情时，应列出真实 member banks，不跳转虚构融合题库。
+
+题库详情 V2 保留动态真实 bankName 和单列「开始练习」「专项练习」「题库管理」分组，复用 Today 灰阶主题与既有纸张装饰资源。全类型/选择/填空/简答分别沿用 bank-scoped filterType null/0/2/3、ordinaryPractice 的 bank context、Practice commands 和原 route 配置；不转成 Category review、TrainingContent 或 StudyPlan 会话。浏览题库保持原查询/变更/typed answer 依赖；「补充答案」只在既有 AnswerCompletionDependenciesScope 存在时显示。删除入口收进更多菜单，保留原确认、Application mutation guard、保留历史与引用阻断、失败提示和成功返回。题库详情 V2 退休本页番茄钟开关、UI 状态与启用标志传递。按 2026-10-06 用户确认的正式产品决策：番茄钟暂时不对用户开放，底层实现封存保留，供未来重新启用。该开关此前是 production 唯一传入 isPomodoroActive: true 的调用方；退休后 production 已不存在任何用户可见的番茄钟启动入口。PracticePage.isPomodoroActive 公开构造参数、计时与 UI 分支、insertPomodoroSession 持久化路径及 pomodoro_sessions 历史数据全部保留，但当前不可达（启动恒为 false 默认值）。不新增替代入口、不重新设计、不删除数据或兼容代码；这是有意暂停而非功能删除，未来恢复需要单独任务与验收（含入口形态与实机验收）。全局计时兼容与 StudyActivity 语义不变。
 
 刷新触发包括 import/Practice/config/题库删除或分类移动/StudyPlan detail/Today reactivation/app resumed。每次 query 带 context generation，late result 不覆盖新 selection，dispose 后不 publish。Home refresh 禁止触发 Practice、模型、OCR、catalog self-heal 或 durable write。
 
 ## 7.6 页面改造策略
 
-保留现有 HomePage 作为最终装配位置，优先复用 Banner/PlanCard/design token。新增 Category training card、page corner、weekly activity view 等纯展示组件。
+保留现有 HomePage 作为最终装配位置，优先复用 Banner/PlanCard/design token，以及 Category training card、page corner 等纯展示组件。HomePage 不再构建学习日历及模考入口，不因 UI 退休删除 StudyActivity、ExamRepository 或修改数据模型。
 
 TodayController 负责 loading/generation/UI context state，不计算 quota、eligibility、FSRS 或业务 selection。Application query 提供完整 snapshot。
 
-不复制 Mobile/Desktop 两套业务页面。Practice 保留当前视觉只接 scope/StudyActivity 生命周期；MockExam 保留倒计时和提交，只接 StudyActivity。
+不复制 Mobile/Desktop 两套业务页面。Practice、FSRS 与计时生命周期保持；既有 MockExam 倒计时、提交和 StudyActivity wiring 保留，本次不改造考试子系统。
 
 ---
 
@@ -774,7 +844,15 @@ TaskCenter → emit RetryFileSelectionRequest(task target) → composition/prese
 
 ## 8.7 视觉
 
-低饱和灰/蓝、无明显蓝色卡片描边、无旧高饱和紫主 CTA、统一线性图标。卡片显示文件名、状态、安全计数、正确事件时间和操作；文件名最多两行；提供 empty state、CTA、refresh。Light/Dark 共用业务组件。渲染、切 tab、自动刷新不得触发 OCR/Provider。
+TaskCenter V2 复用 Today 灰阶主题：中性深灰选择态与 CTA、弱边框/阴影、大圆角和本地纯装饰文档图形；错误仍通过文字/图标识别。四状态优先单行，宽度或文字缩放不允许时横向滚动，完整保留文字/计数和至少 44×44 logical px 点击区。卡片显示文件名、状态、安全计数、正确事件时间和操作；文件名最多两行；提供 empty state、CTA、refresh。Light/Dark 共用业务组件。渲染、切 tab、自动刷新不得触发 OCR/Provider。
+
+## 8.8 只读详情投影
+
+列表卡体与「查看详情」打开同一个独立只读 Bottom Sheet，不复用操作卡片；详情不含校对、重试、取消、删除或清理命令。列表继续只用原 Application eligibility 和 captured target 执行操作。详情等待、失败、dismiss/dispose 与重复点击不得重新打开旧 route 或把旧任务结果发布到新面板；返回任务 ID 不匹配时失败关闭信息投影。
+
+`TaskCenterQuery.detail` 返回窄化 `TaskCenterDetail`：文件显示名、真实状态、nullable 安全计数、事件时间、nullable Trace ID 与 durationSeconds。不带 command target、attempt token、eligibility、raw diagnostics、source path 或异常。列表 DTO 不增加 Trace ID/耗时展示字段。Facade 从现有受控当前 attempt 字段读取；只接受 OCR、已记录的合法 attempt state、正整数 attempt number、合法非空 token、String 类型且匹配 `[A-Za-z0-9][A-Za-z0-9_-]{0,127}` 的 opaque Trace ID，不使用兼容 getter 推测 attempt number，不接受与 parent trace 相同的当前 trace。缺失/不可信信息保持 null。仅点击明确复制按钮后写入此安全 ID，缺失时显示「未记录」并禁用复制。
+
+解析耗时仅在可信当前 attempt 为 readyForReview 且 coarse 为 pendingReview/completed、startedAt/parsedAt 均存在且非负并且 parsedAt ≥ startedAt 时投影 `parsedAt - attemptStartedAt`。界面标注「按记录事件时间计算：解析开始到结果发布」，不承诺单调计时、CPU 或模型耗时。不使用 createdAt/completedAt/legacy elapsed/当前时间推测。历史/缺失/异常顺序/重试后未发布结果保持 null；沿用原 accepted retry 原子清空时间与替换 trace 的权威，不回填或改变生命周期/schema。
 
 ---
 
@@ -949,7 +1027,7 @@ P0 禁止宣称 v29/v30/v31 已存在、Home v2 已 production、Activity timing
 | TrainingContent production | Today/Home current contract |
 | Home v2 production | Today/IA current contract |
 | Practice Activity production | Practice lifecycle amendment |
-| Weekly duration production | Today deferred clause |
+| Weekly duration production | 历史激活同步 Today deferred clause；后续首页展示按 §1.6 退休，保留记录与周聚合 |
 | TaskCenter facade production | current TaskCenter implementation truth |
 | final closure | Roadmap + V3 canonical contract + 实际发生 durable truth 变化的其他 focused contracts |
 
@@ -1018,7 +1096,11 @@ CP4：整体 scope、navigation、current docs、accessibility、visual acceptan
 
 ## 12.8 UI / Reachability
 
-360×720、1024×768、放大字体、Light/Dark、Category peek、pagination、page corner/accessibility/Reduce Motion、无第二层 carousel/chips/dropdown/假多计划、loading/zero/unavailable/unconfigured、invalidated repair、0% 说明、content 切换不改变同 Category review 或 StudyPlan、既有次级入口可达、return refresh/latest-wins/repeated-start guard、无第五 scene 页面。实机视觉验收必须单独记录，静态 widget test 不等价于实机视觉闭合。
+360×720、390×844、1024×768、放大字体、Light/Dark、页面滚动、Category peek/横滑、pagination、page corner/accessibility/Reduce Motion、新题/复习独立启动、顶部解析/训练配置/+ 顺序与点击区、真实 TaskCenter badge/返回刷新、训练配置与导入解析可用、无第二层 carousel/chips/dropdown/假多计划、loading/zero/unavailable/unconfigured、invalidated repair、0% 说明、content 切换不改变同 Category review 或 StudyPlan、除 §1.6 退休的 MockExam 与明确延期的成员题库详情首页入口外既有次级入口可达、return refresh/latest-wins/repeated-start guard、无第五 scene 页面。
+
+Widget / Navigation 测试不再要求学习日历、七日柱状图/热力图、学习时长摘要及模考入口出现在首页，须验证 HomePage 不构建退休模块、没有首页 MockCenterScreen 导航入口，同时保留欢迎 Banner、三项学习摘要、Category 轮播、翻页角、新题/复习、StudyPlan 与其他既有功能。学习时长记录、周聚合及考试实现/历史/持久化结构的保留边界不因 UI 删除而变化。
+
+实际视觉效果必须单独验收并记录；Widget 测试通过不等同于实机视觉验收闭合。
 
 ---
 

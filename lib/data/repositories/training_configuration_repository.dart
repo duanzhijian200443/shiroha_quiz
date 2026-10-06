@@ -283,6 +283,10 @@ final class TrainingConfigurationRepository
             if (category.contents.isNotEmpty) category.categoryKey,
         }.toList()
           ..sort(compareTrainingCategories);
+        final visualByCategory = {
+          for (final category in context.categories)
+            category.categoryKey: category.preference.visualKey,
+        };
         const missing = HomeTrainingFailure.unavailable;
         HomeTrainingResult<TrainingCount> newCount =
             const HomeTrainingFailed(missing);
@@ -344,6 +348,9 @@ final class TrainingConfigurationRepository
         return TodayTrainingSnapshot(
             selection: selection,
             categories: visible,
+            categoryVisuals: {
+              for (final key in visible) key: visualByCategory[key]
+            },
             newCount: newCount,
             categoryReviewCount: review,
             summary: summary);

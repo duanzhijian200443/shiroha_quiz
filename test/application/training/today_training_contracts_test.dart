@@ -23,6 +23,7 @@ void main() {
     final snapshot = TodayTrainingSnapshot(
         selection: _unconfigured(),
         categories: categories,
+        categoryVisuals: {_category: null},
         newCount: const HomeTrainingFailed(HomeTrainingFailure.notFound),
         categoryReviewCount: HomeTrainingSuccess(TrainingCount(8)),
         summary: const HomeTrainingFailed(HomeTrainingFailure.notFound));
@@ -35,7 +36,9 @@ void main() {
     expect(snapshot.selection.state, TrainingCurrentContentState.unconfigured);
     expect(snapshot.newCount, isA<HomeTrainingFailed<TrainingCount>>());
     expect(snapshot.categories, [_category]);
+    expect(snapshot.categoryVisuals, {_category: null});
     expect(() => snapshot.categories.clear(), throwsUnsupportedError);
+    expect(() => snapshot.categoryVisuals.clear(), throwsUnsupportedError);
   });
 
   test(
@@ -62,11 +65,13 @@ void main() {
     final snapshot = TodayTrainingSnapshot(
         selection: selection,
         categories: [_category],
+        categoryVisuals: {_category: CategoryVisualKey.english},
         newCount: HomeTrainingSuccess(TrainingCount(0)),
         categoryReviewCount:
             const HomeTrainingFailed(HomeTrainingFailure.unavailable),
         summary: HomeTrainingSuccess(TrainingContentSummary(
             totalCount: 100, masteredCount: 10, todayPracticedCount: 2)));
+    expect(snapshot.categoryVisuals[_category], CategoryVisualKey.english);
     expect(
         (snapshot.newCount as HomeTrainingSuccess<TrainingCount>).value.value,
         0);
@@ -87,7 +92,17 @@ void main() {
         () => TodayTrainingSnapshot(
             selection: _unconfigured(),
             categories: [_category],
+            categoryVisuals: {_category: null},
             newCount: HomeTrainingSuccess(TrainingCount(0)),
+            categoryReviewCount: HomeTrainingSuccess(TrainingCount(0)),
+            summary: const HomeTrainingFailed(HomeTrainingFailure.notFound)),
+        throwsA(isA<HomeTrainingContractException>()));
+    expect(
+        () => TodayTrainingSnapshot(
+            selection: _unconfigured(),
+            categories: [_category],
+            categoryVisuals: const {},
+            newCount: const HomeTrainingFailed(HomeTrainingFailure.notFound),
             categoryReviewCount: HomeTrainingSuccess(TrainingCount(0)),
             summary: const HomeTrainingFailed(HomeTrainingFailure.notFound)),
         throwsA(isA<HomeTrainingContractException>()));

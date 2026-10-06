@@ -1,10 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import '../../application/home_training_result.dart';
 import '../../application/task_center/task_center_contracts.dart';
 import '../dependencies/task_center_dependencies.dart';
 import '../task_center/task_center_controller.dart';
 import '../task_center/task_center_components.dart';
+import '../task_center/task_center_detail_sheet.dart';
+import '../home/today_visual_theme.dart';
 import '../theme/design_tokens.dart';
 
 class TaskCenterScreen extends StatefulWidget {
@@ -24,7 +25,8 @@ class _TaskCenterScreenState extends State<TaskCenterScreen>
     with WidgetsBindingObserver {
   TaskCenterController? _controller;
   bool _foreground = true, _covered = false;
-  int _messageRevision = 0, _detailGeneration = 0;
+  int _messageRevision = 0;
+  bool _detailOpen = false;
   @override
   void initState() {
     super.initState();
@@ -76,7 +78,6 @@ class _TaskCenterScreenState extends State<TaskCenterScreen>
 
   @override
   void dispose() {
-    ++_detailGeneration;
     WidgetsBinding.instance.removeObserver(this);
     _controller
       ?..removeListener(_changed)
@@ -118,37 +119,37 @@ class _TaskCenterScreenState extends State<TaskCenterScreen>
   }
 
   Future<void> _details(TaskCenterItem item) async {
-    final generation = ++_detailGeneration;
-    HomeTrainingResult<TaskCenterItem> result;
+    if (_detailOpen || !mounted) return;
+    _detailOpen = true;
     try {
-      result = await widget.dependencies!.query.detail(item.target.taskId);
-    } catch (_) {
-      result = const HomeTrainingFailed(HomeTrainingFailure.unavailable);
-    }
-    if (!mounted || generation != _detailGeneration) return;
-    if (result case HomeTrainingSuccess(:final value)) {
+      final theme = todayVisualTheme(Theme.of(context));
       await _cover(() => showModalBottomSheet<void>(
           context: context,
           showDragHandle: true,
           useSafeArea: true,
           isScrollControlled: true,
-          builder: (context) => SingleChildScrollView(
-              child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: TaskCenterTaskCard(
-                      item: value,
-                      busy: true,
-                      localize: widget.localize,
-                      onDetail: () {},
-                      onAction: (_) {})))));
-    } else {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('任务详情暂不可用')));
+          backgroundColor: theme.colorScheme.surface,
+          constraints:
+              const BoxConstraints(maxWidth: DesignTokens.contentMaxWidth),
+          builder: (context) => Theme(
+              data: theme,
+              child: TaskCenterDetailSheet(
+                  taskId: item.target.taskId,
+                  query: widget.dependencies!.query,
+                  localize: widget.localize))));
+    } finally {
+      _detailOpen = false;
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    return Theme(
+        data: todayVisualTheme(Theme.of(context)),
+        child: Builder(builder: _page));
+  }
+
+  Widget _page(BuildContext context) {
     final controller = _controller;
     final loading = controller?.phase == TaskCenterLoadPhase.loading;
     final unavailable = controller == null ||
@@ -156,17 +157,22 @@ class _TaskCenterScreenState extends State<TaskCenterScreen>
     final selected = controller?.selected ?? TaskCenterCoarseStatus.inProgress;
     final items = controller?.items ?? <TaskCenterItem>[];
     return Scaffold(
-        appBar: AppBar(backgroundColor: Colors.transparent, actions: [
-          PopupMenuButton<String>(
-              key: const ValueKey('task-center-page-menu'),
-              tooltip: '更多操作',
-              enabled: controller != null && !controller.cleanupBusy,
-              icon: const Icon(Icons.more_horiz_rounded),
-              onSelected: (_) => controller?.cleanup((count) =>
-                  _confirm('清理已完成记录', '清理 $count 条记录。仅删除解析任务记录，不影响已经保存的题库。')),
-              itemBuilder: (_) =>
-                  const [PopupMenuItem(value: 'clear', child: Text('清理已完成记录'))])
-        ]),
+        appBar: AppBar(
+            leading: const BackButton(),
+            backgroundColor: Colors.transparent,
+            scrolledUnderElevation: 0,
+            actions: [
+              PopupMenuButton<String>(
+                  key: const ValueKey('task-center-page-menu'),
+                  tooltip: '更多操作',
+                  enabled: controller != null && !controller.cleanupBusy,
+                  icon: const Icon(Icons.more_horiz_rounded),
+                  onSelected: (_) => controller?.cleanup((count) => _confirm(
+                      '清理已完成记录', '清理 $count 条记录。仅删除解析任务记录，不影响已经保存的题库。')),
+                  itemBuilder: (_) => const [
+                        PopupMenuItem(value: 'clear', child: Text('清理已完成记录'))
+                      ])
+            ]),
         body: Align(
             alignment: Alignment.topCenter,
             child: ConstrainedBox(
@@ -180,15 +186,7 @@ class _TaskCenterScreenState extends State<TaskCenterScreen>
                           child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('解析任务',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .headlineLarge
-                                        ?.copyWith(
-                                            fontWeight: FontWeight.w700)),
-                                const SizedBox(height: 6),
-                                const Text('查看文件解析与校对进度'),
-                                const SizedBox(height: 18),
+                                const TaskCenterHeader(),
                                 TaskCenterTabs(
                                     selected: selected,
                                     counts: {

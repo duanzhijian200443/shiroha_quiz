@@ -480,8 +480,10 @@ Finalization v0 truth. The current unified Today dashboard and lightweight
 single-plan detail are governed by `docs/product/today-home-refresh-freeze.md`:
 ordinary new/due entries prepare separate typed-aware pools through an
 Application launch port before opening normal Practice; plan selection/CAS
-semantics remain unchanged. Exam opens as a standalone MockCenter route,
-without a hidden embedded polling surface. The focused UI Finalization contract
+semantics remain unchanged. The 2026-10-06 amendment in
+`docs/product/home-training-v3.md` §1.6 retires the Home calendar/duration
+display and user-visible MockExam entry, retaining Activity timing, exam
+implementation and historical data. The focused UI Finalization contract
 governs only those Presentation decisions and does not alter any domain,
 application, persistence, provider, or schema boundary recorded in this
 document.
@@ -733,7 +735,14 @@ captured command/cleanup targets and never auto-replays stale actions. Event
 times use the exact event kind and system local conversion, with no legacy
 timestamp substitution. Legacy `文档解析任务:` titles are corrected only in the
 safe read projection, without rewriting stored titles. FilePicker input stays
-ephemeral inside the picker/ingestion compatibility boundaries. The review
+ephemeral inside the picker/ingestion compatibility boundaries. TaskCenter V2
+uses the Today gray palette and a separate read-only detail sheet. Its narrow
+detail query whitelists a bounded current-attempt opaque Trace ID and recorded
+start-to-publication duration; it never returns a command target, attempt token
+or raw diagnostics. Missing/untrusted facts stay null, and only an explicit copy
+tap writes the safe ID to the clipboard. Duration uses validated current-attempt
+startedAt/parsedAt wall-clock events, without lifecycle/schema changes or legacy
+elapsed inference; the UI labels its recorded-event basis. The review
 bridge validates the exact nullable attempt/trace/review identity and eligibility
 again immediately before constructing existing ImportStaging inputs and pushing
 the route. The historical task_center_projection helper remains for compatibility
@@ -767,12 +776,17 @@ relation summaries include 0% members and distinct local-day ReviewLog Questions
 TodayController rejects old generations, separates week and training failures,
 and uses exact preference CAS for settled Category selection and ordered usable
 content cycling. Stale commands reload without replay. Home consumes Application
-facts through Category pages, a folded corner and a seven-day Activity view.
+facts through Category pages and a folded corner; the 2026-10-06 Home UI
+amendment retires its seven-day Activity view without removing the query or
+durable recording capability.
 Only ready launches open the prepared normal Practice route with explicit
 ordinaryPractice/categoryReview context; the shared guard spans preparation and
 the route lifetime. Home opens the existing B2 configuration page, refreshes on
-return/reactivation/resume, and preserves real member-bank details and secondary
-entries. Production Home no longer consumes bank-scoped TodayContextQuery or
+return/reactivation/resume. Parse/configuration/create-import actions live in
+the header; the user deferred the production Home member-bank detail entry
+to a later configuration-page redesign, retaining its underlying capability.
+Other secondary entries and the real singleton StudyPlan remain.
+Production Home no longer consumes bank-scoped TodayContextQuery or
 PlanConfigScreen; their compatibility callers are retained.
 StudyPlan and TaskCenter boundaries above remain current truth. StudyPlan remains the single global ActiveStudyPlan and stays
 independent of TrainingContent. Delivery order, prerequisites and durable current

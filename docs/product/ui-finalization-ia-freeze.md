@@ -18,8 +18,12 @@ historical. `today-home-refresh-freeze.md` now governs the unified scrolling
 Today dashboard, with the Home Training V3 successor now implemented by B4:
 Category/current TrainingContent pages and independent new/Category-due entries,
 one real active-plan preview leading to a lightweight current-plan detail,
-segment-derived weekly learning days/duration and a
-standalone MockCenter entry. There is no Today mode selector or embedded exam
+with the 2026-10-06 `home-training-v3.md` §1.6 amendment retiring the
+calendar/duration display and user-visible MockCenter entry. Activity recording,
+weekly aggregation, exam implementation and historical data remain; the
+production Home member-bank detail entry is explicitly deferred to the later
+configuration-page redesign. Parse/configuration/create-import actions use
+the header. There is no Today mode selector or embedded exam
 polling surface. Primary navigation remains 今日 | 助手 | 我的. StudyPlan,
 FSRS, import, Assistant and Profile business contracts remain unchanged;
 complex statistics and full plan management remain deferred. The B4 contract at

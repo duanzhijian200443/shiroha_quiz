@@ -88,10 +88,96 @@ void main() {
     return task;
   }
 
-  Future<TaskCenterItem> item(String id) async =>
-      _success(await facade.detail(id));
+  Future<TaskCenterItem> item(String id) async => _success(await facade.read())
+      .items
+      .singleWhere((item) => item.target.taskId == id);
   Future<TaskCenterCompletedSnapshot> snapshot() async =>
       _success(await facade.snapshotCompletedForCleanup());
+
+  test(
+      'detail alone admits bounded current-attempt trace and recorded duration',
+      () async {
+    final task = await add(_task('detail', status: TaskStatus.pendingReview)
+      ..attemptStartedAt = 1000
+      ..parsedAt = 1154
+      ..completedAt = 9000);
+    task.diagnostics!['raw-provider'] = 'private-body';
+    final detail = _success(await facade.detail(task.id));
+    expect(detail.traceId, 'trace-detail');
+    expect(detail.durationSeconds, 154);
+    expect(detail.eventTime.utcSeconds, 1154);
+    expect(_success(await facade.read()).items.single, isA<TaskCenterItem>());
+    final before = task.toMap();
+    await facade.detail(task.id);
+    expect(task.toMap(), before);
+  });
+
+  var invalidIndex = 0;
+  for (final invalid in <Object?>[
+    null,
+    123,
+    '',
+    'has space',
+    'trace/secret',
+    'trace:secret',
+    'trace\nsecret',
+    'trace-secret\n',
+    'x' * 129
+  ]) {
+    test('detail rejects unsafe or untyped trace ${invalidIndex++}', () async {
+      final task = await add(_task('invalid'));
+      task.diagnostics![TaskManager.keyTraceId] = invalid;
+      final detail = _success(await facade.detail(task.id));
+      expect(detail.traceId, isNull);
+      expect(detail.durationSeconds, isNull);
+    });
+  }
+
+  test(
+      'missing, reversed, legacy and inconsistent attempt facts never invent duration',
+      () async {
+    final cases = <ImportTask>[
+      _task('missing-start')..attemptStartedAt = null,
+      _task('missing-publish')..parsedAt = null,
+      _task('negative-start')..attemptStartedAt = -1,
+      _task('reversed')..attemptStartedAt = 160,
+      _task('legacy', metadata: false),
+      _task('running', status: TaskStatus.processing, state: 'running'),
+      _task('failed', status: TaskStatus.error, state: 'failed'),
+      _task('absent-state', state: null),
+      _task('string-number')..diagnostics![TaskManager.keyAttemptNumber] = '1',
+      _task('no-token')..diagnostics!.remove(TaskManager.keyAttemptToken),
+      _task('invalid-mode')..diagnostics![TaskManager.keyParseMode] = 123,
+      _task('old-trace')
+        ..diagnostics![TaskManager.keyParentTraceId] = 'trace-old-trace',
+    ];
+    for (final task in cases) {
+      await add(task);
+      expect(_success(await facade.detail(task.id)).durationSeconds, isNull,
+          reason: task.id);
+    }
+  });
+
+  test('accepted retry exposes new trace without carrying previous duration',
+      () async {
+    final task = await add(
+        _task('retry-detail', status: TaskStatus.error, state: 'failed'));
+    expect(
+        await manager.restartAttempt(
+            const ImportAttemptRef(
+                taskId: 'retry-detail',
+                attemptNumber: 2,
+                attemptToken: 'new-token',
+                traceId: 'trace-new'),
+            parseMode: 'ocr',
+            explanationRetentionMode:
+                ExplanationRetentionMode.allQuestionTypes),
+        ImportAttemptWriteStatus.applied);
+    final detail = _success(await facade.detail(task.id));
+    expect(detail.traceId, 'trace-new');
+    expect(detail.durationSeconds, isNull);
+    expect(detail.eventTime.kind, TaskCenterEventKind.queuedAt);
+  });
 
   test('legacy title prefix is corrected only in safe read projection',
       () async {

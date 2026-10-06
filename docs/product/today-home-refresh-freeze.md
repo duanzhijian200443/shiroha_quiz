@@ -218,3 +218,11 @@ query failure 显示暂不可用。它不显示连续学习、不猜实时 open 
 旧 adapter/launcher/PlanConfigScreen 保留兼容而不作为 production Home authority。
 TaskCenter UI/I3、复杂统计与 B6 物理退休仍延期。实机视觉验收仍独立进行，
 合成 widget visual evidence 不等价于实机验收。
+
+## 2026-10-06 今日首页 UI 范围修订
+
+以上首页学习动态/日历、周学习时长与 MockCenter 可达性条款保留为历史交付背景；后续实施与验收由 `home-training-v3.md` §1.6、§7、§12.8 覆盖。HomePage 不再构建学习日历、七日柱状图/热力图、学习时长摘要及模考入口，不将模考迁移到其他用户可见位置。StudyActivity 记录/周聚合、考试实现/历史/持久化结构及单一 StudyPlan 保留，Practice、FSRS、计时 lifecycle 与 Schema 不变。
+
+顶部按解析任务、开书图标训练配置、创建/导入 `+` 顺序提供现有正式入口，并保留真实 TaskCenter badge 与返回刷新；底部不重复解析/导入。欢迎 Banner 增高，三摘要对应统计/勾选/火焰，Category 保留横滑/分页与可辨认的纸张卷角，新题/复习使用独立短卡。分类主卡仍至少 180 logical px，用户接受其相对图稿更高；无可靠连续天数 authority 时不展示虚构数字。
+
+同日用户明确不增加 production TrainingContent 首页成员题库详情入口，其可达性优化延期至第二次训练配置页重构；题库详情能力、真实 member identity 与数据保留，legacy compatibility 路径不变。此条覆盖前文首页必须直达融合题库详情的要求。历史 UI-R1/UI-CL 记录保持，实际视觉验收仍须独立记录。

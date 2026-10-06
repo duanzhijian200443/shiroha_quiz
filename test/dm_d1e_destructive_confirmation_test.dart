@@ -548,7 +548,9 @@ void main() {
           _QuestionBankConfirmationPersistence(failDelete: false);
       await _pumpBankDetailScreen(tester, persistence);
 
-      await tester.tap(find.byIcon(Icons.delete_outline));
+      await tester.tap(find.byKey(const ValueKey('bank-detail-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('删除题库'));
       await tester.pumpAndSettle();
       expect(find.textContaining('AnswerAttempt'), findsOneWidget);
       expect(find.textContaining('导出 B0 备份'), findsOneWidget);
@@ -566,7 +568,9 @@ void main() {
           _QuestionBankConfirmationPersistence(failDelete: false);
       await _pumpBankDetailScreen(tester, persistence);
 
-      await tester.tap(find.byIcon(Icons.delete_outline));
+      await tester.tap(find.byKey(const ValueKey('bank-detail-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('删除题库'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('彻底删除'));
       await tester.pumpAndSettle();
@@ -582,7 +586,9 @@ void main() {
           _QuestionBankConfirmationPersistence(failDelete: true);
       await _pumpBankDetailScreen(tester, persistence);
 
-      await tester.tap(find.byIcon(Icons.delete_outline));
+      await tester.tap(find.byKey(const ValueKey('bank-detail-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('删除题库'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('彻底删除'));
       await tester.pumpAndSettle();

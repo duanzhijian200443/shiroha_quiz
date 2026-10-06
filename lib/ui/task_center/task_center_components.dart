@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../application/task_center/task_center_contracts.dart';
+import '../theme/design_tokens.dart';
 import 'task_center_controller.dart';
 
 String taskCenterTabLabel(TaskCenterCoarseStatus status) =>
@@ -11,14 +12,17 @@ IconData taskCenterTabIcon(TaskCenterCoarseStatus status) => const [
       Icons.warning_amber_rounded
     ][status.index];
 String taskCenterStatusLabel(TaskCenterItem item) =>
-    switch (item.attemptStatus) {
+    taskCenterAttemptLabel(item.coarseStatus, item.attemptStatus);
+String taskCenterAttemptLabel(
+        TaskCenterCoarseStatus coarse, TaskCenterAttemptStatus? attempt) =>
+    switch (attempt) {
       TaskCenterAttemptStatus.queued => '排队中',
       TaskCenterAttemptStatus.running => '进行中',
       TaskCenterAttemptStatus.cancelRequested => '取消中',
       TaskCenterAttemptStatus.cancelled => '已取消',
       TaskCenterAttemptStatus.interrupted => '已中断',
       TaskCenterAttemptStatus.failed => '解析失败',
-      _ => taskCenterTabLabel(item.coarseStatus),
+      _ => taskCenterTabLabel(coarse),
     };
 String taskCenterSummary(TaskCenterItem item) {
   final count = item.counts.questionCount;
@@ -72,36 +76,179 @@ class TaskCenterTabs extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       LayoutBuilder(builder: (context, constraints) {
-        final wide = constraints.maxWidth >= 500 &&
-            MediaQuery.textScalerOf(context).scale(14) < 20;
-        return Wrap(spacing: 6, runSpacing: 6, children: [
-          for (final status in TaskCenterCoarseStatus.values)
-            SizedBox(
-                width:
-                    (constraints.maxWidth - (wide ? 18 : 6)) / (wide ? 4 : 2),
-                child: Semantics(
-                    selected: selected == status,
-                    button: true,
-                    child: Material(
-                        color: selected == status
-                            ? Theme.of(context).colorScheme.primaryContainer
-                            : Theme.of(context).colorScheme.surface,
-                        borderRadius: BorderRadius.circular(14),
-                        child: InkWell(
-                            key: ValueKey('task-category-${status.name}'),
-                            onTap: () => onSelect(status),
-                            borderRadius: BorderRadius.circular(14),
-                            child: Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Row(children: [
-                                  Icon(taskCenterTabIcon(status), size: 20),
-                                  const SizedBox(width: 6),
-                                  Flexible(
-                                      child: Text(
-                                          '${taskCenterTabLabel(status)} ${counts[status] ?? '—'}'))
-                                ]))))))
-        ]);
+        final colors = Theme.of(context).colorScheme;
+        final style =
+            Theme.of(context).textTheme.labelMedium!.copyWith(fontSize: 12);
+        final widths = <TaskCenterCoarseStatus, double>{};
+        for (final status in TaskCenterCoarseStatus.values) {
+          final painter = TextPainter(
+              text: TextSpan(
+                  text:
+                      '${taskCenterTabLabel(status)} ${counts[status] ?? '—'}',
+                  style: style),
+              textDirection: Directionality.of(context),
+              textScaler: MediaQuery.textScalerOf(context))
+            ..layout();
+          widths[status] = (painter.width + 34).clamp(48, double.infinity);
+          painter.dispose();
+        }
+        final total = widths.values.reduce((a, b) => a + b);
+        final available = constraints.maxWidth - 8;
+        final fits = total <= available;
+        return Material(
+            color: colors.surface,
+            borderRadius: BorderRadius.circular(20),
+            child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(children: [
+                      for (final status in TaskCenterCoarseStatus.values)
+                        SizedBox(
+                            width: widths[status]! +
+                                (fits ? (available - total) / 4 : 0),
+                            child: Semantics(
+                                selected: selected == status,
+                                button: true,
+                                child: Material(
+                                    color: selected == status
+                                        ? colors.onSurface.withValues(alpha: .8)
+                                        : colors.surface,
+                                    borderRadius: BorderRadius.circular(16),
+                                    child: InkWell(
+                                        key: ValueKey(
+                                            'task-category-${status.name}'),
+                                        onTap: () => onSelect(status),
+                                        borderRadius: BorderRadius.circular(16),
+                                        child: ConstrainedBox(
+                                            constraints: const BoxConstraints(
+                                                minHeight: 48),
+                                            child: Padding(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                        horizontal: 7,
+                                                        vertical: 10),
+                                                child: Row(
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment
+                                                            .center,
+                                                    children: [
+                                                      Icon(
+                                                          taskCenterTabIcon(
+                                                              status),
+                                                          size: 16,
+                                                          color: selected ==
+                                                                  status
+                                                              ? colors.surface
+                                                              : colors
+                                                                  .onSurfaceVariant),
+                                                      const SizedBox(width: 4),
+                                                      Text(
+                                                          '${taskCenterTabLabel(status)} ${counts[status] ?? '—'}',
+                                                          style: style.copyWith(
+                                                              color: selected ==
+                                                                      status
+                                                                  ? colors
+                                                                      .surface
+                                                                  : colors
+                                                                      .onSurfaceVariant)),
+                                                    ]))))))),
+                    ]))));
       });
+}
+
+class TaskCenterHeader extends StatelessWidget {
+  const TaskCenterHeader({super.key});
+  @override
+  Widget build(BuildContext context) =>
+      LayoutBuilder(builder: (context, constraints) {
+        final colors = Theme.of(context).colorScheme;
+        final decorate = constraints.maxWidth >= 340 &&
+            MediaQuery.textScalerOf(context).scale(16) <= 21;
+        return SizedBox(
+            width: double.infinity,
+            child: Stack(children: [
+              if (decorate)
+                Positioned(
+                    right: 0,
+                    top: 0,
+                    child: TaskCenterDocumentArt(
+                        color: colors.onSurfaceVariant, size: 120)),
+              Padding(
+                  padding: EdgeInsets.only(
+                      top: 6, bottom: 22, right: decorate ? 108 : 0),
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('解析任务',
+                            style: Theme.of(context)
+                                .textTheme
+                                .headlineLarge
+                                ?.copyWith(fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 8),
+                        Text('查看文件解析与校对进度',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(color: colors.onSurfaceVariant)),
+                      ])),
+            ]));
+      });
+}
+
+/// Local, decorative vector only; excluded from hit testing and semantics.
+class TaskCenterDocumentArt extends StatelessWidget {
+  const TaskCenterDocumentArt(
+      {super.key, required this.color, required this.size});
+  final Color color;
+  final double size;
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+      child: ExcludeSemantics(
+          child: SizedBox.square(
+              dimension: size,
+              child: CustomPaint(painter: _DocumentPainter(color)))));
+}
+
+class _DocumentPainter extends CustomPainter {
+  const _DocumentPainter(this.color);
+  final Color color;
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.scale(size.width / 120, size.height / 120);
+    canvas.drawOval(const Rect.fromLTWH(2, 20, 115, 90),
+        Paint()..color = color.withValues(alpha: .035));
+    canvas.save();
+    canvas.translate(40, 8);
+    canvas.rotate(.25);
+    canvas.drawRRect(
+        RRect.fromRectAndRadius(
+            const Rect.fromLTWH(0, 0, 66, 88), const Radius.circular(8)),
+        Paint()..color = color.withValues(alpha: .08));
+    final pen = Paint()
+      ..color = color.withValues(alpha: .16)
+      ..strokeWidth = 5
+      ..strokeCap = StrokeCap.round;
+    for (var i = 0; i < 4; i++) {
+      canvas.drawLine(
+          Offset(13, 21 + i * 13), Offset(i == 3 ? 36 : 49, 21 + i * 13), pen);
+    }
+    canvas.restore();
+    final glass = Paint()
+      ..color = color.withValues(alpha: .3)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 5
+      ..strokeCap = StrokeCap.round;
+    canvas.drawCircle(const Offset(91, 76), 17, glass);
+    canvas.drawLine(const Offset(103, 89), const Offset(115, 103), glass);
+    final leaf = Paint()..color = color.withValues(alpha: .17);
+    canvas.drawOval(const Rect.fromLTWH(8, 62, 13, 29), leaf);
+    canvas.drawOval(const Rect.fromLTWH(22, 81, 21, 11), leaf);
+  }
+
+  @override
+  bool shouldRepaint(_DocumentPainter oldDelegate) =>
+      oldDelegate.color != color;
 }
 
 class TaskCenterTaskCard extends StatelessWidget {
@@ -120,23 +267,20 @@ class TaskCenterTaskCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final statusColor = switch (item.coarseStatus) {
-      TaskCenterCoarseStatus.inProgress ||
-      TaskCenterCoarseStatus.completed =>
-        colors.onPrimaryContainer,
-      TaskCenterCoarseStatus.pendingReview =>
-        Theme.of(context).brightness == Brightness.dark
-            ? const Color(0xffcfb57b)
-            : const Color(0xff927239),
-      TaskCenterCoarseStatus.error => colors.error,
-    };
+    final statusColor = item.coarseStatus == TaskCenterCoarseStatus.error
+        ? colors.error
+        : colors.onSurfaceVariant;
     final actions = item.actions;
     return Card(
         key: ValueKey('import-task-${item.target.taskId}'),
-        elevation: 1,
+        elevation: 2,
+        surfaceTintColor: Colors.transparent,
         shadowColor: colors.shadow.withValues(alpha: .07),
-        margin: const EdgeInsets.only(bottom: 12),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        margin: const EdgeInsets.only(bottom: 16),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(DesignTokens.cardRadius + 6),
+            side:
+                BorderSide(color: colors.outlineVariant.withValues(alpha: .5))),
         child: InkWell(
             onTap: onDetail,
             borderRadius: BorderRadius.circular(20),
@@ -151,23 +295,39 @@ class TaskCenterTaskCard extends StatelessWidget {
                             Container(
                                 padding: const EdgeInsets.all(10),
                                 decoration: BoxDecoration(
-                                    color: colors.primaryContainer
-                                        .withValues(alpha: .5),
+                                    color: colors.surfaceContainerHighest,
                                     borderRadius: BorderRadius.circular(12)),
                                 child: Icon(Icons.description_outlined,
                                     color: colors.onSurfaceVariant)),
                             const SizedBox(width: 12),
                             Expanded(
-                                child: InkWell(
-                                    onTap: onDetail,
-                                    child: Text(item.fileDisplayName,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .titleMedium
-                                            ?.copyWith(
-                                                fontWeight: FontWeight.w600)))),
+                                child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                  Text(item.fileDisplayName,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleMedium
+                                          ?.copyWith(
+                                              fontWeight: FontWeight.w700)),
+                                  const SizedBox(height: 8),
+                                  Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 9, vertical: 4),
+                                      decoration: BoxDecoration(
+                                          color: statusColor.withValues(
+                                              alpha: .08),
+                                          borderRadius:
+                                              BorderRadius.circular(16)),
+                                      child: Text(taskCenterStatusLabel(item),
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .labelMedium
+                                              ?.copyWith(color: statusColor))),
+                                ])),
                             PopupMenuButton<TaskCenterAction>(
                                 key:
                                     ValueKey('task-menu-${item.target.taskId}'),
@@ -191,24 +351,14 @@ class TaskCenterTaskCard extends StatelessWidget {
                                 icon: const Icon(Icons.more_horiz_rounded)),
                           ]),
                       const SizedBox(height: 12),
-                      Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 5),
-                          decoration: BoxDecoration(
-                              color: statusColor.withValues(alpha: .09),
-                              borderRadius: BorderRadius.circular(10)),
-                          child: Text(taskCenterStatusLabel(item),
-                              style: TextStyle(color: statusColor))),
-                      const SizedBox(height: 10),
-                      Text(taskCenterSummary(item)),
+                      _TaskFactLine(
+                          icon: Icons.article_outlined,
+                          text: taskCenterSummary(item)),
                       const SizedBox(height: 8),
-                      Text(
-                          formatTaskCenterEventTime(item.eventTime,
-                              localize: localize),
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
-                              ?.copyWith(color: colors.onSurfaceVariant)),
+                      _TaskFactLine(
+                          icon: Icons.calendar_today_outlined,
+                          text: formatTaskCenterEventTime(item.eventTime,
+                              localize: localize)),
                       if (item.attemptStatus ==
                               TaskCenterAttemptStatus.running ||
                           item.attemptStatus ==
@@ -217,57 +367,97 @@ class TaskCenterTaskCard extends StatelessWidget {
                             padding: EdgeInsets.only(top: 10),
                             child: LinearProgressIndicator()),
                       const SizedBox(height: 12),
-                      const Divider(height: 1),
+                      Divider(height: 1, color: colors.outlineVariant),
                       const SizedBox(height: 8),
-                      Wrap(
-                          alignment: WrapAlignment.spaceBetween,
-                          spacing: 12,
-                          runSpacing: 4,
-                          children: [
-                            TextButton.icon(
-                                key: ValueKey(
-                                    'task-details-${item.target.taskId}'),
-                                style: TextButton.styleFrom(
-                                    foregroundColor: colors.onSurfaceVariant),
-                                onPressed: onDetail,
-                                icon: const Icon(Icons.info_outline_rounded,
-                                    size: 20),
-                                label: const Text('查看详情')),
-                            if (actions.review)
-                              FilledButton.tonalIcon(
-                                  key: ValueKey(
-                                      'task-review-${item.target.taskId}'),
-                                  style: FilledButton.styleFrom(
-                                      backgroundColor: colors.primaryContainer,
-                                      foregroundColor:
-                                          colors.onPrimaryContainer),
-                                  onPressed: busy
-                                      ? null
-                                      : () => onAction(TaskCenterAction.review),
-                                  icon: const Icon(Icons.edit_note_rounded),
-                                  label: const Text('去校对')),
-                            if (actions.retry)
-                              FilledButton.tonalIcon(
-                                  key: ValueKey(
-                                      'task-retry-${item.target.taskId}'),
-                                  style: FilledButton.styleFrom(
-                                      backgroundColor: colors.primaryContainer,
-                                      foregroundColor:
-                                          colors.onPrimaryContainer),
-                                  onPressed: busy
-                                      ? null
-                                      : () => onAction(TaskCenterAction.retry),
-                                  icon: const Icon(Icons.replay_rounded),
-                                  label: const Text('重试')),
-                            if (actions.cancel)
-                              TextButton(
-                                  key: ValueKey(
-                                      'task-cancel-${item.target.taskId}'),
-                                  onPressed: busy
-                                      ? null
-                                      : () => onAction(TaskCenterAction.cancel),
-                                  child: const Text('取消')),
-                          ]),
+                      SizedBox(
+                          width: double.infinity,
+                          child: Wrap(
+                              alignment: WrapAlignment.spaceBetween,
+                              spacing: 12,
+                              runSpacing: 4,
+                              children: [
+                                TextButton.icon(
+                                    key: ValueKey(
+                                        'task-details-${item.target.taskId}'),
+                                    style: TextButton.styleFrom(
+                                        minimumSize: const Size(48, 48),
+                                        foregroundColor:
+                                            colors.onSurfaceVariant),
+                                    onPressed: onDetail,
+                                    icon: const Icon(Icons.info_outline_rounded,
+                                        size: 20),
+                                    label: const Text('查看详情')),
+                                if (actions.review)
+                                  FilledButton.tonalIcon(
+                                      key: ValueKey(
+                                          'task-review-${item.target.taskId}'),
+                                      style: FilledButton.styleFrom(
+                                          minimumSize: const Size(104, 48),
+                                          backgroundColor: colors.onSurface
+                                              .withValues(alpha: .8),
+                                          foregroundColor: colors.surface,
+                                          shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(18))),
+                                      onPressed: busy
+                                          ? null
+                                          : () =>
+                                              onAction(TaskCenterAction.review),
+                                      icon: const Icon(Icons.edit_note_rounded),
+                                      label: const Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text('去校对'),
+                                            SizedBox(width: 4),
+                                            Icon(Icons.chevron_right_rounded,
+                                                size: 18)
+                                          ])),
+                                if (actions.retry)
+                                  FilledButton.tonalIcon(
+                                      key: ValueKey(
+                                          'task-retry-${item.target.taskId}'),
+                                      style: FilledButton.styleFrom(
+                                          minimumSize: const Size(104, 48),
+                                          backgroundColor: colors.onSurface
+                                              .withValues(alpha: .8),
+                                          foregroundColor: colors.surface,
+                                          shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(18))),
+                                      onPressed: busy
+                                          ? null
+                                          : () =>
+                                              onAction(TaskCenterAction.retry),
+                                      icon: const Icon(Icons.replay_rounded),
+                                      label: const Text('重试')),
+                                if (actions.cancel)
+                                  TextButton(
+                                      key: ValueKey(
+                                          'task-cancel-${item.target.taskId}'),
+                                      onPressed: busy
+                                          ? null
+                                          : () =>
+                                              onAction(TaskCenterAction.cancel),
+                                      child: const Text('取消')),
+                              ])),
                     ]))));
   }
+}
+
+class _TaskFactLine extends StatelessWidget {
+  const _TaskFactLine({required this.icon, required this.text});
+  final IconData icon;
+  final String text;
+  @override
+  Widget build(BuildContext context) =>
+      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(icon,
+            size: 18, color: Theme.of(context).colorScheme.onSurfaceVariant),
+        const SizedBox(width: 8),
+        Expanded(
+            child: Text(text,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    height: 1.5))),
+      ]);
 }
