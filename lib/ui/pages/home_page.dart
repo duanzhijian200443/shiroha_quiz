@@ -587,8 +587,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       await Navigator.push(
           context,
           MaterialPageRoute(
-              builder: (_) =>
-                  TrainingConfigurationPage(controller: controller)));
+              builder: (_) => TrainingConfigurationPage(
+                  controller: controller, onOpenBank: _openBankDetail)));
     } finally {
       controller.dispose();
       if (mounted) await _refresh();
@@ -974,8 +974,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _openBankSettings();
   }
 
-  void _openBankDetail(String bankName) {
-    Navigator.push(
+  Future<void> _openBankDetail(String bankName) async {
+    await Navigator.push<void>(
       context,
       MaterialPageRoute(
         builder: (_) => BankDetailScreen(
@@ -988,9 +988,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           practiceCommands: widget.practiceCommands,
         ),
       ),
-    ).then((_) {
-      if (mounted) _refresh();
-    });
+    );
+    if (mounted) await _refresh();
   }
 }
 

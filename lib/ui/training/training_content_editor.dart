@@ -6,16 +6,20 @@ import 'training_bank_selector.dart';
 import 'training_configuration_controller.dart';
 import 'training_content_draft.dart';
 import 'training_visuals.dart';
+import 'training_ui_theme.dart';
+import 'training_hero.dart';
 
 class TrainingContentEditor extends StatefulWidget {
   const TrainingContentEditor(
       {super.key,
       required this.controller,
       required this.draft,
-      required this.catalog});
+      required this.catalog,
+      this.onOpenBank});
   final TrainingConfigurationController controller;
   final TrainingContentDraft draft;
   final TrainingCatalogSnapshot catalog;
+  final TrainingBankNavigation? onOpenBank;
   @override
   State<TrainingContentEditor> createState() => _TrainingContentEditorState();
 }
@@ -111,6 +115,11 @@ class _TrainingContentEditorState extends State<TrainingContentEditor> {
         context,
         MaterialPageRoute(
             builder: (_) => TrainingBankSelector(
+                onOpenBank: widget.onOpenBank,
+                refreshCatalog: () async {
+                  await controller.load();
+                  return controller.snapshot?.catalog;
+                },
                 catalog: controller.snapshot?.catalog ?? widget.catalog,
                 categoryKey: draft.categoryKey,
                 members: draft.members)));
@@ -118,173 +127,292 @@ class _TrainingContentEditorState extends State<TrainingContentEditor> {
   }
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-        animation: controller,
-        builder: (context, _) => PopScope(
-          canPop: !controller.busy,
-          child: Scaffold(
-            appBar: AppBar(
-                title: Text(draft.original == null ? '新建训练内容' : '编辑训练内容'),
-                actions: [
-                  TextButton(
-                      onPressed:
-                          controller.busy || !draft.canSave ? null : _save,
-                      child: const Text('完成')),
-                ]),
-            body: AbsorbPointer(
-                absorbing: controller.busy,
-                child: TrainingPageBody(children: [
-                  if (controller.busy) const LinearProgressIndicator(),
-                  if (_message != null)
-                    Padding(
-                        padding: const EdgeInsets.only(bottom: 16),
-                        child: Semantics(
-                            liveRegion: true, child: Text(_message!))),
-                  TrainingCard(
-                      child: Row(children: [
-                    CategoryVisualBadge(
-                        visualKey: draft.visualKey,
-                        label: trainingCategoryLabel(draft.categoryKey)),
-                    const SizedBox(width: 16),
-                    Expanded(
-                        child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                          Text(trainingCategoryLabel(draft.categoryKey),
-                              style: Theme.of(context).textTheme.headlineSmall),
-                          Text('包含 ${draft.members.length} 个题库'),
-                        ])),
-                  ])),
-                  TrainingCard(
-                      child: TextField(
-                          controller: _name,
-                          decoration: const InputDecoration(labelText: '名称'),
-                          onChanged: (value) =>
-                              setState(() => draft.name = value))),
-                  TrainingCard(
-                      child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                        Text('分类视觉',
-                            style: Theme.of(context).textTheme.titleMedium),
-                        const Text('修改分类视觉，将应用于该分类全部训练内容。'),
-                        const SizedBox(height: 12),
-                        Wrap(spacing: 8, runSpacing: 8, children: [
-                          for (final key in CategoryVisualKey.values)
-                            ChoiceChip(
-                                label: Text(trainingVisualLabel(key)),
-                                avatar: Icon(trainingVisualIcon(key), size: 18),
-                                selected: (draft.visualKey ??
-                                        CategoryVisualKey.genericLearning) ==
-                                    key,
-                                onSelected: (_) =>
-                                    setState(() => draft.visualKey = key)),
-                        ]),
-                      ])),
-                  TrainingCard(
-                      child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                        const Text('每次出题量'),
-                        Row(children: [
-                          Expanded(
-                              child: Text('${draft.questionLimit} 题',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .headlineMedium)),
-                          IconButton(
-                              tooltip: '减少题量',
-                              onPressed: draft.questionLimit <= 1
-                                  ? null
-                                  : () => setState(() => draft.questionLimit--),
-                              icon: const Icon(Icons.remove)),
-                          IconButton(
-                              tooltip: '增加题量',
-                              onPressed: draft.questionLimit >= 100
-                                  ? null
-                                  : () => setState(() => draft.questionLimit++),
-                              icon: const Icon(Icons.add)),
-                        ]),
-                        Slider(
-                            key: const ValueKey('question-limit'),
-                            value: draft.questionLimit.toDouble(),
-                            min: 1,
-                            max: 100,
-                            divisions: 99,
-                            label: '${draft.questionLimit} 题',
-                            semanticFormatterCallback: (v) => '${v.round()} 题',
-                            onChanged: (v) => setState(
-                                () => draft.questionLimit = v.round())),
-                        const Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [Text('1'), Text('100')]),
-                      ])),
-                  TrainingCard(
-                      child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                        Text('出题比例',
-                            style: Theme.of(context).textTheme.titleMedium),
-                        const SizedBox(height: 16),
-                        Center(
-                            child: TrainingRatioOverview(
-                                members: draft.members,
-                                limit: draft.questionLimit)),
-                        const SizedBox(height: 16),
-                        for (final member in draft.members) ...[
-                          Text('${member.bankName} · ${member.weightPercent}%'),
-                          Slider(
-                              key: ValueKey('weight-${member.bankName}'),
-                              value: member.weightPercent.toDouble(),
-                              min: 0,
-                              max: 100,
-                              divisions: 100,
-                              label: '${member.weightPercent}%',
-                              semanticFormatterCallback: (v) =>
-                                  '${member.bankName} ${v.round()}%',
-                              onChanged: draft.members.length == 1
-                                  ? null
-                                  : (v) => setState(() => draft.adjustWeight(
-                                      member.bankName, v.round()))),
-                          Text('预计理想题数：${draft.quotas[member.bankName]} 题'),
-                          const SizedBox(height: 12),
-                        ],
-                        const Text('0% 不参与新题抽取；分类复习仍保留。'),
-                        const Text('预计题数为理想配额，实际新题数取决于可用题目。'),
-                      ])),
-                  TrainingCard(
-                      child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                        Wrap(
-                            spacing: 16,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            children: [
-                              Text('关联题库',
-                                  style:
-                                      Theme.of(context).textTheme.titleMedium),
-                              TextButton.icon(
-                                  onPressed: _selectBanks,
-                                  icon: const Icon(Icons.edit_outlined),
-                                  label: const Text('编辑题库')),
-                            ]),
-                        for (var i = 0; i < draft.members.length; i++)
-                          _member(draft.members[i], i),
-                      ])),
-                  if (draft.original != null)
-                    OutlinedButton.icon(
-                        onPressed: _delete,
-                        style: OutlinedButton.styleFrom(
-                            foregroundColor:
-                                Theme.of(context).colorScheme.error),
-                        icon: const Icon(Icons.delete_outline),
-                        label: const Text('删除训练内容')),
-                  TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('取消编辑')),
-                ])),
-          ),
-        ),
+  Widget build(BuildContext context) => TrainingUiTheme(
+        child: Builder(
+            builder: (context) => AnimatedBuilder(
+                  animation: controller,
+                  builder: (context, _) => PopScope(
+                    canPop: !controller.busy,
+                    child: Scaffold(
+                      appBar: AppBar(
+                          title: Text(
+                              draft.original == null ? '新建训练内容' : '编辑训练内容'),
+                          actions: [
+                            TextButton(
+                                onPressed: controller.busy || !draft.canSave
+                                    ? null
+                                    : _save,
+                                child: const Text('完成'))
+                          ]),
+                      body: AbsorbPointer(
+                          absorbing: controller.busy,
+                          child: TrainingPageBody(children: [
+                            if (controller.busy)
+                              const LinearProgressIndicator(),
+                            if (_message != null)
+                              Padding(
+                                  padding: const EdgeInsets.only(bottom: 16),
+                                  child: Semantics(
+                                      liveRegion: true,
+                                      child: Text(_message!))),
+                            TrainingHero(
+                                title: draft.name.trim().isEmpty
+                                    ? trainingCategoryLabel(draft.categoryKey)
+                                    : draft.name,
+                                subtitle: '包含 ${draft.members.length} 个题库',
+                                categoryLabel:
+                                    trainingCategoryLabel(draft.categoryKey),
+                                visualKey: draft.visualKey),
+                            const TrainingSectionHeading(title: '基本信息'),
+                            TrainingCard(
+                                child: Row(children: [
+                              const Text('名称'),
+                              const SizedBox(width: 20),
+                              Expanded(
+                                  child: TextField(
+                                      controller: _name,
+                                      decoration: InputDecoration(
+                                          hintText: '训练内容名称',
+                                          suffixIcon: IconButton(
+                                              tooltip: '清空名称',
+                                              icon: const Icon(Icons.cancel,
+                                                  size: 18),
+                                              onPressed: () => setState(() {
+                                                    _name.clear();
+                                                    draft.name = '';
+                                                  }))),
+                                      onChanged: (value) =>
+                                          setState(() => draft.name = value))),
+                            ])),
+                            const TrainingSectionHeading(title: '出题设置'),
+                            TrainingCard(
+                                child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                  Text('出题量',
+                                      style: TextStyle(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurfaceVariant)),
+                                  Row(children: [
+                                    Expanded(
+                                        child: Text('${draft.questionLimit} 题',
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .headlineSmall
+                                                ?.copyWith(
+                                                    fontWeight:
+                                                        FontWeight.w700))),
+                                    IconButton.filledTonal(
+                                        tooltip: '减少题量',
+                                        onPressed: draft.questionLimit <= 1
+                                            ? null
+                                            : () => setState(
+                                                () => draft.questionLimit--),
+                                        icon: const Icon(Icons.remove)),
+                                    const SizedBox(width: 8),
+                                    IconButton.filledTonal(
+                                        tooltip: '增加题量',
+                                        onPressed: draft.questionLimit >= 100
+                                            ? null
+                                            : () => setState(
+                                                () => draft.questionLimit++),
+                                        icon: const Icon(Icons.add)),
+                                  ]),
+                                  Row(children: [
+                                    const Text('1'),
+                                    Expanded(
+                                        child: Slider(
+                                            key: const ValueKey(
+                                                'question-limit'),
+                                            value:
+                                                draft.questionLimit.toDouble(),
+                                            min: 1,
+                                            max: 100,
+                                            divisions: 99,
+                                            label: '${draft.questionLimit} 题',
+                                            semanticFormatterCallback: (v) =>
+                                                '${v.round()} 题',
+                                            onChanged: (v) => setState(() =>
+                                                draft.questionLimit =
+                                                    v.round()))),
+                                    const Text('100'),
+                                  ]),
+                                ])),
+                            TrainingCard(
+                                child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                  const TrainingSectionHeading(
+                                      title: '出题比例',
+                                      help:
+                                          '调整目标比例，自动归一化为 100%；预计题数由正式配额算法计算。'),
+                                  LayoutBuilder(
+                                      builder: (context, constraints) {
+                                    final chart = TrainingRatioOverview(
+                                        members: draft.members,
+                                        limit: draft.questionLimit);
+                                    final sliders = Column(children: [
+                                      for (var i = 0;
+                                          i < draft.members.length;
+                                          i++)
+                                        _weight(context, draft.members[i], i),
+                                    ]);
+                                    if (constraints.maxWidth < 300 ||
+                                        MediaQuery.textScalerOf(context)
+                                                .scale(1) >
+                                            1.2) {
+                                      return Column(children: [
+                                        chart,
+                                        const SizedBox(height: 12),
+                                        sliders
+                                      ]);
+                                    }
+                                    return Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.center,
+                                        children: [
+                                          chart,
+                                          const SizedBox(width: 16),
+                                          Expanded(child: sliders),
+                                        ]);
+                                  }),
+                                  const SizedBox(height: 8),
+                                  Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.all(14),
+                                      decoration: BoxDecoration(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .surfaceContainerHighest,
+                                          borderRadius:
+                                              BorderRadius.circular(14)),
+                                      child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            const Text('预计出题数'),
+                                            const SizedBox(height: 8),
+                                            Wrap(
+                                                spacing: 24,
+                                                runSpacing: 12,
+                                                children: [
+                                                  for (final member
+                                                      in draft.members)
+                                                    SizedBox(
+                                                        width: 136,
+                                                        child: Column(
+                                                            crossAxisAlignment:
+                                                                CrossAxisAlignment
+                                                                    .start,
+                                                            children: [
+                                                              Text(
+                                                                  member
+                                                                      .bankName,
+                                                                  style: TextStyle(
+                                                                      color: Theme.of(
+                                                                              context)
+                                                                          .colorScheme
+                                                                          .onSurfaceVariant)),
+                                                              Text(
+                                                                  '预计理想题数：${draft.quotas[member.bankName]} 题'),
+                                                            ])),
+                                                ]),
+                                          ])),
+                                  const SizedBox(height: 10),
+                                  Text(
+                                      '0% 不参与新题抽取；分类复习仍保留。\n预计题数为理想配额，实际新题数取决于可用题目。',
+                                      style: TextStyle(
+                                          fontSize: 12,
+                                          height: 1.6,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurfaceVariant)),
+                                ])),
+                            TrainingSectionHeading(
+                                title: '关联题库',
+                                help: '仅关联该分类内的真实题库。移除不会删除题库或学习记录。',
+                                action: TextButton.icon(
+                                    onPressed: _selectBanks,
+                                    icon: const Icon(Icons.edit_outlined,
+                                        size: 18),
+                                    label: const Text('编辑题库'))),
+                            for (var i = 0; i < draft.members.length; i++)
+                              _member(draft.members[i], i),
+                            const TrainingSectionHeading(title: '分类视觉'),
+                            TrainingCard(
+                                child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                  const Text('修改分类视觉，将应用于该分类全部训练内容。'),
+                                  const SizedBox(height: 12),
+                                  Wrap(spacing: 8, runSpacing: 8, children: [
+                                    for (final key in CategoryVisualKey.values)
+                                      ChoiceChip(
+                                          label: Text(trainingVisualLabel(key)),
+                                          avatar: Icon(trainingVisualIcon(key),
+                                              size: 18),
+                                          selected: (draft.visualKey ??
+                                                  CategoryVisualKey
+                                                      .genericLearning) ==
+                                              key,
+                                          onSelected: (_) => setState(
+                                              () => draft.visualKey = key)),
+                                  ]),
+                                ])),
+                            if (draft.original != null)
+                              OutlinedButton.icon(
+                                  onPressed: _delete,
+                                  style: OutlinedButton.styleFrom(
+                                      foregroundColor:
+                                          Theme.of(context).colorScheme.error),
+                                  icon: const Icon(Icons.delete_outline),
+                                  label: const Text('删除训练内容')),
+                            TextButton(
+                                onPressed: () => Navigator.pop(context),
+                                child: const Text('取消编辑')),
+                          ])),
+                    ),
+                  ),
+                )),
+      );
+
+  Widget _weight(
+          BuildContext context, TrainingContentMember member, int index) =>
+      Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Color.lerp(
+                        Theme.of(context).colorScheme.onSurfaceVariant,
+                        Theme.of(context).colorScheme.surfaceContainerHighest,
+                        (index % 5) * .17))),
+            const SizedBox(width: 8),
+            Expanded(
+                child: Text('${member.bankName} · ${member.weightPercent}%')),
+          ]),
+          Slider(
+              key: ValueKey('weight-${member.bankName}'),
+              value: member.weightPercent.toDouble(),
+              min: 0,
+              max: 100,
+              divisions: 100,
+              label: '${member.weightPercent}%',
+              semanticFormatterCallback: (v) =>
+                  '${member.bankName} ${v.round()}%',
+              onChanged: draft.members.length == 1
+                  ? null
+                  : (v) => setState(
+                      () => draft.adjustWeight(member.bankName, v.round()))),
+        ]),
       );
 
   Widget _member(TrainingContentMember member, int index) {
@@ -293,44 +421,47 @@ class _TrainingContentEditorState extends State<TrainingContentEditor> {
         b.bankName == member.bankName &&
         b.categoryKey == draft.categoryKey &&
         b.ordinaryTrainingEligible);
-    return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
+    return TrainingCard(
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(member.bankName),
-            if (member.bindingStatus == TrainingBindingStatus.invalidated) ...[
-              Text('绑定失效 · ${trainingInvalidationLabel(member)}'),
-              if (draft.original?.members
-                      .any((m) => m.bankName == member.bankName) ==
-                  true)
-                TextButton(
-                    onPressed: eligible ? () => _rebind(member) : null,
-                    child: const Text('重新绑定')),
-            ],
-            Wrap(children: [
-              IconButton(
-                  tooltip: '上移题库 ${member.bankName}',
-                  icon: const Icon(Icons.arrow_upward),
-                  onPressed: index == 0
-                      ? null
-                      : () => setState(() => draft.moveMember(index, -1))),
-              IconButton(
-                  tooltip: '下移题库 ${member.bankName}',
-                  icon: const Icon(Icons.arrow_downward),
-                  onPressed: index == draft.members.length - 1
-                      ? null
-                      : () => setState(() => draft.moveMember(index, 1))),
-              IconButton(
-                  tooltip: '移除题库 ${member.bankName}',
-                  icon: const Icon(Icons.remove_circle_outline),
-                  onPressed: () => setState(() => draft.setBanks(draft.members
-                      .where((m) => m.bankName != member.bankName)
-                      .map((m) => m.bankName)
-                      .toList()))),
-            ]),
-            const Divider(),
-          ],
-        ));
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          const TrainingBankBadge(),
+          const SizedBox(width: 12),
+          Expanded(child: Text(member.bankName)),
+          IconButton(
+            tooltip: '移除题库 ${member.bankName}',
+            icon: const Icon(Icons.remove_circle_outline),
+            onPressed: () => setState(() => draft.setBanks(draft.members
+                .where((m) => m.bankName != member.bankName)
+                .map((m) => m.bankName)
+                .toList())),
+          ),
+        ]),
+        if (member.bindingStatus == TrainingBindingStatus.invalidated) ...[
+          Text('绑定失效 · ${trainingInvalidationLabel(member)}'),
+          if (draft.original?.members
+                  .any((m) => m.bankName == member.bankName) ==
+              true)
+            TextButton(
+                onPressed: eligible ? () => _rebind(member) : null,
+                child: const Text('重新绑定')),
+        ],
+        Wrap(children: [
+          IconButton(
+              tooltip: '上移题库 ${member.bankName}',
+              icon: const Icon(Icons.arrow_upward),
+              onPressed: index == 0
+                  ? null
+                  : () => setState(() => draft.moveMember(index, -1))),
+          IconButton(
+              tooltip: '下移题库 ${member.bankName}',
+              icon: const Icon(Icons.arrow_downward),
+              onPressed: index == draft.members.length - 1
+                  ? null
+                  : () => setState(() => draft.moveMember(index, 1))),
+        ]),
+      ],
+    ));
   }
 }

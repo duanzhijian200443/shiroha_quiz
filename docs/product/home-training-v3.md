@@ -148,6 +148,8 @@ V2 其他产品与架构冻结继续有效。V3 新增或修订：
 
 同日用户补充确认：本轮不在今日训练增加成员题库详情入口，移除 production TrainingContent 首页直达入口，交由第二次训练配置页重构优化承接；该产品可达性要求延期，不删除题库详情能力或数据，也不重写本轮训练配置编辑器/选择器业务。
 
+训练配置 V2 后续修订：真实题库详情由配置页的新建/编辑流程中的选择器承接，具体导航与状态保留规则见 §4.1。首页成员题库直达入口仍保持退休。
+
 本次只确认学习日历和模考的首页退休，不删除 StudyPlan，也不修改其他业务功能；§1.4 与 §7.5 的单一活动 StudyPlan、空状态及既有操作继续有效。
 
 ### StudyActivity 边界
@@ -383,6 +385,12 @@ bindingStatus：
 列表支持查看、新增、编辑、设为当前、简单顺序调整、显示并修复 invalidated 配置。失效配置不隐藏、不自动删除、不进入首页快速 content cycle。空 Category 可进入选择器。不做复杂 drag reorder 或 TrainingContent nesting。
 
 选择器只展示属于当前 Category 且 OrdinaryTrainingBankEligibility == eligible 的真实题库，支持多选、已选数量、编辑时恢复 selection 与 invalidated member 修复上下文。
+
+训练配置 V2 使用灰阶卡片、Category preference 驱动的插画横幅和「新建训练内容」入口。列表左侧排序按钮及更多菜单复用既有上移/下移，不引入拖拽；更多菜单保留编辑与设为当前。编辑器比例总览与滑块在空间足够时并排，窄屏或放大字体时纵向排列；分类视觉控制仍可达，配置删除、显式 rebind、独立 content/preference CAS 和失败反馈语义不变。示例题量、题库类型不作为生产数据。普通训练内容/分类视觉保存成功提示约 2 秒后自动消失；错误和部分成功提示保留，新操作或页面销毁取消旧成功提示的关闭任务，不能误清后续错误。
+
+配置页每页仅显示一个 Category 的横幅、训练内容列表与显示顺序，不纵向重复拼接分类区块。按 Query 提供的 Category 顺序横向分页，横幅卡片左右中间放置小型上一/下一页箭头，保留至少 44×44 logical px 点击区；卡片下方用小圆点表示分页，当前页高亮，不显示数字页码或「分类」文案，支持左右滑动；首尾边界禁用对应按钮，单分类时两侧均禁用。浏览分类仅为本地 Presentation 状态，不写入 currentCategory/currentContent preference。刷新或编辑返回保留浏览的 CategoryKey；该分类已不存在时回到目录首项，无分类时展示原有空态。新建、编辑、设为当前和顺序调整仍作用于正在浏览的分类，CAS 与 admission 由既有 Application 权威裁决。
+
+选择器每条当前可用且无原失效绑定的真实题库，在 checkbox 左侧提供独立「查看题库详情：{bankName}」按钮。上层 composition 注入 typed async navigation callback，复用既有 BankDetailScreen 与 Application 依赖；选择器不访问数据库或全局单例。点击详情不切换选择、不进入下一步、不保存草稿。打开前和返回后通过现有只读配置 Query 刷新 catalog；读失败、缺失、已移出分类、不 eligible 或原绑定 invalidated 时不允许打开。返回保留搜索文本、滚动位置、已选集合及编辑草稿，变化后的原选择保留移除/失效上下文，不自动恢复绑定或重播保存。后续保存继续由既有 fresh admission 与 revision CAS 裁决。题库详情页自身的显式操作继续遵守其原确认契约。
 
 编辑器包含名称、关联题库、1～100 Slider、−/+ 微调、多题库比例、环形总览、每 bank 比例滑块、预计理想 quota、上移/下移、删除 content。
 
@@ -755,7 +763,7 @@ loading、real zero、unavailable、unconfigured 必须区分。真实 0 弱化�
 
 继续复用 singleton StudyPlan，保留真实 title/查看计划/开始特训/停止计划，并区分 no plan、unavailable、no candidate、query failure。不得展示多卡 carousel、假名称、假百分比或 N/M 进度。
 
-保留题库详情及补充答案能力、全局错题本、文件/拍照导入、TaskCenter、Assistant/Profile。production TrainingContent 首页的成员题库详情直达入口按 §1.6 用户补充确认移除，其可达性优化延期至第二次训练配置页重构；legacy bank-scoped compatibility 路径保留。MockExam 创建/历史/评阅实现与数据保留，但按 §1.6 暂时退休用户可见入口，不再要求从今日首页进入 MockCenterScreen。
+保留题库详情及补充答案能力、全局错题本、文件/拍照导入、TaskCenter、Assistant/Profile。production TrainingContent 首页的成员题库详情直达入口按 §1.6 用户补充确认移除，由 §4.1 训练配置选择器承接真实题库详情；legacy bank-scoped compatibility 路径保留。MockExam 创建/历史/评阅实现与数据保留，但按 §1.6 暂时退休用户可见入口，不再要求从今日首页进入 MockCenterScreen。
 
 后续训练配置页承接融合 TrainingContent 的题库详情时，应列出真实 member banks，不跳转虚构融合题库。
 

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../application/home_training_result.dart';
@@ -33,6 +34,19 @@ final class TrainingConfigurationController extends ChangeNotifier {
   String? message;
   int _generation = 0;
   bool _disposed = false;
+  Timer? _messageDismissal;
+
+  void _showMessage(String? value, {bool transient = false}) {
+    _messageDismissal?.cancel();
+    message = value;
+    if (transient) {
+      _messageDismissal = Timer(const Duration(seconds: 2), () {
+        if (_disposed) return;
+        message = null;
+        _publish();
+      });
+    }
+  }
 
   void _publish() {
     if (!_disposed) notifyListeners();
@@ -65,7 +79,7 @@ final class TrainingConfigurationController extends ChangeNotifier {
     if (_disposed || busy) return false;
     busy = true;
     ++_generation; // No pre-mutation read may publish over the result.
-    message = null;
+    _showMessage(null);
     _publish();
     return true;
   }
@@ -109,11 +123,11 @@ final class TrainingConfigurationController extends ChangeNotifier {
               target: preferenceTarget(preference), visualKey: visual!)));
       switch (saved) {
         case HomeTrainingSuccess():
-          message = '分类视觉已保存';
+          _showMessage('分类视觉已保存', transient: true);
           await _finish();
           return TrainingSaveOutcome(content: original);
         case HomeTrainingFailed(:final failure):
-          message = failureMessage(failure);
+          _showMessage(failureMessage(failure));
           await _finish();
           return TrainingSaveOutcome(failure: failure, visualSaved: false);
       }
@@ -125,7 +139,7 @@ final class TrainingConfigurationController extends ChangeNotifier {
             target: target(original), edit: draft.edit)));
     switch (result) {
       case HomeTrainingFailed(:final failure):
-        message = failureMessage(failure);
+        _showMessage(failureMessage(failure));
         await _finish();
         return TrainingSaveOutcome(failure: failure);
       case HomeTrainingSuccess(:final value):
@@ -142,7 +156,8 @@ final class TrainingConfigurationController extends ChangeNotifier {
               visualFailure = failure;
           }
         }
-        message = visualSaved ? '训练内容已保存' : '训练内容已保存，分类视觉未保存，请重新检查分类视觉。';
+        _showMessage(visualSaved ? '训练内容已保存' : '训练内容已保存，分类视觉未保存，请重新检查分类视觉。',
+            transient: visualSaved);
         await _finish();
         return TrainingSaveOutcome(
             content: value, failure: visualFailure, visualSaved: visualSaved);
@@ -155,10 +170,10 @@ final class TrainingConfigurationController extends ChangeNotifier {
       return const HomeTrainingFailed(HomeTrainingFailure.conflict);
     }
     final result = await _call(action);
-    message = switch (result) {
+    _showMessage(switch (result) {
       HomeTrainingSuccess() => success,
       HomeTrainingFailed(:final failure) => failureMessage(failure),
-    };
+    });
     await _finish();
     return result;
   }
@@ -217,6 +232,7 @@ final class TrainingConfigurationController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _messageDismissal?.cancel();
     ++_generation;
     super.dispose();
   }
