@@ -73,7 +73,6 @@ void main() {
         final eligible = !const {
           ProviderFailureCode.invalidRequest,
           ProviderFailureCode.unsupportedCapability,
-          ProviderFailureCode.contentFiltered
         }.contains(code);
         final harness = _Harness(
           fallbackProfileId: 'profile-fallback',
@@ -94,11 +93,9 @@ void main() {
         if (!eligible) {
           expect(
               _failureOf(result),
-              code == ProviderFailureCode.contentFiltered
-                  ? AgentTurnFailure.temporarilyUnavailable
-                  : code == ProviderFailureCode.unsupportedCapability
-                      ? AgentTurnFailure.unsupportedCapability
-                      : AgentTurnFailure.providerMalformed);
+              code == ProviderFailureCode.unsupportedCapability
+                  ? AgentTurnFailure.unsupportedCapability
+                  : AgentTurnFailure.providerMalformed);
         }
         final messages = await harness.messagesOf(cid);
         expect(
