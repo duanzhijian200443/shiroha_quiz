@@ -34,19 +34,18 @@ final class DeepSeekResponsesSseParser {
         if (value.startsWith(' ')) value = value.substring(1);
         switch (field) {
           case 'event':
-            if (eventName != null || value.isEmpty) {
-              throw const AgentProviderException.detailed(
-                  ProviderFailureCode.malformedEvent);
-            }
-            eventName = value;
+            // SSE permits repeated/empty event fields; the last value wins and
+            // an empty value restores the default event type.
+            eventName = value.isEmpty ? null : value;
           case 'data':
             dataLines.add(value);
           case 'id':
           case 'retry':
             break;
           default:
-            throw const AgentProviderException.detailed(
-                ProviderFailureCode.malformedEvent);
+            // Unknown extension fields are ignored by SSE parsers. Payload
+            // validation below remains strict once data is decoded.
+            break;
         }
       }
 
@@ -82,7 +81,7 @@ final class _ResponsesEventDecoder {
   AgentProviderException? pendingFailure;
   final Set<String> _emittedCallIds = <String>{};
   final Map<String, AgentProviderFunctionCall> _emittedCalls = {};
-  final Set<String> _continuationItemIds = {};
+  final Set<String> _continuationItemKeys = {};
   final Set<AgentProviderWebSearchPhase> _emittedWebPhases =
       <AgentProviderWebSearchPhase>{};
 
@@ -343,7 +342,10 @@ final class _ResponsesEventDecoder {
     final itemType = item['type'];
     final identity =
         item['id'] ?? (itemType == 'function_call' ? item['call_id'] : null);
-    if (identity is String && !_continuationItemIds.add(identity)) return;
+    final key = identity is String && identity.isNotEmpty
+        ? 'id:$identity'
+        : 'value:${jsonEncode(item)}';
+    if (!_continuationItemKeys.add(key)) return;
     if (itemType == 'reasoning' ||
         itemType == 'function_call' ||
         itemType == 'web_search_call' ||
@@ -367,29 +369,29 @@ final class _ResponsesEventDecoder {
     }
     final code = error is Map<String, dynamic> ? error['code'] : null;
     final normalized = code is String ? code.toLowerCase() : '';
-    final failure = normalized.contains('auth') ||
-            normalized.contains('api_key') ||
-            normalized.contains('unauthorized')
-        ? AgentProviderFailure.authentication
-        : normalized.contains('rate')
-            ? AgentProviderFailure.rateLimited
-            : normalized.contains('timeout')
-                ? AgentProviderFailure.timeout
-                : AgentProviderFailure.temporarilyUnavailable;
-    final detail = switch (normalized) {
-      'content_filter' ||
-      'content_filtered' =>
-        ProviderFailureCode.contentFiltered,
-      'authentication' ||
-      'authentication_error' ||
-      'invalid_api_key' ||
-      'unauthorized' =>
-        ProviderFailureCode.authentication,
-      'rate_limit_exceeded' ||
-      'rate_limited' =>
-        ProviderFailureCode.rateLimited,
-      'timeout' || 'request_timeout' => ProviderFailureCode.streamTimeout,
-      _ => ProviderFailureCode.temporarilyUnavailable,
+    final ProviderFailureCode detail;
+    if (normalized.contains('content_filter')) {
+      detail = ProviderFailureCode.contentFiltered;
+    } else if (normalized.contains('auth') ||
+        normalized.contains('api_key') ||
+        normalized.contains('unauthorized')) {
+      detail = ProviderFailureCode.authentication;
+    } else if (normalized.contains('rate')) {
+      detail = ProviderFailureCode.rateLimited;
+    } else if (normalized.contains('timeout')) {
+      detail = ProviderFailureCode.streamTimeout;
+    } else {
+      detail = ProviderFailureCode.temporarilyUnavailable;
+    }
+    final failure = switch (detail) {
+      ProviderFailureCode.authentication =>
+        AgentProviderFailure.authentication,
+      ProviderFailureCode.rateLimited => AgentProviderFailure.rateLimited,
+      ProviderFailureCode.streamTimeout => AgentProviderFailure.timeout,
+      ProviderFailureCode.contentFiltered ||
+      ProviderFailureCode.temporarilyUnavailable =>
+        AgentProviderFailure.temporarilyUnavailable,
+      _ => AgentProviderFailure.temporarilyUnavailable,
     };
     pendingFailure = AgentProviderException.detailed(detail,
         legacyFailure: failure, terminalSeen: true);
