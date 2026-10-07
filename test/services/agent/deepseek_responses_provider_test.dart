@@ -135,6 +135,76 @@ void main() {
       });
     }
 
+    for (final entry
+        in <(String, ProviderFailureCode, AgentProviderFailure)>[
+      (
+        'auth_error',
+        ProviderFailureCode.authentication,
+        AgentProviderFailure.authentication
+      ),
+      (
+        'rate_limit',
+        ProviderFailureCode.rateLimited,
+        AgentProviderFailure.rateLimited
+      ),
+      (
+        'connect_timeout',
+        ProviderFailureCode.streamTimeout,
+        AgentProviderFailure.timeout
+      ),
+    ]) {
+      test('near-miss provider code ${entry.$1} stays diagnostically aligned',
+          () async {
+        await expectLater(
+          const DeepSeekResponsesSseParser()
+              .parse(Stream.value(utf8.encode(_sse('response.failed', {
+                'error': {'code': entry.$1}
+              }))))
+              .toList(),
+          throwsA(isA<AgentProviderException>()
+              .having((e) => e.safeCode, 'safe code', entry.$2)
+              .having((e) => e.failure, 'legacy failure', entry.$3)),
+        );
+      });
+    }
+
+    test('ignores unknown SSE extension fields', () async {
+      final events = await const DeepSeekResponsesSseParser()
+          .parse(Stream.value(
+              utf8.encode('x-provider-extension: private-marker\n$completed')))
+          .toList();
+      expect(events.whereType<AgentProviderCompleted>(), hasLength(1));
+    });
+
+    test('deduplicates identity-less continuation items across terminal replay',
+        () async {
+      final continuationItems = <Map<String, Object?>>[];
+      final item = <String, Object?>{
+        'type': 'message',
+        'role': 'assistant',
+        'content': <Object?>[],
+      };
+      final fixture = _sse('response.output_item.done', {
+            'output_index': 0,
+            'item': item,
+          }) +
+          _sse('response.completed', {
+            'response': {
+              'id': 'resp-1',
+              'output': [item],
+            }
+          });
+      final events = await const DeepSeekResponsesSseParser()
+          .parse(
+            Stream.value(utf8.encode(fixture)),
+            onContinuationItem: continuationItems.add,
+          )
+          .toList();
+      expect(events.whereType<AgentProviderCompleted>(), hasLength(1));
+      expect(continuationItems, hasLength(1));
+      expect(continuationItems.single['type'], 'message');
+    });
+
     test('multiple complete calls and hidden reasoning isolation', () async {
       final events = await const DeepSeekResponsesSseParser()
           .parse(Stream.value(utf8.encode(
