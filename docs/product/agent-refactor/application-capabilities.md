@@ -57,8 +57,27 @@ Do not add contradictory independent retry/idempotency/replay boolean flags.
 
 Receipt fields include an App-generated execution identity, capability id,
 status, known effect, fixed failure category, relevant authorization/scope
-references and, for STAGE, durable reconciliation reference. Receipt is typed
-handler/transaction evidence, never inferred from `ok`, JSON text or tool count.
+references and a reconciliation reference appropriate to the capability's
+execution semantics. Receipt is typed handler/transaction evidence, never
+inferred from `ok`, JSON text or tool count.
+
+STAGE permission alone does not imply durable staging or reconciliation:
+
+- Retained W0 proposals and SPL StudyPlanDrafts remain transient. Their typed
+  receipts identify the staged effect and refer to the owning in-memory
+  lifecycle only while it remains available in the same App process. Restart
+  invalidates those references; no durable staging receipt, cross-restart
+  reconciliation or durable idempotency is promised or added by AR-R2. An
+  unavailable transient reference does not authorize automatic repetition.
+- Durable generated-question STAGE requires a stable reconciliation key and
+  atomically persisted Proposal/receipt evidence under its dedicated contract.
+  Lost response and restart reconcile through that durable authority with
+  current authorization; a transient reference cannot satisfy this requirement.
+
+Transient STAGE receipts do not replace W0 COMMIT or SPL adoption recovery.
+Those dedicated commands retain their existing formal-write reconciliation
+and concurrency authorities. Neither receipt lifetime permits an unknown
+execution effect to be reported as `none`.
 
 ## 3. Invocation and authorization
 
@@ -103,6 +122,12 @@ existing I/O/error/scope parity. Legacy JSON Dispatchers delegate to the typed
 path, not the reverse; they do not reconstruct receipts from JSON. Registry
 duplicates/type mismatch, direct-call authorization, output egress, resource
 bounds and encoding-after-effect failures require deterministic tests.
+
+Receipt acceptance must cover W0/SPL staging with known `proposal_staged`
+effect, same-process lifecycle reconciliation, restart invalidation and zero
+durable staging writes. Lost/failed output encoding must preserve known effects
+without inventing a durable receipt or enabling automatic repeat. Durable
+generated STAGE reconciliation is accepted with its own persistence stage.
 
 AR-R3 moves loop/artifact consumers. AR-R7 alone changes fallback policy.
 New capability work adds a semantic definition/handler, optional projections
