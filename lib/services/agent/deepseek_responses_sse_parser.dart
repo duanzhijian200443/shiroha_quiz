@@ -344,7 +344,7 @@ final class _ResponsesEventDecoder {
         item['id'] ?? (itemType == 'function_call' ? item['call_id'] : null);
     final key = identity is String && identity.isNotEmpty
         ? 'id:$identity'
-        : 'value:${jsonEncode(item)}';
+        : 'value:${_stableJson(item)}';
     if (!_continuationItemKeys.add(key)) return;
     if (itemType == 'reasoning' ||
         itemType == 'function_call' ||
@@ -352,6 +352,17 @@ final class _ResponsesEventDecoder {
         itemType == 'message') {
       _onContinuationItem?.call(Map<String, Object?>.from(item));
     }
+  }
+
+  String _stableJson(Object? value) {
+    if (value is Map) {
+      final keys = value.keys.whereType<String>().toList()..sort();
+      return '{${keys.map((key) => '${jsonEncode(key)}:${_stableJson(value[key])}').join(',')}}';
+    }
+    if (value is List) {
+      return '[${value.map(_stableJson).join(',')}]';
+    }
+    return jsonEncode(value);
   }
 
   List<AgentProviderEvent> _webSearchPhase(
