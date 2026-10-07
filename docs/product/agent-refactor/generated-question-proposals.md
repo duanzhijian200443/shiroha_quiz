@@ -66,11 +66,16 @@ Restart reloads pending work; it does not authorize commit or repeat execution.
 ## 3. Stage idempotency and duplicates
 
 Durable uniqueness is (clientProfileId, submissionKey). Fingerprint binds trusted
-target plus canonical semantic candidate content; omit temporary handle, trace
-and external request id. Same key/same semantics returns the original Proposal;
-same key/different semantics returns idempotency_conflict without new stage.
-Current authorization still applies. Response loss is reconciled by key; expired
-handles require new authorization for new staging, not a duplicate submission.
+target, canonical semantic candidate content and the canonical source/evidence
+provenance references resolved for staging; omit temporary handle, trace and
+external request id. The provenance set may be empty for an explicitly uncited
+candidate, but provenance identity is semantic for idempotency: the same key with
+changed evidence/provenance returns idempotency_conflict even when question,
+answer and explanation content are unchanged. Same key/same semantics returns
+the original Proposal; same key/different semantics returns idempotency_conflict
+without new stage. Current authorization still applies. Response loss is
+reconciled by key; expired handles require new authorization for new staging,
+not a duplicate submission.
 
 Across different keys, exact typed-content duplicates are detected and surfaced,
 including duplicates within a batch and in pending/current target content.
@@ -164,9 +169,10 @@ and Review validation. Package version is not automatically changed for new
 SQLite tables; B0 classification/validators/staged upgrades ship with schema.
 
 Acceptance uses synthetic admission, original immutability, close/reopen Review,
-same/different-key semantics, lost stage/commit response, stale save/approval,
-approve/reject races, partial acceptance, exact duplicate concurrency and
-injected transaction rollback. Widget proof covers typed edit/preview/flush,
+same/different-key semantics, same-key changed-provenance conflict, lost
+stage/commit response, stale save/approval, approve/reject races, partial
+acceptance, exact duplicate concurrency and injected transaction rollback.
+Widget proof covers typed edit/preview/flush,
 explicit approval and double click. B0 proves roundtrip, corrupt payload rejection
 and no credential/active grant restoration. Feature rollback hides entrypoints
 but retains storage compatibility and existing Questions.

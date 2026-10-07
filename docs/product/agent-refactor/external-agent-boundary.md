@@ -95,10 +95,15 @@ open a newly validated context only for a new stage attempt.
 Before transaction start, cancellation can stop with known zero effect. Past
 durable stage commit, cancellation cannot remove the Proposal or report that
 stage was undone. Unknown bridge outcome is reconciled by submission key.
-Revoke blocks new invocations and unreleased egress; stage transactions validate
-current grants before their publish point. An already committed stage remains
-local Review data after revoke. Local user's current approval authority decides
-future formal commit, not the revoked external grant.
+Revoke blocks new invocations and unreleased egress. For STAGE, validation of the
+current client profile/grant revision and durable Proposal/receipt publication
+must share one transaction/CAS publication boundary; a preflight grant check
+followed by an independently committing stage is insufficient. If revoke or
+grant-revision change wins before publication, STAGE commits zero durable effect
+and returns the bounded stale/unauthorized result. If durable stage publication
+wins first, later revoke cannot retroactively erase that local Review data.
+Local user's current approval authority decides future formal commit, not the
+revoked external grant.
 
 App unavailable/not ready/recovering returns safe unavailable/busy; it does not
 trigger alternate database access. Host starts only after B0 recovery, database
@@ -139,7 +144,8 @@ Rollback baselines retain original live metadata under existing B0 authority.
 
 Tests require principal isolation, forged clientInfo, direct-call rejection,
 handle copy/expiry/reopen, stale scope/source, non-enumeration, egress revoke,
-stage response loss/restart and restore-no-reauthorization. Windows proof covers
+stage-vs-revoke/grant-revision races, stage response loss/restart and
+restore-no-reauthorization. Windows proof covers
 chosen transport ACL/auth, process/endpoint races, cancellation/orphans, Unicode
 and spaced paths, multiple clients and clean bridge launch. Linux proof alone
 does not establish Windows safety. Disable Host/routes while retaining data
