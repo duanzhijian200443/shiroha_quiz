@@ -15,7 +15,7 @@ reading order only; all existing contracts and historical amendments remain vali
 |---|---|
 | Typed content / rendering / imports | 3–4 and the focused RichContent contracts |
 | File Library / artifacts / retrieval | 4 and its focused lifecycle/RAG contracts |
-| Conversation / Agent / MCP / write approval | 5–6 |
+| Conversation / Agent / MCP / write approval | 5–6; Agent refactor target index below |
 | Credentials / provider configuration | 9 |
 | Supplemental / single-question AI answers | 10–11 and Answer Completion v0 |
 | Navigation / Practice / Today | 12 and applicable product contracts |
@@ -295,6 +295,13 @@ No Agent or MCP tool may directly execute SQL or bypass the typed persistence/re
 
 See `docs/architecture/adr-003-agent-mcp-and-write-boundary.md`.
 
+The frozen Agent Runtime v1 / external capability / source-module / MCP vNext
+target is indexed in [docs/product/agent-refactor/README.md](docs/product/agent-refactor/README.md).
+That documentation-only checkpoint does not activate the target or supersede
+A0, AGENT-FB, W0, SPL-1, RAG-1, MCP v0 or OBS-1 runtime behavior. Implementation
+stages must preserve the current boundaries until their scoped transition is
+accepted. In particular, Provider failure normalization does not relax fallback.
+
 ## 7. Evolution discipline
 
 - Do not start another R0–R8-scale rewrite merely to add File Library, Project, Agent, MCP or RAG.
@@ -311,7 +318,7 @@ The canonical project roadmap and current stage/status authority is maintained i
 Current-state authority, in order:
 
 1. `ARCHITECTURE.md` — repository-wide dependency and boundary contract;
-2. active focused contracts in `docs/architecture/` (for example MCP v0, F1 parsed-artifact lifecycle, and R7/R8 typed-persistence contracts);
+2. active focused contracts in `docs/architecture/` and `docs/product/` (for example MCP v0, F1 parsed-artifact lifecycle, typed-persistence contracts and focused product capabilities); the Agent refactor directory explicitly distinguishes frozen targets from active runtime authority;
 3. ADRs for accepted post-P5 architectural decisions;
 4. `docs/architecture/shiroha-project-roadmap.md` for stage ordering and deferred decisions.
 

@@ -2,6 +2,11 @@
 
 Status: **Canonical SPL-1 StudyPlan Agent Tool v0 product/application contract.**
 
+The [Agent refactor index](agent-refactor/README.md) freezes successor capability
+and module wiring, not new StudyPlan behavior. This contract continues to own
+transient drafts, adoption and ActiveStudyPlan semantics; draft durability and
+external MCP StudyPlan staging are not activated by the target checkpoint.
+
 Current stage status:
 
 ```text

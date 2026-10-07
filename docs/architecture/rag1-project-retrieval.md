@@ -2,6 +2,12 @@
 
 Status: **Canonical RAG-1 v0 contract. RAG-1 is COMPLETE.**
 
+The [Agent refactor index](../product/agent-refactor/README.md) defines a frozen
+external-generation target, not an activated retrieval surface. This contract
+continues to own verified source/cache behavior and Built-in Provider-bound
+per-turn egress. External recipient grants have a separate target owner and
+are not implied by existing RAG approvals.
+
 ## 1. Scope and authority
 
 RAG-1 provides local, offline, deterministic lexical retrieval behind existing

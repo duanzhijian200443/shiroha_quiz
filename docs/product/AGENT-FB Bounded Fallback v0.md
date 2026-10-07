@@ -2,6 +2,11 @@
 
 Status: **Canonical AGENT-FB product/application contract.**
 
+The [Agent refactor index](agent-refactor/README.md) freezes a staged successor
+target. All eligibility and barriers in this document remain current authority,
+including through Provider failure normalization. READ continuation is a later,
+separately accepted AR-R7 policy change, not permission granted by this checkpoint.
+
 ## 1. Authority and scope
 
 This document is the focused authority for the AGENT-FB Bounded Fallback v0
