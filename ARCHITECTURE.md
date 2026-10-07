@@ -472,6 +472,11 @@ boundary remains frozen and applies to any future P7 extension:
 
 ## 12. UI Finalization Presentation boundary
 
+The global light/dark/colorful appearance presets, shared visual tokens and
+appearance-only local-theme compatibility are governed by
+`docs/product/shiroha-appearance.md`. They share page structure and behavior;
+no schema, application semantics or navigation hierarchy changes are implied.
+
 The final Presentation / Navigation IA authority is
 `docs/product/ui-finalization-ia-freeze.md`. The final primary navigation
 is Today / Assistant / Profile (user-facing labels 今日 / 助手 / 我的),

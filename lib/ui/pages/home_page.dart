@@ -32,6 +32,7 @@ import '../home/today_plan_card.dart';
 import '../home/today_welcome_banner.dart';
 import '../home/today_visual_theme.dart';
 import '../theme/design_tokens.dart';
+import '../theme/shiroha_theme_tokens.dart';
 import '../../application/home_training_result.dart';
 import '../../application/training/today_training_contracts.dart';
 import '../../application/training/training_contracts.dart';
@@ -39,6 +40,7 @@ import '../../application/training/training_session_contracts.dart';
 import '../dependencies/home_training_dependencies.dart';
 import '../training/training_configuration_controller.dart';
 import '../training/training_configuration_page.dart';
+import '../widgets/shiroha_icons.dart';
 import '../home/today_category_training_card.dart';
 
 enum _CreateImportAction { file, photo }
@@ -400,19 +402,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               icon: Badge(
                   isLabelVisible: (_taskBadge ?? 0) > 0,
                   label: Text('$_taskBadge'),
-                  child: TodayHeaderIcon(
-                      document: true,
-                      color: _visualTheme.colorScheme.outline))),
+                  child: const ShirohaIcon(ShirohaGlyph.parseTasks))),
           IconButton(
               key: const ValueKey('home-training-config'),
-              tooltip: '管理训练内容',
+              tooltip: '训练配置',
               constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
               onPressed: widget.homeTraining == null ||
                       _controller.selectionBusy ||
                       _controller.practiceStartPending
                   ? null
                   : _openTrainingConfig,
-              icon: TodayHeaderIcon(color: _visualTheme.colorScheme.onSurface)),
+              icon: const ShirohaIcon(ShirohaGlyph.trainingConfiguration)),
           IconButton(
               key: const ValueKey('home-import-action'),
               tooltip: '创建 / 导入',
@@ -441,10 +441,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       Container(
           key: key,
           padding: EdgeInsets.all(padding),
-          decoration: BoxDecoration(
-              color: _visualTheme.colorScheme.surface,
-              borderRadius: BorderRadius.circular(14),
-              boxShadow: DesignTokens.surfaceShadow(_visualTheme.brightness)),
+          decoration: todayCardDecoration(_visualTheme),
+          foregroundDecoration: todayCardOutline(_visualTheme),
           child: child);
 
   Widget _summary(String label, String count, IconData icon) => _surface(
@@ -732,8 +730,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         child: Material(
             color: colors.surface,
             shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: colors.outlineVariant)),
+                borderRadius: BorderRadius.circular(
+                    _visualTheme.extension<ShirohaThemeTokens>()!.appearance ==
+                            ShirohaAppearance.colorful
+                        ? DesignTokens.todayCardRadius
+                        : 12),
+                side: BorderSide(
+                    color: _visualTheme
+                                .extension<ShirohaThemeTokens>()!
+                                .appearance ==
+                            ShirohaAppearance.colorful
+                        ? _visualTheme
+                            .extension<ShirohaThemeTokens>()!
+                            .cardOutline
+                        : colors.outlineVariant)),
             clipBehavior: Clip.antiAlias,
             child: InkWell(
               key: ValueKey(key),

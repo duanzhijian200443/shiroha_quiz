@@ -10,6 +10,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/ui/widgets/shiroha_icons.dart';
 
 import 'package:shiroha_quiz/application/agent/agent_config.dart';
 import 'package:shiroha_quiz/application/agent/agent_config_service.dart';
@@ -48,6 +49,7 @@ import 'package:shiroha_quiz/domain/answers/answer_candidate.dart';
 import 'package:shiroha_quiz/services/file_library/managed_content_asset_store.dart';
 
 import 'support/memory_engine_credential_store.dart';
+import 'support/theme_visual_evidence.dart';
 import 'package:shiroha_quiz/domain/assets/library_file.dart';
 import 'package:shiroha_quiz/domain/assets/library_folder.dart';
 import 'package:shiroha_quiz/domain/conversations/conversation.dart';
@@ -66,6 +68,8 @@ import 'package:shiroha_quiz/ui/pages/main_screen.dart';
 import 'package:shiroha_quiz/ui/pages/home_page.dart';
 import 'package:shiroha_quiz/ui/pages/agent_settings_screen.dart';
 import 'package:shiroha_quiz/ui/pages/ai_settings_screen.dart';
+import 'package:shiroha_quiz/ui/theme/app_theme.dart';
+import 'package:shiroha_quiz/ui/theme/shiroha_theme_tokens.dart';
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -295,11 +299,145 @@ U1WorkspaceFacade _emptyWorkspaceFacade() {
 }
 
 void main() {
+  setUpAll(loadThemeEvidenceFonts);
   setUpAll(() {
     // Initialize sqflite ffi for desktop/testing
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
   });
+
+  for (final appearance in ['light', 'dark', 'colorful']) {
+    for (final window in [const Size(390, 1000), const Size(1200, 900)]) {
+      testWidgets(
+          'assistant reference colors $appearance width=${window.width}',
+          (tester) async {
+        final previousFactory = databaseFactory;
+        final visualKey = GlobalKey();
+        await tester.runAsync(() async {
+          databaseFactory = databaseFactoryFfiNoIsolate;
+          await DatabaseHelper.resetRuntimeProfileForTesting();
+          DatabaseHelper.configureRuntimeProfile(
+              DatabaseRuntimeProfile.isolatedSmokeInMemory);
+          await DatabaseHelper.instance.database;
+        });
+        globalThemeNotifier.value = appearance;
+        addTearDown(() async {
+          globalThemeNotifier.value = 'light';
+          await DatabaseHelper.resetRuntimeProfileForTesting();
+          databaseFactory = previousFactory;
+        });
+        await pumpApp(tester, window, visualBoundaryKey: visualKey);
+        final nav = find.byType(BottomNavigationBar);
+        await tester.tap(find.descendant(of: nav, matching: find.text('助手')));
+        await drainBackgroundWork(tester);
+        final tokens =
+            AppTheme.getTheme(appearance).extension<ShirohaThemeTokens>()!;
+        final send = tester
+            .widget<IconButton>(find.byKey(const ValueKey('u1-ux0-send')));
+        expect(send.style!.backgroundColor!.resolve({}),
+            tokens.assistantActionBackground);
+        expect(
+            send.style!.foregroundColor!.resolve({}), tokens.assistantOnAction);
+        expect(send.style!.foregroundColor!.resolve({WidgetState.disabled}),
+            tokens.disabledForeground);
+        await captureThemeEvidence(tester, visualKey,
+            'assistant-page-$appearance-${window.width.toInt()}');
+        if (window.width < 900) {
+          await tester.tap(find.byKey(const ValueKey('u1-ux0-open-drawer')));
+          await tester.pumpAndSettle();
+        }
+        await captureThemeEvidence(tester, visualKey,
+            'assistant-sidebar-$appearance-${window.width.toInt()}');
+        expect(find.byKey(const ValueKey('u1-ux01-new-conversation')),
+            findsOneWidget);
+        final newConversation = tester.widget<FilledButton>(
+            find.byKey(const ValueKey('u1-ux01-new-conversation')));
+        expect(newConversation.style!.backgroundColor!.resolve({}),
+            tokens.assistantActionBackground);
+        expect(newConversation.style!.foregroundColor!.resolve({}),
+            tokens.assistantOnAction);
+        if (window.width < 900) {
+          final drawerScaffold = tester
+              .widgetList<Scaffold>(find.byType(Scaffold))
+              .singleWhere((scaffold) => scaffold.drawer != null);
+          expect(drawerScaffold.drawerScrimColor, tokens.assistantDrawerScrim);
+          await tester.tap(find.byTooltip('关闭菜单'));
+          await tester.pumpAndSettle();
+          expect(find.byKey(const ValueKey('u1-ux01-new-conversation')),
+              findsNothing);
+        }
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+        await drainBackgroundWork(tester);
+      });
+    }
+    testWidgets('three appearance navigation colors: $appearance',
+        (tester) async {
+      final previousFactory = databaseFactory;
+      final visualKey = GlobalKey();
+      await tester.runAsync(() async {
+        databaseFactory = databaseFactoryFfiNoIsolate;
+        await DatabaseHelper.resetRuntimeProfileForTesting();
+        DatabaseHelper.configureRuntimeProfile(
+            DatabaseRuntimeProfile.isolatedSmokeInMemory);
+        await DatabaseHelper.instance.database;
+      });
+      globalThemeNotifier.value = appearance;
+      addTearDown(() async {
+        globalThemeNotifier.value = 'light';
+        await DatabaseHelper.resetRuntimeProfileForTesting();
+        databaseFactory = previousFactory;
+      });
+      await pumpApp(tester, const Size(390, 1200),
+          visualBoundaryKey: visualKey);
+      await pumpUntilFound(tester, find.byType(BottomNavigationBar));
+      for (var index = 0; index < 3; index++) {
+        final navFinder = find.byType(BottomNavigationBar);
+        final nav = tester.widget<BottomNavigationBar>(navFinder);
+        expect(nav.items.map((item) => item.label), ['今日', '助手', '我的']);
+        final expected = AppTheme.getTheme(appearance);
+        expect(nav.selectedItemColor, expected.colorScheme.primary);
+        expect(nav.unselectedItemColor, expected.colorScheme.onSurfaceVariant);
+        expect(
+            Theme.of(tester.element(navFinder))
+                .extension<ShirohaThemeTokens>()!
+                .appearance
+                .name,
+            appearance);
+        await tester.tap(find.descendant(
+            of: navFinder, matching: find.text(['今日', '助手', '我的'][index])));
+        await tester.pump();
+        final key = ValueKey(
+            'main-nav-selected-${['home', 'assistant', 'profile'][index]}');
+        final selected = find.byKey(key);
+        if (index == 1) {
+          final icon = tester.widget<ShirohaIcon>(find.descendant(
+              of: selected, matching: find.byType(ShirohaIcon)));
+          expect(icon.glyph, ShirohaGlyph.assistant);
+          expect(icon.color, expected.colorScheme.onPrimaryContainer);
+        } else {
+          final iconFinder = index == 0
+              ? selected
+              : find.descendant(of: selected, matching: find.byType(Icon));
+          expect(
+              tester.widget<Icon>(iconFinder).color,
+              index == 0
+                  ? expected.colorScheme.primary
+                  : expected.colorScheme.onPrimaryContainer);
+        }
+        if (index == 1) {
+          await captureThemeEvidence(
+              tester, visualKey, 'assistant-$appearance');
+        } else if (index == 2) {
+          await captureThemeEvidence(
+              tester, visualKey, 'navigation-$appearance');
+        }
+      }
+      await tester.pumpWidget(const SizedBox());
+      await drainBackgroundWork(tester);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets(
       'App exposes the canonical Assistant navigation and selected state',
@@ -346,7 +484,7 @@ void main() {
       tester
           .widget<BottomNavigationBar>(find.byType(BottomNavigationBar))
           .selectedItemColor,
-      const Color(0xFF303238),
+      const Color(0xFF545864),
     );
 
     await tester.tap(find.text('助手'));
@@ -1007,18 +1145,20 @@ Future<void> pumpApp(
   ConversationService? conversationService,
   AgentSettingsService? agentSettingsService,
   AgentTurnStarter? startAgentTurn,
+  GlobalKey? visualBoundaryKey,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
-  await tester.pumpWidget(
-    _buildTestApp(
-      conversationService: conversationService,
-      agentSettingsService: agentSettingsService,
-      startAgentTurn: startAgentTurn,
-    ),
+  final app = _buildTestApp(
+    conversationService: conversationService,
+    agentSettingsService: agentSettingsService,
+    startAgentTurn: startAgentTurn,
   );
+  await tester.pumpWidget(visualBoundaryKey == null
+      ? app
+      : RepaintBoundary(key: visualBoundaryKey, child: app));
 }
 
 /// Proves every final primary destination is reachable at the current

@@ -3,6 +3,7 @@ import '../../application/study_plan/study_plan_selection_service.dart';
 import '../../domain/study_plan/active_study_plan.dart';
 import '../../domain/study_plan/study_plan_values.dart';
 import '../theme/design_tokens.dart';
+import 'today_visual_theme.dart';
 
 /// One real plan, shared by Today and the lightweight current-plan detail.
 class TodayPlanCard extends StatelessWidget {
@@ -51,14 +52,11 @@ class TodayPlanCard extends StatelessWidget {
         key: ValueKey(plan == null
             ? 'today-focused-unavailable'
             : 'today-focused-plan-card'),
-        decoration: BoxDecoration(
-            color: colors.surface,
-            borderRadius: BorderRadius.circular(14),
-            boxShadow:
-                DesignTokens.surfaceShadow(Theme.of(context).brightness)),
+        decoration: todayCardDecoration(Theme.of(context)),
+        foregroundDecoration: todayCardOutline(Theme.of(context)),
         child: Material(
             color: Colors.transparent,
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(DesignTokens.todayCardRadius),
             clipBehavior: Clip.antiAlias,
             child: InkWell(
               onTap: onOpen,

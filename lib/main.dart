@@ -741,9 +741,14 @@ void main() {
           },
         );
 
-        final savedTheme = await SettingsRepository.instance.getAppTheme();
-        if (savedTheme.isNotEmpty) {
-          globalThemeNotifier.value = savedTheme;
+        try {
+          final savedTheme = await SettingsRepository.instance.getAppTheme();
+          globalThemeNotifier.value = AppTheme.normalizeName(savedTheme);
+        } catch (_) {
+          SettingsRepository.instance.clearCache();
+          globalThemeNotifier.value = 'light';
+          AppLogger.warning('Appearance setting unavailable; using light',
+              module: 'Application');
         }
 
         // 初始化 flutter_tex MathJax 渲染服务

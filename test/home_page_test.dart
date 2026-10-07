@@ -428,7 +428,7 @@ void main() {
     expect(assets, {'assets/images/today/welcome-landscape.png'});
     final homeContext =
         tester.element(find.byKey(const ValueKey('home-brand-title')));
-    expect(Theme.of(homeContext).colorScheme.primary, const Color(0xFF303238));
+    expect(Theme.of(homeContext).colorScheme.primary, const Color(0xFF545864));
     expect(tester.takeException(), isNull);
   });
 

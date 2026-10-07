@@ -1,39 +1,82 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
+import '../theme/shiroha_theme_tokens.dart';
+import '../theme/design_tokens.dart';
 
 /// Reference palette shared by Today, TaskCenter and bank detail destinations.
 ThemeData todayVisualTheme(ThemeData base) {
-  final dark = base.brightness == Brightness.dark;
-  final ink = dark ? const Color(0xFFEAEAF0) : const Color(0xFF303238);
-  final muted = dark ? const Color(0xFFB4B5BE) : const Color(0xFF858891);
-  final surface = dark ? const Color(0xFF24252B) : Colors.white;
-  final canvas = dark ? const Color(0xFF191A20) : const Color(0xFFF7F7FA);
-  final tile = dark ? const Color(0xFF33343D) : const Color(0xFFF0F0F5);
-  final line = dark ? const Color(0xFF3B3C45) : const Color(0xFFF0F0F3);
-  final colors = base.colorScheme.copyWith(
-    primary: ink,
-    onPrimary: surface,
-    primaryContainer: tile,
-    onPrimaryContainer: ink,
-    surface: surface,
-    onSurface: ink,
-    onSurfaceVariant: muted,
-    surfaceContainerLow: surface,
-    surfaceContainerHighest: tile,
-    outline: muted,
-    outlineVariant: line,
-  );
-  return base.copyWith(
-    colorScheme: colors,
-    scaffoldBackgroundColor: canvas,
-    textTheme: base.textTheme.apply(bodyColor: ink, displayColor: ink),
-    iconTheme: IconThemeData(color: muted),
+  final theme = AppTheme.withPresetFallback(base);
+  final tokens = theme.extension<ShirohaThemeTokens>()!;
+  final colorful = tokens.appearance == ShirohaAppearance.colorful;
+  return theme.copyWith(
+    hoverColor: colorful ? tokens.hoverOverlay : theme.hoverColor,
+    highlightColor: colorful ? tokens.pressedOverlay : theme.highlightColor,
+    splashColor: colorful ? tokens.pressedOverlay : theme.splashColor,
+    focusColor: colorful ? tokens.focusOverlay : theme.focusColor,
+    iconButtonTheme: colorful
+        ? IconButtonThemeData(
+            style:
+                (theme.iconButtonTheme.style ?? const ButtonStyle()).copyWith(
+              overlayColor: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.disabled)) {
+                  return null;
+                }
+                if (states.contains(WidgetState.pressed)) {
+                  return tokens.pressedOverlay;
+                }
+                if (states.contains(WidgetState.focused)) {
+                  return tokens.focusOverlay;
+                }
+                if (states.contains(WidgetState.hovered)) {
+                  return tokens.hoverOverlay;
+                }
+                return null;
+              }),
+              side: WidgetStateProperty.resolveWith((states) => BorderSide(
+                    color: states.contains(WidgetState.focused) &&
+                            !states.contains(WidgetState.disabled)
+                        ? tokens.icon
+                        : tokens.icon.withValues(alpha: 0),
+                  )),
+            ),
+          )
+        : theme.iconButtonTheme,
     cardTheme: CardThemeData(
-        color: surface,
+        color: theme.colorScheme.surface,
         elevation: 0,
         margin: EdgeInsets.zero,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(DesignTokens.todayCardRadius),
+          side: colorful
+              ? BorderSide(color: tokens.cardOutline)
+              : BorderSide.none,
+        )),
   );
 }
+
+BoxDecoration todayCardDecoration(ThemeData theme) {
+  final tokens =
+      AppTheme.withPresetFallback(theme).extension<ShirohaThemeTokens>()!;
+  return BoxDecoration(
+    color: tokens.surface,
+    borderRadius: BorderRadius.circular(DesignTokens.todayCardRadius),
+    boxShadow: theme.brightness == Brightness.dark
+        ? const []
+        : [
+            BoxShadow(
+                color: tokens.cardShadow,
+                blurRadius: 18,
+                offset: const Offset(0, 6)),
+          ],
+  );
+}
+
+BoxDecoration todayCardOutline(ThemeData theme) => BoxDecoration(
+    borderRadius: BorderRadius.circular(DesignTokens.todayCardRadius),
+    border: Border.all(
+        color: AppTheme.withPresetFallback(theme)
+            .extension<ShirohaThemeTokens>()!
+            .cardOutline));
 
 class TodayIconTile extends StatelessWidget {
   const TodayIconTile(this.icon,
@@ -50,7 +93,9 @@ class TodayIconTile extends StatelessWidget {
             color: Theme.of(context).colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(size * (circular ? .5 : .25))),
         child: Icon(icon,
-            size: iconSize, color: Theme.of(context).colorScheme.onSurface),
+            size: iconSize,
+            color: Theme.of(context).extension<ShirohaThemeTokens>()?.icon ??
+                Theme.of(context).colorScheme.onSurface),
       );
 }
 

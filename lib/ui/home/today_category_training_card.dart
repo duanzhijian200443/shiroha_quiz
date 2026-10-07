@@ -9,6 +9,8 @@ import '../training/training_visuals.dart';
 import 'today_category_visual.dart';
 import 'today_visual_theme.dart';
 import '../theme/design_tokens.dart';
+import '../theme/app_theme.dart';
+import '../theme/shiroha_theme_tokens.dart';
 
 /// Category pages consume captured view facts; scrolling itself never writes.
 class TodayCategoryTrainingCard extends StatefulWidget {
@@ -261,12 +263,16 @@ class FoldedPageCorner extends StatelessWidget {
               width: 48,
               height: 48,
               child: CustomPaint(
-                  painter: _CornerPainter(Theme.of(context).colorScheme)))));
+                  painter: _CornerPainter(
+                      Theme.of(context).colorScheme,
+                      AppTheme.withPresetFallback(Theme.of(context))
+                          .extension<ShirohaThemeTokens>()!)))));
 }
 
 class _CornerPainter extends CustomPainter {
-  _CornerPainter(this.colors);
+  _CornerPainter(this.colors, this.tokens);
   final ColorScheme colors;
+  final ShirohaThemeTokens tokens;
   @override
   void paint(Canvas canvas, Size size) {
     final dark = colors.brightness == Brightness.dark;
@@ -283,14 +289,7 @@ class _CornerPainter extends CustomPainter {
           ..shader = LinearGradient(
             begin: Alignment.topRight,
             end: Alignment.bottomLeft,
-            colors: [
-              dark ? const Color(0xFF484B55) : colors.surfaceContainerHighest,
-              dark ? const Color(0xFF898C96) : colors.surface,
-              dark ? const Color(0xFFA9ABB2) : colors.surface,
-              dark
-                  ? const Color(0xFF4F525C)
-                  : colors.outline.withValues(alpha: .6),
-            ],
+            colors: tokens.foldedCornerColors,
             stops: const [0, .38, .73, 1],
           ).createShader(Offset.zero & size));
     final crease = Path()
@@ -315,7 +314,8 @@ class _CornerPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_CornerPainter old) => old.colors != colors;
+  bool shouldRepaint(_CornerPainter old) =>
+      old.colors != colors || old.tokens.appearance != tokens.appearance;
 }
 
 class TodayTrainingActionCard extends StatelessWidget {
@@ -343,16 +343,14 @@ class TodayTrainingActionCard extends StatelessWidget {
       enabled: enabled,
       label: '$title $value题${enabled ? '' : '，不可开始'}',
       child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
-          boxShadow: DesignTokens.surfaceShadow(Theme.of(context).brightness),
-        ),
+        decoration: todayCardDecoration(Theme.of(context)),
+        foregroundDecoration: todayCardOutline(Theme.of(context)),
         child: Material(
           color: colors.surface,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(DesignTokens.todayCardRadius),
           child: InkWell(
             onTap: enabled ? onPressed : null,
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(DesignTokens.todayCardRadius),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
               child: LayoutBuilder(builder: (context, constraints) {

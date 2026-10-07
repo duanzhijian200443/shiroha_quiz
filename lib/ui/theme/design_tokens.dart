@@ -10,6 +10,7 @@ abstract final class DesignTokens {
   static const double sectionGap = 24;
   static const double cardInternalPadding = 16;
   static const double cardRadius = 18;
+  static const double todayCardRadius = 14;
   static const double compactIconContainerRadius = 11;
   static const double prominentIconContainerRadius = 13;
   static const double navigationSelectedRadius = 12;

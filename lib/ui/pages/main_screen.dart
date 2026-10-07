@@ -22,12 +22,12 @@ import '../dependencies/ai_dependencies_scope.dart';
 import '../dependencies/practice_command_dependencies.dart';
 import '../assistant/assistant_workspace_shell.dart';
 import '../assistant/assistant_screen.dart';
+import '../theme/shiroha_theme_tokens.dart';
 import '../assistant/workspace_controller.dart';
 import '../assistant/workspace_pages.dart';
 import '../../services/import_review/import_commit_service.dart';
-import '../theme/app_theme.dart';
-import '../home/today_visual_theme.dart';
 import '../theme/design_tokens.dart';
+import '../widgets/shiroha_icons.dart';
 import '../dependencies/home_training_dependencies.dart';
 import '../dependencies/task_center_dependencies.dart';
 import '../dependencies/study_activity_dependencies_scope.dart';
@@ -220,11 +220,6 @@ class _MainScreenState extends State<MainScreen> {
       ), // Tab 2 — 我的
     ];
     final theme = Theme.of(context);
-    final selectedNavigationColor = _currentIndex == 0
-        ? todayVisualTheme(theme).colorScheme.onSurface
-        : theme.brightness == Brightness.light
-            ? AppTheme.shirohaCyanForeground
-            : theme.colorScheme.primary;
     final assistantDrawerEnabled = _currentIndex == 1 &&
         MediaQuery.sizeOf(context).width < 900 &&
         _assistantDrawerBuilder != null;
@@ -238,15 +233,17 @@ class _MainScreenState extends State<MainScreen> {
             ? _assistantDrawerBuilder!.call(context)
             : null,
         drawerEnableOpenDragGesture: assistantDrawerEnabled,
+        drawerScrimColor: assistantDrawerEnabled
+            ? theme.extension<ShirohaThemeTokens>()?.assistantDrawerScrim
+            : null,
         body: IndexedStack(index: _currentIndex, children: pages),
         bottomNavigationBar: BottomNavigationBar(
           currentIndex: _currentIndex,
           onTap: _handleNavigation,
           type: BottomNavigationBarType.fixed,
-          selectedItemColor: selectedNavigationColor,
-          unselectedItemColor: _currentIndex == 0
-              ? todayVisualTheme(theme).colorScheme.onSurfaceVariant
-              : theme.colorScheme.onSurfaceVariant,
+          selectedItemColor: theme.bottomNavigationBarTheme.selectedItemColor,
+          unselectedItemColor:
+              theme.bottomNavigationBarTheme.unselectedItemColor,
           items: const [
             BottomNavigationBarItem(
               icon: Icon(Icons.home_rounded),
@@ -258,9 +255,10 @@ class _MainScreenState extends State<MainScreen> {
               label: '今日',
             ),
             BottomNavigationBarItem(
-              icon: _TodayNavigationStar(),
+              icon: ShirohaIcon(ShirohaGlyph.assistant),
               activeIcon: _SelectedNavigationIcon(
                 icon: Icons.auto_awesome_outlined,
+                assistant: true,
                 itemKey: ValueKey<String>('main-nav-selected-assistant'),
               ),
               label: '助手',
@@ -280,45 +278,15 @@ class _MainScreenState extends State<MainScreen> {
   }
 }
 
-/// The single four-point star used by the supplied Today reference.
-class _TodayNavigationStar extends StatelessWidget {
-  const _TodayNavigationStar();
-
-  @override
-  Widget build(BuildContext context) => CustomPaint(
-      size: const Size(24, 24),
-      painter: _TodayStarPainter(
-          todayVisualTheme(Theme.of(context)).colorScheme.onSurfaceVariant));
-}
-
-class _TodayStarPainter extends CustomPainter {
-  const _TodayStarPainter(this.color);
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final path = Path()
-      ..moveTo(12, 0)
-      ..quadraticBezierTo(14, 9, 18, 10)
-      ..quadraticBezierTo(24, 12, 18, 14)
-      ..quadraticBezierTo(14, 15, 12, 24)
-      ..quadraticBezierTo(10, 15, 6, 14)
-      ..quadraticBezierTo(0, 12, 6, 10)
-      ..quadraticBezierTo(10, 9, 12, 0)
-      ..close();
-    canvas.drawPath(path, Paint()..color = color);
-  }
-
-  @override
-  bool shouldRepaint(_TodayStarPainter oldDelegate) =>
-      oldDelegate.color != color;
-}
-
 class _SelectedNavigationIcon extends StatelessWidget {
   const _SelectedNavigationIcon(
-      {required this.icon, required this.itemKey, this.neutral = false});
+      {required this.icon,
+      required this.itemKey,
+      this.neutral = false,
+      this.assistant = false});
 
   final bool neutral;
+  final bool assistant;
 
   final IconData icon;
   final Key itemKey;
@@ -326,29 +294,26 @@ class _SelectedNavigationIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
     if (neutral) {
       return Icon(icon,
-          key: itemKey,
-          color: todayVisualTheme(theme).colorScheme.onSurface,
-          size: 28);
+          key: itemKey, color: theme.colorScheme.primary, size: 28);
     }
     return Container(
       key: itemKey,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
       decoration: BoxDecoration(
-        color: isDark
-            ? theme.colorScheme.primary.withValues(alpha: 0.16)
-            : theme.colorScheme.primaryContainer,
+        color: theme.colorScheme.primaryContainer,
         borderRadius: BorderRadius.circular(
           DesignTokens.navigationSelectedRadius,
         ),
       ),
-      child: Icon(
-        icon,
-        color:
-            isDark ? theme.colorScheme.primary : AppTheme.shirohaCyanForeground,
-      ),
+      child: assistant
+          ? ShirohaIcon(ShirohaGlyph.assistant,
+              color: theme.colorScheme.onPrimaryContainer)
+          : Icon(
+              icon,
+              color: theme.colorScheme.onPrimaryContainer,
+            ),
     );
   }
 }
