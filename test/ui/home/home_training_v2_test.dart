@@ -314,6 +314,33 @@ void main() {
   });
 
   testWidgets(
+      'desktop mouse drag pages categories and the corner stays an independent click',
+      (tester) async {
+    final fake = HomeTrainingFake();
+    await pump(tester, fake);
+    await tester
+        .ensureVisible(find.byKey(const ValueKey('home-category-pages')));
+    await tester.drag(find.byKey(const ValueKey('home-category-pages')),
+        const Offset(-280, 0),
+        kind: ui.PointerDeviceKind.mouse);
+    await tester.pumpAndSettle();
+    expect(fake.selected, homeB);
+    expect(fake.selections, hasLength(1));
+    expect(find.text('词汇 + 阅读'), findsOneWidget);
+    final corner = find.byKey(const ValueKey('home-content-corner'));
+    await tester.ensureVisible(corner);
+    await tester.pumpAndSettle();
+    final before = fake.snapshot.selection.currentContent!.content.contentId;
+    final press = await tester.press(corner, kind: ui.PointerDeviceKind.mouse);
+    await press.up();
+    await tester.pumpAndSettle();
+    expect(fake.snapshot.selection.currentContent!.content.contentId,
+        isNot(before));
+    expect(fake.selections, hasLength(2));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
       'corner semantic hit area, quick cycle and B2 config route return refresh',
       (tester) async {
     final fake = HomeTrainingFake(categories: 1);
