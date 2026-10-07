@@ -6,7 +6,8 @@ initial state was `IN PROGRESS`).
 The [Agent refactor target](../product/agent-refactor/README.md) plans detailed
 Provider round terminal evidence. OBS-1 remains the event-schema, identity and
 redaction authority. This documentation checkpoint adds no runtime event;
-the implementing stage must update this owner and its acceptance together.
+the AR-R1 implementation candidate adds the scoped successor below. Historical
+OBS-1 closure does not constitute AR-R1 final CI/review acceptance.
 
 OBS-1 adds a unified **operation correlation** layer to Shiroha v0 without
 changing the runtime database schema (stays **v22**), without cloud telemetry,
@@ -166,6 +167,54 @@ registered tool names keep their canonical form, anything else becomes
 `invalid_call_id`. Tool arguments, tool output and model response text are
 never logged. Provider rounds and ordinary Tool Calls are events/spans of
 the **same Agent trace**; no per-round traceId is created.
+
+### AR-R1 Provider round terminal successor
+
+`provider_round_completed` is now the single terminal stage for every attempted
+round, including unsuccessful outcomes. The success path emits no second record.
+Each `provider_round_started` is paired with exactly one terminal while the process
+continues running (best-effort sink delivery remains §25). Attempt numbers increase
+across failures and fallback; each terminal precedes the next round start. Forced
+process death leaves an unmatched start, not evidence of a particular failure.
+
+Required whitelist fields:
+
+| Field | Frozen value / meaning |
+|---|---|
+| `providerRound` | Positive per-turn attempt number |
+| `adapterIdentity` | Fixed enum: `deepseekResponses`, `unknown` for other/fake ports |
+| `outcome` | `completed`, `toolCallsRequested`, `incomplete`, `failed`, `cancelled` |
+| `durationMs` | Non-negative elapsed round duration |
+| `terminalSeen` | Whether any Provider terminal was observed before settlement |
+| `completeCallCount` | Complete calls observed, including calls withheld on failure |
+| `visibleCharacterCount` | Unicode rune count of observed visible deltas for this round |
+| `functionCallCount` | Compatibility alias of `completeCallCount` |
+| `status` | `success` for successful outcomes; otherwise the outcome token |
+| `failureBoundary`, `failureCode` | Optional fixed pair below; omitted on success and user cancellation |
+
+| Boundary | Codes |
+|---|---|
+| `request_config` | `invalid_request`, `unsupported_model`, `unsupported_capability` |
+| `provider` | `authentication`, `rate_limited`, `content_filtered` |
+| `incomplete` | `max_output_tokens`, `incomplete_unknown` |
+| `protocol` | `clean_eof_without_terminal`, `malformed_event`, `invalid_output_item`, `duplicate_terminal` |
+| `transport` | `connect_timeout`, `stream_timeout`, `connection_lost`, `temporarily_unavailable` |
+| `adapter` | `adapter_internal_error` |
+
+Global round deadline is `failed / transport / stream_timeout`; a user cancellation
+is `cancelled`. Cancellation/deadline/stream settlement race through a single
+completion guard. A successful terminal alone does not permit dispatch: closure
+must validate its tail. A later second terminal or illegal event fails without
+executing collected calls. Late events after settlement never mutate text/calls or
+emit another terminal. Adapter cleanup cannot delay round settlement indefinitely.
+
+No usage object or usage counters are added in AR-R1. Terminal logs contain no
+prompt, response text, arguments/results, reasoning, continuation, raw reason/body,
+credentials, paths, submission keys, exception text or stack trace. Unknown reasons
+map to fixed codes; adapter identity never comes from profile/provider input.
+Rounds and fallback retain the same Agent trace/correlation, without per-round IDs.
+Legacy fallback and public failure mapping remain owned by AGENT-FB and the
+`agent-runtime-v1.md` compatibility bridge, not these diagnostic fields.
 
 ## 8. RAG retrieval child trace
 

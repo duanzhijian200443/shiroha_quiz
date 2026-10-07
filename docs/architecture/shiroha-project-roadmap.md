@@ -141,6 +141,12 @@ runtime contracts stay active until each scoped implementation is accepted.
 The documentation-only checkpoint activates no Runtime, Module, external
 authorization, generated Proposal, schema or MCP vNext implementation.
 
+AR-R0's contract checkpoint is delivered. AR-R1 now has a bounded implementation
+candidate: Provider round outcome normalization, detailed safe failure bridge,
+DeepSeek classification and exactly-one OBS terminal evidence with synthetic
+regressions. It remains **IMPLEMENTATION CANDIDATE / pending final-head PR contract
+CI and independent review**, not CLOSED. AR-R2/AR-R3 are not activated by it.
+
 Use namespaced AR-R identifiers to distinguish this route from historical
 R1-R8 typed-core stages:
 

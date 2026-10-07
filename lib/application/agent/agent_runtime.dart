@@ -17,6 +17,7 @@ import 'agent_config.dart';
 import 'agent_config_service.dart';
 import 'agent_history.dart';
 import 'agent_provider.dart';
+import 'provider_round.dart';
 import 'agent_retrieval_tool.dart';
 import 'agent_runtime_limits.dart';
 import 'agent_study_plan_tool_catalog.dart';
@@ -403,15 +404,6 @@ final class ShirohaAgentRuntime {
         reasoningEffort: currentResolved.config.reasoningEffort,
       );
       final _ProviderRound round;
-      final roundStopwatch = Stopwatch()..start();
-      LogWriter.info(
-        'Provider round started',
-        module: 'Agent',
-        data: <String, Object?>{
-          'stage': 'provider_round_started',
-          'providerRound': turn.providerRounds + 1,
-        },
-      );
       try {
         round = await _runProviderRound(turn, request);
       } catch (error) {
@@ -429,7 +421,7 @@ final class ShirohaAgentRuntime {
             data: <String, Object?>{
               'stage': 'fallback_attempted',
               'fallbackReason': _fallbackReasonOf(error),
-              'providerRound': turn.providerRounds + 1,
+              'providerRound': turn.providerAttempts,
             },
           );
           currentResolved = ResolvedAgentConfig(
@@ -454,18 +446,6 @@ final class ShirohaAgentRuntime {
         rethrow;
       }
       turn.providerRounds++;
-      LogWriter.info(
-        'Provider round completed',
-        module: 'Agent',
-        data: <String, Object?>{
-          'stage': 'provider_round_completed',
-          'providerRound': turn.providerRounds,
-          'functionCallCount': round.functionCalls.length,
-          'status': 'success',
-          'durationMs': roundStopwatch.elapsedMilliseconds,
-        },
-      );
-
       if (round.functionCalls.isEmpty) {
         final finalText = turn.visibleText.toString();
         if (finalText.trim().isEmpty) {
@@ -658,58 +638,26 @@ final class ShirohaAgentRuntime {
     _ActiveTurn turn,
     AgentProviderRequest request,
   ) async {
-    final remaining = turn.remainingBudget();
-    if (remaining <= Duration.zero) {
-      throw const _TurnTimeoutException();
-    }
-    final done = Completer<_ProviderRound>();
-    unawaited(() async {
-      try {
-        final calls = <AgentProviderFunctionCall>[];
-        AgentProviderContinuationState? completedState;
-        var completed = false;
-        await for (final event in turn.provider!.stream(
-          request,
-          turn.cancellation.token,
-        )) {
-          turn.cancellation.token.throwIfCancelled();
-          switch (event) {
-            case AgentProviderTextDelta(:final text):
-              turn.visibleText.write(text);
-              _emit(turn, AgentTurnTextDelta(text));
-            case AgentProviderFunctionCall():
-              calls.add(event);
-            case AgentProviderWebSearchEvent(:final phase):
-              turn.webProgressEmitted = true;
-              _emit(turn, AgentTurnWebSearchEvent(phase));
-            case AgentProviderCompleted(:final continuationState):
-              if (completed) {
-                throw const AgentProviderException(
-                  AgentProviderFailure.malformedResponse,
-                );
-              }
-              completed = true;
-              completedState = continuationState;
-          }
-        }
-        if (!completed) {
-          throw const AgentProviderException(
-            AgentProviderFailure.incompleteResponse,
-          );
-        }
-        done.complete(
-          _ProviderRound(
-            functionCalls: calls,
-            continuationState: completedState,
-          ),
-        );
-      } catch (error) {
-        if (!done.isCompleted) done.completeError(error);
-      }
-    }());
-    return done.future.timeout(
-      remaining,
-      onTimeout: () => throw const _TurnTimeoutException(),
+    final result = await normalizeProviderRound(
+      provider: turn.provider!,
+      request: request,
+      cancellationToken: turn.cancellation.token,
+      remainingBudget: turn.remainingBudget(),
+      providerRound: ++turn.providerAttempts,
+      isTurnTimedOut: () => turn.timedOut,
+      onText: (text) {
+        turn.visibleText.write(text);
+        _emit(turn, AgentTurnTextDelta(text));
+      },
+      onWebSearch: (phase) {
+        turn.webProgressEmitted = true;
+        _emit(turn, AgentTurnWebSearchEvent(phase));
+      },
+    );
+    if (result.failure case final failure?) throw failure;
+    return _ProviderRound(
+      functionCalls: result.functionCalls,
+      continuationState: result.continuationState,
     );
   }
 
@@ -1398,7 +1346,9 @@ final class ShirohaAgentRuntime {
   }
 
   static bool _isEligibleProviderFailure(Object error) {
-    if (error is! AgentProviderException) return false;
+    if (error is! AgentProviderException || !error.legacyFallbackAllowed) {
+      return false;
+    }
     return switch (error.failure) {
       AgentProviderFailure.authentication ||
       AgentProviderFailure.rateLimited ||
@@ -1453,6 +1403,7 @@ final class _ActiveTurn {
   int toolRoundsUsed = 0;
   int localCallsUsed = 0;
   int providerRounds = 0;
+  int providerAttempts = 0;
   int toolCallsCount = 0;
   String? lastToolName;
   bool fallbackAttempted = false;

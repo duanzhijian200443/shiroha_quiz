@@ -1,6 +1,7 @@
 # Agent Runtime v1
 
-Status: **FROZEN target contract; not implemented by AR-R0.**
+Status: **FROZEN target contract; AR-R1 Provider seam implemented in candidate,
+pending final-head CI and independent review. Remaining runtime split is target-only.**
 
 Authority/activation: [index](README.md). Current A0 and AGENT-FB behavior remains
 active. Provider protocol details, business capabilities and Proposal lifecycle
@@ -49,6 +50,31 @@ AR-R1 introduces detailed failure plus a legacy classification bridge. Even when
 a parser-swallowed stream timeout becomes accurately classified, eligibility
 and barriers remain identical to legacy AGENT-FB. Do not increase output tokens
 to conceal incomplete output. Provider/model compatibility remains explicit.
+
+### AR-R1 scoped implementation
+
+`agent_provider.dart` owns fixed `ProviderFailureBoundary` / `ProviderFailureCode`
+and the explicit legacy exception bridge. `provider_round.dart` owns the concrete
+round result and stream settlement. The existing Runtime invokes that seam;
+turn policy, persistence, dispatch and context remain in their existing owners.
+No AR-R2 capability executor or AR-R3 coordinator/transcript is implemented.
+
+DeepSeek interprets SSE and request/body transport phases. An explicit successful
+terminal and validated stream closure are required before complete calls become
+executable. A second terminal or non-ignorable event after terminal fails the
+round. Incomplete/failed calls remain diagnostic counts only. Hidden reasoning
+remains solely inside existing adapter-private same-provider continuation, never
+in normalized result content, Conversation or OBS metadata.
+
+Legacy `AgentProviderException.failure` stays the turn/fallback mapping authority.
+Body stream timeout/connection loss retain legacy `malformedResponse`; request
+timeout retains `timeout`. Parser EOF retains `malformedResponse`, while a generic
+Provider-port EOF retains `incompleteResponse`. Untyped adapter exceptions retain
+`internalError` turn mapping and remain fallback-ineligible. `content_filtered`
+uses the prior `temporarilyUnavailable` public/fallback mapping while exposing a
+more precise diagnostic code. All existing eligible classes and barriers remain
+unchanged. No READ continuation, usage-object persistence, output-token tuning or
+new Provider is introduced.
 
 ## 3. Transient canonical transcript
 
