@@ -395,8 +395,7 @@ final class _ResponsesEventDecoder {
       detail = ProviderFailureCode.temporarilyUnavailable;
     }
     final failure = switch (detail) {
-      ProviderFailureCode.authentication =>
-        AgentProviderFailure.authentication,
+      ProviderFailureCode.authentication => AgentProviderFailure.authentication,
       ProviderFailureCode.rateLimited => AgentProviderFailure.rateLimited,
       ProviderFailureCode.streamTimeout => AgentProviderFailure.timeout,
       ProviderFailureCode.contentFiltered ||

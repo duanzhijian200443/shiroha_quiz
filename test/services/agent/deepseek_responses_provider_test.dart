@@ -135,8 +135,7 @@ void main() {
       });
     }
 
-    for (final entry
-        in <(String, ProviderFailureCode, AgentProviderFailure)>[
+    for (final entry in <(String, ProviderFailureCode, AgentProviderFailure)>[
       (
         'auth_error',
         ProviderFailureCode.authentication,
