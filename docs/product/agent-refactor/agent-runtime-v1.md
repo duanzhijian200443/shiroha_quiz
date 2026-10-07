@@ -71,9 +71,10 @@ Body stream timeout/connection loss retain legacy `malformedResponse`; request
 timeout retains `timeout`. Parser EOF retains `malformedResponse`, while a generic
 Provider-port EOF retains `incompleteResponse`. Untyped adapter exceptions retain
 `internalError` turn mapping and remain fallback-ineligible. `content_filtered`
-uses the prior `temporarilyUnavailable` public mapping but grants no fallback.
-All existing eligible classes and barriers remain unchanged. No READ continuation,
-usage-object persistence, output-token tuning or new Provider is introduced.
+uses the prior `temporarilyUnavailable` public/fallback mapping while exposing a
+more precise diagnostic code. All existing eligible classes and barriers remain
+unchanged. No READ continuation, usage-object persistence, output-token tuning or
+new Provider is introduced.
 
 ## 3. Transient canonical transcript
 
