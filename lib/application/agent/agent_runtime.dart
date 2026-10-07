@@ -1346,9 +1346,7 @@ final class ShirohaAgentRuntime {
   }
 
   static bool _isEligibleProviderFailure(Object error) {
-    if (error is! AgentProviderException ||
-        !error.legacyFallbackAllowed ||
-        error.safeCode == ProviderFailureCode.contentFiltered) {
+    if (error is! AgentProviderException || !error.legacyFallbackAllowed) {
       return false;
     }
     return switch (error.failure) {
