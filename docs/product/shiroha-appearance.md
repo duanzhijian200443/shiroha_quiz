@@ -40,8 +40,8 @@ future page-polish work; global theme adoption is not full visual closure.
 | on error container | `#7D1B25` | `#FFDAD6` | `#7D1B25` |
 | brandAccent / featureLibrary | `#3286A2` | `#80AFC1` | `#197B9E` |
 | brandFill / featureLibraryFill | `#DDF3FA` | `#293A42` | `#D7EEF7` |
-| featureNeutral | `#6B6D76` | `#B4B5BE` | `#626F83` |
-| featureNeutralFill | `#F0F0F5` | `#33343D` | `#EDF3F9` |
+| featureNeutral | `#6B6D76` | `#B4B5BE` | `#596670` |
+| featureNeutralFill | `#F0F0F5` | `#33343D` | `#EEF2F4` |
 
 Primary/secondary/tertiary action foreground is white in light/colorful and
 `#191A20` in dark. Error foreground is white in light/colorful and `#381015`
