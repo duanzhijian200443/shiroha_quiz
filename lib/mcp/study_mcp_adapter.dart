@@ -11,6 +11,8 @@ import 'package:shiroha_quiz/application/study_query/study_query_clock.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_dtos.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_error.dart';
 import 'package:shiroha_quiz/application/study_query/study_query_service.dart';
+import 'package:shiroha_quiz/application/study_query/study_capabilities.dart';
+import 'package:shiroha_quiz/application/capabilities/capability.dart';
 
 /// Frozen schema version of every mcp.study.v0 response envelope.
 const String studyMcpSchemaVersion = 'mcp.study.v0';
@@ -37,12 +39,19 @@ final class StudyMcpToolResult {
 }
 
 /// mcp.study.v0 read-only tool adapter over the T0 study query service.
-final class StudyMcpAdapter {
-  StudyMcpAdapter({required StudyQueryService service, StudyClock? clock})
-      : _service = service,
+class McpCapabilityProjection {
+  McpCapabilityProjection(
+      {required StudyQueryService service,
+      CapabilityExecutor? executor,
+      StudyClock? clock})
+      : _executor = executor ??
+            CapabilityExecutor(ApplicationCapabilityRegistry(
+                StudyCapabilities.definitions(service))),
         _clock = clock ?? const SystemStudyClock();
 
-  final StudyQueryService _service;
+  final CapabilityExecutor _executor;
+  final CapabilityContext _context =
+      studyCapabilityContext(CapabilityPrincipal.mcpStudyV0);
   final StudyClock _clock;
 
   /// The exactly-six frozen READ_ONLY tool names.
@@ -98,13 +107,23 @@ final class StudyMcpAdapter {
   // Tool handlers
   // ---------------------------------------------------------------------------
 
+  Future<O> _execute<I, O>(CapabilityId<I, O> id, I input) async {
+    final result = await _executor.execute(id, input, _context);
+    if (result.failure case final failure?) {
+      throw StudyQueryException(studyQueryFailure(failure));
+    }
+    return result.output as O;
+  }
+
   Future<Map<String, Object?>> _listQuestionBanks(
     Map<String, dynamic> args,
   ) async {
-    final page = await _service.listQuestionBanks(
-      cursor: _optionalCursor(args),
-      limit: _limit(args, fallback: 50),
-    );
+    final page = await _execute(
+        StudyCapabilities.listQuestionBanks,
+        ListQuestionBanksInput(
+          cursor: _optionalCursor(args),
+          limit: _limit(args, fallback: 50),
+        ));
     return <String, Object?>{
       'items': <Map<String, Object?>>[
         for (final bank in page.items)
@@ -123,10 +142,12 @@ final class StudyMcpAdapter {
   Future<Map<String, Object?>> _getStudyOverview(
     Map<String, dynamic> args,
   ) async {
-    final overview = await _service.getStudyOverview(
-      bankName: _optionalString(args, 'bank_name'),
-      timezone: _requiredString(args, 'timezone'),
-    );
+    final overview = await _execute(
+        StudyCapabilities.getStudyOverview,
+        GetStudyOverviewInput(
+          bankName: _optionalString(args, 'bank_name'),
+          timezone: _requiredString(args, 'timezone'),
+        ));
     return <String, Object?>{
       'data': <String, Object?>{
         'question_count': overview.questionCount,
@@ -141,12 +162,14 @@ final class StudyMcpAdapter {
   Future<Map<String, Object?>> _getDueReviewSummary(
     Map<String, dynamic> args,
   ) async {
-    final summary = await _service.getDueReviewSummary(
-      bankName: _optionalString(args, 'bank_name'),
-      timezone: _optionalString(args, 'timezone'),
-      from: _requiredInstant(args, 'from'),
-      to: _requiredInstant(args, 'to'),
-    );
+    final summary = await _execute(
+        StudyCapabilities.getDueReviewSummary,
+        GetDueReviewSummaryInput(
+          bankName: _optionalString(args, 'bank_name'),
+          timezone: _optionalString(args, 'timezone'),
+          from: _requiredInstant(args, 'from'),
+          to: _requiredInstant(args, 'to'),
+        ));
     return <String, Object?>{
       'data': <String, Object?>{
         'due_now': summary.dueNow,
@@ -165,12 +188,14 @@ final class StudyMcpAdapter {
   Future<Map<String, Object?>> _searchQuestions(
     Map<String, dynamic> args,
   ) async {
-    final page = await _service.searchQuestions(
-      bankName: _requiredString(args, 'bank_name'),
-      query: _requiredString(args, 'query'),
-      cursor: _optionalCursor(args),
-      limit: _limit(args, fallback: 50),
-    );
+    final page = await _execute(
+        StudyCapabilities.searchQuestions,
+        SearchQuestionsInput(
+          bankName: _requiredString(args, 'bank_name'),
+          query: _requiredString(args, 'query'),
+          cursor: _optionalCursor(args),
+          limit: _limit(args, fallback: 50),
+        ));
     return <String, Object?>{
       'items': <Map<String, Object?>>[
         for (final item in page.items) _searchItem(item),
@@ -182,9 +207,10 @@ final class StudyMcpAdapter {
   Future<Map<String, Object?>> _getQuestionDetail(
     Map<String, dynamic> args,
   ) async {
-    final detail = await _service.getQuestionDetail(
-      _requiredString(args, 'question_id'),
-    );
+    final detail = await _execute(
+        StudyCapabilities.getQuestionDetail,
+        GetQuestionDetailInput(
+            questionId: _requiredString(args, 'question_id')));
     return <String, Object?>{
       'data': <String, Object?>{
         'question_id': detail.questionId,
@@ -221,11 +247,13 @@ final class StudyMcpAdapter {
   Future<Map<String, Object?>> _getWeakQuestions(
     Map<String, dynamic> args,
   ) async {
-    final page = await _service.getWeakQuestions(
-      bankName: _optionalString(args, 'bank_name'),
-      cursor: _optionalCursor(args),
-      limit: _limit(args, fallback: 50),
-    );
+    final page = await _execute(
+        StudyCapabilities.getWeakQuestions,
+        GetWeakQuestionsInput(
+          bankName: _optionalString(args, 'bank_name'),
+          cursor: _optionalCursor(args),
+          limit: _limit(args, fallback: 50),
+        ));
     return <String, Object?>{
       'items': <Map<String, Object?>>[
         for (final item in page.items)
@@ -451,4 +479,10 @@ final class StudyMcpAdapter {
     final second = utc.second.toString().padLeft(2, '0');
     return '${utc.year}-$month-${day}T$hour:$minute:${second}Z';
   }
+}
+
+/// Retained MCP-v0 adapter surface; wire semantics stay in the MCP projection.
+final class StudyMcpAdapter extends McpCapabilityProjection {
+  static const toolNames = McpCapabilityProjection.toolNames;
+  StudyMcpAdapter({required super.service, super.executor, super.clock});
 }

@@ -1,6 +1,7 @@
 # Application Capability Kernel
 
-Status: **FROZEN target contract; not implemented by AR-R0.**
+Status: **FROZEN target contract; AR-R2 IMPLEMENTATION CANDIDATE / active
+implementation stage, pending final-head CI and independent review.**
 
 Authority/activation: [index](README.md). This document owns semantic capability,
 permission/effect/receipt and adapter projection boundaries. Runtime, external
@@ -134,3 +135,100 @@ New capability work adds a semantic definition/handler, optional projections
 and tests; it must not require Round Engine, Provider or unrelated controller
 flags to change. Future Proposal kinds still own dedicated commands and
 persistence, never a generic `commit(Map)`.
+
+## 6. AR-R2 Dart implementation candidate
+
+`lib/application/capabilities/capability.dart` implements the eight frozen
+semantic concepts as immutable concrete values, enums, one explicit registry and
+one executor. `CapabilityHandler<I, O>` wraps a typed Application function;
+`CapabilityEvidence<O>` is owning-service evidence before release. No transport,
+JSON Schema, Provider DTO, UI approval or service locator participates in binding.
+Registry construction freezes registration order and validates duplicate business
+identities and input/output/handler binding. A typed lookup with a wrong type
+fails immediately; there is no `execute(String, Map)` API.
+
+The four dimensions are independent: permission, permitted/known effect, execution
+status and release authorization. `knownEffect == null` means unknown, never
+`none`. App-generated UUID execution identities and typed receipts contain only
+capability/status/effect/fixed failure, trusted principal/scope and opaque source/
+turn/recipient references plus an optional transient reconciliation reference.
+They contain no arguments, preview, question text, RAG content or output. They
+are neither persisted nor logged and add no OBS taxonomy or receipt database.
+
+| Stable id | Permission | Permitted effects | Success evidence | Execution semantics |
+|---|---|---|---|---|
+| `list_question_banks` | READ | none | none | repeatableRead |
+| `get_study_overview` | READ | none | none | repeatableRead |
+| `get_due_review_summary` | READ | none | none | repeatableRead |
+| `search_questions` | READ | none | none | repeatableRead |
+| `get_question_detail` | READ | none | none | repeatableRead |
+| `get_weak_questions` | READ | none | none | repeatableRead |
+| `retrieve_file_content` | READ | none, derived_cache | transaction-confirmed none or derived_cache; otherwise unknown | repeatableRead |
+| `propose_missing_answer` | STAGE | none, proposal_staged | proposal_staged | transientStage |
+| `propose_study_plan` | STAGE | none, proposal_staged | proposal_staged | transientStage |
+
+Only READ/STAGE handlers exist. `repeatableRead` requires a fresh invocation of
+admission, principal/capability/permission, current scope/grant and final egress.
+`transientStage` forbids automatic repeats; the executor implements no retry or
+replay mechanism. Manual calls retain the owning services' existing semantic
+deduplication. Neither semantics changes AGENT-FB barriers.
+
+Trusted entrypoints construct `CapabilityContext`; parsed inputs cannot supply
+principal, permission, scope, grant or recipient. The current principal enum has
+Built-in Agent, MCP v0 study and denied callers. A frozen typed capability allowlist,
+explicit independent permissions and bound scope are checked in Application;
+optional current-authorization and existing budget/cancellation/deadline evidence
+are checked before handler entry and before release. Rejection before entry is
+`not_started`; owning-service zero-effect results are `failed_without_effect`.
+Timeout/cancellation/unknown throws after entry are `outcome_unknown`, retaining
+any already-confirmed effect. Interrupted/failed final egress or encoding strips
+output while retaining completed handler evidence and reconciliation identity.
+
+The retained six Study tools use the existing global local-user StudyQueryService
+semantics. Their projection contexts explicitly authorize global READ; the
+executor rejects a context claiming Project-restricted Study reads before any
+query, because no Project-filtered Study query port exists in this stage. This
+does not alter the prior Agent/MCP global study behavior. W0/SPL continue to pass
+the trusted ConversationScope to their owning admission services before any
+preview-visible read; missing and unauthorized targets retain non-enumeration.
+
+Study inputs are dedicated immutable values and outputs are the existing typed
+Study DTOs. `MissingAnswerInput` contains only the bounded target/answer payload;
+W0 admission and AgentWriteProposalService still own staging. The Agent projection
+retains W0's exact pre-activation encoded-size gate. `ProposeStudyPlanInput` goes
+through StudyPlanDraftService normalization/admission and transient lifecycle;
+there is no adopt/commit capability. Successful staging receipts refer privately
+to the owning service instance plus opaque artifact id. Typed reconciliation
+reads the current same-instance lifecycle; another service instance, including
+restart/recomposition, rejects that reference even if an id is reused. This is
+not a durable receipt, approval token or formal-commit/adoption recovery.
+
+Retrieval keeps model inputs to query/file ids/limit. The context carries the
+original RetrievalEgressGrant, exact turn/Conversation/User/Provider recipient,
+current file snapshot and mandatory serializationAllowed callback. The grant's
+Application owner is now `application/retrieval/retrieval_egress_grant.dart`,
+with the previous Agent path retained as a compatibility export. The executor
+checks recipient and approved/current files before retrieval, then repeats grant
+and serialization authorization before projection encoding. Runtime's subsequent
+pre-Provider release check remains unchanged. SqliteRetrievalIndexRepository
+reports unchanged versus derived-cache commit only after its existing transaction
+settles; no SQL/schema/bounds change is introduced. A legacy index adapter that
+provides no transaction evidence yields unknown effect rather than fabricated
+none. Revoked release cannot erase a committed cache effect.
+
+`AgentStudyToolProjection`, `AgentRetrievalToolProjection`,
+`AgentWriteProposalToolProjection` and `AgentStudyPlanToolProjection` own parsing
+and legacy encoding; catalogs retain all nine original schemas/descriptions.
+`McpCapabilityProjection` binds only the same six typed Study definitions and
+preserves names, schemas, annotations and exact v0 envelopes/stdio errors.
+The four Dispatchers remain thin facades; none is called by a handler. Main
+constructs one nine-capability registry/executor and injects it into the facades.
+The independent MCP v0 process constructs the same six typed Study handlers.
+
+Focused kernel/authorization/receipt/cache/encoding/projection tests and retained
+compatibility suites run in hard-failing standing PR contracts. Runtime tests
+exercise a real study facade/executor/handler chain and preserve exact budget
+closure, no fallback after READ and terminal persistence. AR-R3 decomposition,
+AR-R4 module registration, external authority/IPC, durable generated proposals
+and AR-R7 READ continuation remain unimplemented. SQLite schema remains v31;
+B0 storage and all formal mutation/recovery commands are unchanged.

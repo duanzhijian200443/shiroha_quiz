@@ -62,3 +62,35 @@ final class RetrievalIndexSearchResult {
   final List<RetrievalHit> hits;
   final List<String> sourceChangedFileIds;
 }
+
+/// Optional transaction evidence supplied by an owning index adapter. A legacy
+/// adapter's successful void response cannot prove whether a build was written.
+enum RetrievalBuildEffect { unchanged, derivedCache }
+
+abstract interface class RetrievalIndexEvidencePort {
+  Future<RetrievalBuildEffect> ensureBuildWithEvidence({
+    required RetrievalArtifactSnapshot snapshot,
+    required String chunkerVersion,
+    required String lexicalProjectionVersion,
+    required List<RetrievalChunk> chunks,
+  });
+}
+
+/// Per-invocation evidence, never persisted. An unconfirmed index call may
+/// have committed even when its response was lost.
+final class RetrievalExecutionEvidence {
+  RetrievalExecutionEvidence({this.onDerivedCacheCommitted});
+  final void Function()? onDerivedCacheCommitted;
+  int _unconfirmedBuilds = 0;
+  bool _derivedCacheWritten = false;
+  bool get effectKnown => _unconfirmedBuilds == 0;
+  bool get derivedCacheWritten => _derivedCacheWritten;
+  void buildEntered() => _unconfirmedBuilds++;
+  void buildCompleted(RetrievalBuildEffect effect) {
+    _unconfirmedBuilds--;
+    if (effect == RetrievalBuildEffect.derivedCache) {
+      _derivedCacheWritten = true;
+      onDerivedCacheCommitted?.call();
+    }
+  }
+}

@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/retrieval/retrieval.dart';
+import 'package:shiroha_quiz/application/retrieval/retrieval_ports.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/repositories/retrieval_index_repository.dart';
 import 'package:shiroha_quiz/domain/retrieval/retrieval_chunk.dart';
@@ -14,6 +15,50 @@ void main() {
   });
   setUp(DatabaseHelper.resetRuntimeProfileForTesting);
   tearDown(DatabaseHelper.resetRuntimeProfileForTesting);
+
+  test(
+      'transaction evidence reports cache creation and reuse without schema changes',
+      () async {
+    final helper = DatabaseHelper.instance;
+    final db = await helper.openPathForTesting(inMemoryDatabasePath);
+    await _seedFileAndArtifact(db,
+        artifact: 'artifact-1', revision: 1, digest: 'b' * 64);
+    final schemaBefore =
+        await db.rawQuery("SELECT name, sql FROM sqlite_master ORDER BY name");
+    final repository = SqliteRetrievalIndexRepository(databaseHelper: helper);
+    final snapshot = RetrievalArtifactSnapshot(
+        fileId: 'file-1',
+        artifactId: 'artifact-1',
+        revision: 1,
+        payloadDigest: 'b' * 64);
+    final chunks = [
+      _chunk(
+          id: 'chunk-1',
+          artifact: 'artifact-1',
+          revision: 1,
+          ordinal: 0,
+          heading: 'heading',
+          content: 'function')
+    ];
+    expect(
+        await repository.ensureBuildWithEvidence(
+            snapshot: snapshot,
+            chunkerVersion: 'rag1.chunk.v1',
+            lexicalProjectionVersion: 'rag1.lexical.v1',
+            chunks: chunks),
+        RetrievalBuildEffect.derivedCache);
+    expect(
+        await repository.ensureBuildWithEvidence(
+            snapshot: snapshot,
+            chunkerVersion: 'rag1.chunk.v1',
+            lexicalProjectionVersion: 'rag1.lexical.v1',
+            chunks: chunks),
+        RetrievalBuildEffect.unchanged);
+    expect(
+        await db.rawQuery("SELECT name, sql FROM sqlite_master ORDER BY name"),
+        schemaBefore);
+    expect(await db.query('retrieval_index_builds'), hasLength(1));
+  });
 
   test(
       'cache hit is idempotent, heading ranks first, and reparse removes old build',
