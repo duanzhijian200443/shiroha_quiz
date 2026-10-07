@@ -11,6 +11,7 @@ import 'package:shiroha_quiz/core/observability/log_record.dart';
 import 'package:shiroha_quiz/core/observability/trace_context.dart';
 import 'package:shiroha_quiz/application/agent/agent_config_service.dart';
 import 'package:shiroha_quiz/application/agent/agent_provider.dart';
+import 'package:shiroha_quiz/services/agent/deepseek_responses_sse_parser.dart';
 import 'package:shiroha_quiz/application/agent/agent_retrieval_tool.dart';
 import 'package:shiroha_quiz/application/agent/retrieval_egress_grant.dart';
 import 'package:shiroha_quiz/application/agent/agent_runtime.dart';
@@ -62,6 +63,188 @@ typedef _Script = Stream<AgentProviderEvent> Function(
 void main() {
   setUp(BackupRestoreMutationGate.resetForTesting);
   tearDown(BackupRestoreMutationGate.resetForTesting);
+
+  group('AR-R1 fallback parity and terminal evidence', () {
+    tearDown(() => AppLogger.setSink(null));
+    for (final code in ProviderFailureCode.values) {
+      test('clean turn compatibility ${code.code}', () async {
+        final sink = _MemoryLogSink();
+        AppLogger.setSink(sink);
+        final eligible = !const {
+          ProviderFailureCode.invalidRequest,
+          ProviderFailureCode.unsupportedCapability,
+          ProviderFailureCode.contentFiltered
+        }.contains(code);
+        final harness = _Harness(
+          fallbackProfileId: 'profile-fallback',
+          scripts: [
+            (request, token) async* {
+              throw AgentProviderException.detailed(code);
+            }
+          ],
+          fallbackScripts: [_finalAnswer('fallback answer')],
+        );
+        final (cid, mid) = await harness.seedUser('private-marker');
+        final result = await harness.runtime
+            .startTurn(conversationId: cid, userMessageId: mid)
+            .result;
+        expect(harness.fallbackProvider.callCount, eligible ? 1 : 0);
+        expect(result,
+            eligible ? isA<AgentTurnSuccess>() : isA<AgentTurnFailed>());
+        if (!eligible) {
+          expect(
+              _failureOf(result),
+              code == ProviderFailureCode.contentFiltered
+                  ? AgentTurnFailure.temporarilyUnavailable
+                  : code == ProviderFailureCode.unsupportedCapability
+                      ? AgentTurnFailure.unsupportedCapability
+                      : AgentTurnFailure.providerMalformed);
+        }
+        final messages = await harness.messagesOf(cid);
+        expect(
+            messages.where((m) => m.role == ConversationMessageRole.assistant),
+            eligible ? hasLength(1) : isEmpty);
+        await AppLogger.flush();
+        _expectRoundTerminals(sink, eligible ? 2 : 1);
+        expect(
+            sink.records
+                .firstWhere(
+                    (r) => r.data['stage'] == 'provider_round_completed')
+                .data['failureCode'],
+            code.code);
+      });
+    }
+
+    for (final detailed in [false, true]) {
+      for (final barrier in [
+        'visible',
+        'web',
+        'read',
+        'twoReads',
+        'proposal',
+        'studyPlan',
+        'ragApproval',
+        'ragGrant',
+        'fallbackFailure'
+      ]) {
+        test('legacy=$detailed barrier=$barrier', () async {
+          final sink = _MemoryLogSink();
+          AppLogger.setSink(sink);
+          final failure = detailed
+              ? const AgentProviderException.detailed(
+                  ProviderFailureCode.rateLimited)
+              : const AgentProviderException(AgentProviderFailure.rateLimited);
+          Stream<AgentProviderEvent> fail(AgentProviderRequest request,
+              AgentCancellationToken token) async* {
+            if (barrier == 'visible') {
+              yield AgentProviderTextDelta('private-marker');
+            }
+            if (barrier == 'web') {
+              yield const AgentProviderWebSearchEvent(
+                  AgentProviderWebSearchPhase.searching);
+            }
+            throw failure;
+          }
+
+          final initialRounds = <_Script>[
+            if (barrier == 'read' || barrier == 'twoReads')
+              _toolRound([_call('c1', name: 'list_question_banks')],
+                  const _TestContinuationState('s1')),
+            if (barrier == 'twoReads')
+              _toolRound([_call('c2', name: 'list_question_banks')],
+                  const _TestContinuationState('s2')),
+            if (barrier == 'proposal')
+              _toolRound(
+                  [_proposalCall('c1')], const _TestContinuationState('s1')),
+            if (barrier == 'studyPlan')
+              _toolRound(
+                  [_studyPlanCall('c1')], const _TestContinuationState('s1')),
+          ];
+          final harness = _Harness(
+            fallbackProfileId: 'profile-fallback',
+            wireProposal: barrier == 'proposal',
+            wireStudyPlan: barrier == 'studyPlan',
+            wireRetrieval: barrier.startsWith('rag'),
+            scripts: [...initialRounds, fail],
+            fallbackScripts: [
+              barrier == 'fallbackFailure' ? fail : _finalAnswer('must not run')
+            ],
+          );
+          final (cid, mid) = await harness.seedUser('private-marker',
+              fileIds: barrier == 'ragGrant' ? const ['file-1'] : const []);
+          final session = barrier.startsWith('rag')
+              ? harness.runtime.startTurnWithRetrieval(
+                  conversationId: cid,
+                  userMessageId: mid,
+                  approval: RetrievalEgressApproval(const ['file-1']))
+              : harness.runtime
+                  .startTurn(conversationId: cid, userMessageId: mid);
+          final events = <AgentTurnEvent>[];
+          session.events.listen(events.add);
+          expect(
+              _failureOf(await session.result), AgentTurnFailure.rateLimited);
+          expect(harness.fallbackProvider.callCount,
+              barrier == 'fallbackFailure' ? 1 : 0);
+          expect(harness.provider.callCount, initialRounds.length + 1);
+          if (barrier == 'proposal') {
+            expect(events.whereType<AgentTurnProposalStaged>(), hasLength(1));
+          }
+          if (barrier == 'studyPlan') {
+            expect(events.whereType<AgentTurnStudyPlanDraftStaged>(),
+                hasLength(1));
+          }
+          if (barrier == 'read' || barrier == 'twoReads') {
+            expect(harness.dispatcher.calls, hasLength(initialRounds.length));
+          }
+          expect(
+              (await harness.messagesOf(cid))
+                  .where((m) => m.role == ConversationMessageRole.assistant),
+              isEmpty);
+          await AppLogger.flush();
+          _expectRoundTerminals(sink,
+              initialRounds.length + (barrier == 'fallbackFailure' ? 2 : 1));
+        });
+      }
+    }
+
+    for (final tail in <String>[
+      'event: response.incomplete\ndata: {"type":"response.incomplete","response":{"incomplete_details":{"reason":"max_output_tokens"}}}\n\n',
+      'event: response.failed\ndata: {"type":"response.failed","error":{"code":"rate_limit_exceeded"}}\n\n',
+      '',
+      'data: {private-marker\n\n',
+      'event: response.completed\ndata: {"type":"response.completed","response":{"id":"r"}}\n\nevent: response.completed\ndata: {"type":"response.completed","response":{"id":"r2"}}\n\n',
+    ]) {
+      test(
+          'parser failed complete-looking call never dispatches tail=${tail.length}',
+          () async {
+        const callItem =
+            'event: response.output_item.done\ndata: {"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","call_id":"c1","name":"list_question_banks","arguments":"{}"}}\n\n';
+        final sink = _MemoryLogSink();
+        AppLogger.setSink(sink);
+        final harness = _Harness(scripts: [
+          (request, token) => const DeepSeekResponsesSseParser()
+              .parse(Stream.value(utf8.encode(callItem + tail)))
+        ]);
+        final (cid, mid) = await harness.seedUser('private-marker');
+        expect(
+            await harness.runtime
+                .startTurn(conversationId: cid, userMessageId: mid)
+                .result,
+            isA<AgentTurnFailed>());
+        expect(harness.dispatcher.calls, isEmpty);
+        await AppLogger.flush();
+        _expectRoundTerminals(sink, 1);
+        expect(
+            sink.records
+                .singleWhere(
+                    (r) => r.data['stage'] == 'provider_round_completed')
+                .data['completeCallCount'],
+            1);
+        expect(jsonEncode(sink.records.map((r) => r.toJson()).toList()),
+            isNot(contains('private-marker')));
+      });
+    }
+  });
 
   group('B0 mutation lease lifecycle', () {
     test('real runtime releases the lease on terminal success', () async {
@@ -3753,6 +3936,29 @@ void main() {
 }
 
 typedef _Call = AgentProviderFunctionCall;
+
+void _expectRoundTerminals(_MemoryLogSink sink, int count) {
+  final starts = sink.records
+      .where((r) => r.data['stage'] == 'provider_round_started')
+      .toList();
+  final terminals = sink.records
+      .where((r) => r.data['stage'] == 'provider_round_completed')
+      .toList();
+  expect(starts, hasLength(count));
+  expect(terminals, hasLength(count));
+  for (var index = 0; index < count; index++) {
+    expect(starts[index].data['providerRound'], index + 1);
+    expect(terminals[index].data['providerRound'], index + 1);
+    expect(terminals[index].traceId, starts[index].traceId);
+    expect(terminals[index].correlationId, starts[index].correlationId);
+    expect(sink.records.indexOf(terminals[index]),
+        greaterThan(sink.records.indexOf(starts[index])));
+    if (index + 1 < count) {
+      expect(sink.records.indexOf(starts[index + 1]),
+          greaterThan(sink.records.indexOf(terminals[index])));
+    }
+  }
+}
 
 final class _Harness {
   _Harness({

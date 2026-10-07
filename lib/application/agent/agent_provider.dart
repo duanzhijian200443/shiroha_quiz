@@ -6,11 +6,15 @@ final class AgentProviderCapabilities {
   const AgentProviderCapabilities({
     required this.functionTools,
     required this.nativeWebSearch,
+    this.adapterIdentity = AgentProviderAdapterIdentity.unknown,
   });
 
   final bool functionTools;
   final bool nativeWebSearch;
+  final AgentProviderAdapterIdentity adapterIdentity;
 }
+
+enum AgentProviderAdapterIdentity { unknown, deepseekResponses }
 
 enum AgentProviderMessageRole { user, assistant }
 
@@ -227,6 +231,12 @@ abstract interface class AgentProviderPort {
   );
 }
 
+/// Safe evidence of an explicit unsuccessful terminal, never executable output.
+final class AgentProviderFailureTerminal extends AgentProviderEvent {
+  const AgentProviderFailureTerminal(this.failure);
+  final AgentProviderException failure;
+}
+
 enum AgentProviderFailure {
   invalidRequest,
   authentication,
@@ -241,10 +251,110 @@ enum AgentProviderFailure {
   internalError,
 }
 
-final class AgentProviderException implements Exception {
-  const AgentProviderException(this.failure);
+enum ProviderFailureBoundary {
+  requestConfig('request_config'),
+  provider('provider'),
+  incomplete('incomplete'),
+  protocol('protocol'),
+  transport('transport'),
+  adapter('adapter');
 
-  final AgentProviderFailure failure;
+  const ProviderFailureBoundary(this.code);
+  final String code;
+}
+
+enum ProviderFailureCode {
+  invalidRequest('invalid_request', ProviderFailureBoundary.requestConfig,
+      AgentProviderFailure.invalidRequest),
+  unsupportedModel('unsupported_model', ProviderFailureBoundary.requestConfig,
+      AgentProviderFailure.unsupportedModel),
+  unsupportedCapability(
+      'unsupported_capability',
+      ProviderFailureBoundary.requestConfig,
+      AgentProviderFailure.unsupportedCapability),
+  authentication('authentication', ProviderFailureBoundary.provider,
+      AgentProviderFailure.authentication),
+  rateLimited('rate_limited', ProviderFailureBoundary.provider,
+      AgentProviderFailure.rateLimited),
+  contentFiltered('content_filtered', ProviderFailureBoundary.provider,
+      AgentProviderFailure.temporarilyUnavailable),
+  maxOutputTokens('max_output_tokens', ProviderFailureBoundary.incomplete,
+      AgentProviderFailure.incompleteResponse),
+  incompleteUnknown('incomplete_unknown', ProviderFailureBoundary.incomplete,
+      AgentProviderFailure.incompleteResponse),
+  cleanEofWithoutTerminal('clean_eof_without_terminal',
+      ProviderFailureBoundary.protocol, AgentProviderFailure.malformedResponse),
+  malformedEvent('malformed_event', ProviderFailureBoundary.protocol,
+      AgentProviderFailure.malformedResponse),
+  invalidOutputItem('invalid_output_item', ProviderFailureBoundary.protocol,
+      AgentProviderFailure.malformedResponse),
+  duplicateTerminal('duplicate_terminal', ProviderFailureBoundary.protocol,
+      AgentProviderFailure.malformedResponse),
+  connectTimeout('connect_timeout', ProviderFailureBoundary.transport,
+      AgentProviderFailure.timeout),
+  streamTimeout('stream_timeout', ProviderFailureBoundary.transport,
+      AgentProviderFailure.malformedResponse),
+  connectionLost('connection_lost', ProviderFailureBoundary.transport,
+      AgentProviderFailure.malformedResponse),
+  temporarilyUnavailable(
+      'temporarily_unavailable',
+      ProviderFailureBoundary.transport,
+      AgentProviderFailure.temporarilyUnavailable),
+  adapterInternalError('adapter_internal_error',
+      ProviderFailureBoundary.adapter, AgentProviderFailure.internalError);
+
+  const ProviderFailureCode(this.code, this.boundary, this.legacyFailure);
+  final String code;
+  final ProviderFailureBoundary boundary;
+  final AgentProviderFailure legacyFailure;
+}
+
+final class AgentProviderException implements Exception {
+  const AgentProviderException(AgentProviderFailure failure)
+      : _legacyFailure = failure,
+        detailedCode = null,
+        terminalSeen = false,
+        legacyFallbackAllowed = true;
+
+  const AgentProviderException.detailed(
+    ProviderFailureCode code, {
+    AgentProviderFailure? legacyFailure,
+    this.terminalSeen = false,
+    this.legacyFallbackAllowed = true,
+  })  : detailedCode = code,
+        _legacyFailure = legacyFailure;
+
+  final AgentProviderFailure? _legacyFailure;
+  final ProviderFailureCode? detailedCode;
+  final bool terminalSeen;
+  final bool legacyFallbackAllowed;
+
+  AgentProviderFailure get failure =>
+      _legacyFailure ?? detailedCode!.legacyFailure;
+
+  ProviderFailureCode? get safeCode =>
+      detailedCode ??
+      switch (failure) {
+        AgentProviderFailure.invalidRequest =>
+          ProviderFailureCode.invalidRequest,
+        AgentProviderFailure.authentication =>
+          ProviderFailureCode.authentication,
+        AgentProviderFailure.rateLimited => ProviderFailureCode.rateLimited,
+        AgentProviderFailure.temporarilyUnavailable =>
+          ProviderFailureCode.temporarilyUnavailable,
+        AgentProviderFailure.timeout => ProviderFailureCode.streamTimeout,
+        AgentProviderFailure.cancelled => null,
+        AgentProviderFailure.unsupportedCapability =>
+          ProviderFailureCode.unsupportedCapability,
+        AgentProviderFailure.unsupportedModel =>
+          ProviderFailureCode.unsupportedModel,
+        AgentProviderFailure.incompleteResponse =>
+          ProviderFailureCode.incompleteUnknown,
+        AgentProviderFailure.malformedResponse =>
+          ProviderFailureCode.malformedEvent,
+        AgentProviderFailure.internalError =>
+          ProviderFailureCode.adapterInternalError,
+      };
 
   @override
   String toString() => 'AgentProviderException(${failure.name})';

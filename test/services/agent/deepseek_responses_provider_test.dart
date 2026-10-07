@@ -7,10 +7,220 @@ import 'package:shiroha_quiz/application/agent/agent_config.dart';
 import 'package:shiroha_quiz/application/agent/agent_config_service.dart';
 import 'package:shiroha_quiz/application/agent/agent_provider.dart';
 import 'package:shiroha_quiz/services/agent/deepseek_responses_provider.dart';
+import 'package:shiroha_quiz/services/agent/deepseek_responses_sse_parser.dart';
 
 import 'fixtures/deepseek_responses_sse_fixtures.dart';
 
 void main() {
+  group('AR-R1 detailed parser boundary', () {
+    final completed = _sse('response.completed', {
+      'response': {'id': 'resp-1'}
+    });
+    for (final entry in <(String, ProviderFailureCode, bool)>[
+      ('', ProviderFailureCode.cleanEofWithoutTerminal, false),
+      (
+        'event: response.output_text.delta\ndata: private-marker{\n\n',
+        ProviderFailureCode.malformedEvent,
+        false
+      ),
+      (
+        'event: response.completed\n\n',
+        ProviderFailureCode.malformedEvent,
+        false
+      ),
+      (
+        _sse('response.output_item.done', {
+          'item': {'type': 'unsupported', 'secret': 'tool-secret'}
+        }),
+        ProviderFailureCode.invalidOutputItem,
+        false
+      ),
+      (
+        _sse('response.output_item.done', {
+          'item': {
+            'type': 'function_call',
+            'id': 'i',
+            'call_id': 'c',
+            'name': 'search_questions',
+            'arguments': 'private-marker'
+          }
+        }),
+        ProviderFailureCode.invalidOutputItem,
+        false
+      ),
+      (completed + completed, ProviderFailureCode.duplicateTerminal, true),
+      (
+        completed + _sse('response.incomplete', {}),
+        ProviderFailureCode.duplicateTerminal,
+        true
+      ),
+      (
+        _sse('response.incomplete', {}) + completed,
+        ProviderFailureCode.duplicateTerminal,
+        true
+      ),
+      (
+        '${completed}data: private-marker{\n\n',
+        ProviderFailureCode.malformedEvent,
+        true
+      ),
+      (
+        completed +
+            _sse('response.output_text.delta', {'delta': 'private-marker'}),
+        ProviderFailureCode.malformedEvent,
+        true
+      ),
+      (
+        _sse('response.incomplete', {
+          'response': {
+            'incomplete_details': {'reason': 'max_output_tokens'}
+          }
+        }),
+        ProviderFailureCode.maxOutputTokens,
+        true
+      ),
+      (
+        _sse('response.incomplete', {
+          'response': {
+            'incomplete_details': {'reason': 'reasoning-secret'}
+          }
+        }),
+        ProviderFailureCode.incompleteUnknown,
+        true
+      ),
+      (
+        _sse('response.failed', {
+          'error': {
+            'code': 'invalid_api_key',
+            'message': 'unsafe exception text'
+          }
+        }),
+        ProviderFailureCode.authentication,
+        true
+      ),
+      (
+        _sse('error', {
+          'error': {'code': 'rate_limit_exceeded'}
+        }),
+        ProviderFailureCode.rateLimited,
+        true
+      ),
+      (
+        _sse('response.failed', {
+          'error': {'code': 'content_filtered'}
+        }),
+        ProviderFailureCode.contentFiltered,
+        true
+      ),
+      (
+        _sse('response.failed', {
+          'error': {'code': 'private-marker'}
+        }),
+        ProviderFailureCode.temporarilyUnavailable,
+        true
+      ),
+    ]) {
+      test('${entry.$2.code} terminal=${entry.$3} fixture ${entry.$1.length}',
+          () async {
+        await expectLater(
+          const DeepSeekResponsesSseParser()
+              .parse(Stream.value(utf8.encode(entry.$1)))
+              .toList(),
+          throwsA(isA<AgentProviderException>()
+              .having((e) => e.safeCode, 'safe code', entry.$2)
+              .having((e) => e.terminalSeen, 'terminal seen', entry.$3)
+              .having((e) => e.toString(), 'safe exception',
+                  isNot(contains('private-marker')))),
+        );
+      });
+    }
+
+    test('multiple complete calls and hidden reasoning isolation', () async {
+      final events = await const DeepSeekResponsesSseParser()
+          .parse(Stream.value(utf8.encode(
+            _sse('response.reasoning.delta', {'delta': 'reasoning-secret'}) +
+                _sse('response.output_item.done', {
+                  'output_index': 0,
+                  'item': {
+                    'type': 'function_call',
+                    'call_id': 'c1',
+                    'name': 'search_questions',
+                    'arguments': '{"query":"tool-secret"}'
+                  }
+                }) +
+                _sse('response.output_item.done', {
+                  'output_index': 1,
+                  'item': {
+                    'type': 'function_call',
+                    'call_id': 'c2',
+                    'name': 'list_question_banks',
+                    'arguments': '{}'
+                  }
+                }) +
+                completed,
+          )))
+          .toList();
+      expect(events.whereType<AgentProviderFunctionCall>(), hasLength(2));
+      expect(events.whereType<AgentProviderCompleted>(), hasLength(1));
+      expect(events.toString(), isNot(contains('reasoning-secret')));
+    });
+  });
+
+  group('AR-R1 transport phase evidence', () {
+    for (final entry
+        in <(Object, bool, ProviderFailureCode, AgentProviderFailure)>[
+      (
+        TimeoutException('unsafe exception text'),
+        false,
+        ProviderFailureCode.connectTimeout,
+        AgentProviderFailure.timeout
+      ),
+      (
+        TimeoutException('unsafe exception text'),
+        true,
+        ProviderFailureCode.streamTimeout,
+        AgentProviderFailure.malformedResponse
+      ),
+      (
+        http.ClientException('unsafe exception text'),
+        false,
+        ProviderFailureCode.temporarilyUnavailable,
+        AgentProviderFailure.temporarilyUnavailable
+      ),
+      (
+        http.ClientException('unsafe exception text'),
+        true,
+        ProviderFailureCode.connectionLost,
+        AgentProviderFailure.malformedResponse
+      ),
+      (
+        StateError('unsafe exception text'),
+        false,
+        ProviderFailureCode.adapterInternalError,
+        AgentProviderFailure.internalError
+      ),
+      (
+        StateError('unsafe exception text'),
+        true,
+        ProviderFailureCode.adapterInternalError,
+        AgentProviderFailure.malformedResponse
+      ),
+    ]) {
+      test('${entry.$3.code} body phase=${entry.$2}', () async {
+        final client = _PhaseFailureClient(entry.$1, bodyPhase: entry.$2);
+        await expectLater(
+            _provider(client: client)
+                .stream(_request(), AgentCancellationController().token)
+                .toList(),
+            throwsA(isA<AgentProviderException>()
+                .having((e) => e.safeCode, 'detail', entry.$3)
+                .having((e) => e.failure, 'legacy behavior', entry.$4)
+                .having((e) => e.toString(), 'safe exception',
+                    isNot(contains('unsafe exception text')))));
+        expect(client.closeCalls, 1);
+      });
+    }
+  });
   group('DeepSeekResponsesProvider request mapping', () {
     test(
       'maps initial request, function tools, and native Web exactly once',
@@ -520,6 +730,11 @@ void main() {
         provider.stream(_request(), AgentCancellationController().token),
         emitsInOrder(<Object>[
           isA<AgentProviderTextDelta>(),
+          isA<AgentProviderFailureTerminal>().having(
+            (event) => event.failure.safeCode,
+            'explicit incomplete terminal',
+            ProviderFailureCode.maxOutputTokens,
+          ),
           emitsError(
             _providerFailure(AgentProviderFailure.incompleteResponse),
           ),
@@ -580,16 +795,23 @@ void main() {
 
         await expectLater(
           provider.stream(_request(), AgentCancellationController().token),
-          emitsError(
-            allOf(
-              _providerFailure(entry.$2),
-              isA<AgentProviderException>().having(
-                (error) => error.toString(),
-                'redacted error',
-                isNot(contains('PRIVATE_')),
+          emitsInOrder([
+            if (entry.$2 != AgentProviderFailure.malformedResponse)
+              isA<AgentProviderFailureTerminal>().having(
+                  (e) => e.failure.failure,
+                  'terminal legacy failure',
+                  entry.$2),
+            emitsError(
+              allOf(
+                _providerFailure(entry.$2),
+                isA<AgentProviderException>().having(
+                  (error) => error.toString(),
+                  'redacted error',
+                  isNot(contains('PRIVATE_')),
+                ),
               ),
             ),
-          ),
+          ]),
         );
       });
     }
@@ -617,6 +839,24 @@ void main() {
       },
     );
   });
+}
+
+String _sse(String type, Map<String, Object?> payload) =>
+    'event: $type\ndata: ${jsonEncode({'type': type, ...payload})}\n\n';
+
+final class _PhaseFailureClient extends http.BaseClient {
+  _PhaseFailureClient(this.error, {required this.bodyPhase});
+  final Object error;
+  final bool bodyPhase;
+  int closeCalls = 0;
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    if (!bodyPhase) throw error;
+    return http.StreamedResponse(Stream.error(error), 200);
+  }
+
+  @override
+  void close() => closeCalls++;
 }
 
 DeepSeekResponsesProvider _provider({

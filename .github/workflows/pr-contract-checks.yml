@@ -222,6 +222,7 @@ jobs:
             'test/p7_ai_answer_ui_acceptance_test.dart',
             'test/core/database/content_asset_reclamation_v27_schema_test.dart',
             'test/application/agent/agent_runtime_test.dart',
+            'test/application/agent/agent_provider_contract_test.dart',
             'test/services/parsed_artifacts/ocr_parsed_artifact_generation_adapter_test.dart',
             'test/backup/study_activity_backup_test.dart',
             'test/core/database/training_content_v29_schema_test.dart',

@@ -1,11 +1,13 @@
 # Agent Runtime v1 / External Agent / MCP vNext Contract Index
 
-Status: **FROZEN target architecture; documentation-only contract checkpoint.**
+Status: **FROZEN target architecture; AR-R1 Provider seam implementation candidate
+pending CI and independent review. Other target components remain unimplemented.**
 
-These contracts freeze the agreed Agent refactor direction. They do not claim
-that the target interfaces, modules, proposals, authorization host or MCP profile
-are implemented. Implementation changes require their own authorized stages and
-acceptance. Current runtime behavior remains governed by the existing contracts.
+These contracts freeze the agreed Agent refactor direction. The bounded AR-R1
+Provider outcome/failure seam is implemented in the candidate described in
+`agent-runtime-v1.md`; it is not final CLOSED acceptance. Runtime decomposition,
+capabilities, modules, proposals, authorization host and MCP profile remain targets.
+Current product behavior remains governed by the existing contracts.
 
 ## 1. Authority and ownership
 
@@ -48,7 +50,9 @@ Shared authorities remain in place rather than being copied here:
 
 ## 2. Runtime transition and supersession
 
-No existing runtime contract is superseded by this documentation checkpoint.
+AR-R0 superseded no existing runtime contract. AR-R1 replaces only Provider round
+settlement/classification and extends OBS-1 terminal evidence, preserving A0 turn
+behavior and every AGENT-FB policy/barrier. OBS-1 owns the new event schema.
 Future activation must update the affected owners and precise supersession
 references in the same implementation candidate. A merged document, interface
 stub or feature flag alone is not implementation acceptance.

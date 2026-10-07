@@ -302,6 +302,11 @@ A0, AGENT-FB, W0, SPL-1, RAG-1, MCP v0 or OBS-1 runtime behavior. Implementation
 stages must preserve the current boundaries until their scoped transition is
 accepted. In particular, Provider failure normalization does not relax fallback.
 
+AR-R1 now implements only the bounded Provider round seam in the candidate;
+`agent-runtime-v1.md` owns outcomes/failure compatibility and OBS-1 owns terminal
+evidence. Runtime decomposition, capabilities and transcript remain later targets.
+Final-head CI and independent review are still required for stage acceptance.
+
 ## 7. Evolution discipline
 
 - Do not start another R0–R8-scale rewrite merely to add File Library, Project, Agent, MCP or RAG.

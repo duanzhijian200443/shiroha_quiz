@@ -30,6 +30,7 @@ final class DeepSeekResponsesProvider implements AgentProviderPort {
   AgentProviderCapabilities get capabilities => const AgentProviderCapabilities(
         functionTools: true,
         nativeWebSearch: true,
+        adapterIdentity: AgentProviderAdapterIdentity.deepseekResponses,
       );
 
   static Uri buildEndpoint(String baseUrl) {
@@ -58,6 +59,8 @@ final class DeepSeekResponsesProvider implements AgentProviderPort {
   ) async* {
     http.Client? client;
     var clientClosed = false;
+    var responseEstablished = false;
+    AgentProviderException? terminalFailure;
 
     void closeClient() {
       if (!clientClosed) {
@@ -88,6 +91,7 @@ final class DeepSeekResponsesProvider implements AgentProviderPort {
         })
         ..body = jsonEncode(requestBody);
       final response = await client.send(httpRequest).timeout(_requestTimeout);
+      responseEstablished = true;
       cancellationToken.throwIfCancelled();
       if (response.statusCode != 200) {
         throw AgentProviderException(_httpFailure(response.statusCode));
@@ -115,6 +119,9 @@ final class DeepSeekResponsesProvider implements AgentProviderPort {
         },
       )) {
         cancellationToken.throwIfCancelled();
+        if (event case AgentProviderFailureTerminal(:final failure)) {
+          terminalFailure = failure;
+        }
         if (event case AgentProviderCompleted(:final responseId)) {
           yield AgentProviderCompleted(
             responseId,
@@ -133,14 +140,30 @@ final class DeepSeekResponsesProvider implements AgentProviderPort {
       }
       if (error is AgentProviderException) rethrow;
       if (error is TimeoutException) {
-        throw const AgentProviderException(AgentProviderFailure.timeout);
-      }
-      if (error is http.ClientException) {
-        throw const AgentProviderException(
-          AgentProviderFailure.temporarilyUnavailable,
+        throw AgentProviderException.detailed(
+          responseEstablished
+              ? ProviderFailureCode.streamTimeout
+              : ProviderFailureCode.connectTimeout,
+          legacyFailure: terminalFailure?.failure,
+          terminalSeen: terminalFailure != null,
         );
       }
-      throw const AgentProviderException(AgentProviderFailure.internalError);
+      if (error is http.ClientException) {
+        throw AgentProviderException.detailed(
+          responseEstablished
+              ? ProviderFailureCode.connectionLost
+              : ProviderFailureCode.temporarilyUnavailable,
+          legacyFailure: terminalFailure?.failure,
+          terminalSeen: terminalFailure != null,
+        );
+      }
+      throw AgentProviderException.detailed(
+        ProviderFailureCode.adapterInternalError,
+        legacyFailure: responseEstablished
+            ? AgentProviderFailure.malformedResponse
+            : AgentProviderFailure.internalError,
+        terminalSeen: terminalFailure != null,
+      );
     } finally {
       closeClient();
     }

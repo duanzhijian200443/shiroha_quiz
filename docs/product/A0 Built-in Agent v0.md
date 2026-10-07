@@ -7,6 +7,11 @@ not a replacement runtime. Delivered A0 behavior remains authoritative until
 the corresponding implementation transition is accepted. Provider normalization
 and Runtime splitting must preserve current turn and persistence behavior.
 
+AR-R1's implementation candidate replaces only Provider round terminal/failure
+normalization via `agent-refactor/agent-runtime-v1.md` and extends OBS-1 evidence.
+It preserves all A0 turn, streaming, history, budget and persistence behavior;
+AR-R3 Runtime decomposition is not activated.
+
 ## 1. Authority and scope
 
 This document records the bounded Built-in Agent behavior delivered by A0.
