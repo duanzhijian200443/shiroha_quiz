@@ -9,9 +9,11 @@ separately accepted AR-R7 policy change, not permission granted by this checkpoi
 
 AR-R1's detailed codes are diagnostic classification, not new fallback authority.
 The explicit legacy failure bridge preserves public turn mapping, eligibility
-and all barriers below. `content_filtered` is ineligible. One or two completed
-READ rounds followed by Provider failure still prohibit fallback. No Provider
-continuation is transferred and no AR-R7 READ replay is implemented.
+and all barriers below. `content_filtered` keeps its prior
+`temporarilyUnavailable` fallback eligibility while gaining a more precise
+diagnostic code. One or two completed READ rounds followed by Provider failure
+still prohibit fallback. No Provider continuation is transferred and no AR-R7
+READ replay is implemented.
 
 ## 1. Authority and scope
 
