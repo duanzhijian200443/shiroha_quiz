@@ -133,6 +133,35 @@ A0 runtime/product contract.
 `docs/product/W0 Safe Agent Write.md` is the focused authority for the current
 W0 proposal, approval, scope, replay and typed-write contract.
 
+## Agent refactor frozen target route
+
+The [Agent refactor contract index](../product/agent-refactor/README.md) owns the
+focused frozen target contracts. This roadmap owns their stage order; existing
+runtime contracts stay active until each scoped implementation is accepted.
+The documentation-only checkpoint activates no Runtime, Module, external
+authorization, generated Proposal, schema or MCP vNext implementation.
+
+Use namespaced AR-R identifiers to distinguish this route from historical
+R1-R8 typed-core stages:
+
+```text
+AR-R0 contract -> AR-R1 Provider -> AR-R2 capability -> AR-R3 Runtime/transcript
+-> AR-R4 modules -> AR-R5A durable Proposal
+                   -> AR-R5B minimal Review UI ----+
+                   -> AR-R6A external Host/IPC ----+-> AR-R6B Tools-only MCP MVP
+-> AR-R7 bounded READ fallback -> AR-R8 Assistant decomposition
+-> AR-R9A optional Resources/Prompts; AR-R9B independent Codex reference package
+```
+
+AR-R7 technically requires AR-R3 but is scheduled after external MVP. AR-R9B
+requires AR-R6B, not AR-R9A. Execution is serial by default. The baseline estimate
+is 13 PRs, not a hard cap; independently reviewable boundaries may require more.
+Provider normalization must preserve current fallback policy. New durable
+Proposal and external authorization storage have separate additive schema/B0
+checkpoints. Minimal generated Review precedes MCP MVP; Assistant-wide cleanup
+does not. Context TTL, local IPC transport and reference-package platform/version
+choices close their bounded implementation-spike checkpoints before publication.
+
 ## Current follow-up backlog
 
 This table is the repository-level status authority for cross-stage work that is

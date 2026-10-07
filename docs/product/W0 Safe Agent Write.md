@@ -2,6 +2,11 @@
 
 Status: **Canonical W0 product/application contract. W0 is COMPLETE.**
 
+The [Agent refactor index](agent-refactor/README.md) freezes generic capability
+wiring and a separate durable generated-question target. This W0 fill-only
+business/approval/persistence contract remains authoritative. W0's transient
+proposal is not expanded or migrated into the new Proposal kind.
+
 ## 1. Authority and bounded first capability
 
 This document is the focused authority for W0 Safe Agent Write. Repository-wide

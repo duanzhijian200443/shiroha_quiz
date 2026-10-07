@@ -2,6 +2,11 @@
 
 Status: **Accepted**
 
+The [Agent refactor index](../product/agent-refactor/README.md) freezes the
+successor target and staged ownership. This ADR's peer-adapter and explicit
+approval boundaries remain authoritative; the target checkpoint grants no new
+runtime capability or MCP v0 permission.
+
 ## Context
 
 Shiroha needs both an in-app Agent and external access through MCP. Routing the built-in Agent through the app's own MCP server would appear to unify tooling, but would add transport lifecycle, protocol serialization, permission translation and debugging cost to an entirely local call path.

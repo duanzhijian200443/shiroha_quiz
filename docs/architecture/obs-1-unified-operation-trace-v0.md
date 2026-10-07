@@ -3,6 +3,11 @@
 Status: **CLOSED / FROZEN** (accepted in the same PR that implemented it;
 initial state was `IN PROGRESS`).
 
+The [Agent refactor target](../product/agent-refactor/README.md) plans detailed
+Provider round terminal evidence. OBS-1 remains the event-schema, identity and
+redaction authority. This documentation checkpoint adds no runtime event;
+the implementing stage must update this owner and its acceptance together.
+
 OBS-1 adds a unified **operation correlation** layer to Shiroha v0 without
 changing the runtime database schema (stays **v22**), without cloud telemetry,
 and without changing the business authority of Agent / Import / F1 / RAG.

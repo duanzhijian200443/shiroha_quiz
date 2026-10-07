@@ -7,6 +7,11 @@
 | Transport status | Local stdio only (frozen) |
 | Protocol SDK dependency | `mcp_dart` 2.4.0 exact |
 
+The separate [MCP vNext target](../product/agent-refactor/mcp-vnext-contract.md)
+does not expand or supersede this profile. v0 remains exactly six READ_ONLY
+tools with its existing entrypoint and envelopes; future vNext activation has
+its own authorization and protocol acceptance checkpoint.
+
 This document freezes the **MCP v0 read-only application-layer tool
 semantics** for Shiroha Quiz. P0 froze the application-layer tool semantics;
 M0 implements the local-stdio server exactly as written. M0 adds exactly one
