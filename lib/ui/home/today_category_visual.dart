@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../application/training/training_contracts.dart';
 import '../training/training_visuals.dart';
+import '../theme/app_theme.dart';
+import '../theme/shiroha_theme_tokens.dart';
 
 /// Decorative category art; an explicit saved preference always wins.
 class TodayCategoryVisual extends StatelessWidget {
@@ -20,7 +22,10 @@ class TodayCategoryVisual extends StatelessWidget {
                 : CategoryVisualKey.genericLearning;
     final visual = visualKey ?? inferred;
     final colors = Theme.of(context).colorScheme;
-    final dark = Theme.of(context).brightness == Brightness.dark;
+    final tokens = AppTheme.withPresetFallback(Theme.of(context))
+        .extension<ShirohaThemeTokens>()!;
+    final colorful = tokens.appearance == ShirohaAppearance.colorful;
+    final dark = tokens.appearance == ShirohaAppearance.dark;
     final asset = switch (visual) {
       CategoryVisualKey.math => 'assets/images/today/category-math-v3.png',
       CategoryVisualKey.english => 'assets/images/today/category-english.png',
@@ -36,11 +41,17 @@ class TodayCategoryVisual extends StatelessWidget {
           child: FractionallySizedBox(
             widthFactor: 1,
             heightFactor: 1,
-            child: Image.asset(asset,
-                fit: BoxFit.cover,
-                alignment: Alignment.bottomRight,
-                color: dark ? const Color(0xFF85858D) : null,
-                colorBlendMode: dark ? BlendMode.modulate : null),
+            child: Builder(builder: (_) {
+              final image = Image.asset(asset,
+                  fit: BoxFit.cover,
+                  alignment: Alignment.bottomRight,
+                  color: dark ? tokens.categoryArtworkTint : null,
+                  colorBlendMode: dark ? BlendMode.modulate : null);
+              return colorful
+                  ? ColorFiltered(
+                      colorFilter: tokens.illustrationFilter, child: image)
+                  : image;
+            }),
           ),
         ),
         DecoratedBox(

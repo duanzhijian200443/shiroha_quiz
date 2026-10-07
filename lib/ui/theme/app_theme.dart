@@ -46,25 +46,25 @@ class AppTheme {
     final canvas = dark
         ? const Color(0xFF191A20)
         : colorful
-            ? const Color(0xFFF5F8FC)
+            ? const Color(0xFFF7F8F9)
             : const Color(0xFFF7F7FA);
     final surface = dark ? const Color(0xFF24252B) : Colors.white;
     final ink = dark ? const Color(0xFFEAEAF0) : const Color(0xFF303238);
     final muted = dark
         ? const Color(0xFFB4B5BE)
         : colorful
-            ? const Color(0xFF626F83)
+            ? const Color(0xFF596670)
             : const Color(0xFF6B6D76);
     final fill = dark
         ? const Color(0xFF33343D)
         : colorful
-            ? const Color(0xFFEDF3F9)
+            ? const Color(0xFFEEF2F4)
             : const Color(0xFFF0F0F5);
-    // Slightly darker than the suggested blue so small CTA text stays readable.
+    // Muted steel blue retains contrast for small actions and white glyphs.
     final accent = dark
         ? const Color(0xFFD2D4DC)
         : colorful
-            ? const Color(0xFF077799)
+            ? const Color(0xFF526979)
             : const Color(0xFF545864);
     final secondary = dark
         ? const Color(0xFFB4A3CF)
@@ -75,10 +75,10 @@ class AppTheme {
     final line = dark
         ? const Color(0xFF3B3C45)
         : colorful
-            ? const Color(0xFFDDE5EE)
+            ? const Color(0xFFDFE5E9)
             : const Color(0xFFE8E8EE);
     final onAccent = dark ? canvas : Colors.white;
-    final primaryFill = colorful ? const Color(0xFFE3F0F5) : fill;
+    final primaryFill = colorful ? const Color(0xFFEBF0F3) : fill;
     final secondaryFill = dark
         ? const Color(0xFF37303F)
         : colorful
@@ -93,7 +93,7 @@ class AppTheme {
       onPrimary: onAccent,
       primaryContainer: primaryFill,
       onPrimaryContainer: colorful
-          ? const Color(0xFF05657F)
+          ? const Color(0xFF495F6F)
           : dark
               ? ink
               : accent,

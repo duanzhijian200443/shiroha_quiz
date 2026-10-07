@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'design_tokens.dart';
 
 enum ShirohaAppearance { light, dark, colorful }
 
@@ -67,6 +68,67 @@ class ShirohaThemeTokens extends ThemeExtension<ShirohaThemeTokens> {
   Color get error => colors.error;
   Color get correct => success;
   Color get incorrect => error;
+
+  Color get cardOutline => divider.withValues(
+      alpha: appearance == ShirohaAppearance.colorful ? .45 : 0);
+  Color get cardShadow => appearance == ShirohaAppearance.colorful
+      ? colors.shadow.withValues(alpha: .04)
+      : DesignTokens.surfaceShadow(Brightness.light).first.color;
+  // Existing dark Category modulation, retained at the shared token boundary.
+  Color get categoryArtworkTint => const Color(0xFF85858D);
+  // Existing neutral banner/fold colors retained without new palette values.
+  Color get welcomeCaption => appearance == ShirohaAppearance.colorful
+      ? textSecondary
+      : const Color(0xFF747780);
+  Color get welcomePillText => appearance == ShirohaAppearance.colorful
+      ? textSecondary
+      : const Color(0xFF555760);
+  List<Color> get foldedCornerColors => appearance == ShirohaAppearance.dark
+      ? const [
+          Color(0xFF484B55),
+          Color(0xFF898C96),
+          Color(0xFFA9ABB2),
+          Color(0xFF4F525C)
+        ]
+      : [subtleFill, surface, surface, border.withValues(alpha: .6)];
+  Color get hoverOverlay => icon.withValues(alpha: .06);
+  Color get pressedOverlay => icon.withValues(alpha: .12);
+  Color get focusOverlay => icon.withValues(alpha: .10);
+
+  /// Maps existing grayscale artwork to the active surface and neutral ink.
+  /// Alpha is preserved, including transparent category illustrations.
+  ColorFilter get illustrationFilter {
+    final dark = appearance == ShirohaAppearance.dark;
+    final low = dark
+        ? Color.lerp(textPrimary, surface, .35)!
+        : Color.lerp(textPrimary, icon, .18)!;
+    final high = surface;
+    final dr = high.r - low.r;
+    final dg = high.g - low.g;
+    final db = high.b - low.b;
+    return ColorFilter.matrix([
+      dr * .2126,
+      dr * .7152,
+      dr * .0722,
+      0,
+      low.r * 255,
+      dg * .2126,
+      dg * .7152,
+      dg * .0722,
+      0,
+      low.g * 255,
+      db * .2126,
+      db * .7152,
+      db * .0722,
+      0,
+      low.b * 255,
+      0,
+      0,
+      0,
+      1,
+      0,
+    ]);
+  }
 
   @override
   ShirohaThemeTokens copyWith({

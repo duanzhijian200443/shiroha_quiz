@@ -18,19 +18,19 @@ future page-polish work; global theme adoption is not full visual closure.
 
 | Role | light | dark | colorful |
 |---|---|---|---|
-| canvas | `#F7F7FA` | `#191A20` | `#F5F8FC` |
+| canvas | `#F7F7FA` | `#191A20` | `#F7F8F9` |
 | surface | `#FFFFFF` | `#24252B` | `#FFFFFF` |
 | textPrimary | `#303238` | `#EAEAF0` | `#303238` |
-| textSecondary / outline | `#6B6D76` | `#B4B5BE` | `#626F83` |
-| subtleFill | `#F0F0F5` | `#33343D` | `#EDF3F9` |
-| primary action | `#545864` | `#D2D4DC` | `#077799` |
+| textSecondary / outline | `#6B6D76` | `#B4B5BE` | `#596670` |
+| subtleFill | `#F0F0F5` | `#33343D` | `#EEF2F4` |
+| primary action | `#545864` | `#D2D4DC` | `#526979` |
 | secondary / featureAi | `#7866A5` | `#B4A3CF` | `#7052A3` |
 | tertiary decoration | `#545864` | `#D2D4DC` | `#94612F` |
-| divider | `#E8E8EE` | `#3B3C45` | `#DDE5EE` |
-| primary selected fill | `#F0F0F5` | `#33343D` | `#E3F0F5` |
+| divider | `#E8E8EE` | `#3B3C45` | `#DFE5E9` |
+| primary selected fill | `#F0F0F5` | `#33343D` | `#EBF0F3` |
 | secondary selected fill / featureAiFill | `#EEE8FA` | `#37303F` | `#E8DCF5` |
 | tertiary selected fill | `#F0F0F5` | `#33343D` | `#F6EDE2` |
-| on primary selected fill | `#545864` | `#EAEAF0` | `#05657F` |
+| on primary selected fill | `#545864` | `#EAEAF0` | `#495F6F` |
 | on secondary selected fill | `#68578F` | `#D6C8EA` | `#634391` |
 | on tertiary selected fill | `#545864` | `#EAEAF0` | `#805524` |
 | success / correct | `#397552` | `#9AD5B2` | `#397552` |
@@ -59,7 +59,44 @@ ThemeExtension share one ColorScheme. Layout continues to use DesignTokens.
 Unspecified Material roles must not reintroduce the historical high-saturation
 cyan/purple scheme into neutral primitives. Light/dark retain neutral page
 areas and navigation while allowing the explicitly defined subdued functional
-accents. Colorful has stronger feature accents and the existing blue primary.
+accents. Colorful uses a muted steel-blue primary; its shared primary consumers
+inherit that accent without a separate hardcoded Today palette.
+
+## Today visual polish
+
+Today preserves the existing page order, geometry, illustration assets,
+composition, typography sizes, statistics, Category carousel and route behavior.
+Its summaries, training entries, links and active navigation use one primary
+accent family with neutral surfaces; no rainbow feature coding or new visual
+focal point is introduced. Existing feedback semantics and other pages' explicit
+feature accents remain unchanged. Color/style refinements in this section apply
+only to colorful; light/dark retain their existing palette, bright grayscale
+greeting, Category artwork treatment, card outline/shadow and native feedback.
+The three icon replacements apply to all appearances. Colorful secondary text
+reads the shared token with at least 4.5:1 contrast against its intended surface.
+
+The greeting and Category illustrations retain their original objects and
+dimensions. In colorful, a token-derived luminance filter preserves source alpha
+and maps the existing grayscale art to surface/neutral-ink tones with a subdued primary
+influence. Neutral banner/fold colors and existing dark Category modulation
+are retained at the shared token boundary without introducing a page palette.
+
+Colorful Today surface cards share a 14-pixel radius, divider at 45% for their
+outline, and ColorScheme shadow at 4% (18-pixel blur, 6-pixel vertical offset).
+Category artwork keeps its existing 18-pixel shape. Colorful outlines are
+painted in the foreground so they do not change child padding or geometry.
+No global Widget rebuild is implied.
+
+Parse-task and training-configuration actions reproduce the user-supplied SVG
+geometry using Flutter painting. The Assistant primary-navigation identity uses
+the same custom four-point star in both selected and unselected states. These
+three glyphs use a 24×24 canvas and 1.5-pixel round cap/join stroke, inheriting
+theme/state colors. System add/home/person/calendar/chevron/close and ordinary
+utility glyphs remain system icons. Existing hit targets and callbacks remain.
+Header actions retain tooltips. Colorful local hover/pressed/focus colors derive
+from the active icon token at 6%/12%/10%, with a visible keyboard focus outline on
+IconButton controls; disabled controls retain disabled foreground and no active
+overlay. Native Material interaction feedback is retained without scale motion.
 
 ## Profile hierarchy and feature-token consumers
 

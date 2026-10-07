@@ -10,6 +10,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/ui/widgets/shiroha_icons.dart';
 
 import 'package:shiroha_quiz/application/agent/agent_config.dart';
 import 'package:shiroha_quiz/application/agent/agent_config_service.dart';
@@ -409,14 +410,21 @@ void main() {
         final key = ValueKey(
             'main-nav-selected-${['home', 'assistant', 'profile'][index]}');
         final selected = find.byKey(key);
-        final iconFinder = index == 0
-            ? selected
-            : find.descendant(of: selected, matching: find.byType(Icon));
-        expect(
-            tester.widget<Icon>(iconFinder).color,
-            index == 0
-                ? expected.colorScheme.primary
-                : expected.colorScheme.onPrimaryContainer);
+        if (index == 1) {
+          final icon = tester.widget<ShirohaIcon>(find.descendant(
+              of: selected, matching: find.byType(ShirohaIcon)));
+          expect(icon.glyph, ShirohaGlyph.assistant);
+          expect(icon.color, expected.colorScheme.onPrimaryContainer);
+        } else {
+          final iconFinder = index == 0
+              ? selected
+              : find.descendant(of: selected, matching: find.byType(Icon));
+          expect(
+              tester.widget<Icon>(iconFinder).color,
+              index == 0
+                  ? expected.colorScheme.primary
+                  : expected.colorScheme.onPrimaryContainer);
+        }
         if (index == 1) {
           await captureThemeEvidence(
               tester, visualKey, 'assistant-$appearance');
