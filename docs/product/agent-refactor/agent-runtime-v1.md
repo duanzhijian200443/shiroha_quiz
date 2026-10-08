@@ -1,7 +1,7 @@
 # Agent Runtime v1
 
 Status: **FROZEN contract; AR-R1/AR-R2/AR-R3 COMPLETE / CLOSED; AR-R4 projection
-registration integration COMPLETE / CLOSED; AR-R5A storage IMPLEMENTATION CANDIDATE.**
+registration integration COMPLETE / CLOSED; AR-R5A storage COMPLETE / CLOSED.**
 
 Authority/activation: [index](README.md). Current A0 and AGENT-FB behavior remains
 active. Provider protocol details, business capabilities and Proposal lifecycle

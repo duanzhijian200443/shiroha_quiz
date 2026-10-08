@@ -213,8 +213,10 @@ class GeneratedProposalReviewController extends ChangeNotifier {
       final current = await session!.read(proposalId);
       if (disposed) return null;
       _adopt(current);
-      if (current.lifecycleStatus != GeneratedStatus.pendingReview ||
-          !reviewed ||
+      if (current.lifecycleStatus != GeneratedStatus.pendingReview) {
+        generatedFail(GeneratedFailure.terminalConflict);
+      }
+      if (!reviewed ||
           (reject
               ? rejectedCount != workingItems.length
               : acceptedCount == 0)) {

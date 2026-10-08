@@ -147,6 +147,25 @@ void main() {
     expect(next.workingItems.single.decision, GeneratedDecision.unreviewed);
     next.dispose();
   });
+  test(
+      'terminal by another window yields terminalConflict and adopts its receipt',
+      () async {
+    final p = await h.stage();
+    final first = controller(p);
+    await ready(first);
+    final second = controller(p);
+    await second.load();
+    await second.confirmTerminal((await second.prepareTerminal())!);
+    second.dispose();
+    expect(first.receipt, isNull);
+    final preview = await first.prepareTerminal();
+    expect(preview, isNull);
+    expect(first.lastError, '该批次已完成其他终态操作，请核实持久化结果。');
+    expect(first.receipt, isNotNull);
+    expect(first.editable, isFalse);
+    expect(await h.storage.count('questions'), 1);
+    first.dispose();
+  });
   test('duplicate content uses safe error and has no force-approval path',
       () async {
     final first = await h.stage();
