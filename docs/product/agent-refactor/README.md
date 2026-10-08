@@ -1,23 +1,21 @@
 # Agent Runtime v1 / External Agent / MCP vNext Contract Index
 
-Status: **FROZEN target architecture; AR-R1 COMPLETE / CLOSED; AR-R2
-IMPLEMENTATION CANDIDATE / merged pending independent final-head review;
-AR-R3 IMPLEMENTATION CANDIDATE / active implementation stage.**
+Status: **FROZEN target architecture; AR-R1/AR-R2/AR-R3 COMPLETE / CLOSED;
+AR-R4 module contribution kernel IMPLEMENTATION CANDIDATE.**
 
-AR-R1's Provider outcome/failure seam is delivered and accepted. AR-R2's typed
-capability/executor/projection path merged in [PR #241](https://github.com/duanzhijian200443/shiroha_quiz/pull/241),
-final head `53a157f62b5ca00fdda0f98af405d4d624ca684d`; its current-target
-[PR contract checks](https://github.com/duanzhijian200443/shiroha_quiz/actions/runs/37706380454)
-succeeded. The PR has an earlier-head REQUEST_CHANGES comment and no final-head
-approval comment or formal review. This stage-governance mismatch is retained:
-merge alone does not close AR-R2. The current task explicitly activates AR-R3
-implementation, without claiming either stage's independent acceptance.
+The Provider seam, typed capability/executor/projection path and Runtime split/
+transcript are delivered in the preceding merged stages. Historical AR-R3
+activation recorded an earlier-head review mismatch on AR-R2's PR #241; under
+AGENTS.md's current historical merged-stage rule, merged #241 and #242 are
+accepted preceding stages without inventing a missing approval record.
+Current open candidates still require final-target CI and independent review.
 
-AR-R3 implements bounded concrete Runtime owners and a transient canonical
-transcript as described in `agent-runtime-v1.md`. Modules, durable generated
-proposals, external Host/IPC, MCP vNext and READ fallback continuation remain
-unimplemented targets. Current product behavior continues to follow the existing
-capability contracts.
+AR-R4 implements the source contribution kernel and default feature registration
+as described in `module-system.md`. It retains existing capability semantics,
+Provider protocol, Runtime loop/lifecycle, transcript and fallback behavior.
+Durable generated proposals, external Host/IPC, MCP vNext and READ fallback
+continuation remain unimplemented targets. Current product behavior continues
+under the existing capability contracts.
 
 ## 1. Authority and ownership
 

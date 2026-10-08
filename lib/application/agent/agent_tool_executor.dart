@@ -4,7 +4,8 @@ final class AgentToolExecutor {
   AgentToolExecutor(
       {required ConversationService conversationService,
       required AgentRuntimeConfigResolver configResolver,
-      required AgentStudyToolDispatcher toolDispatcher,
+      AgentStudyToolDispatcher? toolDispatcher,
+      AgentSurface? agentSurface,
       AgentWriteProposalToolDispatcher? proposalDispatcher,
       AgentStudyPlanToolDispatcher? studyPlanDispatcher,
       AgentRetrievalToolDispatcher? retrievalDispatcher,
@@ -12,45 +13,93 @@ final class AgentToolExecutor {
       : _conversationService = conversationService,
         _configResolver = configResolver,
         _toolDispatcher = toolDispatcher,
+        _surface = agentSurface,
         _proposalDispatcher = proposalDispatcher,
         _studyPlanDispatcher = studyPlanDispatcher,
         _retrievalDispatcher = retrievalDispatcher,
         _limits = limits {
-    _bindings = Map.unmodifiable({
-      for (final definition in AgentStudyToolCatalog.definitions)
-        definition.name: _AgentProjectionBinding(
-            id: StudyCapabilities.ids
-                .singleWhere((id) => id.value == definition.name),
-            definition: definition,
-            dispatch: _dispatchStudy),
-      if (proposalDispatcher != null)
-        AgentWriteProposalToolCatalog.toolName: _AgentProjectionBinding(
-            id: proposeMissingAnswer,
-            definition: AgentWriteProposalToolCatalog.definition,
-            dispatch: _dispatchProposal),
-      if (studyPlanDispatcher != null)
-        AgentStudyPlanToolCatalog.toolName: _AgentProjectionBinding(
-            id: proposeStudyPlan,
-            definition: AgentStudyPlanToolCatalog.definition,
-            dispatch: _dispatchStudyPlan),
-      if (retrievalDispatcher != null)
-        AgentRetrievalToolCatalog.toolName: _AgentProjectionBinding(
-            id: retrieveFileContent,
-            definition: AgentRetrievalToolCatalog.definition,
-            dispatch: _dispatchRetrieval,
-            requiresEgress: true),
-    });
+    if (agentSurface == null && toolDispatcher == null) {
+      throw ArgumentError(
+          'An Agent surface or legacy Study dispatcher is required.');
+    }
+    if (agentSurface != null &&
+        (toolDispatcher != null ||
+            proposalDispatcher != null ||
+            studyPlanDispatcher != null ||
+            retrievalDispatcher != null)) {
+      throw ArgumentError(
+          'Agent surface and legacy Dispatchers cannot be combined.');
+    }
+    if (agentSurface != null &&
+        agentSurface.projections.any((projection) =>
+            projection.permission != CapabilityPermission.read &&
+            projection.permission != CapabilityPermission.stage)) {
+      throw ArgumentError(
+          'Agent projections must be READ or STAGE for the built-in Agent.');
+    }
+    _bindings = Map.unmodifiable(agentSurface != null
+        ? {
+            for (final projection in agentSurface.projections)
+              projection.definition.name: _AgentProjectionBinding(
+                  id: projection.capabilityId,
+                  definition: projection.definition,
+                  dispatch: projection.requiresEgress
+                      ? _dispatchRetrieval
+                      : (turn, call, trusted) =>
+                          _dispatchRegistered(projection, turn, call, trusted),
+                  requiresEgress: projection.requiresEgress),
+          }
+        : {
+            for (final definition in AgentStudyToolCatalog.definitions)
+              definition.name: _AgentProjectionBinding(
+                  id: StudyCapabilities.ids
+                      .singleWhere((id) => id.value == definition.name),
+                  definition: definition,
+                  dispatch: _dispatchStudy),
+            if (proposalDispatcher != null)
+              AgentWriteProposalToolCatalog.toolName: _AgentProjectionBinding(
+                  id: proposeMissingAnswer,
+                  definition: AgentWriteProposalToolCatalog.definition,
+                  dispatch: _dispatchProposal),
+            if (studyPlanDispatcher != null)
+              AgentStudyPlanToolCatalog.toolName: _AgentProjectionBinding(
+                  id: proposeStudyPlan,
+                  definition: AgentStudyPlanToolCatalog.definition,
+                  dispatch: _dispatchStudyPlan),
+            if (retrievalDispatcher != null)
+              AgentRetrievalToolCatalog.toolName: _AgentProjectionBinding(
+                  id: retrieveFileContent,
+                  definition: AgentRetrievalToolCatalog.definition,
+                  dispatch: _dispatchRetrieval,
+                  requiresEgress: true),
+          });
   }
   final ConversationService _conversationService;
   final AgentRuntimeConfigResolver _configResolver;
-  final AgentStudyToolDispatcher _toolDispatcher;
+  final AgentStudyToolDispatcher? _toolDispatcher;
+  final AgentSurface? _surface;
   final AgentWriteProposalToolDispatcher? _proposalDispatcher;
   final AgentStudyPlanToolDispatcher? _studyPlanDispatcher;
   final AgentRetrievalToolDispatcher? _retrievalDispatcher;
   final AgentRuntimeLimits _limits;
   bool get proposalCapabilityEnabled => _proposalDispatcher != null;
   bool get studyPlanCapabilityEnabled => _studyPlanDispatcher != null;
-  AgentRetrievalToolDispatcher? get retrievalDispatcher => _retrievalDispatcher;
+  AgentEffectiveFileIds? get effectiveFileIds =>
+      _surface?.effectiveFileIds ??
+      (_surface == null ? _retrievalDispatcher?.effectiveFileIds : null);
+
+  String buildPrompt(
+          {required ConversationScope scope,
+          required List<ConversationFileRef> files,
+          required RetrievalEgressGrant? grant}) =>
+      const ShirohaSystemPrompt().build(
+          scope: scope,
+          files: files,
+          proposalCapabilityEnabled: proposalCapabilityEnabled,
+          studyPlanCapabilityEnabled: studyPlanCapabilityEnabled,
+          retrievalCapabilityEnabled: grant != null,
+          retrievableFileIds: grant?.approvedFileIds.toSet() ?? const {},
+          registeredGuidance: _surface?.guidance(fileAccess: grant != null));
 
   late final Map<String, _AgentProjectionBinding> _bindings;
   final CapabilityExecutor _rejections =
@@ -58,9 +107,13 @@ final class AgentToolExecutor {
   static const _unknownId = CapabilityId<void, void>('unregistered_agent_tool');
 
   List<AgentFunctionToolDefinition> definitions(RetrievalEgressGrant? grant) =>
-      List.unmodifiable(_bindings.values
-          .where((binding) => !binding.requiresEgress || grant != null)
-          .map((binding) => binding.definition));
+      _surface != null
+          ? List.unmodifiable(_surface
+              .exposed(fileAccess: grant != null)
+              .map((p) => p.definition))
+          : List.unmodifiable(_bindings.values
+              .where((binding) => !binding.requiresEgress || grant != null)
+              .map((binding) => binding.definition));
 
   CapabilityContext _readContext(_ActiveTurn turn, _AgentToolContext trusted) =>
       CapabilityContext(
@@ -145,10 +198,58 @@ final class AgentToolExecutor {
     );
   }
 
+  CapabilityContext _registeredContext(RegisteredAgentProjection projection,
+          _ActiveTurn turn, _AgentToolContext trusted,
+          {List<String> currentFileIds = const [],
+          Future<bool> Function()? serializationAllowed}) =>
+      CapabilityContext(
+          principal: CapabilityPrincipal.builtInAgent,
+          capabilities: [projection.capabilityId],
+          permissions: [projection.permission],
+          scope: projection.permission == CapabilityPermission.read
+              ? ConversationScope.global()
+              : trusted.scope,
+          authorizedScope: projection.permission == CapabilityPermission.read
+              ? ConversationScope.global()
+              : trusted.scope,
+          sourceConversationId: trusted.conversationId,
+          sourceMessageId: trusted.userMessageId,
+          providerProfileId: trusted.providerProfileId,
+          turnRequestId: turn.requestId,
+          deadline: turn.policy.deadline,
+          cancellationSignal: turn.cancellation.token.whenCancelled,
+          isCancelled: () => turn.cancellation.token.isCancelled,
+          budgetAllowed: () => turn.remainingBudget() > Duration.zero,
+          retrievalGrant: trusted.grant,
+          currentFileIds: currentFileIds,
+          serializationAllowed: serializationAllowed);
+
+  Future<AgentToolDispatchResult> _dispatchRegistered(
+          RegisteredAgentProjection projection,
+          _ActiveTurn turn,
+          AgentProviderFunctionCall call,
+          _AgentToolContext trusted) =>
+      projection.dispatch(AgentProjectionInvocation(
+          argumentsJson: call.argumentsJson,
+          context: _registeredContext(projection, turn, trusted)));
+
   Future<AgentToolDispatchResult> _dispatchStudy(_ActiveTurn turn,
           AgentProviderFunctionCall call, _AgentToolContext trusted) =>
-      _toolDispatcher.dispatchWithReceipt(call.name, call.argumentsJson,
-          context: _readContext(turn, trusted));
+      _toolDispatcher?.dispatchWithReceipt(call.name, call.argumentsJson,
+          context: _readContext(turn, trusted)) ??
+      Future.value(AgentToolDispatchResult(
+          json: jsonEncode(const {
+            'ok': false,
+            'error': {
+              'code': 'invalid_request',
+              'message': 'The request is invalid.',
+              'retryable': false
+            }
+          }),
+          receipt: _rejections
+              .reject(_unknownId, _readContext(turn, trusted),
+                  CapabilityFailure.invalidRequest)
+              .receipt));
 
   Future<AgentToolDispatchResult> _dispatchProposal(_ActiveTurn turn,
           AgentProviderFunctionCall call, _AgentToolContext trusted) =>
@@ -197,7 +298,7 @@ final class AgentToolExecutor {
                   CapabilityFailure.accessDenied)
               .receipt);
     }
-    final currentFileIds = await _retrievalDispatcher!.effectiveFileIds(
+    final currentFileIds = await effectiveFileIds!(
         scope: current.conversation.scope,
         conversationFileIds:
             current.files.map((f) => f.fileId).toList(growable: false));
@@ -237,34 +338,57 @@ final class AgentToolExecutor {
     required List<String> currentFileIds,
     required Duration remaining,
   }) async {
-    final retrievalDispatcher = _retrievalDispatcher!;
+    final retrievalDispatcher = _retrievalDispatcher;
     final stopwatch = Stopwatch()..start();
     final requestedCounts = _retrievalRequestCounts(argumentsJson);
     return TraceContext.runOperation(
       operationKind: TraceOperationKind.ragRetrieval,
       action: () async {
         try {
-          final output = await retrievalDispatcher
-              .dispatchWithReceipt(
+          final registered =
+              _surface?.projections.where((p) => p.requiresEgress).firstOrNull;
+          final Future<AgentToolDispatchResult> pending;
+          if (registered != null) {
+            pending = registered.dispatch(AgentProjectionInvocation(
                 argumentsJson: argumentsJson,
-                grant: grant,
-                turnRequestId: turn.requestId,
+                context: _registeredContext(
+                    registered,
+                    turn,
+                    _AgentToolContext(
+                        conversationId: conversationId,
+                        userMessageId: sourceUserMessageId,
+                        scope: ConversationScope.global(),
+                        providerProfileId: providerProfileId,
+                        grant: grant),
+                    currentFileIds: currentFileIds,
+                    serializationAllowed: () => _retrievalSerializationAllowed(
+                        turn,
+                        conversationId: conversationId,
+                        userMessageId: sourceUserMessageId,
+                        providerProfileId: providerProfileId,
+                        grant: grant))));
+          } else {
+            pending = retrievalDispatcher!.dispatchWithReceipt(
+              argumentsJson: argumentsJson,
+              grant: grant,
+              turnRequestId: turn.requestId,
+              conversationId: conversationId,
+              sourceUserMessageId: sourceUserMessageId,
+              providerProfileId: providerProfileId,
+              currentFileIds: currentFileIds,
+              cancellationSignal: turn.cancellation.token.whenCancelled,
+              isCancelled: () => turn.cancellation.token.isCancelled,
+              deadline: turn.policy.deadline,
+              serializationAllowed: () => _retrievalSerializationAllowed(
+                turn,
                 conversationId: conversationId,
-                sourceUserMessageId: sourceUserMessageId,
+                userMessageId: sourceUserMessageId,
                 providerProfileId: providerProfileId,
-                currentFileIds: currentFileIds,
-                cancellationSignal: turn.cancellation.token.whenCancelled,
-                isCancelled: () => turn.cancellation.token.isCancelled,
-                deadline: turn.policy.deadline,
-                serializationAllowed: () => _retrievalSerializationAllowed(
-                  turn,
-                  conversationId: conversationId,
-                  userMessageId: sourceUserMessageId,
-                  providerProfileId: providerProfileId,
-                  grant: grant,
-                ),
-              )
-              .timeout(remaining);
+                grant: grant,
+              ),
+            );
+          }
+          final output = await pending.timeout(remaining);
           final outcome = _retrievalOutcome(output.json);
           LogWriter.info(
             'Agent file retrieval completed',
@@ -372,8 +496,8 @@ final class AgentToolExecutor {
         grant == null) {
       return false;
     }
-    final retrievalDispatcher = _retrievalDispatcher;
-    if (retrievalDispatcher == null) return false;
+    final fileIds = effectiveFileIds;
+    if (fileIds == null) return false;
     try {
       final latest = await _loadSlice(turn, conversationId);
       final sourceMessage = latest.messages
@@ -386,7 +510,7 @@ final class AgentToolExecutor {
             message.sequence > sourceMessage.sequence,
       );
       if (sourceMessage == null || hasLaterUserMessage) return false;
-      final latestFileIds = await retrievalDispatcher.effectiveFileIds(
+      final latestFileIds = await fileIds(
         scope: latest.conversation.scope,
         conversationFileIds:
             latest.files.map((file) => file.fileId).toList(growable: false),

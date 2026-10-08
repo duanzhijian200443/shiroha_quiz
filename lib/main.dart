@@ -31,20 +31,13 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:uuid/uuid.dart';
 
-import 'application/capabilities/capability.dart';
-import 'application/study_query/study_capabilities.dart';
-import 'application/safe_write/missing_answer_capability.dart';
-import 'application/study_plan/study_plan_capability.dart';
-import 'application/retrieval/retrieval_capability.dart';
 import 'application/agent/agent_config_service.dart';
 import 'application/ai_config/ai_config_service.dart';
 import 'application/backup/backup_restore_coordinator.dart';
 import 'application/agent/agent_runtime.dart';
-import 'application/agent/agent_study_plan_tool_dispatcher.dart';
-import 'application/agent/agent_study_tool_dispatcher.dart';
+import 'application/modules/module_composition.dart';
+import 'application/modules/production_modules.dart';
 import 'application/agent/agent_turn.dart';
-import 'application/agent/agent_write_proposal_tool_dispatcher.dart';
-import 'application/agent/agent_retrieval_tool.dart';
 import 'application/answers/ai_answer_commit_command.dart';
 import 'application/answers/ai_answer_entry_guard.dart';
 import 'application/answers/ai_answer_generation.dart';
@@ -107,7 +100,6 @@ import 'data/repositories/study_plan_persistence_repository.dart';
 import 'data/repositories/study_plan_read_repository.dart';
 import 'data/repositories/supplemental_answer_persistence_repository.dart';
 import 'data/repositories/supplemental_answer_target_repository.dart';
-import 'mcp/study_mcp_adapter.dart';
 import 'services/ai_service.dart';
 import 'services/answers/ai_answer_provider_adapter.dart';
 import 'services/agent/deepseek_responses_provider.dart';
@@ -397,9 +389,6 @@ void main() {
           transportCompatibility:
               const DeepSeekAgentModelCompatibilityAdapter(),
         );
-        // W0 composition enablement point: removing this dispatcher registration
-        // (and the proposalService wiring below) turns the proposal capability
-        // off while keeping the six read tools.
         final agentWritePersistence = ApprovedAgentWriteRepository(
           databaseHelper: databaseHelper,
           mapper: productionQuestionMapper,
@@ -551,21 +540,6 @@ void main() {
           storage: managedArtifactStorage,
           artifacts: parsedArtifactLifecycle,
         );
-        final u1WorkspaceFacade = U1WorkspaceFacade(
-          projectService: projectService,
-          fileRepository: libraryFileRepository,
-          fileIngestion: fileIngestionService,
-          folderService: folderService,
-          studyQueryService: studyQueryService,
-          parsedArtifactLifecycle: parsedArtifactLifecycle,
-          libraryFileDeletion: libraryFileDeletion,
-          mcpProjection: McpWorkspaceProjection(
-            state: McpCapabilityState.configuredAvailable,
-            transport: McpTransport.localStdio,
-            permission: McpPermission.readOnly,
-            toolNames: StudyMcpAdapter.toolNames,
-          ),
-        );
         final retrievalService = RetrievalService(
           scopeResolver: ApplicationRetrievalScopeResolver(
             projectRepository: projectRepository,
@@ -578,15 +552,31 @@ void main() {
           index: retrievalIndex,
           chunker: const DeterministicSourceChunker(),
         );
-        final capabilityExecutor =
-            CapabilityExecutor(ApplicationCapabilityRegistry([
-          ...StudyCapabilities.definitions(studyQueryService),
-          retrievalCapability(retrievalService),
-          missingAnswerCapability(
-              persistence: agentWritePersistence,
-              proposalService: agentWriteProposalService),
-          studyPlanCapability(studyPlanDraftService),
-        ]));
+        final moduleComposition =
+            const ModuleComposer().compose(buildDefaultModules(
+          study: studyQueryService,
+          retrieval: retrievalService,
+          missingAnswerPersistence: agentWritePersistence,
+          missingAnswerProposals: agentWriteProposalService,
+          studyPlan: studyPlanDraftService,
+        ));
+        final u1WorkspaceFacade = U1WorkspaceFacade(
+          projectService: projectService,
+          fileRepository: libraryFileRepository,
+          fileIngestion: fileIngestionService,
+          folderService: folderService,
+          studyQueryService: studyQueryService,
+          parsedArtifactLifecycle: parsedArtifactLifecycle,
+          libraryFileDeletion: libraryFileDeletion,
+          mcpProjection: McpWorkspaceProjection(
+            state: McpCapabilityState.configuredAvailable,
+            transport: McpTransport.localStdio,
+            permission: McpPermission.readOnly,
+            toolNames: moduleComposition.mcpSurface
+                .map((p) => p.key)
+                .toList(growable: false),
+          ),
+        );
         final agentRuntime = ShirohaAgentRuntime(
           conversationService: conversationService,
           configResolver: AgentRuntimeConfigResolver(
@@ -599,21 +589,7 @@ void main() {
             profile: resolved.profile,
             clientFactory: () => http.Client(),
           ),
-          toolDispatcher: AgentStudyToolDispatcher(
-              service: studyQueryService, executor: capabilityExecutor),
-          proposalDispatcher: AgentWriteProposalToolDispatcher(
-            persistence: agentWritePersistence,
-            proposalService: agentWriteProposalService,
-            executor: capabilityExecutor,
-          ),
-          studyPlanDispatcher: AgentStudyPlanToolDispatcher(
-            draftService: studyPlanDraftService,
-            executor: capabilityExecutor,
-          ),
-          retrievalDispatcher: AgentRetrievalToolDispatcher(
-            retrieval: retrievalService,
-            executor: capabilityExecutor,
-          ),
+          agentSurface: moduleComposition.agentSurface,
         );
         final taskManager = TaskManager.instance;
         final importCommitService = ImportCommitService(

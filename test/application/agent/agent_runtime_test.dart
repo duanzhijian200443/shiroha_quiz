@@ -1,6 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:shiroha_quiz/application/agent/agent_surface.dart';
+import 'package:shiroha_quiz/application/modules/module_composition.dart';
+import 'package:shiroha_quiz/application/modules/production_modules.dart';
+import '../modules/module_test_support.dart';
+import '../modules/module_service_fakes.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/backup/backup_restore_gate.dart';
@@ -70,6 +75,102 @@ typedef _Script = Stream<AgentProviderEvent> Function(
 void main() {
   setUp(BackupRestoreMutationGate.resetForTesting);
   tearDown(BackupRestoreMutationGate.resetForTesting);
+
+  group('AR-R4 source contribution integration', () {
+    for (final enabled in [true, false]) {
+      test(
+          'fixture executes through unchanged generic turn protocol: enabled=$enabled',
+          () async {
+        final writes = ModuleWritePort();
+        final defaults = buildDefaultModules(
+            study: StudyQueryService(
+                questionQuery: CapabilityQuestionPort(),
+                metricsQuery: CapabilityMetricsPort(),
+                clock: const CapabilityClock()),
+            retrieval: RetrievalService(
+                scopeResolver: ModuleScope(),
+                artifactSource: ModuleSource(),
+                index: ModuleIndex(RetrievalBuildEffect.unchanged),
+                chunker: const DeterministicSourceChunker()),
+            missingAnswerPersistence: writes,
+            missingAnswerProposals: AgentWriteProposalService(writes),
+            studyPlan: StudyPlanDraftService(
+                planningPort: ModulePlanningPort(),
+                draftIdFactory: () => 'fixture-draft',
+                clock: () => DateTime.utc(2026, 8, 10)));
+        final composition = const ModuleComposer()
+            .compose([...defaults, if (enabled) fixtureModule()]);
+        final harness =
+            _Harness(agentSurface: composition.agentSurface, scripts: [
+          _toolRound([_call('fixture-call', name: 'fixture_tool')],
+              const _TestContinuationState('fixture-private')),
+          _finalAnswer('fixture final'),
+        ]);
+        final (cid, mid) = await harness.seedUser('synthetic User');
+        final session =
+            harness.runtime.startTurn(conversationId: cid, userMessageId: mid);
+        expect(await session.result, isA<AgentTurnSuccess>());
+        final requests = harness.provider.requests;
+        expect(requests.first.tools.map((d) => d.name), [
+          if (enabled) 'fixture_tool',
+          ...AgentStudyToolCatalog.toolNames,
+          AgentWriteProposalToolCatalog.toolName,
+          AgentStudyPlanToolCatalog.toolName
+        ]);
+        expect(
+            requests.first.systemPrompt.contains('Synthetic fixture guidance'),
+            enabled);
+        final group = session.transcript!.toolGroups.single;
+        expect(
+            group.receipt.status,
+            enabled
+                ? CapabilityExecutionStatus.completed
+                : CapabilityExecutionStatus.notStarted);
+        expect(group.receipt.knownEffect, CapabilityEffect.none);
+        if (enabled) {
+          expect(group.receipt.capabilityId, fixtureId);
+          expect(jsonDecode(group.result.output)['result'], 'fixture result');
+        } else {
+          expect(
+              group.result.output,
+              await AgentStudyToolDispatcher(
+                      service: StudyQueryService(
+                          questionQuery: CapabilityQuestionPort(),
+                          metricsQuery: CapabilityMetricsPort()))
+                  .dispatch('fixture_tool', '{}'));
+        }
+        expect(harness.dispatcher.calls, isEmpty);
+        expect(
+            (await harness.messagesOf(cid))
+                .where((m) => m.role == ConversationMessageRole.assistant),
+            hasLength(1));
+        expect(session.transcript!.finalAssistant!.content, 'fixture final');
+      });
+    }
+
+    test('Runtime rejects Agent surfaces exposing COMMIT/DESTRUCTIVE uniformly',
+        () {
+      for (final permission in [
+        CapabilityPermission.commit,
+        CapabilityPermission.destructive
+      ]) {
+        final surface = AgentSurface([
+          RegisteredAgentProjection(
+              capabilityId: fixtureId,
+              permission: permission,
+              definition: AgentFunctionToolDefinition(
+                  name: 'privileged_tool',
+                  description: 'Synthetic privileged fixture.',
+                  inputSchema: const <String, Object?>{
+                    'type': 'object',
+                    'properties': <String, Object?>{}
+                  }),
+              dispatch: (_) async => throw StateError('must never dispatch'))
+        ]);
+        expect(() => _Harness(agentSurface: surface), throwsArgumentError);
+      }
+    });
+  });
 
   group('AR-R3 transcript / receipt integration', () {
     for (final batchSize in [1, 2]) {
@@ -4639,6 +4740,7 @@ final class _Harness {
     bool wireRetrieval = false,
     RetrievalService? retrievalOverride,
     AgentStudyToolDispatcher? studyOverride,
+    AgentSurface? agentSurface,
     double temperature = 1.0,
     AgentReasoningEffort reasoningEffort = AgentReasoningEffort.high,
   })  : repository = _FakeConversationRepository(),
@@ -4734,10 +4836,11 @@ final class _Harness {
         }
         return provider;
       },
-      toolDispatcher: studyOverride ?? dispatcher,
-      proposalDispatcher: proposalDispatcher,
-      studyPlanDispatcher: studyPlanDispatcher,
-      retrievalDispatcher: retrievalDispatcher,
+      agentSurface: agentSurface,
+      toolDispatcher: agentSurface == null ? studyOverride ?? dispatcher : null,
+      proposalDispatcher: agentSurface == null ? proposalDispatcher : null,
+      studyPlanDispatcher: agentSurface == null ? studyPlanDispatcher : null,
+      retrievalDispatcher: agentSurface == null ? retrievalDispatcher : null,
       limits: limits ?? const AgentRuntimeLimits(),
     );
   }

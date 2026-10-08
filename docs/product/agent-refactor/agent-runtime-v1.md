@@ -1,8 +1,7 @@
 # Agent Runtime v1
 
-Status: **FROZEN target contract; AR-R1 COMPLETE / CLOSED; AR-R2 Dispatcher
-compatibility bridge merged pending independent final-head review; AR-R3 Runtime
-split/transcript IMPLEMENTATION CANDIDATE / active implementation stage.**
+Status: **FROZEN contract; AR-R1/AR-R2/AR-R3 COMPLETE / CLOSED; AR-R4 projection
+registration integration IMPLEMENTATION CANDIDATE.**
 
 Authority/activation: [index](README.md). Current A0 and AGENT-FB behavior remains
 active. Provider protocol details, business capabilities and Proposal lifecycle
@@ -191,8 +190,11 @@ terminal evidence owned only by that session). Runtime stores no completed turn
 history, and nothing encodes/persists/logs this snapshot. Receipts and W0/SPL
 reconciliation remain tied to their existing process-local service lifecycles;
 restart invalidates them. Only the final visible Assistant is appended to the
-Conversation. No in-flight resume, schema/B0 change, memory, compression, module,
-external Host or READ continuation is implemented.
+Conversation. No in-flight resume, schema/B0 change, memory, compression, external Host or
+READ continuation is implemented. AR-R4 source registration now supplies a
+frozen Agent surface at the Runtime facade; the legacy Dispatcher constructor
+remains a compatibility bridge. Generic lifecycle/round/transcript/fallback
+semantics remain this accepted AR-R3 authority; `module-system.md` owns composition.
 
 ## 4. Fallback migration barrier and later policy
 
