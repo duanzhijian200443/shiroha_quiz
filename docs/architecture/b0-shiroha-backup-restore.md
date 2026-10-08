@@ -16,7 +16,7 @@ AnswerAttempt migration followed the original B0-P0 v22 freeze.
 
 ### Current-state amendment: AnswerAttempt schema v26
 
-This amendment raised the runtime to v26; the current runtime is v31 as stated
+This amendment raised the runtime to v26; the current runtime is v32 as stated
 below. Staged v25 databases rebuild `answer_attempts` inside
 DatabaseHelper's upgrade transaction, preserving all rows and both indexes;
 only the modality CHECK gains `image`. Image payload v1 uses `source_file_id`
@@ -30,7 +30,7 @@ prior schema boundary.
 ### Current-state amendment: Answer Completion schema v28
 
 ANSWER-COMP-D1 implemented the frozen Answer Completion relation as the
-additive v28 schema; **the current runtime is v31**. `imported_question_sets` /
+additive v28 schema; **the current runtime is v32**. `imported_question_sets` /
 `imported_question_set_items` — with their constraints, bank lookup index and
 required relationship triggers — are durable INCLUDE state, protected by the
 existing strict schema validator and by B0 portable-data relationship
@@ -87,13 +87,34 @@ v31 under `docs/product/home-training-v3.md`; ImportTask remains scrubbed.
 
 B1 adds only nullable INTEGER UTC-second `attempt_started_at`, `parsed_at`, and
 `failed_at` columns to `import_tasks`, preserving old columns/status/attempt
-identity and all historical rows without guessed event times. Runtime is v31;
-package version remains 2. DatabaseHelper's staged migration chain remains the
+identity and all historical rows without guessed event times. This amendment
+raised runtime to v31; AR-R5A now adds v32. Package version remains 2. DatabaseHelper's staged migration chain remains the
 only schema upgrade authority; portable candidates must also pass the shared
 v31 schema validator. ImportTask remains entirely SCRUB state, including all
 new event fields. Snapshot export does not mutate live tasks. The prior v30 paragraph records P4b delivery; P4b has since passed independent
 acceptance and merged. B1 fixed-head CI and independent T3 verification passed and
 PR #227 merged; no TaskCenter UI or production composition is claimed.
+
+### Current-state amendment: AR-R5A generated Proposal schema v32
+
+AR-R5A is an implementation candidate, governed by
+`../product/agent-refactor/generated-question-proposals.md`. Its five generated
+Proposal tables are durable INCLUDE data: immutable originals/resolved soft
+evidence/origin metadata, working copies, decisions/revisions/targets, terminal
+status, receipts and historical item-to-Question mappings. Strict shape and
+cross-row codec/data validation runs at export and staged admission even when
+the runtime contribution is removed. Schema upgrades happen only through the
+shared DatabaseHelper staged chain before swap; old v31 packages remain accepted.
+
+Historical source, client-profile, target and Question references are soft and
+do not require current existence for portable decode. Restore does not restore
+local confirmation or external authority. Any future approval revalidates current
+local authorization, target, review revision/selection, evidence and duplicates.
+Corrupt payload/shape/receipt relationships reject before live replacement.
+Package remains v2 (v1 reader retained); container/layout/checksums, global FK
+checks, earlier data invariants, credential exclusion, SCRUB rules and durable
+restore/rollback journal are unchanged. No active grant, handle, pairing secret,
+provider response or credential is introduced.
 
 ### ContentAsset lifecycle successor (docs-only)
 
@@ -124,7 +145,7 @@ closure are both implemented; the successor document records the evidence.
 ### Historical amendment: AI Config schema v24
 
 At that amendment's closure, runtime and current-runtime backup fixtures used
-schema **v24**; the current runtime is v31 as stated above.
+schema **v24**; the current runtime is v32 as stated above.
 The four additive AI configuration tables (`ai_providers`, `ai_models`,
 `ai_model_capability_claims`, `ai_capability_bindings`) are authoritative
 INCLUDE state. None has a credential column. Legacy `ai_engines.api_key` and
@@ -180,11 +201,13 @@ schemaVersion  = SQLite PRAGMA user_version
 - `schemaVersion` versions the SQLite schema carried inside the snapshot.
 - The manifest carries both; compatibility checks for each are separate
   (§8).
-- Current runtime schema is **v31**: v27 added the derived ContentAsset
+- Current runtime schema is **v32**: v27 added the derived ContentAsset
   reclamation-observation ledger, which the package excludes and scrubs like
   other derived state, and v28 is the additive durable `ImportedQuestionSet` /
   ordered-membership schema. v29 adds durable TrainingContent configuration;
-  v30 adds durable StudyActivity session/segment facts.
+  v30 adds durable StudyActivity session/segment facts; v31 adds nullable
+  ImportTask event times and v32 durable generated Proposal originals, review,
+  receipts and mappings.
   v24 and v26 references below retain their
   historical amendment or compatibility-fixture meaning.
 
@@ -256,7 +279,7 @@ payloads, or user file bytes. Those bytes remain only inside
 ## 3. Portable snapshot — INCLUDE
 
 The sanitized SQLite snapshot must preserve all authoritative durable user
-state. The v24 amendment froze the INCLUDE set below; current runtime is v31
+state. The v24 amendment froze the INCLUDE set below; current runtime is v32
 and retains these authoritative rows, including `answer_attempts` with image
 modality and the v28 Answer Completion question-set rows:
 
@@ -316,7 +339,7 @@ The package must never contain:
 - secrets.
 
 In the sanitized snapshot, all legacy/current credential columns must be in an
-empty/null safe state. For current schema v31 this includes at least:
+empty/null safe state. For current schema v32 this includes at least:
 
 ```text
 ai_engines.api_key
@@ -972,7 +995,7 @@ B0 v0 explicitly excludes:
 - credential backup;
 - ParsedArtifact backup;
 - RAG cache backup;
-- future database schema migrations beyond the current runtime (v31);
+- future database schema migrations beyond the current runtime (v32);
 - DATA-MGMT destructive features;
 - UI redesign.
 
@@ -1031,7 +1054,7 @@ B0 .shiroha Backup / Restore — CLOSED / FROZEN
 The B0-V0 acceptance suite must cover:
 
 1. empty/fresh app export + restore;
-2. realistic populated current-schema v31 round trip;
+2. realistic populated current-schema v32 round trip;
 3. Questions + typed sidecars + `answer_attempts` preserved;
 4. FSRS/review history preserved;
 5. Library files + bytes/digests preserved;

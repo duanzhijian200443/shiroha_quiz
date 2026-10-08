@@ -29,6 +29,8 @@ import 'study_plan_v22_schema.dart';
 import 'training_content_v29_schema.dart';
 import 'study_activity_v30_schema.dart';
 import 'import_task_v31_schema.dart';
+import 'generated_proposal_schema.dart';
+import '../../data/repositories/generated_proposal_reader.dart';
 import '../../application/task_center/retry_file_selection.dart';
 import '../../data/models/task_center_task_identity.dart';
 import '../../application/home_training_result.dart';
@@ -92,7 +94,7 @@ class DatabaseHelper
   DatabaseHelper._();
 
   static const String _dbName = 'shiroha_core_v1.db';
-  static const int _dbVersion = importTaskSchemaVersion;
+  static const int _dbVersion = generatedProposalSchemaVersion;
 
   static String get databaseFileName => _dbName;
   static int get databaseVersion => _dbVersion;
@@ -680,6 +682,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
       onConfigure: _onConfigure,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
+      onOpen: _onGeneratedProposalOpen,
     );
   }
 
@@ -702,6 +705,8 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await validateStudyActivityV30Schema(db);
     await validateStudyActivityV30Data(db);
     await validateImportTaskV31Schema(db);
+    await validateGeneratedProposalSchema(db);
+    await validateGeneratedProposalData(db);
   }
 
   /// Opens a database handle with the current production schema callbacks.
@@ -723,6 +728,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
       onConfigure: _onConfigure,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
+      onOpen: _onGeneratedProposalOpen,
     );
   }
 
@@ -747,6 +753,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
         onConfigure: _onConfigure,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
+        onOpen: _onGeneratedProposalOpen,
       );
       _openedDatabasePath = path;
       return database;
@@ -767,6 +774,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
       onConfigure: _onConfigure,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
+      onOpen: _onGeneratedProposalOpen,
     );
     _openedDatabasePath = path;
     return database;
@@ -790,6 +798,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
           DatabaseRuntimeFailure.unsupportedSchemaVersion,
         );
       }
+      await _onGeneratedProposalOpen(database);
       _openedDatabasePath = path;
       return database;
     } on DatabaseRuntimeException {
@@ -801,6 +810,11 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
         DatabaseRuntimeFailure.unavailable,
       );
     }
+  }
+
+  Future<void> _onGeneratedProposalOpen(Database db) async {
+    await validateGeneratedProposalSchema(db);
+    await validateGeneratedProposalData(db);
   }
 
   Future<void> _onConfigure(Database db) async {
@@ -958,6 +972,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await createAnswerCompletionV28Schema(db);
     await createTrainingContentV29Schema(db);
     await createStudyActivityV30Schema(db);
+    await createGeneratedProposalSchema(db);
     await _validateV15Schema(db);
     await _validateLibraryFilesSchema(db);
     await _validateProjectSchema(db);
@@ -974,6 +989,8 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await validateStudyActivityV30Schema(db);
     await validateStudyActivityV30Data(db);
     await validateImportTaskV31Schema(db);
+    await validateGeneratedProposalSchema(db);
+    await validateGeneratedProposalData(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -1159,6 +1176,9 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     if (oldVersion < 31) {
       await migrateImportTaskToV31(db);
     }
+    if (oldVersion < generatedProposalSchemaVersion) {
+      await migrateGeneratedProposalSchema(db);
+    }
     await validateAnswerAttemptV26Schema(db);
     await validateContentAssetReclamationV27Schema(db);
     await validateAnswerCompletionV28Schema(db);
@@ -1167,6 +1187,8 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await validateStudyActivityV30Schema(db);
     await validateStudyActivityV30Data(db);
     await validateImportTaskV31Schema(db);
+    await validateGeneratedProposalSchema(db);
+    await validateGeneratedProposalData(db);
   }
 
   /// Validates the frozen v15 schema before the open/upgrade can succeed.

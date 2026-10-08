@@ -1,21 +1,24 @@
 # Agent Runtime v1 / External Agent / MCP vNext Contract Index
 
 Status: **FROZEN target architecture; AR-R1/AR-R2/AR-R3 COMPLETE / CLOSED;
-AR-R4 module contribution kernel IMPLEMENTATION CANDIDATE.**
+AR-R4 module contribution kernel COMPLETE / CLOSED; AR-R5A IMPLEMENTATION CANDIDATE.**
 
 The Provider seam, typed capability/executor/projection path and Runtime split/
 transcript are delivered in the preceding merged stages. Historical AR-R3
 activation recorded an earlier-head review mismatch on AR-R2's PR #241; under
 AGENTS.md's current historical merged-stage rule, merged #241 and #242 are
 accepted preceding stages without inventing a missing approval record.
+AR-R4 was accepted and merged in [PR #243](https://github.com/duanzhijian200443/shiroha_quiz/pull/243),
+with final-head standing CI success and independent repair-review closure.
 Current open candidates still require final-target CI and independent review.
 
 AR-R4 implements the source contribution kernel and default feature registration
 as described in `module-system.md`. It retains existing capability semantics,
 Provider protocol, Runtime loop/lifecycle, transcript and fallback behavior.
-Durable generated proposals, external Host/IPC, MCP vNext and READ fallback
-continuation remain unimplemented targets. Current product behavior continues
-under the existing capability contracts.
+AR-R5A implements durable generated proposals, review CAS and atomic approval
+as an implementation candidate at schema v32 with B0 package v2. External
+Host/IPC, MCP vNext and READ fallback continuation remain unimplemented targets. Current product behavior
+continues under the existing capability contracts.
 
 ## 1. Authority and ownership
 

@@ -18,6 +18,8 @@ import '../study_plan/study_plan_draft_service.dart';
 import '../study_query/study_capabilities.dart';
 import '../study_query/study_query_service.dart';
 import 'module_composition.dart';
+import '../generated_question/generated_question_service.dart';
+import 'generated_question_module.dart';
 
 const studyModuleId = ModuleId('study');
 const retrievalModuleId = ModuleId('retrieval');
@@ -145,7 +147,8 @@ List<ModuleContribution> buildDefaultModules(
         required RetrievalService retrieval,
         required AgentWritePersistencePort missingAnswerPersistence,
         required AgentWriteProposalService missingAnswerProposals,
-        required StudyPlanDraftService studyPlan}) =>
+        required StudyPlanDraftService studyPlan,
+        GeneratedQuestionService? generatedQuestions}) =>
     List.unmodifiable([
       studyModule(study),
       retrievalModule(retrieval),
@@ -153,4 +156,6 @@ List<ModuleContribution> buildDefaultModules(
           persistence: missingAnswerPersistence,
           proposalService: missingAnswerProposals),
       studyPlanModule(studyPlan),
+      if (generatedQuestions != null)
+        generatedQuestionModule(generatedQuestions),
     ]);

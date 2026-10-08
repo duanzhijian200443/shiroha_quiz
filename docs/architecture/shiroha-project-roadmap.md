@@ -153,9 +153,13 @@ accepted without manufacturing a retrospective approval marker.
 
 AR-R4 implements explicit source modules, deterministic layered graph ordering,
 finite typed registrars, frozen atomic publication and retained feature storage
-compatibility. It is **IMPLEMENTATION CANDIDATE / pending final-target standing
-CI and independent semantic review**. Default Agent/prompt/MCP/UI behavior is
-retained; AR-R5 and subsequent implementation stages remain inactive.
+compatibility. It is **COMPLETE / CLOSED**, accepted and merged in
+[PR #243](https://github.com/duanzhijian200443/shiroha_quiz/pull/243) after
+final-head standing CI and independent repair-review closure. Default Agent/prompt/MCP/UI behavior is
+retained. AR-R5A durable Proposal/review/atomic writer is an **IMPLEMENTATION
+CANDIDATE** at additive schema v32 with B0 package v2. It awaits final-target
+standing CI and independent semantic review; code completion does not close it.
+AR-R5B, AR-R6A/AR-R6B, AR-R7 and later implementation stages remain inactive.
 
 Use namespaced AR-R identifiers to distinguish this route from historical
 R1-R8 typed-core stages:
@@ -206,7 +210,7 @@ context, but they do not change implementation status by themselves.
 | **ANSWER-COMP-V0** | COMPLETE | Focused deterministic acceptance covers import rollback, seed lifecycle, B0 validation, committed-set lifecycle, coherent query races, full-set P6 and single-question P7/legacy entry boundaries. Authoritative tests and the requirement map live in `test/answer_completion_v0_acceptance.md`; core suites run as standing PR contracts. |
 | **ANSWER-COMP-CL** | COMPLETE | Answer Completion v0 — CLOSED / FROZEN. Current runtime is v28; the focused contract and repository architecture agree on durable grouping, import ownership, query consistency and existing P6/P7 activation. No typed-admission R1, stable bank ID, batch AI or RAG-2 activation. |
 | **TYPED-ADMISSION-R1** | PLANNED / HARDENING | `OcrTypedCandidateGate` remains batch-wide all-or-nothing. A future bounded refactor may reduce one question's structural-admission failure blast radius without weakening fail-closed semantics. |
-| **HOME-TRAINING-V3** | PARTIAL | Frozen contract `SHIROHA-HOME-TRAINING-IPF-V3` lives at `docs/product/home-training-v3.md`. P0–P4b and B1–B4 are merged; runtime is v31. PR #230 (B2), #232 (B3/I1) and #234 (B4/I2) are historical merged deliveries. B5 implements P10a/P10b/I3: facade-backed TaskCenter UI, shared production query/command/retry injection, safe Home badge and exact-target review/file-selection bridges. CP3 composition is implemented; acceptance requires final-head/current-target CI and independent Reviewer evidence. PlanConfigScreen compatibility retirement, B6 and CP4 remain pending. No persistent task-package completion markers are required. Normal delegated handoffs stay in active context; explicit Automation may keep non-authoritative PR-body resume state. Exact execution history is Git/PR/CI/Reviewer. StudyPlan remains the single global ActiveStudyPlan, independent of TrainingContent. |
+| **HOME-TRAINING-V3** | PARTIAL | Frozen contract `SHIROHA-HOME-TRAINING-IPF-V3` lives at `docs/product/home-training-v3.md`. P0–P4b and B1–B4 are merged; AR-R5A candidate advances the global runtime to v32 without changing the v31 ImportTask event contract. PR #230 (B2), #232 (B3/I1) and #234 (B4/I2) are historical merged deliveries. B5 implements P10a/P10b/I3: facade-backed TaskCenter UI, shared production query/command/retry injection, safe Home badge and exact-target review/file-selection bridges. CP3 composition is implemented; acceptance requires final-head/current-target CI and independent Reviewer evidence. PlanConfigScreen compatibility retirement, B6 and CP4 remain pending. No persistent task-package completion markers are required. Normal delegated handoffs stay in active context; explicit Automation may keep non-authoritative PR-body resume state. Exact execution history is Git/PR/CI/Reviewer. StudyPlan remains the single global ActiveStudyPlan, independent of TrainingContent. |
 | **RAG-2 / RAG-3** | DEFERRED | RAG-1 local lexical retrieval is COMPLETE. Semantic embeddings and hybrid/rerank retrieval remain separately deferred. |
 
 Status rules:
