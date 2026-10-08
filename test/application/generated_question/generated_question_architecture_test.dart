@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/capabilities/capability.dart';
+import 'package:shiroha_quiz/application/generated_question/generated_question_service.dart';
 import 'package:shiroha_quiz/application/modules/module_composition.dart';
 import 'package:shiroha_quiz/application/modules/generated_question_module.dart';
 import 'package:shiroha_quiz/domain/conversations/conversation.dart';
@@ -92,6 +93,15 @@ void main() {
     expect(result.receipt.status, CapabilityExecutionStatus.completed);
     expect(result.receipt.knownEffect, CapabilityEffect.none);
     expect(result.output!.proposalId, p.proposalId);
+    final foreign = GeneratedLocalContext(
+        localOwner: 'other', confirmedTarget: h.target, isCurrent: () => true);
+    for (final id in [p.proposalId, '99999999-9999-4999-8999-999999999999']) {
+      final outcome = await executor.execute(
+          readGeneratedProposal, GeneratedProposalRead(id, foreign), context);
+      expect(outcome.receipt.status,
+          CapabilityExecutionStatus.failedWithoutEffect);
+      expect(outcome.receipt.failure, CapabilityFailure.notFound);
+    }
     h.authorized = false;
     final denied = await executor.execute(readGeneratedProposal,
         GeneratedProposalRead(p.proposalId, h.local), context);

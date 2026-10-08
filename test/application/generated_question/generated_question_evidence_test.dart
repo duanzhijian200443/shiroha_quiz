@@ -8,47 +8,58 @@ void main() {
   late GeneratedHarness h;
   const sourceId = '11111111-1111-4111-8111-111111111111';
   String digest(String char) => List.filled(64, char).join();
-  GeneratedEvidence evidence({String source = sourceId}) => GeneratedEvidence(
-      evidenceKey: 'evidence',
-      sourceRef: SourceRef.document(sourceId: source),
-      fileId: 'file',
-      artifactRevision: 1,
-      artifactDigest: digest('b'));
-  setUp(() async {
-    h = GeneratedHarness();
-    await h.open();
+  GeneratedEvidence evidence(
+          {String source = sourceId,
+          String file = 'file',
+          String char = 'b'}) =>
+      GeneratedEvidence(
+          evidenceKey: 'evidence',
+          sourceRef: SourceRef.document(sourceId: source),
+          fileId: file,
+          artifactRevision: 1,
+          artifactDigest: digest(char));
+  Future<void> addSource(
+      String file, String artifact, String fileChar, String payloadChar) async {
     await h.db.insert('library_files', {
-      'file_id': 'file',
-      'display_name': 'Synthetic.txt',
+      'file_id': file,
+      'display_name': 'Synthetic $file.txt',
       'mime_type': 'text/plain',
-      'storage_key': 'file/source',
+      'storage_key': '$file/source',
       'size_bytes': 0,
-      'sha256': digest('a'),
+      'sha256': digest(fileChar),
       'created_at': 1000
     });
-    await h.db.insert(
-        'parsed_artifact_heads', {'file_id': 'file', 'last_revision': 1});
+    await h.db
+        .insert('parsed_artifact_heads', {'file_id': file, 'last_revision': 1});
     await h.db.insert('parsed_artifacts', {
-      'file_id': 'file',
-      'artifact_id': sourceId,
+      'file_id': file,
+      'artifact_id': artifact,
       'revision': 1,
-      'source_sha256': digest('a'),
+      'source_sha256': digest(fileChar),
       'cache_key_version': 1,
       'cache_fingerprint': 'synthetic',
       'parser_route': 'synthetic',
       'parser_version': '1',
       'options_schema_version': 1,
       'payload_schema_version': 1,
-      'storage_key': 'artifact/source',
-      'payload_sha256': digest('b'),
+      'storage_key': 'artifact/$file',
+      'payload_sha256': digest(payloadChar),
       'size_bytes': 0,
       'published_at': 1000
     });
+  }
+
+  setUp(() async {
+    h = GeneratedHarness();
+    await h.open();
+    await addSource('file', sourceId, 'a', 'b');
   });
   tearDown(() async => h.close());
   test(
-      'trusted current source resolves, different provenance conflicts even with unchanged content',
+      'trusted current source resolves, different valid provenance conflicts even with unchanged content',
       () async {
+    const secondSource = '22222222-2222-4222-8222-222222222222';
+    await addSource('file2', secondSource, 'c', 'd');
     final p = await h.stage(items: [
       candidate(evidence: ['evidence'])
     ], evidence: [
@@ -59,7 +70,7 @@ void main() {
         h.stage(items: [
           candidate(evidence: ['evidence'])
         ], evidence: [
-          evidence(source: '22222222-2222-4222-8222-222222222222')
+          evidence(source: secondSource, file: 'file2', char: 'd')
         ]),
         failure(GeneratedFailure.idempotencyConflict));
     expect(await h.count('generated_question_proposals'), 1);
@@ -172,5 +183,114 @@ void main() {
     ]);
     expect(retry.proposalId, first.proposalId);
     expect(await h.count('generated_question_proposals'), 1);
+  });
+
+  test('a source claim bound to a different artifact identity stages zero rows',
+      () async {
+    const otherIdentity = '33333333-3333-4333-8333-333333333333';
+    await expectLater(
+        h.stage(items: [
+          candidate(evidence: ['evidence'])
+        ], evidence: [
+          evidence(source: otherIdentity)
+        ]),
+        failure(GeneratedFailure.invalidEvidence));
+    expect(await h.count('generated_question_proposals'), 0);
+    expect(await h.count('generated_question_proposal_items'), 0);
+    expect(await h.count('questions'), 0);
+  });
+
+  test(
+      'replaced artifact identity marks staged provenance unavailable until explicitly acknowledged',
+      () async {
+    var p = await h.decide(await h.stage(items: [
+      candidate(evidence: ['evidence'])
+    ], evidence: [
+      evidence()
+    ]));
+    await h.db.update('parsed_artifacts',
+        {'artifact_id': '44444444-4444-4444-8444-444444444444'},
+        where: 'file_id=?', whereArgs: ['file']);
+    await expectLater(h.service.approve(h.approval(p), h.local),
+        failure(GeneratedFailure.staleEvidence));
+    expect(await h.count('questions'), 0);
+    final state = await h.repository
+        .evidenceState(p.proposalId, p.items.single.itemId, h.local);
+    expect((state.single as Map)['status'], 'unavailable');
+    expect((state.single as Map)['currentRevision'], isNull);
+    expect((state.single as Map)['currentDigest'], isNull);
+    p = await h.flush(p, [
+      {
+        'type': 'acknowledge',
+        'itemId': p.items.single.itemId,
+        'evidenceState': state
+      }
+    ]);
+    await h.service.approve(h.approval(p), h.local);
+    expect(await h.count('questions'), 1);
+  });
+
+  test(
+      'Project file scope gates staged provenance and re-link or explicit acknowledgement restores approval',
+      () async {
+    await h.db.insert('projects', {
+      'project_id': 'project',
+      'display_name': 'Project',
+      'created_at': 1000
+    });
+    await h.db.insert(
+        'project_banks', {'project_id': 'project', 'bank_name': 'bank'});
+    await h.db
+        .insert('project_files', {'project_id': 'project', 'file_id': 'file'});
+    h.target = GeneratedTarget(
+        bankName: 'bank',
+        folderName: 'folder',
+        projectId: 'project',
+        projectBankNames: const ['bank']);
+    final first = await h.decide(await h.stage(items: [
+      candidate(evidence: ['evidence'])
+    ], evidence: [
+      evidence()
+    ]));
+    await h.db
+        .delete('project_files', where: 'project_id=?', whereArgs: ['project']);
+    await expectLater(h.service.approve(h.approval(first), h.local),
+        failure(GeneratedFailure.staleEvidence));
+    expect(await h.count('questions'), 0);
+    final unbound = await h.repository
+        .evidenceState(first.proposalId, first.items.single.itemId, h.local);
+    expect((unbound.single as Map)['status'], 'unavailable');
+    expect((unbound.single as Map)['currentRevision'], isNull);
+    await h.db
+        .insert('project_files', {'project_id': 'project', 'file_id': 'file'});
+    expect(
+        ((await h.repository.evidenceState(
+                first.proposalId, first.items.single.itemId, h.local))
+            .single as Map)['status'],
+        'authorized');
+    await h.service.approve(h.approval(first), h.local);
+    expect(await h.count('questions'), 1);
+
+    var second = await h.decide(await h.stage(key: 'unbound', items: [
+      candidate(stem: 'Other stem', evidence: ['evidence'])
+    ], evidence: [
+      evidence()
+    ]));
+    await h.db
+        .delete('project_files', where: 'project_id=?', whereArgs: ['project']);
+    final acknowledged = await h.repository
+        .evidenceState(second.proposalId, second.items.single.itemId, h.local);
+    expect((acknowledged.single as Map)['status'], 'unavailable');
+    await expectLater(h.service.approve(h.approval(second), h.local),
+        failure(GeneratedFailure.staleEvidence));
+    second = await h.flush(second, [
+      {
+        'type': 'acknowledge',
+        'itemId': second.items.single.itemId,
+        'evidenceState': acknowledged
+      }
+    ]);
+    await h.service.approve(h.approval(second), h.local);
+    expect(await h.count('questions'), 2);
   });
 }

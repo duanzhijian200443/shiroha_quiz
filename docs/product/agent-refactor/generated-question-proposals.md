@@ -236,10 +236,13 @@ and clears all accepted decisions; silent target substitution is prohibited.
 Resolved evidence fields are exactly `evidenceKey`, `sourceRef` (existing strict
 QuestionDraftV2 SourceRef encoding), `fileId`, `artifactRevision` (positive int),
 `artifactDigest` (lowercase SHA-256). Only current authorized context evidence
-can be staged. A current-source resolver reports `authorized`, `stale`, or
-`unavailable`; missing historical sources do not prevent reading originals.
-Each item stores its resolved evidence, or an empty array explicitly meaning
-uncited. Source claims which cannot resolve or authorize reject staging.
+can be staged. Current resolution binds the claimed `sourceRef.sourceId` to the
+file's current parsed artifact identity and, under a Project target, requires
+current `project_files` membership; identity or scope drift resolves as
+unavailable, never authorized. A current-source resolver reports `authorized`,
+`stale`, or `unavailable`; missing historical sources do not prevent reading
+originals. Each item stores its resolved evidence, or an empty array explicitly
+meaning uncited. Source claims which cannot resolve or authorize reject staging.
 Stale/unavailable evidence needs an explicit local acknowledgement saved against
 the exact evidence status and revision; any subsequent status change invalidates
 that acknowledgement. Acknowledgement grants no external access.
@@ -347,7 +350,8 @@ new existing target; all decisions and evidence acknowledgements reset.
 Approval envelope keys are exactly `proposalId`, `expectedReviewRevision`,
 `approvedItemIds`; rejection keys are exactly `proposalId`,
 `expectedReviewRevision`. Trusted context is a separate typed constructor input,
-never a decoded field. Read/query also require current local owner authority.
+never a decoded field. Read/query also require current local owner authority, and
+report a foreign-owned proposal ID exactly like an absent one.
 All-rejected rejection is a terminal CAS; repeated same-revision rejection is
 idempotent, and conflicting terminal/revision commands fail.
 

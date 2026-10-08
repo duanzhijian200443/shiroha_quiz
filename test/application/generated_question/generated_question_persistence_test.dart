@@ -166,6 +166,52 @@ void main() {
     expect(() => h.service.approve(h.approval(p), h.local),
         failure(GeneratedFailure.unauthorized));
   });
+  test(
+      'foreign and absent proposal IDs are indistinguishable for read, flush, approve and reject',
+      () async {
+    final p = await h.decide(await h.stage());
+    const absent = '99999999-9999-4999-8999-999999999999';
+    final foreign = GeneratedLocalContext(
+        localOwner: 'other', confirmedTarget: h.target, isCurrent: () => true);
+    GeneratedReviewFlush flushOf(String id) => GeneratedReviewFlush.fromJson({
+          'proposalId': id,
+          'expectedReviewRevision': p.reviewRevision,
+          'operations': [
+            {
+              'type': 'decide',
+              'itemId': p.items.single.itemId,
+              'decision': 'accepted'
+            }
+          ]
+        });
+    Future<GeneratedReceipt> approveOf(String id) => h.service.approve(
+        ApproveGeneratedProposalCommand.fromJson({
+          'proposalId': id,
+          'expectedReviewRevision': p.reviewRevision,
+          'approvedItemIds': [p.items.single.itemId]
+        }),
+        foreign);
+    Future<GeneratedQuestionProposal> rejectOf(String id) => h.service.reject(
+        RejectGeneratedProposalCommand.fromJson(
+            {'proposalId': id, 'expectedReviewRevision': p.reviewRevision}),
+        foreign);
+    for (final id in [p.proposalId, absent]) {
+      await expectLater(h.repository.read(id, foreign),
+          failure(GeneratedFailure.proposalUnavailable));
+      await expectLater(
+          h.repository.evidenceState(id, p.items.single.itemId, foreign),
+          failure(GeneratedFailure.proposalUnavailable));
+      await expectLater(h.service.flush(flushOf(id), foreign),
+          failure(GeneratedFailure.proposalUnavailable));
+      await expectLater(
+          approveOf(id), failure(GeneratedFailure.proposalUnavailable));
+      await expectLater(
+          rejectOf(id), failure(GeneratedFailure.proposalUnavailable));
+    }
+    expect((await h.repository.read(p.proposalId, h.local)).lifecycleStatus,
+        GeneratedStatus.pendingReview);
+    expect(await h.count('questions'), 0);
+  });
   test('within-batch and different-key pending duplicates block commits',
       () async {
     final a = await h.stage();

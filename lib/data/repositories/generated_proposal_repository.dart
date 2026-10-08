@@ -60,8 +60,9 @@ final class GeneratedProposalRepository
   void _local(GeneratedQuestionProposal p, GeneratedLocalContext c,
       {bool target = true}) {
     c.validate();
+    // A foreign owner must be indistinguishable from an absent proposal.
     if (p.localOwner != c.localOwner) {
-      generatedFail(GeneratedFailure.unauthorized);
+      generatedFail(GeneratedFailure.proposalUnavailable);
     }
     if (target &&
         generatedCanonical(p.target.toJson()) !=
@@ -111,15 +112,26 @@ final class GeneratedProposalRepository
   }
 
   Future<List<Object?>> _evidence(
-      DatabaseExecutor db, GeneratedItem item) async {
+      DatabaseExecutor db, GeneratedTarget target, GeneratedItem item) async {
     final states = <Object?>[];
     for (final e in item.evidence) {
       final files = await db
           .query('library_files', where: 'file_id=?', whereArgs: [e.fileId]);
       final artifacts = await db
           .query('parsed_artifacts', where: 'file_id=?', whereArgs: [e.fileId]);
-      final current =
-          files.length == 1 && artifacts.length == 1 ? artifacts.single : null;
+      // Current authorization binds the claimed source identity to the file's
+      // parsed artifact and, under a Project target, to the Project file scope.
+      var current = files.length == 1 &&
+              artifacts.length == 1 &&
+              artifacts.single['artifact_id'] == e.sourceRef.sourceId
+          ? artifacts.single
+          : null;
+      if (current != null && target.projectId != null) {
+        final linked = await db.query('project_files',
+            where: 'project_id=? AND file_id=?',
+            whereArgs: [target.projectId, e.fileId]);
+        if (linked.length != 1) current = null;
+      }
       states.add({
         'evidenceKey': e.evidenceKey,
         'status': current == null
@@ -295,7 +307,7 @@ final class GeneratedProposalRepository
       }
       await _target(db, context.target);
       for (final item in input.items) {
-        if ((await _evidence(db, item))
+        if ((await _evidence(db, context.target, item))
             .any((v) => (v as Map)['status'] != 'authorized')) {
           generatedFail(GeneratedFailure.invalidEvidence);
         }
@@ -389,7 +401,7 @@ final class GeneratedProposalRepository
       if (matches.length != 1) {
         generatedFail(GeneratedFailure.proposalUnavailable);
       }
-      return _evidence(db, matches.single);
+      return _evidence(db, p.target, matches.single);
     });
   }
 
@@ -438,7 +450,7 @@ final class GeneratedProposalRepository
                 item.evidenceAcknowledgement);
           case 'acknowledge':
             validateEvidenceState(op['evidenceState'], item.evidence);
-            final actual = await _evidence(db, item);
+            final actual = await _evidence(db, target, item);
             if (generatedCanonical(op['evidenceState']) !=
                 generatedCanonical(actual)) {
               generatedFail(GeneratedFailure.staleEvidence);
@@ -515,7 +527,7 @@ final class GeneratedProposalRepository
       }
       await _target(db, p.target);
       for (final item in selected) {
-        final states = await _evidence(db, item);
+        final states = await _evidence(db, p.target, item);
         if (states.any((v) => (v as Map)['status'] != 'authorized') &&
             item.evidenceAcknowledgement != generatedCanonical(states)) {
           generatedFail(GeneratedFailure.staleEvidence);
