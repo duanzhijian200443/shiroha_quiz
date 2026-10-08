@@ -482,9 +482,12 @@ identity load releases the late session instead of retaining it.
 
 Formal approval is enabled only for at least one accepted item, every other item
 rejected, no deferred/unreviewed/local pending work, and no busy/conflict/unknown
-result. Before the final dialog the UI rereads the Proposal; confirmation shows
-target, Learning Space, accepted/rejected counts and the actual revision. Only
-that explicit action sends ApproveGeneratedProposalCommand. All rejected uses
+result. Before the final dialog the UI rereads the Proposal. A newer pending
+review revision blocks confirmation without replacing the displayed working copy;
+explicit reload and review are required. An already-terminal result may be shown
+but cannot be resubmitted. Confirmation shows target, Learning Space,
+accepted/rejected counts and the actual revision. Only that explicit action
+sends ApproveGeneratedProposalCommand. All rejected uses
 the separate RejectGeneratedProposalCommand, with no zero-item approval.
 
 Success shows the durable Receipt and returns the viewport to it. Lost responses

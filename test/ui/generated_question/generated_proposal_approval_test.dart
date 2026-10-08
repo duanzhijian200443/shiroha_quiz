@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/generated_question/generated_question_service.dart';
 import 'package:shiroha_quiz/domain/generated_question/generated_question_contract.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
+import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2_codec.dart';
 import 'package:shiroha_quiz/ui/generated_question/generated_proposal_controllers.dart';
 import 'package:shiroha_quiz/ui/generated_question/generated_proposal_review_screen.dart';
@@ -166,6 +167,92 @@ void main() {
     expect(await h.storage.count('questions'), 1);
     first.dispose();
   });
+  test(
+      'pending revision drift blocks an unseen accepted-subset swap',
+      () async {
+    final p = await h.stage(items: [
+      candidate(key: 'one'),
+      candidate(key: 'two', stem: 'Second candidate')
+    ]);
+    final first = controller(p);
+    await first.load();
+    first.decide(p.items.first.itemId, GeneratedDecision.accepted);
+    first.decide(p.items.last.itemId, GeneratedDecision.rejected);
+    expect(await first.save(first.target!), isTrue);
+    final reviewedRevision = first.loadedReviewRevision;
+
+    final second = controller(p);
+    await second.load();
+    second.decide(p.items.first.itemId, GeneratedDecision.rejected);
+    second.decide(p.items.last.itemId, GeneratedDecision.accepted);
+    expect(await second.save(second.target!), isTrue);
+    expect(second.acceptedCount, first.acceptedCount);
+    expect(second.loadedReviewRevision, reviewedRevision! + 1);
+
+    expect(await first.prepareTerminal(), isNull);
+    expect(first.hasConflict, isTrue);
+    expect(first.lastError, contains('其他窗口'));
+    expect(first.loadedReviewRevision, reviewedRevision);
+    expect(first.workingItems.first.decision, GeneratedDecision.accepted);
+    expect(first.workingItems.last.decision, GeneratedDecision.rejected);
+    expect(first.canApprove, isFalse);
+    expect(first.receipt, isNull);
+    expect(await h.storage.count('questions'), 0);
+    expect(await h.storage.count('generated_question_commit_receipts'), 0);
+
+    await first.discardAndReload();
+    expect(first.hasConflict, isFalse);
+    expect(first.loadedReviewRevision, second.loadedReviewRevision);
+    expect(first.workingItems.first.decision, GeneratedDecision.rejected);
+    expect(first.workingItems.last.decision, GeneratedDecision.accepted);
+    first.dispose();
+    second.dispose();
+  });
+
+  test(
+      'pending revision drift blocks an unseen changed accepted answer',
+      () async {
+    final p = await h.stage();
+    final first = controller(p);
+    await ready(first);
+    final reviewedRevision = first.loadedReviewRevision;
+
+    final second = controller(p);
+    await second.load();
+    second.edit({
+      'field': 'answer',
+      'itemId': p.items.single.itemId,
+      'value': {
+        'type': 'content',
+        'content': [
+          {'type': 'text', 'text': 'Changed after review'}
+        ]
+      }
+    });
+    expect(second.workingItems.single.decision, GeneratedDecision.unreviewed);
+    second.decide(p.items.single.itemId, GeneratedDecision.accepted);
+    expect(await second.save(second.target!), isTrue);
+    expect(second.loadedReviewRevision, reviewedRevision! + 1);
+
+    expect(await first.prepareTerminal(), isNull);
+    expect(first.hasConflict, isTrue);
+    expect(first.lastError, contains('其他窗口'));
+    expect(first.loadedReviewRevision, reviewedRevision);
+    expect(first.workingItems.single.decision, GeneratedDecision.accepted);
+    expect(first.canApprove, isFalse);
+    expect(first.receipt, isNull);
+    expect(await h.storage.count('questions'), 0);
+    expect(await h.storage.count('generated_question_commit_receipts'), 0);
+
+    await first.discardAndReload();
+    expect(first.hasConflict, isFalse);
+    expect(first.loadedReviewRevision, second.loadedReviewRevision);
+    final answer = first.workingItems.single.working.answer as ContentAnswer;
+    expect(answer.content.nodes.single, const TextNode('Changed after review'));
+    first.dispose();
+    second.dispose();
+  });
+
   test('duplicate content uses safe error and has no force-approval path',
       () async {
     final first = await h.stage();

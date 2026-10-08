@@ -212,10 +212,17 @@ class GeneratedProposalReviewController extends ChangeNotifier {
     try {
       final current = await session!.read(proposalId);
       if (disposed) return null;
-      _adopt(current);
       if (current.lifecycleStatus != GeneratedStatus.pendingReview) {
+        // Show the durable terminal result, but never create a new intent.
+        _adopt(current);
         generatedFail(GeneratedFailure.terminalConflict);
       }
+      if (current.reviewRevision != loadedReviewRevision) {
+        // Never silently approve another window's still-pending edits.
+        hasConflict = true;
+        generatedFail(GeneratedFailure.staleRevision);
+      }
+      _adopt(current);
       if (!reviewed ||
           (reject
               ? rejectedCount != workingItems.length
