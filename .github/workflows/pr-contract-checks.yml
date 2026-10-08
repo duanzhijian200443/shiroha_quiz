@@ -369,7 +369,23 @@ jobs:
             'test/task_center_restart_recovery_test.dart',
             'test/import_task_duration_test.dart',
             'test/b1e_runtime_acceptance_test.dart',
-            'test/data/repositories/import_task_review_draft_cas_test.dart'
+            'test/data/repositories/import_task_review_draft_cas_test.dart',
+            # AR-R2 typed kernel, projections and retained compatibility gates.
+            'test/application/capabilities/capability_kernel_test.dart',
+            'test/application/capabilities/capability_business_test.dart',
+            'test/application/capabilities/capability_retrieval_test.dart',
+            'test/application/capabilities/capability_projection_parity_test.dart',
+            'test/application/agent/agent_study_tools_test.dart',
+            'test/application/agent/agent_write_proposal_tool_test.dart',
+            'test/application/agent/agent_study_plan_tool_test.dart',
+            'test/application/agent/agent_study_plan_composition_test.dart',
+            'test/application/safe_write/agent_write_proposal_service_test.dart',
+            'test/application/study_plan/study_plan_draft_service_test.dart',
+            'test/application/study_plan/study_plan_command_service_test.dart',
+            'test/mcp/mcp_contract_test.dart',
+            'test/mcp/mcp_architecture_boundary_test.dart',
+            'test/mcp/study_mcp_server_test.dart',
+            'test/mcp/study_mcp_production_composition_test.dart'
           )
 
           $shardCount = 4

@@ -1,13 +1,14 @@
 # Agent Runtime v1 / External Agent / MCP vNext Contract Index
 
-Status: **FROZEN target architecture; AR-R1 Provider seam implementation candidate
-pending CI and independent review. Other target components remain unimplemented.**
+Status: **FROZEN target architecture; AR-R1 COMPLETE / CLOSED; AR-R2
+IMPLEMENTATION CANDIDATE / active implementation stage.**
 
-These contracts freeze the agreed Agent refactor direction. The bounded AR-R1
-Provider outcome/failure seam is implemented in the candidate described in
-`agent-runtime-v1.md`; it is not final CLOSED acceptance. Runtime decomposition,
-capabilities, modules, proposals, authorization host and MCP profile remain targets.
-Current product behavior remains governed by the existing contracts.
+AR-R1's Provider outcome/failure seam is delivered and accepted. AR-R2 implements
+the typed Application capability/executor/projection path described in
+`application-capabilities.md`, pending final-head PR contract CI and independent
+review. Runtime decomposition, modules, durable generated proposals, external
+Host/IPC and MCP vNext remain unimplemented targets. Current product behavior
+continues to follow the existing capability contracts.
 
 ## 1. Authority and ownership
 

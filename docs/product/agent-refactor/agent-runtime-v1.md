@@ -1,7 +1,7 @@
 # Agent Runtime v1
 
-Status: **FROZEN target contract; AR-R1 Provider seam implemented in candidate,
-pending final-head CI and independent review. Remaining runtime split is target-only.**
+Status: **FROZEN target contract; AR-R1 COMPLETE / CLOSED; AR-R2 Dispatcher
+compatibility bridge implemented in candidate. AR-R3 runtime split is target-only.**
 
 Authority/activation: [index](README.md). Current A0 and AGENT-FB behavior remains
 active. Provider protocol details, business capabilities and Proposal lifecycle
@@ -57,7 +57,11 @@ to conceal incomplete output. Provider/model compatibility remains explicit.
 and the explicit legacy exception bridge. `provider_round.dart` owns the concrete
 round result and stream settlement. The existing Runtime invokes that seam;
 turn policy, persistence, dispatch and context remain in their existing owners.
-No AR-R2 capability executor or AR-R3 coordinator/transcript is implemented.
+AR-R2 now retains all four JSON Dispatcher facades while delegating through
+Agent projections to the typed Application CapabilityExecutor and handlers.
+The runtime still consumes those facades; `_executeTurn()`, Provider rounds,
+context/history, persistence/recovery, budgets and fallback policy are unchanged.
+No AR-R3 coordinator, round engine or transcript is implemented.
 
 DeepSeek interprets SSE and request/body transport phases. An explicit successful
 terminal and validated stream closure are required before complete calls become

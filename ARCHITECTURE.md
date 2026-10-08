@@ -302,10 +302,20 @@ A0, AGENT-FB, W0, SPL-1, RAG-1, MCP v0 or OBS-1 runtime behavior. Implementation
 stages must preserve the current boundaries until their scoped transition is
 accepted. In particular, Provider failure normalization does not relax fallback.
 
-AR-R1 now implements only the bounded Provider round seam in the candidate;
-`agent-runtime-v1.md` owns outcomes/failure compatibility and OBS-1 owns terminal
-evidence. Runtime decomposition, capabilities and transcript remain later targets.
-Final-head CI and independent review are still required for stage acceptance.
+AR-R1's bounded Provider round seam is delivered and accepted (COMPLETE / CLOSED).
+`agent-runtime-v1.md` owns its failure compatibility; OBS-1 owns terminal evidence.
+AR-R2's implementation candidate adds the typed Application Capability Kernel:
+Agent and MCP projections invoke one CapabilityExecutor, whose immutable registry
+binds typed identities to handlers over existing Application services. Permission,
+actual effect, execution status and output egress are separate semantics. Direct
+calls still require Application authorization; projection exposure grants none.
+Legacy Dispatchers parse/encode through projections and delegate to this typed
+path. The kernel has no Provider/MCP/JSON Schema/UI dependency. W0/SPL references
+are transient service-lifecycle references; retrieval uses transaction cache
+evidence and retains its Provider-bound grant and final serialization gate.
+Schema/B0 and formal W0 commit/SPL adoption authority stay unchanged. AR-R2 remains
+IMPLEMENTATION CANDIDATE pending CI/review; AR-R3 Runtime/transcript, AR-R4 modules,
+external Host/IPC and READ fallback continuation are not implemented.
 
 ## 7. Evolution discipline
 

@@ -32,7 +32,8 @@ final class RetrievalService {
       {required RetrievalScopeRequest scope,
       required String query,
       int limit = 8,
-      RetrievalStrategy strategy = RetrievalStrategy.lexicalV1}) async {
+      RetrievalStrategy strategy = RetrievalStrategy.lexicalV1,
+      RetrievalExecutionEvidence? executionEvidence}) async {
     if (query.trim().isEmpty ||
         query.runes.length > maxQueryScalars ||
         limit < 1 ||
@@ -63,11 +64,24 @@ final class RetrievalService {
             artifactId: loaded.identity.artifactId,
             revision: loaded.identity.revision,
             document: loaded.sourceDocument);
-        await _index.ensureBuild(
-            snapshot: loaded.identity,
-            chunkerVersion: _chunker.version,
-            lexicalProjectionVersion: lexicalProjectionVersion,
-            chunks: projection.chunks);
+        executionEvidence?.buildEntered();
+        final index = _index;
+        if (index is RetrievalIndexEvidencePort) {
+          final effect = await (index as RetrievalIndexEvidencePort)
+              .ensureBuildWithEvidence(
+                  snapshot: loaded.identity,
+                  chunkerVersion: _chunker.version,
+                  lexicalProjectionVersion: lexicalProjectionVersion,
+                  chunks: projection.chunks);
+          executionEvidence?.buildCompleted(effect);
+        } else {
+          await index.ensureBuild(
+              snapshot: loaded.identity,
+              chunkerVersion: _chunker.version,
+              lexicalProjectionVersion: lexicalProjectionVersion,
+              chunks: projection.chunks);
+          // No transaction evidence: retain unknown effect, including success.
+        }
         final current = await _artifactSource.readCurrentIdentity(fileId);
         if (current == null || !current.sameGeneration(loaded.identity)) {
           issues.add(RetrievalFileIssue(

@@ -5,6 +5,11 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/backup/backup_restore_gate.dart';
 import 'package:path/path.dart' as p;
+import 'package:shiroha_quiz/application/capabilities/capability.dart';
+import 'package:shiroha_quiz/application/study_query/study_capabilities.dart';
+import 'package:shiroha_quiz/application/study_query/study_query_dtos.dart';
+import 'package:shiroha_quiz/application/study_query/study_query_service.dart';
+import '../capabilities/capability_test_support.dart';
 import 'package:shiroha_quiz/application/agent/agent_config.dart';
 import 'package:shiroha_quiz/core/observability/app_logger.dart';
 import 'package:shiroha_quiz/core/observability/log_record.dart';
@@ -63,6 +68,93 @@ typedef _Script = Stream<AgentProviderEvent> Function(
 void main() {
   setUp(BackupRestoreMutationGate.resetForTesting);
   tearDown(BackupRestoreMutationGate.resetForTesting);
+
+  group('AR-R2 real Runtime / typed study integration', () {
+    for (final failProvider in [false, true]) {
+      test(
+          'typed READ preserves budget closure, terminal and fallback: failure=$failProvider',
+          () async {
+        final questions = CapabilityQuestionPort();
+        final metrics = CapabilityMetricsPort();
+        final service = StudyQueryService(
+            questionQuery: questions,
+            metricsQuery: metrics,
+            clock: const CapabilityClock());
+        final definitions = StudyCapabilities.definitions(service);
+        final typed = definitions[1]
+            as CapabilityDefinition<GetStudyOverviewInput, StudyOverview>;
+        var handlerEntries = 0;
+        final executor = CapabilityExecutor(ApplicationCapabilityRegistry([
+          definitions[0],
+          CapabilityDefinition<GetStudyOverviewInput, StudyOverview>(
+              id: typed.id,
+              permission: typed.permission,
+              permittedEffects: typed.permittedEffects,
+              semantics: typed.semantics,
+              authorize: typed.authorize,
+              handler: CapabilityHandler<GetStudyOverviewInput, StudyOverview>(
+                  (input, context, evidence) async {
+                handlerEntries++;
+                final result =
+                    await typed.handler.invoke(input, context, evidence);
+                expect(result.effect, CapabilityEffect.none);
+                expect(result.output, isA<StudyOverview>());
+                return result;
+              })),
+          ...definitions.skip(2),
+        ]));
+        final harness = _Harness(
+            studyOverride:
+                AgentStudyToolDispatcher(service: service, executor: executor),
+            limits: const AgentRuntimeLimits(maxLocalCalls: 1),
+            fallbackProfileId: 'profile-fallback',
+            fallbackScripts: [
+              _finalAnswer('must not run')
+            ],
+            scripts: [
+              _toolRound([
+                _call('typed-read',
+                    name: 'get_study_overview', arguments: '{"timezone":"UTC"}')
+              ], const _TestContinuationState('typed')),
+              (request, token) async* {
+                expect(request.tools, isEmpty);
+                expect(request.enableNativeWebSearch, isFalse);
+                expect(jsonDecode(request.toolOutputs.single.output), {
+                  'ok': true,
+                  'result': {
+                    'question_count': 1,
+                    'mastered_count': 0,
+                    'due_count': 1,
+                    'today_practice_count': 0,
+                    'wrong_question_count': 1
+                  }
+                });
+                if (failProvider) {
+                  throw const AgentProviderException(
+                      AgentProviderFailure.temporarilyUnavailable);
+                }
+                yield AgentProviderTextDelta('typed answer');
+                yield AgentProviderCompleted('typed-final');
+              },
+            ]);
+        final (cid, mid) = await harness.seedUser('question');
+        final result = await harness.runtime
+            .startTurn(conversationId: cid, userMessageId: mid)
+            .result;
+        expect(handlerEntries, 1);
+        expect(metrics.calls, ['overview']);
+        expect(harness.dispatcher.calls, isEmpty);
+        expect(harness.provider.callCount, 2);
+        expect(harness.fallbackProvider.callCount, 0);
+        expect(result,
+            failProvider ? isA<AgentTurnFailed>() : isA<AgentTurnSuccess>());
+        expect(
+            (await harness.messagesOf(cid))
+                .where((m) => m.role == ConversationMessageRole.assistant),
+            failProvider ? isEmpty : hasLength(1));
+      });
+    }
+  });
 
   group('AR-R1 fallback parity and terminal evidence', () {
     tearDown(() => AppLogger.setSink(null));
@@ -3970,6 +4062,7 @@ final class _Harness {
     bool wireStudyPlan = false,
     bool wireRetrieval = false,
     RetrievalService? retrievalOverride,
+    AgentStudyToolDispatcher? studyOverride,
     double temperature = 1.0,
     AgentReasoningEffort reasoningEffort = AgentReasoningEffort.high,
   })  : repository = _FakeConversationRepository(),
@@ -4065,7 +4158,7 @@ final class _Harness {
         }
         return provider;
       },
-      toolDispatcher: dispatcher,
+      toolDispatcher: studyOverride ?? dispatcher,
       proposalDispatcher: proposalDispatcher,
       studyPlanDispatcher: studyPlanDispatcher,
       retrievalDispatcher: retrievalDispatcher,

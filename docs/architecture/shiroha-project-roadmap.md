@@ -141,11 +141,15 @@ runtime contracts stay active until each scoped implementation is accepted.
 The documentation-only checkpoint activates no Runtime, Module, external
 authorization, generated Proposal, schema or MCP vNext implementation.
 
-AR-R0's contract checkpoint is delivered. AR-R1 now has a bounded implementation
-candidate: Provider round outcome normalization, detailed safe failure bridge,
-DeepSeek classification and exactly-one OBS terminal evidence with synthetic
-regressions. It remains **IMPLEMENTATION CANDIDATE / pending final-head PR contract
-CI and independent review**, not CLOSED. AR-R2/AR-R3 are not activated by it.
+AR-R0's contract checkpoint is delivered. AR-R1's bounded Provider round
+normalization, detailed failure bridge, DeepSeek classification and exactly-one
+OBS terminal evidence are delivered and accepted: **COMPLETE / CLOSED**.
+
+AR-R2 is the current active implementation stage: typed Application capabilities,
+immutable registry, centralized executor/authorization, execution receipts and
+Agent/MCP projections, with retained JSON Dispatcher compatibility facades. It is
+**IMPLEMENTATION CANDIDATE / pending final-head PR contract CI and independent
+review**, not CLOSED. AR-R3 and subsequent implementation stages remain inactive.
 
 Use namespaced AR-R identifiers to distinguish this route from historical
 R1-R8 typed-core stages:

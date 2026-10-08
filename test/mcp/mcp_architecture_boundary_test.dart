@@ -75,6 +75,8 @@ void main() {
       final source = File(adapterPath).readAsStringSync();
       for (final uri in _imports(source)) {
         final allowed = uri.startsWith('dart:') ||
+            uri ==
+                'package:shiroha_quiz/application/capabilities/capability.dart' ||
             uri.startsWith(
               'package:shiroha_quiz/application/study_query/',
             );

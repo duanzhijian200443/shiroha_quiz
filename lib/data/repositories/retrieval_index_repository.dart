@@ -15,7 +15,8 @@ import '../../core/database/sqflite_runtime.dart';
 import '../../domain/retrieval/retrieval_chunk.dart';
 import '../../domain/source/source_ref.dart';
 
-final class SqliteRetrievalIndexRepository implements RetrievalIndexPort {
+final class SqliteRetrievalIndexRepository
+    implements RetrievalIndexPort, RetrievalIndexEvidencePort {
   SqliteRetrievalIndexRepository({DatabaseHelper? databaseHelper})
       : _databaseHelper = databaseHelper ?? DatabaseHelper.instance;
   final DatabaseHelper _databaseHelper;
@@ -23,6 +24,19 @@ final class SqliteRetrievalIndexRepository implements RetrievalIndexPort {
 
   @override
   Future<void> ensureBuild(
+          {required RetrievalArtifactSnapshot snapshot,
+          required String chunkerVersion,
+          required String lexicalProjectionVersion,
+          required List<RetrievalChunk> chunks}) =>
+      ensureBuildWithEvidence(
+              snapshot: snapshot,
+              chunkerVersion: chunkerVersion,
+              lexicalProjectionVersion: lexicalProjectionVersion,
+              chunks: chunks)
+          .then<void>((_) {});
+
+  @override
+  Future<RetrievalBuildEffect> ensureBuildWithEvidence(
       {required RetrievalArtifactSnapshot snapshot,
       required String chunkerVersion,
       required String lexicalProjectionVersion,
@@ -41,7 +55,7 @@ final class SqliteRetrievalIndexRepository implements RetrievalIndexPort {
     return result;
   }
 
-  Future<void> _ensure(
+  Future<RetrievalBuildEffect> _ensure(
       RetrievalArtifactSnapshot snapshot,
       String chunkerVersion,
       String lexicalProjectionVersion,
@@ -68,7 +82,7 @@ final class SqliteRetrievalIndexRepository implements RetrievalIndexPort {
           chunkDigest
         ].join('\n')))
         .toString();
-    await db.transaction((txn) async {
+    final changed = await db.transaction<bool>((txn) async {
       final hit = await txn.rawQuery('''
         SELECT b.build_id, b.chunk_count, b.chunk_digest FROM retrieval_index_heads h
         JOIN retrieval_index_builds b ON b.build_id = h.build_id
@@ -122,7 +136,7 @@ final class SqliteRetrievalIndexRepository implements RetrievalIndexPort {
             rowsMatch &&
             storedDigest == chunkDigest &&
             ftsRows.single['count'] == chunks.length) {
-          return;
+          return false;
         }
         await txn.delete('retrieval_index_builds',
             where: 'build_id = ?',
@@ -188,7 +202,11 @@ final class SqliteRetrievalIndexRepository implements RetrievalIndexPort {
       await txn.delete('retrieval_index_builds',
           where: 'file_id = ? AND build_id <> ?',
           whereArgs: <Object?>[snapshot.fileId, buildId]);
+      return true;
     });
+    return changed
+        ? RetrievalBuildEffect.derivedCache
+        : RetrievalBuildEffect.unchanged;
   }
 
   @override

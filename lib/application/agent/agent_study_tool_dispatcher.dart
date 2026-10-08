@@ -6,6 +6,8 @@ import 'dart:convert';
 import '../study_query/study_query_dtos.dart';
 import '../study_query/study_query_error.dart';
 import '../study_query/study_query_service.dart';
+import '../study_query/study_capabilities.dart';
+import '../capabilities/capability.dart';
 import 'agent_runtime_limits.dart';
 import 'agent_study_tool_catalog.dart';
 
@@ -13,14 +15,19 @@ final RegExp _rfc3339OffsetInstant = RegExp(
   r'^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$',
 );
 
-class AgentStudyToolDispatcher {
-  AgentStudyToolDispatcher({
+class AgentStudyToolProjection {
+  AgentStudyToolProjection({
     required StudyQueryService service,
+    CapabilityExecutor? executor,
     AgentRuntimeLimits limits = const AgentRuntimeLimits(),
-  })  : _service = service,
+  })  : _executor = executor ??
+            CapabilityExecutor(ApplicationCapabilityRegistry(
+                StudyCapabilities.definitions(service))),
         _limits = limits;
 
-  final StudyQueryService _service;
+  final CapabilityExecutor _executor;
+  final CapabilityContext _context =
+      studyCapabilityContext(CapabilityPrincipal.builtInAgent);
   final AgentRuntimeLimits _limits;
 
   Future<String> dispatch(String toolName, String argumentsJson) async {
@@ -71,13 +78,23 @@ class AgentStudyToolDispatcher {
     };
   }
 
+  Future<O> _execute<I, O>(CapabilityId<I, O> id, I input) async {
+    final result = await _executor.execute(id, input, _context);
+    if (result.failure case final failure?) {
+      throw StudyQueryException(studyQueryFailure(failure));
+    }
+    return result.output as O;
+  }
+
   Future<Map<String, Object?>> _listQuestionBanks(
     Map<String, dynamic> arguments,
   ) async {
-    final page = await _service.listQuestionBanks(
-      cursor: _optionalCursor(arguments),
-      limit: _limit(arguments, fallback: 50),
-    );
+    final page = await _execute(
+        StudyCapabilities.listQuestionBanks,
+        ListQuestionBanksInput(
+          cursor: _optionalCursor(arguments),
+          limit: _limit(arguments, fallback: 50),
+        ));
     return <String, Object?>{
       'items': <Map<String, Object?>>[
         for (final bank in page.items)
@@ -96,10 +113,12 @@ class AgentStudyToolDispatcher {
   Future<Map<String, Object?>> _getStudyOverview(
     Map<String, dynamic> arguments,
   ) async {
-    final overview = await _service.getStudyOverview(
-      bankName: _optionalString(arguments, 'bank_name'),
-      timezone: _requiredString(arguments, 'timezone'),
-    );
+    final overview = await _execute(
+        StudyCapabilities.getStudyOverview,
+        GetStudyOverviewInput(
+          bankName: _optionalString(arguments, 'bank_name'),
+          timezone: _requiredString(arguments, 'timezone'),
+        ));
     return <String, Object?>{
       'question_count': overview.questionCount,
       'mastered_count': overview.masteredCount,
@@ -112,12 +131,14 @@ class AgentStudyToolDispatcher {
   Future<Map<String, Object?>> _getDueReviewSummary(
     Map<String, dynamic> arguments,
   ) async {
-    final summary = await _service.getDueReviewSummary(
-      bankName: _optionalString(arguments, 'bank_name'),
-      timezone: _optionalString(arguments, 'timezone'),
-      from: _requiredInstant(arguments, 'from'),
-      to: _requiredInstant(arguments, 'to'),
-    );
+    final summary = await _execute(
+        StudyCapabilities.getDueReviewSummary,
+        GetDueReviewSummaryInput(
+          bankName: _optionalString(arguments, 'bank_name'),
+          timezone: _optionalString(arguments, 'timezone'),
+          from: _requiredInstant(arguments, 'from'),
+          to: _requiredInstant(arguments, 'to'),
+        ));
     return <String, Object?>{
       'due_now': summary.dueNow,
       'scheduled_count': summary.scheduledCount,
@@ -134,12 +155,14 @@ class AgentStudyToolDispatcher {
   Future<Map<String, Object?>> _searchQuestions(
     Map<String, dynamic> arguments,
   ) async {
-    final page = await _service.searchQuestions(
-      bankName: _requiredString(arguments, 'bank_name'),
-      query: _requiredString(arguments, 'query'),
-      cursor: _optionalCursor(arguments),
-      limit: _limit(arguments, fallback: 50),
-    );
+    final page = await _execute(
+        StudyCapabilities.searchQuestions,
+        SearchQuestionsInput(
+          bankName: _requiredString(arguments, 'bank_name'),
+          query: _requiredString(arguments, 'query'),
+          cursor: _optionalCursor(arguments),
+          limit: _limit(arguments, fallback: 50),
+        ));
     return <String, Object?>{
       'items': <Map<String, Object?>>[
         for (final item in page.items) _searchItem(item),
@@ -151,9 +174,10 @@ class AgentStudyToolDispatcher {
   Future<Map<String, Object?>> _getQuestionDetail(
     Map<String, dynamic> arguments,
   ) async {
-    final detail = await _service.getQuestionDetail(
-      _requiredString(arguments, 'question_id'),
-    );
+    final detail = await _execute(
+        StudyCapabilities.getQuestionDetail,
+        GetQuestionDetailInput(
+            questionId: _requiredString(arguments, 'question_id')));
     return <String, Object?>{
       'question_id': detail.questionId,
       'bank_name': detail.bankName,
@@ -188,11 +212,13 @@ class AgentStudyToolDispatcher {
   Future<Map<String, Object?>> _getWeakQuestions(
     Map<String, dynamic> arguments,
   ) async {
-    final page = await _service.getWeakQuestions(
-      bankName: _optionalString(arguments, 'bank_name'),
-      cursor: _optionalCursor(arguments),
-      limit: _limit(arguments, fallback: 50),
-    );
+    final page = await _execute(
+        StudyCapabilities.getWeakQuestions,
+        GetWeakQuestionsInput(
+          bankName: _optionalString(arguments, 'bank_name'),
+          cursor: _optionalCursor(arguments),
+          limit: _limit(arguments, fallback: 50),
+        ));
     return <String, Object?>{
       'items': <Map<String, Object?>>[
         for (final item in page.items)
@@ -385,4 +411,17 @@ class AgentStudyToolDispatcher {
     final second = utc.second.toString().padLeft(2, '0');
     return '${utc.year}-$month-${day}T$hour:$minute:${second}Z';
   }
+}
+
+/// Retained JSON facade. All business queries enter the typed executor.
+class AgentStudyToolDispatcher {
+  AgentStudyToolDispatcher(
+      {required StudyQueryService service,
+      CapabilityExecutor? executor,
+      AgentRuntimeLimits limits = const AgentRuntimeLimits()})
+      : _projection = AgentStudyToolProjection(
+            service: service, executor: executor, limits: limits);
+  final AgentStudyToolProjection _projection;
+  Future<String> dispatch(String toolName, String argumentsJson) =>
+      _projection.dispatch(toolName, argumentsJson);
 }

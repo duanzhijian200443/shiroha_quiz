@@ -4,6 +4,9 @@ import 'dart:convert';
 
 import '../retrieval/retrieval.dart';
 import '../retrieval/retrieval_service.dart';
+import '../retrieval/retrieval_capability.dart';
+import '../capabilities/capability.dart';
+import 'agent_tool_projection.dart';
 import '../../domain/conversations/conversation.dart';
 import '../../domain/source/source_ref.dart';
 import 'agent_provider.dart';
@@ -45,10 +48,15 @@ final class AgentRetrievalToolCatalog {
   );
 }
 
-final class AgentRetrievalToolDispatcher {
-  AgentRetrievalToolDispatcher({required RetrievalService retrieval})
-      : _retrieval = retrieval;
+final class AgentRetrievalToolProjection {
+  AgentRetrievalToolProjection(
+      {required RetrievalService retrieval, CapabilityExecutor? executor})
+      : _retrieval = retrieval,
+        _executor = executor ??
+            CapabilityExecutor(ApplicationCapabilityRegistry(
+                [retrievalCapability(retrieval)]));
   final RetrievalService _retrieval;
+  final CapabilityExecutor _executor;
   static const int _maxArgumentsBytes = 16 * 1024;
   static const int _maxResultBytes = 64 * 1024;
 
@@ -68,27 +76,22 @@ final class AgentRetrievalToolDispatcher {
         conversationFileIds.where(projectFileIds.contains));
   }
 
-  Future<String> dispatch(
+  Future<AgentToolDispatchResult> dispatchWithReceipt(
       {required String argumentsJson,
-      required RetrievalEgressGrant? grant,
-      required String turnRequestId,
-      required String conversationId,
-      required String sourceUserMessageId,
-      required String providerProfileId,
-      required List<String> currentFileIds,
-      required Future<bool> Function() serializationAllowed}) async {
-    if (grant == null ||
-        !grant.permits(
-            turnRequestId: turnRequestId,
-            conversationId: conversationId,
-            sourceUserMessageId: sourceUserMessageId,
-            providerProfileId: providerProfileId,
-            currentFileIds: currentFileIds)) {
-      return _failure('access_denied');
+      required CapabilityContext context}) async {
+    AgentToolDispatchResult reject(CapabilityFailure code, String wireCode) =>
+        AgentToolDispatchResult(
+            json: _failure(wireCode),
+            receipt:
+                _executor.reject(retrieveFileContent, context, code).receipt);
+    // Preserve legacy precedence: grant denial precedes JSON shape errors.
+    if (!retrievalContextPermits(context)) {
+      return reject(CapabilityFailure.accessDenied, 'access_denied');
     }
+    final RetrieveFileContentInput input;
     try {
       if (utf8.encode(argumentsJson).length > _maxArgumentsBytes) {
-        return _failure('invalid_request');
+        return reject(CapabilityFailure.invalidRequest, 'invalid_request');
       }
       final decoded = jsonDecode(argumentsJson);
       if (decoded is! Map<String, dynamic> ||
@@ -97,28 +100,46 @@ final class AgentRetrievalToolDispatcher {
           decoded['query'] is! String ||
           decoded['file_ids'] is! List ||
           decoded['limit'] != null && decoded['limit'] is! int) {
-        return _failure('invalid_request');
+        return reject(CapabilityFailure.invalidRequest, 'invalid_request');
       }
       final requested = (decoded['file_ids'] as List)
           .whereType<String>()
           .toList(growable: false);
-      if (requested.isEmpty ||
-          requested.length > RetrievalService.maxFiles ||
-          requested.length != (decoded['file_ids'] as List).length ||
-          requested.any((id) => !grant.approvedFileIds.contains(id)) ||
-          requested.any((id) => !currentFileIds.contains(id))) {
-        return _failure('access_denied');
+      if (requested.length != (decoded['file_ids'] as List).length) {
+        return reject(CapabilityFailure.accessDenied, 'access_denied');
       }
-      final result = await _retrieval.retrieve(
-          scope: RetrievalFilesScope(requested),
+      input = RetrieveFileContentInput(
           query: decoded['query'] as String,
+          fileIds: requested,
           limit: decoded['limit'] as int? ?? 8);
-      if (!await serializationAllowed()) return _failure('access_denied');
-      return _boundedSuccess(result);
-    } on RetrievalException catch (error) {
-      return _failure(error.failure.name);
     } catch (_) {
-      return _failure('internal_error');
+      return reject(CapabilityFailure.internalError, 'internal_error');
+    }
+    final result = await _executor.execute(retrieveFileContent, input, context);
+    if (result.failure case final failure?) {
+      return AgentToolDispatchResult(
+          json: _failure(switch (failure) {
+            CapabilityFailure.accessDenied => 'access_denied',
+            CapabilityFailure.retrievalAccessDenied => 'accessDenied',
+            CapabilityFailure.invalidRequest => 'invalidRequest',
+            CapabilityFailure.retrievalScopeEmpty => 'scopeEmpty',
+            CapabilityFailure.retrievalScopeUnavailable => 'scopeUnavailable',
+            CapabilityFailure.retrievalSourceChanged => 'sourceChanged',
+            CapabilityFailure.retrievalTemporarilyUnavailable =>
+              'temporarilyUnavailable',
+            CapabilityFailure.retrievalInternalError => 'internalError',
+            _ => 'internal_error',
+          }),
+          receipt: result.receipt);
+    }
+    try {
+      return AgentToolDispatchResult(
+          json: _boundedSuccess(result.output!), receipt: result.receipt);
+    } catch (_) {
+      return AgentToolDispatchResult(
+          json: _failure('internal_error'),
+          receipt:
+              result.receipt.withFailure(CapabilityFailure.encodingFailed));
     }
   }
 
@@ -187,4 +208,60 @@ final class AgentRetrievalToolDispatcher {
       'end': ref.end == null ? null : point(ref.end!),
     };
   }
+}
+
+final class AgentRetrievalToolDispatcher {
+  AgentRetrievalToolDispatcher(
+      {required RetrievalService retrieval, CapabilityExecutor? executor})
+      : _projection = AgentRetrievalToolProjection(
+            retrieval: retrieval, executor: executor);
+  final AgentRetrievalToolProjection _projection;
+  Future<List<String>> effectiveFileIds(
+          {required ConversationScope scope,
+          required List<String> conversationFileIds}) =>
+      _projection.effectiveFileIds(
+          scope: scope, conversationFileIds: conversationFileIds);
+  Future<AgentToolDispatchResult> dispatchWithReceipt(
+          {required String argumentsJson,
+          required RetrievalEgressGrant? grant,
+          required String turnRequestId,
+          required String conversationId,
+          required String sourceUserMessageId,
+          required String providerProfileId,
+          required List<String> currentFileIds,
+          required Future<bool> Function() serializationAllowed}) =>
+      _projection.dispatchWithReceipt(
+          argumentsJson: argumentsJson,
+          context: CapabilityContext(
+              principal: CapabilityPrincipal.builtInAgent,
+              capabilities: const [retrieveFileContent],
+              permissions: const [CapabilityPermission.read],
+              scope: ConversationScope.global(),
+              authorizedScope: ConversationScope.global(),
+              retrievalGrant: grant,
+              turnRequestId: turnRequestId,
+              sourceConversationId: conversationId,
+              sourceMessageId: sourceUserMessageId,
+              providerProfileId: providerProfileId,
+              currentFileIds: currentFileIds,
+              serializationAllowed: serializationAllowed));
+  Future<String> dispatch(
+          {required String argumentsJson,
+          required RetrievalEgressGrant? grant,
+          required String turnRequestId,
+          required String conversationId,
+          required String sourceUserMessageId,
+          required String providerProfileId,
+          required List<String> currentFileIds,
+          required Future<bool> Function() serializationAllowed}) async =>
+      (await dispatchWithReceipt(
+              argumentsJson: argumentsJson,
+              grant: grant,
+              turnRequestId: turnRequestId,
+              conversationId: conversationId,
+              sourceUserMessageId: sourceUserMessageId,
+              providerProfileId: providerProfileId,
+              currentFileIds: currentFileIds,
+              serializationAllowed: serializationAllowed))
+          .json;
 }

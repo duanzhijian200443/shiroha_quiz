@@ -12,12 +12,14 @@ library;
 import 'dart:convert';
 
 import '../../domain/content/content_node.dart';
-import '../../domain/content/rich_content.dart';
 import '../../domain/conversations/conversation.dart';
 import '../../domain/question/question_draft_v2.dart';
 import '../safe_write/agent_write_persistence.dart';
 import '../safe_write/agent_write_proposal.dart';
 import '../safe_write/agent_write_proposal_service.dart';
+import '../safe_write/missing_answer_capability.dart';
+import '../capabilities/capability.dart';
+import 'agent_tool_projection.dart';
 import 'agent_runtime_limits.dart';
 
 /// One proposal tool call with the runtime-injected source context. The
@@ -37,17 +39,20 @@ final class AgentWriteProposalToolCall {
   final ConversationScope scope;
 }
 
-final class AgentWriteProposalToolDispatcher {
-  AgentWriteProposalToolDispatcher({
+final class AgentWriteProposalToolProjection {
+  AgentWriteProposalToolProjection({
     required AgentWritePersistencePort persistence,
     required AgentWriteProposalService proposalService,
+    CapabilityExecutor? executor,
     AgentRuntimeLimits limits = const AgentRuntimeLimits(),
-  })  : _persistence = persistence,
-        _proposalService = proposalService,
+  })  : _executor = executor ??
+            CapabilityExecutor(ApplicationCapabilityRegistry([
+              missingAnswerCapability(
+                  persistence: persistence, proposalService: proposalService)
+            ])),
         _limits = limits;
 
-  final AgentWritePersistencePort _persistence;
-  final AgentWriteProposalService _proposalService;
+  final CapabilityExecutor _executor;
   final AgentRuntimeLimits _limits;
 
   static const int _maxTargetRunes = 128;
@@ -56,105 +61,74 @@ final class AgentWriteProposalToolDispatcher {
   static const int _maxTextRunes = 2048;
   static const int _maxLatexRunes = 1024;
 
-  Future<String> dispatch(
-    AgentWriteProposalToolCall call, {
-    bool Function()? proposalMutationAllowed,
-  }) async {
-    if (utf8.encode(call.argumentsJson).length >
-        _limits.maxToolArgumentUtf8Bytes) {
-      return _failure(_ToolFailure.invalidRequest);
+  Future<AgentToolDispatchResult> dispatchWithReceipt(
+      AgentWriteProposalToolCall call,
+      {bool Function()? proposalMutationAllowed}) async {
+    final context = CapabilityContext(
+        principal: CapabilityPrincipal.builtInAgent,
+        capabilities: const [proposeMissingAnswer],
+        permissions: const [CapabilityPermission.stage],
+        scope: call.scope,
+        authorizedScope: call.scope,
+        sourceConversationId: call.sourceConversationId,
+        sourceMessageId: call.sourceMessageId,
+        budgetAllowed: proposalMutationAllowed,
+        proposalResultFits: (candidate) =>
+            _resultFits(candidate as AgentWriteProposal));
+    AgentToolDispatchResult rejected(_ToolFailure failure) {
+      final result = _executor.reject(
+          proposeMissingAnswer, context, CapabilityFailure.invalidRequest);
+      return AgentToolDispatchResult(
+          json: _failure(failure), receipt: result.receipt);
     }
-    final Map<String, dynamic> arguments;
+
+    final MissingAnswerInput input;
     try {
+      if (utf8.encode(call.argumentsJson).length >
+          _limits.maxToolArgumentUtf8Bytes) {
+        return rejected(_ToolFailure.invalidRequest);
+      }
       final decoded = jsonDecode(call.argumentsJson);
       if (decoded is! Map<String, dynamic>) {
-        return _failure(_ToolFailure.invalidRequest);
+        return rejected(_ToolFailure.invalidRequest);
       }
-      arguments = decoded;
+      input = _parseArguments(decoded);
+    } on _ToolFailureException catch (error) {
+      return rejected(error.failure);
     } on FormatException {
-      return _failure(_ToolFailure.invalidRequest);
+      return rejected(_ToolFailure.invalidRequest);
+    } on ArgumentError {
+      return rejected(_ToolFailure.invalidRequest);
+    }
+    final result =
+        await _executor.execute(proposeMissingAnswer, input, context);
+    if (result.failure case final failure?) {
+      final toolFailure = switch (failure) {
+        CapabilityFailure.notFound ||
+        CapabilityFailure.accessDenied =>
+          _ToolFailure.unavailable,
+        CapabilityFailure.ineligible => _ToolFailure.ineligible,
+        CapabilityFailure.invalidRequest => _ToolFailure.invalidRequest,
+        _ => _ToolFailure.internal,
+      };
+      return AgentToolDispatchResult(
+          json: _failure(toolFailure), receipt: result.receipt);
     }
     try {
-      final parsed = _parseArguments(arguments);
-      final result = await _handle(
-        parsed,
-        call,
-        proposalMutationAllowed: proposalMutationAllowed,
-      );
       final encoded = jsonEncode(<String, Object?>{
         'ok': true,
-        'result': result,
+        'result': _successResult(result.output!)
       });
       if (utf8.encode(encoded).length > _limits.maxToolResultUtf8Bytes) {
-        return _failure(_ToolFailure.internal);
+        throw const FormatException();
       }
-      return encoded;
-    } on AgentWriteStageResultTooLargeException {
-      // The pre-activation result-size gate rejected the exact candidate
-      // before any lifecycle mutation; the transport can never deliver it.
-      return _failure(_ToolFailure.internal);
-    } on AgentWriteStageCancelledException {
-      // A runtime timeout/cancellation guard refused the final synchronous
-      // activation gate. The enclosing turn owns the visible failure; this
-      // bounded response is relevant only if dispatch is still observed.
-      return _failure(_ToolFailure.internal);
-    } on _ToolFailureException catch (error) {
-      return _failure(error.failure);
-    } on ArgumentError {
-      return _failure(_ToolFailure.invalidRequest);
+      return AgentToolDispatchResult(json: encoded, receipt: result.receipt);
     } catch (_) {
-      return _failure(_ToolFailure.internal);
-    }
-  }
-
-  Future<Map<String, Object?>> _handle(
-    _ParsedToolArguments parsed,
-    AgentWriteProposalToolCall call, {
-    bool Function()? proposalMutationAllowed,
-  }) async {
-    final request = AgentWriteAdmissionRequest(
-      sourceConversationId: call.sourceConversationId,
-      sourceMessageId: call.sourceMessageId,
-      scope: call.scope,
-      targetStorageId: parsed.targetStorageId,
-    );
-    final admission = await _persistence.admitStagingTarget(request);
-    if (admission is! AgentWriteAdmissionGranted) {
-      // Unauthorized, nonexistent and unreadable targets share one safe
-      // non-enumerating tool response without target identity or content.
-      throw const _ToolFailureException(_ToolFailure.unavailable);
-    }
-    final target = admission.target;
-    final QuestionAnswer answer;
-    final numbers = parsed.payload.optionNumbers;
-    if (numbers != null) {
-      if (numbers.any((number) => number > target.draft.options.length)) {
-        throw const _ToolFailureException(_ToolFailure.ineligible);
-      }
-      answer = ChoiceAnswer(
-        optionIds: <String>[
-          for (final number in numbers)
-            target.draft.options[number - 1].optionId,
-        ],
-      );
-    } else {
-      answer = ContentAnswer(
-        content: RichContent(nodes: parsed.payload.contentNodes!),
-      );
-    }
-    final staged = await _proposalService.stageProposal(
-      admissionRequest: request,
-      proposedAnswer: answer,
-      resultSizeGate: _resultFits,
-      lifecycleMutationAllowed: proposalMutationAllowed,
-    );
-    switch (staged) {
-      case AgentWriteStageResultStaged(:final proposal):
-        return _successResult(proposal);
-      case AgentWriteStageResultDenied() || AgentWriteStageResultUnavailable():
-        throw const _ToolFailureException(_ToolFailure.unavailable);
-      case AgentWriteStageResultIneligible():
-        throw const _ToolFailureException(_ToolFailure.ineligible);
+      // Release failed after STAGE: retain the service's completed/effect evidence.
+      return AgentToolDispatchResult(
+          json: _failure(_ToolFailure.internal),
+          receipt:
+              result.receipt.withFailure(CapabilityFailure.encodingFailed));
     }
   }
 
@@ -176,7 +150,7 @@ final class AgentWriteProposalToolDispatcher {
     return utf8.encode(encoded).length <= _limits.maxToolResultUtf8Bytes;
   }
 
-  _ParsedToolArguments _parseArguments(Map<String, dynamic> arguments) {
+  MissingAnswerInput _parseArguments(Map<String, dynamic> arguments) {
     if (arguments.keys.length != 2 ||
         !arguments.containsKey('target') ||
         !arguments.containsKey('answer')) {
@@ -197,9 +171,9 @@ final class AgentWriteProposalToolDispatcher {
       throw const _ToolFailureException(_ToolFailure.invalidRequest);
     }
     if (answerMap.containsKey('option_numbers')) {
-      return _ParsedToolArguments(
+      return MissingAnswerInput(
         targetStorageId: target,
-        payload: _ProposalToolPayload(
+        payload: MissingAnswerPayload(
           optionNumbers: _parseOptionNumbers(answerMap['option_numbers']),
         ),
       );
@@ -213,9 +187,9 @@ final class AgentWriteProposalToolDispatcher {
       if (contentMap.keys.length != 1 || !contentMap.containsKey('nodes')) {
         throw const _ToolFailureException(_ToolFailure.invalidRequest);
       }
-      return _ParsedToolArguments(
+      return MissingAnswerInput(
         targetStorageId: target,
-        payload: _ProposalToolPayload(
+        payload: MissingAnswerPayload(
           contentNodes: _parseContentNodes(contentMap['nodes']),
         ),
       );
@@ -416,19 +390,26 @@ final class _ToolFailureException implements Exception {
   final _ToolFailure failure;
 }
 
-final class _ParsedToolArguments {
-  const _ParsedToolArguments({
-    required this.targetStorageId,
-    required this.payload,
-  });
-
-  final String targetStorageId;
-  final _ProposalToolPayload payload;
-}
-
-final class _ProposalToolPayload {
-  const _ProposalToolPayload({this.optionNumbers, this.contentNodes});
-
-  final List<int>? optionNumbers;
-  final List<ContentNode>? contentNodes;
+final class AgentWriteProposalToolDispatcher {
+  AgentWriteProposalToolDispatcher(
+      {required AgentWritePersistencePort persistence,
+      required AgentWriteProposalService proposalService,
+      CapabilityExecutor? executor,
+      AgentRuntimeLimits limits = const AgentRuntimeLimits()})
+      : _projection = AgentWriteProposalToolProjection(
+            persistence: persistence,
+            proposalService: proposalService,
+            executor: executor,
+            limits: limits);
+  final AgentWriteProposalToolProjection _projection;
+  Future<AgentToolDispatchResult> dispatchWithReceipt(
+          AgentWriteProposalToolCall call,
+          {bool Function()? proposalMutationAllowed}) =>
+      _projection.dispatchWithReceipt(call,
+          proposalMutationAllowed: proposalMutationAllowed);
+  Future<String> dispatch(AgentWriteProposalToolCall call,
+          {bool Function()? proposalMutationAllowed}) async =>
+      (await dispatchWithReceipt(call,
+              proposalMutationAllowed: proposalMutationAllowed))
+          .json;
 }

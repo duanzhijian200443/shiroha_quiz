@@ -1,0 +1,308 @@
+[
+  {
+    "name": "list_question_banks",
+    "description": "List question banks with question, due, and mastered counts.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "cursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 50
+        }
+      }
+    }
+  },
+  {
+    "name": "get_study_overview",
+    "description": "Global or bank-scoped study overview counts for the timezone day.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "bank_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "timezone": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "timezone"
+      ]
+    }
+  },
+  {
+    "name": "get_due_review_summary",
+    "description": "Due-now and scheduled review counts with local-date buckets over a half-open window.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "bank_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "timezone": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "from": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"
+        },
+        "to": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ]
+    }
+  },
+  {
+    "name": "search_questions",
+    "description": "Search questions in one bank and return safe stem previews.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "bank_name": {
+          "type": "string"
+        },
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "cursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        }
+      },
+      "required": [
+        "bank_name",
+        "query"
+      ]
+    }
+  },
+  {
+    "name": "get_question_detail",
+    "description": "Safe rich-content detail and due state for one question.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "question_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "question_id"
+      ]
+    }
+  },
+  {
+    "name": "get_weak_questions",
+    "description": "Weak-question summary with lapse and difficulty metrics.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "bank_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        }
+      }
+    }
+  },
+  {
+    "name": "retrieve_file_content",
+    "description": "Search only file content explicitly approved for this turn. Use the exact file_ids listed in the system prompt. Use this tool, not study tools, when the answer depends on an attachment.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "file_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "maxItems": 64
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 8
+        }
+      },
+      "required": [
+        "query",
+        "file_ids"
+      ]
+    }
+  },
+  {
+    "name": "propose_missing_answer",
+    "description": "Propose filling the missing typed answer of one question. The source Conversation and User Message are injected by the runtime; submit only the target storage identity and the proposed answer (1-based option numbers or structural content nodes). Staging only: approval is a separate Presentation action and this tool never commits.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "target": {
+          "type": "string"
+        },
+        "answer": {
+          "type": "object",
+          "properties": {
+            "option_numbers": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "minItems": 1,
+              "maxItems": 32
+            },
+            "content": {
+              "type": "object",
+              "properties": {
+                "nodes": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string"
+                      },
+                      "text": {
+                        "type": "string"
+                      },
+                      "latex": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "minItems": 1,
+                  "maxItems": 64
+                }
+              },
+              "required": [
+                "nodes"
+              ]
+            }
+          }
+        }
+      },
+      "required": [
+        "target",
+        "answer"
+      ]
+    }
+  },
+  {
+    "name": "propose_study_plan",
+    "description": "Propose staging a StudyPlan draft for user review and explicit adoption. The source Conversation, User Message, and scope authority are injected by the runtime; submit only the target bank name and optional strategy parameters (goal, daily target, priority, horizon days). Staging only: formal adoption is a separate Presentation action and this tool never activates or persists a plan.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "bank_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "goal": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "daily_target": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "balanced",
+            "due_first",
+            "weak_first",
+            "new_first"
+          ]
+        },
+        "horizon_days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 90
+        }
+      },
+      "required": [
+        "bank_name"
+      ],
+      "additionalProperties": false
+    }
+  }
+]

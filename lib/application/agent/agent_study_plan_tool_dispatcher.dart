@@ -14,7 +14,9 @@ import '../../domain/conversations/conversation.dart';
 import '../../domain/study_plan/study_plan_draft.dart';
 import '../../domain/study_plan/study_plan_values.dart';
 import '../study_plan/study_plan_draft_service.dart';
-import '../study_plan/study_plan_ports.dart';
+import '../study_plan/study_plan_capability.dart';
+import '../capabilities/capability.dart';
+import 'agent_tool_projection.dart';
 import 'agent_runtime_limits.dart';
 
 /// One proposal tool call with trusted runtime-injected source context.
@@ -32,14 +34,17 @@ final class AgentStudyPlanToolCall {
   final ConversationScope scope;
 }
 
-final class AgentStudyPlanToolDispatcher {
-  AgentStudyPlanToolDispatcher({
+final class AgentStudyPlanToolProjection {
+  AgentStudyPlanToolProjection({
     required StudyPlanDraftService draftService,
+    CapabilityExecutor? executor,
     AgentRuntimeLimits limits = const AgentRuntimeLimits(),
-  })  : _draftService = draftService,
+  })  : _executor = executor ??
+            CapabilityExecutor(ApplicationCapabilityRegistry(
+                [studyPlanCapability(draftService)])),
         _limits = limits;
 
-  final StudyPlanDraftService _draftService;
+  final CapabilityExecutor _executor;
   final AgentRuntimeLimits _limits;
 
   static const int _maxBankNameRunes = 200;
@@ -80,90 +85,77 @@ final class AgentStudyPlanToolDispatcher {
     'adoptedAt',
   };
 
-  Future<String> dispatch(
-    AgentStudyPlanToolCall call, {
-    bool Function()? lifecycleMutationAllowed,
-  }) async {
-    if (utf8.encode(call.argumentsJson).length >
-        _limits.maxToolArgumentUtf8Bytes) {
-      return _failure('invalid_plan', 'The study plan request is invalid.');
-    }
-
-    final Map<String, dynamic> arguments;
-    try {
-      final decoded = jsonDecode(call.argumentsJson);
-      if (decoded is! Map<String, dynamic>) {
-        return _failure('invalid_plan', 'The study plan request is invalid.');
-      }
-      arguments = decoded;
-    } on FormatException {
-      return _failure('invalid_plan', 'The study plan request is invalid.');
-    }
-
-    // Strict validation: reject any forbidden authority keys or unknown keys
-    for (final key in arguments.keys) {
-      if (_forbiddenAuthorityKeys.contains(key) ||
-          !_allowedKeys.contains(key)) {
-        return _failure('invalid_plan', 'The study plan request is invalid.');
-      }
-    }
-
-    final _ParsedPlanArguments parsed;
-    try {
-      parsed = _parseArguments(arguments);
-    } catch (_) {
-      return _failure('invalid_plan', 'The study plan request is invalid.');
-    }
-
-    try {
-      final stageResult = await _draftService.stage(
+  Future<AgentToolDispatchResult> dispatchWithReceipt(
+      AgentStudyPlanToolCall call,
+      {bool Function()? lifecycleMutationAllowed}) async {
+    final context = CapabilityContext(
+        principal: CapabilityPrincipal.builtInAgent,
+        capabilities: const [proposeStudyPlan],
+        permissions: const [CapabilityPermission.stage],
+        scope: call.scope,
+        authorizedScope: call.scope,
         sourceConversationId: call.sourceConversationId,
         sourceMessageId: call.sourceMessageId,
-        sourceScope: call.scope,
-        bankName: parsed.bankName,
-        goal: parsed.goal,
-        dailyTarget: parsed.dailyTarget,
-        priority: parsed.priority,
-        horizonDays: parsed.horizonDays,
-        lifecycleMutationAllowed: lifecycleMutationAllowed,
-      );
-
-      switch (stageResult) {
-        case StudyPlanStageResultStaged(:final draft):
-          final encoded = jsonEncode(<String, Object?>{
-            'ok': true,
-            'result': _formatStagedResult(draft),
-          });
-          if (utf8.encode(encoded).length > _limits.maxToolResultUtf8Bytes) {
-            return _failure('internal_error', 'An internal error occurred.');
-          }
-          return encoded;
-        case StudyPlanStageResultUnavailable():
-          return _failure(
-            'target_unavailable',
-            'The study plan target is not available.',
-          );
-        case StudyPlanStageResultInvalid() ||
-              StudyPlanStageResultBusy() ||
-              StudyPlanStageResultStale():
-          return _failure('invalid_plan', 'The study plan request is invalid.');
-        case StudyPlanStageResultCancelled():
-          return _failure('internal_error', 'An internal error occurred.');
+        budgetAllowed: lifecycleMutationAllowed);
+    AgentToolDispatchResult invalid() => AgentToolDispatchResult(
+        json: _failure('invalid_plan', 'The study plan request is invalid.'),
+        receipt: _executor
+            .reject(proposeStudyPlan, context, CapabilityFailure.invalidPlan)
+            .receipt);
+    final ProposeStudyPlanInput input;
+    try {
+      if (utf8.encode(call.argumentsJson).length >
+          _limits.maxToolArgumentUtf8Bytes) {
+        return invalid();
       }
-    } on StudyPlanException catch (e) {
-      if (e.failure == StudyPlanFailure.temporarilyUnavailable) {
-        return _failure(
-          'temporarily_unavailable',
-          'The study plan data source is temporarily unavailable.',
-        );
+      final decoded = jsonDecode(call.argumentsJson);
+      if (decoded is! Map<String, dynamic> ||
+          decoded.keys.any((key) =>
+              _forbiddenAuthorityKeys.contains(key) ||
+              !_allowedKeys.contains(key))) {
+        return invalid();
       }
-      return _failure('internal_error', 'An internal error occurred.');
+      input = _parseArguments(decoded);
     } catch (_) {
-      return _failure('internal_error', 'An internal error occurred.');
+      return invalid();
+    }
+    final result = await _executor.execute(proposeStudyPlan, input, context);
+    if (result.failure case final failure?) {
+      final (code, message) = switch (failure) {
+        CapabilityFailure.targetUnavailable ||
+        CapabilityFailure.accessDenied =>
+          ('target_unavailable', 'The study plan target is not available.'),
+        CapabilityFailure.invalidPlan || CapabilityFailure.invalidRequest => (
+            'invalid_plan',
+            'The study plan request is invalid.'
+          ),
+        CapabilityFailure.temporarilyUnavailable => (
+            'temporarily_unavailable',
+            'The study plan data source is temporarily unavailable.'
+          ),
+        _ => ('internal_error', 'An internal error occurred.'),
+      };
+      return AgentToolDispatchResult(
+          json: _failure(code, message), receipt: result.receipt);
+    }
+    try {
+      final encoded = jsonEncode(<String, Object?>{
+        'ok': true,
+        'result': _formatStagedResult(result.output!)
+      });
+      if (utf8.encode(encoded).length > _limits.maxToolResultUtf8Bytes) {
+        throw const FormatException();
+      }
+      return AgentToolDispatchResult(json: encoded, receipt: result.receipt);
+    } catch (_) {
+      return AgentToolDispatchResult(
+          json: _failure('internal_error', 'An internal error occurred.'),
+          receipt:
+              result.receipt.withFailure(CapabilityFailure.encodingFailed));
     }
   }
 
-  _ParsedPlanArguments _parseArguments(Map<String, dynamic> arguments) {
+  ProposeStudyPlanInput _parseArguments(Map<String, dynamic> arguments) {
     final rawBankName = arguments['bank_name'];
     if (rawBankName is! String) {
       throw const FormatException('Missing bank_name');
@@ -227,7 +219,7 @@ final class AgentStudyPlanToolDispatcher {
       }
     }
 
-    return _ParsedPlanArguments(
+    return ProposeStudyPlanInput(
       bankName: bankName,
       goal: goal,
       dailyTarget: dailyTarget,
@@ -279,18 +271,22 @@ final class AgentStudyPlanToolDispatcher {
   }
 }
 
-final class _ParsedPlanArguments {
-  const _ParsedPlanArguments({
-    required this.bankName,
-    this.goal,
-    this.dailyTarget,
-    this.priority,
-    this.horizonDays,
-  });
-
-  final String bankName;
-  final String? goal;
-  final int? dailyTarget;
-  final StudyPlanPriority? priority;
-  final int? horizonDays;
+final class AgentStudyPlanToolDispatcher {
+  AgentStudyPlanToolDispatcher(
+      {required StudyPlanDraftService draftService,
+      CapabilityExecutor? executor,
+      AgentRuntimeLimits limits = const AgentRuntimeLimits()})
+      : _projection = AgentStudyPlanToolProjection(
+            draftService: draftService, executor: executor, limits: limits);
+  final AgentStudyPlanToolProjection _projection;
+  Future<AgentToolDispatchResult> dispatchWithReceipt(
+          AgentStudyPlanToolCall call,
+          {bool Function()? lifecycleMutationAllowed}) =>
+      _projection.dispatchWithReceipt(call,
+          lifecycleMutationAllowed: lifecycleMutationAllowed);
+  Future<String> dispatch(AgentStudyPlanToolCall call,
+          {bool Function()? lifecycleMutationAllowed}) async =>
+      (await dispatchWithReceipt(call,
+              lifecycleMutationAllowed: lifecycleMutationAllowed))
+          .json;
 }

@@ -31,6 +31,11 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:uuid/uuid.dart';
 
+import 'application/capabilities/capability.dart';
+import 'application/study_query/study_capabilities.dart';
+import 'application/safe_write/missing_answer_capability.dart';
+import 'application/study_plan/study_plan_capability.dart';
+import 'application/retrieval/retrieval_capability.dart';
 import 'application/agent/agent_config_service.dart';
 import 'application/ai_config/ai_config_service.dart';
 import 'application/backup/backup_restore_coordinator.dart';
@@ -573,6 +578,15 @@ void main() {
           index: retrievalIndex,
           chunker: const DeterministicSourceChunker(),
         );
+        final capabilityExecutor =
+            CapabilityExecutor(ApplicationCapabilityRegistry([
+          ...StudyCapabilities.definitions(studyQueryService),
+          retrievalCapability(retrievalService),
+          missingAnswerCapability(
+              persistence: agentWritePersistence,
+              proposalService: agentWriteProposalService),
+          studyPlanCapability(studyPlanDraftService),
+        ]));
         final agentRuntime = ShirohaAgentRuntime(
           conversationService: conversationService,
           configResolver: AgentRuntimeConfigResolver(
@@ -585,16 +599,20 @@ void main() {
             profile: resolved.profile,
             clientFactory: () => http.Client(),
           ),
-          toolDispatcher: AgentStudyToolDispatcher(service: studyQueryService),
+          toolDispatcher: AgentStudyToolDispatcher(
+              service: studyQueryService, executor: capabilityExecutor),
           proposalDispatcher: AgentWriteProposalToolDispatcher(
             persistence: agentWritePersistence,
             proposalService: agentWriteProposalService,
+            executor: capabilityExecutor,
           ),
           studyPlanDispatcher: AgentStudyPlanToolDispatcher(
             draftService: studyPlanDraftService,
+            executor: capabilityExecutor,
           ),
           retrievalDispatcher: AgentRetrievalToolDispatcher(
             retrieval: retrievalService,
+            executor: capabilityExecutor,
           ),
         );
         final taskManager = TaskManager.instance;

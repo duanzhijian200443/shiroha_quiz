@@ -65,6 +65,10 @@ $v3 = @(Get-ChildItem -LiteralPath (Join-Path $root 'test') -Recurse -Filter '*_
     [IO.Path]::GetRelativePath($root, $_.FullName).Replace('\', '/')
 } | Where-Object { $_ -match '/training/|/study_activity/|/training_[^/]+_test\.dart$|/study_activity_[^/]+_test\.dart$|/home_training_result_test\.dart$' })
 foreach ($path in $v3) { Assert-True ($paths -contains $path) "V3 coverage missing: $path" }
+$arR2 = @(Get-ChildItem -LiteralPath (Join-Path $root 'test/application/capabilities') -Filter '*_test.dart' | ForEach-Object {
+    [IO.Path]::GetRelativePath($root, $_.FullName).Replace('\', '/')
+})
+foreach ($path in $arR2) { Assert-True ($paths -contains $path) "AR-R2 coverage missing: $path" }
 Assert-True (!$workflow.Contains("'test/support/study_activity_time_fakes.dart'")) 'support is not executable'
 $partitions = @(0..3 | ForEach-Object { $shard=$_; for ($i=$shard; $i -lt $paths.Count; $i+=4) { $paths[$i] } })
 Assert-True ($partitions.Count -eq $paths.Count -and @($partitions | Select-Object -Unique).Count -eq $paths.Count) 'modulo assignment exactly once'
