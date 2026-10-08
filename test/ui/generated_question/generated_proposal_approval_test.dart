@@ -167,8 +167,7 @@ void main() {
     expect(await h.storage.count('questions'), 1);
     first.dispose();
   });
-  test(
-      'pending revision drift blocks an unseen accepted-subset swap',
+  test('pending revision drift blocks an unseen accepted-subset swap',
       () async {
     final p = await h.stage(items: [
       candidate(key: 'one'),
@@ -209,8 +208,7 @@ void main() {
     second.dispose();
   });
 
-  test(
-      'pending revision drift blocks an unseen changed accepted answer',
+  test('pending revision drift blocks an unseen changed accepted answer',
       () async {
     final p = await h.stage();
     final first = controller(p);
