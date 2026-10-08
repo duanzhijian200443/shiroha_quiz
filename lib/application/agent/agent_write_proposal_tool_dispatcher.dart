@@ -63,7 +63,10 @@ final class AgentWriteProposalToolProjection {
 
   Future<AgentToolDispatchResult> dispatchWithReceipt(
       AgentWriteProposalToolCall call,
-      {bool Function()? proposalMutationAllowed}) async {
+      {bool Function()? proposalMutationAllowed,
+      Future<void>? cancellationSignal,
+      bool Function()? isCancelled,
+      DateTime? deadline}) async {
     final context = CapabilityContext(
         principal: CapabilityPrincipal.builtInAgent,
         capabilities: const [proposeMissingAnswer],
@@ -72,6 +75,9 @@ final class AgentWriteProposalToolProjection {
         authorizedScope: call.scope,
         sourceConversationId: call.sourceConversationId,
         sourceMessageId: call.sourceMessageId,
+        cancellationSignal: cancellationSignal,
+        isCancelled: isCancelled,
+        deadline: deadline,
         budgetAllowed: proposalMutationAllowed,
         proposalResultFits: (candidate) =>
             _resultFits(candidate as AgentWriteProposal));
@@ -404,9 +410,15 @@ final class AgentWriteProposalToolDispatcher {
   final AgentWriteProposalToolProjection _projection;
   Future<AgentToolDispatchResult> dispatchWithReceipt(
           AgentWriteProposalToolCall call,
-          {bool Function()? proposalMutationAllowed}) =>
+          {bool Function()? proposalMutationAllowed,
+          Future<void>? cancellationSignal,
+          bool Function()? isCancelled,
+          DateTime? deadline}) =>
       _projection.dispatchWithReceipt(call,
-          proposalMutationAllowed: proposalMutationAllowed);
+          proposalMutationAllowed: proposalMutationAllowed,
+          cancellationSignal: cancellationSignal,
+          isCancelled: isCancelled,
+          deadline: deadline);
   Future<String> dispatch(AgentWriteProposalToolCall call,
           {bool Function()? proposalMutationAllowed}) async =>
       (await dispatchWithReceipt(call,

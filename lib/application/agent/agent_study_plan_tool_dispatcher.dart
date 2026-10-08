@@ -87,7 +87,10 @@ final class AgentStudyPlanToolProjection {
 
   Future<AgentToolDispatchResult> dispatchWithReceipt(
       AgentStudyPlanToolCall call,
-      {bool Function()? lifecycleMutationAllowed}) async {
+      {bool Function()? lifecycleMutationAllowed,
+      Future<void>? cancellationSignal,
+      bool Function()? isCancelled,
+      DateTime? deadline}) async {
     final context = CapabilityContext(
         principal: CapabilityPrincipal.builtInAgent,
         capabilities: const [proposeStudyPlan],
@@ -96,6 +99,9 @@ final class AgentStudyPlanToolProjection {
         authorizedScope: call.scope,
         sourceConversationId: call.sourceConversationId,
         sourceMessageId: call.sourceMessageId,
+        cancellationSignal: cancellationSignal,
+        isCancelled: isCancelled,
+        deadline: deadline,
         budgetAllowed: lifecycleMutationAllowed);
     AgentToolDispatchResult invalid() => AgentToolDispatchResult(
         json: _failure('invalid_plan', 'The study plan request is invalid.'),
@@ -281,9 +287,15 @@ final class AgentStudyPlanToolDispatcher {
   final AgentStudyPlanToolProjection _projection;
   Future<AgentToolDispatchResult> dispatchWithReceipt(
           AgentStudyPlanToolCall call,
-          {bool Function()? lifecycleMutationAllowed}) =>
+          {bool Function()? lifecycleMutationAllowed,
+          Future<void>? cancellationSignal,
+          bool Function()? isCancelled,
+          DateTime? deadline}) =>
       _projection.dispatchWithReceipt(call,
-          lifecycleMutationAllowed: lifecycleMutationAllowed);
+          lifecycleMutationAllowed: lifecycleMutationAllowed,
+          cancellationSignal: cancellationSignal,
+          isCancelled: isCancelled,
+          deadline: deadline);
   Future<String> dispatch(AgentStudyPlanToolCall call,
           {bool Function()? lifecycleMutationAllowed}) async =>
       (await dispatchWithReceipt(call,

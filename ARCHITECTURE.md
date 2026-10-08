@@ -314,8 +314,14 @@ path. The kernel has no Provider/MCP/JSON Schema/UI dependency. W0/SPL reference
 are transient service-lifecycle references; retrieval uses transaction cache
 evidence and retains its Provider-bound grant and final serialization gate.
 Schema/B0 and formal W0 commit/SPL adoption authority stay unchanged. AR-R2 remains
-IMPLEMENTATION CANDIDATE pending CI/review; AR-R3 Runtime/transcript, AR-R4 modules,
-external Host/IPC and READ fallback continuation are not implemented.
+IMPLEMENTATION CANDIDATE: #241 merged and final-head CI succeeded, but independent
+final-head approval is not recorded. AR-R3 is the current implementation candidate:
+the retained Runtime facade delegates to concrete Coordinator/Engine/Policy/
+Finalizer responsibilities; ToolExecutor invokes receipt-bearing projections;
+transient canonical transcript groups retain complete calls/results/receipts.
+Provider-private continuation remains separate, unresolved executions never replay,
+and history prunes only whole units. No transcript/receipt reaches storage or logs.
+AR-R4 modules, external Host/IPC and READ fallback continuation are not implemented.
 
 ## 7. Evolution discipline
 

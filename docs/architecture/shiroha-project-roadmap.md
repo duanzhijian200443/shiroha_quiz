@@ -145,11 +145,19 @@ AR-R0's contract checkpoint is delivered. AR-R1's bounded Provider round
 normalization, detailed failure bridge, DeepSeek classification and exactly-one
 OBS terminal evidence are delivered and accepted: **COMPLETE / CLOSED**.
 
-AR-R2 is the current active implementation stage: typed Application capabilities,
-immutable registry, centralized executor/authorization, execution receipts and
-Agent/MCP projections, with retained JSON Dispatcher compatibility facades. It is
+AR-R2's typed Application capabilities, immutable registry, executor,
+authorization, receipts and Agent/MCP projections merged in PR #241, final head
+`53a157f62b5ca00fdda0f98af405d4d624ca684d`. Current-target PR contracts succeeded,
+but only an earlier-head REQUEST_CHANGES comment and no independent final-head
+approval are recorded. AR-R2 therefore remains **IMPLEMENTATION CANDIDATE /
+merged pending independent review**, not CLOSED.
+
+AR-R3 is the explicitly activated current implementation stage: bounded Runtime
+responsibility split, retained public facade, receipt-consuming ToolExecutor and
+transient canonical transcript with atomic call/result/receipt groups. It is
 **IMPLEMENTATION CANDIDATE / pending final-head PR contract CI and independent
-review**, not CLOSED. AR-R3 and subsequent implementation stages remain inactive.
+review**. Activation does not resolve the AR-R2 stage-governance mismatch.
+AR-R4 and subsequent implementation stages remain inactive.
 
 Use namespaced AR-R identifiers to distinguish this route from historical
 R1-R8 typed-core stages:

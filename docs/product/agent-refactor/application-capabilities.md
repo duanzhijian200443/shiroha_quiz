@@ -233,7 +233,10 @@ The independent MCP v0 process constructs the same six typed Study handlers.
 Focused kernel/authorization/receipt/cache/encoding/projection tests and retained
 compatibility suites run in hard-failing standing PR contracts. Runtime tests
 exercise a real study facade/executor/handler chain and preserve exact budget
-closure, no fallback after READ and terminal persistence. AR-R3 decomposition,
-AR-R4 module registration, external authority/IPC, durable generated proposals
+closure, no fallback after READ and terminal persistence. AR-R3 now consumes
+receipt-bearing Dispatcher methods in a bounded ToolExecutor and retains receipt
+evidence in transient atomic transcript groups; the Kernel, permissions, effects,
+registry, W0/SPL lifecycle and MCP semantics are unchanged. AR-R4 module
+registration, external authority/IPC, durable generated proposals
 and AR-R7 READ continuation remain unimplemented. SQLite schema remains v31;
 B0 storage and all formal mutation/recovery commands are unchanged.

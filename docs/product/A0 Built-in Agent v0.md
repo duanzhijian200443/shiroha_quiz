@@ -7,10 +7,11 @@ not a replacement runtime. Delivered A0 behavior remains authoritative until
 the corresponding implementation transition is accepted. Provider normalization
 and Runtime splitting must preserve current turn and persistence behavior.
 
-AR-R1's implementation candidate replaces only Provider round terminal/failure
+AR-R1's accepted implementation replaces only Provider round terminal/failure
 normalization via `agent-refactor/agent-runtime-v1.md` and extends OBS-1 evidence.
 It preserves all A0 turn, streaming, history, budget and persistence behavior;
-AR-R3 Runtime decomposition is not activated.
+AR-R3 Runtime decomposition/transient transcript is an active implementation
+candidate under that focused contract, preserving A0 product behavior.
 
 ## 1. Authority and scope
 

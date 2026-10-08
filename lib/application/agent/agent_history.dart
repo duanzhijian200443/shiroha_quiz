@@ -14,10 +14,14 @@ final class AgentHistory {
     required this.messages,
     required this.totalUtf8Bytes,
     required this.droppedMessageCount,
+    this.persistedMessages = const [],
   });
 
   /// Chronological persisted User/Assistant messages, newest-kept.
   final List<AgentProviderMessage> messages;
+
+  /// Exact selected persisted identities, for transient transcript composition.
+  final List<ConversationMessage> persistedMessages;
 
   /// Total UTF-8 byte size of the kept message contents.
   final int totalUtf8Bytes;
@@ -120,6 +124,7 @@ final class AgentHistoryBuilder {
       messages: List<AgentProviderMessage>.unmodifiable(messages),
       totalUtf8Bytes: totalBytes,
       droppedMessageCount: all.length - keptNewestFirst.length,
+      persistedMessages: List.unmodifiable(keptNewestFirst),
     );
   }
 

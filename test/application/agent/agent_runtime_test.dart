@@ -26,6 +26,8 @@ import 'package:shiroha_quiz/application/agent/agent_study_plan_tool_dispatcher.
 import 'package:shiroha_quiz/application/agent/agent_study_tool_catalog.dart';
 import 'package:shiroha_quiz/application/agent/agent_study_tool_dispatcher.dart';
 import 'package:shiroha_quiz/application/agent/agent_turn.dart';
+import 'package:shiroha_quiz/application/agent/agent_turn_transcript.dart';
+import 'package:shiroha_quiz/application/agent/agent_tool_projection.dart';
 import 'package:shiroha_quiz/application/agent/agent_write_proposal_tool_catalog.dart';
 import 'package:shiroha_quiz/application/agent/agent_write_proposal_tool_dispatcher.dart';
 import 'package:shiroha_quiz/application/conversations/conversation_repository.dart';
@@ -68,6 +70,578 @@ typedef _Script = Stream<AgentProviderEvent> Function(
 void main() {
   setUp(BackupRestoreMutationGate.resetForTesting);
   tearDown(BackupRestoreMutationGate.resetForTesting);
+
+  group('AR-R3 transcript / receipt integration', () {
+    for (final batchSize in [1, 2]) {
+      test(
+          'default byte bounds reject an indivisible READ batch after execution: $batchSize',
+          () async {
+        final harness = _Harness(fallbackProfileId: 'fallback', scripts: [
+          _toolRound([for (var n = 0; n < batchSize; n++) _call('read-$n')],
+              const _TestContinuationState('private')),
+          _finalAnswer('forbidden'),
+        ]);
+        final output = jsonEncode({
+          'ok': true,
+          'result': {'text': 'x' * (batchSize == 1 ? 65500 : 40000)}
+        });
+        expect(utf8.encode(output).length, lessThanOrEqualTo(65536));
+        harness.dispatcher.output = output;
+        final (cid, mid) = await harness.seedUser('current User target');
+        final session =
+            harness.runtime.startTurn(conversationId: cid, userMessageId: mid);
+        expect(_failureOf(await session.result),
+            AgentTurnFailure.historyLimitExceeded);
+        expect(harness.dispatcher.calls, hasLength(batchSize));
+        expect(harness.provider.callCount, 1);
+        expect(harness.fallbackProvider.callCount, 0);
+        expect(session.transcript!.toolGroups, isEmpty);
+        expect(
+            (await harness.messagesOf(cid))
+                .where((m) => m.role == ConversationMessageRole.assistant),
+            isEmpty);
+      });
+    }
+
+    for (final w0 in [false, true]) {
+      test(
+          'default byte failure after STAGE retains reconciliation without repeat: W0=$w0',
+          () async {
+        final harness =
+            _Harness(wireProposal: w0, wireStudyPlan: !w0, scripts: [
+          _toolRound([w0 ? _proposalCall('stage') : _studyPlanCall('stage')],
+              const _TestContinuationState('stage-private')),
+          _toolRound([_call('large-read')],
+              const _TestContinuationState('read-private')),
+          _finalAnswer('forbidden'),
+        ]);
+        harness.dispatcher.output = jsonEncode({
+          'ok': true,
+          'result': {'text': 'x' * 65500}
+        });
+        final (cid, mid) = await harness.seedUser('current User target');
+        final session =
+            harness.runtime.startTurn(conversationId: cid, userMessageId: mid);
+        expect(_failureOf(await session.result),
+            AgentTurnFailure.historyLimitExceeded);
+        final receipt = session.transcript!.completedEffects.single;
+        expect(receipt.status, CapabilityExecutionStatus.completed);
+        expect(receipt.knownEffect, CapabilityEffect.proposalStaged);
+        expect(receipt.reconciliation, isNotNull);
+        expect(session.transcript!.toolGroups.single.receipt, same(receipt));
+        expect(harness.dispatcher.calls, hasLength(1));
+        expect(harness.provider.callCount, 2);
+        expect(harness.proposalPersistence.commitCalls, isEmpty);
+        // W0 has one projection admission and one owning service admission;
+        // a repeated STAGE would add another pair and another receipt.
+        if (w0) {
+          expect(harness.proposalPersistence.admissionRequests, hasLength(2));
+        }
+        expect(
+            (await harness.messagesOf(cid))
+                .where((m) => m.role == ConversationMessageRole.assistant),
+            isEmpty);
+      });
+    }
+
+    for (final fullTarget in [false, true]) {
+      test(
+          'default RAG result preserves whole output or fails closed: fullTarget=$fullTarget',
+          () async {
+        final harness = _Harness(wireRetrieval: true, scripts: [
+          _toolRound([
+            _call('rag',
+                name: AgentRetrievalToolCatalog.toolName,
+                arguments: '{"query":"function","file_ids":["file-1"]}')
+          ], const _TestContinuationState('rag-private')),
+          (request, token) async* {
+            final output = request.toolOutputs.single.output;
+            expect(utf8.encode(output).length, lessThanOrEqualTo(65536));
+            final hits = (jsonDecode(output) as Map)['result']['hits'] as List;
+            expect(hits, hasLength(4));
+            for (final hit in hits) {
+              expect(hit['content'], 'x' * RetrievalService.maxHitBytes);
+            }
+            yield AgentProviderTextDelta('OK');
+            yield AgentProviderCompleted('final');
+          },
+        ]);
+        harness.retrievalIndex.hits = [
+          for (var n = 0; n < 4; n++)
+            _runtimeHit('x' * RetrievalService.maxHitBytes)
+        ];
+        harness.retrievalIndex.buildEffect = RetrievalBuildEffect.derivedCache;
+        final (cid, mid) = await harness
+            .seedUser(fullTarget ? 'u' * 42000 : 'User', fileIds: ['file-1']);
+        final session = harness.runtime.startTurnWithRetrieval(
+            conversationId: cid,
+            userMessageId: mid,
+            approval: RetrievalEgressApproval(const ['file-1']));
+        final result = await session.result;
+        expect(harness.retrievalIndex.searchCalls, 1);
+        if (fullTarget) {
+          expect(_failureOf(result), AgentTurnFailure.historyLimitExceeded);
+          expect(harness.provider.callCount, 1);
+          expect(session.transcript!.toolGroups, isEmpty);
+        } else {
+          expect(result, isA<AgentTurnSuccess>());
+          expect(harness.provider.callCount, 2);
+          expect(session.transcript!.toolGroups, hasLength(1));
+        }
+        expect(session.transcript!.completedEffects.single.knownEffect,
+            CapabilityEffect.derivedCache);
+        expect(
+            (await harness.messagesOf(cid))
+                .where((m) => m.role == ConversationMessageRole.assistant),
+            fullTarget ? isEmpty : hasLength(1));
+      });
+    }
+
+    for (final limits in [
+      const AgentRuntimeLimits(maxHistoryUtf8Bytes: 12),
+      const AgentRuntimeLimits(maxHistoryMessages: 1),
+    ]) {
+      test(
+          'final answer survives a full history budget: '
+          '${limits.maxHistoryMessages}/${limits.maxHistoryUtf8Bytes}',
+          () async {
+        final harness = _Harness(limits: limits, scripts: [_finalAnswer('OK')]);
+        final (cid, mid) = await harness.seedUser('你你你你');
+        final session =
+            harness.runtime.startTurn(conversationId: cid, userMessageId: mid);
+        expect(await session.result, isA<AgentTurnSuccess>());
+        expect((await harness.messagesOf(cid)).map((m) => m.content),
+            ['你你你你', 'OK']);
+        expect(harness.repository.appendCalls, 1);
+        expect(session.transcript!.finalAssistant!.content, 'OK');
+        expect(session.transcript!.entries, hasLength(1));
+      });
+    }
+
+    for (final bytePressure in [false, true]) {
+      test(
+          'Provider history stays fixed across two pruned tool rounds: bytes=$bytePressure',
+          () async {
+        final contents = bytePressure
+            ? ['a' * (64 * 1024 - 4), 'User']
+            : [for (var i = 0; i < 39; i++) 'old-$i', 'User'];
+        const first = _TestContinuationState('first-private');
+        const second = _TestContinuationState('second-private');
+        late AgentTurnSession session;
+        final harness = _Harness(scripts: [
+          (request, token) async* {
+            expect(request.messages.map((m) => m.content), contents);
+            yield _call('one');
+            yield AgentProviderCompleted('one', continuationState: first);
+          },
+          (request, token) async* {
+            expect(request.messages.map((m) => m.content), contents);
+            expect(request.continuationState, same(first));
+            expect(request.toolOutputs.single.callId, 'one');
+            expect(
+                session.transcript!.entries
+                    .whereType<AgentTranscriptVisibleMessage>()
+                    .length,
+                lessThan(contents.length));
+            yield _call('two');
+            yield AgentProviderCompleted('two', continuationState: second);
+          },
+          (request, token) async* {
+            expect(request.messages.map((m) => m.content), contents);
+            expect(request.continuationState, same(second));
+            expect(request.toolOutputs.single.callId, 'two');
+            expect(session.transcript!.toolGroups.map((g) => g.call.callId),
+                ['one', 'two']);
+            yield AgentProviderTextDelta('OK');
+            yield AgentProviderCompleted('final');
+          },
+        ]);
+        final (cid, mid) = await harness.seedThread(contents);
+        session =
+            harness.runtime.startTurn(conversationId: cid, userMessageId: mid);
+        expect(await session.result, isA<AgentTurnSuccess>());
+        expect(harness.provider.callCount, 3);
+        expect(harness.dispatcher.calls, hasLength(2));
+      });
+    }
+
+    test(
+        'READ, W0, SPL and RAG form complete ordered groups; private state stays isolated',
+        () async {
+      final sink = _MemoryLogSink();
+      AppLogger.setSink(sink);
+      addTearDown(() => AppLogger.setSink(null));
+      const private =
+          _TestContinuationState('PRIVATE_REASONING provider-private-state');
+      late AgentTurnSession session;
+      AgentTurnTranscriptSnapshot? observed;
+      final harness = _Harness(
+          wireProposal: true,
+          wireStudyPlan: true,
+          wireRetrieval: true,
+          scripts: [
+            _toolRound([
+              _call('read', arguments: '{"marker":"PRIVATE_TOOL_ARGUMENT"}'),
+              _proposalCall('w0'),
+              _studyPlanCall('spl'),
+              _call('rag',
+                  name: AgentRetrievalToolCatalog.toolName,
+                  arguments: '{"query":"function","file_ids":["file-1"]}')
+            ], private),
+            (request, token) async* {
+              expect(request.continuationState, same(private));
+              observed = session.transcript;
+              final groups = observed!.toolGroups;
+              expect(groups.map((g) => g.call.callId),
+                  ['read', 'w0', 'spl', 'rag']);
+              for (final group in groups) {
+                expect(group.result.callId, group.call.callId);
+                expect(
+                    group.receipt.status, CapabilityExecutionStatus.completed);
+                expect(group.receipt.executionId, isNotEmpty);
+              }
+              expect(groups[0].receipt.knownEffect, CapabilityEffect.none);
+              for (final group in [groups[1], groups[2]]) {
+                expect(
+                    group.receipt.knownEffect, CapabilityEffect.proposalStaged);
+                expect(group.receipt.reconciliation, isNotNull);
+              }
+              expect(groups[3].receipt.knownEffect, CapabilityEffect.none);
+              expect(groups[3].egress!.providerProfileId, 'profile-a');
+              expect(groups[3].egress!.grant.sourceUserMessageId, isNotEmpty);
+              expect(groups[3].result.output, contains('PRIVATE_RAG'));
+              final visible =
+                  observed!.entries.whereType<AgentTranscriptVisibleMessage>();
+              expect(visible.single.content, 'PRIVATE_USER');
+              expect(visible.single.isCurrentUser, isTrue);
+              yield AgentProviderTextDelta('final visible answer');
+              yield AgentProviderCompleted('final');
+            },
+          ]);
+      harness.dispatcher.output =
+          '{"ok":true,"result":{"marker":"PRIVATE_TOOL_RESULT"}}';
+      harness.retrievalIndex.hits = [_runtimeHit('PRIVATE_RAG')];
+      final (cid, mid) =
+          await harness.seedUser('PRIVATE_USER', fileIds: ['file-1']);
+      session = harness.runtime.startTurnWithRetrieval(
+          conversationId: cid,
+          userMessageId: mid,
+          approval: RetrievalEgressApproval(['file-1']));
+      expect(await session.result, isA<AgentTurnSuccess>());
+      await Future<void>.delayed(Duration.zero);
+      expect(
+          session.transcript!.toolGroups,
+          hasLength(
+              4)); // Immutable terminal evidence belongs to this session only.
+      final messages = await harness.messagesOf(cid);
+      expect(
+          messages
+              .where((m) => m.role == ConversationMessageRole.assistant)
+              .single
+              .content,
+          'final visible answer');
+      expect(messages.map((m) => m.content).join(),
+          isNot(contains('provider-private-state')));
+      await AppLogger.flush();
+      final logs = sink.records.map((r) => r.toJson()).join();
+      for (final marker in [
+        'PRIVATE_USER',
+        'PRIVATE_TOOL_ARGUMENT',
+        'PRIVATE_TOOL_RESULT',
+        'PRIVATE_RAG',
+        'PRIVATE_REASONING',
+        'provider-private-state'
+      ]) {
+        expect(logs, isNot(contains(marker)));
+      }
+      expect(
+          observed!.entries
+              .whereType<AgentTranscriptVisibleMessage>()
+              .map((m) => m.content)
+              .join(),
+          isNot(contains('PRIVATE_REASONING')));
+    });
+
+    for (final incomplete in [false, true]) {
+      test(
+          'failed/incomplete round calls and visible fragments never become canonical: incomplete=$incomplete',
+          () async {
+        late AgentTurnSession session;
+        AgentTurnTranscriptSnapshot? observed;
+        final harness = _Harness(scripts: [
+          (request, token) async* {
+            yield AgentProviderTextDelta('failed fragment');
+            yield _call('never-dispatch');
+            if (!incomplete) {
+              throw const AgentProviderException(
+                  AgentProviderFailure.temporarilyUnavailable);
+            }
+            yield const AgentProviderFailureTerminal(
+                AgentProviderException.detailed(
+                    ProviderFailureCode.incompleteUnknown,
+                    legacyFailure: AgentProviderFailure.incompleteResponse));
+          }
+        ]);
+        final (cid, mid) = await harness.seedUser('User');
+        session =
+            harness.runtime.startTurn(conversationId: cid, userMessageId: mid);
+        final subscription = session.events.listen((event) {
+          if (event is AgentTurnFailedEvent) observed = session.transcript;
+        });
+        expect(await session.result, isA<AgentTurnFailed>());
+        await Future<void>.delayed(Duration.zero);
+        expect(observed!.toolGroups, isEmpty);
+        expect(
+            observed!.entries
+                .whereType<AgentTranscriptVisibleMessage>()
+                .single
+                .content,
+            'User');
+        expect(harness.dispatcher.calls, isEmpty);
+        expect(
+            (await harness.messagesOf(cid))
+                .where((m) => m.role == ConversationMessageRole.assistant),
+            isEmpty);
+        await subscription.cancel();
+      });
+    }
+
+    test(
+        'unclassified projection failure records unknown outcome and ends turn without retry or fallback',
+        () async {
+      late AgentTurnSession session;
+      AgentTurnTranscriptSnapshot? observed;
+      final harness = _Harness(fallbackProfileId: 'fallback', fallbackScripts: [
+        _finalAnswer('forbidden')
+      ], scripts: [
+        _toolRound(
+            [_call('uncertain')], const _TestContinuationState('private')),
+        _finalAnswer('must not receive a claimed resolved tool result'),
+      ]);
+      harness.dispatcher.projectionThrowable =
+          StateError('PRIVATE_TOOL_RESULT');
+      final (cid, mid) = await harness.seedUser('User');
+      session =
+          harness.runtime.startTurn(conversationId: cid, userMessageId: mid);
+      final subscription = session.events.listen((event) {
+        if (event is AgentTurnFailedEvent) observed = session.transcript;
+      });
+      expect(_failureOf(await session.result), AgentTurnFailure.internalError);
+      await Future<void>.delayed(Duration.zero);
+      expect(harness.provider.callCount, 1);
+      expect(harness.fallbackProvider.callCount, 0);
+      expect(observed!.toolGroups, isEmpty);
+      expect(observed!.unresolved.single.callId, 'uncertain');
+      expect(observed!.unresolved.single.receipt.status,
+          CapabilityExecutionStatus.outcomeUnknown);
+      expect(observed!.unresolved.single.receipt.knownEffect, isNull);
+      expect(session.transcript!.unresolved, hasLength(1));
+      await subscription.cancel();
+    });
+
+    test(
+        'completed visible text is canonical without duplicating the existing Provider history envelope',
+        () async {
+      const state = _TestContinuationState('same-provider-private');
+      late AgentTurnSession session;
+      final harness = _Harness(scripts: [
+        (request, token) async* {
+          yield AgentProviderTextDelta('intermediate ');
+          yield _call('read');
+          yield AgentProviderCompleted('tools', continuationState: state);
+        },
+        (request, token) async* {
+          expect(request.messages.map((m) => m.content), ['User']);
+          expect(request.continuationState, same(state));
+          expect(
+              session.transcript!.entries
+                  .whereType<AgentTranscriptVisibleMessage>()
+                  .map((m) => m.content),
+              ['User', 'intermediate ']);
+          yield AgentProviderTextDelta('final');
+          yield AgentProviderCompleted('final');
+        },
+      ]);
+      final (cid, mid) = await harness.seedUser('User');
+      session =
+          harness.runtime.startTurn(conversationId: cid, userMessageId: mid);
+      final result = await session.result;
+      expect(result, isA<AgentTurnSuccess>());
+      expect((result as AgentTurnSuccess).assistantMessage.content,
+          'intermediate final');
+      expect(session.transcript!.toolGroups.single.receipt.knownEffect,
+          CapabilityEffect.none);
+    });
+
+    for (final timeout in [false, true]) {
+      test(
+          'interruption during typed handler produces unresolved evidence without another dispatch: timeout=$timeout',
+          () async {
+        final entered = Completer<void>();
+        final pending = Completer<void>();
+        final harness = _Harness(
+            limits: const AgentRuntimeLimits(
+                turnTimeout: Duration(milliseconds: 200)),
+            scripts: [
+              _toolRound(
+                  [_call('pending')], const _TestContinuationState('private')),
+              _finalAnswer('forbidden'),
+            ]);
+        harness.dispatcher.onDispatch = (_) async {
+          entered.complete();
+          await pending.future;
+        };
+        final (cid, mid) = await harness.seedUser('User');
+        final session =
+            harness.runtime.startTurn(conversationId: cid, userMessageId: mid);
+        await entered.future;
+        if (!timeout) session.cancel();
+        expect(_failureOf(await session.result),
+            timeout ? AgentTurnFailure.timeout : AgentTurnFailure.cancelled);
+        final snapshot = session.transcript!;
+        expect(snapshot.toolGroups, isEmpty);
+        expect(snapshot.unresolved.single.receipt.status,
+            CapabilityExecutionStatus.outcomeUnknown);
+        expect(harness.dispatcher.calls, hasLength(1));
+        expect(harness.provider.callCount, 1);
+        pending.complete();
+        await Future<void>.delayed(Duration.zero);
+        expect(
+            (await harness.messagesOf(cid))
+                .where((m) => m.role == ConversationMessageRole.assistant),
+            isEmpty);
+      });
+    }
+
+    test('cancel before config dispatches no Provider or tool', () async {
+      final harness = _Harness(scripts: [_finalAnswer('forbidden')]);
+      final (cid, mid) = await harness.seedUser('User');
+      final session =
+          harness.runtime.startTurn(conversationId: cid, userMessageId: mid);
+      session.cancel();
+      expect(_failureOf(await session.result), AgentTurnFailure.cancelled);
+      expect(harness.provider.callCount, 0);
+      expect(harness.dispatcher.calls, isEmpty);
+    });
+
+    test(
+        'cancel/persist race confirms the already appended Assistant exactly once',
+        () async {
+      final appendEntered = Completer<void>(), release = Completer<void>();
+      final harness = _Harness(scripts: [_finalAnswer('one final answer')]);
+      final (cid, mid) = await harness.seedUser('User');
+      harness.repository.beforeAssistantAppend = () async {
+        appendEntered.complete();
+        await release.future;
+      };
+      final session =
+          harness.runtime.startTurn(conversationId: cid, userMessageId: mid);
+      await appendEntered.future;
+      session.cancel();
+      release.complete();
+      expect(await session.result, isA<AgentTurnSuccess>());
+      expect(
+          (await harness.messagesOf(cid))
+              .where((m) => m.role == ConversationMessageRole.assistant),
+          hasLength(1));
+      await Future<void>.delayed(Duration.zero);
+      expect(
+          await harness.runtime
+              .startTurn(conversationId: cid, userMessageId: mid)
+              .result,
+          isA<AgentTurnAlreadyCompleted>());
+      expect(harness.provider.callCount, 1);
+    });
+
+    for (final afterCompletion in [false, true]) {
+      test(
+          'shared deadline receipt wins Coordinator timer race; completed=$afterCompletion',
+          () async {
+        final harness = _Harness(scripts: [
+          _toolRound(
+              [_call('deadline')], const _TestContinuationState('private')),
+          _finalAnswer('forbidden'),
+        ]);
+        if (afterCompletion) {
+          harness.dispatcher.releaseFailure =
+              CapabilityFailure.deadlineExceeded;
+        } else {
+          harness.dispatcher.executionFailure =
+              CapabilityFailure.deadlineExceeded;
+        }
+        final (cid, mid) = await harness.seedUser('User');
+        final session =
+            harness.runtime.startTurn(conversationId: cid, userMessageId: mid);
+        expect(_failureOf(await session.result), AgentTurnFailure.timeout);
+        final snapshot = session.transcript!;
+        if (afterCompletion) {
+          expect(snapshot.unresolved, isEmpty);
+          expect(snapshot.toolGroups.single.receipt.status,
+              CapabilityExecutionStatus.completed);
+          expect(snapshot.toolGroups.single.receipt.knownEffect,
+              CapabilityEffect.none);
+        } else {
+          expect(snapshot.toolGroups, isEmpty);
+          expect(snapshot.unresolved.single.receipt.status,
+              CapabilityExecutionStatus.outcomeUnknown);
+          expect(snapshot.unresolved.single.receipt.knownEffect, isNull);
+        }
+        expect(harness.dispatcher.calls, hasLength(1));
+        expect(harness.provider.callCount, 1);
+        expect(
+            (await harness.messagesOf(cid))
+                .where((m) => m.role == ConversationMessageRole.assistant),
+            isEmpty);
+      });
+    }
+
+    test(
+        'SPL completed stage remains evidenced when required context cannot fit',
+        () async {
+      final harness = _Harness(
+          wireStudyPlan: true,
+          limits: const AgentRuntimeLimits(maxHistoryMessages: 1),
+          scripts: [
+            _toolRound([_studyPlanCall('stage')],
+                const _TestContinuationState('private')),
+            _finalAnswer('forbidden'),
+          ]);
+      final (cid, mid) = await harness.seedUser('User');
+      final session =
+          harness.runtime.startTurn(conversationId: cid, userMessageId: mid);
+      expect(_failureOf(await session.result),
+          AgentTurnFailure.historyLimitExceeded);
+      expect(session.transcript!.toolGroups, isEmpty);
+      final receipt = session.transcript!.completedEffects.single;
+      expect(receipt.status, CapabilityExecutionStatus.completed);
+      expect(receipt.knownEffect, CapabilityEffect.proposalStaged);
+      expect(receipt.reconciliation, isNotNull);
+      expect(harness.provider.callCount, 1);
+    });
+
+    test(
+        'whole required tool batch cannot fit: safe bounded failure, no fabricated result',
+        () async {
+      final harness = _Harness(
+          limits: const AgentRuntimeLimits(maxHistoryMessages: 2),
+          scripts: [
+            _toolRound([_call('one'), _call('two')],
+                const _TestContinuationState('private')),
+            _finalAnswer('forbidden'),
+          ]);
+      final (cid, mid) = await harness.seedUser('User');
+      final session =
+          harness.runtime.startTurn(conversationId: cid, userMessageId: mid);
+      expect(_failureOf(await session.result),
+          AgentTurnFailure.historyLimitExceeded);
+      expect(harness.dispatcher.calls, hasLength(2));
+      expect(harness.provider.callCount, 1);
+      expect(
+          (await harness.messagesOf(cid))
+              .where((m) => m.role == ConversationMessageRole.assistant),
+          isEmpty);
+    });
+  });
 
   group('AR-R2 real Runtime / typed study integration', () {
     for (final failProvider in [false, true]) {
@@ -692,13 +1266,15 @@ void main() {
         fileIds: const ['file-1'],
       );
 
-      final result = await harness.runtime
-          .startTurnWithRetrieval(
-            conversationId: conversationId,
-            userMessageId: userMessageId,
-            approval: RetrievalEgressApproval(const ['file-1']),
-          )
-          .result;
+      final session = harness.runtime.startTurnWithRetrieval(
+          conversationId: conversationId,
+          userMessageId: userMessageId,
+          approval: RetrievalEgressApproval(const ['file-1']));
+      final result = await session.result;
+      expect(session.transcript!.toolGroups.single.receipt.knownEffect,
+          CapabilityEffect.derivedCache);
+      expect(session.transcript!.toolGroups.single.egress!.providerProfileId,
+          'profile-a');
 
       expect(result, isA<AgentTurnSuccess>());
       expect((result as AgentTurnSuccess).assistantMessage.content, '59271');
@@ -4293,6 +4869,7 @@ final class _FakeConversationRepository implements ConversationRepositoryPort {
       <String, List<ConversationFileRef>>{};
   final List<_AppendOutcome> appendOutcomes = <_AppendOutcome>[];
   ConversationFailure? loadFailure;
+  Future<void> Function()? beforeAssistantAppend;
   int appendCalls = 0;
   int createCalls = 0;
   int deleteCalls = 0;
@@ -4336,6 +4913,9 @@ final class _FakeConversationRepository implements ConversationRepositoryPort {
     required DateTime createdAt,
   }) async {
     appendCalls++;
+    if (role == ConversationMessageRole.assistant) {
+      await beforeAssistantAppend?.call();
+    }
     final current = _conversations[conversationId];
     if (current == null) {
       throw const ConversationException(
@@ -4523,16 +5103,74 @@ final class _FakeDispatcher implements AgentStudyToolDispatcher {
   final List<(String, String)> calls = <(String, String)>[];
   String output = '{"ok":true,"result":{"value":1}}';
   Object? throwable;
+  Object? projectionThrowable;
+  CapabilityFailure? executionFailure;
+  CapabilityFailure? releaseFailure;
   Future<void> Function(String toolName)? onDispatch;
+  static const _id =
+      CapabilityId<(String, String), String>('runtime_fixture_read');
 
   @override
-  Future<String> dispatch(String toolName, String argumentsJson) async {
-    calls.add((toolName, argumentsJson));
-    await onDispatch?.call(toolName);
-    final error = throwable;
-    if (error != null) throw error;
-    return output;
+  Future<AgentToolDispatchResult> dispatchWithReceipt(
+      String toolName, String argumentsJson,
+      {CapabilityContext? context}) async {
+    if (projectionThrowable case final error?) throw error;
+    final executor = CapabilityExecutor(ApplicationCapabilityRegistry([
+      CapabilityDefinition<(String, String), String>(
+          id: _id,
+          permission: CapabilityPermission.read,
+          permittedEffects: const [CapabilityEffect.none],
+          semantics: CapabilityExecutionSemantics.repeatableRead,
+          handler: CapabilityHandler<(String, String), String>(
+              (input, _, evidence) async {
+            calls.add(input);
+            await onDispatch?.call(input.$1);
+            // This fixture has no mutation port: its configured service failure
+            // has explicit zero-effect evidence, independent of its JSON output.
+            if (throwable != null) {
+              return CapabilityEvidence.zeroEffectFailure(
+                  CapabilityFailure.internalError);
+            }
+            if (executionFailure case final failure?) {
+              return CapabilityEvidence(
+                  status: CapabilityExecutionStatus.outcomeUnknown,
+                  effect: null,
+                  failure: failure);
+            }
+            return CapabilityEvidence.completed(output, CapabilityEffect.none);
+          })),
+    ]));
+    final trusted =
+        context ?? studyCapabilityContext(CapabilityPrincipal.builtInAgent);
+    var result = await executor.execute(
+        _id,
+        (toolName, argumentsJson),
+        CapabilityContext(
+            principal: trusted.principal,
+            capabilities: const [_id],
+            permissions: trusted.permissions,
+            scope: trusted.scope,
+            authorizedScope: trusted.authorizedScope,
+            cancellationSignal: trusted.cancellationSignal,
+            isCancelled: trusted.isCancelled,
+            deadline: trusted.deadline,
+            budgetAllowed: trusted.budgetAllowed,
+            sourceConversationId: trusted.sourceConversationId,
+            sourceMessageId: trusted.sourceMessageId,
+            turnRequestId: trusted.turnRequestId,
+            providerProfileId: trusted.providerProfileId));
+    if (releaseFailure case final failure?) {
+      result = result.withReleaseFailure(failure);
+    }
+    return AgentToolDispatchResult(
+        json: result.output ??
+            '{"ok":false,"error":{"code":"internal_error","message":"An internal error occurred.","retryable":false}}',
+        receipt: result.receipt);
   }
+
+  @override
+  Future<String> dispatch(String toolName, String argumentsJson) async =>
+      (await dispatchWithReceipt(toolName, argumentsJson)).json;
 }
 
 final class _RuntimeRetrievalScope implements RetrievalScopeResolverPort {
@@ -4584,8 +5222,11 @@ final class _RuntimeRetrievalSource implements RetrievalArtifactSourcePort {
       identity;
 }
 
-final class _RuntimeRetrievalIndex implements RetrievalIndexPort {
+final class _RuntimeRetrievalIndex
+    implements RetrievalIndexPort, RetrievalIndexEvidencePort {
   Future<void> Function()? onSearch;
+  int searchCalls = 0;
+  RetrievalBuildEffect buildEffect = RetrievalBuildEffect.unchanged;
   List<RetrievalHit> hits = const <RetrievalHit>[];
 
   @override
@@ -4594,6 +5235,20 @@ final class _RuntimeRetrievalIndex implements RetrievalIndexPort {
       required String chunkerVersion,
       required String lexicalProjectionVersion,
       required List<RetrievalChunk> chunks}) async {}
+
+  @override
+  Future<RetrievalBuildEffect> ensureBuildWithEvidence(
+      {required RetrievalArtifactSnapshot snapshot,
+      required String chunkerVersion,
+      required String lexicalProjectionVersion,
+      required List<RetrievalChunk> chunks}) async {
+    await ensureBuild(
+        snapshot: snapshot,
+        chunkerVersion: chunkerVersion,
+        lexicalProjectionVersion: lexicalProjectionVersion,
+        chunks: chunks);
+    return buildEffect; // Owning fixture's explicit cache transaction evidence.
+  }
 
   @override
   Future<void> removeIndex(String fileId) async {}
@@ -4609,6 +5264,7 @@ final class _RuntimeRetrievalIndex implements RetrievalIndexPort {
       required int limit,
       required int maxHitBytes,
       required int maxResultBytes}) async {
+    searchCalls++;
     await onSearch?.call();
     return RetrievalIndexSearchResult(
         hits: hits, sourceChangedFileIds: const <String>[]);
