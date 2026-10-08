@@ -304,7 +304,7 @@ accepted. In particular, Provider failure normalization does not relax fallback.
 
 AR-R1's bounded Provider round seam is delivered and accepted (COMPLETE / CLOSED).
 `agent-runtime-v1.md` owns its failure compatibility; OBS-1 owns terminal evidence.
-AR-R2's implementation candidate adds the typed Application Capability Kernel:
+AR-R2 adds the accepted typed Application Capability Kernel:
 Agent and MCP projections invoke one CapabilityExecutor, whose immutable registry
 binds typed identities to handlers over existing Application services. Permission,
 actual effect, execution status and output egress are separate semantics. Direct
@@ -313,15 +313,29 @@ Legacy Dispatchers parse/encode through projections and delegate to this typed
 path. The kernel has no Provider/MCP/JSON Schema/UI dependency. W0/SPL references
 are transient service-lifecycle references; retrieval uses transaction cache
 evidence and retains its Provider-bound grant and final serialization gate.
-Schema/B0 and formal W0 commit/SPL adoption authority stay unchanged. AR-R2 remains
-IMPLEMENTATION CANDIDATE: #241 merged and final-head CI succeeded, but independent
-final-head approval is not recorded. AR-R3 is the current implementation candidate:
-the retained Runtime facade delegates to concrete Coordinator/Engine/Policy/
-Finalizer responsibilities; ToolExecutor invokes receipt-bearing projections;
-transient canonical transcript groups retain complete calls/results/receipts.
-Provider-private continuation remains separate, unresolved executions never replay,
-and history prunes only whole units. No transcript/receipt reaches storage or logs.
-AR-R4 modules, external Host/IPC and READ fallback continuation are not implemented.
+Schema/B0 and formal W0 commit/SPL adoption authority stay unchanged.
+AR-R2 and AR-R3 are accepted merged stages under AGENTS.md's historical
+merged-stage rule. The retained Runtime facade delegates to concrete
+Coordinator/Engine/Policy/Finalizer responsibilities; ToolExecutor invokes
+receipt-bearing projections; transient canonical transcript groups retain
+complete calls/results/receipts. Provider-private continuation remains separate,
+unresolved executions never replay, and history prunes only whole units.
+No transcript/receipt reaches storage or logs.
+
+AR-R4's implementation candidate adds explicit source contributions in
+`application/modules`: validate the complete dependency graph, register/freeze
+one ApplicationCapabilityRegistry, validate/freeze Agent/MCP/finite UI surfaces,
+then publish one immutable composition. The production list captures explicit
+services for Study, Retrieval, MissingAnswer and StudyPlan. Registered Agent
+projections own their guidance; source removal removes those runtime surfaces
+while global migrations/readers/validators and B0 compatibility remain.
+The current UI IA and exactly-six MCP v0 wire owner are retained. Generic turn
+lifecycle/round execution, Provider protocol, permissions/effects, transcript,
+W0/SPL business lifecycles, fallback, schema v31 and B0 package v2 stay unchanged.
+External Host/IPC, generated durable Proposal and READ continuation remain targets.
+See `docs/product/agent-refactor/module-system.md` for this candidate's finite
+registration and compatibility scope; final acceptance still needs standing
+CI and independent semantic review.
 
 ## 7. Evolution discipline
 

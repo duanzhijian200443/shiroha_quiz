@@ -6,24 +6,24 @@
 library;
 
 import 'package:shiroha_quiz/application/study_query/study_query_service.dart';
+import 'package:shiroha_quiz/application/modules/module_composition.dart';
+import 'package:shiroha_quiz/application/modules/production_modules.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/core/database/sqflite_runtime.dart';
 import 'package:shiroha_quiz/data/repositories/question_repository.dart';
 import 'package:shiroha_quiz/data/repositories/review_repository.dart';
 
-import 'study_mcp_adapter.dart';
 import 'study_mcp_server.dart';
+import 'study_mcp_module_surface.dart';
 
 /// Builds the production stdio server over the T0 query service.
 StudyMcpServer buildStudyMcpServer() {
-  return StudyMcpServer(
-    adapter: StudyMcpAdapter(
-      service: StudyQueryService(
-        questionQuery: QuestionRepository(),
-        metricsQuery: ReviewRepository(),
-      ),
-    ),
+  final service = StudyQueryService(
+    questionQuery: QuestionRepository(),
+    metricsQuery: ReviewRepository(),
   );
+  final composition = const ModuleComposer().compose([studyModule(service)]);
+  return buildStudyMcpServerFromComposition(composition, service)!;
 }
 
 String _databasePathFromArguments(List<String> arguments) {

@@ -15,7 +15,6 @@ final class AgentRoundEngine {
   final AgentToolExecutor _tools;
   final AgentRuntimeLimits _limits;
   final ProviderRoundGateway _gateway = const ProviderRoundGateway();
-  final ShirohaSystemPrompt _systemPrompt = const ShirohaSystemPrompt();
 
   Future<String> _run(_ActiveTurn turn,
       {required ConversationThreadSlice slice,
@@ -42,21 +41,19 @@ final class AgentRoundEngine {
 
     turn.transcript!.initializeHistory(AgentHistoryBuilder(limits: _limits)
         .build(slice: slice, targetMessageId: userMessageId));
-    final proposalCapabilityEnabled = _tools.proposalCapabilityEnabled;
-    final studyPlanCapabilityEnabled = _tools.studyPlanCapabilityEnabled;
     final approvedIds = approval?.approvedFileIds ?? const <String>[];
     final hasRetrievalApproval = approvedIds.isNotEmpty;
-    final retrievalDispatcher = _tools.retrievalDispatcher;
-    final currentFileIds = retrievalDispatcher == null || !hasRetrievalApproval
+    final fileIds = _tools.effectiveFileIds;
+    final currentFileIds = fileIds == null || !hasRetrievalApproval
         ? const <String>[]
-        : await retrievalDispatcher.effectiveFileIds(
+        : await fileIds(
             scope: slice.conversation.scope,
             conversationFileIds:
                 slice.files.map((file) => file.fileId).toList(growable: false),
           );
     final retrievalGrant = hasRetrievalApproval &&
             approvedIds.every(currentFileIds.contains) &&
-            retrievalDispatcher != null
+            fileIds != null
         ? RetrievalEgressGrant(
             agentTurnRequestId: turn.requestId,
             conversationId: conversationId,
@@ -71,15 +68,10 @@ final class AgentRoundEngine {
         scope: slice.conversation.scope,
         providerProfileId: resolved.profile.profileId,
         grant: retrievalGrant);
-    final systemPrompt = _systemPrompt.build(
-      scope: slice.conversation.scope,
-      files: slice.files,
-      proposalCapabilityEnabled: proposalCapabilityEnabled,
-      studyPlanCapabilityEnabled: studyPlanCapabilityEnabled,
-      retrievalCapabilityEnabled: retrievalGrant != null,
-      retrievableFileIds:
-          retrievalGrant?.approvedFileIds.toSet() ?? const <String>{},
-    );
+    final systemPrompt = _tools.buildPrompt(
+        scope: slice.conversation.scope,
+        files: slice.files,
+        grant: retrievalGrant);
     var toolPhaseClosed = false;
     final baseTools = _tools.definitions(retrievalGrant);
 

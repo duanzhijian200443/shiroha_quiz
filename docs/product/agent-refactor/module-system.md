@@ -1,6 +1,7 @@
 # Source-level Module System
 
-Status: **FROZEN target contract; not implemented by AR-R0.**
+Status: **FROZEN contract; AR-R4 IMPLEMENTATION CANDIDATE, pending final-target
+standing CI and independent semantic review.**
 
 Authority/activation: [index](README.md). This contract applies repository-wide
 to the source-level modular monolith, not just Assistant modules.
@@ -89,3 +90,75 @@ valid data under storage validation. Disabled features cannot bypass schema or
 corrupt-payload failure. GeneratedQuestion/MCP additions in AR-R5/AR-R6 exercise
 this with real feature boundaries. Rollback hides contributions, retains storage
 compatibility, and never loads an incompatible older binary after schema upgrade.
+
+## 7. AR-R4 implementation boundary
+
+`application/modules/module_composition.dart` implements `ModuleId`,
+`ModuleContribution`, four finite registrars, `ModuleComposer`,
+`ModuleComposition` and safe typed `ModuleCompositionException` failures.
+Module IDs and projection/UI keys are explicit lowercase source tokens of
+1..64 characters (`[a-z][a-z0-9_]*`). Required dependencies are immutable;
+duplicates within the dependency list are invalid contributions.
+
+Composition validates the entire graph before invoking callbacks. It consumes
+each complete eligible topology layer in ModuleId order, registers all
+capabilities into the retained `ApplicationCapabilityRegistry`, freezes that
+phase, builds projections against its one executor, and returns one immutable
+composition only after every phase succeeds. Registrars close on both success
+and failure and cannot mutate the frozen result when retained by a callback.
+Callback exceptions become `invalid_module_contribution` without exception text.
+Agent/MCP bindings match both capability identity and input/output types.
+
+The fixed failure codes are `duplicate_module`, `missing_dependency`,
+`dependency_cycle`, `duplicate_capability`, `duplicate_agent_projection`,
+`duplicate_mcp_projection`, `duplicate_ui_key`,
+`projection_missing_capability` and `invalid_module_contribution`.
+There is no partially returned UI/Agent/MCP surface on failure.
+
+`production_modules.dart` owns the explicit production list: `study`,
+`retrieval`, `missing_answer`, `study_plan`. They capture already constructed
+Application services/ports. They currently require no other runtime module:
+their service dependencies are explicit constructor inputs, not fake Core
+contributions. Composition order is `missing_answer`, `retrieval`, `study`,
+`study_plan`; each registry preserves that deterministic registration order.
+
+The Agent adapter separately retains the accepted Provider catalog order:
+six Study reads, W0, StudyPlan, then granted Retrieval. Explicit projection
+`exposureOrder` values preserve that wire-facing order; ties preserve registration
+order. Guidance remains in deterministic registration order at finite prompt
+slots, preserving the accepted prompt byte for byte with the default list.
+Retrieval exposure/guidance additionally requires its existing per-turn grant.
+Its narrow effective-file callback and serialization gate retain recipient,
+current-file, source-turn and cancellation checks. Only the current single file
+egress projection is supported; multiple egress projections fail composition.
+Neither registration nor visibility grants Application permission.
+
+The Runtime facade accepts a frozen `AgentSurface`; its old Dispatcher constructor
+arguments remain a compatibility bridge. A surface and legacy Dispatchers cannot
+be combined. Adding a synthetic read changes only its contribution/list, and
+the same generic loop executes it with typed receipts and one final Assistant
+append. Existing W0/SPL presentation events remain the retained bridge; their
+lifecycle, approval commands and fallback barriers do not change. AR-R8 owns
+any later artifact/controller decomposition.
+
+MCP contributions are typed capability/key descriptors. The v0 converter under
+`lib/mcp/` accepts exactly the six retained Study bindings or no surface; an
+absent Study MCP contribution produces no server. SDK schemas, annotations,
+stdio and result encoding stay in their existing adapter owners. Other feature
+modules contribute no MCP tools. Future profiles need their own adapter contract.
+
+UI registration is limited to `workspaceAction` and `assistantArtifact` shell
+descriptors with explicit unique keys. The production list currently contributes
+no UI descriptors and keeps existing hardened IA/presenters. Synthetic fixtures
+exercise registration/removal and duplicate-key failure; this stage introduces
+no Widget registry, route DSL or navigation rewrite.
+
+Global storage and B0 recovery initialize before module publication. No module
+has a migration callback. StudyPlan's published durable data is the storage
+compatibility fixture: enabled -> disabled -> close/reopen -> strict reader/schema
+validation -> real B0 export/restore -> re-enabled retains its data and schema.
+The same B0 admission rejects corrupt StudyPlan data with the runtime contribution
+absent. Schema v31, package v2, credential exclusion and storage owners are retained.
+The new contract tests run as hard-failing standing PR suites alongside existing
+Runtime, fallback, capability, MCP and B0 regressions. No AR-R5/R6/R7/R8 feature
+is activated by this candidate.

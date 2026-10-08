@@ -1,0 +1,72 @@
+[
+  {
+    "path": "lib/application/agent/agent_round_engine.dart",
+    "anchor": "    var toolPhaseClosed = false;",
+    "sha256": "ff891fa28a43d818a956f18865d75a6fac0216a38fb270a3a574404063280a02"
+  },
+  {
+    "path": "lib/application/agent/agent_turn_coordinator.dart",
+    "anchor": "  AgentTurnSession startTurn(",
+    "sha256": "2bae8ffbbc3239d95f69ca9716a938704754e174e32ee26d79025f9be9b78b97"
+  },
+  {
+    "path": "lib/application/agent/agent_turn_policy.dart",
+    "anchor": null,
+    "sha256": "7630cb306eaced47e10f7895efb54f973b9ee288037a122eb4304904f709e5d7"
+  },
+  {
+    "path": "lib/application/agent/agent_turn_transcript.dart",
+    "anchor": null,
+    "sha256": "0619f2fac7017f169ed7906d9bbc0285f79f032bcb9831da5fdd89cb31df34a5"
+  },
+  {
+    "path": "lib/application/agent/agent_turn_finalizer.dart",
+    "anchor": null,
+    "sha256": "84d77d874a227ba9e64ef3bd6fc26bc36ace3503cba27dc7f20103df1a2c4d4b"
+  },
+  {
+    "path": "lib/application/agent/provider_round_gateway.dart",
+    "anchor": null,
+    "sha256": "203473b9314d78cde26df93c9eba58f993a1fe54483982fdb22a00ba885301b7"
+  },
+  {
+    "path": "lib/application/agent/provider_round.dart",
+    "anchor": null,
+    "sha256": "f5bb9d9954732db2575833607b0dc5b3578b58c14a067cf7a89ae7be0a3676cc"
+  },
+  {
+    "path": "lib/services/agent/deepseek_responses_provider.dart",
+    "anchor": null,
+    "sha256": "0b575cf96195ecd944c1cecdac91b7af3d2f3a547f74841704992318dea7c546"
+  },
+  {
+    "path": "lib/application/capabilities/capability.dart",
+    "anchor": null,
+    "sha256": "cdaa4ba01c556b03b6fddf5848c0bdc261e0146ae4b5312a2c20c98e378ee3b6"
+  },
+  {
+    "path": "lib/core/database/database_helper.dart",
+    "anchor": null,
+    "sha256": "24704ab5cc1e88eacf87b661cfa7661e518c7ca9f17e3e26f88d2f32c0adec4f"
+  },
+  {
+    "path": "lib/core/database/study_plan_v22_schema.dart",
+    "anchor": null,
+    "sha256": "d57b5384bfc54625dfc5f88a381913337980866ba70b0ede0088f29def0954e2"
+  },
+  {
+    "path": "lib/data/repositories/backup_snapshot_repository.dart",
+    "anchor": null,
+    "sha256": "28a87652c6569fbadddc985a6a0267d30dffb08998ef59f8085071201742f2ae"
+  },
+  {
+    "path": "lib/services/backup/backup_restore_runtime.dart",
+    "anchor": null,
+    "sha256": "2de70923c5a796ebde96e14d3c5dc1078c0eef7835825c093f5dbbbff3d81472"
+  },
+  {
+    "path": "lib/mcp/study_mcp_server.dart",
+    "anchor": null,
+    "sha256": "c067edc15be605682b07ec128233874bb428c968292cac7f5b594c7f41b430c8"
+  }
+]

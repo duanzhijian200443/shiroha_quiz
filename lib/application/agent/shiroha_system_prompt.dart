@@ -8,6 +8,8 @@ library;
 
 import '../../domain/conversations/conversation.dart';
 import '../conversations/conversation_repository.dart';
+import 'agent_surface.dart';
+import 'agent_feature_guidance.dart';
 
 final class ShirohaSystemPrompt {
   const ShirohaSystemPrompt();
@@ -18,8 +20,19 @@ final class ShirohaSystemPrompt {
     bool studyPlanCapabilityEnabled = false,
     bool retrievalCapabilityEnabled = false,
     Set<String> retrievableFileIds = const <String>{},
+    List<AgentPromptGuidance>? registeredGuidance,
     List<ConversationFileRef> files = const <ConversationFileRef>[],
   }) {
+    final guidance = registeredGuidance ??
+        [
+          if (proposalCapabilityEnabled) missingAnswerGuidance,
+          if (studyPlanCapabilityEnabled) studyPlanGuidance,
+          studyGuidance,
+          if (retrievalCapabilityEnabled) retrievalToolGuidance,
+          if (retrievalCapabilityEnabled) retrievalAvailabilityGuidance,
+        ];
+    String slot(AgentGuidanceSlot slot) =>
+        guidance.where((g) => g.slot == slot).map((g) => g.text).join();
     final buffer = StringBuffer()
       ..writeln('You are Shiroha, the learning assistant in Shiroha Quiz.')
       ..writeln()
@@ -49,51 +62,11 @@ final class ShirohaSystemPrompt {
         'committed, a study plan was activated, or formal data was modified '
         'before explicit user confirmation.',
       );
-    if (proposalCapabilityEnabled) {
-      buffer
-        ..writeln(
-          '- You may request a DRAFT/STAGE proposal for a missing typed '
-          'answer with propose_missing_answer.',
-        )
-        ..writeln(
-          '- You cannot approve, commit, replace, clear, or delete answers.',
-        )
-        ..writeln('- Natural-language agreement is not approval.')
-        ..writeln(
-          '- Never claim that a proposal was committed or formally written.',
-        );
-    }
-    if (studyPlanCapabilityEnabled) {
-      buffer
-        ..writeln(
-          '- When the user asks for a study plan, you may inspect learning '
-          'state with study tools and stage a proposal with propose_study_plan.',
-        )
-        ..writeln(
-          '- Calling propose_study_plan only stages a draft for review; '
-          'it does not adopt, activate, or persist the plan.',
-        )
-        ..writeln(
-          '- Tell the user to review the proposal card and tap the action '
-          'button to explicitly adopt the plan.',
-        )
-        ..writeln('- Natural-language agreement is not formal adoption.')
-        ..writeln(
-          '- Never claim that a study plan was saved or activated before '
-          'formal confirmation.',
-        )
-        ..writeln(
-          '- Do not repeatedly regenerate an identical StudyPlan proposal '
-          'unless requested or required.',
-        );
-    }
+    buffer.write(slot(AgentGuidanceSlot.permission));
     buffer
       ..writeln()
       ..writeln('Tool behavior:')
-      ..writeln('- Use local study tools when study data is needed.')
-      ..writeln(
-        '- Prefer aggregate study tools before per-question detail tools.',
-      )
+      ..write(slot(AgentGuidanceSlot.studyTools))
       ..writeln(
         '- Use the minimum number of tool calls needed for a reliable answer.',
       )
@@ -115,10 +88,9 @@ final class ShirohaSystemPrompt {
         'instead of pretending that a partial sample represents the whole.',
       )
       ..writeln('- Stop calling tools once enough evidence is available.')
-      ..writeln(retrievalCapabilityEnabled
-          ? '- When the answer depends on an attached file, use '
-              'retrieve_file_content before study tools.'
-          : '- Do not use study tools to guess or recover unavailable file content.')
+      ..write(slot(AgentGuidanceSlot.fileTool).isNotEmpty
+          ? slot(AgentGuidanceSlot.fileTool)
+          : '- Do not use study tools to guess or recover unavailable file content.\n')
       ..writeln(
         '- Do not repeat a tool call with the same name and arguments after it '
         'returns a result or a non-retryable error.',
@@ -139,13 +111,9 @@ final class ShirohaSystemPrompt {
       ..writeln()
       ..writeln('Files:')
       ..writeln('- Attached File metadata may be available.')
-      ..writeln(retrievalCapabilityEnabled
-          ? '- Approved file text is available only through '
-              'retrieve_file_content for this turn.'
-          : '- File contents, PDFs, and images are NOT available in A0 v0.')
-      ..writeln(retrievalCapabilityEnabled
-          ? '- Never claim to read content outside the approved tool result.'
-          : '- Never pretend a file was read.')
+      ..write(slot(AgentGuidanceSlot.fileAvailability).isNotEmpty
+          ? slot(AgentGuidanceSlot.fileAvailability)
+          : '- File contents, PDFs, and images are NOT available in A0 v0.\n- Never pretend a file was read.\n')
       ..writeln()
       ..writeln('Conversation scope:');
     if (scope.kind == ConversationScopeKind.global) {

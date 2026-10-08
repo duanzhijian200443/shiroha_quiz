@@ -151,12 +151,15 @@ void main() {
       }
       final allowedUris = <String>[
         'package:shiroha_quiz/application/study_query/study_query_service.dart',
+        'package:shiroha_quiz/application/modules/module_composition.dart',
+        'package:shiroha_quiz/application/modules/production_modules.dart',
         'package:shiroha_quiz/core/database/database_helper.dart',
         'package:shiroha_quiz/core/database/sqflite_runtime.dart',
         'package:shiroha_quiz/data/repositories/question_repository.dart',
         'package:shiroha_quiz/data/repositories/review_repository.dart',
         'study_mcp_adapter.dart',
         'study_mcp_server.dart',
+        'study_mcp_module_surface.dart',
       ];
       for (final uri in _imports(source)) {
         expect(
@@ -171,6 +174,36 @@ void main() {
       expect(source, contains('ReviewRepository()'));
       expect(source, contains('DatabaseRuntimeProfile.explicitReadOnly'));
       expect(source, contains("'--database-path'"));
+      expect(
+          source, contains('ModuleComposer().compose([studyModule(service)])'));
+      expect(source,
+          contains('buildStudyMcpServerFromComposition(composition, service)'));
+      expect(source, isNot(contains('StudyCapabilities.ids')));
+      expect(source, isNot(contains('CapabilityExecutor(')));
+    });
+
+    test(
+        'module descriptor converter has only finite Application/adapter dependencies',
+        () {
+      const path = 'lib/mcp/study_mcp_module_surface.dart';
+      final source = File(path).readAsStringSync();
+      _expectForbiddenTokensAbsent(path, source);
+      const allowed = [
+        'package:shiroha_quiz/application/modules/module_composition.dart',
+        'package:shiroha_quiz/application/capabilities/capability.dart',
+        'package:shiroha_quiz/application/study_query/study_capabilities.dart',
+        'package:shiroha_quiz/application/study_query/study_query_service.dart',
+        'study_mcp_adapter.dart',
+        'study_mcp_server.dart',
+      ];
+      for (final uri in _imports(source)) {
+        expect(allowed, contains(uri),
+            reason: 'Descriptor conversion crosses a layer.');
+      }
+      expect(source, contains('composition.mcpSurface.isEmpty'));
+      expect(source, contains('StudyCapabilities.ids.length'));
+      expect(source, contains('p.key == id.value && p.capabilityId == id'));
+      expect(source, contains('CapabilityExecutor(composition.capabilities)'));
     });
 
     test('M0 transport is local stdio only, never HTTP/OAuth/remote', () {

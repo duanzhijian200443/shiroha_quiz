@@ -19,6 +19,7 @@ import '../safe_write/missing_answer_capability.dart';
 import '../study_plan/study_plan_capability.dart';
 import '../retrieval/retrieval_capability.dart';
 import 'agent_tool_projection.dart';
+import 'agent_surface.dart';
 import 'agent_turn_transcript.dart';
 import 'agent_config.dart';
 import 'agent_config_service.dart';
@@ -54,7 +55,8 @@ final class ShirohaAgentRuntime {
       {required ConversationService conversationService,
       required AgentRuntimeConfigResolver configResolver,
       required AgentProviderFactory providerFactory,
-      required AgentStudyToolDispatcher toolDispatcher,
+      AgentStudyToolDispatcher? toolDispatcher,
+      AgentSurface? agentSurface,
       AgentWriteProposalToolDispatcher? proposalDispatcher,
       AgentStudyPlanToolDispatcher? studyPlanDispatcher,
       AgentRetrievalToolDispatcher? retrievalDispatcher,
@@ -64,6 +66,7 @@ final class ShirohaAgentRuntime {
             configResolver: configResolver,
             providerFactory: providerFactory,
             toolDispatcher: toolDispatcher,
+            agentSurface: agentSurface,
             proposalDispatcher: proposalDispatcher,
             studyPlanDispatcher: studyPlanDispatcher,
             retrievalDispatcher: retrievalDispatcher,

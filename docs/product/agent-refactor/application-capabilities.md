@@ -1,7 +1,7 @@
 # Application Capability Kernel
 
-Status: **FROZEN target contract; AR-R2 IMPLEMENTATION CANDIDATE / active
-implementation stage, pending final-head CI and independent review.**
+Status: **FROZEN contract; AR-R2 COMPLETE / CLOSED; AR-R4 registration integration
+IMPLEMENTATION CANDIDATE pending standing CI and independent review.**
 
 Authority/activation: [index](README.md). This document owns semantic capability,
 permission/effect/receipt and adapter projection boundaries. Runtime, external
@@ -136,7 +136,7 @@ and tests; it must not require Round Engine, Provider or unrelated controller
 flags to change. Future Proposal kinds still own dedicated commands and
 persistence, never a generic `commit(Map)`.
 
-## 6. AR-R2 Dart implementation candidate
+## 6. AR-R2 Dart implementation and AR-R4 registration candidate
 
 `lib/application/capabilities/capability.dart` implements the eight frozen
 semantic concepts as immutable concrete values, enums, one explicit registry and
@@ -226,9 +226,10 @@ none. Revoked release cannot erase a committed cache effect.
 and legacy encoding; catalogs retain all nine original schemas/descriptions.
 `McpCapabilityProjection` binds only the same six typed Study definitions and
 preserves names, schemas, annotations and exact v0 envelopes/stdio errors.
-The four Dispatchers remain thin facades; none is called by a handler. Main
-constructs one nine-capability registry/executor and injects it into the facades.
-The independent MCP v0 process constructs the same six typed Study handlers.
+The four Dispatchers remain thin compatibility facades; none is called by a
+handler. AR-R4 contributions register the same nine definitions into the one
+registry/executor and build immutable Agent projections over it. The independent
+MCP v0 process composes only Study and consumes the same six typed handlers.
 
 Focused kernel/authorization/receipt/cache/encoding/projection tests and retained
 compatibility suites run in hard-failing standing PR contracts. Runtime tests
@@ -236,7 +237,8 @@ exercise a real study facade/executor/handler chain and preserve exact budget
 closure, no fallback after READ and terminal persistence. AR-R3 now consumes
 receipt-bearing Dispatcher methods in a bounded ToolExecutor and retains receipt
 evidence in transient atomic transcript groups; the Kernel, permissions, effects,
-registry, W0/SPL lifecycle and MCP semantics are unchanged. AR-R4 module
-registration, external authority/IPC, durable generated proposals
-and AR-R7 READ continuation remain unimplemented. SQLite schema remains v31;
+registry, W0/SPL lifecycle and MCP semantics are unchanged. AR-R4 source module
+registration is an implementation candidate under `module-system.md`; external
+authority/IPC, durable generated proposals and AR-R7 READ continuation remain
+unimplemented. SQLite schema remains v31;
 B0 storage and all formal mutation/recovery commands are unchanged.
