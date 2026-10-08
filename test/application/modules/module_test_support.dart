@@ -6,19 +6,27 @@ import 'package:shiroha_quiz/application/capabilities/capability.dart';
 import 'package:shiroha_quiz/application/modules/module_composition.dart';
 
 const fixtureId = CapabilityId<void, String>('fixture_read');
-CapabilityDefinition<void, String> fixtureCapability() => CapabilityDefinition(
-    id: fixtureId,
-    permission: CapabilityPermission.read,
-    permittedEffects: const [CapabilityEffect.none],
-    semantics: CapabilityExecutionSemantics.repeatableRead,
-    handler: CapabilityHandler((input, context, evidence) async =>
-        CapabilityEvidence.completed('fixture result', CapabilityEffect.none)));
+CapabilityDefinition<void, String> fixtureCapability(
+        {CapabilityPermission permission = CapabilityPermission.read,
+        void Function()? onInvoke}) =>
+    CapabilityDefinition(
+        id: fixtureId,
+        permission: permission,
+        permittedEffects: const [CapabilityEffect.none],
+        semantics: CapabilityExecutionSemantics.repeatableRead,
+        handler: CapabilityHandler((input, context, evidence) async {
+          onInvoke?.call();
+          return CapabilityEvidence.completed(
+              'fixture result', CapabilityEffect.none);
+        }));
 
 RegisteredAgentProjection fixtureProjection(CapabilityExecutor executor,
         {String key = 'fixture_tool',
-        CapabilityId<void, String> id = fixtureId}) =>
+        CapabilityId<void, String> id = fixtureId,
+        CapabilityPermission permission = CapabilityPermission.read}) =>
     RegisteredAgentProjection(
       capabilityId: id,
+      permission: permission,
       definition: AgentFunctionToolDefinition(
           name: key,
           description: 'Synthetic fixture read.',

@@ -135,7 +135,12 @@ Neither registration nor visibility grants Application permission.
 
 The Runtime facade accepts a frozen `AgentSurface`; its old Dispatcher constructor
 arguments remain a compatibility bridge. A surface and legacy Dispatchers cannot
-be combined. Adding a synthetic read changes only its contribution/list, and
+be combined. Built-in Agent projections are limited to READ and STAGE: composing
+any other projection permission fails with `invalid_module_contribution`, and the
+Runtime independently rejects such a surface. Module registration or projection
+visibility never grants COMMIT/DESTRUCTIVE authority; that authority remains
+exclusive to explicit formal-approval contexts. Adding a synthetic read changes
+only its contribution/list, and
 the same generic loop executes it with typed receipts and one final Assistant
 append. Existing W0/SPL presentation events remain the retained bridge; their
 lifecycle, approval commands and fallback barriers do not change. AR-R8 owns

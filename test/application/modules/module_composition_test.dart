@@ -139,6 +139,33 @@ void main() {
           failure(ModuleCompositionFailure.projectionMissingCapability));
     });
   }
+  test(
+      'COMMIT/DESTRUCTIVE Agent projections fail closed with zero handler calls',
+      () {
+    var invocations = 0;
+    for (final permission in [
+      CapabilityPermission.commit,
+      CapabilityPermission.destructive
+    ]) {
+      final privileged = ModuleContribution(
+          id: const ModuleId('privileged'),
+          registerCapabilities: (r) => r.registerCapability(fixtureCapability(
+              permission: permission, onInvoke: () => invocations++)),
+          registerAgent: (r) => r.registerAgentProjection((executor) =>
+              fixtureProjection(executor, permission: permission)));
+      expect(() => composer.compose([privileged]),
+          failure(ModuleCompositionFailure.invalidModuleContribution));
+    }
+    expect(invocations, 0);
+    final staged = ModuleContribution(
+        id: const ModuleId('legal_stage'),
+        registerCapabilities: (r) => r.registerCapability(
+            fixtureCapability(permission: CapabilityPermission.stage)),
+        registerAgent: (r) => r.registerAgentProjection((executor) =>
+            fixtureProjection(executor,
+                permission: CapabilityPermission.stage)));
+    expect(composer.compose([staged]).agentSurface.projections, hasLength(1));
+  });
   test('source callback exceptions are redacted and publication is atomic', () {
     var published = composer.compose([fixtureModule()]);
     final old = published;

@@ -222,6 +222,10 @@ final class ModuleComposer {
         _fail(ModuleCompositionFailure.duplicateAgentProjection);
       }
       validateBinding(projection.capabilityId);
+      if (projection.permission != CapabilityPermission.read &&
+          projection.permission != CapabilityPermission.stage) {
+        _fail(ModuleCompositionFailure.invalidModuleContribution);
+      }
       agents.add(projection);
     });
     final mcps = <ModuleMcpProjection>[];

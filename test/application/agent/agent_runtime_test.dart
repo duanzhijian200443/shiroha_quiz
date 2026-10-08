@@ -147,6 +147,29 @@ void main() {
         expect(session.transcript!.finalAssistant!.content, 'fixture final');
       });
     }
+
+    test('Runtime rejects Agent surfaces exposing COMMIT/DESTRUCTIVE uniformly',
+        () {
+      for (final permission in [
+        CapabilityPermission.commit,
+        CapabilityPermission.destructive
+      ]) {
+        final surface = AgentSurface([
+          RegisteredAgentProjection(
+              capabilityId: fixtureId,
+              permission: permission,
+              definition: AgentFunctionToolDefinition(
+                  name: 'privileged_tool',
+                  description: 'Synthetic privileged fixture.',
+                  inputSchema: const <String, Object?>{
+                    'type': 'object',
+                    'properties': <String, Object?>{}
+                  }),
+              dispatch: (_) async => throw StateError('must never dispatch'))
+        ]);
+        expect(() => _Harness(agentSurface: surface), throwsArgumentError);
+      }
+    });
   });
 
   group('AR-R3 transcript / receipt integration', () {

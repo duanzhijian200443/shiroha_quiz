@@ -30,6 +30,13 @@ final class AgentToolExecutor {
       throw ArgumentError(
           'Agent surface and legacy Dispatchers cannot be combined.');
     }
+    if (agentSurface != null &&
+        agentSurface.projections.any((projection) =>
+            projection.permission != CapabilityPermission.read &&
+            projection.permission != CapabilityPermission.stage)) {
+      throw ArgumentError(
+          'Agent projections must be READ or STAGE for the built-in Agent.');
+    }
     _bindings = Map.unmodifiable(agentSurface != null
         ? {
             for (final projection in agentSurface.projections)
