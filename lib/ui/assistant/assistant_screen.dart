@@ -16,6 +16,7 @@ import 'global_sidebar.dart';
 import 'learning_spaces_screen.dart';
 import 'workspace_controller.dart';
 import 'workspace_pages.dart';
+import '../generated_question/generated_proposal_inbox_screen.dart';
 
 @immutable
 class AssistantComposerPrefillRequest {
@@ -575,6 +576,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
           ],
         ),
         actions: [
+          const GeneratedProposalWorkspaceAction(),
           IconButton(
             key: const ValueKey<String>('u1-ux0-new-conversation'),
             tooltip: '新对话',

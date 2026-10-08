@@ -2,6 +2,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../application/backup/backup_restore_gate.dart';
 import '../../application/generated_question/generated_question_service.dart';
+import '../../application/generated_question/generated_local_authority.dart';
 import '../../core/database/database_helper.dart';
 import '../../core/database/sqflite_runtime.dart';
 import '../../core/database/training_content_binding_lifecycle.dart';
@@ -402,6 +403,26 @@ final class GeneratedProposalRepository
         generatedFail(GeneratedFailure.proposalUnavailable);
       }
       return _evidence(db, p.target, matches.single);
+    });
+  }
+
+  /// Same R5A resolver, with read-only first-party ownership authority.
+  Future<List<Object?>> evidenceStateForLocalRead(
+      String proposalId, String itemId, GeneratedLocalReadAuthority authority) {
+    authority.validate();
+    return _query((db) async {
+      final p = await readGeneratedProposal(db, proposalId);
+      authority.validate();
+      if (p.localOwner != authority.localOwner) {
+        generatedFail(GeneratedFailure.proposalUnavailable);
+      }
+      final matches = p.items.where((i) => i.itemId == itemId);
+      if (matches.length != 1) {
+        generatedFail(GeneratedFailure.proposalUnavailable);
+      }
+      final states = await _evidence(db, p.target, matches.single);
+      authority.validate();
+      return states;
     });
   }
 

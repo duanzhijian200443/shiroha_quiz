@@ -399,7 +399,12 @@ jobs:
             'test/application/generated_question/generated_question_storage_test.dart',
             'test/application/generated_question/generated_question_evidence_test.dart',
             'test/application/generated_question/generated_question_backup_test.dart',
-            'test/application/generated_question/generated_question_architecture_test.dart'
+            'test/application/generated_question/generated_question_architecture_test.dart',
+            'test/application/generated_question/generated_local_authority_test.dart',
+            'test/application/generated_question/generated_local_authority_backup_test.dart',
+            'test/ui/generated_question/generated_proposal_preview_test.dart',
+            'test/ui/generated_question/generated_proposal_edit_test.dart',
+            'test/ui/generated_question/generated_proposal_approval_test.dart'
           )
 
           $shardCount = 4

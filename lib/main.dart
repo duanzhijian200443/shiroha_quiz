@@ -778,6 +778,7 @@ void main() {
           ShirohaQuizApp(
             generatedLocalAuthority: localAuthority,
             generatedQuestionService: generatedQuestionService,
+            generatedUiContributions: moduleComposition.uiContributions,
             taskCenter: createTaskCenterDependencies(
                 manager: taskManager,
                 coordinator: importTaskCoordinator,
@@ -870,6 +871,7 @@ class ShirohaQuizApp extends StatelessWidget {
     super.key,
     this.generatedLocalAuthority,
     this.generatedQuestionService,
+    this.generatedUiContributions = const [],
     required this.engineRepository,
     required this.aiConfigService,
     required this.aiService,
@@ -919,6 +921,7 @@ class ShirohaQuizApp extends StatelessWidget {
   final AiEngineRepository engineRepository;
   final GeneratedLocalAuthorityFactory? generatedLocalAuthority;
   final GeneratedQuestionService? generatedQuestionService;
+  final List<ModuleUiContribution> generatedUiContributions;
   final AiConfigPresentationService aiConfigService;
   final AiService aiService;
   final ImportPipelineService importPipelineService;
@@ -1026,6 +1029,8 @@ class ShirohaQuizApp extends StatelessWidget {
                     key: ObjectKey(generatedLocalAuthority),
                     authority: generatedLocalAuthority!,
                     service: generatedQuestionService!,
+                    contributions: generatedUiContributions,
+                    onCommitted: () => globalBankUpdateNotifier.value++,
                     child: materialApp);
         final activityContent = studyActivity == null
             ? generatedContent

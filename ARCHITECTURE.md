@@ -338,11 +338,13 @@ retained schema v31. Accepted AR-R5A adds schema v32
 durable generated Proposal originals, review CAS, explicit local approval and
 one-transaction typed Question/receipt persistence. It contributes internal
 READ only, with no Agent/MCP/UI surface. External Host/IPC and READ continuation
-remain targets. AR-R5B-P0 adds a candidate first-party local authority factory:
-one UUID in existing app_settings, separate owner-scoped read sessions and
-explicit target-confirmation Contexts, invalidated on restore recomposition.
+remain targets. Candidate AR-R5B adds module-controlled first-party Inbox/history,
+structural typed Review/edit/Flush/CAS, explicit approval/rejection and Receipt
+recovery. Its local authority uses one UUID in existing app_settings, separate
+owner-scoped read sessions and target-confirmation Contexts, invalidated on restore
+recomposition.
 It changes no schema, Proposal codec, Receipt, B0 format or Agent/MCP permissions;
-Review UI remains unimplemented. See
+Independent acceptance remains pending. See
 `docs/product/agent-refactor/generated-question-proposals.md`.
 See `docs/product/agent-refactor/module-system.md` for its finite registration
 and compatibility scope. AR-R4 was accepted and merged in PR #243 after

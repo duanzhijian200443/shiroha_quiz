@@ -155,8 +155,8 @@ stdio and result encoding stay in their existing adapter owners. Other feature
 modules contribute no MCP tools. Future profiles need their own adapter contract.
 
 UI registration is limited to `workspaceAction` and `assistantArtifact` shell
-descriptors with explicit unique keys. The production list currently contributes
-no UI descriptors and keeps existing hardened IA/presenters. Synthetic fixtures
+descriptors with explicit unique keys. AR-R4 contributed no production UI
+descriptors and kept existing hardened IA/presenters. Synthetic fixtures
 exercise registration/removal and duplicate-key failure; this stage introduces
 no Widget registry, route DSL or navigation rewrite.
 
@@ -180,9 +180,12 @@ classification. Migration and validation remain mandatory without the module.
 Pending working edits and terminal receipts survive restart/export/restore and
 re-enable; corrupt retained data fails admission with the contribution absent.
 
-AR-R5B-P0 is a local-authority implementation candidate. First-party composition
+AR-R5B is a generated Review UI implementation candidate. First-party composition
 separately injects its local session/target-confirmation factory and the existing
 GeneratedQuestionService; the authority is never captured by Agent/MCP
-projections. P0 adds no UI descriptor or generated-review entrypoint. The
-generated-question contract owns identity retention and restore invalidation;
+projections. Its one `workspaceAction` descriptor `generated_proposal_review`
+maps explicitly to an Assistant AppBar action at both responsive sizes; absence
+of the contribution hides the entry. No generic Widget/route registry is added.
+The generated-question contract owns typed Review, explicit terminal commands,
+identity retention and restore invalidation;
 the existing module removal and retained-storage semantics remain unchanged.

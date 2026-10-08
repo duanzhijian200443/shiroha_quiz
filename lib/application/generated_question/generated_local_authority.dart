@@ -34,10 +34,24 @@ final class GeneratedLocalReadAuthority {
 }
 
 abstract interface class GeneratedLocalProposalReadPort {
+  Future<List<GeneratedQuestionProposal>> completed(
+      GeneratedLocalReadAuthority authority);
+  Future<List<GeneratedReviewTargetChoice>> targets(
+      GeneratedLocalReadAuthority authority);
   Future<List<GeneratedQuestionProposal>> pending(
       GeneratedLocalReadAuthority authority);
   Future<GeneratedQuestionProposal> read(
       String proposalId, GeneratedLocalReadAuthority authority);
+  Future<List<Object?>> evidenceState(
+      String proposalId, String itemId, GeneratedLocalReadAuthority authority);
+}
+
+final class GeneratedReviewTargetChoice {
+  const GeneratedReviewTargetChoice(this.target, this.projectName);
+  final GeneratedTarget target;
+  final String? projectName;
+  String get label =>
+      '${projectName ?? '本地'} · ${target.bankName} · ${target.folderName ?? '未分类'}';
 }
 
 /// First-party UI composition only; never injected into Agent/MCP projections.
@@ -94,10 +108,35 @@ final class GeneratedLocalAuthoritySession {
     return result;
   }
 
+  Future<List<GeneratedQuestionProposal>> completed() async {
+    final authority = _readAuthority;
+    authority.validate();
+    final result = await _proposals.completed(authority);
+    authority.validate();
+    return result;
+  }
+
   Future<GeneratedQuestionProposal> read(String proposalId) async {
     final authority = _readAuthority;
     authority.validate();
     final result = await _proposals.read(proposalId, authority);
+    authority.validate();
+    return result;
+  }
+
+  Future<List<Object?>> evidenceState(String proposalId, String itemId) async {
+    final authority = _readAuthority;
+    authority.validate();
+    final result =
+        await _proposals.evidenceState(proposalId, itemId, authority);
+    authority.validate();
+    return result;
+  }
+
+  Future<List<GeneratedReviewTargetChoice>> targets() async {
+    final authority = _readAuthority;
+    authority.validate();
+    final result = await _proposals.targets(authority);
     authority.validate();
     return result;
   }

@@ -20,6 +20,18 @@ final class _DelayedIdentity implements GeneratedLocalIdentityPort {
 }
 
 final class _DelayedRead implements GeneratedLocalProposalReadPort {
+  @override
+  Future<List<GeneratedQuestionProposal>> completed(
+          GeneratedLocalReadAuthority authority) =>
+      throw UnimplementedError();
+  @override
+  Future<List<GeneratedReviewTargetChoice>> targets(
+          GeneratedLocalReadAuthority authority) =>
+      throw UnimplementedError();
+  @override
+  Future<List<Object?>> evidenceState(String proposalId, String itemId,
+          GeneratedLocalReadAuthority authority) =>
+      throw UnimplementedError();
   final started = Completer<void>();
   final result = Completer<List<GeneratedQuestionProposal>>();
   @override

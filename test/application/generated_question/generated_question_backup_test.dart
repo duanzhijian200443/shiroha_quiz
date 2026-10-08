@@ -97,7 +97,9 @@ void main() {
     expect(compose(true).capabilities.definitions, hasLength(1));
     expect(compose(true).agentSurface.projections, isEmpty);
     expect(compose(true).mcpSurface, isEmpty);
-    expect(compose(true).uiContributions, isEmpty);
+    expect(
+        compose(true).uiContributions.single.key, 'generated_proposal_review');
+    expect(compose(false).uiContributions, isEmpty);
     expect(compose(false).capabilities.definitions, isEmpty);
     await h.reopen();
     await DatabaseHelper.validateStagedBackupSchema(h.db);

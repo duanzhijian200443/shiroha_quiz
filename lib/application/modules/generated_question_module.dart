@@ -15,10 +15,13 @@ final class GeneratedProposalRead {
 }
 
 /// Internal read registration only. Staging/review/formal approval stay behind
-/// explicit trusted Application commands. No Agent/MCP/UI projection is added.
+/// explicit trusted Application commands. No Agent/MCP projection is added.
 ModuleContribution generatedQuestionModule(GeneratedQuestionService service) =>
     ModuleContribution(
       id: generatedQuestionModuleId,
+      registerUi: (r) => r.registerUiContribution(const ModuleUiContribution(
+          key: 'generated_proposal_review',
+          slot: ModuleUiSlot.workspaceAction)),
       registerCapabilities: (r) => r.registerCapability(CapabilityDefinition<
           GeneratedProposalRead, GeneratedQuestionProposal>(
         id: readGeneratedProposal,

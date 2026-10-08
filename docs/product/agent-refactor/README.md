@@ -2,7 +2,7 @@
 
 Status: **FROZEN target architecture; AR-R1/AR-R2/AR-R3 COMPLETE / CLOSED;
 AR-R4 module contribution kernel COMPLETE / CLOSED; AR-R5A COMPLETE / CLOSED;
-AR-R5B-P0 local authority IMPLEMENTATION CANDIDATE.**
+AR-R5B generated Review UI IMPLEMENTATION CANDIDATE.**
 
 The Provider seam, typed capability/executor/projection path and Runtime split/
 transcript are delivered in the preceding merged stages. Historical AR-R3
@@ -19,10 +19,11 @@ Provider protocol, Runtime loop/lifecycle, transcript and fallback behavior.
 AR-R5A implements durable generated proposals, review CAS and atomic approval
 at schema v32 with B0 package v2, accepted in merged
 [PR #244](https://github.com/duanzhijian200443/shiroha_quiz/pull/244).
-AR-R5B-P0 adds only a persisted local data-owner identity and first-party
-Application session/target-confirmation factory with restore invalidation;
-`generated-question-proposals.md` owns that boundary. Review UI checkpoints
-A/B/C remain unimplemented. External
+AR-R5B adds first-party Inbox/completed history, structural typed preview/editor,
+Review Flush/CAS and explicit approval/rejection with Receipt recovery, using a
+persisted local data-owner identity and restore-invalidated Application sessions.
+`generated-question-proposals.md` owns this candidate; final-target CI and
+independent semantic review remain required for acceptance. External
 Host/IPC, MCP vNext and READ fallback continuation remain unimplemented targets. Current product behavior
 continues under the existing capability contracts.
 

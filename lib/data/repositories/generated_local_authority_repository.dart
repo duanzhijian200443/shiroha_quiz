@@ -6,6 +6,7 @@ import '../../core/database/database_helper.dart';
 import '../../core/database/sqflite_runtime.dart';
 import '../../domain/generated_question/generated_question_contract.dart';
 import 'generated_proposal_reader.dart';
+import 'generated_proposal_repository.dart';
 
 /// Local data ownership in existing app_settings; no credentials or migration.
 final class GeneratedLocalAuthorityRepository
@@ -19,6 +20,59 @@ final class GeneratedLocalAuthorityRepository
       r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$');
   final DatabaseHelper _helper;
   final String Function() _id;
+
+  @override
+  Future<List<GeneratedReviewTargetChoice>> targets(
+      GeneratedLocalReadAuthority authority) {
+    authority.validate();
+    return _query((db) async {
+      final banks = await db.rawQuery(
+          'SELECT bank_name FROM questions UNION SELECT bank_name FROM bank_folders ORDER BY bank_name');
+      final projects = await db.query('projects',
+          columns: ['project_id', 'display_name'], orderBy: 'project_id');
+      final result = <GeneratedReviewTargetChoice>[];
+      for (final bank in banks) {
+        final name = bank['bank_name'] as String;
+        final folders = await db.query('bank_folders',
+            columns: ['folder_name'], where: 'bank_name=?', whereArgs: [name]);
+        final folder =
+            folders.isEmpty ? null : folders.single['folder_name'] as String;
+        result.add(GeneratedReviewTargetChoice(
+            GeneratedTarget(
+                bankName: name,
+                folderName: folder,
+                projectId: null,
+                projectBankNames: const []),
+            null));
+        for (final project in projects) {
+          final id = project['project_id'] as String;
+          final links = await db.query('project_banks',
+              columns: ['bank_name'],
+              where: 'project_id=?',
+              whereArgs: [id],
+              orderBy: 'bank_name');
+          final names = links.map((row) => row['bank_name'] as String).toList();
+          if (names.contains(name)) {
+            result.add(GeneratedReviewTargetChoice(
+                GeneratedTarget(
+                    bankName: name,
+                    folderName: folder,
+                    projectId: id,
+                    projectBankNames: names),
+                project['display_name'] as String));
+          }
+        }
+      }
+      authority.validate();
+      return List.unmodifiable(result);
+    });
+  }
+
+  @override
+  Future<List<Object?>> evidenceState(String proposalId, String itemId,
+          GeneratedLocalReadAuthority authority) =>
+      GeneratedProposalRepository(databaseHelper: _helper)
+          .evidenceStateForLocalRead(proposalId, itemId, authority);
 
   String _owner(Object? value) {
     if (value is! String || !_uuid.hasMatch(value)) {
@@ -112,12 +166,21 @@ final class GeneratedLocalAuthorityRepository
 
   @override
   Future<List<GeneratedQuestionProposal>> pending(
-      GeneratedLocalReadAuthority authority) {
+          GeneratedLocalReadAuthority authority) =>
+      _list(authority, false);
+  @override
+  Future<List<GeneratedQuestionProposal>> completed(
+          GeneratedLocalReadAuthority authority) =>
+      _list(authority, true);
+  Future<List<GeneratedQuestionProposal>> _list(
+      GeneratedLocalReadAuthority authority, bool completed) {
     authority.validate();
     return _query((db) async {
       final rows = await db.query('generated_question_proposals',
           columns: ['proposal_id'],
-          where: "local_owner=? AND lifecycle_status='pending_review'",
+          where: completed
+              ? "local_owner=? AND lifecycle_status<>'pending_review'"
+              : "local_owner=? AND lifecycle_status='pending_review'",
           whereArgs: [authority.localOwner],
           orderBy: 'created_at_utc_ms,proposal_id');
       final result = <GeneratedQuestionProposal>[];

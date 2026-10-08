@@ -1,13 +1,14 @@
 # Durable Generated Question Proposals
 
 Status: **FROZEN contract; AR-R5A COMPLETE / CLOSED;
-AR-R5B-P0 local authority IMPLEMENTATION CANDIDATE.**
+AR-R5B generated Review UI IMPLEMENTATION CANDIDATE.**
 
 AR-R5A implements Domain/Application/Data lifecycle at schema v32, B0 package v2
 and a source-level internal READ contribution, accepted in merged
 [PR #244](https://github.com/duanzhijian200443/shiroha_quiz/pull/244).
-AR-R5B-P0 adds only the local first-party authority seam below. Review UI and
-AR-R6A external trusted origin/Host authority are not implemented.
+AR-R5B connects that lifecycle to first-party typed Review UI using the local
+authority seam below. AR-R6A external trusted origin/Host authority remains
+unimplemented. Candidate mechanical evidence does not close independent review.
 
 Authority/activation: [index](README.md). This owns generated candidate admission,
 durable Review, lifecycle, stage idempotency, dedicated commit and retention.
@@ -188,7 +189,7 @@ but retains storage compatibility and existing Questions.
 ## 8. AR-R5A schema/resource checkpoint
 
 Status: **FROZEN AR-R5A v0 implementation schema/resource checkpoint.
-AR-R5A runtime is accepted through merged PR #244; AR-R5B-P0 remains a candidate.**
+AR-R5A runtime is accepted through merged PR #244; AR-R5B remains a candidate.**
 
 This section freezes the exact v0 input and persistence contract before formal
 writer implementation. AR-R5A acceptance is recorded by merged PR #244. The authorized
@@ -270,8 +271,9 @@ session, confirmation, automatic approval or active grant is backed up.
 B0's existing `app_settings` retention preserves this non-secret identity with
 the Proposal data. Missing/corrupt/inconsistent restored settings remain unchanged
 and fail first-party session entry; portable schema/codec validators and
-credential SCRUB rules are unchanged. P0 adds no schema, Proposal codec, Receipt,
-package-format/version, Agent/MCP grant, external profile/pairing/IPC or Review UI.
+credential SCRUB rules are unchanged. P0 added no schema, Proposal codec, Receipt,
+package-format/version, Agent/MCP grant, external profile/pairing/IPC or Review UI;
+the subsequent R5B UI behavior is described in section 9.
 
 Target snapshot fields are exactly `bankName`, `folderName` (nullable),
 `projectId` (nullable), `projectBankNames` (sorted unique array). Local scope has
@@ -441,3 +443,62 @@ Generated admission checks its own foreign keys and cross-row relationships;
 B0 retains its existing global foreign-key validation and all earlier validators.
 The writer also verifies actual Question/sidecar/initial-review rows and affected
 working-copy updates, so SQLite RAISE(IGNORE) cannot fabricate successful writes.
+
+## 9. AR-R5B first-party Review UI candidate
+
+The optional GeneratedQuestion module contributes exactly the finite
+`workspaceAction` descriptor `generated_proposal_review`. Presentation explicitly
+maps it to the existing Assistant AppBar action on desktop and mobile. Removing
+the contribution hides the action without deleting Proposal data, changing the
+three main tabs or rewriting GlobalSidebar. No Widget plugin or route registry
+is introduced. Inbox defaults to durable pending work; its separate completed
+view reopens retained rejected batches and committed Receipts.
+
+Owner-scoped Application read sessions expose pending/completed/read, current
+target choices and evidence states. Target choices preserve exact nullable
+Folder and Project-bank snapshots; the existing R5A resolver supplies source
+states without granting command authority. Origin, target, requested/actual
+counts, mismatch warning, per-item decisions and source references remain
+visible. Text/InlineMath/BlockMath preview uses RichContentRenderer directly.
+
+The node editor preserves existing node order/types and literal values. It may
+append admitted text/math nodes; it does not project/reparse fields, edit kind,
+change option identity/label/order/count or replace original provenance.
+Single-choice answer selection retains Option IDs; content answers remain typed.
+Unchanged fields and null versus explicit-empty explanation remain distinct.
+Applying edits changes only the local working preview and resets that item's
+decision. Accept/reject/defer are review operations, never formal writes.
+
+Controller queues finite ordered operations and saves one R5A Review Flush after
+explicit confirmation of the displayed target. Its loaded revision is replaced
+only by the returned durable revision. Stale CAS preserves local operations and
+blocks automatic resubmission; reload with local work requires explicit discard.
+Source refresh preserves originals; acknowledging the displayed stale/unavailable
+state queues the exact R5A acknowledgement. Rebind requires explicit target
+confirmation, clears decisions/acknowledgements, and must be saved and reviewed.
+Normal return prompts save/discard with local work and executes no terminal
+command. Busy operations block duplicate actions/return. Closing during async
+identity load releases the late session instead of retaining it.
+
+Formal approval is enabled only for at least one accepted item, every other item
+rejected, no deferred/unreviewed/local pending work, and no busy/conflict/unknown
+result. Before the final dialog the UI rereads the Proposal; confirmation shows
+target, Learning Space, accepted/rejected counts and the actual revision. Only
+that explicit action sends ApproveGeneratedProposalCommand. All rejected uses
+the separate RejectGeneratedProposalCommand, with no zero-item approval.
+
+Success shows the durable Receipt and returns the viewport to it. Lost responses
+reconcile the same Proposal ID, revision and ordered accepted selection against
+the retained Receipt. An unconfirmed pending result stays locked with a dedicated
+verification action; it creates no replacement Proposal or second write. Completed
+history and restart reload the original Receipt. Fixed safe Chinese failures
+distinguish CAS, target/source drift, duplicates, incomplete/blocked Review,
+terminal/ownership/unavailable state and persistence; there is no force-duplicate
+override or raw exception/SQL display. R5A remains the final admission authority.
+
+Focused standing tests include real Widget/Application/SQLite edit/subset commit,
+Question/sidecar/initial-review relationships, close/reopen, matching Receipt
+recovery, confirmation double click, typed/null-empty fidelity, CAS, source
+acknowledgement, module removal and 360x720/1024x768 interaction. Synthetic fixtures
+remain test-only. No new generator/model/Provider/Agent/MCP tool, external grant,
+schema/codec/Receipt/B0 format, GC or R6A/R6B capability is activated.
