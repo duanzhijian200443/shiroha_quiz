@@ -1,10 +1,12 @@
 # Durable Generated Question Proposals
 
-Status: **FROZEN contract; AR-R5A IMPLEMENTATION CANDIDATE.**
+Status: **FROZEN contract; AR-R5A COMPLETE / CLOSED;
+AR-R5B-P0 local authority IMPLEMENTATION CANDIDATE.**
 
 AR-R5A implements Domain/Application/Data lifecycle at schema v32, B0 package v2
-and a source-level internal READ contribution. Final-head standing CI and
-independent semantic review remain acceptance authorities. AR-R5B UI and
+and a source-level internal READ contribution, accepted in merged
+[PR #244](https://github.com/duanzhijian200443/shiroha_quiz/pull/244).
+AR-R5B-P0 adds only the local first-party authority seam below. Review UI and
 AR-R6A external trusted origin/Host authority are not implemented.
 
 Authority/activation: [index](README.md). This owns generated candidate admission,
@@ -186,10 +188,10 @@ but retains storage compatibility and existing Questions.
 ## 8. AR-R5A schema/resource checkpoint
 
 Status: **FROZEN AR-R5A v0 implementation schema/resource checkpoint.
-Runtime implementation is a candidate until standing CI and independent review.**
+AR-R5A runtime is accepted through merged PR #244; AR-R5B-P0 remains a candidate.**
 
 This section freezes the exact v0 input and persistence contract before formal
-writer implementation. It does not claim independent approval. The authorized
+writer implementation. AR-R5A acceptance is recorded by merged PR #244. The authorized
 R5A storage-gate transition retains the R4 hashes through exact additive-source
 projection; all other retained-source assertions remain unchanged.
 Existing QuestionDraftV2 and RichContent codecs remain unchanged.
@@ -226,6 +228,50 @@ profile, grant or Host exists. A trusted Application authority supplies
 `localOwner`, `originKind`, `clientProfileId`, an explicitly confirmed existing
 target, and current evidence. Candidate JSON can supply none of these fields.
 Historical origin values are soft metadata, never authorization.
+
+### AR-R5B-P0 local first-party authority
+
+The existing `app_settings` entry `generated_proposal_local_owner` retains one
+App-minted canonical lowercase UUIDv4 as local **data ownership**, not a password,
+account, Provider identity or external authentication credential. The Data
+authority repository loads/initializes it in one SQLite transaction under the
+existing B0 mutation lease. Concurrent initializers return the durable winner;
+reopen never rotates a valid identity. First initialization occurs on entry to a
+first-party generated-review session, outside B0 maintenance, not on each
+composition rebuild.
+
+A missing setting with any retained Proposal fails `local_identity_missing`;
+a present null/malformed value fails `local_identity_corrupt`; any retained
+Proposal owner different from the valid setting fails `local_identity_mismatch`.
+No path derives identity from Proposal metadata, replaces damaged settings or
+claims historical data. Such states stop generated-review access and require a
+separately authorized compatibility plan. Storage failures expose only
+`local_identity_persistence_failed`, never raw SQLite errors.
+
+`GeneratedLocalAuthorityFactory` is constructed only by first-party App
+composition. Its session exposes owner-scoped read-only `pending`/`read` through
+a narrow Application port; read authority has no confirmed target and cannot be
+passed to R5A mutation commands. Neither opening the Inbox nor reading a Proposal
+creates approval authority. Only the UI action confirming the target actually
+displayed calls `confirmDisplayedTarget`, which pins a separate
+`GeneratedLocalContext` to that target and session. Reading historical target
+metadata is not user confirmation. R5A still owns revision/selection/target/
+evidence/duplicate validation and every formal transaction.
+
+Session close or composition invalidation permanently disables its read
+authority and all previously confirmed Contexts. In-flight identity/query
+results are rechecked before release. During B0 maintenance all sessions and
+Contexts are unavailable; production restore reload invalidates the old factory
+before replacing composition, and the first-party dependency scope has a new
+composition key. A new factory/session must reload the restored identity; old
+Context/session objects cannot regain authority after maintenance ends. No
+session, confirmation, automatic approval or active grant is backed up.
+
+B0's existing `app_settings` retention preserves this non-secret identity with
+the Proposal data. Missing/corrupt/inconsistent restored settings remain unchanged
+and fail first-party session entry; portable schema/codec validators and
+credential SCRUB rules are unchanged. P0 adds no schema, Proposal codec, Receipt,
+package-format/version, Agent/MCP grant, external profile/pairing/IPC or Review UI.
 
 Target snapshot fields are exactly `bankName`, `folderName` (nullable),
 `projectId` (nullable), `projectBankNames` (sorted unique array). Local scope has

@@ -170,7 +170,7 @@ The new contract tests run as hard-failing standing PR suites alongside existing
 Runtime, fallback, capability, MCP and B0 regressions. No AR-R5/R6/R7/R8 feature
 was activated by AR-R4.
 
-AR-R5A is an implementation candidate at schema v32. Production composition
+AR-R5A is accepted through merged PR #244 at schema v32. Production composition
 explicitly supplies GeneratedQuestionService after global database readiness;
 the optional source contribution has one internal typed READ and no Agent, MCP
 or UI descriptors. Its dedicated stage/review/approval commands do not grant
@@ -179,3 +179,10 @@ tables, strict codec/shape/data validators, historical readers and B0 INCLUDE
 classification. Migration and validation remain mandatory without the module.
 Pending working edits and terminal receipts survive restart/export/restore and
 re-enable; corrupt retained data fails admission with the contribution absent.
+
+AR-R5B-P0 is a local-authority implementation candidate. First-party composition
+separately injects its local session/target-confirmation factory and the existing
+GeneratedQuestionService; the authority is never captured by Agent/MCP
+projections. P0 adds no UI descriptor or generated-review entrypoint. The
+generated-question contract owns identity retention and restore invalidation;
+the existing module removal and retained-storage semantics remain unchanged.

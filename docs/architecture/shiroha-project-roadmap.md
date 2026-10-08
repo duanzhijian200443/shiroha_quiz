@@ -156,10 +156,15 @@ finite typed registrars, frozen atomic publication and retained feature storage
 compatibility. It is **COMPLETE / CLOSED**, accepted and merged in
 [PR #243](https://github.com/duanzhijian200443/shiroha_quiz/pull/243) after
 final-head standing CI and independent repair-review closure. Default Agent/prompt/MCP/UI behavior is
-retained. AR-R5A durable Proposal/review/atomic writer is an **IMPLEMENTATION
-CANDIDATE** at additive schema v32 with B0 package v2. It awaits final-target
-standing CI and independent semantic review; code completion does not close it.
-AR-R5B, AR-R6A/AR-R6B, AR-R7 and later implementation stages remain inactive.
+retained. AR-R5A durable Proposal/review/atomic writer is **COMPLETE / CLOSED**,
+accepted in merged [PR #244](https://github.com/duanzhijian200443/shiroha_quiz/pull/244),
+at additive schema v32 with B0 package v2. AR-R5B-P0 local authority is an
+**IMPLEMENTATION CANDIDATE**: one existing app_settings data-owner UUID,
+first-party read sessions and explicit target-confirmation Contexts, invalidated
+on restore recomposition. The generated-question contract owns this bounded seam;
+R5B Inbox/edit/approval UI checkpoints A/B/C remain unimplemented. Final-target
+standing CI and independent semantic review remain candidate acceptance gates.
+AR-R6A/AR-R6B, AR-R7 and later implementation stages remain inactive.
 
 Use namespaced AR-R identifiers to distinguish this route from historical
 R1-R8 typed-core stages:

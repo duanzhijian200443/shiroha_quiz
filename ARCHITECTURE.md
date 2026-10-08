@@ -334,11 +334,16 @@ while global migrations/readers/validators and B0 compatibility remain.
 The current UI IA and exactly-six MCP v0 wire owner are retained. Generic turn
 lifecycle/round execution, Provider protocol, permissions/effects, transcript,
 W0/SPL business lifecycles, fallback and B0 package v2 stay unchanged. AR-R4
-retained schema v31. AR-R5A is an implementation candidate adding schema v32
+retained schema v31. Accepted AR-R5A adds schema v32
 durable generated Proposal originals, review CAS, explicit local approval and
 one-transaction typed Question/receipt persistence. It contributes internal
 READ only, with no Agent/MCP/UI surface. External Host/IPC and READ continuation
-remain targets. See `docs/product/agent-refactor/generated-question-proposals.md`.
+remain targets. AR-R5B-P0 adds a candidate first-party local authority factory:
+one UUID in existing app_settings, separate owner-scoped read sessions and
+explicit target-confirmation Contexts, invalidated on restore recomposition.
+It changes no schema, Proposal codec, Receipt, B0 format or Agent/MCP permissions;
+Review UI remains unimplemented. See
+`docs/product/agent-refactor/generated-question-proposals.md`.
 See `docs/product/agent-refactor/module-system.md` for its finite registration
 and compatibility scope. AR-R4 was accepted and merged in PR #243 after
 final-head standing CI and independent repair-review closure.

@@ -38,6 +38,10 @@ import 'application/agent/agent_runtime.dart';
 import 'application/modules/module_composition.dart';
 import 'application/modules/production_modules.dart';
 import 'application/generated_question/generated_question_service.dart';
+import 'application/generated_question/generated_local_authority.dart';
+import 'application/backup/backup_restore_gate.dart';
+import 'data/repositories/generated_local_authority_repository.dart';
+import 'ui/dependencies/generated_question_dependencies_scope.dart';
 import 'data/repositories/generated_proposal_repository.dart';
 import 'application/agent/agent_turn.dart';
 import 'application/answers/ai_answer_commit_command.dart';
@@ -265,8 +269,12 @@ void main() {
       }
 
       var isFirstComposition = true;
+      GeneratedLocalAuthorityFactory? generatedLocalAuthority;
 
       Future<void> composeAndRun() async {
+        // B0 holds maintenance through recomposition. Old read sessions and
+        // target confirmations must stay invalid after that window closes.
+        generatedLocalAuthority?.invalidate();
         if (!isFirstComposition) {
           // B0-I0 in-memory invalidation: clear process-lifetime transient
           // state before constructing a fresh composition over the restored DB.
@@ -554,6 +562,17 @@ void main() {
           index: retrievalIndex,
           chunker: const DeterministicSourceChunker(),
         );
+        final generatedQuestionService = GeneratedQuestionService(
+            GeneratedProposalRepository(databaseHelper: databaseHelper),
+            admission: GeneratedQuestionAdmission(idFactory: uuid.v4));
+        final localAuthorityRepository =
+            GeneratedLocalAuthorityRepository(databaseHelper: databaseHelper);
+        final localAuthority = GeneratedLocalAuthorityFactory(
+            identity: localAuthorityRepository,
+            proposals: localAuthorityRepository,
+            compositionIsCurrent: () =>
+                !BackupRestoreMutationGate.instance.isMaintenance);
+        generatedLocalAuthority = localAuthority;
         final moduleComposition =
             const ModuleComposer().compose(buildDefaultModules(
           study: studyQueryService,
@@ -561,9 +580,7 @@ void main() {
           missingAnswerPersistence: agentWritePersistence,
           missingAnswerProposals: agentWriteProposalService,
           studyPlan: studyPlanDraftService,
-          generatedQuestions: GeneratedQuestionService(
-              GeneratedProposalRepository(databaseHelper: databaseHelper),
-              admission: GeneratedQuestionAdmission(idFactory: uuid.v4)),
+          generatedQuestions: generatedQuestionService,
         ));
         final u1WorkspaceFacade = U1WorkspaceFacade(
           projectService: projectService,
@@ -759,6 +776,8 @@ void main() {
         AppLogger.info('Application started', module: 'Application');
         runApp(
           ShirohaQuizApp(
+            generatedLocalAuthority: localAuthority,
+            generatedQuestionService: generatedQuestionService,
             taskCenter: createTaskCenterDependencies(
                 manager: taskManager,
                 coordinator: importTaskCoordinator,
@@ -849,6 +868,8 @@ HomeTrainingDependencies _createHomeTrainingDependencies() {
 class ShirohaQuizApp extends StatelessWidget {
   const ShirohaQuizApp({
     super.key,
+    this.generatedLocalAuthority,
+    this.generatedQuestionService,
     required this.engineRepository,
     required this.aiConfigService,
     required this.aiService,
@@ -896,6 +917,8 @@ class ShirohaQuizApp extends StatelessWidget {
   });
 
   final AiEngineRepository engineRepository;
+  final GeneratedLocalAuthorityFactory? generatedLocalAuthority;
+  final GeneratedQuestionService? generatedQuestionService;
   final AiConfigPresentationService aiConfigService;
   final AiService aiService;
   final ImportPipelineService importPipelineService;
@@ -996,12 +1019,20 @@ class ShirohaQuizApp extends StatelessWidget {
             onRestoreCompleted: onRestoreCompleted,
           ),
         );
+        final generatedContent =
+            generatedLocalAuthority == null || generatedQuestionService == null
+                ? materialApp
+                : GeneratedQuestionDependenciesScope(
+                    key: ObjectKey(generatedLocalAuthority),
+                    authority: generatedLocalAuthority!,
+                    service: generatedQuestionService!,
+                    child: materialApp);
         final activityContent = studyActivity == null
-            ? materialApp
+            ? generatedContent
             : StudyActivityDependenciesScope(
                 key: ObjectKey(studyActivity),
                 dependencies: studyActivity!,
-                child: materialApp);
+                child: generatedContent);
         final content = contentAssetResolver == null
             ? activityContent
             : ContentAssetResolverScope(
