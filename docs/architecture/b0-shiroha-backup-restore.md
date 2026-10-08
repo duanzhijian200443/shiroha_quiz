@@ -97,7 +97,7 @@ PR #227 merged; no TaskCenter UI or production composition is claimed.
 
 ### Current-state amendment: AR-R5A generated Proposal schema v32
 
-AR-R5A is an implementation candidate, governed by
+AR-R5A is accepted through merged PR #244, governed by
 `../product/agent-refactor/generated-question-proposals.md`. Its five generated
 Proposal tables are durable INCLUDE data: immutable originals/resolved soft
 evidence/origin metadata, working copies, decisions/revisions/targets, terminal
@@ -115,6 +115,19 @@ Package remains v2 (v1 reader retained); container/layout/checksums, global FK
 checks, earlier data invariants, credential exclusion, SCRUB rules and durable
 restore/rollback journal are unchanged. No active grant, handle, pairing secret,
 provider response or credential is introduced.
+
+AR-R5B-P0 retains the non-secret `generated_proposal_local_owner` UUID through
+existing `app_settings` INCLUDE behavior (appearance `app_theme` remains scrubbed).
+The generated-question contract owns initialization and fail-closed checks:
+missing identity with retained Proposals, malformed identity or inconsistent
+Proposal owners stop first-party session entry without repair or data adoption.
+Restore preserves ownership data only. Old generated-review factories, sessions
+and target-confirmation Contexts are invalidated during production recomposition
+before COMMITTED publication; maintenance prevents their use during swap.
+New first-party access reloads the restored identity and requires fresh explicit
+target confirmation for commands. Restore never approves a Proposal or restores
+a running session/confirmation. Package v2, v32 schema, portable validators and
+credential SCRUB rules remain unchanged.
 
 ### ContentAsset lifecycle successor (docs-only)
 

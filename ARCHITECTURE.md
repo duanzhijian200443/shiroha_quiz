@@ -334,11 +334,18 @@ while global migrations/readers/validators and B0 compatibility remain.
 The current UI IA and exactly-six MCP v0 wire owner are retained. Generic turn
 lifecycle/round execution, Provider protocol, permissions/effects, transcript,
 W0/SPL business lifecycles, fallback and B0 package v2 stay unchanged. AR-R4
-retained schema v31. AR-R5A is an implementation candidate adding schema v32
+retained schema v31. Accepted AR-R5A adds schema v32
 durable generated Proposal originals, review CAS, explicit local approval and
 one-transaction typed Question/receipt persistence. It contributes internal
 READ only, with no Agent/MCP/UI surface. External Host/IPC and READ continuation
-remain targets. See `docs/product/agent-refactor/generated-question-proposals.md`.
+remain targets. Candidate AR-R5B adds module-controlled first-party Inbox/history,
+structural typed Review/edit/Flush/CAS, explicit approval/rejection and Receipt
+recovery. Its local authority uses one UUID in existing app_settings, separate
+owner-scoped read sessions and target-confirmation Contexts, invalidated on restore
+recomposition.
+It changes no schema, Proposal codec, Receipt, B0 format or Agent/MCP permissions;
+Independent acceptance remains pending. See
+`docs/product/agent-refactor/generated-question-proposals.md`.
 See `docs/product/agent-refactor/module-system.md` for its finite registration
 and compatibility scope. AR-R4 was accepted and merged in PR #243 after
 final-head standing CI and independent repair-review closure.
@@ -799,7 +806,7 @@ elapsed inference; the UI labels its recorded-event basis. The review
 bridge validates the exact nullable attempt/trace/review identity and eligibility
 again immediately before constructing existing ImportStaging inputs and pushing
 the route. The historical task_center_projection helper remains for compatibility
-tests only. Global schema is v32 under the AR-R5A candidate; PlanConfigScreen retirement and CP4 remain for B6.
+tests only. Global schema is v32 under accepted AR-R5A; PlanConfigScreen retirement and CP4 remain for B6.
 
 B2 implements injectable Training Config list, shared selector/editor and
 Presentation controller through Application ports. A single read transaction
@@ -818,7 +825,7 @@ overlapping UI mutations. Configuration CRUD never changes learning facts.
 Home/config production composition is now wired by B4/I2; the legacy
 PlanConfigScreen remains for compatibility pending B6 retirement. B2 implementation was merged by PR #230 with standing
 PR CI success. PR #230 is merged, so B2 is historical accepted delivery under the current
-merged-PR recovery rule. Runtime schema is v32 under the AR-R5A candidate.
+merged-PR recovery rule. Runtime schema is v32 under accepted AR-R5A.
 TodayTrainingQueryAdapter captures one clock observation and injected local-day
 boundaries, then TrainingConfigurationRepository reads catalog, configuration,
 selection and counts in one read transaction. It reuses the shared eligibility,

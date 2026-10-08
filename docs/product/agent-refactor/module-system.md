@@ -155,8 +155,8 @@ stdio and result encoding stay in their existing adapter owners. Other feature
 modules contribute no MCP tools. Future profiles need their own adapter contract.
 
 UI registration is limited to `workspaceAction` and `assistantArtifact` shell
-descriptors with explicit unique keys. The production list currently contributes
-no UI descriptors and keeps existing hardened IA/presenters. Synthetic fixtures
+descriptors with explicit unique keys. AR-R4 contributed no production UI
+descriptors and kept existing hardened IA/presenters. Synthetic fixtures
 exercise registration/removal and duplicate-key failure; this stage introduces
 no Widget registry, route DSL or navigation rewrite.
 
@@ -170,7 +170,7 @@ The new contract tests run as hard-failing standing PR suites alongside existing
 Runtime, fallback, capability, MCP and B0 regressions. No AR-R5/R6/R7/R8 feature
 was activated by AR-R4.
 
-AR-R5A is an implementation candidate at schema v32. Production composition
+AR-R5A is accepted through merged PR #244 at schema v32. Production composition
 explicitly supplies GeneratedQuestionService after global database readiness;
 the optional source contribution has one internal typed READ and no Agent, MCP
 or UI descriptors. Its dedicated stage/review/approval commands do not grant
@@ -179,3 +179,13 @@ tables, strict codec/shape/data validators, historical readers and B0 INCLUDE
 classification. Migration and validation remain mandatory without the module.
 Pending working edits and terminal receipts survive restart/export/restore and
 re-enable; corrupt retained data fails admission with the contribution absent.
+
+AR-R5B is a generated Review UI implementation candidate. First-party composition
+separately injects its local session/target-confirmation factory and the existing
+GeneratedQuestionService; the authority is never captured by Agent/MCP
+projections. Its one `workspaceAction` descriptor `generated_proposal_review`
+maps explicitly to an Assistant AppBar action at both responsive sizes; absence
+of the contribution hides the entry. No generic Widget/route registry is added.
+The generated-question contract owns typed Review, explicit terminal commands,
+identity retention and restore invalidation;
+the existing module removal and retained-storage semantics remain unchanged.

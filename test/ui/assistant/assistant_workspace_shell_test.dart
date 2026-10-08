@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../generated_question/generated_ui_test_support.dart';
 import 'package:shiroha_quiz/application/agent/agent_config.dart';
 import 'package:shiroha_quiz/application/agent/agent_config_service.dart';
 import 'package:shiroha_quiz/application/agent/agent_provider.dart';
@@ -612,6 +613,37 @@ Future<_PreparedAssistantPresentation> _prepareFailurePresentation() async {
 }
 
 void main() {
+  for (final size in [const Size(360, 720), const Size(1024, 768)]) {
+    testWidgets(
+        'generated contribution enters actual Assistant AppBar at $size',
+        (tester) async {
+      initializeGeneratedTests();
+      final generated = GeneratedUiHarness();
+      await tester.runAsync(generated.open);
+      addTearDown(generated.close);
+      await tester.binding.setSurfaceSize(size);
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      Widget shell(bool enabled) => generated.dependencies(
+          enabled: enabled,
+          child: MaterialApp(
+              theme: AppTheme.lightTheme,
+              home: AssistantWorkspaceShell(
+                  facade: _facade(),
+                  conversationService: _conversationService(),
+                  agentSettingsService: _agentSettingsService(),
+                  startAgentTurn: _failedAgentTurn)));
+      await tester.pumpWidget(shell(false));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('generated_proposal_review')),
+          findsNothing);
+      await tester.pumpWidget(shell(true));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('generated_proposal_review')),
+          findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
   testWidgets('context picker refreshes files added after initial load',
       (tester) async {
     final conversations = _MemoryConversations()..candidates.clear();

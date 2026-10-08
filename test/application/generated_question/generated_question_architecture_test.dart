@@ -75,7 +75,10 @@ void main() {
         const ModuleComposer().compose([generatedQuestionModule(h.service)]);
     expect(composition.agentSurface.projections, isEmpty);
     expect(composition.mcpSurface, isEmpty);
-    expect(composition.uiContributions, isEmpty);
+    expect(composition.uiContributions, hasLength(1));
+    expect(composition.uiContributions.single.key, 'generated_proposal_review');
+    expect(
+        composition.uiContributions.single.slot, ModuleUiSlot.workspaceAction);
     expect(composition.capabilities.definitions.single.permission,
         CapabilityPermission.read);
     expect(
