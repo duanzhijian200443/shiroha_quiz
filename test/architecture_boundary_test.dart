@@ -1051,14 +1051,14 @@ import '../../domain/content/content_node.dart'
         'RegistryAgentProfileRepository',
         'AgentSettingsService',
         'AgentRuntimeConfigResolver',
-        'AgentStudyToolDispatcher',
+        'ModuleComposer().compose(buildDefaultModules(',
         'DeepSeekResponsesProvider',
         'ShirohaAgentRuntime',
         'agentRuntime.startTurn',
         'ApprovedAgentWriteRepository',
         'AgentWriteProposalService',
-        'AgentWriteProposalToolDispatcher',
-        'proposalDispatcher:',
+        'agentSurface: moduleComposition.agentSurface',
+        'missingAnswerProposals:',
         'proposalService:',
       ]) {
         expect(
