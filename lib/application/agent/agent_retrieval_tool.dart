@@ -229,7 +229,10 @@ final class AgentRetrievalToolDispatcher {
           required String sourceUserMessageId,
           required String providerProfileId,
           required List<String> currentFileIds,
-          required Future<bool> Function() serializationAllowed}) =>
+          required Future<bool> Function() serializationAllowed,
+          Future<void>? cancellationSignal,
+          bool Function()? isCancelled,
+          DateTime? deadline}) =>
       _projection.dispatchWithReceipt(
           argumentsJson: argumentsJson,
           context: CapabilityContext(
@@ -244,7 +247,10 @@ final class AgentRetrievalToolDispatcher {
               sourceMessageId: sourceUserMessageId,
               providerProfileId: providerProfileId,
               currentFileIds: currentFileIds,
-              serializationAllowed: serializationAllowed));
+              serializationAllowed: serializationAllowed,
+              cancellationSignal: cancellationSignal,
+              isCancelled: isCancelled,
+              deadline: deadline));
   Future<String> dispatch(
           {required String argumentsJson,
           required RetrievalEgressGrant? grant,

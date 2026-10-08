@@ -1,14 +1,23 @@
 # Agent Runtime v1 / External Agent / MCP vNext Contract Index
 
 Status: **FROZEN target architecture; AR-R1 COMPLETE / CLOSED; AR-R2
-IMPLEMENTATION CANDIDATE / active implementation stage.**
+IMPLEMENTATION CANDIDATE / merged pending independent final-head review;
+AR-R3 IMPLEMENTATION CANDIDATE / active implementation stage.**
 
-AR-R1's Provider outcome/failure seam is delivered and accepted. AR-R2 implements
-the typed Application capability/executor/projection path described in
-`application-capabilities.md`, pending final-head PR contract CI and independent
-review. Runtime decomposition, modules, durable generated proposals, external
-Host/IPC and MCP vNext remain unimplemented targets. Current product behavior
-continues to follow the existing capability contracts.
+AR-R1's Provider outcome/failure seam is delivered and accepted. AR-R2's typed
+capability/executor/projection path merged in [PR #241](https://github.com/duanzhijian200443/shiroha_quiz/pull/241),
+final head `53a157f62b5ca00fdda0f98af405d4d624ca684d`; its current-target
+[PR contract checks](https://github.com/duanzhijian200443/shiroha_quiz/actions/runs/37706380454)
+succeeded. The PR has an earlier-head REQUEST_CHANGES comment and no final-head
+approval comment or formal review. This stage-governance mismatch is retained:
+merge alone does not close AR-R2. The current task explicitly activates AR-R3
+implementation, without claiming either stage's independent acceptance.
+
+AR-R3 implements bounded concrete Runtime owners and a transient canonical
+transcript as described in `agent-runtime-v1.md`. Modules, durable generated
+proposals, external Host/IPC, MCP vNext and READ fallback continuation remain
+unimplemented targets. Current product behavior continues to follow the existing
+capability contracts.
 
 ## 1. Authority and ownership
 

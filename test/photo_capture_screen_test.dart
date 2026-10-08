@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:shiroha_quiz/application/answer_completion/document_question_set_seed.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_commit_command.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_entry_guard.dart';
 import 'package:shiroha_quiz/application/answers/ai_answer_generation.dart';
@@ -55,6 +56,7 @@ final class _RecordingImportTaskCoordinator extends Fake
     ExplanationRetentionMode explanationRetentionMode =
         ExplanationRetentionMode.subjectiveOnly,
     bool documentImportEntry = false,
+    DocumentQuestionSetSeed? questionSetSeed,
     bool allowAutoOpenReview = false,
     String? bankName,
     String? folderName,

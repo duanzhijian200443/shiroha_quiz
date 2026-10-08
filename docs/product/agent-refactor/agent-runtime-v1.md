@@ -1,7 +1,8 @@
 # Agent Runtime v1
 
 Status: **FROZEN target contract; AR-R1 COMPLETE / CLOSED; AR-R2 Dispatcher
-compatibility bridge implemented in candidate. AR-R3 runtime split is target-only.**
+compatibility bridge merged pending independent final-head review; AR-R3 Runtime
+split/transcript IMPLEMENTATION CANDIDATE / active implementation stage.**
 
 Authority/activation: [index](README.md). Current A0 and AGENT-FB behavior remains
 active. Provider protocol details, business capabilities and Proposal lifecycle
@@ -59,9 +60,9 @@ round result and stream settlement. The existing Runtime invokes that seam;
 turn policy, persistence, dispatch and context remain in their existing owners.
 AR-R2 now retains all four JSON Dispatcher facades while delegating through
 Agent projections to the typed Application CapabilityExecutor and handlers.
-The runtime still consumes those facades; `_executeTurn()`, Provider rounds,
-context/history, persistence/recovery, budgets and fallback policy are unchanged.
-No AR-R3 coordinator, round engine or transcript is implemented.
+AR-R3 now consumes their receipt-bearing methods behind AgentToolExecutor. The
+public facade and legacy `dispatch()` remain. Provider protocol settlement,
+persistence/recovery rules, numerical bounds and fallback policy are unchanged.
 
 DeepSeek interprets SSE and request/body transport phases. An explicit successful
 terminal and validated stream closure are required before complete calls become
@@ -100,6 +101,75 @@ Provider-private continuation is an adapter-only same-Provider protocol
 optimization, not the sole canonical history. It never becomes durable,
 cross-Provider state or visible history; hidden reasoning/raw Provider bodies
 are not copied into the transcript, diagnostics or Conversation storage.
+
+### AR-R3 Dart implementation candidate
+
+`ShirohaAgentRuntime` retains constructor/start/session APIs and only forwards
+starts to `AgentTurnCoordinator`. Concrete owners share a Runtime library via
+Dart `part` files so existing private turn state and failure values do not require
+new public ports, factories or a DI framework. The standalone transcript library
+has no repository, SQLite, MCP, observability or private-continuation dependency.
+
+- Coordinator owns active-Conversation locking, mutation lease, root trace,
+  event/result shutdown, cancellation and the single global timeout timer.
+- Policy owns the one running budget clock, deadline, counters, phase-closure
+  decisions and the unchanged AGENT-FB eligibility/barriers.
+- Engine owns Provider compatibility, round progression, completed-round text,
+  duplicate-call validation, current outputs and same-Provider continuation.
+- Gateway invokes R1 `normalizeProviderRound()` without interpreting SSE or
+  changing failure classes. Only settled successful text reaches the transcript.
+- ToolExecutor freezes an explicit projection binding table; all business calls
+  use `dispatchWithReceipt()` -> projection -> CapabilityExecutor. Tool names do
+  not choose business authority in Runtime/Engine. STAGE barriers use receipt
+  effect; existing preview events continue to use the legacy encoded preview.
+- Finalizer owns latest-User/already-completed validation, the process-local
+  pending final text and unchanged ambiguous-append recovery. Target/history
+  validation keeps the existing configuration/compatibility ordering.
+
+`AgentTurnTranscript` composes the exact identities selected by the existing
+`AgentHistoryBuilder`; its persisted-history selection algorithm is unchanged.
+Typed `AgentTranscriptVisibleMessage` entries carry visible content and identify
+the preserved current User. An indivisible `AgentToolGroup` carries one validated
+complete call, matching result, real Application receipt and optional trusted
+`AgentToolEgressMetadata` (recipient, scope, grant). Business errors with resolved
+receipt evidence remain groups. `outcomeUnknown` records only call identity and
+receipt in `AgentUnresolvedExecution`; it terminates the turn through existing
+cancel/timeout/internal-error mapping, without Provider continuation, fallback or
+automatic repeat. Failed/incomplete round fragments never enter either groups or
+visible transcript content.
+
+Bounds retain 40 whole canonical units / 64 KiB of context payload, 16 KiB per
+tool argument and 64 KiB per result. Persisted history initially exactly matches
+the existing 40-message selection. On append, prune the oldest whole visible
+message or complete ToolGroup, preserving the current User and entire newly
+required batch. Never truncate JSON or discard a receipt alone. If the minimum
+required batch plus target cannot fit, fail atomically with existing public
+`historyLimitExceeded`; no new public failure enum or summary is introduced.
+Confirmed completed cache/STAGE receipts additionally remain in bounded transient
+`completedEffects` side metadata (at most the turn's eight actual calls). This
+keeps effects/reconciliation truthful even if a whole group is pruned or a required
+payload cannot fit after execution. It holds no call arguments or tool result,
+is never Provider context, and cannot replay/retry/restore a staged artifact.
+
+Provider requests retain the bounded persisted-visible history envelope and
+actual current-round outputs with the existing same-Provider continuation
+optimization. Completed current-turn visible text remains canonical evidence
+without duplicating text already held by that same-Provider protocol state. Continuation
+is an Engine-local variable, never a transcript field; fallback clears it and
+current outputs and cannot reuse tool groups. RAG retains pre-query and release
+checks in R2, plus Runtime's live check immediately before sending current
+retrieval outputs. Release denial replaces the entire canonical result while
+preserving the receipt's known cache effect. Transcript metadata never grants
+release, commit, approval or adoption authority.
+
+The mutable transcript is cleared at turn shutdown. `AgentTurnSession.transcript`
+provides an immutable process-only inspection snapshot (live during execution,
+terminal evidence owned only by that session). Runtime stores no completed turn
+history, and nothing encodes/persists/logs this snapshot. Receipts and W0/SPL
+reconciliation remain tied to their existing process-local service lifecycles;
+restart invalidates them. Only the final visible Assistant is appended to the
+Conversation. No in-flight resume, schema/B0 change, memory, compression, module,
+external Host or READ continuation is implemented.
 
 ## 4. Fallback migration barrier and later policy
 

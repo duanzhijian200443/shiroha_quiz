@@ -370,6 +370,9 @@ jobs:
             'test/import_task_duration_test.dart',
             'test/b1e_runtime_acceptance_test.dart',
             'test/data/repositories/import_task_review_draft_cas_test.dart',
+            # AR-R3 transient transcript and bounded Runtime responsibility gates.
+            'test/application/agent/agent_turn_transcript_test.dart',
+            'test/application/agent/agent_r3_architecture_boundary_test.dart',
             # AR-R2 typed kernel, projections and retained compatibility gates.
             'test/application/capabilities/capability_kernel_test.dart',
             'test/application/capabilities/capability_business_test.dart',

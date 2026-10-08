@@ -9,6 +9,7 @@ import '../study_query/study_query_service.dart';
 import '../study_query/study_capabilities.dart';
 import '../capabilities/capability.dart';
 import 'agent_runtime_limits.dart';
+import 'agent_tool_projection.dart';
 import 'agent_study_tool_catalog.dart';
 
 final RegExp _rfc3339OffsetInstant = RegExp(
@@ -30,66 +31,77 @@ class AgentStudyToolProjection {
       studyCapabilityContext(CapabilityPrincipal.builtInAgent);
   final AgentRuntimeLimits _limits;
 
-  Future<String> dispatch(String toolName, String argumentsJson) async {
+  Future<String> dispatch(String toolName, String argumentsJson) async =>
+      (await dispatchWithReceipt(toolName, argumentsJson)).json;
+
+  Future<AgentToolDispatchResult> dispatchWithReceipt(
+      String toolName, String argumentsJson,
+      {CapabilityContext? context}) async {
+    final execution = _StudyExecution(_executor, context ?? _context);
+    final id =
+        StudyCapabilities.ids.where((id) => id.value == toolName).firstOrNull ??
+            const CapabilityId<void, void>('unregistered_agent_tool');
+    AgentToolDispatchResult fail(StudyQueryFailure failure) =>
+        AgentToolDispatchResult(
+            json: _failure(failure),
+            receipt: execution.receipt ??
+                _executor
+                    .reject(
+                        id, execution.context, studyCapabilityFailure(failure))
+                    .receipt);
     if (!AgentStudyToolCatalog.toolNames.contains(toolName) ||
         utf8.encode(argumentsJson).length > _limits.maxToolArgumentUtf8Bytes) {
-      return _failure(StudyQueryFailure.invalidRequest);
+      return fail(StudyQueryFailure.invalidRequest);
     }
-
     final Map<String, dynamic> arguments;
     try {
       final decoded = jsonDecode(argumentsJson);
       if (decoded is! Map<String, dynamic>) {
-        return _failure(StudyQueryFailure.invalidRequest);
+        return fail(StudyQueryFailure.invalidRequest);
       }
       arguments = decoded;
     } on FormatException {
-      return _failure(StudyQueryFailure.invalidRequest);
+      return fail(StudyQueryFailure.invalidRequest);
     }
-
     try {
-      final result = await _dispatch(toolName, arguments);
-      final encoded = jsonEncode(<String, Object?>{
-        'ok': true,
-        'result': result,
-      });
+      final result = await _dispatch(toolName, arguments, execution);
+      final encoded =
+          jsonEncode(<String, Object?>{'ok': true, 'result': result});
       if (utf8.encode(encoded).length > _limits.maxToolResultUtf8Bytes) {
-        return _failure(StudyQueryFailure.internalError);
+        throw const FormatException();
       }
-      return encoded;
+      return AgentToolDispatchResult(
+          json: encoded, receipt: execution.receipt!);
     } on StudyQueryException catch (error) {
-      return _failure(error.failure);
+      return fail(error.failure);
     } on ArgumentError {
-      return _failure(StudyQueryFailure.invalidRequest);
+      return fail(StudyQueryFailure.invalidRequest);
     } catch (_) {
-      return _failure(StudyQueryFailure.internalError);
+      if (execution.receipt != null) {
+        execution.receipt =
+            execution.receipt!.withFailure(CapabilityFailure.encodingFailed);
+      }
+      return fail(StudyQueryFailure.internalError);
     }
   }
 
-  Future<Object?> _dispatch(String toolName, Map<String, dynamic> arguments) {
-    return switch (toolName) {
-      'list_question_banks' => _listQuestionBanks(arguments),
-      'get_study_overview' => _getStudyOverview(arguments),
-      'get_due_review_summary' => _getDueReviewSummary(arguments),
-      'search_questions' => _searchQuestions(arguments),
-      'get_question_detail' => _getQuestionDetail(arguments),
-      'get_weak_questions' => _getWeakQuestions(arguments),
-      _ => throw const StudyQueryException(StudyQueryFailure.invalidRequest),
-    };
-  }
-
-  Future<O> _execute<I, O>(CapabilityId<I, O> id, I input) async {
-    final result = await _executor.execute(id, input, _context);
-    if (result.failure case final failure?) {
-      throw StudyQueryException(studyQueryFailure(failure));
-    }
-    return result.output as O;
-  }
+  Future<Object?> _dispatch(String toolName, Map<String, dynamic> arguments,
+          _StudyExecution execution) =>
+      switch (toolName) {
+        'list_question_banks' => _listQuestionBanks(arguments, execution),
+        'get_study_overview' => _getStudyOverview(arguments, execution),
+        'get_due_review_summary' => _getDueReviewSummary(arguments, execution),
+        'search_questions' => _searchQuestions(arguments, execution),
+        'get_question_detail' => _getQuestionDetail(arguments, execution),
+        'get_weak_questions' => _getWeakQuestions(arguments, execution),
+        _ => throw const StudyQueryException(StudyQueryFailure.invalidRequest),
+      };
 
   Future<Map<String, Object?>> _listQuestionBanks(
     Map<String, dynamic> arguments,
+    _StudyExecution execution,
   ) async {
-    final page = await _execute(
+    final page = await execution.execute(
         StudyCapabilities.listQuestionBanks,
         ListQuestionBanksInput(
           cursor: _optionalCursor(arguments),
@@ -112,8 +124,9 @@ class AgentStudyToolProjection {
 
   Future<Map<String, Object?>> _getStudyOverview(
     Map<String, dynamic> arguments,
+    _StudyExecution execution,
   ) async {
-    final overview = await _execute(
+    final overview = await execution.execute(
         StudyCapabilities.getStudyOverview,
         GetStudyOverviewInput(
           bankName: _optionalString(arguments, 'bank_name'),
@@ -130,8 +143,9 @@ class AgentStudyToolProjection {
 
   Future<Map<String, Object?>> _getDueReviewSummary(
     Map<String, dynamic> arguments,
+    _StudyExecution execution,
   ) async {
-    final summary = await _execute(
+    final summary = await execution.execute(
         StudyCapabilities.getDueReviewSummary,
         GetDueReviewSummaryInput(
           bankName: _optionalString(arguments, 'bank_name'),
@@ -154,8 +168,9 @@ class AgentStudyToolProjection {
 
   Future<Map<String, Object?>> _searchQuestions(
     Map<String, dynamic> arguments,
+    _StudyExecution execution,
   ) async {
-    final page = await _execute(
+    final page = await execution.execute(
         StudyCapabilities.searchQuestions,
         SearchQuestionsInput(
           bankName: _requiredString(arguments, 'bank_name'),
@@ -173,8 +188,9 @@ class AgentStudyToolProjection {
 
   Future<Map<String, Object?>> _getQuestionDetail(
     Map<String, dynamic> arguments,
+    _StudyExecution execution,
   ) async {
-    final detail = await _execute(
+    final detail = await execution.execute(
         StudyCapabilities.getQuestionDetail,
         GetQuestionDetailInput(
             questionId: _requiredString(arguments, 'question_id')));
@@ -211,8 +227,9 @@ class AgentStudyToolProjection {
 
   Future<Map<String, Object?>> _getWeakQuestions(
     Map<String, dynamic> arguments,
+    _StudyExecution execution,
   ) async {
-    final page = await _execute(
+    final page = await execution.execute(
         StudyCapabilities.getWeakQuestions,
         GetWeakQuestionsInput(
           bankName: _optionalString(arguments, 'bank_name'),
@@ -422,6 +439,27 @@ class AgentStudyToolDispatcher {
       : _projection = AgentStudyToolProjection(
             service: service, executor: executor, limits: limits);
   final AgentStudyToolProjection _projection;
+  Future<AgentToolDispatchResult> dispatchWithReceipt(
+          String toolName, String argumentsJson,
+          {CapabilityContext? context}) =>
+      _projection.dispatchWithReceipt(toolName, argumentsJson,
+          context: context);
   Future<String> dispatch(String toolName, String argumentsJson) =>
       _projection.dispatch(toolName, argumentsJson);
+}
+
+/// Per-invocation typed receipt evidence; never shared across concurrent calls.
+final class _StudyExecution {
+  _StudyExecution(this.executor, this.context);
+  final CapabilityExecutor executor;
+  final CapabilityContext context;
+  ExecutionReceipt? receipt;
+  Future<O> execute<I, O>(CapabilityId<I, O> id, I input) async {
+    final result = await executor.execute(id, input, context);
+    receipt = result.receipt;
+    if (result.failure case final failure?) {
+      throw StudyQueryException(studyQueryFailure(failure));
+    }
+    return result.output as O;
+  }
 }

@@ -8,6 +8,7 @@ library;
 import '../../core/observability/diagnostic_summary.dart';
 import '../../domain/conversations/conversation_message.dart';
 import 'agent_provider.dart';
+import 'agent_turn_transcript.dart';
 import 'retrieval_egress_grant.dart';
 
 /// Terminal outcome of one Agent turn.
@@ -153,7 +154,8 @@ final class AgentTurnSession {
     required this.result,
     required this.cancel,
     this.diagnosticId,
-  });
+    AgentTurnTranscriptSnapshot? Function()? transcriptReader,
+  }) : _transcriptReader = transcriptReader;
 
   /// Transient progress events (text deltas, web phases, tool calls, and the
   /// terminal completed/failed event).
@@ -170,6 +172,13 @@ final class AgentTurnSession {
   /// One Agent Turn has exactly one diagnostic id; success and failure
   /// belong to the same correlation.
   final String? diagnosticId;
+
+  final AgentTurnTranscriptSnapshot? Function()? _transcriptReader;
+
+  /// Process-only evidence: live during execution, immutable at termination.
+  /// The terminal snapshot belongs to this session, never a Runtime store.
+  /// This is not a replay/approval API and has no transport representation.
+  AgentTurnTranscriptSnapshot? get transcript => _transcriptReader?.call();
 }
 
 /// Presentation-facing start seam for a turn bound to a persisted User
