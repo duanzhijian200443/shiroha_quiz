@@ -41,6 +41,7 @@ enum CapabilityFailure {
   invalidPlan,
   targetUnavailable,
   encodingFailed,
+  retrievalAccessDenied,
   retrievalScopeEmpty,
   retrievalScopeUnavailable,
   retrievalSourceChanged,

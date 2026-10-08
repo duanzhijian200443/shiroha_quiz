@@ -44,7 +44,10 @@ CapabilityDefinition<RetrieveFileContentInput, RetrievalResult>
               input.fileIds.every((id) =>
                   context.retrievalGrant!.approvedFileIds.contains(id) &&
                   context.currentFileIds.contains(id)) &&
-              context.serializationAllowed != null,
+              context.serializationAllowed != null &&
+              // The file snapshot cannot prove current authorization. The
+              // trusted live gate also checks scope, source turn and recipient.
+              await context.serializationAllowed!(),
           release: (_, context) async =>
               retrievalContextPermits(context) &&
               await context.serializationAllowed!(),
@@ -77,7 +80,7 @@ CapabilityDefinition<RetrieveFileContentInput, RetrievalResult>
                     RetrievalFailure.invalidRequest =>
                       CapabilityFailure.invalidRequest,
                     RetrievalFailure.accessDenied =>
-                      CapabilityFailure.accessDenied,
+                      CapabilityFailure.retrievalAccessDenied,
                     RetrievalFailure.scopeEmpty =>
                       CapabilityFailure.retrievalScopeEmpty,
                     RetrievalFailure.scopeUnavailable =>

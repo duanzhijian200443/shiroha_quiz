@@ -120,6 +120,7 @@ final class AgentRetrievalToolProjection {
       return AgentToolDispatchResult(
           json: _failure(switch (failure) {
             CapabilityFailure.accessDenied => 'access_denied',
+            CapabilityFailure.retrievalAccessDenied => 'accessDenied',
             CapabilityFailure.invalidRequest => 'invalidRequest',
             CapabilityFailure.retrievalScopeEmpty => 'scopeEmpty',
             CapabilityFailure.retrievalScopeUnavailable => 'scopeUnavailable',

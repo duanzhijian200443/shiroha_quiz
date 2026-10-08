@@ -50,9 +50,11 @@ final class _Source implements RetrievalArtifactSourcePort {
 
 final class _Scope implements RetrievalScopeResolverPort {
   int calls = 0;
+  RetrievalFailure? failure;
   @override
   Future<List<String>> resolveFileIds(RetrievalScopeRequest scope) async {
     calls++;
+    if (failure case final error?) throw RetrievalException(error);
     return ['file-1'];
   }
 }
@@ -61,6 +63,7 @@ final class _Index implements RetrievalIndexPort, RetrievalIndexEvidencePort {
   _Index(this.effect);
   final RetrievalBuildEffect effect;
   int builds = 0;
+  void Function()? onBuildCommitted;
   bool lostBuildResponse = false;
   bool failSearch = false;
   @override
@@ -80,6 +83,7 @@ final class _Index implements RetrievalIndexPort, RetrievalIndexEvidencePort {
       required List<RetrievalChunk> chunks}) async {
     builds++;
     if (lostBuildResponse) throw StateError('lost response');
+    onBuildCommitted?.call();
     return effect;
   }
 
@@ -221,6 +225,97 @@ void main() {
   });
 
   test(
+      'direct executor rejects revoked current authority before handler, queries and cache writes',
+      () async {
+    final scope = _Scope();
+    final source = _Source();
+    final index = _Index(RetrievalBuildEffect.derivedCache);
+    final definition = retrievalCapability(RetrievalService(
+        scopeResolver: scope,
+        artifactSource: source,
+        index: index,
+        chunker: const DeterministicSourceChunker()));
+    var entries = 0;
+    final executor = CapabilityExecutor(ApplicationCapabilityRegistry([
+      CapabilityDefinition<RetrieveFileContentInput, RetrievalResult>(
+          id: definition.id,
+          permission: definition.permission,
+          permittedEffects: definition.permittedEffects,
+          semantics: definition.semantics,
+          authorize: definition.authorize,
+          release: definition.release,
+          handler: CapabilityHandler((input, context, evidence) {
+            entries++;
+            return definition.handler.invoke(input, context, evidence);
+          }))
+    ]));
+    for (final throws in [false, true]) {
+      var checks = 0;
+      final result = await executor.execute(
+          retrieveFileContent,
+          RetrieveFileContentInput(query: 'function', fileIds: ['file-1']),
+          _context(
+              grant: _grant(),
+              release: () async {
+                checks++;
+                expect(entries, 0);
+                expect(scope.calls, 0);
+                expect(source.loads, 0);
+                expect(index.builds, 0);
+                if (throws) throw StateError('authority unavailable');
+                return false;
+              }));
+      expect(result.failure, CapabilityFailure.accessDenied);
+      expect(result.output, isNull);
+      expect(result.receipt.status, CapabilityExecutionStatus.notStarted);
+      expect(result.receipt.knownEffect, CapabilityEffect.none);
+      expect(checks, 1);
+    }
+    expect(entries, 0);
+    expect(scope.calls, 0);
+    expect(source.loads, 0);
+    expect(index.builds, 0);
+  });
+
+  test('retrieval service failures retain every legacy business wire code',
+      () async {
+    for (final failure in RetrievalFailure.values) {
+      final scope = _Scope()..failure = failure;
+      final source = _Source();
+      final index = _Index(RetrievalBuildEffect.unchanged);
+      final dispatcher = AgentRetrievalToolDispatcher(
+          retrieval: RetrievalService(
+              scopeResolver: scope,
+              artifactSource: source,
+              index: index,
+              chunker: const DeterministicSourceChunker()));
+      final response = await dispatcher.dispatchWithReceipt(
+          argumentsJson: '{"query":"function","file_ids":["file-1"]}',
+          grant: _grant(),
+          turnRequestId: 'turn-1',
+          conversationId: 'conversation-1',
+          sourceUserMessageId: 'message-1',
+          providerProfileId: 'profile-1',
+          currentFileIds: ['file-1'],
+          serializationAllowed: () async => true);
+      expect(jsonDecode(response.json), {
+        'ok': false,
+        'error': {
+          'code': failure.name,
+          'message': 'File content is unavailable.',
+          'retryable': false
+        }
+      });
+      expect(response.receipt.status,
+          CapabilityExecutionStatus.failedWithoutEffect);
+      expect(response.receipt.knownEffect, CapabilityEffect.none);
+      expect(scope.calls, 1);
+      expect(source.loads, 0);
+      expect(index.builds, 0);
+    }
+  });
+
+  test(
       'owning index evidence distinguishes READ cache hit from derived-cache commit',
       () async {
     for (final effect in RetrievalBuildEffect.values) {
@@ -249,40 +344,53 @@ void main() {
   test(
       'revocation before release blocks content and retains confirmed derived-cache effect',
       () async {
-    final index = _Index(RetrievalBuildEffect.derivedCache);
-    final service = RetrievalService(
-        scopeResolver: _Scope(),
-        artifactSource: _Source(),
-        index: index,
-        chunker: const DeterministicSourceChunker());
-    final executor = CapabilityExecutor(
-        ApplicationCapabilityRegistry([retrievalCapability(service)]));
-    final result = await executor.execute(
-        retrieveFileContent,
-        RetrieveFileContentInput(query: 'function', fileIds: ['file-1']),
-        _context(
-            grant: _grant(),
-            release: () async {
-              expect(index.builds, 1);
-              return false;
-            }));
-    expect(result.output, isNull);
-    expect(result.failure, CapabilityFailure.accessDenied);
-    expect(result.receipt.status, CapabilityExecutionStatus.completed);
-    expect(result.receipt.knownEffect, CapabilityEffect.derivedCache);
-    final response = await AgentRetrievalToolDispatcher(
-            retrieval: service, executor: executor)
-        .dispatchWithReceipt(
-            argumentsJson: '{"query":"function","file_ids":["file-1"]}',
-            grant: _grant(),
-            turnRequestId: 'turn-1',
-            conversationId: 'conversation-1',
-            sourceUserMessageId: 'message-1',
-            providerProfileId: 'profile-1',
-            currentFileIds: ['file-1'],
-            serializationAllowed: () async => false);
-    expect(jsonDecode(response.json)['error']['code'], 'access_denied');
-    expect(response.receipt.knownEffect, CapabilityEffect.derivedCache);
+    for (final throughFacade in [false, true]) {
+      var authorized = true;
+      var checks = 0;
+      final index = _Index(RetrievalBuildEffect.derivedCache)
+        ..onBuildCommitted = () => authorized = false;
+      final service = RetrievalService(
+          scopeResolver: _Scope(),
+          artifactSource: _Source(),
+          index: index,
+          chunker: const DeterministicSourceChunker());
+      final executor = CapabilityExecutor(
+          ApplicationCapabilityRegistry([retrievalCapability(service)]));
+      Future<bool> currentAuthority() async {
+        checks++;
+        expect(index.builds, checks == 1 ? 0 : 1);
+        return authorized;
+      }
+
+      final ExecutionReceipt receipt;
+      if (throughFacade) {
+        final response = await AgentRetrievalToolDispatcher(
+                retrieval: service, executor: executor)
+            .dispatchWithReceipt(
+                argumentsJson: '{"query":"function","file_ids":["file-1"]}',
+                grant: _grant(),
+                turnRequestId: 'turn-1',
+                conversationId: 'conversation-1',
+                sourceUserMessageId: 'message-1',
+                providerProfileId: 'profile-1',
+                currentFileIds: ['file-1'],
+                serializationAllowed: currentAuthority);
+        expect(jsonDecode(response.json)['error']['code'], 'access_denied');
+        receipt = response.receipt;
+      } else {
+        final result = await executor.execute(
+            retrieveFileContent,
+            RetrieveFileContentInput(query: 'function', fileIds: ['file-1']),
+            _context(grant: _grant(), release: currentAuthority));
+        expect(result.output, isNull);
+        expect(result.failure, CapabilityFailure.accessDenied);
+        receipt = result.receipt;
+      }
+      expect(receipt.status, CapabilityExecutionStatus.completed);
+      expect(receipt.knownEffect, CapabilityEffect.derivedCache);
+      expect(index.builds, 1);
+      expect(checks, 2);
+    }
   });
 
   test(

@@ -208,8 +208,13 @@ original RetrievalEgressGrant, exact turn/Conversation/User/Provider recipient,
 current file snapshot and mandatory serializationAllowed callback. The grant's
 Application owner is now `application/retrieval/retrieval_egress_grant.dart`,
 with the previous Agent path retained as a compatibility export. The executor
-checks recipient and approved/current files before retrieval, then repeats grant
-and serialization authorization before projection encoding. Runtime's subsequent
+checks recipient and approved/current files plus the live serializationAllowed
+authorization gate before retrieval. A revoked or unavailable current grant,
+scope or recipient is rejected before handler entry with `not_started` and
+`none`, including direct executor calls. The same live gate is checked again
+before projection encoding. Retrieval service access denial has its own fixed
+typed failure category, preserving legacy `accessDenied` business encoding;
+executor/grant denial remains `access_denied`. Runtime's subsequent
 pre-Provider release check remains unchanged. SqliteRetrievalIndexRepository
 reports unchanged versus derived-cache commit only after its existing transaction
 settles; no SQL/schema/bounds change is introduced. A legacy index adapter that
