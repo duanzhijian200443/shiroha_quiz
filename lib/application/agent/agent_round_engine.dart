@@ -189,7 +189,7 @@ final class AgentRoundEngine {
         }
         _throwIfExpired(turn);
         _throwIfCancelled(turn);
-        turn.transcript!.recordCompletedAssistant(round.visibleText);
+        turn.transcript!.recordFinalAssistant(finalText);
         return finalText;
       }
 

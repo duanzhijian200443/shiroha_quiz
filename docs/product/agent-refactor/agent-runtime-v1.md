@@ -86,6 +86,10 @@ new Provider is introduced.
 Transcript contains bounded persisted visible history, current User message,
 successful complete Assistant visible text, canonical complete ToolCalls and
 paired ToolResults/ExecutionReceipts. It never enters Conversation DB or logs.
+The settled final answer is separate terminal evidence, outside the budget for
+subsequent Provider context. Recording it cannot reject an otherwise valid final
+answer or prevent finalization, including when the current User fills the history
+byte budget or the history message limit is one.
 
 Failed/incomplete round calls, fragments and partial text are not replayable.
 An execution with unknown outcome stays in a reconciliation ledger, not replay.
@@ -147,13 +151,25 @@ message or complete ToolGroup, preserving the current User and entire newly
 required batch. Never truncate JSON or discard a receipt alone. If the minimum
 required batch plus target cannot fit, fail atomically with existing public
 `historyLimitExceeded`; no new public failure enum or summary is introduced.
+The individual 64 KiB tool-result bound is not a promise that every valid result
+fits the aggregate 64 KiB canonical context: target, complete call and result all
+consume that context budget. Likewise, individually valid results in one batch
+may collectively exceed it. AR-R3's frozen minimum-context rule deliberately
+fails closed after execution in these cases, rather than retaining the legacy
+unbounded current-tool envelope. No next Provider request or automatic repeat is
+issued; JSON is never truncated, and the batch is never partially published.
+Default-bound regressions cover a near-64-KiB READ result, a two-result batch,
+RAG's 24,000-byte hit payload plus a large target, and prior W0/SPL staging.
 Confirmed completed cache/STAGE receipts additionally remain in bounded transient
 `completedEffects` side metadata (at most the turn's eight actual calls). This
 keeps effects/reconciliation truthful even if a whole group is pruned or a required
 payload cannot fit after execution. It holds no call arguments or tool result,
 is never Provider context, and cannot replay/retry/restore a staged artifact.
 
-Provider requests retain the bounded persisted-visible history envelope and
+Provider requests retain the fixed initial `AgentHistoryBuilder` persisted-visible
+history envelope throughout the turn, independent of canonical whole-unit
+pruning. The retained envelope is itself bounded by the original history limits;
+it is transient and cleared with the transcript. Requests also retain
 actual current-round outputs with the existing same-Provider continuation
 optimization. Completed current-turn visible text remains canonical evidence
 without duplicating text already held by that same-Provider protocol state. Continuation
@@ -163,6 +179,11 @@ checks in R2, plus Runtime's live check immediately before sending current
 retrieval outputs. Release denial replaces the entire canonical result while
 preserving the receipt's known cache effect. Transcript metadata never grants
 release, commit, approval or adoption authority.
+`AgentTurnTranscriptSnapshot.finalAssistant` holds the complete settled final
+visible answer as a typed terminal message, separate from bounded `entries`.
+Intermediate successful round text still participates in canonical context
+bounds. The final answer follows the existing Provider output-token/persistence
+rules; terminal evidence adds no new result-size limit or durable write.
 
 The mutable transcript is cleared at turn shutdown. `AgentTurnSession.transcript`
 provides an immutable process-only inspection snapshot (live during execution,

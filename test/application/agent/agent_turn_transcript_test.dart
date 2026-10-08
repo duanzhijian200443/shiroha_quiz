@@ -9,6 +9,24 @@ import 'package:shiroha_quiz/domain/conversations/conversation.dart';
 import 'package:shiroha_quiz/domain/conversations/conversation_message.dart';
 
 void main() {
+  test('final answer is terminal evidence outside bounded next-round context',
+      () {
+    const limits =
+        AgentRuntimeLimits(maxHistoryMessages: 1, maxHistoryUtf8Bytes: 4);
+    final transcript = _transcript(limits: limits);
+    transcript.recordFinalAssistant('OK');
+    final terminal = transcript.snapshot;
+    expect(terminal.entries.single.utf8Bytes, 4);
+    expect(terminal.finalAssistant!.role, AgentProviderMessageRole.assistant);
+    expect(terminal.finalAssistant!.content, 'OK');
+    expect(transcript.providerVisibleHistory.single.content, 'User');
+    expect(transcript.providerPersistedHistory.single.content, 'User');
+    transcript.clear();
+    expect(transcript.snapshot.finalAssistant, isNull);
+    expect(transcript.providerPersistedHistory, isEmpty);
+    expect(terminal.finalAssistant!.content, 'OK');
+  });
+
   test(
       'reuses exact deterministic history selection and preserves current User',
       () {
@@ -117,6 +135,10 @@ void main() {
     transcript.recordToolRound([one, two]);
     expect(transcript.snapshot.entries,
         [isA<AgentTranscriptVisibleMessage>(), one, two]);
+    expect(transcript.providerPersistedHistory.map((m) => m.content),
+        ['old A', 'old B', 'target']);
+    expect(() => transcript.providerPersistedHistory.clear(),
+        throwsUnsupportedError);
     transcript.recordToolRound([three]);
     expect(transcript.snapshot.entries,
         [isA<AgentTranscriptVisibleMessage>(), two, three]);

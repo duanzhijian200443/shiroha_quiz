@@ -76,12 +76,16 @@ final class AgentTurnTranscriptSnapshot {
   AgentTurnTranscriptSnapshot(
       {required Iterable<AgentTranscriptEntry> entries,
       required Iterable<AgentUnresolvedExecution> unresolved,
+      this.finalAssistant,
       Iterable<ExecutionReceipt> completedEffects = const []})
       : entries = List.unmodifiable(entries),
         unresolved = List.unmodifiable(unresolved),
         completedEffects = List.unmodifiable(completedEffects);
   final List<AgentTranscriptEntry> entries;
   final List<AgentUnresolvedExecution> unresolved;
+
+  /// Settled final visible answer; terminal evidence, never next-round context.
+  final AgentTranscriptVisibleMessage? finalAssistant;
 
   /// Confirmed cache/STAGE facts survive payload pruning or bounded release
   /// failure. Receipts alone cannot replay a tool or restore an artifact.
@@ -107,10 +111,13 @@ final class AgentTurnTranscript {
   final List<AgentTranscriptEntry> _entries = [];
   final List<AgentUnresolvedExecution> _unresolved = [];
   final List<ExecutionReceipt> _completedEffects = [];
+  List<AgentProviderMessage> _providerPersistedHistory = const [];
+  AgentTranscriptVisibleMessage? _finalAssistant;
 
   AgentTurnTranscriptSnapshot get snapshot => AgentTurnTranscriptSnapshot(
       entries: _entries,
       unresolved: _unresolved,
+      finalAssistant: _finalAssistant,
       completedEffects: _completedEffects);
 
   void initializeHistory(AgentHistory history) {
@@ -131,6 +138,7 @@ final class AgentTurnTranscript {
             content: m.content,
             persistedMessageId: m.messageId,
             isCurrentUser: m.messageId == targetMessageId)));
+    _providerPersistedHistory = List.unmodifiable(history.messages);
   }
 
   List<AgentProviderMessage> get providerVisibleHistory => List.unmodifiable([
@@ -139,14 +147,18 @@ final class AgentTurnTranscript {
           AgentProviderMessage(role: message.role, content: message.content)
       ]);
 
-  /// The existing request envelope keeps persisted visible history; current-turn
-  /// successful text/tools are already represented by same-Provider continuation.
-  List<AgentProviderMessage> get providerPersistedHistory => List.unmodifiable([
-        for (final message
-            in _entries.whereType<AgentTranscriptVisibleMessage>())
-          if (message.persistedMessageId != null)
-            AgentProviderMessage(role: message.role, content: message.content)
-      ]);
+  /// Frozen initial request envelope, independent of canonical payload pruning.
+  /// Same-Provider protocol state represents successful current-turn text/tools.
+  List<AgentProviderMessage> get providerPersistedHistory =>
+      _providerPersistedHistory;
+
+  /// Terminal evidence cannot consume the budget for a subsequent round or
+  /// reject a valid final answer before persistence. Intermediate text still
+  /// uses the bounded canonical context path below.
+  void recordFinalAssistant(String text) {
+    _finalAssistant = AgentTranscriptVisibleMessage(
+        role: AgentProviderMessageRole.assistant, content: text);
+  }
 
   void recordCompletedAssistant(String text) {
     if (text.isEmpty) return;
@@ -230,5 +242,7 @@ final class AgentTurnTranscript {
     _entries.clear();
     _unresolved.clear();
     _completedEffects.clear();
+    _providerPersistedHistory = const [];
+    _finalAssistant = null;
   }
 }
