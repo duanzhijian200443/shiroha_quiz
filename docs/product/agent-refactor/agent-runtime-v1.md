@@ -113,7 +113,9 @@ has no repository, SQLite, MCP, observability or private-continuation dependency
 - Coordinator owns active-Conversation locking, mutation lease, root trace,
   event/result shutdown, cancellation and the single global timeout timer.
 - Policy owns the one running budget clock, deadline, counters, phase-closure
-  decisions and the unchanged AGENT-FB eligibility/barriers.
+  decisions and the unchanged AGENT-FB eligibility/barriers. Kernel receipt
+  `deadlineExceeded` uses the same shared deadline and maps to turn timeout even
+  when it settles before Coordinator's timer callback; status/effect stay intact.
 - Engine owns Provider compatibility, round progression, completed-round text,
   duplicate-call validation, current outputs and same-Provider continuation.
 - Gateway invokes R1 `normalizeProviderRound()` without interpreting SSE or

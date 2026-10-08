@@ -360,6 +360,48 @@ void main() {
       expect(harness.provider.callCount, 1);
     });
 
+    for (final afterCompletion in [false, true]) {
+      test(
+          'shared deadline receipt wins Coordinator timer race; completed=$afterCompletion',
+          () async {
+        final harness = _Harness(scripts: [
+          _toolRound(
+              [_call('deadline')], const _TestContinuationState('private')),
+          _finalAnswer('forbidden'),
+        ]);
+        if (afterCompletion) {
+          harness.dispatcher.releaseFailure =
+              CapabilityFailure.deadlineExceeded;
+        } else {
+          harness.dispatcher.executionFailure =
+              CapabilityFailure.deadlineExceeded;
+        }
+        final (cid, mid) = await harness.seedUser('User');
+        final session =
+            harness.runtime.startTurn(conversationId: cid, userMessageId: mid);
+        expect(_failureOf(await session.result), AgentTurnFailure.timeout);
+        final snapshot = session.transcript!;
+        if (afterCompletion) {
+          expect(snapshot.unresolved, isEmpty);
+          expect(snapshot.toolGroups.single.receipt.status,
+              CapabilityExecutionStatus.completed);
+          expect(snapshot.toolGroups.single.receipt.knownEffect,
+              CapabilityEffect.none);
+        } else {
+          expect(snapshot.toolGroups, isEmpty);
+          expect(snapshot.unresolved.single.receipt.status,
+              CapabilityExecutionStatus.outcomeUnknown);
+          expect(snapshot.unresolved.single.receipt.knownEffect, isNull);
+        }
+        expect(harness.dispatcher.calls, hasLength(1));
+        expect(harness.provider.callCount, 1);
+        expect(
+            (await harness.messagesOf(cid))
+                .where((m) => m.role == ConversationMessageRole.assistant),
+            isEmpty);
+      });
+    }
+
     test(
         'SPL completed stage remains evidenced when required context cannot fit',
         () async {
@@ -4869,6 +4911,8 @@ final class _FakeDispatcher implements AgentStudyToolDispatcher {
   String output = '{"ok":true,"result":{"value":1}}';
   Object? throwable;
   Object? projectionThrowable;
+  CapabilityFailure? executionFailure;
+  CapabilityFailure? releaseFailure;
   Future<void> Function(String toolName)? onDispatch;
   static const _id =
       CapabilityId<(String, String), String>('runtime_fixture_read');
@@ -4894,12 +4938,18 @@ final class _FakeDispatcher implements AgentStudyToolDispatcher {
               return CapabilityEvidence.zeroEffectFailure(
                   CapabilityFailure.internalError);
             }
+            if (executionFailure case final failure?) {
+              return CapabilityEvidence(
+                  status: CapabilityExecutionStatus.outcomeUnknown,
+                  effect: null,
+                  failure: failure);
+            }
             return CapabilityEvidence.completed(output, CapabilityEffect.none);
           })),
     ]));
     final trusted =
         context ?? studyCapabilityContext(CapabilityPrincipal.builtInAgent);
-    final result = await executor.execute(
+    var result = await executor.execute(
         _id,
         (toolName, argumentsJson),
         CapabilityContext(
@@ -4916,6 +4966,9 @@ final class _FakeDispatcher implements AgentStudyToolDispatcher {
             sourceMessageId: trusted.sourceMessageId,
             turnRequestId: trusted.turnRequestId,
             providerProfileId: trusted.providerProfileId));
+    if (releaseFailure case final failure?) {
+      result = result.withReleaseFailure(failure);
+    }
     return AgentToolDispatchResult(
         json: result.output ??
             '{"ok":false,"error":{"code":"internal_error","message":"An internal error occurred.","retryable":false}}',

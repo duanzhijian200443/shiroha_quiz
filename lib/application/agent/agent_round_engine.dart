@@ -278,11 +278,13 @@ final class AgentRoundEngine {
           if (dispatch.receipt.status ==
               CapabilityExecutionStatus.outcomeUnknown) {
             turn.transcript!.recordUnresolved(call, dispatch.receipt);
+            _throwIfReceiptDeadlineExpired(dispatch.receipt);
             _throwIfExpired(turn);
             _throwIfCancelled(turn);
             throw const _TurnFailure(AgentTurnFailure.internalError);
           }
           groups.add(_group(call, dispatch, execution.egress));
+          _throwIfReceiptDeadlineExpired(dispatch.receipt);
           _throwIfExpired(turn);
           _throwIfCancelled(turn);
           outputs.add(
@@ -318,6 +320,15 @@ final class AgentRoundEngine {
           },
         );
       }
+    }
+  }
+
+  /// The Kernel uses the same trusted deadline. Its timer may settle before
+  /// Coordinator's timer callback; this evidence still means turn timeout and
+  /// never changes the handler's already recorded status/effect.
+  void _throwIfReceiptDeadlineExpired(ExecutionReceipt receipt) {
+    if (receipt.failure == CapabilityFailure.deadlineExceeded) {
+      throw const _TurnTimeoutException();
     }
   }
 
