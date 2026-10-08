@@ -1,0 +1,61 @@
+{
+  "lib/core/database/database_helper.dart": [
+    {
+      "before": "import 'import_task_v31_schema.dart';\n",
+      "after": "import 'import_task_v31_schema.dart';\nimport 'generated_proposal_schema.dart';\nimport '../../data/repositories/generated_proposal_reader.dart';\n",
+      "count": 1
+    },
+    {
+      "before": "static const int _dbVersion = importTaskSchemaVersion;",
+      "after": "static const int _dbVersion = generatedProposalSchemaVersion;",
+      "count": 1
+    },
+    {
+      "before": "      onUpgrade: _onUpgrade,\n",
+      "after": "      onUpgrade: _onUpgrade,\n      onOpen: _onGeneratedProposalOpen,\n",
+      "count": 3
+    },
+    {
+      "before": "        onUpgrade: _onUpgrade,\n",
+      "after": "        onUpgrade: _onUpgrade,\n        onOpen: _onGeneratedProposalOpen,\n",
+      "count": 1
+    },
+    {
+      "before": "      _openedDatabasePath = path;\n      return database;\n    } on DatabaseRuntimeException",
+      "after": "      await _onGeneratedProposalOpen(database);\n      _openedDatabasePath = path;\n      return database;\n    } on DatabaseRuntimeException",
+      "count": 1
+    },
+    {
+      "before": "  Future<void> _onConfigure(Database db) async {",
+      "after": "  Future<void> _onGeneratedProposalOpen(Database db) async {\n    await validateGeneratedProposalSchema(db);\n    await validateGeneratedProposalData(db);\n  }\n\n  Future<void> _onConfigure(Database db) async {",
+      "count": 1
+    },
+    {
+      "before": "    await createStudyActivityV30Schema(db);\n",
+      "after": "    await createStudyActivityV30Schema(db);\n    await createGeneratedProposalSchema(db);\n",
+      "count": 1
+    },
+    {
+      "before": "    await validateImportTaskV31Schema(db);\n",
+      "after": "    await validateImportTaskV31Schema(db);\n    await validateGeneratedProposalSchema(db);\n    await validateGeneratedProposalData(db);\n",
+      "count": 3
+    },
+    {
+      "before": "    if (oldVersion < 31) {\n      await migrateImportTaskToV31(db);\n    }",
+      "after": "    if (oldVersion < 31) {\n      await migrateImportTaskToV31(db);\n    }\n    if (oldVersion < generatedProposalSchemaVersion) {\n      await migrateGeneratedProposalSchema(db);\n    }",
+      "count": 1
+    }
+  ],
+  "lib/data/repositories/backup_snapshot_repository.dart": [
+    {
+      "before": "import '../../core/database/import_task_v31_schema.dart';\n",
+      "after": "import '../../core/database/import_task_v31_schema.dart';\nimport '../../core/database/generated_proposal_schema.dart';\nimport 'generated_proposal_reader.dart';\n",
+      "count": 1
+    },
+    {
+      "before": "      await validateTrainingContentV29Schema(db);\n",
+      "after": "      await validateGeneratedProposalSchema(db);\n      await validateGeneratedProposalData(db);\n      await validateTrainingContentV29Schema(db);\n",
+      "count": 1
+    }
+  ]
+}

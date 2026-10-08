@@ -28,6 +28,7 @@ import '../models/subject_tree_index.dart';
 import '../models/typed_import_commit_guard.dart';
 import '../persistence/imported_question_set_persistence_kernel.dart';
 import '../persistence/question_v2_persistence_mapper.dart';
+import '../persistence/typed_question_batch_writer.dart';
 import '../persistence/typed_answer_persistence.dart';
 
 // Legacy compatibility export only: existing callers (for example the P5.2
@@ -848,29 +849,11 @@ class QuestionRepository
     required List<FrozenQuestionV2Write> frozenWrites,
     required Set<ContentAssetIdentity> assetIdentities,
   }) async {
-    await ContentAssetReclamationObservationRepository.resetInTransaction(
-      txn,
-      assetIdentities,
-    );
-    for (final frozenWrite in frozenWrites) {
-      await txn.insert('questions', frozenWrite.questionRow);
-      await txn.insert('question_v2_payloads', frozenWrite.payloadRow);
-      await txn.insert(
-        'review_states',
-        _initialReviewState(frozenWrite.questionRow['id']! as String),
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
-    }
-    if (resolvedFolderName != null) {
-      await txn.insert(
-        'bank_folders',
-        <String, Object?>{
-          'bank_name': bankName,
-          'folder_name': resolvedFolderName,
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-    }
+    await const TypedQuestionBatchWriter().write(txn,
+        bankName: bankName,
+        resolvedFolderName: resolvedFolderName,
+        frozenWrites: frozenWrites,
+        assetIdentities: assetIdentities);
   }
 
   /// Folder-mapping decision of a task-bound import commit, resolved on the
@@ -1714,17 +1697,7 @@ class QuestionRepository
   }
 
   Map<String, dynamic> _initialReviewState(String questionId) {
-    return {
-      'question_id': questionId,
-      'state': 0,
-      'difficulty': 5.0,
-      'stability': 0.0,
-      'last_review_time': 0,
-      'next_review_time': 0,
-      'reps': 0,
-      'lapses': 0,
-      'last_lapse_time': 0,
-    };
+    return TypedQuestionBatchWriter.initialReviewState(questionId);
   }
 
   Future<void> _syncBankFolder(String bankName, String? folderName) async {

@@ -1,7 +1,7 @@
 # Application Capability Kernel
 
-Status: **FROZEN contract; AR-R2 COMPLETE / CLOSED; AR-R4 registration integration
-IMPLEMENTATION CANDIDATE pending standing CI and independent review.**
+Status: **FROZEN contract; AR-R2 and AR-R4 registration integration
+COMPLETE / CLOSED.**
 
 Authority/activation: [index](README.md). This document owns semantic capability,
 permission/effect/receipt and adapter projection boundaries. Runtime, external
@@ -136,7 +136,7 @@ and tests; it must not require Round Engine, Provider or unrelated controller
 flags to change. Future Proposal kinds still own dedicated commands and
 persistence, never a generic `commit(Map)`.
 
-## 6. AR-R2 Dart implementation and AR-R4 registration candidate
+## 6. AR-R2 Dart implementation and accepted AR-R4 registration
 
 `lib/application/capabilities/capability.dart` implements the eight frozen
 semantic concepts as immutable concrete values, enums, one explicit registry and
@@ -238,7 +238,11 @@ closure, no fallback after READ and terminal persistence. AR-R3 now consumes
 receipt-bearing Dispatcher methods in a bounded ToolExecutor and retains receipt
 evidence in transient atomic transcript groups; the Kernel, permissions, effects,
 registry, W0/SPL lifecycle and MCP semantics are unchanged. AR-R4 source module
-registration is an implementation candidate under `module-system.md`; external
-authority/IPC, durable generated proposals and AR-R7 READ continuation remain
-unimplemented. SQLite schema remains v31;
-B0 storage and all formal mutation/recovery commands are unchanged.
+registration is accepted under `module-system.md`; external
+authority/IPC and AR-R7 READ continuation remain unimplemented. AR-R5A is an
+implementation candidate: GeneratedQuestion contributes an internal typed READ
+with current local authorization and no Agent/MCP/UI projection. Durable stage,
+review flush and formal approve/reject use dedicated trusted Application commands,
+not R2 transient STAGE effects. The COMMIT boundary remains explicit local
+confirmation with exact revision/selection. Schema v32 and B0 retained Proposal
+validation are owned globally; package v2 and existing recovery commands remain.

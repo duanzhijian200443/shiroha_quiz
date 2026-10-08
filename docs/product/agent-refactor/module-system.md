@@ -1,7 +1,9 @@
 # Source-level Module System
 
-Status: **FROZEN contract; AR-R4 IMPLEMENTATION CANDIDATE, pending final-target
-standing CI and independent semantic review.**
+Status: **FROZEN contract; AR-R4 COMPLETE / CLOSED.**
+
+AR-R4 was accepted and merged in [PR #243](https://github.com/duanzhijian200443/shiroha_quiz/pull/243)
+after final-head standing CI and independent repair-review closure.
 
 Authority/activation: [index](README.md). This contract applies repository-wide
 to the source-level modular monolith, not just Assistant modules.
@@ -163,7 +165,17 @@ has a migration callback. StudyPlan's published durable data is the storage
 compatibility fixture: enabled -> disabled -> close/reopen -> strict reader/schema
 validation -> real B0 export/restore -> re-enabled retains its data and schema.
 The same B0 admission rejects corrupt StudyPlan data with the runtime contribution
-absent. Schema v31, package v2, credential exclusion and storage owners are retained.
+absent. AR-R4 retained schema v31, package v2, credential exclusion and storage owners.
 The new contract tests run as hard-failing standing PR suites alongside existing
 Runtime, fallback, capability, MCP and B0 regressions. No AR-R5/R6/R7/R8 feature
-is activated by this candidate.
+was activated by AR-R4.
+
+AR-R5A is an implementation candidate at schema v32. Production composition
+explicitly supplies GeneratedQuestionService after global database readiness;
+the optional source contribution has one internal typed READ and no Agent, MCP
+or UI descriptors. Its dedicated stage/review/approval commands do not grant
+external access. Removing/ disabling the contribution retains the five Proposal
+tables, strict codec/shape/data validators, historical readers and B0 INCLUDE
+classification. Migration and validation remain mandatory without the module.
+Pending working edits and terminal receipts survive restart/export/restore and
+re-enable; corrupt retained data fails admission with the contribution absent.

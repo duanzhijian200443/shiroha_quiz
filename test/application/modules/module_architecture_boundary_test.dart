@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:shiroha_quiz/services/backup/sha256.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'r5a_storage_baseline.dart';
 
 void main() {
   test(
@@ -13,6 +14,7 @@ void main() {
     for (final entry in entries) {
       final path = entry['path'] as String;
       var source = File(path).readAsStringSync().replaceAll('\r\n', '\n');
+      source = retainedR4StorageSource(path, source);
       final anchor = entry['anchor'] as String?;
       if (anchor != null) {
         expect(source, contains(anchor), reason: path);

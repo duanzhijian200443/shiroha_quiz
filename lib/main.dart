@@ -37,6 +37,8 @@ import 'application/backup/backup_restore_coordinator.dart';
 import 'application/agent/agent_runtime.dart';
 import 'application/modules/module_composition.dart';
 import 'application/modules/production_modules.dart';
+import 'application/generated_question/generated_question_service.dart';
+import 'data/repositories/generated_proposal_repository.dart';
 import 'application/agent/agent_turn.dart';
 import 'application/answers/ai_answer_commit_command.dart';
 import 'application/answers/ai_answer_entry_guard.dart';
@@ -559,6 +561,9 @@ void main() {
           missingAnswerPersistence: agentWritePersistence,
           missingAnswerProposals: agentWriteProposalService,
           studyPlan: studyPlanDraftService,
+          generatedQuestions: GeneratedQuestionService(
+              GeneratedProposalRepository(databaseHelper: databaseHelper),
+              admission: GeneratedQuestionAdmission(idFactory: uuid.v4)),
         ));
         final u1WorkspaceFacade = U1WorkspaceFacade(
           projectService: projectService,
