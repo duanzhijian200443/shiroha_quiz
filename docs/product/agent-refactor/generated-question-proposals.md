@@ -1,14 +1,17 @@
 # Durable Generated Question Proposals
 
 Status: **FROZEN contract; AR-R5A COMPLETE / CLOSED;
-AR-R5B generated Review UI IMPLEMENTATION CANDIDATE.**
+AR-R5B generated Review UI COMPLETE / CLOSED;
+AR-R6A P2 external historical Origin IMPLEMENTATION CANDIDATE.**
 
 AR-R5A implements Domain/Application/Data lifecycle at schema v32, B0 package v2
 and a source-level internal READ contribution, accepted in merged
 [PR #244](https://github.com/duanzhijian200443/shiroha_quiz/pull/244).
 AR-R5B connects that lifecycle to first-party typed Review UI using the local
-authority seam below. AR-R6A external trusted origin/Host authority remains
-unimplemented. Candidate mechanical evidence does not close independent review.
+authority seam below and is accepted through merged PR #245. P2 adds the strict
+historical format and v34 compatibility described in section 10. External STAGE,
+authenticated Origin construction and Host remain blocked. Candidate mechanical
+evidence does not close independent review.
 
 Authority/activation: [index](README.md). This owns generated candidate admission,
 durable Review, lifecycle, stage idempotency, dedicated commit and retention.
@@ -189,7 +192,7 @@ but retains storage compatibility and existing Questions.
 ## 8. AR-R5A schema/resource checkpoint
 
 Status: **FROZEN AR-R5A v0 implementation schema/resource checkpoint.
-AR-R5A runtime is accepted through merged PR #244; AR-R5B remains a candidate.**
+AR-R5A runtime is accepted through merged PR #244; AR-R5B through merged PR #245.**
 
 This section freezes the exact v0 input and persistence contract before formal
 writer implementation. AR-R5A acceptance is recorded by merged PR #244. The authorized
@@ -224,8 +227,9 @@ generation context; candidates cannot carry source IDs or raw SourceRef objects.
 
 ### Trusted context and evidence
 
-R5A has internal local and synthetic origin contexts only. No external pairing,
-profile, grant or Host exists. A trusted Application authority supplies
+The existing R5A STAGE entry retains internal local/synthetic contexts only.
+P1 persists non-secret Profile/Grant policy; P2's history codec creates no external
+context, pairing or Host. A trusted Application authority supplies
 `localOwner`, `originKind`, `clientProfileId`, an explicitly confirmed existing
 target, and current evidence. Candidate JSON can supply none of these fields.
 Historical origin values are soft metadata, never authorization.
@@ -297,7 +301,7 @@ that acknowledgement. Acknowledgement grants no external access.
 
 ### Durable state and review commands
 
-Proposal fields: `schemaVersion` (1), `proposalId`, `createdAtUtcMs`,
+Local/synthetic v1 Proposal fields: `schemaVersion` (1), `proposalId`, `createdAtUtcMs`,
 `updatedAtUtcMs`, `localOwner`, `originKind`, `clientProfileId`, `submissionKey`,
 `semanticFingerprint`, `requestedCount`, `actualCount`, `countMismatchWarning`,
 `originalTarget` (immutable submission snapshot), `target` (review target),
@@ -444,7 +448,7 @@ B0 retains its existing global foreign-key validation and all earlier validators
 The writer also verifies actual Question/sidecar/initial-review rows and affected
 working-copy updates, so SQLite RAISE(IGNORE) cannot fabricate successful writes.
 
-## 9. AR-R5B first-party Review UI candidate
+## 9. AR-R5B first-party Review UI
 
 The optional GeneratedQuestion module contributes exactly the finite
 `workspaceAction` descriptor `generated_proposal_review`. Presentation explicitly
@@ -505,3 +509,70 @@ recovery, confirmation double click, typed/null-empty fidelity, CAS, source
 acknowledgement, module removal and 360x720/1024x768 interaction. Synthetic fixtures
 remain test-only. No new generator/model/Provider/Agent/MCP tool, external grant,
 schema/codec/Receipt/B0 format, GC or R6A/R6B capability is activated.
+
+## 10. P2 external historical Origin and v34 compatibility
+
+This candidate adds a historical format, not an external execution entrypoint.
+`GeneratedOriginContext.validate()` still permits only local/synthetic. Candidate
+submission JSON remains the exact v1 key set and accepts no Origin, Profile,
+Grant, Scope, target or `trusted` assertion. The legacy STAGE path also refuses
+an existing external historical key instead of treating it as an internally
+authorized stage result. Parsing Origin never mints a current Principal.
+
+Local/synthetic Proposal JSON retains its exact schemaVersion 1 fields/meaning.
+External Proposal JSON uses schemaVersion 2, the same header/item/review/receipt
+fields, originKind `external`, and one required `externalOrigin` payload.
+Version 1 cannot express external; version 2 cannot express local/synthetic.
+No default/coercion/fallback changes the tag. Receipt remains v1.
+
+Payload is at most 32 KiB UTF-8, duplicate-key checked before Map decoding with
+the existing nesting ceiling 16. Its exact fields are:
+
+| Field | Historical representation |
+|---|---|
+| `schemaVersion` | Integer 1 |
+| `externalRequestId` | Required nullable value; non-null matches `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`. Untrusted correlation only, never authorization, diagnostic identity or idempotency. |
+| `adapterProtocol` | Exact `{adapter, protocol}`; each matches `[a-z][a-z0-9._-]{0,31}`. Future Application publication captures the trusted Profile/Adapter binding. |
+| `authorizationSnapshot` | Exact `{grantRevision, permission, authorizedFileIds, egressCategories}`. Revision is integer 1..2147483647, permission exactly `stage`; files are at most 128 sorted unique local-key-format ids; categories are a sorted unique subset of `fileContent`, `proposalMetadata`, `questionContent`, including explicit empty. |
+
+`ExternalProposalOrigin` binds Profile (canonical UUIDv4), original key and Target
+to the immutable Proposal Header, without repeating them in the payload.
+Snapshot target scope uses the original Target's exact Learning Space/bank
+relationship, not Review's later rebind. Its recipient is that Profile; every
+original item's evidence file must occur in historical file scope. Typed
+construction rejects contradictory Header bindings. These are admission facts,
+never a current Grant, credential or Context. No key/token/credential/runtime
+handle field is stored. Future P3 captures this through trusted Application
+authority at owning STAGE/revoke publication; P2 has no authenticated factory.
+
+SQLite v34 retains the five v32 tables and `(client_profile_id, submission_key)`
+uniqueness. Header gains nullable `external_origin_json` and a mutually exclusive
+CHECK: local/synthetic requires schema_version=1 and NULL payload; external
+requires schema_version=2, UUID-length Profile and nonempty bounded text payload.
+Typed decode additionally validates UUID, exact keys, enums and existing
+Proposal/fingerprint/Receipt relationships. Header immutability includes payload;
+child and terminal triggers retain their rules. No FK targets current Profiles.
+
+Historical v32 physical schema authority is retained separately. Pre-v32 upgrades
+create/check that format before v33 authorization and v34 Origin migration.
+Exact empty current objects remain idempotent for controlled reset-version
+fixtures; older versions cannot adopt published current-format data.
+For genuine v32/v33 Headers, DatabaseHelper's upgrade transaction saves old Header
+columns in a migration-only SQL snapshot, keeps foreign_keys ON, defers checks
+to commit, drops/recreates only Header, recreates its index/guards, and reinserts
+under the original parent name. Both-direction EXCEPT comparison proves all old
+Header values unchanged; new payloads are NULL. Child rows/triggers are never
+dropped or rewritten. Exact schema/data and foreign_key_check must pass; the
+migration-only table disappears and commit still enforces FKs. Failure rolls back
+DDL, rows, guards and user_version together. No foreign_keys OFF/writable_schema.
+
+B0 package stays v2: Proposal/Origin INCLUDE, all Profile/Grant rows SCRUB,
+credentials/runtime contexts EXCLUDED. Missing/revoked Profiles do not invalidate
+history. Restore grants no authentication, Grant, pairing or runtime Enablement;
+raw rollback retains original live policy/history. Corrupt Origin rejects live
+open/export/staged admission. Local Inbox, typed edit/Flush CAS, explicit local
+COMMIT, current target/evidence/duplicate checks and Receipt/Question mappings
+retain their owning services and semantics.
+
+P2 does not close R1-P3-1, R1-DESIGN-1 or the shared durable STAGE/revoke transaction/
+CAS boundary. Real external STAGE/reconciliation remains blocked.

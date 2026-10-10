@@ -3,6 +3,8 @@ import '../../domain/generated_question/generated_question_contract.dart';
 
 /// Only trusted internal Application composition constructs this context.
 /// Neither origin, target, ownership nor current authorization comes from JSON.
+/// ExternalProposalOrigin is a history codec, never a context for this entry.
+/// P2 adds no trusted external factory; external STAGE remains fail-closed.
 final class GeneratedOriginContext {
   GeneratedOriginContext(
       {required this.localOwner,

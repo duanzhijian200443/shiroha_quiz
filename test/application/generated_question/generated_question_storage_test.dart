@@ -18,11 +18,11 @@ void main() {
   });
   tearDown(() async => h.close());
   test(
-      'fresh current schema is exactly v33 with package2 and strict shared schema/data validators',
+      'fresh current schema is exactly v34 with package2 and strict shared schema/data validators',
       () async {
-    expect(DatabaseHelper.databaseVersion, 33);
-    expect(await h.db.getVersion(), 33);
-    expect(BackupValues.currentSchemaVersion, 33);
+    expect(DatabaseHelper.databaseVersion, 34);
+    expect(await h.db.getVersion(), 34);
+    expect(BackupValues.currentSchemaVersion, 34);
     expect(BackupValues.currentPackageVersion, 2);
     await validateGeneratedProposalSchema(h.db);
     await validateGeneratedProposalData(h.db);
@@ -32,7 +32,7 @@ void main() {
     await validateGeneratedProposalSchema(h.db);
   });
   test(
-      'real accepted v31 -> v33 upgrade retains old rows and old schema objects',
+      'real accepted v31 -> v34 upgrade retains old rows and old schema objects',
       () async {
     final path = DatabaseHelper.openedDatabasePathForTesting;
     final before = await h.db.query('bank_folders');
@@ -47,7 +47,7 @@ void main() {
     expect(await probe.getVersion(), 31);
     await probe.close();
     h.db = await h.helper.database;
-    expect(await h.db.getVersion(), 33);
+    expect(await h.db.getVersion(), 34);
     expect(await h.db.query('bank_folders'), before);
     final after = await h.db.rawQuery(
         "SELECT name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY name");

@@ -7,7 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shiroha_quiz/application/questions/folder_query_port.dart';
 import 'package:shiroha_quiz/application/import_review/typed_review_snapshot.dart';
 import 'package:shiroha_quiz/core/database/import_task_v31_schema.dart';
-import 'package:shiroha_quiz/core/database/external_authorization_schema.dart';
+import 'package:shiroha_quiz/core/database/generated_proposal_schema.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/data/models/question_draft.dart';
 import 'package:shiroha_quiz/domain/content/content_node.dart';
@@ -393,7 +393,7 @@ void main() {
       expect(importTaskSchemaVersion, 31);
       expect(
         DatabaseHelper.databaseVersion,
-        externalAuthorizationSchemaVersion,
+        generatedProposalOriginSchemaVersion,
       );
     });
 

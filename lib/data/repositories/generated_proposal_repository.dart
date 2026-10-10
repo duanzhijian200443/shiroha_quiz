@@ -296,7 +296,7 @@ final class GeneratedProposalRepository
       if (existing.isNotEmpty) {
         final p = await readGeneratedProposal(
             db, existing.single['proposal_id'] as String);
-        if (p.localOwner != context.localOwner) {
+        if (p.localOwner != context.localOwner || p.originKind == 'external') {
           generatedFail(GeneratedFailure.unauthorized);
         }
         if (p.semanticFingerprint != fingerprint) {

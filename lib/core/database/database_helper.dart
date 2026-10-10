@@ -95,7 +95,7 @@ class DatabaseHelper
   DatabaseHelper._();
 
   static const String _dbName = 'shiroha_core_v1.db';
-  static const int _dbVersion = externalAuthorizationSchemaVersion;
+  static const int _dbVersion = generatedProposalOriginSchemaVersion;
 
   static String get databaseFileName => _dbName;
   static int get databaseVersion => _dbVersion;
@@ -1189,6 +1189,9 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     }
     if (oldVersion < externalAuthorizationSchemaVersion) {
       await migrateExternalAuthorizationSchema(db);
+    }
+    if (oldVersion < generatedProposalOriginSchemaVersion) {
+      await migrateGeneratedProposalOriginToV34(db);
     }
     await validateExternalAuthorizationSchema(db);
     await validateExternalAuthorizationData(db);

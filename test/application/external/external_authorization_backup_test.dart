@@ -18,6 +18,8 @@ import 'package:shiroha_quiz/services/backup/backup_filesystem.dart';
 import 'package:shiroha_quiz/services/backup/backup_restore_runtime.dart';
 import 'package:shiroha_quiz/services/file_library/managed_file_storage_adapter.dart';
 import '../generated_question/generated_test_support.dart';
+import '../generated_question/external_origin_test_support.dart'
+    show installLegacyGeneratedHeaderFixture;
 import 'external_authorization_data_test.dart' show authFailure;
 
 final class _Disk implements BackupDiskSpaceProbe {
@@ -80,7 +82,7 @@ void main() {
         for (final table in externalAuthorizationTables)
           table: await h.db.query(table)
       };
-  Future<String> package(String path, {int version = 33}) async {
+  Future<String> package(String path, {int version = 34}) async {
     final manifest = BackupManifest(
         packageVersion: 2,
         schemaVersion: version,
@@ -113,7 +115,7 @@ void main() {
     final before = await authRows();
     final copyPath = p.join(h.temp.path, 'scrub.db');
     final snapshot = await snapshots.createSanitizedSnapshot(copyPath);
-    expect(snapshot.schemaVersion, 33);
+    expect(snapshot.schemaVersion, 34);
     final copy = await databaseFactory.openDatabase(copyPath);
     try {
       for (final table in externalAuthorizationTables) {
@@ -198,6 +200,8 @@ void main() {
     final copyPath = p.join(h.temp.path, 'old.db');
     await snapshots.createSanitizedSnapshot(copyPath);
     final copy = await databaseFactory.openDatabase(copyPath);
+    await copy.execute('PRAGMA foreign_keys=ON');
+    await installLegacyGeneratedHeaderFixture(copy);
     for (final table in externalAuthorizationTables.reversed) {
       await copy.execute('DROP TABLE $table');
     }
@@ -210,7 +214,7 @@ void main() {
     expect(await authRows(), before);
     await restoring.commitPreparedRestore();
     h.db = await h.helper.database;
-    expect(await h.db.getVersion(), 33);
+    expect(await h.db.getVersion(), 34);
     for (final table in externalAuthorizationTables) {
       expect(await h.db.query(table), isEmpty);
     }

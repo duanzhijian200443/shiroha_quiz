@@ -74,6 +74,13 @@ Origin is historical fact, not a live authorization credential. Local owner and
 all internal identities are App-generated. External request ids are untrusted,
 bounded input and never used as diagnostic identity.
 
+P2's persisted historical representation is owned by
+[GeneratedQuestion section 10](generated-question-proposals.md#10-p2-external-historical-origin-and-v34-compatibility).
+It binds Profile/key/original Target once in the immutable Header, with bounded
+adapter/protocol and historical authorization metadata. Decoding grants no
+authentication or current Grant/Context. P2 has no external STAGE factory;
+the local/synthetic entry remains closed to external contexts/historical keys.
+
 Scope admission precedes content lookup; unauthorized/nonexistent targets share
 safe non-enumerating errors. Aggregates operate inside authorized scope, not
 global query followed by filtering. Revalidate current grants on every call and
@@ -191,12 +198,12 @@ Wire envelope belongs to infrastructure; Application remains typed/protocol-free
 
 ## 6. Persistence, backup and acceptance
 
-Profile/grant non-secret metadata uses additive v33 storage in the P1 candidate
+Profile/grant non-secret metadata uses additive v33 storage accepted in PR #248
 below, with its constraints and compatibility validators owned here.
 No existing schema is changed at AR-R0. Credentials use a dedicated secure seam,
 not the Provider credential namespace.
 
-### Non-secret authorization storage (P1 implementation candidate)
+### Non-secret authorization storage (P1)
 
 The additive v33 schema uses the existing DatabaseHelper migration/open authority:
 

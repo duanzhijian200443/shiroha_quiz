@@ -120,7 +120,7 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
 6. Typed content mutation must not pass through the legacy editor or reconstruct authority from a V1 projection.
 7. Review/FSRS state is separate from typed question content mutation.
 8. `RichContent` is structural: a persisted `TextNode` is not reparsed later as Markdown/math/image syntax.
-9. Current database schema is **v33**: the frozen v15 typed sidecar remains
+9. Current database schema is **v34**: the frozen v15 typed sidecar remains
    authoritative, with the additive v16 File Library, v17 Project, v18 flat
    File Library Folder, v19 Conversation, and v20 parsed-artifact tables, the
    additive RAG-1 derived lexical-retrieval cache and FTS5 objects, the
@@ -134,9 +134,13 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
    nullable ImportTask current-attempt event timestamps and v32 durable generated
    Proposal originals/review/receipts/mappings, plus v33 non-secret external
    Profile/Grant policy, exact scopes and Egress categories. The authorization
-   contract is owned by `external-agent-boundary.md` §6; it adds no authentication,
+   contract is owned by `external-agent-boundary.md` §6; P1 adds no authentication,
    pairing, runtime Enablement, external Origin, Dispatcher or Host wiring. B0
    scrubs its rows from portable copies and preserves original raw rollback state.
+   V34 adds tagged external historical Origin in the existing Proposal Header,
+   retains v32 physical-schema migration authority, and preserves all child data,
+   local Review/COMMIT and B0 package v2. The generated-question contract §10 owns
+   this candidate format; it adds no external STAGE or authentication factory.
    The generated schema is globally
    migrated and strictly validated independently of runtime module enablement.
    The v27 table records only
@@ -231,7 +235,7 @@ Rules:
 - F1-D1 implemented the additive v20 artifact tables without modifying any
   earlier table. RAG-1 subsequently raised the runtime schema to v21 at its
   closure with derived lexical-retrieval cache tables and a dedicated FTS5
-  index; the current runtime is v33.
+  index; the current runtime is v34.
 
 See `docs/architecture/f1-parsed-artifact-lifecycle.md`.
 
@@ -343,13 +347,13 @@ retained schema v31. Accepted AR-R5A adds schema v32
 durable generated Proposal originals, review CAS, explicit local approval and
 one-transaction typed Question/receipt persistence. It contributes internal
 READ only, with no Agent/MCP/UI surface. External Host/IPC and READ continuation
-remain targets. Candidate AR-R5B adds module-controlled first-party Inbox/history,
+remain targets. Accepted AR-R5B (merged PR #245) adds module-controlled first-party Inbox/history,
 structural typed Review/edit/Flush/CAS, explicit approval/rejection and Receipt
 recovery. Its local authority uses one UUID in existing app_settings, separate
 owner-scoped read sessions and target-confirmation Contexts, invalidated on restore
 recomposition.
 It changes no schema, Proposal codec, Receipt, B0 format or Agent/MCP permissions;
-Independent acceptance remains pending. See
+P2's historical Origin format remains a candidate. See
 `docs/product/agent-refactor/generated-question-proposals.md`.
 See `docs/product/agent-refactor/module-system.md` for its finite registration
 and compatibility scope. AR-R4 was accepted and merged in PR #243 after
@@ -528,7 +532,7 @@ boundary remains frozen and applies to any future P7 extension:
   READ_ONLY tools, A0 stays exactly six tools, and W0 is not a P7 workflow.
 - P7 adds no schema change and no persisted candidate/generation state/
   provenance/provider request/result/review state; runtime schema was v21 at
-  P7 closure. The current runtime is v33.
+  P7 closure. The current runtime is v34.
 
 ## 12. UI Finalization Presentation boundary
 
@@ -577,7 +581,7 @@ through an Application command with a durable transaction-level
   non-preview Practice seam (never `PracticePage.initialQuestions`, which
   remains preview-only). SPL-1 StudyPlan Agent Tool v0 is CLOSED / FROZEN
   (P0–D0–D1–I0–U0–V0–CL COMPLETE; stage schema v22, v24 at closure;
-  current runtime v33).
+  current runtime v34).
 
   The focused SPL-1 authority is
 `docs/product/SPL-1 StudyPlan Agent Tool v0.md`.
@@ -626,7 +630,7 @@ FSRS grading authority. See `docs/architecture/photo-answer-v1.md`.
 
 The design keeps Presentation behind Answer Completion Application services, preserves `PersistedQuestion.storageId` as Question identity, reuses existing P6/P7 answer mutation authority, and makes the existing task-bound `QuestionRepository` transaction the only import transaction owner. `LibraryFile`, `ParsedArtifact`, and `ImportTask` do not become QuestionSet identity.
 
-**ANSWER-COMP-D1 implemented this relation as the additive v28 schema; the current runtime is v33.** The `imported_question_sets` / `imported_question_set_items` tables, their constraints, the bank lookup index, and the required relationship triggers exist and are strictly validated, while historical questions remain ungrouped.
+**ANSWER-COMP-D1 implemented this relation as the additive v28 schema; the current runtime is v34.** The `imported_question_sets` / `imported_question_set_items` tables, their constraints, the bank lookup index, and the required relationship triggers exist and are strictly validated, while historical questions remain ungrouped.
 
 Seed capture, the QuestionRepository-owned atomic set/member writer with per-document dispatch, the Answer Completion read projection, the queue/detail Presentation, and set-scoped P6 plus single-question P7 activation are implemented. ANSWER-COMP-P0, ANSWER-ENTRY-GUARD, D0/D1/B0, I0a/I0b/I0c, Q0/U0/P6/P7, V0 and CL are COMPLETE; Answer Completion v0 is CLOSED / FROZEN. These durable boundaries apply:
 
@@ -651,7 +655,7 @@ P1c implements additive v29 TrainingContent persistence; P4b implements additive
 v30 StudyActivity persistence. B1 implements additive v31 ImportTask event
 timestamps and the TaskCenter Application backend.
 
-Runtime schema is v33; the v31 event contract is retained. The three configuration tables and independent
+Runtime schema is v34; the v31 event contract is retained. The three configuration tables and independent
 `app_settings.current_training_category` use canonical CategoryKey encoding;
 the upgrade transaction seeds only the eligible old current bank once, without
 changing learning data. B0 includes configuration and validates bindings,
@@ -745,7 +749,7 @@ and rejects malformed or nonterminal portable Activity before swap. Weekly reads
 sum persisted local-date segment durations for seven Monday–Sunday dates, using an
 injected current local date; read failure remains unavailable. P4b is merged via
 PR #224, and CP2-A is PASSED after independent T3 verification and fresh review.
-Runtime is v33. B3 implements Practice/MockExam Activity wiring and production
+Runtime is v34. B3 implements Practice/MockExam Activity wiring and production
 composition. A composition creates one PersistentStudyActivityService after B0
 startup recovery and DB readiness, attempts Activity startup recovery before
 exposing routes, and injects the same service/query through a dependency scope.
@@ -789,7 +793,7 @@ API remains a compatibility path, not the new completed-only command authority.
 Retry emits a picker request without mutation; selected input stays ephemeral in
 the ingestion adapter and revalidates again at accepted retry. Review emits only
 an exact navigation target; the composition bridge retains existing review CAS.
-B0 retains package v2, migrates staged schema to v33 and continues to scrub all
+B0 retains package v2, migrates staged schema to v34 and continues to scrub all
 ImportTask rows including event times. P5a/P5b and CP2-I implementation are complete;
 B1 / CP2-I has been independently accepted and merged. B5 activates TaskCenter
 UI and I3 through one TaskCenterFacade shared by query, command and selected-source
@@ -811,7 +815,7 @@ elapsed inference; the UI labels its recorded-event basis. The review
 bridge validates the exact nullable attempt/trace/review identity and eligibility
 again immediately before constructing existing ImportStaging inputs and pushing
 the route. The historical task_center_projection helper remains for compatibility
-tests only. Global schema is v33; accepted AR-R5A owns the retained v32 Proposal schema; PlanConfigScreen retirement and CP4 remain for B6.
+tests only. Global schema is v34; accepted AR-R5A owns the retained v32 Proposal schema; PlanConfigScreen retirement and CP4 remain for B6.
 
 B2 implements injectable Training Config list, shared selector/editor and
 Presentation controller through Application ports. A single read transaction
@@ -830,7 +834,7 @@ overlapping UI mutations. Configuration CRUD never changes learning facts.
 Home/config production composition is now wired by B4/I2; the legacy
 PlanConfigScreen remains for compatibility pending B6 retirement. B2 implementation was merged by PR #230 with standing
 PR CI success. PR #230 is merged, so B2 is historical accepted delivery under the current
-merged-PR recovery rule. Runtime schema is v33; accepted AR-R5A owns the retained v32 Proposal schema.
+merged-PR recovery rule. Runtime schema is v34; accepted AR-R5A owns the retained v32 Proposal schema.
 TodayTrainingQueryAdapter captures one clock observation and injected local-day
 boundaries, then TrainingConfigurationRepository reads catalog, configuration,
 selection and counts in one read transaction. It reuses the shared eligibility,
