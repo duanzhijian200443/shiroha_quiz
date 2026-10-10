@@ -11,6 +11,7 @@ import '../../core/database/training_content_v29_schema.dart';
 import '../../core/database/study_activity_v30_schema.dart';
 import '../../core/database/import_task_v31_schema.dart';
 import '../../core/database/generated_proposal_schema.dart';
+import '../../core/database/external_authorization_schema.dart';
 import 'generated_proposal_reader.dart';
 import '../../domain/study_activity/study_activity_values.dart';
 import '../../domain/backup/backup_failure.dart';
@@ -180,6 +181,16 @@ final class BackupSnapshotRepository {
   }
 
   Future<void> _scrub(Database db) async {
+    // Validate before deleting: corrupt authority must not be hidden by scrub.
+    try {
+      await validateExternalAuthorizationSchema(db);
+      await validateExternalAuthorizationData(db);
+    } catch (_) {
+      throw const BackupException(BackupFailure.databaseInvalid);
+    }
+    for (final table in externalAuthorizationTables.reversed) {
+      await db.delete(table);
+    }
     await db.execute("UPDATE ai_engines SET api_key = ''");
     await db.execute(
       'UPDATE ai_profiles SET text_api_key = NULL, vision_api_key = NULL',
@@ -219,6 +230,8 @@ final class BackupSnapshotRepository {
     try {
       await validateGeneratedProposalSchema(db);
       await validateGeneratedProposalData(db);
+      await validateExternalAuthorizationSchema(db);
+      await validateExternalAuthorizationData(db);
       await validateTrainingContentV29Schema(db);
       await validateTrainingContentV29Data(db);
       await validateImportTaskV31Schema(db);
@@ -234,6 +247,7 @@ final class BackupSnapshotRepository {
     }
 
     final excludedTables = <String>[
+      ...externalAuthorizationTables,
       'parsed_artifacts',
       'parsed_artifact_heads',
       'retrieval_index_builds',

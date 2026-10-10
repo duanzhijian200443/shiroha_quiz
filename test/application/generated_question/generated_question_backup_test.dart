@@ -49,7 +49,7 @@ void main() {
   ModuleComposition compose(bool enabled) => const ModuleComposer()
       .compose([if (enabled) generatedQuestionModule(h.service)]);
   Future<String> package(String dbPath,
-      {int version = 32, String name = 'candidate'}) async {
+      {int version = 33, String name = 'candidate'}) async {
     final manifest = BackupManifest(
         packageVersion: 2,
         schemaVersion: version,
@@ -106,7 +106,7 @@ void main() {
     final path = p.join(h.temp.path, 'roundtrip.shiroha');
     await runtime().exportTo(path);
     final manifest = await BackupArchiveIo.readManifestOnly(path);
-    expect(manifest.schemaVersion, 32);
+    expect(manifest.schemaVersion, 33);
     expect(manifest.packageVersion, 2);
     await h.db.delete('questions');
     final restoring = runtime();
@@ -127,7 +127,9 @@ void main() {
     expect(
         await h.db.rawQuery(
             "SELECT name FROM sqlite_master WHERE name IN ('external_client_profiles','external_grants')"),
-        isEmpty);
+        hasLength(2));
+    expect(await h.db.query('external_client_profiles'), isEmpty);
+    expect(await h.db.query('external_grants'), isEmpty);
   });
   for (final corrupt in ['payload', 'receipt', 'relationship', 'schema']) {
     test('checksummed corrupt $corrupt package is rejected before live swap',
@@ -189,7 +191,7 @@ void main() {
         current.proposalId);
     await restoring.commitPreparedRestore();
     h.db = await h.helper.database;
-    expect(await h.db.getVersion(), 32);
+    expect(await h.db.getVersion(), 33);
     expect(await h.count('generated_question_proposals'), 0);
     await validateGeneratedProposalSchema(h.db);
   });

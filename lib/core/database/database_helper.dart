@@ -30,6 +30,7 @@ import 'training_content_v29_schema.dart';
 import 'study_activity_v30_schema.dart';
 import 'import_task_v31_schema.dart';
 import 'generated_proposal_schema.dart';
+import 'external_authorization_schema.dart';
 import '../../data/repositories/generated_proposal_reader.dart';
 import '../../application/task_center/retry_file_selection.dart';
 import '../../data/models/task_center_task_identity.dart';
@@ -94,7 +95,7 @@ class DatabaseHelper
   DatabaseHelper._();
 
   static const String _dbName = 'shiroha_core_v1.db';
-  static const int _dbVersion = generatedProposalSchemaVersion;
+  static const int _dbVersion = externalAuthorizationSchemaVersion;
 
   static String get databaseFileName => _dbName;
   static int get databaseVersion => _dbVersion;
@@ -707,6 +708,8 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await validateImportTaskV31Schema(db);
     await validateGeneratedProposalSchema(db);
     await validateGeneratedProposalData(db);
+    await validateExternalAuthorizationSchema(db);
+    await validateExternalAuthorizationData(db);
   }
 
   /// Opens a database handle with the current production schema callbacks.
@@ -815,6 +818,8 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
   Future<void> _onGeneratedProposalOpen(Database db) async {
     await validateGeneratedProposalSchema(db);
     await validateGeneratedProposalData(db);
+    await validateExternalAuthorizationSchema(db);
+    await validateExternalAuthorizationData(db);
   }
 
   Future<void> _onConfigure(Database db) async {
@@ -973,6 +978,9 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await createTrainingContentV29Schema(db);
     await createStudyActivityV30Schema(db);
     await createGeneratedProposalSchema(db);
+    await createExternalAuthorizationSchema(db);
+    await validateExternalAuthorizationSchema(db);
+    await validateExternalAuthorizationData(db);
     await _validateV15Schema(db);
     await _validateLibraryFilesSchema(db);
     await _validateProjectSchema(db);
@@ -1179,6 +1187,11 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     if (oldVersion < generatedProposalSchemaVersion) {
       await migrateGeneratedProposalSchema(db);
     }
+    if (oldVersion < externalAuthorizationSchemaVersion) {
+      await migrateExternalAuthorizationSchema(db);
+    }
+    await validateExternalAuthorizationSchema(db);
+    await validateExternalAuthorizationData(db);
     await validateAnswerAttemptV26Schema(db);
     await validateContentAssetReclamationV27Schema(db);
     await validateAnswerCompletionV28Schema(db);

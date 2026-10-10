@@ -165,7 +165,14 @@ history, structural typed preview/edit, Review Flush/CAS, explicit subset
 approval/all-rejected rejection and matching Receipt recovery. The generated-
 question contract owns this bounded behavior. Final-target
 standing CI and independent semantic review remain candidate acceptance gates.
-AR-R6A/AR-R6B, AR-R7 and later implementation stages remain inactive.
+AR-R6A has accepted pure-memory TCP core (PR #246) and the frozen TCP security
+decision/HOST_STABILITY_HALT (PR #247). P1 non-secret Profile/Grant storage is a
+v33 implementation candidate under `external-agent-boundary.md` §6, with portable
+B0 scrub and raw rollback compatibility. This does not authenticate clients or
+enable external business access. External Origin, durable STAGE reconciliation
+and formal Host integration remain blocked; real TCP/mTLS is unverified, Transport
+is BLOCKED and AR-R6A is NOT_ACCEPTED. HOST_STABILITY_HALT remains active.
+AR-R6B, AR-R7 and later implementation stages remain inactive.
 
 Use namespaced AR-R identifiers to distinguish this route from historical
 R1-R8 typed-core stages:

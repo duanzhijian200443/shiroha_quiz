@@ -119,7 +119,7 @@ void main() {
     await backup.exportTo(path);
     final manifest = await BackupArchiveIo.readManifestOnly(path);
     expect(manifest.packageVersion, 2);
-    expect(manifest.schemaVersion, 32);
+    expect(manifest.schemaVersion, 33);
     await backup.prepareRestore(path);
     expect(oldSession.isCurrent, isTrue); // Staging is not a restore/approval.
     await backup.commitPreparedRestore();

@@ -27,9 +27,13 @@ String retainedR4StorageSource(String path, String source) {
     expect(after, isNotEmpty);
     expect(count, greaterThan(0));
     final version = path == 'lib/core/database/database_helper.dart' &&
-        before == 'static const int _dbVersion = importTaskSchemaVersion;' &&
-        after ==
-            'static const int _dbVersion = generatedProposalSchemaVersion;';
+        ((before == 'static const int _dbVersion = importTaskSchemaVersion;' &&
+                after ==
+                    'static const int _dbVersion = generatedProposalSchemaVersion;') ||
+            (before ==
+                    'static const int _dbVersion = generatedProposalSchemaVersion;' &&
+                after ==
+                    'static const int _dbVersion = externalAuthorizationSchemaVersion;'));
     if (!version) {
       expect(after.length, greaterThan(before.length));
       expect(after.split(before).length - 1, 1,
