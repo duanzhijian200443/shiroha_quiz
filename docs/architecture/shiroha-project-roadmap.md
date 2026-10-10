@@ -158,19 +158,22 @@ compatibility. It is **COMPLETE / CLOSED**, accepted and merged in
 final-head standing CI and independent repair-review closure. Default Agent/prompt/MCP/UI behavior is
 retained. AR-R5A durable Proposal/review/atomic writer is **COMPLETE / CLOSED**,
 accepted in merged [PR #244](https://github.com/duanzhijian200443/shiroha_quiz/pull/244),
-at additive schema v32 with B0 package v2. AR-R5B generated Review UI is an
-**IMPLEMENTATION CANDIDATE**: one existing app_settings data-owner UUID,
+at additive schema v32 with B0 package v2. AR-R5B generated Review UI is
+**COMPLETE / CLOSED**, accepted in merged PR #245: one existing app_settings data-owner UUID,
 restore-invalidated first-party sessions, module-controlled Inbox/completed
 history, structural typed preview/edit, Review Flush/CAS, explicit subset
 approval/all-rejected rejection and matching Receipt recovery. The generated-
 question contract owns this bounded behavior. Final-target
-standing CI and independent semantic review remain candidate acceptance gates.
+standing CI and independent semantic review remain gates for new candidates.
 AR-R6A has accepted pure-memory TCP core (PR #246) and the frozen TCP security
-decision/HOST_STABILITY_HALT (PR #247). P1 non-secret Profile/Grant storage is a
-v33 implementation candidate under `external-agent-boundary.md` §6, with portable
+decision/HOST_STABILITY_HALT (PR #247). P1 non-secret Profile/Grant storage is
+accepted in merged PR #248 at v33 under `external-agent-boundary.md` §6, with portable
 B0 scrub and raw rollback compatibility. This does not authenticate clients or
-enable external business access. External Origin, durable STAGE reconciliation
-and formal Host integration remain blocked; real TCP/mTLS is unverified, Transport
+enable external business access. P2 strict external historical Origin/v34
+compatibility is an implementation candidate under `generated-question-proposals.md`
+§10. It adds no external STAGE, authenticated Origin factory or current Grant.
+Durable STAGE reconciliation and formal Host integration remain blocked;
+real TCP/mTLS is unverified, Transport
 is BLOCKED and AR-R6A is NOT_ACCEPTED. HOST_STABILITY_HALT remains active.
 AR-R6B, AR-R7 and later implementation stages remain inactive.
 

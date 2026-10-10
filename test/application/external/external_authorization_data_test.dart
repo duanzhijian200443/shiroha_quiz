@@ -8,6 +8,9 @@ import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/core/database/external_authorization_schema.dart';
 import 'package:shiroha_quiz/data/repositories/external_authorization_repository.dart';
 import '../generated_question/generated_test_support.dart';
+import '../generated_question/external_origin_test_support.dart'
+    show installLegacyGeneratedHeaderFixture;
+import 'package:shiroha_quiz/core/database/generated_proposal_schema.dart';
 
 Matcher authFailure(ExternalAuthFailure f) => throwsA(
     isA<ExternalAuthException>().having((e) => e.failure, 'fixed failure', f));
@@ -328,12 +331,15 @@ void main() {
         throwsA(isA<DatabaseException>()));
     expect(await h.db.rawQuery('PRAGMA foreign_key_check'), isEmpty);
   });
-  test('v32 upgrade is additive and preserves all old schema/data', () async {
+  test(
+      'v32 upgrade preserves old data/unrelated schema; Origin migrates to v34',
+      () async {
     final proposal = await h.decide(await h.stage());
     await h.service.approve(h.approval(proposal), h.local);
     final original = await h.repository.read(proposal.proposalId, h.local);
     final questions = await h.db.query('questions');
     final sidecars = await h.db.query('question_v2_payloads');
+    await installLegacyGeneratedHeaderFixture(h.db);
     for (final table in externalAuthorizationTables.reversed) {
       await h.db.delete(table);
       await h.db.execute('DROP TABLE $table');
@@ -343,7 +349,7 @@ void main() {
         "SELECT name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'");
     await h.db.setVersion(32);
     await h.reopen();
-    expect(await h.db.getVersion(), 33);
+    expect(await h.db.getVersion(), 34);
     expect(await h.db.query('bank_folders'), oldRows);
     expect((await h.repository.read(proposal.proposalId, h.local)).toJson(),
         original.toJson());
@@ -352,7 +358,17 @@ void main() {
     final newSchema = await h.db.rawQuery(
         "SELECT name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'");
     for (final row in oldSchema) {
-      expect(newSchema.where((r) => r['name'] == row['name']).single, row);
+      final actual = newSchema.where((r) => r['name'] == row['name']).single;
+      if (['generated_question_proposals', 'gq_original_header_immutable']
+          .contains(row['name'])) {
+        expect(
+            actual['sql'],
+            generatedProposalSchemaObjects[row['name']]!
+                .trim()
+                .replaceFirst(RegExp(r';\s*$'), ''));
+      } else {
+        expect(actual, row);
+      }
     }
     for (final table in externalAuthorizationTables) {
       expect(await h.db.query(table), isEmpty);

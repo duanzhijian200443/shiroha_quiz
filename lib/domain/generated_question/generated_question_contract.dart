@@ -7,6 +7,8 @@ import '../question/question_draft_v2.dart';
 import '../question/question_draft_v2_codec.dart';
 import '../source/source_ref.dart';
 
+part 'external_proposal_origin.dart';
+
 enum GeneratedFailure {
   invalidSubmission('invalid_submission'),
   unsupportedContent('unsupported_content'),
@@ -47,6 +49,7 @@ abstract final class GeneratedLimits {
   static const itemBytes = 128 * 1024;
   static const flushBytes = 128 * 1024;
   static const receiptBytes = 32 * 1024;
+  static const externalOriginBytes = 32 * 1024;
 }
 
 Map<String, Object?> generatedObject(Object? value, Iterable<String> keys) {
@@ -509,8 +512,22 @@ final class GeneratedQuestionProposal {
       required this.reviewRevision,
       required this.lifecycleStatus,
       required Iterable<GeneratedItem> items,
-      required this.commitReceipt})
-      : items = List.unmodifiable(items);
+      required this.commitReceipt,
+      this.externalOrigin})
+      : items = List.unmodifiable(items) {
+    if (originKind == 'external') {
+      final origin = externalOrigin;
+      if (origin == null ||
+          origin.clientProfileId != clientProfileId ||
+          origin.submissionKey != submissionKey ||
+          generatedCanonical(origin.originalTarget.toJson()) !=
+              generatedCanonical(originalTarget.toJson())) {
+        generatedFail(GeneratedFailure.corruptState);
+      }
+    } else if (externalOrigin != null) {
+      generatedFail(GeneratedFailure.corruptState);
+    }
+  }
   final String proposalId,
       localOwner,
       originKind,
@@ -522,10 +539,11 @@ final class GeneratedQuestionProposal {
   final GeneratedStatus lifecycleStatus;
   final List<GeneratedItem> items;
   final GeneratedReceipt? commitReceipt;
+  final ExternalProposalOrigin? externalOrigin;
   int get actualCount => items.length;
   bool get countMismatchWarning => actualCount != requestedCount;
   Map<String, Object?> toJson() => {
-        'schemaVersion': 1,
+        'schemaVersion': originKind == 'external' ? 2 : 1,
         'proposalId': proposalId,
         'createdAtUtcMs': createdAtUtcMs,
         'updatedAtUtcMs': updatedAtUtcMs,
@@ -542,7 +560,9 @@ final class GeneratedQuestionProposal {
         'reviewRevision': reviewRevision,
         'lifecycleStatus': lifecycleStatus.code,
         'items': items.map((i) => i.toJson()).toList(),
-        'commitReceipt': commitReceipt?.toJson()
+        'commitReceipt': commitReceipt?.toJson(),
+        if (originKind == 'external')
+          'externalOrigin': externalOrigin?.toPersistedPayload()
       };
   static GeneratedQuestionProposal fromJson(Object? v) {
     try {
@@ -555,6 +575,8 @@ final class GeneratedQuestionProposal {
   }
 
   static GeneratedQuestionProposal _decode(Object? v) {
+    final external =
+        v is Map && v['schemaVersion'] is int && v['schemaVersion'] == 2;
     final m = generatedObject(v, [
       'schemaVersion',
       'proposalId',
@@ -573,11 +595,14 @@ final class GeneratedQuestionProposal {
       'reviewRevision',
       'lifecycleStatus',
       'items',
-      'commitReceipt'
+      'commitReceipt',
+      if (external) 'externalOrigin'
     ]);
     if (m['schemaVersion'] is! int ||
-        m['schemaVersion'] != 1 ||
-        !['local', 'synthetic'].contains(m['originKind'])) {
+        (external
+            ? m['originKind'] != 'external'
+            : m['schemaVersion'] != 1 ||
+                !['local', 'synthetic'].contains(m['originKind']))) {
       generatedFail(GeneratedFailure.corruptState);
     }
     final items =
@@ -644,22 +669,33 @@ final class GeneratedQuestionProposal {
                 })
             .toList(),
         GeneratedLimits.batchBytes);
+    final originalTarget = GeneratedTarget.fromJson(m['originalTarget']);
+    final profileId = generatedToken(m['clientProfileId'], uuid: external);
+    final key = generatedToken(m['submissionKey']);
+    final origin = external
+        ? ExternalProposalOrigin.fromPersistedPayload(m['externalOrigin'],
+            clientProfileId: profileId,
+            submissionKey: key,
+            originalTarget: originalTarget)
+        : null;
+    origin?.validateOriginalEvidence(items);
     return GeneratedQuestionProposal(
         proposalId: id,
         createdAtUtcMs: created,
         updatedAtUtcMs: updated,
         localOwner: generatedToken(m['localOwner']),
         originKind: m['originKind'] as String,
-        clientProfileId: generatedToken(m['clientProfileId']),
-        submissionKey: generatedToken(m['submissionKey']),
+        clientProfileId: profileId,
+        submissionKey: key,
         semanticFingerprint: generatedDigest(m['semanticFingerprint']),
         requestedCount: requested,
-        originalTarget: GeneratedTarget.fromJson(m['originalTarget']),
+        originalTarget: originalTarget,
         target: GeneratedTarget.fromJson(m['target']),
         reviewRevision: revision,
         lifecycleStatus: status,
         items: items,
-        commitReceipt: receipt);
+        commitReceipt: receipt,
+        externalOrigin: origin);
   }
 }
 

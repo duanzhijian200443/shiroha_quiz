@@ -49,7 +49,7 @@ void main() {
   ModuleComposition compose(bool enabled) => const ModuleComposer()
       .compose([if (enabled) generatedQuestionModule(h.service)]);
   Future<String> package(String dbPath,
-      {int version = 33, String name = 'candidate'}) async {
+      {int version = 34, String name = 'candidate'}) async {
     final manifest = BackupManifest(
         packageVersion: 2,
         schemaVersion: version,
@@ -106,7 +106,7 @@ void main() {
     final path = p.join(h.temp.path, 'roundtrip.shiroha');
     await runtime().exportTo(path);
     final manifest = await BackupArchiveIo.readManifestOnly(path);
-    expect(manifest.schemaVersion, 33);
+    expect(manifest.schemaVersion, 34);
     expect(manifest.packageVersion, 2);
     await h.db.delete('questions');
     final restoring = runtime();
@@ -191,7 +191,7 @@ void main() {
         current.proposalId);
     await restoring.commitPreparedRestore();
     h.db = await h.helper.database;
-    expect(await h.db.getVersion(), 33);
+    expect(await h.db.getVersion(), 34);
     expect(await h.count('generated_question_proposals'), 0);
     await validateGeneratedProposalSchema(h.db);
   });

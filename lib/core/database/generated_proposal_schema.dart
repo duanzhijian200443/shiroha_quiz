@@ -1,86 +1,30 @@
 import '../../data/repositories/generated_proposal_reader.dart';
 import '../../domain/generated_question/generated_question_contract.dart';
 import 'sqflite_runtime.dart';
+import 'generated_proposal_v32_schema.dart';
 
 const generatedProposalSchemaVersion = 32;
+const generatedProposalOriginSchemaVersion = 34;
 const generatedProposalTables = generatedProposalTableNames;
 
-const generatedProposalSchemaObjects = <String, String>{
-  'generated_question_proposals': '''CREATE TABLE generated_question_proposals (
-  proposal_id TEXT PRIMARY KEY NOT NULL CHECK(length(proposal_id)=36),
-  schema_version INTEGER NOT NULL CHECK(typeof(schema_version)='integer' AND schema_version=1),
-  created_at_utc_ms INTEGER NOT NULL CHECK(typeof(created_at_utc_ms)='integer' AND created_at_utc_ms>=0),
-  updated_at_utc_ms INTEGER NOT NULL CHECK(typeof(updated_at_utc_ms)='integer' AND updated_at_utc_ms>=created_at_utc_ms),
-  local_owner TEXT NOT NULL CHECK(length(local_owner) BETWEEN 1 AND 64),
-  origin_kind TEXT NOT NULL CHECK(origin_kind IN ('local','synthetic')),
-  client_profile_id TEXT NOT NULL CHECK(length(client_profile_id) BETWEEN 1 AND 64),
-  submission_key TEXT NOT NULL CHECK(length(submission_key) BETWEEN 1 AND 64),
-  semantic_fingerprint TEXT NOT NULL CHECK(length(semantic_fingerprint)=64),
-  requested_count INTEGER NOT NULL CHECK(typeof(requested_count)='integer' AND requested_count BETWEEN 1 AND 50),
-  actual_count INTEGER NOT NULL CHECK(typeof(actual_count)='integer' AND actual_count BETWEEN 1 AND 50),
-  original_target_json TEXT NOT NULL CHECK(length(original_target_json)>0),
-  target_json TEXT NOT NULL CHECK(length(target_json)>0),
-  review_revision INTEGER NOT NULL CHECK(typeof(review_revision)='integer' AND review_revision>=0),
-  lifecycle_status TEXT NOT NULL CHECK(lifecycle_status IN ('pending_review','committed','rejected')),
-  terminal_revision INTEGER,
-  UNIQUE(client_profile_id,submission_key),
-  CHECK((lifecycle_status='pending_review' AND terminal_revision IS NULL) OR
-    (lifecycle_status!='pending_review' AND terminal_revision IS NOT NULL AND typeof(terminal_revision)='integer' AND terminal_revision=review_revision))
-);''',
-  'generated_question_proposal_items':
-      '''CREATE TABLE generated_question_proposal_items (
-  proposal_id TEXT NOT NULL,
-  item_id TEXT NOT NULL CHECK(length(item_id)=36),
-  item_key TEXT NOT NULL CHECK(length(item_key) BETWEEN 1 AND 64),
-  position INTEGER NOT NULL CHECK(typeof(position)='integer' AND position BETWEEN 0 AND 49),
-  original_json TEXT NOT NULL CHECK(length(original_json)>0),
-  evidence_json TEXT NOT NULL CHECK(length(evidence_json)>0),
-  PRIMARY KEY(proposal_id,item_id),
-  UNIQUE(proposal_id,item_key),
-  UNIQUE(proposal_id,position),
-  FOREIGN KEY(proposal_id) REFERENCES generated_question_proposals(proposal_id)
-);''',
-  'generated_question_review_state':
-      '''CREATE TABLE generated_question_review_state (
-  proposal_id TEXT NOT NULL,
-  item_id TEXT NOT NULL,
-  working_json TEXT NOT NULL CHECK(length(working_json)>0),
-  decision TEXT NOT NULL CHECK(decision IN ('unreviewed','accepted','rejected','deferred')),
-  evidence_ack_json TEXT CHECK(evidence_ack_json IS NULL OR length(evidence_ack_json)>0),
-  PRIMARY KEY(proposal_id,item_id),
-  FOREIGN KEY(proposal_id,item_id) REFERENCES generated_question_proposal_items(proposal_id,item_id)
-);''',
-  'generated_question_commit_receipts':
-      '''CREATE TABLE generated_question_commit_receipts (
-  proposal_id TEXT PRIMARY KEY NOT NULL,
-  receipt_json TEXT NOT NULL CHECK(length(receipt_json)>0),
-  review_revision INTEGER NOT NULL CHECK(typeof(review_revision)='integer' AND review_revision>=0),
-  committed_at_utc_ms INTEGER NOT NULL CHECK(typeof(committed_at_utc_ms)='integer' AND committed_at_utc_ms>=0),
-  FOREIGN KEY(proposal_id) REFERENCES generated_question_proposals(proposal_id)
-);''',
-  'generated_question_commit_items':
-      '''CREATE TABLE generated_question_commit_items (
-  proposal_id TEXT NOT NULL,
-  item_id TEXT NOT NULL,
-  persisted_question_id TEXT NOT NULL UNIQUE CHECK(length(persisted_question_id)=36),
-  PRIMARY KEY(proposal_id,item_id),
-  FOREIGN KEY(proposal_id,item_id) REFERENCES generated_question_proposal_items(proposal_id,item_id),
-  FOREIGN KEY(proposal_id) REFERENCES generated_question_commit_receipts(proposal_id)
-);''',
-  'idx_generated_pending_owner':
-      'CREATE INDEX idx_generated_pending_owner ON generated_question_proposals(local_owner,lifecycle_status);',
+const _retainedSchemaObjects = generatedProposalV32SchemaObjects;
+
+final generatedProposalSchemaObjects = <String, String>{
+  ..._retainedSchemaObjects,
+  'generated_question_proposals':
+      _retainedSchemaObjects['generated_question_proposals']!
+          .replaceFirst('schema_version=1', 'schema_version IN (1,2)')
+          .replaceFirst("origin_kind IN ('local','synthetic')",
+              "origin_kind IN ('local','synthetic','external')")
+          .replaceFirst('  UNIQUE(client_profile_id,submission_key),',
+              '''  external_origin_json TEXT,
+  CHECK((origin_kind IN ('local','synthetic') AND schema_version=1 AND external_origin_json IS NULL) OR
+    (origin_kind='external' AND schema_version=2 AND length(client_profile_id)=36 AND external_origin_json IS NOT NULL AND typeof(external_origin_json)='text' AND length(CAST(external_origin_json AS BLOB)) BETWEEN 1 AND 32768)),
+  UNIQUE(client_profile_id,submission_key),'''),
   'gq_original_header_immutable':
-      '''CREATE TRIGGER gq_original_header_immutable BEFORE UPDATE OF proposal_id,schema_version,created_at_utc_ms,local_owner,origin_kind,client_profile_id,submission_key,semantic_fingerprint,requested_count,actual_count,original_target_json ON generated_question_proposals BEGIN SELECT RAISE(ABORT,'gq_immutable'); END;''',
-  'gq_terminal_immutable':
-      '''CREATE TRIGGER gq_terminal_immutable BEFORE UPDATE ON generated_question_proposals WHEN OLD.lifecycle_status!='pending_review' BEGIN SELECT RAISE(ABORT,'gq_terminal'); END;''',
-  'gq_original_item_immutable':
-      '''CREATE TRIGGER gq_original_item_immutable BEFORE UPDATE ON generated_question_proposal_items BEGIN SELECT RAISE(ABORT,'gq_immutable'); END;''',
-  'gq_terminal_review_immutable':
-      '''CREATE TRIGGER gq_terminal_review_immutable BEFORE UPDATE ON generated_question_review_state WHEN (SELECT lifecycle_status FROM generated_question_proposals WHERE proposal_id=OLD.proposal_id)!='pending_review' BEGIN SELECT RAISE(ABORT,'gq_terminal'); END;''',
-  'gq_receipt_immutable':
-      '''CREATE TRIGGER gq_receipt_immutable BEFORE UPDATE ON generated_question_commit_receipts BEGIN SELECT RAISE(ABORT,'gq_immutable'); END;''',
-  'gq_mapping_immutable':
-      '''CREATE TRIGGER gq_mapping_immutable BEFORE UPDATE ON generated_question_commit_items BEGIN SELECT RAISE(ABORT,'gq_immutable'); END;''',
+      _retainedSchemaObjects['gq_original_header_immutable']!.replaceFirst(
+          'actual_count,original_target_json ON',
+          'actual_count,original_target_json,external_origin_json ON'),
 };
 
 Future<void> createGeneratedProposalSchema(DatabaseExecutor db,
@@ -96,16 +40,76 @@ Future<void> createGeneratedProposalSchema(DatabaseExecutor db,
 }
 
 Future<void> migrateGeneratedProposalSchema(DatabaseExecutor db) async {
-  // Upgrade callback already owns the SQLite transaction; no parallel migration owner.
-  await createGeneratedProposalSchema(db, ifNotExists: true);
+  // Pre-v32 upgrades create/validate historical physical objects, not v34 rules.
+  // Exact empty current objects are retained for existing reset-version fixtures.
+  final columns =
+      await db.rawQuery('PRAGMA table_info(generated_question_proposals)');
+  if (!columns.any((c) => c['name'] == 'external_origin_json')) {
+    return migrateGeneratedProposalToV32(db);
+  }
   await validateGeneratedProposalSchema(db);
-  await validateGeneratedProposalData(db);
-  // An older version cannot legitimately own published Proposal data. Exact,
-  // empty additive objects are idempotent; unknown shapes or data fail closed.
   for (final table in generatedProposalTables) {
     if ((await db.query(table, limit: 1)).isNotEmpty) {
       generatedFail(GeneratedFailure.corruptState);
     }
+  }
+}
+
+/// Caller owns the upgrade transaction. FK enforcement stays ON, including at
+/// commit. Child rows and their triggers are never dropped or rewritten.
+Future<void> migrateGeneratedProposalOriginToV34(DatabaseExecutor db) async {
+  final columns =
+      await db.rawQuery('PRAGMA table_info(generated_question_proposals)');
+  if (columns.any((c) => c['name'] == 'external_origin_json')) {
+    await validateGeneratedProposalSchema(db);
+    for (final table in generatedProposalTables) {
+      if ((await db.query(table, limit: 1)).isNotEmpty) {
+        generatedFail(GeneratedFailure.corruptState);
+      }
+    }
+    return;
+  }
+  await validateGeneratedProposalV32Schema(db);
+  await validateGeneratedProposalData(db);
+  if ((await db.rawQuery('PRAGMA foreign_keys')).single.values.single != 1 ||
+      (await db.rawQuery(
+              "SELECT name FROM sqlite_master WHERE name='generated_question_origin_v34_source'"))
+          .isNotEmpty) {
+    generatedFail(GeneratedFailure.corruptState);
+  }
+  final names = columns.map((c) => c['name'] as String).toList();
+  final projection = names.join(',');
+  await db.execute(
+      'CREATE TABLE generated_question_origin_v34_source AS SELECT * FROM generated_question_proposals');
+  await db.execute('PRAGMA defer_foreign_keys=ON');
+  await db.execute('DROP TABLE generated_question_proposals');
+  await db
+      .execute(generatedProposalSchemaObjects['generated_question_proposals']!);
+  for (final name in [
+    'idx_generated_pending_owner',
+    'gq_original_header_immutable',
+    'gq_terminal_immutable'
+  ]) {
+    await db.execute(generatedProposalSchemaObjects[name]!);
+  }
+  // Reinsertion under the original parent name discharges deferred FK checks.
+  await db.execute(
+      'INSERT INTO generated_question_proposals ($projection) SELECT $projection FROM generated_question_origin_v34_source');
+  for (final pair in [
+    ('generated_question_origin_v34_source', 'generated_question_proposals'),
+    ('generated_question_proposals', 'generated_question_origin_v34_source')
+  ]) {
+    if ((await db.rawQuery(
+            'SELECT $projection FROM ${pair.$1} EXCEPT SELECT $projection FROM ${pair.$2} LIMIT 1'))
+        .isNotEmpty) {
+      generatedFail(GeneratedFailure.corruptState);
+    }
+  }
+  await db.execute('DROP TABLE generated_question_origin_v34_source');
+  await validateGeneratedProposalSchema(db);
+  await validateGeneratedProposalData(db);
+  if ((await db.rawQuery('PRAGMA foreign_key_check')).isNotEmpty) {
+    generatedFail(GeneratedFailure.corruptState);
   }
 }
 
@@ -117,6 +121,11 @@ String _sql(String text) => text
     .trim();
 Future<void> validateGeneratedProposalSchema(DatabaseExecutor db) async {
   try {
+    final tables = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'generated_question_%'");
+    if (tables.any((t) => !generatedProposalTables.contains(t['name']))) {
+      generatedFail(GeneratedFailure.corruptState);
+    }
     for (final object in generatedProposalSchemaObjects.entries) {
       final rows = await db
           .rawQuery('SELECT sql FROM sqlite_master WHERE name=?', [object.key]);

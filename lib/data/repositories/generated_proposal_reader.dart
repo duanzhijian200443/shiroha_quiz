@@ -28,6 +28,9 @@ Future<GeneratedQuestionProposal> readGeneratedProposal(
       generatedFail(GeneratedFailure.proposalUnavailable);
     }
     final h = headers.single;
+    if (h['origin_kind'] != 'external' && h['external_origin_json'] != null) {
+      generatedFail(GeneratedFailure.corruptState);
+    }
     final originals = await db.query('generated_question_proposal_items',
         where: 'proposal_id = ?', whereArgs: [id], orderBy: 'position');
     final working = await db.query('generated_question_review_state',
@@ -81,7 +84,10 @@ Future<GeneratedQuestionProposal> readGeneratedProposal(
       'commitReceipt': receipts.isEmpty
           ? null
           : generatedDecode(receipts.single['receipt_json'] as String,
-              maxBytes: GeneratedLimits.receiptBytes)
+              maxBytes: GeneratedLimits.receiptBytes),
+      if (h['origin_kind'] == 'external')
+        'externalOrigin': generatedDecode(h['external_origin_json'] as String,
+            maxBytes: GeneratedLimits.externalOriginBytes)
     });
     if (generatedSha(generatedSubmissionSemantics(p.originalTarget, p.items)) !=
             p.semanticFingerprint ||
