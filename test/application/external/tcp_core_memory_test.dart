@@ -1,11 +1,12 @@
-/// Dependency-free unit runner: execute this exact file with the Dart VM.
-/// No Flutter host, test service, plugins, database, files or network fixtures.
+/// Registered Flutter unit tests with memory-only fixtures.
+/// No App, plugins, database, files or network fixtures are initialized.
 library;
 
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/capabilities/capability.dart';
 import 'package:shiroha_quiz/application/external/external_invocation_core.dart';
 import 'package:shiroha_quiz/application/external/external_trust_core.dart';
@@ -286,13 +287,13 @@ Uint8List lengthHeader(int length, {int kind = 0}) {
   return result;
 }
 
-final helloFields = <String, Object?>{
+const helloFields = <String, Object?>{
   'type': 'hello_ack',
   'version': 1,
   'installation': 'synthetic-installation',
   'generation': 1
 };
-final requestFields = <String, Object?>{
+const requestFields = <String, Object?>{
   'type': 'request',
   'requestId': 'a',
   'capability': 'memory.read',
@@ -300,7 +301,7 @@ final requestFields = <String, Object?>{
   'body': <String, Object?>{}
 };
 
-Future<void> main() async {
+void main() {
   final cases = <String, FutureOr<void> Function()>{
     'unpaired cannot enable or authenticate': () {
       final f = Fixture();
@@ -1074,17 +1075,187 @@ Future<void> main() async {
       frameFailure(MemoryFrameDecoder(controlLimit: 32), lengthHeader(33),
           MemoryFrameFailure.resourceLimit);
     },
+    'duplicate top-level keys reject before folded Map admission': () {
+      frameFailure(
+          MemoryFrameDecoder(),
+          rawFrame(r'{"type":"cancel","requestId":"a","requestId":"b"}'),
+          MemoryFrameFailure.json);
+    },
+    'duplicate nested keys reject before business admission': () {
+      frameFailure(
+          MemoryFrameDecoder(),
+          rawFrame(
+              r'{"type":"request","requestId":"a","capability":"memory.read","context":"opaque","body":{"a":1,"a":2}}',
+              kind: 1),
+          MemoryFrameFailure.json);
+    },
+    'Unicode escape aliases cannot hide duplicate top-level keys': () {
+      frameFailure(
+          MemoryFrameDecoder(),
+          rawFrame(r'{"type":"cancel","requestId":"a","request\u0049d":"b"}'),
+          MemoryFrameFailure.json);
+    },
+    'nested Unicode and surrogate pair key aliases reject': () {
+      for (final body in [
+        r'{"a":1,"\u0061":2}',
+        r'{"\u0061":1,"\u0061":2}',
+        r'{"😀":1,"\ud83d\ude00":2}',
+      ]) {
+        frameFailure(
+            MemoryFrameDecoder(),
+            rawFrame(
+                '{"type":"request","requestId":"a","capability":"memory.read","context":"opaque","body":$body}',
+                kind: 1),
+            MemoryFrameFailure.json);
+      }
+    },
+    'duplicate keys inside an array object reject': () {
+      frameFailure(
+          MemoryFrameDecoder(),
+          rawFrame(
+              r'{"type":"request","requestId":"a","capability":"memory.read","context":"opaque","body":{"items":[{"a":1,"a":2}]}}',
+              kind: 1),
+          MemoryFrameFailure.json);
+    },
+    'equal keys at different object depths are legal': () {
+      final decoder = MemoryFrameDecoder();
+      final message = decoder
+          .feed(rawFrame(
+              r'{"type":"request","requestId":"a","capability":"memory.read","context":"opaque","body":{"a":1,"child":{"a":2}}}',
+              kind: 1))
+          .single;
+      expect(message.fields['body'], {
+        'a': 1,
+        'child': {'a': 2}
+      });
+      check(!decoder.isClosed && decoder.bufferedBytes == 0);
+    },
+    'equal keys in separate array objects are legal': () {
+      final decoder = MemoryFrameDecoder();
+      final message = decoder
+          .feed(rawFrame(
+              r'{"type":"request","requestId":"a","capability":"memory.read","context":"opaque","body":{"items":[{"a":1},{"a":2}]}}',
+              kind: 1))
+          .single;
+      expect(message.fields['body'], {
+        'items': [
+          {'a': 1},
+          {'a': 2}
+        ]
+      });
+      check(!decoder.isClosed && decoder.bufferedBytes == 0);
+    },
+    'escaped quote and backslash aliases cannot hide duplicate keys': () {
+      for (final body in [
+        r'{"a\"b":1,"a\u0022b":2}',
+        r'{"a\\b":1,"a\u005cb":2}',
+      ]) {
+        frameFailure(
+            MemoryFrameDecoder(),
+            rawFrame(
+                '{"type":"request","requestId":"a","capability":"memory.read","context":"opaque","body":$body}',
+                kind: 1),
+            MemoryFrameFailure.json);
+      }
+    },
+    'quoted structural punctuation is literal in keys and values': () {
+      const body = {
+        'key"\\{}[]:,': 'value"\\{}[]:,',
+        'array': [
+          {'same': '{"fake":"key"}'},
+          {'same': '[]:,\\"'}
+        ],
+      };
+      final decoder = MemoryFrameDecoder();
+      final frame = decoder
+          .encode(MemoryFrameKind.business, {...requestFields, 'body': body});
+      expect(decoder.feed(frame).single.fields['body'], body);
+      check(!decoder.isClosed && decoder.bufferedBytes == 0);
+    },
+    'malformed or incomplete JSON keeps the existing json rejection': () {
+      for (final source in [
+        '{',
+        r'{"type":"cancel","requestId":"a",}',
+        r'{"type":"cancel","requestId":"\q"}',
+        r'{"type":"cancel","requestId":"\u00ZZ"}',
+        r'{"type":"cancel","requestId":"a" "extra":1}',
+        r'{"type":"cancel","requestId":"unterminated}',
+        r'{"type":"cancel","requestId":]}',
+        '[}',
+        r'{"body":{"a":1',
+      ]) {
+        frameFailure(
+            MemoryFrameDecoder(), rawFrame(source), MemoryFrameFailure.json);
+      }
+    },
+    'valid hello ack cancel and business envelopes retain their wire format':
+        () {
+      for (final entry in [
+        (MemoryFrameKind.control, {...helloFields, 'type': 'hello'}),
+        (MemoryFrameKind.control, helloFields),
+        (
+          MemoryFrameKind.control,
+          <String, Object?>{'type': 'cancel', 'requestId': 'a'}
+        ),
+        (MemoryFrameKind.business, requestFields),
+      ]) {
+        final decoder = MemoryFrameDecoder();
+        final frame = decoder.encode(entry.$1, entry.$2);
+        expect(frame,
+            byteFrame(utf8.encode(jsonEncode(entry.$2)), kind: entry.$1.index));
+        expect(decoder.feed(frame).single.fields, entry.$2);
+        decoder.finish();
+      }
+    },
+    'invalid encode preserves a buffered valid fragment and receive state': () {
+      final decoder = MemoryFrameDecoder();
+      final frame = decoder.encode(MemoryFrameKind.control, helloFields);
+      check(decoder.feed(Uint8List.sublistView(frame, 0, 8)).isEmpty);
+      final buffered = decoder.bufferedBytes;
+      final allocated = decoder.allocatedBodyBytes;
+      expect(
+          () => decoder.encode(MemoryFrameKind.control, {'type': 'READY'}),
+          throwsA(isA<MemoryFrameException>().having((error) => error.failure,
+              'failure', MemoryFrameFailure.message)));
+      check(!decoder.isClosed &&
+          decoder.bufferedBytes == buffered &&
+          decoder.allocatedBodyBytes == allocated);
+      expect(decoder.feed(Uint8List.sublistView(frame, 8)).single.fields,
+          helloFields);
+      check(decoder.bufferedBytes == 0 && decoder.allocatedBodyBytes == 0);
+      decoder.finish();
+    },
+    'encode depth rejection cannot discard a receive fragment': () {
+      final decoder = MemoryFrameDecoder(maxDepth: 2);
+      final frame = decoder.encode(MemoryFrameKind.control, helloFields);
+      decoder.feed(Uint8List.sublistView(frame, 0, 8));
+      expect(
+          () => decoder.encode(MemoryFrameKind.business, {
+                ...requestFields,
+                'body': {'child': <String, Object?>{}}
+              }),
+          throwsA(isA<MemoryFrameException>().having(
+              (error) => error.failure, 'failure', MemoryFrameFailure.depth)));
+      check(!decoder.isClosed &&
+          decoder.bufferedBytes == 8 &&
+          decoder.allocatedBodyBytes == frame.length - 5);
+      expect(decoder.feed(Uint8List.sublistView(frame, 8)).single.fields,
+          helloFields);
+      decoder.finish();
+    },
+    'receive errors still close after isolated encode failure': () {
+      final decoder = MemoryFrameDecoder();
+      expect(
+          () => decoder.encode(MemoryFrameKind.control, {'type': 'READY'}),
+          throwsA(isA<MemoryFrameException>().having((error) => error.failure,
+              'failure', MemoryFrameFailure.message)));
+      check(!decoder.isClosed);
+      frameFailure(decoder, rawFrame('{'), MemoryFrameFailure.json);
+      frameFailure(decoder, rawFrame(jsonEncode(helloFields)),
+          MemoryFrameFailure.closed);
+    },
   };
-  var passed = 0;
   for (final entry in cases.entries) {
-    try {
-      await entry.value();
-      passed++;
-      Zone.current.print('PASS ${entry.key}');
-    } catch (_) {
-      Zone.current.print('FAIL ${entry.key}');
-      rethrow;
-    }
+    test(entry.key, entry.value);
   }
-  Zone.current.print('TCP_CORE_MEMORY_TESTS_PASS: $passed/${cases.length}');
 }

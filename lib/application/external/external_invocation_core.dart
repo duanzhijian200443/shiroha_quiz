@@ -116,6 +116,8 @@ final class ExternalInvocationCore {
   final _operations = <String, ExternalOperation>{};
   final _active = <ExternalSession, Set<Object>>{};
   final _controls = <ExternalCallControl>{};
+  // Process-local guard only: saturation stays fail-closed. A missing key is
+  // not evidence of durable absence; restart reconciliation needs its Data owner.
   final _stages = <(ExternalPrincipal, String), ExternalOperation>{};
   int get stageKeyCount => _stages.length;
   int activeCount(ExternalSession session) => _active[session]?.length ?? 0;

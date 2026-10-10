@@ -250,27 +250,47 @@ final class MemoryFrameDecoder {
     } catch (_) {
       _fail(MemoryFrameFailure.utf8);
     }
-    // Scan before jsonDecode so excessive nesting cannot reach its parser.
-    var depth = 0;
-    var quoted = false;
-    var escaped = false;
-    for (final unit in source.codeUnits) {
-      if (quoted) {
-        if (escaped) {
-          escaped = false;
-        } else if (unit == 92) {
-          escaped = true;
-        } else if (unit == 34) {
-          quoted = false;
+    // Bounded lexical pass, following generatedDecode's existing approach.
+    // Per-object sets reject duplicate keys before jsonDecode folds them.
+    // The SDK decodes key escapes and remains the final JSON syntax authority;
+    // this pass does not parse values or mint any trusted authority.
+    final stack = <Set<String>?>[];
+    for (var i = 0; i < source.length; i++) {
+      final unit = source.codeUnitAt(i);
+      if (unit == 34) {
+        final start = i++;
+        while (i < source.length && source.codeUnitAt(i) != 34) {
+          if (source.codeUnitAt(i) == 92) i++;
+          i++;
         }
-      } else if (unit == 34) {
-        quoted = true;
+        if (i >= source.length) _fail(MemoryFrameFailure.json);
+        var next = i + 1;
+        while (next < source.length && ' \r\n\t'.contains(source[next])) {
+          next++;
+        }
+        if (next < source.length && source.codeUnitAt(next) == 58) {
+          if (stack.isEmpty || stack.last == null) {
+            _fail(MemoryFrameFailure.json);
+          }
+          String key;
+          try {
+            key = jsonDecode(source.substring(start, i + 1)) as String;
+          } on FormatException {
+            _fail(MemoryFrameFailure.json);
+          }
+          if (!stack.last!.add(key)) _fail(MemoryFrameFailure.json);
+        }
       } else if (unit == 123 || unit == 91) {
-        if (++depth > maxDepth) _fail(MemoryFrameFailure.depth);
+        stack.add(unit == 123 ? <String>{} : null);
+        if (stack.length > maxDepth) _fail(MemoryFrameFailure.depth);
       } else if (unit == 125 || unit == 93) {
-        depth--;
+        if (stack.isEmpty || (unit == 125) != (stack.last != null)) {
+          _fail(MemoryFrameFailure.json);
+        }
+        stack.removeLast();
       }
     }
+    if (stack.isNotEmpty) _fail(MemoryFrameFailure.json);
     Object? decoded;
     try {
       decoded = jsonDecode(source);
@@ -336,8 +356,14 @@ final class MemoryFrameDecoder {
     if (payload.isEmpty || payload.length > limit) {
       throw const MemoryFrameException(MemoryFrameFailure.resourceLimit);
     }
-    // Validate exact schema and depth on the encoding path as well.
-    _decode(kind, Uint8List.fromList(payload));
+    // Validate with identical limits on an isolated instance. Its fail-closed
+    // state must never discard this instance's partially received frame.
+    MemoryFrameDecoder(
+      controlLimit: controlLimit,
+      businessLimit: businessLimit,
+      maxDepth: maxDepth,
+      maxFramesPerFeed: maxFramesPerFeed,
+    )._decode(kind, Uint8List.fromList(payload));
     final frame = Uint8List(5 + payload.length);
     frame[0] = kind.index;
     ByteData.sublistView(frame).setUint32(1, payload.length);
