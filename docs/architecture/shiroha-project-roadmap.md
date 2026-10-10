@@ -185,8 +185,10 @@ is 13 PRs, not a hard cap; independently reviewable boundaries may require more.
 Provider normalization must preserve current fallback policy. New durable
 Proposal and external authorization storage have separate additive schema/B0
 checkpoints. Minimal generated Review precedes MCP MVP; Assistant-wide cleanup
-does not. Context TTL, local IPC transport and reference-package platform/version
-choices close their bounded implementation-spike checkpoints before publication.
+does not. Context TTL, validation of the selected Windows P0 IPC candidate under
+the [external boundary](../product/agent-refactor/external-agent-boundary.md), and
+reference-package platform/version choices close their bounded
+implementation-spike checkpoints before publication.
 
 ## Current follow-up backlog
 

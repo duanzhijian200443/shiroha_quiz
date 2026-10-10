@@ -151,9 +151,10 @@ do not block external generation. Minimal Review is part of AR-R5.
 
 ## 5. Deferred decisions and evidence
 
-Only these bounded implementation choices remain open: context TTL value
-(15 minutes is a candidate, not a frozen product limit), actual local IPC
-transport and platform packaging/minimum supported Codex version. AR-R6A/AR-R9B
+Remaining bounded implementation choices include context TTL value
+(15 minutes is a candidate, not a frozen product limit) and platform
+packaging/minimum supported Codex version. The selected Windows P0 IPC candidate
+still needs validation under [external boundary sections 5–6](external-agent-boundary.md). AR-R6A/AR-R9B
 must close their acceptance checkpoints before publication. Full wire schemas,
 new storage codecs and numerical resource limits are frozen with the stage
 implementing them; this target does not invent a current API.

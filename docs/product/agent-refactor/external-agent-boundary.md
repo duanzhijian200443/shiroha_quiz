@@ -34,10 +34,34 @@ separate from durable non-secret metadata; not in SQLite, backups, manifest,
 CLI arguments, Proposal, query DTO or log.
 
 Shiroha UI owns pairing and scope/egress approval. One-time pairing information
-is not a reusable credential. Credential validation establishes principal;
-`clientInfo`, brand/model names and claimed external conversation/session ids
-are display metadata, never identity or permission. Missing/corrupt credential
-access fails closed; never consult a plaintext fallback.
+is not a reusable credential. Trusted authentication maps App-registered client
+credentials to ExternalPrincipal; PID, executable name and request parameters
+cannot establish that identity. `clientInfo`, brand/model names and claimed
+external conversation/session ids are display metadata, never identity or
+permission. Missing/corrupt credential access fails closed; never consult a
+plaintext fallback.
+
+Valid mTLS proves use of the corresponding credential, not that the upstream
+program is Codex. Windows P0 accepts the residual risk that another program
+under the same user SID may call a paired Bridge and proxy its credential;
+same-SID process identity isolation is not promised. An unpaired direct client
+must still be rejected. This accepted Bridge-proxy risk is distinct from an
+attacker controlling the entire user account or an administrator/kernel
+attacker; no containment of those stronger attackers is claimed here. None of
+these limitations bypasses current Application authorization, Scope, Egress or
+explicit local COMMIT approval.
+
+Every App runtime generation defaults to external business access disabled.
+The user must actively enable one selected, paired Profile through trusted
+Shiroha UI and choose a finite validity period. Enablement binds only that
+Profile and current generation; it adds no Grant, Scope or Egress. Legitimate
+reconnections authenticate again and recheck current authorization, but need
+no repeated prompt within the same valid enablement period. Disable, expiry,
+revoke, restart or Restore invalidates the applicable runtime enablement; old
+connections, Contexts and sessions cannot automatically regain business access.
+Duration limits, resource counts and concrete UX remain implementation and
+validation choices; no numerical runtime-enable limit is frozen here. Section 3
+and per-call/final-release authorization remain independently required.
 
 Host publishes an external capability allowlist limited to READ + STAGE.
 Internal local-user approval commands are not Host routes even if registered
@@ -114,17 +138,53 @@ validation and complete module/route validation.
 Architecture freezes authenticated local-only transport, protected endpoint
 discovery, App/bridge peer validation, bounded framing/payload/concurrency,
 deadline/cancellation, versioning, reconciliation, restart/revoke behavior and
-safe logs. It does **not** select TCP, named pipe, AF_UNIX or localhost HTTP.
+safe logs. Windows P0 selects IPv4 Loopback TCP + mTLS as the preferred
+implementation and verification candidate, with Named Pipe retained as a
+fallback. Its listener may bind only explicit `127.0.0.1`, never `0.0.0.0`, a
+LAN address or an IPv6 wildcard. There is no unauthenticated business fallback.
+
+Windows P0 uses **B-class isolation**: other local SIDs may attempt TCP
+connections; OS rejection by SID at TCP `connect()` is not promised. Before
+protected business handling or READ/STAGE output release, trusted authentication
+and current Application ExternalPrincipal/Profile/Grant/Scope/Revision/Context
+checks must pass. A client under a different SID with valid credentials and
+current authorization may receive business access in this model. Cross-SID
+credential secrecy, trust-anchor integrity, tamper-resistant Discovery,
+protected runtime objects, resource limits and rejection of unauthorized
+business access remain hard requirements. Loopback is not authentication;
+mTLS is not equivalent to OS ACL isolation.
+
+TCP/TLS should use Dart standard capabilities. A minimal Windows Native Adapter
+is permitted only for demonstrated platform security gaps in necessary key and
+certificate generation, secure storage, or creation/checking of protected
+Discovery objects. It gains no business authorization authority and cannot
+access or bypass formal business database write paths. User-level DPAPI does
+not isolate different processes under the same SID; no guarantee keeps TLS
+leaf private keys permanently out of process memory. This decision selects no
+FFI package or certificate algorithm and authorizes no Native implementation.
+
+Only the pure-memory trust/protocol core is implemented and accepted within its
+memory scope. Real TCP/mTLS and Windows protection remain **UNVERIFIED**;
+Transport remains **BLOCKED** until actual Windows acceptance is complete.
 
 AR-R6A is NEEDS IMPLEMENTATION-SPIKE. First screen candidates against Dart/AOT,
 supported Windows environments and packaging. Record why any candidate fails;
-implement minimal comparable proof only for viable candidates. Evaluate ACL /
-user isolation, authenticated endpoint discovery and impersonation, cancellation,
-orphan cleanup, restart/races, multi-client calls and bridge launch. Loopback is
-not authentication; named-pipe ACL alone is not all application authorization.
+implement minimal comparable proof only for viable candidates and within
+section 6's explicit runtime authorization. Evaluate protected-object ACLs,
+the chosen isolation model, authenticated endpoint discovery and impersonation,
+cancellation, orphan cleanup, restart/races, multi-client calls and bridge launch.
+Named-pipe ACL alone is not all application authorization.
+
+AF_UNIX-specific ROOT-ACL OS-connect rejection, Socket-file movement, endpoint
+lease and unlink races are not TCP candidate pass conditions. Historical
+ROOT-ACL results remain **INCONCLUSIVE**, never rewritten as PASS. TCP must
+separately prove mTLS identity, Principal/Grant isolation, protected Discovery,
+real resource limits, lifecycle safety, revoke and abnormal recovery; removing
+AF_UNIX-only tests does not remove other credential, object or input protections.
 
 Choose the least complex candidate passing every hard property. Spike must be
-allowed to overturn preferences or reject all candidates. If none passes, keep
+allowed to overturn the TCP preference, fall back to Named Pipe or reject all
+candidates if evidence requires it. If none passes, keep
 Host unpublished; no unauthenticated fallback. HTTP is not preferred without a
 specific benefit. No shell, generic arbitrary RPC dispatch or remote listener.
 Wire envelope belongs to infrastructure; Application remains typed/protocol-free.
@@ -146,7 +206,26 @@ Tests require principal isolation, forged clientInfo, direct-call rejection,
 handle copy/expiry/reopen, stale scope/source, non-enumeration, egress revoke,
 stage-vs-revoke/grant-revision races, stage response loss/restart and
 restore-no-reauthorization. Windows proof covers
-chosen transport ACL/auth, process/endpoint races, cancellation/orphans, Unicode
+chosen transport authentication/protected-object ACLs under section 5's isolation
+model, process/endpoint races, cancellation/orphans, Unicode
 and spaced paths, multiple clients and clean bridge launch. Linux proof alone
 does not establish Windows safety. Disable Host/routes while retaining data
 compatibility; do not delete Proposal state to roll back an external feature.
+
+**HOST_STABILITY_HALT is active for the primary Windows host.** Transport
+security acceptance and system stability acceptance must complete separately.
+Experiment-associated blue screens, hard hangs or kernel-driver anomalies
+immediately trigger HOST_STABILITY_HALT and stop the related dynamic experiments.
+The reported AF_UNIX-associated instability on 2026-10-10 is sufficient risk
+basis to stop further experiments; it does not prove a complete kernel-failure
+causal chain, and acceptance must not require reproducing a blue screen.
+
+Old AF_UNIX ROOT-ACL, endpoint-lease and close/unlink dynamic experiments are
+permanently halted on the primary host and must not rerun automatically. Windows
+updates, replacement scripts or account changes do not lift this halt. Future
+real TCP/mTLS, Windows SID, Discovery and credential-security verification needs
+new explicit authorization and should prioritize a separately approved isolated
+environment. An ordinary VM on the primary host is not automatically independent
+of host-kernel stability risk. If any required security or stability acceptance
+is missing, the formal Host remains **unpublished**. This contract amendment
+authorizes no dynamic experiment or Host activation and does not unlock AR-R6B.
