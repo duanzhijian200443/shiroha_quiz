@@ -191,10 +191,57 @@ Wire envelope belongs to infrastructure; Application remains typed/protocol-free
 
 ## 6. Persistence, backup and acceptance
 
-Profile/grant non-secret metadata needs additive storage in AR-R6A; numbering,
-constraints and compatibility validators are frozen with that implementation.
+Profile/grant non-secret metadata uses additive v33 storage in the P1 candidate
+below, with its constraints and compatibility validators owned here.
 No existing schema is changed at AR-R0. Credentials use a dedicated secure seam,
 not the Provider credential namespace.
+
+### Non-secret authorization storage (P1 implementation candidate)
+
+The additive v33 schema uses the existing DatabaseHelper migration/open authority:
+
+| Table | Persisted authority and constraints |
+|---|---|
+| `external_client_profiles` | App-generated UUID v4 identity; display name (1–80 characters), adapter/protocol tokens (1–32), creation/revocation UTC milliseconds and grant revision (0–2147483647). Identity metadata is immutable; updates advance revision by exactly one; revoked Profiles cannot be updated. |
+| `external_grants` | One current policy per Profile, explicit READ/STAGE booleans (at least one), revision, update/revocation time. Composite FK binds Profile/revision and cascades the revision update inside the transaction. No COMMIT/DESTRUCTIVE column or generic permission string exists. |
+| `external_grant_scopes` | At most 128 distinct named bank/file targets per Grant, each bound to one Learning Space (`project_id`) or the explicit local context (empty stored project id). Target ids are bounded to 256 characters, project ids to 128. Empty rows deny all targets; there is no wildcard or missing-target global fallback. |
+| `external_grant_egress` | Whitelisted `questionContent`, `fileContent`, `proposalMetadata`; recipient is the owning Profile, not a client-supplied provider/name. Scope/egress rows have Grant FKs and composite primary keys. |
+
+Application's trusted first-party management entry mints Profile ids and opaque
+local references. Profile creation grants no permissions, pairing, authenticated
+Principal or runtime enablement. References belong to the current management
+composition and cannot be constructed from RPC/JSON ids. Trusted local selection
+by id is management only; it is not credential authentication. The existing
+memory trust state machine is unchanged and is not durable identity authority.
+
+Grant replacement (including expansion or narrowing), Grant revoke and Profile
+revoke use the existing B0 mutation gate and a SQLite transaction with expected
+Profile revision CAS. A stale revision cannot overwrite the current winner;
+revoke advances revision. Regrant requires an explicit current management action,
+and a revoked Profile cannot be reactivated. Current policy queries reload durable
+state, compare revision, permission, exact scope, category and recipient, and
+recheck target existence and Learning Space membership. Missing/unauthorized
+targets share a fixed denial; deleting a target never expands scope. Persisted
+bank names retain the existing compatibility identity, not a new incarnation
+guarantee. Grant lookup is policy inspection and supplies neither authentication
+nor runtime admission, handler execution or output release authority.
+
+Fresh creation, normal open, staged validation and upgrade check exact owned
+schema objects, relationships and typed row data; unknown permissions, malformed
+metadata, inconsistent revisions and extra owned triggers/indexes fail closed.
+Older versions may acquire only exact empty additive objects, never adopt
+pre-existing authorization rows. No credential, pairing secret, certificate,
+runtime generation, Enablement or Context is persisted in these tables. No Host,
+external Origin codec or CapabilityExecutor integration is added by P1.
+
+Portable B0 validates this authority before deleting all four tables' rows in the
+snapshot copy, including revoked metadata. Incoming portable packages must have
+empty authorization tables; Restore does not silently sanitize active grants.
+Raw rollback baselines keep the original local authorization metadata. Existing
+Proposal Profile references remain soft and have no FK to these tables. Package
+v2 is unchanged. Durable STAGE/revoke publication still requires the owning
+service's future shared transaction/CAS boundary; this storage does not close
+the process-local journal or restart Receipt findings.
 
 Portable B0 snapshot scrubs active external profiles/grants, excludes credentials
 and has no handles/sessions. Restore keeps historical Proposal origin as a soft

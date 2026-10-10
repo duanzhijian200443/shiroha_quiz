@@ -44,6 +44,31 @@
       "before": "    if (oldVersion < 31) {\n      await migrateImportTaskToV31(db);\n    }",
       "after": "    if (oldVersion < 31) {\n      await migrateImportTaskToV31(db);\n    }\n    if (oldVersion < generatedProposalSchemaVersion) {\n      await migrateGeneratedProposalSchema(db);\n    }",
       "count": 1
+    },
+    {
+      "before": "import 'generated_proposal_schema.dart';\n",
+      "after": "import 'generated_proposal_schema.dart';\nimport 'external_authorization_schema.dart';\n",
+      "count": 1
+    },
+    {
+      "before": "static const int _dbVersion = generatedProposalSchemaVersion;",
+      "after": "static const int _dbVersion = externalAuthorizationSchemaVersion;",
+      "count": 1
+    },
+    {
+      "before": "    await validateGeneratedProposalData(db);\n",
+      "after": "    await validateGeneratedProposalData(db);\n    await validateExternalAuthorizationSchema(db);\n    await validateExternalAuthorizationData(db);\n",
+      "count": 2
+    },
+    {
+      "before": "    await createGeneratedProposalSchema(db);\n",
+      "after": "    await createGeneratedProposalSchema(db);\n    await createExternalAuthorizationSchema(db);\n    await validateExternalAuthorizationSchema(db);\n    await validateExternalAuthorizationData(db);\n",
+      "count": 1
+    },
+    {
+      "before": "    if (oldVersion < generatedProposalSchemaVersion) {\n      await migrateGeneratedProposalSchema(db);\n    }\n",
+      "after": "    if (oldVersion < generatedProposalSchemaVersion) {\n      await migrateGeneratedProposalSchema(db);\n    }\n    if (oldVersion < externalAuthorizationSchemaVersion) {\n      await migrateExternalAuthorizationSchema(db);\n    }\n    await validateExternalAuthorizationSchema(db);\n    await validateExternalAuthorizationData(db);\n",
+      "count": 1
     }
   ],
   "lib/data/repositories/backup_snapshot_repository.dart": [
@@ -55,6 +80,26 @@
     {
       "before": "      await validateTrainingContentV29Schema(db);\n",
       "after": "      await validateGeneratedProposalSchema(db);\n      await validateGeneratedProposalData(db);\n      await validateTrainingContentV29Schema(db);\n",
+      "count": 1
+    },
+    {
+      "before": "import '../../core/database/generated_proposal_schema.dart';\n",
+      "after": "import '../../core/database/generated_proposal_schema.dart';\nimport '../../core/database/external_authorization_schema.dart';\n",
+      "count": 1
+    },
+    {
+      "before": "  Future<void> _scrub(Database db) async {\n",
+      "after": "  Future<void> _scrub(Database db) async {\n    // Validate before deleting: corrupt authority must not be hidden by scrub.\n    try {\n      await validateExternalAuthorizationSchema(db);\n      await validateExternalAuthorizationData(db);\n    } catch (_) {\n      throw const BackupException(BackupFailure.databaseInvalid);\n    }\n    for (final table in externalAuthorizationTables.reversed) {\n      await db.delete(table);\n    }\n",
+      "count": 1
+    },
+    {
+      "before": "      await validateGeneratedProposalSchema(db);\n      await validateGeneratedProposalData(db);\n",
+      "after": "      await validateGeneratedProposalSchema(db);\n      await validateGeneratedProposalData(db);\n      await validateExternalAuthorizationSchema(db);\n      await validateExternalAuthorizationData(db);\n",
+      "count": 1
+    },
+    {
+      "before": "    final excludedTables = <String>[\n",
+      "after": "    final excludedTables = <String>[\n      ...externalAuthorizationTables,\n",
       "count": 1
     }
   ]
