@@ -1,6 +1,13 @@
 import 'package:uuid/uuid.dart';
 
 import '../../application/backup/backup_restore_gate.dart';
+import '../../application/capabilities/capability.dart';
+import '../../application/external/external_authorization.dart';
+import '../../application/external/external_generated_stage.dart';
+import '../../application/external/external_invocation_core.dart';
+import '../../core/database/external_authorization_schema.dart';
+import 'external_authorization_repository.dart';
+import 'generated_local_authority_repository.dart';
 import '../../application/generated_question/generated_question_service.dart';
 import '../../application/generated_question/generated_local_authority.dart';
 import '../../core/database/database_helper.dart';
@@ -16,17 +23,35 @@ import '../persistence/question_v2_persistence_mapper.dart';
 import '../persistence/typed_question_batch_writer.dart';
 import 'generated_proposal_reader.dart';
 
+/// Deterministic test synchronization/faults; absent in App composition.
+enum ExternalStageCheckpoint {
+  beforeTransaction,
+  transactionEntered,
+  authorized,
+  headerWritten,
+  itemsWritten,
+  beforeCommit,
+  afterCommit,
+  beforeRelease
+}
+
 /// Sole generated Proposal transaction owner. No public independently
 /// transactional QuestionRepository API or fabricated ImportTask is used.
 final class GeneratedProposalRepository
-    implements GeneratedQuestionPersistencePort {
+    implements GeneratedQuestionPersistencePort, ExternalGeneratedStagePort {
   GeneratedProposalRepository(
       {DatabaseHelper? databaseHelper,
       String Function()? idFactory,
-      int Function()? clock})
+      int Function()? clock,
+      this.externalStageCheckpoint})
       : _helper = databaseHelper ?? DatabaseHelper.instance,
         _id = idFactory ?? const Uuid().v4,
         _clock = clock ?? (() => DateTime.now().toUtc().millisecondsSinceEpoch);
+  final Future<void> Function(ExternalStageCheckpoint)? externalStageCheckpoint;
+  Future<void> _externalCheckpoint(ExternalStageCheckpoint point) async {
+    await externalStageCheckpoint?.call(point);
+  }
+
   final DatabaseHelper _helper;
   final String Function() _id;
   final int Function() _clock;
@@ -40,6 +65,8 @@ final class GeneratedProposalRepository
       return await db.transaction(operation);
     } on GeneratedQuestionException {
       rethrow;
+    } on ExternalAuthException {
+      generatedFail(GeneratedFailure.unauthorized);
     } catch (_) {
       generatedFail(GeneratedFailure.persistenceFailed);
     } finally {
@@ -53,6 +80,8 @@ final class GeneratedProposalRepository
       return await db.transaction(operation);
     } on GeneratedQuestionException {
       rethrow;
+    } on ExternalAuthException {
+      generatedFail(GeneratedFailure.unauthorized);
     } catch (_) {
       generatedFail(GeneratedFailure.corruptState);
     }
@@ -113,9 +142,13 @@ final class GeneratedProposalRepository
   }
 
   Future<List<Object?>> _evidence(
-      DatabaseExecutor db, GeneratedTarget target, GeneratedItem item) async {
+          DatabaseExecutor db, GeneratedTarget target, GeneratedItem item) =>
+      _resolvedEvidence(db, target, item.evidence);
+
+  Future<List<Object?>> _resolvedEvidence(DatabaseExecutor db,
+      GeneratedTarget target, List<GeneratedEvidence> evidence) async {
     final states = <Object?>[];
-    for (final e in item.evidence) {
+    for (final e in evidence) {
       final files = await db
           .query('library_files', where: 'file_id=?', whereArgs: [e.fileId]);
       final artifacts = await db
@@ -145,7 +178,7 @@ final class GeneratedProposalRepository
         'currentDigest': current?['payload_sha256']
       });
     }
-    validateEvidenceState(states, item.evidence);
+    validateEvidenceState(states, evidence);
     return states;
   }
 
@@ -313,50 +346,87 @@ final class GeneratedProposalRepository
           generatedFail(GeneratedFailure.invalidEvidence);
         }
       }
-      final now = generatedInt(_clock());
-      _freeze(context.target, input.items, now);
-      final id = generatedToken(_id(), uuid: true);
-      await db.insert('generated_question_proposals', {
-        'proposal_id': id,
-        'schema_version': 1,
-        'created_at_utc_ms': now,
-        'updated_at_utc_ms': now,
-        'local_owner': context.localOwner,
-        'origin_kind': context.originKind,
-        'client_profile_id': context.clientProfileId,
-        'submission_key': input.submissionKey,
-        'semantic_fingerprint': fingerprint,
-        'requested_count': input.requestedCount,
-        'actual_count': input.items.length,
-        'original_target_json': generatedCanonical(context.target.toJson()),
-        'target_json': generatedCanonical(context.target.toJson()),
-        'review_revision': 0,
-        'lifecycle_status': 'pending_review',
-        'terminal_revision': null
-      });
-      for (final item in input.items) {
-        await db.insert('generated_question_proposal_items', {
-          'proposal_id': id,
-          'item_id': item.itemId,
-          'item_key': item.itemKey,
-          'position': item.position,
-          'original_json': generatedCanonical(_codec.encode(item.original)),
-          'evidence_json':
-              generatedCanonical(item.evidence.map((e) => e.toJson()).toList())
-        });
-        await db.insert('generated_question_review_state', {
-          'proposal_id': id,
-          'item_id': item.itemId,
-          'working_json': generatedCanonical(_codec.encode(item.working)),
-          'decision': 'unreviewed',
-          'evidence_ack_json': null
-        });
-      }
-      context.validate();
-      final p = await readGeneratedProposal(db, id);
-      final dup = await _duplicates(db, p.target, p.items, excluding: id);
-      return GeneratedStageResult(p, [...dup.exact, ...dup.legacyOverlap]);
+      return _publishStageRows(db, input,
+          target: context.target,
+          localOwner: context.localOwner,
+          originKind: context.originKind,
+          profileId: context.clientProfileId,
+          fingerprint: fingerprint,
+          validate: context.validate);
     });
+  }
+
+  Future<GeneratedStageResult> _publishStageRows(
+      DatabaseExecutor db, GeneratedStageInput input,
+      {required GeneratedTarget target,
+      required String localOwner,
+      required String originKind,
+      required String profileId,
+      required String fingerprint,
+      required void Function() validate,
+      ExternalProposalOrigin? origin}) async {
+    final now = generatedInt(_clock());
+    _freeze(target, input.items, now);
+    final id = generatedToken(_id(), uuid: true);
+    await db.insert('generated_question_proposals', {
+      'proposal_id': id,
+      'schema_version': origin == null ? 1 : 2,
+      if (origin != null)
+        'external_origin_json': generatedCanonical(origin.toPersistedPayload()),
+      'created_at_utc_ms': now,
+      'updated_at_utc_ms': now,
+      'local_owner': localOwner,
+      'origin_kind': originKind,
+      'client_profile_id': profileId,
+      'submission_key': input.submissionKey,
+      'semantic_fingerprint': fingerprint,
+      'requested_count': input.requestedCount,
+      'actual_count': input.items.length,
+      'original_target_json': generatedCanonical(target.toJson()),
+      'target_json': generatedCanonical(target.toJson()),
+      'review_revision': 0,
+      'lifecycle_status': 'pending_review',
+      'terminal_revision': null
+    });
+    if (origin != null) {
+      await _externalCheckpoint(ExternalStageCheckpoint.headerWritten);
+    }
+    for (final item in input.items) {
+      await db.insert('generated_question_proposal_items', {
+        'proposal_id': id,
+        'item_id': item.itemId,
+        'item_key': item.itemKey,
+        'position': item.position,
+        'original_json': generatedCanonical(_codec.encode(item.original)),
+        'evidence_json':
+            generatedCanonical(item.evidence.map((e) => e.toJson()).toList())
+      });
+      await db.insert('generated_question_review_state', {
+        'proposal_id': id,
+        'item_id': item.itemId,
+        'working_json': generatedCanonical(_codec.encode(item.working)),
+        'decision': 'unreviewed',
+        'evidence_ack_json': null
+      });
+    }
+    if (origin != null) {
+      await _externalCheckpoint(ExternalStageCheckpoint.itemsWritten);
+    }
+    validate();
+    final p = await readGeneratedProposal(db, id);
+    if (p.localOwner != localOwner ||
+        p.originKind != originKind ||
+        p.clientProfileId != profileId ||
+        p.submissionKey != input.submissionKey ||
+        p.semanticFingerprint != fingerprint ||
+        generatedCanonical(p.items.map((i) => i.toJson()).toList()) !=
+            generatedCanonical(input.items.map((i) => i.toJson()).toList()) ||
+        generatedCanonical(p.externalOrigin?.toPersistedPayload()) !=
+            generatedCanonical(origin?.toPersistedPayload())) {
+      generatedFail(GeneratedFailure.persistenceFailed);
+    }
+    final dup = await _duplicates(db, p.target, p.items, excluding: id);
+    return GeneratedStageResult(p, [...dup.exact, ...dup.legacyOverlap]);
   }
 
   @override
@@ -368,6 +438,246 @@ final class GeneratedProposalRepository
       final p = await readGeneratedProposal(db, proposalId);
       _local(p, context, target: false);
       return p;
+    });
+  }
+
+  Future<ExternalAuthorizationRecord> _externalPolicy(
+      DatabaseExecutor db, ExternalStageAccess access,
+      {GeneratedTarget? target,
+      int? revision,
+      Iterable<GeneratedEvidence> sources = const [],
+      bool metadataOnly = false}) async {
+    access.validate();
+    await validateExternalAuthorizationSchema(db);
+    final record = await readExternalAuthorization(db, access.profileId);
+    final grant = record.grant;
+    if (record.profile.revokedAtUtcMs != null ||
+        grant == null ||
+        grant.revokedAtUtcMs != null ||
+        !grant.policy.permissions.contains(CapabilityPermission.stage) ||
+        !grant.policy.categories
+            .contains(ExternalContentCategory.proposalMetadata) ||
+        (revision != null && grant.revision != revision)) {
+      generatedFail(GeneratedFailure.unauthorized);
+    }
+    if (target != null) {
+      await requireExternalGrant(
+          db,
+          access.profileId,
+          revision,
+          CapabilityPermission.stage,
+          ExternalGrantScope(
+              kind: ExternalTargetKind.bank,
+              targetId: target.bankName,
+              projectId: target.projectId),
+          metadataOnly
+              ? ExternalContentCategory.proposalMetadata
+              : ExternalContentCategory.questionContent,
+          access.profileId);
+      if (!metadataOnly) {
+        await _target(db, target);
+        for (final file in sources.map((e) => e.fileId).toSet()) {
+          await requireExternalGrant(
+              db,
+              access.profileId,
+              revision,
+              CapabilityPermission.stage,
+              ExternalGrantScope(
+                  kind: ExternalTargetKind.file,
+                  targetId: file,
+                  projectId: target.projectId),
+              ExternalContentCategory.fileContent,
+              access.profileId);
+        }
+        final state = await _resolvedEvidence(db, target, sources.toList());
+        if (state.any((v) => (v as Map)['status'] != 'authorized')) {
+          generatedFail(GeneratedFailure.invalidEvidence);
+        }
+      }
+    }
+    access.validate();
+    return record;
+  }
+
+  @override
+  Future<int> authorizeStage(ExternalStageAccess access, GeneratedTarget target,
+          List<GeneratedEvidence> evidence) =>
+      _externalQuery((db) async =>
+          (await _externalPolicy(db, access, target: target, sources: evidence))
+              .grant!
+              .revision);
+
+  Future<T> _externalQuery<T>(Future<T> Function(DatabaseExecutor) body) async {
+    try {
+      return await _query(body);
+    } on ExternalAuthException {
+      generatedFail(GeneratedFailure.unauthorized);
+    }
+  }
+
+  @override
+  Future<ExternalStageSummary> publishExternalStage(
+      GeneratedStageInput input,
+      ExternalStageContext context,
+      String? externalRequestId,
+      ExternalCallControl control,
+      CapabilityExecutionEvidence evidence) async {
+    var writesStarted = false;
+    try {
+      await _externalCheckpoint(ExternalStageCheckpoint.beforeTransaction);
+      final result = await _mutation((db) async {
+        await _externalCheckpoint(ExternalStageCheckpoint.transactionEntered);
+        context.validate();
+        if (control.failure != null) {
+          generatedFail(GeneratedFailure.unauthorized);
+        }
+        final access = context.access;
+        final record = await _externalPolicy(db, access,
+            target: context.target,
+            revision: context.grantRevision,
+            sources: context.evidence);
+        // Retained owner is Data authority, never a client claim or Origin field.
+        final owner = await db.query('app_settings',
+            columns: ['value'],
+            where: 'key=?',
+            whereArgs: [GeneratedLocalAuthorityRepository.ownerSettingKey]);
+        if (owner.length != 1 || owner.single['value'] != access.localOwner) {
+          generatedFail(GeneratedFailure.unauthorized);
+        }
+        await _externalCheckpoint(ExternalStageCheckpoint.authorized);
+        context.validate();
+        final fingerprint = generatedSha(
+            generatedSubmissionSemantics(context.target, input.items));
+        final existing = await db.query('generated_question_proposals',
+            columns: ['proposal_id'],
+            where: 'client_profile_id=? AND submission_key=?',
+            whereArgs: [access.profileId, input.submissionKey]);
+        if (existing.isNotEmpty) {
+          final p = await readGeneratedProposal(
+              db, existing.single['proposal_id'] as String);
+          if (p.originKind != 'external' || p.localOwner != access.localOwner) {
+            generatedFail(GeneratedFailure.unauthorized);
+          }
+          if (p.semanticFingerprint != fingerprint) {
+            generatedFail(GeneratedFailure.idempotencyConflict);
+          }
+          return ExternalStageSummary(p.proposalId, p.submissionKey);
+        }
+        for (final item in input.items) {
+          if ((await _evidence(db, context.target, item))
+              .any((v) => (v as Map)['status'] != 'authorized')) {
+            generatedFail(GeneratedFailure.invalidEvidence);
+          }
+        }
+        final files = context.evidence.map((e) => e.fileId).toSet().toList()
+          ..sort();
+        final categories =
+            record.grant!.policy.categories.map((c) => c.name).toList()..sort();
+        // Codec validates history only, after authentication and current policy.
+        final origin = ExternalProposalOrigin.fromPersistedPayload({
+          'schemaVersion': 1,
+          'externalRequestId': externalRequestId,
+          'adapterProtocol': {
+            'adapter': record.profile.adapter,
+            'protocol': record.profile.protocol
+          },
+          'authorizationSnapshot': {
+            'grantRevision': record.grant!.revision,
+            'permission': 'stage',
+            'authorizedFileIds': files,
+            'egressCategories': categories
+          }
+        },
+            clientProfileId: access.profileId,
+            submissionKey: input.submissionKey,
+            originalTarget: context.target);
+        writesStarted = true;
+        final staged = await _publishStageRows(db, input,
+            target: context.target,
+            localOwner: access.localOwner,
+            originKind: 'external',
+            profileId: access.profileId,
+            fingerprint: fingerprint,
+            validate: context.validate,
+            origin: origin);
+        await _externalCheckpoint(ExternalStageCheckpoint.beforeCommit);
+        context.validate();
+        return ExternalStageSummary(
+            staged.proposal.proposalId, input.submissionKey);
+      });
+      // Only the completed owning transaction proves durable publication.
+      evidence.confirm(CapabilityEffect.proposalStaged);
+      await _externalCheckpoint(ExternalStageCheckpoint.afterCommit);
+      return result;
+    } catch (_) {
+      if (evidence.knownEffect == null) {
+        if (!writesStarted) {
+          evidence.confirm(CapabilityEffect.none);
+        } else {
+          // Do not infer rollback from an exception at COMMIT. Prove absence
+          // through SQLite; a persisted or unreadable key remains unknown.
+          try {
+            final absent = await _query((db) async => (await db.query(
+                    'generated_question_proposals',
+                    columns: ['proposal_id'],
+                    where: 'client_profile_id=? AND submission_key=?',
+                    whereArgs: [context.access.profileId, input.submissionKey]))
+                .isEmpty);
+            if (absent) evidence.confirm(CapabilityEffect.none);
+          } catch (_) {/* unknown durable outcome */}
+        }
+      }
+      rethrow;
+    }
+  }
+
+  Future<ExternalStageSummary?> _lookupExternalStage(
+      DatabaseExecutor db, ExternalStageAccess access, String key) async {
+    await _externalPolicy(db, access); // scope-independent policy before lookup
+    final rows = await db.query('generated_question_proposals',
+        columns: ['proposal_id', 'original_target_json'],
+        where: 'client_profile_id=? AND submission_key=?',
+        whereArgs: [access.profileId, key]);
+    if (rows.isEmpty) return null;
+    // Read only the immutable routing snapshot until current scope admission.
+    // An out-of-scope key and an absent key must not disclose different content
+    // validation failures or let a caller enumerate protected history.
+    final target = GeneratedTarget.fromJson(
+        generatedDecode(rows.single['original_target_json'] as String));
+    try {
+      await _externalPolicy(db, access, target: target, metadataOnly: true);
+    } on ExternalAuthException catch (e) {
+      if (e.failure == ExternalAuthFailure.unauthorized) return null;
+      rethrow;
+    } on GeneratedQuestionException catch (e) {
+      if (e.failure == GeneratedFailure.unauthorized) return null;
+      rethrow;
+    }
+    final p =
+        await readGeneratedProposal(db, rows.single['proposal_id'] as String);
+    if (p.originKind != 'external' || p.localOwner != access.localOwner) {
+      return null;
+    }
+    return ExternalStageSummary(p.proposalId, p.submissionKey);
+  }
+
+  @override
+  Future<ExternalStageSummary?> lookupExternalStage(
+          ExternalStageAccess access, String submissionKey) =>
+      _externalQuery((db) =>
+          _lookupExternalStage(db, access, generatedToken(submissionKey)));
+
+  @override
+  Future<void> releaseExternalStage(
+      ExternalStageAccess access, ExternalStageSummary result) async {
+    await _externalCheckpoint(ExternalStageCheckpoint.beforeRelease);
+    await _externalQuery((db) async {
+      final current =
+          await _lookupExternalStage(db, access, result.submissionKey);
+      if (current == null || current.proposalId != result.proposalId) {
+        generatedFail(GeneratedFailure.unauthorized);
+      }
+      access.validate();
     });
   }
 

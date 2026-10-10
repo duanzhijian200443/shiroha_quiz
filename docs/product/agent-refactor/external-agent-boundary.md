@@ -136,6 +136,27 @@ wins first, later revoke cannot retroactively erase that local Review data.
 Local user's current approval authority decides future formal commit, not the
 revoked external grant.
 
+P3's unpublished Application/Data implementation candidate is owned by
+[GeneratedQuestion section 11](generated-question-proposals.md#11-p3-durable-external-stage-candidate).
+It binds a management-validated opaque Profile reference to this App TrustCore's
+Principal, requires a credential-proven Session and current runtime enablement,
+and mints the approved original Target/evidence Context inside Application.
+Profile strings and historical Origin never establish this binding. Real
+credential adapters, pairing UI and Host are still unwired.
+
+The existing Proposal repository owns the publication transaction and reuses
+transaction-local policy checks against the same SQLite authority as revoke.
+Status reconciliation uses the authenticated Profile/original key and retained
+validated Proposal, independent of old Context/Session/journal instances. The
+minimal acknowledgement contains only Proposal id and original key: current
+STAGE + `proposalMetadata` + original bank/Project scope suffice, without READ.
+Publication also requires `questionContent` and approved-file `fileContent`.
+No content or formal COMMIT Receipt is exposed. Absence stays unknown, with no
+automatic restage. Final output release rechecks current policy and Session.
+The new pending-only guard is bounded and retains slots until actual settlement;
+the pure-memory invocation core/transient journal is not production integration.
+This adds no transport, Host route or external COMMIT authority.
+
 App unavailable/not ready/recovering returns safe unavailable/busy; it does not
 trigger alternate database access. Host starts only after B0 recovery, database
 validation and complete module/route validation.

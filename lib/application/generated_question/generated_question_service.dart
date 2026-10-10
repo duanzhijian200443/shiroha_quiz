@@ -185,6 +185,12 @@ final class GeneratedQuestionAdmission {
   final String Function() _id;
   GeneratedStageInput admit(String json, GeneratedOriginContext context) {
     context.validate();
+    return admitContent(json, context.evidence);
+  }
+
+  /// Strict content parser shared by trusted entries; confers no authority.
+  GeneratedStageInput admitContent(
+      String json, List<GeneratedEvidence> approvedEvidence) {
     try {
       final root = generatedObject(generatedDecode(json),
           ['schemaVersion', 'submissionKey', 'requestedCount', 'items']);
@@ -235,7 +241,7 @@ final class GeneratedQuestionAdmission {
         }
         final evidence = <GeneratedEvidence>[];
         for (final key in keys) {
-          final matches = context.evidence.where((e) => e.evidenceKey == key);
+          final matches = approvedEvidence.where((e) => e.evidenceKey == key);
           if (matches.length != 1) {
             generatedFail(GeneratedFailure.invalidEvidence);
           }

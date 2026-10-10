@@ -111,6 +111,19 @@ rejects live open, export or staged admission before live replacement. Existing
 raw rollback retains original live policy and historical Origin. Package stays
 v2; container/layout and secure credential store behavior are unchanged.
 
+### Current-state amendment: external STAGE at unchanged v34
+
+P3's unpublished external STAGE Application/Data candidate reuses v34 with no
+new table, Stage Receipt, migration or B0 package change. The owning Proposal
+transaction publishes trusted historical Origin and retains the existing local
+data owner. Proposal/Origin remains INCLUDE, current Profile/Grant SCRUB, and
+credential/Context EXCLUDED. Actual generated external publication is covered by
+portable restore and fault-injected raw rollback tests. Restored history alone
+cannot bind/authenticate a client or recover a scrubbed Grant; composition must
+invalidate runtime services before live replacement, as with existing local
+generated-review sessions. Narrow reconciliation requires fresh authentication,
+App binding and current durable authorization. See GeneratedQuestion §11.
+
 ### Historical amendment: external authorization schema v33
 
 P1, accepted in merged PR #248, raised runtime to v33 through the
