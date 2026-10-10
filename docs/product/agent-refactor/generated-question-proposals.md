@@ -2,16 +2,18 @@
 
 Status: **FROZEN contract; AR-R5A COMPLETE / CLOSED;
 AR-R5B generated Review UI COMPLETE / CLOSED;
-AR-R6A P2 external historical Origin IMPLEMENTATION CANDIDATE.**
+AR-R6A P2 external historical Origin accepted in merged PR #249;
+P3 durable external STAGE / reconciliation IMPLEMENTATION CANDIDATE.**
 
 AR-R5A implements Domain/Application/Data lifecycle at schema v32, B0 package v2
 and a source-level internal READ contribution, accepted in merged
 [PR #244](https://github.com/duanzhijian200443/shiroha_quiz/pull/244).
 AR-R5B connects that lifecycle to first-party typed Review UI using the local
 authority seam below and is accepted through merged PR #245. P2 adds the strict
-historical format and v34 compatibility described in section 10. External STAGE,
-authenticated Origin construction and Host remain blocked. Candidate mechanical
-evidence does not close independent review.
+historical format and v34 compatibility described in section 10, accepted through
+merged PR #249. Section 11 owns the unpublished P3 Application/Data candidate.
+Formal Host/transport publication remains blocked. Candidate mechanical evidence
+does not close independent review.
 
 Authority/activation: [index](README.md). This owns generated candidate admission,
 durable Review, lifecycle, stage idempotency, dedicated commit and retention.
@@ -512,7 +514,7 @@ schema/codec/Receipt/B0 format, GC or R6A/R6B capability is activated.
 
 ## 10. P2 external historical Origin and v34 compatibility
 
-This candidate adds a historical format, not an external execution entrypoint.
+P2 adds a historical format, not an external execution entrypoint.
 `GeneratedOriginContext.validate()` still permits only local/synthetic. Candidate
 submission JSON remains the exact v1 key set and accepts no Origin, Profile,
 Grant, Scope, target or `trusted` assertion. The legacy STAGE path also refuses
@@ -574,5 +576,94 @@ open/export/staged admission. Local Inbox, typed edit/Flush CAS, explicit local
 COMMIT, current target/evidence/duplicate checks and Receipt/Question mappings
 retain their owning services and semantics.
 
-P2 does not close R1-P3-1, R1-DESIGN-1 or the shared durable STAGE/revoke transaction/
-CAS boundary. Real external STAGE/reconciliation remains blocked.
+At P2, R1-P3-1, R1-DESIGN-1 and the shared durable STAGE/revoke transaction/CAS
+boundary remained open. Section 11 supersedes that Application/Data gap with a
+bounded P3 implementation candidate; formal external Host publication stays blocked.
+
+## 11. P3 durable external STAGE candidate
+
+`ExternalGeneratedStageService` is a transport-independent Application entry;
+it is not registered in a Host, capability projection, MCP, module or UI route.
+It accepts only this service's opaque Context and its authenticated Session.
+Trusted App composition binds an opaque `ExternalProfileReference`, validated
+by its owning management service, to the exact Principal minted by this
+TrustCore. Their Profile ids must match. A second TrustCore with the same display
+id cannot enter. Credential possession proof, pairing and current-runtime
+enablement remain mandatory. The bounded synthetic CredentialPort tests exercise
+that process; no saved credentials, real pairing UI or production identity adapter
+are wired. App composition must close/invalidate these services before Restore
+or runtime replacement. Persisted Origin cannot recreate a binding.
+
+App approval mints `ExternalStageContext` with the original Target/evidence,
+current Grant revision and a finite 15-minute lifetime (default and upper bound
+for this unpublished candidate, not a measured Host product limit). Candidate
+JSON retains the strict v1 content-only keys. The shared admission parser is
+content validation, not authentication. Neither a public legacy Context,
+`isCurrent`, `trusted`, Profile string nor `mcpStudyV0` proves external authority.
+
+STAGE invocation checks runtime admission and current durable policy before
+publication. `GeneratedProposalRepository` owns one B0 mutation lease and one
+SQLite transaction for current Profile/Grant/revision, exact bank/Project and
+approved file scopes, current source identity/revision/digest, retained local
+owner, fingerprint/key lookup and Header/Origin/Item/Review publication. Revoke
+and policy replacement use the same DatabaseHelper SQLite transaction authority.
+Independent public authorization transactions are never publication authority.
+Revocation/revision first commits no new Proposal; publication first retains the
+complete immutable history even when later revoke suppresses result release.
+The transaction-local row publisher is shared with the unchanged local/synthetic
+entry. Existing Target/evidence/quality/duplicate checks remain in effect.
+
+Origin v1 is assembled from the authenticated binding and the current transaction's
+Profile adapter/protocol, revision, sorted approved files and Egress categories.
+Only bounded `externalRequestId` is caller correlation metadata. External Header
+remains Proposal JSON v2 at SQLite v34. No second Stage Receipt table or schema
+upgrade exists. `generated_question_commit_receipts` still means local formal
+COMMIT only. Pending/terminal Review and Question writer semantics are unchanged.
+
+Durable STAGE authority is the complete, strictly decoded Proposal under
+`(authenticated clientProfileId, original submissionKey)`, with its recomputed
+semantic fingerprint and immutable original Target/content/provenance. Same
+semantics reuse its identity; changed semantics conflict. A fresh authenticated
+and App-bound Session can `reconcile` after closing/reopening the database without
+an old Context or journal. Lookup corruption fails closed. Missing rows return
+`outcome_unknown`, never proof that a queued/uncertain operation had no effect;
+there is no automatic restage. No retention/deletion/tombstone policy is added.
+
+The external result is only `ExternalStageSummary(proposalId, submissionKey)`.
+Publication requires STAGE, exact current target/file scopes, `questionContent`
+and `proposalMetadata`, plus `fileContent` for approved source files. Reconciliation
+and final release require current STAGE, `proposalMetadata` and the original
+bank/Project scope; they require no general READ and release no candidate,
+Question, source, Review state or COMMIT Receipt. Historical file absence does not
+invalidate a narrow status query. Invalid/revoked/mismatched authorization yields
+bounded non-enumerating denial. Every response rechecks runtime and current
+SQLite authorization; release failure preserves effect evidence but no output.
+Lookup admits the current scope using only the immutable routing Header before
+decoding any candidate/Review content. Out-of-scope and absent keys both return
+unknown without disclosing content validation or record existence.
+
+This branch uses the existing typed `CapabilityEvidence`, execution statuses and
+effects directly, without inventing an external `CapabilityPrincipal` or adapting
+to `mcpStudyV0`. General `ExecutionReceipt`/Host projection integration remains
+unimplemented. Only a committed/strictly validated Proposal confirms
+`proposal_staged`. A thrown transaction checks SQLite absence before confirming
+rollback; uncertainty is not `failed_without_effect`. Cancellation before handler
+entry proves none. After handler entry, interruption remains unknown until
+settlement; committed history can then be reconciled even after response loss.
+
+The durable branch has only bounded pending operation slots (16 globally, 4 per
+Session), retained until actual handler settlement even after caller cancellation
+or deadline. Completed/failed keys are not kept in a Map. It bypasses the old
+`ExternalInvocationCore._stages` journal for both execution and reconciliation.
+That pure-memory candidate and W0/SPL transient semantics are unchanged; their
+general journal finding is not claimed globally closed. This closes the durable
+branch's journal/restart gap only as an implementation candidate, pending CI and
+independent semantic review. B0 remains Proposal/Origin INCLUDE, Profile/Grant
+SCRUB, credential/Context EXCLUDED; restore never restores external access.
+
+Deterministic acceptance uses synthetic credential proof and real temporary
+SQLite: both revoke/revision ordering directions, same-key concurrent calls,
+Header/Items/pre-commit rollback and ignored-row rejection, commit-then-response
+loss, cancel/deadline with pending capacity retention, actual file close/reopen,
+source/Project drift, Profile isolation, corrupt history, and actual B0 restore
+and raw rollback. Host/IPC/real-provider acceptance is outside this candidate.

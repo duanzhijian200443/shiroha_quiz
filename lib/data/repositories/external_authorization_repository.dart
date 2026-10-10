@@ -55,43 +55,6 @@ final class SqliteExternalAuthorizationRepository
   Future<ExternalAuthorizationRecord> read(String profileId) =>
       _transaction((db) => readExternalAuthorization(db, profileId));
 
-  Future<bool> _targetExists(
-      DatabaseExecutor db, ExternalGrantScope scope) async {
-    if (scope.projectId != null &&
-        (await db.query('projects',
-                columns: ['project_id'],
-                where: 'project_id=?',
-                whereArgs: [scope.projectId],
-                limit: 1))
-            .isEmpty) {
-      return false;
-    }
-    final exists = scope.kind == ExternalTargetKind.bank
-        ? (await db.rawQuery(
-                'SELECT 1 FROM bank_folders WHERE bank_name=? UNION SELECT 1 FROM questions WHERE bank_name=? LIMIT 1',
-                [
-                scope.targetId,
-                scope.targetId
-              ]))
-            .isNotEmpty
-        : (await db.query('library_files',
-                columns: ['file_id'],
-                where: 'file_id=?',
-                whereArgs: [scope.targetId],
-                limit: 1))
-            .isNotEmpty;
-    if (!exists || scope.projectId == null) return exists;
-    final table = scope.kind == ExternalTargetKind.bank
-        ? 'project_banks'
-        : 'project_files';
-    final column =
-        scope.kind == ExternalTargetKind.bank ? 'bank_name' : 'file_id';
-    return (await db.rawQuery(
-            'SELECT 1 FROM $table WHERE project_id=? AND $column=? LIMIT 1',
-            [scope.projectId, scope.targetId]))
-        .isNotEmpty;
-  }
-
   @override
   Future<ExternalAuthorizationRecord> change(
           String profileId,
@@ -124,7 +87,7 @@ final class SqliteExternalAuthorizationRepository
         }
         if (policy != null) {
           for (final scope in policy.scopes) {
-            if (!await _targetExists(db, scope)) {
+            if (!await externalScopeExists(db, scope)) {
               externalAuthFail(ExternalAuthFailure.unauthorized);
             }
           }
@@ -194,23 +157,73 @@ final class SqliteExternalAuthorizationRepository
           ExternalContentCategory category,
           String recipientProfileId) =>
       _transaction((db) async {
-        final record = await readExternalAuthorization(db, profileId);
-        final grant = record.grant;
-        if (record.profile.revokedAtUtcMs != null ||
-            grant == null ||
-            grant.revokedAtUtcMs != null ||
-            grant.revision != expectedRevision ||
-            profileId != recipientProfileId ||
-            !grant.policy.permissions.contains(permission) ||
-            !grant.policy.scopes.contains(scope) ||
-            !grant.policy.categories.contains(category) ||
-            (scope.kind == ExternalTargetKind.bank &&
-                category == ExternalContentCategory.fileContent) ||
-            (scope.kind == ExternalTargetKind.file &&
-                category != ExternalContentCategory.fileContent) ||
-            !await _targetExists(db, scope)) {
-          externalAuthFail(ExternalAuthFailure.unauthorized);
-        }
-        return grant;
+        return (await requireExternalGrant(db, profileId, expectedRevision,
+                permission, scope, category, recipientProfileId))
+            .grant!;
       });
+}
+
+Future<bool> externalScopeExists(
+    DatabaseExecutor db, ExternalGrantScope scope) async {
+  if (scope.projectId != null &&
+      (await db.query('projects',
+              columns: ['project_id'],
+              where: 'project_id=?',
+              whereArgs: [scope.projectId],
+              limit: 1))
+          .isEmpty) {
+    return false;
+  }
+  final exists = scope.kind == ExternalTargetKind.bank
+      ? (await db.rawQuery(
+              'SELECT 1 FROM bank_folders WHERE bank_name=? UNION SELECT 1 FROM questions WHERE bank_name=? LIMIT 1',
+              [
+              scope.targetId,
+              scope.targetId
+            ]))
+          .isNotEmpty
+      : (await db.query('library_files',
+              columns: ['file_id'],
+              where: 'file_id=?',
+              whereArgs: [scope.targetId],
+              limit: 1))
+          .isNotEmpty;
+  if (!exists || scope.projectId == null) return exists;
+  final table =
+      scope.kind == ExternalTargetKind.bank ? 'project_banks' : 'project_files';
+  final column =
+      scope.kind == ExternalTargetKind.bank ? 'bank_name' : 'file_id';
+  return (await db.rawQuery(
+          'SELECT 1 FROM $table WHERE project_id=? AND $column=? LIMIT 1',
+          [scope.projectId, scope.targetId]))
+      .isNotEmpty;
+}
+
+/// Transaction-local policy check shared by policy inspection and publication.
+Future<ExternalAuthorizationRecord> requireExternalGrant(
+    DatabaseExecutor db,
+    String profileId,
+    int? expectedRevision,
+    CapabilityPermission permission,
+    ExternalGrantScope scope,
+    ExternalContentCategory category,
+    String recipientProfileId) async {
+  final record = await readExternalAuthorization(db, profileId);
+  final grant = record.grant;
+  if (record.profile.revokedAtUtcMs != null ||
+      grant == null ||
+      grant.revokedAtUtcMs != null ||
+      (expectedRevision != null && grant.revision != expectedRevision) ||
+      profileId != recipientProfileId ||
+      !grant.policy.permissions.contains(permission) ||
+      !grant.policy.scopes.contains(scope) ||
+      !grant.policy.categories.contains(category) ||
+      (scope.kind == ExternalTargetKind.bank &&
+          category == ExternalContentCategory.fileContent) ||
+      (scope.kind == ExternalTargetKind.file &&
+          category != ExternalContentCategory.fileContent) ||
+      !await externalScopeExists(db, scope)) {
+    externalAuthFail(ExternalAuthFailure.unauthorized);
+  }
+  return record;
 }

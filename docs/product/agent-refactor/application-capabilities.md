@@ -75,6 +75,15 @@ STAGE permission alone does not imply durable staging or reconciliation:
   Lost response and restart reconcile through that durable authority with
   current authorization; a transient reference cannot satisfy this requirement.
 
+The unpublished P3 generated external Application/Data entry now supplies typed
+`CapabilityEvidence<ExternalStageSummary>` from the owning SQLite transaction
+and current-authority reconciliation, as specified in GeneratedQuestion §11.
+Its acknowledgement has only Proposal id/original submission key. It does not
+register a general CapabilityExecutor/Host operation or mint `ExecutionReceipt`
+with a forged `mcpStudyV0` principal. Existing `ExecutionReceipt`, W0/SPL transient
+references and execution semantics remain unchanged. General external principal
+and projection integration requires its own authorized stage.
+
 Transient STAGE receipts do not replace W0 COMMIT or SPL adoption recovery.
 Those dedicated commands retain their existing formal-write reconciliation
 and concurrency authorities. Neither receipt lifetime permits an unknown

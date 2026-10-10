@@ -141,6 +141,12 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
    retains v32 physical-schema migration authority, and preserves all child data,
    local Review/COMMIT and B0 package v2. The generated-question contract §10 owns
    this candidate format; it adds no external STAGE or authentication factory.
+   P2 is accepted through merged PR #249. P3's unpublished Application/Data
+   candidate reuses v34 for trusted external STAGE and narrow durable key
+   reconciliation, with current Grant/revoke and publication sharing the existing
+   SQLite authority. GeneratedQuestion §11 owns its App-bound Sessions, immutable
+   Contexts, pending-only resource guard and final authorization release. No
+   transport/Host/CapabilityExecutor projection or external COMMIT is wired.
    The generated schema is globally
    migrated and strictly validated independently of runtime module enablement.
    The v27 table records only
