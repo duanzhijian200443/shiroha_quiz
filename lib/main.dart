@@ -213,8 +213,8 @@ void main() {
         return false;
       };
 
-      // 桌面端（Windows / Linux）需通过 FFI 加载 SQLite 原生库
-      if (Platform.isWindows || Platform.isLinux) {
+      // 桌面端（Windows / Linux）与 Android 需通过 FFI 加载 SQLite 原生库
+      if (Platform.isWindows || Platform.isLinux || Platform.isAndroid) {
         sqfliteFfiInit();
         databaseFactory = databaseFactoryFfi;
       }
