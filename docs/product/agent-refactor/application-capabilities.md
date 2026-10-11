@@ -2,7 +2,7 @@
 
 Status: **FROZEN contract; AR-R2 and AR-R4 registration integration
 COMPLETE / CLOSED; P7 unpublished external integration accepted in merged PR #256;
-P8 offline Host dispatch IMPLEMENTATION CANDIDATE.**
+P8 offline Host dispatch accepted in merged PR #258.**
 
 Authority/activation: [index](README.md). This document owns semantic capability,
 permission/effect/receipt and adapter projection boundaries. Runtime, external
@@ -355,7 +355,7 @@ replacement Kernel hash is accepted. Negative regressions prove that changing
 either the external admission amendment or retained legacy Kernel source fails
 the corresponding check. Runtime/Provider/MCP/storage hashes stay unchanged.
 
-## 8. P8 offline Host dispatch (unpublished candidate)
+## 8. P8 offline Host dispatch (accepted unpublished scope)
 
 External boundary §3 owns the trusted startup/entry/shutdown contract of
 `LocalHostDispatchCore`. It reuses exactly the ten P7 typed definitions, original
@@ -366,3 +366,8 @@ existing Kernel `reject` with a denied Principal and no authorization metadata;
 after admission, P7 retains evidence and final authorization authority.
 Interrupted caller return never substitutes for owning settlement during drain.
 This offline foundation does not activate the external Host or MCP vNext.
+
+P9's infrastructure Envelope/Codec is owned by external boundary §7. Its output
+is untrusted text with no capability, identity, Context or Receipt projection.
+It adds no Application dependency, execution authority or wire serialization of
+the local transient Receipt/authorization objects.

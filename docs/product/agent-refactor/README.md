@@ -9,7 +9,8 @@ P4 shared runtime admission / bounded READ Context accepted in merged PR #251;
 P5 Context-scoped Question search/detail accepted in merged PR #253;
 P6 explicit File Snapshot / lexical retrieval / passages accepted in merged PR #255;
 P7 trusted external Capability/Receipt integration accepted in merged PR #256;
-P8 offline Host dispatch foundation IMPLEMENTATION CANDIDATE.**
+P8 offline Host dispatch accepted in merged PR #258;
+P9 offline IPC Envelope foundation IMPLEMENTATION CANDIDATE.**
 
 The Provider seam, typed capability/executor/projection path and Runtime split/
 transcript are delivered in the preceding merged stages. Historical AR-R3
@@ -54,7 +55,9 @@ from the unchanged P4-P6 Principal/generation-bound READ references. Existing
 services still own business authorization, budgets and transaction effects.
 P7 is accepted within its unpublished scope through merged PR #256. P8 adds an
 offline-only trusted Host dispatch/startup/drain seam under external boundary §3,
-with current-target CI and independent review required for its candidate.
+accepted in merged PR #258. P9's unpublished infrastructure framing/codec candidate
+under external boundary §7 only validates bounded envelopes, never identity or
+business authority. Current-target CI and independent review remain required.
 Production Host/IPC, MCP vNext and READ fallback continuation remain unimplemented
 targets. Current product behavior
 continues under the existing capability contracts.

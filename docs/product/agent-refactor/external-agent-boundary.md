@@ -427,7 +427,7 @@ loss and B0 Restore/raw rollback. Built-in Agent and MCP v0 remain unchanged.
 HOST_STABILITY_HALT remains active; P7 acceptance does not constitute AR-R6A,
 Transport, Host or MCP vNext acceptance.
 
-### P8 offline Local Host dispatch foundation (unpublished candidate)
+### P8 offline Local Host dispatch foundation (accepted unpublished scope)
 
 The internal Application seam has this direction:
 
@@ -437,7 +437,8 @@ Future protocol adapter -> trusted authenticated Session
 -> P3-P6 owning services -> original CapabilityResult / ExecutionReceipt
 ```
 
-This candidate is callable only by trusted compiled composition in offline
+P8 is accepted through merged PR #258 within its offline scope. It is callable
+only by trusted compiled composition in offline
 fixtures. It has no production composition, public transport, listener, JSON
 decoder, credential adapter or MCP projection. HOST_STABILITY_HALT remains
 ACTIVE; passing offline tests proves neither transport nor OS identity security.
@@ -690,3 +691,123 @@ environment. An ordinary VM on the primary host is not automatically independent
 of host-kernel stability risk. If any required security or stability acceptance
 is missing, the formal Host remains **unpublished**. This contract amendment
 authorizes no dynamic experiment or Host activation and does not unlock AR-R6B.
+
+## 7. P9 offline IPC Envelope foundation (unpublished candidate)
+
+This freezes an internal offline framing candidate, not a published client
+protocol or MCP Tools Schema. Infrastructure owns bytes; Application stays
+typed and protocol-free. The existing memory-only P0 protocol remains a separate
+historical candidate; P9 neither changes nor silently interoperates with it.
+
+```text
+Untrusted bytes -> bounded frame admission -> version/length/encoding checks
+-> strict fixed envelope -> untrusted validated envelope
+Future authentication + App Authority -> Session -> P8 -> P7 -> owning services
+```
+
+Successful decoding proves only framing/encoding validity. There is no Principal,
+Session, Host entry, execution Context, capability dispatch, authentication
+callback, persistence or SubmissionKey factory in the codec. Claimed identity,
+Profile, Session, recipient, Scope, Grant, `trusted`, request ID or credentials
+inside a payload remain opaque untrusted text. Future adapters must separately
+authenticate and obtain App-owned authority before parsing typed business input
+and invoking P8. Correlation never establishes durable STAGE identity.
+
+### Exact internal frame v1
+
+`IPC envelope version 1 != MCP protocol version != Submission schema version`.
+No negotiation, automatic downgrade, compression, binary payload, JSON-RPC,
+extension fields or MCP projection is supported. Integers are unsigned
+big-endian; the fixed header is exactly 16 bytes, followed by the ID bytes and
+then exactly the declared payload bytes:
+
+| Offset | Bytes | Meaning |
+|---|---|---|
+| 0 | 4 | Magic ASCII `SHIP` |
+| 4 | 1 | IPC envelope version, exactly 1 |
+| 5 | 1 | Kind: 1 request, 2 response, 3 protocolError |
+| 6 | 1 | Encoding: 1 strict UTF-8 text |
+| 7 | 1 | Feature flags, exactly zero |
+| 8 | 1 | ID byte length |
+| 9 | 3 | Reserved, all zero; unknown fields/features reject |
+| 12 | 4 | Payload byte length, excluding header and ID |
+
+Request/response IDs are 1..64 ASCII bytes from `[A-Za-z0-9_-]`; no Unicode,
+whitespace, path, numeric coercion or implicit conversion. Responses are distinct
+messages, never converted to requests. Protocol errors have zero ID bytes and
+only one fixed failure-code token as payload; they never echo an untrusted ID,
+body, exception, stack trace or local path. Payloads of request/response are
+nonempty opaque UTF-8 text, preserving literal BOM and NUL exactly; framing does
+not interpret JSON. Strict UTF-8 rejects malformed bytes; encoding rejects
+unpaired UTF-16 surrogates instead of replacing them. Business JSON syntax,
+duplicate/unknown business fields and Tool Schema validation belong to a future
+separately frozen adapter; payload text grants nothing.
+
+### Budgets and allocation
+
+| Resource | Fixed P9 ceiling and basis |
+|---|---|
+| Request payload | 6,324,224 bytes = 6 × 1 MiB + 32 KiB |
+| Response payload | 229,376 bytes = 6 × 32 KiB + 32 KiB |
+| Protocol-error payload | 32 ASCII bytes, exactly a supported failure code |
+| Single frame | 6,324,304 bytes = request + 16-byte header + 64-byte ID |
+| Retained decoder byte storage | One header, one ID scratch area and at most one admitted payload: 6,324,304 bytes |
+| Output per consume operation | At most one envelope; at most 6,324,224 UTF-16 code units; no accumulated output queue |
+
+GeneratedQuestion's existing `GeneratedLimits.submissionBytes` / resource matrix
+allows 1 MiB raw UTF-8 submissions. A future wrapper may embed the original
+`ExternalStageSubmission.submissionJson` as a JSON string: worst-case JSON
+escaping needs at most six ASCII bytes per original UTF-8 byte. The additional
+32 KiB reserves the existing complete P4/P5 metadata/output budget for bounded
+wrapper metadata; it does not freeze that future projection or authorize
+arbitrary metadata. P4/P5 enforce 32 KiB output; P6 enforces 24,000 bytes,
+including passage/page metadata, which fits the response base. The response
+ceiling similarly accommodates worst-case string embedding plus 32 KiB headroom.
+P3 returns only Proposal ID/original key, never its 4 MiB original/review batch
+or formal COMMIT receipt. P9 does not enlarge any business budget or encode
+ExecutionReceipt/authorization objects. Future projection exceeding these bounds
+requires contract review; no silent truncation or weakening P3-P8 is permitted.
+
+The decoder validates the complete header before body allocation, validates ID
+bytes before allocating the payload, and retains no caller-owned input view.
+Zero length, high-bit/signed-negative representation and over-limit declarations
+fail without allocating that body. Encoder scans Unicode and computes UTF-8
+length before creating encoded bytes, using these same fixed ceilings, then
+writes directly into its single final frame. Encoder byte allocation is at most
+6,324,304 bytes, with no second encoded payload or SDK encoder scratch; decoder
+explicit byte storage is bounded as above.
+Decoded string storage is bounded by twice the payload bytes for UTF-16 (at most
+12,648,448 bytes). SDK conversion scratch and object headers remain proportional
+to one bounded frame; these data bounds are not a measured OS resident-heap or
+production transport memory guarantee. Caller input/output ownership, connection
+count and backpressure require separate transport budgets; callers must not
+retain an unlimited list of decoded envelopes.
+
+### Incremental API, failure and lifecycle
+
+`consume(bytes, offset)` consumes at most through one complete frame and returns
+the consumed byte count plus either one untrusted envelope or no envelope.
+Callers repeat at the next offset for coalesced/continuous frames, or feed the
+next chunk for an incomplete frame. There is no hidden multi-frame queue and
+no publication before all declared bytes and strict validation complete.
+`finish` checks end-of-input: partial header/ID/payload or trailing garbage is
+truncated/invalid, never silently discarded. EOF on a frame boundary closes
+cleanly. Explicit close clears unfinished data; replacement uses a new decoder.
+
+Every failure closes and clears the decoder; it cannot resynchronize, skip
+garbage, downgrade or reuse stale state. Prior returned envelopes remain only
+untrusted values. Fixed classifications are `invalidFrame`, `unsupportedVersion`,
+`unsupportedMessage`, `unsupportedEncoding`, `unsupportedFeature`,
+`invalidLength`, `resourceLimit`, `invalidId`, `invalidUtf8`, `invalidPayload`,
+`truncated`, `closed`. A protocolError can carry only one such token; no business
+failure, execution status, effect or rollback conclusion is invented. Error
+objects retain only the classification. Encoder failures do not alter decoder
+state. No listeners, actual transport, credentials, MCP/stdio, default production
+composition or client protocol publication are installed.
+
+Deterministic acceptance covers all message kinds, exact length/Unicode boundaries,
+fragmentation/coalescing, allocation-before-body refusal, malformed/truncated
+headers and bytes, reserved/unknown features, safe errors, bounded seeded fuzz,
+forged authority text and absence of production wiring. P7/P8 and Built-in/MCP v0
+regressions remain required; green local tests are not independent approval.
+HOST_STABILITY_HALT stays ACTIVE, Transport BLOCKED, AR-R6A NOT_ACCEPTED.

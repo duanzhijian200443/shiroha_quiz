@@ -193,10 +193,14 @@ TTL/budgets and RAG-1's Chunker/Index/derived-cache effect authority are reused.
 P6's required CI, independent verification and semantic review are accepted with
 its merged PR. P7 adds accepted unpublished behavior (merged PR #256) for trusted external
 Capability execution and transient typed Receipts over P3-P6, with an exact-Session
-execution Context and unchanged original READ reference semantics. P8 adds an
-unpublished offline Host dispatch candidate with trusted readiness/Session entries,
-ten typed P7 routes and close/drain before runtime replacement; current-target CI
-and independent review remain required for P8. No business authorization/writer,
+execution Context and unchanged original READ reference semantics. P8 is accepted
+within its unpublished offline scope through merged PR #258: trusted readiness/
+Session entries, ten typed P7 routes and close/drain before runtime replacement.
+P9 adds an unpublished IPC Envelope/Codec IMPLEMENTATION CANDIDATE under external
+boundary §7, with strict versioned bounded framing, opaque untrusted UTF-8 text,
+no identity factories or dispatch, and no production wiring. Current-target CI,
+independent review and required gap-closing verification remain pending for P9.
+No business authorization/writer,
 schema, B0 format or Host authority is expanded. MCP vNext and formal Host
 integration remain unimplemented;
 real TCP/mTLS is unverified, Transport
