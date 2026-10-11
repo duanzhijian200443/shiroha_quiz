@@ -29,6 +29,10 @@ class ShirohaThemeTokens extends ThemeExtension<ShirohaThemeTokens> {
   bool get isDark => brightness == Brightness.dark;
   // Colorful's historical palette is light; dark reuses grayscale compatibility.
   bool get isColorful => style == ShirohaThemeStyle.colorful && !isDark;
+  bool get isPaper => style == ShirohaThemeStyle.paper;
+  // Paper and Colorful map grayscale artwork to the active palette so the
+  // existing illustrations blend with warm/tinted surfaces non-destructively.
+  bool get harmonizeIllustrations => isColorful || isPaper;
 
   Color get brandAccent => featureLibrary;
   Color get brandFill => featureLibraryFill;
@@ -37,12 +41,16 @@ class ShirohaThemeTokens extends ThemeExtension<ShirohaThemeTokens> {
   Color get featureNeutral => colors.onSurfaceVariant;
   Color get featureNeutralFill => subtleFill;
 
-  Color get assistantActionBackground => isColorful
+  Color get assistantActionBackground => (isColorful || isPaper)
       ? colors.primary
       : isDark
           ? const Color(0xFF575B69)
           : const Color(0xFF707482);
-  Color get assistantOnAction => isDark ? colors.onSurface : colors.onPrimary;
+  Color get assistantOnAction => (isColorful || isPaper)
+      ? colors.onPrimary
+      : isDark
+          ? colors.onSurface
+          : colors.onPrimary;
   Color get assistantCanvasStart => Color.lerp(surface, canvas, .35)!;
   Color get assistantCanvasEnd => Color.lerp(canvas, subtleFill, .5)!;
   Color get assistantDrawerScrim => isDark
@@ -77,10 +85,12 @@ class ShirohaThemeTokens extends ThemeExtension<ShirohaThemeTokens> {
   // Existing dark Category modulation, retained at the shared token boundary.
   Color get categoryArtworkTint => const Color(0xFF85858D);
   // Existing neutral banner/fold colors retained without new palette values.
+  // Paper, like Colorful, harmonizes the banner art so its live text reads the
+  // shared secondary token against the filtered surface.
   Color get welcomeCaption =>
-      isColorful ? textSecondary : const Color(0xFF747780);
+      (isColorful || isPaper) ? textSecondary : const Color(0xFF747780);
   Color get welcomePillText =>
-      isColorful ? textSecondary : const Color(0xFF555760);
+      (isColorful || isPaper) ? textSecondary : const Color(0xFF555760);
   List<Color> get foldedCornerColors => isDark
       ? const [
           Color(0xFF484B55),

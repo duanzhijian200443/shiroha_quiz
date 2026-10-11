@@ -13,9 +13,10 @@ class TodayWelcomeBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final active = AppTheme.withPresetFallback(Theme.of(context))
         .extension<ShirohaThemeTokens>()!;
-    final colorful = active.isColorful;
-    // Neutral appearances keep the original bright, grayscale banner asset.
-    final tokens = colorful
+    final harmonized = active.harmonizeIllustrations;
+    // Neutral grayscale keeps the original bright banner asset; Paper/Colorful
+    // map the art to the active palette so it blends with the page background.
+    final tokens = harmonized
         ? active
         : AppTheme.lightTheme.extension<ShirohaThemeTokens>()!;
     final landscape = Image.asset('assets/images/today/welcome-landscape.png',
@@ -35,7 +36,7 @@ class TodayWelcomeBanner extends StatelessWidget {
       borderRadius: BorderRadius.circular(DesignTokens.todayCardRadius),
       child: Stack(children: [
         Positioned.fill(
-            child: colorful
+            child: harmonized
                 ? ColorFiltered(
                     colorFilter: tokens.illustrationFilter, child: landscape)
                 : landscape),
@@ -43,8 +44,8 @@ class TodayWelcomeBanner extends StatelessWidget {
             child: DecoratedBox(
                 decoration: BoxDecoration(
                     gradient: LinearGradient(colors: [
-          tokens.surface.withValues(alpha: colorful ? .88 : .28),
-          tokens.surface.withValues(alpha: colorful ? .04 : 0),
+          tokens.surface.withValues(alpha: harmonized ? .88 : .28),
+          tokens.surface.withValues(alpha: harmonized ? .04 : 0),
         ], stops: const [
           0,
           .65
@@ -86,7 +87,7 @@ class TodayWelcomeBanner extends StatelessWidget {
                           DecoratedBox(
                               decoration: BoxDecoration(
                                   color: tokens.surface
-                                      .withValues(alpha: colorful ? .96 : .8),
+                                      .withValues(alpha: harmonized ? .96 : .8),
                                   borderRadius: BorderRadius.circular(20)),
                               child: Padding(
                                   padding: const EdgeInsets.symmetric(
