@@ -6,7 +6,8 @@ AR-R5B generated Review UI COMPLETE / CLOSED;
 AR-R6A P2 external historical Origin accepted in merged PR #249;
 P3 durable STAGE / reconciliation accepted in merged PR #250;
 P4 shared runtime admission / bounded READ Context accepted in merged PR #251;
-P5 Context-scoped Question search/detail IMPLEMENTATION CANDIDATE.**
+P5 Context-scoped Question search/detail accepted in merged PR #253;
+P6 explicit File Snapshot / lexical retrieval / passages IMPLEMENTATION CANDIDATE.**
 
 The Provider seam, typed capability/executor/projection path and Runtime split/
 transcript are delivered in the preceding merged stages. Historical AR-R3
@@ -36,11 +37,15 @@ P4's accepted unpublished Application/Data path (merged PR #251) extracts that e
 binding authority and adds bounded READ target metadata/opaque Contexts under
 external-agent-boundary §3. Target metadata requires READ + questionContent;
 STAGE reconciliation remains independent. Schema v34/B0 v2 are unchanged.
-P5 adds an unpublished Context-scoped Question search/detail candidate under
+P5's accepted unpublished Context-scoped Question search/detail (merged PR #253) is under
 the same external contract §3, sharing the Registry and StudyQuery's safe
 projection while Data owns exact-scope reads and final release revalidation.
-File/Evidence remains empty; no transport, MCP or general Principal is wired.
-Final-target CI and independent semantic review remain required for P5. External
+Original P4/P5 File/Evidence snapshots remain empty. P6 adds separate explicitly
+selected File Contexts, RAG-1 lexical retrieval and continuous safe Chunk passage
+reads under independent current READ + fileContent + exact File/Project scope.
+It reuses P4 Registry/budgets and verified F1/Chunker/Index/derived-cache evidence;
+no transport, MCP or general Principal is wired. Final-target CI, explicitly
+requested independent verification and semantic review remain required for P6. External
 Host/IPC, MCP vNext and READ fallback continuation remain unimplemented targets. Current product behavior
 continues under the existing capability contracts.
 

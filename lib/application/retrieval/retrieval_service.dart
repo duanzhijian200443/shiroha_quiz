@@ -33,7 +33,8 @@ final class RetrievalService {
       required String query,
       int limit = 8,
       RetrievalStrategy strategy = RetrievalStrategy.lexicalV1,
-      RetrievalExecutionEvidence? executionEvidence}) async {
+      RetrievalExecutionEvidence? executionEvidence,
+      Future<void> Function()? validateAccess}) async {
     if (query.trim().isEmpty ||
         query.runes.length > maxQueryScalars ||
         limit < 1 ||
@@ -57,13 +58,16 @@ final class RetrievalService {
     final snapshots = <RetrievalArtifactSnapshot>[];
     final issues = <RetrievalFileIssue>[];
     for (final fileId in fileIds) {
+      await validateAccess?.call();
       try {
         final loaded = await _artifactSource.loadCurrent(fileId);
+        await validateAccess?.call();
         final projection = _chunker.project(
             fileId: fileId,
             artifactId: loaded.identity.artifactId,
             revision: loaded.identity.revision,
             document: loaded.sourceDocument);
+        await validateAccess?.call();
         executionEvidence?.buildEntered();
         final index = _index;
         if (index is RetrievalIndexEvidencePort) {
@@ -82,6 +86,7 @@ final class RetrievalService {
               chunks: projection.chunks);
           // No transaction evidence: retain unknown effect, including success.
         }
+        await validateAccess?.call();
         final current = await _artifactSource.readCurrentIdentity(fileId);
         if (current == null || !current.sameGeneration(loaded.identity)) {
           issues.add(RetrievalFileIssue(
@@ -125,6 +130,7 @@ final class RetrievalService {
             fileId: fileId, code: RetrievalFileIssueCode.indexBuildFailed));
       }
     }
+    await validateAccess?.call();
     if (snapshots.isEmpty) {
       if (issues.isEmpty) {
         throw const RetrievalException(RetrievalFailure.scopeUnavailable);
@@ -140,6 +146,7 @@ final class RetrievalService {
         limit: limit,
         maxHitBytes: maxHitBytes,
         maxResultBytes: maxResultBytes);
+    await validateAccess?.call();
     for (final fileId in searchResult.sourceChangedFileIds) {
       issues.add(RetrievalFileIssue(
           fileId: fileId, code: RetrievalFileIssueCode.sourceChanged));

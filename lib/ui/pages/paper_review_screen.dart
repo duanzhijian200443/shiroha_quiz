@@ -8,8 +8,7 @@ class PaperReviewScreen extends StatefulWidget {
   final String paperId;
   final String title;
   const PaperReviewScreen(
-      {Key? key, required this.paperId, required this.title})
-      : super(key: key);
+      {super.key, required this.paperId, required this.title});
 
   @override
   State<PaperReviewScreen> createState() => _PaperReviewScreenState();
@@ -88,8 +87,8 @@ class _PaperReviewScreenState extends State<PaperReviewScreen> {
                       borderRadius: BorderRadius.circular(16),
                       side: BorderSide(
                           color: isCorrect
-                              ? Colors.green.withOpacity(0.3)
-                              : Colors.redAccent.withOpacity(0.3),
+                              ? Colors.green.withValues(alpha: 0.3)
+                              : Colors.redAccent.withValues(alpha: 0.3),
                           width: 1.5)),
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
@@ -103,8 +102,8 @@ class _PaperReviewScreenState extends State<PaperReviewScreen> {
                                   horizontal: 8, vertical: 4),
                               decoration: BoxDecoration(
                                   color: isCorrect
-                                      ? Colors.green.withOpacity(0.1)
-                                      : Colors.redAccent.withOpacity(0.1),
+                                      ? Colors.green.withValues(alpha: 0.1)
+                                      : Colors.redAccent.withValues(alpha: 0.1),
                                   borderRadius: BorderRadius.circular(4)),
                               child: Text(isCorrect ? '得分' : '失分',
                                   style: TextStyle(
@@ -135,14 +134,14 @@ class _PaperReviewScreenState extends State<PaperReviewScreen> {
                             Color? bgColor;
                             Color? borderColor;
                             if (isThisCorrect) {
-                              bgColor = Colors.green.withOpacity(0.1);
+                              bgColor = Colors.green.withValues(alpha: 0.1);
                               borderColor = Colors.green;
                             } else if (isThisUser && !isThisCorrect) {
-                              bgColor = Colors.redAccent.withOpacity(0.1);
+                              bgColor = Colors.redAccent.withValues(alpha: 0.1);
                               borderColor = Colors.redAccent;
                             } else {
                               bgColor = theme.scaffoldBackgroundColor;
-                              borderColor = Colors.grey.withOpacity(0.2);
+                              borderColor = Colors.grey.withValues(alpha: 0.2);
                             }
 
                             String stripped = optStr
@@ -172,7 +171,7 @@ class _PaperReviewScreenState extends State<PaperReviewScreen> {
                                 color: theme.scaffoldBackgroundColor,
                                 borderRadius: BorderRadius.circular(8),
                                 border: Border.all(
-                                    color: Colors.grey.withOpacity(0.2))),
+                                    color: Colors.grey.withValues(alpha: 0.2))),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -200,11 +199,12 @@ class _PaperReviewScreenState extends State<PaperReviewScreen> {
                                 width: double.infinity,
                                 margin: const EdgeInsets.only(bottom: 8),
                                 decoration: BoxDecoration(
-                                  color: Colors.orangeAccent.withOpacity(0.05),
+                                  color: Colors.orangeAccent
+                                      .withValues(alpha: 0.05),
                                   borderRadius: BorderRadius.circular(12),
                                   border: Border.all(
-                                      color:
-                                          Colors.orangeAccent.withOpacity(0.3)),
+                                      color: Colors.orangeAccent
+                                          .withValues(alpha: 0.3)),
                                 ),
                                 child: InkWell(
                                   borderRadius: BorderRadius.circular(12),

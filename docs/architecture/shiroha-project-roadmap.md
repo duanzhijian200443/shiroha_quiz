@@ -179,13 +179,20 @@ shared P3 runtime admission, bounded opaque READ Contexts and exact-scope Target
 metadata under external-agent-boundary §3, requiring READ + questionContent and
 only the four approved metadata fields. File/Evidence snapshots are empty; no
 content read or STAGE authority is inferred. Schema v34/B0 v2 remain unchanged.
-P5 adds a Context-scoped Question search/detail implementation candidate under
+P5's accepted unpublished Context-scoped Question search/detail (merged PR #253) is under
 external-agent-boundary §3, with scope-first Data keyset selection, strict typed
 authority, shared safe projection and current-authority final release. Opaque
 QuestionRefs/cursors share P4's unchanged capacity and Context lifetime. Files,
 general external Principal, MCP vNext and Host/Transport stay outside this scope.
-P5 final-target CI and independent semantic acceptance remain pending;
-formal Host integration remains blocked;
+P6 adds an unpublished implementation candidate for explicitly selected File
+Snapshots, RAG-1 lexical retrieval and bounded continuous safe Chunk passages.
+File egress independently requires current READ + fileContent + exact File
+Scope matching the selected Context Project, plus current verified F1 identity.
+Original P4/P5 empty file Contexts are never implicitly upgraded. P4's Registry,
+TTL/budgets and RAG-1's Chunker/Index/derived-cache effect authority are reused.
+P6 final-target CI, requested independent verification and semantic acceptance
+remain pending. General external Principal, MCP vNext and formal Host integration
+remain unimplemented;
 real TCP/mTLS is unverified, Transport
 is BLOCKED and AR-R6A is NOT_ACCEPTED. HOST_STABILITY_HALT remains active.
 AR-R6B, AR-R7 and later implementation stages remain inactive.

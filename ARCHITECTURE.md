@@ -153,12 +153,18 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
    only targetRef/bankName/projectId/folderName are released. Empty source
    snapshots authorize no file/content reads; STAGE authority stays separate.
    Schema/B0 and existing CapabilityPrincipal/Receipt semantics are unchanged.
-   P5's unpublished Question READ candidate uses that same Context Registry for
+   P5's accepted unpublished Question READ (merged PR #253) uses that same Context Registry for
    opaque QuestionRefs/cursors. Data owns current-scope keyset selection and
    exact typed/legacy materialization; Application owns bounded invocation and
    safe final release. StudyQuery and P5 share stateless content projection,
    without changing MCP v0 search/permissions. External boundary §3 owns P5's
-   whitelist and lifecycle; no File, Host, transport or general Principal is wired.
+   whitelist and lifecycle; no Host, transport or general Principal is wired.
+   P6's unpublished File READ candidate creates separate explicit-file Contexts
+   under independent current READ/fileContent/exact File-Project authority.
+   It reuses that Registry and verified F1/RAG Chunker/Index with final source
+   and Grant revalidation. Derived-cache evidence remains distinct from READ
+   permission and output release. Original P4/P5 empty file Contexts are preserved;
+   no schema, parser, business writer or external publication is introduced.
    The generated schema is globally
    migrated and strictly validated independently of runtime module enablement.
    The v27 table records only
