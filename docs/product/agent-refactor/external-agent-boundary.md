@@ -115,10 +115,10 @@ not change a submission key or create a second Proposal. Already staged data
 does not expire with its handle; outcome query uses current principal and
 Proposal authorization, not a live generation handle.
 
-### P4 Application READ foundation candidate
+### P4 Application READ foundation (accepted scope)
 
-P3 durable STAGE/reconciliation is accepted through merged PR #250. P4 is an
-unpublished Application/Data implementation candidate, without a Host, wire
+P3 durable STAGE/reconciliation is accepted through merged PR #250. P4 is
+accepted through merged PR #251 within its unpublished Application/Data scope, without a Host, wire
 decoder, MCP tool, general CapabilityPrincipal or external formal-write route.
 `ExternalRuntimeAdmission` extracts P3's exact Principal-to-management-reference
 binding and Session/runtime checks. StageService delegates to that same instance;
@@ -157,6 +157,9 @@ Project, and explicitly empty approved File/Evidence snapshots. This candidate
 does not admit source files or retrieve any Question/File body. Snapshot STAGE
 permission is never a STAGE authorization path; READ references cannot enter P3.
 
+The preceding body-read exclusion describes P4's accepted scope. P5 below adds
+only Context-scoped Question READ; File/Evidence snapshots stay explicitly empty.
+
 Every call reloads current durable Profile/Grant and rechecks revision, scope,
 target and Egress. Listing repeats the current-policy/relationship query at its
 final release gate. Context validity reports only `authorized`, `invalid`, or
@@ -193,6 +196,93 @@ owned by GeneratedQuestion §11. The old generic transient journal remains
 separate debt. General ExternalPrincipal integration must be a separately
 scoped trusted admission interface with explicit current-authorization and
 receipt/projection impact review; `mcpStudyV0` is never an external identity.
+
+### P5 Context-scoped Question READ candidate
+
+P5 is an unpublished Application/Data implementation candidate. The existing
+`ExternalReadContextService` adds `searchQuestions` and `getQuestionDetail`;
+both require an authenticated Session and this Registry's READ Context. There
+is no new identity map, pairing state machine, Grant manager or Registry. Current
+READ + questionContent + exact bank/Project Scope and target/Folder relationships
+are mandatory in every owning Data read transaction and final Release transaction.
+P4 File/Evidence snapshots remain empty; this adds no file-content authority,
+STAGE entry, general CapabilityPrincipal, Host, transport or MCP tool.
+
+`ExternalQuestionReadAccess` is a private-constructor, Context-minted proof for
+the narrow Data port. It rechecks the live Registry/Context, Principal/runtime,
+expiry and service lifecycle across awaits. It is not a current durable Grant.
+Data reuses `requireExternalGrant`, checks the exact target and then selects
+identities only with `q.bank_name = context.bankName`. Exact detail additionally
+requires the selected id inside that same bank predicate. The existing
+`materializeExactQuestions` runs only on those bounded selected identities within
+the same transaction, checks membership again, and decodes through
+`QuestionV2PersistenceMapper`. No global content query or unscoped StudyQuery
+operation is used. No Review/history query or business mutation is performed.
+
+Search query is nonblank and at most 200 UTF-16 code units before trimming;
+matching uses a trimmed, lowercase literal substring of safe stem/explanation
+text/math. Keyset order is created_at DESC, id DESC. At most 128 candidates plus
+one metadata sentinel are selected per call; raw content is materialized only
+for scanned candidates. Matching uses the typed authority projection, never V1
+decoy text or RawFallback payload. A bounded scan can return zero hits with a
+continuation cursor; clients must not infer exhaustion until nextCursor is null.
+MCP v0's frozen compatibility-projection search semantics remain unchanged.
+
+Search items have exactly questionRef, kind, stemPreview, hasAnswer,
+hasExplanation, sourceKind; the envelope has only items and nullable nextCursor.
+Detail has exactly kind, stem, options, nullable answer, nullable explanation,
+sourceKind. Kind/option-label/choice-answer projection is shared with StudyQuery
+through the stateless `StudyQuestionProjection`; projection supplies no authority.
+Detail nodes admit only text, inline_math, block_math and an unsupported marker.
+Image/Table/RawFallback have no path, asset identity, raw payload or guessed
+replacement content. Typed null and explicit empty values remain distinct.
+Legacy compatibility uses the existing mapper/projection only for a genuinely
+absent sidecar; malformed legacy options fail safely. A present corrupt, partial,
+unsafe or unsupported sidecar fails the whole search/detail without V1 fallback.
+
+QuestionRefs and search cursors use P4's 32-byte random minting and the same
+256-global/160-per-Profile Registry. Both bind the exact parent Context, Principal,
+generation, revision and target, and expire no later than that Context. Cursor
+state additionally binds the bounded query and last scanned keyset identity.
+References hold only internal selection metadata: storage id, created_at,
+SQLite row identity and a SHA-256 fingerprint of the fully decoded content
+identity; none of those fields is emitted. Detail and final Release revalidate
+that identity, so deletion, movement, changed content or replacement rejects the
+old selection. A corrupt replacement still fails closed. No separate persistent
+incarnation ledger is added; a byte-identical reconstruction of the same content
+identity is not distinguished as a new semantic question. Restore always
+invalidates the runtime independently of identical restored bytes.
+
+Final Release is a separate current-authority Data transaction after safe
+projection: reload Grant/revision/scope/target and verify every selected identity,
+then Application rechecks Context/cancellation/deadline and emits only the
+size-checked whitelist. Revocation queued during a read cannot commit inside that
+read transaction; once it wins before Release, no held preview/detail is emitted.
+No automatic retry or fallback scope exists. Unknown references and references
+from another identity/Context share safe denial; a previously selected deleted or
+changed question reports fixed stale, never other content.
+
+All P4 maximums remain in force for Question READ composition, including 16/4
+pending calls, 2-second cooperative deadline, 32 KiB UTF-8 response, 64/16
+Contexts and 256/160 references. Search pages default to 20, maximum 50; candidate
+stored content is bounded to 256 KiB before decoding, and internal storage
+identity to 256 UTF-8 bytes (oversized identities are not selected into memory).
+Detail allows at most 26
+options and 512 projected nodes in total. Oversized results fail completely,
+without truncated formulas or partial output. Cancelled/timed-out work retains
+its pending slot until settlement; unreleased allocations are removed. SQLite
+kernel preemption is not claimed. P4's maximum 128 target selections plus cursors
+and Contexts leave limited QuestionRef capacity: a page that exceeds remaining
+capacity fails safely rather than expanding budgets or evicting live references.
+
+Expired/removed Contexts invalidate all dependent references. Close, runtime
+replacement and B0 Restore/raw rollback clear them under the existing composition
+close/drain obligation. QuestionRefs, cursor/query state and Contexts are never
+persisted or logged. SQLite remains v34, B0 remains v2; Profile/Grant SCRUB and
+Proposal/Origin INCLUDE are unchanged. P3 StageContext, atomic publication/revoke,
+key/fingerprint, narrow STAGE-only reconciliation and local Review/COMMIT are
+unchanged. Future file/passages, external principal/kernel integration and real
+Host/transport remain separate work.
 
 ## 4. Stage reconciliation, cancellation and revoke
 

@@ -147,12 +147,18 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
    SQLite authority. GeneratedQuestion §11 owns its App-bound Sessions, immutable
    Contexts, pending-only resource guard and final authorization release. No
    transport/Host/CapabilityExecutor projection or external COMMIT is wired.
-   P4's unpublished Application/Data candidate shares P3's runtime binding
+   P4's accepted unpublished Application/Data path (merged PR #251) shares P3's runtime binding
    admission and adds bounded READ Context/target metadata under the external
    boundary §3. READ + questionContent + exact bank/Project scope is mandatory;
    only targetRef/bankName/projectId/folderName are released. Empty source
    snapshots authorize no file/content reads; STAGE authority stays separate.
    Schema/B0 and existing CapabilityPrincipal/Receipt semantics are unchanged.
+   P5's unpublished Question READ candidate uses that same Context Registry for
+   opaque QuestionRefs/cursors. Data owns current-scope keyset selection and
+   exact typed/legacy materialization; Application owns bounded invocation and
+   safe final release. StudyQuery and P5 share stateless content projection,
+   without changing MCP v0 search/permissions. External boundary §3 owns P5's
+   whitelist and lifecycle; no File, Host, transport or general Principal is wired.
    The generated schema is globally
    migrated and strictly validated independently of runtime module enablement.
    The v27 table records only

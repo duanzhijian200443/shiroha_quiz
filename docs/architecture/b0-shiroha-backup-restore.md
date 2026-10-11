@@ -121,6 +121,13 @@ references or runtime enablement. Target READ metadata adds no portable state;
 Profile/Grant SCRUB and credentials/Context EXCLUDED remain unchanged, at schema
 v34 and package v2. External Context rules are owned by external-agent-boundary §3.
 
+P4 is accepted in merged PR #251. P5's unpublished Question READ candidate keeps
+QuestionRefs/search cursors in that same process-local Registry; close/drain and
+Restore invalidation apply to all dependent references. They and bounded query
+state remain EXCLUDED, with no schema/package or Question-writer change. Real
+synthetic Restore/raw rollback verifies learning-data retention and no reference
+or runtime reauthorization; the governing semantics remain in the external contract.
+
 P3's unpublished external STAGE Application/Data candidate reuses v34 with no
 new table, Stage Receipt, migration or B0 package change. The owning Proposal
 transaction publishes trusted historical Origin and retains the existing local

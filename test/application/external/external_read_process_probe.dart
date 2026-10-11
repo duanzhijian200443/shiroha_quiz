@@ -139,6 +139,34 @@ Future<void> main() async {
       exitCode = 1;
       return;
     }
+    final questionRef = request['questionRef'];
+    if (questionRef is String) {
+      try {
+        await service.getQuestionDetail(
+            session: session, context: own, questionRef: questionRef);
+        exitCode = 1;
+        return;
+      } on ExternalReadException catch (error) {
+        if (error.failure != ExternalReadFailure.denied) {
+          exitCode = 1;
+          return;
+        }
+      }
+    }
+    final cursor = request['cursor'];
+    if (cursor is String) {
+      try {
+        await service.searchQuestions(
+            session: session, context: own, query: 'needle', cursor: cursor);
+        exitCode = 1;
+        return;
+      } on ExternalReadException catch (error) {
+        if (error.failure != ExternalReadFailure.denied) {
+          exitCode = 1;
+          return;
+        }
+      }
+    }
     stdout.write('invalid\n');
   } finally {
     service.close();

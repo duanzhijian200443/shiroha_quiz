@@ -5,6 +5,7 @@ import 'dart:math';
 import '../../domain/generated_question/generated_question_contract.dart';
 import 'external_authorization.dart';
 import 'external_invocation_core.dart';
+import 'external_question_read.dart';
 import 'external_runtime_admission.dart';
 import 'external_trust_core.dart';
 
@@ -14,7 +15,9 @@ enum ExternalReadFailure {
   resourceLimit,
   cancelled,
   deadlineExceeded,
-  unavailable
+  unavailable,
+  invalidRequest,
+  dataCorrupt
 }
 
 final class ExternalReadException implements Exception {
@@ -87,21 +90,48 @@ final class ExternalTargetPage {
 
 enum ExternalReadValidity { authorized, invalid, unavailable }
 
-enum _HandleKind { target, cursor, context }
+enum _HandleKind { target, cursor, context, question, questionCursor }
 
 final class _Handle {
   _Handle(this.kind, this.access, this.snapshot, this.createdAt, this.expiresAt,
-      {this.target, this.offset = 0});
+      {this.target,
+      this.offset = 0,
+      this.parentContext,
+      this.questionKey,
+      this.query});
   final _HandleKind kind;
   final ExternalRuntimeAccess access;
   final ExternalReadSnapshot snapshot;
   final DateTime createdAt, expiresAt;
   final ExternalReadTarget? target;
   final int offset;
+  final _Handle? parentContext;
+  final ExternalQuestionKey? questionKey;
+  final String? query;
   // This candidate authorizes no source files/evidence. Empty is intentional;
   // future source reads must add their own current file scope/Egress checks.
   final List<GeneratedEvidence> approvedEvidence = const [];
   final Set<String> approvedFileIds = const {};
+}
+
+/// Context-minted Data proof; no public constructor or wire decoder. Current
+/// durable authorization is still checked by the owning Data transaction.
+final class ExternalQuestionReadAccess {
+  ExternalQuestionReadAccess._(this._owner, this.runtime, this._context);
+  final ExternalReadContextService _owner;
+  final ExternalRuntimeAccess runtime;
+  final _Handle _context;
+  ExternalReadTarget get target => _context.target!;
+  int get revision => _context.snapshot.grant.revision;
+  void validate() {
+    runtime.validate();
+    _context.access.validate();
+    if (_owner._closed ||
+        !_owner._handles.values.contains(_context) ||
+        !_owner.admission.trust.clock.now().isBefore(_context.expiresAt)) {
+      externalReadFail(ExternalReadFailure.denied);
+    }
+  }
 }
 
 /// Unpublished Application-only READ foundation. No Host, MCP or STAGE route.
@@ -110,6 +140,7 @@ final class ExternalReadContextService {
   ExternalReadContextService({
     required this.admission,
     required ExternalTargetReadPort targets,
+    ExternalQuestionReadPort? questions,
     this.maxActiveHandles = 256,
     this.maxHandlesPerProfile = 160,
     this.maxContexts = 64,
@@ -119,7 +150,8 @@ final class ExternalReadContextService {
     this.maxResponseBytes = 32768,
     this.maxQueryDuration = const Duration(seconds: 2),
     this.contextLifetime = const Duration(minutes: 15),
-  }) : _targets = targets {
+  })  : _targets = targets,
+        _questions = questions {
     if ([
           maxActiveHandles,
           maxHandlesPerProfile,
@@ -135,12 +167,23 @@ final class ExternalReadContextService {
         contextLifetime > const Duration(minutes: 15)) {
       throw ArgumentError('Invalid READ candidate bounds');
     }
+    if (questions != null &&
+        (maxActiveHandles > 256 ||
+            maxHandlesPerProfile > 160 ||
+            maxContexts > 64 ||
+            maxContextsPerProfile > 16 ||
+            maxInFlight > 16 ||
+            maxInFlightPerProfile > 4 ||
+            maxResponseBytes > 32768)) {
+      throw ArgumentError('Invalid Question READ candidate bounds');
+    }
     admission.onClose(close);
     _cleanup = Timer.periodic(const Duration(seconds: 30), (_) => sweep());
   }
 
   final ExternalRuntimeAdmission admission;
   final ExternalTargetReadPort _targets;
+  final ExternalQuestionReadPort? _questions;
   final int maxActiveHandles,
       maxHandlesPerProfile,
       maxContexts,
@@ -177,6 +220,9 @@ final class ExternalReadContextService {
         return true;
       }
     });
+    _handles.removeWhere((_, handle) =>
+        handle.parentContext != null &&
+        !_handles.values.contains(handle.parentContext));
   }
 
   _Handle _lookup(
@@ -328,6 +374,113 @@ final class ExternalReadContextService {
           : ExternalReadValidity.invalid;
     }
   }
+
+  /// Single Context target only. Cursor/QuestionRefs share the original registry
+  /// and its capacity; they never prolong or expand the owning Context.
+  Future<ExternalQuestionSearchPage> searchQuestions({
+    required ExternalSession session,
+    required String context,
+    required String query,
+    String? cursor,
+    int pageSize = 20,
+    ExternalCallControl? control,
+  }) =>
+      _run(session, control, (runtime, check, allocations) async {
+        final handle = _lookup(context, _HandleKind.context, runtime);
+        if (query.isEmpty ||
+            query.length > 200 ||
+            query.trim().isEmpty ||
+            pageSize < 1 ||
+            pageSize > 50) {
+          externalReadFail(ExternalReadFailure.invalidRequest);
+        }
+        final normalized = query.trim().toLowerCase();
+        final previous = cursor == null
+            ? null
+            : _lookup(cursor, _HandleKind.questionCursor, runtime);
+        if (previous != null &&
+            (!identical(previous.parentContext, handle) ||
+                previous.query != normalized)) {
+          externalReadFail(ExternalReadFailure.denied);
+        }
+        final port =
+            _questions ?? (externalReadFail(ExternalReadFailure.unavailable));
+        final access = ExternalQuestionReadAccess._(this, runtime, handle);
+        access.validate();
+        final page = await port.search(
+            access, normalized, pageSize, previous?.questionKey, check);
+        check();
+        access.validate();
+        await port.release(
+            access,
+            [
+              for (final item in page.items) item.key,
+              if (page.nextKey != null &&
+                  !page.items.any((i) => i.key == page.nextKey))
+                page.nextKey!
+            ],
+            check);
+        check();
+        access.validate();
+        final now = admission.trust.clock.now();
+        final items = <ExternalQuestionHit>[];
+        for (final item in page.items) {
+          final ref = _mint(
+              _Handle(_HandleKind.question, runtime, handle.snapshot, now,
+                  handle.expiresAt,
+                  target: handle.target,
+                  parentContext: handle,
+                  questionKey: item.key),
+              allocations);
+          items.add(ExternalQuestionHit.project(ref, item.summary));
+        }
+        final next = page.nextKey == null
+            ? null
+            : _mint(
+                _Handle(_HandleKind.questionCursor, runtime, handle.snapshot,
+                    now, handle.expiresAt,
+                    target: handle.target,
+                    parentContext: handle,
+                    questionKey: page.nextKey,
+                    query: normalized),
+                allocations);
+        final result = ExternalQuestionSearchPage(items, next);
+        if (utf8.encode(jsonEncode(result.toJson())).length >
+            maxResponseBytes) {
+          externalReadFail(ExternalReadFailure.resourceLimit);
+        }
+        check();
+        access.validate();
+        return result;
+      });
+
+  Future<ExternalQuestionDetail> getQuestionDetail({
+    required ExternalSession session,
+    required String context,
+    required String questionRef,
+    ExternalCallControl? control,
+  }) =>
+      _run(session, control, (runtime, check, allocations) async {
+        final handle = _lookup(context, _HandleKind.context, runtime);
+        final selected = _lookup(questionRef, _HandleKind.question, runtime);
+        if (!identical(selected.parentContext, handle)) {
+          externalReadFail(ExternalReadFailure.denied);
+        }
+        final port =
+            _questions ?? (externalReadFail(ExternalReadFailure.unavailable));
+        final access = ExternalQuestionReadAccess._(this, runtime, handle);
+        access.validate();
+        final detail = await port.detail(access, selected.questionKey!, check);
+        check();
+        if (utf8.encode(jsonEncode(detail.toJson())).length >
+            maxResponseBytes) {
+          externalReadFail(ExternalReadFailure.resourceLimit);
+        }
+        await port.release(access, [selected.questionKey!], check);
+        check();
+        access.validate();
+        return detail;
+      });
 
   Future<T> _run<T>(
       ExternalSession session,
