@@ -5,7 +5,8 @@ AR-R4 module contribution kernel COMPLETE / CLOSED; AR-R5A COMPLETE / CLOSED;
 AR-R5B generated Review UI COMPLETE / CLOSED;
 AR-R6A P2 external historical Origin accepted in merged PR #249;
 P3 durable STAGE / reconciliation accepted in merged PR #250;
-P4 shared runtime admission / bounded READ Context IMPLEMENTATION CANDIDATE.**
+P4 shared runtime admission / bounded READ Context accepted in merged PR #251;
+P5 Context-scoped Question search/detail IMPLEMENTATION CANDIDATE.**
 
 The Provider seam, typed capability/executor/projection path and Runtime split/
 transcript are delivered in the preceding merged stages. Historical AR-R3
@@ -31,11 +32,15 @@ P2 strict historical external Origin/v34 compatibility is accepted through merge
 PR #249. P3 supplies the accepted, unpublished transport-independent durable STAGE and narrow
 reconciliation described in GeneratedQuestion §11 (merged PR #250). Its current Grant
 checks share the owning SQLite publication transaction with revoke authority.
-P4's unpublished Application/Data candidate extracts that existing runtime
+P4's accepted unpublished Application/Data path (merged PR #251) extracts that existing runtime
 binding authority and adds bounded READ target metadata/opaque Contexts under
 external-agent-boundary §3. Target metadata requires READ + questionContent;
 STAGE reconciliation remains independent. Schema v34/B0 v2 are unchanged.
-Final-target CI and independent semantic review remain required for P4. External
+P5 adds an unpublished Context-scoped Question search/detail candidate under
+the same external contract §3, sharing the Registry and StudyQuery's safe
+projection while Data owns exact-scope reads and final release revalidation.
+File/Evidence remains empty; no transport, MCP or general Principal is wired.
+Final-target CI and independent semantic review remain required for P5. External
 Host/IPC, MCP vNext and READ fallback continuation remain unimplemented targets. Current product behavior
 continues under the existing capability contracts.
 
