@@ -113,6 +113,14 @@ v2; container/layout and secure credential store behavior are unchanged.
 
 ### Current-state amendment: external STAGE at unchanged v34
 
+P3 is accepted through merged PR #250. P4's unpublished READ foundation shares
+its runtime admission; composition closes that admission and drains pending
+operations before live replacement, clearing all process-local target/cursor/
+Context references. Successful Restore or raw rollback cannot recreate those
+references or runtime enablement. Target READ metadata adds no portable state;
+Profile/Grant SCRUB and credentials/Context EXCLUDED remain unchanged, at schema
+v34 and package v2. External Context rules are owned by external-agent-boundary §3.
+
 P3's unpublished external STAGE Application/Data candidate reuses v34 with no
 new table, Stage Receipt, migration or B0 package change. The owning Proposal
 transaction publishes trusted historical Origin and retains the existing local

@@ -1,0 +1,92 @@
+import '../backup/backup_restore_gate.dart';
+import 'external_authorization.dart';
+import 'external_trust_core.dart';
+
+/// App-owned binding extracted from P3. This adds no pairing or Grant authority.
+final class ExternalRuntimeAdmission {
+  ExternalRuntimeAdmission({
+    required this.trust,
+    required ExternalAuthorizationManagement management,
+    required bool Function() compositionIsCurrent,
+  })  : _management = management,
+        _isCurrent = compositionIsCurrent;
+
+  final ExternalTrustCore trust;
+  final ExternalAuthorizationManagement _management;
+  final bool Function() _isCurrent;
+  final _bindings = <ExternalPrincipal, ExternalProfileReference>{};
+  final _onClose = <void Function()>{};
+  bool _closed = false;
+
+  void validate() {
+    try {
+      BackupRestoreMutationGate.instance.ensureMutationAllowed();
+    } catch (_) {
+      externalAuthFail(ExternalAuthFailure.unauthorized);
+    }
+    if (_closed || !_isCurrent()) {
+      externalAuthFail(ExternalAuthFailure.unauthorized);
+    }
+  }
+
+  /// Trusted App selection only; strings and credential claims cannot bind.
+  Future<void> bindIdentity(
+      ExternalProfileReference reference, ExternalPrincipal principal) async {
+    validate();
+    trust.snapshot(principal);
+    final record = await _management.read(reference);
+    validate();
+    trust.snapshot(principal);
+    if (principal.profileId != record.profile.clientProfileId ||
+        record.profile.revokedAtUtcMs != null) {
+      externalAuthFail(ExternalAuthFailure.unauthorized);
+    }
+    _bindings[principal] = reference;
+  }
+
+  void validateSession(ExternalSession session) {
+    validate();
+    if (trust.sessionFailure(session) != null ||
+        !_bindings.containsKey(session.principal)) {
+      externalAuthFail(ExternalAuthFailure.unauthorized);
+    }
+  }
+
+  /// Reloads the management-bound Profile; current policy remains Data-owned.
+  Future<ExternalRuntimeAccess> admit(ExternalSession session) async {
+    validateSession(session);
+    final record = await _management.read(_bindings[session.principal]!);
+    validateSession(session);
+    if (record.profile.revokedAtUtcMs != null) {
+      externalAuthFail(ExternalAuthFailure.unauthorized);
+    }
+    return ExternalRuntimeAccess._(this, session);
+  }
+
+  void onClose(void Function() callback) {
+    validate();
+    _onClose.add(callback);
+  }
+
+  void removeOnClose(void Function() callback) => _onClose.remove(callback);
+
+  void close() {
+    if (_closed) return;
+    _closed = true;
+    _bindings.clear();
+    for (final callback in _onClose.toList()) {
+      callback();
+    }
+    _onClose.clear();
+  }
+}
+
+/// Private constructor, no JSON decoder. This proves runtime admission only.
+final class ExternalRuntimeAccess {
+  ExternalRuntimeAccess._(this._owner, this.session);
+  final ExternalRuntimeAdmission _owner;
+  final ExternalSession session;
+  String get profileId => session.principal.profileId;
+  int get generation => session.generation;
+  void validate() => _owner.validateSession(session);
+}

@@ -171,10 +171,15 @@ accepted in merged PR #248 at v33 under `external-agent-boundary.md` §6, with p
 B0 scrub and raw rollback compatibility. This does not authenticate clients or
 enable external business access. P2 strict external historical Origin/v34
 compatibility is accepted through merged PR #249 under `generated-question-proposals.md`
-§10. P3 adds an unpublished Application/Data durable STAGE and narrow reconciliation
-implementation candidate under §11, using existing v34 Proposal/key authority
+§10. P3 adds accepted unpublished Application/Data durable STAGE and narrow reconciliation
+under §11 (merged PR #250), using existing v34 Proposal/key authority
 and a shared SQLite STAGE/revoke transaction boundary. It adds no real credentials,
-pairing UI or transport/Host wiring. Independent semantic acceptance remains pending;
+pairing UI or transport/Host wiring. P4's unpublished implementation candidate adds
+shared P3 runtime admission, bounded opaque READ Contexts and exact-scope Target
+metadata under external-agent-boundary §3, requiring READ + questionContent and
+only the four approved metadata fields. File/Evidence snapshots are empty; no
+content read or STAGE authority is inferred. Schema v34/B0 v2 remain unchanged.
+P4 final-target CI and independent semantic acceptance remain pending;
 formal Host integration remains blocked;
 real TCP/mTLS is unverified, Transport
 is BLOCKED and AR-R6A is NOT_ACCEPTED. HOST_STABILITY_HALT remains active.
