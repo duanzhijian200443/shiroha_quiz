@@ -47,6 +47,12 @@ external contract. It creates no MCP projection, stdio bridge, protocol JSON
 decoder, transport or public tool. Future adapters must obtain authenticated
 Sessions from the trusted credential authority, never from request metadata.
 
+P9 freezes only an unpublished internal IPC envelope v1 under external boundary
+§7. It is independent of MCP protocol and Submission schema versions, and does
+not parse Tool Schema, publish a client protocol, register tools or establish
+authentication. Its opaque text must pass future adapter schema and independent
+trusted authentication/authorization before any P8 call.
+
 Both retrieval and passage read current verified SourceDocument through
 Application. No raw managed originals, URLs, binaries, diagnostics or unsafe
 fallback content. source_not_ready instructs parsing in App rather than invoking

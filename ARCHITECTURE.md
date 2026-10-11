@@ -173,11 +173,14 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
    current authorization, limits and final egress authority are reused; no
    transport, Host, credential adapter, formal COMMIT or new persistence is wired.
    Application capabilities §7 and external boundary §3 own this integration.
-   P8 adds an unpublished offline LocalHostDispatchCore candidate under external
+   P8's accepted offline LocalHostDispatchCore (merged PR #258) is under external
    boundary §3: trusted readiness and private Session entry, exact ten typed P7
    routes, original result/effect evidence and real close/drain before replacement.
    No default composition, listener, credential/transport adapter or MCP publication
-   is wired. HOST_STABILITY_HALT stays ACTIVE; transport remains unverified.
+   is wired. P9 adds an unpublished pure infrastructure IPC Envelope/Codec
+   candidate under external boundary §7: bounded incremental framing produces
+   untrusted UTF-8 text only, with no identity or business projection/dispatch.
+   HOST_STABILITY_HALT stays ACTIVE; Transport BLOCKED and AR-R6A NOT_ACCEPTED.
    The generated schema is globally
    migrated and strictly validated independently of runtime module enablement.
    The v27 table records only
