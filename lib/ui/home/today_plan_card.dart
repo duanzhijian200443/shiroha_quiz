@@ -68,7 +68,7 @@ class TodayPlanCard extends StatelessWidget {
                         Text(plan == null ? '学习计划' : '${plan.bankName} · 训练计划',
                             style: const TextStyle(
                                 fontSize: 14, fontWeight: FontWeight.w700)),
-                        const SizedBox(height: 14),
+                        const SizedBox(height: 8),
                         Row(children: [
                           Icon(Icons.calendar_today_outlined,
                               size: 14, color: colors.onSurfaceVariant),

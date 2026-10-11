@@ -65,6 +65,7 @@ void main() {
     int epoch = 0,
     bool settle = true,
     bool reduceMotion = false,
+    bool phoneChrome = false,
     RecordingActivity? activity,
   }) async {
     tester.view.physicalSize = size;
@@ -90,17 +91,28 @@ void main() {
                 home: MediaQuery(
                     data: MediaQueryData(
                         size: size,
+                        padding: phoneChrome
+                            ? const EdgeInsets.only(top: 24, bottom: 24)
+                            : EdgeInsets.zero,
                         textScaler: TextScaler.linear(scale),
                         disableAnimations: reduceMotion),
                     child: RepaintBoundary(
                         key: boundaryKey,
-                        child: HomePage(
-                            homeTraining: fake.ports,
-                            studyActivityQuery: fake,
-                            taskCenter: testTaskCenterDependencies(
-                                manager: TaskManager.forTesting()),
-                            todayActivationEpoch: epoch,
-                            localNow: () => DateTime(2026, 10, 5, 9))))))));
+                        child: Scaffold(
+                            bottomNavigationBar: phoneChrome
+                                ? const SafeArea(
+                                    top: false,
+                                    child: SizedBox(height: 56),
+                                  )
+                                : null,
+                            body: HomePage(
+                                homeTraining: fake.ports,
+                                studyActivityQuery: fake,
+                                taskCenter: testTaskCenterDependencies(
+                                    manager: TaskManager.forTesting()),
+                                todayActivationEpoch: epoch,
+                                localNow: () =>
+                                    DateTime(2026, 10, 5, 9)))))))));
     if (settle) {
       await tester.pumpAndSettle();
     } else {
@@ -252,6 +264,27 @@ void main() {
       Icons.local_fire_department_rounded
     ]);
   });
+
+  for (final width in [360.0, 390.0, 430.0]) {
+    testWidgets(
+        'new and review actions stay in the first phone screen at ${width.toInt()}',
+        (tester) async {
+      await pump(tester, HomeTrainingFake(),
+          size: Size(width, 844), phoneChrome: true);
+      final viewport =
+          tester.getRect(find.byKey(const ValueKey('today-scroll')));
+      expect(viewport.top, greaterThanOrEqualTo(24));
+      expect(viewport.bottom, lessThanOrEqualTo(844 - 56 - 24));
+      for (final key in ['home-new-task', 'home-review-task']) {
+        expect(tester.getBottomLeft(find.byKey(ValueKey(key))).dy,
+            lessThanOrEqualTo(viewport.bottom));
+      }
+      expect(find.byKey(const ValueKey('home-page-title')), findsOneWidget);
+      expect(find.text('继续你的学习节奏'), findsNothing);
+      expect(tester.takeException(), isNull);
+      await screenshot(tester, 'phone-${width.toInt()}-first-screen');
+    });
+  }
 
   testWidgets('saved category visual overrides inferred category illustration',
       (tester) async {

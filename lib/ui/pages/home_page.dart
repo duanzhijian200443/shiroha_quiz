@@ -275,7 +275,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Widget _buildHome(BuildContext context) {
     final theme = Theme.of(context);
-    final colors = theme.colorScheme;
     return Scaffold(
       body: SafeArea(
           child: Align(
@@ -288,24 +287,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             child: SingleChildScrollView(
               key: const ValueKey('today-scroll'),
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(16, 18, 16, 24),
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _brand(),
-                    const SizedBox(height: 12),
-                    Text('今日',
-                        style: theme.textTheme.headlineLarge?.copyWith(
-                            fontSize: 30,
-                            height: 1.2,
-                            fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 4),
-                    Text('继续你的学习节奏',
-                        style: TextStyle(
-                            fontSize: 15,
-                            height: 1.3,
-                            color: colors.onSurfaceVariant)),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 6),
                     TodayWelcomeBanner(now: widget.localNow?.call()),
                     const SizedBox(height: 10),
                     Row(
@@ -338,10 +325,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     widget.homeTraining == null
                         ? _trainingCard()
                         : _trainingV2(),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 18),
                     Row(children: [
-                      const Icon(Icons.calendar_today_outlined, size: 22),
-                      const SizedBox(width: 10),
+                      const Icon(Icons.calendar_today_outlined, size: 20),
+                      const SizedBox(width: 8),
                       Expanded(
                           child: Text('学习计划',
                               style: theme.textTheme.titleMedium
@@ -367,10 +354,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         onAskAssistant: widget.onAskAssistant == null
                             ? null
                             : _askAssistant),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 4),
                     if (widget.homeTraining != null) _secondaryEntries(),
                     const SizedBox(
-                        height: 64,
+                        height: 40,
                         width: double.infinity,
                         child: TodayLandscapeDecoration()),
                   ]),
@@ -446,7 +433,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           child: child);
 
   Widget _summary(String label, String count, IconData icon) => _surface(
-      padding: 10,
+      padding: 9,
       child: LayoutBuilder(builder: (context, constraints) {
         final texts =
             Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -468,7 +455,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ]),
         ]);
         final tile =
-            TodayIconTile(icon, size: 30, iconSize: 22, circular: true);
+            TodayIconTile(icon, size: 28, iconSize: 20, circular: true);
         final stack = MediaQuery.textScalerOf(context).scale(14) > 18 ||
             count.length > 4 ||
             constraints.maxWidth < 76;
@@ -498,15 +485,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return Column(children: [
       _surface(
           key: const ValueKey('home-training-card'),
+          padding: 10,
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
-              const TodayIconTile(Icons.ads_click_rounded),
-              const SizedBox(width: 10),
+              const TodayIconTile(Icons.ads_click_rounded,
+                  size: 28, iconSize: 19),
+              const SizedBox(width: 8),
               const Expanded(
                   child: Text('今日训练',
                       style: TextStyle(
-                          fontSize: 17, fontWeight: FontWeight.w700))),
+                          fontSize: 16, fontWeight: FontWeight.w700))),
             ]),
             const SizedBox(height: 8),
             if (_controller.trainingLoading)
@@ -543,7 +532,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   onPressed: busy ? null : _openTrainingConfig,
                   child: const Text('配置训练内容')),
           ])),
-      const SizedBox(height: 10),
+      const SizedBox(height: 8),
       Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Expanded(
             child: TodayTrainingActionCard(
