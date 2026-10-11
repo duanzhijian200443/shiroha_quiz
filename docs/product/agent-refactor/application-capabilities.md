@@ -1,7 +1,8 @@
 # Application Capability Kernel
 
 Status: **FROZEN contract; AR-R2 and AR-R4 registration integration
-COMPLETE / CLOSED; P7 unpublished external integration IMPLEMENTATION CANDIDATE.**
+COMPLETE / CLOSED; P7 unpublished external integration accepted in merged PR #256;
+P8 offline Host dispatch IMPLEMENTATION CANDIDATE.**
 
 Authority/activation: [index](README.md). This document owns semantic capability,
 permission/effect/receipt and adapter projection boundaries. Runtime, external
@@ -258,7 +259,7 @@ not R2 transient STAGE effects. The COMMIT boundary remains explicit local
 confirmation with exact revision/selection. Schema v32 and B0 retained Proposal
 validation are owned globally; package v2 and existing recovery commands remain.
 
-## 7. P7 trusted external Kernel integration (unpublished candidate)
+## 7. P7 trusted external Kernel integration (accepted unpublished scope)
 
 P7 adds an Application-only `ExternalCapabilityGateway`, using the existing
 typed registry, executor, results, effects and receipts. It registers an explicit
@@ -353,3 +354,15 @@ including their external-only control paths; no region is ignored and no
 replacement Kernel hash is accepted. Negative regressions prove that changing
 either the external admission amendment or retained legacy Kernel source fails
 the corresponding check. Runtime/Provider/MCP/storage hashes stay unchanged.
+
+## 8. P8 offline Host dispatch (unpublished candidate)
+
+External boundary §3 owns the trusted startup/entry/shutdown contract of
+`LocalHostDispatchCore`. It reuses exactly the ten P7 typed definitions, original
+results and Receipts and owning P3-P6 services. No Kernel source amendment,
+business permission, string/Map execution path, new persistence, encoder,
+transport or default composition is added. Host pre-admission denials use the
+existing Kernel `reject` with a denied Principal and no authorization metadata;
+after admission, P7 retains evidence and final authorization authority.
+Interrupted caller return never substitutes for owning settlement during drain.
+This offline foundation does not activate the external Host or MCP vNext.

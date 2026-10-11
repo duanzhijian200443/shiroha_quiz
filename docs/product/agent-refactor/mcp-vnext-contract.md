@@ -42,6 +42,11 @@ real derived-cache execution evidence; no raw IDs or request-supplied scope.
 No new tool or wire schema is published. That focused external contract §3 owns
 the candidate interfaces, budgets and lifecycle semantics.
 
+P8 adds only an offline trusted Host dispatch/startup/drain seam under that
+external contract. It creates no MCP projection, stdio bridge, protocol JSON
+decoder, transport or public tool. Future adapters must obtain authenticated
+Sessions from the trusted credential authority, never from request metadata.
+
 Both retrieval and passage read current verified SourceDocument through
 Application. No raw managed originals, URLs, binaries, diagnostics or unsafe
 fallback content. source_not_ready instructs parsing in App rather than invoking

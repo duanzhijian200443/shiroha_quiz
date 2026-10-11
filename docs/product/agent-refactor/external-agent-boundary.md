@@ -385,10 +385,10 @@ unknown versus confirmed cache effects, interruption/slot retention and actual
 database restart plus B0 Restore/raw rollback. Candidate mechanical success is
 not independent semantic approval; HOST_STABILITY_HALT remains ACTIVE.
 
-### P7 trusted Capability execution (unpublished candidate)
+### P7 trusted Capability execution (accepted unpublished scope)
 
 The Kernel integration amendment in
-[Application capabilities section 7](application-capabilities.md#7-p7-trusted-external-kernel-integration-unpublished-candidate)
+[Application capabilities section 7](application-capabilities.md#7-p7-trusted-external-kernel-integration-accepted-unpublished-scope)
 owns P7's typed allowlist, private execution-context construction and Receipt
 projection. This is trusted Application composition only; no Host, IPC, transport
 or MCP tool registration is added. It uses the existing TrustCore, management
@@ -426,6 +426,80 @@ verified F1/FTS, both publication/revoke orderings, cancellation/deadline/result
 loss and B0 Restore/raw rollback. Built-in Agent and MCP v0 remain unchanged.
 HOST_STABILITY_HALT remains active; P7 acceptance does not constitute AR-R6A,
 Transport, Host or MCP vNext acceptance.
+
+### P8 offline Local Host dispatch foundation (unpublished candidate)
+
+The internal Application seam has this direction:
+
+```text
+Future protocol adapter -> trusted authenticated Session
+-> LocalHostDispatchCore -> ExternalCapabilityGateway (P7)
+-> P3-P6 owning services -> original CapabilityResult / ExecutionReceipt
+```
+
+This candidate is callable only by trusted compiled composition in offline
+fixtures. It has no production composition, public transport, listener, JSON
+decoder, credential adapter or MCP projection. HOST_STABILITY_HALT remains
+ACTIVE; passing offline tests proves neither transport nor OS identity security.
+
+Construction defaults to disabled. Explicit `startOffline` checks database
+readiness, completed B0 recovery and module/route readiness in order, then
+validates the exact ten P7 typed bindings and their READ/STAGE-only permissions.
+The readiness port belongs to trusted composition, never request parameters;
+its synchronous current-generation check remains mandatory at admission and
+release. No default application path constructs or starts this core. Startup
+failure is closed, cannot be retried on the same instance, and exposes only a
+fixed failure. Shutdown racing startup cannot publish a ready instance.
+
+`bindSession` accepts only an existing credential-proven, management-bound
+ExternalSession with current finite Enablement and current unrevoked Grant.
+It mints a private-constructor LocalHostSessionEntry bound to this core,
+exact Session, runtime generation and Grant revision. Request fields cannot
+construct an entry, identity, scope, permission or recipient. Every context
+opening repeats current runtime/Grant admission; changed revision cannot renew
+an old entry. Disable, expiry, revoke, restart and Restore reject old entries
+and Contexts. A new entry requires current authentication and authorization;
+it never renews an old P7 execution Context or P3 StageContext.
+
+Dispatch accepts `CapabilityId<I,O>` with its typed input, the minted entry and
+the original P7 execution Context. Its only routes are P7's ten definitions:
+target list/READ Context, Question search/detail, File choices/File Context/
+retrieval/passage, generated STAGE and original SubmissionKey reconciliation.
+Unknown identities and mismatched type bindings fail before handler entry.
+Built-in capabilities, COMMIT and DESTRUCTIVE are not routes. There is no
+`execute(String, Map)` or request-supplied authority. The Host has no SQLite,
+Repository, file path or Provider dependency and does not implement business
+authorization, content parsing, STAGE publication or output serialization.
+
+Host-level pre-admission denial reuses Kernel rejection with `notStarted/none`
+and a denied Principal without Profile/scope/authorization details. Unknown or
+mismatched route names are represented only by the fixed `local_host_rejected`
+receipt identity, never an echoed arbitrary request string. Accepted
+calls return the original P7 result and Receipt unchanged. P7 owns current
+authorization, limits, admission, final category/recipient/scope release and
+fixed failures. Host readiness/entry validity is included in the synchronous
+final response-availability gate. Loss/timeout does not infer rollback, erase
+known effects, release unreleased content or automatically repeat STAGE.
+The original SubmissionKey and Proposal authority remain the reconciliation
+path; the Host stores no completed-call journal or second Receipt.
+
+Shutdown first blocks new Host calls, closes Gateway, then closes Registry and
+STAGE/runtime admission. It drains Gateway, Registry, STAGE and pending Host
+startup/binding/context-opening work before completion. Caller cancellation or
+deadline may return sooner, but cannot shorten shutdown's wait for the real
+owning work. Trusted composition must await shutdown before B0 swap, raw rollback
+or runtime replacement, then invalidate the remaining local authorities and
+restart/restore TrustCore using the existing sequence. A stopped core cannot
+restart; replacement uses fresh composition with disabled external access.
+
+Offline acceptance uses synthetic CredentialPort, deterministic clock,
+temporary real SQLite/F1/FTS and owning-service barriers: pre-admission and
+cross-Principal/exact-Session denial, all ten routes, both Grant/revoke orderings,
+final release changes, cancellation/deadline, committed-but-lost STAGE/key
+reconciliation, shutdown during real work/startup/admission and B0 Restore/raw
+rollback. Built-in and MCP v0 regressions remain required. Real credentials,
+mTLS, Discovery, Windows SID/protected objects, transport limits and abnormal
+OS recovery belong to a separately authorized safety stage.
 
 ## 4. Stage reconciliation, cancellation and revoke
 

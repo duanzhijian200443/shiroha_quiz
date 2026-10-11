@@ -685,3 +685,9 @@ authority, fingerprint, historical format and narrow acknowledgement are
 unchanged. Final Kernel release reuses this service's current-authority release
 port. P7 wrapper-entry status is defined in Application capabilities §7 without
 rewriting P3's original results or allowing automatic repeat.
+
+P8's unpublished offline Host dispatch seam (external boundary §3) delegates
+to these same P7 routes. It adds trusted startup, private Session entries and
+close/drain, without changing this publication/revoke transaction, historical
+Origin, SubmissionKey authority, local Review/COMMIT or Proposal storage.
+It supplies no production Host/IPC authentication or published protocol.

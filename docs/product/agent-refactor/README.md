@@ -8,7 +8,8 @@ P3 durable STAGE / reconciliation accepted in merged PR #250;
 P4 shared runtime admission / bounded READ Context accepted in merged PR #251;
 P5 Context-scoped Question search/detail accepted in merged PR #253;
 P6 explicit File Snapshot / lexical retrieval / passages accepted in merged PR #255;
-P7 trusted external Capability/Receipt integration IMPLEMENTATION CANDIDATE.**
+P7 trusted external Capability/Receipt integration accepted in merged PR #256;
+P8 offline Host dispatch foundation IMPLEMENTATION CANDIDATE.**
 
 The Provider seam, typed capability/executor/projection path and Runtime split/
 transcript are delivered in the preceding merged stages. Historical AR-R3
@@ -51,8 +52,11 @@ P7 adds unpublished trusted external Principal/Kernel/Receipt integration under
 Application capabilities §7. Its exact-Session execution Context is separate
 from the unchanged P4-P6 Principal/generation-bound READ references. Existing
 services still own business authorization, budgets and transaction effects.
-Current-target CI and independent review remain required for P7. External
-Host/IPC, MCP vNext and READ fallback continuation remain unimplemented targets. Current product behavior
+P7 is accepted within its unpublished scope through merged PR #256. P8 adds an
+offline-only trusted Host dispatch/startup/drain seam under external boundary §3,
+with current-target CI and independent review required for its candidate.
+Production Host/IPC, MCP vNext and READ fallback continuation remain unimplemented
+targets. Current product behavior
 continues under the existing capability contracts.
 
 ## 1. Authority and ownership
