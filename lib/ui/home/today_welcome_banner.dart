@@ -4,6 +4,8 @@ import '../theme/design_tokens.dart';
 import '../theme/shiroha_theme_tokens.dart';
 
 /// Decorative reference landscape with live text; no simulated measurements.
+///
+/// It also carries the page title so the header does not repeat a greeting.
 class TodayWelcomeBanner extends StatelessWidget {
   const TodayWelcomeBanner({super.key, this.now});
   final DateTime? now;
@@ -50,23 +52,34 @@ class TodayWelcomeBanner extends StatelessWidget {
         LayoutBuilder(
             builder: (context, constraints) => ConstrainedBox(
                 constraints:
-                    BoxConstraints(minHeight: constraints.maxWidth * .42),
+                    BoxConstraints(minHeight: constraints.maxWidth * .405),
                 child: Padding(
-                    padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+                    padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
                     child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const SizedBox(width: double.infinity),
+                          Semantics(
+                              header: true,
+                              child: Text('今日',
+                                  key: const ValueKey('home-page-title'),
+                                  style: TextStyle(
+                                      fontSize: 13,
+                                      height: 1.3,
+                                      fontWeight: FontWeight.w600,
+                                      letterSpacing: 1,
+                                      color: tokens.welcomeCaption))),
+                          const SizedBox(height: 2),
                           Text(greeting,
                               style: TextStyle(
                                   fontSize: 24,
-                                  height: 1.3,
+                                  height: 1.25,
                                   fontWeight: FontWeight.w700,
                                   color: tokens.textPrimary)),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 2),
                           Text('今天也继续加油吧！',
                               style: TextStyle(
-                                  fontSize: 14,
+                                  fontSize: 13,
                                   height: 1.4,
                                   color: tokens.welcomeCaption)),
                           const SizedBox(height: 10),

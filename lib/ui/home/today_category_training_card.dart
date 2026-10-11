@@ -97,7 +97,7 @@ class _CategoryCardState extends State<TodayCategoryTrainingCard> {
       final titleStyle = Theme.of(context)
           .textTheme
           .headlineSmall
-          ?.copyWith(fontSize: 26, height: 1.2, fontWeight: FontWeight.w700);
+          ?.copyWith(fontSize: 24, height: 1.2, fontWeight: FontWeight.w700);
       final contentTitle = current?.name ??
           (selection.state == TrainingCurrentContentState.unavailable
               ? '训练配置需修复'
@@ -107,9 +107,9 @@ class _CategoryCardState extends State<TodayCategoryTrainingCard> {
           .reduce(math.max);
       final cardHeight = math.max(
           180.0,
-          56 +
+          44 +
               titleHeight +
-              10 +
+              8 +
               heightOf(contentTitle, Theme.of(context).textTheme.titleMedium));
       // Mouse drags are excluded from the default drag device set.
       final scrollBehavior = ScrollConfiguration.of(context);
@@ -176,7 +176,7 @@ class _CategoryCardState extends State<TodayCategoryTrainingCard> {
                                 ),
                                 Padding(
                                     padding: const EdgeInsets.fromLTRB(
-                                        18, 26, 54, 24),
+                                        18, 22, 54, 22),
                                     child: Column(
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
@@ -184,7 +184,7 @@ class _CategoryCardState extends State<TodayCategoryTrainingCard> {
                                           Text(trainingCategoryLabel(key),
                                               style: titleStyle),
                                           if (isCurrent) ...[
-                                            const SizedBox(height: 10),
+                                            const SizedBox(height: 8),
                                             AnimatedSwitcher(
                                                 duration: MediaQuery
                                                         .disableAnimationsOf(
@@ -222,7 +222,7 @@ class _CategoryCardState extends State<TodayCategoryTrainingCard> {
             )),
         if (keys.length > 1)
           Padding(
-              padding: const EdgeInsets.only(top: 10),
+              padding: const EdgeInsets.only(top: 8),
               child: Row(
                   key: const ValueKey('home-category-pagination'),
                   mainAxisAlignment: MainAxisAlignment.center,

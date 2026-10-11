@@ -80,7 +80,7 @@ void main() {
                 child: TodayCategoryVisual(label: '数学')),
           ]))));
       expect(tester.getSize(find.byKey(const ValueKey('home-welcome-banner'))),
-          const Size(360, 151.2));
+          const Size(360, 145.8));
       expect(tester.getSize(find.byType(TodayCategoryVisual)),
           const Size(300, 180));
       for (final filtered
