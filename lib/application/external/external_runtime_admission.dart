@@ -60,7 +60,7 @@ final class ExternalRuntimeAdmission {
     if (record.profile.revokedAtUtcMs != null) {
       externalAuthFail(ExternalAuthFailure.unauthorized);
     }
-    return ExternalRuntimeAccess._(this, session);
+    return ExternalRuntimeAccess._(this, session, record.grant);
   }
 
   void onClose(void Function() callback) {
@@ -83,10 +83,21 @@ final class ExternalRuntimeAdmission {
 
 /// Private constructor, no JSON decoder. This proves runtime admission only.
 final class ExternalRuntimeAccess {
-  ExternalRuntimeAccess._(this._owner, this.session);
+  ExternalRuntimeAccess._(this._owner, this.session, this.grantSnapshot);
   final ExternalRuntimeAdmission _owner;
   final ExternalSession session;
+
+  /// Admission snapshot only; owning Data ports still authorize business access.
+  final ExternalGrant? grantSnapshot;
   String get profileId => session.principal.profileId;
   int get generation => session.generation;
   void validate() => _owner.validateSession(session);
+
+  Future<bool> revisionIsCurrent(int revision) async {
+    final current = await _owner.admit(session);
+    final grant = current.grantSnapshot;
+    return grant != null &&
+        grant.revokedAtUtcMs == null &&
+        grant.revision == revision;
+  }
 }

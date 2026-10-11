@@ -125,8 +125,10 @@ extension ExternalFileContextOperations on ExternalReadContextService {
       required String context,
       required String query,
       int limit = 8,
-      ExternalCallControl? control}) {
-    final evidence = RetrievalExecutionEvidence();
+      ExternalCallControl? control,
+      void Function()? onDerivedCacheCommitted}) {
+    final evidence = RetrievalExecutionEvidence(
+        onDerivedCacheCommitted: onDerivedCacheCommitted);
     return _fileRun(session, control, evidence,
         (runtime, check, allocations) async {
       final parent = _lookup(context, _HandleKind.context, runtime);

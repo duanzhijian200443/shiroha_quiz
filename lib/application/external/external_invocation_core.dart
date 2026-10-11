@@ -59,6 +59,9 @@ final class ExternalCallControl {
 
   Future<ExternalFailure> get interrupted => _signal.future;
   void cancel() => _interrupt(ExternalFailure.cancelled);
+
+  /// A trusted Application timer may expire the call independently of clock ticks.
+  void expireDeadline() => _interrupt(ExternalFailure.deadlineExceeded);
   void checkDeadline() {
     if (deadline != null && !clock.now().isBefore(deadline!)) {
       _interrupt(ExternalFailure.deadlineExceeded);
