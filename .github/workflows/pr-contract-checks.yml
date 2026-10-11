@@ -404,7 +404,14 @@ jobs:
             'test/application/generated_question/generated_local_authority_backup_test.dart',
             'test/ui/generated_question/generated_proposal_preview_test.dart',
             'test/ui/generated_question/generated_proposal_edit_test.dart',
-            'test/ui/generated_question/generated_proposal_approval_test.dart'
+            'test/ui/generated_question/generated_proposal_approval_test.dart',
+            # Appearance tokens/persistence and the AI capability hub regressions.
+            'test/ui/theme/app_theme_test.dart',
+            'test/ui/theme/appearance_axes_test.dart',
+            'test/ui/theme/appearance_persistence_test.dart',
+            'test/ui/home/today_visual_polish_test.dart',
+            'test/ai_settings_v2_test.dart',
+            'test/ui/pages/ai_settings_agent_summary_test.dart'
           )
 
           $shardCount = 4
