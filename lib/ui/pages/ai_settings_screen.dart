@@ -70,7 +70,7 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
 
   String get _agentSubtitle {
     if (_agentSummary.loading) return '正在读取…';
-    if (_agentSummary.failed) return '暂时无法读取';
+    if (_agentSummary.failed) return '暂时无法读取 · 点击选择';
     return _agentSummary.name ?? '尚未配置主模型';
   }
 

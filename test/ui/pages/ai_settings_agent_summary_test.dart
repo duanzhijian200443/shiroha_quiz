@@ -117,7 +117,7 @@ void main() {
     expect(
       find.descendant(
         of: find.byKey(_agentRowKey),
-        matching: find.text('暂时无法读取'),
+        matching: find.text('暂时无法读取 · 点击选择'),
       ),
       findsOneWidget,
     );
