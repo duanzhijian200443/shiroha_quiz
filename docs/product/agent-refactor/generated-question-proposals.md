@@ -3,7 +3,7 @@
 Status: **FROZEN contract; AR-R5A COMPLETE / CLOSED;
 AR-R5B generated Review UI COMPLETE / CLOSED;
 AR-R6A P2 external historical Origin accepted in merged PR #249;
-P3 durable external STAGE / reconciliation IMPLEMENTATION CANDIDATE.**
+P3 durable external STAGE / reconciliation accepted in merged PR #250.**
 
 AR-R5A implements Domain/Application/Data lifecycle at schema v32, B0 package v2
 and a source-level internal READ contribution, accepted in merged
@@ -11,7 +11,7 @@ and a source-level internal READ contribution, accepted in merged
 AR-R5B connects that lifecycle to first-party typed Review UI using the local
 authority seam below and is accepted through merged PR #245. P2 adds the strict
 historical format and v34 compatibility described in section 10, accepted through
-merged PR #249. Section 11 owns the unpublished P3 Application/Data candidate.
+merged PR #249. Section 11 owns the accepted unpublished P3 Application/Data path.
 Formal Host/transport publication remains blocked. Candidate mechanical evidence
 does not close independent review.
 
@@ -582,6 +582,14 @@ bounded P3 implementation candidate; formal external Host publication stays bloc
 
 ## 11. P3 durable external STAGE candidate
 
+The P3 candidate described here is accepted through merged PR #250. P4's
+unpublished candidate extracts its existing binding/runtime checks into
+`ExternalRuntimeAdmission`, reused by StageService and the separate narrow READ
+service. The Context/metadata contract is owned only by external-agent-boundary
+§3. This delegation does not move STAGE publication/revoke authority, change
+StageContext or its lifetime, change key/fingerprint/Origin/Review/COMMIT, or
+require READ for narrow reconciliation. READ references are never StageContext.
+
 `ExternalGeneratedStageService` is a transport-independent Application entry;
 it is not registered in a Host, capability projection, MCP, module or UI route.
 It accepts only this service's opaque Context and its authenticated Session.
@@ -656,9 +664,9 @@ Session), retained until actual handler settlement even after caller cancellatio
 or deadline. Completed/failed keys are not kept in a Map. It bypasses the old
 `ExternalInvocationCore._stages` journal for both execution and reconciliation.
 That pure-memory candidate and W0/SPL transient semantics are unchanged; their
-general journal finding is not claimed globally closed. This closes the durable
-branch's journal/restart gap only as an implementation candidate, pending CI and
-independent semantic review. B0 remains Proposal/Origin INCLUDE, Profile/Grant
+general journal finding is not claimed globally closed. P3 closes the durable
+branch's journal/restart gap within its accepted bounded scope. P4's runtime
+delegation requires fresh regression and independent review. B0 remains Proposal/Origin INCLUDE, Profile/Grant
 SCRUB, credential/Context EXCLUDED; restore never restores external access.
 
 Deterministic acceptance uses synthetic credential proof and real temporary

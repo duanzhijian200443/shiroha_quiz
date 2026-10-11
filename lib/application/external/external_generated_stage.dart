@@ -1,12 +1,12 @@
 import 'dart:async';
 
 import '../../domain/generated_question/generated_question_contract.dart';
-import '../backup/backup_restore_gate.dart';
 import '../capabilities/capability.dart';
 import '../generated_question/generated_local_authority.dart';
 import '../generated_question/generated_question_service.dart';
 import 'external_authorization.dart';
 import 'external_invocation_core.dart';
+import 'external_runtime_admission.dart';
 import 'external_trust_core.dart';
 
 /// Narrow acknowledgement, never candidate content, Review or COMMIT authority.
@@ -84,21 +84,23 @@ final class ExternalGeneratedStageService {
     this.maxInFlight = 16,
     this.maxInFlightPerSession = 4,
   })  : _trust = trust,
-        _management = management,
         _localOwner = localOwner,
         _persistence = persistence,
         _admission = admission {
     if (maxInFlight < 1 || maxInFlightPerSession < 1) {
       throw ArgumentError('Invalid stage bounds');
     }
+    runtimeAdmission = ExternalRuntimeAdmission(
+        trust: trust,
+        management: management,
+        compositionIsCurrent: () => _current && _localOwner.isCurrent);
   }
   final ExternalTrustCore _trust;
-  final ExternalAuthorizationManagement _management;
+  late final ExternalRuntimeAdmission runtimeAdmission;
   final GeneratedLocalAuthoritySession _localOwner;
   final ExternalGeneratedStagePort _persistence;
   final GeneratedQuestionAdmission _admission;
   final int maxInFlight, maxInFlightPerSession;
-  final _bindings = <ExternalPrincipal, ExternalProfileReference>{};
   final _active = <ExternalSession, int>{};
   final _controls = <ExternalCallControl>{};
   Completer<void>? _idle;
@@ -106,16 +108,9 @@ final class ExternalGeneratedStageService {
   int get pendingCount => _controls.length;
   Future<void> get whenIdle => _idle?.future ?? Future.value();
 
-  void close() => _current = false;
-  void _validate() {
-    try {
-      BackupRestoreMutationGate.instance.ensureMutationAllowed();
-    } catch (_) {
-      generatedFail(GeneratedFailure.unauthorized);
-    }
-    if (!_current || !_localOwner.isCurrent) {
-      generatedFail(GeneratedFailure.unauthorized);
-    }
+  void close() {
+    _current = false;
+    runtimeAdmission.close();
   }
 
   /// Trusted local binding, not an external call. A fresh runtime must select
@@ -123,22 +118,17 @@ final class ExternalGeneratedStageService {
   /// recreate either the reference or the Principal.
   Future<void> bindIdentity(
       ExternalProfileReference reference, ExternalPrincipal principal) async {
-    _validate();
-    _trust.snapshot(principal); // rejects a Principal minted by another core
-    final record = await _management.read(reference);
-    _validate();
-    _trust.snapshot(principal);
-    if (principal.profileId != record.profile.clientProfileId ||
-        record.profile.revokedAtUtcMs != null) {
+    try {
+      await runtimeAdmission.bindIdentity(reference, principal);
+    } on ExternalAuthException {
       generatedFail(GeneratedFailure.unauthorized);
     }
-    _bindings[principal] = reference;
   }
 
   void _validateSession(ExternalSession session) {
-    _validate();
-    if (_trust.sessionFailure(session) != null ||
-        !_bindings.containsKey(session.principal)) {
+    try {
+      runtimeAdmission.validateSession(session);
+    } on ExternalAuthException {
       generatedFail(GeneratedFailure.unauthorized);
     }
   }

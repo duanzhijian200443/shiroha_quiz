@@ -115,6 +115,85 @@ not change a submission key or create a second Proposal. Already staged data
 does not expire with its handle; outcome query uses current principal and
 Proposal authorization, not a live generation handle.
 
+### P4 Application READ foundation candidate
+
+P3 durable STAGE/reconciliation is accepted through merged PR #250. P4 is an
+unpublished Application/Data implementation candidate, without a Host, wire
+decoder, MCP tool, general CapabilityPrincipal or external formal-write route.
+`ExternalRuntimeAdmission` extracts P3's exact Principal-to-management-reference
+binding and Session/runtime checks. StageService delegates to that same instance;
+READ receives it from trusted App composition. There is one binding authority,
+with the existing TrustCore still owning credential proof, pairing, enablement,
+generation and disable epoch. Current durable policy remains Data-owned.
+
+Target metadata is a minimal projection of `questionContent`, never
+`proposalMetadata`. Each access requires current authenticated Principal,
+App-bound Session, active runtime enablement, unrevoked Profile/Grant, READ,
+`questionContent`, exact `bank + bankName + projectId` Scope, owning-Profile
+recipient and current Bank/Folder/Project relationships. Permissions and Egress
+categories never imply each other. STAGE-only reconciliation remains available
+under P3's separate narrow policy and cannot list READ targets.
+
+The output record has exactly `targetRef`, `bankName`, nullable `projectId`, and
+nullable `folderName`. Page envelopes have only `items` and nullable `nextCursor`.
+No full Project bank list, global counts, file identity, content, paths, storage
+keys or internal authority objects leave this entry. Data first loads this
+Profile's bounded explicit bank scopes, then resolves only those targets; it
+never loads global Learning Spaces/banks/files for Application-side filtering.
+Missing scoped targets are omitted; client-supplied missing or unauthorized
+selection references have the same safe denial.
+
+App mints separate opaque target-selection, cursor and READ Context references
+using 32 cryptographically random bytes (43 unpadded base64url characters) in a
+process-local registry. References also bind the registry/admission instance,
+exact Principal, runtime generation, current Grant revision and finite lifetime.
+Copying a string cannot authenticate; wrong reference kinds are denied. A cursor
+binds its offset and the ordered authorized target snapshot; revision or target
+relationship changes invalidate continuation, including deletion elsewhere in
+that snapshot. A target reference is selection only: Context creation reloads
+policy and current target relationships. Context stores creation/expiry time,
+READ/STAGE and category/recipient policy snapshot, exact selected Bank/Folder/
+Project, and explicitly empty approved File/Evidence snapshots. This candidate
+does not admit source files or retrieve any Question/File body. Snapshot STAGE
+permission is never a STAGE authorization path; READ references cannot enter P3.
+
+Every call reloads current durable Profile/Grant and rechecks revision, scope,
+target and Egress. Listing repeats the current-policy/relationship query at its
+final release gate. Context validity reports only `authorized`, `invalid`, or
+`unavailable`; it exposes no other Profile policy or existence information.
+Regrant, expansion and a fresh Context never renew old handles. Bank compatibility
+names retain P1's identity limitation; no bank-incarnation guarantee is added.
+
+| Unpublished candidate resource | Bound |
+|---|---|
+| Context/reference lifetime | Default and upper bound 15 minutes; not a measured Host product constant |
+| All active references, including selections/cursors | 256 total, 160 per Profile; enough for all 128 granted targets plus cursors and 16 Contexts |
+| READ Context subset | 64 total, 16 per Profile |
+| Target page size | Default 20, maximum 50; no global total |
+| Target candidates | Existing Grant ceiling of 128 exact scopes |
+| Encoded metadata page | 32 KiB UTF-8 including references and cursor |
+| Pending READ operations | 16 total, 4 per Profile |
+| Single READ operation | At most 2 seconds, checked by trusted clock, Stopwatch and timer |
+| Registry cleanup | Before admission/mint and every 30 seconds; close clears immediately |
+
+Cancellation/deadline suppress output; SQLite work is cooperatively checked
+between awaits/statements and at release, rather than claimed OS-level query
+preemption. An interrupted caller retains its pending slot until actual work
+settles. Failed/unreleased allocations are removed. Invalid runtime/expired
+references are swept; durable revocation/revision cannot authorize access and
+retained entries remain bounded by TTL/capacity. App composition must close the
+shared admission and drain work before B0 swap/runtime replacement. This closes
+READ registries and invalidates Sessions; success or raw rollback restores no
+runtime authorization. References/Contexts are never stored in SQLite, B0,
+manifest, Origin or logs. Schema stays v34 and B0 package stays v2.
+
+P3's StageContext, current-policy publication/revoke transaction, original
+key/fingerprint, lost-response semantics and durable reconciliation remain
+owned by GeneratedQuestion §11. The old generic transient journal remains
+separate debt. General ExternalPrincipal integration must be a separately
+scoped trusted admission interface with explicit current-authorization and
+receipt/projection impact review; `mcpStudyV0` is never an external identity.
+
 ## 4. Stage reconciliation, cancellation and revoke
 
 Use [typed execution receipts](application-capabilities.md). A timeout or lost

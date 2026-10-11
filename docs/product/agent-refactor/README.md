@@ -4,7 +4,8 @@ Status: **FROZEN target architecture; AR-R1/AR-R2/AR-R3 COMPLETE / CLOSED;
 AR-R4 module contribution kernel COMPLETE / CLOSED; AR-R5A COMPLETE / CLOSED;
 AR-R5B generated Review UI COMPLETE / CLOSED;
 AR-R6A P2 external historical Origin accepted in merged PR #249;
-P3 durable STAGE / reconciliation IMPLEMENTATION CANDIDATE.**
+P3 durable STAGE / reconciliation accepted in merged PR #250;
+P4 shared runtime admission / bounded READ Context IMPLEMENTATION CANDIDATE.**
 
 The Provider seam, typed capability/executor/projection path and Runtime split/
 transcript are delivered in the preceding merged stages. Historical AR-R3
@@ -27,10 +28,14 @@ persisted local data-owner identity and restore-invalidated Application sessions
 `generated-question-proposals.md` owns this accepted behavior (merged PR #245).
 P1 non-secret Profile/Grant v33 storage is accepted through merged PR #248.
 P2 strict historical external Origin/v34 compatibility is accepted through merged
-PR #249. P3 supplies the unpublished transport-independent durable STAGE and narrow
-reconciliation candidate described in GeneratedQuestion §11. Its current Grant
+PR #249. P3 supplies the accepted, unpublished transport-independent durable STAGE and narrow
+reconciliation described in GeneratedQuestion §11 (merged PR #250). Its current Grant
 checks share the owning SQLite publication transaction with revoke authority.
-Final-target CI and independent semantic review remain required. External
+P4's unpublished Application/Data candidate extracts that existing runtime
+binding authority and adds bounded READ target metadata/opaque Contexts under
+external-agent-boundary §3. Target metadata requires READ + questionContent;
+STAGE reconciliation remains independent. Schema v34/B0 v2 are unchanged.
+Final-target CI and independent semantic review remain required for P4. External
 Host/IPC, MCP vNext and READ fallback continuation remain unimplemented targets. Current product behavior
 continues under the existing capability contracts.
 
