@@ -1,7 +1,7 @@
 # Application Capability Kernel
 
 Status: **FROZEN contract; AR-R2 and AR-R4 registration integration
-COMPLETE / CLOSED.**
+COMPLETE / CLOSED; P7 unpublished external integration IMPLEMENTATION CANDIDATE.**
 
 Authority/activation: [index](README.md). This document owns semantic capability,
 permission/effect/receipt and adapter projection boundaries. Runtime, external
@@ -82,7 +82,8 @@ Its acknowledgement has only Proposal id/original submission key. It does not
 register a general CapabilityExecutor/Host operation or mint `ExecutionReceipt`
 with a forged `mcpStudyV0` principal. Existing `ExecutionReceipt`, W0/SPL transient
 references and execution semantics remain unchanged. General external principal
-and projection integration requires its own authorized stage.
+and projection integration is added only by the unpublished P7 amendment in
+section 7 below, without Host activation.
 
 Transient STAGE receipts do not replace W0 COMMIT or SPL adoption recovery.
 Those dedicated commands retain their existing formal-write reconciliation
@@ -161,6 +162,7 @@ status and release authorization. `knownEffect == null` means unknown, never
 `none`. App-generated UUID execution identities and typed receipts contain only
 capability/status/effect/fixed failure, trusted principal/scope and opaque source/
 turn/recipient references plus an optional transient reconciliation reference.
+P7 adds a separate durable-key reference under section 7 below.
 They contain no arguments, preview, question text, RAG content or output. They
 are neither persisted nor logged and add no OBS taxonomy or receipt database.
 
@@ -183,7 +185,7 @@ replay mechanism. Manual calls retain the owning services' existing semantic
 deduplication. Neither semantics changes AGENT-FB barriers.
 
 Trusted entrypoints construct `CapabilityContext`; parsed inputs cannot supply
-principal, permission, scope, grant or recipient. The current principal enum has
+principal, permission, scope, grant or recipient. The R2 principal enum had
 Built-in Agent, MCP v0 study and denied callers. A frozen typed capability allowlist,
 explicit independent permissions and bound scope are checked in Application;
 optional current-authorization and existing budget/cancellation/deadline evidence
@@ -248,10 +250,106 @@ receipt-bearing Dispatcher methods in a bounded ToolExecutor and retains receipt
 evidence in transient atomic transcript groups; the Kernel, permissions, effects,
 registry, W0/SPL lifecycle and MCP semantics are unchanged. AR-R4 source module
 registration is accepted under `module-system.md`; external
-authority/IPC and AR-R7 READ continuation remain unimplemented. AR-R5A is an
+Host/IPC and AR-R7 READ continuation remain unimplemented. AR-R5A is an
 implementation candidate: GeneratedQuestion contributes an internal typed READ
 with current local authorization and no Agent/MCP/UI projection. Durable stage,
 review flush and formal approve/reject use dedicated trusted Application commands,
 not R2 transient STAGE effects. The COMMIT boundary remains explicit local
 confirmation with exact revision/selection. Schema v32 and B0 retained Proposal
 validation are owned globally; package v2 and existing recovery commands remain.
+
+## 7. P7 trusted external Kernel integration (unpublished candidate)
+
+P7 adds an Application-only `ExternalCapabilityGateway`, using the existing
+typed registry, executor, results, effects and receipts. It registers an explicit
+external allowlist rather than copying Built-in definitions. No production Host,
+MCP, transport, Provider, credential adapter or module route is activated.
+
+`ExternalExecutionContext` and its authorization metadata have private
+constructors. Trusted App composition first supplies the P3-P6 owning services
+sharing exactly one `ExternalRuntimeAdmission`. Admission uses the authenticated,
+management-bound Session and an immutable current Grant snapshot. Each execution
+Context binds the exact ExternalSession, Principal/Profile, runtime generation,
+Grant revision, exact bank/Project and selected-file scope (or bounded current
+scopes for target selection/reconciliation), categories, owning-Profile recipient
+and a finite expiry no later than its owning READ/STAGE Context. Discovery and
+key reconciliation have at most fifteen minutes. There is no wildcard grant.
+
+The public legacy `CapabilityContext` constructor rejects the external enum
+value, even when supplied arbitrary allowlists or callbacks. Only the private
+Kernel construction path can bind an external call after Session admission.
+The gateway checks that the execution Context belongs to this composition and
+the exact invoking Session. Another Session cannot reuse that execution Context.
+Existing P4-P6 READ Context/Question/File/Passage/cursor references retain their
+Principal + generation + current authorization/lifecycle semantics: another
+valid Session for the same Principal may use them, including when minting a fresh
+P7 execution Context. P3 STAGE Contexts remain exact-Session bound.
+
+| Typed external capability | Permission | Permitted effect | Semantics |
+|---|---|---|---|
+| list targets / create READ Context | READ | none | repeatableRead |
+| search questions / get question detail | READ | none | repeatableRead |
+| list file selections / create file Context / get passage | READ | none | repeatableRead |
+| retrieve file content | READ | none, derived_cache | repeatableRead |
+| stage generated questions / reconcile original key | STAGE | none, proposal_staged | durableStage |
+
+Each definition delegates to its existing owning service. P7 adds neither a
+business writer nor business permission logic. The Kernel checks its explicit
+allowlist/permission and current bound Grant revision before handler entry.
+Owning services still perform scope-first Data access, current independent
+category/recipient checks, resource admission, strict projection, output-size
+checks and final release. Kernel final release delegates again to those same
+Question/File/Proposal ports after result construction; it cannot authorize
+output solely from an earlier snapshot. Metadata results (file selections,
+Context tokens) are revalidated at the current authorization, relationship and
+verified Artifact-tuple level, never by reloading document bodies; full F1
+payload re-verification applies only to references that release passage
+content. Withheld new READ references are removed.
+
+READ's single two-second maximum applies across the complete P7 call, including
+admission and final release, using a trusted timer and the existing cooperative
+control. Caller cancellation/deadline is forwarded. Existing shared READ
+16/4 slots, Registry capacities and response limits remain unchanged. STAGE
+retains P3's 16-global/4-per-Session pending-only guard and transaction authority.
+The gateway has a bounded pending-only guard across pre-authorization, handler
+and release, using the owning 16/4 ceilings (READ per Principal, STAGE per
+Session). Interrupted underlying authorization and owning work keep that slot
+until actual settlement; draining may conservatively wait for the composition's
+owning services to become idle. No completed key/Receipt journal is retained.
+Interrupted owning work keeps its slot until real settlement; Kernel does not
+retry, reclaim the owning slot or promise SQLite preemption.
+
+For P7 status, Handler means the Kernel definition's handler. Denial before that
+boundary is not_started/none. An owning-service pre-entry rejection after the
+Kernel wrapper entered proves failed_without_effect/none, rather than claiming
+the Kernel never entered. Owning zero-effect rollback remains authoritative.
+Interrupted or unconfirmed work is outcome_unknown, with null meaning unknown
+effect. P3's outcome_unknown with confirmed proposal_staged remains unchanged.
+RAG evidence confirms derived_cache only from owning transaction evidence;
+unconfirmed builds do not become none. An interruption or loss of final output
+preserves any already-confirmed status/effect while stripping output.
+
+`durableStage` adds no automatic repeat. `DurableStageReconciliationReference`
+is typed correlation containing the authenticated Profile/original submission
+key, separate from the unchanged transient W0/SPL reference. The existing
+Proposal/SubmissionKey owner alone establishes durable STAGE facts, including
+absence remaining outcome_unknown. Receipt and authorization metadata remain
+transient, local Application evidence with no decoder, encoder, log or second
+persistence table. Fresh authenticated reconciliation rechecks current authority
+and may use the original key across restart without an old execution Context.
+No formal local COMMIT Receipt is returned to the external surface.
+App composition closes and drains the gateway and owning services before B0
+swap/runtime replacement; closing never prematurely frees pending work.
+
+The distinct fixed P3/P4-P6 failure enums map one-to-one to external/generated
+Kernel categories; cancellation, deadline and response loss stay distinct.
+Existing Built-in/MCP v0 definitions, receipts, transient reconciliation and
+six-tool projection remain unchanged. SQLite v34 and B0 package v2 stay fixed.
+P7 does not accept AR-R6A, lift HOST_STABILITY_HALT or activate MCP vNext.
+
+The R4 retained-source gate keeps its original Kernel baseline hash. Its P7
+compatibility projection removes only exact enumerated source amendments,
+including their external-only control paths; no region is ignored and no
+replacement Kernel hash is accepted. Negative regressions prove that changing
+either the external admission amendment or retained legacy Kernel source fails
+the corresponding check. Runtime/Provider/MCP/storage hashes stay unchanged.

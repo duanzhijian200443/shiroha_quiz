@@ -285,9 +285,9 @@ key/fingerprint, narrow STAGE-only reconciliation and local Review/COMMIT are
 unchanged. P6 below adds only bounded file/passages; external principal/kernel
 integration and real Host/transport remain separate work.
 
-### P6 explicit File Snapshot, lexical retrieval and passages (candidate)
+### P6 explicit File Snapshot, lexical retrieval and passages (accepted scope)
 
-P6 is an unpublished Application/Data implementation candidate, with no Host,
+P6 is accepted through merged PR #255 within its unpublished Application/Data scope, with no Host,
 transport, MCP registration, UI, credential implementation or general external
 CapabilityPrincipal. It reuses P4 runtime admission and the same Registry.
 Existing P4/P5 Contexts keep empty file snapshots. `listFileSelections` constructs
@@ -384,6 +384,48 @@ Index. Checkpoints exercise policy/source drift after actual FTS results,
 unknown versus confirmed cache effects, interruption/slot retention and actual
 database restart plus B0 Restore/raw rollback. Candidate mechanical success is
 not independent semantic approval; HOST_STABILITY_HALT remains ACTIVE.
+
+### P7 trusted Capability execution (unpublished candidate)
+
+The Kernel integration amendment in
+[Application capabilities section 7](application-capabilities.md#7-p7-trusted-external-kernel-integration-unpublished-candidate)
+owns P7's typed allowlist, private execution-context construction and Receipt
+projection. This is trusted Application composition only; no Host, IPC, transport
+or MCP tool registration is added. It uses the existing TrustCore, management
+binding and shared RuntimeAdmission, not a second identity or Grant authority.
+
+The new P7 execution Context binds the exact Session at creation. Its trusted
+Principal, generation, revision, scope, categories and recipient cannot be
+supplied by request JSON, Profile strings, callbacks or a public CapabilityContext
+constructor. Existing P4-P6 references remain Principal/generation scoped and
+may be used by another currently valid Session for that same Principal after
+all existing reference, policy, scope and Egress checks. Such a Session must mint
+its own P7 execution Context; it cannot copy/rebind another Session's execution
+Context. P3's existing precise STAGE Session binding is not relaxed.
+
+P7's READ admission/release borrows the existing Registry-minted Data access
+proofs and owning current-authority ports. READ Context creation remains separate
+from STAGE target approval. File contexts remain explicit separate snapshots;
+the original empty P4/P5 Context is not expanded. Final Kernel output checks
+revalidate selected Question identities or verified File tuples and current
+Data authorization; metadata-only selections never reload document bodies, and
+full F1 payload re-verification stays with references that release passage
+content. Cancelled/deadline/lost output is withheld, with newly minted
+unreleased references discarded. Existing scopes, counts, bytes and capacities
+are not increased; the complete P7 READ invocation shares one two-second bound.
+
+STAGE still uses the original owning SQLite publication/revoke/CAS transaction.
+Confirmed effects are observed from owning evidence, not reconstructed from
+output, success flags or JSON. P7 receipts are local transient execution evidence;
+Proposal/original key remains the only durable reconciliation authority. An
+unknown result never automatically restages or releases candidate/Review/COMMIT
+content. Narrow STAGE-only reconciliation still requires no READ Context.
+
+Deterministic P7 acceptance uses synthetic identities, real temporary SQLite,
+verified F1/FTS, both publication/revoke orderings, cancellation/deadline/result
+loss and B0 Restore/raw rollback. Built-in Agent and MCP v0 remain unchanged.
+HOST_STABILITY_HALT remains active; P7 acceptance does not constitute AR-R6A,
+Transport, Host or MCP vNext acceptance.
 
 ## 4. Stage reconciliation, cancellation and revoke
 

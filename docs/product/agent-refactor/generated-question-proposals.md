@@ -652,8 +652,9 @@ unknown without disclosing content validation or record existence.
 
 This branch uses the existing typed `CapabilityEvidence`, execution statuses and
 effects directly, without inventing an external `CapabilityPrincipal` or adapting
-to `mcpStudyV0`. General `ExecutionReceipt`/Host projection integration remains
-unimplemented. Only a committed/strictly validated Proposal confirms
+to `mcpStudyV0`. P7's unpublished Kernel integration is now owned by
+Application capabilities §7; Host projection remains unimplemented.
+Only a committed/strictly validated Proposal confirms
 `proposal_staged`. A thrown transaction checks SQLite absence before confirming
 rollback; uncertainty is not `failed_without_effect`. Cancellation before handler
 entry proves none. After handler entry, interruption remains unknown until
@@ -675,3 +676,12 @@ Header/Items/pre-commit rollback and ignored-row rejection, commit-then-response
 loss, cancel/deadline with pending capacity retention, actual file close/reopen,
 source/Project drift, Profile isolation, corrupt history, and actual B0 restore
 and raw rollback. Host/IPC/real-provider acceptance is outside this candidate.
+
+P7 delegates STAGE/reconciliation to this same service and observes its owning
+effect evidence. It adds a typed Profile/original-key correlation reference to
+the transient Kernel Receipt, never a second durable Receipt or a COMMIT receipt.
+The existing precise Session/StageContext binding, same-transaction publication
+authority, fingerprint, historical format and narrow acknowledgement are
+unchanged. Final Kernel release reuses this service's current-authority release
+port. P7 wrapper-entry status is defined in Application capabilities §7 without
+rewriting P3's original results or allowing automatic repeat.

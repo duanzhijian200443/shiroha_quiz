@@ -1,0 +1,87 @@
+[
+  {
+    "before": "\nimport '../../domain/conversations/conversation.dart';\nimport '../retrieval/retrieval_egress_grant.dart';\n\nenum CapabilityPermission { read, stage, commit, destructive }\n\n",
+    "after": "\nimport '../../domain/conversations/conversation.dart';\nimport '../retrieval/retrieval_egress_grant.dart';\nimport '../retrieval/retrieval_ports.dart';\nimport '../external/external_authorization.dart';\nimport '../external/external_generated_stage.dart';\nimport '../external/external_file_read.dart';\nimport '../external/external_invocation_core.dart';\nimport '../external/external_question_read.dart';\nimport '../external/external_read_context.dart';\nimport '../external/external_runtime_admission.dart';\nimport '../external/external_trust_core.dart';\nimport '../../domain/generated_question/generated_question_contract.dart';\n\npart 'external_capabilities.dart';\n\nenum CapabilityPermission { read, stage, commit, destructive }\n\n",
+    "count": 1
+  },
+  {
+    "before": "\n  /// Never repeated automatically; reconciliation only in the owning process.\n  transientStage,\n}\n\nenum CapabilityFailure {\n",
+    "after": "\n  /// Never repeated automatically; reconciliation only in the owning process.\n  transientStage,\n\n  /// No automatic repetition; reconcile against the owning durable Proposal.\n  durableStage,\n}\n\nenum CapabilityFailure {\n",
+    "count": 1
+  },
+  {
+    "before": "  retrievalSourceChanged,\n  retrievalTemporarilyUnavailable,\n  retrievalInternalError,\n}\n\nenum CapabilityPrincipal { builtInAgent, mcpStudyV0, denied }\n\nfinal class CapabilityId<I, O> {\n  const CapabilityId(this.value);\n",
+    "after": "  retrievalSourceChanged,\n  retrievalTemporarilyUnavailable,\n  retrievalInternalError,\n  externalResponseLost,\n  externalReadDenied,\n  externalReadStale,\n  externalReadResourceLimit,\n  externalReadUnavailable,\n  externalReadInvalidRequest,\n  externalReadDataCorrupt,\n  externalReadSourceNotReady,\n  generatedInvalidSubmission,\n  generatedUnsupportedContent,\n  generatedUnsafePayload,\n  generatedResourceLimit,\n  generatedInvalidEvidence,\n  generatedUnauthorized,\n  generatedTargetChanged,\n  generatedProposalUnavailable,\n  generatedStaleRevision,\n  generatedTerminalConflict,\n  generatedIdempotencyConflict,\n  generatedDuplicateContent,\n  generatedReviewIncomplete,\n  generatedQualityBlocked,\n  generatedStaleEvidence,\n  generatedInvalidEdit,\n  generatedCorruptState,\n  generatedPersistenceFailed,\n}\n\nenum CapabilityPrincipal { builtInAgent, mcpStudyV0, denied, external }\n\nfinal class CapabilityId<I, O> {\n  const CapabilityId(this.value);\n",
+    "count": 1
+  },
+  {
+    "before": "    this.proposalResultFits,\n  })  : capabilities = Set.unmodifiable(capabilities),\n        permissions = Set.unmodifiable(permissions),\n        currentFileIds = List.unmodifiable(currentFileIds);\n  final CapabilityPrincipal principal;\n  final Set<CapabilityId> capabilities;\n  final Set<CapabilityPermission> permissions;\n",
+    "after": "    this.proposalResultFits,\n  })  : capabilities = Set.unmodifiable(capabilities),\n        permissions = Set.unmodifiable(permissions),\n        currentFileIds = List.unmodifiable(currentFileIds),\n        _externalCall = null {\n    if (principal == CapabilityPrincipal.external) {\n      throw ArgumentError('External contexts require authenticated admission.');\n    }\n  }\n\n  CapabilityContext._external(_ExternalCapabilityCall call)\n      : principal = CapabilityPrincipal.external,\n        capabilities = call.context.capabilities,\n        permissions = call.context.authorization.permissions,\n        scope = call.context.scope,\n        authorizedScope = call.context.scope,\n        authorizationCurrent = call.authorize,\n        budgetAllowed = null,\n        isCancelled = null,\n        cancellationSignal = null,\n        deadline = null,\n        sourceConversationId = null,\n        sourceMessageId = null,\n        turnRequestId = null,\n        providerProfileId = null,\n        retrievalGrant = null,\n        currentFileIds = const [],\n        serializationAllowed = null,\n        proposalResultFits = null,\n        _externalCall = call;\n  final _ExternalCapabilityCall? _externalCall;\n  final CapabilityPrincipal principal;\n  final Set<CapabilityId> capabilities;\n  final Set<CapabilityPermission> permissions;\n",
+    "count": 1
+  },
+  {
+    "before": "  bool belongsTo(Object lifecycle) => identical(_owner, lifecycle);\n}\n\n/// Opaque trusted egress/source references, never grant contents or user input.\nfinal class CapabilityAuthorizationReferences {\n  const CapabilityAuthorizationReferences(\n      {this.turnRequestId,\n      this.conversationId,\n      this.sourceMessageId,\n      this.providerProfileId});\n  final String? turnRequestId;\n  final String? conversationId;\n  final String? sourceMessageId;\n  final String? providerProfileId;\n}\n\nfinal class ExecutionReceipt {\n",
+    "after": "  bool belongsTo(Object lifecycle) => identical(_owner, lifecycle);\n}\n\n/// Correlation only, never a permission or a second persisted Receipt.\n/// A fresh authenticated invocation uses the Proposal owner's original key.\nfinal class DurableStageReconciliationReference {\n  const DurableStageReconciliationReference(\n      {required this.profileId, required this.submissionKey});\n  final String profileId, submissionKey;\n}\n\n/// Trusted source references and private external authorization metadata.\n/// Never request identity declarations or credential material.\nfinal class CapabilityAuthorizationReferences {\n  const CapabilityAuthorizationReferences(\n      {this.turnRequestId,\n      this.conversationId,\n      this.sourceMessageId,\n      this.providerProfileId,\n      this.external});\n  final String? turnRequestId;\n  final String? conversationId;\n  final String? sourceMessageId;\n  final String? providerProfileId;\n  final ExternalCapabilityAuthorization? external;\n}\n\nfinal class ExecutionReceipt {\n",
+    "count": 1
+  },
+  {
+    "before": "      required this.scope,\n      required this.authorization,\n      this.failure,\n      this.reconciliation});\n  final String executionId;\n  final CapabilityId capabilityId;\n  final CapabilityExecutionStatus status;\n",
+    "after": "      required this.scope,\n      required this.authorization,\n      this.failure,\n      this.reconciliation,\n      this.durableReconciliation});\n  final String executionId;\n  final CapabilityId capabilityId;\n  final CapabilityExecutionStatus status;\n",
+    "count": 1
+  },
+  {
+    "before": "  final ConversationScope scope;\n  final CapabilityAuthorizationReferences authorization;\n  final TransientReconciliationReference? reconciliation;\n\n  ExecutionReceipt withFailure(CapabilityFailure code) => ExecutionReceipt(\n      executionId: executionId,\n",
+    "after": "  final ConversationScope scope;\n  final CapabilityAuthorizationReferences authorization;\n  final TransientReconciliationReference? reconciliation;\n  final DurableStageReconciliationReference? durableReconciliation;\n\n  ExecutionReceipt withFailure(CapabilityFailure code) => ExecutionReceipt(\n      executionId: executionId,\n",
+    "count": 1
+  },
+  {
+    "before": "      scope: scope,\n      authorization: authorization,\n      failure: code,\n      reconciliation: reconciliation);\n}\n\n/// Evidence supplied by the owning handler/service, before egress/encoding.\n",
+    "after": "      scope: scope,\n      authorization: authorization,\n      failure: code,\n      reconciliation: reconciliation,\n      durableReconciliation: durableReconciliation);\n}\n\n/// Evidence supplied by the owning handler/service, before egress/encoding.\n",
+    "count": 1
+  },
+  {
+    "before": "      this.failure,\n      required this.status,\n      required this.effect,\n      this.reconciliation});\n  final O? output;\n  final CapabilityFailure? failure;\n  final CapabilityExecutionStatus status;\n  final CapabilityEffect? effect;\n  final TransientReconciliationReference? reconciliation;\n  factory CapabilityEvidence.completed(O output, CapabilityEffect effect,\n          {TransientReconciliationReference? reconciliation}) =>\n      CapabilityEvidence(\n",
+    "after": "      this.failure,\n      required this.status,\n      required this.effect,\n      this.reconciliation,\n      this.durableReconciliation});\n  final O? output;\n  final CapabilityFailure? failure;\n  final CapabilityExecutionStatus status;\n  final CapabilityEffect? effect;\n  final TransientReconciliationReference? reconciliation;\n  final DurableStageReconciliationReference? durableReconciliation;\n  factory CapabilityEvidence.completed(O output, CapabilityEffect effect,\n          {TransientReconciliationReference? reconciliation}) =>\n      CapabilityEvidence(\n",
+    "count": 1
+  },
+  {
+    "before": "/// Only owning handlers record confirmed effects. Exceptions/timeouts never\n/// turn absence of evidence into proof of none.\nfinal class CapabilityExecutionEvidence {\n  CapabilityEffect? knownEffect;\n  TransientReconciliationReference? reconciliation;\n  void confirm(CapabilityEffect effect,\n      {TransientReconciliationReference? reference}) {\n    knownEffect = effect;\n    reconciliation = reference;\n  }\n}\n\n",
+    "after": "/// Only owning handlers record confirmed effects. Exceptions/timeouts never\n/// turn absence of evidence into proof of none.\nfinal class CapabilityExecutionEvidence {\n  CapabilityExecutionEvidence({this.onConfirmed});\n  final void Function(CapabilityEffect)? onConfirmed;\n  CapabilityEffect? knownEffect;\n  TransientReconciliationReference? reconciliation;\n  DurableStageReconciliationReference? durableReconciliation;\n  void confirm(CapabilityEffect effect,\n      {TransientReconciliationReference? reference}) {\n    knownEffect = effect;\n    reconciliation = reference;\n    onConfirmed?.call(effect);\n  }\n}\n\n",
+    "count": 1
+  },
+  {
+    "before": "              turnRequestId: context.turnRequestId,\n              conversationId: context.sourceConversationId,\n              sourceMessageId: context.sourceMessageId,\n              providerProfileId: context.providerProfileId),\n          reconciliation: evidence.reconciliation);\n\n  Future<CapabilityResult<O>> execute<I, O>(\n      CapabilityId<I, O> id, I input, CapabilityContext context) async {\n    final definition = registry.definition(id);\n    if (definition == null) {\n      return reject(id, context, CapabilityFailure.unknownCapability);\n    }\n    try {\n      final admission = definition.admit?.call(input);\n",
+    "after": "              turnRequestId: context.turnRequestId,\n              conversationId: context.sourceConversationId,\n              sourceMessageId: context.sourceMessageId,\n              providerProfileId: context.providerProfileId,\n              external: context._externalCall?.context.authorization),\n          reconciliation: evidence.reconciliation,\n          durableReconciliation: evidence.durableReconciliation);\n\n  Future<CapabilityResult<O>> execute<I, O>(\n      CapabilityId<I, O> id, I input, CapabilityContext context) async {\n    final definition = registry.definition(id);\n    if (definition == null) {\n      return reject(id, context, CapabilityFailure.unknownCapability);\n    }\n    final externalInterruption = context._externalCall?.interruption;\n    if (externalInterruption != null) {\n      return reject(id, context, externalInterruption);\n    }\n    try {\n      final admission = definition.admit?.call(input);\n",
+    "count": 1
+  },
+  {
+    "before": "    if (context.isCancelled?.call() ?? false) {\n      return reject(id, context, CapabilityFailure.cancelled);\n    }\n    if (context.deadline != null &&\n        !DateTime.now().isBefore(context.deadline!)) {\n      return reject(id, context, CapabilityFailure.deadlineExceeded);\n",
+    "after": "    if (context.isCancelled?.call() ?? false) {\n      return reject(id, context, CapabilityFailure.cancelled);\n    }\n    final beforeHandlerInterruption = context._externalCall?.interruption;\n    if (beforeHandlerInterruption != null) {\n      return reject(id, context, beforeHandlerInterruption);\n    }\n    if (context.deadline != null &&\n        !DateTime.now().isBefore(context.deadline!)) {\n      return reject(id, context, CapabilityFailure.deadlineExceeded);\n",
+    "count": 1
+  },
+  {
+    "before": "      evidence = await _bounded(() {\n        handlerEntered = true;\n        return definition.handler.invoke(input, context, confirmed);\n      }, context);\n    } on _CapabilityInterrupted catch (error) {\n      evidence = CapabilityEvidence(\n          failure: error.failure,\n",
+    "after": "      evidence = await _bounded(() {\n        handlerEntered = true;\n        return definition.handler.invoke(input, context, confirmed);\n      }, context, delegatedExternalHandler: true);\n    } on _CapabilityInterrupted catch (error) {\n      evidence = CapabilityEvidence(\n          failure: error.failure,\n",
+    "count": 1
+  },
+  {
+    "before": "              : CapabilityExecutionStatus.notStarted,\n          effect:\n              handlerEntered ? confirmed.knownEffect : CapabilityEffect.none,\n          reconciliation: confirmed.reconciliation);\n    } catch (_) {\n      evidence = CapabilityEvidence(\n          failure: CapabilityFailure.internalError,\n          status: CapabilityExecutionStatus.outcomeUnknown,\n          effect: confirmed.knownEffect,\n          reconciliation: confirmed.reconciliation);\n    }\n    if (evidence.effect != null &&\n        !definition.permittedEffects.contains(evidence.effect)) {\n",
+    "after": "              : CapabilityExecutionStatus.notStarted,\n          effect:\n              handlerEntered ? confirmed.knownEffect : CapabilityEffect.none,\n          reconciliation: confirmed.reconciliation,\n          durableReconciliation: confirmed.durableReconciliation);\n    } catch (_) {\n      evidence = CapabilityEvidence(\n          failure: CapabilityFailure.internalError,\n          status: CapabilityExecutionStatus.outcomeUnknown,\n          effect: confirmed.knownEffect,\n          reconciliation: confirmed.reconciliation,\n          durableReconciliation: confirmed.durableReconciliation);\n    }\n    if (evidence.effect != null &&\n        !definition.permittedEffects.contains(evidence.effect)) {\n",
+    "count": 1
+  },
+  {
+    "before": "                  failure: CapabilityFailure.internalError,\n                  status: CapabilityExecutionStatus.outcomeUnknown,\n                  effect: evidence.effect,\n                  reconciliation: evidence.reconciliation)));\n    }\n    final receipt = _receipt(id, context, evidence);\n    final result = CapabilityResult<O>(\n",
+    "after": "                  failure: CapabilityFailure.internalError,\n                  status: CapabilityExecutionStatus.outcomeUnknown,\n                  effect: evidence.effect,\n                  reconciliation: evidence.reconciliation,\n                  durableReconciliation: evidence.durableReconciliation)));\n    }\n    final receipt = _receipt(id, context, evidence);\n    final result = CapabilityResult<O>(\n",
+    "count": 1
+  },
+  {
+    "before": "    return result;\n  }\n\n  Future<T> _bounded<T>(\n      Future<T> Function() action, CapabilityContext context) async {\n    if (context.isCancelled?.call() ?? false) {\n      throw const _CapabilityInterrupted(CapabilityFailure.cancelled);\n    }\n",
+    "after": "    return result;\n  }\n\n  Future<T> _bounded<T>(Future<T> Function() action, CapabilityContext context,\n      {bool delegatedExternalHandler = false}) async {\n    final externalInterruption = context._externalCall?.interruption;\n    if (externalInterruption != null) {\n      throw _CapabilityInterrupted(externalInterruption);\n    }\n    if (context.isCancelled?.call() ?? false) {\n      throw const _CapabilityInterrupted(CapabilityFailure.cancelled);\n    }\n",
+    "count": 1
+  },
+  {
+    "before": "      }\n      context.cancellationSignal\n          ?.then((_) => interrupt(CapabilityFailure.cancelled));\n      return await Future.any([pending, interrupted.future]);\n    } finally {\n      settled = true;\n",
+    "after": "      }\n      context.cancellationSignal\n          ?.then((_) => interrupt(CapabilityFailure.cancelled));\n      if (!delegatedExternalHandler) {\n        context._externalCall?.control.interrupted\n            .then((failure) => interrupt(_externalInterruption(failure)!));\n      }\n      return await Future.any([pending, interrupted.future]);\n    } finally {\n      settled = true;\n",
+    "count": 1
+  }
+]

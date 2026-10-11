@@ -145,6 +145,10 @@ final class ExternalQuestionReadAccess {
   final _Handle _context;
   ExternalReadTarget get target => _context.target!;
   int get revision => _context.snapshot.grant.revision;
+  DateTime get expiresAt => _context.expiresAt;
+  List<RetrievalArtifactSnapshot> get files => _context.files;
+  bool belongsTo(ExternalReadContextService service) =>
+      identical(_owner, service);
   void validate() {
     runtime.validate();
     _context.access.validate();
@@ -397,6 +401,118 @@ final class ExternalReadContextService {
               e.failure == ExternalReadFailure.resourceLimit
           ? ExternalReadValidity.unavailable
           : ExternalReadValidity.invalid;
+    }
+  }
+
+  /// P7 borrows this Registry's proof without changing existing Session semantics.
+  Future<ExternalQuestionReadAccess> capabilityAccess(
+          {required ExternalSession session, required String context}) =>
+      _run(session, null, (runtime, check, allocations) async {
+        final handle = _lookup(context, _HandleKind.context, runtime);
+        final current = await _targets.query(
+            runtime, handle.snapshot.grant.revision, check);
+        if (!current.targets.contains(handle.target)) {
+          externalReadFail(ExternalReadFailure.stale);
+        }
+        final access = ExternalQuestionReadAccess._(this, runtime, handle);
+        if (handle.files.isNotEmpty) {
+          await _fileReader.authorize(access, handle.files, check);
+        }
+        check();
+        access.validate();
+        return access;
+      });
+
+  /// Reuses the owning READ release ports after Kernel result construction.
+  /// References are safe result selections, never new scope/identity authority.
+  /// Metadata results (file selections, Context tokens) keep P6's metadata-only
+  /// semantics: current authorization/relations/Artifact tuples, never a body
+  /// reload. Full F1 payload re-verification stays with passage references.
+  Future<void> releaseCapabilityOutput(
+          {required ExternalSession session,
+          String? context,
+          required List<String> references,
+          required ExternalCallControl control}) =>
+      _run(session, control, (runtime, check, allocations) async {
+        final parent = context == null
+            ? null
+            : _lookup(context, _HandleKind.context, runtime);
+        final selected = <_Handle>[];
+        for (final token in references) {
+          final handle = _handles[token];
+          if (handle == null) externalReadFail(ExternalReadFailure.denied);
+          selected.add(_lookup(token, handle.kind, runtime));
+        }
+        final current = await _targets.query(
+            runtime,
+            parent?.snapshot.grant.revision ??
+                selected.firstOrNull?.snapshot.grant.revision,
+            check);
+        if (parent != null && !current.targets.contains(parent.target)) {
+          externalReadFail(ExternalReadFailure.stale);
+        }
+        if (parent == null &&
+            selected.any((h) => !_same(h.snapshot, current))) {
+          externalReadFail(ExternalReadFailure.stale);
+        }
+        for (final handle in selected) {
+          if (parent != null &&
+              !identical(handle, parent) &&
+              !identical(handle.parentContext, parent)) {
+            externalReadFail(ExternalReadFailure.denied);
+          }
+        }
+        if (parent != null) {
+          final access = ExternalQuestionReadAccess._(this, runtime, parent);
+          final keys = selected
+              .map((h) => h.questionKey)
+              .whereType<ExternalQuestionKey>()
+              .toList();
+          if (keys.isNotEmpty) {
+            await _questions!.release(access, keys, check);
+          }
+          final candidates = <RetrievalArtifactSnapshot>[
+            ...parent.files,
+            for (final handle in selected) ...handle.files,
+            for (final handle in selected)
+              if (handle.file != null) handle.file!,
+          ];
+          final byFile = <String, RetrievalArtifactSnapshot>{};
+          for (final file in candidates) {
+            final previous = byFile[file.fileId];
+            if (previous != null && !previous.sameGeneration(file)) {
+              externalReadFail(ExternalReadFailure.stale);
+            }
+            byFile[file.fileId] = file;
+          }
+          final files = byFile.values.toList();
+          if (files.isNotEmpty) {
+            await _fileReader.authorize(access, files, check);
+          }
+          // Only references that release passage content re-verify F1 payloads.
+          final contentIds = <String>{
+            for (final handle in selected)
+              if (handle.kind == _HandleKind.passage && handle.file != null)
+                handle.file!.fileId,
+          };
+          final contentFiles =
+              files.where((file) => contentIds.contains(file.fileId)).toList();
+          if (contentFiles.isNotEmpty) {
+            await _fileReader.release(access, contentFiles, check);
+          }
+          access.validate();
+        }
+        check();
+      });
+
+  /// Remove only this Session's freshly minted, withheld Kernel outputs.
+  void discardCapabilityOutput(
+      ExternalSession session, List<String> references) {
+    for (final token in references) {
+      final handle = _handles[token];
+      if (handle != null && identical(handle.access.session, session)) {
+        _handles.remove(token);
+      }
     }
   }
 

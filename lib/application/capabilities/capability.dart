@@ -6,6 +6,18 @@ import 'dart:math';
 
 import '../../domain/conversations/conversation.dart';
 import '../retrieval/retrieval_egress_grant.dart';
+import '../retrieval/retrieval_ports.dart';
+import '../external/external_authorization.dart';
+import '../external/external_generated_stage.dart';
+import '../external/external_file_read.dart';
+import '../external/external_invocation_core.dart';
+import '../external/external_question_read.dart';
+import '../external/external_read_context.dart';
+import '../external/external_runtime_admission.dart';
+import '../external/external_trust_core.dart';
+import '../../domain/generated_question/generated_question_contract.dart';
+
+part 'external_capabilities.dart';
 
 enum CapabilityPermission { read, stage, commit, destructive }
 
@@ -24,6 +36,9 @@ enum CapabilityExecutionSemantics {
 
   /// Never repeated automatically; reconciliation only in the owning process.
   transientStage,
+
+  /// No automatic repetition; reconcile against the owning durable Proposal.
+  durableStage,
 }
 
 enum CapabilityFailure {
@@ -47,9 +62,35 @@ enum CapabilityFailure {
   retrievalSourceChanged,
   retrievalTemporarilyUnavailable,
   retrievalInternalError,
+  externalResponseLost,
+  externalReadDenied,
+  externalReadStale,
+  externalReadResourceLimit,
+  externalReadUnavailable,
+  externalReadInvalidRequest,
+  externalReadDataCorrupt,
+  externalReadSourceNotReady,
+  generatedInvalidSubmission,
+  generatedUnsupportedContent,
+  generatedUnsafePayload,
+  generatedResourceLimit,
+  generatedInvalidEvidence,
+  generatedUnauthorized,
+  generatedTargetChanged,
+  generatedProposalUnavailable,
+  generatedStaleRevision,
+  generatedTerminalConflict,
+  generatedIdempotencyConflict,
+  generatedDuplicateContent,
+  generatedReviewIncomplete,
+  generatedQualityBlocked,
+  generatedStaleEvidence,
+  generatedInvalidEdit,
+  generatedCorruptState,
+  generatedPersistenceFailed,
 }
 
-enum CapabilityPrincipal { builtInAgent, mcpStudyV0, denied }
+enum CapabilityPrincipal { builtInAgent, mcpStudyV0, denied, external }
 
 final class CapabilityId<I, O> {
   const CapabilityId(this.value);
@@ -90,7 +131,34 @@ final class CapabilityContext {
     this.proposalResultFits,
   })  : capabilities = Set.unmodifiable(capabilities),
         permissions = Set.unmodifiable(permissions),
-        currentFileIds = List.unmodifiable(currentFileIds);
+        currentFileIds = List.unmodifiable(currentFileIds),
+        _externalCall = null {
+    if (principal == CapabilityPrincipal.external) {
+      throw ArgumentError('External contexts require authenticated admission.');
+    }
+  }
+
+  CapabilityContext._external(_ExternalCapabilityCall call)
+      : principal = CapabilityPrincipal.external,
+        capabilities = call.context.capabilities,
+        permissions = call.context.authorization.permissions,
+        scope = call.context.scope,
+        authorizedScope = call.context.scope,
+        authorizationCurrent = call.authorize,
+        budgetAllowed = null,
+        isCancelled = null,
+        cancellationSignal = null,
+        deadline = null,
+        sourceConversationId = null,
+        sourceMessageId = null,
+        turnRequestId = null,
+        providerProfileId = null,
+        retrievalGrant = null,
+        currentFileIds = const [],
+        serializationAllowed = null,
+        proposalResultFits = null,
+        _externalCall = call;
+  final _ExternalCapabilityCall? _externalCall;
   final CapabilityPrincipal principal;
   final Set<CapabilityId> capabilities;
   final Set<CapabilityPermission> permissions;
@@ -134,17 +202,28 @@ final class TransientReconciliationReference {
   bool belongsTo(Object lifecycle) => identical(_owner, lifecycle);
 }
 
-/// Opaque trusted egress/source references, never grant contents or user input.
+/// Correlation only, never a permission or a second persisted Receipt.
+/// A fresh authenticated invocation uses the Proposal owner's original key.
+final class DurableStageReconciliationReference {
+  const DurableStageReconciliationReference(
+      {required this.profileId, required this.submissionKey});
+  final String profileId, submissionKey;
+}
+
+/// Trusted source references and private external authorization metadata.
+/// Never request identity declarations or credential material.
 final class CapabilityAuthorizationReferences {
   const CapabilityAuthorizationReferences(
       {this.turnRequestId,
       this.conversationId,
       this.sourceMessageId,
-      this.providerProfileId});
+      this.providerProfileId,
+      this.external});
   final String? turnRequestId;
   final String? conversationId;
   final String? sourceMessageId;
   final String? providerProfileId;
+  final ExternalCapabilityAuthorization? external;
 }
 
 final class ExecutionReceipt {
@@ -157,7 +236,8 @@ final class ExecutionReceipt {
       required this.scope,
       required this.authorization,
       this.failure,
-      this.reconciliation});
+      this.reconciliation,
+      this.durableReconciliation});
   final String executionId;
   final CapabilityId capabilityId;
   final CapabilityExecutionStatus status;
@@ -169,6 +249,7 @@ final class ExecutionReceipt {
   final ConversationScope scope;
   final CapabilityAuthorizationReferences authorization;
   final TransientReconciliationReference? reconciliation;
+  final DurableStageReconciliationReference? durableReconciliation;
 
   ExecutionReceipt withFailure(CapabilityFailure code) => ExecutionReceipt(
       executionId: executionId,
@@ -179,7 +260,8 @@ final class ExecutionReceipt {
       scope: scope,
       authorization: authorization,
       failure: code,
-      reconciliation: reconciliation);
+      reconciliation: reconciliation,
+      durableReconciliation: durableReconciliation);
 }
 
 /// Evidence supplied by the owning handler/service, before egress/encoding.
@@ -189,12 +271,14 @@ final class CapabilityEvidence<O> {
       this.failure,
       required this.status,
       required this.effect,
-      this.reconciliation});
+      this.reconciliation,
+      this.durableReconciliation});
   final O? output;
   final CapabilityFailure? failure;
   final CapabilityExecutionStatus status;
   final CapabilityEffect? effect;
   final TransientReconciliationReference? reconciliation;
+  final DurableStageReconciliationReference? durableReconciliation;
   factory CapabilityEvidence.completed(O output, CapabilityEffect effect,
           {TransientReconciliationReference? reconciliation}) =>
       CapabilityEvidence(
@@ -221,12 +305,16 @@ final class CapabilityResult<O> {
 /// Only owning handlers record confirmed effects. Exceptions/timeouts never
 /// turn absence of evidence into proof of none.
 final class CapabilityExecutionEvidence {
+  CapabilityExecutionEvidence({this.onConfirmed});
+  final void Function(CapabilityEffect)? onConfirmed;
   CapabilityEffect? knownEffect;
   TransientReconciliationReference? reconciliation;
+  DurableStageReconciliationReference? durableReconciliation;
   void confirm(CapabilityEffect effect,
       {TransientReconciliationReference? reference}) {
     knownEffect = effect;
     reconciliation = reference;
+    onConfirmed?.call(effect);
   }
 }
 
@@ -335,14 +423,20 @@ final class CapabilityExecutor {
               turnRequestId: context.turnRequestId,
               conversationId: context.sourceConversationId,
               sourceMessageId: context.sourceMessageId,
-              providerProfileId: context.providerProfileId),
-          reconciliation: evidence.reconciliation);
+              providerProfileId: context.providerProfileId,
+              external: context._externalCall?.context.authorization),
+          reconciliation: evidence.reconciliation,
+          durableReconciliation: evidence.durableReconciliation);
 
   Future<CapabilityResult<O>> execute<I, O>(
       CapabilityId<I, O> id, I input, CapabilityContext context) async {
     final definition = registry.definition(id);
     if (definition == null) {
       return reject(id, context, CapabilityFailure.unknownCapability);
+    }
+    final externalInterruption = context._externalCall?.interruption;
+    if (externalInterruption != null) {
+      return reject(id, context, externalInterruption);
     }
     try {
       final admission = definition.admit?.call(input);
@@ -371,6 +465,10 @@ final class CapabilityExecutor {
     if (context.isCancelled?.call() ?? false) {
       return reject(id, context, CapabilityFailure.cancelled);
     }
+    final beforeHandlerInterruption = context._externalCall?.interruption;
+    if (beforeHandlerInterruption != null) {
+      return reject(id, context, beforeHandlerInterruption);
+    }
     if (context.deadline != null &&
         !DateTime.now().isBefore(context.deadline!)) {
       return reject(id, context, CapabilityFailure.deadlineExceeded);
@@ -387,7 +485,7 @@ final class CapabilityExecutor {
       evidence = await _bounded(() {
         handlerEntered = true;
         return definition.handler.invoke(input, context, confirmed);
-      }, context);
+      }, context, delegatedExternalHandler: true);
     } on _CapabilityInterrupted catch (error) {
       evidence = CapabilityEvidence(
           failure: error.failure,
@@ -396,13 +494,15 @@ final class CapabilityExecutor {
               : CapabilityExecutionStatus.notStarted,
           effect:
               handlerEntered ? confirmed.knownEffect : CapabilityEffect.none,
-          reconciliation: confirmed.reconciliation);
+          reconciliation: confirmed.reconciliation,
+          durableReconciliation: confirmed.durableReconciliation);
     } catch (_) {
       evidence = CapabilityEvidence(
           failure: CapabilityFailure.internalError,
           status: CapabilityExecutionStatus.outcomeUnknown,
           effect: confirmed.knownEffect,
-          reconciliation: confirmed.reconciliation);
+          reconciliation: confirmed.reconciliation,
+          durableReconciliation: confirmed.durableReconciliation);
     }
     if (evidence.effect != null &&
         !definition.permittedEffects.contains(evidence.effect)) {
@@ -415,7 +515,8 @@ final class CapabilityExecutor {
                   failure: CapabilityFailure.internalError,
                   status: CapabilityExecutionStatus.outcomeUnknown,
                   effect: evidence.effect,
-                  reconciliation: evidence.reconciliation)));
+                  reconciliation: evidence.reconciliation,
+                  durableReconciliation: evidence.durableReconciliation)));
     }
     final receipt = _receipt(id, context, evidence);
     final result = CapabilityResult<O>(
@@ -440,8 +541,12 @@ final class CapabilityExecutor {
     return result;
   }
 
-  Future<T> _bounded<T>(
-      Future<T> Function() action, CapabilityContext context) async {
+  Future<T> _bounded<T>(Future<T> Function() action, CapabilityContext context,
+      {bool delegatedExternalHandler = false}) async {
+    final externalInterruption = context._externalCall?.interruption;
+    if (externalInterruption != null) {
+      throw _CapabilityInterrupted(externalInterruption);
+    }
     if (context.isCancelled?.call() ?? false) {
       throw const _CapabilityInterrupted(CapabilityFailure.cancelled);
     }
@@ -466,6 +571,10 @@ final class CapabilityExecutor {
       }
       context.cancellationSignal
           ?.then((_) => interrupt(CapabilityFailure.cancelled));
+      if (!delegatedExternalHandler) {
+        context._externalCall?.control.interrupted
+            .then((failure) => interrupt(_externalInterruption(failure)!));
+      }
       return await Future.any([pending, interrupted.future]);
     } finally {
       settled = true;

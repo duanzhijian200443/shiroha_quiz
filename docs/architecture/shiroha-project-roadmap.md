@@ -184,15 +184,19 @@ external-agent-boundary §3, with scope-first Data keyset selection, strict type
 authority, shared safe projection and current-authority final release. Opaque
 QuestionRefs/cursors share P4's unchanged capacity and Context lifetime. Files,
 general external Principal, MCP vNext and Host/Transport stay outside this scope.
-P6 adds an unpublished implementation candidate for explicitly selected File
+P6 adds accepted unpublished Application/Data behavior (merged PR #255) for explicitly selected File
 Snapshots, RAG-1 lexical retrieval and bounded continuous safe Chunk passages.
 File egress independently requires current READ + fileContent + exact File
 Scope matching the selected Context Project, plus current verified F1 identity.
 Original P4/P5 empty file Contexts are never implicitly upgraded. P4's Registry,
 TTL/budgets and RAG-1's Chunker/Index/derived-cache effect authority are reused.
-P6 final-target CI, requested independent verification and semantic acceptance
-remain pending. General external Principal, MCP vNext and formal Host integration
-remain unimplemented;
+P6's required CI, independent verification and semantic review are accepted with
+its merged PR. P7 adds an unpublished implementation candidate for trusted external
+Capability execution and transient typed Receipts over P3-P6, with an exact-Session
+execution Context and unchanged original READ reference semantics. Current-target
+CI and independent review remain required. No business authorization/writer,
+schema, B0 format or Host authority is expanded. MCP vNext and formal Host
+integration remain unimplemented;
 real TCP/mTLS is unverified, Transport
 is BLOCKED and AR-R6A is NOT_ACCEPTED. HOST_STABILITY_HALT remains active.
 AR-R6B, AR-R7 and later implementation stages remain inactive.

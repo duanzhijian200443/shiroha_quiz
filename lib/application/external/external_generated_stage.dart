@@ -167,6 +167,7 @@ final class ExternalGeneratedStageService {
     required ExternalCallControl control,
     required bool Function() responseAvailable,
     String? externalRequestId,
+    void Function(CapabilityEffect)? onEffectConfirmed,
   }) {
     late final GeneratedStageInput input;
     try {
@@ -199,7 +200,9 @@ final class ExternalGeneratedStageService {
       }
       return _persistence.publishExternalStage(
           input, context, externalRequestId, control, confirmed);
-    });
+    }, onEffectConfirmed: onEffectConfirmed)
+        .then((result) =>
+            _withKey(result, session.principal.profileId, input.submissionKey));
   }
 
   /// Current authentication + original Profile/key, with no generation Context
@@ -210,6 +213,7 @@ final class ExternalGeneratedStageService {
     required String submissionKey,
     required ExternalCallControl control,
     required bool Function() responseAvailable,
+    void Function(CapabilityEffect)? onEffectConfirmed,
   }) =>
       _run(session, control, responseAvailable, (confirmed) async {
         generatedToken(submissionKey);
@@ -217,7 +221,44 @@ final class ExternalGeneratedStageService {
             _access(session), submissionKey);
         if (result != null) confirmed.confirm(CapabilityEffect.proposalStaged);
         return result;
-      });
+      }, onEffectConfirmed: onEffectConfirmed)
+          .then((result) =>
+              _withKey(result, session.principal.profileId, submissionKey));
+
+  ExternalStageResult _withKey(
+          ExternalStageResult result, String profileId, String submissionKey) =>
+      ExternalStageResult(
+          CapabilityEvidence(
+              output: result.output,
+              failure: result.evidence.failure,
+              status: result.status,
+              effect: result.effect,
+              durableReconciliation: DurableStageReconciliationReference(
+                  profileId: profileId, submissionKey: submissionKey)),
+          failure: result.failure,
+          interruption: result.interruption);
+
+  /// P7 admission delegates current scope/revision checks to this same owner.
+  Future<void> validateCapabilityContext(
+      ExternalSession session, ExternalStageContext context) async {
+    if (!identical(context.access._owner, this) ||
+        !identical(context.access.session, session)) {
+      generatedFail(GeneratedFailure.unauthorized);
+    }
+    context.validate();
+    final revision = await _persistence.authorizeStage(
+        context.access, context.target, context.evidence);
+    context.validate();
+    if (revision != context.grantRevision) {
+      generatedFail(GeneratedFailure.unauthorized);
+    }
+  }
+
+  Future<void> releaseCapabilityOutput(
+      ExternalSession session, ExternalStageSummary summary) async {
+    await _persistence.releaseExternalStage(_access(session), summary);
+    _validateSession(session);
+  }
 
   ExternalStageResult _rejected(GeneratedFailure failure) =>
       ExternalStageResult(
@@ -231,7 +272,8 @@ final class ExternalGeneratedStageService {
       ExternalCallControl control,
       bool Function() responseAvailable,
       Future<ExternalStageSummary?> Function(CapabilityExecutionEvidence)
-          handler) async {
+          handler,
+      {void Function(CapabilityEffect)? onEffectConfirmed}) async {
     try {
       _validateSession(session);
     } catch (_) {
@@ -251,7 +293,8 @@ final class ExternalGeneratedStageService {
     }
     if (pendingCount == 1) _idle = Completer<void>();
     _active[session] = (_active[session] ?? 0) + 1;
-    final confirmed = CapabilityExecutionEvidence();
+    final confirmed =
+        CapabilityExecutionEvidence(onConfirmed: onEffectConfirmed);
     final pending = () async {
       try {
         final output = await handler(confirmed);

@@ -7,7 +7,8 @@ AR-R6A P2 external historical Origin accepted in merged PR #249;
 P3 durable STAGE / reconciliation accepted in merged PR #250;
 P4 shared runtime admission / bounded READ Context accepted in merged PR #251;
 P5 Context-scoped Question search/detail accepted in merged PR #253;
-P6 explicit File Snapshot / lexical retrieval / passages IMPLEMENTATION CANDIDATE.**
+P6 explicit File Snapshot / lexical retrieval / passages accepted in merged PR #255;
+P7 trusted external Capability/Receipt integration IMPLEMENTATION CANDIDATE.**
 
 The Provider seam, typed capability/executor/projection path and Runtime split/
 transcript are delivered in the preceding merged stages. Historical AR-R3
@@ -44,8 +45,13 @@ Original P4/P5 File/Evidence snapshots remain empty. P6 adds separate explicitly
 selected File Contexts, RAG-1 lexical retrieval and continuous safe Chunk passage
 reads under independent current READ + fileContent + exact File/Project scope.
 It reuses P4 Registry/budgets and verified F1/Chunker/Index/derived-cache evidence;
-no transport, MCP or general Principal is wired. Final-target CI, explicitly
-requested independent verification and semantic review remain required for P6. External
+no transport, MCP or general Principal is wired in P6, accepted through merged
+PR #255 with its required independent verification and semantic review.
+P7 adds unpublished trusted external Principal/Kernel/Receipt integration under
+Application capabilities §7. Its exact-Session execution Context is separate
+from the unchanged P4-P6 Principal/generation-bound READ references. Existing
+services still own business authorization, budgets and transaction effects.
+Current-target CI and independent review remain required for P7. External
 Host/IPC, MCP vNext and READ fallback continuation remain unimplemented targets. Current product behavior
 continues under the existing capability contracts.
 

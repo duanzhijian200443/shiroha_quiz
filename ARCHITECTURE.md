@@ -159,12 +159,20 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
    safe final release. StudyQuery and P5 share stateless content projection,
    without changing MCP v0 search/permissions. External boundary §3 owns P5's
    whitelist and lifecycle; no Host, transport or general Principal is wired.
-   P6's unpublished File READ candidate creates separate explicit-file Contexts
+   P6's accepted unpublished File READ (merged PR #255) creates separate explicit-file Contexts
    under independent current READ/fileContent/exact File-Project authority.
    It reuses that Registry and verified F1/RAG Chunker/Index with final source
    and Grant revalidation. Derived-cache evidence remains distinct from READ
    permission and output release. Original P4/P5 empty file Contexts are preserved;
    no schema, parser, business writer or external publication is introduced.
+   P7's unpublished Application Kernel candidate adds a private, exact-Session
+   external execution Context, explicit READ/STAGE registry and transient typed
+   Receipt over those owning services. Original READ reference semantics remain
+   Principal/generation bound; STAGE remains precise-Session bound. Durable
+   reconciliation refers only to Proposal/original key. Existing Data transaction,
+   current authorization, limits and final egress authority are reused; no
+   transport, Host, credential adapter, formal COMMIT or new persistence is wired.
+   Application capabilities §7 and external boundary §3 own this integration.
    The generated schema is globally
    migrated and strictly validated independently of runtime module enablement.
    The v27 table records only
