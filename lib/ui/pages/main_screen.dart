@@ -1,6 +1,7 @@
 import '../../application/practice/study_session_launch.dart';
 import 'package:flutter/material.dart';
 import '../../application/agent/agent_config_service.dart';
+import '../../application/appearance/appearance_settings_service.dart';
 import '../../application/backup/backup_restore_coordinator.dart';
 import '../../application/agent/agent_turn.dart';
 import '../../application/conversations/conversation_service.dart';
@@ -38,6 +39,7 @@ class MainScreen extends StatefulWidget {
     required this.u1WorkspaceFacade,
     required this.conversationService,
     required this.agentSettingsService,
+    required this.appearanceSettings,
     required this.startAgentTurn,
     this.todayContextQuery,
     this.homeTraining,
@@ -63,6 +65,7 @@ class MainScreen extends StatefulWidget {
   final U1WorkspaceFacade u1WorkspaceFacade;
   final ConversationService conversationService;
   final AgentSettingsService agentSettingsService;
+  final AppearanceSettingsService appearanceSettings;
   final AgentTurnStarter startAgentTurn;
   final TodayContextQuery? todayContextQuery;
   final HomeTrainingDependencies? homeTraining;
@@ -212,6 +215,7 @@ class _MainScreenState extends State<MainScreen> {
         ),
       ), // Tab 1 — 助手
       ProfileScreen(
+        appearanceSettings: widget.appearanceSettings,
         aiConfigService: dependencies.aiConfigService,
         agentSettingsService: widget.agentSettingsService,
         backupRestore: widget.backupRestore,

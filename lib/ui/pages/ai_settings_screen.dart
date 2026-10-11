@@ -28,6 +28,8 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
     for (final slot in AiCapabilitySlot.values)
       slot: const _AiCapabilitySummary.loading(),
   };
+  _AiCapabilitySummary _agentSummary = const _AiCapabilitySummary.loading();
+  int _agentSummaryRequest = 0;
 
   @override
   void initState() {
@@ -36,7 +38,40 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
   }
 
   Future<void> _loadActiveSummary() async {
-    await Future.wait(AiCapabilitySlot.values.map(_loadCapabilitySummary));
+    await Future.wait(<Future<void>>[
+      ...AiCapabilitySlot.values.map(_loadCapabilitySummary),
+      _loadAgentSummary(),
+    ]);
+  }
+
+  Future<void> _loadAgentSummary() async {
+    final service = widget.agentSettingsService;
+    if (service == null) return;
+    final request = ++_agentSummaryRequest;
+    try {
+      final snapshot = await service.load();
+      if (!mounted || request != _agentSummaryRequest) return;
+      setState(() {
+        _agentSummary = _AiCapabilitySummary.loaded(
+          switch (snapshot.state) {
+            AgentSettingsState.unconfigured => null,
+            AgentSettingsState.ready => snapshot.selectedProfile?.displayName,
+            AgentSettingsState.profileUnavailable => '所选模型配置已不可用',
+          },
+        );
+      });
+    } catch (_) {
+      if (!mounted || request != _agentSummaryRequest) return;
+      setState(() {
+        _agentSummary = const _AiCapabilitySummary.failed();
+      });
+    }
+  }
+
+  String get _agentSubtitle {
+    if (_agentSummary.loading) return '正在读取…';
+    if (_agentSummary.failed) return '暂时无法读取 · 点击选择';
+    return _agentSummary.name ?? '尚未配置主模型';
   }
 
   Future<void> _loadCapabilitySummary(AiCapabilitySlot slot) async {
@@ -75,14 +110,16 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
   void _openAgentSettings() {
     final settingsService = widget.agentSettingsService;
     if (settingsService == null) return;
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => AgentSettingsScreen(
-          settingsService: settingsService,
-          onOpenProfileSettings: () => Navigator.of(context).pop(),
-        ),
-      ),
-    );
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute<void>(
+            builder: (_) => AgentSettingsScreen(
+              settingsService: settingsService,
+              onOpenProfileSettings: () => Navigator.of(context).pop(),
+            ),
+          ),
+        )
+        .then((_) => _loadAgentSummary());
   }
 
   void _openProviderSettings() {
@@ -105,22 +142,7 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
       appBar: AppBar(title: const Text('AI 服务')),
       body: ShirohaPageBody(
         children: <Widget>[
-          const ShirohaSectionLabel('基础配置'),
-          const SizedBox(height: 8),
-          ShirohaSettingsCard(
-            children: <Widget>[
-              _AiServiceRow(
-                key: const ValueKey<String>('ai-service-provider-row'),
-                icon: Icons.key_outlined,
-                title: 'API 提供商与模型',
-                subtitle: '管理 Provider、凭据与模型目录',
-                accentColor: theme.colorScheme.primary,
-                onTap: _openProviderSettings,
-              ),
-            ],
-          ),
-          const SizedBox(height: DesignTokens.sectionGap),
-          const ShirohaSectionLabel('能力配置'),
+          const ShirohaSectionLabel('AI 能力'),
           const SizedBox(height: 8),
           ShirohaSettingsCard(
             children: <Widget>[
@@ -153,34 +175,33 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                   AiCapabilitySlot.documentRecognition,
                 ),
               ),
-            ],
-          ),
-          if (widget.agentSettingsService != null) ...<Widget>[
-            const SizedBox(height: DesignTokens.sectionGap),
-            const ShirohaSectionLabel('Agent'),
-            const SizedBox(height: 8),
-            ShirohaSettingsCard(
-              children: <Widget>[
+              if (widget.agentSettingsService != null)
                 _AiServiceRow(
                   key: const ValueKey<String>(
                     'ai-service-agent-settings-row',
                   ),
                   icon: Icons.auto_awesome_outlined,
                   title: 'Shiroha Agent 设置',
-                  subtitle: '联网、温度、推理强度等',
+                  subtitle: _agentSubtitle,
                   accentColor: theme.colorScheme.secondary,
                   onTap: _openAgentSettings,
                 ),
-              ],
-            ),
-          ],
-          const SizedBox(height: 16),
-          Text(
-            '能力模型与 API 凭据分开管理；密钥不会显示在模型选择页面。',
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
+            ],
+          ),
+          const SizedBox(height: DesignTokens.sectionGap),
+          const ShirohaSectionLabel('模型资源管理'),
+          const SizedBox(height: 8),
+          ShirohaSettingsCard(
+            children: <Widget>[
+              _AiServiceRow(
+                key: const ValueKey<String>('ai-service-provider-row'),
+                icon: Icons.key_outlined,
+                title: 'API 提供商与模型',
+                subtitle: '管理 Provider、凭据与模型目录',
+                accentColor: theme.colorScheme.primary,
+                onTap: _openProviderSettings,
+              ),
+            ],
           ),
         ],
       ),

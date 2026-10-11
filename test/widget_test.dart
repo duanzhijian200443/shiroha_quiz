@@ -306,7 +306,13 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   });
 
-  for (final appearance in ['light', 'dark', 'colorful']) {
+  for (final appearance in [
+    ShirohaAppearance.light,
+    ShirohaAppearance.dark,
+    ShirohaAppearance.colorful,
+    ShirohaAppearance.paperLight,
+    ShirohaAppearance.paperLight.copyWith(mode: ShirohaDisplayMode.dark)
+  ]) {
     for (final window in [const Size(390, 1000), const Size(1200, 900)]) {
       testWidgets(
           'assistant reference colors $appearance width=${window.width}',
@@ -322,7 +328,7 @@ void main() {
         });
         globalThemeNotifier.value = appearance;
         addTearDown(() async {
-          globalThemeNotifier.value = 'light';
+          globalThemeNotifier.value = ShirohaAppearance.light;
           await DatabaseHelper.resetRuntimeProfileForTesting();
           databaseFactory = previousFactory;
         });
@@ -330,8 +336,12 @@ void main() {
         final nav = find.byType(BottomNavigationBar);
         await tester.tap(find.descendant(of: nav, matching: find.text('助手')));
         await drainBackgroundWork(tester);
-        final tokens =
-            AppTheme.getTheme(appearance).extension<ShirohaThemeTokens>()!;
+        final tokens = AppTheme.themeFor(
+                appearance,
+                appearance.mode == ShirohaDisplayMode.dark
+                    ? Brightness.dark
+                    : Brightness.light)
+            .extension<ShirohaThemeTokens>()!;
         final send = tester
             .widget<IconButton>(find.byKey(const ValueKey('u1-ux0-send')));
         expect(send.style!.backgroundColor!.resolve({}),
@@ -384,7 +394,7 @@ void main() {
       });
       globalThemeNotifier.value = appearance;
       addTearDown(() async {
-        globalThemeNotifier.value = 'light';
+        globalThemeNotifier.value = ShirohaAppearance.light;
         await DatabaseHelper.resetRuntimeProfileForTesting();
         databaseFactory = previousFactory;
       });
@@ -395,7 +405,11 @@ void main() {
         final navFinder = find.byType(BottomNavigationBar);
         final nav = tester.widget<BottomNavigationBar>(navFinder);
         expect(nav.items.map((item) => item.label), ['今日', '助手', '我的']);
-        final expected = AppTheme.getTheme(appearance);
+        final expected = AppTheme.themeFor(
+            appearance,
+            appearance.mode == ShirohaDisplayMode.dark
+                ? Brightness.dark
+                : Brightness.light);
         expect(nav.selectedItemColor, expected.colorScheme.primary);
         expect(nav.unselectedItemColor, expected.colorScheme.onSurfaceVariant);
         expect(
@@ -403,7 +417,7 @@ void main() {
                 .extension<ShirohaThemeTokens>()!
                 .appearance
                 .name,
-            appearance);
+            appearance.name);
         await tester.tap(find.descendant(
             of: navFinder, matching: find.text(['今日', '助手', '我的'][index])));
         await tester.pump();
@@ -433,6 +447,57 @@ void main() {
               tester, visualKey, 'navigation-$appearance');
         }
       }
+      await tester.pumpWidget(const SizedBox());
+      await drainBackgroundWork(tester);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final style in [ShirohaThemeStyle.paper, ShirohaThemeStyle.grayscale]) {
+    testWidgets(
+        '$style system mode responds to platform brightness in the real app',
+        (tester) async {
+      final previousFactory = databaseFactory;
+      await tester.runAsync(() async {
+        databaseFactory = databaseFactoryFfiNoIsolate;
+        await DatabaseHelper.resetRuntimeProfileForTesting();
+        DatabaseHelper.configureRuntimeProfile(
+            DatabaseRuntimeProfile.isolatedSmokeInMemory);
+        await DatabaseHelper.instance.database;
+      });
+      final preference =
+          ShirohaAppearance(style: style, mode: ShirohaDisplayMode.system);
+      globalThemeNotifier.value = preference;
+      tester.platformDispatcher.platformBrightnessTestValue = Brightness.light;
+      addTearDown(() async {
+        tester.platformDispatcher.clearPlatformBrightnessTestValue();
+        globalThemeNotifier.value = ShirohaAppearance.light;
+        await DatabaseHelper.resetRuntimeProfileForTesting();
+        databaseFactory = previousFactory;
+      });
+      await pumpApp(tester, const Size(390, 1200));
+      for (final brightness in [
+        Brightness.light,
+        Brightness.dark,
+        Brightness.light
+      ]) {
+        tester.platformDispatcher.platformBrightnessTestValue = brightness;
+        await tester.pumpAndSettle();
+        final theme =
+            Theme.of(tester.element(find.byType(BottomNavigationBar)));
+        expect(theme.brightness, brightness);
+        expect(theme.extension<ShirohaThemeTokens>()!.style, style);
+        expect(theme.extension<ShirohaThemeTokens>()!.brightness, brightness);
+        expect(globalThemeNotifier.value, preference);
+      }
+      // An explicit mode ignores further operating-system changes.
+      globalThemeNotifier.value =
+          preference.copyWith(mode: ShirohaDisplayMode.light);
+      tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+      await tester.pumpAndSettle();
+      expect(
+          Theme.of(tester.element(find.byType(BottomNavigationBar))).brightness,
+          Brightness.light);
       await tester.pumpWidget(const SizedBox());
       await drainBackgroundWork(tester);
       expect(tester.takeException(), isNull);

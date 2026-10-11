@@ -214,6 +214,11 @@ final class BackupSnapshotRepository {
         where: 'key = ?',
         whereArgs: <Object?>['app_theme'],
       );
+      await db.delete(
+        'app_settings',
+        where: 'key = ?',
+        whereArgs: <Object?>['app_appearance'],
+      );
     }
   }
 

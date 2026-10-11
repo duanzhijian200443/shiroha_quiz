@@ -2,15 +2,14 @@ import 'package:flutter/material.dart';
 
 import '../../application/agent/agent_config_service.dart';
 import '../../application/ai_config/ai_config_service.dart';
+import '../../application/appearance/appearance_settings_service.dart';
 import '../../application/backup/backup_restore_coordinator.dart';
 import '../../data/repositories/question_repository.dart';
-import '../../data/repositories/settings_repository.dart';
 import '../../main.dart';
 import 'backup/backup_restore_screen.dart';
 import 'ai_settings_screen.dart';
 import 'wrong_book_page.dart';
 import '../theme/design_tokens.dart';
-import '../theme/app_theme.dart';
 import '../theme/shiroha_theme_tokens.dart';
 
 typedef ProfileHeatmapLoader = Future<Map<DateTime, int>> Function();
@@ -24,7 +23,7 @@ class ProfileScreen extends StatefulWidget {
     this.backupRestore,
     this.onRestoreCompleted,
     this.onOpenFileLibrary,
-    this.appearanceSettings,
+    required this.appearanceSettings,
   });
 
   final AiConfigPresentationService aiConfigService;
@@ -33,7 +32,7 @@ class ProfileScreen extends StatefulWidget {
   final BackupRestoreCoordinator? backupRestore;
   final VoidCallback? onRestoreCompleted;
   final VoidCallback? onOpenFileLibrary;
-  final SettingsRepository? appearanceSettings;
+  final AppearanceSettingsService appearanceSettings;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -91,18 +90,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  Future<void> _setTheme(String themeName) async {
-    themeName = AppTheme.normalizeName(themeName);
-    if (_themeSaving.value || themeName == globalThemeNotifier.value) return;
+  Future<void> _setTheme(ShirohaAppearance appearance) async {
+    if (_themeSaving.value || appearance == globalThemeNotifier.value) return;
     final previous = globalThemeNotifier.value;
-    final settings = widget.appearanceSettings ?? SettingsRepository.instance;
+    final settings = widget.appearanceSettings;
     _themeSaving.value = true;
-    globalThemeNotifier.value = themeName;
+    globalThemeNotifier.value = appearance;
     try {
-      await settings.setAppTheme(themeName);
+      await settings.save(appearance);
     } catch (_) {
-      // The existing repository caches before writing. Invalidate on failure.
-      settings.clearCache();
       globalThemeNotifier.value = previous;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -114,45 +110,80 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  String _themeLabel(String value) => switch (AppTheme.normalizeName(value)) {
-        'dark' => '深色',
-        'colorful' => '彩色',
-        _ => '浅色',
+  String _styleLabel(ShirohaThemeStyle value) => switch (value) {
+        ShirohaThemeStyle.paper => '现代纸页',
+        ShirohaThemeStyle.grayscale => '灰阶',
+        ShirohaThemeStyle.colorful => '彩色（历史兼容）',
       };
+
+  String _modeLabel(ShirohaDisplayMode value) => switch (value) {
+        ShirohaDisplayMode.light => '浅色',
+        ShirohaDisplayMode.dark => '深色',
+        ShirohaDisplayMode.system => '跟随系统',
+      };
+
+  String _themeLabel(ShirohaAppearance value) =>
+      '${_styleLabel(value.style)} · ${_modeLabel(value.mode)}';
+
+  Widget _appearanceOption(
+          {required String key,
+          required String label,
+          required bool selected,
+          required ShirohaAppearance next}) =>
+      Semantics(
+        checked: selected,
+        inMutuallyExclusiveGroup: true,
+        child: ListTile(
+          key: ValueKey(key),
+          title: Text(label),
+          selected: selected,
+          enabled: !_themeSaving.value,
+          trailing: Icon(selected
+              ? Icons.radio_button_checked
+              : Icons.radio_button_unchecked),
+          onTap: _themeSaving.value ? null : () => _setTheme(next),
+        ),
+      );
 
   void _showAppearance() {
     showModalBottomSheet<void>(
       context: context,
       useSafeArea: true,
+      isScrollControlled: true,
       builder: (context) => AnimatedBuilder(
         animation: Listenable.merge([globalThemeNotifier, _themeSaving]),
         builder: (context, _) => SafeArea(
           top: false,
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(_themeSaving.value ? '正在保存外观…' : '外观设置',
-                  style: Theme.of(context).textTheme.titleMedium),
-            ),
-            for (final name in ['light', 'dark', 'colorful'])
-              Semantics(
-                checked:
-                    AppTheme.normalizeName(globalThemeNotifier.value) == name,
-                inMutuallyExclusiveGroup: true,
-                child: ListTile(
-                  key: ValueKey('appearance-option-$name'),
-                  title: Text(_themeLabel(name)),
-                  selected:
-                      AppTheme.normalizeName(globalThemeNotifier.value) == name,
-                  enabled: !_themeSaving.value,
-                  trailing: Icon(
-                      AppTheme.normalizeName(globalThemeNotifier.value) == name
-                          ? Icons.radio_button_checked
-                          : Icons.radio_button_unchecked),
-                  onTap: _themeSaving.value ? null : () => _setTheme(name),
+          child: ConstrainedBox(
+              constraints: BoxConstraints(
+                  maxHeight: MediaQuery.sizeOf(context).height * .85),
+              child: SingleChildScrollView(
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(_themeSaving.value ? '正在保存外观…' : '外观设置',
+                      style: Theme.of(context).textTheme.titleMedium),
                 ),
-              ),
-          ]),
+                const ListTile(title: Text('主题风格')),
+                for (final style in ShirohaThemeStyle.values)
+                  _appearanceOption(
+                    key: 'appearance-style-${style.name}',
+                    label: _styleLabel(style),
+                    selected: globalThemeNotifier.value.style == style,
+                    next: globalThemeNotifier.value.copyWith(style: style),
+                  ),
+                const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: Text('现代纸页为可选外观，选择后即时预览；默认外观仍为灰阶。')),
+                const ListTile(title: Text('显示模式')),
+                for (final mode in ShirohaDisplayMode.values)
+                  _appearanceOption(
+                    key: 'appearance-mode-${mode.name}',
+                    label: _modeLabel(mode),
+                    selected: globalThemeNotifier.value.mode == mode,
+                    next: globalThemeNotifier.value.copyWith(mode: mode),
+                  ),
+              ]))),
         ),
       ),
     );
@@ -384,7 +415,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 const SizedBox(height: DesignTokens.sectionGap),
                 const _SectionTitle('设置与数据'),
                 const SizedBox(height: 8),
-                ValueListenableBuilder<String>(
+                ValueListenableBuilder<ShirohaAppearance>(
                   valueListenable: globalThemeNotifier,
                   builder: (context, currentTheme, _) {
                     return _SettingsCard(

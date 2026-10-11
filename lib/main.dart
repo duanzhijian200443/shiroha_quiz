@@ -148,11 +148,19 @@ import 'ui/pages/backup/backup_restore_screen.dart';
 import 'ui/pages/home_page.dart';
 import 'ui/pages/import_staging_screen.dart';
 import 'ui/theme/app_theme.dart';
+import 'ui/theme/shiroha_theme_tokens.dart';
+import 'application/appearance/appearance_settings_service.dart';
 import 'ui/pages/main_screen.dart';
 import 'ui/widgets/structured_content_renderer.dart';
 import 'package:flutter_tex/flutter_tex.dart';
 
-final ValueNotifier<String> globalThemeNotifier = ValueNotifier('light');
+final ValueNotifier<ShirohaAppearance> globalThemeNotifier =
+    ValueNotifier(ShirohaAppearance.light);
+// Enable only in the separately authorized, visually accepted rollout stage.
+const paperDefaultEnabled = false;
+final appearanceSettingsService = AppearanceSettingsService(
+    SettingsRepository.instance,
+    paperDefaultEnabled: paperDefaultEnabled);
 // 核心新增：全局消息总线钥匙，用于跨页面/后台任务弹窗
 final GlobalKey<ScaffoldMessengerState> rootScaffoldMessengerKey =
     GlobalKey<ScaffoldMessengerState>();
@@ -758,11 +766,10 @@ void main() {
         );
 
         try {
-          final savedTheme = await SettingsRepository.instance.getAppTheme();
-          globalThemeNotifier.value = AppTheme.normalizeName(savedTheme);
+          globalThemeNotifier.value = await appearanceSettingsService.load();
         } catch (_) {
           SettingsRepository.instance.clearCache();
-          globalThemeNotifier.value = 'light';
+          globalThemeNotifier.value = ShirohaAppearance.light;
           AppLogger.warning('Appearance setting unavailable; using light',
               module: 'Application');
         }
@@ -984,7 +991,7 @@ class ShirohaQuizApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<String>(
+    return ValueListenableBuilder<ShirohaAppearance>(
       valueListenable: globalThemeNotifier,
       builder: (context, themeName, _) {
         final materialApp = MaterialApp(
@@ -992,8 +999,11 @@ class ShirohaQuizApp extends StatelessWidget {
           navigatorKey: globalNavigatorKey, // 核心新增：挂载全局路由引擎
           scaffoldMessengerKey: rootScaffoldMessengerKey, // 挂载全局钥匙
           debugShowCheckedModeBanner: false,
-          theme: AppTheme.getTheme(themeName),
+          theme: AppTheme.themeFor(themeName, Brightness.light),
+          darkTheme: AppTheme.themeFor(themeName, Brightness.dark),
+          themeMode: AppTheme.themeMode(themeName),
           home: MainScreen(
+            appearanceSettings: appearanceSettingsService,
             taskCenter: taskCenter ??
                 createTaskCenterDependencies(
                     manager: TaskManager.instance,
@@ -1152,6 +1162,7 @@ class _SplashScreenState extends State<SplashScreen> {
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
         builder: (_) => MainScreen(
+          appearanceSettings: appearanceSettingsService,
           homeTraining: _createHomeTrainingDependencies(),
           u1WorkspaceFacade: widget.u1WorkspaceFacade,
           conversationService: widget.conversationService,
