@@ -28,12 +28,19 @@ is needed. get_question_draft/list_pending_proposals are excluded from MVP;
 external clients do not edit the local review copy and can reconcile by key.
 No W0/SPL external staging, commit, delete, OCR activation or arbitrary file path.
 
-P4 is accepted in merged PR #251; P5 adds an unpublished Application-only
+P4 is accepted in merged PR #251; P5's accepted unpublished Application-only
 Question READ foundation under external-agent-boundary §3. Future search/detail
 projections must carry its Context-bound QuestionRefs/cursors, current READ +
 questionContent + exact Scope and final release checks, never raw storage ids or
-MCP v0's unscoped entry. P5 publishes no tools or wire schema; File/Evidence
-snapshots remain empty. That focused external contract owns these semantics.
+MCP v0's unscoped entry. P5 (merged PR #253) publishes no tools or wire schema;
+its original File/Evidence snapshots remain empty. P6's unpublished Application
+candidate creates separate explicit File Contexts and bounded lexical/passage
+reads using current READ + fileContent + exact File/Project scope, current F1
+generation and final release checks. Future projections must carry its random
+File selection/Passage/cursor references, safe coverage/exclusion metadata and
+real derived-cache execution evidence; no raw IDs or request-supplied scope.
+No new tool or wire schema is published. That focused external contract §3 owns
+the candidate interfaces, budgets and lifecycle semantics.
 
 Both retrieval and passage read current verified SourceDocument through
 Application. No raw managed originals, URLs, binaries, diagnostics or unsafe

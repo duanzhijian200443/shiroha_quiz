@@ -106,6 +106,24 @@ surface remain unchanged; MCP retrieval is deferred to MCP v1.
 
 ## 6. Explicit deferrals
 
+### AR-R6A P6 external consumer amendment (unpublished candidate)
+
+The independent external recipient authority is owned by
+`../product/agent-refactor/external-agent-boundary.md` §3. P6 consumes the same
+RetrievalService, deterministic Chunker and SQLite Index, constructing only
+`RetrievalFilesScope` from explicitly approved current File/generation snapshots.
+Its read-current-only F1 adapter does not use Built-in lazy artifact provisioning.
+The optional `validateAccess` consumer checkpoint revalidates across source/index
+awaits; existing Built-in calls omit it and retain their per-turn Provider grant.
+External release additionally verifies current F1 payload/projection and exact
+File/Project Grant. Local Index identities and cache content alone never authorize
+external output. P6 projects a narrower whitelist with opaque Passage references
+and bounded continuous Chunk reads, rather than exposing internal RAG identities.
+No second Parser/Chunker/Index, schema, cache table or business writer is added.
+Index transaction evidence continues to distinguish unchanged, committed derived
+cache and unconfirmed effect; cancellation or lost response never proves none.
+MCP v0 remains six tools and P6 publishes no external projection.
+
 RAG-1 excludes embeddings, vector databases, hybrid/reranked search, query
 rewrite, GraphRAG, Agent memory, Web crawling/RAG, whole-library retrieval,
 Question Store or answer-candidate indexing, MCP retrieval, RAG-specific UI,

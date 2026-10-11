@@ -197,9 +197,10 @@ separate debt. General ExternalPrincipal integration must be a separately
 scoped trusted admission interface with explicit current-authorization and
 receipt/projection impact review; `mcpStudyV0` is never an external identity.
 
-### P5 Context-scoped Question READ candidate
+### P5 Context-scoped Question READ (accepted scope)
 
-P5 is an unpublished Application/Data implementation candidate. The existing
+P5 is accepted through merged PR #253 within its unpublished Application/Data
+scope. The existing
 `ExternalReadContextService` adds `searchQuestions` and `getQuestionDetail`;
 both require an authenticated Session and this Registry's READ Context. There
 is no new identity map, pairing state machine, Grant manager or Registry. Current
@@ -281,8 +282,108 @@ close/drain obligation. QuestionRefs, cursor/query state and Contexts are never
 persisted or logged. SQLite remains v34, B0 remains v2; Profile/Grant SCRUB and
 Proposal/Origin INCLUDE are unchanged. P3 StageContext, atomic publication/revoke,
 key/fingerprint, narrow STAGE-only reconciliation and local Review/COMMIT are
-unchanged. Future file/passages, external principal/kernel integration and real
-Host/transport remain separate work.
+unchanged. P6 below adds only bounded file/passages; external principal/kernel
+integration and real Host/transport remain separate work.
+
+### P6 explicit File Snapshot, lexical retrieval and passages (candidate)
+
+P6 is an unpublished Application/Data implementation candidate, with no Host,
+transport, MCP registration, UI, credential implementation or general external
+CapabilityPrincipal. It reuses P4 runtime admission and the same Registry.
+Existing P4/P5 Contexts keep empty file snapshots. `listFileSelections` constructs
+App-owned choices from the authenticated Profile's current explicit File scopes
+whose nullable Project equals the selected Context's exact Learning Space.
+READ + fileContent, current Grant revision/recipient, file existence and current
+Project/file relations are required independently of the parent bank authority.
+Bank/questionContent and Project membership never grant file access.
+
+Choices contain only random `fileRef` and `selectionOrdinal`; they disclose no
+File/Artifact/storage identity. A selection is not a body-read credential.
+`createFileContext` accepts only these Registry-minted references bound to the
+exact Principal and parent Context. It verifies current F1 payloads and creates
+a separate Context with an immutable selected-file snapshot. It does not modify
+or renew the original Context. Each internal tuple records File ID, Artifact ID,
+revision and payload digest, bound through its owning Context to exact Project,
+Principal, Grant revision, creation time and expiry. Both new Context and all
+descendants expire at the original Context's deadline. Choices are bounded to
+64; missing/unready eligible Artifacts return fixed `sourceNotReady`, with no
+whole-Project fallback or automatic parse. A new selection can only narrow the
+current exact Grant; no second file authorization store is introduced.
+
+Data reuses `requireExternalGrant` and the existing SQLite authority. It checks
+the parent bank/Folder/Project relation, then only selected exact File scopes,
+current file/source digests and Artifact tuples. The private-constructor
+Context proof (`ExternalQuestionReadAccess`, reused as runtime/Context proof)
+does not prove file permission; that independent Data transaction is mandatory.
+`ExternalVerifiedArtifactSource` calls only F1 `getCurrentArtifact`, checks
+metadata before/after verified load, and never calls ensure/reparse, reads raw
+originals or accepts request paths. No Built-in Provider per-turn grant is used
+as an external recipient grant.
+
+`retrieveFileContent` internally constructs `RetrievalFilesScope` exclusively
+from the approved snapshot. It calls the existing `RetrievalService` with
+lexicalV1, the same Chunker/SQLite Index/FTS5, deterministic English/CJK token
+rules, quoted parameterized MATCH and BM25/tie-breaks. Optional consumer checks
+run across source/index awaits without changing Built-in retrieval behavior.
+Every hit is matched back to the exact current verified Chunk projection; cache
+content or provenance alone is never egress authority. Snapshot/source/Grant are
+checked before retrieval, after results, and again at final release. Corrupt or
+changed sources fail the complete external call rather than returning an older
+Index or another generation. Query scalars/tokens/files/hits remain 200/32/64/20;
+RAG's 6,000-byte hit and 24,000-byte result limits remain in force.
+
+Search hit keys are exactly `passageRef`, `content`, `contentKind`, `locator`,
+`chunkOrdinal`, `partOrdinal`, `windowOrdinal`, nullable `pageNumber`. Locator
+is recomputed from verified part/window ordinals; no raw SourceRef JSON, block
+id, File/Artifact/Chunk ID, title, heading, path, image bytes or storage key is
+serialized. File pages have exactly `items`, nullable `nextCursor`, `hasMore`,
+`unsupportedExcluded`, `startsAtDocumentBeginning`. Search pages have no search
+continuation and do not assert document coverage. A finite ranked hit set never
+means the complete document was read.
+
+`getFilePassage` requires Session, original file Context and a search-minted
+`passageRef`. Its optional cursor additionally binds the exact anchor reference,
+parent Context, file generation and next safe Chunk ordinal. It returns at most
+eight complete existing RAG Chunks in actual SourcePart/window order, starting
+at the hit (or continuation). The response shrinks at complete Chunk boundaries
+to at most 24,000 UTF-8 bytes including JSON/cursor, also honoring a lower P4
+response budget. Math-bearing parts that require multiple Chunk windows fail
+safely rather than releasing a split formula. Unsupported/RawFallback content
+is excluded by the existing projection and reported explicitly. `hasMore` means
+remaining safe Chunks after this page; `startsAtDocumentBeginning` distinguishes
+a first-Chunk read from a middle-document hit. Excluded structure never becomes
+readable via continuation, and exhaustion does not claim unsupported content
+or earlier Chunks were read.
+
+Selections, file Contexts, PassageRefs and cursors all count against P4's
+unchanged 256/160 references and 64/16 Contexts. Failed/unreleased allocations
+are removed. P4's 16/4 pending calls and two-second timeout remain shared with
+Question/Target reads. Cancellation/deadline suppresses output and retains the
+slot until real settlement. RAG index ensureBuild may write only the existing
+derived cache under B0 mutation lease and Index transaction authority. Successful
+pages carry internal `RetrievalExecutionEvidence` (not a wire field); fixed
+`ExternalFileReadException` failures carry the same evidence. Before build entry
+none is known; confirmed commits report derivedCache; unconfirmed/lost build
+responses remain unknown. An interrupted in-flight build can settle later, so
+the evidence remains live until `whenIdle`. No fake ExecutionReceipt, business
+writer, second cache table, schema upgrade or mcpStudyV0 identity exists.
+
+Final release re-verifies F1 integrity and then current SQLite policy/tuples,
+followed by synchronous Context/runtime/control checks before output. Revoke,
+revision narrowing, Project detach, digest/generation drift, delete/replacement,
+expiry and corruption deny stale output. Shared close/drain before real B0
+Restore or raw rollback clears every dependent Registry entry; restart requires
+fresh authentication/selection. All references/snapshots/cursors remain
+EXCLUDED; Profile/Grant SCRUB, Proposal/Origin INCLUDE, schema v34 and B0 v2
+remain unchanged. P3 STAGE-only reconciliation, P4 target whitelist, P5 exact
+typed Question authority and MCP v0's six tools retain their own semantics.
+
+Deterministic candidate tests use synthetic credential proof, injectable clock,
+real temporary SQLite, real F1 sidecars/lifecycle and the production Chunker/
+Index. Checkpoints exercise policy/source drift after actual FTS results,
+unknown versus confirmed cache effects, interruption/slot retention and actual
+database restart plus B0 Restore/raw rollback. Candidate mechanical success is
+not independent semantic approval; HOST_STABILITY_HALT remains ACTIVE.
 
 ## 4. Stage reconciliation, cancellation and revoke
 

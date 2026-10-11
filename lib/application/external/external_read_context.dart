@@ -6,8 +6,14 @@ import '../../domain/generated_question/generated_question_contract.dart';
 import 'external_authorization.dart';
 import 'external_invocation_core.dart';
 import 'external_question_read.dart';
+import 'external_file_read.dart';
+import '../retrieval/retrieval.dart';
+import '../retrieval/retrieval_ports.dart';
+import '../../domain/retrieval/retrieval_chunk.dart';
 import 'external_runtime_admission.dart';
 import 'external_trust_core.dart';
+
+part 'external_file_context.dart';
 
 enum ExternalReadFailure {
   denied,
@@ -17,7 +23,8 @@ enum ExternalReadFailure {
   deadlineExceeded,
   unavailable,
   invalidRequest,
-  dataCorrupt
+  dataCorrupt,
+  sourceNotReady
 }
 
 final class ExternalReadException implements Exception {
@@ -90,7 +97,16 @@ final class ExternalTargetPage {
 
 enum ExternalReadValidity { authorized, invalid, unavailable }
 
-enum _HandleKind { target, cursor, context, question, questionCursor }
+enum _HandleKind {
+  target,
+  cursor,
+  context,
+  question,
+  questionCursor,
+  fileSelection,
+  passage,
+  passageCursor
+}
 
 final class _Handle {
   _Handle(this.kind, this.access, this.snapshot, this.createdAt, this.expiresAt,
@@ -98,7 +114,11 @@ final class _Handle {
       this.offset = 0,
       this.parentContext,
       this.questionKey,
-      this.query});
+      this.query,
+      this.files = const [],
+      this.file,
+      this.chunkId,
+      this.anchor});
   final _HandleKind kind;
   final ExternalRuntimeAccess access;
   final ExternalReadSnapshot snapshot;
@@ -108,10 +128,12 @@ final class _Handle {
   final _Handle? parentContext;
   final ExternalQuestionKey? questionKey;
   final String? query;
-  // This candidate authorizes no source files/evidence. Empty is intentional;
-  // future source reads must add their own current file scope/Egress checks.
+  final List<RetrievalArtifactSnapshot> files;
+  final RetrievalArtifactSnapshot? file;
+  final String? chunkId;
+  final _Handle? anchor;
+  // Evidence for generated STAGE remains separate from File READ snapshots.
   final List<GeneratedEvidence> approvedEvidence = const [];
-  final Set<String> approvedFileIds = const {};
 }
 
 /// Context-minted Data proof; no public constructor or wire decoder. Current
@@ -141,6 +163,7 @@ final class ExternalReadContextService {
     required this.admission,
     required ExternalTargetReadPort targets,
     ExternalQuestionReadPort? questions,
+    ExternalFileReader? files,
     this.maxActiveHandles = 256,
     this.maxHandlesPerProfile = 160,
     this.maxContexts = 64,
@@ -151,7 +174,8 @@ final class ExternalReadContextService {
     this.maxQueryDuration = const Duration(seconds: 2),
     this.contextLifetime = const Duration(minutes: 15),
   })  : _targets = targets,
-        _questions = questions {
+        _questions = questions,
+        _files = files {
     if ([
           maxActiveHandles,
           maxHandlesPerProfile,
@@ -167,7 +191,7 @@ final class ExternalReadContextService {
         contextLifetime > const Duration(minutes: 15)) {
       throw ArgumentError('Invalid READ candidate bounds');
     }
-    if (questions != null &&
+    if ((questions != null || files != null) &&
         (maxActiveHandles > 256 ||
             maxHandlesPerProfile > 160 ||
             maxContexts > 64 ||
@@ -184,6 +208,7 @@ final class ExternalReadContextService {
   final ExternalRuntimeAdmission admission;
   final ExternalTargetReadPort _targets;
   final ExternalQuestionReadPort? _questions;
+  final ExternalFileReader? _files;
   final int maxActiveHandles,
       maxHandlesPerProfile,
       maxContexts,
