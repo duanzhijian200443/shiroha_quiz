@@ -165,14 +165,19 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
    and Grant revalidation. Derived-cache evidence remains distinct from READ
    permission and output release. Original P4/P5 empty file Contexts are preserved;
    no schema, parser, business writer or external publication is introduced.
-   P7's unpublished Application Kernel candidate adds a private, exact-Session
-   external execution Context, explicit READ/STAGE registry and transient typed
+   P7's accepted unpublished Application Kernel (merged PR #256) adds a private,
+   exact-Session external execution Context, explicit READ/STAGE registry and transient typed
    Receipt over those owning services. Original READ reference semantics remain
    Principal/generation bound; STAGE remains precise-Session bound. Durable
    reconciliation refers only to Proposal/original key. Existing Data transaction,
    current authorization, limits and final egress authority are reused; no
    transport, Host, credential adapter, formal COMMIT or new persistence is wired.
    Application capabilities §7 and external boundary §3 own this integration.
+   P8 adds an unpublished offline LocalHostDispatchCore candidate under external
+   boundary §3: trusted readiness and private Session entry, exact ten typed P7
+   routes, original result/effect evidence and real close/drain before replacement.
+   No default composition, listener, credential/transport adapter or MCP publication
+   is wired. HOST_STABILITY_HALT stays ACTIVE; transport remains unverified.
    The generated schema is globally
    migrated and strictly validated independently of runtime module enablement.
    The v27 table records only

@@ -191,10 +191,12 @@ Scope matching the selected Context Project, plus current verified F1 identity.
 Original P4/P5 empty file Contexts are never implicitly upgraded. P4's Registry,
 TTL/budgets and RAG-1's Chunker/Index/derived-cache effect authority are reused.
 P6's required CI, independent verification and semantic review are accepted with
-its merged PR. P7 adds an unpublished implementation candidate for trusted external
+its merged PR. P7 adds accepted unpublished behavior (merged PR #256) for trusted external
 Capability execution and transient typed Receipts over P3-P6, with an exact-Session
-execution Context and unchanged original READ reference semantics. Current-target
-CI and independent review remain required. No business authorization/writer,
+execution Context and unchanged original READ reference semantics. P8 adds an
+unpublished offline Host dispatch candidate with trusted readiness/Session entries,
+ten typed P7 routes and close/drain before runtime replacement; current-target CI
+and independent review remain required for P8. No business authorization/writer,
 schema, B0 format or Host authority is expanded. MCP vNext and formal Host
 integration remain unimplemented;
 real TCP/mTLS is unverified, Transport
