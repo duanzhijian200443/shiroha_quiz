@@ -179,6 +179,16 @@ void main() {
       ]) {
         expect(contrast(pair.$1, pair.$2), greaterThanOrEqualTo(4.5));
       }
+      // Boundary visibility floors: settings-card borders (outlineVariant),
+      // neutral input/label fills and control outlines (outline) must stay
+      // distinct from the Paper canvas and card surfaces.
+      expect(contrast(colors.outlineVariant, tokens.canvas),
+          greaterThanOrEqualTo(1.15));
+      expect(contrast(colors.outlineVariant, colors.surface),
+          greaterThanOrEqualTo(1.2));
+      expect(contrast(colors.surfaceContainerHighest, colors.surface),
+          greaterThanOrEqualTo(1.1));
+      expect(contrast(colors.outline, colors.surface), greaterThanOrEqualTo(3));
       expect(theme.cardTheme.color, tokens.surface);
       expect(theme.appBarTheme.backgroundColor, tokens.canvas);
       expect(theme.bottomNavigationBarTheme.selectedItemColor,

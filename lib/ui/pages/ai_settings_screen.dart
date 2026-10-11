@@ -29,6 +29,7 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
       slot: const _AiCapabilitySummary.loading(),
   };
   _AiCapabilitySummary _agentSummary = const _AiCapabilitySummary.loading();
+  int _agentSummaryRequest = 0;
 
   @override
   void initState() {
@@ -46,9 +47,10 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
   Future<void> _loadAgentSummary() async {
     final service = widget.agentSettingsService;
     if (service == null) return;
+    final request = ++_agentSummaryRequest;
     try {
       final snapshot = await service.load();
-      if (!mounted) return;
+      if (!mounted || request != _agentSummaryRequest) return;
       setState(() {
         _agentSummary = _AiCapabilitySummary.loaded(
           switch (snapshot.state) {
@@ -59,7 +61,7 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
         );
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || request != _agentSummaryRequest) return;
       setState(() {
         _agentSummary = const _AiCapabilitySummary.failed();
       });
