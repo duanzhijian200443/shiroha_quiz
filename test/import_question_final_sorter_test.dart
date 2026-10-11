@@ -178,7 +178,7 @@ void main() {
     });
 
     test('does not throw on bad originalIndices', () {
-      final metaWithIndices = (List<dynamic> indices) => {
+      Map<String, Object> metaWithIndices(List<dynamic> indices) => {
             'source': 'vision',
             'sources': ['vision'],
             'fragmentKinds': ['fullQuestion'],

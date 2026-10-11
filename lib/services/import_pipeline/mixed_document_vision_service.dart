@@ -20,11 +20,7 @@ class MixedDocumentVisionService {
   final Future<List<Map<String, dynamic>>> Function(List<String> imagePaths)
       parseImages;
 
-  MixedDocumentVisionService({
-    required Future<List<Map<String, dynamic>>> Function(
-      List<String> imagePaths,
-    ) parseImages,
-  }) : parseImages = parseImages;
+  MixedDocumentVisionService({required this.parseImages});
 
   Future<MixedVisionResult> process(ParsedDocument document) async {
     final diagnostics = <String>[];

@@ -22,7 +22,7 @@ class VisionImportQualitySummary {
     total: 0,
     riskyCount: 0,
     lowQualityFileCount: 0,
-    issueCounts: const {},
+    issueCounts: {},
   );
 
   Map<String, dynamic> toDiagnostics() {
