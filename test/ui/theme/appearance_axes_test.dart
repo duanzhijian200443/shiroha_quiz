@@ -40,18 +40,31 @@ void main() {
         ));
         expect(local.extension<ShirohaThemeTokens>(), tokens);
         expect(local.colorScheme, theme.colorScheme);
-        final compatibility = style == ShirohaThemeStyle.colorful &&
-                brightness == Brightness.light
-            ? AppTheme.colorfulTheme
-            : brightness == Brightness.dark
-                ? AppTheme.darkTheme
-                : AppTheme.lightTheme;
-        expect(theme.colorScheme, compatibility.colorScheme);
-        expect(
-            tokens.assistantActionBackground,
-            compatibility
-                .extension<ShirohaThemeTokens>()!
-                .assistantActionBackground);
+        if (style == ShirohaThemeStyle.paper) {
+          // Phase two gives Paper an independent warm ink-&-paper palette; it
+          // must no longer equal the grayscale compatibility ColorScheme.
+          final grayscale = brightness == Brightness.dark
+              ? AppTheme.darkTheme
+              : AppTheme.lightTheme;
+          expect(tokens.isPaper, isTrue);
+          expect(theme.colorScheme, isNot(grayscale.colorScheme));
+          expect(theme.colorScheme.primary, tokens.primaryAction);
+          expect(tokens.assistantActionBackground, theme.colorScheme.primary);
+          expect(tokens.assistantOnAction, theme.colorScheme.onPrimary);
+        } else {
+          final compatibility = style == ShirohaThemeStyle.colorful &&
+                  brightness == Brightness.light
+              ? AppTheme.colorfulTheme
+              : brightness == Brightness.dark
+                  ? AppTheme.darkTheme
+                  : AppTheme.lightTheme;
+          expect(theme.colorScheme, compatibility.colorScheme);
+          expect(
+              tokens.assistantActionBackground,
+              compatibility
+                  .extension<ShirohaThemeTokens>()!
+                  .assistantActionBackground);
+        }
       });
     }
   }

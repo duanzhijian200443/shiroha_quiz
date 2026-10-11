@@ -174,7 +174,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 16),
-                    child: Text('现代纸页视觉尚待验收，目前使用灰阶兼容外观。')),
+                    child: Text('现代纸页为可选外观，选择后即时预览；默认外观仍为灰阶。')),
                 const ListTile(title: Text('显示模式')),
                 for (final mode in ShirohaDisplayMode.values)
                   _appearanceOption(

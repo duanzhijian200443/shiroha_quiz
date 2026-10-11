@@ -127,11 +127,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('AI 服务'), findsOneWidget);
-    expect(find.text('能力配置'), findsOneWidget);
+    expect(find.text('AI 能力'), findsOneWidget);
     expect(find.text('文本模型'), findsOneWidget);
     expect(find.text('图片理解'), findsOneWidget);
     expect(find.text('文档识别'), findsOneWidget);
-    expect(find.text('Agent'), findsOneWidget);
+    expect(find.text('模型资源管理'), findsOneWidget);
     expect(find.text('Shiroha Agent 设置'), findsOneWidget);
     expect(find.text('DeepSeek'), findsOneWidget);
     expect(find.text('智谱视觉'), findsOneWidget);

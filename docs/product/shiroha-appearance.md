@@ -24,6 +24,7 @@ no second theme system or manual platform brightness listener.
 
 Paper is selectable and has an independent identity, but deliberately reuses
 the existing grayscale light/dark palette until phase-two visual acceptance.
+(This palette-reuse clause is superseded by the phase-two amendment below.)
 Colorful Light preserves the historical colorful palette and decorations.
 Colorful Dark, including System resolved dark, uses the existing grayscale dark
 palette and decorations as a compatibility path; no new colorful visuals are
@@ -43,12 +44,75 @@ The existing Today illustrations, composition and dimensions remain unchanged.
 Older hardcoded decorations and Practice's local palette remain for bounded
 future page-polish work; global theme adoption is not full visual closure.
 
+### Modern Ink & Paper phase-two amendment
+
+This amendment supersedes only the phase-one palette-reuse clause above. It
+keeps `paperDefaultEnabled` false and does not enable any new-user default or
+rollout; all other phase-one rules remain in force.
+
+Paper now owns an independent warm-paper palette inside the same `AppTheme`
+factory. The grayscale compatibility columns keep their exact values.
+
+| Role | Paper light | Paper dark |
+|---|---|---|
+| canvas | `#F7F4EE` | `#171A21` |
+| surface | `#FFFEFA` | `#222630` |
+| textPrimary | `#292D38` | `#F2EFE7` |
+| textSecondary / outline | `#656877` | `#ABB0BF` |
+| subtleFill / surfaceContainerHighest | `#EFEBE4` | `#2C303B` |
+| primary action | `#394C73` | `#B9C8E7` |
+| secondary / featureAi | `#6E5A93` | `#BCA9DC` |
+| divider | `#DDDAD2` | `#363B48` |
+| primary selected fill | `#E9ECF3` | `#2C3346` |
+| secondary selected fill | `#EDE9F4` | `#332E42` |
+| brandAccent / featureLibrary | `#40607F` | `#9FB6D4` |
+| brandFill / featureLibraryFill | `#E4EAF0` | `#2A3342` |
+
+Paper tertiary decoration equals the primary action; tertiary selected fill
+equals subtleFill. Action foreground is white in Paper Light and `#171A21` in
+Paper Dark. Success/correct, warning, the error family, secondary-container
+foregrounds and disabled opacities are shared with the grayscale compatibility
+palette; the remaining Material role wiring follows the same factory logic with
+Paper values, and both Paper palettes keep the same accessible contrast targets
+as phase one.
+
+Paper joins Today illustration harmonization: banner and Category artwork
+receive the existing alpha-preserving, token-derived luminance filter, mapping
+the grayscale art onto the active Paper surface and neutral ink; welcome
+caption and pill text read the shared textSecondary token. Objects, dimensions,
+composition and card treatment are unchanged. Paper Light folded corners derive
+from its own tokens (subtleFill, surface, surface, divider at 60% alpha);
+Paper Dark keeps the shared neutral cold-gray ramp. Review decision: kept. Its
+hue (226°) stays within about 4° of Paper Dark's own neutral hues (surface
+223°, secondary text 225°) and its relative luminance (≈0.07–0.41) sits inside
+the Paper Dark fill-to-muted band (≈0.03–0.44), so it reads as the card's
+neutral corner shading. Introducing Paper-specific dark values first requires
+real-device visual acceptance.
+
+Assistant filled actions use primary / onPrimary in Paper (`#394C73` / white
+light, `#B9C8E7` / `#171A21` dark) through assistantActionBackground /
+assistantOnAction; the modal sidebar scrim keeps the compatibility values
+(`#E0E3EE` 12% light, black 28% dark).
+
+Settings-card and control boundary visibility is guarded by deterministic
+floors asserted for both Paper palettes in the theme tests: outlineVariant vs
+canvas ≥ 1.15, outlineVariant vs surface ≥ 1.2, surfaceContainerHighest vs
+surface ≥ 1.1 and outline vs surface ≥ 3. Observed Paper contrast ratios are
+divider/canvas 1.272 (light) / 1.555 (dark), divider/surface 1.384 / 1.352,
+fill/surface 1.177 / 1.148 and outline/surface 5.476 / 6.984. Grayscale and
+Colorful token values are unchanged by this amendment.
+
+Real-device visual acceptance for Paper Light/Dark across Today, AI 服务,
+我的/appearance chooser and navigation remains pending and is not granted by
+this amendment.
+
 ## Palette
 
 The table's `light` / `dark` columns are the Grayscale light/dark compatibility
-palettes, also used by Paper in phase one. `colorful` is Colorful Light. The
-legacy `AppTheme.getTheme`, `lightTheme`, `darkTheme`, `colorfulTheme` adapters
-retain these exact palettes.
+palettes; Paper's palette is the phase-two amendment table above, which reuses
+the success/warning/error and secondary-container foreground roles below.
+`colorful` is Colorful Light. The legacy `AppTheme.getTheme`, `lightTheme`,
+`darkTheme`, `colorfulTheme` adapters retain these exact palettes.
 
 | Role | light | dark | colorful |
 |---|---|---|---|
@@ -104,15 +168,16 @@ Its summaries, training entries, links and active navigation use one primary
 accent family with neutral surfaces; no rainbow feature coding or new visual
 focal point is introduced. Existing feedback semantics and other pages' explicit
 feature accents remain unchanged. Color/style refinements in this section apply
-only to colorful; light/dark retain their existing palette, bright grayscale
-greeting, Category artwork treatment, card outline/shadow and native feedback.
+only to colorful; grayscale light/dark retain their existing palette, bright
+grayscale greeting, Category artwork treatment, card outline/shadow and native
+feedback. Paper-specific deviations are enumerated in the phase-two amendment.
 The three icon replacements apply to all appearances. Colorful secondary text
 reads the shared token with at least 4.5:1 contrast against its intended surface.
 
 The greeting and Category illustrations retain their original objects and
-dimensions. In colorful, a token-derived luminance filter preserves source alpha
-and maps the existing grayscale art to surface/neutral-ink tones with a subdued primary
-influence. Neutral banner/fold colors and existing dark Category modulation
+dimensions. In colorful and Paper, a token-derived luminance filter preserves
+source alpha and maps the existing grayscale art to surface/neutral-ink tones;
+colorful light keeps a subdued primary influence in that mapping. Neutral banner/fold colors and existing dark Category modulation
 are retained at the shared token boundary without introducing a page palette.
 
 Colorful Today surface cards share a 14-pixel radius, divider at 45% for their
@@ -169,7 +234,8 @@ gradient's start color. No new illustration or large saturated background is add
 
 The Agent avatar, New Conversation button and Send/Stop button share
 assistantActionBackground / assistantOnAction: `#707482` / white in light,
-`#575B69` / `#EAEAF0` in dark, and primary / white in colorful. These are filled
+`#575B69` / `#EAEAF0` in dark, primary / white in colorful, and primary /
+onPrimary in Paper (`#394C73` / white light, `#B9C8E7` / `#171A21` dark). These are filled
 action roles, not ordinary text colors; foreground contrast is at least 4.5:1.
 Send/Stop explicitly supplies its foreground so global ordinary-icon colors
 cannot conceal the glyph. Disabled colors retain the existing shared roles.
@@ -186,7 +252,8 @@ while the sidebar is open. Untagged host themes retain their Material defaults.
 我的 → 外观设置 opens the existing sheet with two mutually exclusive groups:
 主题风格 (现代纸页 / 灰阶 / 彩色（历史兼容）) and 显示模式
 (浅色 / 深色 / 跟随系统). Changing one axis preserves the other. The sheet
-explains Paper's pending visual acceptance, scrolls at constrained heights and
+presents Paper as an optional appearance with immediate preview and states that
+Grayscale Light remains the default; it scrolls at constrained heights and
 introduces no new business route. The Profile row shows both selected labels.
 
 Switching immediately previews the complete preference through the typed
@@ -228,11 +295,13 @@ snapshots scrub them; raw rollback snapshots retain them. This extends the
 existing exclusion rule without altering package format, credentials or restore
 ownership. Portable backup is not an appearance synchronization mechanism.
 
-Phase two calls `AppTheme.themeFor(appearance, Brightness.light/dark)` to supply
-both palettes and `AppTheme.themeMode(appearance)` for mode selection. Visual
-work changes the Paper branch inside that same factory and semantic tokens,
-with ColorScheme / ThemeData / ThemeExtension aligned; it does not introduce a
-parallel palette authority. Layout continues to use the existing DesignTokens.
+Phase two is implemented through `AppTheme.themeFor(appearance,
+Brightness.light/dark)` supplying both palettes and
+`AppTheme.themeMode(appearance)` for mode selection. The Paper amendment
+changes only the Paper branch inside that same factory and Paper-sensitive
+semantic tokens, with ColorScheme / ThemeData / ThemeExtension aligned; no
+parallel palette authority exists. Layout continues to use the existing
+DesignTokens.
 
 ## Local themes and validation
 
@@ -245,11 +314,13 @@ route structure.
 
 Required deterministic coverage includes legacy migration and read-only fallback,
 rollout-vs-history defaults, versioned atomic writes and failed-write cache
-invalidation, Paper/Grayscale light/dark resolution, live System changes in the
-real app Widget tree, preserved Colorful compatibility, token/Material
-consistency, contrast, local-wrapper preservation, selection and rollback,
-single-flight saves, disposal, database close/reopen, fallback, navigation and
-existing affected regressions. Actual application screenshots for Today,
-AI 服务, 我的/appearance chooser and navigation in supported style/brightness combinations require
-separate visual acceptance. Synthetic Widget-rendered screenshots are useful
-evidence but never substitute for that runtime acceptance.
+invalidation, Paper/Grayscale light/dark resolution, the Paper phase-two
+palette with its boundary-contrast floors and illustration harmonization, live
+System changes in the real app Widget tree, preserved Colorful compatibility,
+token/Material consistency, contrast, local-wrapper preservation, selection and
+rollback, single-flight saves, disposal, database close/reopen, fallback,
+navigation and existing affected regressions. Actual application screenshots for Today,
+AI 服务, 我的/appearance chooser and navigation in supported style/brightness
+combinations (including the new Paper Light/Dark palette) require separate
+visual acceptance. Synthetic Widget-rendered screenshots are useful evidence
+but never substitute for that runtime acceptance.

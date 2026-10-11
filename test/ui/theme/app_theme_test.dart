@@ -122,6 +122,81 @@ void main() {
     });
   }
 
+  for (final brightness in Brightness.values) {
+    test('paper / $brightness supplies an independent accessible palette', () {
+      final appearance = ShirohaAppearance(
+          style: ShirohaThemeStyle.paper, mode: ShirohaDisplayMode.system);
+      final theme = AppTheme.themeFor(appearance, brightness);
+      final colors = theme.colorScheme;
+      final tokens = theme.extension<ShirohaThemeTokens>()!;
+      expect(tokens.isPaper, isTrue);
+      expect(tokens.style, ShirohaThemeStyle.paper);
+      expect(tokens.harmonizeIllustrations, isTrue);
+      expect(theme.brightness, brightness);
+      expect(colors.brightness, brightness);
+      // Phase-two identity: Paper is no longer the grayscale compatibility
+      // palette, but it keeps the neutral tertiary==primary minimalism.
+      final grayscale = brightness == Brightness.dark
+          ? AppTheme.darkTheme
+          : AppTheme.lightTheme;
+      expect(colors, isNot(grayscale.colorScheme));
+      expect(colors.primary, colors.tertiary);
+      expect(colors.secondary, isNot(colors.primary));
+      expect(tokens.canvas, theme.scaffoldBackgroundColor);
+      expect(tokens.assistantActionBackground, colors.primary);
+      expect(tokens.assistantOnAction, colors.onPrimary);
+      expect(tokens.welcomeCaption, tokens.textSecondary);
+      expect(
+          contrast(tokens.assistantOnAction, tokens.assistantActionBackground),
+          greaterThanOrEqualTo(4.5));
+      expect(contrast(tokens.textPrimary, tokens.assistantCanvasStart),
+          greaterThanOrEqualTo(4.5));
+      expect(contrast(tokens.textSecondary, tokens.assistantCanvasEnd),
+          greaterThanOrEqualTo(4.5));
+      expect(tokens.assistantDrawerScrim.a, lessThan(.3));
+      for (final pair in [
+        (tokens.featureAi, tokens.featureAiFill),
+        (tokens.featureLibrary, tokens.featureLibraryFill),
+        (tokens.featureNeutral, tokens.featureNeutralFill),
+      ]) {
+        expect(contrast(pair.$1, pair.$2), greaterThanOrEqualTo(3));
+      }
+      for (final pair in [
+        (colors.onSurface, colors.surface),
+        (colors.onSurfaceVariant, colors.surface),
+        (colors.onSurfaceVariant, tokens.canvas),
+        (colors.primary, tokens.canvas),
+        (colors.onPrimary, colors.primary),
+        (colors.onSecondary, colors.secondary),
+        (colors.onTertiary, colors.tertiary),
+        (colors.onPrimaryContainer, colors.primaryContainer),
+        (colors.onSecondaryContainer, colors.secondaryContainer),
+        (colors.onTertiaryContainer, colors.tertiaryContainer),
+        (colors.onError, colors.error),
+        (tokens.success, colors.surface),
+        (tokens.warning, colors.surface),
+        (tokens.textSecondary, tokens.subtleFill),
+      ]) {
+        expect(contrast(pair.$1, pair.$2), greaterThanOrEqualTo(4.5));
+      }
+      // Boundary visibility floors: settings-card borders (outlineVariant),
+      // neutral input/label fills and control outlines (outline) must stay
+      // distinct from the Paper canvas and card surfaces.
+      expect(contrast(colors.outlineVariant, tokens.canvas),
+          greaterThanOrEqualTo(1.15));
+      expect(contrast(colors.outlineVariant, colors.surface),
+          greaterThanOrEqualTo(1.2));
+      expect(contrast(colors.surfaceContainerHighest, colors.surface),
+          greaterThanOrEqualTo(1.1));
+      expect(contrast(colors.outline, colors.surface), greaterThanOrEqualTo(3));
+      expect(theme.cardTheme.color, tokens.surface);
+      expect(theme.appBarTheme.backgroundColor, tokens.canvas);
+      expect(theme.bottomNavigationBarTheme.selectedItemColor,
+          tokens.primaryAction);
+      expect(todayVisualTheme(theme).extension<ShirohaThemeTokens>(), tokens);
+    });
+  }
+
   test('legacy, empty and invalid values fall back deterministically', () {
     for (final name in [null, '', 'morandi', 'unknown', ' DARK ', '{broken}']) {
       expect(AppTheme.normalizeName(name), 'light');
