@@ -13,7 +13,7 @@ class TodayWelcomeBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final active = AppTheme.withPresetFallback(Theme.of(context))
         .extension<ShirohaThemeTokens>()!;
-    final colorful = active.appearance == ShirohaAppearance.colorful;
+    final colorful = active.isColorful;
     // Neutral appearances keep the original bright, grayscale banner asset.
     final tokens = colorful
         ? active

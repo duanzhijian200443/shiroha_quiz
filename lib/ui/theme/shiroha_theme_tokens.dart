@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'design_tokens.dart';
+import '../../domain/appearance/shiroha_appearance.dart';
 
-enum ShirohaAppearance { light, dark, colorful }
+export '../../domain/appearance/shiroha_appearance.dart';
 
 /// Semantic colors shared by all appearances; layout stays in DesignTokens.
 class ShirohaThemeTokens extends ThemeExtension<ShirohaThemeTokens> {
@@ -23,6 +24,12 @@ class ShirohaThemeTokens extends ThemeExtension<ShirohaThemeTokens> {
   final Color featureLibrary;
   final Color featureLibraryFill;
 
+  ShirohaThemeStyle get style => appearance.style;
+  Brightness get brightness => colors.brightness;
+  bool get isDark => brightness == Brightness.dark;
+  // Colorful's historical palette is light; dark reuses grayscale compatibility.
+  bool get isColorful => style == ShirohaThemeStyle.colorful && !isDark;
+
   Color get brandAccent => featureLibrary;
   Color get brandFill => featureLibraryFill;
   Color get featureAi => colors.secondary;
@@ -30,23 +37,19 @@ class ShirohaThemeTokens extends ThemeExtension<ShirohaThemeTokens> {
   Color get featureNeutral => colors.onSurfaceVariant;
   Color get featureNeutralFill => subtleFill;
 
-  Color get assistantActionBackground => switch (appearance) {
-        ShirohaAppearance.light => const Color(0xFF707482),
-        ShirohaAppearance.dark => const Color(0xFF575B69),
-        ShirohaAppearance.colorful => colors.primary,
-      };
-  Color get assistantOnAction => appearance == ShirohaAppearance.dark
-      ? colors.onSurface
-      : colors.onPrimary;
+  Color get assistantActionBackground => isColorful
+      ? colors.primary
+      : isDark
+          ? const Color(0xFF575B69)
+          : const Color(0xFF707482);
+  Color get assistantOnAction => isDark ? colors.onSurface : colors.onPrimary;
   Color get assistantCanvasStart => Color.lerp(surface, canvas, .35)!;
   Color get assistantCanvasEnd => Color.lerp(canvas, subtleFill, .5)!;
-  Color get assistantDrawerScrim => switch (appearance) {
-        ShirohaAppearance.light =>
-          const Color(0xFFE0E3EE).withValues(alpha: .12),
-        ShirohaAppearance.dark => Colors.black.withValues(alpha: .28),
-        ShirohaAppearance.colorful =>
-          colors.primaryContainer.withValues(alpha: .12),
-      };
+  Color get assistantDrawerScrim => isDark
+      ? Colors.black.withValues(alpha: .28)
+      : isColorful
+          ? colors.primaryContainer.withValues(alpha: .12)
+          : const Color(0xFFE0E3EE).withValues(alpha: .12);
 
   Color get surface => colors.surface;
   Color get textPrimary => colors.onSurface;
@@ -54,9 +57,7 @@ class ShirohaThemeTokens extends ThemeExtension<ShirohaThemeTokens> {
   Color get border => colors.outline;
   Color get divider => colors.outlineVariant;
   Color get subtleFill => colors.surfaceContainerHighest;
-  Color get icon => appearance == ShirohaAppearance.colorful
-      ? colors.primary
-      : colors.onSurface;
+  Color get icon => isColorful ? colors.primary : colors.onSurface;
   Color get iconBackground => colors.primaryContainer;
   Color get primaryAction => colors.primary;
   Color get onPrimaryAction => colors.onPrimary;
@@ -69,21 +70,18 @@ class ShirohaThemeTokens extends ThemeExtension<ShirohaThemeTokens> {
   Color get correct => success;
   Color get incorrect => error;
 
-  Color get cardOutline => divider.withValues(
-      alpha: appearance == ShirohaAppearance.colorful ? .45 : 0);
-  Color get cardShadow => appearance == ShirohaAppearance.colorful
+  Color get cardOutline => divider.withValues(alpha: isColorful ? .45 : 0);
+  Color get cardShadow => isColorful
       ? colors.shadow.withValues(alpha: .04)
       : DesignTokens.surfaceShadow(Brightness.light).first.color;
   // Existing dark Category modulation, retained at the shared token boundary.
   Color get categoryArtworkTint => const Color(0xFF85858D);
   // Existing neutral banner/fold colors retained without new palette values.
-  Color get welcomeCaption => appearance == ShirohaAppearance.colorful
-      ? textSecondary
-      : const Color(0xFF747780);
-  Color get welcomePillText => appearance == ShirohaAppearance.colorful
-      ? textSecondary
-      : const Color(0xFF555760);
-  List<Color> get foldedCornerColors => appearance == ShirohaAppearance.dark
+  Color get welcomeCaption =>
+      isColorful ? textSecondary : const Color(0xFF747780);
+  Color get welcomePillText =>
+      isColorful ? textSecondary : const Color(0xFF555760);
+  List<Color> get foldedCornerColors => isDark
       ? const [
           Color(0xFF484B55),
           Color(0xFF898C96),
@@ -98,7 +96,7 @@ class ShirohaThemeTokens extends ThemeExtension<ShirohaThemeTokens> {
   /// Maps existing grayscale artwork to the active surface and neutral ink.
   /// Alpha is preserved, including transparent category illustrations.
   ColorFilter get illustrationFilter {
-    final dark = appearance == ShirohaAppearance.dark;
+    final dark = isDark;
     final low = dark
         ? Color.lerp(textPrimary, surface, .35)!
         : Color.lerp(textPrimary, icon, .18)!;

@@ -7,7 +7,7 @@ import '../theme/design_tokens.dart';
 ThemeData todayVisualTheme(ThemeData base) {
   final theme = AppTheme.withPresetFallback(base);
   final tokens = theme.extension<ShirohaThemeTokens>()!;
-  final colorful = tokens.appearance == ShirohaAppearance.colorful;
+  final colorful = tokens.isColorful;
   return theme.copyWith(
     hoverColor: colorful ? tokens.hoverOverlay : theme.hoverColor,
     highlightColor: colorful ? tokens.pressedOverlay : theme.highlightColor,

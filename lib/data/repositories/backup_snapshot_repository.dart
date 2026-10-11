@@ -211,8 +211,8 @@ final class BackupSnapshotRepository {
     if (await _tableExists(db, 'app_settings')) {
       await db.delete(
         'app_settings',
-        where: 'key = ?',
-        whereArgs: <Object?>['app_theme'],
+        where: 'key IN (?, ?)',
+        whereArgs: <Object?>['app_theme', 'app_appearance'],
       );
     }
   }

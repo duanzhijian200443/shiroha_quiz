@@ -720,19 +720,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             color: colors.surface,
             shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(
-                    _visualTheme.extension<ShirohaThemeTokens>()!.appearance ==
-                            ShirohaAppearance.colorful
+                    _visualTheme.extension<ShirohaThemeTokens>()!.isColorful
                         ? DesignTokens.todayCardRadius
                         : 12),
                 side: BorderSide(
-                    color: _visualTheme
+                    color:
+                        _visualTheme.extension<ShirohaThemeTokens>()!.isColorful
+                            ? _visualTheme
                                 .extension<ShirohaThemeTokens>()!
-                                .appearance ==
-                            ShirohaAppearance.colorful
-                        ? _visualTheme
-                            .extension<ShirohaThemeTokens>()!
-                            .cardOutline
-                        : colors.outlineVariant)),
+                                .cardOutline
+                            : colors.outlineVariant)),
             clipBehavior: Clip.antiAlias,
             child: InkWell(
               key: ValueKey(key),

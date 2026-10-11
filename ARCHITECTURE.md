@@ -560,8 +560,8 @@ boundary remains frozen and applies to any future P7 extension:
 
 ## 12. UI Finalization Presentation boundary
 
-The global light/dark/colorful appearance presets, shared visual tokens and
-appearance-only local-theme compatibility are governed by
+The global Paper/Grayscale/Colorful styles with independent Light/Dark/System
+display modes, legacy-preset compatibility and shared visual tokens are governed by
 `docs/product/shiroha-appearance.md`. They share page structure and behavior;
 no schema, application semantics or navigation hierarchy changes are implied.
 

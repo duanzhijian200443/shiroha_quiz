@@ -24,9 +24,25 @@ class AppTheme {
         _ => lightTheme,
       };
 
-  static ThemeData get lightTheme => _build(ShirohaAppearance.light);
-  static ThemeData get darkTheme => _build(ShirohaAppearance.dark);
-  static ThemeData get colorfulTheme => _build(ShirohaAppearance.colorful);
+  static ThemeData get lightTheme =>
+      themeFor(ShirohaAppearance.light, Brightness.light);
+  static ThemeData get darkTheme =>
+      themeFor(ShirohaAppearance.dark, Brightness.dark);
+  static ThemeData get colorfulTheme =>
+      themeFor(ShirohaAppearance.colorful, Brightness.light);
+
+  static ThemeMode themeMode(ShirohaAppearance appearance) =>
+      switch (appearance.mode) {
+        ShirohaDisplayMode.light => ThemeMode.light,
+        ShirohaDisplayMode.dark => ThemeMode.dark,
+        ShirohaDisplayMode.system => ThemeMode.system,
+      };
+
+  /// Builds one brightness of the same style for MaterialApp.theme/darkTheme.
+  /// Paper intentionally uses grayscale colors until its visuals are accepted.
+  static ThemeData themeFor(
+          ShirohaAppearance appearance, Brightness brightness) =>
+      _build(appearance, brightness);
 
   /// Preserves an explicit appearance and inherited typography in local routes.
   static ThemeData withPresetFallback(ThemeData base) {
@@ -40,9 +56,9 @@ class AppTheme {
     );
   }
 
-  static ThemeData _build(ShirohaAppearance appearance) {
-    final dark = appearance == ShirohaAppearance.dark;
-    final colorful = appearance == ShirohaAppearance.colorful;
+  static ThemeData _build(ShirohaAppearance appearance, Brightness brightness) {
+    final dark = brightness == Brightness.dark;
+    final colorful = appearance.style == ShirohaThemeStyle.colorful && !dark;
     final canvas = dark
         ? const Color(0xFF191A20)
         : colorful

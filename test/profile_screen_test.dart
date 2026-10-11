@@ -8,15 +8,15 @@ import 'package:shiroha_quiz/domain/ai_config/ai_config_contracts.dart';
 import 'package:shiroha_quiz/ui/pages/profile_screen.dart';
 import 'package:shiroha_quiz/ui/theme/app_theme.dart';
 import 'package:shiroha_quiz/ui/theme/shiroha_theme_tokens.dart';
-import 'package:shiroha_quiz/data/repositories/settings_repository.dart';
+import 'package:shiroha_quiz/application/appearance/appearance_settings_service.dart';
 import 'package:shiroha_quiz/main.dart' show globalThemeNotifier;
 import 'support/theme_visual_evidence.dart';
 
 void main() {
   final visualKey = GlobalKey();
   setUpAll(loadThemeEvidenceFonts);
-  setUp(() => globalThemeNotifier.value = 'light');
-  tearDown(() => globalThemeNotifier.value = 'light');
+  setUp(() => globalThemeNotifier.value = ShirohaAppearance.light);
+  tearDown(() => globalThemeNotifier.value = ShirohaAppearance.light);
   test('maps shared semantic colors in all three appearances', () {
     _verifySemanticPalette(AppTheme.lightTheme);
     _verifySemanticPalette(AppTheme.darkTheme);
@@ -32,7 +32,7 @@ void main() {
     ProfileHeatmapLoader? heatmapLoader,
     VoidCallback? onOpenFileLibrary,
     AiConfigPresentationService? aiConfigService,
-    SettingsRepository? appearanceSettings,
+    _AppearanceSettings? appearanceSettings,
     bool followGlobal = false,
   }) async {
     tester.view.physicalSize = size;
@@ -60,13 +60,18 @@ void main() {
             ),
             heatmapLoader: heatmapLoader ?? () async => heatmap,
             onOpenFileLibrary: onOpenFileLibrary,
-            appearanceSettings: appearanceSettings,
+            appearanceSettings: AppearanceSettingsService(
+                appearanceSettings ?? _AppearanceSettings()),
           ),
         );
     final app = followGlobal
-        ? ValueListenableBuilder<String>(
+        ? ValueListenableBuilder<ShirohaAppearance>(
             valueListenable: globalThemeNotifier,
-            builder: (_, value, __) => buildApp(AppTheme.getTheme(value)),
+            builder: (_, value, __) => buildApp(AppTheme.themeFor(
+                value,
+                value.mode == ShirohaDisplayMode.dark
+                    ? Brightness.dark
+                    : Brightness.light)),
           )
         : buildApp(theme ?? AppTheme.lightTheme);
     await tester.pumpWidget(RepaintBoundary(key: visualKey, child: app));
@@ -327,8 +332,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets(
-      'three exclusive options preview immediately and save each choice',
+  testWidgets('two exclusive groups preview and save both axes',
       (tester) async {
     final settings = _AppearanceSettings();
     await pumpProfile(tester, appearanceSettings: settings, followGlobal: true);
@@ -336,35 +340,44 @@ void main() {
         .ensureVisible(find.byKey(const ValueKey('profile-appearance-row')));
     await tester.tap(find.byKey(const ValueKey('profile-appearance-row')));
     await tester.pumpAndSettle();
-    for (final name in ['colorful', 'dark', 'light']) {
-      await tester.tap(find.byKey(ValueKey('appearance-option-$name')));
+    expect(find.text('主题风格'), findsOneWidget);
+    expect(find.text('显示模式'), findsOneWidget);
+    var expected = ShirohaAppearance.light;
+    for (final choice in [
+      ('style', 'paper'),
+      ('mode', 'dark'),
+      ('style', 'grayscale'),
+      ('mode', 'system'),
+      ('style', 'colorful'),
+      ('mode', 'light'),
+    ]) {
+      final key = ValueKey('appearance-${choice.$1}-${choice.$2}');
+      await tester.ensureVisible(find.byKey(key));
+      await tester.tap(find.byKey(key));
       await tester.pumpAndSettle();
-      expect(globalThemeNotifier.value, name);
-      expect(settings.saved, name);
-      final selected = tester
-          .widget<ListTile>(find.byKey(ValueKey('appearance-option-$name')));
-      expect(selected.selected, isTrue);
-      expect(
-          tester
-              .widgetList<ListTile>(
-                  find.byKey(const ValueKey('appearance-option-light')))
-              .length,
-          1);
-      final actualTheme = Theme.of(
-          tester.element(find.byKey(ValueKey('appearance-option-$name'))));
-      expect(
-          actualTheme.extension<ShirohaThemeTokens>()!.appearance.name, name);
-      for (final other
-          in ['light', 'dark', 'colorful'].where((v) => v != name)) {
-        expect(
-            tester
-                .widget<ListTile>(
-                    find.byKey(ValueKey('appearance-option-$other')))
-                .selected,
-            isFalse);
+      expected = choice.$1 == 'style'
+          ? expected.copyWith(style: ShirohaThemeStyle.values.byName(choice.$2))
+          : expected.copyWith(
+              mode: ShirohaDisplayMode.values.byName(choice.$2));
+      expect(globalThemeNotifier.value, expected);
+      expect(settings.saved, expected);
+      expect(tester.widget<ListTile>(find.byKey(key)).selected, isTrue);
+      for (final group in ['style', 'mode']) {
+        final tiles = tester.widgetList<ListTile>(find.byWidgetPredicate((w) =>
+            w is ListTile &&
+            w.key is ValueKey<String> &&
+            (w.key as ValueKey<String>)
+                .value
+                .startsWith('appearance-$group-')));
+        expect(tiles.where((w) => w.selected).length, 1);
       }
+      expect(
+          Theme.of(tester.element(find.byKey(key)))
+              .extension<ShirohaThemeTokens>()!
+              .style,
+          expected.style);
     }
-    expect(settings.calls, 3);
+    expect(settings.calls, 6);
     expect(tester.takeException(), isNull);
   });
 
@@ -372,7 +385,7 @@ void main() {
     for (final populated in [false, true]) {
       testWidgets('profile polish sample $appearance populated=$populated',
           (tester) async {
-        globalThemeNotifier.value = appearance;
+        globalThemeNotifier.value = ShirohaAppearance.fromLegacy(appearance);
         final now = DateTime.now();
         final today = DateTime(now.year, now.month, now.day);
         final heatmap = populated
@@ -406,9 +419,9 @@ void main() {
             find.descendant(
                 of: find.byKey(const ValueKey('profile-appearance-row')),
                 matching: find.text({
-                  'light': '浅色',
-                  'dark': '深色',
-                  'colorful': '彩色'
+                  'light': '灰阶 · 浅色',
+                  'dark': '灰阶 · 深色',
+                  'colorful': '彩色（历史兼容） · 浅色'
                 }[appearance]!)),
             findsOneWidget);
         if (populated) {
@@ -431,7 +444,7 @@ void main() {
       });
     }
     testWidgets('appearance sample screenshots: $appearance', (tester) async {
-      globalThemeNotifier.value = appearance;
+      globalThemeNotifier.value = ShirohaAppearance.fromLegacy(appearance);
       await pumpProfile(tester,
           followGlobal: true, appearanceSettings: _AppearanceSettings());
       await captureThemeEvidence(tester, visualKey, 'profile-$appearance');
@@ -449,8 +462,9 @@ void main() {
       await captureThemeEvidence(tester, visualKey, 'appearance-$appearance');
       expect(
           tester
-              .widget<ListTile>(
-                  find.byKey(ValueKey('appearance-option-$appearance')))
+              .widget<ListTile>(find.byKey(ValueKey(appearance == 'colorful'
+                  ? 'appearance-style-colorful'
+                  : 'appearance-mode-$appearance')))
               .selected,
           isTrue);
       expect(tester.takeException(), isNull);
@@ -463,7 +477,7 @@ void main() {
         testWidgets(
             'profile polish responsive $appearance width=$width scale=$scale',
             (tester) async {
-          globalThemeNotifier.value = appearance;
+          globalThemeNotifier.value = ShirohaAppearance.fromLegacy(appearance);
           await pumpProfile(tester,
               theme: AppTheme.getTheme(appearance),
               size: Size(width, 1500),
@@ -476,9 +490,9 @@ void main() {
               find.descendant(
                   of: find.byKey(const ValueKey('profile-appearance-row')),
                   matching: find.text({
-                    'light': '浅色',
-                    'dark': '深色',
-                    'colorful': '彩色'
+                    'light': '灰阶 · 浅色',
+                    'dark': '灰阶 · 深色',
+                    'colorful': '彩色（历史兼容） · 浅色'
                   }[appearance]!)),
               findsOneWidget);
           expect(tester.takeException(), isNull);
@@ -498,28 +512,28 @@ void main() {
         .ensureVisible(find.byKey(const ValueKey('profile-appearance-row')));
     await tester.tap(find.byKey(const ValueKey('profile-appearance-row')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('appearance-option-colorful')));
+    await tester.tap(find.byKey(const ValueKey('appearance-style-colorful')));
     await tester.pump();
-    expect(globalThemeNotifier.value, 'colorful');
-    expect(settings.saved, 'light');
+    expect(globalThemeNotifier.value, ShirohaAppearance.colorful);
+    expect(settings.saved, ShirohaAppearance.light);
     expect(
         tester
             .widget<ListTile>(
-                find.byKey(const ValueKey('appearance-option-dark')))
+                find.byKey(const ValueKey('appearance-mode-dark')))
             .enabled,
         isFalse);
-    await tester.tap(find.byKey(const ValueKey('appearance-option-dark')));
+    await tester.tap(find.byKey(const ValueKey('appearance-mode-dark')));
     expect(settings.calls, 1);
     settings.pending!.completeError(StateError('synthetic failure'));
     await tester.pumpAndSettle();
-    expect(globalThemeNotifier.value, 'light');
-    expect(await settings.getAppTheme(), 'light');
+    expect(globalThemeNotifier.value, ShirohaAppearance.light);
+    expect(await settings.getAppearance(), ShirohaAppearance.light);
     expect(settings.invalidations, 1);
     expect(find.text('外观保存失败，已恢复原设置，请重试'), findsOneWidget);
     expect(
         tester
             .widget<ListTile>(
-                find.byKey(const ValueKey('appearance-option-light')))
+                find.byKey(const ValueKey('appearance-mode-light')))
             .selected,
         isTrue);
     expect(tester.takeException(), isNull);
@@ -533,12 +547,12 @@ void main() {
         .ensureVisible(find.byKey(const ValueKey('profile-appearance-row')));
     await tester.tap(find.byKey(const ValueKey('profile-appearance-row')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('appearance-option-dark')));
+    await tester.tap(find.byKey(const ValueKey('appearance-mode-dark')));
     await tester.pump();
     await tester.pumpWidget(const SizedBox());
     settings.pending!.completeError(StateError('synthetic failure'));
     await tester.pump();
-    expect(globalThemeNotifier.value, 'light');
+    expect(globalThemeNotifier.value, ShirohaAppearance.light);
     expect(settings.invalidations, 1);
     expect(tester.takeException(), isNull);
   });
@@ -546,7 +560,7 @@ void main() {
   testWidgets(
       'invalid old appearance displays light and chooser supports large text',
       (tester) async {
-    globalThemeNotifier.value = 'morandi';
+    globalThemeNotifier.value = ShirohaAppearance.fromLegacy('morandi');
     await pumpProfile(tester,
         size: const Size(320, 1200),
         textScaler: const TextScaler.linear(1.8),
@@ -559,40 +573,38 @@ void main() {
     expect(
         tester
             .widget<ListTile>(
-                find.byKey(const ValueKey('appearance-option-light')))
+                find.byKey(const ValueKey('appearance-mode-light')))
             .selected,
         isTrue);
     expect(find.text('浅色'), findsWidgets);
     expect(find.text('深色'), findsOneWidget);
-    expect(find.text('彩色'), findsOneWidget);
+    expect(find.text('彩色（历史兼容）'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }
 
-final class _AppearanceSettings extends SettingsRepository {
-  String saved = 'light';
-  String? cached;
+final class _AppearanceSettings implements AppearanceSettingsPort {
+  ShirohaAppearance saved = ShirohaAppearance.light;
   int calls = 0;
   int invalidations = 0;
   Completer<void>? pending;
 
   @override
-  Future<void> setAppTheme(String theme) async {
+  Future<void> setAppearance(ShirohaAppearance appearance) async {
     calls++;
-    cached = theme;
-    if (pending != null) await pending!.future;
-    saved = theme;
+    try {
+      if (pending != null) await pending!.future;
+      saved = appearance;
+    } catch (_) {
+      invalidations++;
+      rethrow;
+    }
   }
 
   @override
-  Future<String> getAppTheme({String defaultTheme = 'light'}) async =>
-      cached ?? saved;
-
-  @override
-  void clearCache() {
-    cached = null;
-    invalidations++;
-  }
+  Future<ShirohaAppearance> getAppearance(
+          {bool paperDefaultEnabled = false}) async =>
+      saved;
 }
 
 void _verifySemanticPalette(ThemeData theme) {

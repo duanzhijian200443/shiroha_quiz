@@ -2,10 +2,39 @@
 
 ## Scope
 
-The formal appearance presets are 浅色 (`light`), 深色 (`dark`) and 彩色
-(`colorful`). All share one page structure and business behavior. Colorful and
-light both have light brightness; preset identity comes from
-`ShirohaThemeTokens.appearance`, never from brightness alone.
+The appearance preference has two independent axes:
+
+- Theme style: Paper (现代纸页), Grayscale (灰阶), Colorful (历史兼容).
+- Display mode: Light, Dark, System.
+
+`ShirohaAppearance` is a Flutter-free immutable preference with `style` and
+`mode`. `ShirohaThemeTokens.appearance` retains this preference, including
+System; `style` identifies the style and `brightness` identifies the currently
+resolved Material brightness. Consumers use `isDark` / `isColorful` rather than
+comparing the preference to a legacy preset. Style must never be inferred from
+brightness. All combinations share page structure and business behavior.
+
+### Modern Ink & Paper phase-one amendment
+
+This authorized amendment supersedes the original three-option selection and
+single-name persistence rules. It does not grant visual acceptance or rollout.
+One existing `AppTheme` factory supplies `MaterialApp.theme`, `darkTheme` and
+`themeMode`; Flutter's `ThemeMode.system` owns OS brightness changes. There is
+no second theme system or manual platform brightness listener.
+
+Paper is selectable and has an independent identity, but deliberately reuses
+the existing grayscale light/dark palette until phase-two visual acceptance.
+Colorful Light preserves the historical colorful palette and decorations.
+Colorful Dark, including System resolved dark, uses the existing grayscale dark
+palette and decorations as a compatibility path; no new colorful visuals are
+introduced. Returning to Light restores colorful behavior without losing style.
+
+The composition-root `paperDefaultEnabled` switch remains false in phase one.
+After formal acceptance and separately authorized rollout, enabling it gives
+users with neither appearance key Paper + Light. Existing preferences, including
+explicit historical Light, remain unchanged. Fonts, Today layout, business
+navigation, training, RAG, database schema and Android build configuration are
+outside this amendment.
 
 This contract governs the global theme, appearance selection, Today/training
 local theme compatibility and primary-navigation colors. It does not redesign
@@ -15,6 +44,11 @@ Older hardcoded decorations and Practice's local palette remain for bounded
 future page-polish work; global theme adoption is not full visual closure.
 
 ## Palette
+
+The table's `light` / `dark` columns are the Grayscale light/dark compatibility
+palettes, also used by Paper in phase one. `colorful` is Colorful Light. The
+legacy `AppTheme.getTheme`, `lightTheme`, `darkTheme`, `colorfulTheme` adapters
+retain these exact palettes.
 
 | Role | light | dark | colorful |
 |---|---|---|---|
@@ -149,33 +183,73 @@ while the sidebar is open. Untagged host themes retain their Material defaults.
 
 ## Selection and persistence
 
-我的 → 外观设置 opens one mutually exclusive three-option chooser. Switching
-immediately previews the new appearance through `globalThemeNotifier` and saves
-the same canonical name with existing SettingsRepository `app_theme` storage.
-While a save is pending all choices are disabled. Successful save retains the
-preview. Failure invalidates the existing repository's optimistic cache,
-restores the preceding runtime value even if Profile has been disposed, and
-shows a safe retry message when the page is still mounted. No success is
-reported for failed persistence; no automatic retry or corrective write occurs.
+我的 → 外观设置 opens the existing sheet with two mutually exclusive groups:
+主题风格 (现代纸页 / 灰阶 / 彩色（历史兼容）) and 显示模式
+(浅色 / 深色 / 跟随系统). Changing one axis preserves the other. The sheet
+explains Paper's pending visual acceptance, scrolls at constrained heights and
+introduces no new business route. The Profile row shows both selected labels.
 
-Startup normalizes missing, empty, unknown, malformed and historical `morandi`
-values to light, without rewriting the stored value. An appearance-read failure
-also falls back to light. `morandi` never aliases colorful. No new database
-field, migration or generic settings-cache behavior is introduced.
+Switching immediately previews the complete preference through the typed
+`globalThemeNotifier` and saves through `AppearanceSettingsService` and
+`AppearanceSettingsPort`, implemented by SettingsRepository. While a save is
+pending all six choices are disabled. Successful save retains the preview.
+Failure removes only the appearance cache entry and restores both preceding
+runtime axes even if Profile has been disposed, with a safe retry message when
+still mounted. No success, automatic retry or corrective write follows failure.
+
+SettingsRepository stores one JSON row in existing `app_settings`:
+`app_appearance = {"version":1,"style":"paper|grayscale|colorful",
+"mode":"light|dark|system"}` (strings are individual enum values, not pipes).
+One SQLite row publishes both axes atomically; its cache updates only after the
+write succeeds. No schema migration, new column or generic-cache change exists.
+
+Read precedence is valid version-1 `app_appearance`, then legacy `app_theme`:
+
+| Existing setting | Preference |
+|---|---|
+| `light` | Grayscale + Light |
+| `dark` | Grayscale + Dark |
+| `colorful` | Colorful + Light (existing visuals) |
+| Empty/unknown/malformed/`morandi` | Grayscale + Light |
+| Neither key, rollout switch false | Grayscale + Light |
+| Neither key, formally enabled rollout | Paper + Light |
+
+Reads never write migration/default values or overwrite the legacy key. An
+explicit selection saves the versioned record; legacy bytes remain unchanged.
+Malformed/unknown-version/invalid-axis versioned records remain untouched and
+fall back to legacy, or Grayscale + Light when no legacy value exists. Their
+presence never triggers the new-user Paper default. Startup read failure also
+falls back to Grayscale + Light without rewriting storage. `morandi` never
+aliases Colorful. A valid versioned choice survives restart and database reopen,
+independent of changes to the rollout switch.
+
+Both `app_theme` and `app_appearance` remain UI-local B0 exclusion keys. Portable
+snapshots scrub them; raw rollback snapshots retain them. This extends the
+existing exclusion rule without altering package format, credentials or restore
+ownership. Portable backup is not an appearance synchronization mechanism.
+
+Phase two calls `AppTheme.themeFor(appearance, Brightness.light/dark)` to supply
+both palettes and `AppTheme.themeMode(appearance)` for mode selection. Visual
+work changes the Paper branch inside that same factory and semantic tokens,
+with ColorScheme / ThemeData / ThemeExtension aligned; it does not introduce a
+parallel palette authority. Layout continues to use the existing DesignTokens.
 
 ## Local themes and validation
 
 Today (also used by TaskCenter and bank detail) and training configuration
-preserve the explicit preset, changing only their existing component-specific
+preserve the explicit style and requested mode, changing only their existing component-specific
 shape/slider details. Untagged host themes retain a brightness-based grayscale
-fallback; tagged light/colorful themes are never conflated. Primary navigation
+fallback; tagged styles are never conflated, including System-mode preferences. Primary navigation
 reads the active theme's colors, retaining its three destinations, icons and
 route structure.
 
-Required deterministic coverage includes preset mapping, token/Material
+Required deterministic coverage includes legacy migration and read-only fallback,
+rollout-vs-history defaults, versioned atomic writes and failed-write cache
+invalidation, Paper/Grayscale light/dark resolution, live System changes in the
+real app Widget tree, preserved Colorful compatibility, token/Material
 consistency, contrast, local-wrapper preservation, selection and rollback,
 single-flight saves, disposal, database close/reopen, fallback, navigation and
 existing affected regressions. Actual application screenshots for Today,
-AI 服务, 我的/appearance chooser and navigation in all three modes require
+AI 服务, 我的/appearance chooser and navigation in supported style/brightness combinations require
 separate visual acceptance. Synthetic Widget-rendered screenshots are useful
 evidence but never substitute for that runtime acceptance.

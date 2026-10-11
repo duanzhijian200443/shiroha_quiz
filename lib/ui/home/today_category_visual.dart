@@ -24,8 +24,8 @@ class TodayCategoryVisual extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final tokens = AppTheme.withPresetFallback(Theme.of(context))
         .extension<ShirohaThemeTokens>()!;
-    final colorful = tokens.appearance == ShirohaAppearance.colorful;
-    final dark = tokens.appearance == ShirohaAppearance.dark;
+    final colorful = tokens.isColorful;
+    final dark = tokens.isDark;
     final asset = switch (visual) {
       CategoryVisualKey.math => 'assets/images/today/category-math-v3.png',
       CategoryVisualKey.english => 'assets/images/today/category-english.png',

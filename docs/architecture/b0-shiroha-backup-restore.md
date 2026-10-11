@@ -188,7 +188,7 @@ restore/rollback journal are unchanged. No active grant, handle, pairing secret,
 provider response or credential is introduced.
 
 AR-R5B-P0 retains the non-secret `generated_proposal_local_owner` UUID through
-existing `app_settings` INCLUDE behavior (appearance `app_theme` remains scrubbed).
+existing `app_settings` INCLUDE behavior (appearance `app_theme` and versioned `app_appearance` remain scrubbed).
 The generated-question contract owns initialization and fail-closed checks:
 missing identity with retained Proposals, malformed identity or inconsistent
 Proposal owners stop first-party session entry without repair or data adoption.
@@ -390,7 +390,7 @@ modality and the v28 Answer Completion question-set rows:
 | Non-secret AI engine metadata | `ai_engines` metadata columns only; credential columns scrubbed (§4) |
 | Provider / Model Registry authority | `ai_providers`, `ai_models`, `ai_model_capability_claims`, `ai_capability_bindings` |
 | Legacy AI metadata compatibility | `ai_profiles` metadata columns only, if retained; credential columns scrubbed (§4) |
-| Non-secret durable app/Agent configuration | audited `app_settings` rows such as `agent_config_v0`, active engine ids, current-bank and daily-quota settings, and V3 `current_training_category`; purely UI-local keys (currently `app_theme`) are excluded |
+| Non-secret durable app/Agent configuration | audited `app_settings` rows such as `agent_config_v0`, active engine ids, current-bank and daily-quota settings, and V3 `current_training_category`; purely UI-local keys (`app_theme` and versioned `app_appearance`) are excluded |
 
 Additional SQLite rows may be included only after an explicit B0-D0/E0 audit
 confirms they are authoritative durable user state and are not in the EXCLUDE

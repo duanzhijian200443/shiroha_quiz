@@ -1,12 +1,15 @@
 import 'dart:convert';
 
+import '../../application/appearance/appearance_settings_service.dart';
+import '../../domain/appearance/shiroha_appearance.dart';
 import '../../application/backup/backup_restore_gate.dart';
 import '../../application/import/import_advanced_preferences.dart';
 import '../../application/import/import_target_catalog_service.dart';
 import '../../application/import/import_target_selection.dart';
 import '../../core/database/database_helper.dart';
 
-class SettingsRepository implements ImportTargetSelectionStore {
+class SettingsRepository
+    implements ImportTargetSelectionStore, AppearanceSettingsPort {
   SettingsRepository({DatabaseHelper? databaseHelper})
       : _databaseHelper = databaseHelper ?? DatabaseHelper.instance;
 
@@ -43,6 +46,44 @@ class SettingsRepository implements ImportTargetSelectionStore {
 
   Future<void> setAppTheme(String theme) async {
     await _saveSettingWithCache('app_theme', theme);
+  }
+
+  static const appearanceKey = 'app_appearance';
+
+  @override
+  Future<ShirohaAppearance> getAppearance(
+      {bool paperDefaultEnabled = false}) async {
+    final raw = await _getSettingWithCache(appearanceKey);
+    if (raw != null) {
+      try {
+        final decoded = ShirohaAppearance.fromJson(jsonDecode(raw));
+        if (decoded != null) return decoded;
+      } on FormatException {
+        // Preserve malformed/future values; do not silently opt into Paper.
+      }
+    }
+    final legacy = await _getSettingWithCache('app_theme');
+    if (legacy != null || raw != null) {
+      return ShirohaAppearance.fromLegacy(legacy);
+    }
+    return paperDefaultEnabled
+        ? ShirohaAppearance.paperLight
+        : ShirohaAppearance.light;
+  }
+
+  @override
+  Future<void> setAppearance(ShirohaAppearance appearance) {
+    return BackupRestoreMutationGate.instance.runMutation(() async {
+      final value = jsonEncode(appearance.toJson());
+      try {
+        // A single SQLite row is the atomic publication boundary for both axes.
+        await _databaseHelper.saveSetting(appearanceKey, value);
+        _cache[appearanceKey] = value;
+      } catch (_) {
+        _cache.remove(appearanceKey);
+        rethrow;
+      }
+    });
   }
 
   // --- Current Bank ---
