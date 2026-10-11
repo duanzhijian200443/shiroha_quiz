@@ -111,6 +111,11 @@
       "before": "    final excludedTables = <String>[\n",
       "after": "    final excludedTables = <String>[\n      ...externalAuthorizationTables,\n",
       "count": 1
+    },
+    {
+      "before": "      await db.delete(\n        'app_settings',\n        where: 'key = ?',\n        whereArgs: <Object?>['app_theme'],\n      );\n",
+      "after": "      await db.delete(\n        'app_settings',\n        where: 'key = ?',\n        whereArgs: <Object?>['app_theme'],\n      );\n      await db.delete(\n        'app_settings',\n        where: 'key = ?',\n        whereArgs: <Object?>['app_appearance'],\n      );\n",
+      "count": 1
     }
   ]
 }
