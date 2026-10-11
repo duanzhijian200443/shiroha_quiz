@@ -300,7 +300,11 @@ Owning services still perform scope-first Data access, current independent
 category/recipient checks, resource admission, strict projection, output-size
 checks and final release. Kernel final release delegates again to those same
 Question/File/Proposal ports after result construction; it cannot authorize
-output solely from an earlier snapshot. Withheld new READ references are removed.
+output solely from an earlier snapshot. Metadata results (file selections,
+Context tokens) are revalidated at the current authorization, relationship and
+verified Artifact-tuple level, never by reloading document bodies; full F1
+payload re-verification applies only to references that release passage
+content. Withheld new READ references are removed.
 
 READ's single two-second maximum applies across the complete P7 call, including
 admission and final release, using a trusted timer and the existing cooperative

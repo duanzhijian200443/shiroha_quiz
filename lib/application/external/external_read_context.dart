@@ -425,6 +425,9 @@ final class ExternalReadContextService {
 
   /// Reuses the owning READ release ports after Kernel result construction.
   /// References are safe result selections, never new scope/identity authority.
+  /// Metadata results (file selections, Context tokens) keep P6's metadata-only
+  /// semantics: current authorization/relations/Artifact tuples, never a body
+  /// reload. Full F1 payload re-verification stays with passage references.
   Future<void> releaseCapabilityOutput(
           {required ExternalSession session,
           String? context,
@@ -483,7 +486,20 @@ final class ExternalReadContextService {
             byFile[file.fileId] = file;
           }
           final files = byFile.values.toList();
-          if (files.isNotEmpty) await _fileReader.release(access, files, check);
+          if (files.isNotEmpty) {
+            await _fileReader.authorize(access, files, check);
+          }
+          // Only references that release passage content re-verify F1 payloads.
+          final contentIds = <String>{
+            for (final handle in selected)
+              if (handle.kind == _HandleKind.passage && handle.file != null)
+                handle.file!.fileId,
+          };
+          final contentFiles =
+              files.where((file) => contentIds.contains(file.fileId)).toList();
+          if (contentFiles.isNotEmpty) {
+            await _fileReader.release(access, contentFiles, check);
+          }
           access.validate();
         }
         check();

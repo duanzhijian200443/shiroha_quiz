@@ -408,7 +408,9 @@ proofs and owning current-authority ports. READ Context creation remains separat
 from STAGE target approval. File contexts remain explicit separate snapshots;
 the original empty P4/P5 Context is not expanded. Final Kernel output checks
 revalidate selected Question identities or verified File tuples and current
-Data authorization. Cancelled/deadline/lost output is withheld, with newly minted
+Data authorization; metadata-only selections never reload document bodies, and
+full F1 payload re-verification stays with references that release passage
+content. Cancelled/deadline/lost output is withheld, with newly minted
 unreleased references discarded. Existing scopes, counts, bytes and capacities
 are not increased; the complete P7 READ invocation shares one two-second bound.
 

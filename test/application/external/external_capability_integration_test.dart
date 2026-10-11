@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/application/capabilities/capability.dart';
 import 'package:shiroha_quiz/application/external/external_authorization.dart';
 import 'package:shiroha_quiz/application/external/external_generated_stage.dart';
@@ -705,6 +706,78 @@ void main() {
         expect(h.read.pendingCount, 0);
       });
     }
+
+    test(
+        'metadata selections tolerate a damaged payload without loading bodies',
+        () async {
+      final artifact = (await h.metadata.findCurrentByFileId('file-b'))!;
+      await File(p.join(h.managed.path, artifact.storageKey))
+          .writeAsString('corrupt');
+      final parent = await h.context();
+      final owningReads = h.observed.reads;
+      final direct = await h.read
+          .listFileSelections(session: h.s.session, context: parent);
+      expect(direct.items, hasLength(2));
+      expect(h.observed.reads, owningReads);
+      final context =
+          await gateway.openRead(session: h.s.session, context: parent);
+      final kernelReads = h.observed.reads;
+      final choices = await gateway.execute(
+          ExternalCapabilities.listFileSelections, const ExternalNoInput(),
+          session: h.s.session, context: context);
+      expect(choices.failure, isNull);
+      expect(choices.receipt.status, CapabilityExecutionStatus.completed);
+      expect(choices.receipt.knownEffect, CapabilityEffect.none);
+      expect(choices.output!.items, hasLength(2));
+      expect(h.observed.reads, kernelReads,
+          reason: 'metadata selection must not reload F1 document bodies');
+    });
+
+    test('P7 creation fails closed for the damaged file choice', () async {
+      final artifact = (await h.metadata.findCurrentByFileId('file-b'))!;
+      await File(p.join(h.managed.path, artifact.storageKey))
+          .writeAsString('corrupt');
+      final parent = await h.context();
+      final context =
+          await gateway.openRead(session: h.s.session, context: parent);
+      final choices = await gateway.execute(
+          ExternalCapabilities.listFileSelections, const ExternalNoInput(),
+          session: h.s.session, context: context);
+      expect(choices.output, isNotNull);
+      var created = 0;
+      var corrupt = 0;
+      for (final item in choices.output!.items) {
+        final outcome = await gateway.execute(
+            ExternalCapabilities.createFileContext,
+            ExternalFileSelections([item['fileRef']! as String]),
+            session: h.s.session,
+            context: context);
+        if (outcome.output != null) {
+          created++;
+        } else if (outcome.failure ==
+            CapabilityFailure.externalReadDataCorrupt) {
+          corrupt++;
+        }
+      }
+      expect(created, 1);
+      expect(corrupt, 1);
+    });
+
+    test('P7 content release still verifies the damaged F1 payload', () async {
+      final fileContext = await h.approved();
+      final artifact = (await h.metadata.findCurrentByFileId('file-a'))!;
+      await File(p.join(h.managed.path, artifact.storageKey))
+          .writeAsString('corrupt');
+      final execution =
+          await gateway.openRead(session: h.s.session, context: fileContext);
+      final result = await gateway.execute(
+          ExternalCapabilities.retrieveFileContent,
+          const ExternalFileQuery('needle'),
+          session: h.s.session,
+          context: execution);
+      expect(result.output, isNull);
+      expect(result.failure, CapabilityFailure.externalReadDataCorrupt);
+    });
   });
 
   test(
