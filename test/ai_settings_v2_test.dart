@@ -7,6 +7,7 @@ import 'package:shiroha_quiz/ui/pages/ai_engine_management_screen.dart';
 import 'package:shiroha_quiz/ui/pages/ai_provider_settings_screen.dart';
 import 'package:shiroha_quiz/ui/pages/ai_settings_screen.dart';
 import 'package:shiroha_quiz/ui/theme/app_theme.dart';
+import 'package:shiroha_quiz/ui/theme/shiroha_theme_tokens.dart';
 import 'package:shiroha_quiz/ui/widgets/shiroha_settings_components.dart';
 
 void main() {
@@ -22,19 +23,19 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('能力配置'), findsOneWidget);
+    expect(find.text('AI 能力'), findsOneWidget);
     expect(find.text('文本模型'), findsOneWidget);
     expect(find.text('图片理解'), findsOneWidget);
     expect(find.text('文档识别'), findsOneWidget);
-    expect(find.text('基础配置'), findsOneWidget);
+    expect(find.text('模型资源管理'), findsOneWidget);
     expect(find.text('API 提供商与模型'), findsOneWidget);
 
-    // Provider / Models own the model assets, so 基础配置 comes first.
+    // Capabilities are the primary hub; model asset management follows.
     final sectionOrder = tester
         .widgetList<ShirohaSectionLabel>(find.byType(ShirohaSectionLabel))
         .map((label) => label.text)
         .toList(growable: false);
-    expect(sectionOrder, <String>['基础配置', '能力配置']);
+    expect(sectionOrder, <String>['AI 能力', '模型资源管理']);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('ai-service-text-row')),
@@ -43,6 +44,42 @@ void main() {
     expect(find.byType(AiModelSelectorScreen), findsOneWidget);
     expect(find.byType(AiEngineManagementScreen), findsNothing);
     expect(find.text('选择模型 · 文本模型'), findsOneWidget);
+  });
+
+  testWidgets('AI service hub stays responsive across widths and themes',
+      (tester) async {
+    final service = _UiAiConfigService()..binding = _bindingFor('z53');
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+
+    final themes = <ThemeData>[
+      AppTheme.lightTheme,
+      AppTheme.darkTheme,
+      AppTheme.colorfulTheme,
+      AppTheme.themeFor(ShirohaAppearance.paperLight, Brightness.light),
+      AppTheme.themeFor(ShirohaAppearance.paperLight, Brightness.dark),
+    ];
+    for (final size in <Size>[const Size(360, 900), const Size(1100, 1000)]) {
+      tester.view.physicalSize = size;
+      for (final theme in themes) {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: theme,
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context).copyWith(
+                textScaler: const TextScaler.linear(1.3),
+              ),
+              child: child!,
+            ),
+            home: AiSettingsScreen(configService: service),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(find.text('Glm 5.3'), findsWidgets);
+      }
+    }
   });
 
   testWidgets('provider entry opens the provider and model management page', (
