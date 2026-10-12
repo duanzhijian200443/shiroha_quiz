@@ -15,8 +15,8 @@ P10 offline IPC command projection accepted in merged PR #261;
 P11 trusted local Profile/Grant management accepted in merged PR #262;
 P12 offline trust binding accepted in merged PR #263;
 P13 Windows security readiness accepted as a static checkpoint in merged
-PR #264; real acceptance BLOCKED. P14 moves the External offline regression
-matrix into the standing PR contract shards.**
+PR #264; real acceptance BLOCKED. P14 standing External CI coverage accepted
+in merged PR #265. P15 offline Credential boundary IMPLEMENTATION CANDIDATE.**
 
 The Provider seam, typed capability/executor/projection path and Runtime split/
 transcript are delivered in the preceding merged stages. Historical AR-R3
@@ -92,12 +92,20 @@ P13's [Windows security readiness](windows-host-security-readiness.md), owned by
 external boundary §11, is accepted as a static readiness checkpoint through
 merged PR #264: static feasibility/gaps and isolated Windows experiment/
 acceptance/fallback gates, with no implementation or runtime authority.
-P14 (auxiliary CI-engineering sub-stage) makes the External offline Application/
+P14 (auxiliary CI-engineering sub-stage, merged PR #265) makes the External offline Application/
 IPC/origin regression matrix and the repeatedly re-verified widget/RAG/Agent
 config suites standing PR contract coverage; that is Linux-offline evidence only
 and clears no WINDOWS_PENDING item. Independent environment approval and new
 experiment authorization remain missing; dynamic acceptance is BLOCKED and
 AR-R6B stays inactive.
+P15's offline candidate under external boundary §12 adds a dedicated protected
+association port and private one-use verification windows into P0/P12. Pairing
+and channel authentication are distinct; current Profile management, association
+CAS and runtime-instance/generation/liveness checks remain mandatory. Only tests
+provide memory storage/synthetic verification. It supplies no production crypto,
+secure storage or external authentication composition, and clears no M1–M4 real
+Windows requirement. G0 and X0–X12 remain unapproved and unexecuted. P15 tests
+extend the existing 273-file standing coverage without changing its shards.
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 Production Host/IPC, MCP vNext and READ fallback continuation remain unimplemented
 targets. Current product behavior

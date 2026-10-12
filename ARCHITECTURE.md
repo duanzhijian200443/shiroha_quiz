@@ -204,12 +204,19 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
    Final CI and Reviewer APPROVAL closed P12's offline scope; its fixed-target
    offline checks were performed by that same review session under explicit user
    instruction, not a separate independent Verifier session. Section 10 records
-   the disclosed exception. P13's static readiness candidate under external
+   the disclosed exception. P13's accepted static readiness (merged PR #264) under external
    boundary §11 and windows-host-security-readiness.md defines credential/Windows
    IPC gaps, isolated experiment authority and real acceptance/fallback gates.
    It activates no runtime and does not prove production security or stability;
    dynamic admission remains BLOCKED without a separately approved environment
    and explicit experiment authorization. AR-R6B remains inactive.
+   P14 (merged PR #265) makes complete External offline regressions standing CI.
+   P15's offline candidate under external boundary §12 defines a separate protected
+   association port and trusted verifier seam with private one-use P0 evidence.
+   It delegates all pairing/Session state to P0/P12 and policy to P1/P4/P7/P8;
+   association CAS is not a cross-store SQLite transaction. Only test backends
+   exist, no production crypto/storage/authentication wiring is added, and real
+   M1–M4/G0/X0–X12 Windows gates remain unmet. S0 engine.* authority is unchanged.
    HOST_STABILITY_HALT stays ACTIVE; Transport BLOCKED and AR-R6A NOT_ACCEPTED.
    The generated schema is globally
    migrated and strictly validated independently of runtime module enablement.

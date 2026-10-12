@@ -9,8 +9,16 @@ own identity, B-class isolation, authorization and offline behavior.
 [S0](../../architecture/s0-secure-credential-storage.md) owns Provider credentials;
 [MCP vNext](mcp-vnext-contract.md) owns the later client projection, not identity.
 This document owns the prerequisite assessment and future acceptance criteria.
-It changes no business code, credential port, dependency, schema, protocol,
+The P13 checkpoint changes no business code, credential port, dependency, schema, protocol,
 system configuration or production composition.
+
+P14 standing offline coverage is accepted through merged PR #265. P15's offline
+implementation candidate is owned by [external boundary §12](external-agent-boundary.md#12-p15-external-credential-boundary-offline-implementation-candidate).
+It implements association/verification seams only; M1–M4 real credentials,
+protected storage and authentication remain WINDOWS_PENDING. G0 is unmet and
+X0–X12 have not been authorized or run. Its private runtime-binding object is
+an offline event boundary, not a selected cryptographic nonce/wire format. No
+Codex or other upstream process/brand authenticity is claimed.
 
 **HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.**
 
@@ -60,6 +68,7 @@ Exact merge/head/base identities and execution evidence remain in Git/PR.
 | E6 | [P3 STAGE](../../../lib/application/external/external_generated_stage.dart), [Proposal repository](../../../lib/data/repositories/generated_proposal_repository.dart), [P12 B0 tests](../../../test/application/external/external_trust_backup_test.dart), [P8 B0 tests](../../../test/application/external/local_host_backup_test.dart): sole writer/key reconciliation and restore/restart boundaries. |
 | E7 | [S0 port](../../../lib/data/persistence/engine_credential_store.dart), [S0 adapter](../../../lib/data/credentials/secure_engine_credential_store.dart), [dependency lock](../../../pubspec.lock): Provider-only namespace and typed failures; not an External credential implementation. |
 | E8 | [main composition](../../../lib/main.dart), [MCP v0 contract](../../architecture/mcp-v0-contract.md), [P11 source guards](../../../test/application/external/local_authorization_architecture_test.dart), [CI configuration](../../../.github/workflows/pr-contract-checks.yml): no production external activation; P14's standing shards cover the External offline Application/IPC regression matrix, which is not Windows credential/transport acceptance. |
+| E9 | [P15 association port](../../../lib/application/external/external_credential_association.dart), [P15 boundary](../../../lib/application/external/external_credential_boundary.dart), [standing P12/P15 tests](../../../test/application/external/external_trust_coordinator_test.dart), [B0 tests](../../../test/application/external/external_trust_backup_test.dart): offline CAS/failures, exact runtime/event binding and private P0 windows; test-only memory authority, no Windows storage/crypto proof. |
 
 ## 2. Candidate primitives and static screening
 
@@ -203,16 +212,17 @@ relaxes current Grant/Scope/Egress or explicit local COMMIT.
 
 ## 4. Production security gap and dependency matrix
 
-All rows require new implementation/experiment authority; P13 authorizes only
-this static assessment. Dependencies refer to prerequisite row numbers and G0
+All production implementation/experiment rows require new authority; P13 authorizes only
+this static assessment. P15 separately authorizes OS-independent offline seams,
+not protected Windows objects or experiments. Dependencies refer to row numbers and G0
 (approved environment and exact experiment grant, section 6).
 
 | ID / boundary | Current status and evidence | Missing proof / minimal next step | Failure closure | New authority / prerequisite |
 |---|---|---|---|---|
-| M1 Credential Authority | OFFLINE_CODE E1; production issuer/client key ownership absent. STATIC_API native crypto primitives. | Freeze Bridge key ownership, App issuer/leaf roles and protected one-credential/one-Profile registration; implement only a reviewed bounded helper. Prove possession, conflict and rotation. | Reject unknown/duplicate/wrong-role credentials; do not mint a Principal from claims or regenerate trust automatically. | Implementation + key-generation grant; G0, M2. |
-| M2 Secure Storage | OFFLINE_CODE E7 for Provider rules only; STATIC_API for Windows stores. External store absent. | Dedicated namespace, bounded certificate/key material, current-user protection, exact read/write/delete scope, corrupt/missing/unavailable distinction and compensation; standalone Bridge backend proof. | Missing denies connection; corrupt hard-denies; unavailable closes admission with fixed transient classification. No plaintext or Provider fallback, bulk deletion or silent rekey. | Dedicated storage/crypto resources; G0. |
-| M3 Pairing Proof | OFFLINE_CODE E1 state/proof gate; cryptographic freshness/bootstrap absent. | Bind local approval to fresh request/key/install/generation challenge and independently verify a possession signature. Freeze control-plane delivery separately. | Failure remains pending proof; no paired state, credential acceptance or permission expansion. | Enrollment/crypto grant; G0, M1, M2. |
-| M4 Client Authentication | OFFLINE_CODE E1/E2/E5 map and admission; production verified attempts absent. | Authenticate TLS leaf and protected registration before business input; async proof -> adapter-owned live attempt -> existing P0/P4. | Reject wrong owner/Profile/credential/generation/role and all payload-derived identity; no Session fallback. | TLS/adapter grant; M1–M3, M6, M8. |
+| M1 Credential Authority | OFFLINE_CODE E1/E9 association rules; production issuer/client key ownership absent. STATIC_API native crypto primitives. | Freeze Bridge key ownership, App issuer/leaf roles and protected one-credential/one-Profile registration; implement only a reviewed bounded helper. Prove possession, conflict and rotation. | Reject unknown/duplicate/wrong-role credentials; do not mint a Principal from claims or regenerate trust automatically. | Implementation + key-generation grant; G0, M2. |
+| M2 Secure Storage | OFFLINE_CODE E7 for Provider rules and E9 for separate association/failure port; STATIC_API Windows stores. Production External store absent. | Dedicated namespace, bounded certificate/key material, current-user protection, exact read/write/delete scope, corrupt/missing/unavailable distinction and compensation; standalone Bridge backend proof. | Missing denies connection; corrupt hard-denies; unavailable closes admission with fixed transient classification. No plaintext or Provider fallback, bulk deletion or silent rekey. | Dedicated storage/crypto resources; G0. |
+| M3 Pairing Proof | OFFLINE_CODE E1/E9 state/proof gate and private request/runtime-bound windows; cryptographic freshness/bootstrap absent. | Bind local approval to fresh request/key/install/generation challenge and independently verify a possession signature. Freeze control-plane delivery separately. | Failure remains pending proof; no paired state, credential acceptance or permission expansion. | Enrollment/crypto grant; G0, M1, M2. |
+| M4 Client Authentication | OFFLINE_CODE E1/E2/E5/E9 map/admission and one-use verifier adapter; real cryptographic/TLS events absent. | Authenticate TLS leaf and protected registration before business input; async proof -> adapter-owned live attempt -> existing P0/P4. | Reject wrong owner/Profile/credential/generation/role and all payload-derived identity; no Session fallback. | TLS/adapter grant; M1–M3, M6, M8. |
 | M5 Windows Isolation | STATIC_API DACL/current-user primitives; no External cross-SID experiment. | Negative SID cannot read/modify owner's protected objects; positive separately provisioned SID obeys B-class business admission. Same-SID proxy risk remains documented. | Reject unauthorized object/business access; do not claim all TCP connect calls are refused. | Two lab principals and explicit account/ACL authority; G0, M2, M6, M8. |
 | M6 Protected Discovery | No production discovery publisher/consumer. STATIC_API file/handle security. | Secure root/child creation, owner/DACL/volume/reparse checks, authenticated anchor, atomic publication and object-identity cleanup; independently validate both ends. | Missing/stale/tampered/uncertain discovery is unavailable; leave foreign objects untouched; no temporary unprotected replacement. | Object-creation/ACL grant; G0, M2, M1 for server trust. |
 | M7 Loopback Transport | No external listener. STATIC_API explicit IPv4 binding. | Require actual 127.0.0.1, no sharing/wildcard/resolution, bounded raw accept -> required TLS, and cleanup of owned sockets only. | Reject startup/address mismatch; destroy candidate sockets; publish no usable endpoint. | Listener/socket grant on isolated device; G0, M6, M9. |
