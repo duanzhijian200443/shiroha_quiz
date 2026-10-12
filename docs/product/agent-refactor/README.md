@@ -16,7 +16,8 @@ P11 trusted local Profile/Grant management accepted in merged PR #262;
 P12 offline trust binding accepted in merged PR #263;
 P13 Windows security readiness accepted as a static checkpoint in merged
 PR #264; real acceptance BLOCKED. P14 standing External CI coverage accepted
-in merged PR #265. P15 offline Credential boundary IMPLEMENTATION CANDIDATE.**
+in merged PR #265. P15 offline Credential boundary IMPLEMENTATION CANDIDATE.
+P16 production primitive freeze STATIC DECISION CANDIDATE.**
 
 The Provider seam, typed capability/executor/projection path and Runtime split/
 transcript are delivered in the preceding merged stages. Historical AR-R3
@@ -106,6 +107,14 @@ provide memory storage/synthetic verification. It supplies no production crypto,
 secure storage or external authentication composition, and clears no M1–M4 real
 Windows requirement. G0 and X0–X12 remain unapproved and unexecuted. P15 tests
 extend the existing 273-file standing coverage without changing its shards.
+P16 (external boundary §13) freezes the production primitive candidates under
+[windows-host-security-readiness.md §9](windows-host-security-readiness.md):
+certificate/identity model, a single DPAPI-backed External object store,
+cryptographic possession proof and the owner-only Windows Discovery root, with
+minimal implementation packages and their required experiment authority. P16
+selects candidates only — no implementation, dependency or schema change, and
+no WINDOWS_PENDING item is cleared; the remaining blockers are exactly G0 and
+the per-package grants (BLOCKED_ON_G0).
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 Production Host/IPC, MCP vNext and READ fallback continuation remain unimplemented
 targets. Current product behavior
@@ -124,7 +133,7 @@ limit the module contract to Assistant features.
 | Typed capabilities, permissions, effects, receipts and projection boundaries | [application-capabilities.md](application-capabilities.md) |
 | Compile-time modules, contributions, dependencies and storage compatibility | [module-system.md](module-system.md) |
 | External identity, grants, context handles, egress and local Host/IPC | [external-agent-boundary.md](external-agent-boundary.md) |
-| Windows credential/IPC security readiness and isolated acceptance prerequisites | [windows-host-security-readiness.md](windows-host-security-readiness.md) |
+| Windows credential/IPC security readiness, frozen production primitive candidates and isolated acceptance prerequisites | [windows-host-security-readiness.md](windows-host-security-readiness.md) |
 | MCP profile, Tools, protocol schemas and reference-client packaging boundary | [mcp-vnext-contract.md](mcp-vnext-contract.md) |
 | Generated question admission, durable Review, atomic commit and retention | [generated-question-proposals.md](generated-question-proposals.md) |
 

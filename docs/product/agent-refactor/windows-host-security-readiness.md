@@ -1,14 +1,17 @@
 # P13 Windows Host Security Readiness
 
-Status: **Accepted static readiness checkpoint (merged PR #264). Real Windows
-security acceptance is BLOCKED; no production Credential/Pairing/Transport/Host
-is activated.**
+Status: **Accepted static readiness checkpoint (merged PR #264); P16 freezes the
+production primitive candidates and formats in section 9. Real Windows security
+acceptance is BLOCKED; no production Credential/Pairing/Transport/Host is
+activated.**
 
 Authority: [external boundary](external-agent-boundary.md) sections 2, 3, 5–10
 own identity, B-class isolation, authorization and offline behavior.
 [S0](../../architecture/s0-secure-credential-storage.md) owns Provider credentials;
 [MCP vNext](mcp-vnext-contract.md) owns the later client projection, not identity.
-This document owns the prerequisite assessment and future acceptance criteria.
+This document owns the prerequisite assessment and future acceptance criteria;
+its section 9 owns the frozen production candidate decisions, which select
+candidates and close no WINDOWS_PENDING item.
 The P13 checkpoint changes no business code, credential port, dependency, schema, protocol,
 system configuration or production composition.
 
@@ -19,6 +22,16 @@ protected storage and authentication remain WINDOWS_PENDING. G0 is unmet and
 X0–X12 have not been authorized or run. Its private runtime-binding object is
 an offline event boundary, not a selected cryptographic nonce/wire format. No
 Codex or other upstream process/brand authenticity is claimed.
+
+P16 (section 9) converts the section 4 gap matrix and P15's offline boundary
+into frozen production candidates: the certificate and identity model, the
+secure credential storage backend and formats, the cryptographic possession
+proof and exchange protocol, and the Windows Discovery/local-isolation rules,
+plus the minimal implementation packages and their required experiment
+authority. It implements nothing, generates no key or certificate, starts no
+listener, changes no P0–P15 permission semantic and clears no WINDOWS_PENDING
+item. Its remaining blockers are exactly G0 and the per-package experiment
+grants (BLOCKED_ON_G0, section 9.F).
 
 **HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.**
 
@@ -88,7 +101,7 @@ SDK, lockfile, architecture and release artifacts and recheck these references.
 | Certificate/key loading | [SecurityContext](https://api.dart.dev/dart-io/SecurityContext-class.html) imports PEM/PKCS12 and private-key bytes. Use app-specific anchors without ambient roots, role-separated leaves, explicit validity and a frozen minimum TLS policy. The API does not provide CA/CSR generation or a Windows non-exportable-key signing-handle interface. | Windows release/AOT must load the chosen bounded formats, enforce server/client identity and certificate validity, and deny old rotated credentials. Do not infer CRL/OCSP or live revocation guarantees from a TLS API. |
 | Identity mapping | [X509Certificate](https://api.dart.dev/dart-io/X509Certificate-class.html) exposes DER and validity. Candidate identity is a SHA-256 digest of the verified leaf DER, registered to one existing opaque Profile reference by trusted local management; subject/CN, a supplied fingerprint or the SDK's SHA-1 accessor is not authority. | Verify collision/conflict rejection, active local credential registration, exact installation/role and replay/rotation invalidation. The cryptographic suite, certificate profile and registry format need their own bounded approval before implementation. |
 | Key generation/issuance | Dart's TLS context loads material; it does not issue it. Windows [BCryptGenerateKeyPair](https://learn.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptgeneratekeypair) and [CryptSignAndEncodeCertificate](https://learn.microsoft.com/en-us/windows/win32/api/wincrypt/nf-wincrypt-cryptsignandencodecertificate) support primitives for a minimal native crypto helper. STATIC_API, not a selected implementation. | Prove key ownership, CSR/challenge signature checks, intended SAN/EKU/validity and issuer protection. No certificate algorithm, third-party crypto dependency or native package is selected by P13. |
-| Storage and native boundary | Reuse S0's authority separation, typed missing/corrupt/unavailable failures and explicit compensation principles. Do not reuse `engine.<providerId>`, its 4096-rune API-key limit, Provider migration or bulk deletion. A separately approved External namespace/storage boundary is required. | The lock resolves flutter_secure_storage 10.3.1 / Windows 4.1.0. [The versioned Windows package](https://pub.dev/packages/flutter_secure_storage_windows/versions/4.1.0) and inspected native source use AES-GCM files with a Credential Manager key, not a demonstrated direct DPAPI External store. Prove missing/corrupt-key behavior without silent rekey, ACLs and owner-only operations. No Provider entry may change. |
+| Storage and native boundary | Reuse S0's authority separation, typed missing/corrupt/unavailable failures and explicit compensation principles. Do not reuse `engine.<providerId>`, its 4096-rune API-key limit, Provider migration or bulk deletion. A separately approved External namespace/storage boundary is required. | The lock resolves flutter_secure_storage 10.3.1 / Windows 4.1.0. [The versioned Windows package](https://pub.dev/packages/flutter_secure_storage_windows/versions/4.1.0) stores by default one DPAPI-wrapped JSON map file and keeps an AES-GCM/Credential Manager-key legacy path; neither satisfies the External contract (§9.B.1). Prove missing/corrupt-key behavior without silent rekey, ACLs and owner-only operations. No Provider entry may change. |
 | Discovery/Windows integration | A minimal Windows adapter is justified for security-descriptor creation/inspection and object-identity-safe publication/cleanup, which current external code does not implement. Flutter documents [Win32/FFI integration](https://docs.flutter.dev/platform-integration/windows/building); transitive ffi/win32 dependencies are not authority to add a new adapter. | Prove exact DACL/owner, reparse/parent substitution resistance and replacement/cleanup by object identity. Failure must close the candidate. A directory name or profile-local path alone is insufficient. |
 | Packaging | [Dart AOT executables](https://dart.dev/tools/dart-compile) and [Flutter Windows distribution](https://docs.flutter.dev/platform-integration/windows/building) are supported building blocks. S0's Flutter MethodChannel plugin is not evidence that a standalone Dart AOT Bridge can use that backend without a Flutter engine. | Freeze native dependency loading and a minimal standalone Bridge storage/crypto solution. Test packaged release, not just JIT or the developer machine. TLS credentials are separate from code-signing certificates; no OS root installation or release change follows from this plan. |
 
@@ -235,7 +248,9 @@ not protected Windows objects or experiments. Dependencies refer to row numbers 
 M2/issuance format and M6 can be designed in parallel, but their runtime
 publication waits for G0. M7/M8/M9 must be assessed together before any business
 payload crosses a live connection. All security and stability gates are separate;
-security success cannot clear HOST_STABILITY_HALT.
+security success cannot clear HOST_STABILITY_HALT. P16's section 9 freezes the
+selected production candidates for M1/M2/M3/M6/M8 inputs; the rows below keep
+their acceptance, failure-closure and closure authority.
 
 ## 5. Framing compatibility and resource acceptance
 
@@ -326,7 +341,7 @@ grant another, or authorize production activation.
 | X8 | A8: committed/lost STAGE reconciliation | Synthetic Proposal/key/SQLite, controlled response cut after commit and fresh reconnection; exact owning checkpoints. | X4–X7. |
 | X9 | A9: Bridge has no alternate business writer | Bounded App absence/not-ready/closed runs and file-open/access audit for the synthetic DB. | Packaged candidate Bridge; no real DB. |
 | X10 | A10: retain external allowlist and MCP v0 | Existing offline compatibility fixtures and, only if separately named, synthetic retained-v0 stdio runs. No vNext registration or protocol expansion. | Candidate artifacts; standing regression target. |
-| X11 | A11: owner-safe endpoint cleanup | Two candidate runtime processes, disposed sockets and experiment-only descriptors; bounded termination/replacement races and foreign-object sentinels. | X3, X7; object-identity cleanup design. |
+| X11 | A11: owner-safe endpoint cleanup | Two candidate runtime processes (the superseded/second one must fail closed under the 9.D supersession/single-writer lock while the holder keeps serving — including concurrent initialization and store-commit attempts, which must never interleave read–CAS–commit transactions), disposed sockets and experiment-only descriptors; bounded termination/replacement races and foreign-object sentinels. | X3, X7; object-identity cleanup design. |
 | X12 | A12: release launch/recovery compatibility | Named release/AOT artifacts, native DLL dependencies, space/Unicode install roots, disposable cold-start/upgrade/crash scenarios. | X1–X11; packaging model frozen. |
 
 Address/TLS/storage/Discovery validity is a common preflight for every socket
@@ -376,7 +391,7 @@ candidate is loopback-only or a lower-level primitive trial succeeded.
 | A9 | E8 contract/compiled composition boundary. | App absent, not-ready, closed or recovering gives bounded unavailable/denied behavior. Bridge neither opens the business SQLite DB nor loads repositories/migrations or starts a replacement writer. Any such fallback is FAIL. |
 | A10 | E2/E8 exact ten internal external routes and six MCP v0 READ tools. | Current compatibility checks retain those surfaces and deny every external COMMIT/DESTRUCTIVE/Built-in route. P13/candidate trials register no vNext tools. Changed v0 or expanded authority is FAIL. |
 | A11 | E2 controlled owning shutdown; no real endpoint ownership proof. | Normal close, abort/startup race, crashed prior runtime and competing replacement leave another process's sockets/descriptors/credential objects and sentinel data untouched. Cleanup uses proven ownership/object identity; ambiguous state fails closed without deleting it. Wrong deletion or shared/wildcard listener is FAIL. |
-| A12 | Static AOT/platform support only. | Exact packaged release/native backend works non-elevated from space/Unicode paths and a sanitized launch environment, after abnormal close, upgrade and cold start. Old endpoint/anchor cannot impersonate the new App; invalid native/store artifacts keep it disabled. JIT-only success, developer-only dependencies or authorization revival is FAIL. |
+| A12 | Static AOT/platform support only. | Exact packaged release/native backend works non-elevated from space/Unicode paths and a sanitized launch environment, after abnormal close, upgrade and cold start. Old endpoint/anchor cannot impersonate the new App — a second live External runtime must fail closed (9.D supersession single-liveness and store single-writer exclusion: it neither serves, publishes, binds nor writes store objects while the holder lives), a stale signed descriptor (including one paired with the retired still-valid leaf, or below the pinned epoch) is refused or can reach only a dead endpoint, and a successor is accepted on first sighting without re-enrollment after a same-generation restart; invalid native/store artifacts keep it disabled. JIT-only success, developer-only dependencies or authorization revival is FAIL. |
 
 Disconnected channels must stop accepting new calls and drop their adapter-owned
 attempts; no disposed connection can recreate its Session. P0 has no standalone
@@ -415,7 +430,7 @@ independent review; none is started by P13 or a merged readiness document.
 
 | Package | Smallest responsibility | Exit condition |
 |---|---|---|
-| Environment/primitive contract | Approve G0 and exact certificate/registry/challenge/storage/Discovery formats, native boundary, budget and release model; preserve P0/P4 and Provider contracts. | Complete explicit experiment grant; no unresolved hard semantic conflict. |
+| Environment/primitive contract | Approve G0 and the native boundary, budget and release model; certificate/challenge/storage/Discovery formats are frozen in section 9 and need no further design authority. Preserve P0/P4 and Provider contracts. | Complete explicit experiment grant; no unresolved hard semantic conflict. |
 | Credential and protected objects | Implement only approved issuance/Bridge custody, separate External storage, association and owner-safe Discovery primitives. No business listener/Host publication. | X1/X3 primitive proof plus corruption/rotation/failure closure on isolated Windows. |
 | TLS and bounded adapter | One TCP/mTLS candidate, verified attempt mapping, pre-auth admission/timeout/destruction and bounded P9/P10 consumption. Existing business owners remain unchanged. | X2/X4/X6/X7 isolated proof; no unauthenticated business path. |
 | Lifecycle/effect/release evidence | Actual disconnect/crash/drain/Restore/reconciliation, foreign-object cleanup and packaged App/Bridge acceptance over synthetic data. | X5/X8–X12 at the exact target; required Windows Verifier and Independent Reviewer approval. |
@@ -426,3 +441,792 @@ Provider storage or the accepted identity model. A required change to a frozen
 contract, unapproved native primitive, inadequate independent environment or a
 test possible only through high-risk primary-host experiments is BLOCKED. Static
 design can record that blocker; implementation and experiment stop at that boundary.
+
+## 9. P16 production primitive freeze
+
+Status: **Static decision candidate. No production credential, certificate, key,
+secure store, Discovery object, TLS context, listener or Host is implemented,
+generated, activated or measured by P16. Every real Windows behavior below
+remains WINDOWS_PENDING; every implementation package below remains
+BLOCKED_ON_G0 until a separately authorized environment and experiment grant
+exist (sections 6 and 9.F).** This section closes the design half of the
+section 4 gaps (M1–M3, M5–M6 and the M8/M9 inputs) with concrete, versioned,
+reviewable decisions, so the next stage is real implementation and isolated
+Windows acceptance, not another offline design round. P15 remains the owner of
+the offline association/evidence contract this production layer must satisfy;
+P0/P4/P7/P8 authorization semantics, S0 Provider authority, the B-class
+isolation model and the frozen P9/P10 schemas are unchanged and are not
+duplicated.
+
+Decision markers used below: **FROZEN** (selected candidate; implementation and
+review follow it), **WINDOWS_PENDING** (real acceptance requires an authorized
+experiment; no PASS is recorded) and **UNSUPPORTED** (excluded promise). Static
+evidence keeps the section 1 classes (OFFLINE_CODE / STATIC_API).
+
+Toolchain context actually inspected for this decision: repository CI pins
+Flutter 3.41.9; the local SDK reports Flutter 3.41.9 / Dart 3.11.5 windows_x64.
+`pubspec.lock` pins flutter_secure_storage 10.3.1 /
+flutter_secure_storage_windows 4.1.0 / ffi 2.2.0 / win32 5.15.0 (transitive).
+Version claims below hold for those exact artifacts; a version change
+invalidates the affected evidence until rechecked.
+
+### 9.A Certificate and identity model (P16-A)
+
+#### 9.A.1 Roles and responsibility split (FROZEN)
+
+One local installation trust domain with three roles, all ECDSA P-256:
+
+| Role | Owner / custody | Signs / performs | Never does |
+|---|---|---|---|
+| Installation issuer | App; private key in the App protected store (9.B) | Client and server leaf issuance, `SHIROHA-EXTERNAL-ENDPOINT-V1` descriptor signatures, anchor-rotation records; its self-signed certificate is the single trust anchor | TLS itself; authentication; any Bridge custody |
+| Server credential (leaf) | App; private key in the App protected store | The TLS server side on 127.0.0.1 only | Issuing anything |
+| Client credential (leaf) | Bridge; private key generated by the Bridge and kept in the Bridge store | The pairing possession proof (9.C) and the TLS client side | Receiving or exporting private material |
+
+The issuer key never leaves the App process/store and is used only during
+explicit initialization, enrollment and rotation actions. The Bridge generates
+its own key pair; only public enrollment material ever reaches the App. No
+reusable private key is bundled and no OS trust root is installed or touched:
+the anchor is pinned per installation inside the two protected roots (9.D).
+
+Basis: CNG `BCryptGenerateKeyPair` / `BCryptSignHash` / `BCryptVerifySignature`
+(bcrypt.dll; CNG has provided ECDSA P-256 since the Vista-era Windows; the
+frozen first target is Windows 11 x64 per section 6) and crypt32 certificate
+encode/inspect APIs (`CryptSignAndEncodeCertificate`,
+`CertCreateCertificateContext` / `CertGetCertificateContextProperty`). Both
+build directions are `dart:io` plus one minimal Win32 helper over SDK-built-in
+`dart:ffi`; nothing in this model needs the Flutter engine, so the Flutter
+Windows build and the standalone Dart AOT Bridge share the identical code path
+(real packaged AOT run remains WINDOWS_PENDING, A12).
+
+#### 9.A.2 Algorithms and sizes (FROZEN)
+
+- Key algorithm: ECDSA on NIST P-256 (secp256r1 / prime256v1), 256-bit keys.
+- Signatures everywhere (certificates, descriptor, possession proof): ECDSA
+  P-256 with SHA-256; the wire signature encoding is the CNG raw form r‖s,
+  exactly 64 bytes.
+- Private-key blobs in the protected stores: PKCS#8 DER (id-ecPublicKey +
+  prime256v1); certificates: DER (X.509 v3), converted to PEM text only when
+  handed to a Dart TLS context.
+
+Rationale: P-256 is the one modern ECC curve with first-class CNG support
+(`BCRYPT_ECDSA_P256_ALGORITHM`) and first-class BoringSSL support
+(`ecdsa_secp256r1_sha256`), so one key profile serves both the TLS and the
+possession-proof roles with no third-party crypto dependency. RSA-2048 is
+rejected as larger and slower with no benefit for a loopback installation CA.
+Ed25519 is rejected because Windows CNG does not provide it; using it would
+force an unapproved third-party crypto library into the trust path.
+
+Fail-closed: any stored or peer key whose size, curve or OID differs from the
+frozen profile is `dataCorrupt` (stored) or `verificationRejected` (peer).
+
+#### 9.A.3 Certificate profile (FROZEN)
+
+All objects are X.509 v3 signed with ecdsa-with-SHA256, serial = 16 random
+bytes, `notBefore = generation time − 5 minutes` (skew allowance). No CRL, OCSP
+or AIA extensions exist or are consulted.
+
+| Field | Installation issuer | Server leaf | Client leaf |
+|---|---|---|---|
+| Basic Constraints | critical, CA:TRUE, pathLen:0 | critical, CA:FALSE | critical, CA:FALSE |
+| Key Usage | critical, keyCertSign | critical, digitalSignature | critical, digitalSignature |
+| Extended Key Usage | absent | serverAuth (1.3.6.1.5.5.7.3.1), non-critical | clientAuth (1.3.6.1.5.5.7.3.2), non-critical |
+| SAN | absent | critical, exactly one GENERAL_NAME iPAddress = 127.0.0.1 | absent |
+| Validity | 3650 days | 730 days | 730 days |
+| Subject CN | "Shiroha External Installation Issuer" (display only) | "Shiroha External Host" (display only) | "Shiroha External Bridge" (display only) |
+
+Subject/CN/SAN text is display metadata only — never identity, never
+authorization, never a Profile selector. A wrong-role leaf (EKU/KU/BC
+mismatch), a missing or duplicated server SAN, or a non-P-256 SPKI is a fixed
+role rejection (9.A.7). Expiry is a hard rejection with no grace period and no
+renewal API: a re-issued leaf has a new DER, therefore a new credential
+identity, and requires a fresh pairing (9.A.5/9.A.6).
+
+#### 9.A.4 TLS protocol and validation rules (FROZEN; real handshake WINDOWS_PENDING)
+
+- Both peers are the repository's own Dart stacks; both `SecurityContext`s set
+  `minimumTlsProtocolVersion = TlsProtocolVersion.tls1_3` (verified local SDK
+  3.11.5 `dart:io` API; default is tls1_2). TLS 1.2 and below are refused with
+  no silent fallback. Renegotiation must remain disabled
+  (`allowLegacyUnsafeRenegotiation` stays false).
+- `dart:io` exposes no cipher-suite selection API (inspected local SDK
+  `security_context.dart`: only ALPN, minimum version and the renegotiation
+  flag). The cipher policy is therefore the BoringSSL default set under
+  TLS 1.3 — an accepted engine-policy dependency, not a claim. A hard cipher
+  requirement would leave TCP blocked; no custom cipher list is promised.
+- Contexts are created with `SecurityContext(withTrustedRoots: false)` only.
+  `defaultContext`, ambient Mozilla roots, OS stores and any `onBadCertificate`
+  acceptance handler are prohibited in External code paths (source-guard test
+  in Package 1). The App server context loads the chain (leaf first, issuer
+  last: the first PEM block is the served identity certificate — the pinned
+  SDK 3.11.5 dartdoc's root-first wording for `useCertificateChain` is
+  contradicted by its runtime behavior, where issuer-first bytes fail
+  `usePrivateKeyBytes` with `KEY_VALUES_MISMATCH`; the frozen byte order is
+  therefore first block = leaf and the dartdoc wording must not be followed)
+  via `useCertificateChainBytes`, the server key via `usePrivateKeyBytes`
+  (PKCS#8 PEM text), trusts exactly the
+  issuer via `setTrustedCertificatesBytes`, advertises it via
+  `setClientAuthoritiesBytes`, and binds with `requestClientCertificate: true`
+  and `requireClientCertificate: true` (signatures verified in local SDK
+  `secure_server_socket.dart`). The Bridge client context trusts exactly the
+  pinned anchor and loads its own chain/key.
+- Endpoint binding: the listener binds an `InternetAddress.loopbackIPv4` object
+  with `shared: false`, and the runtime fails closed unless the actual bound
+  address is exactly 127.0.0.1 (A0). The Bridge connects only to
+  `InternetAddress.loopbackIPv4` on the descriptor's port; no hostname
+  resolution, wildcard or IPv6.
+- Verification is three explicit layers, all mandatory:
+  1. BoringSSL handshake: chain to the pinned anchor, certificate signatures,
+     validity windows, TLS 1.3 `CertificateVerify` (channel possession). A
+     failed handshake destroys the socket before any business byte.
+  2. Native policy re-check on the peer leaf DER (`SecureSocket.peerCertificate.der`,
+     verified accessor in the local SDK): EKU contains the required role
+     OID, KU is exactly `digitalSignature`, BasicConstraints present and
+     CA:FALSE, SPKI is id-ecPublicKey + prime256v1, certificate signature
+     algorithm is ecdsa-with-SHA256, validity window re-checked. Extension
+     inspection uses crypt32 context properties, not hand-rolled DER parsing.
+  3. Identity binding: SHA-256 of the exact leaf DER must equal the registered
+     `credentialIdentity` for the selected Profile (9.A.5), and the server leaf
+     digest must equal the digest published in the runtime's signed descriptor
+     (9.D).
+- `peerCertificate.sha1`, subject strings and any client-claimed fingerprint
+  are never used. No TLS key-logging support is added. Real handshake,
+  extension and rejection behavior remains WINDOWS_PENDING under A0/A2
+  (X0/X2): valid, missing, forged, wrong-anchor, expired and wrong-role
+  certificates must be exercised on the approved environment.
+
+#### 9.A.5 credentialIdentity mapping (FROZEN)
+
+`credentialIdentity` is the lowercase hex SHA-256 of the leaf DER exactly as
+the registering side held it at pairing time and exactly as
+`X509Certificate.der` returns it at TLS time; both byte strings must be
+identical. The P15 association record stores it (bounded to 256 text
+characters; 64 hex characters in practice) and keeps the P15 uniqueness rules
+unchanged: one active identity per Profile, one active Profile per identity,
+tombstones retain revisions.
+
+**A leaf digest is only a correlation identifier; it never proves that the
+client holds the private key.** Possession is proven only by the pairing
+signature over the 9.C.2 transcript (enrollment) and by the TLS 1.3
+`CertificateVerify` (channel). Subject, CN, SAN, serial, PEM text, `sha1` and
+any supplied fingerprint are not identity and cannot select, reconstruct or
+reactivate a Profile or Principal.
+
+#### 9.A.6 Rotation, revocation and anchor replacement (FROZEN; lifecycle WINDOWS_PENDING)
+
+- Client credential rotation: only explicit. The association is revoked
+  through the P15 CAS/revoke path (tombstone retained, evidence closed,
+  generation invalidated); the Bridge then enrolls a fresh key/leaf and
+  completes fresh approval and possession proof. There is no renewal API, no
+  duplicate active credential and no automatic re-issue.
+- Expiry behaves like revocation for access: an expired leaf fails layers 1–3
+  and its identity opens nothing. Re-enrollment is the only recovery.
+- Server credential rotation: a new leaf from the same issuer. Because the
+  server context loads once per listener lifetime, rotation is a controlled
+  shutdown → re-issue → restart → republish descriptor (Package 3 acceptance);
+  the 9.D supersession single-liveness rule forbids an old and a new listener
+  from coexisting.
+  The republished descriptor carries the new runtimeInstanceId, the new leaf
+  digest and a strictly higher durable `publicationEpoch`; the Bridge's 9.D
+  epoch high-water refuses any descriptor whose epoch is below its pinned
+  value — including a coherent stale descriptor paired with the retired
+  still-valid leaf, which the descriptor's self-consistent digest binding
+  alone cannot order — while mixed descriptor/leaf pairs fail the digest
+  binding. The in-memory P0/P12 generation may restart at the same numeric
+  value in a new process; it is informational here and never used for
+  ordering, so routine restarts need no re-enrollment.
+- Issuer/anchor replacement: a new issuer key/cert is accepted only with an
+  anchor-rotation record signed by the previous issuer key and carrying the
+  new anchor; the Bridge verifies it against its pinned anchor before
+  replacing its copy. Without a valid old-key signature — including after
+  old-key loss — the only path is explicit re-enrollment of every client
+  (fresh pairing). There is no trust-on-first-use, no silent anchor swap and
+  no automatic cross-Profile rebinding. App-side replacement follows the same
+  rule and is a deliberate local action.
+- Live revocation infrastructure (CRL/OCSP) is UNSUPPORTED: none exists and
+  none is claimed as a substitute for the explicit association revoke.
+
+#### 9.A.7 Fixed rejection semantics (FROZEN)
+
+| Condition | Fixed behavior | P15 failure mapping |
+|---|---|---|
+| Expired / not-yet-valid beyond the skew allowance | Reject; no grace, no retry-with-old-cert | handshake failure or `verificationRejected` |
+| Wrong role (EKU/KU/BC/SAN/SPKI mismatch) | Deterministic layer-2 rejection | `verificationRejected` |
+| Wrong anchor / foreign or missing chain | Layer-1 rejection; socket destroyed before business bytes | handshake failure; no business path |
+| Retired, revoked or unregistered identity (digest mismatch) | Reject before any P0 window | `unauthorized` |
+| Torn or unparsable stored object | Hard deny; object left untouched | `dataCorrupt` |
+| Missing certificate where TLS requires one | Handshake fails; connection destroyed | pre-business failure |
+
+All rejections map onto the existing P15/`ExternalFailure` vocabularies; no new
+failure kind, retry or fallback path is introduced.
+
+#### 9.A.8 Required real acceptance (WINDOWS_PENDING)
+
+The valid / missing / forged / wrong-anchor / expired / wrong-role / retired
+leaf matrix over a real TLS 1.3 handshake (A2, X2); exact leaf authentication
+and digest binding (A1, X4); TLS 1.3 floor enforcement and absence of TLS 1.2
+negotiation; PKCS#8 and chain loading in the Flutter Windows AOT build and in
+the standalone Dart AOT Bridge; certificate encoding output validated against
+the frozen profile. None of these may be claimed from static inspection alone.
+
+### 9.B Secure credential storage (P16-B)
+
+#### 9.B.1 Investigated backend evidence (REJECTED: flutter_secure_storage_windows)
+
+The locked `flutter_secure_storage_windows` 4.1.0 was inspected at source
+level for this decision (Dart `lib/src/flutter_secure_storage_windows_ffi.dart`
+and `windows/flutter_secure_storage_windows_plugin.cpp`):
+
+- The default path stores every key of the app in ONE JSON map file
+  (`flutter_secure_storage.dat` in Roaming `%APPDATA%`) encrypted as a single
+  DPAPI blob (`CryptProtectData`, flags 0, user scope).
+- A corrupt, undecryptable or mis-parsed map is DELETED and rethrown — all
+  entries are destroyed as a side effect of one bad read.
+- An unreadable file (`FileSystemException`) is silently treated as an empty
+  map — a read error becomes "missing".
+- There is no revision, CAS, uniqueness or tombstone concept; writes are
+  read-modify-write of the whole map.
+- The legacy `.secure` path keeps its AES-GCM key in Credential Manager; a
+  wrong-size key triggers silent delete-and-rekey, permanently losing prior
+  data.
+- The package imports `package:flutter/*` and `path_provider`, so a standalone
+  Dart AOT Bridge cannot use it at all; directories are created with inherited
+  ACLs and writes are plain `ofstream` without atomicity.
+
+Verdict: this backend cannot satisfy the P15 association contract (corrupt must
+hard-deny without bulk deletion; missing and unavailable must stay distinct;
+CAS/uniqueness/tombstone semantics; snapshot monotonicity) and cannot serve the
+Bridge. It must not be used for External objects — not for the App store, not
+for the Bridge store, and not with prefixed keys inside the same shared map.
+S0's Provider secure store is likewise not reused and cannot serve the Bridge;
+`engine.*` keys, Provider migration and Provider deletion semantics never
+change.
+
+#### 9.B.2 Selected backend (FROZEN; exactly one backend, no fallback backend)
+
+A single dedicated External object store: versioned binary object files in the
+owner-only NTFS root of section 9.D, each wrapped with user-scope DPAPI
+(`CryptProtectData` / `CryptUnprotectData`, flags 0 — no machine-wide flag, no
+plugin, no Flutter dependency). The Flutter App process and the standalone Dart
+AOT Bridge call it through the same minimal native helper over SDK-built-in
+`dart:ffi` (no new pub dependency; the helper is loaded by absolute path from
+the process directory and is part of the release artifact — Package 3). The
+helper resolves the root via `SHGetKnownFolderPath(FOLDERID_LocalAppData)` —
+never from environment strings and never from version-info company/product
+names (the investigated plugin's mechanism).
+
+Why this is the minimal compliant candidate: DPAPI user scope protects the
+objects at rest and binds them to the user's logon; the 9.D ACLs block
+cross-SID access; and the format plus commit rules are fully owned by us,
+which is exactly what the P15 CAS/tombstone/monotonic-snapshot contract needs.
+Rejected alternatives:
+
+- CNG/NCrypt non-exportable keys: `dart:io` TLS requires key bytes in a
+  `SecurityContext` (verified local SDK API), so a non-exportable signing
+  oracle cannot serve the TLS role; non-exportability is UNSUPPORTED and not
+  claimed.
+- Credential Manager records: 2,560-byte blob ceiling, no CAS/atomicity,
+  target-name collisions and the plugin-recorded silent-rekey hazard.
+- SQLite (including the business database): credential and association
+  material is explicitly integrity-protected outside the non-secret
+  Profile/Grant tables (section 3), S0's E7 boundary marks the Provider seam
+  as Provider-only, and the Bridge never opens SQLite.
+- flutter_secure_storage(_windows): rejected per 9.B.1.
+
+There is exactly one backend. No second store may be implemented as a fallback
+and no runtime switch between backends exists. If X1/X3 disprove a required
+behavior (DPAPI semantics, rename atomicity, ACL enforcement), the affected
+package STOPS and returns for review; TCP/mTLS stays blocked meanwhile.
+
+Access/update/revoke boundaries: the App process is the sole reader/writer of
+the App trust store and the association store; a Bridge process is the sole
+reader/writer of its own client store; no component copies objects across
+roots, exports them, or includes them in backups, exports or logs. Revocation
+follows P15: evidence and admission close and owning drain completes before
+the revoke CAS commits; a failed revoke leaves the runtime closed and reports
+failure, never durable success.
+
+#### 9.B.3 Object formats (FROZEN, version 1)
+
+All objects are DPAPI blobs whose plaintext payload is strictly decoded;
+unknown magic, version, kind, length or reserved content is `dataCorrupt` —
+no best-effort parsing, no migration, no auto-upgrade. Every write replaces
+whole objects atomically (9.B.4). Field bounds mirror P15 (`profileId` UUID v4,
+`installationId` ≤128 UTF-8 canonical lowercase UUID text, `credentialIdentity`
+64 hex characters, revisions 1–2147483647, matching `ExternalAuthLimits`).
+
+| Object kind | Payload (plaintext, before DPAPI) |
+|---|---|
+| 1 issuerKeyPair | magic `SHREXOBJ`, version 1, kind 1, installationId (u16le length + UTF-8), publicationEpoch (u64le; 0 at creation, +1 committed per descriptor publication), issuer PKCS#8 DER (≤ 256 B), issuer cert DER (≤ 1 KiB) |
+| 2 serverKeyChain | magic, version 1, kind 2, server PKCS#8 DER, server leaf DER, issuer cert DER |
+| 3 associationStore | magic, version 1, kind 3, `u32le recordCount ≤ 64`, then per record: record version 1, profileId (16 raw UUID v4 bytes), installationId (u16le length + UTF-8), credentialIdentity (32 raw SHA-256 bytes), revision (u64le), revoked (1 byte, 0/1), updatedAtUtcMs (u64le, backend bookkeeping only, 0–9007199254740991 like P15 times; not part of the P15 port record) |
+| 4 bridgeClient | magic, version 1, kind 4, client PKCS#8 DER, client leaf DER, issuer cert DER, pinned installationId, pinned discovery epoch high-water (u64le) |
+
+Caps: one object file ≤ 64 KiB; association records ≤ 64 (exceeding the bound
+fails registration `resourceLimit`); temp/leftover files ≤ 32 per directory
+(9.B.4). The association payload IS the P15 store: one record per Profile
+including tombstones, validated at the commit boundary exactly as the P15 port
+requires.
+
+#### 9.B.4 Write, CAS and recovery rules (FROZEN; OS behavior WINDOWS_PENDING)
+
+- Single writer, OS-enforced (store objects): each root has exactly one
+  writing process for its store objects — the App root's kinds 1–3 and the
+  Bridge root's kind 4 — and every read–validate–CAS–commit transaction on
+  them runs while that process holds the root's exclusive no-sharing writer
+  lock (App: `runtime.lock`, Bridge: `bridge\client.lock`; 9.D). The lock is
+  taken non-blocking before the process's first store operation (only the root
+  directory and the lock object itself precede it) and held for that process's
+  store-owning lifetime (9.D), so no transaction ever runs outside it; the
+  in-process bounded commit queue serializes only within that exclusive
+  holder. The 9.C.5 exchange files are single-consumption atomic `CREATE_NEW`
+  writes with no read–modify–write transaction; they are not store objects and
+  do not use these locks. Lock contention is a fixed fail-closed result
+  (`temporarilyUnavailable`-class: zero mutation, no open or write), never a
+  wait, a retry loop or a per-process queue that downgrades the exclusion.
+  Atomic file replace provides durability, not cross-process mutual exclusion;
+  cross-process writers are excluded, not merely "unsupported".
+- Commit protocol: read current object → validate → apply the mutation in
+  memory (expected-revision CAS, uniqueness scan, tombstone retention) →
+  serialize → DPAPI-protect → create temp `~tmp-<runtimeId16>-<rand8>` in the
+  same directory with the explicit owner DACL (`CREATE_NEW`) → write + flush
+  (`FlushFileBuffers`) → atomic replace by handle
+  (`SetFileInformationByHandle`/`FileRenameInfo` with replace;
+  `MoveFileExW` + `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH` is the
+  documented alternative) → success is reported only after the replace call
+  reports success. The whole read-through-replace sequence runs only while the
+  root's writer lock is held (single writer above); the atomic replace is its
+  final durability step, not its mutual-exclusion mechanism. A crash before
+  the replace leaves the previous valid state; after it, the new valid state.
+- P15 contract mapping (unchanged semantics, backend realization only):
+
+| P15 requirement | Backend realization |
+|---|---|
+| Read returns a snapshot with monotonic validity | Whole-object read yields a validated snapshot; validity dies permanently on any later commit, read error, or store close/re-init; a cached record never substitutes for a read |
+| Register/revoke CAS on expected revision | Compare at the commit boundary; mismatch = `staleRevision`, no write |
+| Identical active tuple with exact revision | Unchanged success (idempotent); never a second write |
+| Revoke retains a monotonic tombstone | Revoked record kept in place with its revision preserved |
+| One active credential per Profile; one Profile per credential | Uniqueness scan inside the serialized commit |
+| `validateManagement` at the commit boundary | Caller-provided validation runs at the commit boundary before the replace |
+| Missing / corrupt / unavailable distinctions | Failure table below |
+
+- Failure mapping (all typed; uncertain commit is never success):
+
+| Condition | Result | Recovery |
+|---|---|---|
+| Object absent (never written / legitimately missing) | Missing — current null record semantics | Register starts from revision 0; connections stay unauthorized until paired |
+| Decrypt/decode/invariant failure | `dataCorrupt` hard deny; object untouched | Explicit local re-initialization only; no auto-delete, no rekey, no regeneration |
+| Writer-lock contention, I/O, sharing, volume or ACL-verification failure | `temporarilyUnavailable`; zero mutation; snapshots invalidated | New explicit operation only; no retry loop |
+| Replace outcome ambiguous (temp written, replace uncertain) | `commitUnknown`; never reported as success | Fresh read; idempotent same-tuple/exact-revision registration; stale requests fail CAS |
+| Crash mid-write | Old-or-new valid state; `~tmp-` leftovers inert | Leftovers are ignored by the loader, never read; bounded count fails new writes closed beyond the cap until explicit local cleanup |
+
+#### 9.B.5 Integrity and anti-replacement (FROZEN)
+
+- At-rest tamper detection: DPAPI integrity plus strict decode plus full
+  record validation; any of these failing is `dataCorrupt`.
+- Cross-SID replacement and redirect: blocked by the 9.D DACL and reparse
+  rules; a cross-SID write, substitution or parent-redirect must fail at the
+  OS boundary (A3).
+- Same-SID whole-object replacement, including replay of an older valid blob
+  (rollback), is NOT detectable by DPAPI or ACLs and is explicitly accepted
+  inside the already accepted same-SID risk. Impact is bounded: runtime
+  authority is in-memory only; a restart always starts unpaired/disabled; a
+  binding is usable only with current management, explicit enablement and
+  fresh possession proof; revisions never decrease within a runtime. No
+  anti-rollback (TPM/monotonic-counter) promise is made.
+
+#### 9.B.6 Explicit exclusions (FROZEN)
+
+No automatic repair of a corrupt trust anchor or association; no silent
+generation of replacement keys; no plaintext or Provider (`engine.*`) fallback
+or reuse; no cross-Profile or cross-Installation rebinding; no bulk deletion
+and no "delete corrupt file" behavior; no B0/rollback read or write of these
+objects; no cleanup of orphaned associations (they stay non-authorizing until
+a separately approved recovery contract). S0's Provider namespace, migration
+and deletion semantics remain unchanged and untouched.
+
+### 9.C Pairing and possession proof (P16-C)
+
+This section freezes the production cryptographic realization of the P15
+private one-use verification window. The P15 boundary, its state machine, its
+failure vocabulary and its one-use/approval-order rules remain the contract;
+the synthetic verifier remains test-only. **Without the real cryptographic
+proof specified here, the P15 synthetic verifier is not production pairing and
+may never be wired as one.**
+
+#### 9.C.1 Challenge nonce (FROZEN)
+
+- 32 bytes from the platform CSPRNG (Dart `Random.secure()`, backed by the OS
+  entropy source on Windows — STATIC_API) generated by the App per
+  registration request.
+- One nonce per request; a duplicate among live requests (bounded at the P15
+  pending limit of 16) is rejected. Single use: any completion attempt —
+  success or failure — consumes the challenge and its nonce, per the P15 rule.
+- Deadline: `expiresAtUtcMs` with `0 < deadline − issuance ≤ 600 s`. The
+  production binding supplies the concrete value within this ceiling; P15's
+  offline 30-second constant is its offline candidate and its evidence-window
+  value. The evidence window (verification → P0 consumption) stays at the
+  P15 30 seconds, enforced by the adapter's monotonic `isLive`, independent of
+  the challenge deadline. A production deadline longer than the offline
+  30-second constant requires the matching P15 binding and test update in the
+  same package; the current offline expiry must not be assumed to accept it.
+
+#### 9.C.2 Signed transcript and proof format (FROZEN)
+
+The possession proof is the ECDSA-P256-SHA256 signature (raw r‖s, 64 bytes) by
+the client leaf key over `SHA-256(transcript)`, where the transcript is the
+following exact byte layout (no text encoding, no newlines, no optional
+fields):
+
+| Field | Bytes | Content |
+|---|---|---|
+| Domain | 26 | ASCII `SHIROHA-EXTERNAL-PROOF-V1` followed by one NUL byte |
+| Kind | 1 | `0x01` pairing possession (channel proof is TLS `CertificateVerify`, never this message) |
+| Nonce | 32 | The 9.C.1 nonce, raw |
+| RequestId | 16 | Raw random request identifier |
+| ProfileId | 16 | Raw UUID v4 bytes |
+| InstallationId | 2 + n | `u16le` length n ≤ 128 + UTF-8 canonical lowercase UUID text |
+| Generation | 8 | `u64le` P0/P12 runtime generation |
+| RuntimeInstanceId | 16 | Raw per-App-runtime random identifier |
+| CredentialIdentity | 32 | Raw SHA-256 leaf digest |
+| ExpectedRevision | 8 | `u64le` expected association revision |
+| ExpiresAtUtcMs | 8 | `u64le` challenge deadline |
+
+The App reconstructs this transcript exclusively from its own pending-request
+state; wire fields are never trusted as transcript inputs. The proof file
+(`exchange/proof-<submissionId32hex>.bin`, 9.C.5) carries only magic
+`SHREXPRF`, version 1, submissionId, requestId and the 64-byte signature — the
+App correlates requestId/submissionId with its local request and verifies with
+the public key recorded at leaf issuance.
+
+#### 9.C.3 Replay and substitution resistance (FROZEN)
+
+- Proof replay: the nonce and challenge are single-use and consumed on any
+  attempt; a replayed proof finds no pending request (or a consumed one) and
+  is rejected; an expired challenge is rejected regardless of signature
+  validity.
+- Cross-installation substitution: the transcript binds installationId,
+  runtimeInstanceId and generation; verification compares them against the
+  live runtime, so a proof minted for another installation or generation never
+  authorizes.
+- Cross-session misuse: pairing possession and channel authentication are
+  distinct events with distinct P15 methods and kind-tagged attempts; a
+  pairing proof can never open a Session and a TLS channel can never complete
+  a pairing.
+- TLS replay: each connection performs a fresh TLS 1.3 handshake (ephemeral
+  ECDHE plus `CertificateVerify` over that handshake); no resumption API is
+  configured or relied upon, so a captured handshake cannot authenticate a new
+  connection.
+
+#### 9.C.4 Approval ordering (FROZEN)
+
+Strict order, owned by the unchanged P0/P15 state machine: `requestPairing` →
+trusted local user `approvePairing` → `completePairing(proof)`. Approval alone
+never produces a `PairingProof` or a paired state; completion without approval
+is rejected; a failed proof consumes the P15 request and leaves P0 in
+`approvedPendingProof` — never paired, with recovery only per 9.C.8; runtime
+enablement remains a separate explicit action and is never part of pairing.
+
+#### 9.C.5 Bootstrap submission and exchange (FROZEN)
+
+There is no pairing listener, no new P9/P10 command and no P9/P10 schema
+change: pairing uses a file-mediated control plane inside the protected root
+and is processed only on explicit trusted local actions (management UI
+refresh/act). No unauthenticated business or pairing listener exists at any
+stage.
+
+Flow:
+
+1. The Bridge generates its P-256 key pair in-process (helper) and writes the
+   enrollment submission atomically into `exchange/` (`submission-<32hex>.pub`,
+   `CREATE_NEW`): magic `SHREXSUB`, version 1, submissionId (16 B), client
+   public key (65 B uncompressed point), display label (≤ 64 UTF-8, display
+   metadata only), client build string (≤ 32 UTF-8). Cap 1 KiB.
+2. The App validates the file (exact name, owner/DACL/reparse per 9.D, size,
+   strict decode), issues the client leaf with the issuer key, computes the
+   credentialIdentity, creates the pairing request (P15/P0 `requestPending`),
+   writes the challenge file `pairing-<32hex>.chal` atomically — magic
+   `SHREXCHA`, version 1, submissionId, requestId, nonce, profileId,
+   installationId, generation, runtimeInstanceId, publicationEpoch,
+   credentialIdentity, expectedRevision, expiresAtUtcMs and the issued client
+   leaf DER (≤ 2 KiB) —
+   and removes the submission (its content is now represented by the leaf and
+   the request). Cap 4 KiB.
+3. The user approves locally (P11 management surface; UI copy is not frozen
+   here).
+4. The Bridge reads the challenge file, self-checks (leaf chains to the pinned
+   anchor, leaf public key equals its own, digest matches the field), signs
+   the 9.C.2 transcript and writes the proof file atomically (≤ 256 B).
+5. The App processes the proof only on an explicit trusted local action:
+   correlates it with the local request, rebuilds the transcript, verifies the
+   signature and all P15 checks, then runs the P15 completion path (association
+   register CAS, P0 completion).
+
+File rules: exact names only; strict versioned decode; single consumption;
+foreign or unexpected files are left untouched; population bounded at 32 files
+per directory; exceeding bounds fails new pairing work closed
+(`temporarilyUnavailable`) without any sweep. Interrupted flows leave only
+inert public-material files; nothing durable exists before the association
+commit (9.B.4), and no automatic retry exists.
+
+#### 9.C.6 Private-key non-leakage (FROZEN design; A1 evidence WINDOWS_PENDING)
+
+- Protocol messages carry only: the 65-byte public key (submission), the
+  issued public leaf, and the 64-byte signature (proof). No message type
+  carries private key material.
+- The Bridge key is created, used and stored only inside the Bridge (own root,
+  9.D); the App never receives it in any form.
+- At the TLS layer the client key is used through the standard TLS 1.3
+  `CertificateVerify`; no exported key material is transmitted.
+- Scoped statement: "does not leave the Bridge" means not transmitted by the
+  protocol and not placed in App-owned or published objects. It is not a claim
+  of same-SID OS-level isolation (accepted risk, 9.D) and not of
+  non-exportability (UNSUPPORTED, 9.B.2). X1/A1 verify that exchange,
+  discovery and evidence artifacts contain no private material.
+
+#### 9.C.7 Post-verification evidence consumption (FROZEN; maps to P15 unchanged)
+
+Real verification means: signature valid, leaf/chain/role/validity passed,
+challenge live, store and management current. Only then does the adapter mint
+its private attempt object (immutable; holding the verified fields and the
+live correlation) and hand it to the P15 verification port; `verifyPairing`
+returns true exactly once for that success, and `isLive` is monotonic — false
+after close, generation change, snapshot invalidation or the 30-second
+evidence window, and once false never true again. `provePossession` remains
+the only producer of `PairingProof`, inside the P15 private call window;
+externally constructed evidence, strings, fingerprints and decoded files never
+satisfy the port. No second pairing state machine, Session table or Principal
+system is introduced anywhere in this design; pairing state stays P0-owned and
+durable policy stays P1/P11-owned.
+
+#### 9.C.8 Failure and unknown-result recovery (FROZEN)
+
+- Invalid, expired, replayed or duplicate proof → `verificationRejected`; the
+  challenge is consumed; trust state is unchanged (no paired state, no partial
+  Grant or Enablement). The normal flow cannot continue inside that runtime:
+  the consumed P15 registration can never be completed again (`unauthorized`),
+  a different request is `pairingConflict` while P0 retains
+  `approvedPendingProof` (only `unpaired` or `recoveryRequired` admits one),
+  and re-approval outside `requestPending` is impossible. There is no
+  cancel/reset pairing interface and this document does not assume one;
+  adding one would change the frozen P0 state machine and requires separate
+  authorization. Frozen recovery: an explicit trusted local action closes and
+  rebuilds the External runtime (a fresh composition — pairing state is
+  in-memory and is discarded, not merely disabled), then re-registers the
+  existing Profile and runs a standard fresh pairing through 9.C.4/9.C.5: a
+  new request, a new challenge and nonce, with the 9.A.6 revoke-first rule
+  when a different credential replaces an active association. No automatic
+  retry loop, no silent re-issue.
+- Association commit unknown → the 9.B.4 recovery rule (fresh read; idempotent
+  same-tuple/exact-revision registration; stale requests fail CAS).
+- P0 completion acknowledgement lost → the durable fact remains only the
+  association record; runtime pairing state is in-memory and absent after
+  restart; recovery is a fresh explicit pairing flow (registration is
+  idempotent for the same active tuple). Never a silent resurrection.
+- Repeated failures never expand permission: no state advances without
+  cryptographic success, current management and explicit local approval.
+
+### 9.D Windows Discovery and local isolation (P16-D)
+
+Frozen root candidate: `%LOCALAPPDATA%\Shiroha\external\`, resolved via
+`SHGetKnownFolderPath(FOLDERID_LocalAppData)` inside the helper (non-roaming by
+construction). Layout:
+
+| Path | Writer | Intended reader | Content |
+|---|---|---|---|
+| `app\trust\issuer.bin`, `app\trust\server.bin` | App | App only | 9.B.3 kinds 1–2 |
+| `app\state\associations.bin` | App | App only | 9.B.3 kind 3 |
+| `bridge\client.bin` | Bridge | Bridge only | 9.B.3 kind 4 |
+| `bridge\client.lock` | Bridge | Bridge only | 9.B.4 Bridge-root single-writer lock object (exclusive no-sharing handle, same recipe as `runtime.lock`) |
+| `runtime.lock` | App | App only | 9.B.4/9.D single-writer + supersession lock object (exclusive no-sharing handle held from before the first store operation through full runtime dispose; lock liveness is OS handle state, never a PID/age heuristic) |
+| `discovery\endpoint.bin`, `discovery\anchor.der`, `discovery\installation.id` | App | any same-user process | 9.D published objects |
+| `exchange\submission-*.pub`, `exchange\pairing-*.chal`, `exchange\proof-*.bin` | Bridge/App per 9.C.5 | the counterpart process | 9.C.5 files |
+
+The App creates the root, `app\`, `discovery\` and `exchange\`; the Bridge
+creates `bridge\` on first enrollment with the same security recipe
+(create-if-absent). Each process takes its root's writer lock
+(`runtime.lock` / `bridge\client.lock`, 9.B.4) exclusively before its first
+store operation and holds it for its store-owning lifetime.
+`installation.id` is minted once at External
+initialization (UUID v4) and persisted in the App trust store as the kind 1
+`issuerKeyPair` field (9.B.3) — the authoritative copy the published
+`discovery\installation.id` is cross-checked against; its loss, an absent or
+corrupt store field or a mismatch with the published copy fails closed (all
+associations and descriptors bind it) and is recovered only by an explicit
+local reset — never by silent re-mint.
+
+DACL and owner rules (FROZEN):
+
+- Creation uses explicit security attributes with a protected DACL containing
+  exactly one allow ACE — the current user SID with full access (container and
+  object inherit for directories). No inheritance from parents, no deny ACEs,
+  no Everyone/Users/Authenticated Users/ANONYMOUS rights, no null DACL.
+- Verification on every open (helper): open with `READ_CONTROL` (identity
+  checks use `FILE_FLAG_OPEN_REPARSE_POINT`); verify the owner SID equals the
+  current SID; verify the DACL is present, protected, with only the expected
+  ACEs; reject reparse points at every level we created (root, subdirectories,
+  objects); verify the volume via the handle (local fixed NTFS via
+  `GetVolumeInformationByHandleW`); reject UNC, removable and network volumes.
+  Any mismatch fails closed and keeps the Host closed.
+- Parent chain: the only accepted ancestors are the OS-provided
+  `%LOCALAPPDATA%` (accepted as-is) and the App-created `Shiroha` level
+  (validated: directory, no reparse, current-SID owner) — checked on every
+  open, not only at creation.
+
+Integrity of published objects: `endpoint.bin` is signed (magic `SHREXEPD`,
+version 1, runtimeInstanceId, publicationEpoch (u64le), generation
+(informational; never used for ordering), `u16le` port, server leaf SHA-256,
+installation UUID, publishedAtUtcMs, then the 64-byte issuer-key signature
+over `SHA-256("SHIROHA-EXTERNAL-ENDPOINT-V1" || 0x00 || preceding bytes)`);
+`anchor.der` is the issuer certificate DER and is cross-checked byte-wise
+against the App store at publish time; `installation.id` is canonical UUID
+text and cross-checked against the store. Mixed or stale combinations fail
+closed on the consumer side because the signature, the installationId match,
+the epoch high-water ordering below and the server-leaf digest binding must
+all hold.
+
+Publication and cleanup (FROZEN): the App is the sole publisher. Supersession
+single-liveness and store single-writer (FROZEN): the runtime acquires an
+exclusive no-sharing handle on the root `runtime.lock` object before its
+first External store operation — necessarily before creating any endpoint
+listener — and holds it until the runtime is fully disposed, including any
+post-close revocation commit; every 9.B.4 read–CAS–commit transaction on the
+App-root store objects runs under this held handle. A second External runtime
+fails closed instead of serving, publishing, binding or writing store objects,
+so an old listener can never coexist with its successor and
+two processes can never interleave store transactions on one root (an
+in-process runtime swap disposes the old runtime first and the successor
+re-acquires the lock before its own store work; a crashed process releases
+the lock with its handles). Each publication first commits
+`publicationEpoch + 1` to the kind 1
+object under the 9.B.4 CAS rules, then writes the descriptor carrying that
+committed epoch; a crash between the two steps leaves the descriptor file at
+its previous self-consistent publication and the skipped epoch is harmless.
+Publish = temp `~tmp-<runtimeId16>-<rand8>` (explicit DACL) → write → flush →
+rename-replace; the writer revalidates owner/DACL/reparse after publication.
+Cleanup may delete only (a) objects this runtime created and still tracks by
+handle-verified identity (volume serial + file index re-checked on reopen) and
+(b) `~tmp-` files whose name carries this runtime's random ownership id.
+Everything else — leftovers of crashed runtimes, foreign sentinels, unknown
+names — is left untouched; ambiguous state leaves the Host closed and never
+triggers a sweep or a temporary unprotected replacement.
+
+Object identity over paths (FROZEN): all security-relevant decisions (read,
+replace, delete) use verified handles and captured identities, never path
+strings alone. **A plain Flutter directory path or application-support path
+string proves nothing about Windows object isolation; only the reviewed
+owner/DACL/volume/reparse/handle-identity checks above enter security
+acceptance.** Directory names, profile-local locations and ACL-less
+conventions are not evidence.
+
+Cross-SID test boundary (FROZEN; real runs WINDOWS_PENDING, M5/A3):
+
+- Negative: a second disposable principal must fail to read, modify, replace,
+  delete or redirect any protected object (App store, the first user's Bridge
+  store, discovery, exchange) and must fail to cause owner-side deletions;
+  reparse/parent-substitution attempts from that SID fail at the ACL boundary.
+- Positive (B-class): a separately provisioned client under another SID, with
+  its own protected root, its own keys and an owner-provided copy of the
+  PUBLIC material (operator-mediated in the lab), may connect and receive
+  business access only through the existing P0/P4/P7/P8 checks. Production
+  multi-user provisioning and distribution remain unresolved and unfrozen: v1
+  supports same-user Bridge only, and cross-user enrollment write paths are
+  not part of v1.
+
+Bridge use of public trust (FROZEN): at enrollment the Bridge pins into its
+own store the anchor DER, the installation id and the enrollment-time
+`publicationEpoch` it validated from the 9.C.5 challenge; afterwards it never
+trusts discovery objects blindly — it verifies the endpoint signature against
+the pinned anchor, matches installationId, requires the served descriptor's
+`publicationEpoch` to be at least the pinned epoch (below is refused before
+any TLS; every publication commits a unique strictly increasing epoch, so an
+equal epoch can only repeat the publication the pin was set from or an
+acceptance came from, never a different one), matches the server-leaf digest,
+connects only to the descriptor's 127.0.0.1 port, and advances the stored
+epoch only after the signature and installationId checks pass. Freshness
+never rests on the descriptor alone: the 9.D supersession single-liveness
+rule guarantees at most one live runtime and listener per installation, so a
+cached old descriptor whose epoch is already reached
+can only point at an endpoint that no longer exists and the connection fails
+closed, while an unseen successor is accepted on its first sighting through
+its strictly higher epoch — no re-enrollment is needed when a restarted
+runtime reuses the same numeric generation, and the kind 4 epoch survives
+Bridge restarts. A signature authenticates the issuer, never currentness;
+the residual — a same-SID process replaying a descriptor together with copied
+key material — remains inside the accepted same-SID boundary (9.B.5, section
+3), and no unsigned freshness signal is accepted (A12 negative cases; X11
+supersession trials). Anchor updates are accepted only via the 9.A.6
+old-key-signed rotation record.
+
+Same-SID proxy risk: unchanged and re-affirmed in the exact section 3 terms —
+another program under the same user may call a paired Bridge and proxy its
+credential; cross-process isolation among same-SID processes is not promised
+and none of the above claims it. Loopback is not authentication; these ACLs
+protect cross-SID and at-rest boundaries only. Administrator/kernel attackers
+remain UNSUPPORTED.
+
+### 9.E Minimal implementation packages (P16-E)
+
+Rules for every package: no additional simulated Principal, Session,
+Credential Store or Transport may be introduced to stand in for the real
+implementation — the P15 offline candidate remains test coverage only; the
+frozen primitives are real code (one native helper plus Dart adapters) or they
+are not delivered. Each package requires its own explicit scope/ownership and
+grant; G0 (section 6) is a precondition for every real experiment; the X rows
+below are the section 6 experiment table. `dart:ffi` is SDK-built-in and needs
+no new pub dependency; any other new dependency requires separate explicit
+authority. No package may activate a production Host or business listener, and
+no package touches AR-R6B.
+
+| Package | Smallest responsibility | Offline-testable portion | Required real authorization | Targets (M → A) | STOP boundary |
+|---|---|---|---|---|---|
+| 1. Credential / Protected Object primitives | The native helper (known-folder resolution, DACL create/verify, DPAPI wrap/unwrap, atomic replace, the exclusive no-sharing handle locks (liveness/supersession and single-writer), BCrypt keygen/sign/verify, certificate encode, extension inspection) built into release artifacts; Dart adapters: the 9.B store (CAS/uniqueness/tombstones/snapshots), discovery publisher/validators, leaf issuance from submissions, the 9.C exchange protocol, and the P15 port/backend implementations in composition-side wiring only | Format codecs, CAS/state machines with fakes, transcript/signature test vectors, source guards (no `defaultContext`, no `onBadCertificate`, no `engine.*`), CI-runnable | G0; X1 (issuance/possession), X3 (protected-object cross-SID) | M1, M2, M5, M6 → A1, A3 | No listener, no business Host, no production composition activation; if X1/X3 disprove DPAPI/ACL/rename behavior → STOP (no fallback backend) |
+| 2. TCP/mTLS secure adapter | Exact `127.0.0.1` bind, TLS 1.3 contexts loaded from the store, bounded pre-TLS admission (section 5 budget: slots, deadlines, real socket destruction), the three-layer peer verification, adapter-owned attempt mapping into the P15 boundary, unchanged P9/P10 consumption | Only limit/format logic with fakes; every handshake behavior is real-environment | G0; X0, X2, X4, X6, X7 (X3 for object behavior) | M4, M7, M8, M9 → A0, A2, A4, A6, A7 | Any accept-bad-certificate, cipher or admission/resource excess → STOP; TCP stays blocked; no protocol weakening and no automatic Named Pipe switch |
+| 3. Windows lifecycle and release acceptance | Disconnect/timeout/revoke and generation invalidation, B0/restart behavior, real-channel STAGE response loss (X8), Bridge-no-alternate-writer audit (X9), crash/foreign-object cleanup (X11), AOT packaging/native loading/Unicode and spaced launch (X12), standing v0/MCP compatibility (X10) | X10 standing regression only | G0; X5, X8–X12 | M10, M11, M12 → A5, A8–A12 | Any stability anomaly triggers the section 6 stop/recovery rules; no activation decision exists inside this package |
+
+Ordering: 1 → 2 → 3, serial. Package 1 can be written, compiled and
+offline-tested under normal task authority, but its protected-object behavior
+has no acceptance until X1/X3 on the approved environment. Packages are
+responsibility slices, not automatic authorization; each starts only with its
+own explicit grant.
+
+Not delegated to any package: production Host activation, AR-R6B, schema/B0/
+P9/P10 changes, Provider-store changes, or any change to frozen authorization
+semantics. The final production activation remains the separate decision gate
+of section 8 (last row) and requires the complete A-row evidence, a required
+Windows Verifier, independent review and explicit user authority.
+
+### 9.F G0 boundary, remaining blockers and completion meaning
+
+Three-part separation for P16 execution planning:
+
+| Class | Examples | Authority required |
+|---|---|---|
+| Developable now | Native-helper source, Dart adapters, format codecs, tests with fakes and fixed test vectors, documentation | Normal task authority inside a dedicated branch; no system mutation |
+| Offline pure-algorithm tests | Transcript/signature vectors, CAS/state machines, decode and size bounds, source guards | Same; results are never Windows security evidence |
+| Approved-environment experiments | Any real DPAPI/ACL/SID/Discovery object work, key or certificate generation, TLS listener/handshake, AOT release runs, crash/cleanup trials | G0 plus the exact X-row grant; these results are the only A-criteria evidence |
+
+Explicit non-inference: the user continuing development does NOT authorize
+actual system credential modification, generation or installation of formal
+certificates, SID/ACL/Discovery object changes, starting a real TCP/mTLS
+listener, or high-risk stability reproduction on the primary host. The
+permanent stop on primary-host AF_UNIX experiments
+([external boundary section 6](external-agent-boundary.md)) is unchanged. If
+the user later chooses the primary machine as the controlled experiment
+environment, that conflicts with the existing isolation requirements
+(independent kernel, approved device, section 6) and requires a separate
+explicit user decision — this document and P16 cannot and do not adjust it.
+
+**BLOCKED_ON_G0**: with the decisions above frozen, the remaining blockers to
+production implementation are exactly the G0 environment and the per-package
+experiment grants, plus the separately listed unfrozen production details
+(multi-user provisioning, enrollment UX, release packaging specifics). No
+further offline design stage is pending; the next work requiring authority is
+real implementation and isolated Windows acceptance (Packages 1–3).
+
+P16 completion means: production credential, certificate, possession-proof,
+Windows secure storage and Discovery candidates have concrete minimal
+specifications, and the next real implementation's authorization and
+verification needs are stated. It does NOT mean any real Windows security
+acceptance passed.
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.

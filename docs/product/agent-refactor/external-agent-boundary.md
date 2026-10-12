@@ -1180,3 +1180,26 @@ P15 supplies no Windows storage/crypto implementation or production wiring.
 M1–M4 real security remain WINDOWS_PENDING; G0 and X0–X12 are unapproved and
 not run. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
 AR-R6A = NOT_ACCEPTED. No Codex process-brand authentication is claimed.
+
+## 13. P16 production primitive freeze (static decision candidate)
+
+P16 freezes the minimal production candidates that will have to satisfy
+section 12's contract, owned by
+[Windows security readiness](windows-host-security-readiness.md) section 9:
+one local installation issuer plus server/client leaf roles (ECDSA
+P-256/SHA-256, X.509 v3 profile with role EKU and exact-leaf-DER-SHA-256
+identity, TLS 1.3 floor), a single dedicated DPAPI-wrapped External object
+store with versioned binary formats and P15-compatible CAS, tombstone and
+snapshot semantics, the cryptographic pairing possession proof (32-byte
+nonce, fixed signed transcript, ECDSA signature, file-mediated exchange with
+no listener and no P9/P10 change), and the owner-only NTFS Discovery root with
+handle-verified publication and cleanup.
+
+It selects candidates only: it changes no P0/P4/P7/P8 or P15 authorization
+semantic, adds no production wiring, dependency or schema, and closes no
+WINDOWS_PENDING item. Real acceptance requires G0 and the per-package
+experiment grants; the remaining blockers are exactly BLOCKED_ON_G0. P0
+Pairing/Session authority, P1/P11 durable policy, P7/P8 current checks, S0
+Provider credentials and the B-class isolation model (including the accepted
+same-SID proxy risk) are unchanged. HOST_STABILITY_HALT = ACTIVE;
+TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED; AR-R6B remains inactive.
