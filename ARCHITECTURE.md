@@ -217,6 +217,13 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
    association CAS is not a cross-store SQLite transaction. Only test backends
    exist, no production crypto/storage/authentication wiring is added, and real
    M1–M4/G0/X0–X12 Windows gates remain unmet. S0 engine.* authority is unchanged.
+   P16 freezes the production primitive candidates under external boundary §13
+   and windows-host-security-readiness.md §9: the installation-issuer/server-and-
+   client-leaf trust split, one dedicated DPAPI-backed External object store
+   satisfying the P15 contract, the cryptographic pairing possession proof and
+   the owner-only Discovery root. It selects candidates only — no runtime,
+   dependency, schema or permission semantic change — and its remaining
+   blockers are exactly G0 and the per-package experiment grants.
    HOST_STABILITY_HALT stays ACTIVE; Transport BLOCKED and AR-R6A NOT_ACCEPTED.
    The generated schema is globally
    migrated and strictly validated independently of runtime module enablement.

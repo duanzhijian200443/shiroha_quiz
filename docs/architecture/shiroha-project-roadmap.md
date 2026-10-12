@@ -240,6 +240,14 @@ no certificate suite, production secure format or Windows adapter is approved.
 M1–M4 real acceptance remains WINDOWS_PENDING; G0/X0–X12 remain unapproved.
 Existing standing P12/B0 test files carry the new offline cases; P14's 273-file
 coverage/omission gate and four shards remain unchanged.
+P16 freezes the production primitive candidates under external boundary §13
+and [Windows security readiness](../product/agent-refactor/windows-host-security-readiness.md) §9:
+the certificate/identity model, the single DPAPI-backed External object store,
+the cryptographic pairing possession proof and the owner-only Windows
+Discovery root, plus the minimal implementation packages and their required
+experiment authority. P16 is a static decision only; it implements nothing,
+adds no dependency or schema and clears no WINDOWS_PENDING item. Its remaining
+blockers are exactly G0 and the per-package experiment grants (BLOCKED_ON_G0).
 No real Credential/Transport experiment or Host implementation is activated.
 Dynamic admission is BLOCKED until an independent environment, bounded scope
 and new explicit user authorization are approved. Design completion is not
