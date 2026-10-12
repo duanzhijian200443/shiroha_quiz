@@ -53,6 +53,12 @@ not parse Tool Schema, publish a client protocol, register tools or establish
 authentication. Its opaque text must pass future adapter schema and independent
 trusted authentication/authorization before any P8 call.
 
+P10's unpublished offline business schema v1 is owned by external boundary §8.
+It is independent of this MCP profile and P9/Submission versions. Trusted test
+composition supplies authentication and P8 execution Contexts, with ten explicit
+typed mappings and safe response whitelists. It registers no MCP tool, stdio
+bridge or production Host/transport; AR-R6B remains inactive.
+
 Both retrieval and passage read current verified SourceDocument through
 Application. No raw managed originals, URLs, binaries, diagnostics or unsafe
 fallback content. source_not_ready instructs parsing in App rather than invoking

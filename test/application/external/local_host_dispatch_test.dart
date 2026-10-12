@@ -695,14 +695,21 @@ void main() {
     ]) {
       expect(source, isNot(contains(forbidden)), reason: forbidden);
     }
+    final consumers = <String>[];
     for (final file in Directory('lib')
         .listSync(recursive: true)
         .whereType<File>()
         .where((file) =>
             file.path.endsWith('.dart') &&
             !file.path.endsWith('local_host_dispatch.dart'))) {
-      expect(file.readAsStringSync(), isNot(contains('LocalHostDispatchCore')),
-          reason: file.path);
+      if (file.readAsStringSync().contains('LocalHostDispatchCore')) {
+        consumers.add(file.path.replaceAll('\\', '/'));
+      }
     }
+    // P10 receives an existing offline core; it cannot start a production Host.
+    expect(consumers, ['lib/data/external/ipc_command_projection.dart']);
+    final adapter = File(consumers.single).readAsStringSync();
+    expect(adapter.contains('LocalHostDispatchCore('), isFalse);
+    expect(adapter.contains('.startOffline('), isFalse);
   });
 }
