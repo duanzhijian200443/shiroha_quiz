@@ -225,11 +225,21 @@ boundary §11 and
 [Windows security readiness](../product/agent-refactor/windows-host-security-readiness.md):
 production gap/dependency matrix, standard Dart/Windows candidate screening,
 isolated-environment authorization checklist and real security/fallback criteria.
-P14 (auxiliary CI-engineering sub-stage; not part of the frozen P13 experiment
+P14 (accepted through merged PR #265; auxiliary CI-engineering sub-stage, not part of the frozen P13 experiment
 package) makes the External offline regression matrix standing coverage in the
 PR contract shards: complete External Application and IPC data-plane suites plus
 the repeatedly re-verified widget/Origin/RAG/Agent-config regressions. That is
 Linux-offline evidence only and clears no WINDOWS_PENDING item.
+P15 is an offline Credential-boundary implementation candidate under external
+boundary §12: separate protected association read/CAS/revoke contracts, typed
+missing/corrupt/unavailable outcomes and private short-lived verified windows
+into the original P0/P12. It retains unique opaque Profile binding, separate
+local approval/proof and finite enablement, current P4/P7/P8 authorization and
+original SubmissionKey recovery. Tests alone implement memory storage/verification;
+no certificate suite, production secure format or Windows adapter is approved.
+M1–M4 real acceptance remains WINDOWS_PENDING; G0/X0–X12 remain unapproved.
+Existing standing P12/B0 test files carry the new offline cases; P14's 273-file
+coverage/omission gate and four shards remain unchanged.
 No real Credential/Transport experiment or Host implementation is activated.
 Dynamic admission is BLOCKED until an independent environment, bounded scope
 and new explicit user authorization are approved. Design completion is not

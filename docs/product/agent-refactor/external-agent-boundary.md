@@ -1099,3 +1099,84 @@ Discovery and the permanent halt on primary-host AF_UNIX experiments. If a hard
 property cannot be proved, keep Host closed; no authentication fallback or silent
 change to P0/P4/Grant semantics. HOST_STABILITY_HALT = ACTIVE;
 TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED; AR-R6B remains inactive.
+
+## 12. P15 External credential boundary (offline implementation candidate)
+
+P14 is accepted through merged [PR #265](https://github.com/duanzhijian200443/shiroha_quiz/pull/265).
+Its 273 standing files and complete External coverage remain hard-failing;
+P15 extends existing standing tests without changing that list or its shards.
+The following minimal contract is reviewed before P15 implementation. It owns
+OS-independent association and verified-attempt rules only, not a certificate
+profile, secure-store format, Windows adapter or production activation.
+
+Profile identity and Credential Identity are separate. The latter is an opaque
+association identifier, not a claimed Profile, name, PID, brand or process.
+Verified leaf DER SHA-256 remains a future candidate: a digest alone proves
+neither chain/role/validity nor private-key possession. Pairing possession and
+channel authentication are distinct verification events. App owns protected
+association authority; Bridge owns its future client key. P0 remains the sole
+Principal/PairingState/Session authority; P1/P4/P7/P8 retain all current policy.
+
+The dedicated association port reads by locally selected Profile and atomically
+registers/revokes one association with an expected revision. Missing is null;
+corrupt and temporarily unavailable are distinct fixed failures, with no repair
+or fallback. Revision zero means never registered; committed revocations retain
+monotonic tombstones. CAS precedes idempotency: identical current registration
+with the exact revision is unchanged, but stale requests never overwrite it.
+One active Credential cannot belong to two Profiles, and an active Profile cannot
+silently replace its Credential. Replacement requires explicit revoke, fresh
+composition and fresh local approval/proof; there is no rotation convenience API.
+The backend enforces integrity, uniqueness, management validation at its commit
+boundary and bounded current snapshots. A snapshot's validity is monotonic:
+change, unavailable/corrupt state or backend invalidation permanently kills it.
+Future backends unable to guarantee this contract cannot be wired into the port.
+
+The boundary is compiled trusted offline composition only. Local request and
+approval delegate to P12 using its opaque Profile reference. A private challenge
+binds original request, selected Profile, installation, exact runtime instance/generation,
+expected Credential, expected association revision and finite deadline. A trusted
+injected verifier performs asynchronous verification and checks event/channel
+liveness; no accepting verifier is supplied in production. Its boolean decision
+is authority only because composition owns that verifier, never because a wire
+DTO says verified. Pairing and authentication use separate methods. Tests alone
+provide synthetic verifiers, never actual crypto acceptance.
+
+No public constructor or method creates accepted verification evidence. Only
+successful verification, fresh management/store checks and a live snapshot open
+one private bounded P0 call window; externally constructed P0 evidence, strings,
+fingerprints and JSON fail the synchronous port. Attempts are one-use, owner-
+bound and finite; disconnect, generation change and snapshot invalidation deny
+consumption. P12/P4 reload the selected Profile before returning a Session;
+Grant revocation and egress still use existing per-call/final-release checks.
+Offline limits are thirty seconds per challenge, sixteen pending operations/local
+requests and 1024 verified event identities per boundary lifetime. Slots remain
+owned through actual settlement; reaching a limit denies admission. These are
+bounded offline candidates, not measured Windows transport/security capacity.
+
+Registration has one durable commit point in the association backend, followed
+by P12's existing P0 proof completion. There is no cross-store atomicity claim,
+new SQLite transaction or Profile/Grant write. Failure before commit leaves P0
+pending proof; uncertain commit or post-commit failure never reports paired.
+An association residue alone is non-authorizing; missing P0 completion requires
+fresh explicit recovery/proof. Actual P0 proof completion remains P0-owned:
+losing its acknowledgement does not undo pairing or grant Enablement. Do not
+auto-compensate by overwriting a possibly newer record. Evidence is discarded on
+every exit. Registration adds neither Grant nor Enablement.
+
+After validating current local management, association revocation closes evidence/
+admission and delegates P8/P12 owning drain/generation invalidation before the backend revoke CAS. A failed
+revoke keeps that runtime closed and reports failure, not durable success. No
+historical STAGE effect is rolled back. Shutdown also drains pending verification
+and association work before runtime replacement. Disconnect does not invent a
+P0 per-Session revoke operation. Restart reads no association automatically;
+replacement is unpaired/disabled and requires fresh proof, binding and enablement.
+Portable B0 excludes credentials/associations; Restore and raw rollback require
+the existing close/drain and fresh trusted recovery, never Session resurrection.
+Orphan associations after portable Restore stay untouched/non-authorizing.
+Their cleanup or reassignment requires a separately approved recovery contract;
+P15 cannot invent a missing Profile to reclaim a surviving credential.
+
+P15 supplies no Windows storage/crypto implementation or production wiring.
+M1–M4 real security remain WINDOWS_PENDING; G0 and X0–X12 are unapproved and
+not run. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
+AR-R6A = NOT_ACCEPTED. No Codex process-brand authentication is claimed.

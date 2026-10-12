@@ -110,7 +110,10 @@ final class OfflineTrustHarness {
     profile = await coordinator.registerProfile(reference);
   }
 
-  Future<void> compose({ExternalCredentialPort? credentialPort}) async {
+  Future<void> compose(
+      {ExternalCredentialPort? credentialPort,
+      ExternalCredentialPort Function(ExternalAuthorizationManagement)?
+          credentialFactory}) async {
     final database = local.h.db;
     barrier = TrustManagementBarrier(local.repository);
     management = ExternalAuthorizationManagement(
@@ -119,7 +122,9 @@ final class OfflineTrustHarness {
         mintProfileId: const Uuid().v4,
         clock: clock.now);
     trust = ExternalTrustCore(
-        credentials: credentialPort ?? credentials,
+        credentials: credentialFactory?.call(management) ??
+            credentialPort ??
+            credentials,
         clock: clock,
         mintProfileId: const Uuid().v4);
     final authority =
