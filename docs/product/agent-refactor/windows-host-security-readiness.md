@@ -341,7 +341,7 @@ grant another, or authorize production activation.
 | X8 | A8: committed/lost STAGE reconciliation | Synthetic Proposal/key/SQLite, controlled response cut after commit and fresh reconnection; exact owning checkpoints. | X4–X7. |
 | X9 | A9: Bridge has no alternate business writer | Bounded App absence/not-ready/closed runs and file-open/access audit for the synthetic DB. | Packaged candidate Bridge; no real DB. |
 | X10 | A10: retain external allowlist and MCP v0 | Existing offline compatibility fixtures and, only if separately named, synthetic retained-v0 stdio runs. No vNext registration or protocol expansion. | Candidate artifacts; standing regression target. |
-| X11 | A11: owner-safe endpoint cleanup | Two candidate runtime processes, disposed sockets and experiment-only descriptors; bounded termination/replacement races and foreign-object sentinels. | X3, X7; object-identity cleanup design. |
+| X11 | A11: owner-safe endpoint cleanup | Two candidate runtime processes (the superseded/second one must fail closed under the 9.D supersession lock while the holder keeps serving), disposed sockets and experiment-only descriptors; bounded termination/replacement races and foreign-object sentinels. | X3, X7; object-identity cleanup design. |
 | X12 | A12: release launch/recovery compatibility | Named release/AOT artifacts, native DLL dependencies, space/Unicode install roots, disposable cold-start/upgrade/crash scenarios. | X1–X11; packaging model frozen. |
 
 Address/TLS/storage/Discovery validity is a common preflight for every socket
@@ -391,7 +391,7 @@ candidate is loopback-only or a lower-level primitive trial succeeded.
 | A9 | E8 contract/compiled composition boundary. | App absent, not-ready, closed or recovering gives bounded unavailable/denied behavior. Bridge neither opens the business SQLite DB nor loads repositories/migrations or starts a replacement writer. Any such fallback is FAIL. |
 | A10 | E2/E8 exact ten internal external routes and six MCP v0 READ tools. | Current compatibility checks retain those surfaces and deny every external COMMIT/DESTRUCTIVE/Built-in route. P13/candidate trials register no vNext tools. Changed v0 or expanded authority is FAIL. |
 | A11 | E2 controlled owning shutdown; no real endpoint ownership proof. | Normal close, abort/startup race, crashed prior runtime and competing replacement leave another process's sockets/descriptors/credential objects and sentinel data untouched. Cleanup uses proven ownership/object identity; ambiguous state fails closed without deleting it. Wrong deletion or shared/wildcard listener is FAIL. |
-| A12 | Static AOT/platform support only. | Exact packaged release/native backend works non-elevated from space/Unicode paths and a sanitized launch environment, after abnormal close, upgrade and cold start. Old endpoint/anchor cannot impersonate the new App — a stale signed descriptor paired with the retired still-valid leaf, and a concurrently alive replaced runtime, must both be refused by the 9.D high-water freshness rule; invalid native/store artifacts keep it disabled. JIT-only success, developer-only dependencies or authorization revival is FAIL. |
+| A12 | Static AOT/platform support only. | Exact packaged release/native backend works non-elevated from space/Unicode paths and a sanitized launch environment, after abnormal close, upgrade and cold start. Old endpoint/anchor cannot impersonate the new App — a second live External runtime must fail closed (9.D supersession single-liveness), a stale signed descriptor (including one paired with the retired still-valid leaf, or below the pinned epoch) is refused or can reach only a dead endpoint, and a successor is accepted on first sighting without re-enrollment after a same-generation restart; invalid native/store artifacts keep it disabled. JIT-only success, developer-only dependencies or authorization revival is FAIL. |
 
 Disconnected channels must stop accepting new calls and drop their adapter-owned
 attempts; no disposed connection can recreate its Session. P0 has no standalone
@@ -622,13 +622,18 @@ reactivate a Profile or Principal.
   and its identity opens nothing. Re-enrollment is the only recovery.
 - Server credential rotation: a new leaf from the same issuer. Because the
   server context loads once per listener lifetime, rotation is a controlled
-  shutdown → re-issue → restart → republish descriptor (Package 3 acceptance).
-  The republished descriptor carries the new runtime's generation and
-  runtimeInstanceId with the new leaf digest; the Bridge's 9.D high-water
-  freshness rule refuses any descriptor below its pinned state — including a
-  coherent stale descriptor paired with the retired still-valid leaf, which
-  the descriptor's self-consistent digest binding alone cannot order — while
-  mixed descriptor/leaf pairs fail the digest binding.
+  shutdown → re-issue → restart → republish descriptor (Package 3 acceptance);
+  the 9.D supersession single-liveness rule forbids an old and a new listener
+  from coexisting.
+  The republished descriptor carries the new runtimeInstanceId, the new leaf
+  digest and a strictly higher durable `publicationEpoch`; the Bridge's 9.D
+  epoch high-water refuses any descriptor whose epoch is below its pinned
+  value — including a coherent stale descriptor paired with the retired
+  still-valid leaf, which the descriptor's self-consistent digest binding
+  alone cannot order — while mixed descriptor/leaf pairs fail the digest
+  binding. The in-memory P0/P12 generation may restart at the same numeric
+  value in a new process; it is informational here and never used for
+  ordering, so routine restarts need no re-enrollment.
 - Issuer/anchor replacement: a new issuer key/cert is accepted only with an
   anchor-rotation record signed by the previous issuer key and carrying the
   new anchor; the Bridge verifies it against its pinned anchor before
@@ -751,10 +756,10 @@ whole objects atomically (9.B.4). Field bounds mirror P15 (`profileId` UUID v4,
 
 | Object kind | Payload (plaintext, before DPAPI) |
 |---|---|
-| 1 issuerKeyPair | magic `SHREXOBJ`, version 1, kind 1, installationId (u16le length + UTF-8), issuer PKCS#8 DER (≤ 256 B), issuer cert DER (≤ 1 KiB) |
+| 1 issuerKeyPair | magic `SHREXOBJ`, version 1, kind 1, installationId (u16le length + UTF-8), publicationEpoch (u64le; 0 at creation, +1 committed per descriptor publication), issuer PKCS#8 DER (≤ 256 B), issuer cert DER (≤ 1 KiB) |
 | 2 serverKeyChain | magic, version 1, kind 2, server PKCS#8 DER, server leaf DER, issuer cert DER |
 | 3 associationStore | magic, version 1, kind 3, `u32le recordCount ≤ 64`, then per record: record version 1, profileId (16 raw UUID v4 bytes), installationId (u16le length + UTF-8), credentialIdentity (32 raw SHA-256 bytes), revision (u64le), revoked (1 byte, 0/1), updatedAtUtcMs (u64le, backend bookkeeping only, 0–9007199254740991 like P15 times; not part of the P15 port record) |
-| 4 bridgeClient | magic, version 1, kind 4, client PKCS#8 DER, client leaf DER, issuer cert DER, pinned installationId, pinned discovery high-water (u64le generation, 16 raw runtimeInstanceId bytes) |
+| 4 bridgeClient | magic, version 1, kind 4, client PKCS#8 DER, client leaf DER, issuer cert DER, pinned installationId, pinned discovery epoch high-water (u64le) |
 
 Caps: one object file ≤ 64 KiB; association records ≤ 64 (exceeding the bound
 fails registration `resourceLimit`); temp/leftover files ≤ 32 per directory
@@ -926,8 +931,9 @@ Flow:
    credentialIdentity, creates the pairing request (P15/P0 `requestPending`),
    writes the challenge file `pairing-<32hex>.chal` atomically — magic
    `SHREXCHA`, version 1, submissionId, requestId, nonce, profileId,
-   installationId, generation, runtimeInstanceId, credentialIdentity,
-   expectedRevision, expiresAtUtcMs and the issued client leaf DER (≤ 2 KiB) —
+   installationId, generation, runtimeInstanceId, publicationEpoch,
+   credentialIdentity, expectedRevision, expiresAtUtcMs and the issued client
+   leaf DER (≤ 2 KiB) —
    and removes the submission (its content is now represented by the leaf and
    the request). Cap 4 KiB.
 3. The user approves locally (P11 management surface; UI copy is not frozen
@@ -1004,6 +1010,7 @@ construction). Layout:
 | `app\trust\issuer.bin`, `app\trust\server.bin` | App | App only | 9.B.3 kinds 1–2 |
 | `app\state\associations.bin` | App | App only | 9.B.3 kind 3 |
 | `bridge\client.bin` | Bridge | Bridge only | 9.B.3 kind 4 |
+| `runtime.lock` | App | App only | 9.D supersession lock object (exclusive no-sharing handle; lock liveness is OS handle state, never a PID/age heuristic) |
 | `discovery\endpoint.bin`, `discovery\anchor.der`, `discovery\installation.id` | App | any same-user process | 9.D published objects |
 | `exchange\submission-*.pub`, `exchange\pairing-*.chal`, `exchange\proof-*.bin` | Bridge/App per 9.C.5 | the counterpart process | 9.C.5 files |
 
@@ -1036,18 +1043,29 @@ DACL and owner rules (FROZEN):
   open, not only at creation.
 
 Integrity of published objects: `endpoint.bin` is signed (magic `SHREXEPD`,
-version 1, runtimeInstanceId, generation, `u16le` port, server leaf SHA-256,
+version 1, runtimeInstanceId, publicationEpoch (u64le), generation
+(informational; never used for ordering), `u16le` port, server leaf SHA-256,
 installation UUID, publishedAtUtcMs, then the 64-byte issuer-key signature
 over `SHA-256("SHIROHA-EXTERNAL-ENDPOINT-V1" || 0x00 || preceding bytes)`);
 `anchor.der` is the issuer certificate DER and is cross-checked byte-wise
 against the App store at publish time; `installation.id` is canonical UUID
 text and cross-checked against the store. Mixed or stale combinations fail
 closed on the consumer side because the signature, the installationId match,
-the high-water ordering below and the server-leaf digest binding must all
-hold.
+the epoch high-water ordering below and the server-leaf digest binding must
+all hold.
 
-Publication and cleanup (FROZEN): the App is the sole publisher. Publish =
-temp `~tmp-<runtimeId16>-<rand8>` (explicit DACL) → write → flush →
+Publication and cleanup (FROZEN): the App is the sole publisher. Supersession
+single-liveness (FROZEN): before creating any endpoint listener, the runtime
+acquires an exclusive no-sharing handle on the root `runtime.lock` object and
+holds it for the entire serving lifetime; a second External runtime fails
+closed instead of serving, publishing or binding, so an old listener can
+never coexist with its successor (an in-process runtime swap closes and
+drains the old listener first; a crashed process releases the lock with its
+handles). Each publication first commits `publicationEpoch + 1` to the kind 1
+object under the 9.B.4 CAS rules, then writes the descriptor carrying that
+committed epoch; a crash between the two steps leaves the descriptor file at
+its previous self-consistent publication and the skipped epoch is harmless.
+Publish = temp `~tmp-<runtimeId16>-<rand8>` (explicit DACL) → write → flush →
 rename-replace; the writer revalidates owner/DACL/reparse after publication.
 Cleanup may delete only (a) objects this runtime created and still tracks by
 handle-verified identity (volume serial + file index re-checked on reopen) and
@@ -1080,21 +1098,27 @@ Cross-SID test boundary (FROZEN; real runs WINDOWS_PENDING, M5/A3):
 
 Bridge use of public trust (FROZEN): at enrollment the Bridge pins into its
 own store the anchor DER, the installation id and the enrollment-time
-`(generation, runtimeInstanceId)` pair it validated from the 9.C.5 challenge;
-afterwards it never trusts discovery objects blindly — it verifies the
-endpoint signature against the pinned anchor, matches installationId,
-requires the served descriptor's `(generation, runtimeInstanceId)` to be at
-least the pinned high-water (strictly newer generation, or the exact pinned
-pair; a lower generation or same-generation-different-runtime is refused
-before any TLS), matches the server-leaf digest, connects only to the
-descriptor's 127.0.0.1 port, and advances the stored pair only after the
-signature and installationId checks pass. A signature authenticates the
-issuer, never currentness: the digest binding is self-satisfying for a
-coherent stale descriptor paired with the retired still-valid leaf, so this
-monotone high-water — persisted in the kind 4 object across restarts — is
-what refuses an old still-live runtime, a replayed stale descriptor or a
-concurrently alive replaced runtime (A12 negative case; X11 two-runtime
-replacement trials). Anchor updates are accepted only via the 9.A.6
+`publicationEpoch` it validated from the 9.C.5 challenge; afterwards it never
+trusts discovery objects blindly — it verifies the endpoint signature against
+the pinned anchor, matches installationId, requires the served descriptor's
+`publicationEpoch` to be at least the pinned epoch (below is refused before
+any TLS; every publication commits a unique strictly increasing epoch, so an
+equal epoch can only repeat the publication the pin was set from or an
+acceptance came from, never a different one), matches the server-leaf digest,
+connects only to the descriptor's 127.0.0.1 port, and advances the stored
+epoch only after the signature and installationId checks pass. Freshness
+never rests on the descriptor alone: the 9.D supersession single-liveness
+rule guarantees at most one live runtime and listener per installation, so a
+cached old descriptor whose epoch is already reached
+can only point at an endpoint that no longer exists and the connection fails
+closed, while an unseen successor is accepted on its first sighting through
+its strictly higher epoch — no re-enrollment is needed when a restarted
+runtime reuses the same numeric generation, and the kind 4 epoch survives
+Bridge restarts. A signature authenticates the issuer, never currentness;
+the residual — a same-SID process replaying a descriptor together with copied
+key material — remains inside the accepted same-SID boundary (9.B.5, section
+3), and no unsigned freshness signal is accepted (A12 negative cases; X11
+supersession trials). Anchor updates are accepted only via the 9.A.6
 old-key-signed rotation record.
 
 Same-SID proxy risk: unchanged and re-affirmed in the exact section 3 terms —
@@ -1119,7 +1143,7 @@ no package touches AR-R6B.
 
 | Package | Smallest responsibility | Offline-testable portion | Required real authorization | Targets (M → A) | STOP boundary |
 |---|---|---|---|---|---|
-| 1. Credential / Protected Object primitives | The native helper (known-folder resolution, DACL create/verify, DPAPI wrap/unwrap, atomic replace, BCrypt keygen/sign/verify, certificate encode, extension inspection) built into release artifacts; Dart adapters: the 9.B store (CAS/uniqueness/tombstones/snapshots), discovery publisher/validators, leaf issuance from submissions, the 9.C exchange protocol, and the P15 port/backend implementations in composition-side wiring only | Format codecs, CAS/state machines with fakes, transcript/signature test vectors, source guards (no `defaultContext`, no `onBadCertificate`, no `engine.*`), CI-runnable | G0; X1 (issuance/possession), X3 (protected-object cross-SID) | M1, M2, M5, M6 → A1, A3 | No listener, no business Host, no production composition activation; if X1/X3 disprove DPAPI/ACL/rename behavior → STOP (no fallback backend) |
+| 1. Credential / Protected Object primitives | The native helper (known-folder resolution, DACL create/verify, DPAPI wrap/unwrap, atomic replace, exclusive handle-liveness lock, BCrypt keygen/sign/verify, certificate encode, extension inspection) built into release artifacts; Dart adapters: the 9.B store (CAS/uniqueness/tombstones/snapshots), discovery publisher/validators, leaf issuance from submissions, the 9.C exchange protocol, and the P15 port/backend implementations in composition-side wiring only | Format codecs, CAS/state machines with fakes, transcript/signature test vectors, source guards (no `defaultContext`, no `onBadCertificate`, no `engine.*`), CI-runnable | G0; X1 (issuance/possession), X3 (protected-object cross-SID) | M1, M2, M5, M6 → A1, A3 | No listener, no business Host, no production composition activation; if X1/X3 disprove DPAPI/ACL/rename behavior → STOP (no fallback backend) |
 | 2. TCP/mTLS secure adapter | Exact `127.0.0.1` bind, TLS 1.3 contexts loaded from the store, bounded pre-TLS admission (section 5 budget: slots, deadlines, real socket destruction), the three-layer peer verification, adapter-owned attempt mapping into the P15 boundary, unchanged P9/P10 consumption | Only limit/format logic with fakes; every handshake behavior is real-environment | G0; X0, X2, X4, X6, X7 (X3 for object behavior) | M4, M7, M8, M9 → A0, A2, A4, A6, A7 | Any accept-bad-certificate, cipher or admission/resource excess → STOP; TCP stays blocked; no protocol weakening and no automatic Named Pipe switch |
 | 3. Windows lifecycle and release acceptance | Disconnect/timeout/revoke and generation invalidation, B0/restart behavior, real-channel STAGE response loss (X8), Bridge-no-alternate-writer audit (X9), crash/foreign-object cleanup (X11), AOT packaging/native loading/Unicode and spaced launch (X12), standing v0/MCP compatibility (X10) | X10 standing regression only | G0; X5, X8–X12 | M10, M11, M12 → A5, A8–A12 | Any stability anomaly triggers the section 6 stop/recovery rules; no activation decision exists inside this package |
 
