@@ -101,7 +101,7 @@ SDK, lockfile, architecture and release artifacts and recheck these references.
 | Certificate/key loading | [SecurityContext](https://api.dart.dev/dart-io/SecurityContext-class.html) imports PEM/PKCS12 and private-key bytes. Use app-specific anchors without ambient roots, role-separated leaves, explicit validity and a frozen minimum TLS policy. The API does not provide CA/CSR generation or a Windows non-exportable-key signing-handle interface. | Windows release/AOT must load the chosen bounded formats, enforce server/client identity and certificate validity, and deny old rotated credentials. Do not infer CRL/OCSP or live revocation guarantees from a TLS API. |
 | Identity mapping | [X509Certificate](https://api.dart.dev/dart-io/X509Certificate-class.html) exposes DER and validity. Candidate identity is a SHA-256 digest of the verified leaf DER, registered to one existing opaque Profile reference by trusted local management; subject/CN, a supplied fingerprint or the SDK's SHA-1 accessor is not authority. | Verify collision/conflict rejection, active local credential registration, exact installation/role and replay/rotation invalidation. The cryptographic suite, certificate profile and registry format need their own bounded approval before implementation. |
 | Key generation/issuance | Dart's TLS context loads material; it does not issue it. Windows [BCryptGenerateKeyPair](https://learn.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptgeneratekeypair) and [CryptSignAndEncodeCertificate](https://learn.microsoft.com/en-us/windows/win32/api/wincrypt/nf-wincrypt-cryptsignandencodecertificate) support primitives for a minimal native crypto helper. STATIC_API, not a selected implementation. | Prove key ownership, CSR/challenge signature checks, intended SAN/EKU/validity and issuer protection. No certificate algorithm, third-party crypto dependency or native package is selected by P13. |
-| Storage and native boundary | Reuse S0's authority separation, typed missing/corrupt/unavailable failures and explicit compensation principles. Do not reuse `engine.<providerId>`, its 4096-rune API-key limit, Provider migration or bulk deletion. A separately approved External namespace/storage boundary is required. | The lock resolves flutter_secure_storage 10.3.1 / Windows 4.1.0. [The versioned Windows package](https://pub.dev/packages/flutter_secure_storage_windows/versions/4.1.0) and inspected native source use AES-GCM files with a Credential Manager key, not a demonstrated direct DPAPI External store. Prove missing/corrupt-key behavior without silent rekey, ACLs and owner-only operations. No Provider entry may change. |
+| Storage and native boundary | Reuse S0's authority separation, typed missing/corrupt/unavailable failures and explicit compensation principles. Do not reuse `engine.<providerId>`, its 4096-rune API-key limit, Provider migration or bulk deletion. A separately approved External namespace/storage boundary is required. | The lock resolves flutter_secure_storage 10.3.1 / Windows 4.1.0. [The versioned Windows package](https://pub.dev/packages/flutter_secure_storage_windows/versions/4.1.0) stores by default one DPAPI-wrapped JSON map file and keeps an AES-GCM/Credential Manager-key legacy path; neither satisfies the External contract (§9.B.1). Prove missing/corrupt-key behavior without silent rekey, ACLs and owner-only operations. No Provider entry may change. |
 | Discovery/Windows integration | A minimal Windows adapter is justified for security-descriptor creation/inspection and object-identity-safe publication/cleanup, which current external code does not implement. Flutter documents [Win32/FFI integration](https://docs.flutter.dev/platform-integration/windows/building); transitive ffi/win32 dependencies are not authority to add a new adapter. | Prove exact DACL/owner, reparse/parent substitution resistance and replacement/cleanup by object identity. Failure must close the candidate. A directory name or profile-local path alone is insufficient. |
 | Packaging | [Dart AOT executables](https://dart.dev/tools/dart-compile) and [Flutter Windows distribution](https://docs.flutter.dev/platform-integration/windows/building) are supported building blocks. S0's Flutter MethodChannel plugin is not evidence that a standalone Dart AOT Bridge can use that backend without a Flutter engine. | Freeze native dependency loading and a minimal standalone Bridge storage/crypto solution. Test packaged release, not just JIT or the developer machine. TLS credentials are separate from code-signing certificates; no OS root installation or release change follows from this plan. |
 
@@ -391,7 +391,7 @@ candidate is loopback-only or a lower-level primitive trial succeeded.
 | A9 | E8 contract/compiled composition boundary. | App absent, not-ready, closed or recovering gives bounded unavailable/denied behavior. Bridge neither opens the business SQLite DB nor loads repositories/migrations or starts a replacement writer. Any such fallback is FAIL. |
 | A10 | E2/E8 exact ten internal external routes and six MCP v0 READ tools. | Current compatibility checks retain those surfaces and deny every external COMMIT/DESTRUCTIVE/Built-in route. P13/candidate trials register no vNext tools. Changed v0 or expanded authority is FAIL. |
 | A11 | E2 controlled owning shutdown; no real endpoint ownership proof. | Normal close, abort/startup race, crashed prior runtime and competing replacement leave another process's sockets/descriptors/credential objects and sentinel data untouched. Cleanup uses proven ownership/object identity; ambiguous state fails closed without deleting it. Wrong deletion or shared/wildcard listener is FAIL. |
-| A12 | Static AOT/platform support only. | Exact packaged release/native backend works non-elevated from space/Unicode paths and a sanitized launch environment, after abnormal close, upgrade and cold start. Old endpoint/anchor cannot impersonate the new App; invalid native/store artifacts keep it disabled. JIT-only success, developer-only dependencies or authorization revival is FAIL. |
+| A12 | Static AOT/platform support only. | Exact packaged release/native backend works non-elevated from space/Unicode paths and a sanitized launch environment, after abnormal close, upgrade and cold start. Old endpoint/anchor cannot impersonate the new App — a stale signed descriptor paired with the retired still-valid leaf, and a concurrently alive replaced runtime, must both be refused by the 9.D high-water freshness rule; invalid native/store artifacts keep it disabled. JIT-only success, developer-only dependencies or authorization revival is FAIL. |
 
 Disconnected channels must stop accepting new calls and drop their adapter-owned
 attempts; no disposed connection can recreate its Session. P0 has no standalone
@@ -556,9 +556,14 @@ identity, and requires a fresh pairing (9.A.5/9.A.6).
 - Contexts are created with `SecurityContext(withTrustedRoots: false)` only.
   `defaultContext`, ambient Mozilla roots, OS stores and any `onBadCertificate`
   acceptance handler are prohibited in External code paths (source-guard test
-  in Package 1). The App server context loads the chain (issuer first, leaf
-  last, per the SDK's documented order) via `useCertificateChainBytes`, the
-  server key via `usePrivateKeyBytes` (PKCS#8 PEM text), trusts exactly the
+  in Package 1). The App server context loads the chain (leaf first, issuer
+  last: the first PEM block is the served identity certificate — the pinned
+  SDK 3.11.5 dartdoc's root-first wording for `useCertificateChain` is
+  contradicted by its runtime behavior, where issuer-first bytes fail
+  `usePrivateKeyBytes` with `KEY_VALUES_MISMATCH`; the frozen byte order is
+  therefore first block = leaf and the dartdoc wording must not be followed)
+  via `useCertificateChainBytes`, the server key via `usePrivateKeyBytes`
+  (PKCS#8 PEM text), trusts exactly the
   issuer via `setTrustedCertificatesBytes`, advertises it via
   `setClientAuthoritiesBytes`, and binds with `requestClientCertificate: true`
   and `requireClientCertificate: true` (signatures verified in local SDK
@@ -618,8 +623,12 @@ reactivate a Profile or Principal.
 - Server credential rotation: a new leaf from the same issuer. Because the
   server context loads once per listener lifetime, rotation is a controlled
   shutdown → re-issue → restart → republish descriptor (Package 3 acceptance).
-  Old server leaf digests stop being published and are rejected by the digest
-  binding even if some cache still serves them.
+  The republished descriptor carries the new runtime's generation and
+  runtimeInstanceId with the new leaf digest; the Bridge's 9.D high-water
+  freshness rule refuses any descriptor below its pinned state — including a
+  coherent stale descriptor paired with the retired still-valid leaf, which
+  the descriptor's self-consistent digest binding alone cannot order — while
+  mixed descriptor/leaf pairs fail the digest binding.
 - Issuer/anchor replacement: a new issuer key/cert is accepted only with an
   anchor-rotation record signed by the previous issuer key and carrying the
   new anchor; the Bridge verifies it against its pinned anchor before
@@ -742,10 +751,10 @@ whole objects atomically (9.B.4). Field bounds mirror P15 (`profileId` UUID v4,
 
 | Object kind | Payload (plaintext, before DPAPI) |
 |---|---|
-| 1 issuerKeyPair | magic `SHREXOBJ`, version 1, kind 1, issuer PKCS#8 DER (≤ 256 B), issuer cert DER (≤ 1 KiB) |
+| 1 issuerKeyPair | magic `SHREXOBJ`, version 1, kind 1, installationId (u16le length + UTF-8), issuer PKCS#8 DER (≤ 256 B), issuer cert DER (≤ 1 KiB) |
 | 2 serverKeyChain | magic, version 1, kind 2, server PKCS#8 DER, server leaf DER, issuer cert DER |
-| 3 associationStore | magic, version 1, kind 3, `u32le recordCount ≤ 64`, then per record: record version 1, profileId (16 raw UUID v4 bytes), installationId (u16le length + UTF-8), credentialIdentity (32 raw SHA-256 bytes), revision (u64le), revoked (1 byte, 0/1), updatedAtUtcMs (u64le) |
-| 4 bridgeClient | magic, version 1, kind 4, client PKCS#8 DER, client leaf DER, issuer cert DER, pinned installationId |
+| 3 associationStore | magic, version 1, kind 3, `u32le recordCount ≤ 64`, then per record: record version 1, profileId (16 raw UUID v4 bytes), installationId (u16le length + UTF-8), credentialIdentity (32 raw SHA-256 bytes), revision (u64le), revoked (1 byte, 0/1), updatedAtUtcMs (u64le, backend bookkeeping only, 0–9007199254740991 like P15 times; not part of the P15 port record) |
+| 4 bridgeClient | magic, version 1, kind 4, client PKCS#8 DER, client leaf DER, issuer cert DER, pinned installationId, pinned discovery high-water (u64le generation, 16 raw runtimeInstanceId bytes) |
 
 Caps: one object file ≤ 64 KiB; association records ≤ 64 (exceeding the bound
 fails registration `resourceLimit`); temp/leftover files ≤ 32 per directory
@@ -837,7 +846,9 @@ may never be wired as one.**
   offline 30-second constant is its offline candidate and its evidence-window
   value. The evidence window (verification → P0 consumption) stays at the
   P15 30 seconds, enforced by the adapter's monotonic `isLive`, independent of
-  the challenge deadline.
+  the challenge deadline. A production deadline longer than the offline
+  30-second constant requires the matching P15 binding and test update in the
+  same package; the current offline expiry must not be assumed to accept it.
 
 #### 9.C.2 Signed transcript and proof format (FROZEN)
 
@@ -999,9 +1010,12 @@ construction). Layout:
 The App creates the root, `app\`, `discovery\` and `exchange\`; the Bridge
 creates `bridge\` on first enrollment with the same security recipe
 (create-if-absent). `installation.id` is minted once at External
-initialization (UUID v4) and persisted in the App trust store; its loss or
-corruption fails closed (all associations and descriptors bind it) and is
-recovered only by an explicit local reset — never by silent re-mint.
+initialization (UUID v4) and persisted in the App trust store as the kind 1
+`issuerKeyPair` field (9.B.3) — the authoritative copy the published
+`discovery\installation.id` is cross-checked against; its loss, an absent or
+corrupt store field or a mismatch with the published copy fails closed (all
+associations and descriptors bind it) and is recovered only by an explicit
+local reset — never by silent re-mint.
 
 DACL and owner rules (FROZEN):
 
@@ -1028,8 +1042,9 @@ over `SHA-256("SHIROHA-EXTERNAL-ENDPOINT-V1" || 0x00 || preceding bytes)`);
 `anchor.der` is the issuer certificate DER and is cross-checked byte-wise
 against the App store at publish time; `installation.id` is canonical UUID
 text and cross-checked against the store. Mixed or stale combinations fail
-closed on the consumer side because the signature, the installationId match
-and the server-leaf digest binding must all hold.
+closed on the consumer side because the signature, the installationId match,
+the high-water ordering below and the server-leaf digest binding must all
+hold.
 
 Publication and cleanup (FROZEN): the App is the sole publisher. Publish =
 temp `~tmp-<runtimeId16>-<rand8>` (explicit DACL) → write → flush →
@@ -1063,12 +1078,24 @@ Cross-SID test boundary (FROZEN; real runs WINDOWS_PENDING, M5/A3):
   supports same-user Bridge only, and cross-user enrollment write paths are
   not part of v1.
 
-Bridge use of public trust (FROZEN): at enrollment the Bridge pins the anchor
-DER and installation id it validated into its own store; afterwards it never
-trusts discovery objects blindly — it verifies the endpoint signature against
-the pinned anchor, matches installationId and the server-leaf digest, and
-connects only to the descriptor's 127.0.0.1 port. Anchor updates are accepted
-only via the 9.A.6 old-key-signed rotation record.
+Bridge use of public trust (FROZEN): at enrollment the Bridge pins into its
+own store the anchor DER, the installation id and the enrollment-time
+`(generation, runtimeInstanceId)` pair it validated from the 9.C.5 challenge;
+afterwards it never trusts discovery objects blindly — it verifies the
+endpoint signature against the pinned anchor, matches installationId,
+requires the served descriptor's `(generation, runtimeInstanceId)` to be at
+least the pinned high-water (strictly newer generation, or the exact pinned
+pair; a lower generation or same-generation-different-runtime is refused
+before any TLS), matches the server-leaf digest, connects only to the
+descriptor's 127.0.0.1 port, and advances the stored pair only after the
+signature and installationId checks pass. A signature authenticates the
+issuer, never currentness: the digest binding is self-satisfying for a
+coherent stale descriptor paired with the retired still-valid leaf, so this
+monotone high-water — persisted in the kind 4 object across restarts — is
+what refuses an old still-live runtime, a replayed stale descriptor or a
+concurrently alive replaced runtime (A12 negative case; X11 two-runtime
+replacement trials). Anchor updates are accepted only via the 9.A.6
+old-key-signed rotation record.
 
 Same-SID proxy risk: unchanged and re-affirmed in the exact section 3 terms —
 another program under the same user may call a paired Bridge and proxy its
