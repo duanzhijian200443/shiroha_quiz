@@ -14,7 +14,7 @@ final class ExternalRuntimeAdmission {
   final ExternalTrustCore trust;
   final ExternalAuthorizationManagement _management;
   final bool Function() _isCurrent;
-  final _bindings = <ExternalPrincipal, ExternalProfileReference>{};
+  final _bindings = <ExternalPrincipal, (ExternalProfileReference, int)>{};
   final _onClose = <void Function()>{};
   bool _closed = false;
 
@@ -33,21 +33,26 @@ final class ExternalRuntimeAdmission {
   Future<void> bindIdentity(
       ExternalProfileReference reference, ExternalPrincipal principal) async {
     validate();
+    final generation = trust.generation;
     trust.snapshot(principal);
     final record = await _management.read(reference);
     validate();
     trust.snapshot(principal);
-    if (principal.profileId != record.profile.clientProfileId ||
-        record.profile.revokedAtUtcMs != null) {
+    if (generation != trust.generation ||
+        principal.profileId != record.profile.clientProfileId ||
+        reference.profileId != principal.profileId ||
+        record.profile.revokedAtUtcMs != null ||
+        (record.grant != null &&
+            record.grant!.profileId != principal.profileId)) {
       externalAuthFail(ExternalAuthFailure.unauthorized);
     }
-    _bindings[principal] = reference;
+    _bindings[principal] = (reference, generation);
   }
 
   void validateSession(ExternalSession session) {
     validate();
     if (trust.sessionFailure(session) != null ||
-        !_bindings.containsKey(session.principal)) {
+        _bindings[session.principal]?.$2 != session.generation) {
       externalAuthFail(ExternalAuthFailure.unauthorized);
     }
   }
@@ -55,9 +60,12 @@ final class ExternalRuntimeAdmission {
   /// Reloads the management-bound Profile; current policy remains Data-owned.
   Future<ExternalRuntimeAccess> admit(ExternalSession session) async {
     validateSession(session);
-    final record = await _management.read(_bindings[session.principal]!);
+    final record = await _management.read(_bindings[session.principal]!.$1);
     validateSession(session);
-    if (record.profile.revokedAtUtcMs != null) {
+    if (record.profile.clientProfileId != session.principal.profileId ||
+        record.profile.revokedAtUtcMs != null ||
+        (record.grant != null &&
+            record.grant!.profileId != session.principal.profileId)) {
       externalAuthFail(ExternalAuthFailure.unauthorized);
     }
     return ExternalRuntimeAccess._(this, session, record.grant);

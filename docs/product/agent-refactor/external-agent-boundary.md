@@ -942,10 +942,10 @@ P3-P9, architecture and Built-in/MCP v0 regressions remain required. Real Host
 security/stability stays UNVERIFIED: HOST_STABILITY_HALT ACTIVE, Transport
 BLOCKED, AR-R6A NOT_ACCEPTED; production Host and MCP vNext remain inactive.
 
-## 9. P11 trusted local authorization management (implementation candidate)
+## 9. P11 trusted local authorization management (accepted local scope)
 
 This freezes a first-party settings flow for non-secret Profile/Grant policy
-configuration only, pending current-target CI and independent review. P10 is
+configuration only, accepted through merged PR #262. P10 is
 accepted through merged PR #261; this stage does not reopen P0-P10 semantics.
 The page always states: “当前仅配置访问规则。外部客户端尚未配对，真实连接功能未启用。”
 Saving policy proves neither pairing, credential identity, authentication nor
@@ -992,3 +992,77 @@ Restore/raw rollback, disposed pages and absent Host wiring. Existing External,
 architecture, Built-in and MCP v0 regressions remain required. No credentials,
 pairing proof, runtime switch, transport, discovery, bridge or real client test is
 part of P11. Mechanical checks do not constitute independent acceptance.
+
+## 10. P12 offline trust binding (implementation candidate)
+
+P11 is accepted within its local policy scope through merged
+[PR #262](https://github.com/duanzhijian200443/shiroha_quiz/pull/262).
+Its final-head contract checks succeeded (7/7), fixed-target Verifier reported
+PASS and independent semantic review found zero confirmed P0/P1/P2. The review
+record remained INCONCLUSIVE pending that verification; no later APPROVAL marker
+is asserted. Historical acceptance follows AGENTS.md's merged-PR rule.
+Exact head/base/merge and run identities remain in Git/PR evidence.
+
+P12 freezes only an unpublished offline Application composition. The existing
+P0 TrustCore is the sole Principal/Peer/Session and PairingState authority;
+P1/P11 remains the sole durable non-secret Profile/Grant authority. The minimal
+P0 registration amendment accepts an opaque management reference and its owning
+management service, never an arbitrary Profile string. It reloads the Profile,
+requires matching identity, no Profile revocation, an owning-Profile Grant when
+present, and an unchanged generation before minting. Repeated selection in one
+TrustCore returns the identical Principal; the original bounded Profile map
+prevents duplicate Principals. Missing Grant/Scope/Egress is never repaired or
+inferred. Registration does not authenticate, pair, enable or grant access.
+
+`ExternalTrustCoordinator.offline` owns local selection handles and one P8
+Host over the existing P7 Gateway/P4 Admission. Each local pairing/enablement
+action reloads its own current management reference; handles from another
+coordinator, closed/replaced compositions and generation changes fail closed.
+P4 binding requires equal Profile/Principal/Grant identity and is scoped to its
+binding generation. Old bindings cannot admit new-generation Sessions without
+fresh trusted binding. Profile ids, decoded JSON and historical Proposal Origin
+cannot mint or reactivate these authorities.
+
+The coordinator delegates the unchanged sequence to P0: unpaired ->
+requestPending -> approvedPendingProof -> pairedDisabled ->
+enabledForCurrentRuntime. Local approval still requires separate credential
+possession proof. Invalid proof stays approvedPendingProof. Enablement selects
+one Profile and a finite positive duration within P0's existing thirty-minute
+candidate ceiling. Authentication requires that selected Profile's Principal;
+it adds no READ/STAGE. Saving P11 policy never enables a Profile. Grantless
+credential-proven Sessions release no business content and cannot bind P8.
+
+P8/P7 and their owning services still reload current Profile/Grant, revision,
+exact Scope and independent Egress on every admission/publication/release.
+READ references retain same-Principal/current-generation cross-Session semantics;
+P7/P8 execution Contexts and P3 STAGE Contexts retain exact-Session binding.
+Disable/expiry/revoke, restart, Restore and composition replacement invalidate
+applicable old authority; reauthentication never restores an old Context.
+There is no second pairing machine, Session table, writer, journal or Receipt
+store. P3's original SubmissionKey/Proposal remains the durable reconciliation
+authority, including committed-but-lost STAGE across real SQLite reopen.
+
+Shutdown rejects new work immediately, delegates P8 close/drain and also awaits
+pending local management operations. Only after actual owning settlement does
+it advance P0 generation. Await it before database close, B0 swap/raw rollback or
+runtime replacement; replacement starts disabled and requires fresh selection,
+proof and explicit enablement. Revocation or invalid enablement before STAGE
+publication yields no durable effect; after publication it withholds unreleased
+output while preserving the original owning effect and reconciliation key.
+
+Acceptance is deterministic and fully offline: P11 policy-created Profiles,
+synthetic test-only CredentialPort, existing temporary SQLite/B0 fixtures,
+identity/reference conflicts, invalid proof, missing authority, stale revisions,
+cross-Profile/generation/Session attempts, READ compatibility, disable/expiry,
+restart/Restore/raw rollback, lost STAGE and shutdown/owning-work barriers.
+P0-P11 and Capability/Architecture/Built-in/MCP v0 regressions remain required.
+Green synthetic proof is not credential, OS or transport security acceptance.
+
+Production `main.dart` constructs neither this coordinator nor TrustCore/P8 Host,
+and injects no authenticating synthetic CredentialPort. P11's unpaired-client
+statement remains exact; P9/P10 syntax cannot activate identity. No listener,
+real key/storage/rotation, transport, discovery, client pairing or MCP vNext
+tool is added. SQLite v34, B0 v2, formal COMMIT/DESTRUCTIVE and Built-in/MCP v0
+are unchanged. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
+AR-R6A = NOT_ACCEPTED. Real Windows credential/TCP/mTLS and stability work
+requires separate authorization and independent safety-environment assessment.

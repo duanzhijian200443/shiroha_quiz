@@ -12,7 +12,8 @@ P7 trusted external Capability/Receipt integration accepted in merged PR #256;
 P8 offline Host dispatch accepted in merged PR #258;
 P9 offline IPC Envelope foundation accepted in merged PR #260;
 P10 offline IPC command projection accepted in merged PR #261;
-P11 trusted local Profile/Grant management IMPLEMENTATION CANDIDATE.**
+P11 trusted local Profile/Grant management accepted in merged PR #262;
+P12 offline trust binding IMPLEMENTATION CANDIDATE.**
 
 The Provider seam, typed capability/executor/projection path and Runtime split/
 transcript are delivered in the preceding merged stages. Historical AR-R3
@@ -70,8 +71,18 @@ queries are internal read-only queries, including empty existing banks; File
 and Project choices reuse the existing trusted Application services. It configures
 non-secret access rules only: clients remain unpaired and disabled. There is no
 credential, Principal, Session, Enablement switch or production Host wiring.
-P11 remains an implementation candidate pending current-target CI, independent
-review and any required gap-closing verification.
+P11 is accepted within its local scope through merged PR #262; external boundary
+§10 records its successful CI/fixed-target verification and zero-blocker semantic
+review without inventing a later review-approval marker. P12's offline candidate
+under §10 links existing opaque Profile selections to the sole P0 Principal and
+PairingState authority, generation-bound P4 admission and P8/P7 current policy
+checks. Local selection, proof and finite enablement remain distinct operations;
+shutdown drains actual owning work before generation invalidation. Only test
+composition provides synthetic credentials. Real SQLite restart and B0 retain
+historical Proposal/key facts without reactivating old runtime authority.
+P12 still requires current-target CI and independent semantic review, with
+fixed-target verification when standing CI does not cover required regressions.
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 Production Host/IPC, MCP vNext and READ fallback continuation remain unimplemented
 targets. Current product behavior
 continues under the existing capability contracts.

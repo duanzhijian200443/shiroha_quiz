@@ -1,6 +1,8 @@
 /// Pure memory candidate. No credential implementation or production Host.
 library;
 
+import 'external_authorization.dart';
+
 enum PairingState {
   unpaired,
   requestPending,
@@ -133,7 +135,39 @@ final class ExternalTrustCore {
     if (_profiles.length >= maxProfiles) {
       throw const ExternalCoreException(ExternalFailure.resourceLimit);
     }
-    final id = mintProfileId();
+    return _createProfile(mintProfileId());
+  }
+
+  /// Trusted offline composition only. The opaque local reference selects
+  /// existing policy; it supplies neither credential proof nor business rights.
+  /// Repeated selection returns this core's single Principal for that Profile.
+  Future<ExternalPrincipal> registerExistingProfile(
+      ExternalProfileReference reference,
+      ExternalAuthorizationManagement management) async {
+    final generation = _generation;
+    final record = await management.read(reference);
+    if (generation != _generation ||
+        record.profile.clientProfileId != reference.profileId ||
+        record.profile.revokedAtUtcMs != null ||
+        (record.grant != null &&
+            record.grant!.profileId != reference.profileId)) {
+      throw const ExternalCoreException(ExternalFailure.authenticationRejected);
+    }
+    final existing = _profiles[reference.profileId];
+    if (existing != null) {
+      if (existing.state == PairingState.revoked ||
+          existing.state == PairingState.recoveryRequired) {
+        throw ExternalCoreException(_stateFailure(existing));
+      }
+      return existing.principal;
+    }
+    return _createProfile(reference.profileId);
+  }
+
+  ExternalPrincipal _createProfile(String id) {
+    if (_profiles.length >= maxProfiles) {
+      throw const ExternalCoreException(ExternalFailure.resourceLimit);
+    }
     if (id.isEmpty || id.length > 128 || _profiles.containsKey(id)) {
       throw const ExternalCoreException(ExternalFailure.pairingConflict);
     }

@@ -185,15 +185,23 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
    ten explicit typed routes and deep safe-result whitelists. Contexts remain
    trusted P8 composition inputs; encoding loss preserves original local evidence.
    No P3-P9 authority, production composition or transport is changed.
-   P11 adds a first-party local Profile/Grant management implementation candidate
+   P11 adds accepted first-party local Profile/Grant management (merged PR #262)
    under external boundary §9: page-owned management references, precise
    READ/STAGE and independent Scope/Egress editing, P1 revision CAS/transactions
    and B0 lifecycle protection. Its internal read-only Profile/Bank queries reuse
    existing v34 authority; File/Project choices use trusted Application queries.
    The settings page configures non-secret policy only, with clients unpaired
    and disabled. Production composition supplies only local management, never
-   a Principal, Session, external Capability, credential or Host. Candidate
-   acceptance still requires current-target CI and independent semantic review.
+   a Principal, Session, external Capability, credential or Host.
+   P12's unpublished offline candidate under external boundary §10 uses existing
+   opaque management references to register one P0 Principal per durable Profile,
+   without string-based identity minting. Its local coordinator delegates pairing,
+   proof, finite enablement and Sessions to the original TrustCore and binds P4
+   admission by generation. P8/P7 retain current policy and owning release checks;
+   shutdown drains before generation invalidation. Synthetic credentials remain
+   test-only, and production has no external pairing/Session/Host composition.
+   P12 acceptance requires current-target CI and independent semantic review,
+   with fixed-target verification for required standing-CI coverage gaps.
    HOST_STABILITY_HALT stays ACTIVE; Transport BLOCKED and AR-R6A NOT_ACCEPTED.
    The generated schema is globally
    migrated and strictly validated independently of runtime module enablement.

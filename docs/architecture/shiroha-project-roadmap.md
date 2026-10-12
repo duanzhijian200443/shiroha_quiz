@@ -204,11 +204,20 @@ IPC command projection is accepted through merged PR #261 under external boundar
 ten typed P7 input mappings, operation-specific safe output and unchanged
 owning effect/reconciliation/drain authority. Contexts are supplied by trusted
 offline P8 composition, with no wire authority factory. P11's trusted local
-Profile/Grant settings flow is an IMPLEMENTATION CANDIDATE under external
-boundary §9, pending current-target CI and independent review/required verification.
+Profile/Grant settings flow is accepted within its local scope through merged
+PR #262 under external boundary §9; §10 records the available historical
+CI/Verifier/zero-blocker review evidence and merged-stage acceptance.
 It reuses P1 exact READ/STAGE, Scope, separate Egress, revision CAS and B0 gates
 at schema v34/package v2. Management configures non-secret rules only; external
 clients remain unpaired/disabled. No Credential, Session or Host is published.
+P12 is an IMPLEMENTATION CANDIDATE under external boundary §10: an unpublished
+offline coordinator connects existing opaque Profile references to P0's unique
+Principal/PairingState and P4 generation-bound admission, then P8/P7 current
+Grant/Scope/Revision/Egress. Synthetic credentials are test-only. Disable/expiry,
+revoke, shutdown/owning settlement, SQLite restart and B0 invalidate old runtime
+authority while P3 Proposal/original-key reconciliation remains unchanged.
+Current-target CI and independent review/required gap verification remain gates
+for this new candidate; it supplies no production pairing/Session/Host capability.
 No business authorization/writer,
 schema, B0 format or Host authority is expanded. MCP vNext and formal Host
 integration remain unimplemented;
