@@ -1,7 +1,8 @@
 # P13 Windows Host Security Readiness
 
-Status: **Static readiness candidate. Real Windows security acceptance is
-BLOCKED; no production Credential/Pairing/Transport/Host is activated.**
+Status: **Accepted static readiness checkpoint (merged PR #264). Real Windows
+security acceptance is BLOCKED; no production Credential/Pairing/Transport/Host
+is activated.**
 
 Authority: [external boundary](external-agent-boundary.md) sections 2, 3, 5–10
 own identity, B-class isolation, authorization and offline behavior.
@@ -58,7 +59,7 @@ Exact merge/head/base identities and execution evidence remain in Git/PR.
 | E5 | [P10 projection](../../../lib/data/external/ipc_command_projection.dart), [P10 tests](../../../test/data/external/ipc_command_projection_test.dart), external boundary section 8: authentication/P8 binding before business parsing; preserved effect evidence. |
 | E6 | [P3 STAGE](../../../lib/application/external/external_generated_stage.dart), [Proposal repository](../../../lib/data/repositories/generated_proposal_repository.dart), [P12 B0 tests](../../../test/application/external/external_trust_backup_test.dart), [P8 B0 tests](../../../test/application/external/local_host_backup_test.dart): sole writer/key reconciliation and restore/restart boundaries. |
 | E7 | [S0 port](../../../lib/data/persistence/engine_credential_store.dart), [S0 adapter](../../../lib/data/credentials/secure_engine_credential_store.dart), [dependency lock](../../../pubspec.lock): Provider-only namespace and typed failures; not an External credential implementation. |
-| E8 | [main composition](../../../lib/main.dart), [MCP v0 contract](../../architecture/mcp-v0-contract.md), [P11 source guards](../../../test/application/external/local_authorization_architecture_test.dart), [CI configuration](../../../.github/workflows/pr-contract-checks.yml): no production external activation; fixed standing shards do not cover the complete External matrix. |
+| E8 | [main composition](../../../lib/main.dart), [MCP v0 contract](../../architecture/mcp-v0-contract.md), [P11 source guards](../../../test/application/external/local_authorization_architecture_test.dart), [CI configuration](../../../.github/workflows/pr-contract-checks.yml): no production external activation; P14's standing shards cover the External offline Application/IPC regression matrix, which is not Windows credential/transport acceptance. |
 
 ## 2. Candidate primitives and static screening
 

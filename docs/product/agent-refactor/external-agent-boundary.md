@@ -1077,7 +1077,7 @@ are unchanged. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
 AR-R6A = NOT_ACCEPTED. Real Windows credential/TCP/mTLS and stability work
 requires separate authorization and independent safety-environment assessment.
 
-## 11. P13 Windows security readiness (static candidate)
+## 11. P13 Windows security readiness (accepted static readiness)
 
 [Windows Host security readiness](windows-host-security-readiness.md) owns the
 production gap/dependency matrix, static TCP/mTLS versus Named Pipe screening,
@@ -1085,6 +1085,10 @@ CredentialPort mapping proposal, isolated experiment authorization checklist and
 real PASS/FAIL/fallback criteria. It distinguishes existing offline proof,
 official API support, real Windows evidence still missing and unsupported
 promises. It supplies no credential implementation, listener or production wiring.
+P13 is accepted as a static readiness checkpoint through merged PR #264. P14
+(auxiliary CI-engineering sub-stage) makes the External offline Application/IPC/
+origin regression matrix standing coverage in the PR contract shards; it adds
+offline Linux evidence only and clears no WINDOWS_PENDING item.
 
 An approved environment independent of the primary host's kernel, exact bounded
 scope/resources and new explicit user experiment authority are not established

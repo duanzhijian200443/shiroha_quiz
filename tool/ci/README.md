@@ -6,6 +6,14 @@ appear once and be assigned once by the existing `index % 4` split. Support
 fixtures are not executable entries. Training/StudyActivity suites are standing
 coverage even when a PR changes only production code.
 
+The standing list also retains the AR-R6A External offline regression matrix:
+every `test/application/external/` and `test/data/external/` suite, the
+`generated_external_origin*` Proposal suites, the P11 authorization widget and
+the repeatedly re-verified `rag_lazy`/Agent config-history suites. The contract
+test requires those entries. That is offline Linux evidence for the accepted
+P3-P12 behavior only; it is not Windows Credential, mTLS, ACL, Discovery or
+Host acceptance and it clears no WINDOWS_PENDING item.
+
 The four shards keep `--concurrency=1`. Flutter's additional JSON reporter
 collects timing in the same test invocation, without running tests twice. The
 summary script retains only repository-relative test paths, integer durations,
