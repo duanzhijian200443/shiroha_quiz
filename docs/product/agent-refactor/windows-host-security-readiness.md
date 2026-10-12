@@ -341,7 +341,7 @@ grant another, or authorize production activation.
 | X8 | A8: committed/lost STAGE reconciliation | Synthetic Proposal/key/SQLite, controlled response cut after commit and fresh reconnection; exact owning checkpoints. | X4–X7. |
 | X9 | A9: Bridge has no alternate business writer | Bounded App absence/not-ready/closed runs and file-open/access audit for the synthetic DB. | Packaged candidate Bridge; no real DB. |
 | X10 | A10: retain external allowlist and MCP v0 | Existing offline compatibility fixtures and, only if separately named, synthetic retained-v0 stdio runs. No vNext registration or protocol expansion. | Candidate artifacts; standing regression target. |
-| X11 | A11: owner-safe endpoint cleanup | Two candidate runtime processes (the superseded/second one must fail closed under the 9.D supersession lock while the holder keeps serving), disposed sockets and experiment-only descriptors; bounded termination/replacement races and foreign-object sentinels. | X3, X7; object-identity cleanup design. |
+| X11 | A11: owner-safe endpoint cleanup | Two candidate runtime processes (the superseded/second one must fail closed under the 9.D supersession/single-writer lock while the holder keeps serving — including concurrent initialization and store-commit attempts, which must never interleave read–CAS–commit transactions), disposed sockets and experiment-only descriptors; bounded termination/replacement races and foreign-object sentinels. | X3, X7; object-identity cleanup design. |
 | X12 | A12: release launch/recovery compatibility | Named release/AOT artifacts, native DLL dependencies, space/Unicode install roots, disposable cold-start/upgrade/crash scenarios. | X1–X11; packaging model frozen. |
 
 Address/TLS/storage/Discovery validity is a common preflight for every socket
@@ -391,7 +391,7 @@ candidate is loopback-only or a lower-level primitive trial succeeded.
 | A9 | E8 contract/compiled composition boundary. | App absent, not-ready, closed or recovering gives bounded unavailable/denied behavior. Bridge neither opens the business SQLite DB nor loads repositories/migrations or starts a replacement writer. Any such fallback is FAIL. |
 | A10 | E2/E8 exact ten internal external routes and six MCP v0 READ tools. | Current compatibility checks retain those surfaces and deny every external COMMIT/DESTRUCTIVE/Built-in route. P13/candidate trials register no vNext tools. Changed v0 or expanded authority is FAIL. |
 | A11 | E2 controlled owning shutdown; no real endpoint ownership proof. | Normal close, abort/startup race, crashed prior runtime and competing replacement leave another process's sockets/descriptors/credential objects and sentinel data untouched. Cleanup uses proven ownership/object identity; ambiguous state fails closed without deleting it. Wrong deletion or shared/wildcard listener is FAIL. |
-| A12 | Static AOT/platform support only. | Exact packaged release/native backend works non-elevated from space/Unicode paths and a sanitized launch environment, after abnormal close, upgrade and cold start. Old endpoint/anchor cannot impersonate the new App — a second live External runtime must fail closed (9.D supersession single-liveness), a stale signed descriptor (including one paired with the retired still-valid leaf, or below the pinned epoch) is refused or can reach only a dead endpoint, and a successor is accepted on first sighting without re-enrollment after a same-generation restart; invalid native/store artifacts keep it disabled. JIT-only success, developer-only dependencies or authorization revival is FAIL. |
+| A12 | Static AOT/platform support only. | Exact packaged release/native backend works non-elevated from space/Unicode paths and a sanitized launch environment, after abnormal close, upgrade and cold start. Old endpoint/anchor cannot impersonate the new App — a second live External runtime must fail closed (9.D supersession single-liveness and store single-writer exclusion: it neither serves, publishes, binds nor writes store objects while the holder lives), a stale signed descriptor (including one paired with the retired still-valid leaf, or below the pinned epoch) is refused or can reach only a dead endpoint, and a successor is accepted on first sighting without re-enrollment after a same-generation restart; invalid native/store artifacts keep it disabled. JIT-only success, developer-only dependencies or authorization revival is FAIL. |
 
 Disconnected channels must stop accepting new calls and drop their adapter-owned
 attempts; no disposed connection can recreate its Session. P0 has no standalone
@@ -769,9 +769,22 @@ requires.
 
 #### 9.B.4 Write, CAS and recovery rules (FROZEN; OS behavior WINDOWS_PENDING)
 
-- Single writer: each root has exactly one writing process role; commits are
-  serialized in-process through one bounded queue. Cross-process writers are
-  not supported and none is configured.
+- Single writer, OS-enforced (store objects): each root has exactly one
+  writing process for its store objects — the App root's kinds 1–3 and the
+  Bridge root's kind 4 — and every read–validate–CAS–commit transaction on
+  them runs while that process holds the root's exclusive no-sharing writer
+  lock (App: `runtime.lock`, Bridge: `bridge\client.lock`; 9.D). The lock is
+  taken non-blocking before the process's first store operation (only the root
+  directory and the lock object itself precede it) and held for that process's
+  store-owning lifetime (9.D), so no transaction ever runs outside it; the
+  in-process bounded commit queue serializes only within that exclusive
+  holder. The 9.C.5 exchange files are single-consumption atomic `CREATE_NEW`
+  writes with no read–modify–write transaction; they are not store objects and
+  do not use these locks. Lock contention is a fixed fail-closed result
+  (`temporarilyUnavailable`-class: zero mutation, no open or write), never a
+  wait, a retry loop or a per-process queue that downgrades the exclusion.
+  Atomic file replace provides durability, not cross-process mutual exclusion;
+  cross-process writers are excluded, not merely "unsupported".
 - Commit protocol: read current object → validate → apply the mutation in
   memory (expected-revision CAS, uniqueness scan, tombstone retention) →
   serialize → DPAPI-protect → create temp `~tmp-<runtimeId16>-<rand8>` in the
@@ -780,8 +793,10 @@ requires.
   (`SetFileInformationByHandle`/`FileRenameInfo` with replace;
   `MoveFileExW` + `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH` is the
   documented alternative) → success is reported only after the replace call
-  reports success. A crash before the replace leaves the previous valid state;
-  after it, the new valid state.
+  reports success. The whole read-through-replace sequence runs only while the
+  root's writer lock is held (single writer above); the atomic replace is its
+  final durability step, not its mutual-exclusion mechanism. A crash before
+  the replace leaves the previous valid state; after it, the new valid state.
 - P15 contract mapping (unchanged semantics, backend realization only):
 
 | P15 requirement | Backend realization |
@@ -800,7 +815,7 @@ requires.
 |---|---|---|
 | Object absent (never written / legitimately missing) | Missing — current null record semantics | Register starts from revision 0; connections stay unauthorized until paired |
 | Decrypt/decode/invariant failure | `dataCorrupt` hard deny; object untouched | Explicit local re-initialization only; no auto-delete, no rekey, no regeneration |
-| I/O, sharing, volume or ACL-verification failure | `temporarilyUnavailable`; zero mutation; snapshots invalidated | New explicit operation only; no retry loop |
+| Writer-lock contention, I/O, sharing, volume or ACL-verification failure | `temporarilyUnavailable`; zero mutation; snapshots invalidated | New explicit operation only; no retry loop |
 | Replace outcome ambiguous (temp written, replace uncertain) | `commitUnknown`; never reported as success | Fresh read; idempotent same-tuple/exact-revision registration; stale requests fail CAS |
 | Crash mid-write | Old-or-new valid state; `~tmp-` leftovers inert | Leftovers are ignored by the loader, never read; bounded count fails new writes closed beyond the cap until explicit local cleanup |
 
@@ -907,9 +922,9 @@ the public key recorded at leaf issuance.
 Strict order, owned by the unchanged P0/P15 state machine: `requestPairing` →
 trusted local user `approvePairing` → `completePairing(proof)`. Approval alone
 never produces a `PairingProof` or a paired state; completion without approval
-is rejected; a failed proof leaves the request consumed/unpaired per P15;
-runtime enablement remains a separate explicit action and is never part of
-pairing.
+is rejected; a failed proof consumes the P15 request and leaves P0 in
+`approvedPendingProof` — never paired, with recovery only per 9.C.8; runtime
+enablement remains a separate explicit action and is never part of pairing.
 
 #### 9.C.5 Bootstrap submission and exchange (FROZEN)
 
@@ -987,9 +1002,20 @@ durable policy stays P1/P11-owned.
 
 - Invalid, expired, replayed or duplicate proof → `verificationRejected`; the
   challenge is consumed; trust state is unchanged (no paired state, no partial
-  Grant or Enablement); recovery is an explicit fresh request with a new nonce,
-  bounded by the 16-pending limit — no automatic retry loop, no silent
-  re-issue.
+  Grant or Enablement). The normal flow cannot continue inside that runtime:
+  the consumed P15 registration can never be completed again (`unauthorized`),
+  a different request is `pairingConflict` while P0 retains
+  `approvedPendingProof` (only `unpaired` or `recoveryRequired` admits one),
+  and re-approval outside `requestPending` is impossible. There is no
+  cancel/reset pairing interface and this document does not assume one;
+  adding one would change the frozen P0 state machine and requires separate
+  authorization. Frozen recovery: an explicit trusted local action closes and
+  rebuilds the External runtime (a fresh composition — pairing state is
+  in-memory and is discarded, not merely disabled), then re-registers the
+  existing Profile and runs a standard fresh pairing through 9.C.4/9.C.5: a
+  new request, a new challenge and nonce, with the 9.A.6 revoke-first rule
+  when a different credential replaces an active association. No automatic
+  retry loop, no silent re-issue.
 - Association commit unknown → the 9.B.4 recovery rule (fresh read; idempotent
   same-tuple/exact-revision registration; stale requests fail CAS).
 - P0 completion acknowledgement lost → the durable fact remains only the
@@ -1010,13 +1036,17 @@ construction). Layout:
 | `app\trust\issuer.bin`, `app\trust\server.bin` | App | App only | 9.B.3 kinds 1–2 |
 | `app\state\associations.bin` | App | App only | 9.B.3 kind 3 |
 | `bridge\client.bin` | Bridge | Bridge only | 9.B.3 kind 4 |
-| `runtime.lock` | App | App only | 9.D supersession lock object (exclusive no-sharing handle; lock liveness is OS handle state, never a PID/age heuristic) |
+| `bridge\client.lock` | Bridge | Bridge only | 9.B.4 Bridge-root single-writer lock object (exclusive no-sharing handle, same recipe as `runtime.lock`) |
+| `runtime.lock` | App | App only | 9.B.4/9.D single-writer + supersession lock object (exclusive no-sharing handle held from before the first store operation through full runtime dispose; lock liveness is OS handle state, never a PID/age heuristic) |
 | `discovery\endpoint.bin`, `discovery\anchor.der`, `discovery\installation.id` | App | any same-user process | 9.D published objects |
 | `exchange\submission-*.pub`, `exchange\pairing-*.chal`, `exchange\proof-*.bin` | Bridge/App per 9.C.5 | the counterpart process | 9.C.5 files |
 
 The App creates the root, `app\`, `discovery\` and `exchange\`; the Bridge
 creates `bridge\` on first enrollment with the same security recipe
-(create-if-absent). `installation.id` is minted once at External
+(create-if-absent). Each process takes its root's writer lock
+(`runtime.lock` / `bridge\client.lock`, 9.B.4) exclusively before its first
+store operation and holds it for its store-owning lifetime.
+`installation.id` is minted once at External
 initialization (UUID v4) and persisted in the App trust store as the kind 1
 `issuerKeyPair` field (9.B.3) — the authoritative copy the published
 `discovery\installation.id` is cross-checked against; its loss, an absent or
@@ -1055,13 +1085,19 @@ the epoch high-water ordering below and the server-leaf digest binding must
 all hold.
 
 Publication and cleanup (FROZEN): the App is the sole publisher. Supersession
-single-liveness (FROZEN): before creating any endpoint listener, the runtime
-acquires an exclusive no-sharing handle on the root `runtime.lock` object and
-holds it for the entire serving lifetime; a second External runtime fails
-closed instead of serving, publishing or binding, so an old listener can
-never coexist with its successor (an in-process runtime swap closes and
-drains the old listener first; a crashed process releases the lock with its
-handles). Each publication first commits `publicationEpoch + 1` to the kind 1
+single-liveness and store single-writer (FROZEN): the runtime acquires an
+exclusive no-sharing handle on the root `runtime.lock` object before its
+first External store operation — necessarily before creating any endpoint
+listener — and holds it until the runtime is fully disposed, including any
+post-close revocation commit; every 9.B.4 read–CAS–commit transaction on the
+App-root store objects runs under this held handle. A second External runtime
+fails closed instead of serving, publishing, binding or writing store objects,
+so an old listener can never coexist with its successor and
+two processes can never interleave store transactions on one root (an
+in-process runtime swap disposes the old runtime first and the successor
+re-acquires the lock before its own store work; a crashed process releases
+the lock with its handles). Each publication first commits
+`publicationEpoch + 1` to the kind 1
 object under the 9.B.4 CAS rules, then writes the descriptor carrying that
 committed epoch; a crash between the two steps leaves the descriptor file at
 its previous self-consistent publication and the skipped epoch is harmless.
@@ -1143,7 +1179,7 @@ no package touches AR-R6B.
 
 | Package | Smallest responsibility | Offline-testable portion | Required real authorization | Targets (M → A) | STOP boundary |
 |---|---|---|---|---|---|
-| 1. Credential / Protected Object primitives | The native helper (known-folder resolution, DACL create/verify, DPAPI wrap/unwrap, atomic replace, exclusive handle-liveness lock, BCrypt keygen/sign/verify, certificate encode, extension inspection) built into release artifacts; Dart adapters: the 9.B store (CAS/uniqueness/tombstones/snapshots), discovery publisher/validators, leaf issuance from submissions, the 9.C exchange protocol, and the P15 port/backend implementations in composition-side wiring only | Format codecs, CAS/state machines with fakes, transcript/signature test vectors, source guards (no `defaultContext`, no `onBadCertificate`, no `engine.*`), CI-runnable | G0; X1 (issuance/possession), X3 (protected-object cross-SID) | M1, M2, M5, M6 → A1, A3 | No listener, no business Host, no production composition activation; if X1/X3 disprove DPAPI/ACL/rename behavior → STOP (no fallback backend) |
+| 1. Credential / Protected Object primitives | The native helper (known-folder resolution, DACL create/verify, DPAPI wrap/unwrap, atomic replace, the exclusive no-sharing handle locks (liveness/supersession and single-writer), BCrypt keygen/sign/verify, certificate encode, extension inspection) built into release artifacts; Dart adapters: the 9.B store (CAS/uniqueness/tombstones/snapshots), discovery publisher/validators, leaf issuance from submissions, the 9.C exchange protocol, and the P15 port/backend implementations in composition-side wiring only | Format codecs, CAS/state machines with fakes, transcript/signature test vectors, source guards (no `defaultContext`, no `onBadCertificate`, no `engine.*`), CI-runnable | G0; X1 (issuance/possession), X3 (protected-object cross-SID) | M1, M2, M5, M6 → A1, A3 | No listener, no business Host, no production composition activation; if X1/X3 disprove DPAPI/ACL/rename behavior → STOP (no fallback backend) |
 | 2. TCP/mTLS secure adapter | Exact `127.0.0.1` bind, TLS 1.3 contexts loaded from the store, bounded pre-TLS admission (section 5 budget: slots, deadlines, real socket destruction), the three-layer peer verification, adapter-owned attempt mapping into the P15 boundary, unchanged P9/P10 consumption | Only limit/format logic with fakes; every handshake behavior is real-environment | G0; X0, X2, X4, X6, X7 (X3 for object behavior) | M4, M7, M8, M9 → A0, A2, A4, A6, A7 | Any accept-bad-certificate, cipher or admission/resource excess → STOP; TCP stays blocked; no protocol weakening and no automatic Named Pipe switch |
 | 3. Windows lifecycle and release acceptance | Disconnect/timeout/revoke and generation invalidation, B0/restart behavior, real-channel STAGE response loss (X8), Bridge-no-alternate-writer audit (X9), crash/foreign-object cleanup (X11), AOT packaging/native loading/Unicode and spaced launch (X12), standing v0/MCP compatibility (X10) | X10 standing regression only | G0; X5, X8–X12 | M10, M11, M12 → A5, A8–A12 | Any stability anomaly triggers the section 6 stop/recovery rules; no activation decision exists inside this package |
 
