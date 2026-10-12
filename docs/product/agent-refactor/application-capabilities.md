@@ -389,9 +389,17 @@ no Principal, Session, execution Context, Receipt or runtime Enablement. Saving
 READ/STAGE/Scope/Egress configures non-secret rules only; pairing and actual
 external access remain disabled pending separate production acceptance.
 
-P12's offline trust coordinator candidate is owned by external boundary §10.
+P12's accepted offline trust coordinator (merged PR #263) is owned by external
+boundary §10. Final CI and Reviewer APPROVAL closed the offline scope, with
+fixed-target validation performed by the same review session under explicit user
+instruction; no separate independent Verifier session is claimed.
 It supplies existing P0 Sessions through opaque Profile registration, original
 pairing/proof and explicit finite enablement; P4 bindings are generation-bound.
 P8/P7 per-call and final current Grant/Scope/Revision/Egress checks remain
 mandatory. No new capability definition, Kernel amendment, business writer or
 production credential/Host/MCP composition is introduced.
+
+P13's static Windows credential/IPC readiness is owned by external boundary §11
+and [the readiness document](windows-host-security-readiness.md). It defines
+future security/environment/authorization acceptance gates, changes no Kernel
+or capability surface and starts no real experiment or production Host.

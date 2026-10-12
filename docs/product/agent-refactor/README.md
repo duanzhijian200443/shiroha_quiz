@@ -13,7 +13,8 @@ P8 offline Host dispatch accepted in merged PR #258;
 P9 offline IPC Envelope foundation accepted in merged PR #260;
 P10 offline IPC command projection accepted in merged PR #261;
 P11 trusted local Profile/Grant management accepted in merged PR #262;
-P12 offline trust binding IMPLEMENTATION CANDIDATE.**
+P12 offline trust binding accepted in merged PR #263;
+P13 Windows security readiness STATIC CANDIDATE; real acceptance BLOCKED.**
 
 The Provider seam, typed capability/executor/projection path and Runtime split/
 transcript are delivered in the preceding merged stages. Historical AR-R3
@@ -73,15 +74,23 @@ non-secret access rules only: clients remain unpaired and disabled. There is no
 credential, Principal, Session, Enablement switch or production Host wiring.
 P11 is accepted within its local scope through merged PR #262; external boundary
 §10 records its successful CI/fixed-target verification and zero-blocker semantic
-review without inventing a later review-approval marker. P12's offline candidate
+review without inventing a later review-approval marker. P12's accepted offline scope
 under §10 links existing opaque Profile selections to the sole P0 Principal and
 PairingState authority, generation-bound P4 admission and P8/P7 current policy
 checks. Local selection, proof and finite enablement remain distinct operations;
 shutdown drains actual owning work before generation invalidation. Only test
 composition provides synthetic credentials. Real SQLite restart and B0 retain
 historical Proposal/key facts without reactivating old runtime authority.
-P12 still requires current-target CI and independent semantic review, with
-fixed-target verification when standing CI does not cover required regressions.
+P12 is accepted through merged PR #263 with final CI success and Reviewer
+APPROVAL. Its final fixed-target offline verification was performed by that same
+review session under explicit user instruction; no separate independent Verifier
+session or VERIFICATION APPROVAL is claimed. External boundary §10 links the
+historical closure. This acceptance establishes no real credentials or transport.
+P13's [Windows security readiness](windows-host-security-readiness.md), owned by
+external boundary §11, defines static feasibility/gaps and isolated Windows
+experiment/acceptance/fallback gates. It creates no implementation or runtime
+authority. Independent environment approval and new experiment authorization
+remain missing; dynamic acceptance is BLOCKED and AR-R6B stays inactive.
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 Production Host/IPC, MCP vNext and READ fallback continuation remain unimplemented
 targets. Current product behavior
@@ -100,6 +109,7 @@ limit the module contract to Assistant features.
 | Typed capabilities, permissions, effects, receipts and projection boundaries | [application-capabilities.md](application-capabilities.md) |
 | Compile-time modules, contributions, dependencies and storage compatibility | [module-system.md](module-system.md) |
 | External identity, grants, context handles, egress and local Host/IPC | [external-agent-boundary.md](external-agent-boundary.md) |
+| Windows credential/IPC security readiness and isolated acceptance prerequisites | [windows-host-security-readiness.md](windows-host-security-readiness.md) |
 | MCP profile, Tools, protocol schemas and reference-client packaging boundary | [mcp-vnext-contract.md](mcp-vnext-contract.md) |
 | Generated question admission, durable Review, atomic commit and retention | [generated-question-proposals.md](generated-question-proposals.md) |
 

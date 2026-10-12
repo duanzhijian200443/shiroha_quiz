@@ -993,7 +993,7 @@ architecture, Built-in and MCP v0 regressions remain required. No credentials,
 pairing proof, runtime switch, transport, discovery, bridge or real client test is
 part of P11. Mechanical checks do not constitute independent acceptance.
 
-## 10. P12 offline trust binding (implementation candidate)
+## 10. P12 offline trust binding (accepted offline scope)
 
 P11 is accepted within its local policy scope through merged
 [PR #262](https://github.com/duanzhijian200443/shiroha_quiz/pull/262).
@@ -1002,6 +1002,16 @@ PASS and independent semantic review found zero confirmed P0/P1/P2. The review
 record remained INCONCLUSIVE pending that verification; no later APPROVAL marker
 is asserted. Historical acceptance follows AGENTS.md's merged-PR rule.
 Exact head/base/merge and run identities remain in Git/PR evidence.
+
+P12 is accepted through merged
+[PR #263](https://github.com/duanzhijian200443/shiroha_quiz/pull/263), only within
+its unpublished offline Application scope. Final-head CI succeeded 7/7 and the
+final Reviewer recorded REVIEW APPROVAL with zero P0/P1/P2. By explicit user
+instruction, that same review session performed the fixed-target offline
+verification closing the regression gap; it was not a separate independent
+Verifier session and no VERIFICATION APPROVAL marker is invented. The
+[final closure](https://github.com/duanzhijian200443/shiroha_quiz/pull/263#issuecomment-6122245804)
+owns the precise evidence and disclosed exception.
 
 P12 freezes only an unpublished offline Application composition. The existing
 P0 TrustCore is the sole Principal/Peer/Session and PairingState authority;
@@ -1066,3 +1076,22 @@ tool is added. SQLite v34, B0 v2, formal COMMIT/DESTRUCTIVE and Built-in/MCP v0
 are unchanged. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
 AR-R6A = NOT_ACCEPTED. Real Windows credential/TCP/mTLS and stability work
 requires separate authorization and independent safety-environment assessment.
+
+## 11. P13 Windows security readiness (static candidate)
+
+[Windows Host security readiness](windows-host-security-readiness.md) owns the
+production gap/dependency matrix, static TCP/mTLS versus Named Pipe screening,
+CredentialPort mapping proposal, isolated experiment authorization checklist and
+real PASS/FAIL/fallback criteria. It distinguishes existing offline proof,
+official API support, real Windows evidence still missing and unsupported
+promises. It supplies no credential implementation, listener or production wiring.
+
+An approved environment independent of the primary host's kernel, exact bounded
+scope/resources and new explicit user experiment authority are not established
+by this checkpoint; dynamic admission is BLOCKED. Ordinary primary-host VMs,
+synthetic tests and design approval cannot clear the security/stability gates.
+Sections 2/5/6 retain B-class isolation, same-SID proxy risk, protected credentials/
+Discovery and the permanent halt on primary-host AF_UNIX experiments. If a hard
+property cannot be proved, keep Host closed; no authentication fallback or silent
+change to P0/P4/Grant semantics. HOST_STABILITY_HALT = ACTIVE;
+TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED; AR-R6B remains inactive.

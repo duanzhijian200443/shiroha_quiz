@@ -210,14 +210,24 @@ CI/Verifier/zero-blocker review evidence and merged-stage acceptance.
 It reuses P1 exact READ/STAGE, Scope, separate Egress, revision CAS and B0 gates
 at schema v34/package v2. Management configures non-secret rules only; external
 clients remain unpaired/disabled. No Credential, Session or Host is published.
-P12 is an IMPLEMENTATION CANDIDATE under external boundary §10: an unpublished
+P12 is accepted through merged PR #263 under external boundary §10: an unpublished
 offline coordinator connects existing opaque Profile references to P0's unique
 Principal/PairingState and P4 generation-bound admission, then P8/P7 current
 Grant/Scope/Revision/Egress. Synthetic credentials are test-only. Disable/expiry,
 revoke, shutdown/owning settlement, SQLite restart and B0 invalidate old runtime
 authority while P3 Proposal/original-key reconciliation remains unchanged.
-Current-target CI and independent review/required gap verification remain gates
-for this new candidate; it supplies no production pairing/Session/Host capability.
+Final CI succeeded and Reviewer APPROVAL closed its offline scope. The final
+fixed-target verification was performed by the same review session under explicit
+user instruction, not a separate independent Verifier session; §10 links that
+disclosed historical exception. It supplies no production pairing/Session/Host.
+P13 is a static readiness candidate under external boundary §11 and
+[Windows security readiness](../product/agent-refactor/windows-host-security-readiness.md):
+production gap/dependency matrix, standard Dart/Windows candidate screening,
+isolated-environment authorization checklist and real security/fallback criteria.
+No real Credential/Transport experiment or Host implementation is activated.
+Dynamic admission is BLOCKED until an independent environment, bounded scope
+and new explicit user authorization are approved. Design completion is not
+production security or system-stability acceptance and does not start AR-R6B.
 No business authorization/writer,
 schema, B0 format or Host authority is expanded. MCP vNext and formal Host
 integration remain unimplemented;
