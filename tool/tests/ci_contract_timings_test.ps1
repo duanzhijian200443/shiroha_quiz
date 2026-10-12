@@ -72,7 +72,30 @@ foreach ($path in $arR2) { Assert-True ($paths -contains $path) "AR-R2 coverage 
 foreach ($path in @('test/application/agent/agent_turn_transcript_test.dart', 'test/application/agent/agent_r3_architecture_boundary_test.dart', 'test/application/agent/agent_runtime_test.dart')) {
     Assert-True ($paths -contains $path) "AR-R3 coverage missing: $path"
 }
+$externalApp = @(Get-ChildItem -LiteralPath (Join-Path $root 'test/application/external') -Filter '*_test.dart' | ForEach-Object {
+    [IO.Path]::GetRelativePath($root, $_.FullName).Replace('\', '/')
+})
+foreach ($path in $externalApp) { Assert-True ($paths -contains $path) "External application coverage missing: $path" }
+$externalIpc = @(Get-ChildItem -LiteralPath (Join-Path $root 'test/data/external') -Filter '*_test.dart' | ForEach-Object {
+    [IO.Path]::GetRelativePath($root, $_.FullName).Replace('\', '/')
+})
+foreach ($path in $externalIpc) { Assert-True ($paths -contains $path) "External IPC coverage missing: $path" }
+$externalOrigin = @(Get-ChildItem -LiteralPath (Join-Path $root 'test/application/generated_question') -Filter 'generated_external_origin*_test.dart' | ForEach-Object {
+    [IO.Path]::GetRelativePath($root, $_.FullName).Replace('\', '/')
+})
+foreach ($path in $externalOrigin) { Assert-True ($paths -contains $path) "External origin coverage missing: $path" }
+foreach ($path in @(
+    'test/ui/external_authorization_screen_test.dart',
+    'test/ui/generated_question/generated_external_origin_review_test.dart',
+    'test/services/retrieval/rag_lazy_artifact_provisioning_integration_test.dart',
+    'test/application/agent/agent_config_service_test.dart',
+    'test/application/agent/agent_history_test.dart',
+    'test/data/repositories/agent_config_repository_test.dart'
+)) {
+    Assert-True ($paths -contains $path) "External regression coverage missing: $path"
+}
 Assert-True (!$workflow.Contains("'test/support/study_activity_time_fakes.dart'")) 'support is not executable'
+Assert-True (!($workflow -match "'test/[^']*_(?:support|probe)\.dart'")) 'support/probe files are not executable entries'
 $partitions = @(0..3 | ForEach-Object { $shard=$_; for ($i=$shard; $i -lt $paths.Count; $i+=4) { $paths[$i] } })
 Assert-True ($partitions.Count -eq $paths.Count -and @($partitions | Select-Object -Unique).Count -eq $paths.Count) 'modulo assignment exactly once'
 Assert-True ($workflow.Contains('github.head_ref || github.ref_name')) 'branch identity shared across events'
@@ -82,4 +105,4 @@ $uploadStep = [regex]::Match($workflow, '(?s)- name: Upload test timings.*?(?=\r
 Assert-True ($uploadStep.Success -and $uploadStep.Value.Contains('continue-on-error: true')) 'timing upload never gates the required result'
 Assert-True ($workflow.Contains('if ($testExit -ne 0) { exit $testExit }')) 'original Flutter failure propagated'
 Assert-True (!$workflow.Contains('path: .dart_tool/ci-contract-timings/raw')) 'raw reporter never uploaded'
-Write-Output "PASS: timing/redaction/failure boundaries; $($paths.Count) standing tests including $($v3.Count) V3 suites"
+Write-Output "PASS: timing/redaction/failure boundaries; $($paths.Count) standing tests including $($v3.Count) V3 suites, $($externalApp.Count) external application, $($externalIpc.Count) external IPC and $($externalOrigin.Count) external origin suites"

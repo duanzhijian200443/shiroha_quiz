@@ -220,10 +220,16 @@ Final CI succeeded and Reviewer APPROVAL closed its offline scope. The final
 fixed-target verification was performed by the same review session under explicit
 user instruction, not a separate independent Verifier session; §10 links that
 disclosed historical exception. It supplies no production pairing/Session/Host.
-P13 is a static readiness candidate under external boundary §11 and
+P13's static readiness package is accepted through merged PR #264 under external
+boundary §11 and
 [Windows security readiness](../product/agent-refactor/windows-host-security-readiness.md):
 production gap/dependency matrix, standard Dart/Windows candidate screening,
 isolated-environment authorization checklist and real security/fallback criteria.
+P14 (auxiliary CI-engineering sub-stage; not part of the frozen P13 experiment
+package) makes the External offline regression matrix standing coverage in the
+PR contract shards: complete External Application and IPC data-plane suites plus
+the repeatedly re-verified widget/Origin/RAG/Agent-config regressions. That is
+Linux-offline evidence only and clears no WINDOWS_PENDING item.
 No real Credential/Transport experiment or Host implementation is activated.
 Dynamic admission is BLOCKED until an independent environment, bounded scope
 and new explicit user authorization are approved. Design completion is not

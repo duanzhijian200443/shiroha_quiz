@@ -411,7 +411,43 @@ jobs:
             'test/ui/theme/appearance_persistence_test.dart',
             'test/ui/home/today_visual_polish_test.dart',
             'test/ai_settings_v2_test.dart',
-            'test/ui/pages/ai_settings_agent_summary_test.dart'
+            'test/ui/pages/ai_settings_agent_summary_test.dart',
+            # AR-R6A P14 standing External offline matrix: External Application
+            # (P3-P12) and IPC data-plane suites plus the repeatedly re-verified
+            # widget/Origin/RAG/Agent-config regressions. Ordered by measured
+            # suite spans to rebalance the four shards; offline Linux evidence only.
+            'test/application/external/external_generated_stage_test.dart',
+            'test/application/external/external_file_read_test.dart',
+            'test/application/external/external_capability_integration_test.dart',
+            'test/application/external/external_question_read_test.dart',
+            'test/application/external/external_read_context_test.dart',
+            'test/application/external/local_host_dispatch_test.dart',
+            'test/application/external/external_trust_coordinator_test.dart',
+            'test/application/external/external_authorization_backup_test.dart',
+            'test/application/external/external_authorization_data_test.dart',
+            'test/application/external/external_file_read_backup_test.dart',
+            'test/application/external/external_capability_backup_test.dart',
+            'test/application/external/external_generated_stage_backup_test.dart',
+            'test/application/external/local_host_backup_test.dart',
+            'test/application/external/external_question_read_backup_test.dart',
+            'test/application/external/external_trust_backup_test.dart',
+            'test/application/external/external_read_context_backup_test.dart',
+            'test/application/external/local_authorization_backup_test.dart',
+            'test/application/external/local_authorization_service_test.dart',
+            'test/application/external/tcp_core_memory_test.dart',
+            'test/application/external/local_authorization_architecture_test.dart',
+            'test/data/external/ipc_command_projection_test.dart',
+            'test/data/external/ipc_envelope_codec_test.dart',
+            'test/data/external/ipc_command_schema_test.dart',
+            'test/ui/generated_question/generated_external_origin_review_test.dart',
+            'test/application/generated_question/generated_external_origin_test.dart',
+            'test/application/generated_question/generated_external_origin_backup_test.dart',
+            'test/ui/external_authorization_screen_test.dart',
+            'test/services/retrieval/rag_lazy_artifact_provisioning_integration_test.dart',
+            'test/application/generated_question/generated_external_origin_migration_test.dart',
+            'test/application/agent/agent_config_service_test.dart',
+            'test/application/agent/agent_history_test.dart',
+            'test/data/repositories/agent_config_repository_test.dart'
           )
 
           $shardCount = 4

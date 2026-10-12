@@ -14,7 +14,9 @@ P9 offline IPC Envelope foundation accepted in merged PR #260;
 P10 offline IPC command projection accepted in merged PR #261;
 P11 trusted local Profile/Grant management accepted in merged PR #262;
 P12 offline trust binding accepted in merged PR #263;
-P13 Windows security readiness STATIC CANDIDATE; real acceptance BLOCKED.**
+P13 Windows security readiness accepted as a static checkpoint in merged
+PR #264; real acceptance BLOCKED. P14 moves the External offline regression
+matrix into the standing PR contract shards.**
 
 The Provider seam, typed capability/executor/projection path and Runtime split/
 transcript are delivered in the preceding merged stages. Historical AR-R3
@@ -87,10 +89,15 @@ review session under explicit user instruction; no separate independent Verifier
 session or VERIFICATION APPROVAL is claimed. External boundary §10 links the
 historical closure. This acceptance establishes no real credentials or transport.
 P13's [Windows security readiness](windows-host-security-readiness.md), owned by
-external boundary §11, defines static feasibility/gaps and isolated Windows
-experiment/acceptance/fallback gates. It creates no implementation or runtime
-authority. Independent environment approval and new experiment authorization
-remain missing; dynamic acceptance is BLOCKED and AR-R6B stays inactive.
+external boundary §11, is accepted as a static readiness checkpoint through
+merged PR #264: static feasibility/gaps and isolated Windows experiment/
+acceptance/fallback gates, with no implementation or runtime authority.
+P14 (auxiliary CI-engineering sub-stage) makes the External offline Application/
+IPC/origin regression matrix and the repeatedly re-verified widget/RAG/Agent
+config suites standing PR contract coverage; that is Linux-offline evidence only
+and clears no WINDOWS_PENDING item. Independent environment approval and new
+experiment authorization remain missing; dynamic acceptance is BLOCKED and
+AR-R6B stays inactive.
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 Production Host/IPC, MCP vNext and READ fallback continuation remain unimplemented
 targets. Current product behavior
