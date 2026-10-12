@@ -193,15 +193,23 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
    The settings page configures non-secret policy only, with clients unpaired
    and disabled. Production composition supplies only local management, never
    a Principal, Session, external Capability, credential or Host.
-   P12's unpublished offline candidate under external boundary §10 uses existing
+   P12's accepted unpublished offline scope (merged PR #263), under external
+   boundary §10, uses existing
    opaque management references to register one P0 Principal per durable Profile,
    without string-based identity minting. Its local coordinator delegates pairing,
    proof, finite enablement and Sessions to the original TrustCore and binds P4
    admission by generation. P8/P7 retain current policy and owning release checks;
    shutdown drains before generation invalidation. Synthetic credentials remain
    test-only, and production has no external pairing/Session/Host composition.
-   P12 acceptance requires current-target CI and independent semantic review,
-   with fixed-target verification for required standing-CI coverage gaps.
+   Final CI and Reviewer APPROVAL closed P12's offline scope; its fixed-target
+   offline checks were performed by that same review session under explicit user
+   instruction, not a separate independent Verifier session. Section 10 records
+   the disclosed exception. P13's static readiness candidate under external
+   boundary §11 and windows-host-security-readiness.md defines credential/Windows
+   IPC gaps, isolated experiment authority and real acceptance/fallback gates.
+   It activates no runtime and does not prove production security or stability;
+   dynamic admission remains BLOCKED without a separately approved environment
+   and explicit experiment authorization. AR-R6B remains inactive.
    HOST_STABILITY_HALT stays ACTIVE; Transport BLOCKED and AR-R6A NOT_ACCEPTED.
    The generated schema is globally
    migrated and strictly validated independently of runtime module enablement.
