@@ -706,9 +706,36 @@ void main() {
         consumers.add(file.path.replaceAll('\\', '/'));
       }
     }
-    // P10 receives an existing offline core; it cannot start a production Host.
-    expect(consumers, ['lib/data/external/ipc_command_projection.dart']);
-    final adapter = File(consumers.single).readAsStringSync();
+    // Exact offline consumers only. P12 owns an offline core; P10 receives it.
+    consumers.sort();
+    expect(consumers, [
+      'lib/application/external/external_trust_coordinator.dart',
+      'lib/data/external/ipc_command_projection.dart',
+    ]);
+    final coordinator = File(consumers.first).readAsStringSync();
+    expect(
+        RegExp(r'ExternalTrustCoordinator(?:\.\w+)?\(')
+            .allMatches(coordinator)
+            .map((match) => match.group(0))
+            .toList(),
+        ['ExternalTrustCoordinator.offline(']);
+    for (final forbidden in [
+      'dart:io',
+      '/data/',
+      '/services/',
+      'flutter',
+      'mcp_dart',
+      'provider',
+      'ServerSocket',
+      'HttpServer',
+      'Socket.connect',
+      'NamedPipe',
+      'jsonDecode',
+      'fromJson'
+    ]) {
+      expect(coordinator, isNot(contains(forbidden)), reason: forbidden);
+    }
+    final adapter = File(consumers.last).readAsStringSync();
     expect(adapter.contains('LocalHostDispatchCore('), isFalse);
     expect(adapter.contains('.startOffline('), isFalse);
   });

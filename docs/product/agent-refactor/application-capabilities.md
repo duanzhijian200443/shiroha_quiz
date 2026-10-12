@@ -381,9 +381,17 @@ Receipt/authorization objects remain local. Projection or encoding failure
 retains the original result/effect evidence and never repeats STAGE. P3-P9
 source/contracts and Built-in/MCP v0 semantics are unchanged.
 
-P11's first-party policy management candidate is owned by external boundary §9.
+P11's accepted first-party policy management (merged PR #262) is owned by external
+boundary §9.
 Its local Application views and bounded metadata queries are not registered
 Capabilities and are never injected into Agent/MCP/Host projections. They mint
 no Principal, Session, execution Context, Receipt or runtime Enablement. Saving
 READ/STAGE/Scope/Egress configures non-secret rules only; pairing and actual
 external access remain disabled pending separate production acceptance.
+
+P12's offline trust coordinator candidate is owned by external boundary §10.
+It supplies existing P0 Sessions through opaque Profile registration, original
+pairing/proof and explicit finite enablement; P4 bindings are generation-bound.
+P8/P7 per-call and final current Grant/Scope/Revision/Egress checks remain
+mandatory. No new capability definition, Kernel amendment, business writer or
+production credential/Host/MCP composition is introduced.
