@@ -645,15 +645,33 @@ void main() {
     ]) {
       expect(source, isNot(contains(forbidden)), reason: forbidden);
     }
+    final consumers = <String>[];
     for (final file in Directory('lib')
         .listSync(recursive: true)
         .whereType<File>()
         .where((f) =>
             f.path.endsWith('.dart') &&
             !f.path.endsWith('ipc_envelope_codec.dart'))) {
-      expect(
-          file.readAsStringSync(), isNot(contains('ipc_envelope_codec.dart')),
-          reason: file.path);
+      if (file.readAsStringSync().contains('ipc_envelope_codec.dart')) {
+        consumers.add(file.path.replaceAll('\\', '/'));
+      }
+    }
+    // P10 is the only authorized offline consumer; production remains unwired.
+    expect(consumers, ['lib/data/external/ipc_command_projection.dart']);
+    for (final consumer in consumers) {
+      final body = File(consumer).readAsStringSync();
+      for (final forbidden in [
+        'dart:io',
+        'dart:ffi',
+        'ServerSocket',
+        'HttpServer',
+        'Socket.connect',
+        'DatabaseHelper',
+        'mcp_dart'
+      ]) {
+        expect(body.contains(forbidden), isFalse,
+            reason: '$consumer: $forbidden');
+      }
     }
   });
 }

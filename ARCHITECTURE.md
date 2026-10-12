@@ -177,9 +177,14 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
    boundary §3: trusted readiness and private Session entry, exact ten typed P7
    routes, original result/effect evidence and real close/drain before replacement.
    No default composition, listener, credential/transport adapter or MCP publication
-   is wired. P9 adds an unpublished pure infrastructure IPC Envelope/Codec
-   candidate under external boundary §7: bounded incremental framing produces
+   is wired. P9's accepted unpublished infrastructure IPC Envelope/Codec
+   (merged PR #260) is under external boundary §7: bounded incremental framing produces
    untrusted UTF-8 text only, with no identity or business projection/dispatch.
+   P10 adds an unpublished offline infrastructure command projection candidate
+   under §8: current authenticated P8 Session binding before strict schema parsing,
+   ten explicit typed routes and deep safe-result whitelists. Contexts remain
+   trusted P8 composition inputs; encoding loss preserves original local evidence.
+   No P3-P9 authority, production composition or transport is changed.
    HOST_STABILITY_HALT stays ACTIVE; Transport BLOCKED and AR-R6A NOT_ACCEPTED.
    The generated schema is globally
    migrated and strictly validated independently of runtime module enablement.

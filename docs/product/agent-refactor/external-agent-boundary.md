@@ -692,7 +692,7 @@ of host-kernel stability risk. If any required security or stability acceptance
 is missing, the formal Host remains **unpublished**. This contract amendment
 authorizes no dynamic experiment or Host activation and does not unlock AR-R6B.
 
-## 7. P9 offline IPC Envelope foundation (unpublished candidate)
+## 7. P9 offline IPC Envelope foundation (accepted unpublished scope)
 
 This freezes an internal offline framing candidate, not a published client
 protocol or MCP Tools Schema. Infrastructure owns bytes; Application stays
@@ -811,3 +811,132 @@ headers and bytes, reserved/unknown features, safe errors, bounded seeded fuzz,
 forged authority text and absence of production wiring. P7/P8 and Built-in/MCP v0
 regressions remain required; green local tests are not independent approval.
 HOST_STABILITY_HALT stays ACTIVE, Transport BLOCKED, AR-R6A NOT_ACCEPTED.
+
+## 8. P10 offline typed IPC command projection (unpublished candidate)
+
+P9 is accepted within its offline scope through merged PR #260. P10 freezes
+only the following internal business schema and offline composition. It adds
+no production Host, transport, authentication implementation, MCP registration
+or public Tool Schema. Business schema v1, P9 envelope v1, MCP protocol version
+and GeneratedQuestion Submission v1 are independent; mismatches reject without
+negotiation or coercion.
+
+### Authentication and trusted composition
+
+The infrastructure adapter receives a P9 envelope, a trusted authentication port
+and an existing P8-minted execution Context supplied by compiled composition.
+The port receives no payload/claimed identity and returns only a credential-proven
+Session (or denies). Before business parsing the adapter calls P8 `bindSession`
+to obtain a currently admitted LocalHostSessionEntry. P8/P7 still verify the
+exact Session, Grant revision, Context, lifecycle and final egress. No JSON can
+mint/rebind a Principal, Session, entry, execution Context, Grant, permission,
+recipient, target bank, file path or execution Scope. Offline fixtures provide
+READ/STAGE/reconciliation Contexts through existing P8 openings; P10 does not
+add a wire Context registry or a STAGE target-approval route. Original key
+selection for reconciliation is trusted P8 composition, not Envelope Request ID.
+
+### Exact request schema v1
+
+Root keys are exactly `schemaVersion` (integer 1), `type` (string `command`),
+`capability` (one of the ten names below), `input` (exact object below).
+Every listed field is required, including nullable fields. Missing and null
+are distinct; neither triggers defaults. Unknown keys at any parsed level,
+duplicate JSON keys (including escaped aliases), wrong types/nesting, floating
+point/exponent numbers in integer fields, malformed JSON, invalid Unicode
+scalars and unsupported versions reject. No dynamic CapabilityId is constructed.
+
+| Fixed capability | Exact input keys and shape |
+|---|---|
+| `external_list_targets` | `pageSize`: integer 1..50; `cursor`: null or opaque ref |
+| `external_create_read_context` | `targetRef`: opaque ref |
+| `external_search_questions` | `query`: nonblank string, <=200 UTF-16 units before trimming; `pageSize`: integer 1..50; `cursor`: null or opaque ref |
+| `external_get_question_detail` | `questionRef`: opaque ref |
+| `external_list_file_selections` | Empty object |
+| `external_create_file_context` | `fileRefs`: 1..64 distinct opaque refs |
+| `external_retrieve_file_content` | `query`: nonblank string, <=200 Unicode scalars before trimming; `limit`: integer 1..20 |
+| `external_get_file_passage` | `passageRef`: opaque ref; `cursor`: null or opaque ref |
+| `external_stage_generated_questions` | `submissionJson`: nonempty original JSON string <=1 MiB UTF-8; `externalRequestId`: null or `[A-Za-z0-9][A-Za-z0-9._-]{0,127}` |
+| `external_reconcile_generated_stage` | Empty object |
+
+Opaque refs are exactly 43 ASCII base64url characters, preserving the existing
+P4-P6 mint/lookup semantics. Syntax supplies no authorization. P10 reuses the
+bounded duplicate-aware JSON lexical decoder (maximum nesting 16) for the
+wrapper, with P9's unchanged request ceiling. Embedded Submission is unchanged
+text; P3 alone parses its schema, keys, content, provenance and idempotency.
+P9 Request ID is copied only to the response frame and is never automatically
+used as externalRequestId, SubmissionKey or a credential. Fixed rejection of
+every other capability includes Built-in/MCP v0, COMMIT, DESTRUCTIVE and SQL.
+
+### Exact response schema v1 and whitelist
+
+Root keys are exactly `schemaVersion` (integer 1), `type` (`result`),
+`capability` (fixed accepted name or null before valid projection), `data`
+(operation-specific object or null), `error` (fixed code or null). Success has
+non-null data and null error; failure has null data and one fixed code.
+Adapter codes are `unauthenticated`, `unavailable`, `invalidRequest`,
+`unsupportedVersion`, `unsupportedCapability`, `invalidResult`,
+`responseEncodingFailed`; owning failures use only the fixed
+`capability.<CapabilityFailure enum name>` vocabulary. No arbitrary input,
+exception, body, credential, authorization metadata or path enters an error.
+
+| Capability result | Exact allowed data |
+|---|---|
+| Target list | `items`, nullable `nextCursor`; each item exactly `targetRef`, `bankName`, nullable `projectId`, nullable `folderName` |
+| READ/File Context creation | `contextRef` only |
+| Question search | `items`, nullable `nextCursor`; each hit exactly `questionRef`, `kind`, `stemPreview`, `hasAnswer`, `hasExplanation`, `sourceKind` |
+| Question detail | `kind`, `stem`, `options`, nullable `answer`, nullable `explanation`, `sourceKind`; options exactly `label`, `content`; nodes exactly text/text, inline_math/latex, block_math/latex or unsupported/type |
+| File choices | `items`, nullable `nextCursor`, `hasMore`, `unsupportedExcluded`, `startsAtDocumentBeginning`; item exactly `fileRef`, `selectionOrdinal` |
+| Retrieval/passage | Same five page keys; each passage exactly `content`, `contentKind`, `locator`, `chunkOrdinal`, `partOrdinal`, `windowOrdinal`, nullable `pageNumber`; retrieval hits additionally require `passageRef` |
+| STAGE/reconciliation | `proposalId`, original `submissionKey`, `publication` (`STAGED`), `formalCommit` (`NOT_REPORTED`) |
+
+Question kind is exactly `single_choice`, `fill_blank`, `short_answer`, `unknown`;
+sourceKind is `typed` or `legacy`; contentKind is `paragraph`, `heading`,
+`formula`, `answerLike`, `table`, `imageAlt`. Flags/hasAnswer/hasExplanation are
+strict booleans. Ordinals are integers 0..2147483647 (selectionOrdinal 0..63);
+pageNumber is null or integer 1..2147483647. Item arrays are bounded to 50 targets/
+question hits, 64 file selections, 20 retrieval hits or eight passage chunks.
+Detail has at most 26 options and 512 nodes total; content strings fit 32 KiB,
+individual passage content fits 6,000 UTF-8 bytes, locator 256 UTF-16 units,
+bank/folder names 512 UTF-16 units and projectId 256. Proposal IDs are UUIDv4;
+SubmissionKey preserves the existing 1..64 local-key grammar. Nullable fields
+must be present. Selection/retrieval pages have null cursor, false hasMore and
+false startsAtDocumentBeginning; selections also have false unsupportedExcluded,
+while retrieval retains its verified unsupportedExcluded flag. Passage hasMore
+iff its nextCursor is non-null. Structural node types
+remain the existing safe P5 vocabulary. READ results come only from the P8/P7 final egress
+gate; nested whitelist validation never supplies authority. File references
+remain opaque. Coverage flags describe only the allowed safe page; ranked hits,
+middle-document passage or exhaustion never assert complete-document coverage.
+Reconciliation confirms durable historical STAGE publication, never pending
+Review, formal COMMITTED status or a COMMIT Receipt (P7's summary has none).
+
+The adapter validates projected data against its operation whitelist, preserves
+typed null versus explicit empty content, and checks the unchanged owning output
+ceilings (32 KiB metadata/questions, 24,000 bytes file pages) and P9's 229,376-byte
+response budget before frame encoding. No truncation or ceiling enlargement.
+A trusted frame-encoder port permits deterministic encoding failure injection;
+default encoding is P9 and budget validation always precedes that port.
+
+### Effects, interruption and settlement
+
+The returned local call result retains the original P8 CapabilityResult/Receipt
+object separately from any wire bytes. It is never serialized or logged.
+Projection/encoding failure changes only response availability, never the
+original execution status, confirmed effect or durable reconciliation evidence.
+Unknown STAGE is not retried. Persisted Proposal/original key remains P3's sole
+durable reconciliation authority, including across real database reopen.
+Cancellation/deadline/response loss delegates to P8/P7 control and release;
+READ emits no withheld data. No second transaction, Receipt table or completed
+call log is added. Adapter shutdown rejects new work, starts P8 shutdown and
+waits both its pending authentication/admission calls and P8 owning settlement.
+Restore/restart require that drain and fresh composition/authentication.
+
+Offline deterministic acceptance covers all ten routes, every other name,
+authentication-before-parsing, stale/cross-Profile/cross-generation/exact-Session
+denial, strict malformed/duplicate/unknown/type/version/numeric boundaries,
+P9 roundtrips, unchanged Question/File scopes, final egress revocation, lost
+durable STAGE and original-key reconciliation, encoder failure with preserved
+Proposal/derived-cache effects, cancellation/deadline/drain and replacement.
+P3-P9, architecture and Built-in/MCP v0 regressions remain required. Real Host
+security/stability stays UNVERIFIED: HOST_STABILITY_HALT ACTIVE, Transport
+BLOCKED, AR-R6A NOT_ACCEPTED; P11 and MCP vNext remain inactive.

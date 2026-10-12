@@ -371,3 +371,12 @@ P9's infrastructure Envelope/Codec is owned by external boundary §7. Its output
 is untrusted text with no capability, identity, Context or Receipt projection.
 It adds no Application dependency, execution authority or wire serialization of
 the local transient Receipt/authorization objects.
+
+P10's offline infrastructure projection candidate is owned by external boundary
+§8. It authenticates and obtains a current P8 binding before decoding its fixed
+business schema, then maps only these ten typed inputs. Execution Contexts remain
+trusted P8 composition parameters, never JSON authority. P7 final release still
+owns all READ/STAGE egress. Only the declared operation whitelist is encoded;
+Receipt/authorization objects remain local. Projection or encoding failure
+retains the original result/effect evidence and never repeats STAGE. P3-P9
+source/contracts and Built-in/MCP v0 semantics are unchanged.
