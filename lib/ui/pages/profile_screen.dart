@@ -11,6 +11,8 @@ import 'ai_settings_screen.dart';
 import 'wrong_book_page.dart';
 import '../theme/design_tokens.dart';
 import '../theme/shiroha_theme_tokens.dart';
+import '../dependencies/local_authorization_scope.dart';
+import 'external_authorization_screen.dart';
 
 typedef ProfileHeatmapLoader = Future<Map<DateTime, int>> Function();
 
@@ -420,6 +422,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   builder: (context, currentTheme, _) {
                     return _SettingsCard(
                       children: [
+                        if (LocalAuthorizationScope.maybeOf(context) != null)
+                          _SettingsRow(
+                            key: const ValueKey<String>(
+                                'profile-external-authorization-row'),
+                            icon: Icons.admin_panel_settings_outlined,
+                            title: '外部 Agent 授权',
+                            subtitle: '配置访问规则 · 未配对 / 未启用',
+                            onTap: () => _push(ExternalAuthorizationScreen(
+                                service:
+                                    LocalAuthorizationScope.maybeOf(context)!)),
+                          ),
                         if (widget.backupRestore != null)
                           _SettingsRow(
                             key: const ValueKey<String>('profile-backup-row'),

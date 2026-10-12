@@ -101,6 +101,9 @@ import 'data/repositories/question_repository.dart';
 import 'data/persistence/question_v2_persistence_mapper.dart';
 import 'data/repositories/review_repository.dart';
 import 'data/repositories/settings_repository.dart';
+import 'application/external/local_authorization_service.dart';
+import 'data/repositories/external_authorization_repository.dart';
+import 'ui/dependencies/local_authorization_scope.dart';
 import 'data/repositories/ai_answer_commit_repository.dart';
 import 'data/repositories/study_plan_persistence_repository.dart';
 import 'data/repositories/study_plan_read_repository.dart';
@@ -278,11 +281,13 @@ void main() {
 
       var isFirstComposition = true;
       GeneratedLocalAuthorityFactory? generatedLocalAuthority;
+      LocalAuthorizationService? localAuthorization;
 
       Future<void> composeAndRun() async {
         // B0 holds maintenance through recomposition. Old read sessions and
         // target confirmations must stay invalid after that window closes.
         generatedLocalAuthority?.invalidate();
+        localAuthorization?.invalidate();
         if (!isFirstComposition) {
           // B0-I0 in-memory invalidation: clear process-lifetime transient
           // state before constructing a fresh composition over the restored DB.
@@ -293,7 +298,7 @@ void main() {
         }
         isFirstComposition = false;
 
-        await databaseHelper.database;
+        final authorizationDatabase = await databaseHelper.database;
         final activityService = await createStudyActivityRuntime(
             persistence: StudyActivityRepository(
                 database: () => databaseHelper.database));
@@ -346,6 +351,16 @@ void main() {
           catalog: questionRepository,
           selectionStore: SettingsRepository.instance,
         );
+        final authorizationRepository = SqliteExternalAuthorizationRepository(
+            databaseHelper: databaseHelper);
+        final authorizationService = LocalAuthorizationService(
+            repository: authorizationRepository,
+            profiles: authorizationRepository,
+            files: folderService,
+            projects: projectService,
+            mintProfileId: uuid.v4,
+            compositionIsCurrent: () => authorizationDatabase.isOpen);
+        localAuthorization = authorizationService;
         final examMutationCommand = ExamMutationCommand(
           ExamRepository(databaseHelper: databaseHelper),
         );
@@ -783,6 +798,7 @@ void main() {
         AppLogger.info('Application started', module: 'Application');
         runApp(
           ShirohaQuizApp(
+            localAuthorization: authorizationService,
             generatedLocalAuthority: localAuthority,
             generatedQuestionService: generatedQuestionService,
             generatedUiContributions: moduleComposition.uiContributions,
@@ -923,9 +939,11 @@ class ShirohaQuizApp extends StatelessWidget {
     this.supplementalAnswerConfirmCommand,
     this.supplementalSourceInspectionService,
     this.onRestoreCompleted,
+    this.localAuthorization,
   });
 
   final AiEngineRepository engineRepository;
+  final LocalAuthorizationService? localAuthorization;
   final GeneratedLocalAuthorityFactory? generatedLocalAuthority;
   final GeneratedQuestionService? generatedQuestionService;
   final List<ModuleUiContribution> generatedUiContributions;
@@ -1032,16 +1050,22 @@ class ShirohaQuizApp extends StatelessWidget {
             onRestoreCompleted: onRestoreCompleted,
           ),
         );
+        final localAuthorizationContent = localAuthorization == null
+            ? materialApp
+            : LocalAuthorizationScope(
+                key: ObjectKey(localAuthorization),
+                service: localAuthorization!,
+                child: materialApp);
         final generatedContent =
             generatedLocalAuthority == null || generatedQuestionService == null
-                ? materialApp
+                ? localAuthorizationContent
                 : GeneratedQuestionDependenciesScope(
                     key: ObjectKey(generatedLocalAuthority),
                     authority: generatedLocalAuthority!,
                     service: generatedQuestionService!,
                     contributions: generatedUiContributions,
                     onCommitted: () => globalBankUpdateNotifier.value++,
-                    child: materialApp);
+                    child: localAuthorizationContent);
         final activityContent = studyActivity == null
             ? generatedContent
             : StudyActivityDependenciesScope(

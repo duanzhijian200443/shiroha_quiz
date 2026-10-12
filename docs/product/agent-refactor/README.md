@@ -11,7 +11,8 @@ P6 explicit File Snapshot / lexical retrieval / passages accepted in merged PR #
 P7 trusted external Capability/Receipt integration accepted in merged PR #256;
 P8 offline Host dispatch accepted in merged PR #258;
 P9 offline IPC Envelope foundation accepted in merged PR #260;
-P10 offline IPC command projection IMPLEMENTATION CANDIDATE.**
+P10 offline IPC command projection accepted in merged PR #261;
+P11 trusted local Profile/Grant management IMPLEMENTATION CANDIDATE.**
 
 The Provider seam, typed capability/executor/projection path and Runtime split/
 transcript are delivered in the preceding merged stages. Historical AR-R3
@@ -58,12 +59,19 @@ P7 is accepted within its unpublished scope through merged PR #256. P8 adds an
 offline-only trusted Host dispatch/startup/drain seam under external boundary §3,
 accepted in merged PR #258. P9's accepted unpublished infrastructure framing/codec (PR #260)
 under external boundary §7 only validates bounded envelopes, never identity or
-business authority. P10 adds the offline command-schema/projection candidate
+business authority. P10 adds the accepted offline command-schema/projection
 under §8, using current authenticated P8 binding before parsing, trusted P8
 Context inputs and ten typed P7 routes, with safe output and original local
 effect evidence retained on encoding loss. It adds no production wiring.
-Current-target CI, independent review and required gap-closing verification
-remain required for P10.
+P10 is accepted within its offline scope through merged PR #261. P11 adds a
+first-party settings page and Application management views under external
+boundary §9, reusing P1 policy/CAS/B0 authority. Profile and Bank management
+queries are internal read-only queries, including empty existing banks; File
+and Project choices reuse the existing trusted Application services. It configures
+non-secret access rules only: clients remain unpaired and disabled. There is no
+credential, Principal, Session, Enablement switch or production Host wiring.
+P11 remains an implementation candidate pending current-target CI, independent
+review and any required gap-closing verification.
 Production Host/IPC, MCP vNext and READ fallback continuation remain unimplemented
 targets. Current product behavior
 continues under the existing capability contracts.

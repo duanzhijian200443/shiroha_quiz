@@ -140,6 +140,19 @@ final class ExternalAuthorizationRecord {
   final ExternalGrant? grant;
 }
 
+/// First-party keyset query only; never registered as an external capability.
+abstract interface class ExternalProfileQuery {
+  Future<ExternalProfilePage> listProfiles({int limit = 50, String? afterId});
+  Future<List<String>> listBankTargets();
+}
+
+final class ExternalProfilePage {
+  ExternalProfilePage(Iterable<ExternalClientProfile> items, this.nextId)
+      : items = List.unmodifiable(items);
+  final List<ExternalClientProfile> items;
+  final String? nextId;
+}
+
 /// Owning Data port. validateManagement must be checked inside write transactions.
 abstract interface class ExternalAuthorizationRepository {
   Future<ExternalAuthorizationRecord> create(

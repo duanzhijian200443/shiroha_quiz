@@ -198,13 +198,17 @@ within its unpublished offline scope through merged PR #258: trusted readiness/
 Session entries, ten typed P7 routes and close/drain before runtime replacement.
 P9 is accepted through merged PR #260 within its unpublished offline scope under external
 boundary §7, with strict versioned bounded framing, opaque untrusted UTF-8 text,
-no identity factories or dispatch, and no production wiring. P10's added offline
-IPC command projection is an IMPLEMENTATION CANDIDATE under external boundary
+no identity factories or dispatch, and no production wiring. P10's offline
+IPC command projection is accepted through merged PR #261 under external boundary
 §8: independent business schema v1, authenticated P8 binding before parsing,
 ten typed P7 input mappings, operation-specific safe output and unchanged
 owning effect/reconciliation/drain authority. Contexts are supplied by trusted
-offline P8 composition, with no wire authority factory. Current-target CI,
-independent review and any required gap-closing verification remain pending for P10.
+offline P8 composition, with no wire authority factory. P11's trusted local
+Profile/Grant settings flow is an IMPLEMENTATION CANDIDATE under external
+boundary §9, pending current-target CI and independent review/required verification.
+It reuses P1 exact READ/STAGE, Scope, separate Egress, revision CAS and B0 gates
+at schema v34/package v2. Management configures non-secret rules only; external
+clients remain unpaired/disabled. No Credential, Session or Host is published.
 No business authorization/writer,
 schema, B0 format or Host authority is expanded. MCP vNext and formal Host
 integration remain unimplemented;
