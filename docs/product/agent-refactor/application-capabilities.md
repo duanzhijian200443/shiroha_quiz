@@ -372,7 +372,7 @@ is untrusted text with no capability, identity, Context or Receipt projection.
 It adds no Application dependency, execution authority or wire serialization of
 the local transient Receipt/authorization objects.
 
-P10's offline infrastructure projection candidate is owned by external boundary
+P10's accepted offline infrastructure projection (merged PR #261) is owned by external boundary
 §8. It authenticates and obtains a current P8 binding before decoding its fixed
 business schema, then maps only these ten typed inputs. Execution Contexts remain
 trusted P8 composition parameters, never JSON authority. P7 final release still
@@ -380,3 +380,10 @@ owns all READ/STAGE egress. Only the declared operation whitelist is encoded;
 Receipt/authorization objects remain local. Projection or encoding failure
 retains the original result/effect evidence and never repeats STAGE. P3-P9
 source/contracts and Built-in/MCP v0 semantics are unchanged.
+
+P11's first-party policy management candidate is owned by external boundary §9.
+Its local Application views and bounded metadata queries are not registered
+Capabilities and are never injected into Agent/MCP/Host projections. They mint
+no Principal, Session, execution Context, Receipt or runtime Enablement. Saving
+READ/STAGE/Scope/Egress configures non-secret rules only; pairing and actual
+external access remain disabled pending separate production acceptance.

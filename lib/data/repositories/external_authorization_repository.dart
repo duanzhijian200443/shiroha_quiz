@@ -7,10 +7,44 @@ import '../../core/database/sqflite_runtime.dart';
 
 /// All writes use the existing database and B0 mutation gate. No Host wiring.
 final class SqliteExternalAuthorizationRepository
-    implements ExternalAuthorizationRepository {
+    implements ExternalAuthorizationRepository, ExternalProfileQuery {
   SqliteExternalAuthorizationRepository({DatabaseHelper? databaseHelper})
       : _helper = databaseHelper ?? DatabaseHelper.instance;
   final DatabaseHelper _helper;
+  @override
+  Future<List<String>> listBankTargets() => _transaction((db) async {
+        // Same P1 Bank existence authority, including empty named banks.
+        final rows = await db.rawQuery(
+            'SELECT bank_name FROM bank_folders UNION SELECT bank_name FROM questions ORDER BY bank_name');
+        final names = rows.map((r) => r['bank_name'] as String).toList();
+        if (names.any((name) => !ExternalAuthLimits.text(name, 256))) {
+          externalAuthFail(ExternalAuthFailure.corruptState);
+        }
+        return List.unmodifiable(names);
+      });
+  @override
+  Future<ExternalProfilePage> listProfiles({int limit = 50, String? afterId}) =>
+      _transaction((db) async {
+        if (limit < 1 ||
+            limit > 50 ||
+            (afterId != null && !ExternalAuthLimits.validId(afterId))) {
+          externalAuthFail(ExternalAuthFailure.invalidInput);
+        }
+        final rows = await db.query('external_client_profiles',
+            columns: ['profile_id'],
+            where: afterId == null ? null : 'profile_id>?',
+            whereArgs: afterId == null ? null : [afterId],
+            orderBy: 'profile_id',
+            limit: limit + 1);
+        final profiles = <ExternalClientProfile>[];
+        for (final row in rows.take(limit)) {
+          profiles.add(
+              (await readExternalAuthorization(db, row['profile_id'] as String))
+                  .profile);
+        }
+        return ExternalProfilePage(profiles,
+            rows.length > limit ? profiles.last.clientProfileId : null);
+      });
   Future<T> _transaction<T>(Future<T> Function(Transaction) body,
       {bool write = false}) async {
     Future<T> run() async {

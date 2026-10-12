@@ -180,11 +180,20 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
    is wired. P9's accepted unpublished infrastructure IPC Envelope/Codec
    (merged PR #260) is under external boundary §7: bounded incremental framing produces
    untrusted UTF-8 text only, with no identity or business projection/dispatch.
-   P10 adds an unpublished offline infrastructure command projection candidate
+   P10's accepted unpublished offline infrastructure command projection (merged PR #261) is
    under §8: current authenticated P8 Session binding before strict schema parsing,
    ten explicit typed routes and deep safe-result whitelists. Contexts remain
    trusted P8 composition inputs; encoding loss preserves original local evidence.
    No P3-P9 authority, production composition or transport is changed.
+   P11 adds a first-party local Profile/Grant management implementation candidate
+   under external boundary §9: page-owned management references, precise
+   READ/STAGE and independent Scope/Egress editing, P1 revision CAS/transactions
+   and B0 lifecycle protection. Its internal read-only Profile/Bank queries reuse
+   existing v34 authority; File/Project choices use trusted Application queries.
+   The settings page configures non-secret policy only, with clients unpaired
+   and disabled. Production composition supplies only local management, never
+   a Principal, Session, external Capability, credential or Host. Candidate
+   acceptance still requires current-target CI and independent semantic review.
    HOST_STABILITY_HALT stays ACTIVE; Transport BLOCKED and AR-R6A NOT_ACCEPTED.
    The generated schema is globally
    migrated and strictly validated independently of runtime module enablement.

@@ -812,9 +812,10 @@ forged authority text and absence of production wiring. P7/P8 and Built-in/MCP v
 regressions remain required; green local tests are not independent approval.
 HOST_STABILITY_HALT stays ACTIVE, Transport BLOCKED, AR-R6A NOT_ACCEPTED.
 
-## 8. P10 offline typed IPC command projection (unpublished candidate)
+## 8. P10 offline typed IPC command projection (accepted unpublished scope)
 
-P9 is accepted within its offline scope through merged PR #260. P10 freezes
+P9 is accepted within its offline scope through merged PR #260. P10 is accepted
+within its offline scope through merged PR #261. P10 freezes
 only the following internal business schema and offline composition. It adds
 no production Host, transport, authentication implementation, MCP registration
 or public Tool Schema. Business schema v1, P9 envelope v1, MCP protocol version
@@ -939,4 +940,55 @@ durable STAGE and original-key reconciliation, encoder failure with preserved
 Proposal/derived-cache effects, cancellation/deadline/drain and replacement.
 P3-P9, architecture and Built-in/MCP v0 regressions remain required. Real Host
 security/stability stays UNVERIFIED: HOST_STABILITY_HALT ACTIVE, Transport
-BLOCKED, AR-R6A NOT_ACCEPTED; P11 and MCP vNext remain inactive.
+BLOCKED, AR-R6A NOT_ACCEPTED; production Host and MCP vNext remain inactive.
+
+## 9. P11 trusted local authorization management (implementation candidate)
+
+This freezes a first-party settings flow for non-secret Profile/Grant policy
+configuration only, pending current-target CI and independent review. P10 is
+accepted through merged PR #261; this stage does not reopen P0-P10 semantics.
+The page always states: “当前仅配置访问规则。外部客户端尚未配对，真实连接功能未启用。”
+Saving policy proves neither pairing, credential identity, authentication nor
+runtime enablement. No Principal, Session, Host or external management route is
+created. HOST_STABILITY_HALT stays ACTIVE, TRANSPORT BLOCKED, AR-R6A NOT_ACCEPTED.
+
+Trusted composition mints UUIDv4 Profile IDs. Each page owns an independently
+closable management view and existing opaque Profile references. Creation starts
+at revision zero without a Grant. A bounded read-only keyset query lists at most
+50 Profiles per page, including revoked metadata; it validates P1 records and
+adds no Capability or RPC. Local display names and fixed adapter/protocol
+metadata (`local-policy` / `unconfigured`) are not identity evidence.
+
+Permissions are exactly READ and STAGE, independently selected; Egress is a
+separate explicit set of questionContent/fileContent/proposalMetadata. At least
+one permission is required by P1; empty Egress denies content release. Scopes are
+at most 128 distinct exact Bank/File and nullable Project tuples. Empty Scope
+authorizes no targets. The local context is explicit, never a wildcard. Choices
+come from trusted Application Bank/File/Project queries, carry no
+absolute path, and cannot be minted by UI text input. Project relations are
+preserved exactly. Deleted/detached choices cannot be silently remapped; stale
+saved scopes are displayed as unavailable and require explicit removal. P1's
+existing transaction rechecks target existence/membership before publication.
+Bank names retain P1's compatibility identity, without an incarnation guarantee.
+The existing import selector omits empty banks. The internal management query
+therefore reuses P1's bank_folders/ questions union for existing Bank names,
+while File/Project metadata uses existing Application services. This read-only
+query changes neither import selection nor external READ/MCP semantics.
+
+Replace/revoke operations reuse the P1 repository, revision CAS, transaction and
+B0 Mutation Gate, with no new tables, migration or B0 v2 change. CAS conflict
+discards the stale editor and reloads current policy; it never automatically
+retries a write. Grant replacement and both revocations require local confirmation.
+Profile revoke is irreversible under P1. The UI blocks duplicate actions and
+publishes async results only while its page/view/composition remain current.
+Composition replacement and closure of the captured database invalidate old views,
+including successful Restore and raw rollback; old objects cannot resume writes.
+Errors expose fixed categories only, and corrupt state refuses editing.
+
+Offline acceptance uses synthetic data, real temporary SQLite and Widget tests
+for exact multi-target roundtrip, empty scope, permission/egress separation,
+revision races, reference isolation, revoke, stale targets, B0 portable scrub,
+Restore/raw rollback, disposed pages and absent Host wiring. Existing External,
+architecture, Built-in and MCP v0 regressions remain required. No credentials,
+pairing proof, runtime switch, transport, discovery, bridge or real client test is
+part of P11. Mechanical checks do not constitute independent acceptance.
