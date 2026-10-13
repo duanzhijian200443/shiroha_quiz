@@ -51,7 +51,7 @@ bool object_valid(const ObjectInfo& i, const Sid& sid, bool directory,
 }
 
 bool ProtectedObjects::release(Lease& lease) noexcept {
-  bool ok = true;
+  bool ok = finish(lease);
   // The lock is inserted after root/Bridge and before store directories.
   // No operations can use this denied lease; close every held OS handle once.
   for (auto it = lease.pins.rbegin(); it != lease.pins.rend(); ++it) {
@@ -113,7 +113,7 @@ int32_t ProtectedObjects::acquire(uint32_t version, uint32_t role,
       reinterpret_cast<uintptr_t>(token) > (std::numeric_limits<uintptr_t>::max)() - sizeof(*token))
     return SHIROHA_NATIVE_INVALID_INPUT;
   *token = 0;
-  if (version != SHIROHA_NATIVE_ABI_VERSION) return SHIROHA_NATIVE_ABI_MISMATCH;
+  if (version != 2u && version != SHIROHA_NATIVE_ABI_VERSION) return SHIROHA_NATIVE_ABI_MISMATCH;
   if (role != SHIROHA_NATIVE_APP && role != SHIROHA_NATIVE_BRIDGE) return SHIROHA_NATIVE_INVALID_INPUT;
   try {
     std::lock_guard<std::mutex> guard(mutex_);
@@ -123,6 +123,7 @@ int32_t ProtectedObjects::acquire(uint32_t version, uint32_t role,
     auto lease = std::make_unique<Lease>();
     lease->pins.reserve(12);
     lease->token = next_token_++;
+    lease->role = role;
     owners_[slot] = std::move(lease);
     auto& held = *owners_[slot];
     int32_t status = SHIROHA_NATIVE_UNAVAILABLE;
@@ -169,7 +170,7 @@ int32_t ProtectedObjects::acquire(uint32_t version, uint32_t role,
 }
 
 int32_t ProtectedObjects::validate(uint32_t version, uint64_t token) noexcept {
-  if (version != SHIROHA_NATIVE_ABI_VERSION) return SHIROHA_NATIVE_ABI_MISMATCH;
+  if (version != 2u && version != SHIROHA_NATIVE_ABI_VERSION) return SHIROHA_NATIVE_ABI_MISMATCH;
   if (!token) return SHIROHA_NATIVE_INVALID_INPUT;
   try {
     std::lock_guard<std::mutex> guard(mutex_);
@@ -189,7 +190,7 @@ int32_t ProtectedObjects::validate(uint32_t version, uint64_t token) noexcept {
 }
 
 int32_t ProtectedObjects::close(uint32_t version, uint64_t token) noexcept {
-  if (version != SHIROHA_NATIVE_ABI_VERSION) return SHIROHA_NATIVE_ABI_MISMATCH;
+  if (version != 2u && version != SHIROHA_NATIVE_ABI_VERSION) return SHIROHA_NATIVE_ABI_MISMATCH;
   if (!token) return SHIROHA_NATIVE_INVALID_INPUT;
   try {
     std::lock_guard<std::mutex> guard(mutex_);

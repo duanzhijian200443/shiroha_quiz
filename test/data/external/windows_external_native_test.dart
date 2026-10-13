@@ -234,7 +234,7 @@ void main() {
   });
 
   test('incompatible version rejects before native allocation/operation', () {
-    calls.version = 3;
+    calls.version = 4;
     expect(() => adapter.protect(Uint8List.fromList([1])),
         fails(ExternalNativeFailure.abiMismatch));
     expect(() => adapter.resolveLocalAppData(),

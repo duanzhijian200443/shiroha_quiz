@@ -892,6 +892,14 @@ failure, never durable success.
 
 #### 9.B.3 Object formats (FROZEN, version 1)
 
+Object version is `u8` (currently `0x01`); object kind is `u8` (`0x01`–`0x04`,
+corresponding to the kinds below). Kind 3 record version is `u8` (`0x01`).
+The common header is ASCII `SHREXOBJ` at offsets 0–7, version at 8, kind at 9.
+Kind 3 record count is `u32le` at offsets 10–13; when nonempty, its first record
+version is at offset 14. The empty kind 3 plaintext vector, before DPAPI, is
+`53 48 52 45 58 4F 42 4A 01 03 00 00 00 00`. This amendment changes no other
+field, bound, order, CAS, tombstone, permission or failure semantic.
+
 All objects are DPAPI blobs whose plaintext payload is strictly decoded;
 unknown magic, version, kind, length or reserved content is `dataCorrupt` —
 no best-effort parsing, no migration, no auto-upgrade. Every write replaces
@@ -1680,5 +1688,126 @@ contention and normal handle release remain **LOCAL-L1 PENDING**. Cross-SID
 attacks, hostile replacement, crash/abnormal recovery and complete independent
 security/system-stability acceptance remain G0-I. No L1/L2/I calls, destructive
 experiments or production runtime activation are included.
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
+
+## 12. P20 protected App association store
+
+This Package 1 source slice supplies a real, unactivated Data implementation of
+the existing `ExternalCredentialAssociationStore`. `WindowsCredentialAssociationStore`
+uses `AssociationObjectCodec`, P18 user-scope DPAPI and the P19 App owner. It is
+not present in App startup, P12/P15 runtime composition, Agent or MCP. Construction
+and Dart import do not load a DLL, acquire a lock or access an object. The caller
+explicitly acquires an App owner, drains/closes the store, then closes that owner.
+Bridge owners cannot operate on the association file. No kind 1/2/4 backend,
+credential/certificate issuance, Discovery, TLS, Listener, Principal, Session or
+PairingState is added.
+
+### Codec and P15 semantics
+
+Kind 3 implements §9.B.3's full plaintext format, including the three `u8`
+fields fixed there. UUID raw bytes follow the canonical UUID text's byte order
+(not a Windows GUID struct's mixed-endian memory representation). Strict UTF-8,
+canonical lowercase UUID installation text, raw SHA-256 identity, revision/time
+bounds, 0/1 revocation, Profile uniqueness, active-identity uniqueness, the
+64-record limit and full input consumption are mandatory. Unknown kinds/versions,
+truncation, extra bytes and invalid records reject the entire object as
+`dataCorrupt`. Backend timestamps stay out of the P15 port record.
+
+Every operation reads the actual encrypted object; only true native name absence
+is Missing. Decode/decrypt errors are `dataCorrupt`; security/volume/identity/I/O
+errors are unavailable. Neither error deletes or resets the object. All records,
+including tombstones, are retained. Revision CAS precedes unchanged active-tuple
+idempotency; a different active tuple or duplicate active credential conflicts.
+New records beyond 64 fail `resourceLimit`. Revoke increments the revision and
+retains the tuple. Already missing/revoked exact-revision revoke is unchanged.
+The caller's management validator runs after serialization/protection and before
+native commit (also before unchanged success). The existing P15 protocol and
+authorization remain unchanged; there is no SQLite transaction or second
+credential authority.
+
+Each Store admits at most sixteen pending operations and serializes reads and
+writes. One native transaction per App owner prevents other Store instances on
+that owner from interleaving the read/CAS/commit. This never substitutes for
+P19's lifetime-held, no-sharing OS writer lock. Snapshot epochs are shared at
+the owner and Store lifecycle boundaries: subsequent commits, read errors,
+owner denial/close and Store close permanently invalidate prior snapshots.
+Rejection-only revision high-water marks persist across Store re-initialization
+on the same owner; they supply no cached read result. Restart creates no runtime
+authority and does not promise cross-restart anti-rollback beyond §9.B.5.
+
+### File transaction and ABI
+
+ABI 3 retains the six P18 memory signatures (accepting ABI 1/2/3) and three P19
+owner signatures (accepting ABI 2/3). The Dart adapter requires exactly ABI 3.
+Three new `__cdecl` fixed-width exports accept ABI 3 only:
+
+| Export | Contract |
+|---|---|
+| `shiroha_native_association_begin` | version, App owner token, borrowed output/capacity, aligned disjoint written/ticket outputs; OK or Missing transfers one positive transaction ticket |
+| `shiroha_native_association_commit` | version, same owner/ticket, borrowed ciphertext/length; a well-formed commit consumes the ticket on success or failure |
+| `shiroha_native_association_abort` | version, same owner/ticket; releases an uncommitted transaction without releasing the writer lock |
+
+These calls accept no path, raw HANDLE, plaintext record or externally supplied
+object access token. Tokens remain trusted Infrastructure details; none reach
+MCP. Bytes are bounded to 65536; native buffers are released by their allocating
+DLL, and Dart copies/plaintext are cleared after bounded use (with P18's unchanged
+GC-copy limitation). Closing an owner also settles its retained transaction.
+Unknown handle-close results quarantine the owner and never retry stale handles.
+
+The fixed `associations.bin` component is opened relative to the verified
+`app/state` pin using P19's documented `NtCreateFile` mechanism. Read handles
+allow read/delete sharing, but deny write sharing; delete sharing permits the
+holder's whole-file atomic replacement. P19 directory and writer-lock handles
+retain their existing deny-delete/no-sharing policies. The original file
+identity is retained during the transaction. Before and after child opens, and
+again before replacement, the core checks the App owner/lock/pins, exact DACL,
+SID, NTFS/fixed volume, reparse/type/link rules and target identity/existence.
+Missing never skips parent validation. An observed replacement or invalid owner
+denies; no path-only reopen or arbitrary-directory fallback exists.
+
+Commit follows read → validate/CAS → encode → DPAPI → create same-directory
+`~tmp-<runtimeId16>-<rand8>` → complete write → Flush → handle-relative rename.
+The name parts are lowercase hexadecimal random bytes (8 and 4 bytes), with
+the runtime part retained for the owner lifetime. `FILE_CREATE` supplies
+CREATE_NEW exclusion and the explicit P16 DACL. There is no collision retry.
+Before creating another temp the directory scan bounds leftovers at 32 and
+enumeration work at 4096 entries; resource exhaustion denies. At most twelve
+file/directory handles are used per App owner, including a transient identity
+reopen. Failed temp writes/Flush leave the old target intact and the inert
+leftover untouched; no cleanup sweep, target truncate, ACL repair or deletion
+is performed. Unknown names and foreign objects are never read or removed.
+
+Replacement uses `SetFileInformationByHandle(FileRenameInfo)` on the temp with
+the verified state handle in `FILE_RENAME_INFO.RootDirectory`, a fixed relative
+name and replace enabled only when the original target existed. The documented
+[RootDirectory relative-name contract](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info)
+provides parent binding. The core reports success only after the API explicitly
+succeeds and the new object's identity/security and owner pins revalidate.
+Rename failure/exception, unknown response or post-rename close/validation failure
+is `commitUnknown`, never success or automatic retry. A fresh read resolves
+possible residue; stale CAS still fails and exact-revision idempotency remains.
+The same-SID mutation/replay risk accepted in §9.B.5/9.D is unchanged; these
+checks do not claim isolation from an arbitrary same-SID or Administrator writer.
+
+### Offline evidence and pending real acceptance
+
+Standing Dart shards include fixed positive/malformed binary vectors and the
+production Store with injected native calls. The Windows job compiles the real
+DLL, inspects twelve exports/system file/crypto imports and ASLR/DEP/CFG, then
+executes only production pure cores plus fake operations, after rejecting real
+security/file imports in those executables. File-stage tests include new/existing
+targets, partial-write/Flush/rename failure, ambiguous post-replace outcomes,
+collision, limits, identity/lock loss, closure and resource quarantine.
+No production DLL is loaded by these tests. The source guard now rejects bare
+`CreateFile(` as well as A/W calls without matching `NtCreateFile`.
+
+P19's absolute `SECURITY_DESCRIPTOR` creation recipe has no new real-object
+compatibility evidence here and is not labeled accepted by offline checks.
+Actual DPAPI, NTFS creation/security/flush/atomic replacement, descriptor round
+trips and cross-process exclusion remain **LOCAL-L1 PENDING**. Full cross-SID,
+crash/hostile replacement and system-stability acceptance remain G0-I. No actual
+protected objects, ACL changes, DPAPI operations, locks, keys/certificates or
+listeners are executed under this G0-L0 source scope.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.

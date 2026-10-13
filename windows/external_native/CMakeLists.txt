@@ -16,9 +16,9 @@ function(shiroha_native_settings target)
 endfunction()
 
 add_library(shiroha_external_native SHARED native_core.cpp native_windows.cpp
-  protected_objects.cpp protected_windows.cpp)
+  protected_objects.cpp association_files.cpp protected_windows.cpp)
 shiroha_native_settings(shiroha_external_native)
-target_link_libraries(shiroha_external_native PRIVATE crypt32 shell32 ole32 uuid advapi32)
+target_link_libraries(shiroha_external_native PRIVATE crypt32 shell32 ole32 uuid advapi32 bcrypt)
 
 # Explicit opt-in; this executable contains core + fake Win32 operations only.
 # It neither links/loads the production DLL nor calls DPAPI/known-folder APIs.
@@ -29,7 +29,7 @@ if(SHIROHA_NATIVE_OFFLINE_TESTS)
   shiroha_native_settings(shiroha_native_offline_test)
   target_include_directories(shiroha_native_offline_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
   add_test(NAME shiroha_native_offline COMMAND shiroha_native_offline_test)
-  add_executable(shiroha_objects_offline_test protected_objects.cpp tests/protected_objects_test.cpp)
+  add_executable(shiroha_objects_offline_test protected_objects.cpp association_files.cpp tests/protected_objects_test.cpp)
   shiroha_native_settings(shiroha_objects_offline_test)
   target_include_directories(shiroha_objects_offline_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
   add_test(NAME shiroha_objects_offline COMMAND shiroha_objects_offline_test)

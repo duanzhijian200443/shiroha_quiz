@@ -41,7 +41,7 @@ int32_t prepare(uint32_t version, uint8_t* output, uint64_t capacity,
   if (!span(output, capacity)) return SHIROHA_NATIVE_INVALID_INPUT;
   SecureZeroMemory(output, static_cast<SIZE_T>(capacity));
   // ABI 1 memory operations remain callable with unchanged P18 semantics.
-  if (version != 1u && version != SHIROHA_NATIVE_ABI_VERSION) return SHIROHA_NATIVE_ABI_MISMATCH;
+  if (version != 1u && version != 2u && version != SHIROHA_NATIVE_ABI_VERSION) return SHIROHA_NATIVE_ABI_MISMATCH;
   return SHIROHA_NATIVE_OK;
 }
 

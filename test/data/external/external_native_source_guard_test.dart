@@ -2,7 +2,22 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+final _pathOpen = RegExp(r'\bCreateFile(?:A|W)?\s*\(');
+
 void main() {
+  test('path-open guard rejects bare and suffixed calls, allows NtCreateFile',
+      () {
+    for (final code in [
+      'CreateFile(',
+      'CreateFile (',
+      '::CreateFileW(',
+      'CreateFileA\n('
+    ]) {
+      expect(_pathOpen.hasMatch(code), isTrue);
+    }
+    expect(_pathOpen.hasMatch('NtCreateFile('), isFalse);
+    expect(_pathOpen.hasMatch('decltype(&NtCreateFile)'), isFalse);
+  });
   test('production Win32 wrapper preserves exact frozen DPAPI parameters', () {
     final source =
         File('windows/external_native/native_windows.cpp').readAsStringSync();
@@ -25,6 +40,7 @@ void main() {
         .whereType<File>()
         .where((f) => f.path.endsWith('.cpp') || f.path.endsWith('.h'))) {
       final code = file.readAsStringSync();
+      expect(_pathOpen.hasMatch(code), isFalse, reason: file.path);
       for (final forbidden in [
         'CRYPTPROTECT_LOCAL_MACHINE',
         'CredWrite',
@@ -74,11 +90,14 @@ void main() {
       'shiroha_native_owner_acquire',
       'shiroha_native_owner_validate',
       'shiroha_native_owner_close',
+      'shiroha_native_association_begin',
+      'shiroha_native_association_commit',
+      'shiroha_native_association_abort',
     ]) {
       expect(header, contains(symbol));
       expect(bindings, contains("'$symbol'"));
     }
-    expect(header, contains('SHIROHA_NATIVE_ABI_VERSION 2u'));
+    expect(header, contains('SHIROHA_NATIVE_ABI_VERSION 3u'));
     expect(header, contains('SHIROHA_NATIVE_MAX_BYTES 65536u'));
     expect(header, contains('__declspec(dllexport)'));
     expect(header, contains('__cdecl'));
@@ -124,10 +143,19 @@ void main() {
       'DeleteFileW',
       'RemoveDirectoryW',
       'MoveFileExW',
-      'FILE_SHARE_DELETE'
     ]) {
       expect(source, isNot(contains(forbidden)));
     }
+    // P19 directory/lock opens still deny delete sharing. Only the fixed P20
+    // association read permits it for handle-relative atomic replacement.
+    expect(
+        source,
+        contains(
+            'file_share != MAXDWORD ? file_share : (exclusive ? 0 : FILE_SHARE_READ | FILE_SHARE_WRITE)'));
+    expect(source, contains('info->RootDirectory = directory'));
+    expect(source, contains('info->ReplaceIfExists = existing ? TRUE : FALSE'));
+    expect(source, contains('FlushFileBuffers(file)'));
+    expect(source, contains('FILE_CREATE, &security.descriptor, result'));
     final core = File('windows/external_native/protected_objects.cpp')
         .readAsStringSync();
     expect(core, contains('i.aces.size() != 1'));
@@ -157,6 +185,8 @@ void main() {
         final source = file.readAsStringSync();
         expect(source, isNot(contains('WindowsExternalNative')),
             reason: file.path);
+        expect(source, isNot(contains('WindowsCredentialAssociationStore')),
+            reason: file.path);
         expect(source, isNot(contains('external_native_bindings')),
             reason: file.path);
         expect(source, isNot(contains('shiroha_native_dpapi')),
@@ -165,6 +195,7 @@ void main() {
     }
     final main = File('lib/main.dart').readAsStringSync();
     expect(main, isNot(contains('WindowsExternalNative')));
+    expect(main, isNot(contains('WindowsCredentialAssociationStore')));
     expect(main, isNot(contains('external/native/')));
     for (final root in ['lib/data/external', 'lib/application/external']) {
       for (final file
@@ -222,8 +253,10 @@ void main() {
     expect(cmake, contains('crypt32 shell32 ole32 uuid'));
     expect(cmake, contains('native_core.cpp tests/native_core_test.cpp'));
     expect(cmake, contains('SHIROHA_NATIVE_OFFLINE_TESTS'));
-    expect(cmake,
-        contains('protected_objects.cpp tests/protected_objects_test.cpp'));
+    expect(
+        cmake,
+        contains(
+            'protected_objects.cpp association_files.cpp tests/protected_objects_test.cpp'));
     final workflow =
         File('.github/workflows/pr-contract-checks.yml').readAsStringSync();
     expect(

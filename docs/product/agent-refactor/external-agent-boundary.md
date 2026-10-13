@@ -1209,6 +1209,9 @@ Their cleanup or reassignment requires a separately approved recovery contract;
 P15 cannot invent a missing Profile to reclaim a surviving credential.
 
 P15 supplies no Windows storage/crypto implementation or production wiring.
+The later P20 Data candidate implements this same association port, with its
+production source and activation boundary owned by Windows readiness §12.
+It introduces no P0–P15 authorization change or runtime composition.
 M1–M4 real security remain WINDOWS_PENDING; G0 and X0–X12 are unapproved and
 not run. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
 AR-R6A = NOT_ACCEPTED. No Codex process-brand authentication is claimed.
