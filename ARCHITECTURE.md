@@ -106,6 +106,13 @@ Owns physical persistence and external integration:
 - managed file storage;
 - OCR/AI/Web provider clients and DTO adaptation.
 
+The External Windows primitive adapter in `lib/data/external/native` owns
+explicit SDK FFI calls to the independent `windows/external_native` C ABI DLL.
+It supplies bounded DPAPI memory operations and an unvalidated known-folder
+path, not a Credential Store, verifier or Application authority. It is absent
+from startup, Agent/MCP and P12/P15 composition. The readiness contract section
+10 owns this first production source slice and its pending Windows acceptance.
+
 Persistence formats and provider formats are implementation details, not public application contracts.
 
 ## 3. Frozen typed-learning-core invariants

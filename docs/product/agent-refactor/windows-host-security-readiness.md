@@ -2,7 +2,8 @@
 
 Status: **Accepted static readiness checkpoint (merged PR #264); P16 freezes the
 production primitive candidates and formats in section 9 (merged PR #267).
-P17 amends G0 experiment tiers and X.509 signature encoding only. Real Windows security
+P17 amends G0 experiment tiers and X.509 signature encoding only. P18 supplies
+the first production Native Helper/FFI source slice under section 10. Real Windows security
 acceptance is BLOCKED; no production Credential/Pairing/Transport/Host is
 activated.**
 
@@ -1398,5 +1399,135 @@ authorized work package can directly implement Package 1. No real experiment
 or production Credential/Host activation is granted; no automatic P18 or AR-R6B.
 Any local success leaves the following statuses unchanged until a separately
 authorized full acceptance/activation decision:
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
+
+## 10. P18 Native Helper and FFI foundation
+
+This first Package 1 slice supplies production source in
+`windows/external_native` and `lib/data/external/native`. It is a primitive
+boundary, not a Credential Store or an authentication implementation. P0/P12
+still own Principal, PairingState and Session; P15 still owns association and
+verification authority. No Application port or existing failure vocabulary is
+redefined, and neither P12 nor P15 is wired to this adapter.
+
+### Native ABI and ownership
+
+The independent Windows x64 C++17 DLL `shiroha_external_native.dll` has six
+explicit C exports, with `__cdecl`, fixed-width integers and ABI version 1:
+
+| Export | Parameters / result |
+|---|---|
+| `shiroha_native_abi_version` | No arguments; `uint32_t` version |
+| `shiroha_native_buffer_alloc` | `uint64_t capacity`; zero-initialized `uint8_t*`, or null on invalid size/allocation failure |
+| `shiroha_native_buffer_free` | Original live `uint8_t*` from this DLL, exactly once; null is a no-op |
+| `shiroha_native_local_app_data` | `uint32_t version`, output pointer, `uint64_t capacity`, aligned `uint64_t* written`; `int32_t` status |
+| `shiroha_native_dpapi_protect` | Version, borrowed input pointer, `uint64_t length`, output pointer/capacity/written; `int32_t` status |
+| `shiroha_native_dpapi_unprotect` | Same memory/length protocol as Protect; `int32_t` status |
+
+Memory bounds are 1–65536 bytes, with checks before arithmetic, narrowing or
+OS calls. This is a primitive memory bound, not an object codec or file-size
+admission check: DPAPI expansion beyond the output capacity fails `resourceLimit`
+without a partial result. Zero-length inputs are rejected. Caller pointers
+must designate live, disjoint storage of the stated extent; arbitrary foreign,
+interior or freed allocation pointers are outside the C memory contract.
+Invalid null, overflow, extent, alignment and alias arguments fail before the
+OS operation; invalid address/alias results are unusable and may remain
+untouched. For valid disjoint output/count memory, failures clear the output
+and set written to zero. Success copies only initialized result bytes.
+
+The helper owns the allocation header and recorded capacity. Free wipes the
+whole payload and header before releasing them with the same C allocator.
+No C++ container or exception crosses the ABI. OS-produced DPAPI buffers are
+helper-owned: all returned bytes, including decrypted plaintext, are wiped
+before `LocalFree` on success and failure. Known-folder allocations are
+released by `CoTaskMemFree`, also on failure. Output is copied only after
+success and length validation; RAII retains cleanup on every return path.
+The Dart adapter borrows no returned native storage: it copies into caller-owned
+Dart bytes, then releases all native allocations in nested `finally` paths.
+The caller is responsible for bounded use/disposal of sensitive Dart copies;
+native zeroization does not promise removal of Dart GC copies.
+
+| Native status | Infrastructure failure |
+|---|---|
+| 0 | Success, still subject to Dart result/length validation |
+| 1 | `invalidInput` |
+| 2 | `abiMismatch` |
+| 3 | `resourceLimit` |
+| 4 | `temporarilyUnavailable` |
+| 5 | `dataCorrupt` |
+| Unknown status / invalid successful result | `invalidNativeResult`, hard rejection |
+
+Wrap failure is unavailable; unwrap failure is corrupt. Neither maps to
+Missing or starts deletion, rekey, regeneration, trust reconstruction or an
+alternate backend. No Windows error code, unsafe exception text, path or
+secret is included in the exception. These are local Infrastructure categories,
+not new P15 failures or external MCP output.
+
+### Implemented scope and activation boundary
+
+The real wrappers call `CryptProtectData` / `CryptUnprotectData` with flags 0,
+null description/output-description, entropy, reserved and prompt arguments.
+There is no machine-scope, Provider/plugin backend or persistence. The real
+known-folder wrapper calls `SHGetKnownFolderPath(FOLDERID_LocalAppData)` through
+Windows Unicode APIs and returns UTF-16LE without a terminator. Dart strictly
+validates length, NUL and surrogate pairs and returns a redacted path value.
+That value establishes no owner, DACL, volume, reparse or handle validation;
+no External directory is created and no arbitrary caller root is accepted.
+
+`WindowsExternalNative.open()` is explicit. Production uses only the absolute
+directory of `Platform.resolvedExecutable` for the DLL, with no PATH/current-
+directory/environment search or alternate candidate. Non-Windows, missing DLL,
+symbol failure and incompatible ABI deny operations. ABI is checked on open
+and before every operation/allocation. Import and startup perform no native
+operation; no Runner startup logic or Agent/MCP route invokes the helper.
+The CMake target links only the required Windows system libraries (crypt32,
+shell32, ole32, uuid); it depends on neither Flutter nor Runner. The Windows
+bundle includes the DLL as packaging only. Standalone AOT Bridge packaging,
+native load and runtime acceptance remain Package 3 work.
+
+### Evidence boundary and remaining work
+
+Local G0-L0 evidence includes actual MSVC Windows x64 compilation/linking of
+the independent target and inspection of all six exported names and required
+system imports. The opt-in C++ offline executable links the core with fake
+operations only; its import table contains neither DPAPI nor known-folder
+calls. It covers invalid versions/pointers/lengths/overflow/aliases, output
+bounds, fixed failures, fake partial failures, zeroization before local release,
+Unicode and task-allocation cleanup. These tests prove core memory/call contracts,
+not real OS security behavior.
+
+Bounded local check commands (from an MSVC/CMake-capable developer shell) are:
+
+```powershell
+cmake -S windows/external_native -B build/p18-native -G "Visual Studio 17 2022" -A x64 -DSHIROHA_NATIVE_OFFLINE_TESTS=ON
+cmake --build build/p18-native --config Debug
+ctest --test-dir build/p18-native -C Debug --output-on-failure
+dumpbin /exports build/p18-native/Debug/shiroha_external_native.dll
+dumpbin /imports build/p18-native/Debug/shiroha_external_native.dll
+dumpbin /imports build/p18-native/Debug/shiroha_native_offline_test.exe
+```
+
+These commands do not configure the Flutter/plugin tree, install artifacts,
+load the production helper or execute its security functions. Full Windows
+tree configuration can trigger existing plugin dependency downloads and is
+outside this bounded native check recipe.
+
+Standing PR shards now also cover the Dart fake-call adapter and source guards:
+platform/loader/version rejection, result copy/release on all exits, strict
+UTF-16, native failure classification, exact frozen wrapper parameters, absent
+production composition, no Provider/plaintext fallback and no ambient TLS-root
+or accept-bad-certificate shortcut. CI remains Linux/offline; exact compile,
+toolchain and command outcomes belong to PR evidence. No full Flutter bundle
+or AOT Bridge build/run acceptance is claimed by this slice.
+
+Actual known-folder resolution, DPAPI behavior and Windows protected-object
+validation are **LOCAL-L1 PENDING**, with no L1/L2 grant or security function
+execution. Credential Store persistence/CAS/tombstones, protected directory/file
+objects, NTFS identity checks, runtime.lock/client.lock, key/certificate issuance,
+pairing crypto, discovery, Listener and Bridge integration are absent. The next
+separately scoped Package 1 slice prioritizes protected file objects, NTFS
+validation and exclusive writer locks before wiring the versioned DPAPI store.
+Anchor-rotation record encoding remains UNDEFINED and is not implemented.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.

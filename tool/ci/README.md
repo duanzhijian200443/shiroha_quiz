@@ -14,6 +14,16 @@ test requires those entries. That is offline Linux evidence for the accepted
 P3-P12 behavior only; it is not Windows Credential, mTLS, ACL, Discovery or
 Host acceptance and it clears no WINDOWS_PENDING item.
 
+P18 adds `windows_external_native_test.dart` and
+`external_native_source_guard_test.dart` to the same standing shards. The first
+uses test-only calls and a C-runtime allocator to check ABI rejection, bounded
+copies, release paths and fixed failures; the second guards the actual C++/Dart
+implementation, frozen DPAPI parameters and absent runtime wiring. Neither
+loads the production helper or performs Windows security calls. Native x64
+compilation/export inspection and the fake-only C++ core suite are local G0-L0
+evidence; these Linux shards cannot establish Windows compilation or real
+DPAPI/protected-object behavior. LOCAL-L1 remains PENDING.
+
 The four shards keep `--concurrency=1`. Flutter's additional JSON reporter
 collects timing in the same test invocation, without running tests twice. The
 summary script retains only repository-relative test paths, integer durations,
