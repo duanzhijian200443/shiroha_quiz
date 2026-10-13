@@ -1533,13 +1533,42 @@ toolchain and command outcomes belong to PR evidence. No full Flutter bundle
 or AOT Bridge build/run acceptance is claimed by this slice.
 
 Actual known-folder resolution, DPAPI behavior and Windows protected-object
-validation are **LOCAL-L1 PENDING**, with no L1/L2 grant or security function
-execution. At P18 delivery, Credential Store persistence/CAS/tombstones,
-protected directory/file objects, NTFS identity checks, runtime.lock/client.lock,
+validation were **LOCAL-L1 PENDING** at P18 delivery, with no L1/L2 grant or
+security function execution at that point; the dated Batch 1 record below now
+covers a bounded subset for the frozen artifact. At P18 delivery, Credential
+Store persistence/CAS/tombstones, protected directory/file objects, NTFS
+identity checks, runtime.lock/client.lock,
 key/certificate issuance, pairing crypto, discovery, Listener and Bridge
 integration were absent. Section 11 supplies the protected-object and writer-lock
 source slice; the remaining store/crypto/publication/runtime work is still absent.
 Anchor-rotation record encoding remains UNDEFINED and is not implemented.
+
+**G0-L1 Batch 1 record (2026-10-13, frozen P19-merge artifact).** A separate,
+explicitly user-approved L1 batch executed the frozen x64 artifact built from
+the reviewed `d4e67ee` native tree (merge `40c1236`; `shiroha_external_native.dll`
+SHA-256 `dae757a4f53ff2cf60ce1353277b2e1c0ef1a6c6131a251bd90db6b2b8169010`,
+ABI 2, nine exports; frozen host probe SHA-256
+`4c904fa48fa8ae691f720fdba147b0d8542ad5a0bb629be4c68410b4838a2758`) on the
+primary host (Windows 11 25H2 x64, build 26200.9168, non-elevated, current
+user only). It recorded, for this artifact and host: user-scope DPAPI
+protect/unprotect round trips (nine round trips at 16/256/4096 bytes, all
+byte-identical; one cross-process decrypt of a single synthetic blob),
+expansion-over-capacity refusal reported as `resourceLimit` with no partial
+result, and known-folder resolution equal to the process `LOCALAPPDATA`. The
+batch's first run reported its ACL check as a false negative caused by a
+path-construction defect in the throwaway batch runner (not the helper); the
+failed read-only check was re-run after repair without repeating any helper
+call. The batch stayed within its frozen operation counts and budgets, and the
+experiment window shows no system events. An Independent Reviewer (separate
+session on the frozen evidence, no drift) recorded APPROVE with zero P0/P1/P2
+and four P3 items: the runner script's hash was not frozen before execution
+(closed by an anchored byte-exact reconstruction); no pre-run harness source
+review was dispatched; the host's same-day prior power-event context was absent
+from the report; and single-source-evidence residual risk. Sanitized logs
+remain in the local, git-ignored build evidence area and are not part of this
+repository. This record is LOCAL-L1 functional evidence only: it changes no
+G0-I criterion, A row or X row, and cross-boot persistence, other
+operating-system builds and adversarial/negative DPAPI cases remain pending.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 
@@ -1684,10 +1713,35 @@ Official API guarantees above and deterministic core/source tests support a
 reviewable user-mode implementation without weakening 9.D. They do not prove
 real filesystem behavior: actual Windows 11 x64 object creation, descriptor
 round trips, NT option/disposition behavior, volume/reparse refusal, cross-process
-contention and normal handle release remain **LOCAL-L1 PENDING**. Cross-SID
+contention and normal handle release were **LOCAL-L1 PENDING** at P19 delivery;
+the dated Batch 1 record below covers the observed success subset (object
+creation, descriptor round trips, single-contender exclusion, normal release),
+while volume/reparse refusal scenarios, multiple-contender races and
+abnormal-path behavior remain unverified. Cross-SID
 attacks, hostile replacement, crash/abnormal recovery and complete independent
 security/system-stability acceptance remain G0-I. No L1/L2/I calls, destructive
 experiments or production runtime activation are included.
+
+**G0-L1 Batch 1 record (2026-10-13; same frozen artifact and host as section
+10).** Under the approved L1 batch, the protected-object chain was created on
+the primary host for the first time: `%LOCALAPPDATA%\Shiroha` with `external\`,
+`runtime.lock`, `app\{trust,state}`, `discovery`, `exchange`, `bridge\` and
+`bridge\client.lock` — eight directories plus two empty lock files, and no
+other objects. An external `Get-Acl` inspection independent of the helper's own
+checks found every object matching the 9.D/9.B recipe (current-user owner, one
+protected full-access allow ACE, directory container/object inheritance flags,
+no inherited ACEs, no reparse). The absolute-format `SECURITY_DESCRIPTOR`
+passed to user-mode `NtCreateFile` was accepted on this build, so the P19
+review's fail-closed format hypothesis did not materialize here. OS-exclusive
+locks denied a same-user second process (`temporarilyUnavailable`, single
+attempt, no retry), App and Bridge locks were independent, and normal release
+allowed re-acquisition. As in section 10, the batch's first ACL observation was
+a false negative from a throwaway batch-runner path defect and was re-run
+read-only after repair (10/10 objects re-verified); the Independent Reviewer's
+APPROVE, zero P0/P1/P2 and four P3 items are recorded in section 10. This
+record is LOCAL-L1 functional evidence only and changes no G0-I criterion, A
+row or X row; cross-SID secrecy/integrity, hostile replacement, crash/abnormal
+recovery and system-stability acceptance remain outside it.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 
