@@ -268,8 +268,8 @@ real TCP/mTLS is unverified, Transport
 is BLOCKED and AR-R6A is NOT_ACCEPTED. HOST_STABILITY_HALT remains active.
 AR-R6B, AR-R7 and later implementation stages remain inactive.
 
-**After P17 merges, the next work package is Package 1 production-code
-implementation, not another general offline authentication design stage.**
+**P17's handoff specified Package 1 production-code implementation as the next
+work package, with no new general offline authentication design stage.**
 The first bounded implementation slices cover the minimal Windows Native
 Helper, controlled Win32 memory/handle release, Dart FFI Adapter, already-frozen
 versioned object codecs, dedicated DPAPI Credential Store Adapter and
@@ -280,7 +280,22 @@ and pure offline testing under scoped implementation authority do not depend
 on L1 approval. Real DPAPI calls, ACL mutation and test key/certificate generation
 stop at their L1 grant boundary; local communication stops at L2. There is no
 second Profile, Principal, PairingState or CredentialStore business authority.
-This documentation task implements none of those slices and starts no P18.
+The P17 documentation task implemented none of those slices and started no P18.
+
+P18 is the first Package 1 production source slice under
+[Windows readiness section 10](../product/agent-refactor/windows-host-security-readiness.md#10-p18-native-helper-and-ffi-foundation):
+independent Windows x64 C++17 Helper, versioned C ABI and controlled memory,
+known-folder resolution, user-scope DPAPI wrappers and reusable explicit Dart
+FFI. Local native compile/export checks and fake-only core/Dart tests are
+G0-L0 evidence. Real calls remain LOCAL-L1 PENDING; protected root/store,
+certificate issuance, Host and Bridge composition are absent. This slice
+changes no P0–P15 authorization, S0, schema, B0 or P9/P10 semantics and clears
+no Windows acceptance item. The next separately scoped slice prioritizes
+protected file objects, NTFS/owner/DACL/volume/reparse validation and
+runtime.lock/client.lock exclusion, then the versioned DPAPI Credential Store.
+TRANSPORT remains BLOCKED, AR-R6A NOT_ACCEPTED and HOST_STABILITY_HALT ACTIVE;
+no P19, Package 2/3 or AR-R6B is activated by this source delivery.
+
 The retained target is Codex/Claude MCP Bridge → Shiroha External Host →
 authenticated and authorized question-bank READ/STAGE services.
 

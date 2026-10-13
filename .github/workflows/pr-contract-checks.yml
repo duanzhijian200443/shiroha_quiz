@@ -439,6 +439,8 @@ jobs:
             'test/data/external/ipc_command_projection_test.dart',
             'test/data/external/ipc_envelope_codec_test.dart',
             'test/data/external/ipc_command_schema_test.dart',
+            'test/data/external/windows_external_native_test.dart',
+            'test/data/external/external_native_source_guard_test.dart',
             'test/ui/generated_question/generated_external_origin_review_test.dart',
             'test/application/generated_question/generated_external_origin_test.dart',
             'test/application/generated_question/generated_external_origin_backup_test.dart',

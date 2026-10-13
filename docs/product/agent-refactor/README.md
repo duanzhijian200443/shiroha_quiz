@@ -18,7 +18,9 @@ P13 Windows security readiness accepted as a static checkpoint in merged
 PR #264; real acceptance BLOCKED. P14 standing External CI coverage accepted
 in merged PR #265. P15 offline Credential boundary IMPLEMENTATION CANDIDATE.
 P16 production primitive freeze accepted as a static decision in merged PR #267;
-P17 tiered experiment-gate / X.509 encoding amendment is documentation only.**
+P17 tiered experiment-gate / X.509 encoding amendment is documentation only;
+P18 Native Helper/FFI production source slice has G0-L0 evidence, real Windows
+functionality LOCAL-L1 PENDING.**
 
 The Provider seam, typed capability/executor/projection path and Runtime split/
 transcript are delivered in the preceding merged stages. Historical AR-R3
@@ -125,10 +127,21 @@ Verifier/Reviewer remain required; local success is no automatic A PASS.
 P17 also corrects X.509 signatures to ASN.1 DER ECDSA-Sig-Value while Pairing
 Proof/Endpoint Descriptor remain raw r‖s (64 bytes), with P-256/SHA-256 and
 credentialIdentity unchanged. Readiness §§6, 9.A.2 and 9.F own these amendments.
-After P17 merges, the next package directly implements Package 1 in bounded
+P17's handoff specified direct Package 1 implementation in bounded
 dependency slices, with actual-implementation offline tests/source guards;
 there is no new general offline authentication design stage and no Package 1
-code implementation authorized by this documentation task.
+code implementation was authorized by the P17 documentation task.
+
+P18 supplies the first Package 1 production source slice: an independent
+Windows x64 C++17 Native Helper, versioned C ABI, bounded native memory,
+known-folder resolution and user-scope DPAPI wrappers, plus a shared explicit
+Dart FFI adapter. [Readiness section 10](windows-host-security-readiness.md#10-p18-native-helper-and-ffi-foundation)
+owns the ABI/ownership/failure contract. Local native compilation/export checks
+and fake-only core/Dart tests establish G0-L0 mechanical evidence, not real
+Windows functionality. No Credential Store, protected root, key/certificate,
+Host or Bridge composition is supplied; LOCAL-L1 remains PENDING.
+Next scoped Package 1 work prioritizes protected file objects, NTFS validation
+and the exclusive writer locks before wiring a versioned DPAPI store.
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 Production Host/IPC, MCP vNext and READ fallback continuation remain unimplemented
 targets. Current product behavior
