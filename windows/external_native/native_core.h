@@ -15,6 +15,7 @@ struct Operations {
   HRESULT (*known_folder)(PWSTR*) noexcept;
   void (*free_task)(void*) noexcept;
 };
+const Operations& windows_operations() noexcept;
 
 int32_t transform(uint32_t version, const uint8_t* input, uint64_t length,
                   uint8_t* output, uint64_t capacity, uint64_t* written,

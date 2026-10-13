@@ -1413,8 +1413,10 @@ redefined, and neither P12 nor P15 is wired to this adapter.
 
 ### Native ABI and ownership
 
-The independent Windows x64 C++17 DLL `shiroha_external_native.dll` has six
-explicit C exports, with `__cdecl`, fixed-width integers and ABI version 1:
+P18 originally supplied six explicit C exports in the independent Windows x64
+C++17 DLL `shiroha_external_native.dll`, with `__cdecl`, fixed-width integers
+and ABI version 1. Section 11 extends this same DLL to ABI 2, retaining these
+six signatures and their ABI-1 memory-operation compatibility:
 
 | Export | Parameters / result |
 |---|---|
@@ -1481,8 +1483,8 @@ directory/environment search or alternate candidate. Non-Windows, missing DLL,
 symbol failure and incompatible ABI deny operations. ABI is checked on open
 and before every operation/allocation. Import and startup perform no native
 operation; no Runner startup logic or Agent/MCP route invokes the helper.
-The CMake target links only the required Windows system libraries (crypt32,
-shell32, ole32, uuid); it depends on neither Flutter nor Runner. The Windows
+The P18 CMake target linked only Windows system libraries (crypt32, shell32,
+ole32, uuid); section 11 adds advapi32 for object security. It depends on neither Flutter nor Runner. The Windows
 bundle includes the DLL as packaging only. Standalone AOT Bridge packaging,
 native load and runtime acceptance remain Package 3 work.
 
@@ -1517,17 +1519,166 @@ Standing PR shards now also cover the Dart fake-call adapter and source guards:
 platform/loader/version rejection, result copy/release on all exits, strict
 UTF-16, native failure classification, exact frozen wrapper parameters, absent
 production composition, no Provider/plaintext fallback and no ambient TLS-root
-or accept-bad-certificate shortcut. CI remains Linux/offline; exact compile,
+or accept-bad-certificate shortcut. P18 CI was Linux/offline; section 11 adds
+Windows compile and fake-only coverage. Exact compile,
 toolchain and command outcomes belong to PR evidence. No full Flutter bundle
 or AOT Bridge build/run acceptance is claimed by this slice.
 
 Actual known-folder resolution, DPAPI behavior and Windows protected-object
 validation are **LOCAL-L1 PENDING**, with no L1/L2 grant or security function
-execution. Credential Store persistence/CAS/tombstones, protected directory/file
-objects, NTFS identity checks, runtime.lock/client.lock, key/certificate issuance,
-pairing crypto, discovery, Listener and Bridge integration are absent. The next
-separately scoped Package 1 slice prioritizes protected file objects, NTFS
-validation and exclusive writer locks before wiring the versioned DPAPI store.
+execution. At P18 delivery, Credential Store persistence/CAS/tombstones,
+protected directory/file objects, NTFS identity checks, runtime.lock/client.lock,
+key/certificate issuance, pairing crypto, discovery, Listener and Bridge
+integration were absent. Section 11 supplies the protected-object and writer-lock
+source slice; the remaining store/crypto/publication/runtime work is still absent.
 Anchor-rotation record encoding remains UNDEFINED and is not implemented.
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
+
+## 11. P19 protected objects and single-writer ownership
+
+This Package 1 source slice extends the existing helper and explicit Dart
+adapter only. It creates/verifies the frozen directory layout and holds
+`runtime.lock` or `bridge\client.lock`; it implements no Credential Store,
+CAS, certificate, publication, communication or P12/P15 composition.
+
+### Parent binding and documented user-mode API
+
+Section 9.D freezes security properties, not an exclusive list of native API
+names. It requires verified object identity and resistance to parent redirection;
+P19 additionally requires that inspection and actual access cannot be separated
+by an unconstrained path reopen. Neither condition requires a new design stage.
+No path-only Win32 alternative was established to satisfy both conditions:
+final-component reparse flags alone do not bind a checked parent, and deny-delete
+sharing alone does not freeze attributes/security. This is a limitation of that
+proposed proof, not a claim that every Win32 construction is impossible.
+
+The selected documented user-mode
+[NtCreateFile](https://learn.microsoft.com/en-us/windows/win32/api/winternl/nf-winternl-ntcreatefile)
+accepts a held directory through `OBJECT_ATTRIBUTES.RootDirectory`, resolves a
+relative name against it and returns the opened/new object handle. Its creation
+security descriptor applies only to new objects; opening an existing object
+does not repair its ACL. `FILE_CREATE` fails on an existing name, `FILE_OPEN`
+opens only an existing object and `FILE_OPEN_IF` opens-or-creates without the
+overwrite dispositions. The helper resolves the named export with
+`GetModuleHandleW(L"ntdll.dll")`/`GetProcAddress`, as supported by the API
+documentation, using the current SDK prototype/constants. No external package,
+private syscall number, driver or hook is introduced. Missing support denies
+the operation; there is no path-based fallback.
+
+The official directory compatible-options list omits
+`FILE_OPEN_REPARSE_POINT`. The implementation avoids assuming that combination:
+a new directory uses `FILE_CREATE | FILE_DIRECTORY_FILE`; only name collision
+branches once to `FILE_OPEN | FILE_OPEN_REPARSE_POINT` without the directory
+option, followed by actual-handle type validation. This is bounded existence
+handling, not a contention retry. Both use
+[OBJ_DONT_REPARSE](https://learn.microsoft.com/en-us/windows/win32/api/ntdef/ns-ntdef-_object_attributes),
+whose documented purpose is to stop name parsing on a reparse. Existing opens
+also use the native equivalent of the 9.D final-component Win32 reparse flag.
+Every successful returned handle is independently checked for reparse state.
+
+The implementation maintains these additional invariants:
+
+- Only the helper's P18 Known Folder result selects LocalAppData. It accepts
+  ordinary local absolute DOS paths, preserves UTF-16/Unicode/spaces, rejects
+  traversal, streams and injected namespaces, and converts internally to an NT
+  name. UNC, unsupported paths, reparse traversal and non-fixed/non-NTFS volumes
+  deny; no caller chooses a root. The Known Folder security descriptor is not
+  modified or subjected to the child owner-only DACL recipe.
+- Every subsequent lookup has one fixed component and a still-held verified
+  parent handle. There are no multi-component child paths, separators, dot
+  traversal, streams, wildcard or object-namespace injections. Parent identities
+  are rechecked before child opens; all pins are checked before token release to
+  the caller and on each explicit owner validation. Volume serial and file index
+  are captured from returned handles and compared without reopening by path.
+- Creation supplies explicit current-process-user owner and one protected
+  full-access allow ACE, with object/container inheritance flags only on
+  directories. Existing `Shiroha` follows 9.D's directory/no-reparse/current-owner
+  ancestor rule; controlled descendants additionally require the exact DACL.
+  Unexpected owner, DACL, ACE/flags, object type, reparse state or volume denies
+  with `temporarilyUnavailable`, per 9.B.4. Files with multiple hard links deny.
+  App creates the shared `Shiroha`/`external` ancestors; Bridge opens them only
+  and refuses an absent App root before creating its own `bridge` directory.
+- Volume checks use `GetVolumeInformationByHandleW`, actual-handle volume GUID
+  and `GetDriveTypeW`; drive letters or path strings are not identity evidence.
+  Directory handles share read/write but never delete; the lock shares nothing.
+  All handles remain owned until explicit close, even after validation denial.
+- Relative opens bind the actual parent, so parent path renames/redirection do
+  not select a different parent for later child work. Checks are not a promise
+  that a same-SID program cannot mutate ACLs/attributes or proxy/copy keys: the
+  accepted 9.B.5/9.D same-SID boundary is unchanged. Uncontrolled parent traversal
+  cannot simply be relabeled an accepted same-SID risk, especially for a
+  pre-existing ancestor; the relative-handle scheme removes that reliance.
+- No delete, replace, ACL repair or rollback sweep exists in this slice. Partial
+  failure closes acquired handles and may leave compliant empty directories.
+  A new explicit attempt revalidates them. Future destructive operations still
+  require the original strict identity/ownership rechecks; no risk acceptance
+  or cleanup authority is expanded.
+
+### ABI, writer locks and release
+
+ABI 2 retains the original six exports and adds these `__cdecl` fixed-width
+calls, with no path or raw HANDLE parameter/result:
+
+| Export | Parameters / result |
+|---|---|
+| `shiroha_native_owner_acquire` | `uint32_t version`, role (1 App / 2 Bridge), aligned live `uint64_t* token`; `int32_t` status |
+| `shiroha_native_owner_validate` | Version, `uint64_t token`; status |
+| `shiroha_native_owner_close` | Version, token; status |
+
+The six P18 signatures, DPAPI user scope, zeroization, memory release and failure
+classes are unchanged. P18 memory operations accept version 1 or 2; new owner
+calls accept only version 2. `abi_version` reports 2. The updated Dart adapter
+requires exactly 2 and all nine symbols; older Dart adapters reject the new DLL
+conservatively rather than adopting unrecognized capabilities.
+
+Acquire returns a positive, never-reused process-local token only after all
+checks succeed. It binds a maximum of twelve parent/child handles, including
+the OS lock, in one of 32 bounded registry slots. Exhaustion denies before object
+access. C callers must provide live aligned token output; failure writes zero.
+The registry mutex protects only native ownership bookkeeping: exclusion of
+App/Bridge writers comes from the real OS file handle with sharing mode zero.
+Files use `FILE_OPEN_IF`, without truncate/write/delete-on-close. Contention
+returns `temporarilyUnavailable` immediately with no retry and no store work.
+Only root/lock preparation precedes lock acquisition; App store directories
+are prepared after its successful lock. App and Bridge locks are independent.
+
+`acquireAppObjects`/`acquireBridgeObjects` are explicit Dart operations returning
+`ExternalProtectedObjects`; no public token constructor, path or HANDLE escapes.
+`ensureOpen` checks held identities; any denial permanently disallows use of that
+owner. The OS lock remains held across ordinary Future completion and must be
+closed explicitly after the owning caller drains its work. There is no automatic
+startup, finalizer, Future-scoped unlock or store integration. This slice provides
+the exclusion primitive, not an already integrated Credential Store writer.
+
+Successful native close closes every actual OS handle once and retires the token;
+stale/unknown/duplicate native tokens are `invalidInput`. Dart close is idempotent
+and permanently denies subsequent use. An OS close failure reports unavailable,
+quarantines the registry slot and forbids automatic retries of potentially stale
+HANDLE values; the slot remains unavailable until process teardown. A failed
+acquisition publishes no token; its acquired handles are closed or quarantined.
+Dart closes an acquired-but-untransferred token if result handling fails and
+releases its native token-output buffer. It still attempts close after a later
+ABI validation failure; no validation failure silently releases the writer lock.
+
+### Evidence and remaining acceptance
+
+`windows/external_native/check_offline.ps1` independently configures/builds the
+x64 helper, checks the exact nine exports and system imports, checks that both
+offline executables lack production security/file-operation imports, then runs
+the P18 memory core and P19 protected-object core with fakes only. It never loads
+the production DLL. `/W4 /WX`, `/GS`, ASLR/DEP and CFG remain enabled. The standing
+`Windows native offline contracts` job runs this helper and is required by the
+aggregate PR check; existing Linux Dart shards retain the adapter/source guards.
+Exact toolchain, test counts and command results belong to PR evidence.
+
+Official API guarantees above and deterministic core/source tests support a
+reviewable user-mode implementation without weakening 9.D. They do not prove
+real filesystem behavior: actual Windows 11 x64 object creation, descriptor
+round trips, NT option/disposition behavior, volume/reparse refusal, cross-process
+contention and normal handle release remain **LOCAL-L1 PENDING**. Cross-SID
+attacks, hostile replacement, crash/abnormal recovery and complete independent
+security/system-stability acceptance remain G0-I. No L1/L2/I calls, destructive
+experiments or production runtime activation are included.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.

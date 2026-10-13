@@ -296,6 +296,18 @@ runtime.lock/client.lock exclusion, then the versioned DPAPI Credential Store.
 TRANSPORT remains BLOCKED, AR-R6A NOT_ACCEPTED and HOST_STABILITY_HALT ACTIVE;
 no P19, Package 2/3 or AR-R6B is activated by this source delivery.
 
+P19 extends the same inactive helper under
+[Windows readiness section 11](../product/agent-refactor/windows-host-security-readiness.md#11-p19-protected-objects-and-single-writer-ownership):
+protected-directory creation/validation, parent-bound child handles, Owner/
+protected DACL/fixed NTFS/reparse/file identity checks and OS-exclusive App/
+Bridge locks with explicit Dart lifetime. Its native Windows compile/import/
+export and fake-only core checks join standing CI; no real Windows security
+function or Host is activated. Credential Store persistence/CAS, crypto,
+publication and runtime composition still require separate scoped work.
+LOCAL-L1/G0-I acceptance remains pending and the three halt/acceptance states
+above remain unchanged. This source scope does not start P20, Package 2/3 or
+AR-R6B.
+
 The retained target is Codex/Claude MCP Bridge → Shiroha External Host →
 authenticated and authorized question-bank READ/STAGE services.
 

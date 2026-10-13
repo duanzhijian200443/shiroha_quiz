@@ -23,10 +23,16 @@ final class FakeExternalNativeCalls implements ExternalNativeCalls {
   final freed = <int>[];
   final events = <String>[];
   Uint8List result = Uint8List.fromList([9, 8, 7]);
-  int version = 1, status = 0, allocationCount = 0, operationCount = 0;
+  int version = 2, status = 0, allocationCount = 0, operationCount = 0;
   int? failAllocation, outputLength;
   bool throwOperation = false;
   Uint8List? capturedInput;
+  final owners = <int, int>{};
+  int nextToken = 1, ownerStatus = 0, closeStatus = 0;
+  bool invalidOwnerResult = false,
+      throwValidate = false,
+      throwFree = false,
+      throwClose = false;
 
   @override
   int abiVersion() {
@@ -49,6 +55,36 @@ final class FakeExternalNativeCalls implements ExternalNativeCalls {
     buffer.asTypedList(capacity).fillRange(0, capacity, 0);
     freed.add(buffer.address);
     _free(buffer.cast<Void>());
+    if (throwFree) throw StateError('synthetic private release detail');
+  }
+
+  @override
+  int acquireOwner(int version, int role, Pointer<Uint64> token) {
+    events.add('acquire:$role');
+    token.value = 0;
+    if (owners.containsValue(role)) return 4;
+    if (ownerStatus != 0) return ownerStatus;
+    if (invalidOwnerResult) return 0;
+    token.value = nextToken++;
+    owners[token.value] = role;
+    if (throwOperation) throw StateError('synthetic private native detail');
+    return 0;
+  }
+
+  @override
+  int validateOwner(int version, int token) {
+    events.add('validate');
+    if (throwValidate) throw StateError('synthetic private handle detail');
+    return owners.containsKey(token) ? ownerStatus : 1;
+  }
+
+  @override
+  int closeOwner(int version, int token) {
+    events.add('close');
+    if (!owners.containsKey(token)) return 1;
+    owners.remove(token);
+    if (throwClose) throw StateError('synthetic private close detail');
+    return closeStatus;
   }
 
   int _result(Pointer<Uint8> output, Pointer<Uint64> written) {

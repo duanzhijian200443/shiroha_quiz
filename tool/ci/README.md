@@ -22,7 +22,13 @@ implementation, frozen DPAPI parameters and absent runtime wiring. Neither
 loads the production helper or performs Windows security calls. Native x64
 compilation/export inspection and the fake-only C++ core suite are local G0-L0
 evidence; these Linux shards cannot establish Windows compilation or real
-DPAPI/protected-object behavior. LOCAL-L1 remains PENDING.
+DPAPI/protected-object behavior. P19 also adds the hard-failing Windows native
+offline job to the aggregate check: the independent helper compiles with MSVC
+x64, exact exports/system imports are inspected and both fake-only core suites
+run after their imports are checked for absent real security/file operations.
+The production DLL is never loaded by that job. P19 extends the existing Dart
+suites for protected-owner acquisition, contention, permanent denial and explicit
+release. These are compilation/offline evidence; LOCAL-L1 remains PENDING.
 
 The four shards keep `--concurrency=1`. Flutter's additional JSON reporter
 collects timing in the same test invocation, without running tests twice. The

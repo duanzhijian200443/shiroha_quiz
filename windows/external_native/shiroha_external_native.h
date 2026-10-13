@@ -14,7 +14,7 @@
 extern "C" {
 #endif
 
-#define SHIROHA_NATIVE_ABI_VERSION 1u
+#define SHIROHA_NATIVE_ABI_VERSION 2u
 #define SHIROHA_NATIVE_MAX_BYTES 65536u
 
 // Fixed status categories only; statuses carry no OS error, path or secret.
@@ -26,6 +26,21 @@ enum ShirohaNativeStatus {
   SHIROHA_NATIVE_UNAVAILABLE = 4,
   SHIROHA_NATIVE_DATA_CORRUPT = 5
 };
+
+enum ShirohaNativeOwner { SHIROHA_NATIVE_APP = 1, SHIROHA_NATIVE_BRIDGE = 2 };
+
+// ABI 2 only. No caller paths/HANDLEs. token is aligned, live uint64_t storage.
+// Success transfers a process-local owner token (never reused); failure sets 0.
+// The owner holds verified parent/child handles + a no-sharing OS lock until
+// close. validate never reacquires or revives a denied/closed owner. Native
+// duplicate/unknown close is INVALID_INPUT. Failed OS close quarantines the
+// slot, permanently denies the token and never retries a stale HANDLE value.
+SHIROHA_NATIVE_API int32_t SHIROHA_NATIVE_CALL shiroha_native_owner_acquire(
+    uint32_t abi_version, uint32_t role, uint64_t* token);
+SHIROHA_NATIVE_API int32_t SHIROHA_NATIVE_CALL shiroha_native_owner_validate(
+    uint32_t abi_version, uint64_t token);
+SHIROHA_NATIVE_API int32_t SHIROHA_NATIVE_CALL shiroha_native_owner_close(
+    uint32_t abi_version, uint64_t token);
 
 SHIROHA_NATIVE_API uint32_t SHIROHA_NATIVE_CALL shiroha_native_abi_version(void);
 

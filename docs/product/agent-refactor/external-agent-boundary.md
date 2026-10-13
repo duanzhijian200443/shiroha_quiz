@@ -1122,6 +1122,16 @@ property cannot be proved, keep Host closed; no authentication fallback or silen
 change to P0/P4/Grant semantics. HOST_STABILITY_HALT = ACTIVE;
 TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED; AR-R6B remains inactive.
 
+P18/P19 supply bounded, inactive native Infrastructure under readiness §§10–11:
+one Windows helper with user-scope DPAPI, parent-handle-relative protected-object
+creation/inspection and `runtime.lock`/`bridge\client.lock` OS exclusion, plus
+explicit Dart FFI owners. ABI 2 extends the existing helper; it creates no second
+Credential Store or Principal and changes no section 12 association semantics.
+No store, issuer, Discovery publisher or P12/P15/Host composition is supplied.
+Native compile and fake-only checks are G0-L0; real ACL/NTFS/lock behavior remains
+LOCAL-L1 PENDING and full cross-SID/system acceptance remains G0-I. Existing
+HALT/Transport/AR-R6A states are unchanged.
+
 ## 12. P15 External credential boundary (offline implementation candidate)
 
 P14 is accepted through merged [PR #265](https://github.com/duanzhijian200443/shiroha_quiz/pull/265).

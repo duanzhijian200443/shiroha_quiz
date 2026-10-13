@@ -33,7 +33,8 @@ void main() {
         'GetEnvironmentVariable',
         'getenv(',
         'CreateDirectory',
-        'CreateFile',
+        'CreateFileW',
+        'CreateFileA',
         'BCryptGenerateKeyPair',
         'CertAddCertificate',
         'CreateThread',
@@ -70,11 +71,14 @@ void main() {
       'shiroha_native_local_app_data',
       'shiroha_native_dpapi_protect',
       'shiroha_native_dpapi_unprotect',
+      'shiroha_native_owner_acquire',
+      'shiroha_native_owner_validate',
+      'shiroha_native_owner_close',
     ]) {
       expect(header, contains(symbol));
       expect(bindings, contains("'$symbol'"));
     }
-    expect(header, contains('SHIROHA_NATIVE_ABI_VERSION 1u'));
+    expect(header, contains('SHIROHA_NATIVE_ABI_VERSION 2u'));
     expect(header, contains('SHIROHA_NATIVE_MAX_BYTES 65536u'));
     expect(header, contains('__declspec(dllexport)'));
     expect(header, contains('__cdecl'));
@@ -83,6 +87,59 @@ void main() {
     expect(bindings, contains('Pointer<Uint64>'));
     expect(bindings, contains('Int32 Function'));
     expect(bindings, contains('Uint32 Function'));
+  });
+
+  test('protected children bind parent handles and never reopen caller paths',
+      () {
+    final source = File('windows/external_native/protected_windows.cpp')
+        .readAsStringSync();
+    expect(source, contains('attributes.RootDirectory = parent'));
+    expect(source, contains('OBJ_CASE_INSENSITIVE | OBJ_DONT_REPARSE'));
+    expect(source, contains('GetModuleHandleW(L"ntdll.dll")'));
+    expect(source, contains('GetProcAddress(module, "NtCreateFile")'));
+    expect(
+        source,
+        contains(
+            'directory_create ? FILE_DIRECTORY_FILE : FILE_OPEN_REPARSE_POINT'));
+    expect(
+        source, contains('exclusive ? 0 : FILE_SHARE_READ | FILE_SHARE_WRITE'));
+    expect(source, contains('SE_DACL_PROTECTED, SE_DACL_PROTECTED'));
+    for (final symbol in [
+      'GetSecurityInfo',
+      'GetVolumeInformationByHandleW',
+      'GetFileInformationByHandle',
+      'GetFinalPathNameByHandleW',
+      'GetDriveTypeW',
+      'CloseHandle'
+    ]) {
+      expect(source, contains(symbol));
+    }
+    for (final forbidden in [
+      'CreateDirectoryW',
+      'CreateFileW',
+      'SetSecurityInfo',
+      'FILE_OVERWRITE',
+      'FILE_SUPERSEDE',
+      'FILE_DELETE_ON_CLOSE',
+      'DeleteFileW',
+      'RemoveDirectoryW',
+      'MoveFileExW',
+      'FILE_SHARE_DELETE'
+    ]) {
+      expect(source, isNot(contains(forbidden)));
+    }
+    final core = File('windows/external_native/protected_objects.cpp')
+        .readAsStringSync();
+    expect(core, contains('i.aces.size() != 1'));
+    expect(core, contains('ace.mask == FILE_ALL_ACCESS'));
+    expect(core, contains('current.file != pin.identity.file'));
+    expect(core, contains('L"runtime.lock" : L"client.lock"'));
+    expect(core, isNot(contains('CreateFile')));
+    expect(core, isNot(contains('DeleteFile')));
+    final header = File('windows/external_native/shiroha_external_native.h')
+        .readAsStringSync();
+    expect(
+        header.replaceAll(RegExp(r'//[^\n]*'), ''), isNot(contains('HANDLE')));
   });
 
   test('native adapter is absent from startup, MCP and all authority layers',
@@ -165,6 +222,14 @@ void main() {
     expect(cmake, contains('crypt32 shell32 ole32 uuid'));
     expect(cmake, contains('native_core.cpp tests/native_core_test.cpp'));
     expect(cmake, contains('SHIROHA_NATIVE_OFFLINE_TESTS'));
+    expect(cmake,
+        contains('protected_objects.cpp tests/protected_objects_test.cpp'));
+    final workflow =
+        File('.github/workflows/pr-contract-checks.yml').readAsStringSync();
+    expect(
+        workflow, contains('run: ./windows/external_native/check_offline.ps1'));
+    expect(workflow, contains('- windows_native'));
+    expect(workflow, contains("needs.windows_native.result"));
     expect(cmake, isNot(contains('flutter')));
     final root = File('windows/CMakeLists.txt').readAsStringSync();
     expect(root, contains('add_subdirectory("external_native")'));

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -23,6 +24,148 @@ void main() {
     );
   });
   tearDown(() => expect(calls.allocations, isEmpty));
+
+  test('owner acquisition is explicit, roles contend and close releases', () {
+    expect(calls.owners, isEmpty);
+    final app = adapter.acquireAppObjects();
+    final bridge = adapter.acquireBridgeObjects();
+    app.ensureOpen();
+    bridge.ensureOpen();
+    expect(calls.owners.length, 2);
+    expect(adapter.acquireAppObjects,
+        fails(ExternalNativeFailure.temporarilyUnavailable));
+    expect(adapter.acquireBridgeObjects,
+        fails(ExternalNativeFailure.temporarilyUnavailable));
+    expect(calls.owners.length, 2);
+    expect(app.toString(), 'ExternalProtectedObjects(REDACTED)');
+    app.close();
+    app.close();
+    expect(app.isClosed, isTrue);
+    expect(app.ensureOpen, fails(ExternalNativeFailure.invalidInput));
+    final replacement = adapter.acquireAppObjects();
+    replacement.close();
+    bridge.close();
+    expect(calls.owners, isEmpty);
+    expect(calls.events.where((e) => e == 'close').length, 3);
+  });
+
+  test('ordinary Future completion never releases an owning lock', () async {
+    final owner = adapter.acquireAppObjects();
+    final settlement = Completer<void>();
+    final work = settlement.future.then((_) => owner.ensureOpen());
+    owner.ensureOpen();
+    settlement.complete();
+    await work;
+    expect(calls.owners.length, 1);
+    expect(calls.events, isNot(contains('close')));
+    owner.close();
+  });
+
+  test('failed acquisition cannot enter store work or leak temporary storage',
+      () {
+    var operations = 0;
+    calls.ownerStatus = 4;
+    expect(() {
+      final owner = adapter.acquireAppObjects();
+      owner.ensureOpen();
+      operations++;
+    }, fails(ExternalNativeFailure.temporarilyUnavailable));
+    expect(operations, 0);
+    expect(calls.owners, isEmpty);
+  });
+
+  test(
+      'owner ABI mismatch rejects before allocation and acquired close remains',
+      () {
+    final owner = adapter.acquireAppObjects();
+    calls.version = 1;
+    final count = calls.allocationCount;
+    expect(
+        adapter.acquireBridgeObjects, fails(ExternalNativeFailure.abiMismatch));
+    expect(calls.allocationCount, count);
+    expect(owner.ensureOpen, fails(ExternalNativeFailure.abiMismatch));
+    owner.close();
+    expect(calls.owners, isEmpty);
+  });
+
+  test('owner validation denial is permanent and close is still available', () {
+    final owner = adapter.acquireBridgeObjects();
+    calls.ownerStatus = 4;
+    expect(
+        owner.ensureOpen, fails(ExternalNativeFailure.temporarilyUnavailable));
+    calls.ownerStatus = 0;
+    expect(owner.ensureOpen, fails(ExternalNativeFailure.invalidInput));
+    owner.close();
+    expect(calls.owners, isEmpty);
+  });
+
+  test('unexpected native owner exceptions redact and still permit release',
+      () {
+    final owner = adapter.acquireAppObjects();
+    calls.throwValidate = true;
+    expect(
+        owner.ensureOpen, fails(ExternalNativeFailure.temporarilyUnavailable));
+    owner.close();
+    expect(calls.owners, isEmpty);
+  });
+
+  test('invalid success and unknown status never create a Dart owner', () {
+    calls.invalidOwnerResult = true;
+    expect(adapter.acquireAppObjects,
+        fails(ExternalNativeFailure.invalidNativeResult));
+    calls.invalidOwnerResult = false;
+    calls.ownerStatus = 99;
+    expect(adapter.acquireBridgeObjects,
+        fails(ExternalNativeFailure.invalidNativeResult));
+    expect(calls.owners, isEmpty);
+  });
+
+  test('exception after acquire or buffer free closes untransferred owner', () {
+    calls.throwOperation = true;
+    expect(adapter.acquireAppObjects,
+        fails(ExternalNativeFailure.temporarilyUnavailable));
+    expect(calls.owners, isEmpty);
+    calls.throwOperation = false;
+    calls.throwFree = true;
+    expect(adapter.acquireBridgeObjects,
+        fails(ExternalNativeFailure.temporarilyUnavailable));
+    expect(calls.owners, isEmpty);
+  });
+
+  test(
+      'native close failure is reported and old owner cannot be used or retried',
+      () {
+    final owner = adapter.acquireAppObjects();
+    calls.closeStatus = 4;
+    expect(owner.close, fails(ExternalNativeFailure.temporarilyUnavailable));
+    expect(owner.isClosed, isTrue);
+    expect(owner.ensureOpen, fails(ExternalNativeFailure.invalidInput));
+    owner.close();
+    expect(calls.events.where((e) => e == 'close').length, 1);
+  });
+
+  test('owner allocation exhaustion never invokes native acquisition', () {
+    calls.failAllocation = 1;
+    expect(
+        adapter.acquireAppObjects, fails(ExternalNativeFailure.resourceLimit));
+    expect(calls.events, isNot(contains('acquire:1')));
+  });
+
+  test(
+      'exceptional acquisition cleanup redacts close and buffer release errors',
+      () {
+    calls.throwOperation = true;
+    calls.throwClose = true;
+    expect(adapter.acquireAppObjects,
+        fails(ExternalNativeFailure.temporarilyUnavailable));
+    expect(calls.owners, isEmpty);
+    calls.throwOperation = false;
+    calls.throwClose = false;
+    calls.ownerStatus = 4;
+    calls.throwFree = true;
+    expect(adapter.acquireAppObjects,
+        fails(ExternalNativeFailure.temporarilyUnavailable));
+  });
 
   test('non-Windows refuses before filesystem, loader or ABI access', () {
     expect(
@@ -91,7 +234,7 @@ void main() {
   });
 
   test('incompatible version rejects before native allocation/operation', () {
-    calls.version = 2;
+    calls.version = 3;
     expect(() => adapter.protect(Uint8List.fromList([1])),
         fails(ExternalNativeFailure.abiMismatch));
     expect(() => adapter.resolveLocalAppData(),
