@@ -108,10 +108,11 @@ Owns physical persistence and external integration:
 
 The External Windows primitive adapter in `lib/data/external/native` owns
 explicit SDK FFI calls to the independent `windows/external_native` C ABI DLL.
-It supplies bounded DPAPI memory operations and an unvalidated known-folder
-path, not a Credential Store, verifier or Application authority. It is absent
+It supplies bounded DPAPI memory operations, an unvalidated known-folder path
+and explicit protected-object owners with parent-bound native handles and App/
+Bridge OS-exclusive writer locks, not a Credential Store, verifier or Application authority. It is absent
 from startup, Agent/MCP and P12/P15 composition. The readiness contract section
-10 owns this first production source slice and its pending Windows acceptance.
+10–11 owns these production source slices and their pending Windows acceptance.
 
 Persistence formats and provider formats are implementation details, not public application contracts.
 

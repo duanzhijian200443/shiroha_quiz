@@ -38,10 +38,62 @@ final class ExternalLocalAppDataPath {
 /// It performs no persistence, trust recovery, session creation or Host wiring.
 final class WindowsExternalNative {
   WindowsExternalNative._(this._calls);
-  static const abiVersion = 1;
+  static const abiVersion = 2;
   static const maxBytes = 65536;
   static const libraryName = 'shiroha_external_native.dll';
   final ExternalNativeCalls _calls;
+
+  /// Explicit acquisition only. The returned owner retains the real OS lock
+  /// across asynchronous work until its caller explicitly closes it.
+  ExternalProtectedObjects acquireAppObjects() => _acquireOwner(1);
+  ExternalProtectedObjects acquireBridgeObjects() => _acquireOwner(2);
+
+  ExternalProtectedObjects _acquireOwner(int role) {
+    _checkAbi();
+    Pointer<Uint8> output = nullptr;
+    var token = 0;
+    try {
+      output = _allocate(sizeOf<Uint64>());
+      final result = output.cast<Uint64>();
+      result.value = 0;
+      final status = _calls.acquireOwner(abiVersion, role, result);
+      token = result.value;
+      _checkStatus(status);
+      if (token <= 0) _fail(ExternalNativeFailure.invalidNativeResult);
+      // Free before ownership transfer. An allocation-release exception cannot
+      // strand an OS owner behind an unsuccessful Dart return.
+      final released = output;
+      output = nullptr;
+      _calls.free(released);
+      final owner = ExternalProtectedObjects._(this, token);
+      token = 0;
+      return owner;
+    } on ExternalNativeException {
+      rethrow;
+    } catch (_) {
+      _fail(ExternalNativeFailure.temporarilyUnavailable);
+    } finally {
+      var cleanupFailed = false;
+      try {
+        // A throwing fake/native boundary may have populated the result first.
+        if (output != nullptr && token == 0) {
+          token = output.cast<Uint64>().value;
+        }
+        if (token > 0 && _calls.closeOwner(abiVersion, token) != 0) {
+          cleanupFailed = true;
+        }
+      } catch (_) {
+        cleanupFailed = true;
+      } finally {
+        try {
+          if (output != nullptr) _calls.free(output);
+        } catch (_) {
+          cleanupFailed = true;
+        }
+      }
+      if (cleanupFailed) _fail(ExternalNativeFailure.temporarilyUnavailable);
+    }
+  }
 
   static WindowsExternalNative open() => _open(
         windows: Platform.isWindows,
@@ -206,4 +258,54 @@ final class WindowsExternalNative {
 
   static Never _fail(ExternalNativeFailure failure) =>
       throw ExternalNativeException(failure);
+}
+
+/// Infrastructure ownership only. No paths, native handles or token constructor
+/// escape this adapter. Close after the owning caller has drained all work;
+/// completing a Future never releases the lock automatically.
+final class ExternalProtectedObjects {
+  ExternalProtectedObjects._(this._adapter, this._token);
+  final WindowsExternalNative _adapter;
+  final int _token;
+  bool _closed = false, _denied = false;
+  bool get isClosed => _closed;
+
+  /// Rechecks the held handles and captured identities without reopening paths.
+  /// Denial is permanent for this owner; only close remains permitted.
+  void ensureOpen() {
+    if (_closed || _denied) {
+      WindowsExternalNative._fail(ExternalNativeFailure.invalidInput);
+    }
+    try {
+      _adapter._checkAbi();
+      WindowsExternalNative._checkStatus(_adapter._calls
+          .validateOwner(WindowsExternalNative.abiVersion, _token));
+    } on ExternalNativeException {
+      _denied = true;
+      rethrow;
+    } catch (_) {
+      _denied = true;
+      WindowsExternalNative._fail(ExternalNativeFailure.temporarilyUnavailable);
+    }
+  }
+
+  /// Idempotent Dart close; native stale tokens never regain ownership. A failed
+  /// close denies further use and reports failure, with native quarantine.
+  void close() {
+    if (_closed) return;
+    _closed = true;
+    try {
+      // Closing the acquired version is still required if a later ABI check
+      // fails. No allocation, Future completion or finalizer owns this release.
+      WindowsExternalNative._checkStatus(
+          _adapter._calls.closeOwner(WindowsExternalNative.abiVersion, _token));
+    } on ExternalNativeException {
+      rethrow;
+    } catch (_) {
+      WindowsExternalNative._fail(ExternalNativeFailure.temporarilyUnavailable);
+    }
+  }
+
+  @override
+  String toString() => 'ExternalProtectedObjects(REDACTED)';
 }

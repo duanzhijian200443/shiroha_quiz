@@ -19,6 +19,10 @@ const shiroha_native::Operations operations{
     protect, unprotect, free_local, known_folder, free_task};
 }  // namespace
 
+namespace shiroha_native {
+const Operations& windows_operations() noexcept { return operations; }
+}  // namespace shiroha_native
+
 int32_t SHIROHA_NATIVE_CALL shiroha_native_local_app_data(
     uint32_t version, uint8_t* output, uint64_t capacity, uint64_t* written) {
   return shiroha_native::local_app_data(version, output, capacity, written, operations);

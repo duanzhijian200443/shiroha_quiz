@@ -23,6 +23,17 @@ concurrency:
   cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
+  windows_native:
+    name: Windows native offline contracts
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Compile and inspect helper, run fake-only contracts
+        shell: pwsh
+        run: ./windows/external_native/check_offline.ps1
+
   static:
     name: Static changed-Dart checks
     runs-on: ubuntu-latest
@@ -489,6 +500,7 @@ jobs:
       - static
       - train_c_finalization_parity
       - contracts
+      - windows_native
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -500,13 +512,16 @@ jobs:
           $staticResult = '${{ needs.static.result }}'
           $parityResult = '${{ needs.train_c_finalization_parity.result }}'
           $contractsResult = '${{ needs.contracts.result }}'
+          $nativeResult = '${{ needs.windows_native.result }}'
 
           Write-Output "Static checks: $staticResult"
           Write-Output "TRAIN C finalization parity: $parityResult"
           Write-Output "Contract shards: $contractsResult"
+          Write-Output "Windows native offline contracts: $nativeResult"
 
           if ($staticResult -ne 'success' -or
               $parityResult -ne 'success' -or
-              $contractsResult -ne 'success') {
+              $contractsResult -ne 'success' -or
+              $nativeResult -ne 'success') {
             exit 1
           }
