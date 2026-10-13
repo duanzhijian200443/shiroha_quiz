@@ -1,5 +1,6 @@
 #include "protected_objects.h"
 #include "native_core.h"
+#include "association_rename.h"
 #include <aclapi.h>
 #include <winternl.h>
 #include <cstring>
@@ -282,16 +283,12 @@ class WindowsObjects final : public ObjectOperations {
     return FlushFileBuffers(file) ? SHIROHA_NATIVE_OK : SHIROHA_NATIVE_UNAVAILABLE;
   }
   int32_t replace_file(HANDLE temporary, HANDLE directory, bool existing) override {
-    constexpr wchar_t target[] = L"associations.bin";
-    alignas(FILE_RENAME_INFO) uint8_t buffer[sizeof(FILE_RENAME_INFO) + sizeof(target)]{};
-    auto* info = reinterpret_cast<FILE_RENAME_INFO*>(buffer);
-    info->ReplaceIfExists = existing ? TRUE : FALSE;
-    info->RootDirectory = directory;
-    info->FileNameLength = sizeof(target) - sizeof(wchar_t);
-    std::memcpy(info->FileName, target, sizeof(target));
-    return SetFileInformationByHandle(temporary, FileRenameInfo, info,
-        static_cast<DWORD>(offsetof(FILE_RENAME_INFO, FileName) + sizeof(target)))
-        ? SHIROHA_NATIVE_OK : SHIROHA_NATIVE_COMMIT_UNKNOWN;
+    const auto module = GetModuleHandleW(L"ntdll.dll");
+    const auto symbol = module ? GetProcAddress(module, "NtSetInformationFile") : nullptr;
+    SetInformationFile set_information = nullptr;
+    static_assert(sizeof(set_information) == sizeof(symbol), "Windows function pointer size");
+    std::memcpy(&set_information, &symbol, sizeof(symbol));
+    return rename_association(set_information, temporary, directory, existing);
   }
 };
 

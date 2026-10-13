@@ -945,8 +945,15 @@ requires.
   (`FlushFileBuffers`) → atomic replace by handle
   (`SetFileInformationByHandle`/`FileRenameInfo` with replace;
   `MoveFileExW` + `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH` is the
-  documented alternative) → success is reported only after the replace call
-  reports success. The whole read-through-replace sequence runs only while the
+  documented alternative). For the P20 Association Store only, the G0-L0
+  candidate uses `NtSetInformationFile(FileRenameInformation, class 10)` with
+  the verified state-directory handle and fixed relative `associations.bin`;
+  there is no path-based fallback. This exception changes no other object's
+  implementation or acceptance. Success requires a settled successful API and
+  completion result plus section 12's post-publication checks. Section 12 also
+  owns the P20-only verified-target close before class 10 replacement; the App
+  owner, writer lock and all parent pins remain held throughout.
+  The whole read-through-replace sequence runs only while the
   root's writer lock is held (single writer above); the atomic replace is its
   final durability step, not its mutual-exclusion mechanism. A crash before
   the replace leaves the previous valid state; after it, the new valid state.
@@ -1757,14 +1764,37 @@ Unknown handle-close results quarantine the owner and never retry stale handles.
 
 The fixed `associations.bin` component is opened relative to the verified
 `app/state` pin using P19's documented `NtCreateFile` mechanism. Read handles
-allow read/delete sharing, but deny write sharing; delete sharing permits the
-holder's whole-file atomic replacement. P19 directory and writer-lock handles
+allow read/delete sharing, but deny write sharing; delete sharing does not permit
+class 10 replacement of an open destination. P19 directory and writer-lock handles
 retain their existing deny-delete/no-sharing policies. The original file
 identity is retained during the transaction. Before and after child opens, and
 again before replacement, the core checks the App owner/lock/pins, exact DACL,
 SID, NTFS/fixed volume, reparse/type/link rules and target identity/existence.
 Missing never skips parent validation. An observed replacement or invalid owner
 denies; no path-only reopen or arbitrary-directory fallback exists.
+
+For an existing target, begin retains its read handle and captured identity.
+Commit's final pre-publication checks validate the current fixed name against
+that identity, including SID/DACL, fixed NTFS volume, reparse/type/link rules
+and file ID, while the App owner, OS-exclusive writer lock and every parent pin
+remain held. After the final necessary target/temp validation, commit detaches
+the old target handle and attempts close exactly once before class 10 rename.
+An unsuccessful close quarantines the owner, consumes the transaction and
+returns unavailable without entering rename; no uncertain handle is retried.
+No target reopen is added between that successful close and rename. Original
+identity/existence remain captured values for the decision, not a continuously
+held destination HANDLE. Missing has no old target handle to release.
+
+This leaves a check/close-to-rename TOCTOU window. The lifetime-held writer lock
+excludes cooperating writers that follow this store protocol; it does not
+exclude an arbitrary same-SID program or Administrator. Such an actor may
+mutate/remove/replace the destination after the final check, causing rename
+failure or replacement of a different intervening object. A post-publication
+check of our new temp identity cannot prove the replaced object was still the
+original snapshot at the rename instant. These are the existing accepted
+same-SID mutation/replay risks in §9.B.5/9.D, not newly claimed protection or
+complete TOCTOU elimination. Parent binding, access/sharing, cross-SID DACL
+requirements and real acceptance gates are unchanged.
 
 Commit follows read → validate/CAS → encode → DPAPI → create same-directory
 `~tmp-<runtimeId16>-<rand8>` → complete write → Flush → handle-relative rename.
@@ -1778,17 +1808,47 @@ reopen. Failed temp writes/Flush leave the old target intact and the inert
 leftover untouched; no cleanup sweep, target truncate, ACL repair or deletion
 is performed. Unknown names and foreign objects are never read or removed.
 
-Replacement uses `SetFileInformationByHandle(FileRenameInfo)` on the temp with
-the verified state handle in `FILE_RENAME_INFO.RootDirectory`, a fixed relative
-name and replace enabled only when the original target existed. The documented
-[RootDirectory relative-name contract](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info)
-provides parent binding. The core reports success only after the API explicitly
-succeeds and the new object's identity/security and owner pins revalidate.
+The P20 Association Store G0-L0 publication candidate uses the user-mode
+`ntdll.dll` export `NtSetInformationFile` with `NTAPI`, `IO_STATUS_BLOCK` and
+`FileRenameInformation` (10), never extended rename semantics or NtosKrnl linkage.
+Its x64 `FILE_RENAME_INFORMATION`-compatible fixed-name structure carries the
+verified state pin in `RootDirectory`, relative `associations.bin` and replace
+only when the original target existed and its identity was validated. The
+[documented relative-name form](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/ns-ntifs-_file_rename_information)
+uses a directory handle plus a simple name; no absolute-path fallback is allowed.
+The x64 base layout is 24 bytes; the fixed filename is 32 bytes, excluding NUL.
+The supplied request is 56 bytes, at least base size plus name bytes and no
+larger than its 56-byte allocation. Offsets, sizes and capacity are statically
+asserted; the fake rejects a 52-byte request.
+Temp/parent/target access masks and sharing policies are unchanged. The temp
+remains synchronous and DELETE-bearing. Both the direct NTSTATUS and the
+IO_STATUS_BLOCK completion Status must be exactly STATUS_SUCCESS before
+post-publication validation. Pending, warnings, missing export, untouched or
+inconsistent completion and other failures are never success; no retry is added.
+The core still closes the temp and revalidates the published identity/security
+and owner pins before reporting success.
+
+Batch 2's publication failure remains historical failure evidence; its final OS
+error was not captured or identified. This API change has no real Windows
+publication-success evidence. LOCAL-L1 and G0-I acceptance remain pending and
+unchanged. It is not an accepted implementation for other store objects and
+supplies no authority for Batch 3, cleanup or Host activation.
+
 Rename failure/exception, unknown response or post-rename close/validation failure
 is `commitUnknown`, never success or automatic retry. A fresh read resolves
 possible residue; stale CAS still fails and exact-revision idempotency remains.
 The same-SID mutation/replay risk accepted in §9.B.5/9.D is unchanged; these
 checks do not claim isolation from an arbitrary same-SID or Administrator writer.
+
+The native core has an optional caller-owned internal commit diagnostic that
+distinguishes admission/preparation, old-target close, rename, post-publication close/validation,
+exceptions and final transaction-release failure. It is not a C ABI export and
+contains no OS error, path, identity or content. It changes neither the above
+primitive nor public failure semantics and proves no real Windows repair.
+The separately compiled future harness in `windows/external_native/diagnostics`
+stops on unexpected results (including the first `commitUnknown`), allows only
+one owner-close attempt afterward, and prevents later probe modes. Its offline
+tests and resource observations supply no L1 execution authority.
 
 ### Offline evidence and pending real acceptance
 

@@ -18,7 +18,9 @@ $ctest = Join-Path (Split-Path -Parent $cmake) 'ctest.exe'
 
 & $cmake -S $PSScriptRoot -B $build -G 'Visual Studio 17 2022' -A x64 -DSHIROHA_NATIVE_OFFLINE_TESTS=ON
 if ($LASTEXITCODE -ne 0) { throw 'Native configure failed' }
-& $cmake --build $build --config $Configuration
+# Incremental Debug linking may retain unused imports from the previous API.
+# Rebuild only this tool-managed build tree before inspecting exact artifacts.
+& $cmake --build $build --config $Configuration --clean-first
 if ($LASTEXITCODE -ne 0) { throw 'Native build failed' }
 
 $dll = Join-Path $build "$Configuration/shiroha_external_native.dll"
@@ -39,17 +41,24 @@ $imports = (& $dumpbin /imports $dll | Out-String)
 if ($LASTEXITCODE -ne 0) { throw 'DLL import inspection failed' }
 foreach ($name in @('CryptProtectData', 'CryptUnprotectData', 'SHGetKnownFolderPath',
     'GetSecurityInfo', 'GetTokenInformation', 'GetVolumeInformationByHandleW', 'CloseHandle', 'GetProcAddress',
-    'ReadFile', 'WriteFile', 'FlushFileBuffers', 'SetFileInformationByHandle', 'GetFileInformationByHandleEx', 'BCryptGenRandom')) {
+    'ReadFile', 'WriteFile', 'FlushFileBuffers', 'GetFileInformationByHandleEx', 'BCryptGenRandom')) {
     if ($imports -notmatch "\b$name\b") { throw "Missing production system import: $name" }
 }
+# NtSetInformationFile is dynamically resolved in ntdll, never kernel-linked.
+if ($imports -match 'SetFileInformationByHandle|ntoskrnl') { throw 'Unexpected publication fallback/kernel import' }
+$wrapper = Get-Content (Join-Path $PSScriptRoot 'protected_windows.cpp') -Raw
+if ($wrapper -notmatch 'GetProcAddress\(module, "NtSetInformationFile"\)') { throw 'Missing user-mode publication entry' }
 # Inspect before executing. These executables link only production pure cores +
 # fakes. The production DLL is neither loaded nor called by this check helper.
-foreach ($name in @('shiroha_native_offline_test', 'shiroha_objects_offline_test')) {
+foreach ($name in @('shiroha_native_offline_test', 'shiroha_objects_offline_test', 'shiroha_probe_offline_test', 'shiroha_rename_layout_test')) {
     $imports = (& $dumpbin /imports (Join-Path $build "$Configuration/$name.exe") | Out-String)
-    if ($LASTEXITCODE -ne 0 -or $imports -match 'CryptProtectData|CryptUnprotectData|SHGetKnownFolderPath|NtCreateFile|GetSecurityInfo|GetTokenInformation|GetVolumeInformationByHandleW|CreateFile[AW]|CreateDirectory[AW]|ReadFile|WriteFile|FlushFileBuffers|SetFileInformationByHandle|GetFileInformationByHandleEx|BCryptGenRandom|shiroha_external_native\.dll') {
+    # GetProcAddress alone is used by the MSVC CRT even in the layout-only
+    # executable. Reject direct loaders/security operations, not CRT machinery.
+    if ($LASTEXITCODE -ne 0 -or $imports -match 'CryptProtectData|CryptUnprotectData|SHGetKnownFolderPath|NtCreateFile|NtSetInformationFile|GetSecurityInfo|GetTokenInformation|GetVolumeInformationByHandleW|CreateFile[AW]|CreateDirectory[AW]|ReadFile|WriteFile|FlushFileBuffers|SetFileInformationByHandle|GetFileInformationByHandleEx|BCryptGenRandom|\bLoadLibrary[AW]\b|shiroha_external_native\.dll') {
         throw 'Offline executable includes a real security/file operation'
     }
 }
 & $ctest --test-dir $build -C $Configuration --output-on-failure
 if ($LASTEXITCODE -ne 0) { throw 'Fake-only native contracts failed' }
+& (Join-Path $PSScriptRoot 'tests/runner_stop_test.ps1')
 Write-Output 'PASS: MSVC x64, twelve ABI exports, hardening, production imports and fake-only native contracts (no LOCAL-L1 acceptance)'

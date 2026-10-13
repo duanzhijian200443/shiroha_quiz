@@ -30,6 +30,12 @@ struct Fake final : ObjectOperations {
   bool unknown_after_replace = false, lock_lost_on_flush = false, target_changed_on_flush = false;
   bool temp_corrupt = false, collision = false;
   bool throw_after_replace = false;
+  bool fail_published_close = false, corrupt_published_identity = false;
+  bool fail_finish_after_replace = false;
+  bool fail_old_target_close = false;
+  HANDLE old_target = nullptr;
+  int old_target_closes = 0, rename_calls = 0;
+  HANDLE renamed = nullptr;
   std::map<uint64_t, std::vector<uint8_t>> contents;
   std::vector<std::wstring> file_events;
   HANDLE state = nullptr;
@@ -84,16 +90,28 @@ struct Fake final : ObjectOperations {
     return SHIROHA_NATIVE_OK;
   }
   int32_t replace_file(HANDLE h, HANDLE parent, bool existing) override {
+    ++rename_calls;
     check(flushed == h, "completed Flush precedes atomic replace");
+    check(handles.count(parent) == 1 && !locked.empty(), "parent and writer lock remain held at rename");
     file_events.push_back(existing ? L"replace-existing" : L"replace-new");
-    if (fail_stage == L"replace") return SHIROHA_NATIVE_COMMIT_UNKNOWN;
-    const auto identity = handles[h];
     const auto key = std::make_pair(handles[parent].file, std::wstring{L"associations.bin"});
+    if (objects.count(key)) {
+      for (const auto& held : handles) {
+        if (held.second.file == objects[key].file) return SHIROHA_NATIVE_COMMIT_UNKNOWN;
+      }
+    }
+    if (fail_stage == L"replace") {
+      if (fail_finish_after_replace) renamed = h;
+      return SHIROHA_NATIVE_COMMIT_UNKNOWN;
+    }
+    const auto identity = handles[h];
     check(objects.count(key) == static_cast<size_t>(existing), "replace existence matches validated snapshot");
     for (auto it = objects.begin(); it != objects.end();) {
       if (it->second.file == identity.file) it = objects.erase(it); else ++it;
     }
     objects[key] = identity;
+    renamed = h;
+    if (corrupt_published_identity) ++objects[key].file;
     if (throw_after_replace) throw std::runtime_error("synthetic");
     return unknown_after_replace ? SHIROHA_NATIVE_COMMIT_UNKNOWN : SHIROHA_NATIVE_OK;
   }
@@ -144,6 +162,12 @@ struct Fake final : ObjectOperations {
   }
   bool close(HANDLE h) noexcept override {
     ++closes;
+    if (h == old_target) {
+      ++old_target_closes;
+      file_events.push_back(L"close-old-target");
+      if (fail_old_target_close) return false;
+    }
+    if (h == renamed && (fail_published_close || fail_finish_after_replace)) return false;
     if (fail_close) return false;
     if (!handles.count(h)) std::abort();
     if (is_lock[h]) locked.erase(handles[h].file);
@@ -154,6 +178,96 @@ struct Fake final : ObjectOperations {
 }  // namespace
 
 int main() {
+  for (const bool fail_old_close : {false, true}) {
+    Fake f; ProtectedObjects core(f); uint64_t owner = 0, ticket = 0, written = 0;
+    uint8_t output[64]{}, input[]{4, 5, 6};
+    check(core.acquire(3, 1, &owner) == 0, "lifecycle owner");
+    check(core.association_begin(3, owner, output, sizeof(output), &written, &ticket) == SHIROHA_NATIVE_MISSING, "lifecycle parent");
+    check(core.association_abort(3, owner, ticket) == 0, "lifecycle fixture release");
+    const auto key = std::make_pair(f.handles[f.state].file, std::wstring{L"associations.bin"});
+    f.objects[key] = f.good(false); f.contents[f.objects[key].file] = {1, 2, 3};
+    check(core.association_begin(3, owner, output, sizeof(output), &written, &ticket) == 0, "lifecycle existing target");
+    for (const auto& held : f.handles) if (held.second.file == f.objects[key].file) f.old_target = held.first;
+    check(f.old_target != nullptr, "original target held after begin");
+    // Exercise the OS restriction directly; a fake must not accept an open
+    // destination, irrespective of delete sharing or ReplaceIfExists.
+    const auto synthetic = f.handle(f.good(false), false);
+    f.flushed = synthetic;
+    check(f.replace_file(synthetic, f.state, true) == SHIROHA_NATIVE_COMMIT_UNKNOWN,
+          "class 10 fake rejects an open destination");
+    check(f.contents[f.objects[key].file] == std::vector<uint8_t>({1, 2, 3}), "rejected rename preserves old content");
+    check(f.close(synthetic), "synthetic handle release");
+    const auto renames = f.rename_calls;
+    f.fail_old_target_close = fail_old_close;
+    CommitDiagnostic detail;
+    const auto result = core.association_commit(3, owner, ticket, input, sizeof(input), &detail);
+    check(result == (fail_old_close ? SHIROHA_NATIVE_UNAVAILABLE : SHIROHA_NATIVE_OK), "old target close controls publication");
+    check(f.old_target_closes == 1 && f.rename_calls == renames + (fail_old_close ? 0 : 1), "one close; no rename on uncertain close");
+    check(detail.stage == (fail_old_close ? CommitStage::target_close : CommitStage::complete), "old target close diagnostic");
+    check(core.association_abort(3, owner, ticket) == SHIROHA_NATIVE_INVALID_INPUT, "failed/successful commit consumes ticket");
+    const auto temp = std::make_pair(key.first, std::wstring{L"~tmp-0123456789abcdef-01234567"});
+    const auto closes = f.closes;
+    if (fail_old_close) {
+      check(f.objects.count(temp) == 1 && f.contents[f.objects[key].file] == std::vector<uint8_t>({1, 2, 3}), "close failure leaves inert temp and old target");
+      check(core.close(3, owner) == SHIROHA_NATIVE_UNAVAILABLE && f.closes == closes, "quarantine never retries uncertain old handle");
+    } else {
+      check(f.contents[f.objects[key].file] == std::vector<uint8_t>({4, 5, 6}), "closed target permits replacement");
+      check(core.close(3, owner) == 0 && f.handles.empty(), "lifecycle normal release");
+    }
+  }
+  {
+    Fake f; ProtectedObjects core(f); uint64_t owner = 0, ticket = 0, written = 0;
+    uint8_t output[64]{}, input[]{4, 5, 6};
+    check(core.acquire(3, 1, &owner) == 0, "existing drift owner");
+    check(core.association_begin(3, owner, output, sizeof(output), &written, &ticket) == SHIROHA_NATIVE_MISSING, "existing drift parent");
+    check(core.association_abort(3, owner, ticket) == 0, "existing drift fixture release");
+    const auto key = std::make_pair(f.handles[f.state].file, std::wstring{L"associations.bin"});
+    f.objects[key] = f.good(false); f.contents[f.objects[key].file] = {1, 2, 3};
+    check(core.association_begin(3, owner, output, sizeof(output), &written, &ticket) == 0, "existing drift snapshot");
+    const auto original = f.objects[key].file;
+    f.target_changed_on_flush = true;
+    CommitDiagnostic detail;
+    check(core.association_commit(3, owner, ticket, input, sizeof(input), &detail) == SHIROHA_NATIVE_UNAVAILABLE,
+          "existing identity drift denies before rename");
+    check(f.rename_calls == 0 && detail.stage == CommitStage::prepare && f.objects[key].file != original,
+          "identity check precedes target release/publication");
+    check(f.objects.count({key.first, L"~tmp-0123456789abcdef-01234567"}) == 1,
+          "identity denial retains inert temp");
+    check(core.close(3, owner) == 0 && f.handles.empty(), "existing drift normal release");
+  }
+  for (const bool existing : {false, true}) {
+    for (int fault = 0; fault < 6; ++fault) {
+      Fake f; ProtectedObjects core(f); uint64_t owner = 0, ticket = 0, written = 0;
+      uint8_t output[64]{}, input[]{4, 5, 6};
+      check(core.acquire(3, 1, &owner) == 0, "diagnostic owner");
+      check(core.association_begin(3, owner, output, sizeof(output), &written, &ticket) == SHIROHA_NATIVE_MISSING, "diagnostic parent");
+      check(core.association_abort(3, owner, ticket) == 0, "fixture transaction released");
+      const auto key = std::make_pair(f.handles[f.state].file, std::wstring{L"associations.bin"});
+      if (existing) { f.objects[key] = f.good(false); f.contents[f.objects[key].file] = {1, 2, 3}; }
+      check(core.association_begin(3, owner, output, sizeof(output), &written, &ticket) == (existing ? SHIROHA_NATIVE_OK : SHIROHA_NATIVE_MISSING), "diagnostic snapshot");
+      if (fault == 1 || fault == 5) f.fail_stage = L"replace";
+      if (fault == 2) f.fail_published_close = true;
+      if (fault == 3) f.corrupt_published_identity = true;
+      if (fault == 4) f.throw_after_replace = true;
+      if (fault == 5) f.fail_finish_after_replace = true;
+      CommitDiagnostic detail;
+      const auto result = core.association_commit(3, owner, ticket, input, sizeof(input), &detail);
+      check(result == (fault == 0 ? SHIROHA_NATIVE_OK : SHIROHA_NATIVE_COMMIT_UNKNOWN), "uncertain publication never success");
+      const auto expected = fault == 0 ? CommitStage::complete : fault == 2 ? CommitStage::published_close : fault == 3 ? CommitStage::published_validate : CommitStage::rename;
+      check(detail.stage == expected && detail.exception == (fault == 4) && detail.finish_failed == (fault == 5), "internal failure boundary distinguished");
+      const auto temp = std::make_pair(key.first, std::wstring{L"~tmp-0123456789abcdef-01234567"});
+      if (fault == 1 || fault == 5) {
+        check(f.objects.count(temp) == 1, "rename failure preserves inert temp");
+        check(existing ? f.contents[f.objects[key].file] == std::vector<uint8_t>({1, 2, 3}) : !f.objects.count(key), "rename failure preserves old target/absence");
+      }
+      check(f.file_events.back() == (existing ? L"replace-existing" : L"replace-new") || fault == 0 || fault == 3, "exact new/existing branch");
+      const auto closes = f.closes;
+      const auto closed = core.close(3, owner);
+      if (fault == 2 || fault == 5) check(closed == SHIROHA_NATIVE_UNAVAILABLE && f.closes == closes, "unknown close quarantined without retry");
+      else check(closed == 0 && f.handles.empty(), "diagnostic handles settled");
+      if (fault == 1) check(f.objects.count(temp) == 1, "owner close never cleans leftover");
+    }
+  }
   // Production file transaction core with synthetic handles/operations only.
   for (const bool existing : {false, true}) {
     for (const auto* stage : {L"", L"open", L"read", L"count", L"random", L"create", L"write", L"flush", L"replace"}) {
