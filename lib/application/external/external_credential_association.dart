@@ -51,7 +51,7 @@ abstract interface class ExternalCredentialAssociationSnapshot {
 /// Implementations serialize CAS/uniqueness and validate local management at
 /// their commit boundary. Failures are typed; uncertain commit is never success.
 /// Tombstones retain revisions; same active tuple/exact revision is idempotent.
-/// No production backend is supplied by this offline stage.
+/// P20 supplies an explicit Data candidate, without production runtime wiring.
 abstract interface class ExternalCredentialAssociationStore {
   Future<ExternalCredentialAssociationSnapshot> read(String profileId);
   Future<ExternalCredentialAssociationSnapshot> register({

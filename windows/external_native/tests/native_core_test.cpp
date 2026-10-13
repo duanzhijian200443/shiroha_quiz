@@ -57,7 +57,7 @@ const shiroha_native::Operations fake{
 }  // namespace
 
 int main() {
-  check(shiroha_native_abi_version() == 2);
+  check(shiroha_native_abi_version() == SHIROHA_NATIVE_ABI_VERSION);
   check(shiroha_native_buffer_alloc(0) == nullptr);
   check(shiroha_native_buffer_alloc(65537) == nullptr);
   check(shiroha_native_buffer_alloc((std::numeric_limits<uint64_t>::max)()) == nullptr);
@@ -77,7 +77,7 @@ int main() {
     return shiroha_native::transform(version, data, size, target, capacity,
                                      count, decrypt, fake);
   };
-  check(run(3, input, 3, output, 128, &written) == SHIROHA_NATIVE_ABI_MISMATCH);
+  check(run(4, input, 3, output, 128, &written) == SHIROHA_NATIVE_ABI_MISMATCH);
   check(written == 0 && calls == 0);
   for (auto size : {uint64_t{0}, uint64_t{65537},
                     (std::numeric_limits<uint64_t>::max)()}) {
@@ -126,7 +126,7 @@ int main() {
   check(written == 0 && cleared && local_frees == 7);
   result_size = 4;
 
-  check(shiroha_native::local_app_data(3, output, 128, &written, fake) == SHIROHA_NATIVE_ABI_MISMATCH);
+  check(shiroha_native::local_app_data(4, output, 128, &written, fake) == SHIROHA_NATIVE_ABI_MISMATCH);
   check(shiroha_native::local_app_data(1, output, 128, &written, fake) == SHIROHA_NATIVE_OK);
   check(written > 0 && written % 2 == 0 && task_frees == 1);
   check(shiroha_native::local_app_data(1, output, 2, &written, fake) == SHIROHA_NATIVE_RESOURCE_LIMIT);
@@ -134,6 +134,9 @@ int main() {
   fail = true;
   check(shiroha_native::local_app_data(1, output, 128, &written, fake) == SHIROHA_NATIVE_UNAVAILABLE);
   check(written == 0 && task_frees == 3 && cleared);
+  fail = false;
+  check(run(2, input, 3, output, 128, &written) == SHIROHA_NATIVE_OK);
+  check(run(3, input, 3, output, 128, &written) == SHIROHA_NATIVE_OK);
   std::cout << "PASS: offline ABI bounds, fake results, Unicode and cleanup\n";
   return 0;
 }

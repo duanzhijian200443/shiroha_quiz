@@ -14,6 +14,11 @@ abstract interface class ExternalNativeCalls {
   int acquireOwner(int version, int role, Pointer<Uint64> token);
   int validateOwner(int version, int token);
   int closeOwner(int version, int token);
+  int associationBegin(int version, int owner, Pointer<Uint8> output,
+      int capacity, Pointer<Uint64> written, Pointer<Uint64> ticket);
+  int associationCommit(
+      int version, int owner, int ticket, Pointer<Uint8> input, int length);
+  int associationAbort(int version, int owner, int ticket);
 }
 
 typedef _VersionNative = Uint32 Function();
@@ -25,6 +30,11 @@ typedef _TransformNative = Int32 Function(
     Uint32, Pointer<Uint8>, Uint64, Pointer<Uint8>, Uint64, Pointer<Uint64>);
 typedef _AcquireNative = Int32 Function(Uint32, Uint32, Pointer<Uint64>);
 typedef _OwnerNative = Int32 Function(Uint32, Uint64);
+typedef _BeginNative = Int32 Function(
+    Uint32, Uint64, Pointer<Uint8>, Uint64, Pointer<Uint64>, Pointer<Uint64>);
+typedef _CommitNative = Int32 Function(
+    Uint32, Uint64, Uint64, Pointer<Uint8>, Uint64);
+typedef _AbortNative = Int32 Function(Uint32, Uint64, Uint64);
 
 /// Lookup is passive; only an explicit adapter operation invokes the helper.
 final class FfiExternalNativeCalls implements ExternalNativeCalls {
@@ -56,7 +66,18 @@ final class FfiExternalNativeCalls implements ExternalNativeCalls {
             library.lookupFunction<_OwnerNative, int Function(int, int)>(
                 'shiroha_native_owner_validate'),
         _close = library.lookupFunction<_OwnerNative, int Function(int, int)>(
-            'shiroha_native_owner_close');
+            'shiroha_native_owner_close'),
+        _begin = library.lookupFunction<
+            _BeginNative,
+            int Function(int, int, Pointer<Uint8>, int, Pointer<Uint64>,
+                Pointer<Uint64>)>('shiroha_native_association_begin'),
+        _commit = library.lookupFunction<
+            _CommitNative,
+            int Function(int, int, int, Pointer<Uint8>,
+                int)>('shiroha_native_association_commit'),
+        _abort =
+            library.lookupFunction<_AbortNative, int Function(int, int, int)>(
+                'shiroha_native_association_abort');
 
   final int Function() _version;
   final Pointer<Uint8> Function(int) _allocate;
@@ -67,6 +88,22 @@ final class FfiExternalNativeCalls implements ExternalNativeCalls {
       _protect, _unprotect;
   final int Function(int, int, Pointer<Uint64>) _acquire;
   final int Function(int, int) _validate, _close;
+  final int Function(
+      int, int, Pointer<Uint8>, int, Pointer<Uint64>, Pointer<Uint64>) _begin;
+  final int Function(int, int, int, Pointer<Uint8>, int) _commit;
+  final int Function(int, int, int) _abort;
+
+  @override
+  int associationBegin(int version, int owner, Pointer<Uint8> output,
+          int capacity, Pointer<Uint64> written, Pointer<Uint64> ticket) =>
+      _begin(version, owner, output, capacity, written, ticket);
+  @override
+  int associationCommit(int version, int owner, int ticket,
+          Pointer<Uint8> input, int length) =>
+      _commit(version, owner, ticket, input, length);
+  @override
+  int associationAbort(int version, int owner, int ticket) =>
+      _abort(version, owner, ticket);
 
   @override
   int acquireOwner(int version, int role, Pointer<Uint64> token) =>

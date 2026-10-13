@@ -110,9 +110,13 @@ The External Windows primitive adapter in `lib/data/external/native` owns
 explicit SDK FFI calls to the independent `windows/external_native` C ABI DLL.
 It supplies bounded DPAPI memory operations, an unvalidated known-folder path
 and explicit protected-object owners with parent-bound native handles and App/
-Bridge OS-exclusive writer locks, not a Credential Store, verifier or Application authority. It is absent
-from startup, Agent/MCP and P12/P15 composition. The readiness contract section
-10–11 owns these production source slices and their pending Windows acceptance.
+Bridge OS-exclusive writer locks and fixed App association-file transactions.
+The P20 Data adapter `WindowsCredentialAssociationStore` implements the existing
+P15 association port using strict kind 3 plaintext, user-scope DPAPI and the
+parent-bound Native file transaction. It adds no verifier or Application authority
+and stays absent from startup, Agent/MCP and P12/P15 runtime composition.
+The readiness contract sections 10–12 own these production source slices and
+their pending Windows acceptance.
 
 Persistence formats and provider formats are implementation details, not public application contracts.
 

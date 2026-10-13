@@ -30,6 +30,16 @@ The production DLL is never loaded by that job. P19 extends the existing Dart
 suites for protected-owner acquisition, contention, permanent denial and explicit
 release. These are compilation/offline evidence; LOCAL-L1 remains PENDING.
 
+P20 adds `association_object_codec_test.dart` and
+`windows_credential_association_store_test.dart` to those same hard-failing
+shards. The Windows job also links the production association-file transaction
+core into the existing fake-only object executable, checks twelve ABI exports,
+actual ASLR/DEP/CFG flags and file-operation imports in the production DLL,
+and rejects those imports in both offline executables before running them.
+It never loads the production DLL or creates real protected objects. Codec/CAS/
+snapshot/TOCTOU/commit-failure evidence remains G0-L0, not DPAPI/NTFS/lock or
+cross-SID acceptance.
+
 The four shards keep `--concurrency=1`. Flutter's additional JSON reporter
 collects timing in the same test invocation, without running tests twice. The
 summary script retains only repository-relative test paths, integer durations,

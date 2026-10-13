@@ -3,6 +3,7 @@
 #include <aclapi.h>
 #include <winternl.h>
 #include <cstring>
+#include <bcrypt.h>
 
 namespace {
 using namespace shiroha_native;
@@ -50,7 +51,7 @@ struct SecurityRecipe {
 
 NTSTATUS open_native(HANDLE parent, const std::wstring& name, bool directory_create,
                      bool exclusive, ULONG disposition, PSECURITY_DESCRIPTOR security,
-                     HANDLE& result) {
+                     HANDLE& result, ACCESS_MASK file_access = 0, ULONG file_share = MAXDWORD) {
   result = nullptr;
   const auto create = create_function();
   if (!create || name.empty() || name.size() > 32766) return static_cast<NTSTATUS>(0xC000000Du);
@@ -71,12 +72,12 @@ NTSTATUS open_native(HANDLE parent, const std::wstring& name, bool directory_cre
   ULONG options = FILE_SYNCHRONOUS_IO_NONALERT |
       (directory_create ? FILE_DIRECTORY_FILE : FILE_OPEN_REPARSE_POINT);
   if (exclusive) options |= FILE_NON_DIRECTORY_FILE;
-  const ACCESS_MASK access = READ_CONTROL | FILE_READ_ATTRIBUTES | SYNCHRONIZE |
+  const ACCESS_MASK access = file_access ? file_access : READ_CONTROL | FILE_READ_ATTRIBUTES | SYNCHRONIZE |
       (exclusive ? FILE_READ_DATA | FILE_WRITE_DATA : FILE_LIST_DIRECTORY | FILE_TRAVERSE);
   IO_STATUS_BLOCK io{};
   WinHandle acquired;
   const auto status = create(&acquired.value, access, &attributes, &io, nullptr,
-      FILE_ATTRIBUTE_NORMAL, exclusive ? 0 : FILE_SHARE_READ | FILE_SHARE_WRITE,
+      FILE_ATTRIBUTE_NORMAL, file_share != MAXDWORD ? file_share : (exclusive ? 0 : FILE_SHARE_READ | FILE_SHARE_WRITE),
       disposition, options, nullptr, 0);
   // Synchronous operation: pending/unknown success and unexpected disposition
   // results are denied. RAII closes any anomalous returned handle on failure.
@@ -202,6 +203,96 @@ class WindowsObjects final : public ObjectOperations {
     return SHIROHA_NATIVE_OK;
   }
   bool close(HANDLE handle) noexcept override { return CloseHandle(handle) != FALSE; }
+
+  int32_t association_open(HANDLE parent, const Sid&, HANDLE& result) override {
+    // Read handle denies write sharing. Delete sharing permits this holder's
+    // atomic rename; the core compares the current name's identity before it.
+    const auto status = open_native(parent, L"associations.bin", false, true, FILE_OPEN,
+        nullptr, result, READ_CONTROL | FILE_READ_ATTRIBUTES | FILE_READ_DATA | SYNCHRONIZE,
+        FILE_SHARE_READ | FILE_SHARE_DELETE);
+    if (status == static_cast<NTSTATUS>(0xC0000034u)) return SHIROHA_NATIVE_MISSING;
+    return status == 0 ? SHIROHA_NATIVE_OK : SHIROHA_NATIVE_UNAVAILABLE;
+  }
+  int32_t read_file(HANDLE file, std::vector<uint8_t>& output) override {
+    LARGE_INTEGER size{}, after{};
+    if (!GetFileSizeEx(file, &size)) return SHIROHA_NATIVE_UNAVAILABLE;
+    if (size.QuadPart <= 0 || size.QuadPart > SHIROHA_NATIVE_MAX_BYTES) return SHIROHA_NATIVE_DATA_CORRUPT;
+    output.resize(static_cast<size_t>(size.QuadPart));
+    DWORD received = 0;
+    if (!ReadFile(file, output.data(), static_cast<DWORD>(output.size()), &received, nullptr) ||
+        received != output.size() || !GetFileSizeEx(file, &after) || after.QuadPart != size.QuadPart)
+      return SHIROHA_NATIVE_UNAVAILABLE;
+    return SHIROHA_NATIVE_OK;
+  }
+  int32_t temporary_count(HANDLE directory, size_t& count) override {
+    count = 0;
+    alignas(FILE_ID_BOTH_DIR_INFO) uint8_t buffer[65536]{};
+    bool first = true;
+    size_t entries = 0;
+    for (;;) {
+      SecureZeroMemory(buffer, sizeof(buffer));
+      if (!GetFileInformationByHandleEx(directory,
+          first ? FileIdBothDirectoryRestartInfo : FileIdBothDirectoryInfo, buffer, sizeof(buffer)))
+        return GetLastError() == ERROR_NO_MORE_FILES ? SHIROHA_NATIVE_OK : SHIROHA_NATIVE_UNAVAILABLE;
+      first = false;
+      size_t offset = 0;
+      for (;;) {
+        if (++entries > 4096) return SHIROHA_NATIVE_RESOURCE_LIMIT;
+        const auto base = offsetof(FILE_ID_BOTH_DIR_INFO, FileName);
+        if (offset > sizeof(buffer) - base) return SHIROHA_NATIVE_UNAVAILABLE;
+        const auto* info = reinterpret_cast<const FILE_ID_BOTH_DIR_INFO*>(buffer + offset);
+        if (info->FileNameLength % 2 || info->FileNameLength > sizeof(buffer) - offset - base)
+          return SHIROHA_NATIVE_UNAVAILABLE;
+        const std::wstring name(info->FileName, info->FileNameLength / 2);
+        if (name.rfind(L"~tmp-", 0) == 0 && ++count >= 32) return SHIROHA_NATIVE_OK;
+        if (!info->NextEntryOffset) break;
+        if (info->NextEntryOffset < base || info->NextEntryOffset % alignof(FILE_ID_BOTH_DIR_INFO) ||
+            info->NextEntryOffset > sizeof(buffer) - offset - base) return SHIROHA_NATIVE_UNAVAILABLE;
+        offset += info->NextEntryOffset;
+      }
+    }
+  }
+  int32_t random_name(std::wstring& runtime, std::wstring& random) override {
+    uint8_t bytes[12]{};
+    if (BCryptGenRandom(nullptr, bytes, sizeof(bytes), BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0)
+      return SHIROHA_NATIVE_UNAVAILABLE;
+    constexpr wchar_t digits[] = L"0123456789abcdef";
+    runtime.clear(); random.clear();
+    for (size_t i = 0; i < sizeof(bytes); ++i) {
+      auto& text = i < 8 ? runtime : random;
+      text += digits[bytes[i] >> 4]; text += digits[bytes[i] & 15];
+    }
+    return SHIROHA_NATIVE_OK;
+  }
+  int32_t temporary_create(HANDLE parent, const std::wstring& name, const Sid& sid, HANDLE& result) override {
+    if (!safe_component(name)) return SHIROHA_NATIVE_INVALID_INPUT;
+    SecurityRecipe security;
+    if (!security.build(sid, false)) return SHIROHA_NATIVE_UNAVAILABLE;
+    // FILE_CREATE is CREATE_NEW: collisions never open/truncate foreign files.
+    return open_native(parent, name, false, true, FILE_CREATE, &security.descriptor, result,
+        READ_CONTROL | FILE_READ_ATTRIBUTES | FILE_WRITE_DATA | DELETE | SYNCHRONIZE, 0) == 0
+        ? SHIROHA_NATIVE_OK : SHIROHA_NATIVE_UNAVAILABLE;
+  }
+  int32_t write_file(HANDLE file, const uint8_t* input, uint64_t length) override {
+    DWORD written = 0;
+    return WriteFile(file, input, static_cast<DWORD>(length), &written, nullptr) && written == length
+        ? SHIROHA_NATIVE_OK : SHIROHA_NATIVE_UNAVAILABLE;
+  }
+  int32_t flush_file(HANDLE file) override {
+    return FlushFileBuffers(file) ? SHIROHA_NATIVE_OK : SHIROHA_NATIVE_UNAVAILABLE;
+  }
+  int32_t replace_file(HANDLE temporary, HANDLE directory, bool existing) override {
+    constexpr wchar_t target[] = L"associations.bin";
+    alignas(FILE_RENAME_INFO) uint8_t buffer[sizeof(FILE_RENAME_INFO) + sizeof(target)]{};
+    auto* info = reinterpret_cast<FILE_RENAME_INFO*>(buffer);
+    info->ReplaceIfExists = existing ? TRUE : FALSE;
+    info->RootDirectory = directory;
+    info->FileNameLength = sizeof(target) - sizeof(wchar_t);
+    std::memcpy(info->FileName, target, sizeof(target));
+    return SetFileInformationByHandle(temporary, FileRenameInfo, info,
+        static_cast<DWORD>(offsetof(FILE_RENAME_INFO, FileName) + sizeof(target)))
+        ? SHIROHA_NATIVE_OK : SHIROHA_NATIVE_COMMIT_UNKNOWN;
+  }
 };
 
 // Reuse P18's exact known-folder operation; do not accept environment/caller
@@ -233,4 +324,15 @@ int32_t SHIROHA_NATIVE_CALL shiroha_native_owner_validate(uint32_t version, uint
 }
 int32_t SHIROHA_NATIVE_CALL shiroha_native_owner_close(uint32_t version, uint64_t token) {
   return owners.close(version, token);
+}
+int32_t SHIROHA_NATIVE_CALL shiroha_native_association_begin(uint32_t version, uint64_t owner,
+    uint8_t* output, uint64_t capacity, uint64_t* written, uint64_t* ticket) {
+  return owners.association_begin(version, owner, output, capacity, written, ticket);
+}
+int32_t SHIROHA_NATIVE_CALL shiroha_native_association_commit(uint32_t version, uint64_t owner,
+    uint64_t ticket, const uint8_t* input, uint64_t length) {
+  return owners.association_commit(version, owner, ticket, input, length);
+}
+int32_t SHIROHA_NATIVE_CALL shiroha_native_association_abort(uint32_t version, uint64_t owner, uint64_t ticket) {
+  return owners.association_abort(version, owner, ticket);
 }

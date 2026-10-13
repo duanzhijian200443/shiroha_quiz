@@ -23,7 +23,7 @@ final class FakeExternalNativeCalls implements ExternalNativeCalls {
   final freed = <int>[];
   final events = <String>[];
   Uint8List result = Uint8List.fromList([9, 8, 7]);
-  int version = 2, status = 0, allocationCount = 0, operationCount = 0;
+  int version = 3, status = 0, allocationCount = 0, operationCount = 0;
   int? failAllocation, outputLength;
   bool throwOperation = false;
   Uint8List? capturedInput;
@@ -33,6 +33,57 @@ final class FakeExternalNativeCalls implements ExternalNativeCalls {
       throwValidate = false,
       throwFree = false,
       throwClose = false;
+  bool associationCrypto = false, unknownAfterCommit = false;
+  bool throwAssociationBegin = false,
+      throwAssociationAfterCommit = false,
+      throwAssociationAbort = false;
+  Uint8List? associationFile;
+  int associationReadStatus = 0, associationCommitStatus = 0, commits = 0;
+  int nextTicket = 1;
+  final tickets = <int, int>{};
+
+  @override
+  int associationBegin(int version, int owner, Pointer<Uint8> output,
+      int capacity, Pointer<Uint64> written, Pointer<Uint64> ticket) {
+    written.value = 0;
+    ticket.value = 0;
+    if (owners[owner] != 1 || ownerStatus != 0) return 4;
+    if (tickets.containsValue(owner)) return 3;
+    if (associationReadStatus != 0) return associationReadStatus;
+    ticket.value = nextTicket++;
+    tickets[ticket.value] = owner;
+    if (throwAssociationBegin) {
+      throw StateError('synthetic private begin detail');
+    }
+    final bytes = associationFile;
+    if (bytes == null) return 6;
+    output.asTypedList(bytes.length).setAll(0, bytes);
+    written.value = bytes.length;
+    return 0;
+  }
+
+  @override
+  int associationCommit(
+      int version, int owner, int ticket, Pointer<Uint8> input, int length) {
+    if (tickets.remove(ticket) != owner) return 1;
+    if (ownerStatus != 0 || !owners.containsKey(owner)) return 4;
+    if (associationCommitStatus != 0) return associationCommitStatus;
+    associationFile = Uint8List.fromList(input.asTypedList(length));
+    commits++;
+    if (throwAssociationAfterCommit) {
+      throw StateError('synthetic private commit detail');
+    }
+    return unknownAfterCommit ? 7 : 0;
+  }
+
+  @override
+  int associationAbort(int version, int owner, int ticket) {
+    final result = tickets.remove(ticket) == owner ? 0 : 1;
+    if (throwAssociationAbort) {
+      throw StateError('synthetic private abort detail');
+    }
+    return result;
+  }
 
   @override
   int abiVersion() {
@@ -83,6 +134,7 @@ final class FakeExternalNativeCalls implements ExternalNativeCalls {
     events.add('close');
     if (!owners.containsKey(token)) return 1;
     owners.remove(token);
+    tickets.removeWhere((_, owner) => owner == token);
     if (throwClose) throw StateError('synthetic private close detail');
     return closeStatus;
   }
@@ -104,11 +156,25 @@ final class FakeExternalNativeCalls implements ExternalNativeCalls {
   int protect(int version, Pointer<Uint8> input, int length,
       Pointer<Uint8> output, int capacity, Pointer<Uint64> written) {
     capturedInput = Uint8List.fromList(input.asTypedList(length));
+    if (associationCrypto) {
+      final bytes = [0xda, 1, ...capturedInput!];
+      output.asTypedList(bytes.length).setAll(0, bytes);
+      written.value = bytes.length;
+      return status;
+    }
     return _result(output, written);
   }
 
   @override
   int unprotect(int version, Pointer<Uint8> input, int length,
-          Pointer<Uint8> output, int capacity, Pointer<Uint64> written) =>
-      protect(version, input, length, output, capacity, written);
+      Pointer<Uint8> output, int capacity, Pointer<Uint64> written) {
+    if (associationCrypto) {
+      final bytes = input.asTypedList(length);
+      if (length < 2 || bytes[0] != 0xda || bytes[1] != 1) return 5;
+      output.asTypedList(length - 2).setAll(0, bytes.sublist(2));
+      written.value = length - 2;
+      return status;
+    }
+    return protect(version, input, length, output, capacity, written);
+  }
 }

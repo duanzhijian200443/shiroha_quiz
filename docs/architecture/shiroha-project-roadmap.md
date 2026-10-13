@@ -308,6 +308,16 @@ LOCAL-L1/G0-I acceptance remains pending and the three halt/acceptance states
 above remain unchanged. This source scope does not start P20, Package 2/3 or
 AR-R6B.
 
+P20 adds the unactivated production App association backend under
+[Windows readiness §12](../product/agent-refactor/windows-host-security-readiness.md#12-p20-protected-app-association-store).
+It implements the existing P15 port with strict kind 3 binary encoding,
+P18 user-scope DPAPI and P19-owned handle-relative file transactions/CAS.
+The Native ABI becomes 3 while retaining P18/P19 call compatibility; standing
+offline checks cover the codec, association semantics and injected file failures.
+No kind 1/2/4 store, certificate, Discovery, TLS or Host activation is supplied.
+LOCAL-L1/G0-I remain pending; HOST_STABILITY_HALT = ACTIVE, TRANSPORT = BLOCKED
+and AR-R6A = NOT_ACCEPTED. P21/AR-R6B are not started by this candidate.
+
 The retained target is Codex/Claude MCP Bridge → Shiroha External Host →
 authenticated and authorized question-bank READ/STAGE services.
 
