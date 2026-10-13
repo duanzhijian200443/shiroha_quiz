@@ -17,7 +17,8 @@ P12 offline trust binding accepted in merged PR #263;
 P13 Windows security readiness accepted as a static checkpoint in merged
 PR #264; real acceptance BLOCKED. P14 standing External CI coverage accepted
 in merged PR #265. P15 offline Credential boundary IMPLEMENTATION CANDIDATE.
-P16 production primitive freeze STATIC DECISION CANDIDATE.**
+P16 production primitive freeze accepted as a static decision in merged PR #267;
+P17 tiered experiment-gate / X.509 encoding amendment is documentation only.**
 
 The Provider seam, typed capability/executor/projection path and Runtime split/
 transcript are delivered in the preceding merged stages. Historical AR-R3
@@ -97,7 +98,7 @@ P14 (auxiliary CI-engineering sub-stage, merged PR #265) makes the External offl
 IPC/origin regression matrix and the repeatedly re-verified widget/RAG/Agent
 config suites standing PR contract coverage; that is Linux-offline evidence only
 and clears no WINDOWS_PENDING item. Independent environment approval and new
-experiment authorization remain missing; dynamic acceptance is BLOCKED and
+experiment authorization remain missing; formal dynamic acceptance is BLOCKED and
 AR-R6B stays inactive.
 P15's offline candidate under external boundary §12 adds a dedicated protected
 association port and private one-use verification windows into P0/P12. Pairing
@@ -113,8 +114,21 @@ certificate/identity model, a single DPAPI-backed External object store,
 cryptographic possession proof and the owner-only Windows Discovery root, with
 minimal implementation packages and their required experiment authority. P16
 selects candidates only — no implementation, dependency or schema change, and
-no WINDOWS_PENDING item is cleared; the remaining blockers are exactly G0 and
-the per-package grants (BLOCKED_ON_G0).
+no WINDOWS_PENDING item is cleared. P17 supersedes the single isolated gate
+with G0-L0 ordinary development, separately approved G0-L1 security-primitive
+and G0-L2 bounded Loopback functional batches, and independent-kernel G0-I full
+Windows acceptance. G0-L1/L2 are applications only; this amendment authorizes
+no experiment. BLOCKED_ON_G0 applies to real experiments lacking exact grants,
+not code/compile/offline work under scoped implementation authority. Full
+A0–A12 / X0–X12, separate security/stability closure and independent
+Verifier/Reviewer remain required; local success is no automatic A PASS.
+P17 also corrects X.509 signatures to ASN.1 DER ECDSA-Sig-Value while Pairing
+Proof/Endpoint Descriptor remain raw r‖s (64 bytes), with P-256/SHA-256 and
+credentialIdentity unchanged. Readiness §§6, 9.A.2 and 9.F own these amendments.
+After P17 merges, the next package directly implements Package 1 in bounded
+dependency slices, with actual-implementation offline tests/source guards;
+there is no new general offline authentication design stage and no Package 1
+code implementation authorized by this documentation task.
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 Production Host/IPC, MCP vNext and READ fallback continuation remain unimplemented
 targets. Current product behavior
@@ -133,7 +147,7 @@ limit the module contract to Assistant features.
 | Typed capabilities, permissions, effects, receipts and projection boundaries | [application-capabilities.md](application-capabilities.md) |
 | Compile-time modules, contributions, dependencies and storage compatibility | [module-system.md](module-system.md) |
 | External identity, grants, context handles, egress and local Host/IPC | [external-agent-boundary.md](external-agent-boundary.md) |
-| Windows credential/IPC security readiness, frozen production primitive candidates and isolated acceptance prerequisites | [windows-host-security-readiness.md](windows-host-security-readiness.md) |
+| Windows credential/IPC security readiness, frozen primitives, tiered local experiment gates and independent Windows acceptance | [windows-host-security-readiness.md](windows-host-security-readiness.md) |
 | MCP profile, Tools, protocol schemas and reference-client packaging boundary | [mcp-vnext-contract.md](mcp-vnext-contract.md) |
 | Generated question admission, durable Review, atomic commit and retention | [generated-question-proposals.md](generated-question-proposals.md) |
 
@@ -198,6 +212,11 @@ Compile-time Module -> capabilities -> optional UI / Agent / MCP projections
 The App is the sole business writer. The Built-in Agent does not call MCP.
 External clients are brand-neutral untrusted inputs; MCP initially exposes
 READ + STAGE only. Formal Question commit requires explicit Shiroha UI approval.
+Retain the dedicated Shiroha External Host architecture: Codex, Claude and
+other external Agents use their own MCP Bridges to the same Host, then the
+authenticated and authorized READ/STAGE services. Each Bridge is a protocol
+adapter, never a second business authority or writer. P17 preserves this
+target and all P0–P16 results; it activates no production Host or MCP vNext.
 
 Excluded: generic multi-agent/graph frameworks, distributed workflows, event
 sourcing, actors/brokers, microservices/cloud backend, dynamic DLL/ZIP/Dart
