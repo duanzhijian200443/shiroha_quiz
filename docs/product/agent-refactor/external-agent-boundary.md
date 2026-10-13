@@ -674,23 +674,43 @@ and spaced paths, multiple clients and clean bridge launch. Linux proof alone
 does not establish Windows safety. Disable Host/routes while retaining data
 compatibility; do not delete Proposal state to roll back an external feature.
 
-**HOST_STABILITY_HALT is active for the primary Windows host.** Transport
+**HOST_STABILITY_HALT = ACTIVE for the primary Windows host.** Transport
 security acceptance and system stability acceptance must complete separately.
 Experiment-associated blue screens, hard hangs or kernel-driver anomalies
 immediately trigger HOST_STABILITY_HALT and stop the related dynamic experiments.
 The reported AF_UNIX-associated instability on 2026-10-10 is sufficient risk
 basis to stop further experiments; it does not prove a complete kernel-failure
 causal chain, and acceptance must not require reproducing a blue screen.
+This proves neither that TCP/mTLS must reproduce the event nor that it is safe.
 
 Old AF_UNIX ROOT-ACL, endpoint-lease and close/unlink dynamic experiments are
 permanently halted on the primary host and must not rerun automatically. Windows
 updates, replacement scripts or account changes do not lift this halt. Future
-real TCP/mTLS, Windows SID, Discovery and credential-security verification needs
-new explicit authorization and should prioritize a separately approved isolated
-environment. An ordinary VM on the primary host is not automatically independent
-of host-kernel stability risk. If any required security or stability acceptance
-is missing, the formal Host remains **unpublished**. This contract amendment
-authorizes no dynamic experiment or Host activation and does not unlock AR-R6B.
+real experiments follow P17's tiered G0 contract in
+[Windows readiness §6](windows-host-security-readiness.md#6-future-experiment-authorization-and-environment):
+G0-L0 source/compile/static/offline work requires normal scoped task authority
+and no real-experiment grant; G0-L1 test-only DPAPI/CNG/NTFS/lock/replace
+functions require individual user-approved batches; G0-L2 one bounded
+127.0.0.1 TCP/mTLS candidate without business routes requires necessary passing
+L1 evidence, independent implementation review and separate batch approval.
+Each batch freezes the device/root/objects/operations/counts, source/artifact/
+OS/toolchain, budgets, STOP/recovery responsibility and independent
+Verifier/Reviewer. No formal data/credentials/personal files, global trust store,
+system account/formal ACL changes or elevated ordinary processes are included;
+no second SID or aggressive negative cases without separate authority.
+
+L1/L2 are narrowly scoped exceptions while HALT remains ACTIVE, never inherited
+authority. High-risk primary-host crash/driver/kernel reproduction remains
+forbidden. Blue screen, hard hang, unexpected system mutation, object overreach,
+unknown handle ownership, data corruption or resource excess immediately STOP
+the batch; no primary-host blue-screen reproduction to establish causality.
+Full A0–A12 and corresponding X0–X12 acceptance still requires G0-I: a separately
+approved Windows environment with an independent kernel. An ordinary primary-
+host VM does not automatically qualify. Local functional evidence does not
+automatically pass an A item or clear system-stability acceptance.
+If either complete security or stability acceptance is missing, the formal Host
+remains **unpublished**. TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED. P17 permits
+applications only, grants no dynamic run or Host activation and unlocks no AR-R6B.
 
 ## 7. P9 offline IPC Envelope foundation (accepted unpublished scope)
 
@@ -1090,9 +1110,11 @@ P13 is accepted as a static readiness checkpoint through merged PR #264. P14
 origin regression matrix standing coverage in the PR contract shards; it adds
 offline Linux evidence only and clears no WINDOWS_PENDING item.
 
-An approved environment independent of the primary host's kernel, exact bounded
+At P13, an approved environment independent of the primary host's kernel, exact bounded
 scope/resources and new explicit user experiment authority are not established
-by this checkpoint; dynamic admission is BLOCKED. Ordinary primary-host VMs,
+by this checkpoint; dynamic admission is BLOCKED. P17's section 6 tier amendment
+permits separately approved L1/L2 functional subsets; complete acceptance keeps
+the independent-kernel G0-I requirement. Ordinary primary-host VMs,
 synthetic tests and design approval cannot clear the security/stability gates.
 Sections 2/5/6 retain B-class isolation, same-SID proxy risk, protected credentials/
 Discovery and the permanent halt on primary-host AF_UNIX experiments. If a hard
@@ -1181,7 +1203,7 @@ M1–M4 real security remain WINDOWS_PENDING; G0 and X0–X12 are unapproved and
 not run. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
 AR-R6A = NOT_ACCEPTED. No Codex process-brand authentication is claimed.
 
-## 13. P16 production primitive freeze (static decision candidate)
+## 13. P16 production primitive freeze (accepted static decision; PR #267)
 
 P16 freezes the minimal production candidates that will have to satisfy
 section 12's contract, owned by
@@ -1198,7 +1220,11 @@ handle-verified publication and cleanup.
 It selects candidates only: it changes no P0/P4/P7/P8 or P15 authorization
 semantic, adds no production wiring, dependency or schema, and closes no
 WINDOWS_PENDING item. Real acceptance requires G0 and the per-package
-experiment grants; the remaining blockers are exactly BLOCKED_ON_G0. P0
+experiment grants. P17's section 6 / readiness §9.F amendment limits
+BLOCKED_ON_G0 to real experiment/acceptance gates, not scoped L0 implementation.
+Readiness §9.A.2 corrects X.509 signatures to ASN.1 DER ECDSA-Sig-Value while
+Pairing Proof and Endpoint Descriptor retain fixed raw r‖s (64 bytes), with
+ECDSA P-256/SHA-256 and exact leaf-DER credentialIdentity unchanged. P0
 Pairing/Session authority, P1/P11 durable policy, P7/P8 current checks, S0
 Provider credentials and the B-class isolation model (including the accepted
 same-SID proxy risk) are unchanged. HOST_STABILITY_HALT = ACTIVE;

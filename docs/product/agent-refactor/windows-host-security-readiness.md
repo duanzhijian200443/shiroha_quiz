@@ -1,7 +1,8 @@
 # P13 Windows Host Security Readiness
 
 Status: **Accepted static readiness checkpoint (merged PR #264); P16 freezes the
-production primitive candidates and formats in section 9. Real Windows security
+production primitive candidates and formats in section 9 (merged PR #267).
+P17 amends G0 experiment tiers and X.509 signature encoding only. Real Windows security
 acceptance is BLOCKED; no production Credential/Pairing/Transport/Host is
 activated.**
 
@@ -18,7 +19,8 @@ system configuration or production composition.
 P14 standing offline coverage is accepted through merged PR #265. P15's offline
 implementation candidate is owned by [external boundary §12](external-agent-boundary.md#12-p15-external-credential-boundary-offline-implementation-candidate).
 It implements association/verification seams only; M1–M4 real credentials,
-protected storage and authentication remain WINDOWS_PENDING. G0 is unmet and
+protected storage and authentication remain WINDOWS_PENDING. Formal G0-I and
+real batch grants are unmet, and
 X0–X12 have not been authorized or run. Its private runtime-binding object is
 an offline event boundary, not a selected cryptographic nonce/wire format. No
 Codex or other upstream process/brand authenticity is claimed.
@@ -30,8 +32,9 @@ proof and exchange protocol, and the Windows Discovery/local-isolation rules,
 plus the minimal implementation packages and their required experiment
 authority. It implements nothing, generates no key or certificate, starts no
 listener, changes no P0–P15 permission semantic and clears no WINDOWS_PENDING
-item. Its remaining blockers are exactly G0 and the per-package experiment
-grants (BLOCKED_ON_G0, section 9.F).
+item. P17 supersedes the single isolated-environment experiment gate with
+section 6's tiers: normal implementation/offline work is G0-L0; real experiments
+remain BLOCKED_ON_G0 without their exact batch grant (section 9.F).
 
 **HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.**
 
@@ -45,17 +48,30 @@ No reviewed static evidence conclusively disqualifies TCP against the existing
 hard properties. The gaps below prevent implementation activation and real
 acceptance; they are not permission to weaken a hard property.
 
-No independent test device/environment or experiment authorization has been
-specified and approved for this task. Future dynamic admission is **BLOCKED**
-on those prerequisites. This does not assert that no suitable device exists.
+No experiment device/environment or batch authorization has been approved by
+this document. Future dynamic admission is **BLOCKED** until the applicable
+G0-L1, G0-L2 or G0-I prerequisites and exact batch grant are met. This does not
+assert that no suitable device exists.
 The static document can be delivered while that gate remains closed.
 
 | Classification | Meaning |
 |---|---|
 | OFFLINE_CODE | Current repository implements the bounded property; cited P12/preceding tests and historical review support it. It is not a real credential/transport result, and P13 does not rerun those tests. |
 | STATIC_API | Official API/platform documentation and inspected SDK/dependency source support a primitive. Integration, failure behavior and Windows release execution remain unproved. |
-| WINDOWS_PENDING | A separately authorized experiment on an approved isolated Windows environment is required. No PASS is recorded here. |
+| WINDOWS_PENDING | Full acceptance needs separately authorized G0-I experiments on independent Windows; approved L1/L2 subsets yield local evidence only (§6). No PASS is recorded here. |
 | UNSUPPORTED | A promise excluded by the frozen threat model or an operation outside this candidate; an implementation cannot claim it as a passed condition. |
+
+Experiment evidence uses the following separate labels. OFFLINE_CODE maps to
+OFFLINE and STATIC_API to STATIC; neither is a Windows result. WINDOWS_PENDING
+remains pending for complete acceptance despite a successful local subset.
+
+| Evidence | Can prove | Cannot prove |
+|---|---|---|
+| STATIC | API, format and design feasibility | Actual Windows security behavior |
+| OFFLINE | Pure algorithms and Application contracts | OS permissions or real connections |
+| LOCAL-L1 | Security-primitive functions on the specified device/version/objects | Cross-device stability or complete production security |
+| LOCAL-L2 | The specified bounded Loopback/TLS behavior | Formal Host release safety |
+| INDEPENDENT-WINDOWS | Actual security results in the specified independent experiment environment | Unexecuted cases or other environments |
 
 P12 is accepted only within its offline scope through merged
 [PR #263](https://github.com/duanzhijian200443/shiroha_quiz/pull/263).
@@ -238,7 +254,7 @@ not protected Windows objects or experiments. Dependencies refer to row numbers 
 | M4 Client Authentication | OFFLINE_CODE E1/E2/E5/E9 map/admission and one-use verifier adapter; real cryptographic/TLS events absent. | Authenticate TLS leaf and protected registration before business input; async proof -> adapter-owned live attempt -> existing P0/P4. | Reject wrong owner/Profile/credential/generation/role and all payload-derived identity; no Session fallback. | TLS/adapter grant; M1–M3, M6, M8. |
 | M5 Windows Isolation | STATIC_API DACL/current-user primitives; no External cross-SID experiment. | Negative SID cannot read/modify owner's protected objects; positive separately provisioned SID obeys B-class business admission. Same-SID proxy risk remains documented. | Reject unauthorized object/business access; do not claim all TCP connect calls are refused. | Two lab principals and explicit account/ACL authority; G0, M2, M6, M8. |
 | M6 Protected Discovery | No production discovery publisher/consumer. STATIC_API file/handle security. | Secure root/child creation, owner/DACL/volume/reparse checks, authenticated anchor, atomic publication and object-identity cleanup; independently validate both ends. | Missing/stale/tampered/uncertain discovery is unavailable; leave foreign objects untouched; no temporary unprotected replacement. | Object-creation/ACL grant; G0, M2, M1 for server trust. |
-| M7 Loopback Transport | No external listener. STATIC_API explicit IPv4 binding. | Require actual 127.0.0.1, no sharing/wildcard/resolution, bounded raw accept -> required TLS, and cleanup of owned sockets only. | Reject startup/address mismatch; destroy candidate sockets; publish no usable endpoint. | Listener/socket grant on isolated device; G0, M6, M9. |
+| M7 Loopback Transport | No external listener. STATIC_API explicit IPv4 binding. | Require actual 127.0.0.1, no sharing/wildcard/resolution, bounded raw accept -> required TLS, and cleanup of owned sockets only. | Reject startup/address mismatch; destroy candidate sockets; publish no usable endpoint. | G0-L2 batch for local subsets; G0-I for formal acceptance; M6, M9. |
 | M8 mTLS | Standard primitives STATIC_API; all real validation WINDOWS_PENDING. | Server/client trust, exact leaf registration, SAN/EKU/validity, protocol floor, key access, anchor replacement, rotation/revocation and resumption policy. | Never accept bad certificates, unknown roots, expired/wrong-role/retired identities or TLS key logging; invalidate connections on credential/anchor change. | Certificate/TLS grant; M1, M2, M3, M6. |
 | M9 Resource Limits | OFFLINE_CODE E2/E4/E5 for per-frame/business bounds; no connection/native TLS budget. | Numeric lab limits, pre-TLS slots, global decode reservations, one bounded request/response pipeline, real deadline destruction and measured native/heap/backpressure behavior. | Reject before unbudgeted allocation/handler entry; keep owning slots until settlement; close slow/over-budget channels. | Bounded load grant; G0, M7, M8. |
 | M10 Lifecycle | OFFLINE_CODE E1/E2/E5/E6 for controlled drain/restart/B0. OS crash/socket/Discovery recovery absent. | Block accepts and new calls, drain owning work, invalidate evidence and generation, then swap/cleanup; cold start disabled; test crashes and stale endpoint impostors. | No late-ready publication or permission revival; uncertain cleanup leaves Host closed, without forced data rollback. | Controlled termination/restart/B0 grant; M4, M6–M9. |
@@ -289,7 +305,50 @@ of silently increasing them. P13 implements or tests none of these limits.
 
 ## 6. Future experiment authorization and environment
 
-G0 is unmet. Every experiment needs a new explicit user grant identifying:
+### G0 tiers (P17 amendment)
+
+This amendment permits applications for controlled primary-host experiments;
+it grants no experiment execution authority. Each real batch needs separate,
+explicit user approval. An implementation task, a merged contract, or another
+batch's success never supplies that approval or clears HOST_STABILITY_HALT.
+
+| Tier | Permitted scope / gate |
+|---|---|
+| G0-L0 — normal development | On the primary computer, write C++/Win32 Native Helper, Dart FFI Adapter, Credential Store, Discovery and Host source under normal scoped task authority; compile, analyze, format and run offline pure-algorithm/Mock tests that touch no real Windows security objects. No real-experiment grant is needed. Code authority still does not authorize Host activation or later Git actions. |
+| G0-L1 — controlled host security primitives | Only after individual user approval: DPAPI Protect/Unprotect on separate test objects; NTFS DACL/Owner inspection in the approved test directory; experiment-only locks/handles and normal release; finite atomic file replacement; temporary test keys/certificates. Exact operations and quantities must be granted. No sockets/listeners. |
+| G0-L2 — controlled host Loopback | May be requested only after necessary L1 prerequisite evidence passes and the current implementation has independent review. One bounded 127.0.0.1 TCP/mTLS candidate, real TLS 1.3 handshake, authentication/connection behavior with no business routes, exact resource counting and closure. No LAN/wildcard, production Host activation, unauthenticated business route, STAGE or unapproved stress test. |
+| G0-I — independent Windows formal acceptance | A separately controlled physical Windows machine or remote Windows host with a kernel independent of the primary computer. Complete the original A0–A12 matrix and corresponding X0–X12 trials under their exact grants. A normal primary-host VM does not automatically qualify. Security acceptance and system-stability acceptance close separately. |
+
+Every L1 application must freeze the user-selected device, empty test root,
+objects, operations and quantities. The root must be completely separate from
+formal Shiroha data, credentials, databases and personal files. Freeze backup
+and recovery responsibility, a maximum run time, memory/handle/resource budgets,
+STOP conditions and cleanup rights. The Native Helper must pass source review
+and necessary memory, handle and error-path checks before its real calls.
+Ordinary experiment processes stay non-elevated. No global certificate trust
+store, system account or formal ACL change is allowed. Creating a second SID
+or performing aggressive negative cases needs separate explicit authority;
+L1 grants neither by default and cannot substitute for G0-I cross-SID acceptance.
+
+Every L2 application must additionally freeze port/bind method, socket and
+handshake counts, time/memory/handle ceilings, source SHA and artifact hashes,
+wrong-certificate rejection cases, STOP and recovery plans. L1 approval does
+not authorize L2; each L2 batch needs its own user approval. Section 5's proposed
+lab budget is not an implicit L2 grant or permission to escalate load.
+
+For every real batch, freeze source/head/base, artifacts, OS edition/build/patch,
+architecture, toolchain/lockfile, scope and budget; name an independent
+fixed-target Verifier and independent Reviewer. Drift invalidates affected
+evidence. Each approval applies only to its named tier, objects, operations,
+trial counts and time window; no inheritance to another experiment.
+
+**This P17 PR only revises the contract for requesting L1/L2. No L1, L2 or
+G0-I experiment is authorized or executed by it.**
+
+### G0-I formal acceptance prerequisites (original G0 retained)
+
+Full formal acceptance remains unmet. Every G0-I batch needs a new explicit
+user grant identifying:
 
 - A separately controlled physical Windows machine or remote Windows host whose
   kernel does not depend on the primary computer. A normal VM running on the
@@ -322,8 +381,9 @@ G0 is unmet. Every experiment needs a new explicit user grant identifying:
   Freeze head/base, build artifacts, OS and budget per run. Environment or target
   drift invalidates the affected evidence; do not resume by guessing state.
 
-The request below is an approval checklist, not runnable instructions. Every row
-has one primary acceptance goal and inherits G0. Storage/object and credential
+The original X0–X12 request below is an approval checklist, not runnable
+instructions. Each complete row retains its G0-I formal acceptance goal and
+prerequisites; local subsets are classified separately below. Storage/object and credential
 primitive trials precede TLS setup; socket-bearing rows also require explicitly
 approved X0 resources. Permission to one row does not
 grant another, or authorize production activation.
@@ -353,15 +413,51 @@ X7's primitive resource phase must pass before X4 exposes business routes; its
 owning-business settlement cases then reuse the admitted X4 composition. This
 phase distinction does not grant more resources or require a circular dependency.
 
+### X0–X12 local subset mapping (P17)
+
+Each local entry below is eligible for a separate application only, not an
+approved run. Local evidence must identify the exact subset and retains the
+row's dependency checks for that subset; missing prerequisites block it. Every
+complete X/A goal still requires G0-I, the original section 7 standard and
+independent Verifier/Reviewer evidence. No LOCAL-L1/LOCAL-L2 result automatically
+marks an A row PASS or closes security/system-stability acceptance.
+
+| Original row | Possible local evidence under an exact batch grant | Still required under G0-I |
+|---|---|---|
+| X0 / A0 | L2: single bounded numeric Loopback bind, actual address and normal close; L1 supplies test credential/descriptor primitives first. | Complete startup/publication and configuration-substitution rejection matrix. |
+| X1 / A1 | L1: temporary key/certificate encoding, possession-signature verification and test association operations on synthetic identities only. | Complete fresh proof/selected-Profile mapping, uniqueness, substitution, rotation and authenticated-peer correlation. |
+| X2 / A2 | L2: bounded valid/missing/forged/wrong-anchor/expired/wrong-role test-certificate rejection cases explicitly listed in the grant, with no business routes. L1 may supply pure primitive checks. | Full proof/TLS replay, retired-identity and no-Session/handler/content matrix. |
+| X3 / A3 | L1: owner/DACL inspection, DPAPI round trip, test locks and finite atomic replacement on owned test objects; no second SID or aggressive negative cases inferred. | Complete unauthorized cross-SID secrecy/integrity, reparse/parent substitution, corruption and no-silent-rekey matrix. |
+| X4 / A4 | None under L1/L2: real B-class business admission exceeds their scope. Existing OFFLINE checks remain useful. | Two-principal positive/negative admission with current synthetic policy after original dependencies pass. |
+| X5 / A5 | L1: explicitly scoped test-object credential invalidation/reload functions; L2: normal connection closure only. These prove no business-authority lifecycle. | Complete disable/revoke/expiry/rotation/restart/B0 Restore/raw rollback and no-resurrection matrix. |
+| X6 / A6 | No live framing trial under the authentication/connection-only L2 scope; existing P9 OFFLINE length/allocation checks remain useful. | Full real-channel malformed-header/ID allocation and safe-close matrix at unchanged limits. |
+| X7 / A7 | L2: exact socket/handshake/handle counts, deadlines and normal closure inside its approved budget, including only explicitly approved bounded slow/cut cases. No stress or business settlement inferred. | Full frozen frame/queue/memory/backpressure/cancellation/owning-business-settlement matrix. |
+| X8 / A8 | None: STAGE and committed response-loss trials are forbidden in L1/L2. OFFLINE reconciliation tests remain useful. | Real-channel durable commit/lost response, revoke ordering and original-key reconciliation. |
+| X9 / A9 | STATIC/source guards and OFFLINE unavailable-path checks under L0; no local real App/Bridge business run implied. | Packaged Bridge absence/readiness/close/recovery and synthetic-DB access audit. |
+| X10 / A10 | L0 STATIC/OFFLINE compatibility regressions; L1/L2 add no tool/publication authority. | Complete current compatibility/allowlist criterion; any named runtime stdio trial needs its own G0-I grant. |
+| X11 / A11 | L1: owned test-lock contention and normal handle release; L2: its one candidate's normal socket close. No crash, competing Host or foreign-object attack trial inferred. | Full two-runtime/store-writer exclusion, termination/replacement races and foreign-object-safe cleanup. |
+| X12 / A12 | L0: compile/inspect release artifacts; L1: separately approved primitive-only helper loading in space/Unicode test paths. | Complete packaged App/Bridge cold-start/upgrade/abnormal-close, endpoint supersession and invalid-artifact matrix. |
+
 ### Immediate stop and recovery
+
+**HOST_STABILITY_HALT = ACTIVE.** Primary-host old AF_UNIX ROOT-ACL,
+Endpoint Lease and Close/Unlink dynamic experiments remain permanently halted
+and must never rerun automatically. High-risk crash, driver or kernel anomaly
+reproduction remains forbidden on that host. New TCP/DPAPI/CNG/NTFS experiments
+there may run only through their exact G0-L1/L2 exception grants; those grants
+do not lift the halt or carry authority to another experiment.
 
 Stop on a blue screen, hard hang, kernel/driver anomaly, unexpected elevated
 process/system mutation, wrong bind address, secret exposure, unauthorized object
 or business access, ownership uncertainty, budget excess, unexplained data
-change, target/environment drift or failure requiring an unapproved primitive.
-Do not reproduce a crash to manufacture causality or retry on the primary host.
+change or data corruption, unknown handle ownership, target/environment drift or
+failure requiring an unapproved primitive. Do not reproduce a blue screen to
+prove causality or automatically retry on the primary host. The reported
+AF_UNIX-associated event remains a reported instability with no proven complete
+kernel-failure causal chain; it establishes neither inevitable TCP/mTLS failure
+nor TCP/mTLS safety.
 
-Block new candidate work first. On a responsive isolated device, close/drain
+Block new candidate work first. On a responsive approved test device, close/drain
 owning services before authorized teardown; interrupted callers do not prove
 settlement. For an unresponsive device, use only the preapproved recovery operator
 and image procedure; mark in-flight STAGE unknown. Preserve sanitized evidence
@@ -376,6 +472,9 @@ existing evidence, not tests run in P13. Each real result must cite one fixed
 target/environment/trial record and the measured counters; missing or ambiguous
 evidence is INCONCLUSIVE/BLOCKED, never PASS. No item is waived because the
 candidate is loopback-only or a lower-level primitive trial succeeded.
+P17 changes only experiment eligibility: complete A0–A12 acceptance still needs
+G0-I evidence for the original criteria below; LOCAL-L1/LOCAL-L2 is subset
+evidence only. Windows security and system-stability acceptance remain separate.
 
 | ID | Offline boundary already covered | Required real PASS / corresponding FAIL |
 |---|---|---|
@@ -430,7 +529,7 @@ independent review; none is started by P13 or a merged readiness document.
 
 | Package | Smallest responsibility | Exit condition |
 |---|---|---|
-| Environment/primitive contract | Approve G0 and the native boundary, budget and release model; certificate/challenge/storage/Discovery formats are frozen in section 9 and need no further design authority. Preserve P0/P4 and Provider contracts. | Complete explicit experiment grant; no unresolved hard semantic conflict. |
+| Experiment batch authorization | Apply for the appropriate G0-L1/L2 or G0-I batch at the real-call boundary; section 9 already freezes certificate/challenge/storage/Discovery formats. This is not another general offline design stage or a prerequisite to G0-L0 code. | Complete exact batch grant and prerequisites before real calls. |
 | Credential and protected objects | Implement only approved issuance/Bridge custody, separate External storage, association and owner-safe Discovery primitives. No business listener/Host publication. | X1/X3 primitive proof plus corruption/rotation/failure closure on isolated Windows. |
 | TLS and bounded adapter | One TCP/mTLS candidate, verified attempt mapping, pre-auth admission/timeout/destruction and bounded P9/P10 consumption. Existing business owners remain unchanged. | X2/X4/X6/X7 isolated proof; no unauthenticated business path. |
 | Lifecycle/effect/release evidence | Actual disconnect/crash/drain/Restore/reconciliation, foreign-object cleanup and packaged App/Bridge acceptance over synthetic data. | X5/X8–X12 at the exact target; required Windows Verifier and Independent Reviewer approval. |
@@ -444,12 +543,14 @@ design can record that blocker; implementation and experiment stop at that bound
 
 ## 9. P16 production primitive freeze
 
-Status: **Static decision candidate. No production credential, certificate, key,
+Status: **Accepted static freeze (merged PR #267), with P17's bounded encoding
+and experiment-gate amendments in 9.A.2, section 6 and 9.F. No production credential, certificate, key,
 secure store, Discovery object, TLS context, listener or Host is implemented,
 generated, activated or measured by P16. Every real Windows behavior below
-remains WINDOWS_PENDING; every implementation package below remains
-BLOCKED_ON_G0 until a separately authorized environment and experiment grant
-exist (sections 6 and 9.F).** This section closes the design half of the
+remains WINDOWS_PENDING; real experiments remain BLOCKED_ON_G0 without the
+applicable environment and exact batch grant. G0-L0 implementation/offline work
+requires normal scoped task authority, not L1 approval (sections 6 and 9.F).**
+This section closes the design half of the
 section 4 gaps (M1–M3, M5–M6 and the M8/M9 inputs) with concrete, versioned,
 reviewable decisions, so the next stage is real implementation and isolated
 Windows acceptance, not another offline design round. P15 remains the owner of
@@ -501,12 +602,55 @@ Windows build and the standalone Dart AOT Bridge share the identical code path
 #### 9.A.2 Algorithms and sizes (FROZEN)
 
 - Key algorithm: ECDSA on NIST P-256 (secp256r1 / prime256v1), 256-bit keys.
-- Signatures everywhere (certificates, descriptor, possession proof): ECDSA
-  P-256 with SHA-256; the wire signature encoding is the CNG raw form r‖s,
-  exactly 64 bytes.
+- Signature algorithm remains ECDSA P-256 with SHA-256. Encoding depends on
+  the record; the table below supersedes the universal raw-64-byte rule.
 - Private-key blobs in the protected stores: PKCS#8 DER (id-ecPublicKey +
   prime256v1); certificates: DER (X.509 v3), converted to PEM text only when
   handed to a Dart TLS context.
+
+| Use | Signature encoding |
+|---|---|
+| X.509 issuer/server/client certificate | Standard ASN.1 DER ECDSA-Sig-Value: `SEQUENCE { r INTEGER, s INTEGER }`, carried by the certificate's signatureValue BIT STRING (zero unused bits); variable length, never arbitrary raw 64 bytes. |
+| Pairing Proof (9.C.2) | Fixed 64-byte raw r‖s, unchanged. |
+| Endpoint Descriptor (9.D) | Fixed 64-byte raw r‖s, unchanged. |
+| Other custom signed records | Preserve their own frozen format. If none is defined (including the 9.A.6 anchor-rotation record's byte format), mark encoding UNDEFINED; a separate bounded contract is required before implementation/use. Neither certificate DER nor raw r‖s is inferred. |
+
+Normative basis: [RFC 3279 §2.2.3](https://www.rfc-editor.org/rfc/rfc3279.html#section-2.2.3)
+defines the ECDSA integer sequence; [RFC 5758 §3.2](https://www.rfc-editor.org/rfc/rfc5758.html#section-3.2)
+applies it to SHA-256 and requires `ecdsa-with-SHA256`
+(1.2.840.10045.4.3.2) with absent AlgorithmIdentifier parameters, not NULL.
+[RFC 5280 §4.1.1.3](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.1.3)
+defines the certificate signatureValue container;
+[ITU-T X.690 (2021), §§8.3 and 10.1](https://www.itu.int/rec/T-REC-X.690-202102-I/en)
+governs integer/shortest DER length encoding.
+
+Raw r and s each represent an unsigned big-endian integer, left-zero-padded to
+exactly 32 bytes. For DER, validate `1 ≤ r,s < n` (P-256 group order), remove
+unnecessary leading zeros, then add exactly one `0x00` sign octet only if the
+first remaining octet's high bit is set. ASN.1 INTEGER is signed: omission of
+that octet would encode a negative value. Use primitive INTEGERs in order r,s,
+the shortest definite lengths and no extra padding, fields or trailing bytes.
+When decoding DER to raw, reject noncanonical, negative, zero or out-of-range
+values; remove only the necessary sign octet and left-pad each to 32 bytes.
+
+CNG raw ECDSA signing output and X.509 DER signature encoding are distinct
+formats. The reviewed certificate-encoding path owns conversion, the signed
+TBSCertificate bytes and validation of the resulting DER certificate against
+the profile. Never copy raw 64 bytes directly into signatureValue or assume
+that a Native API will repair arbitrary supplied encoding. API-specific input
+contracts must be reviewed; certificate parsing alone is not signature proof.
+
+Package 1 must freeze public, fixed offline vectors with message/TBSCertificate
+bytes, SHA-256 digest, P-256 public key, original raw signature, expected DER
+signature/certificate and expected verification/rejection result. Include
+leading-zero removal and high-bit sign padding for either/both integers,
+shortest lengths and raw↔DER round trips. Negative vectors cover raw-in-X.509,
+missing/redundant sign zeros, negative/zero/out-of-range integers, swapped r/s,
+truncation, extra fields/trailing bytes, nonminimal/indefinite lengths and
+wrong algorithm parameters. Correct fixtures must verify; malformed fixtures
+must fail closed. Use published/fixed synthetic fixtures: P17 generates no
+real key/certificate and performs no CNG experiment. This changes no P9/P10
+schema, Pairing Proof transcript/wire format or credentialIdentity definition.
 
 Rationale: P-256 is the one modern ECC curve with first-class CNG support
 (`BCRYPT_ECDSA_P256_ALGORITHM`) and first-class BoringSSL support
@@ -1177,6 +1321,10 @@ no new pub dependency; any other new dependency requires separate explicit
 authority. No package may activate a production Host or business listener, and
 no package touches AR-R6B.
 
+The table's X-row grants cover full G0-I acceptance; section 6 separately maps
+local L1/L2 subsets. Its required-real-authorization column does not gate L0
+code/compile/offline work.
+
 | Package | Smallest responsibility | Offline-testable portion | Required real authorization | Targets (M → A) | STOP boundary |
 |---|---|---|---|---|---|
 | 1. Credential / Protected Object primitives | The native helper (known-folder resolution, DACL create/verify, DPAPI wrap/unwrap, atomic replace, the exclusive no-sharing handle locks (liveness/supersession and single-writer), BCrypt keygen/sign/verify, certificate encode, extension inspection) built into release artifacts; Dart adapters: the 9.B store (CAS/uniqueness/tombstones/snapshots), discovery publisher/validators, leaf issuance from submissions, the 9.C exchange protocol, and the P15 port/backend implementations in composition-side wiring only | Format codecs, CAS/state machines with fakes, transcript/signature test vectors, source guards (no `defaultContext`, no `onBadCertificate`, no `engine.*`), CI-runnable | G0; X1 (issuance/possession), X3 (protected-object cross-SID) | M1, M2, M5, M6 → A1, A3 | No listener, no business Host, no production composition activation; if X1/X3 disprove DPAPI/ACL/rename behavior → STOP (no fallback backend) |
@@ -1184,10 +1332,18 @@ no package touches AR-R6B.
 | 3. Windows lifecycle and release acceptance | Disconnect/timeout/revoke and generation invalidation, B0/restart behavior, real-channel STAGE response loss (X8), Bridge-no-alternate-writer audit (X9), crash/foreign-object cleanup (X11), AOT packaging/native loading/Unicode and spaced launch (X12), standing v0/MCP compatibility (X10) | X10 standing regression only | G0; X5, X8–X12 | M10, M11, M12 → A5, A8–A12 | Any stability anomaly triggers the section 6 stop/recovery rules; no activation decision exists inside this package |
 
 Ordering: 1 → 2 → 3, serial. Package 1 can be written, compiled and
-offline-tested under normal task authority, but its protected-object behavior
-has no acceptance until X1/X3 on the approved environment. Packages are
-responsibility slices, not automatic authorization; each starts only with its
-own explicit grant.
+offline-tested under normal G0-L0 task authority without an L1 experiment
+grant. Split implementation by dependency into bounded, independently reviewed
+PRs; one PR need not deliver all of Package 1. Start with the minimal Windows
+Native Helper, controlled Win32 memory/handle release, Dart FFI Adapter,
+frozen versioned object codecs, dedicated DPAPI Credential Store Adapter and
+runtime.lock/client.lock single-writer protection, with offline tests and source
+guards against the actual implementation. Do not introduce a second Profile,
+Principal, PairingState or CredentialStore business authority. Necessary real
+DPAPI/ACL/key/certificate calls stop at G0-L1; local communication stops at
+G0-L2. Local subsets prove only their exact functions; full protected-object
+acceptance still requires X1/X3 under G0-I. Packages are responsibility slices,
+not automatic authority; each starts with its own scoped implementation grant.
 
 Not delegated to any package: production Host activation, AR-R6B, schema/B0/
 P9/P10 changes, Provider-store changes, or any change to frozen authorization
@@ -1197,36 +1353,50 @@ Windows Verifier, independent review and explicit user authority.
 
 ### 9.F G0 boundary, remaining blockers and completion meaning
 
-Three-part separation for P16 execution planning:
+P17 supersedes P16's single environment gate, without re-freezing the full P16
+design. Section 6 owns tier prerequisites, per-batch approval and X-row subset
+mapping:
 
 | Class | Examples | Authority required |
 |---|---|---|
-| Developable now | Native-helper source, Dart adapters, format codecs, tests with fakes and fixed test vectors, documentation | Normal task authority inside a dedicated branch; no system mutation |
-| Offline pure-algorithm tests | Transcript/signature vectors, CAS/state machines, decode and size bounds, source guards | Same; results are never Windows security evidence |
-| Approved-environment experiments | Any real DPAPI/ACL/SID/Discovery object work, key or certificate generation, TLS listener/handshake, AOT release runs, crash/cleanup trials | G0 plus the exact X-row grant; these results are the only A-criteria evidence |
+| G0-L0 | Native-helper/adapters/Host source, compile/analyze/format, versioned codecs, pure algorithms/Mocks/fixed public vectors and source guards; no real Windows security object or communication | Normal scoped task authority on a dedicated branch; no L1 experiment grant required |
+| G0-L1 | Exact test-only DPAPI/NTFS/lock/atomic-replace/key/certificate primitive batch | Individual user grant, reviewed helper and section 6 preconditions; LOCAL-L1 only |
+| G0-L2 | One bounded 127.0.0.1 TCP/mTLS candidate, TLS 1.3 authentication/connection and resource closure, no business routes | Necessary passing L1 evidence, independent implementation review and a separate exact L2 user grant; LOCAL-L2 only |
+| G0-I | Original X0–X12 / A0–A12, including cross-SID, business lifecycle/effect and packaged acceptance | Independent-kernel Windows environment and exact row grants, fixed-target Verifier and independent Reviewer; complete formal criteria unchanged |
 
 Explicit non-inference: the user continuing development does NOT authorize
 actual system credential modification, generation or installation of formal
 certificates, SID/ACL/Discovery object changes, starting a real TCP/mTLS
 listener, or high-risk stability reproduction on the primary host. The
 permanent stop on primary-host AF_UNIX experiments
-([external boundary section 6](external-agent-boundary.md)) is unchanged. If
-the user later chooses the primary machine as the controlled experiment
-environment, that conflicts with the existing isolation requirements
-(independent kernel, approved device, section 6) and requires a separate
-explicit user decision — this document and P16 cannot and do not adjust it.
+([external boundary section 6](external-agent-boundary.md)) is unchanged.
+HOST_STABILITY_HALT remains ACTIVE: high-risk crash/driver/kernel reproduction
+is forbidden, while new TCP/DPAPI/CNG/NTFS local experiments require their
+individual L1/L2 exception grants. The primary computer may be named in such a
+future application; P17 itself authorizes no real calls, listener or test run.
 
-**BLOCKED_ON_G0**: with the decisions above frozen, the remaining blockers to
-production implementation are exactly the G0 environment and the per-package
-experiment grants, plus the separately listed unfrozen production details
-(multi-user provisioning, enrollment UX, release packaging specifics). No
-further offline design stage is pending; the next work requiring authority is
-real implementation and isolated Windows acceptance (Packages 1–3).
+**BLOCKED_ON_G0** now describes real experiments lacking their applicable
+environment/prerequisites and exact batch grants, not G0-L0 code development.
+Formal Windows acceptance remains blocked until G0-I and complete A evidence;
+production activation additionally retains section 8's separate security and
+system-stability decisions, Verifier/Reviewer and explicit user authority.
+Previously unfrozen details (multi-user provisioning, enrollment UX, release
+packaging specifics, undefined custom signed-record formats) need bounded
+decisions only when their implementation requires them; they do not create
+another general offline authentication design stage or a second business owner.
 
 P16 completion means: production credential, certificate, possession-proof,
 Windows secure storage and Discovery candidates have concrete minimal
 specifications, and the next real implementation's authorization and
 verification needs are stated. It does NOT mean any real Windows security
 acceptance passed.
+
+P17 completion means the X.509 encoding conflict is corrected, controlled
+primary-host L1/L2 applications have explicit gates, the AF_UNIX halt is
+preserved, full Windows acceptance still needs complete evidence, and the next
+authorized work package can directly implement Package 1. No real experiment
+or production Credential/Host activation is granted; no automatic P18 or AR-R6B.
+Any local success leaves the following statuses unchanged until a separately
+authorized full acceptance/activation decision:
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.

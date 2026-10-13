@@ -240,17 +240,26 @@ no certificate suite, production secure format or Windows adapter is approved.
 M1–M4 real acceptance remains WINDOWS_PENDING; G0/X0–X12 remain unapproved.
 Existing standing P12/B0 test files carry the new offline cases; P14's 273-file
 coverage/omission gate and four shards remain unchanged.
-P16 freezes the production primitive candidates under external boundary §13
+P16's static freeze is accepted in merged PR #267 under external boundary §13
 and [Windows security readiness](../product/agent-refactor/windows-host-security-readiness.md) §9:
 the certificate/identity model, the single DPAPI-backed External object store,
 the cryptographic pairing possession proof and the owner-only Windows
 Discovery root, plus the minimal implementation packages and their required
 experiment authority. P16 is a static decision only; it implements nothing,
-adds no dependency or schema and clears no WINDOWS_PENDING item. Its remaining
-blockers are exactly G0 and the per-package experiment grants (BLOCKED_ON_G0).
+adds no dependency or schema and clears no WINDOWS_PENDING item.
 No real Credential/Transport experiment or Host implementation is activated.
-Dynamic admission is BLOCKED until an independent environment, bounded scope
-and new explicit user authorization are approved. Design completion is not
+P17's bounded documentation amendment corrects X.509 signatures to ASN.1 DER
+ECDSA-Sig-Value and retains raw r‖s (64 bytes) for Pairing Proof/Endpoint
+Descriptor, with P-256/SHA-256 and credentialIdentity unchanged. Its G0 tiers
+allow normal G0-L0 code/compile/offline development, applications for separate
+G0-L1 test-only Windows primitive batches and G0-L2 bounded 127.0.0.1 TCP/mTLS
+batches without business routes, and retain independent-kernel G0-I for complete
+A0–A12 / X0–X12 acceptance. Readiness §§6 and 9.F own exact prerequisites,
+evidence classes, local subsets and STOP rules. No real batch is approved here;
+BLOCKED_ON_G0 concerns ungranted real experiments/acceptance, not L0 source work.
+Local success cannot mark complete A PASS, activate Credential/Host or lift the
+permanent primary-host AF_UNIX halt. Security and stability close separately.
+Design completion is not
 production security or system-stability acceptance and does not start AR-R6B.
 No business authorization/writer,
 schema, B0 format or Host authority is expanded. MCP vNext and formal Host
@@ -258,6 +267,22 @@ integration remain unimplemented;
 real TCP/mTLS is unverified, Transport
 is BLOCKED and AR-R6A is NOT_ACCEPTED. HOST_STABILITY_HALT remains active.
 AR-R6B, AR-R7 and later implementation stages remain inactive.
+
+**After P17 merges, the next work package is Package 1 production-code
+implementation, not another general offline authentication design stage.**
+The first bounded implementation slices cover the minimal Windows Native
+Helper, controlled Win32 memory/handle release, Dart FFI Adapter, already-frozen
+versioned object codecs, dedicated DPAPI Credential Store Adapter and
+runtime.lock/client.lock single-writer protection, with offline tests and source
+guards exercising the real implementation. Split by dependency and reviewable
+responsibility; do not require all of Package 1 in one PR. Writing, compiling
+and pure offline testing under scoped implementation authority do not depend
+on L1 approval. Real DPAPI calls, ACL mutation and test key/certificate generation
+stop at their L1 grant boundary; local communication stops at L2. There is no
+second Profile, Principal, PairingState or CredentialStore business authority.
+This documentation task implements none of those slices and starts no P18.
+The retained target is Codex/Claude MCP Bridge → Shiroha External Host →
+authenticated and authorized question-bank READ/STAGE services.
 
 Use namespaced AR-R identifiers to distinguish this route from historical
 R1-R8 typed-core stages:

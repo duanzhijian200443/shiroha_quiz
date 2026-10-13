@@ -222,8 +222,13 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
    client-leaf trust split, one dedicated DPAPI-backed External object store
    satisfying the P15 contract, the cryptographic pairing possession proof and
    the owner-only Discovery root. It selects candidates only — no runtime,
-   dependency, schema or permission semantic change — and its remaining
-   blockers are exactly G0 and the per-package experiment grants.
+   dependency, schema or permission semantic change. P17's bounded amendment
+   in that readiness contract §§6/9.A.2/9.F separates X.509 DER signatures from
+   custom raw r‖s and tiers G0: L0 code/compile/offline development needs scoped
+   task authority; L1/L2 real local subsets need exact user batch grants; full
+   Windows acceptance retains independent-kernel G0-I. BLOCKED_ON_G0 concerns
+   real experiments/acceptance, not L0 code. No experiment or Host is activated;
+   the next scoped implementation is Package 1, with no new general design stage.
    HOST_STABILITY_HALT stays ACTIVE; Transport BLOCKED and AR-R6A NOT_ACCEPTED.
    The generated schema is globally
    migrated and strictly validated independently of runtime module enablement.
