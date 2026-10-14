@@ -1,0 +1,5 @@
+#ifndef SHIROHA_P20_TEST_ROOT_CONFIG_H_
+#define SHIROHA_P20_TEST_ROOT_CONFIG_H_
+// Generated only for the opt-in diagnostic target; never a runtime override.
+inline constexpr wchar_t shiroha_p20_test_root[] = LR"p20(@SHIROHA_P20_TEST_ROOT_NATIVE@)p20";
+#endif

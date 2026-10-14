@@ -6,6 +6,8 @@ if(NOT WIN32 OR NOT MSVC OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8 OR
   message(FATAL_ERROR "External Native Helper requires Windows x64")
 endif()
 
+# Opt-in diagnostic executable only. Production target never receives the
+# definition, generated header include directory, or root value.
 function(shiroha_native_settings target)
   target_compile_features(${target} PRIVATE cxx_std_17)
   target_compile_definitions(${target} PRIVATE
@@ -14,6 +16,39 @@ function(shiroha_native_settings target)
   target_link_options(${target} PRIVATE /DYNAMICBASE /NXCOMPAT /GUARD:CF)
   target_compile_options(${target} PRIVATE /guard:cf)
 endfunction()
+
+option(SHIROHA_P20_MINIMAL_TEST_BUILD "Compile the isolated P20 real-test candidate (never run in CTest)" OFF)
+set(SHIROHA_P20_TEST_ROOT "" CACHE STRING "Explicit absolute empty ancestor for diagnostic P20 only")
+if(SHIROHA_P20_MINIMAL_TEST_BUILD)
+  if(NOT SHIROHA_P20_TEST_ROOT MATCHES "^[A-Za-z]:[/\\\\]" OR
+     SHIROHA_P20_TEST_ROOT MATCHES "[\";\r\n]" OR
+     SHIROHA_P20_TEST_ROOT MATCHES "(^|[/\\\\])\\.\\.?([/\\\\]|$)")
+    message(FATAL_ERROR "P20 diagnostic test root must be an explicit absolute local path without dot segments")
+  endif()
+  string(REPLACE "/" "\\" SHIROHA_P20_TEST_ROOT_NATIVE "${SHIROHA_P20_TEST_ROOT}")
+  configure_file(diagnostics/p20_test_root_config.h.in
+    "${CMAKE_CURRENT_BINARY_DIR}/p20/p20_test_root_config.h" @ONLY)
+  add_executable(shiroha_p20_minimal_test diagnostics/p20_minimal_test.cpp
+    native_core.cpp native_windows.cpp protected_objects.cpp association_files.cpp protected_windows.cpp)
+  shiroha_native_settings(shiroha_p20_minimal_test)
+  target_compile_definitions(shiroha_p20_minimal_test PRIVATE SHIROHA_P20_DIAGNOSTIC_BUILD)
+  target_include_directories(shiroha_p20_minimal_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/p20")
+  target_link_libraries(shiroha_p20_minimal_test PRIVATE crypt32 shell32 ole32 uuid advapi32 bcrypt)
+  if(SHIROHA_NATIVE_OFFLINE_TESTS)
+    foreach(kind production diagnostic)
+      add_executable(shiroha_p20_root_${kind}_test tests/p20_test_root_test.cpp
+        protected_objects.cpp association_files.cpp)
+      shiroha_native_settings(shiroha_p20_root_${kind}_test)
+      target_include_directories(shiroha_p20_root_${kind}_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/p20")
+      if(kind STREQUAL "diagnostic")
+        target_compile_definitions(shiroha_p20_root_${kind}_test PRIVATE SHIROHA_P20_DIAGNOSTIC_BUILD)
+      endif()
+      add_test(NAME shiroha_p20_root_${kind}_offline COMMAND shiroha_p20_root_${kind}_test)
+    endforeach()
+  endif()
+endif()
 
 add_library(shiroha_external_native SHARED native_core.cpp native_windows.cpp
   protected_objects.cpp association_files.cpp protected_windows.cpp)

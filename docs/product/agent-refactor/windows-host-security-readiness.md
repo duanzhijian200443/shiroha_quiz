@@ -1789,6 +1789,27 @@ HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 
 ## 12. P20 protected App association store
 
+### Diagnostic-only isolated test ancestor
+
+The opt-in `SHIROHA_P20_MINIMAL_TEST_BUILD` target may compile an explicit
+absolute local `SHIROHA_P20_TEST_ROOT` into a separate diagnostic executable.
+An internal source seam replaces the owner ancestor only for that target.
+Production does not receive/read the override: its 9.D Known Folder root,
+fixed layout, ABI 3/twelve exports, access/sharing, DACL, DPAPI, transaction and
+publication behavior remain unchanged. No public ABI root argument is added.
+The seam rejects invalid roots without falling back to production; all existing
+handle-bound volume/reparse/security checks still apply to the diagnostic tree.
+
+The minimal real driver is compile-only at G0-L0, never a CTest entry. An exact
+G0-L1 grant may authorize one new ancestor creation, normal App initialization,
+synthetic A create/readback, existing-target B replace/readback and normal owner
+close, wholly beneath that ancestor. It refuses an already existing ancestor;
+no historical tree scan, contents, deletion or reuse is needed. There is no
+A0/Supervisor/Host/network/recovery implementation, no retry and no inferred
+runtime permission. Offline separation tests and one fixed-target source review
+precede a separately authorized real call; native functional success is neither
+the complete Dart Store acceptance nor G0-I/security/stability closure.
+
 This Package 1 source slice supplies a real, unactivated Data implementation of
 the existing `ExternalCredentialAssociationStore`. `WindowsCredentialAssociationStore`
 uses `AssociationObjectCodec`, P18 user-scope DPAPI and the P19 App owner. It is
@@ -1918,10 +1939,42 @@ The core still closes the temp and revalidates the published identity/security
 and owner pins before reporting success.
 
 Batch 2's publication failure remains historical failure evidence; its final OS
-error was not captured or identified. This API change has no real Windows
-publication-success evidence. LOCAL-L1 and G0-I acceptance remain pending and
-unchanged. It is not an accepted implementation for other store objects and
+error was not captured or identified. The repaired publication implementation
+now has successful real Windows functional evidence under the isolated
+diagnostic root described below. Formal LOCAL-L1 and G0-I acceptance remain
+pending. It is not an accepted implementation for other store objects and
 supplies no authority for Batch 3, cleanup or Host activation.
+
+### P20 isolated-root real Windows functional validation (2026-10-14)
+
+Under an explicit one-shot execution grant, a diagnostic build using the
+unchanged production publication implementation and a diagnostic-only injected
+test root was executed once on the primary Windows host under the current
+non-elevated user. The isolated root did not exist before the run and was
+separate from the historical Batch 2 root. No historical Batch 2 object was
+accessed or cleaned, and no retry or additional mode was run.
+
+The run completed with exit code `0`. First publication of synthetic value A
+succeeded; a fresh read returned the exact ciphertext and user-scope DPAPI
+decryption reproduced A byte-for-byte. Existing-target replacement with distinct
+synthetic value B then succeeded; a fresh read returned the new ciphertext and
+DPAPI decryption reproduced B byte-for-byte. The App owner closed normally.
+A subsequent metadata-only inventory of the isolated tree found no temporary
+publication files, unexpected objects or missing expected objects. The final B
+target and expected directory/lock objects were retained; no cleanup was run.
+
+This establishes real Windows functional evidence for the P20 new-target and
+existing-target publication paths, including user-scope DPAPI protection and
+unprotection, same-directory temporary publication, Flush, handle-relative
+`FileRenameInformation` class-10 replacement and post-publication readback under
+the isolated diagnostic root.
+
+This evidence does not establish crash atomicity, hostile/same-SID replacement
+resistance, cross-SID acceptance, production `%LOCALAPPDATA%\Shiroha` root
+acceptance, full Dart Store semantics, G0-I or Host/transport acceptance. The
+one-shot grant is consumed; this record grants no further experiment or runtime
+activation. **HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
+AR-R6A = NOT_ACCEPTED** remain unchanged.
 
 Rename failure/exception, unknown response or post-rename close/validation failure
 is `commitUnknown`, never success or automatic retry. A fresh read resolves
@@ -1950,6 +2003,10 @@ targets, partial-write/Flush/rename failure, ambiguous post-replace outcomes,
 collision, limits, identity/lock loss, closure and resource quarantine.
 No production DLL is loaded by these tests. The source guard now rejects bare
 `CreateFile(` as well as A/W calls without matching `NtCreateFile`.
+The Windows job also compiles the isolated-root P20 driver without running it,
+runs separate production-default and diagnostic-override root Fake tests, and
+checks that production, Batch 3 existing-only and P20 diagnostic target definitions
+and include paths remain isolated. The real driver is excluded from CTest.
 
 The Batch 3 Host A G0-L0 candidate additionally tests `existing_only` App/Bridge
 acquisition with every controlled directory/lock absent, without a single
@@ -2004,12 +2061,14 @@ alive Worker, and holding-period resource accounting - is a candidate requiring
 an explicit ruling; absent that ruling, no observation, holding-period budget,
 recovery option or new runtime authority is granted.
 
-P19's absolute `SECURITY_DESCRIPTOR` creation recipe has no new real-object
-compatibility evidence here and is not labeled accepted by offline checks.
-Actual DPAPI, NTFS creation/security/flush/atomic replacement, descriptor round
-trips and cross-process exclusion remain **LOCAL-L1 PENDING**. Full cross-SID,
-crash/hostile replacement and system-stability acceptance remain G0-I. No actual
-protected objects, ACL changes, DPAPI operations, locks, keys/certificates or
-listeners are executed under this G0-L0 source scope.
+P19's absolute `SECURITY_DESCRIPTOR` creation recipe was exercised by the
+isolated diagnostic run above; compatibility outside that observed subset is
+not established by it or by offline checks. Production-root acceptance,
+descriptor coverage beyond the isolated diagnostic run, cross-process/cross-SID
+behavior, crash recovery and formal LOCAL-L1/G0-I acceptance remain pending.
+Full crash/hostile replacement and system-stability acceptance remain G0-I.
+The G0-L0 source/offline checks themselves execute no actual protected-object,
+ACL, DPAPI, lock, key/certificate or listener operations; the separately granted
+isolated run is the bounded real functional evidence described above.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
