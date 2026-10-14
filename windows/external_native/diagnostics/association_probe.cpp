@@ -111,13 +111,17 @@ bool same_bytes(const std::vector<uint8_t>& a, std::size_t length,
   return true;
 }
 
-#ifndef SHIROHA_PROBE_FAKE_ONLY
-void usage() {
-  std::printf(
-      "usage: l1_assoc_probe <symbols|abi|assoc|bridge-denied> <dll>\n");
+// Shared by the real entry and fake regression. No CLI argument supplies the
+// missing identity bridge; deny before invoking the loader/native continuation.
+template <typename Invoke>
+int candidate_entry(int argc, const wchar_t* const* argv, Invoke invoke) {
+  static_cast<void>(invoke);
+  if (argc != 3 || !argv || !argv[1] || !argv[2]) return 64;
+  const std::wstring mode = argv[1];
+  if (mode != L"symbols" && mode != L"abi" && mode != L"assoc" && mode != L"bridge-denied") return 64;
+  std::printf("STOP stage=host_a_runtime_binding_pending attempted_native=0\n");
+  return 10;
 }
-
-#endif
 
 int run_assoc(const Api& api, ProbeLedger& ledger) {
   std::vector<uint8_t> payload64(64), payload96(96);
@@ -269,24 +273,23 @@ bool sample_resources(ProbeLedger& ledger) noexcept {
 
 int wmain(int argc, wchar_t** argv) {
   std::setvbuf(stdout, nullptr, _IONBF, 0); // Preserve last attempt if a process stalls.
-  if (argc != 3) { usage(); return 64; }
-  const std::wstring mode = argv[1];
-  if (mode != L"symbols" && mode != L"abi" && mode != L"assoc" && mode != L"bridge-denied") return 64;
-  ProbeLedger ledger(mode == L"assoc" ? ProbeLedger::app : mode == L"bridge-denied" ? ProbeLedger::bridge : ProbeLedger::none);
-  ledger.abi_planned = mode != L"symbols";
-  ledger.sample = sample_resources;
-  int result = 10;
-  try {
-    if (!ledger.observe()) return 10;
-    Api api;
-    if (!load_api(argv[2], api)) { ledger.stop("load_or_symbol", -1); ledger.observe(); return 3; }
-    if (mode == L"symbols") { std::printf("symbols resolved=12 ok=1\n"); return ledger.observe() ? 0 : 10; }
-    const auto version = ledger.invoke("abi", [&] { return api.abi(); });
-    if (!ledger.record("abi", static_cast<int>(version), SHIROHA_NATIVE_ABI_VERSION, true)) return 2;
-    if (mode == L"abi") result = 0;
-    else if (mode == L"assoc") result = run_assoc(api, ledger);
-    else result = run_bridge_denied(api, ledger);
-  } catch (...) { ledger.stop("exception", -1); }
-  return result;
+  return candidate_entry(argc, argv, [](const std::wstring& mode, const wchar_t* dll) {
+    ProbeLedger ledger(mode == L"assoc" ? ProbeLedger::app : mode == L"bridge-denied" ? ProbeLedger::bridge : ProbeLedger::none);
+    ledger.abi_planned = mode != L"symbols";
+    ledger.sample = sample_resources;
+    int result = 10;
+    try {
+      if (!ledger.observe()) return 10;
+      Api api;
+      if (!load_api(dll, api)) { ledger.stop("load_or_symbol", -1); ledger.observe(); return 3; }
+      if (mode == L"symbols") { std::printf("symbols resolved=12 ok=1\n"); return ledger.observe() ? 0 : 10; }
+      const auto version = ledger.invoke("abi", [&] { return api.abi(); });
+      if (!ledger.record("abi", static_cast<int>(version), SHIROHA_NATIVE_ABI_VERSION, true)) return 2;
+      if (mode == L"abi") result = 0;
+      else if (mode == L"assoc") result = run_assoc(api, ledger);
+      else result = run_bridge_denied(api, ledger);
+    } catch (...) { ledger.stop("exception", -1); }
+    return result;
+  });
 }
 #endif

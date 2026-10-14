@@ -16,7 +16,7 @@ $toolsVersion = (Get-Content (Join-Path $installation 'VC/Auxiliary/Build/Micros
 $dumpbin = Join-Path $installation "VC/Tools/MSVC/$toolsVersion/bin/Hostx64/x64/dumpbin.exe"
 $ctest = Join-Path (Split-Path -Parent $cmake) 'ctest.exe'
 
-& $cmake -S $PSScriptRoot -B $build -G 'Visual Studio 17 2022' -A x64 -DSHIROHA_NATIVE_OFFLINE_TESTS=ON
+& $cmake -S $PSScriptRoot -B $build -G 'Visual Studio 17 2022' -A x64 -DSHIROHA_NATIVE_OFFLINE_TESTS=ON -DSHIROHA_BATCH3_EXISTING_ONLY_BUILD=ON -DSHIROHA_L1_CANDIDATE_BUILD=ON
 if ($LASTEXITCODE -ne 0) { throw 'Native configure failed' }
 # Incremental Debug linking may retain unused imports from the previous API.
 # Rebuild only this tool-managed build tree before inspecting exact artifacts.
@@ -62,4 +62,28 @@ foreach ($name in @('shiroha_native_offline_test', 'shiroha_objects_offline_test
 if ($LASTEXITCODE -ne 0) { throw 'Fake-only native contracts failed' }
 & (Join-Path $PSScriptRoot 'tests/runner_stop_test.ps1')
 & (Join-Path $PSScriptRoot 'tests/frozen_source_test.ps1')
+& (Join-Path $PSScriptRoot 'tests/host_a_policy_test.ps1')
+# Compile metadata reader without loading it or invoking any P/Invoke method.
+$csc = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
+& $csc /nologo /target:library /platform:x64 /warnaserror "/out:$build/$Configuration/host_a_metadata.dll" (Join-Path $PSScriptRoot 'diagnostics/host_a_metadata.cs')
+if ($LASTEXITCODE -ne 0) { throw 'Metadata-reader compile failed' }
+# Compile only the shared pure ownership slice; no MetadataReader/P/Invoke exists
+# in this fake executable, and no metadata assembly is loaded by the test.
+$pinTest = Join-Path $build "$Configuration/host_a_pin_owner_test.exe"
+& $csc /nologo /target:exe /platform:x64 /warnaserror /define:SHIROHA_METADATA_FAKE_ONLY "/out:$pinTest" (Join-Path $PSScriptRoot 'diagnostics/host_a_metadata.cs') (Join-Path $PSScriptRoot 'tests/host_a_pin_owner_test.cs')
+if ($LASTEXITCODE -ne 0) { throw 'Fake pin-owner compile failed' }
+& $pinTest
+if ($LASTEXITCODE -ne 0) { throw 'Fake pin-owner contracts failed' }
+foreach ($name in @('shiroha_batch3_existing_only.dll', 'shiroha_assoc_candidate.exe')) {
+    $file = Join-Path $build "$Configuration/$name"
+    $candidateHeaders = (& $dumpbin /headers $file | Out-String)
+    if ($LASTEXITCODE -ne 0 -or $candidateHeaders -notmatch '8664 machine \(x64\)') { throw 'Candidate is not x64' }
+    foreach ($flag in @('Dynamic base', 'NX compatible', 'Control Flow Guard')) {
+        if ($candidateHeaders -notmatch [regex]::Escape($flag)) { throw 'Candidate hardening absent' }
+    }
+}
+$candidateExports = (& $dumpbin /exports (Join-Path $build "$Configuration/shiroha_batch3_existing_only.dll") | Out-String)
+if ($LASTEXITCODE -ne 0) { throw 'Existing-only export inspection failed' }
+$candidateNames = @([regex]::Matches($candidateExports, '(?m)^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(\w+)(?:\s+=.*)?\s*$') | ForEach-Object { $_.Groups[1].Value })
+if ($candidateNames.Count -ne 12 -or @(Compare-Object $expected $candidateNames).Count -ne 0) { throw 'Existing-only ABI drift' }
 Write-Output 'PASS: MSVC x64, twelve ABI exports, hardening, production imports and fake-only native contracts (no LOCAL-L1 acceptance)'

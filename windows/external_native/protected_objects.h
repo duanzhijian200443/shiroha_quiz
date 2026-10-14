@@ -62,8 +62,10 @@ struct CommitDiagnostic {
 
 class ProtectedObjects final {
  public:
+  enum class OpenMode { initialize, existing_only };
   static constexpr size_t max_owners = 32;
-  explicit ProtectedObjects(ObjectOperations& ops) noexcept : ops_(ops) {}
+  explicit ProtectedObjects(ObjectOperations& ops,
+      OpenMode mode = OpenMode::initialize) noexcept : ops_(ops), mode_(mode) {}
   ~ProtectedObjects() noexcept;
   int32_t acquire(uint32_t version, uint32_t role, uint64_t* token) noexcept;
   int32_t validate(uint32_t version, uint64_t token) noexcept;
@@ -94,6 +96,7 @@ class ProtectedObjects final {
   int32_t target_current(Lease&, const Sid&);
   bool finish(Lease&) noexcept;
   ObjectOperations& ops_;
+  const OpenMode mode_;
   std::mutex mutex_;
   uint64_t next_token_ = 1; // Never reused, including failed acquisitions.
   uint64_t next_ticket_ = 1;

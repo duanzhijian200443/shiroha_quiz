@@ -331,6 +331,20 @@ store, system account or formal ACL change is allowed. Creating a second SID
 or performing aggressive negative cases needs separate explicit authority;
 L1 grants neither by default and cannot substitute for G0-I cross-SID acceptance.
 
+**Batch 3 Host A amendment candidate (not approved):** only this batch may
+request reuse of the primary Windows host's existing experiment root instead
+of an empty root. No cloud computer/VM is required for this LOCAL-L1 candidate;
+G0-I is unchanged. Admission would require exactly the approved existing
+directories/locks and two named inert Batch 2 temporaries, with associations.bin
+absent. A separately approved read-only metadata capture precedes any runtime
+application. Names/sizes from historical records are expectations, never current
+File ID/volume/Owner/DACL evidence. Unknown objects, missing objects or drift
+deny; no creation/cleanup/ACL repair is a way to meet the prerequisite. Until
+the exception and runtime identity handoff receive independent review and new
+explicit grants, real preflight and Batch 3 remain BLOCKED. The diagnostic
+[Host A contract](../../../windows/external_native/diagnostics/README.md#host-a-preparation-candidate)
+defines the bounded candidate and remaining implementation gap.
+
 Every L2 application must additionally freeze port/bind method, socket and
 handshake counts, time/memory/handle ceilings, source SHA and artifact hashes,
 wrong-certificate rejection cases, STOP and recovery plans. L1 approval does
@@ -979,6 +993,17 @@ requires.
 | Replace outcome ambiguous (temp written, replace uncertain) | `commitUnknown`; never reported as success | Fresh read; idempotent same-tuple/exact-revision registration; stale requests fail CAS |
 | Crash mid-write | Old-or-new valid state; `~tmp-` leftovers inert | Leftovers are ignored by the loader, never read; bounded count fails new writes closed beyond the cap until explicit local cleanup |
 
+Batch 3 Host A candidate only: the two frozen historical temporaries remain
+inert and count toward the unchanged 32-leftover/4096-entry production limits.
+Metadata-only inspection is a separately granted observation, not a store
+transaction, association read, lock-liveness proof or authorization to read
+ciphertext. No delete/rename/move/overwrite/ACL change or collision retry is
+permitted for those files. The exclusive writer lock still precedes every
+store operation; any observer lock handles must be closed once before native
+no-sharing acquisition, followed by in-owner identity verification. A preflight
+report cannot bridge that gap by itself. Failure/commitUnknown still stops the
+batch with only one owner-close attempt and no follow-up diagnostic read.
+
 #### 9.B.5 Integrity and anti-replacement (FROZEN)
 
 - At-rest tamper detection: DPAPI integrity plus strict decode plus full
@@ -1400,6 +1425,16 @@ Previously unfrozen details (multi-user provisioning, enrollment UX, release
 packaging specifics, undefined custom signed-record formats) need bounded
 decisions only when their implementation requires them; they do not create
 another general offline authentication design stage or a second business owner.
+
+Host A Batch 3 preparation stays G0-L0: a compiled existing-only diagnostic
+variant, metadata-reader source, pure identity comparison and bounded-wait
+fakes prove no real permissions or settled native-call timeout. They grant no
+inspection of historical objects. The current Runner rejects Execute before
+any object inspection or DLL load because runtime identity binding is pending.
+The native candidate entry independently rejects every real mode before its
+sampler or DLL loader, so bypassing the Runner supplies no admitted probe path.
+Approval of the non-empty-directory exception, metadata capture, and the later
+primitive run are distinct decisions; none is inherited from Batch 1/2 or G0-L0.
 
 P16 completion means: production credential, certificate, possession-proof,
 Windows secure storage and Discovery candidates have concrete minimal
@@ -1915,6 +1950,22 @@ targets, partial-write/Flush/rename failure, ambiguous post-replace outcomes,
 collision, limits, identity/lock loss, closure and resource quarantine.
 No production DLL is loaded by these tests. The source guard now rejects bare
 `CreateFile(` as well as A/W calls without matching `NtCreateFile`.
+
+The Batch 3 Host A G0-L0 candidate additionally tests `existing_only` App/Bridge
+acquisition with every controlled directory/lock absent, without a single
+creation request. Production retains its default initialization behavior and
+ABI 3. A compile-only diagnostic DLL selects existing-only mode; lock opens
+retain no sharing, parent binding and all security checks. Pure Runner tests
+cover metadata drift/unknown names and bounded timeout with unknown settlement;
+the metadata reader is compiled without invocation. No running identity bridge
+connects its report to the production DLL, so Execute remains denied. The
+metadata report is only a capture, never continuous identity or runtime approval.
+The reader preallocates its thirteen ownership slots before OS access and
+registers each slot before opening its handle; post-open failures retain that
+handle for one close attempt. A fake-only managed test excludes the reader and
+all P/Invoke declarations while exercising the shared ownership code. The
+bounded waiter rechecks its clock/deadline after exit-code retrieval as well as
+after waiting; neither late retrieval nor a clock anomaly can report success.
 
 P19's absolute `SECURITY_DESCRIPTOR` creation recipe has no new real-object
 compatibility evidence here and is not labeled accepted by offline checks.

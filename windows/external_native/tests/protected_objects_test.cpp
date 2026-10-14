@@ -24,6 +24,7 @@ struct Fake final : ObjectOperations {
   bool throw_inspect = false, throw_child = false, fail_close = false;
   bool change_identity = false;
   int closes = 0;
+  int create_requests = 0;
   std::function<void(ObjectInfo&)> corrupt;
   std::wstring fail_stage;
   size_t leftovers = 0;
@@ -139,6 +140,7 @@ struct Fake final : ObjectOperations {
     return SHIROHA_NATIVE_OK;
   }
   int32_t child(HANDLE parent, const wchar_t* name, bool dir, bool create, const Sid&, HANDLE& out) override {
+    if (create) ++create_requests;
     calls.push_back(name);
     out = nullptr;
     check(handles.count(parent) == 1, "parent is still held");
@@ -178,6 +180,33 @@ struct Fake final : ObjectOperations {
 }  // namespace
 
 int main() {
+  // Seed synthetic objects through the unchanged production path, then prove
+  // the candidate never asks for creation, including every missing component.
+  for (const auto* missing : {L"none", L"Shiroha", L"external", L"runtime.lock",
+       L"app", L"trust", L"state", L"discovery", L"exchange", L"bridge", L"client.lock"}) {
+    Fake f;
+    {
+      ProtectedObjects seed(f); uint64_t app = 0, bridge = 0;
+      check(seed.acquire(3, 1, &app) == 0 && seed.close(3, app) == 0, "seed App");
+      check(seed.acquire(3, 2, &bridge) == 0 && seed.close(3, bridge) == 0, "seed Bridge");
+    }
+    for (auto it = f.objects.begin(); it != f.objects.end();) {
+      if (it->first.second == missing) it = f.objects.erase(it); else ++it;
+    }
+    const auto count = f.objects.size(); f.create_requests = 0;
+    ProtectedObjects core(f, ProtectedObjects::OpenMode::existing_only);
+    const bool bridge_role = std::wstring(missing) == L"bridge" || std::wstring(missing) == L"client.lock";
+    uint64_t owner = 0;
+    const auto result = core.acquire(3, bridge_role ? 2u : 1u, &owner);
+    check(result == (std::wstring(missing) == L"none" ? 0 : SHIROHA_NATIVE_UNAVAILABLE), "existing-only missing fails");
+    check(f.create_requests == 0 && f.objects.size() == count, "no initialization request or mutation");
+    if (owner) {
+      uint64_t second = 0;
+      check(core.acquire(3, 1, &second) == SHIROHA_NATIVE_UNAVAILABLE && second == 0, "existing-only lock contention");
+      check(core.close(3, owner) == 0, "existing-only normal release");
+    }
+    check(f.handles.empty(), "existing-only releases acquired pins");
+  }
   for (const bool fail_old_close : {false, true}) {
     Fake f; ProtectedObjects core(f); uint64_t owner = 0, ticket = 0, written = 0;
     uint8_t output[64]{}, input[]{4, 5, 6};

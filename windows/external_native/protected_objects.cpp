@@ -84,7 +84,8 @@ int32_t ProtectedObjects::add(Lease& lease, HANDLE parent, const wchar_t* name,
   auto& pin = lease.pins.back();
   pin.owner = true;
   pin.dacl = dacl;
-  auto status = ops_.child(parent, name, directory, create, sid, pin.handle);
+  auto status = ops_.child(parent, name, directory,
+      create && mode_ == OpenMode::initialize, sid, pin.handle);
   if (status != SHIROHA_NATIVE_OK) return status;
   if (!pin.handle || pin.handle == INVALID_HANDLE_VALUE) return SHIROHA_NATIVE_UNAVAILABLE;
   status = ops_.inspect(pin.handle, pin.identity);
