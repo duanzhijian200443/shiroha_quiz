@@ -3,7 +3,48 @@
 This directory contains a future L1 harness candidate, not an experiment grant.
 It neither replaces nor modifies the untracked frozen Batch 2 harness/evidence.
 The P20 publication candidate uses NtSetInformationFile. Native ABI 3 and the public
-failure vocabulary remain unchanged. Real publication is not proven repaired.
+failure vocabulary remain unchanged. Isolated-root real publication/readback
+succeeded on 2026-10-14; production-root and formal acceptance remain pending.
+
+## Isolated P20 minimal-test root
+
+`SHIROHA_P20_MINIMAL_TEST_BUILD=ON` builds the separate, statically linked
+`shiroha_p20_minimal_test` diagnostic executable. It requires an explicit local
+absolute `SHIROHA_P20_TEST_ROOT` at configure time. The root is compiled into
+that executable; there is no environment-variable, command-line path, default
+root or fallback. The internal object-root seam substitutes only the ancestor
+used by Native owner acquisition. The production DLL gets neither the diagnostic
+definition nor the generated root header/include path; its Known Folder resolver,
+ABI 3, twelve exports, fixed children and all file/DPAPI semantics stay unchanged.
+Both build modes share the same existing pure absolute-path validator and the
+same protected-object/transaction implementation. Offline tests use a fake
+production resolver, not real Known Folder or filesystem calls.
+
+The real executable is never registered with CTest. Without `--run-once` it
+performs no root access. That switch is not an experiment grant. A separately
+approved call attempts one `CreateDirectoryW` for the compiled ancestor and
+refuses an existing root without enumerating, reusing or cleaning it. Normal App
+acquisition then creates only the unchanged fixed App layout and runtime lock.
+The driver writes DPAPI-protected synthetic A, reads/decrypts/compares A, writes
+B over the existing target, then reads/decrypts/compares B and closes the owner.
+It performs two commits, no contention/stale-ticket/Bridge/negative experiment,
+no retries, no cleanup and no other mode. First failure ends the functional
+sequence with only one owner-close attempt; retained transactions are settled
+by the unchanged owner-close implementation. Blocking OS calls are not forcibly
+interrupted, and this driver introduces no Supervisor or recovery mechanism.
+This proves only the native P20 file publication/readback slice when approved
+and successful, not the Dart kind-3 codec/CAS layer, crash atomicity or G0-I.
+
+The exact frozen source/artifact hashes, compiled test directory and one-shot
+command belong to the review/run package. Build, Fake results and an approved
+source review do not themselves authorize the real invocation.
+
+On 2026-10-14, one explicitly authorized isolated-root run completed with exit
+code 0: create/read/decrypt A, existing-target replace/read/decrypt B and normal
+owner Close all succeeded. Metadata-only inventory found no residual temporary
+files or unexpected objects; no cleanup or retry was performed. The authoritative
+evidence scope and remaining acceptance boundaries are recorded in
+[canonical readiness §12](../../../docs/product/agent-refactor/windows-host-security-readiness.md#p20-isolated-root-real-windows-functional-validation-2026-10-14).
 
 ## Stop and evidence contract
 

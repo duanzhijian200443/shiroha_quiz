@@ -1,6 +1,7 @@
 #include "protected_objects.h"
 #include "native_core.h"
 #include "association_rename.h"
+#include "diagnostics/p20_test_root.h"
 #include <aclapi.h>
 #include <winternl.h>
 #include <cstring>
@@ -294,15 +295,22 @@ class WindowsObjects final : public ObjectOperations {
 
 // Reuse P18's exact known-folder operation; do not accept environment/caller
 // paths. Exposed here internally by native_windows.cpp, not through the C ABI.
-int32_t WindowsObjects::local_directory(HANDLE& result) {
-  result = nullptr;
+int32_t production_object_root(std::wstring& path) {
   alignas(8) uint8_t output[SHIROHA_NATIVE_MAX_BYTES]{};
   uint64_t written = 0;
   const auto status = local_app_data(SHIROHA_NATIVE_ABI_VERSION, output,
                                     sizeof(output), &written, windows_operations());
   if (status != SHIROHA_NATIVE_OK) return status;
   if (!written || written % sizeof(wchar_t) != 0) return SHIROHA_NATIVE_UNAVAILABLE;
-  std::wstring path(reinterpret_cast<const wchar_t*>(output), static_cast<size_t>(written / 2));
+  path.assign(reinterpret_cast<const wchar_t*>(output), static_cast<size_t>(written / 2));
+  return SHIROHA_NATIVE_OK;
+}
+
+int32_t WindowsObjects::local_directory(HANDLE& result) {
+  result = nullptr;
+  std::wstring path;
+  const auto status = resolve_object_root(path, production_object_root);
+  if (status != SHIROHA_NATIVE_OK) return status;
   std::wstring name;
   if (!local_nt_name(path, name)) return SHIROHA_NATIVE_UNAVAILABLE;
   return open_native(nullptr, name, false, false, FILE_OPEN, nullptr, result) == 0
