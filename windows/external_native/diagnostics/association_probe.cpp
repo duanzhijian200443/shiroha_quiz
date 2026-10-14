@@ -92,8 +92,7 @@ struct OwnerRelease {
     if (!owner) return true;
     const auto token = owner;
     owner = 0;
-    const auto status = api.close_owner(SHIROHA_NATIVE_ABI_VERSION, token);
-    return ledger.release(status);
+    return ledger.release([&] { return api.close_owner(SHIROHA_NATIVE_ABI_VERSION, token); });
   }
   ~OwnerRelease() noexcept { close(); }
 };
@@ -130,22 +129,22 @@ int run_assoc(const Api& api, ProbeLedger& ledger) {
 
   uint64_t owner = 0;
   OwnerRelease release{api, owner, ledger};
-  const auto acquired = api.acquire(SHIROHA_NATIVE_ABI_VERSION, SHIROHA_NATIVE_APP, &owner);
+  const auto acquired = ledger.invoke("acquire", [&] { return api.acquire(SHIROHA_NATIVE_ABI_VERSION, SHIROHA_NATIVE_APP, &owner); });
   std::printf("owner acquire=%d tokenpos=%d\n", static_cast<int>(acquired),
               owner != 0 ? 1 : 0);
   if (!ledger.record("acquire", acquired, SHIROHA_NATIVE_OK, owner != 0)) return 10;
 
   uint64_t n1 = 0;
-  const auto p1 = api.protect(SHIROHA_NATIVE_ABI_VERSION, payload64.data(),
-                              payload64.size(), blob1.data(), blob1.size(), &n1);
+  const auto p1 = ledger.invoke("protect", [&] { return api.protect(SHIROHA_NATIVE_ABI_VERSION, payload64.data(),
+                              payload64.size(), blob1.data(), blob1.size(), &n1); });
   std::printf("blob protect=%d bytes=%llu\n", static_cast<int>(p1),
               static_cast<unsigned long long>(n1));
 
   if (!ledger.record("protect", p1, SHIROHA_NATIVE_OK, n1 > 0 && n1 <= blob1.size())) return 10;
 
   uint64_t written = 0, ticket1 = 0;
-  const auto begin1 = api.assoc_begin(SHIROHA_NATIVE_ABI_VERSION, owner,
-                                      readbuf.data(), readbuf.size(), &written, &ticket1);
+  const auto begin1 = ledger.invoke("begin1", [&] { return api.assoc_begin(SHIROHA_NATIVE_ABI_VERSION, owner,
+                                      readbuf.data(), readbuf.size(), &written, &ticket1); });
   std::printf("begin1 status=%d written=%llu ticketpos=%d\n",
               static_cast<int>(begin1), static_cast<unsigned long long>(written),
               ticket1 != 0 ? 1 : 0);
@@ -155,23 +154,23 @@ int run_assoc(const Api& api, ProbeLedger& ledger) {
   // One native transaction per App owner: a second begin while the first ticket
   // is retained must deny without disturbing the retained transaction.
   uint64_t w2 = 0, ticket2 = 0;
-  const auto begin2 = api.assoc_begin(SHIROHA_NATIVE_ABI_VERSION, owner,
-                                      readbuf.data(), readbuf.size(), &w2, &ticket2);
+  const auto begin2 = ledger.invoke("begin2", [&] { return api.assoc_begin(SHIROHA_NATIVE_ABI_VERSION, owner,
+                                      readbuf.data(), readbuf.size(), &w2, &ticket2); });
   std::printf("begin2 status=%d written=%llu ticketpos=%d\n",
               static_cast<int>(begin2), static_cast<unsigned long long>(w2),
               ticket2 != 0 ? 1 : 0);
 
   if (!ledger.record("begin2", begin2, SHIROHA_NATIVE_RESOURCE_LIMIT, w2 == 0 && ticket2 == 0)) return 10;
 
-  const auto commit1 = api.assoc_commit(SHIROHA_NATIVE_ABI_VERSION, owner, ticket1,
-                                        blob1.data(), n1);
+  const auto commit1 = ledger.invoke("commit1", [&] { return api.assoc_commit(SHIROHA_NATIVE_ABI_VERSION, owner, ticket1,
+                                        blob1.data(), n1); });
   std::printf("commit1 status=%d\n", static_cast<int>(commit1));
 
   if (!ledger.record("commit1", commit1, SHIROHA_NATIVE_OK, true)) return 10;
 
   uint64_t w3 = 0, ticket3 = 0;
-  const auto begin3 = api.assoc_begin(SHIROHA_NATIVE_ABI_VERSION, owner,
-                                      readbuf.data(), readbuf.size(), &w3, &ticket3);
+  const auto begin3 = ledger.invoke("begin3", [&] { return api.assoc_begin(SHIROHA_NATIVE_ABI_VERSION, owner,
+                                      readbuf.data(), readbuf.size(), &w3, &ticket3); });
   int match3 = 0;
   if (begin3 == SHIROHA_NATIVE_OK && w3 == n1 && same_bytes(readbuf, static_cast<std::size_t>(w3), blob1)) {
     match3 = 1;
@@ -179,24 +178,24 @@ int run_assoc(const Api& api, ProbeLedger& ledger) {
   std::printf("begin3 status=%d readbytes=%llu match=%d\n",
               static_cast<int>(begin3), static_cast<unsigned long long>(w3), match3);
 
-  if (!ledger.record("begin3", begin3, SHIROHA_NATIVE_OK, match3 == 1)) return 10;
+  if (!ledger.record("begin3", begin3, SHIROHA_NATIVE_OK, match3 == 1 && ticket3 != 0)) return 10;
 
-  const auto abort1 = api.assoc_abort(SHIROHA_NATIVE_ABI_VERSION, owner, ticket3);
+  const auto abort1 = ledger.invoke("abort1", [&] { return api.assoc_abort(SHIROHA_NATIVE_ABI_VERSION, owner, ticket3); });
   std::printf("abort1 status=%d\n", static_cast<int>(abort1));
 
   if (!ledger.record("abort1", abort1, SHIROHA_NATIVE_OK, true)) return 10;
 
   uint64_t n2 = 0;
-  const auto p2 = api.protect(SHIROHA_NATIVE_ABI_VERSION, payload96.data(),
-                              payload96.size(), blob2.data(), blob2.size(), &n2);
+  const auto p2 = ledger.invoke("protect2", [&] { return api.protect(SHIROHA_NATIVE_ABI_VERSION, payload96.data(),
+                              payload96.size(), blob2.data(), blob2.size(), &n2); });
   std::printf("blob2 protect=%d bytes=%llu\n", static_cast<int>(p2),
               static_cast<unsigned long long>(n2));
 
   if (!ledger.record("protect2", p2, SHIROHA_NATIVE_OK, n2 > 0 && n2 <= blob2.size())) return 10;
 
   uint64_t w4 = 0, ticket4 = 0;
-  const auto begin4 = api.assoc_begin(SHIROHA_NATIVE_ABI_VERSION, owner,
-                                      readbuf.data(), readbuf.size(), &w4, &ticket4);
+  const auto begin4 = ledger.invoke("begin4", [&] { return api.assoc_begin(SHIROHA_NATIVE_ABI_VERSION, owner,
+                                      readbuf.data(), readbuf.size(), &w4, &ticket4); });
   int match4 = 0;
   if (begin4 == SHIROHA_NATIVE_OK && w4 == n1 && same_bytes(readbuf, static_cast<std::size_t>(w4), blob1)) {
     match4 = 1;
@@ -204,17 +203,17 @@ int run_assoc(const Api& api, ProbeLedger& ledger) {
   std::printf("begin4 status=%d readbytes=%llu match=%d\n",
               static_cast<int>(begin4), static_cast<unsigned long long>(w4), match4);
 
-  if (!ledger.record("begin4", begin4, SHIROHA_NATIVE_OK, match4 == 1)) return 10;
+  if (!ledger.record("begin4", begin4, SHIROHA_NATIVE_OK, match4 == 1 && ticket4 != 0)) return 10;
 
-  const auto commit2 = api.assoc_commit(SHIROHA_NATIVE_ABI_VERSION, owner, ticket4,
-                                        blob2.data(), n2);
+  const auto commit2 = ledger.invoke("commit2", [&] { return api.assoc_commit(SHIROHA_NATIVE_ABI_VERSION, owner, ticket4,
+                                        blob2.data(), n2); });
   std::printf("commit2 status=%d\n", static_cast<int>(commit2));
 
   if (!ledger.record("commit2", commit2, SHIROHA_NATIVE_OK, true)) return 10;
 
   uint64_t w5 = 0, ticket5 = 0;
-  const auto begin5 = api.assoc_begin(SHIROHA_NATIVE_ABI_VERSION, owner,
-                                      readbuf.data(), readbuf.size(), &w5, &ticket5);
+  const auto begin5 = ledger.invoke("begin5", [&] { return api.assoc_begin(SHIROHA_NATIVE_ABI_VERSION, owner,
+                                      readbuf.data(), readbuf.size(), &w5, &ticket5); });
   int match5 = 0;
   if (begin5 == SHIROHA_NATIVE_OK && w5 == n2 && same_bytes(readbuf, static_cast<std::size_t>(w5), blob2)) {
     match5 = 1;
@@ -222,16 +221,16 @@ int run_assoc(const Api& api, ProbeLedger& ledger) {
   std::printf("begin5 status=%d readbytes=%llu match=%d\n",
               static_cast<int>(begin5), static_cast<unsigned long long>(w5), match5);
 
-  if (!ledger.record("begin5", begin5, SHIROHA_NATIVE_OK, match5 == 1)) return 10;
+  if (!ledger.record("begin5", begin5, SHIROHA_NATIVE_OK, match5 == 1 && ticket5 != 0)) return 10;
 
-  const auto abort2 = api.assoc_abort(SHIROHA_NATIVE_ABI_VERSION, owner, ticket5);
+  const auto abort2 = ledger.invoke("abort2", [&] { return api.assoc_abort(SHIROHA_NATIVE_ABI_VERSION, owner, ticket5); });
   std::printf("abort2 status=%d\n", static_cast<int>(abort2));
 
   if (!ledger.record("abort2", abort2, SHIROHA_NATIVE_OK, true)) return 10;
 
   // The consumed ticket must be rejected; this call must not touch the file.
-  const auto stale = api.assoc_commit(SHIROHA_NATIVE_ABI_VERSION, owner, ticket5,
-                                      blob1.data(), n1);
+  const auto stale = ledger.invoke("stale_commit", [&] { return api.assoc_commit(SHIROHA_NATIVE_ABI_VERSION, owner, ticket5,
+                                      blob1.data(), n1); });
   std::printf("stale_commit status=%d\n", static_cast<int>(stale));
 
   if (!ledger.record("stale_commit", stale, SHIROHA_NATIVE_INVALID_INPUT, true)) return 10;
@@ -239,16 +238,16 @@ int run_assoc(const Api& api, ProbeLedger& ledger) {
 }
 
 int run_bridge_denied(const Api& api, ProbeLedger& ledger) {
+  std::vector<uint8_t> readbuf(SHIROHA_NATIVE_MAX_BYTES);
   uint64_t owner = 0;
   OwnerRelease release{api, owner, ledger};
-  const auto acquired = api.acquire(SHIROHA_NATIVE_ABI_VERSION, SHIROHA_NATIVE_BRIDGE, &owner);
+  const auto acquired = ledger.invoke("acquire", [&] { return api.acquire(SHIROHA_NATIVE_ABI_VERSION, SHIROHA_NATIVE_BRIDGE, &owner); });
   std::printf("bridge acquire=%d tokenpos=%d\n", static_cast<int>(acquired),
               owner != 0 ? 1 : 0);
   if (!ledger.record("acquire", acquired, SHIROHA_NATIVE_OK, owner != 0)) return 10;
-  std::vector<uint8_t> readbuf(SHIROHA_NATIVE_MAX_BYTES);
   uint64_t written = 0, ticket = 0;
-  const auto begin = api.assoc_begin(SHIROHA_NATIVE_ABI_VERSION, owner,
-                                     readbuf.data(), readbuf.size(), &written, &ticket);
+  const auto begin = ledger.invoke("bridge_begin", [&] { return api.assoc_begin(SHIROHA_NATIVE_ABI_VERSION, owner,
+                                     readbuf.data(), readbuf.size(), &written, &ticket); });
   std::printf("bridge_begin status=%d written=%llu ticketpos=%d\n",
               static_cast<int>(begin), static_cast<unsigned long long>(written),
               ticket != 0 ? 1 : 0);
@@ -269,18 +268,20 @@ bool sample_resources(ProbeLedger& ledger) noexcept {
 }
 
 int wmain(int argc, wchar_t** argv) {
+  std::setvbuf(stdout, nullptr, _IONBF, 0); // Preserve last attempt if a process stalls.
   if (argc != 3) { usage(); return 64; }
   const std::wstring mode = argv[1];
   if (mode != L"symbols" && mode != L"abi" && mode != L"assoc" && mode != L"bridge-denied") return 64;
   ProbeLedger ledger(mode == L"assoc" ? ProbeLedger::app : mode == L"bridge-denied" ? ProbeLedger::bridge : ProbeLedger::none);
+  ledger.abi_planned = mode != L"symbols";
   ledger.sample = sample_resources;
   int result = 10;
   try {
     if (!ledger.observe()) return 10;
     Api api;
-    if (!load_api(argv[2], api)) return 3;
+    if (!load_api(argv[2], api)) { ledger.stop("load_or_symbol", -1); ledger.observe(); return 3; }
     if (mode == L"symbols") { std::printf("symbols resolved=12 ok=1\n"); return ledger.observe() ? 0 : 10; }
-    const auto version = api.abi();
+    const auto version = ledger.invoke("abi", [&] { return api.abi(); });
     if (!ledger.record("abi", static_cast<int>(version), SHIROHA_NATIVE_ABI_VERSION, true)) return 2;
     if (mode == L"abi") result = 0;
     else if (mode == L"assoc") result = run_assoc(api, ledger);

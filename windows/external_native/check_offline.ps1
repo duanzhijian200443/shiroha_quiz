@@ -61,4 +61,5 @@ foreach ($name in @('shiroha_native_offline_test', 'shiroha_objects_offline_test
 & $ctest --test-dir $build -C $Configuration --output-on-failure
 if ($LASTEXITCODE -ne 0) { throw 'Fake-only native contracts failed' }
 & (Join-Path $PSScriptRoot 'tests/runner_stop_test.ps1')
+& (Join-Path $PSScriptRoot 'tests/frozen_source_test.ps1')
 Write-Output 'PASS: MSVC x64, twelve ABI exports, hardening, production imports and fake-only native contracts (no LOCAL-L1 acceptance)'
