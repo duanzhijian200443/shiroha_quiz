@@ -63,17 +63,23 @@ if ($LASTEXITCODE -ne 0) { throw 'Fake-only native contracts failed' }
 & (Join-Path $PSScriptRoot 'tests/runner_stop_test.ps1')
 & (Join-Path $PSScriptRoot 'tests/frozen_source_test.ps1')
 & (Join-Path $PSScriptRoot 'tests/host_a_policy_test.ps1')
+& (Join-Path $PSScriptRoot 'tests/worker_supervision_test.ps1')
 # Compile metadata reader without loading it or invoking any P/Invoke method.
 $csc = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
-& $csc /nologo /target:library /platform:x64 /warnaserror "/out:$build/$Configuration/host_a_metadata.dll" (Join-Path $PSScriptRoot 'diagnostics/host_a_metadata.cs')
+& $csc /nologo /target:library /platform:x64 /warnaserror "/out:$build/$Configuration/host_a_metadata.dll" (Join-Path $PSScriptRoot 'diagnostics/host_a_metadata.cs') (Join-Path $PSScriptRoot 'diagnostics/metadata_contract.cs')
 if ($LASTEXITCODE -ne 0) { throw 'Metadata-reader compile failed' }
 # Compile only the shared pure ownership slice; no MetadataReader/P/Invoke exists
 # in this fake executable, and no metadata assembly is loaded by the test.
 $pinTest = Join-Path $build "$Configuration/host_a_pin_owner_test.exe"
-& $csc /nologo /target:exe /platform:x64 /warnaserror /define:SHIROHA_METADATA_FAKE_ONLY "/out:$pinTest" (Join-Path $PSScriptRoot 'diagnostics/host_a_metadata.cs') (Join-Path $PSScriptRoot 'tests/host_a_pin_owner_test.cs')
+& $csc /nologo /target:exe /platform:x64 /warnaserror /define:SHIROHA_METADATA_FAKE_ONLY "/out:$pinTest" (Join-Path $PSScriptRoot 'diagnostics/host_a_metadata.cs') (Join-Path $PSScriptRoot 'diagnostics/metadata_contract.cs') (Join-Path $PSScriptRoot 'tests/host_a_pin_owner_test.cs')
 if ($LASTEXITCODE -ne 0) { throw 'Fake pin-owner compile failed' }
 & $pinTest
 if ($LASTEXITCODE -ne 0) { throw 'Fake pin-owner contracts failed' }
+$readerTest = Join-Path $build "$Configuration/host_a_reader_test.exe"
+& $csc /nologo /target:exe /platform:x64 /warnaserror /define:SHIROHA_METADATA_FAKE_ONLY "/out:$readerTest" (Join-Path $PSScriptRoot 'diagnostics/host_a_metadata.cs') (Join-Path $PSScriptRoot 'diagnostics/metadata_contract.cs') (Join-Path $PSScriptRoot 'tests/host_a_reader_test.cs')
+if ($LASTEXITCODE -ne 0) { throw 'Fake reader compile failed' }
+& $readerTest
+if ($LASTEXITCODE -ne 0) { throw 'Fake reader contracts failed' }
 foreach ($name in @('shiroha_batch3_existing_only.dll', 'shiroha_assoc_candidate.exe')) {
     $file = Join-Path $build "$Configuration/$name"
     $candidateHeaders = (& $dumpbin /headers $file | Out-String)

@@ -40,6 +40,12 @@ function Assert-Batch3Metadata {
             [string]::IsNullOrEmpty($fact.OwnerSid) -or [string]::IsNullOrEmpty($fact.Dacl)) { throw 'security_missing' }
         $kind = if ($fact.Name -ceq '.') { 'directory' } else { $layout[$fact.Name] }
         if ([bool]($fact.Attributes -band 0x10) -ne ($kind -ceq 'directory')) { throw 'type_drift' }
+        if ($null -eq $fact.Streams) { throw 'streams_missing' }
+        $streams = @($fact.Streams)
+        if ($kind -ceq 'directory') {
+            if ($streams.Count -ne 0) { throw 'unknown_directory_stream' }
+        } elseif ($streams.Count -ne 1 -or $streams[0].Name -cne '::$DATA' -or
+            $streams[0].Length -ne $fact.Length -or $streams[0].Allocation -lt 0) { throw 'unknown_or_invalid_stream' }
         if ($fact.Name -cne '.' -and (-not $fact.OwnerMatches -or
             ($fact.Name -cne 'Shiroha' -and -not $fact.RecipeMatches))) { throw 'security_recipe' }
         if ($kind -cne 'directory' -and $fact.Links -ne 1) { throw 'hard_link' }
@@ -65,6 +71,12 @@ function Assert-Batch3SameSnapshot {
         $after = @($Observed | Where-Object { $_.Name -ceq $before.Name })[0]
         foreach ($field in $fields) {
             if ([string]$before.$field -cne [string]$after.$field) { throw 'snapshot_drift' }
+        }
+        if (@($before.Streams).Count -ne @($after.Streams).Count) { throw 'stream_drift' }
+        for ($i = 0; $i -lt @($before.Streams).Count; ++$i) {
+            foreach ($field in @('Name','Length','Allocation')) {
+                if ([string]$before.Streams[$i].$field -cne [string]$after.Streams[$i].$field) { throw 'stream_drift' }
+            }
         }
     }
 }

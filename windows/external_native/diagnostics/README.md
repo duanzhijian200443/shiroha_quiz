@@ -238,8 +238,10 @@ requires separate user authority; a command-line switch/hash is not authority.
 It verifies scope/reader-source/policy/compiled-reader SHA-256 before loading
 the frozen standalone managed reader in a fresh separately approved worker;
 it never compiles reader source implicitly at inspection time. The
-example scope is intentionally invalid (History empty). No actual historical
-names/sizes or object identities have been observed by this preparation.
+example scope is intentionally invalid (History empty). Historical expectations
+must come only from archived sanitized Batch 2 logs/metadata with their SHA-256;
+those records never establish current IDs, sizes, timestamps, security or streams.
+Unavailable fields stay PENDING. This preparation accesses no live lab objects.
 
 The approved scope must name exactly two distinct lowercase
 `~tmp-<16 hex>-<8 hex>` files and their recorded positive sizes, each <=65536.
@@ -264,13 +266,43 @@ failure and any mismatch deny immediately. No unknown object is opened.
 
 Allowed fields: relative name, volume serial, 64-bit File ID, filesystem and
 fixed-drive classification, object type/attributes, reparse tag, link count,
-size, Owner SID, DACL including protection/ACE flags/mask/SID, creation time,
+size, unnamed data-stream name/length/allocation, Owner SID, DACL including protection/ACE flags/mask/SID, creation time,
 last-write time and change time. Last-access time is not compared or exported.
 Current SID is queried with token-query rights only. OS ancestor is accepted
 as-is; Shiroha requires directory/current owner/no reparse; the remaining
 controlled objects retain §9.D's exact protected single-ACE recipe. The report
 contains no absolute paths or file content, ciphertext hash, stream content,
-DPAPI or secret. Named-stream enumeration is not implemented or claimed.
+DPAPI or secret. One bounded `NtQueryInformationFile(FileStreamInformation, 22)`
+query uses each already pinned controlled handle, twice across the two snapshots.
+The accepted NTFS directory result has no data streams; each file must have exactly
+one `::$DATA` entry whose length equals its file length. Any named ADS, unknown
+stream type/name, duplicate, malformed/truncated response, overflow, unsupported
+query or access denial stops. No stream is opened. OS LocalAppData is an accepted
+ancestor and is neither child-enumerated nor stream-enumerated. There is no content
+hash or claim to inspect filesystem-internal attributes/streams.
+
+The A0-specific conservative stream parser consumes the actual valid byte count
+from a successful, completed `NtQueryInformationFile` response's
+`IO_STATUS_BLOCK.Information`, bounded to 64 KiB; allocated capacity is not a
+returned length. Unknown/unreliable counts, truncation and failed/incomplete
+responses deny, without inferring a count or using a length-less stream-query
+fallback. Nonterminal `NextEntryOffset` alignment/offset checks are unchanged;
+inter-record alignment bytes are not reclassified as terminal padding. A final
+record may end exactly or have at most seven trailing bytes, each explicitly
+checked to be zero. Every nonzero terminal byte and eight or more terminal bytes
+deny. This is an A0 admission policy, not a claim that Windows guarantees zero
+terminal padding or that all legal Windows output shapes are compatible.
+Compatibility remains **PENDING**; a denied real shape requires STOP, not a retry,
+permission change or silent parser relaxation. This stream rule does not add an
+actual-length claim to the separate unchanged directory-enumeration API.
+
+The metadata-only access masks stay `0x120080` for files and `0x1200a1` for
+directories. The [Microsoft query contract](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-ntqueryinformationfile)
+describes file/directory stream metadata. L0 proves only this candidate's source,
+parser and fake behavior; actual support at those masks is PENDING. If the approved
+one-shot observation cannot obtain complete metadata at the existing rights, STOP
+for the smallest contract ruling. Never add READ_DATA, a path-based stream scan,
+permission fallback or a second real attempt.
 
 The reader uses parent-bound FILE_OPEN, attributes/READ_CONTROL/SYNCHRONIZE
 only for files, LIST_DIRECTORY/TRAVERSE additionally for directories. It never
@@ -280,16 +312,19 @@ It preallocates all 13 ownership slots and the close delegate before OS access,
 then reserves a slot before every open. A post-open allocation/inspection failure
 therefore leaves its handle owned by the reverse-order, single-attempt cleanup;
 unknown/throwing closes retain the first failure and are never retried. The
-fake-only C# executable compiles this same ownership slice with the complete
-metadata reader and every P/Invoke declaration excluded.
+fake-only C# executables compile the shared owner plus the complete reader state
+machine and bounded directory/stream parsers. The concrete Windows API adapter and
+every P/Invoke declaration are excluded. Failure emits only fixed first-stage
+and counters; partial facts are cleared. Later close failure cannot replace the
+first stage; an unknown close is never retried.
 It pins at most 13 file/directory objects, enumerates each controlled directory
 twice (<=3 calls per enumeration, <=16 entries per page), and checks pinned
 metadata a second time. Every owned handle gets one close attempt, with no
 retry after uncertainty. Failed capture yields only a fixed stage/non-PASS;
 there is no complete report or invented exact count on interruption.
 
-The 30-second in-reader elapsed checks cannot interrupt a stuck syscall. A
-separate approved controller must enforce a bounded observation deadline. Even
+The 30-second in-reader elapsed checks cannot interrupt a stuck syscall. The
+separate supervisor candidate observes one independent Worker with a bounded deadline. Even
 that cannot guarantee recovery from a system hang. Capture closes all pins and
 reports CAPTURED_NOT_RUNTIME_APPROVAL; it cannot attest state after release.
 Metadata queries may have OS auditing/access-time side effects; no forensic
@@ -330,19 +365,93 @@ written back to conceal observation.
 
 ### Bounded time, failure evidence and manual recovery
 
-`bounded_wait.ps1` has a process-free injected waiter/monotonic-clock seam. A
-future supervisor may call a single already-owned process's bounded WaitForExit
-with <=100ms slices, <=301 polls and a <=30s deadline (candidate default 15s).
-This is observation of one invocation, never a launch retry. A clock anomaly,
-wait failure, malformed result, late exit or deadline yields nonzero and
-SettlementUnknown. Exit-code retrieval is included in that deadline: the clock
-is rechecked after the getter returns and before accepting its result. A late
-getter, clock rollback or clock query failure cannot return a successful code.
-Those checks cannot interrupt a stuck getter or native call. Never
-query an unexited process's ExitCode or count it as
-returned/settled. Feed nonzero into the original Runner sequence so no later
-mode launches. Capture stdout asynchronously and boundedly in the future
-supervisor; the old synchronous invocation is NOT certified bounded by this seam.
+The standalone supervisor's start/identity conflation is repaired at G0-L0:
+prestart operator confirmation is enforced before any launch or lease action,
+start attempt and the actual `Start()` result are recorded before any identity
+getter, each identity getter runs separately with first-failure quarantine, and
+observation facts stay distinct from identity facts. Whether that repair closes
+the original P2-2 finding is an independent review decision. A foreground
+operator-controlled Owner with a bounded two-phase handoff is implemented as a
+candidate; the receipt/holding windows and the at-expiry recovery consequences
+remain **contract candidates pending an explicit ruling**, so no retention
+budget is approved and `-Observe` stays BLOCKED.
+
+`host_a_supervisor.ps1` is dry-run by default; `-Observe` additionally requires
+`-OperatorConfirmed` and refuses before any freeze, launch or lease action
+without it. It is eligible only for separate Batch 3-A0 authorization after
+those blockers close and independent review. It freezes its own source, the pure
+supervisor, worker, scope, both reader sources, policy and compiled
+assembly before launching one independent Windows PowerShell x64 Worker. Script
+execution must already be permitted by host policy; no execution-policy override
+or bypass is provided. The preflight Worker loads only the frozen managed reader,
+never the Native DLL. It checks `ReadOutcome`, emits a bounded redacted record on
+inherited stdout and exits nonzero on incomplete/denied capture. The supervisor
+does not buffer or parse stdout and cannot turn exit zero into report approval.
+After the observation is frozen it runs the bounded operator handoff below and
+prints the observation plus handoff records together; it exits zero only for a
+timely exit-zero observation whose receipt and holding acknowledgment both
+completed inside their candidate windows.
+
+`worker_supervision.ps1` implements the same callback-driven observation used by
+process-free fakes. The consumed lease prevents a second launch/observation even
+when startup fails; an unconfirmed invocation consumes nothing and returns
+`prestart_unconfirmed`. Attempted counts the launch attempt; StartReturned counts
+the actual `Start()` result return (never an identity getter); StartSucceeded
+requires true. A false launch is never a no-worker conclusion. Handle, PID and
+creation-time acquisition run as separate ordered getters inside the same window:
+the first failure quarantines the identity (`identity_failed`), stops all later
+getters, sampling and waits, and retains the original process reference; a late
+identity result is recorded but never accepted as complete (`IdentityComplete`
+requires all three getters inside the deadline). Returned counts normal
+exit-code callback return; Completed requires a well-formed exit code received
+inside the deadline. None of these counts implies capture/identity approval.
+States distinguish prestart, start false/unknown, identity failure, normal and
+abnormal exit, observation failure and timeout. Preserve first failure, last
+attempted stage, sample counts and PID/start-UTC ticks when obtainable.
+
+Candidate observation deadline is 15s (maximum 30s), <=100ms wait slices and
+<=301 polls. Worker and controller each have 256 MiB OS peak working-set and peak
+pagefile/commit-use ceilings; sampled handle ceilings are 256 and 512 respectively.
+The controller samples both processes before each wait and checks monotonic time
+before/after startup, resource query, waiting and exit-code retrieval. Invalid
+samples, clock anomalies or budgets stop immediately; no further wait/getter or
+mode follows a detected failure. These proposed numeric ceilings require the
+exact later grant. Handle counts are sampled, not OS high-water marks. Short-lived
+process/sample races deny rather than invent a last measurement.
+
+The candidate two-phase handoff adds a receipt window and a holding
+acknowledgment window after the observation (candidate defaults 60s each;
+candidate total owner-lifetime ceiling 150s). These numbers are candidates
+pending the lifecycle ruling and approve no retention or resource budget. The
+handoff phase never observes the worker again - no second wait, getter or sample -
+performs no automatic action on any path (no close, dispose, retry, restart,
+cleanup or termination), rejects late receipts/acknowledgments with the
+monotonic clock, and therefore makes no full-lifecycle resource-budget claim for
+a continued hold. A receipt without acknowledgment is not holding; a failed
+handoff stays SettlementUnknown and is never reported as released or ready.
+
+The callbacks and OS calls themselves cannot be forcibly interrupted. A blocked
+launch, resource query, wait or getter may delay detection; this is not a hard OS
+watchdog or system-hang recovery guarantee. At deadline/failure it stops observing,
+never kills/retries/restarts/cleans/resumes. Settlement stays unknown even if a
+later exit occurs. WorkerResourcesReleased is false on all uncertain results;
+only timely observed OS exit and accepted exit-code retrieval can set it true
+for process-owned resources. The controller's retained Process reference remains
+owned; that flag is no Owner Close, capture-success or OS-stability acceptance.
+The CLI keeps its script-local Process reference through the bounded handoff and
+exits only with the handoff outcome recorded; PID/start time and inherited
+Worker output stay locators/evidence, never ownership, and the earlier claim
+that they were an operator recovery reference is withdrawn. P2-2 remains OPEN
+pending the ruled lifecycle contract and independent review: the handoff
+mechanics are implemented, but no post-observation holding period, operator
+responsibility model, at-expiry recovery option or holding resource accounting
+is approved, and an operator acknowledgment is not a cross-process ownership
+transfer, a settlement or any bound on the worker's lifetime.
+
+`bounded_wait.ps1` remains the original bounded-wait seam for probe candidates;
+its clock/deadline checks include exit-code retrieval. It grants no probe launch.
+The old synchronous Batch 3 probe Runner remains behind its unconditional runtime
+identity gate and is not certified bounded by the metadata supervisor.
 
 Proposed later batch ceilings: one batch <=60s, each probe <=15s, four modes
 once, <=20 exported calls (3 ABI, 2 acquire, 2 Protect, 6 Begin, 3 Commit,
