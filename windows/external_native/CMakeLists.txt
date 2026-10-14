@@ -55,6 +55,17 @@ add_library(shiroha_external_native SHARED native_core.cpp native_windows.cpp
 shiroha_native_settings(shiroha_external_native)
 target_link_libraries(shiroha_external_native PRIVATE crypt32 shell32 ole32 uuid advapi32 bcrypt)
 
+# Compile-only diagnostic variant. This is never a production replacement or a
+# runnable Batch 3 grant; the runtime identity bridge remains separately gated.
+option(SHIROHA_BATCH3_EXISTING_ONLY_BUILD "Compile Batch 3 no-initialization DLL" OFF)
+if(SHIROHA_BATCH3_EXISTING_ONLY_BUILD)
+  add_library(shiroha_batch3_existing_only SHARED native_core.cpp native_windows.cpp
+    protected_objects.cpp association_files.cpp protected_windows.cpp)
+  shiroha_native_settings(shiroha_batch3_existing_only)
+  target_compile_definitions(shiroha_batch3_existing_only PRIVATE SHIROHA_BATCH3_EXISTING_ONLY)
+  target_link_libraries(shiroha_batch3_existing_only PRIVATE crypt32 shell32 ole32 uuid advapi32 bcrypt)
+endif()
+
 # Explicit opt-in; this executable contains core + fake Win32 operations only.
 # It neither links/loads the production DLL nor calls DPAPI/known-folder APIs.
 option(SHIROHA_NATIVE_OFFLINE_TESTS "Build offline core contract tests" OFF)

@@ -16,7 +16,9 @@ $toolsVersion = (Get-Content (Join-Path $installation 'VC/Auxiliary/Build/Micros
 $dumpbin = Join-Path $installation "VC/Tools/MSVC/$toolsVersion/bin/Hostx64/x64/dumpbin.exe"
 $ctest = Join-Path (Split-Path -Parent $cmake) 'ctest.exe'
 
-& $cmake -S $PSScriptRoot -B $build -G 'Visual Studio 17 2022' -A x64 -DSHIROHA_NATIVE_OFFLINE_TESTS=ON
+# This path is compiled into a diagnostic candidate only; never create/open it.
+$p20CompileOnlyRoot = Join-Path $build 'p20-compile-only-root'
+& $cmake -S $PSScriptRoot -B $build -G 'Visual Studio 17 2022' -A x64 -DSHIROHA_NATIVE_OFFLINE_TESTS=ON -DSHIROHA_BATCH3_EXISTING_ONLY_BUILD=ON -DSHIROHA_L1_CANDIDATE_BUILD=ON -DSHIROHA_P20_MINIMAL_TEST_BUILD=ON "-DSHIROHA_P20_TEST_ROOT=$p20CompileOnlyRoot"
 if ($LASTEXITCODE -ne 0) { throw 'Native configure failed' }
 # Incremental Debug linking may retain unused imports from the previous API.
 # Rebuild only this tool-managed build tree before inspecting exact artifacts.
@@ -50,7 +52,7 @@ $wrapper = Get-Content (Join-Path $PSScriptRoot 'protected_windows.cpp') -Raw
 if ($wrapper -notmatch 'GetProcAddress\(module, "NtSetInformationFile"\)') { throw 'Missing user-mode publication entry' }
 # Inspect before executing. These executables link only production pure cores +
 # fakes. The production DLL is neither loaded nor called by this check helper.
-foreach ($name in @('shiroha_native_offline_test', 'shiroha_objects_offline_test', 'shiroha_probe_offline_test', 'shiroha_rename_layout_test')) {
+foreach ($name in @('shiroha_native_offline_test', 'shiroha_objects_offline_test', 'shiroha_probe_offline_test', 'shiroha_rename_layout_test', 'shiroha_p20_root_production_test', 'shiroha_p20_root_diagnostic_test')) {
     $imports = (& $dumpbin /imports (Join-Path $build "$Configuration/$name.exe") | Out-String)
     # GetProcAddress alone is used by the MSVC CRT even in the layout-only
     # executable. Reject direct loaders/security operations, not CRT machinery.
@@ -58,7 +60,55 @@ foreach ($name in @('shiroha_native_offline_test', 'shiroha_objects_offline_test
         throw 'Offline executable includes a real security/file operation'
     }
 }
+# The real P20 driver is compile-only; inspect registration before execution.
+$testList = (& $ctest --test-dir $build -C $Configuration -N | Out-String)
+if ($LASTEXITCODE -ne 0 -or $testList -match '\bshiroha_p20_minimal_test\b') { throw 'Real P20 driver registered with CTest' }
+if ($testList -notmatch '\bshiroha_p20_root_production_offline\b' -or
+    $testList -notmatch '\bshiroha_p20_root_diagnostic_offline\b') { throw 'P20 root Fake coverage missing' }
 & $ctest --test-dir $build -C $Configuration --output-on-failure
 if ($LASTEXITCODE -ne 0) { throw 'Fake-only native contracts failed' }
 & (Join-Path $PSScriptRoot 'tests/runner_stop_test.ps1')
+& (Join-Path $PSScriptRoot 'tests/frozen_source_test.ps1')
+& (Join-Path $PSScriptRoot 'tests/host_a_policy_test.ps1')
+& (Join-Path $PSScriptRoot 'tests/worker_supervision_test.ps1')
+# Compile metadata reader without loading it or invoking any P/Invoke method.
+$csc = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
+& $csc /nologo /target:library /platform:x64 /warnaserror "/out:$build/$Configuration/host_a_metadata.dll" (Join-Path $PSScriptRoot 'diagnostics/host_a_metadata.cs') (Join-Path $PSScriptRoot 'diagnostics/metadata_contract.cs')
+if ($LASTEXITCODE -ne 0) { throw 'Metadata-reader compile failed' }
+# Compile only the shared pure ownership slice; no MetadataReader/P/Invoke exists
+# in this fake executable, and no metadata assembly is loaded by the test.
+$pinTest = Join-Path $build "$Configuration/host_a_pin_owner_test.exe"
+& $csc /nologo /target:exe /platform:x64 /warnaserror /define:SHIROHA_METADATA_FAKE_ONLY "/out:$pinTest" (Join-Path $PSScriptRoot 'diagnostics/host_a_metadata.cs') (Join-Path $PSScriptRoot 'diagnostics/metadata_contract.cs') (Join-Path $PSScriptRoot 'tests/host_a_pin_owner_test.cs')
+if ($LASTEXITCODE -ne 0) { throw 'Fake pin-owner compile failed' }
+& $pinTest
+if ($LASTEXITCODE -ne 0) { throw 'Fake pin-owner contracts failed' }
+$readerTest = Join-Path $build "$Configuration/host_a_reader_test.exe"
+& $csc /nologo /target:exe /platform:x64 /warnaserror /define:SHIROHA_METADATA_FAKE_ONLY "/out:$readerTest" (Join-Path $PSScriptRoot 'diagnostics/host_a_metadata.cs') (Join-Path $PSScriptRoot 'diagnostics/metadata_contract.cs') (Join-Path $PSScriptRoot 'tests/host_a_reader_test.cs')
+if ($LASTEXITCODE -ne 0) { throw 'Fake reader compile failed' }
+& $readerTest
+if ($LASTEXITCODE -ne 0) { throw 'Fake reader contracts failed' }
+foreach ($name in @('shiroha_batch3_existing_only.dll', 'shiroha_assoc_candidate.exe', 'shiroha_p20_minimal_test.exe')) {
+    $file = Join-Path $build "$Configuration/$name"
+    $candidateHeaders = (& $dumpbin /headers $file | Out-String)
+    if ($LASTEXITCODE -ne 0 -or $candidateHeaders -notmatch '8664 machine \(x64\)') { throw 'Candidate is not x64' }
+    foreach ($flag in @('Dynamic base', 'NX compatible', 'Control Flow Guard')) {
+        if ($candidateHeaders -notmatch [regex]::Escape($flag)) { throw 'Candidate hardening absent' }
+    }
+}
+$candidateExports = (& $dumpbin /exports (Join-Path $build "$Configuration/shiroha_batch3_existing_only.dll") | Out-String)
+if ($LASTEXITCODE -ne 0) { throw 'Existing-only export inspection failed' }
+$candidateNames = @([regex]::Matches($candidateExports, '(?m)^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(\w+)(?:\s+=.*)?\s*$') | ForEach-Object { $_.Groups[1].Value })
+if ($candidateNames.Count -ne 12 -or @(Compare-Object $expected $candidateNames).Count -ne 0) { throw 'Existing-only ABI drift' }
+# Assert the three targets remain separate even when both diagnostic options
+# are enabled. Configure dependencies are not compiler definitions/includes.
+foreach ($target in @('shiroha_external_native', 'shiroha_batch3_existing_only', 'shiroha_p20_minimal_test')) {
+    [xml]$project = Get-Content (Join-Path $build "$target.vcxproj") -Raw
+    $defines = (@($project.SelectNodes("//*[local-name()='PreprocessorDefinitions']") | ForEach-Object InnerText) -join ';')
+    $includes = (@($project.SelectNodes("//*[local-name()='AdditionalIncludeDirectories']") | ForEach-Object InnerText) -join ';')
+    $expectedRootOverride = $target -ceq 'shiroha_p20_minimal_test'
+    $expectedExistingOnly = $target -ceq 'shiroha_batch3_existing_only'
+    if (($defines -match '\bSHIROHA_P20_DIAGNOSTIC_BUILD\b') -ne $expectedRootOverride -or
+        ($defines -match '\bSHIROHA_BATCH3_EXISTING_ONLY\b') -ne $expectedExistingOnly -or
+        ($includes -match '[\\/]p20(?:;|$)') -ne $expectedRootOverride) { throw 'Diagnostic target configuration isolation failed' }
+}
 Write-Output 'PASS: MSVC x64, twelve ABI exports, hardening, production imports and fake-only native contracts (no LOCAL-L1 acceptance)'

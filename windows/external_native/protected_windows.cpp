@@ -121,8 +121,9 @@ class WindowsObjects final : public ObjectOperations {
     if (!parent || parent == INVALID_HANDLE_VALUE || !component || !safe_component(component))
       return SHIROHA_NATIVE_INVALID_INPUT;
     if (!create) {
-      // Bridge may open the App-owned ancestors, never initialize that root.
-      return open_native(parent, component, false, false, FILE_OPEN, nullptr, result) == 0
+      // Existing-only acquisition must retain the file lock's no-sharing policy.
+      // Directory/lock absence never enters a create or security-repair branch.
+      return open_native(parent, component, false, !directory, FILE_OPEN, nullptr, result) == 0
           ? SHIROHA_NATIVE_OK : SHIROHA_NATIVE_UNAVAILABLE;
     }
     SecurityRecipe security;
@@ -318,7 +319,11 @@ int32_t WindowsObjects::local_directory(HANDLE& result) {
 }
 
 WindowsObjects operations;
+#ifdef SHIROHA_BATCH3_EXISTING_ONLY
+ProtectedObjects owners(operations, ProtectedObjects::OpenMode::existing_only);
+#else
 ProtectedObjects owners(operations); // Passive construction; no OS calls.
+#endif
 }  // namespace
 
 int32_t SHIROHA_NATIVE_CALL shiroha_native_owner_acquire(uint32_t version, uint32_t role, uint64_t* token) {
