@@ -25,14 +25,16 @@ the authorized uncommitted harness overlay. Its own hash and the pure gate hash
 are checked before parsing/dot-sourcing; unknown or missing files are rejected.
 `-VerifyFreezeOnly` ends after artifact/HEAD/source checks, before any lab-object
 inspection or probe launch; it is permitted in L0. Neither switch grants L1. It is dry-run by default and
-requires an existing empty state directory before any probe mode. Preparation
-selects environment B: an independently approved Windows test environment using
-the unchanged Helper known-folder root. Batch 2's leftovers in the original
-environment deliberately prevent execution; never remove them to satisfy it.
-The operator must separately verify the frozen device/SID/OS/local-fixed-NTFS
-and complete parent/lock/object inventory immediately before invocation. The
-runner's empty-state check is only one gate, not a replacement for that preflight. A separately approved batch must also specify its full object,
-event, time and recovery plan. This candidate is not a complete batch approval.
+does not admit any real mode in this Host A preparation. Host A (the primary
+Windows computer) supersedes environment B as the Batch 3 candidate; no cloud
+computer or VM is requested. Execute now fails before object inspection/DLL
+loading with `host_a_runtime_binding_pending`. The native executable's shared
+entry gate also rejects all four modes before any resource sampler, DLL loader
+or export call, including direct invocation outside the PowerShell Runner.
+There is no CLI opt-in around that gate. The non-empty-directory exception
+below is a proposal, not permission to remove the gate or clean Batch 2 residue.
+The separately reviewed device/SID/OS/local-fixed-NTFS/object/time/recovery
+contract and new explicit grants are still required. This is not batch approval.
 
 Successful sequence counts across four processes: ABI 3 (symbols resolves only),
 App/Bridge acquire 1 each, Protect 2, App begin 5, Bridge begin 1, commit 3
@@ -208,3 +210,161 @@ never a CTest entry. Compilation and static inspection do not authorize loading
 the DLL or executing any candidate mode, including symbols/abi.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
+
+## Host A preparation candidate
+
+This is a bounded Batch 3 contract proposal. It changes no production store
+authority, §9.D recipe, leftover cap, acceptance matrix or AF_UNIX halt.
+
+### No accidental initialization
+
+Creation audit: the Known Folder handle uses FILE_OPEN; normal App acquisition
+may FILE_CREATE Shiroha/external/app/trust/state/discovery/exchange, Bridge may
+FILE_CREATE bridge, and either lock may FILE_OPEN_IF. These branches are valid
+only under the original initialization authority. `ProtectedObjects::OpenMode`
+defaults to that unchanged production behavior. The separate compile-only
+`shiroha_batch3_existing_only.dll` clamps every child acquisition to existing
+only: directories use FILE_OPEN and existing files retain the no-sharing lock
+recipe. Absence, contention and invalid metadata fail closed, without creating
+a replacement object or requesting a security descriptor. Acquisition never
+creates associations.bin; association temporary creation remains CREATE_NEW,
+with no collision retry. The unactivated source variant is not a replacement
+for the production DLL and does not supply the missing runtime identity bridge.
+
+### Exact read-only preflight scope
+
+`host_a_preflight.ps1` is dry-run by default. `-Inspect` is real Windows work and
+requires separate user authority; a command-line switch/hash is not authority.
+It verifies scope/reader-source/policy/compiled-reader SHA-256 before loading
+the frozen standalone managed reader in a fresh separately approved worker;
+it never compiles reader source implicitly at inspection time. The
+example scope is intentionally invalid (History empty). No actual historical
+names/sizes or object identities have been observed by this preparation.
+
+The approved scope must name exactly two distinct lowercase
+`~tmp-<16 hex>-<8 hex>` files and their recorded positive sizes, each <=65536.
+Do not use synthetic test names or infer that historical sizes are current.
+All names below are relative to the OS-resolved LocalAppData; no caller-supplied
+root, environment path override or recursive scan of personal directories exists.
+
+| Object | Quantity / allowed role |
+|---|---|
+| OS LocalAppData (`.`) | One accepted OS ancestor; metadata only, NEVER enumerate its unrelated children |
+| Shiroha, Shiroha/external | Two existing directories |
+| external/app, app/trust, app/state | Three existing directories under Shiroha |
+| external/discovery, external/exchange, external/bridge | Three existing directories under Shiroha |
+| external/runtime.lock, external/bridge/client.lock | Two existing zero-length files; metadata read is NOT lock acquisition/liveness evidence |
+| external/app/state/<two exact historical names> | Two historical files; attributes/security only |
+
+The eight controlled directories must have exactly the children implied by this
+table. State must contain exactly the two named historical files, which proves
+associations.bin absent for this observation. Unknown names (including an
+unexpected associations.bin), missing names, duplicate identities, enumeration
+failure and any mismatch deny immediately. No unknown object is opened.
+
+Allowed fields: relative name, volume serial, 64-bit File ID, filesystem and
+fixed-drive classification, object type/attributes, reparse tag, link count,
+size, Owner SID, DACL including protection/ACE flags/mask/SID, creation time,
+last-write time and change time. Last-access time is not compared or exported.
+Current SID is queried with token-query rights only. OS ancestor is accepted
+as-is; Shiroha requires directory/current owner/no reparse; the remaining
+controlled objects retain §9.D's exact protected single-ACE recipe. The report
+contains no absolute paths or file content, ciphertext hash, stream content,
+DPAPI or secret. Named-stream enumeration is not implemented or claimed.
+
+The reader uses parent-bound FILE_OPEN, attributes/READ_CONTROL/SYNCHRONIZE
+only for files, LIST_DIRECTORY/TRAVERSE additionally for directories. It never
+requests file READ_DATA, WRITE, DELETE, WRITE_DAC or WRITE_OWNER. All pins deny
+delete sharing; history pins additionally deny write sharing during capture.
+It preallocates all 13 ownership slots and the close delegate before OS access,
+then reserves a slot before every open. A post-open allocation/inspection failure
+therefore leaves its handle owned by the reverse-order, single-attempt cleanup;
+unknown/throwing closes retain the first failure and are never retried. The
+fake-only C# executable compiles this same ownership slice with the complete
+metadata reader and every P/Invoke declaration excluded.
+It pins at most 13 file/directory objects, enumerates each controlled directory
+twice (<=3 calls per enumeration, <=16 entries per page), and checks pinned
+metadata a second time. Every owned handle gets one close attempt, with no
+retry after uncertainty. Failed capture yields only a fixed stage/non-PASS;
+there is no complete report or invented exact count on interruption.
+
+The 30-second in-reader elapsed checks cannot interrupt a stuck syscall. A
+separate approved controller must enforce a bounded observation deadline. Even
+that cannot guarantee recovery from a system hang. Capture closes all pins and
+reports CAPTURED_NOT_RUNTIME_APPROVAL; it cannot attest state after release.
+Metadata queries may have OS auditing/access-time side effects; no forensic
+promise that every OS metadata bit is untouched is made, and no timestamps are
+written back to conceal observation.
+
+### Runtime identity handoff design — BLOCKED pending implementation
+
+1. A separately approved capture establishes observed IDs/security, checked
+   against historical name/size expectations. Freeze and review that report;
+   it is not automatic admission. Any new source/artifact/report invalidates
+   the corresponding freeze/review until rechecked.
+2. The later diagnostic runtime must consume a reviewed immutable identity
+   map, open every pre-existing object without create, obtain the real exclusive
+   writer lock, then compare its actual pinned identities before any store
+   operation. Metadata lock handles held by an observer must first close once;
+   compare the lock File ID again after native acquisition to detect substitution.
+   Missing/unverifiable information denies, without a fallback to initialization.
+3. Recheck before first mutation, between commits and before success. Freeze
+   identities/security for parents/locks/history and all historical sizes/times.
+   Model only the new runtime's two CREATE_NEW temporaries and associations.bin
+   publication as allowed transitions; never broadly ignore new files or all
+   directory timestamp changes. A read-back concerns only newly published
+   synthetic ciphertext, never either historical file. Historical files continue
+   to count against unchanged leftover/enumeration budgets.
+4. A continuously pinned historical guard would require two additional handles.
+   They cannot silently exceed the existing twelve-handles-per-App-owner limit
+   or be disguised as existing owner pins. No such guard/extra-process budget or
+   new cross-process coordination is implemented/authorized here. If repeated
+   checks plus the existing accepted same-SID threat boundary cannot meet the
+   reviewed preservation criterion, remain BLOCKED and request bounded design
+   work; do not widen history permissions or relax the budget.
+5. The current ABI does not import a frozen object map. The new metadata report
+   and pure `Assert-Batch3SameSnapshot` seam do NOT implement this bridge. No
+   runnable Host A binding is claimed; the real Runner unconditionally refuses
+   Execute. §9.B.5's same-SID/Admin risk and check/close/rename window remain
+   explicit; no snapshot or guard claims immunity to those actors.
+
+### Bounded time, failure evidence and manual recovery
+
+`bounded_wait.ps1` has a process-free injected waiter/monotonic-clock seam. A
+future supervisor may call a single already-owned process's bounded WaitForExit
+with <=100ms slices, <=301 polls and a <=30s deadline (candidate default 15s).
+This is observation of one invocation, never a launch retry. A clock anomaly,
+wait failure, malformed result, late exit or deadline yields nonzero and
+SettlementUnknown. Exit-code retrieval is included in that deadline: the clock
+is rechecked after the getter returns and before accepting its result. A late
+getter, clock rollback or clock query failure cannot return a successful code.
+Those checks cannot interrupt a stuck getter or native call. Never
+query an unexited process's ExitCode or count it as
+returned/settled. Feed nonzero into the original Runner sequence so no later
+mode launches. Capture stdout asynchronously and boundedly in the future
+supervisor; the old synchronous invocation is NOT certified bounded by this seam.
+
+Proposed later batch ceilings: one batch <=60s, each probe <=15s, four modes
+once, <=20 exported calls (3 ABI, 2 acquire, 2 Protect, 6 Begin, 3 Commit,
+2 Abort, 2 Close), two temp creates/writes/flushes/publications maximum. Every
+unexpected result stops earlier. Each probe retains 64MiB OS peak working set,
+64MiB peak commit, 128 sampled process handles and <=12 native owner handles.
+Inspector/controller memory and handles need their own separately approved
+numeric budgets; do not hide their cost in the probe's figures or claim sampled
+handles are an absolute OS maximum. A metadata application covers no probe call.
+
+The supervisor never auto-kills, retries, cleans or resumes on timeout. At most
+one Owner Close is attempted by a responsive owner; a stuck call cannot be
+concurrently closed or claimed released. Preserve the first failure and last
+attempt; missing summaries mean unknown actual totals. Block admission, retain
+the owned process reference and tell the named operator that settlement is
+unknown. Explicit termination authority, if later granted, applies only to that
+identified candidate; OS process exit is not commit-success or manual-recovery
+acceptance. Severe OS/driver/kernel instability requires the operator's approved
+backup/recovery procedure, no reproducer or automatic reboot.
+
+Before even a read-only preflight grant, name the backup-confirmation person,
+recovery operator, restorable local backup/procedure, exact one-shot time window,
+inspector/controller budgets and reporting destination. The agent has no backup,
+restore, ciphertext-copy, termination or cleanup authority. Batch 2 files remain
+preserved on every failure. A separate, later Batch 3 grant is still mandatory.

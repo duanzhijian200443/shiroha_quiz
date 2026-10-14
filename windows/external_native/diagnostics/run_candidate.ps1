@@ -44,17 +44,11 @@ try {
         (Get-FileHash -LiteralPath (Join-Path $repo $path) -Algorithm SHA256).Hash.ToLowerInvariant()
     }
     if ($VerifyFreezeOnly) { Write-Output 'PASS: frozen artifacts/head/source; no lab inspection or probe launch'; exit 0 }
-    # A future grant must separately approve these preconditions and external
-    # metadata inspection on the independently initialized B device. Every parent,
-    # lock, identity and environment must match its reviewed inventory immediately
-    # before invocation. No initialization/ACL repair/cleanup is supplied here.
-    # The .NET known-folder path is for this gate only; Helper still uses its own
-    # SHGetKnownFolderPath and exposes no path injection.
-    $preflightStage = 'state_gate'
-    $state = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Shiroha/external/app/state'
-    if (-not (Test-Path -LiteralPath $state) -or @(Get-ChildItem -LiteralPath $state -Force).Count -ne 0) {
-        throw 'Candidate requires an existing empty state directory; never cleans it'
-    }
+    # Primary-host A replaces B as a preparation candidate only. A metadata
+    # snapshot cannot authorize runtime identity continuity or no-init behavior.
+    # Fail BEFORE lab inspection/DLL loading until that bridge has fresh review.
+    $preflightStage = 'host_a_runtime_binding_pending'
+    throw 'Runtime identity binding is not implemented; no Execute path admitted'
 } catch {
     Write-Output "STOP stage=$preflightStage actual_status=not_called attempted_native=0 attempted_processes=0"
     Write-Output 'not_executed modes=symbols,abi,assoc,bridge-denied'

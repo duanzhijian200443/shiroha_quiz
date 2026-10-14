@@ -71,6 +71,15 @@ int32_t SHIROHA_NATIVE_CALL close_fake(uint32_t, uint64_t) {
 }
 }
 int main() {
+  // Exercise the actual native entry gate without a DLL or real probe mode.
+  for (const auto* mode : {L"symbols", L"abi", L"assoc", L"bridge-denied"}) {
+    const wchar_t* arguments[] = {L"synthetic", mode, L"synthetic.dll"};
+    unsigned loads = 0;
+    require(candidate_entry(3, arguments, [&](const std::wstring&, const wchar_t*) {
+      ++loads; return 0;
+    }) == 10);
+    require(loads == 0);
+  }
   Api api;
   api.acquire = acquire_fake; api.protect = protect_fake; api.assoc_begin = begin_fake;
   api.assoc_commit = commit_fake; api.assoc_abort = abort_fake; api.close_owner = close_fake;
