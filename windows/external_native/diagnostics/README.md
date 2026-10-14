@@ -19,16 +19,47 @@ retains the first failure, attempted-call counts and the unexecuted steps.
 
 `runner_sequence.ps1` stops on any nonzero result or invocation exception and
 records the modes not launched. `run_candidate.ps1` freezes runner, sequence,
-DLL and executable hashes plus exact Git head. It is dry-run by default and
-requires an existing empty state directory before any probe mode. Batch 2's
-leftovers deliberately prevent execution; do not remove them to satisfy this
-precondition. A separately approved batch must also specify its full object,
+DLL and executable hashes plus exact Git head. The additional SHA-256 source
+manifest freezes every Native directory file and the exact file set, including
+the authorized uncommitted harness overlay. Its own hash and the pure gate hash
+are checked before parsing/dot-sourcing; unknown or missing files are rejected.
+`-VerifyFreezeOnly` ends after artifact/HEAD/source checks, before any lab-object
+inspection or probe launch; it is permitted in L0. Neither switch grants L1. It is dry-run by default and
+requires an existing empty state directory before any probe mode. Preparation
+selects environment B: an independently approved Windows test environment using
+the unchanged Helper known-folder root. Batch 2's leftovers in the original
+environment deliberately prevent execution; never remove them to satisfy it.
+The operator must separately verify the frozen device/SID/OS/local-fixed-NTFS
+and complete parent/lock/object inventory immediately before invocation. The
+runner's empty-state check is only one gate, not a replacement for that preflight. A separately approved batch must also specify its full object,
 event, time and recovery plan. This candidate is not a complete batch approval.
 
 Successful sequence counts across four processes: ABI 3 (symbols resolves only),
 App/Bridge acquire 1 each, Protect 2, App begin 5, Bridge begin 1, commit 3
 (including consumed-ticket rejection), abort 2 and owner close 2: 20 exported
 function calls. Failure reduces those counts; ceilings never override STOP.
+
+Counters have separate meanings: `attempted` increments immediately before
+calling an export (including a throwing fake and owner close); `returned` means
+normal return; `completed` means the returned status/output checks finished,
+including rejected results; `successful` means status 0 (or the ABI version
+query returning the expected version), independently of shape checks; `accepted`
+means expected status and valid shape. Expected Missing/resourceLimit/stale-ticket
+and Bridge denials are accepted probes, not successful status-bearing calls.
+Resource measurement success is separate; a measurement failure prevents PASS
+without retroactively changing returned/completed Native counts. The first
+failure is immutable; later close and sampling failures retain their own log
+records. Unknown/throwing close consumes ownership before the one attempt.
+The log also retains attempted-but-not-completed steps and every sampling
+failure. stdout is unbuffered; abrupt interruption without final counters is
+incomplete evidence, never an invented exact total or PASS.
+
+First publication (`commit1` + exact ciphertext read-back at `begin3`) must pass
+before Abort and the existing-target phase. `begin4` verifies that Abort left
+the first ciphertext intact and transfers a positive ticket; only then may
+`commit2` replace the existing target. `begin5` must return the second ciphertext
+byte-for-byte with another positive ticket. Failure anywhere in first creation
+makes replacement unreachable; no diagnostic read/retry follows commitUnknown.
 
 The process samples its own OS peak working set and peak commit charge plus
 current handle count before helper work, after every completed helper call and
@@ -163,7 +194,8 @@ Never add it to the production C ABI, Dart failure or MCP response.
 checks the four fake-only executables for forbidden imports before running
 CTest. The probe test compiles the same sequence with the entire DLL loader,
 process sampler and real entry point excluded. Runner tests inject a process-free
-callback. The rename executable calls the production packing/status seam with synthetic
+callback and reject invocation exceptions and malformed results at each mode.
+Pure source-freeze tests reject hash/path drift, duplicates and traversal. The rename executable calls the production packing/status seam with synthetic
 handles and a fake NTAPI function, including new/existing and inconsistent
 completion cases. Core fakes reject an open destination and exercise successful
 old-target close, close failure/quarantine, existing identity drift and uncertain
