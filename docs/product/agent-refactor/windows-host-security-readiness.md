@@ -1962,10 +1962,47 @@ connects its report to the production DLL, so Execute remains denied. The
 metadata report is only a capture, never continuous identity or runtime approval.
 The reader preallocates its thirteen ownership slots before OS access and
 registers each slot before opening its handle; post-open failures retain that
-handle for one close attempt. A fake-only managed test excludes the reader and
-all P/Invoke declarations while exercising the shared ownership code. The
-bounded waiter rechecks its clock/deadline after exit-code retrieval as well as
-after waiting; neither late retrieval nor a clock anomaly can report success.
+handle for one close attempt. Its shared full state machine and directory/stream
+parsers run in fake-only managed tests with every Windows API import excluded.
+Controlled handles query named-data-stream metadata twice at the unchanged file
+attributes/READ_CONTROL/SYNCHRONIZE rights. Named/unknown streams, incomplete or
+unsupported queries and access denial fail closed, with no READ_DATA or fallback.
+Actual Windows stream-query permission/support remains PENDING; failure at the
+existing rights requires STOP and a minimal contract ruling before any new attempt.
+The diagnostic contract owns the exact candidate layout and query bounds. A0's
+conservative terminal stream policy accepts exact end or at most seven explicitly
+zero-checked bytes within the actual valid returned length, never capacity.
+Nonterminal offset/alignment handling is unchanged. This policy is not proof of
+compatibility with every legal Windows response; compatibility remains PENDING.
+
+The separate unactivated Batch 3-A0 supervisor freezes one managed-reader Worker,
+launches/observes it once and retains launch/return/completion/first-failure facts,
+start-attempt vs actual-start-return vs ordered identity getters, locator-only
+PID/start-time evidence and resource samples. An unconfirmed invocation has zero
+side effects; an unconfirmed `-Observe` refuses before any freeze, launch or
+lease action. Candidate bounds are 15s (maximum 30s), 256 MiB peak working-set
+and pagefile/commit use per process, and 256 Worker/512 controller sampled
+handles; a candidate two-phase receipt/acknowledgment handoff (candidate 60s
+windows, total owner-lifetime ceiling 150s) is parameterized but unratified.
+Script execution must already be permitted; no policy bypass is supplied.
+Unknown settlement after timeout/query failure never means Worker termination or
+resource release. No automatic kill, retry, restart, cleanup or Batch 3
+continuation is permitted; the handoff phase never re-observes the worker and
+performs no automatic action. Blocking OS operations may postpone deadline
+detection; no hard watchdog or kernel-recovery guarantee is claimed. Both the
+non-empty-root observation exception and exact Batch 3-A0 grant remain
+independent review/user decisions. This supervisor does not implement the
+Runtime Identity Bridge, unbind the native entry gate or authorize a real store
+transaction. The original bounded waiter likewise rechecks time after exit-code
+retrieval; neither late retrieval nor a clock anomaly reports success.
+The standalone supervisor's start/identity conflation is repaired at G0-L0;
+whether that closes the original P2-2 finding is an independent review decision,
+and the finding remains OPEN until then. PID/time logs are locators, not a
+durable process reference or completed operator handoff. The two-phase lifecycle
+contract - receipt/holding windows, the at-expiry consequences for a possibly
+alive Worker, and holding-period resource accounting - is a candidate requiring
+an explicit ruling; absent that ruling, no observation, holding-period budget,
+recovery option or new runtime authority is granted.
 
 P19's absolute `SECURITY_DESCRIPTOR` creation recipe has no new real-object
 compatibility evidence here and is not labeled accepted by offline checks.

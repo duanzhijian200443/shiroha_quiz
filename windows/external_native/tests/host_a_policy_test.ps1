@@ -19,10 +19,13 @@ $facts = @(@('.') + @($layout.Keys) | ForEach-Object {
     $length = 0
     foreach ($h in $scope.History) { if ($name.EndsWith($h.Name)) { $length = $h.ExpectedLength } }
     ++$script:fakeId
+    $streams = @()
+    if ($kind -cne 'directory') { $streams = @([pscustomobject]@{ Name = '::$DATA'; Length = $length; Allocation = 4096L }) }
     [pscustomobject]@{ Name = $name; FileId = $script:fakeId.ToString('x16'); Volume = '0000002a'; FileSystem = 'NTFS'
         DriveType = 3; Attributes = $(if ($kind -ceq 'directory') { 16 } else { 0 }); ReparseTag = 0
         Links = 1; OwnerSid = 'synthetic'; Dacl = 'synthetic'; OwnerMatches = $true; RecipeMatches = $true
-        Length = $length; Created = 1L; LastWrite = 2L; Changed = 3L }
+        Length = $length; Created = 1L; LastWrite = 2L; Changed = 3L
+        Streams = $streams }
 })
 Assert-Batch3Metadata $scope $facts
 Assert-Batch3SameSnapshot $scope $facts $facts
@@ -55,6 +58,17 @@ $bad = [pscustomobject]@{ Schema = $scope.Schema; History = @($scope.History[0],
 Reject { Get-Batch3Layout $bad }
 # A second observation changes after an accepted snapshot: first PASS is not a lease.
 Reject { Assert-Batch3SameSnapshot $scope $facts $unknown }
+foreach ($mutation in @('missing','unknown','size','allocation')) {
+    $copy = @($facts | ForEach-Object { $_.PSObject.Copy() })
+    $copy[-1].Streams = @([pscustomobject]@{ Name = '::$DATA'; Length = $copy[-1].Length; Allocation = 4096L })
+    switch ($mutation) {
+        missing { $copy[-1].Streams = $null }
+        unknown { $copy[-1].Streams[0].Name = ':unknown:$DATA' }
+        size { $copy[-1].Streams[0].Length++ }
+        allocation { $copy[-1].Streams[0].Allocation++ }
+    }
+    Reject { Assert-Batch3SameSnapshot $scope $facts $copy }
+}
 
 $script:tick = 0L; $script:waits = 0
 $ok = Wait-Batch3Process -Clock { [long]$script:tick } -WaitForExit { param($ms); ++$script:waits; $script:tick += $ms; $true } -GetExitCode { [int]0 }
