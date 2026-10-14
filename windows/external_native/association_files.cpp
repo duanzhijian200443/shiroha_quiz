@@ -128,7 +128,10 @@ int32_t ProtectedObjects::association_begin(uint32_t version, uint64_t owner,
 } catch (...) { return SHIROHA_NATIVE_UNAVAILABLE; }
 
 int32_t ProtectedObjects::association_commit(uint32_t version, uint64_t owner,
-    uint64_t ticket, const uint8_t* input, uint64_t length) noexcept try {
+    uint64_t ticket, const uint8_t* input, uint64_t length, CommitDiagnostic* diagnostic) noexcept try {
+  CommitDiagnostic local;
+  auto& detail = diagnostic ? *diagnostic : local;
+  detail = {};
   if (version != SHIROHA_NATIVE_ABI_VERSION) return SHIROHA_NATIVE_ABI_MISMATCH;
   if (!span(input, length)) return SHIROHA_NATIVE_INVALID_INPUT;
   std::lock_guard<std::mutex> guard(mutex_);
@@ -137,6 +140,7 @@ int32_t ProtectedObjects::association_commit(uint32_t version, uint64_t owner,
   int32_t status = SHIROHA_NATIVE_UNAVAILABLE;
   bool replacing = false;
   try {
+    detail.stage = CommitStage::prepare;
     Sid sid;
     status = check(*lease, sid);
     if (status == SHIROHA_NATIVE_OK) status = target_current(*lease, sid);
@@ -166,8 +170,21 @@ int32_t ProtectedObjects::association_commit(uint32_t version, uint64_t owner,
       if (status == SHIROHA_NATIVE_OK) status = ops_.inspect(lease->temporary, current);
       if (status == SHIROHA_NATIVE_OK &&
           (!object_valid(current, sid, false, true, true) || current.volume != temp.volume || current.file != temp.file)) status = SHIROHA_NATIVE_UNAVAILABLE;
+      if (status == SHIROHA_NATIVE_OK && lease->target) {
+        // Class 10 cannot replace an open destination. Identity/security/name
+        // checks above precede the one close; owner/lock/parent pins stay held.
+        // This does not close the accepted same-SID check-to-rename race.
+        const auto target = lease->target;
+        lease->target = nullptr; // An uncertain close must never be retried.
+        detail.stage = CommitStage::target_close;
+        if (!ops_.close(target)) {
+          lease->denied = true; lease->quarantined = true;
+          status = SHIROHA_NATIVE_UNAVAILABLE; // Rename has not been attempted.
+        }
+      }
       if (status == SHIROHA_NATIVE_OK) {
         replacing = true;
+        detail.stage = CommitStage::rename;
         status = ops_.replace_file(lease->temporary, lease->pins[6].handle, !lease->missing);
         // A wrapper must explicitly report success; every other replace result
         // is uncertain, irrespective of what the target now appears to contain.
@@ -177,10 +194,12 @@ int32_t ProtectedObjects::association_commit(uint32_t version, uint64_t owner,
           // name. Failed close or post-publication validation is never success.
           const auto temporary = lease->temporary;
           lease->temporary = nullptr;
+          detail.stage = CommitStage::published_close;
           if (!ops_.close(temporary)) {
             lease->denied = true; lease->quarantined = true;
             status = SHIROHA_NATIVE_COMMIT_UNKNOWN;
           } else {
+            detail.stage = CommitStage::published_validate;
             lease->missing = false; lease->target_identity = temp;
             status = check(*lease, sid);
             if (status == SHIROHA_NATIVE_OK) status = target_current(*lease, sid);
@@ -189,11 +208,18 @@ int32_t ProtectedObjects::association_commit(uint32_t version, uint64_t owner,
         }
       }
     }
-  } catch (const std::bad_alloc&) { status = replacing ? SHIROHA_NATIVE_COMMIT_UNKNOWN : SHIROHA_NATIVE_RESOURCE_LIMIT; }
-    catch (...) { status = replacing ? SHIROHA_NATIVE_COMMIT_UNKNOWN : SHIROHA_NATIVE_UNAVAILABLE; }
-  if (!finish(*lease)) status = replacing ? SHIROHA_NATIVE_COMMIT_UNKNOWN : SHIROHA_NATIVE_UNAVAILABLE;
+  } catch (const std::bad_alloc&) { detail.exception = true; status = replacing ? SHIROHA_NATIVE_COMMIT_UNKNOWN : SHIROHA_NATIVE_RESOURCE_LIMIT; }
+    catch (...) { detail.exception = true; status = replacing ? SHIROHA_NATIVE_COMMIT_UNKNOWN : SHIROHA_NATIVE_UNAVAILABLE; }
+  if (!finish(*lease)) {
+    detail.finish_failed = true;
+    status = replacing ? SHIROHA_NATIVE_COMMIT_UNKNOWN : SHIROHA_NATIVE_UNAVAILABLE;
+  }
+  if (status == SHIROHA_NATIVE_OK) detail.stage = CommitStage::complete;
   return status;
-} catch (...) { return SHIROHA_NATIVE_UNAVAILABLE; }
+} catch (...) {
+  if (diagnostic) diagnostic->exception = true;
+  return SHIROHA_NATIVE_UNAVAILABLE;
+}
 int32_t ProtectedObjects::association_abort(uint32_t version, uint64_t owner, uint64_t ticket) noexcept try {
   if (version != SHIROHA_NATIVE_ABI_VERSION) return SHIROHA_NATIVE_ABI_MISMATCH;
   std::lock_guard<std::mutex> guard(mutex_);

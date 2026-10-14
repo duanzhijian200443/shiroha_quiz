@@ -152,8 +152,18 @@ void main() {
         source,
         contains(
             'file_share != MAXDWORD ? file_share : (exclusive ? 0 : FILE_SHARE_READ | FILE_SHARE_WRITE)'));
-    expect(source, contains('info->RootDirectory = directory'));
-    expect(source, contains('info->ReplaceIfExists = existing ? TRUE : FALSE'));
+    expect(source, contains('GetProcAddress(module, "NtSetInformationFile")'));
+    expect(source, contains('rename_association('));
+    expect(source, isNot(contains('SetFileInformationByHandle')));
+    final rename =
+        File('windows/external_native/association_rename.h').readAsStringSync();
+    expect(rename, contains('NTSTATUS(NTAPI*)'));
+    expect(rename, contains('info.RootDirectory = directory'));
+    expect(rename, contains('info.ReplaceIfExists = existing ? TRUE : FALSE'));
+    expect(rename, contains('L"associations.bin"'));
+    expect(rename, contains('static_cast<FILE_INFORMATION_CLASS>(10)'));
+    expect(rename, contains('status == 0 && io.Status == 0'));
+    expect(rename, isNot(contains('GetLastError')));
     expect(source, contains('FlushFileBuffers(file)'));
     expect(source, contains('FILE_CREATE, &security.descriptor, result'));
     final core = File('windows/external_native/protected_objects.cpp')

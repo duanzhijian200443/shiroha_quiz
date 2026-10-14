@@ -51,6 +51,15 @@ bool local_nt_name(const std::wstring& path, std::wstring& result);
 bool object_valid(const ObjectInfo& info, const Sid& sid, bool directory,
                   bool check_owner, bool check_dacl) noexcept;
 
+// Internal, caller-owned diagnostic output. No OS codes, paths or C ABI export.
+// The stage identifies where failure occurred, not whether publication happened.
+enum class CommitStage { admission, prepare, target_close, rename, published_close, published_validate, complete };
+struct CommitDiagnostic {
+  CommitStage stage = CommitStage::admission;
+  bool exception = false;
+  bool finish_failed = false;
+};
+
 class ProtectedObjects final {
  public:
   static constexpr size_t max_owners = 32;
@@ -60,7 +69,8 @@ class ProtectedObjects final {
   int32_t validate(uint32_t version, uint64_t token) noexcept;
   int32_t close(uint32_t version, uint64_t token) noexcept;
   int32_t association_begin(uint32_t, uint64_t, uint8_t*, uint64_t, uint64_t*, uint64_t*) noexcept;
-  int32_t association_commit(uint32_t, uint64_t, uint64_t, const uint8_t*, uint64_t) noexcept;
+  int32_t association_commit(uint32_t, uint64_t, uint64_t, const uint8_t*, uint64_t,
+                             CommitDiagnostic* = nullptr) noexcept;
   int32_t association_abort(uint32_t, uint64_t, uint64_t) noexcept;
  private:
   struct Pin { HANDLE handle = nullptr; ObjectInfo identity; bool owner, dacl; };
