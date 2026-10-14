@@ -21,6 +21,53 @@ abstract interface class ExternalNativeCalls {
   int associationAbort(int version, int owner, int ticket);
 }
 
+/// Optional ABI-3 additive capability; older ABI-3 helpers retain memory/store calls.
+abstract interface class ExternalNativeCryptoCalls {
+  int generateKey(
+      int version,
+      Pointer<Uint8> key,
+      int keyCapacity,
+      Pointer<Uint64> keyWritten,
+      Pointer<Uint8> point,
+      int pointCapacity,
+      Pointer<Uint64> pointWritten);
+  int signDigest(
+      int version,
+      Pointer<Uint8> key,
+      int keyLength,
+      Pointer<Uint8> point,
+      int pointLength,
+      Pointer<Uint8> digest,
+      int digestLength,
+      Pointer<Uint8> signature,
+      int capacity,
+      Pointer<Uint64> written);
+  int verifyDigest(
+      int version,
+      Pointer<Uint8> point,
+      int pointLength,
+      Pointer<Uint8> digest,
+      int digestLength,
+      Pointer<Uint8> signature,
+      int length);
+}
+
+typedef _GenerateNative = Int32 Function(Uint32, Pointer<Uint8>, Uint64,
+    Pointer<Uint64>, Pointer<Uint8>, Uint64, Pointer<Uint64>);
+typedef _SignNative = Int32 Function(
+    Uint32,
+    Pointer<Uint8>,
+    Uint64,
+    Pointer<Uint8>,
+    Uint64,
+    Pointer<Uint8>,
+    Uint64,
+    Pointer<Uint8>,
+    Uint64,
+    Pointer<Uint64>);
+typedef _VerifyNative = Int32 Function(Uint32, Pointer<Uint8>, Uint64,
+    Pointer<Uint8>, Uint64, Pointer<Uint8>, Uint64);
+
 typedef _VersionNative = Uint32 Function();
 typedef _AllocateNative = Pointer<Uint8> Function(Uint64);
 typedef _FreeNative = Void Function(Pointer<Uint8>);
@@ -37,9 +84,11 @@ typedef _CommitNative = Int32 Function(
 typedef _AbortNative = Int32 Function(Uint32, Uint64, Uint64);
 
 /// Lookup is passive; only an explicit adapter operation invokes the helper.
-final class FfiExternalNativeCalls implements ExternalNativeCalls {
+final class FfiExternalNativeCalls
+    implements ExternalNativeCalls, ExternalNativeCryptoCalls {
   FfiExternalNativeCalls(DynamicLibrary library)
-      : _version = library.lookupFunction<_VersionNative, int Function()>(
+      : _library = library,
+        _version = library.lookupFunction<_VersionNative, int Function()>(
             'shiroha_native_abi_version'),
         _allocate = library.lookupFunction<_AllocateNative,
             Pointer<Uint8> Function(int)>('shiroha_native_buffer_alloc'),
@@ -78,6 +127,66 @@ final class FfiExternalNativeCalls implements ExternalNativeCalls {
         _abort =
             library.lookupFunction<_AbortNative, int Function(int, int, int)>(
                 'shiroha_native_association_abort');
+
+  final DynamicLibrary _library;
+  // Lazy lookups preserve compatibility with pre-P21 ABI-3 helper symbols.
+  late final _generate = _library.lookupFunction<
+      _GenerateNative,
+      int Function(int, Pointer<Uint8>, int, Pointer<Uint64>, Pointer<Uint8>,
+          int, Pointer<Uint64>)>('shiroha_native_ecdsa_generate_key');
+  late final _sign = _library.lookupFunction<
+      _SignNative,
+      int Function(
+          int,
+          Pointer<Uint8>,
+          int,
+          Pointer<Uint8>,
+          int,
+          Pointer<Uint8>,
+          int,
+          Pointer<Uint8>,
+          int,
+          Pointer<Uint64>)>('shiroha_native_ecdsa_sign_digest');
+  late final _verify = _library.lookupFunction<
+      _VerifyNative,
+      int Function(int, Pointer<Uint8>, int, Pointer<Uint8>, int,
+          Pointer<Uint8>, int)>('shiroha_native_ecdsa_verify_digest');
+  @override
+  int generateKey(
+          int version,
+          Pointer<Uint8> key,
+          int capacity,
+          Pointer<Uint64> written,
+          Pointer<Uint8> point,
+          int pointCapacity,
+          Pointer<Uint64> pointWritten) =>
+      _generate(
+          version, key, capacity, written, point, pointCapacity, pointWritten);
+  @override
+  int signDigest(
+          int version,
+          Pointer<Uint8> key,
+          int keyLength,
+          Pointer<Uint8> point,
+          int pointLength,
+          Pointer<Uint8> digest,
+          int digestLength,
+          Pointer<Uint8> signature,
+          int capacity,
+          Pointer<Uint64> written) =>
+      _sign(version, key, keyLength, point, pointLength, digest, digestLength,
+          signature, capacity, written);
+  @override
+  int verifyDigest(
+          int version,
+          Pointer<Uint8> point,
+          int pointLength,
+          Pointer<Uint8> digest,
+          int digestLength,
+          Pointer<Uint8> signature,
+          int length) =>
+      _verify(
+          version, point, pointLength, digest, digestLength, signature, length);
 
   final int Function() _version;
   final Pointer<Uint8> Function(int) _allocate;

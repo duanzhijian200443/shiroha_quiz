@@ -41,6 +41,10 @@ void main() {
         .where((f) => f.path.endsWith('.cpp') || f.path.endsWith('.h'))) {
       final code = file.readAsStringSync();
       expect(_pathOpen.hasMatch(code), isFalse, reason: file.path);
+      if (!file.path.replaceAll('\\', '/').endsWith('/crypto_windows.cpp')) {
+        expect(code, isNot(contains('BCryptGenerateKeyPair')),
+            reason: file.path);
+      }
       for (final forbidden in [
         'CRYPTPROTECT_LOCAL_MACHINE',
         'CredWrite',
@@ -51,7 +55,6 @@ void main() {
         'CreateDirectory',
         'CreateFileW',
         'CreateFileA',
-        'BCryptGenerateKeyPair',
         'CertAddCertificate',
         'CreateThread',
         'std::thread',
@@ -106,6 +109,55 @@ void main() {
     expect(bindings, contains('Pointer<Uint64>'));
     expect(bindings, contains('Int32 Function'));
     expect(bindings, contains('Uint32 Function'));
+  });
+
+  test('P21 CNG blob conversion and scan-before-execute boundary', () {
+    final wrapper =
+        File('windows/external_native/crypto_windows.cpp').readAsStringSync();
+    expect(wrapper, contains('BCRYPT_ECCPRIVATE_BLOB'));
+    expect(wrapper, contains('encode_p256_pkcs8'));
+    expect(wrapper, contains('decode_p256_pkcs8'));
+    expect(wrapper, isNot(contains('PKCS8_PRIVATEKEY')));
+    expect(wrapper, isNot(contains('NCRYPT_PKCS8_PRIVATE_KEY_BLOB')));
+    final script =
+        File('windows/external_native/check_offline.ps1').readAsStringSync();
+    final execute = script.indexOf('& '
+        r'$ctest --test-dir $build -C $Configuration --output-on-failure');
+    expect(
+        execute,
+        greaterThan(script
+            .indexOf('Diagnostic target configuration isolation failed')));
+    expect(
+        execute,
+        greaterThan(script.indexOf(
+            'Offline executable includes a real security/file operation')));
+    final cmake =
+        File('windows/external_native/CMakeLists.txt').readAsStringSync();
+    expect(
+        cmake,
+        contains(
+            'native_crypto.cpp p256_key_codec.cpp tests/native_crypto_test.cpp'));
+    for (final file in [
+      'external_certificate_der.dart',
+      'external_credential_object_codec.dart',
+      'native/windows_external_crypto.dart'
+    ]) {
+      final source = File('lib/data/external/$file').readAsStringSync();
+      for (final forbidden in [
+        'defaultContext',
+        'onBadCertificate',
+        'CertOpenStore',
+        'CertAddCertificate',
+        'engine.',
+        'flutter_secure_storage',
+        'ServerSocket',
+        'SecureServerSocket',
+        'SecurityContext',
+        'LocalHostDispatchCore'
+      ]) {
+        expect(source, isNot(contains(forbidden)), reason: file);
+      }
+    }
   });
 
   test('protected children bind parent handles and never reopen caller paths',

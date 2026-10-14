@@ -6,6 +6,7 @@ import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
 import 'external_native_bindings.dart';
+import 'windows_external_crypto.dart';
 
 enum ExternalNativeFailure {
   unsupportedPlatform,
@@ -17,6 +18,7 @@ enum ExternalNativeFailure {
   dataCorrupt,
   invalidNativeResult,
   commitUnknown,
+  verificationRejected,
 }
 
 /// Local infrastructure failures only; never expose loader/OS exception text.
@@ -43,6 +45,8 @@ final class WindowsExternalNative {
   static const maxBytes = 65536;
   static const libraryName = 'shiroha_external_native.dll';
   final ExternalNativeCalls _calls;
+
+  WindowsExternalCrypto get crypto => WindowsExternalCrypto.fromCalls(_calls);
 
   /// Explicit acquisition only. The returned owner retains the real OS lock
   /// across asynchronous work until its caller explicitly closes it.

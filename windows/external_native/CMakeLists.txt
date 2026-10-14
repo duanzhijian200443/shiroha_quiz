@@ -51,7 +51,8 @@ if(SHIROHA_P20_MINIMAL_TEST_BUILD)
 endif()
 
 add_library(shiroha_external_native SHARED native_core.cpp native_windows.cpp
-  protected_objects.cpp association_files.cpp protected_windows.cpp)
+  protected_objects.cpp association_files.cpp protected_windows.cpp
+  native_crypto.cpp p256_key_codec.cpp crypto_windows.cpp)
 shiroha_native_settings(shiroha_external_native)
 target_link_libraries(shiroha_external_native PRIVATE crypt32 shell32 ole32 uuid advapi32 bcrypt)
 
@@ -60,7 +61,8 @@ target_link_libraries(shiroha_external_native PRIVATE crypt32 shell32 ole32 uuid
 option(SHIROHA_BATCH3_EXISTING_ONLY_BUILD "Compile Batch 3 no-initialization DLL" OFF)
 if(SHIROHA_BATCH3_EXISTING_ONLY_BUILD)
   add_library(shiroha_batch3_existing_only SHARED native_core.cpp native_windows.cpp
-    protected_objects.cpp association_files.cpp protected_windows.cpp)
+    protected_objects.cpp association_files.cpp protected_windows.cpp
+    native_crypto.cpp p256_key_codec.cpp crypto_windows.cpp)
   shiroha_native_settings(shiroha_batch3_existing_only)
   target_compile_definitions(shiroha_batch3_existing_only PRIVATE SHIROHA_BATCH3_EXISTING_ONLY)
   target_link_libraries(shiroha_batch3_existing_only PRIVATE crypt32 shell32 ole32 uuid advapi32 bcrypt)
@@ -86,6 +88,12 @@ if(SHIROHA_NATIVE_OFFLINE_TESTS)
   add_executable(shiroha_rename_layout_test tests/rename_layout_test.cpp)
   shiroha_native_settings(shiroha_rename_layout_test)
   add_test(NAME shiroha_rename_layout_offline COMMAND shiroha_rename_layout_test)
+  # P21: ECDSA P-256 core + fake operations only. This executable never links
+  # bcrypt and never calls a real CNG or certificate API.
+  add_executable(shiroha_crypto_offline_test native_crypto.cpp p256_key_codec.cpp tests/native_crypto_test.cpp)
+  shiroha_native_settings(shiroha_crypto_offline_test)
+  target_include_directories(shiroha_crypto_offline_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+  add_test(NAME shiroha_crypto_offline COMMAND shiroha_crypto_offline_test)
 endif()
 
 # Compile only; this target is NEVER a CTest entry and never runs in L0.

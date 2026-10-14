@@ -315,8 +315,21 @@ P18 user-scope DPAPI and P19-owned handle-relative file transactions/CAS.
 The Native ABI becomes 3 while retaining P18/P19 call compatibility; standing
 offline checks cover the codec, association semantics and injected file failures.
 No kind 1/2/4 store, certificate, Discovery, TLS or Host activation is supplied.
-LOCAL-L1/G0-I remain pending; HOST_STABILITY_HALT = ACTIVE, TRANSPORT = BLOCKED
-and AR-R6A = NOT_ACCEPTED. P21/AR-R6B are not started by this candidate.
+P20 is merged; PR #277 records isolated real Windows first-create and
+existing-target replacement plus exact DPAPI readback, with no temporary residue.
+Production-root, full Dart Store and formal LOCAL-L1/G0-I acceptance remain pending.
+HOST_STABILITY_HALT = ACTIVE, TRANSPORT = BLOCKED and AR-R6A = NOT_ACCEPTED.
+
+P21 is the inactive Credential / Certificate primitive G0-L0 candidate under
+[Windows readiness §13](../product/agent-refactor/windows-host-security-readiness.md#13-p21-credential-and-certificate-primitive-candidate-g0-l0-only).
+It adds bounded CNG P-256 generation/sign/verify source, explicit ECC-to-PKCS#8
+conversion, raw r||s / DER and X.509 structure/vector codecs, strict length-prefixed
+kind 1/2/4 objects, and an explicit optional Dart crypto adapter in the same helper.
+ABI 3 retains all twelve existing exports and adds three optional crypto symbols.
+Compilation, static/source checks and offline/fake vectors prove only G0-L0.
+No real key/certificate experiment, store publication, TLS, Discovery, Host,
+AR-R6B or production Principal/Session composition is activated. The above
+halt/acceptance states remain unchanged; full acceptance requires separate grants.
 
 The retained target is Codex/Claude MCP Bridge → Shiroha External Host →
 authenticated and authorized question-bank READ/STAGE services.

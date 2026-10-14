@@ -923,10 +923,37 @@ whole objects atomically (9.B.4). Field bounds mirror P15 (`profileId` UUID v4,
 
 | Object kind | Payload (plaintext, before DPAPI) |
 |---|---|
-| 1 issuerKeyPair | magic `SHREXOBJ`, version 1, kind 1, installationId (u16le length + UTF-8), publicationEpoch (u64le; 0 at creation, +1 committed per descriptor publication), issuer PKCS#8 DER (≤ 256 B), issuer cert DER (≤ 1 KiB) |
-| 2 serverKeyChain | magic, version 1, kind 2, server PKCS#8 DER, server leaf DER, issuer cert DER |
+| 1 issuerKeyPair | magic `SHREXOBJ`, version 1, kind 1, installationId (u16le length + UTF-8), publicationEpoch (u64le; 0 at creation, +1 committed per descriptor publication), issuer PKCS#8 (u16le + DER ≤ 256 B), issuer cert (u16le + DER ≤ 1024 B) |
+| 2 serverKeyChain | magic, version 1, kind 2, server PKCS#8 (u16le + DER), server leaf (u16le + DER), issuer cert (u16le + DER) |
 | 3 associationStore | magic, version 1, kind 3, `u32le recordCount ≤ 64`, then per record: record version 1, profileId (16 raw UUID v4 bytes), installationId (u16le length + UTF-8), credentialIdentity (32 raw SHA-256 bytes), revision (u64le), revoked (1 byte, 0/1), updatedAtUtcMs (u64le, backend bookkeeping only, 0–9007199254740991 like P15 times; not part of the P15 port record) |
-| 4 bridgeClient | magic, version 1, kind 4, client PKCS#8 DER, client leaf DER, issuer cert DER, pinned installationId, pinned discovery epoch high-water (u64le) |
+| 4 bridgeClient | magic, version 1, kind 4, client PKCS#8 (u16le + DER), client leaf (u16le + DER), issuer cert (u16le + DER), pinned installationId (u16le + UTF-8), pinned discovery epoch high-water (u64le) |
+
+P21 field-boundary amendment (kinds 1/2/4 only): every private-key DER and
+certificate DER field is `u16le byteLength` followed by exactly that many DER
+bytes. The prefix must identify exactly one complete canonical DER object;
+truncation, length mismatch, noncanonical DER or bytes following that object
+inside its field fail closed. DER's internal TLV length is not the outer
+object field boundary. Private-key DER is at most 256 bytes; every certificate
+DER is at most 1024 bytes, consistently across all three kinds.
+InstallationId, including kind 4's pinned value, uses `u16le byteLength` plus
+strict canonical UTF-8 lowercase UUID v4 text, at most 128 UTF-8 bytes.
+
+The exact layouts are:
+
+- kind 1: header | installationId(u16+UTF-8) | publicationEpoch(u64le) |
+  issuerPkcs8(u16+DER) | issuerCert(u16+DER).
+- kind 2: header | serverPkcs8(u16+DER) | serverLeaf(u16+DER) |
+  issuerCert(u16+DER).
+- kind 4: header | clientPkcs8(u16+DER) | clientLeaf(u16+DER) |
+  issuerCert(u16+DER) | pinnedInstallationId(u16+UTF-8) |
+  discoveryEpochHighWater(u64le).
+
+Decode consumes the entire input, with no trailing bytes, implicit migration
+or fallback. publicationEpoch and discoveryEpochHighWater have the full
+unsigned domain `0..18446744073709551615`; the P15 timestamp ceiling does not
+apply. Dart represents these values as BigInt, never a signed/native int or
+floating-point number. Every epoch increment checks UINT64_MAX first and
+fails closed on overflow. Kind 3's layout, bounds and semantics are unchanged.
 
 Caps: one object file ≤ 64 KiB; association records ≤ 64 (exceeding the bound
 fails registration `resourceLimit`); temp/leftover files ≤ 32 per directory
@@ -2071,4 +2098,55 @@ The G0-L0 source/offline checks themselves execute no actual protected-object,
 ACL, DPAPI, lock, key/certificate or listener operations; the separately granted
 isolated run is the bounded real functional evidence described above.
 
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
+
+
+## 13. P21 credential and certificate primitive candidate (G0-L0 only)
+
+This inactive Package 1 source candidate supplies pure raw r||s / DER codecs,
+frozen X.509 v3 issuer/server/client construction and structural inspection,
+and the strict kind 1/2/4 layouts in §9.B.3. Certificate inspection is not
+signature, curve-membership, chain or current-validity proof. Public fixed
+RFC 6979 A.2.5 key fixtures, TBS/digests/signatures and final certificates are
+used for offline acceptance; no installation identity is generated.
+
+The same helper adds three fixed-width __cdecl exports to ABI 3:
+
+| Export | Contract |
+|---|---|
+| shiroha_native_ecdsa_generate_key | version=3; caller-owned private buffer/capacity (1..256), private written count, public point buffer/capacity=65 and point written count; PKCS#8 DER plus 0x04||X||Y |
+| shiroha_native_ecdsa_sign_digest | version=3; PKCS#8 pointer/length, explicit public point pointer/length=65, SHA-256 digest pointer/length=32, signature output/capacity=64 and written count; raw r||s |
+| shiroha_native_ecdsa_verify_digest | version=3; public point/length=65, SHA-256 digest/length=32, raw r||s/length=64; fixed status |
+
+The original twelve signatures and ABI-1/2/3 compatibility are preserved.
+Status 8 (verificationRejected) is additive and belongs only to explicit
+ECDSA mismatch. Optional crypto symbols are looked up lazily: a pre-P21 ABI-3
+helper still serves its existing calls; missing crypto symbols fail closed,
+without a second DLL, version downgrade or fallback backend.
+
+BCrypt uses BCRYPT_ECDSA_P256_ALGORITHM and documented ECC blobs, never an
+NCrypt PKCS#8 blob name. An allocation-free RFC 5208/RFC 5915 codec constructs
+PKCS#8 DER from the exported ECC scalar and public point. Signing decodes the
+private scalar and combines it with the explicit point into BCRYPT_ECCPRIVATE_BLOB;
+CNG's normal import validation remains enabled. Optional SEC1 curve/publicKey
+fields are checked when present; absent publicKey uses the explicit caller
+point. Unknown/duplicate fields, wrong algorithms/curves, noncanonical lengths,
+zero/out-of-range scalar and trailing bytes reject. This codec does not claim
+mathematical key-pair validation independently of CNG.
+
+All native spans are borrowed live disjoint memory. Valid disjoint outputs and
+counts are cleared on failure; aliased/invalid spans are unusable and may stay
+untouched. Internal private blobs and DLL allocations are wiped before release.
+Dart makes caller-owned copies and releases/wipes all native allocations on
+failure or success; callers dispose of sensitive Dart copies after bounded use,
+with the existing GC-copy limitation. No C++ object or exception crosses the ABI.
+
+MSVC x64 /W4 /WX, ASLR/DEP/CFG and exact exports/imports are checked before
+fake-only executables run. All scan/isolation gates must pass before execution;
+a failed gate stops immediately. The crypto fake executable links only the
+pure core/key codec and fake operations, never the production CNG wrapper or DLL.
+This candidate supplies no DPAPI publication for kinds 1/2/4, credential-store
+activation, real key generation/signature experiment, certificate installation,
+TLS, Discovery, enrollment, Host/Bridge runtime or Principal/Session wiring.
+G0-L1 and independent G0-I acceptance remain separate and pending.
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
