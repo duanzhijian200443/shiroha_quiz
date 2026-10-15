@@ -38,6 +38,7 @@ foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.
     # P24 is the one inactive file-I/O consumer of the P22 Exchange codec.
     # It is guarded separately below; no other consumer becomes permitted.
     if ($file.FullName -eq [IO.Path]::GetFullPath((Join-Path $root 'lib/data/external/windows_exchange_file_store.dart'))) { continue }
+    if ($file.Name -in @('windows_discovery.dart', 'windows_credential_initialization.dart') -and $file.DirectoryName -eq [IO.Path]::GetFullPath((Join-Path $root 'lib/data/external'))) { continue }
     if ($code -match 'pairing_transcript_codec|exchange_message_codec|discovery_descriptor_codec|external_bootstrap_bytes') {
         throw 'P22 production composition is active'
     }
@@ -54,5 +55,6 @@ foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.
         throw 'P24 production composition is active'
     }
 }
+& (Join-Path $PSScriptRoot 'check_discovery_source.ps1')
 Write-Output 'PASS: P22 source/import isolation and inactive production composition'
 exit 0

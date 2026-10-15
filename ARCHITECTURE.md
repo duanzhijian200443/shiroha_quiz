@@ -137,7 +137,12 @@ same-ticket create-if-missing operation in P23's adapter. Persisted signatures,
 key correspondence and exact issuer binding are verified before reuse; partial
 initialization requires explicit recovery without replacing the trust root.
 It supplies no Application authorization, Pairing or production wiring.
-The readiness contract sections 10–17 own these production source slices and
+P26 adds inactive fixed-object Discovery publication/reading, P25-backed
+cryptographic publication checks, same-ticket kind 1 epoch advancement and
+conditional existing kind 4 high-water updates. Bridge uses its own Owner and
+existing-only Discovery access; independent trust inputs remain mandatory.
+No enrollment pin, listener, TLS, authorization or production wiring is added.
+The readiness contract sections 10–18 own these production source slices and
 their pending Windows acceptance.
 
 Persistence formats and provider formats are implementation details, not public application contracts.

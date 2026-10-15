@@ -33,6 +33,18 @@ abstract interface class ExternalNativeCredentialCalls {
 typedef _CredentialBeginNative = Int32 Function(Uint32, Uint64, Uint32,
     Pointer<Uint8>, Uint64, Pointer<Uint64>, Pointer<Uint64>);
 
+abstract interface class ExternalNativeDiscoveryCalls {
+  int discoveryPublish(
+      int version, int owner, int kind, Pointer<Uint8> input, int length);
+  int discoveryRead(int version, int owner, int kind, Pointer<Uint8> output,
+      int capacity, Pointer<Uint64> written);
+}
+
+typedef _DiscoveryPublishNative = Int32 Function(
+    Uint32, Uint64, Uint32, Pointer<Uint8>, Uint64);
+typedef _DiscoveryReadNative = Int32 Function(
+    Uint32, Uint64, Uint32, Pointer<Uint8>, Uint64, Pointer<Uint64>);
+
 /// Optional ABI-3 Exchange capability. No caller paths or raw OS handles.
 abstract interface class ExternalNativeExchangeCalls {
   int exchangeCreate(int version, int owner, int kind, Pointer<Uint8> id,
@@ -113,7 +125,8 @@ final class FfiExternalNativeCalls
         ExternalNativeCalls,
         ExternalNativeCryptoCalls,
         ExternalNativeCredentialCalls,
-        ExternalNativeExchangeCalls {
+        ExternalNativeExchangeCalls,
+        ExternalNativeDiscoveryCalls {
   FfiExternalNativeCalls(DynamicLibrary library)
       : _library = library,
         _version = library.lookupFunction<_VersionNative, int Function()>(
@@ -180,6 +193,22 @@ final class FfiExternalNativeCalls
       _credentialAbort(version, owner, ticket);
 
   final DynamicLibrary _library;
+  late final _discoveryPublish = _library.lookupFunction<
+      _DiscoveryPublishNative,
+      int Function(int, int, int, Pointer<Uint8>,
+          int)>('shiroha_native_discovery_publish');
+  late final _discoveryRead = _library.lookupFunction<
+      _DiscoveryReadNative,
+      int Function(int, int, int, Pointer<Uint8>, int,
+          Pointer<Uint64>)>('shiroha_native_discovery_read');
+  @override
+  int discoveryPublish(
+          int version, int owner, int kind, Pointer<Uint8> input, int length) =>
+      _discoveryPublish(version, owner, kind, input, length);
+  @override
+  int discoveryRead(int version, int owner, int kind, Pointer<Uint8> output,
+          int capacity, Pointer<Uint64> written) =>
+      _discoveryRead(version, owner, kind, output, capacity, written);
   late final _exchangeCreate = _library.lookupFunction<
       _ExchangeNative,
       int Function(int, int, int, Pointer<Uint8>, Pointer<Uint8>, int,

@@ -5,6 +5,7 @@ import '../../application/external/external_authorization.dart';
 import '../../application/external/external_credential_association.dart';
 import '../../services/backup/sha256.dart';
 import 'external_certificate_der.dart';
+import 'discovery_descriptor_codec.dart';
 import 'external_credential_object_codec.dart';
 import 'native/windows_external_crypto.dart';
 import 'native/windows_external_native.dart';
@@ -76,7 +77,8 @@ final class WindowsCredentialInitialization {
     required CredentialDigestVerifier verifyDigest,
     required DateTime Function() utcNow,
     required Uint8List Function(int count) randomBytes,
-  })  : _store = WindowsCredentialObjectStore(owner),
+  })  : _storeOwner = owner,
+        _store = WindowsCredentialObjectStore(owner),
         _generate = generateKey,
         _sign = signDigest,
         _verify = verifyDigest,
@@ -84,12 +86,115 @@ final class WindowsCredentialInitialization {
         _random = randomBytes;
 
   final WindowsCredentialObjectStore _store;
+  final ExternalProtectedObjects _storeOwner;
   final ExternalP256KeyPair Function() _generate;
   final CredentialDigestSigner _sign;
   final CredentialDigestVerifier _verify;
   final DateTime Function() _now;
   final Uint8List Function(int) _random;
   bool _busy = false;
+  bool usesOwner(ExternalProtectedObjects owner) =>
+      identical(_storeOwner, owner);
+
+  /// Revalidates the current persisted pair and exact publication immediately
+  /// before I/O; this neither initializes nor repairs missing credentials.
+  ExternalInitializationResult validatePublication(
+          DiscoveryDescriptor descriptor) =>
+      _operation(() {
+        final pair = _read(_time());
+        try {
+          if (pair.$1 == null || pair.$2 == null) {
+            credentialFail(ExternalCredentialFailure.unauthorized);
+          }
+          final issuer = pair.$1!, server = pair.$2!;
+          if (issuer.publicationEpoch != descriptor.publicationEpoch) {
+            _conflict();
+          }
+          DiscoveryDescriptorCodec.validatePublicObjects(descriptor,
+              anchorDer: issuer.issuerCertificateDer,
+              installationIdBytes:
+                  Uint8List.fromList(issuer.installationId.codeUnits),
+              expected: DiscoveryExpectations(
+                  trustedAnchorDer: issuer.issuerCertificateDer,
+                  installationId: issuer.installationId,
+                  serverLeafDigest: _hash(server.serverLeafDer),
+                  verifiedEpochHighWater: issuer.publicationEpoch),
+              verifier: (
+                  {required publicPoint,
+                  required digest,
+                  required rawSignature}) {
+            _verify(
+                publicPoint: publicPoint,
+                digest: digest,
+                rawSignature: rawSignature);
+            return true;
+          });
+          return _result(issuer, server, ExternalInitializationState.existing);
+        } finally {
+          _clear(pair.$1, pair.$2);
+        }
+      });
+
+  /// P26 inactive preparation: commit epoch under one ticket before signing.
+  /// Public runtime inputs describe an offline candidate, never listener liveness.
+  DiscoveryDescriptor prepareDiscoveryDescriptor(
+          {required Uint8List runtimeInstanceId,
+          required BigInt generation,
+          required int port,
+          required BigInt publishedAtUtcMs}) =>
+      _operation(() {
+        final now = _time();
+        final pair = _read(now);
+        try {
+          final issuer = pair.$1, server = pair.$2;
+          if (issuer == null || server == null) {
+            credentialFail(ExternalCredentialFailure.unauthorized);
+          }
+          DiscoveryDescriptor value(BigInt epoch, Uint8List signature) =>
+              DiscoveryDescriptor(
+                  runtimeInstanceId: runtimeInstanceId,
+                  publicationEpoch: epoch,
+                  generation: generation,
+                  port: port,
+                  serverLeafDigest: _hash(server.serverLeafDer),
+                  installationId: issuer.installationId,
+                  publishedAtUtcMs: publishedAtUtcMs,
+                  rawSignature: signature);
+          // Reject invalid public input and overflow without consuming an epoch.
+          final next =
+              ExternalCredentialObjectCodec.nextEpoch(issuer.publicationEpoch);
+          DiscoveryDescriptorCodec.unsignedBytes(value(next, Uint8List(0)));
+          final epoch = _store.advancePublicationEpoch(
+              issuer, (current) => _validateIssuer(current, now));
+          final committed = _read(now);
+          try {
+            if (committed.$1 == null ||
+                committed.$2 == null ||
+                committed.$1!.publicationEpoch != epoch ||
+                committed.$1!.installationId != issuer.installationId ||
+                !_equal(committed.$1!.issuerCertificateDer,
+                    issuer.issuerCertificateDer) ||
+                !_equal(committed.$2!.serverLeafDer, server.serverLeafDer)) {
+              _conflict();
+            }
+            final unsigned = value(epoch, Uint8List(0));
+            final cert = _validateIssuer(committed.$1!, now);
+            final signature = _sign(
+                pkcs8Der: committed.$1!.issuerPkcs8Der,
+                publicPoint: cert.publicKey,
+                digest: DiscoveryDescriptorCodec.digest(unsigned));
+            _verify(
+                publicPoint: cert.publicKey,
+                digest: DiscoveryDescriptorCodec.digest(unsigned),
+                rawSignature: signature);
+            return value(epoch, signature);
+          } finally {
+            _clear(committed.$1, committed.$2);
+          }
+        } finally {
+          _clear(pair.$1, pair.$2);
+        }
+      });
 
   /// Both absent permits first create. A partial Issuer is returned incomplete;
   /// only recoverServer() can explicitly finish it. Valid pairs are reused.

@@ -410,6 +410,96 @@ final class ExternalProtectedObjects {
     return calls as ExternalNativeExchangeCalls;
   }
 
+  static int _discoveryCap(int kind) => switch (kind) {
+        1 => 185,
+        2 => 1024,
+        3 => 36,
+        _ => WindowsExternalNative._fail(ExternalNativeFailure.invalidInput),
+      };
+
+  ExternalNativeDiscoveryCalls get _discoveryCalls {
+    final calls = _adapter._calls;
+    if (calls is! ExternalNativeDiscoveryCalls) {
+      WindowsExternalNative._fail(ExternalNativeFailure.temporarilyUnavailable);
+    }
+    return calls as ExternalNativeDiscoveryCalls;
+  }
+
+  /// Fixed public objects only; no arbitrary paths, cleanup or trust authority.
+  void publishDiscovery(int kind, Uint8List bytes) {
+    final cap = _discoveryCap(kind);
+    if (_role != 1 ||
+        bytes.isEmpty ||
+        bytes.length > cap ||
+        (kind != 2 && bytes.length != cap)) {
+      WindowsExternalNative._fail(ExternalNativeFailure.invalidInput);
+    }
+    Pointer<Uint8> input = nullptr;
+    var entered = false;
+    var uncertain = false;
+    var returned = false;
+    try {
+      ensureOpen();
+      final calls = _discoveryCalls;
+      input = _adapter._allocate(bytes.length);
+      input.asTypedList(bytes.length).setAll(0, bytes);
+      entered = true;
+      final status =
+          calls.discoveryPublish(3, _token, kind, input, bytes.length);
+      returned = true;
+      WindowsExternalNative._checkStatus(status);
+    } on ExternalNativeException catch (e) {
+      uncertain = (entered && !returned) ||
+          e.failure == ExternalNativeFailure.commitUnknown;
+      if (uncertain) {
+        _denied = true;
+        WindowsExternalNative._fail(ExternalNativeFailure.commitUnknown);
+      }
+      rethrow;
+    } catch (_) {
+      uncertain = entered;
+      if (uncertain) _denied = true;
+      WindowsExternalNative._fail(entered
+          ? ExternalNativeFailure.commitUnknown
+          : ExternalNativeFailure.temporarilyUnavailable);
+    } finally {
+      try {
+        _exchangeFree([input]);
+      } catch (_) {
+        if (uncertain || entered) _denied = true;
+        WindowsExternalNative._fail(uncertain || entered
+            ? ExternalNativeFailure.commitUnknown
+            : ExternalNativeFailure.temporarilyUnavailable);
+      }
+    }
+  }
+
+  Uint8List? readDiscovery(int kind) {
+    final cap = _discoveryCap(kind);
+    Pointer<Uint8> output = nullptr, count = nullptr;
+    try {
+      ensureOpen();
+      output = _adapter._allocate(cap);
+      count = _adapter._allocate(8);
+      count.cast<Uint64>().value = 0;
+      final status = _discoveryCalls.discoveryRead(
+          3, _token, kind, output, cap, count.cast<Uint64>());
+      if (status != 6) WindowsExternalNative._checkStatus(status);
+      final length = count.cast<Uint64>().value;
+      if (status == 6 && length == 0) return null;
+      if (status == 6 || length <= 0 || length > cap) {
+        WindowsExternalNative._fail(ExternalNativeFailure.invalidNativeResult);
+      }
+      return Uint8List.fromList(output.asTypedList(length));
+    } on ExternalNativeException {
+      rethrow;
+    } catch (_) {
+      WindowsExternalNative._fail(ExternalNativeFailure.temporarilyUnavailable);
+    } finally {
+      _exchangeFree([output, count]);
+    }
+  }
+
   static int _exchangeCap(int kind) => switch (kind) {
         1 => 1024,
         2 => 4096,

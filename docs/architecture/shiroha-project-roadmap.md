@@ -381,6 +381,18 @@ certificate/TLS acceptance, Discovery publication, enrollment and production
 wiring remain pending. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
 AR-R6A = NOT_ACCEPTED.
 
+P26 is an inactive Package 1 implementation candidate under
+[Windows readiness §18](../product/agent-refactor/windows-host-security-readiness.md#18-protected-discovery-publisher--reader-foundation-p26-g0-l0-only),
+not a new frozen stage. On merged P25 (PR #283), it adds fixed protected
+Discovery Publisher/Reader Native/FFI and Data adapters, P25-backed signing
+state validation, same-ticket kind 1 epoch increment and conditional existing
+kind 4 high-water advancement. P22 trust inputs remain independently supplied;
+no initial Pin, authorization or production runtime is created. SOURCE
+IMPLEMENTED / OFFLINE TESTED applies only to the inactive foundation. Discovery
+Windows security/durability, Listener/TLS peer binding, enrollment and G0-I
+acceptance remain pending. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
+AR-R6A = NOT_ACCEPTED.
+
 The retained target is Codex/Claude MCP Bridge → Shiroha External Host →
 authenticated and authorized question-bank READ/STAGE services.
 

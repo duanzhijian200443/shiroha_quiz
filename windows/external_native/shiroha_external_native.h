@@ -166,6 +166,13 @@ SHIROHA_NATIVE_API int32_t SHIROHA_NATIVE_CALL shiroha_native_dpapi_unprotect(
     uint32_t abi_version, const uint8_t* input, uint64_t length,
     uint8_t* output, uint64_t capacity, uint64_t* written);
 
+// P26 optional ABI-3 fixed Discovery capability: 1 endpoint.bin (185),
+// 2 anchor.der (1..1024), 3 installation.id (36). Publish is App-only.
+// Read capacity must equal the fixed cap. Missing clears output/count.
+SHIROHA_NATIVE_API int32_t SHIROHA_NATIVE_CALL shiroha_native_discovery_publish(
+    uint32_t abi_version, uint64_t owner, uint32_t kind, const uint8_t* input, uint64_t length);
+SHIROHA_NATIVE_API int32_t SHIROHA_NATIVE_CALL shiroha_native_discovery_read(
+    uint32_t abi_version, uint64_t owner, uint32_t kind, uint8_t* output, uint64_t capacity, uint64_t* written);
 #ifdef __cplusplus
 }
 #endif

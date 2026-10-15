@@ -115,6 +115,89 @@ final class WindowsCredentialObjectStore {
     }
   }
 
+  /// Kind 1 CAS and increment run under the same retained App ticket. Validation
+  /// is synchronous inside that ticket; competing/reentrant store work rejects.
+  BigInt advancePublicationEpoch(ExternalIssuerKeyPair expected,
+          void Function(ExternalIssuerKeyPair) validate) =>
+      _conditional(1, (current) {
+        if (current is! ExternalIssuerKeyPair ||
+            !_equal(current.encode(), expected.encode())) {
+          credentialFail(ExternalCredentialFailure.conflict);
+        }
+        validate(current);
+        return ExternalIssuerKeyPair(
+            installationId: current.installationId,
+            publicationEpoch: ExternalCredentialObjectCodec.nextEpoch(
+                current.publicationEpoch),
+            issuerPkcs8Der: Uint8List.fromList(current.issuerPkcs8Der),
+            issuerCertificateDer:
+                Uint8List.fromList(current.issuerCertificateDer));
+      });
+
+  /// Only an already trusted kind 4 snapshot may be updated. All other fields
+  /// must still match exactly. No creation, initial pin, rollback or retry.
+  BigInt advanceDiscoveryHighWater(
+          ExternalBridgeClient expected, BigInt epoch) =>
+      _conditional(4, (current) {
+        if (current is! ExternalBridgeClient ||
+            !_equal(current.encode(), expected.encode()) ||
+            epoch < current.pinnedDiscoveryEpochHighWater ||
+            epoch > ExternalCredentialObjectCodec.maxEpoch) {
+          credentialFail(ExternalCredentialFailure.conflict);
+        }
+        if (epoch == current.pinnedDiscoveryEpochHighWater) return null;
+        return ExternalBridgeClient(
+            clientPkcs8Der: Uint8List.fromList(current.clientPkcs8Der),
+            clientLeafDer: Uint8List.fromList(current.clientLeafDer),
+            issuerCertificateDer:
+                Uint8List.fromList(current.issuerCertificateDer),
+            pinnedInstallationId: current.pinnedInstallationId,
+            pinnedDiscoveryEpochHighWater: epoch);
+      });
+
+  BigInt _conditional(int kind,
+      ExternalCredentialObject? Function(ExternalCredentialObject?) update) {
+    final transaction = _native(() => _owner.beginCredential(kind));
+    ExternalCredentialObject? current, next;
+    Uint8List? plain, encrypted;
+    try {
+      current = _decode(transaction, kind);
+      next = update(current);
+      final result = switch (next ?? current) {
+        ExternalIssuerKeyPair(:final publicationEpoch) => publicationEpoch,
+        ExternalBridgeClient(:final pinnedDiscoveryEpochHighWater) =>
+          pinnedDiscoveryEpochHighWater,
+        _ => throw StateError('invalid conditional kind'),
+      };
+      if (next != null) {
+        plain = next.encode();
+        encrypted = _native(() => _owner.protectCredential(plain!));
+        _native(() => transaction.commit(encrypted!));
+      }
+      return result;
+    } finally {
+      plain?.fillRange(0, plain.length, 0);
+      encrypted?.fillRange(0, encrypted.length, 0);
+      _wipe(current);
+      _wipe(next);
+      _native(transaction.abort);
+    }
+  }
+
+  static bool _equal(Uint8List a, Uint8List b) {
+    try {
+      if (a.length != b.length) return false;
+      var diff = 0;
+      for (var i = 0; i < a.length; i++) {
+        diff |= a[i] ^ b[i];
+      }
+      return diff == 0;
+    } finally {
+      a.fillRange(0, a.length, 0);
+      b.fillRange(0, b.length, 0);
+    }
+  }
+
   static void _wipe(ExternalCredentialObject? object) {
     final fields = switch (object) {
       ExternalIssuerKeyPair() => [

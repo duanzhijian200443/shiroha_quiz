@@ -10,7 +10,8 @@ final class FakeExternalNativeCalls
     implements
         ExternalNativeCalls,
         ExternalNativeCredentialCalls,
-        ExternalNativeExchangeCalls {
+        ExternalNativeExchangeCalls,
+        ExternalNativeDiscoveryCalls {
   FakeExternalNativeCalls() {
     final library = Platform.isWindows
         ? DynamicLibrary.open('msvcrt.dll')
@@ -26,6 +27,51 @@ final class FakeExternalNativeCalls
   final allocations = <int, int>{};
   final freed = <int>[];
   final events = <String>[];
+  final discoveryFiles = <int, Uint8List>{};
+  int discoveryStatus = 0, discoveryPublishes = 0;
+  bool throwDiscovery = false;
+  void Function(int)? beforeDiscoveryRead, beforeDiscoveryPublish;
+  @override
+  int discoveryPublish(
+      int version, int owner, int kind, Pointer<Uint8> input, int length) {
+    if (version != 3 || owners[owner] != 1 || ![1, 2, 3].contains(kind)) {
+      return 1;
+    }
+    beforeDiscoveryPublish?.call(kind);
+    if (discoveryStatus != 0) return discoveryStatus;
+    final bytes = Uint8List.fromList(input.asTypedList(length));
+    final previous = discoveryFiles[kind];
+    if (kind != 1 &&
+        previous != null &&
+        previous.toString() != bytes.toString()) {
+      return 5;
+    }
+    events.add('discovery:$kind');
+    discoveryPublishes++;
+    discoveryFiles[kind] = bytes;
+    if (throwDiscovery) throw StateError('synthetic Discovery failure');
+    return 0;
+  }
+
+  @override
+  int discoveryRead(int version, int owner, int kind, Pointer<Uint8> output,
+      int capacity, Pointer<Uint64> written) {
+    written.value = 0;
+    if (version != 3 ||
+        !owners.containsKey(owner) ||
+        ![1, 2, 3].contains(kind)) {
+      return 1;
+    }
+    beforeDiscoveryRead?.call(kind);
+    if (discoveryStatus != 0) return discoveryStatus;
+    final bytes = discoveryFiles[kind];
+    if (bytes == null) return 6;
+    if (bytes.isEmpty || bytes.length > capacity) return 5;
+    output.asTypedList(bytes.length).setAll(0, bytes);
+    written.value = outputLength ?? bytes.length;
+    return 0;
+  }
+
   Uint8List result = Uint8List.fromList([9, 8, 7]);
   int version = 3, status = 0, allocationCount = 0, operationCount = 0;
   int? failAllocation, outputLength;
@@ -147,6 +193,7 @@ final class FakeExternalNativeCalls
     if (entry == null || entry.$1 != owner) return 1;
     if (associationCommitStatus != 0) return associationCommitStatus;
     credentialFiles[entry.$2] = Uint8List.fromList(input.asTypedList(length));
+    events.add('credential:${entry.$2}');
     commits++;
     if (throwAssociationAfterCommit) {
       throw StateError('synthetic private commit');
