@@ -50,7 +50,12 @@ final class WindowsExchangeFileStore {
 
   /// P22 produces the exact name and strictly validates every encoded field.
   /// Role checks occur again at FFI and Native boundaries. No overwrite/retry.
-  ExternalExchangeReceipt create(ExchangeMessage value) {
+  ExternalExchangeReceipt create(ExchangeMessage value) =>
+      createCaptured(value).receipt;
+
+  /// Retains exactly the one encoding passed to confirmed Native creation.
+  /// An unknown publication never returns captured bytes as a success.
+  ExchangePublication createCaptured(ExchangeMessage value) {
     late final Uint8List bytes;
     try {
       bytes = ExchangeMessageCodec.encode(
@@ -59,8 +64,9 @@ final class WindowsExchangeFileStore {
       throw const ExternalExchangeException(
           ExternalExchangeFailure.invalidInput);
     }
-    return _native(
+    final receipt = _native(
         () => _owner.createExchange(_kind(value), value.submissionId, bytes));
+    return ExchangePublication._(bytes, receipt);
   }
 
   EnrollmentSubmission? readSubmission(Uint8List id) =>
@@ -130,6 +136,16 @@ final class WindowsExchangeFileStore {
 
   @override
   String toString() => 'WindowsExchangeFileStore(REDACTED)';
+}
+
+/// Public bytes of an acknowledged creation, not consumption/trust evidence.
+final class ExchangePublication {
+  ExchangePublication._(Uint8List bytes, this.receipt)
+      : bytes = Uint8List.fromList(bytes).asUnmodifiableView();
+  final Uint8List bytes;
+  final ExternalExchangeReceipt receipt;
+  @override
+  String toString() => 'ExchangePublication(REDACTED)';
 }
 
 /// Strictly decoded public DTO plus its exact original bytes and one-use native

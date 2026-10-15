@@ -26,7 +26,8 @@ P21 credential/certificate primitives are merged in PR #278, inactive G0-L0;
 P22 is merged in PR #280; P23 is merged in PR #281; P24 is merged in PR #282;
 P25 is merged in PR #283; P26 adds inactive G0-L0 protected Discovery
 publisher/reader only; P27-E0 adds an inactive G0-L0 identity/content-bound
-Exchange consumption foundation, SOURCE IMPLEMENTED / OFFLINE TESTED only.**
+Exchange consumption foundation. P27-I0 adds inactive Pairing integration:
+PACKAGE 1 SOURCE IMPLEMENTED / OFFLINE TESTED only; real acceptance pending.**
 
 The Provider seam, typed capability/executor/projection path and Runtime split/
 transcript are delivered in the preceding merged stages. Historical AR-R3
@@ -196,9 +197,19 @@ bytes; full P22 strict decoding precedes controlled-read delivery. Explicit
 Consume revalidates identity and exact content on the protected deletion handle;
 Release drops the pin without deleting. Ordinary P24 Read and creator Cleanup
 remain unchanged. No P15 verification evidence or business authorization is
-created; P27-I0 Pairing sequencing and D0 consumption timing remain unimplemented.
+created by E0 itself; P27-I0 below owns Pairing sequencing and D0 consumption timing.
 REAL WINDOWS PENDING / FORMAL ACCEPTANCE PENDING remain explicit; no production
 Host/Bridge, Transport or Runtime Enablement is activated.
+P27-I0 under [readiness §19](windows-host-security-readiness.md#19-p27-pairing-and-package-1-offline-integration-g0-l0-only)
+adds inactive App/Bridge local action ports, actual Pairing mathematical
+verification through P21 primitives, existing P15/P0 completion and Missing-only
+initial Bridge Pin persistence after two independent manual comparisons.
+The trusted Request deadline is bounded by 600 seconds, defaulting to the
+unchanged 30 seconds; the private Evidence Window remains 30 seconds and the
+single-use Bridge completion window is at most 120 seconds. Package 1 reaches
+SOURCE IMPLEMENTED / OFFLINE TESTED only. No real UI/process Pairing, Windows
+security acceptance, listener, TLS, new authorization or production wiring is
+claimed. Section 19's table is the Package 1 integration coverage index.
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 Production Host/IPC, MCP vNext and READ fallback continuation remain unimplemented
 targets. Current product behavior

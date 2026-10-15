@@ -95,6 +95,8 @@ final class FakeExternalNativeCalls
 
   final credentialFiles = <int, Uint8List>{};
   void Function(int kind)? beforeCredentialBegin;
+  void Function(int kind)? afterCredentialCommit;
+  void Function()? afterAssociationCommit;
   final exchangeFiles = <(int, String), Uint8List>{};
   final exchangeIdentities = <(int, String), int>{};
   final exchangeReceipts = <int, (int, (int, String), int)>{};
@@ -106,6 +108,7 @@ final class FakeExternalNativeCalls
   final exchangeReadTickets = <String, (int, (int, String), int, Uint8List)>{};
   int exchangeReleases = 0, exchangeConsumes = 0;
   int consumptionStatus = 0, releaseStatus = 0;
+  void Function(int kind)? beforeExchangeConsume;
   bool throwReadBegin = false,
       throwConsume = false,
       throwRelease = false,
@@ -150,6 +153,7 @@ final class FakeExternalNativeCalls
     if (r == null || r.$1 != owner || !owners.containsKey(owner)) return 1;
     exchangeReadTickets.remove(key);
     exchangeConsumes++;
+    beforeExchangeConsume?.call(r.$2.$1);
     if (throwConsume) throw StateError('synthetic deletion unknown');
     if (consumptionStatus != 0) return consumptionStatus;
     if (exchangeFiles.length + unknownExchangeEntries > 32 ||
@@ -275,6 +279,7 @@ final class FakeExternalNativeCalls
     credentialFiles[entry.$2] = Uint8List.fromList(input.asTypedList(length));
     events.add('credential:${entry.$2}');
     commits++;
+    afterCredentialCommit?.call(entry.$2);
     if (throwAssociationAfterCommit) {
       throw StateError('synthetic private commit');
     }
@@ -317,6 +322,7 @@ final class FakeExternalNativeCalls
     if (associationCommitStatus != 0) return associationCommitStatus;
     associationFile = Uint8List.fromList(input.asTypedList(length));
     commits++;
+    afterAssociationCommit?.call();
     if (throwAssociationAfterCommit) {
       throw StateError('synthetic private commit detail');
     }

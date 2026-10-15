@@ -1180,7 +1180,7 @@ fingerprints and JSON fail the synchronous port. Attempts are one-use, owner-
 bound and finite; disconnect, generation change and snapshot invalidation deny
 consumption. P12/P4 reload the selected Profile before returning a Session;
 Grant revocation and egress still use existing per-call/final-release checks.
-Offline limits are thirty seconds per challenge, sixteen pending operations/local
+Offline limits default to thirty seconds per challenge, sixteen pending operations/local
 requests and 1024 verified event identities per boundary lifetime. Slots remain
 owned through actual settlement; reaching a limit denies admission. These are
 bounded offline candidates, not measured Windows transport/security capacity.
@@ -1285,6 +1285,25 @@ is inferred from this documentation amendment.
 M1–M4 real security remain WINDOWS_PENDING; G0 and X0–X12 are unapproved and
 not run. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
 AR-R6A = NOT_ACCEPTED. No Codex process-brand authentication is claimed.
+
+P27-I0 supplies the inactive Package 1 integration candidate described in Windows
+readiness §19. `WindowsAppPairing`/`WindowsBridgePairing` provide explicit local
+actions and safe display projections, with no production UI or Bridge process.
+`WindowsPairingVerification` implements this existing P15 port using exact local
+request correlation, actual injected P21 ECDSA primitives and original E0 Proof
+consumption; Authentication always rejects. Decoded DTOs, displays and imported
+digests still cannot produce P0 evidence. P15 exposes only read-only local
+challenge correlation, a current-request guard and freshly confirmed persisted
+Pairing facts; none is an authorization factory. Its trusted constructor may
+select `0 < pairingRequestLifetime <= 600 seconds`; default Request lifetime
+remains 30 seconds, with monotonic expiry and no revival after observed expiry.
+The verifier independently enforces the original 30-second Evidence Window.
+After acknowledged completion, `confirmedPairing` re-reads actual Association
+Revision/current management and checks the same runtime and P0 `pairedDisabled`.
+Only a refreshed App projection can support the independent completion action.
+Package 1 SOURCE IMPLEMENTED / OFFLINE TESTED is a source-candidate boundary,
+not Windows or real-process acceptance. REAL WINDOWS PENDING / FORMAL ACCEPTANCE
+PENDING and all production activation gates remain unchanged.
 
 ## 13. P16 production primitive freeze (accepted static decision; PR #267)
 

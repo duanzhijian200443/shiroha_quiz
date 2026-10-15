@@ -148,7 +148,16 @@ cryptographic publication checks, same-ticket kind 1 epoch advancement and
 conditional existing kind 4 high-water updates. Bridge uses its own Owner and
 existing-only Discovery access; independent trust inputs remain mandatory.
 No enrollment pin, listener, TLS, authorization or production wiring is added.
-The readiness contract sections 10–18 own these production source slices and
+P27 adds inactive composition-side App/Bridge Pairing coordination and a real
+cryptographic P15 verification adapter. E0 consumption binds original bytes;
+independent local comparison/approval actions precede P15 CAS/P0 completion and
+the separate Missing-only initial kind 4 save. P15 alone owns private evidence,
+P0 alone owns PairingState, and Authentication still rejects in this adapter.
+No startup/UI/Agent/MCP, listener or transport is wired. Trusted composition may
+select a Pairing Request lifetime up to 600 seconds; the default Request and
+post-verification evidence windows remain 30 seconds. Readiness section 19 owns
+the Package 1 integration, bounded resources and explicit recovery interface.
+The readiness contract sections 10–19 own these production source slices and
 their pending Windows acceptance.
 
 Persistence formats and provider formats are implementation details, not public application contracts.
@@ -259,8 +268,8 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
    P15's offline candidate under external boundary §12 defines a separate protected
    association port and trusted verifier seam with private one-use P0 evidence.
    It delegates all pairing/Session state to P0/P12 and policy to P1/P4/P7/P8;
-   association CAS is not a cross-store SQLite transaction. Only test backends
-   exist, no production crypto/storage/authentication wiring is added, and real
+   association CAS is not a cross-store SQLite transaction. At P15 delivery only
+   test backends existed; P20–P27 add inactive storage/crypto source above, while real
    M1–M4/G0/X0–X12 Windows gates remain unmet. S0 engine.* authority is unchanged.
    P16 freezes the production primitive candidates under external boundary §13
    and windows-host-security-readiness.md §9: the installation-issuer/server-and-

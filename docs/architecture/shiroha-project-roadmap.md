@@ -407,6 +407,18 @@ runtime activation. Real Windows sharing/deletion/durability and independent
 formal acceptance remain pending. HOST_STABILITY_HALT = ACTIVE;
 TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 
+P27-I0 completes the inactive Package 1 source/offline integration candidate under
+[Windows readiness §19](../product/agent-refactor/windows-host-security-readiness.md#19-p27-pairing-and-package-1-offline-integration-g0-l0-only).
+The App/Bridge local action ports coordinate P25 issuance, exact P24/E0 bytes,
+D0's two independent comparisons, actual P21-backed possession verification,
+existing P15 Approval/CAS/private evidence and P0 `pairedDisabled`, then one
+Missing-only kind 4 save. P15 default 30-second behavior remains, with a trusted
+bounded Request deadline and a separate 30-second Evidence Window. No alternate
+PairingState, Store, authorization, ABI or wire format is introduced. This is
+PACKAGE 1 SOURCE IMPLEMENTED / OFFLINE TESTED only: REAL WINDOWS PENDING and
+FORMAL ACCEPTANCE PENDING, with no App/Bridge process experience or production
+activation claim. Package 2, AR-R6B and Release remain inactive.
+
 Use namespaced AR-R identifiers to distinguish this route from historical
 R1-R8 typed-core stages:
 
