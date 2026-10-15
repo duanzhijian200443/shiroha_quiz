@@ -171,6 +171,12 @@ adds three optional exports while preserving all eighteen existing exports.
 REAL WINDOWS PENDING / FORMAL ACCEPTANCE PENDING remain explicit; no Pairing
 transition, consumption order, credential ticket, Host/Bridge activation or
 startup is supplied. P20's isolated-root functional result is not extended.
+P25 under readiness §17 is an inactive credential initialization/issuance source
+candidate: explicit App Issuer/Server creation, persisted cryptographic validation,
+partial-Server recovery and restricted Client leaf issuance. P23 gains only a
+same-ticket create-if-missing operation; its write API, formats and ABI remain
+unchanged. Public fixed-vector tests supply offline evidence only; real Windows
+acceptance, Client possession, Pairing and production wiring remain pending.
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 Production Host/IPC, MCP vNext and READ fallback continuation remain unimplemented
 targets. Current product behavior

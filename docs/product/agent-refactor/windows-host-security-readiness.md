@@ -2429,3 +2429,110 @@ initialization, Discovery publication, Pairing, listener, transport, Host,
 P25–P27 implementation or AR-R6B activation is supplied.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
+
+## 17. Credential initialization and issuance foundation (P25, G0-L0 only)
+
+P25 is an implementation candidate identifier under Package 1, not a newly
+frozen canonical stage. The explicit inactive Data/Infrastructure entry point
+`WindowsCredentialInitialization` reuses the caller-owned App protected Owner,
+`WindowsCredentialObjectStore`, P21 `WindowsExternalCrypto` and
+`ExternalCertificateDer`. No Composition Root, startup, UI, Agent, MCP, P0/P15,
+SQLite or Provider store is changed. The caller retains the Owner/writer lock
+and closes it after draining operations; the service never opens an Owner itself.
+
+### Initialization, commit and recovery boundaries
+
+`initialize()` first reads both real stored objects; Missing is never inferred
+from a failure. Both absent permit explicit first creation. Both valid return
+existing public material without key generation. Issuer-only returns an
+`incomplete` result without Server issuance; Server-only is `dataCorrupt`.
+Corruption is never overwritten, repaired, deleted or rekeyed. Returned results
+contain public material and state only; even `initialized` is not runtime
+readiness or authorization.
+
+P23's additive `createIfMissing(kind, factory)` checks existence and commits
+under the same retained Owner transaction ticket. An existing strictly decoded
+object returns false without invoking the factory or writing; a competing
+creation therefore fails the service operation with `conflict`. The factory
+runs synchronously only after Missing is established, with cross-kind Owner
+transaction exclusion held throughout generation, validation, DPAPI and commit.
+The Store owns/wipes factory output. Existing `read()`/`write()` contracts,
+kind 1/2/4 formats, P20 Association Store and all twenty-one ABI-3 exports remain
+unchanged; no Native change is needed.
+
+First creation uses SDK `Random.secure()` for UUID-v4 entropy and nonzero
+sixteen-byte serials, UTC generation time at whole-second precision and P21
+CNG P-256 key generation. Issuer is self-signed, stored as kind 1 with epoch 0,
+then re-read and cryptographically revalidated before kind 2 creation. Server
+is signed by that persisted Issuer and validated before commit. No publication
+or epoch increment occurs. Random/clock/crypto injection permits fixed public
+offline tests; the ordinary constructor always uses secure randomness and the
+existing Windows crypto adapter. Failure is typed and redacted, with no retry.
+
+The two files have separate commit points. A committed Issuer survives Server
+failure. `commitUnknown` never returns success or automatically reads/retries in
+that operation. A later explicit `initialize()` re-reads facts and returns an
+incomplete or existing state; it never replaces a valid Issuer. Explicit
+`recoverServer()` re-reads/revalidates persisted Issuer and Server, refuses an
+absent Issuer, reuses an existing valid Server and only creates a missing Server.
+It neither rolls back Issuer nor claims cross-file atomicity. All operations are
+synchronous and reject service reentry; Native remains the cross-instance and
+cross-process store-exclusion authority.
+
+### Certificate validation and restricted issuance
+
+Stored reads check canonical installation UUID/epoch, strict P21 certificate
+profile/role/algorithm/extensions, current validity and canonical on-curve
+uncompressed P-256 points. Actual injected/Windows ECDSA verification checks
+Issuer self-signature and Server signature against the persisted Issuer. Actual
+sign-then-verify over the certificate's TBS digest checks each private key's
+correspondence to its certificate public point, including PKCS#8 without an
+embedded point. Server's embedded Issuer DER must equal kind 1's exact bytes.
+Malformed stored structures are `dataCorrupt`; signature/key/chain mismatch and
+expired/not-yet-valid material reject with `verificationRejected`. Native
+malformed-key input is `dataCorrupt`; unavailable/resource/unknown outcomes
+retain their typed failure classes. No failed validation causes issuance of a
+replacement. P21 `inspect()` alone is never treated as signature evidence.
+
+`issueClientLeaf(publicPoint)` accepts exactly one bounded untrusted public
+point and no private key, caller anchor, algorithm, extensions or authorization
+metadata. It checks canonical coordinates and the P-256 equation before signing
+(cofactor 1); this is public-point validation, not possession proof. It requires
+a freshly validated complete App credential pair and signs using only the
+persisted Issuer. It returns Client Leaf DER, Issuer DER and the existing
+lowercase exact-Leaf-DER SHA-256 identity. It creates no Client private key and
+writes no kind 4, Exchange, Discovery, Principal, PairingProof, Session,
+Association, Profile or Grant. P27 still owns enrollment/possession/approval and
+final Bridge pins and persistence; issuance alone is not Pairing.
+
+All certificates retain §9.A.3's roles and lifetimes. Newly issued Leaf validity
+must fit the Issuer validity window; otherwise issuance rejects before signing,
+without shortening the frozen duration or performing rotation. Signatures cover
+SHA-256 of exact TBS bytes and P21 converts raw r||s to DER ECDSA-Sig-Value.
+Private material remains in bounded App memory/kind 1 or kind 2 only. Generated
+keys, returned private snapshots and Store intermediates are wiped after bounded
+use on success/failure; existing native buffers are wiped/released by P21.
+Dart GC/internal copies cannot be guaranteed fully erased. Error strings and
+result `toString()` reveal no sensitive bytes.
+
+### Evidence and pending acceptance
+
+The standing External CI manifest includes the initialization suite. Fixed
+public P21 certificates and RFC6979 fixture keys drive exact TBS/digest/DER
+expectations with a separate test-only mathematical ECDSA verifier containing
+both acceptance and rejection vectors. Synthetic FFI/DPAPI tests cover Missing
+combinations, competing create, transaction/reentry exclusion, partial commits,
+unknown outcomes, invalid signatures/keys/chains/profiles/time/randomness and
+buffer/ticket/Owner cleanup. Existing P20/P21/P23/P24 suites and Native offline
+compile/export/import/isolation checks remain applicable. Exact commands and
+results belong to delivery evidence, not this durable contract.
+
+REAL WINDOWS PENDING / FORMAL ACCEPTANCE PENDING: actual CNG key import/signature
+and certificate acceptance, DPAPI/NTFS/locks/durability/recovery, crypt32 peer
+policy inspection, packaged/AOT TLS and all G0-I acceptance. Offline signatures
+prove the data path for public vectors, not actual CNG or Windows certificate
+acceptance. No L1/L2 experiment, certificate installation, Host/Bridge startup,
+TLS/Socket, P26 publication, P27 enrollment, rotation/reset or AR-R6B activation
+is supplied.
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.

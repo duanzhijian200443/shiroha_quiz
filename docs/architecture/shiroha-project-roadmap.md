@@ -368,6 +368,19 @@ Consumption authority (P27), Pairing, Discovery publication, Transport and Host
 activation remain outside this slice. HOST_STABILITY_HALT = ACTIVE;
 TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 
+P25 is an inactive Package 1 implementation candidate, not a new frozen stage,
+under [Windows readiness §17](../product/agent-refactor/windows-host-security-readiness.md#17-credential-initialization-and-issuance-foundation-p25-g0-l0-only).
+It adds explicit App Issuer/Server initialization, persisted cryptographic
+validation, explicit partial-Server recovery and restricted Client leaf issuance.
+Same-ticket create-if-missing extends P23 without changing write, object layouts,
+P20 semantics or the twenty-one ABI-3 exports. Cross-kind commits remain separate;
+unknown commits never report success or trigger rekey. Client issuance supplies
+no possession/Pairing/Association evidence. Standing offline coverage uses public
+P21 vectors and an independent test-only P-256 verifier. Real Windows security,
+certificate/TLS acceptance, Discovery publication, enrollment and production
+wiring remain pending. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
+AR-R6A = NOT_ACCEPTED.
+
 The retained target is Codex/Claude MCP Bridge → Shiroha External Host →
 authenticated and authorized question-bank READ/STAGE services.
 

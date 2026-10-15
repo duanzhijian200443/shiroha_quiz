@@ -131,7 +131,13 @@ optional ABI-3 fixed-kind/ID I/O. Native owns parent-bound Exchange access,
 CREATE_NEW, bounded reads, directory-identity-bound short quota exclusion and
 creator-only identity-pinned cleanup. Bridge opens App-created Exchange only;
 no credential ticket, App lock, consumer workflow or production wiring is added.
-The readiness contract sections 10–16 own these production source slices and
+P25 adds explicit inactive App credential initialization and restricted Client
+leaf issuance. It reuses these owners, P21 crypto/certificate codecs and a
+same-ticket create-if-missing operation in P23's adapter. Persisted signatures,
+key correspondence and exact issuer binding are verified before reuse; partial
+initialization requires explicit recovery without replacing the trust root.
+It supplies no Application authorization, Pairing or production wiring.
+The readiness contract sections 10–17 own these production source slices and
 their pending Windows acceptance.
 
 Persistence formats and provider formats are implementation details, not public application contracts.
