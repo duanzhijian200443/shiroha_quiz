@@ -354,7 +354,7 @@ functional result is not extended. Initialization, issuance/rotation, Pairing,
 Discovery/exchange I/O, Transport and Host activation remain outside this slice.
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 
-P24 adds the inactive Protected Exchange File-I/O G0-L0 candidate under
+P24, merged in PR #282, adds the inactive Protected Exchange File-I/O G0-L0 candidate under
 [Windows readiness §16](../product/agent-refactor/windows-host-security-readiness.md#16-protected-exchange-file-io-source-candidate-p24-g0-l0-only):
 SOURCE IMPLEMENTED / OFFLINE TESTED fixed-kind/ID Native Exchange create/read
 and creator-only cleanup beneath the App-created exchange directory, with

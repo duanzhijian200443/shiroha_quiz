@@ -23,8 +23,9 @@ P18 Native Helper/FFI production source slice has G0-L0 evidence, real Windows
 functionality LOCAL-L1 PENDING; P19 protected-object and P20 association source
 slices are merged, with PR #277 isolated-root P20 functional evidence;
 P21 credential/certificate primitives are merged in PR #278, inactive G0-L0;
-P22 is merged in PR #280; P23 is merged in PR #281; P24 adds inactive G0-L0
-protected Exchange file I/O with creator-only cleanup only.**
+P22 is merged in PR #280; P23 is merged in PR #281; P24 is merged in PR #282;
+P25 adds inactive G0-L0 credential initialization and restricted Client leaf
+issuance only.**
 
 The Provider seam, typed capability/executor/projection path and Runtime split/
 transcript are delivered in the preceding merged stages. Historical AR-R3
@@ -164,7 +165,7 @@ strict existing-object decoding, user-scope DPAPI and Win32 handle-relative
 publication. ABI 3 adds three optional exports while preserving P20 behavior.
 REAL WINDOWS PENDING / FORMAL ACCEPTANCE PENDING remain explicit; no credential
 initialization, signing/rotation, Pairing, Discovery I/O or startup is activated.
-P24 under readiness §16 adds SOURCE IMPLEMENTED / OFFLINE TESTED fixed-kind/ID
+P24, merged in PR #282, under readiness §16 adds SOURCE IMPLEMENTED / OFFLINE TESTED fixed-kind/ID
 Native Exchange create/read and creator-only cleanup with strict P22 codec
 boundaries and directory-identity-bound cross-process quota exclusion. ABI 3
 adds three optional exports while preserving all eighteen existing exports.
