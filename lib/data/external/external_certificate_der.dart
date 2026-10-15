@@ -42,6 +42,10 @@ abstract final class ExternalCertificateDer {
   static final _ekuOid = [0x55, 0x1d, 0x25];
   static final _sanOid = [0x55, 0x1d, 0x11];
 
+  /// Shares the P21 uncompressed-point shape check; not curve membership proof.
+  static void inspectPublicPointShape(Uint8List publicKey) =>
+      _checkPointShape(publicKey);
+
   static Uint8List signatureFromRaw(Uint8List raw) {
     if (raw.length != 64) _invalid();
     final r = _scalar(raw.sublist(0, 32));

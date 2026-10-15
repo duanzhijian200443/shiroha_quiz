@@ -14,6 +14,15 @@ test requires those entries. That is offline Linux evidence for the accepted
 P3-P12 behavior only; it is not Windows Credential, mTLS, ACL, Discovery or
 Host acceptance and it clears no WINDOWS_PENDING item.
 
+P22 adds pairing transcript, exchange payload, Discovery descriptor and source
+guard suites to the same manifest. The static job scans their inactive source
+boundary; contract shards require static success and scan again before the
+stdlib-only independent Python framing/SHA-256/P-256 vector verifier and Flutter
+tests. Fixed public RFC6979/P21 vectors exercise no real Windows crypto, file
+publication, Discovery directory, pairing or transport. The Python helper only
+reads repository fixtures and verifies public signatures; it never signs or
+creates keys. This is offline evidence, not runtime trust or G0-I acceptance.
+
 P18 adds `windows_external_native_test.dart` and
 `external_native_source_guard_test.dart` to the same standing shards. The first
 uses test-only calls and a C-runtime allocator to check ABI rejection, bounded

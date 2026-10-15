@@ -320,7 +320,7 @@ existing-target replacement plus exact DPAPI readback, with no temporary residue
 Production-root, full Dart Store and formal LOCAL-L1/G0-I acceptance remain pending.
 HOST_STABILITY_HALT = ACTIVE, TRANSPORT = BLOCKED and AR-R6A = NOT_ACCEPTED.
 
-P21 is the inactive Credential / Certificate primitive G0-L0 candidate under
+P21, merged in PR #278, is the inactive Credential / Certificate primitive G0-L0 slice under
 [Windows readiness §13](../product/agent-refactor/windows-host-security-readiness.md#13-p21-credential-and-certificate-primitive-candidate-g0-l0-only).
 It adds bounded CNG P-256 generation/sign/verify source, explicit ECC-to-PKCS#8
 conversion, raw r||s / DER and X.509 structure/vector codecs, strict length-prefixed
@@ -330,6 +330,18 @@ Compilation, static/source checks and offline/fake vectors prove only G0-L0.
 No real key/certificate experiment, store publication, TLS, Discovery, Host,
 AR-R6B or production Principal/Session composition is activated. The above
 halt/acceptance states remain unchanged; full acceptance requires separate grants.
+
+P22 supplies only the inactive Discovery/Pairing Bootstrap Codec G0-L0 candidate
+under [Windows readiness §14](../product/agent-refactor/windows-host-security-readiness.md#14-p22-discoverypairing-bootstrap-codec-foundation-g0-l0-only):
+strict possession transcript, exchange submission/challenge/proof payloads and
+signed endpoint descriptor bytes, with explicit framing, public fixed vectors,
+injected digest-signature checks and caller-owned trusted anchor/installation/
+leaf-digest/high-water inputs. It neither creates P15 evidence nor reads/writes
+actual Discovery/exchange objects. Real signing/issuance, protected publication,
+approval/nonce/evidence lifecycle, Pairing, Host/Bridge, Transport and Windows
+acceptance remain separately unimplemented/pending. No ABI, P0/P12/P15 state,
+P9/P10, schema/B0, S0 or activation gate changes. HOST_STABILITY_HALT = ACTIVE;
+TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 
 The retained target is Codex/Claude MCP Bridge → Shiroha External Host →
 authenticated and authorized question-bank READ/STAGE services.

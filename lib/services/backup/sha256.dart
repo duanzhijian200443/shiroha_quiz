@@ -1,8 +1,8 @@
 import 'dart:typed_data';
 
-/// Minimal pure-Dart SHA-256 used by the B0 package boundary. B0 must not add
-/// a new dependency; this implementation only hashes package entries, which
-/// are bounded by the frozen resource ceilings.
+/// Minimal pure-Dart SHA-256 for bounded B0 entries and public byte transcripts.
+///
+/// Reused by External codecs without adding a dependency or native operation.
 final class StreamingSha256 {
   StreamingSha256() {
     _h = List<int>.of(_initialHash);
