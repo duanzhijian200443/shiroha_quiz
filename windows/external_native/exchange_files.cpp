@@ -53,16 +53,22 @@ int32_t ProtectedObjects::exchange_directory(Lease& lease, Sid& sid) {
 
 int32_t ProtectedObjects::exchange_operation(uint64_t owner, uint32_t kind, const uint8_t* id,
     const uint8_t* input, uint64_t length, uint8_t* output, uint64_t capacity,
-    uint64_t* written, uint64_t* receipt, bool create) {
+    uint64_t* written, uint64_t* receipt, bool create, uint8_t* ticket) {
   std::lock_guard<std::mutex> guard(mutex_);
   auto* lease = find(owner);
   if (!lease) return SHIROHA_NATIVE_INVALID_INPUT;
   const uint32_t writer = kind == 2 ? SHIROHA_NATIVE_APP : SHIROHA_NATIVE_BRIDGE;
   if (create ? lease->role != writer : lease->role == writer) return SHIROHA_NATIVE_INVALID_INPUT;
   ExchangeReceipt* slot = nullptr;
+  ExchangeRead* read = nullptr;
+  std::array<uint8_t, 16> nonce{};
   if (create) {
     for (auto& r : lease->exchange_receipts) if (!r.token && !r.pin) { slot = &r; break; }
     if (!slot || next_ticket_ > INT64_MAX) return SHIROHA_NATIVE_RESOURCE_LIMIT;
+  }
+  if (ticket) {
+    for (auto& r : lease->exchange_reads) if (!r.token && !r.pin) { read = &r; break; }
+    if (!read || next_ticket_ > INT64_MAX) return SHIROHA_NATIVE_RESOURCE_LIMIT;
   }
   HANDLE lock = nullptr, file = nullptr, pin = nullptr;
   int32_t status = SHIROHA_NATIVE_UNAVAILABLE;
@@ -71,6 +77,10 @@ int32_t ProtectedObjects::exchange_operation(uint64_t owner, uint32_t kind, cons
   std::vector<uint8_t> bytes;
   try {
     Sid sid;
+    if (ticket) {
+      status = ops_.exchange_nonce(nonce.data(), nonce.size());
+      if (status != SHIROHA_NATIVE_OK) return status;
+    }
     name = filename(kind, id);
     status = exchange_directory(*lease, sid);
     if (status == SHIROHA_NATIVE_OK) status = ops_.exchange_lock(lease->exchange.identity, sid, lock);
@@ -97,7 +107,7 @@ int32_t ProtectedObjects::exchange_operation(uint64_t owner, uint32_t kind, cons
     if (status == SHIROHA_NATIVE_OK) status = exchange_directory(*lease, sid);
     // Retain an independent read-only identity pin before closing the creator's
     // write handle, so file indices cannot be recycled into cleanup authority.
-    if (status == SHIROHA_NATIVE_OK && create) {
+    if (status == SHIROHA_NATIVE_OK && (create || ticket)) {
       status = ops_.exchange_open(lease->exchange.handle, name, 2, sid, pin);
       ObjectInfo pinned;
       if (status == SHIROHA_NATIVE_OK && (!pin || pin == INVALID_HANDLE_VALUE)) status = SHIROHA_NATIVE_UNAVAILABLE;
@@ -105,6 +115,7 @@ int32_t ProtectedObjects::exchange_operation(uint64_t owner, uint32_t kind, cons
       if (status == SHIROHA_NATIVE_OK && (!object_valid(pinned, sid, false, true, true) || !same(pinned, identity)))
         status = SHIROHA_NATIVE_UNAVAILABLE;
     }
+    if (status == SHIROHA_NATIVE_OK && ticket) status = exchange_directory(*lease, sid);
   } catch (const std::bad_alloc&) { status = SHIROHA_NATIVE_RESOURCE_LIMIT; }
     catch (...) { status = SHIROHA_NATIVE_UNAVAILABLE; }
   bool closed = true;
@@ -114,6 +125,12 @@ int32_t ProtectedObjects::exchange_operation(uint64_t owner, uint32_t kind, cons
   if (status == SHIROHA_NATIVE_OK && create) {
     slot->identity = std::move(identity); slot->name = std::move(name);
     slot->pin = pin; slot->token = next_ticket_++; *receipt = slot->token;
+  } else if (status == SHIROHA_NATIVE_OK && ticket) {
+    read->identity = std::move(identity); read->name = std::move(name);
+    read->bytes = std::move(bytes); read->kind = kind; read->nonce = nonce;
+    read->pin = pin; read->token = next_ticket_++;
+    std::memcpy(output, read->bytes.data(), read->bytes.size()); *written = read->bytes.size();
+    std::memcpy(ticket, &read->token, 8); std::memcpy(ticket + 8, nonce.data(), 16);
   } else {
     if (pin && pin != INVALID_HANDLE_VALUE && !ops_.close(pin)) {
       lease->denied = true; lease->quarantined = true; status = SHIROHA_NATIVE_UNAVAILABLE;
@@ -133,6 +150,96 @@ int32_t ProtectedObjects::exchange_create(uint32_t version, uint64_t owner, uint
   if (!cap(kind) || !header(kind, id, input, static_cast<size_t>(length))) return SHIROHA_NATIVE_INVALID_INPUT;
   return exchange_operation(owner, kind, id, input, length, nullptr, 0, nullptr, receipt, true);
 } catch (...) { return SHIROHA_NATIVE_UNAVAILABLE; }
+
+int32_t ProtectedObjects::exchange_read_begin(uint32_t version, uint64_t owner, uint32_t kind,
+    const uint8_t* id, uint8_t* output, uint64_t capacity, uint64_t* written, uint8_t* ticket) noexcept try {
+  if (!span(id, 16) || !span(output, capacity) || !count(written) || !span(ticket, 24) ||
+      reinterpret_cast<uintptr_t>(ticket) % 8 ||
+      overlaps(id, 16, output, capacity) || overlaps(id, 16, written, 8) || overlaps(id, 16, ticket, 24) ||
+      overlaps(output, capacity, written, 8) || overlaps(output, capacity, ticket, 24) || overlaps(written, 8, ticket, 24))
+    return SHIROHA_NATIVE_INVALID_INPUT;
+  SecureZeroMemory(output, static_cast<SIZE_T>(capacity)); *written = 0; SecureZeroMemory(ticket, 24);
+  if (version != 3) return SHIROHA_NATIVE_ABI_MISMATCH;
+  if (!cap(kind) || capacity != cap(kind)) return SHIROHA_NATIVE_INVALID_INPUT;
+  return exchange_operation(owner, kind, id, nullptr, 0, output, capacity, written, nullptr, false, ticket);
+} catch (...) { return SHIROHA_NATIVE_UNAVAILABLE; }
+
+int32_t ProtectedObjects::exchange_settle(uint32_t version, uint64_t owner,
+    const uint8_t* ticket, bool consume) noexcept try {
+  if (!span(ticket, 24) || reinterpret_cast<uintptr_t>(ticket) % 8) return SHIROHA_NATIVE_INVALID_INPUT;
+  if (version != 3) return SHIROHA_NATIVE_ABI_MISMATCH;
+  uint64_t serial = 0; std::memcpy(&serial, ticket, 8);
+  std::lock_guard<std::mutex> guard(mutex_);
+  auto* lease = find(owner);
+  if (!lease || !serial) return SHIROHA_NATIVE_INVALID_INPUT;
+  if (lease->quarantined) return SHIROHA_NATIVE_UNAVAILABLE;
+  ExchangeRead* slot = nullptr;
+  for (auto& r : lease->exchange_reads) if (r.token == serial) { slot = &r; break; }
+  if (!slot) return SHIROHA_NATIVE_INVALID_INPUT;
+  uint8_t difference = 0;
+  for (size_t i = 0; i < 16; ++i) difference |= slot->nonce[i] ^ ticket[8 + i];
+  if (difference) return SHIROHA_NATIVE_INVALID_INPUT;
+  slot->token = 0; // Retire before lock, validation, deletion, exception or release.
+  SecureZeroMemory(slot->nonce.data(), slot->nonce.size());
+  HANDLE lock = nullptr, file = nullptr;
+  int32_t status = SHIROHA_NATIVE_OK;
+  bool deletion_entered = false;
+  try {
+    if (consume) {
+      Sid sid;
+      status = exchange_directory(*lease, sid);
+      if (status == SHIROHA_NATIVE_OK) status = ops_.exchange_lock(lease->exchange.identity, sid, lock);
+      if (status == SHIROHA_NATIVE_OK && (!lock || lock == INVALID_HANDLE_VALUE)) status = SHIROHA_NATIVE_UNAVAILABLE;
+      if (status == SHIROHA_NATIVE_OK) status = exchange_directory(*lease, sid);
+      size_t entries = 0;
+      if (status == SHIROHA_NATIVE_OK) status = ops_.exchange_count(lease->exchange.handle, entries);
+      if (status == SHIROHA_NATIVE_OK && entries > 32) status = SHIROHA_NATIVE_UNAVAILABLE;
+      ObjectInfo held, current, after;
+      if (status == SHIROHA_NATIVE_OK) status = ops_.inspect(slot->pin, held);
+      if (status == SHIROHA_NATIVE_OK && (!object_valid(held, sid, false, true, true) || !same(held, slot->identity)))
+        status = SHIROHA_NATIVE_UNAVAILABLE;
+      // Mode 3 remains P24 creator cleanup only (no READ_DATA). Mode 4 adds
+      // READ_DATA+DELETE while denying write/delete sharing throughout this decision.
+      if (status == SHIROHA_NATIVE_OK) status = ops_.exchange_open(lease->exchange.handle, slot->name, 4, sid, file);
+      if (status == SHIROHA_NATIVE_OK && (!file || file == INVALID_HANDLE_VALUE)) status = SHIROHA_NATIVE_UNAVAILABLE;
+      if (status == SHIROHA_NATIVE_OK) status = ops_.inspect(file, current);
+      if (status == SHIROHA_NATIVE_OK && (!object_valid(current, sid, false, true, true) || !same(current, slot->identity)))
+        status = SHIROHA_NATIVE_UNAVAILABLE;
+      std::vector<uint8_t> bytes;
+      if (status == SHIROHA_NATIVE_OK) status = ops_.exchange_read(file, cap(slot->kind), bytes);
+      if (status == SHIROHA_NATIVE_OK && bytes != slot->bytes) status = SHIROHA_NATIVE_DATA_CORRUPT;
+      if (status == SHIROHA_NATIVE_OK) status = ops_.inspect(file, after);
+      if (status == SHIROHA_NATIVE_OK && (!object_valid(after, sid, false, true, true) || !same(after, slot->identity)))
+        status = SHIROHA_NATIVE_UNAVAILABLE;
+      if (status == SHIROHA_NATIVE_OK) status = ops_.inspect(slot->pin, held);
+      if (status == SHIROHA_NATIVE_OK && (!object_valid(held, sid, false, true, true) || !same(held, slot->identity)))
+        status = SHIROHA_NATIVE_UNAVAILABLE;
+      if (status == SHIROHA_NATIVE_OK) status = exchange_directory(*lease, sid);
+      if (status == SHIROHA_NATIVE_OK) {
+        deletion_entered = true;
+        status = ops_.exchange_delete(file);
+      }
+    }
+  } catch (...) { status = deletion_entered ? SHIROHA_NATIVE_COMMIT_UNKNOWN : SHIROHA_NATIVE_UNAVAILABLE; }
+  bool closed = true;
+  if (file && file != INVALID_HANDLE_VALUE && !ops_.close(file)) closed = false;
+  if (slot->pin && !ops_.close(slot->pin)) closed = false;
+  slot->pin = nullptr; slot->bytes.clear();
+  if (lock && lock != INVALID_HANDLE_VALUE && !ops_.exchange_unlock(lock)) closed = false;
+  if (!closed) {
+    lease->denied = true; lease->quarantined = true;
+    status = deletion_entered ? SHIROHA_NATIVE_COMMIT_UNKNOWN : SHIROHA_NATIVE_UNAVAILABLE;
+  }
+  if (status == SHIROHA_NATIVE_COMMIT_UNKNOWN) lease->denied = true;
+  return status;
+} catch (...) { return SHIROHA_NATIVE_UNAVAILABLE; }
+
+int32_t ProtectedObjects::exchange_consume(uint32_t version, uint64_t owner, const uint8_t* ticket) noexcept {
+  return exchange_settle(version, owner, ticket, true);
+}
+int32_t ProtectedObjects::exchange_release(uint32_t version, uint64_t owner, const uint8_t* ticket) noexcept {
+  return exchange_settle(version, owner, ticket, false);
+}
 
 int32_t ProtectedObjects::exchange_read(uint32_t version, uint64_t owner, uint32_t kind,
     const uint8_t* id, uint8_t* output, uint64_t capacity, uint64_t* written) noexcept try {

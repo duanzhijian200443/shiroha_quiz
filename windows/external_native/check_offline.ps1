@@ -35,8 +35,9 @@ $expected = @('shiroha_native_abi_version', 'shiroha_native_buffer_alloc', 'shir
     'shiroha_native_association_begin', 'shiroha_native_association_commit', 'shiroha_native_association_abort',
     'shiroha_native_ecdsa_generate_key', 'shiroha_native_ecdsa_sign_digest', 'shiroha_native_ecdsa_verify_digest',
     'shiroha_native_credential_begin', 'shiroha_native_credential_commit', 'shiroha_native_credential_abort',
-    'shiroha_native_exchange_create', 'shiroha_native_exchange_read', 'shiroha_native_exchange_cleanup', 'shiroha_native_discovery_publish', 'shiroha_native_discovery_read')
-if ($actual.Count -ne 23 -or @(Compare-Object $expected $actual).Count -ne 0) { throw 'Unexpected DLL ABI exports' }
+    'shiroha_native_exchange_create', 'shiroha_native_exchange_read', 'shiroha_native_exchange_cleanup', 'shiroha_native_discovery_publish', 'shiroha_native_discovery_read',
+    'shiroha_native_exchange_read_begin', 'shiroha_native_exchange_consume', 'shiroha_native_exchange_release')
+if ($actual.Count -ne 26 -or @(Compare-Object $expected $actual).Count -ne 0) { throw 'Unexpected DLL ABI exports' }
 $headers = (& $dumpbin /headers $dll | Out-String)
 if ($LASTEXITCODE -ne 0 -or $headers -notmatch '8664 machine \(x64\)') { throw 'DLL is not x64' }
 foreach ($flag in @('Dynamic base', 'NX compatible', 'Control Flow Guard')) {
@@ -95,7 +96,7 @@ foreach ($name in @('shiroha_batch3_existing_only.dll', 'shiroha_assoc_candidate
 $candidateExports = (& $dumpbin /exports (Join-Path $build "$Configuration/shiroha_batch3_existing_only.dll") | Out-String)
 if ($LASTEXITCODE -ne 0) { throw 'Existing-only export inspection failed' }
 $candidateNames = @([regex]::Matches($candidateExports, '(?m)^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(\w+)(?:\s+=.*)?\s*$') | ForEach-Object { $_.Groups[1].Value })
-if ($candidateNames.Count -ne 23 -or @(Compare-Object $expected $candidateNames).Count -ne 0) { throw 'Existing-only ABI drift' }
+if ($candidateNames.Count -ne 26 -or @(Compare-Object $expected $candidateNames).Count -ne 0) { throw 'Existing-only ABI drift' }
 # Assert the three targets remain separate even when both diagnostic options
 # are enabled. Configure dependencies are not compiler definitions/includes.
 foreach ($target in @('shiroha_external_native', 'shiroha_batch3_existing_only', 'shiroha_p20_minimal_test')) {

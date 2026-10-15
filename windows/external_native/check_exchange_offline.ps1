@@ -23,11 +23,11 @@ if ($LASTEXITCODE -ne 0) { throw 'Exchange export inspection failed' }
 $actual = @([regex]::Matches($exports, '(?m)^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(\w+)(?:\s+=.*)?\s*$') | ForEach-Object { $_.Groups[1].Value })
 $header = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'shiroha_external_native.h'))
 $expected = @([regex]::Matches($header, 'SHIROHA_NATIVE_CALL\s+(shiroha_native_\w+)\(') | ForEach-Object { $_.Groups[1].Value })
-if ($actual.Count -ne 23 -or @(Compare-Object $expected $actual).Count) { throw 'Exchange ABI mismatch' }
+if ($actual.Count -ne 26 -or @(Compare-Object $expected $actual).Count) { throw 'Exchange ABI mismatch' }
 $existingExports = (& $dumpbin /exports (Join-Path $build 'Debug/shiroha_batch3_existing_only.dll') | Out-String)
 if ($LASTEXITCODE -ne 0) { throw 'Existing-only export inspection failed' }
 $existingNames = @([regex]::Matches($existingExports, '(?m)^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(\w+)(?:\s+=.*)?\s*$') | ForEach-Object { $_.Groups[1].Value })
-if ($existingNames.Count -ne 23 -or @(Compare-Object $expected $existingNames).Count) { throw 'Existing-only Exchange ABI mismatch' }
+if ($existingNames.Count -ne 26 -or @(Compare-Object $expected $existingNames).Count) { throw 'Existing-only Exchange ABI mismatch' }
 $headers = (& $dumpbin /headers $dll | Out-String)
 if ($LASTEXITCODE -ne 0 -or $headers -notmatch '8664 machine \(x64\)') { throw 'Exchange DLL is not x64' }
 foreach ($flag in @('Dynamic base', 'NX compatible', 'Control Flow Guard')) {
@@ -49,4 +49,4 @@ foreach ($name in @('shiroha_discovery_offline_test', 'shiroha_exchange_offline_
 # Only the changed Exchange core and affected owner/store regressions execute.
 & $ctest --test-dir $build -C Debug -R '^shiroha_(exchange|objects|discovery)_offline$' --output-on-failure
 if ($LASTEXITCODE -ne 0) { throw 'Exchange Fake contracts failed' }
-Write-Output 'PASS: P24 compile/23 exports/hardening/import isolation and Fake-only regressions; REAL WINDOWS PENDING'
+Write-Output 'PASS: P24/E0 compile/26 exports/hardening/import isolation and Fake-only regressions; REAL WINDOWS PENDING'

@@ -136,6 +136,25 @@ SHIROHA_NATIVE_API int32_t SHIROHA_NATIVE_CALL shiroha_native_exchange_read(
 SHIROHA_NATIVE_API int32_t SHIROHA_NATIVE_CALL shiroha_native_exchange_cleanup(
     uint32_t version, uint64_t owner, uint64_t receipt);
 
+// Optional ABI-3 E0. Ticket is 24 borrowed bytes, aligned to 8: an opaque
+// never-reused serial plus 128 random bits. No caller-selected deletion target.
+// ReadBegin outputs (id/output/written/ticket) are disjoint; valid outputs clear
+// on failure. Caps/roles match Read. At most 32 reader pins per owner.
+// Consume/Release retire a matching owner-bound ticket BEFORE any attempt.
+// Consume revalidates identity/security and exact original bytes on a fresh
+// protected read+delete handle, then requests deletion through THAT handle.
+// Success means the handle deletion operation and releases succeeded, not crash
+// durability, Pairing evidence or approval. Unknown deletion is never retried.
+// Release and OwnerClose only release pins, never delete.
+#define SHIROHA_NATIVE_EXCHANGE_TICKET_BYTES 24u
+SHIROHA_NATIVE_API int32_t SHIROHA_NATIVE_CALL shiroha_native_exchange_read_begin(
+    uint32_t version, uint64_t owner, uint32_t kind, const uint8_t* id,
+    uint8_t* output, uint64_t capacity, uint64_t* written, uint8_t* ticket);
+SHIROHA_NATIVE_API int32_t SHIROHA_NATIVE_CALL shiroha_native_exchange_consume(
+    uint32_t version, uint64_t owner, const uint8_t* ticket);
+SHIROHA_NATIVE_API int32_t SHIROHA_NATIVE_CALL shiroha_native_exchange_release(
+    uint32_t version, uint64_t owner, const uint8_t* ticket);
+
 SHIROHA_NATIVE_API uint32_t SHIROHA_NATIVE_CALL shiroha_native_abi_version(void);
 
 // Helper allocates zero-initialized, 8-byte-aligned storage (1..MAX_BYTES).

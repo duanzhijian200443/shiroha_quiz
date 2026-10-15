@@ -479,6 +479,7 @@ jobs:
             'test/data/external/bootstrap_source_guard_test.dart',
             'test/data/external/exchange_file_source_guard_test.dart',
             'test/data/external/windows_exchange_file_store_test.dart',
+            'test/data/external/windows_exchange_consumption_test.dart',
             'test/ui/generated_question/generated_external_origin_review_test.dart',
             'test/application/generated_question/generated_external_origin_test.dart',
             'test/application/generated_question/generated_external_origin_backup_test.dart',

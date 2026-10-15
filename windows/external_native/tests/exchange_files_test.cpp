@@ -1,4 +1,5 @@
 #include "protected_objects.h"
+#include "exchange_open_policy.h"
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
@@ -16,8 +17,16 @@ void require(bool ok, const char* label) {
 }
 using Create = int32_t (__cdecl*)(uint32_t, uint64_t, uint32_t, const uint8_t*, const uint8_t*, uint64_t, uint64_t*);
 using Read = int32_t (__cdecl*)(uint32_t, uint64_t, uint32_t, const uint8_t*, uint8_t*, uint64_t, uint64_t*);
+using ReadBegin = int32_t (__cdecl*)(uint32_t, uint64_t, uint32_t, const uint8_t*, uint8_t*, uint64_t, uint64_t*, uint8_t*);
+using Settle = int32_t (__cdecl*)(uint32_t, uint64_t, const uint8_t*);
 static_assert(std::is_same_v<decltype(&shiroha_native_exchange_create), Create>);
 static_assert(std::is_same_v<decltype(&shiroha_native_exchange_read), Read>);
+static_assert(std::is_same_v<decltype(&shiroha_native_exchange_read_begin), ReadBegin>);
+static_assert(std::is_same_v<decltype(&shiroha_native_exchange_consume), Settle>);
+static_assert(std::is_same_v<decltype(&shiroha_native_exchange_release), Settle>);
+static_assert(!(exchange_access(3) & FILE_READ_DATA));
+static_assert((exchange_access(4) & (FILE_READ_DATA | DELETE)) == (FILE_READ_DATA | DELETE));
+static_assert(exchange_share(4) == FILE_SHARE_READ);
 struct Fake final : ObjectOperations {
   Sid sid{1, 2, 3};
   uintptr_t next = 1;
@@ -25,12 +34,14 @@ struct Fake final : ObjectOperations {
   using Key = std::pair<uint64_t, std::wstring>;
   std::map<Key, ObjectInfo> objects;
   std::map<HANDLE, ObjectInfo> handles;
+  std::map<HANDLE, uint32_t> modes;
+  std::set<HANDLE> reread;
   std::map<uint64_t, std::vector<uint8_t>> contents;
   std::set<uint64_t> locks;
   std::set<HANDLE> lock_handles;
   bool busy = false, fail_unlock = false, fail_file_close = false;
   std::string fail;
-  int mutations = 0, deleted = 0, runtime_opens = 0, exchange_creates = 0;
+  int mutations = 0, deleted = 0, runtime_opens = 0, exchange_creates = 0, delete_calls = 0, close_calls = 0;
   size_t unknown = 0;
   std::function<void(ObjectInfo&)> damage;
   std::function<void()> on_count, on_read, on_flush;
@@ -69,10 +80,11 @@ struct Fake final : ObjectOperations {
     return 0;
   }
   bool close(HANDLE h) noexcept override {
+    ++close_calls;
     if (!handles.count(h)) std::abort();
     if (fail_file_close && !lock_handles.count(h) && !(handles[h].attributes & FILE_ATTRIBUTE_DIRECTORY)) return false;
     if (lock_handles.erase(h)) locks.erase(handles[h].file);
-    handles.erase(h); return true;
+    handles.erase(h); modes.erase(h); reread.erase(h); return true;
   }
   int32_t exchange_lock(const ObjectInfo&, const Sid&, HANDLE& out) override {
     out = nullptr;
@@ -101,7 +113,22 @@ struct Fake final : ObjectOperations {
       if (objects.count(key)) return 4;
       objects[key] = good(false); ++mutations;
     } else if (!objects.count(key)) return 6;
-    out = open(objects[key]); return 0;
+    const auto compatible = [](ACCESS_MASK access, ULONG share) {
+      return (!(access & FILE_READ_DATA) || (share & FILE_SHARE_READ)) &&
+          (!(access & FILE_WRITE_DATA) || (share & FILE_SHARE_WRITE)) &&
+          (!(access & DELETE) || (share & FILE_SHARE_DELETE));
+    };
+    for (const auto& m : modes) if (handles[m.first].file == objects[key].file) {
+      if (!compatible(exchange_access(mode), exchange_share(m.second)) ||
+          !compatible(exchange_access(m.second), exchange_share(mode))) return 4;
+    }
+    out = open(objects[key]); modes[out] = mode; return 0;
+  }
+  int32_t exchange_nonce(uint8_t* out, size_t length) override {
+    require(length == 16, "bounded random ticket secret");
+    if (fail == "nonce") return 4;
+    if (fail == "throw-nonce") throw std::runtime_error("synthetic");
+    std::fill(out, out + length, static_cast<uint8_t>(next++)); return 0;
   }
   int32_t write_file(HANDLE h, const uint8_t* bytes, uint64_t size) override {
     contents[handles[h].file] = {bytes, bytes + static_cast<size_t>(size)};
@@ -110,16 +137,25 @@ struct Fake final : ObjectOperations {
   }
   int32_t flush_file(HANDLE) override { if (on_flush) on_flush(); return fail == "flush" ? 4 : 0; }
   int32_t exchange_read(HANDLE h, size_t maximum, std::vector<uint8_t>& out) override {
+    require(busy && (exchange_access(modes[h]) & FILE_READ_DATA), "read on permitted protected handle under lock");
+    if (modes[h] == 4) reread.insert(h);
     if (fail == "throw-read") throw std::runtime_error("synthetic");
     out = contents[handles[h].file];
     if (on_read) on_read();
     return fail == "read" ? 4 : out.size() > maximum ? 5 : 0;
   }
   int32_t exchange_delete(HANDLE h) override {
-    require(busy, "delete serialized");
+    ++delete_calls;
+    require(busy && (exchange_access(modes[h]) & DELETE), "delete serialized on delete-capable handle");
+    if (modes[h] == 4) require(reread.count(h) == 1, "consumer rechecks bytes on SAME deletion handle");
     if (fail == "delete") return 4;
+    if (fail == "delete-unknown") return 7;
+    if (fail == "throw-delete") throw std::runtime_error("synthetic");
     for (auto i = objects.begin(); i != objects.end(); ++i) if (i->second.file == handles[h].file) {
-      objects.erase(i); ++deleted; return 0;
+      objects.erase(i); ++deleted;
+      if (fail == "throw-after-delete") throw std::runtime_error("synthetic");
+      if (fail == "unknown-after-delete") return 7;
+      return 0;
     }
     return 4;
   }
@@ -141,6 +177,24 @@ struct Fixture {
   ~Fixture() {
     require(app_core.close(3, app) == 0 && bridge_core.close(3, bridge) == 0, "owners close");
     require(f.handles.empty() && !f.busy, "all pins released without delete");
+  }
+};
+struct alignas(8) Ticket { uint8_t bytes[24]{}; };
+struct Controlled : Fixture {
+  uint64_t receipt = 0;
+  Ticket ticket;
+  Controlled() {
+    auto bytes = payload(1, id);
+    require(bridge_core.exchange_create(3, bridge, 1, id, bytes.data(), bytes.size(), &receipt) == 0, "E0 creation");
+    require(begin(ticket) == 0, "E0 read begin");
+  }
+  int32_t begin(Ticket& target) {
+    uint8_t out[1024]{}; uint64_t n = 0;
+    return app_core.exchange_read_begin(3, app, 1, id, out, 1024, &n, target.bytes);
+  }
+  void spent() {
+    require(app_core.exchange_consume(3, app, ticket.bytes) != 0 &&
+        app_core.exchange_release(3, app, ticket.bytes) != 0, "ticket permanently spent");
   }
 };
 }
@@ -270,5 +324,221 @@ int main() {
     require(x.bridge_core.exchange_create(3, 999, 1, x.id, bytes.data(), bytes.size(), &receipt) == 1, "unknown owner");
     require(x.bridge_core.exchange_create(3, x.bridge, 4, x.id, bytes.data(), bytes.size(), &receipt) == 1, "no credential kind through exchange");
   }
-  std::cout << "PASS: P24 fake-only Exchange contracts; REAL WINDOWS PENDING\n";
+  for (uint32_t kind : {1u, 2u, 3u}) {
+    Fixture x; auto bytes = payload(kind, x.id); uint64_t receipt = 0, n = 0;
+    auto& writer = kind == 2 ? x.app_core : x.bridge_core;
+    auto& reader = kind == 2 ? x.bridge_core : x.app_core;
+    auto wo = kind == 2 ? x.app : x.bridge, ro = kind == 2 ? x.bridge : x.app;
+    const size_t maximum = kind == 1 ? 1024 : kind == 2 ? 4096 : 256;
+    uint8_t out[4096]{}; Ticket ticket, released;
+    require(writer.exchange_create(3, wo, kind, x.id, bytes.data(), bytes.size(), &receipt) == 0, "E0 fixed creator");
+    require(reader.exchange_read_begin(3, ro, kind, x.id, out, maximum, &n, released.bytes) == 0 &&
+        n == bytes.size() && std::equal(bytes.begin(), bytes.end(), out), "E0 exact read bytes");
+    require(reader.exchange_release(3, ro, released.bytes) == 0 && !x.f.deleted, "release preserves file");
+    require(reader.exchange_release(3, ro, released.bytes) == 1 && reader.exchange_consume(3, ro, released.bytes) == 1, "release once");
+    require(writer.exchange_read_begin(3, wo, kind, x.id, out, maximum, &n, ticket.bytes) == 1, "E0 wrong role");
+    require(reader.exchange_read_begin(3, ro, kind, x.id, out, maximum, &n, ticket.bytes) == 0, "E0 reread");
+    ProtectedObjects competing_owner(x.f); uint64_t competing = 0;
+    require(competing_owner.acquire(3, kind == 2 ? 2u : 1u, &competing) != 0 && !competing,
+        "second process cannot bypass existing consumer role writer ownership");
+    require(reader.exchange_consume(3, ro, ticket.bytes) == 0 && x.f.deleted == 1 && x.f.delete_calls == 1, "counterpart consumes with creator pin still held");
+    require(reader.exchange_consume(3, ro, ticket.bytes) == 1, "consume once");
+    require(writer.exchange_cleanup(3, wo, receipt) != 0 && x.f.delete_calls == 1, "creator cleanup after consumption cannot delete another object");
+  }
+  {
+    Controlled x; auto forged = x.ticket; forged.bytes[8] ^= 1;
+    Ticket zero;
+    require(x.app_core.exchange_consume(3, x.app, forged.bytes) == 1 &&
+        x.app_core.exchange_release(3, x.app, zero.bytes) == 1 &&
+        x.bridge_core.exchange_consume(3, x.bridge, x.ticket.bytes) == 1 &&
+        x.app_core.exchange_consume(3, 999, x.ticket.bytes) == 1, "forgery and cross owner reject");
+    require(x.app_core.exchange_consume(3, x.app, x.ticket.bytes) == 0, "forgery never redirects or consumes valid capability");
+    x.spent();
+  }
+  {
+    Fake f; ProtectedObjects core(f); uint64_t app = 0, bridge = 0, receipt = 0, n = 0;
+    uint8_t id[16]{}, out[1024]{}; Ticket ticket;
+    require(core.acquire(3, 1, &app) == 0 && core.acquire(3, 2, &bridge) == 0 && app != bridge, "two distinct owners in one registry");
+    auto bytes = payload(1, id);
+    require(core.exchange_create(3, bridge, 1, id, bytes.data(), bytes.size(), &receipt) == 0 &&
+        core.exchange_read_begin(3, app, 1, id, out, 1024, &n, ticket.bytes) == 0, "same-registry cross-owner fixture");
+    require(core.exchange_consume(3, bridge, ticket.bytes) == 1 && core.exchange_release(3, bridge, ticket.bytes) == 1 && !f.delete_calls,
+        "known wrong owner cannot consume or release original consumer ticket");
+    require(core.exchange_release(3, app, ticket.bytes) == 0 && core.close(3, app) == 0 && core.close(3, bridge) == 0 && f.handles.empty(),
+        "original consumer retains release authority");
+  }
+  for (int mutation : {0, 1, 2, 3, 4}) {
+    Controlled x;
+    for (auto& e : x.f.objects) if (e.first.first == x.f.exchange_id()) {
+      if (mutation == 0) e.second = x.f.good(false); // Same name, new identity.
+      else if (mutation == 1) x.f.contents[e.second.file][30] ^= 1; // SAME file ID, different bytes.
+      else if (mutation == 2) x.f.contents[e.second.file].resize(24);
+      else if (mutation == 3) x.f.contents[e.second.file].assign(1025, 0);
+    }
+    if (mutation == 4) {
+      for (auto it = x.f.objects.begin(); it != x.f.objects.end(); ++it)
+        if (it->first.first == x.f.exchange_id()) { x.f.objects.erase(it); break; }
+    }
+    require(x.app_core.exchange_consume(3, x.app, x.ticket.bytes) != 0 && !x.f.delete_calls, "replacement/change/truncation/oversize/removal denies before delete");
+    x.spent();
+  }
+  for (const auto& damage : damages) {
+    Controlled x; x.f.damage = damage;
+    require(x.app_core.exchange_consume(3, x.app, x.ticket.bytes) != 0 && !x.f.delete_calls, "consumer rechecks pin and object security");
+    x.spent(); x.f.damage = nullptr;
+  }
+  for (const auto* stage : {"lock", "invalid-lock", "count", "open", "read", "throw-read", "delete"}) {
+    Controlled x; x.f.fail = stage;
+    require(x.app_core.exchange_consume(3, x.app, x.ticket.bytes) != 0 && !x.f.deleted && !x.f.busy, "consume injected failure closes and spends");
+    x.spent();
+  }
+  for (const auto* stage : {"delete-unknown", "throw-delete", "throw-after-delete", "unknown-after-delete"}) {
+    Controlled x; x.f.fail = stage;
+    require(x.app_core.exchange_consume(3, x.app, x.ticket.bytes) == 7 && x.f.delete_calls == 1, "unknown deletion reports unknown exactly once");
+    x.spent();
+  }
+  for (const auto* stage : {"nonce", "throw-nonce", "pin", "read", "throw-read"}) {
+    Fixture x; auto bytes = payload(1, x.id); uint64_t receipt = 0, n = 7;
+    uint8_t out[1024]; std::fill(out, out + 1024, static_cast<uint8_t>(9)); Ticket ticket;
+    require(x.bridge_core.exchange_create(3, x.bridge, 1, x.id, bytes.data(), bytes.size(), &receipt) == 0, "read failure fixture");
+    x.f.fail = stage;
+    require(x.app_core.exchange_read_begin(3, x.app, 1, x.id, out, 1024, &n, ticket.bytes) != 0 &&
+        !n && std::all_of(out, out + 1024, [](auto v) { return !v; }) &&
+        std::all_of(ticket.bytes, ticket.bytes + 24, [](auto v) { return !v; }), "read failure clears all outputs");
+    require(!x.f.deleted && !x.f.busy, "read failure never deletes or holds mutex");
+  }
+  {
+    Controlled x; Ticket other;
+    require(x.begin(other) == 0, "two pending reads share pins");
+    x.f.on_read = [&] {
+      require(x.bridge_core.exchange_cleanup(3, x.bridge, x.receipt) == 4, "competing process cleanup cannot enter consumer mutex");
+    };
+    require(x.app_core.exchange_consume(3, x.app, x.ticket.bytes) == 0, "winner consumes under exclusion");
+    x.f.on_read = nullptr;
+    require(x.app_core.exchange_consume(3, x.app, other.bytes) != 0 && x.f.deleted == 1 && x.f.delete_calls == 1, "only one competing read can consume");
+  }
+  {
+    Controlled x; uint64_t other_receipt = 0;
+    const auto proof = payload(3, x.id);
+    x.f.on_count = [&] {
+      require(x.bridge_core.exchange_create(3, x.bridge, 3, x.id, proof.data(), proof.size(), &other_receipt) == 4 && !other_receipt,
+          "other process cannot interleave creation during consumer quota/identity/content/delete decision");
+    };
+    require(x.app_core.exchange_consume(3, x.app, x.ticket.bytes) == 0 && x.f.deleted == 1 && x.f.mutations == 1,
+        "consumer exclusion covers concurrent create without broadening roles");
+    x.f.on_count = nullptr;
+  }
+  {
+    Controlled x;
+    require(x.bridge_core.exchange_cleanup(3, x.bridge, x.receipt) == 0, "P24 cleanup compatible with reader pin");
+    require(x.app_core.exchange_consume(3, x.app, x.ticket.bytes) != 0 && x.f.deleted == 1, "cleanup winner prevents consumption");
+  }
+  {
+    Controlled x; ObjectInfo identity;
+    for (const auto& e : x.f.objects) if (e.first.first == x.f.exchange_id()) identity = e.second;
+    const auto writer = x.f.open(identity); x.f.modes[writer] = 0;
+    require(x.app_core.exchange_consume(3, x.app, x.ticket.bytes) == 4 && !x.f.delete_calls,
+        "outstanding write handle cannot share the consumer read-delete decision");
+    require(x.f.close(writer), "synthetic external writer closes"); x.spent();
+  }
+  for (size_t unknown : {31u, 32u}) {
+    Controlled x; x.f.unknown = unknown;
+    require((x.app_core.exchange_consume(3, x.app, x.ticket.bytes) == 0) == (unknown == 31), "consume at 32 allowed, above 32 denied without sweep");
+  }
+  {
+    Controlled x; Ticket tickets[32];
+    for (size_t i = 0; i < 31; ++i) require(x.begin(tickets[i]) == 0, "bounded repeated read capacity");
+    require(x.begin(tickets[31]) == 3, "33rd reader ticket denied");
+    require(x.app_core.exchange_release(3, x.app, x.ticket.bytes) == 0 && x.begin(tickets[31]) == 0, "release frees capacity");
+    require(x.app_core.exchange_consume(3, x.app, x.ticket.bytes) == 1 && !x.f.deleted, "freed slot cannot revive old serial");
+  }
+  {
+    Controlled x;
+    for (auto& h : x.f.handles) if (h.second.attributes & FILE_ATTRIBUTE_DIRECTORY) ++h.second.file;
+    require(x.app_core.exchange_consume(3, x.app, x.ticket.bytes) != 0 && !x.f.delete_calls, "parent identity drift before consume denies");
+    x.spent();
+  }
+  {
+    Controlled x;
+    x.f.on_read = [&] { for (auto& h : x.f.handles) if (h.second.attributes & FILE_ATTRIBUTE_DIRECTORY) h.second.attributes |= FILE_ATTRIBUTE_REPARSE_POINT; };
+    require(x.app_core.exchange_consume(3, x.app, x.ticket.bytes) != 0 && !x.f.delete_calls, "post-reread parent drift before deletion denies");
+    x.spent();
+  }
+  {
+    Controlled x; uint8_t out[1024]{}; uint64_t n = 7; Ticket t;
+    require(x.app_core.exchange_read_begin(2, x.app, 1, x.id, out, 1024, &n, t.bytes) == 2 && !n, "E0 requires ABI3");
+    require(x.app_core.exchange_read_begin(3, x.app, 1, x.id, out, 1024, &n, out) == 1, "ticket/output alias rejects");
+    require(x.app_core.exchange_read_begin(3, x.app, 1, x.id, out, 1024, reinterpret_cast<uint64_t*>(t.bytes), t.bytes) == 1, "ticket/count alias rejects");
+    require(x.app_core.exchange_release(3, x.app, t.bytes + 1) == 1, "unaligned ticket rejects");
+    require(x.app_core.exchange_read_begin(3, x.app, 1, x.id, out, 1000, &n, t.bytes) == 1, "E0 exact bounded capacity");
+  }
+  for (bool consume : {false, true}) {
+    Fake f;
+    {
+      ProtectedObjects app(f), bridge(f); uint64_t a = 0, b = 0, receipt = 0, n = 0;
+      uint8_t id[16]{}, out[1024]{}; Ticket t;
+      require(app.acquire(3, 1, &a) == 0 && bridge.acquire(3, 2, &b) == 0, "release failure owners");
+      auto bytes = payload(1, id);
+      require(bridge.exchange_create(3, b, 1, id, bytes.data(), bytes.size(), &receipt) == 0 &&
+          app.exchange_read_begin(3, a, 1, id, out, 1024, &n, t.bytes) == 0, "release failure read");
+      f.fail_file_close = true;
+      require((consume ? app.exchange_consume(3, a, t.bytes) : app.exchange_release(3, a, t.bytes)) == (consume ? 7 : 4), "close failure is unknown or unavailable");
+      const auto calls = f.close_calls;
+      require(app.close(3, a) == 4 && app.exchange_release(3, a, t.bytes) != 0 && f.close_calls == calls, "quarantine never retries uncertain handles");
+      f.fail_file_close = false;
+      require(bridge.close(3, b) == 0, "other owner stays isolated");
+    }
+    require(!consume ? f.deleted == 0 : f.deleted == 1, "release never deletes; post-delete close failure never undoes/retries delete");
+  }
+  for (int stage : {0, 1, 2}) {
+    Fake f; ProtectedObjects core(f); uint64_t app = 0, bridge = 0, receipt = 0, n = 0;
+    uint8_t id[16]{}, out[1024]{}; Ticket live, unpublished;
+    auto bytes = payload(1, id);
+    require(core.acquire(3, 1, &app) == 0 && core.acquire(3, 2, &bridge) == 0 &&
+        core.exchange_create(3, bridge, 1, id, bytes.data(), bytes.size(), &receipt) == 0 &&
+        core.exchange_read_begin(3, app, 1, id, out, 1024, &n, live.bytes) == 0, "terminal release fixture");
+    if (stage == 0) {
+      f.fail_file_close = true;
+      require(core.exchange_read_begin(3, app, 1, id, out, 1024, &n, unpublished.bytes) == 4 && !n,
+          "read handle close failure returns no ticket");
+    } else if (stage == 1) {
+      f.fail_unlock = true;
+      require(core.exchange_consume(3, app, live.bytes) == 7 && f.deleted == 1 && f.delete_calls == 1,
+          "post-delete mutex release failure is unknown with no retry");
+    } else {
+      f.fail_file_close = true;
+      require(core.close(3, app) == 4 && !f.deleted, "OwnerClose reader pin failure never deletes");
+    }
+    const auto before = f.close_calls;
+    require(core.close(3, app) == 4 && core.exchange_release(3, app, live.bytes) == 4 && f.close_calls == before,
+        "all uncertain releases quarantine without another close");
+    f.fail_file_close = false; f.fail_unlock = false;
+    require(core.close(3, bridge) == 0, "quarantine does not affect another owner");
+  }
+  {
+    Controlled x;
+    for (auto& e : x.f.objects) if (e.first.first == x.f.exchange_id()) x.f.contents[e.second.file][9] ^= 1;
+    Ticket bad; uint8_t out[1024]{}; uint64_t n = 99;
+    require(x.app_core.exchange_read_begin(3, x.app, 1, x.id, out, 1024, &n, bad.bytes) == 5 && !n,
+        "native fixed internal ID rejects before minting ticket");
+    require(x.app_core.exchange_release(3, x.app, x.ticket.bytes) == 0 && !x.f.deleted, "invalid content remains untouched");
+  }
+  {
+    Fake f; ProtectedObjects core(f); uint64_t app = 0, bridge = 0, receipt = 0, n = 0;
+    uint8_t id[16]{}, out[1024]{}; Ticket live, t;
+    auto bytes = payload(1, id);
+    require(core.acquire(3, 1, &app) == 0 && core.acquire(3, 2, &bridge) == 0 &&
+        core.exchange_create(3, bridge, 1, id, bytes.data(), bytes.size(), &receipt) == 0 &&
+        core.exchange_read_begin(3, app, 1, id, out, 1024, &n, live.bytes) == 0, "mutex release failure fixture");
+    f.fail_unlock = true;
+    require(core.exchange_read_begin(3, app, 1, id, out, 1024, &n, t.bytes) == 4 && !n,
+        "read mutex release failure denies output and quarantines");
+    auto before = f.close_calls;
+    require(core.exchange_release(3, app, live.bytes) == 4 && f.close_calls == before,
+        "quarantined owner cannot release other live ticket handles");
+    f.fail_unlock = false;
+    require(core.close(3, app) == 4 && !f.deleted && core.close(3, bridge) == 0,
+        "quarantine close fails without deletion, other owner unaffected");
+  }
+  std::cout << "PASS: P24/E0 fake-only Exchange identity/content/one-use contracts; REAL WINDOWS PENDING\n";
 }

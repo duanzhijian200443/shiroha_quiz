@@ -1,4 +1,5 @@
 #include "protected_objects.h"
+#include "exchange_open_policy.h"
 #include "native_core.h"
 #include "association_rename.h"
 #include "credential_rename.h"
@@ -315,17 +316,12 @@ class WindowsObjects final : public ObjectOperations {
   int32_t exchange_open(HANDLE directory, const std::wstring& name, uint32_t mode,
                         const Sid& sid, HANDLE& result) override {
     result = nullptr;
-    if (!safe_component(name) || mode > 3) return SHIROHA_NATIVE_INVALID_INPUT;
+    if (!safe_component(name) || mode > 4) return SHIROHA_NATIVE_INVALID_INPUT;
     SecurityRecipe security;
     if (mode == 0 && !security.build(sid, false)) return SHIROHA_NATIVE_UNAVAILABLE;
-    ACCESS_MASK access = READ_CONTROL | FILE_READ_ATTRIBUTES | SYNCHRONIZE;
-    if (mode != 3) access |= FILE_READ_DATA;
-    if (mode == 0) access |= FILE_WRITE_DATA;
-    if (mode == 3) access |= DELETE;
     WinHandle acquired;
     const auto status = open_native(directory, name, false, true, mode == 0 ? FILE_CREATE : FILE_OPEN,
-        mode == 0 ? &security.descriptor : nullptr, acquired.value, access,
-        mode == 2 ? FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE : FILE_SHARE_READ);
+        mode == 0 ? &security.descriptor : nullptr, acquired.value, exchange_access(mode), exchange_share(mode));
     if (status == static_cast<NTSTATUS>(0xC0000034u)) return SHIROHA_NATIVE_MISSING;
     if (status != 0) return SHIROHA_NATIVE_UNAVAILABLE;
     // Reject an on-disk casing alias on normal case-insensitive NTFS as well.
@@ -343,6 +339,11 @@ class WindowsObjects final : public ObjectOperations {
     if (!GetFileSizeEx(file, &size)) return SHIROHA_NATIVE_UNAVAILABLE;
     if (size.QuadPart <= 0 || static_cast<uint64_t>(size.QuadPart) > maximum) return SHIROHA_NATIVE_DATA_CORRUPT;
     return read_file(file, output);
+  }
+  int32_t exchange_nonce(uint8_t* output, size_t length) override {
+    if (length != 16) return SHIROHA_NATIVE_INVALID_INPUT;
+    return BCryptGenRandom(nullptr, output, 16, BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0
+        ? SHIROHA_NATIVE_OK : SHIROHA_NATIVE_UNAVAILABLE;
   }
   int32_t exchange_delete(HANDLE file) override {
     FILE_DISPOSITION_INFO disposition{TRUE};
@@ -501,6 +502,16 @@ int32_t SHIROHA_NATIVE_CALL shiroha_native_exchange_read(uint32_t version, uint6
 }
 int32_t SHIROHA_NATIVE_CALL shiroha_native_exchange_cleanup(uint32_t version, uint64_t owner, uint64_t receipt) {
   return owners.exchange_cleanup(version, owner, receipt);
+}
+int32_t SHIROHA_NATIVE_CALL shiroha_native_exchange_read_begin(uint32_t version, uint64_t owner,
+    uint32_t kind, const uint8_t* id, uint8_t* output, uint64_t capacity, uint64_t* written, uint8_t* ticket) {
+  return owners.exchange_read_begin(version, owner, kind, id, output, capacity, written, ticket);
+}
+int32_t SHIROHA_NATIVE_CALL shiroha_native_exchange_consume(uint32_t version, uint64_t owner, const uint8_t* ticket) {
+  return owners.exchange_consume(version, owner, ticket);
+}
+int32_t SHIROHA_NATIVE_CALL shiroha_native_exchange_release(uint32_t version, uint64_t owner, const uint8_t* ticket) {
+  return owners.exchange_release(version, owner, ticket);
 }
 int32_t SHIROHA_NATIVE_CALL shiroha_native_discovery_publish(uint32_t version, uint64_t owner,
     uint32_t kind, const uint8_t* input, uint64_t length) {

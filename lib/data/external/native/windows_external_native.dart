@@ -595,6 +595,141 @@ final class ExternalProtectedObjects {
     }
   }
 
+  ExternalNativeExchangeConsumptionCalls get _consumptionCalls {
+    final calls = _adapter._calls;
+    if (calls is! ExternalNativeExchangeConsumptionCalls ||
+        !(calls as ExternalNativeExchangeConsumptionCalls)
+            .exchangeConsumptionAvailable) {
+      WindowsExternalNative._fail(ExternalNativeFailure.temporarilyUnavailable);
+    }
+    return calls as ExternalNativeExchangeConsumptionCalls;
+  }
+
+  /// Retains a bounded native identity/content pin. P22 validation is mandatory
+  /// before the Data adapter releases this result to its trusted caller.
+  ExternalExchangeRead? beginExchangeRead(int kind, Uint8List id) {
+    final cap = _exchangeCap(kind);
+    if (id.length != 16 || _role == (kind == 2 ? 1 : 2)) {
+      WindowsExternalNative._fail(ExternalNativeFailure.invalidInput);
+    }
+    Pointer<Uint8> nativeId = nullptr,
+        output = nullptr,
+        count = nullptr,
+        ticket = nullptr;
+    ExternalExchangeRead? result;
+    var delivered = false;
+    var entered = false;
+    var returned = false;
+    var failed = false;
+    try {
+      ensureOpen();
+      final calls = _consumptionCalls;
+      nativeId = _adapter._allocate(16);
+      nativeId.asTypedList(16).setAll(0, id);
+      output = _adapter._allocate(cap);
+      count = _adapter._allocate(8);
+      ticket = _adapter._allocate(24);
+      count.cast<Uint64>().value = 0;
+      ticket.asTypedList(24).fillRange(0, 24, 0);
+      entered = true;
+      final status = calls.exchangeReadBegin(
+          3, _token, kind, nativeId, output, cap, count.cast<Uint64>(), ticket);
+      returned = true;
+      final length = count.cast<Uint64>().value;
+      final token = Uint8List.fromList(ticket.asTypedList(24));
+      final hasTicket = token.any((v) => v != 0);
+      if (hasTicket) result = ExternalExchangeRead._(this, token);
+      if (status == 6 && length == 0 && !hasTicket) {
+        delivered = true;
+        return null;
+      }
+      WindowsExternalNative._checkStatus(status);
+      if (length <= 0 ||
+          length > cap ||
+          !hasTicket ||
+          ticket.cast<Uint64>().value <= 0) {
+        if (!hasTicket) _denied = true;
+        WindowsExternalNative._fail(ExternalNativeFailure.invalidNativeResult);
+      }
+      result!._bytes = Uint8List.fromList(output.asTypedList(length));
+      // Free borrowed buffers before publishing the ticket-bearing result.
+      delivered = true;
+      return result;
+    } on ExternalNativeException {
+      rethrow;
+    } catch (_) {
+      WindowsExternalNative._fail(ExternalNativeFailure.temporarilyUnavailable);
+    } finally {
+      if (entered && !returned) {
+        _denied = true; // Unknown acquisition: OwnerClose only.
+      }
+      try {
+        _exchangeFree([nativeId, output, count, ticket]);
+      } catch (_) {
+        failed = true;
+        delivered = false;
+      }
+      if (!delivered && result != null) {
+        try {
+          result.release();
+        } catch (_) {
+          failed = true;
+          _denied = true;
+        }
+      }
+      if (failed) {
+        _denied = true;
+        WindowsExternalNative._fail(
+            ExternalNativeFailure.temporarilyUnavailable);
+      }
+    }
+  }
+
+  void _settleExchangeRead(Uint8List token, bool consume) {
+    Pointer<Uint8> ticket = nullptr;
+    var entered = false;
+    var returned = false;
+    var unknown = false;
+    try {
+      ensureOpen();
+      final calls = _consumptionCalls;
+      ticket = _adapter._allocate(24);
+      ticket.asTypedList(24).setAll(0, token);
+      entered = true;
+      final status = consume
+          ? calls.exchangeConsume(3, _token, ticket)
+          : calls.exchangeRelease(3, _token, ticket);
+      returned = true;
+      unknown =
+          consume && (status == 7 || ![0, 1, 2, 3, 4, 5, 6].contains(status));
+      if (unknown) {
+        _denied = true;
+        WindowsExternalNative._fail(ExternalNativeFailure.commitUnknown);
+      }
+      WindowsExternalNative._checkStatus(status);
+    } on ExternalNativeException {
+      if (!consume || !entered) _denied = true;
+      rethrow;
+    } catch (_) {
+      unknown = consume && entered;
+      _denied = true;
+      WindowsExternalNative._fail(unknown
+          ? ExternalNativeFailure.commitUnknown
+          : ExternalNativeFailure.temporarilyUnavailable);
+    } finally {
+      token.fillRange(0, token.length, 0);
+      if (entered && !returned) _denied = true;
+      try {
+        _exchangeFree([ticket]);
+      } catch (_) {
+        _denied = true;
+        WindowsExternalNative._fail(consume && entered
+            ? ExternalNativeFailure.commitUnknown
+            : ExternalNativeFailure.temporarilyUnavailable);
+      }
+    }
+  }
+
   Uint8List protectCredential(Uint8List bytes) {
     ensureOpen();
     return _adapter.protect(bytes);
@@ -759,6 +894,29 @@ final class ExternalExchangeReceipt {
 
   @override
   String toString() => 'ExternalExchangeReceipt(REDACTED)';
+}
+
+/// Opaque owner-bound one-use native read. Bytes are defensive copies; changing
+/// a caller's copy cannot change the native snapshot or deletion target.
+final class ExternalExchangeRead {
+  ExternalExchangeRead._(this._owner, this._ticket);
+  final ExternalProtectedObjects _owner;
+  final Uint8List _ticket;
+  Uint8List _bytes = Uint8List(0);
+  bool _settled = false;
+  Uint8List get bytes => Uint8List.fromList(_bytes);
+  void consume() => _settle(true);
+  void release() => _settle(false);
+  void _settle(bool consume) {
+    if (_settled) {
+      WindowsExternalNative._fail(ExternalNativeFailure.invalidInput);
+    }
+    _settled = true;
+    _owner._settleExchangeRead(_ticket, consume);
+  }
+
+  @override
+  String toString() => 'ExternalExchangeRead(REDACTED)';
 }
 
 /// One-use native transaction; caller must commit or abort after actual work.

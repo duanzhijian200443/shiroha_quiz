@@ -52,6 +52,13 @@ bool object_valid(const ObjectInfo& i, const Sid& sid, bool directory,
 
 bool ProtectedObjects::release(Lease& lease) noexcept {
   bool ok = finish(lease);
+  for (auto& read : lease.exchange_reads) {
+    if (read.pin && !ops_.close(read.pin)) ok = false;
+    read.pin = nullptr;
+    read.token = 0;
+    SecureZeroMemory(read.nonce.data(), read.nonce.size());
+    read.bytes.clear();
+  }
   for (auto& receipt : lease.exchange_receipts) {
     if (receipt.pin && !ops_.close(receipt.pin)) ok = false;
     receipt.pin = nullptr;
