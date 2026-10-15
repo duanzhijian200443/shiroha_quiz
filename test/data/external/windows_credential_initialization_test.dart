@@ -484,8 +484,11 @@ void main() {
         .listSync(recursive: true)
         .whereType<File>()
         .where((f) => f.path.endsWith('.dart'))) {
-      if ([own, 'lib/data/external/windows_discovery.dart']
-          .contains(entry.path.replaceAll('\\', '/'))) {
+      if ([
+        own,
+        'lib/data/external/windows_discovery.dart',
+        'lib/data/external/windows_pairing.dart'
+      ].contains(entry.path.replaceAll('\\', '/'))) {
         continue;
       }
       expect(entry.readAsStringSync(),

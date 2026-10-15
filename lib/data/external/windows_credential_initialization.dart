@@ -96,6 +96,21 @@ final class WindowsCredentialInitialization {
   bool usesOwner(ExternalProtectedObjects owner) =>
       identical(_storeOwner, owner);
 
+  /// Explicit public export from existing, freshly verified credentials only.
+  /// Missing/partial state rejects; this action never initializes or recovers.
+  ExternalInitializationResult validatedPublicMaterial() => _operation(() {
+        final pair = _read(_time());
+        try {
+          if (pair.$1 == null || pair.$2 == null) {
+            credentialFail(ExternalCredentialFailure.unauthorized);
+          }
+          return _result(
+              pair.$1!, pair.$2, ExternalInitializationState.existing);
+        } finally {
+          _clear(pair.$1, pair.$2);
+        }
+      });
+
   /// Revalidates the current persisted pair and exact publication immediately
   /// before I/O; this neither initializes nor repairs missing credentials.
   ExternalInitializationResult validatePublication(

@@ -65,6 +65,12 @@ void main() {
     }
     for (final entity
         in Directory('lib').listSync(recursive: true).whereType<File>()) {
+      // P27 is an explicitly inactive composition-side consumer. Its own gate
+      // rejects every production consumer and keeps P24 itself authority-free.
+      if (p.equals(entity.absolute.path,
+          p.absolute('lib', 'data', 'external', 'windows_pairing.dart'))) {
+        continue;
+      }
       if (p.extension(entity.path) != '.dart' ||
           p.equals(
               entity.absolute.path,

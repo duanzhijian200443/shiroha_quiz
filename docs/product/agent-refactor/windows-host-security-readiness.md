@@ -2628,15 +2628,16 @@ resource releases succeeded. It does not prove unlink persistence while other
 pins exist, crash durability, Windows security acceptance, user approval,
 cryptographic possession or Pairing completion. D0's Submission-after-confirmed-
 Challenge sequence, Bridge Challenge timing and App Proof/P15 one-use coupling
-remain entirely P27-I0 work. No issuance, anchor import, UI, Association CAS,
-P0 transition, initial kind 4 write or Runtime Enablement is added.
+belong to P27-I0 (§19). E0 itself adds no issuance, anchor import, UI,
+Association CAS, P0 transition, initial kind 4 write or Runtime Enablement.
 
 Offline production-core/Synthetic ObjectOperations regressions exercise the same
 production access/share policy, lock ordering, pin identities, exact content
 recheck on the deletion handle and one-shot deletion/release failures. Dart fake
 FFI/Data tests cover strict decoding, opaque lifecycle, old optional ABI absence,
 bounded resources, malformed results and unknown outcomes; source guards keep
-all P15/Application/runtime consumers absent. These and P22/P24 regressions are
+production composition absent; §19 permits one inactive coordination consumer.
+These and P22/P24 regressions are
 registered in standing PR contract checks. Real cross-process NTFS sharing,
 delete-pending/pin lifetime, DACL/volume/reparse enforcement, named-mutex behavior,
 delete persistence and crash recovery remain REAL WINDOWS PENDING and FORMAL
@@ -2868,7 +2869,7 @@ epoch. Equal epoch performs the conditional check without writing. Missing or
 racing/invalidated snapshots reject; no initial Pin is created. Client key,
 Client Leaf, anchor and installation bytes are preserved. A failed or unknown
 commit returns no accepted result, never overwrites a newer state or claims
-the new value was reliably persisted. First pinning remains P27.
+the new value was reliably persisted. First pinning belongs to P27 (§19).
 
 Results are public Discovery data only. They create no Principal, Session,
 PairingProof, Profile/Grant, P15 evidence or connection permission. Actual
@@ -2894,4 +2895,157 @@ recovery, cross-process/cross-SID access, CNG/DPAPI, independent G0-I acceptance
 and real TLS peer binding. No L1/L2/I experiment, Listener/Host/Bridge process,
 TCP/mTLS, production wiring, enrollment or AR-R6B activation is supplied.
 
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
+
+## 19. P27 Pairing and Package 1 offline integration (G0-L0 only)
+
+This inactive composition-side candidate integrates P18–P26 and P27-E0 under
+the unchanged §9.A–E contracts. Its delivery boundary is **PACKAGE 1 SOURCE
+IMPLEMENTED / OFFLINE TESTED**. It provides explicit local action ports and
+display projections, not an activated Flutter UI, standalone Bridge process,
+listener or real App/Bridge process-end-to-end experience. Final-head CI and
+independent semantic review remain delivery gates; no Windows acceptance is
+inferred. P27-D0's formulas and human-comparison limitations remain normative.
+
+### Interfaces and ownership
+
+`lib/data/external/windows_pairing.dart` supplies `WindowsAppPairing`,
+`WindowsBridgePairing`, `WindowsPairingVerification` and private local handles.
+Ordinary constructors use existing P21 key/signature primitives and secure
+randomness; `withPrimitives` permits trusted offline injection. Composition
+supplies UTC and monotonic clocks, an exact-current-runtime callback, existing
+Owners/Store instances and the SAME verifier to P15 and App coordination. No
+constructor opens a protected Owner, starts a process or installs itself.
+Callers retain Owner/writer-lock custody through drain and explicit release.
+
+App accepts an existing opaque locally selected Profile reference and an E0
+Submission read. P25 validates the complete persisted Issuer/Server pair and
+issues a Client Leaf from the public point. P20 supplies actual Revision;
+P15 creates the original request. App generates Nonce/Request/Runtime IDs,
+retains its own exact immutable transcript, and publishes a P22 Challenge.
+`WindowsExchangeFileStore.createCaptured` retains the SINGLE encoding passed
+to acknowledged creation; neither App nor Bridge reconstructs comparison bytes.
+Only confirmed publication AND consumption of the original Submission ticket
+produce an `AppPairingRequest` or initial display. Failure/unknown closes the
+App attempt; an already-created P15 request is recovered only by explicit
+runtime close/rebuild, never a new Cancel/Reset API.
+
+P25's `validatedPublicMaterial` exports public data only from a freshly verified
+existing pair, without initialization, repair or key generation. The initial
+display contains that exact Issuer DER, independently obtained Server Leaf
+digest and §9.C.5's complete lowercase 64-character initial digest.
+`inspectChallenge` explicitly imports those public inputs on Bridge, performs
+Issuer self-signature and Client Leaf signature/role/validity/digest checks,
+and mathematically checks private/public key correspondence. Import alone
+never accepts trust. `confirmIndependentlyComparedInitial` is a separate trusted
+local action AFTER a human compares BOTH full local displays. Only that action
+permits signing; an imported/copied digest or Discovery never calls it.
+
+App `approve` remains an independent trusted local action delegated to P15.
+Bridge `publishProof` signs P22's transcript digest with raw 64-byte r||s,
+self-verifies, consumes its ORIGINAL E0 Challenge capability, and only then
+creates the Proof. Consumption failure/unknown prevents publication. No reread,
+path deletion, receipt cleanup or capability reuse compensates for a failure.
+
+App `complete` accepts only its own local request. P15 checks Approval and spends
+the original completion opportunity before the verifier runs. A private local
+correlation event is not verified evidence: `verifyPairing` checks exact local
+P15 challenge identity, all locally retained transcript fields, issued leaf and
+Issuer chain, original Submission/Request IDs and actual P21 mathematical ECDSA
+verification. It then consumes the ORIGINAL E0 Proof capability. Only complete
+cryptographic and consumption success can return true once. Malformed/foreign
+Proofs never select an authority; invalid results release rather than delete
+unexpected contents and require explicit recovery. `isLive` latches invalidity,
+checks current P15 runtime/Restore/generation and enforces the independent
+30-second monotonic Evidence Window starting immediately after mathematical
+verification, BEFORE Proof consumption. Slow E0 settlement cannot renew it.
+Authentication ALWAYS rejects in this
+adapter; Pairing possession never authenticates a TLS peer.
+
+P15 preserves Management rechecks, P20 expected-Revision CAS, private one-use
+P0 proof production and original P12/P0 completion. Its trusted constructor may
+select a positive `pairingRequestLifetime` no longer than 600 seconds; the
+default Request lifetime stays 30 seconds. The read-only local `challenge`
+projection binds the exact wire deadline to P15, with monotonic expiry and
+irreversible observed expiry. No Exchange DTO can select that lifetime.
+Authentication challenges and the post-verification Evidence Window stay at
+30 seconds. No PairingState, Principal, Session, Grant, Scope or Enablement
+authority is duplicated or created by this infrastructure.
+
+### Completion, initial pin and recovery
+
+Only acknowledged `completePairing` success permits App `completionDisplay`.
+P15 `confirmedPairing` freshly reads actual Association Revision, validates
+Profile/Installation/Credential identity/current Management and the same live
+runtime/generation, and checks P0 `pairedDisabled`. The revision is taken from
+that record, including exact-revision idempotency, never `expectedRevision + 1`.
+The local surface must refresh the projection while visible and withdraw it on
+invalidation; copied displays are not continuous or cross-process evidence.
+
+Bridge computes §9.C.5's separate completion digest for the SAME Enrollment
+and a Revision consistent with CAS/idempotency. The user compares the full
+digest AND Revision on both local surfaces before the distinct trusted local
+`confirmIndependentlyComparedCompletionAndSave` action. Merely requesting a
+display never saves. The single-use monotonic completion window expires no
+later than 120 seconds after successful Proof publication; it cannot renew
+the Challenge or Evidence Window. As frozen by D0, Bridge cannot automatically
+observe later App-side invalidation of an earlier valid display.
+
+That one local action permits exactly one `createIfMissing(4, factory)` on the
+existing P23 Store. It transfers independent wipeable buffers containing only
+the frozen Client PKCS#8/Leaf/Issuer/Installation/initial epoch fields. Existing,
+corrupt or conflicting Pins never overwrite. Failure, commitUnknown or release
+failure spends the action and reports no save success; there is no automatic
+readback/retry. All exit paths invalidate Enrollment and wipe its retained
+private key. No manual digest, persisted flag, Server digest field, receipt or
+fourth Exchange message is stored.
+
+App owns at most 16 request resources/operations; IDs and live Nonces cannot
+duplicate within its bounded attempt set. Bridge owns at most 16 Enrollments,
+with at most 1024 issued IDs per adapter, a 600-second pre-Proof lifetime and
+the separate 120-second post-Proof window. Existing P22/P24 byte/quota and E0
+pin caps still apply. Lifecycle checks reject stale contexts permanently;
+explicit `closeEnrollment`/`close` releases retained reads without deletion
+and wipes Bridge private memory. App `close` closes evidence immediately and
+drains its own operations AND P15/P12 before callers release Owners. There is
+no timer, background polling, sweep, unknown-file cleanup or implicit rebuild.
+
+§9.C.8 remains the recovery authority: explicit External runtime close, drain,
+fresh composition and standard Pairing; replacing a different active Credential
+requires revoke-first. CAS residue, lost P0 acknowledgement, a lost Bridge key
+or a saved kind 4 cannot resurrect Paired, a Session or Enablement. No rollback,
+auto-compensation or alternate Credential Store is introduced.
+
+### Package 1 standing offline coverage index
+
+The new `test/data/external/windows_pairing_test.dart` is registered exactly
+once in standing PR contract checks, alongside the directly affected suites:
+
+| Responsibility | Hard-failing offline coverage |
+|---|---|
+| Cred/Certificate and actual math | `external_certificate_der_test`, `windows_external_crypto_test`, `windows_credential_initialization_test`, P27 public-key correspondence and signature/anchor substitution cases |
+| Protected objects and CAS | `windows_external_native_test`, `windows_credential_object_store_test`, `windows_credential_association_store_test`, `association_object_codec_test`, `external_credential_object_codec_test` |
+| Original Exchange bytes/single consumption | `windows_exchange_file_store_test`, `windows_exchange_consumption_test`, `exchange_message_codec_test`, P27 publication/consume-failure order cases |
+| Discovery and initial Pin integration | `windows_discovery_test`, `discovery_descriptor_codec_test`, P27 initial kind 4 followed by signed Discovery/high-water advancement |
+| Pairing Verification / P15 / P0 | `pairing_transcript_codec_test`, `external_trust_coordinator_test`, P27 real math to `pairedDisabled`, Approval separation, one-use/concurrent completion, 30/600-second deadlines and 30-second Evidence Window |
+| Completion and Missing-only kind 4 | P27 exact dual digests, actual/idempotent Revision, 120-second cutoff, duplicate save, corruption/conflict/unknown/release failures |
+| Explicit recovery and resource release | `external_trust_backup_test`, P27 Restore/revoke/runtime invalidation, CAS-before-P0 failure, lost completion/key, fresh unpaired composition, drain and key wiping |
+| No activation / alternate authority | `bootstrap_source_guard_test`, `exchange_file_source_guard_test`, `discovery_source_guard_test`, `external_native_source_guard_test`, P27 source/CI guards and `architecture_boundary_test` |
+
+`check_pairing_source.ps1` is chained from the existing standing bootstrap gate.
+It admits only this one inactive consumer and rejects all production wiring,
+network/channel evidence, business writers and alternate persistence. Native
+ABI, kind 1–4 binary formats, P9/P10 and schema/B0 stay unchanged. Native
+`check_offline.ps1` compiles/inspects production imports and runs only the
+existing synthetic core executables, never the production DLL. Public RFC6979/
+P21 vectors plus an independent test-only mathematical verifier exercise the
+complete path; fixed public signing values are not a production RNG or human
+acceptance implementation. Exact commands/results belong to delivery evidence.
+
+**REAL WINDOWS PENDING / FORMAL ACCEPTANCE PENDING:** actual CNG/crypt32 and
+DPAPI/NTFS/DACL/reparse/identity/lock/sharing/delete/Flush/rename/durability,
+cross-SID/cross-process/crash and packaged/AOT acceptance. Trusted human UI and
+real App/Bridge process Pairing remain unactivated/unverified. All independent
+G0-I A0–A12 and Package 2/3 gates remain; no L1/L2 experiment, TLS/mTLS, listener,
+production Host, AR-R6B or Release is authorized or activated by this source.
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.

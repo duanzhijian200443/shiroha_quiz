@@ -16,11 +16,14 @@ final class ExternalCredentialChallenge {
       this.revision,
       this.expiresAt,
       this.runtimeInstance,
+      this._expiresElapsed,
       [this.requestId]);
   final String profileId, installationId, credentialIdentity;
   final String? requestId;
   final int generation, revision;
   final DateTime expiresAt;
+  final Duration _expiresElapsed;
+  bool _expired = false;
 
   /// Expected private runtime binding, not a cryptographic wire nonce or proof.
   /// Future verification must bind the actual challenge/channel to this instance.
@@ -50,6 +53,10 @@ final class ExternalCredentialRegistration {
   final ExternalProfileReference _reference;
   final ExternalTrustProfile _profile;
   final ExternalCredentialChallenge _challenge;
+  bool _completed = false;
+
+  /// Read-only local correlation, never verification evidence or wire authority.
+  ExternalCredentialChallenge get challenge => _challenge;
 }
 
 /// Offline trusted seam. No default accepting verifier or production backend.
@@ -62,13 +69,19 @@ final class ExternalCredentialBoundary implements ExternalCredentialPort {
     required ExternalClock clock,
     required String installationId,
     required bool Function() compositionIsCurrent,
+    Duration pairingRequestLifetime = evidenceLifetime,
+    Duration Function()? monotonicNow,
   })  : _associations = associations,
         _verification = verification,
         _management = management,
         _clock = clock,
         _installationId = installationId,
-        _isCurrent = compositionIsCurrent {
-    if (!ExternalAuthLimits.text(installationId, 128)) {
+        _isCurrent = compositionIsCurrent,
+        _pairingRequestLifetime = pairingRequestLifetime,
+        _elapsed = monotonicNow ?? _monotonicClock() {
+    if (!ExternalAuthLimits.text(installationId, 128) ||
+        pairingRequestLifetime <= Duration.zero ||
+        pairingRequestLifetime > const Duration(seconds: 600)) {
       credentialFail(ExternalCredentialFailure.invalidInput);
     }
   }
@@ -82,6 +95,8 @@ final class ExternalCredentialBoundary implements ExternalCredentialPort {
   final ExternalClock _clock;
   final String _installationId;
   final bool Function() _isCurrent;
+  final Duration _pairingRequestLifetime;
+  final Duration Function() _elapsed;
   final Object _runtimeInstance = Object();
   ExternalTrustCoordinator? _coordinator;
   ExternalTrustCore? _trust;
@@ -104,14 +119,31 @@ final class ExternalCredentialBoundary implements ExternalCredentialPort {
     _generation = trust.generation;
   }
 
+  /// Local liveness only, never proof or permission. Infrastructure events use
+  /// this guard to observe shutdown, Restore and generation changes monotonically.
+  bool get isCurrent {
+    try {
+      _check();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   void _check([ExternalCredentialChallenge? challenge]) {
     BackupRestoreMutationGate.instance.ensureMutationAllowed();
+    if (challenge != null &&
+        (!_clock.now().isBefore(challenge.expiresAt) ||
+            _elapsed() >= challenge._expiresElapsed)) {
+      challenge._expired = true;
+    }
     if (_closed ||
         !_isCurrent() ||
         _trust == null ||
         _generation != _trust!.generation ||
         (challenge != null &&
-            (challenge.installationId != _installationId ||
+            (challenge._expired ||
+                challenge.installationId != _installationId ||
                 challenge.generation != _generation ||
                 !identical(challenge.runtimeInstance, _runtimeInstance) ||
                 !_clock.now().isBefore(challenge.expiresAt)))) {
@@ -187,8 +219,11 @@ final class ExternalCredentialBoundary implements ExternalCredentialPort {
           _generation!,
           identity,
           revision,
-          _clock.now().add(evidenceLifetime),
+          _clock.now().add(
+              requestId == null ? evidenceLifetime : _pairingRequestLifetime),
           _runtimeInstance,
+          _elapsed() +
+              (requestId == null ? evidenceLifetime : _pairingRequestLifetime),
           requestId);
 
   Future<ExternalCredentialRegistration> requestPairing(
@@ -247,6 +282,20 @@ final class ExternalCredentialBoundary implements ExternalCredentialPort {
         _request(request);
         await _coordinator!.approvePairing(request._profile);
         _request(request);
+      });
+
+  /// Local coordination guard; grants neither approval nor proof.
+  Future<void> validatePairingRequest(ExternalCredentialRegistration request,
+          {bool requireApproval = false}) =>
+      _track(() async {
+        _request(request);
+        await _profile(request._reference);
+        _request(request);
+        if (requireApproval &&
+            _trust!.snapshot(request._profile.principal).state !=
+                PairingState.approvedPendingProof) {
+          credentialFail(ExternalCredentialFailure.unauthorized);
+        }
       });
 
   void _live(ExternalCredentialChallenge challenge, Object event) {
@@ -348,7 +397,33 @@ final class ExternalCredentialBoundary implements ExternalCredentialPort {
                 true,
                 (attempt) =>
                     _coordinator!.completePairing(request._profile, attempt));
+            request._completed = true;
           }));
+
+  /// Fresh persisted fact after acknowledged P0 completion. This is not an
+  /// authorization token. A display must re-query it while visible.
+  Future<ExternalCredentialAssociation> confirmedPairing(
+          ExternalCredentialRegistration request) =>
+      _track(() async {
+        if (!identical(request._owner, this) || !request._completed) {
+          credentialFail(ExternalCredentialFailure.unauthorized);
+        }
+        await _profile(request._reference);
+        final snapshot = await _read(request._challenge.profileId);
+        await _profile(request._reference);
+        _check();
+        final record = _record(snapshot, request._challenge.profileId);
+        if (record == null ||
+            record.revoked ||
+            record.installationId != _installationId ||
+            record.credentialIdentity !=
+                request._challenge.credentialIdentity ||
+            _trust!.snapshot(request._profile.principal).state !=
+                PairingState.pairedDisabled) {
+          credentialFail(ExternalCredentialFailure.unauthorized);
+        }
+        return record;
+      });
 
   Future<ExternalSession> openSession(
           ExternalProfileReference reference, Object authentication) =>
@@ -448,4 +523,9 @@ final class _VerifiedAttempt {
   final ExternalCredentialAssociationSnapshot snapshot;
   final bool pairing;
   bool used = false;
+}
+
+Duration Function() _monotonicClock() {
+  final stopwatch = Stopwatch()..start();
+  return () => stopwatch.elapsed;
 }
