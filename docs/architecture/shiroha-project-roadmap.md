@@ -396,6 +396,17 @@ AR-R6A = NOT_ACCEPTED.
 The retained target is Codex/Claude MCP Bridge → Shiroha External Host →
 authenticated and authorized question-bank READ/STAGE services.
 
+P27-E0 adds an inactive identity/content-bound Exchange consumption foundation
+under [Windows readiness §16](../product/agent-refactor/windows-host-security-readiness.md#p27-e0-identity-bound-consumption-foundation-inactive-g0-l0-only).
+Optional ABI-3 controlled reads retain bounded Owner-bound pins and exact original
+bytes; P22 strict decoding precedes delivery, Consume rechecks the same object
+and bytes on a protected read/delete handle, and Release never deletes. P24 plain
+Read and creator Cleanup stay intact. The source/offline foundation supplies no
+P27-I0 sequencing, P15 evidence, Pairing, Association, kind 4 initialization or
+runtime activation. Real Windows sharing/deletion/durability and independent
+formal acceptance remain pending. HOST_STABILITY_HALT = ACTIVE;
+TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
+
 Use namespaced AR-R identifiers to distinguish this route from historical
 R1-R8 typed-core stages:
 

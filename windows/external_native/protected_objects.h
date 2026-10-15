@@ -50,8 +50,10 @@ struct ObjectOperations {
   virtual int32_t exchange_lock(const ObjectInfo&, const Sid&, HANDLE&) { return SHIROHA_NATIVE_UNAVAILABLE; }
   virtual bool exchange_unlock(HANDLE) noexcept { return false; }
   virtual int32_t exchange_count(HANDLE, size_t&) { return SHIROHA_NATIVE_UNAVAILABLE; }
-  // mode: 0=create-new, 1=read, 2=identity pin, 3=identity-bound deletion.
+  // mode: 0=create-new, 1=read, 2=identity pin, 3=creator deletion,
+  // 4=consumer read+delete (same protected handle, denies write/delete sharing).
   virtual int32_t exchange_open(HANDLE, const std::wstring&, uint32_t, const Sid&, HANDLE&) { return SHIROHA_NATIVE_UNAVAILABLE; }
+  virtual int32_t exchange_nonce(uint8_t*, size_t) { return SHIROHA_NATIVE_UNAVAILABLE; }
   virtual int32_t exchange_read(HANDLE, size_t, std::vector<uint8_t>&) { return SHIROHA_NATIVE_UNAVAILABLE; }
   virtual int32_t exchange_delete(HANDLE) { return SHIROHA_NATIVE_UNAVAILABLE; }
   // P26 fixed Discovery objects; no arbitrary name/path or deletion capability.
@@ -93,6 +95,9 @@ class ProtectedObjects final {
   int32_t exchange_create(uint32_t, uint64_t, uint32_t, const uint8_t*, const uint8_t*, uint64_t, uint64_t*) noexcept;
   int32_t exchange_read(uint32_t, uint64_t, uint32_t, const uint8_t*, uint8_t*, uint64_t, uint64_t*) noexcept;
   int32_t exchange_cleanup(uint32_t, uint64_t, uint64_t) noexcept;
+  int32_t exchange_read_begin(uint32_t, uint64_t, uint32_t, const uint8_t*, uint8_t*, uint64_t, uint64_t*, uint8_t*) noexcept;
+  int32_t exchange_consume(uint32_t, uint64_t, const uint8_t*) noexcept;
+  int32_t exchange_release(uint32_t, uint64_t, const uint8_t*) noexcept;
   int32_t discovery_read(uint32_t, uint64_t, uint32_t, uint8_t*, uint64_t, uint64_t*) noexcept;
   int32_t discovery_publish(uint32_t, uint64_t, uint32_t, const uint8_t*, uint64_t) noexcept;
  private:
@@ -105,6 +110,11 @@ class ProtectedObjects final {
     HANDLE pin = nullptr;
     ObjectInfo identity;
     std::wstring name;
+  };
+  struct ExchangeRead : ExchangeReceipt {
+    std::array<uint8_t, 16> nonce{};
+    std::vector<uint8_t> bytes;
+    uint32_t kind = 0;
   };
   struct Lease {
     uint64_t token = 0;
@@ -120,6 +130,7 @@ class ProtectedObjects final {
     Pin exchange{}; // Separate from the unchanged P19/P20/P23 pin layout.
     Pin discovery{};
     std::array<ExchangeReceipt, 32> exchange_receipts{};
+    std::array<ExchangeRead, 32> exchange_reads{};
   };
   int32_t add(Lease& lease, HANDLE parent, const wchar_t* name,
               bool directory, const Sid& sid, bool dacl, bool create = true);
@@ -135,7 +146,8 @@ class ProtectedObjects final {
   int32_t discovery_directory(Lease&, Sid&);
   int32_t discovery_operation(uint64_t, uint32_t, const uint8_t*, uint64_t, uint8_t*, uint64_t, uint64_t*, bool);
   int32_t exchange_operation(uint64_t, uint32_t, const uint8_t*, const uint8_t*, uint64_t,
-      uint8_t*, uint64_t, uint64_t*, uint64_t*, bool);
+      uint8_t*, uint64_t, uint64_t*, uint64_t*, bool, uint8_t* = nullptr);
+  int32_t exchange_settle(uint32_t, uint64_t, const uint8_t*, bool) noexcept;
   ObjectOperations& ops_;
   const OpenMode mode_;
   std::mutex mutex_;

@@ -2560,10 +2560,87 @@ An unrelated owner, substituted name/object, changed security or unknown
 identity cannot be deleted. Failed handle release quarantines ownership and
 never retries a potentially stale HANDLE. Owner close releases pins, never
 deletes Exchange files. Failed/partial creation yields no receipt and leaves
-only inert residue; no rollback sweep or automatic retry runs. Reading produces
-no cleanup receipt and never deletes a counterpart's file. P27 must own any
-future counterpart consumption authority/order and P15-result coupling; this
-slice supplies none of that workflow.
+only inert residue; no rollback sweep or automatic retry runs. P24's ordinary
+read produces no cleanup receipt and never deletes a counterpart's file. Its
+creator-cleanup capability is unchanged by the E0 addition below. P27-I0 owns
+counterpart consumption timing/order and P15-result coupling; this file-I/O
+foundation supplies none of that workflow.
+
+### P27-E0 identity-bound consumption foundation (inactive, G0-L0 only)
+
+Three additive optional ABI-3 exports extend the existing twenty-three without
+changing their signatures or behavior: `shiroha_native_exchange_read_begin`,
+`shiroha_native_exchange_consume`, `shiroha_native_exchange_release`.
+FFI must resolve the complete optional lifecycle before acquiring a reader pin;
+missing symbols deny E0 without a Dart File fallback. Ordinary Read and creator
+Cleanup remain separate operations. No startup or Application/P15 consumer is
+wired, and E0 creates no verifier, business approval or trusted Pairing evidence.
+
+ReadBegin uses the unchanged fixed kind/ID/name/role matrix and byte caps. Under
+the same verified directory-identity mutex it checks the complete parent and
+object security recipe, counts every directory object (32 allowed for reads;
+above 32 denied), reads bounded original bytes and checks the Native header/ID.
+It retains an independently inspected read-only identity pin before closing the
+decision handle, rechecks the parent chain and releases the mutex before
+publishing outputs. The native slot holds kind, exact native-generated basename,
+volume/file identity, original bytes and secret ticket material under the original
+Consumer Owner. Each Owner has at most 32 reader slots, independent of its 32
+creator receipts; repeated reads cannot grow an unbounded registry. Slots end
+at Consume/Release or OwnerClose; E0 adds no Pairing deadline or expiry policy.
+
+The opaque ticket is 24 bytes in borrowed 8-byte-aligned storage: a process-local
+never-reused 64-bit serial and 128 system-random bits. Its full secret is checked
+under the owning core mutex before any target is selected; no caller path, name,
+identity, digest or assertion can redirect it. Native checks all buffer/count/
+ticket extents, aliases and required alignment before clearing valid outputs.
+Dart keeps this token private. `WindowsExchangeFileStore` completely decodes the
+same returned bytes with P22 before handing out `ExchangeFileRead<T>`. Its bytes
+getter returns defensive copies of the original read, never a re-encoded DTO.
+Decode failure releases the ticket without deleting; failed release denies the
+Owner. A boundary acquisition whose result is unknown stays bounded until explicit
+OwnerClose, with no subsequent owner operation admitted by FFI.
+
+Consume retires a matching ticket before lock acquisition or validation. Within
+the Exchange mutex it rechecks parents, quota, the retained pin and a fresh
+parent-bound exact-name open against the original identity/security. P24 internal
+mode 3 retains its creator-cleanup access (no FILE_READ_DATA). New internal mode 4
+has FILE_READ_DATA and DELETE plus the existing inspection access, with only
+FILE_SHARE_READ. It therefore permits a full bounded content comparison and
+FileDispositionInfo on the **same** inspected handle, denying write/delete
+sharing throughout the decision. Pin mode 2 retains its original read-only
+access with read/write/delete sharing, so Creator Receipt and Reader Pin may
+coexist with each other and either verified deletion attempt. A competing open
+or delete-pending object fails closed; no replacement object is deleted.
+
+After exact raw-byte comparison Native reinspects the decision handle, retained
+pin and parent chain, then makes one handle deletion request. File handle, pin
+and mutex are each released once. Deletion exceptions/unknown results, or release
+failure after entering deletion, report commitUnknown and are never retried;
+failed handle/mutex release quarantines the Owner without retrying uncertain
+HANDLE values. An unsuccessful pre-delete check still spends the ticket and
+releases its known resources. Release only retires the ticket and closes its
+pin; it neither deletes nor changes Pairing. OwnerClose drops all remaining
+pins without deletion. FFI also settles its private wrapper on every outcome;
+unknown deletion or failed resource release never returns success.
+
+Consumption success means the specified handle deletion request and local
+resource releases succeeded. It does not prove unlink persistence while other
+pins exist, crash durability, Windows security acceptance, user approval,
+cryptographic possession or Pairing completion. D0's Submission-after-confirmed-
+Challenge sequence, Bridge Challenge timing and App Proof/P15 one-use coupling
+remain entirely P27-I0 work. No issuance, anchor import, UI, Association CAS,
+P0 transition, initial kind 4 write or Runtime Enablement is added.
+
+Offline production-core/Synthetic ObjectOperations regressions exercise the same
+production access/share policy, lock ordering, pin identities, exact content
+recheck on the deletion handle and one-shot deletion/release failures. Dart fake
+FFI/Data tests cover strict decoding, opaque lifecycle, old optional ABI absence,
+bounded resources, malformed results and unknown outcomes; source guards keep
+all P15/Application/runtime consumers absent. These and P22/P24 regressions are
+registered in standing PR contract checks. Real cross-process NTFS sharing,
+delete-pending/pin lifetime, DACL/volume/reparse enforcement, named-mutex behavior,
+delete persistence and crash recovery remain REAL WINDOWS PENDING and FORMAL
+ACCEPTANCE PENDING; synthetic results make no OS acceptance claim.
 
 Evidence is limited to source inspection, MSVC compile/export/hardening/import
 checks, the production core with synthetic ObjectOperations, Dart injected FFI

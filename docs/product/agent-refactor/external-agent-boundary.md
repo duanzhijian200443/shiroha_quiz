@@ -1216,6 +1216,11 @@ P24's inactive Exchange file-I/O candidate is owned by Windows readiness §16.
 Its fixed-kind/ID Native access, P22-decoded public DTOs and creator-only cleanup
 receipts supply no verification evidence, pairing transition, consumption order
 or association commit. P0/P15 remain the only owners of those decisions.
+P27-E0 extends this inactive infrastructure with strict-P22 controlled reads
+and explicit owner-bound one-use Consume/Release capabilities (readiness §16).
+Native binds the exact original bytes and retained object identity; deleting a
+file supplies neither P15 evidence nor user approval, possession, Association
+commit or Pairing completion. E0 implements no D0 sequencing or P27-I0 workflow.
 P25's inactive credential initialization and restricted Client leaf issuer are
 owned by Windows readiness §17. An issued leaf and its exact-DER digest remain
 public correlation material: neither proves Client possession nor creates a

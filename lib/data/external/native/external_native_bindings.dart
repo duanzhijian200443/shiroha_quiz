@@ -54,6 +54,26 @@ abstract interface class ExternalNativeExchangeCalls {
   int exchangeCleanup(int version, int owner, int receipt);
 }
 
+/// Optional E0 capability; all three symbols must exist before acquiring a pin.
+abstract interface class ExternalNativeExchangeConsumptionCalls {
+  bool get exchangeConsumptionAvailable;
+  int exchangeReadBegin(
+      int version,
+      int owner,
+      int kind,
+      Pointer<Uint8> id,
+      Pointer<Uint8> output,
+      int capacity,
+      Pointer<Uint64> written,
+      Pointer<Uint8> ticket);
+  int exchangeConsume(int version, int owner, Pointer<Uint8> ticket);
+  int exchangeRelease(int version, int owner, Pointer<Uint8> ticket);
+}
+
+typedef _ExchangeReadBeginNative = Int32 Function(Uint32, Uint64, Uint32,
+    Pointer<Uint8>, Pointer<Uint8>, Uint64, Pointer<Uint64>, Pointer<Uint8>);
+typedef _ExchangeSettleNative = Int32 Function(Uint32, Uint64, Pointer<Uint8>);
+
 typedef _ExchangeNative = Int32 Function(Uint32, Uint64, Uint32, Pointer<Uint8>,
     Pointer<Uint8>, Uint64, Pointer<Uint64>);
 
@@ -126,6 +146,7 @@ final class FfiExternalNativeCalls
         ExternalNativeCryptoCalls,
         ExternalNativeCredentialCalls,
         ExternalNativeExchangeCalls,
+        ExternalNativeExchangeConsumptionCalls,
         ExternalNativeDiscoveryCalls {
   FfiExternalNativeCalls(DynamicLibrary library)
       : _library = library,
@@ -193,6 +214,54 @@ final class FfiExternalNativeCalls
       _credentialAbort(version, owner, ticket);
 
   final DynamicLibrary _library;
+  late final _exchangeReadBegin = _library.lookupFunction<
+      _ExchangeReadBeginNative,
+      int Function(
+          int,
+          int,
+          int,
+          Pointer<Uint8>,
+          Pointer<Uint8>,
+          int,
+          Pointer<Uint64>,
+          Pointer<Uint8>)>('shiroha_native_exchange_read_begin');
+  late final _exchangeConsume = _library.lookupFunction<
+      _ExchangeSettleNative,
+      int Function(
+          int, int, Pointer<Uint8>)>('shiroha_native_exchange_consume');
+  late final _exchangeRelease = _library.lookupFunction<
+      _ExchangeSettleNative,
+      int Function(
+          int, int, Pointer<Uint8>)>('shiroha_native_exchange_release');
+  @override
+  bool get exchangeConsumptionAvailable {
+    try {
+      // Resolve the complete lifecycle before any operation can retain a pin.
+      return [_exchangeReadBegin, _exchangeConsume, _exchangeRelease].length ==
+          3;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  int exchangeReadBegin(
+          int version,
+          int owner,
+          int kind,
+          Pointer<Uint8> id,
+          Pointer<Uint8> output,
+          int capacity,
+          Pointer<Uint64> written,
+          Pointer<Uint8> ticket) =>
+      _exchangeReadBegin(
+          version, owner, kind, id, output, capacity, written, ticket);
+  @override
+  int exchangeConsume(int version, int owner, Pointer<Uint8> ticket) =>
+      _exchangeConsume(version, owner, ticket);
+  @override
+  int exchangeRelease(int version, int owner, Pointer<Uint8> ticket) =>
+      _exchangeRelease(version, owner, ticket);
   late final _discoveryPublish = _library.lookupFunction<
       _DiscoveryPublishNative,
       int Function(int, int, int, Pointer<Uint8>,

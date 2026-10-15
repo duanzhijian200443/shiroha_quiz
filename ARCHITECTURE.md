@@ -131,6 +131,12 @@ optional ABI-3 fixed-kind/ID I/O. Native owns parent-bound Exchange access,
 CREATE_NEW, bounded reads, directory-identity-bound short quota exclusion and
 creator-only identity-pinned cleanup. Bridge opens App-created Exchange only;
 no credential ticket, App lock, consumer workflow or production wiring is added.
+P27-E0 extends that inactive adapter with optional ABI-3 owner-bound reader
+tickets, retained object pins and exact-byte snapshots. Complete P22 decoding
+precedes delivery of a controlled read; explicit Consume rechecks identity and
+content on a protected read/delete handle, while Release only drops the pin.
+This foundation owns no consumption timing, P15 evidence or Pairing workflow;
+Windows readiness §16 owns its limits and pending Windows acceptance.
 P25 adds explicit inactive App credential initialization and restricted Client
 leaf issuance. It reuses these owners, P21 crypto/certificate codecs and a
 same-ticket create-if-missing operation in P23's adapter. Persisted signatures,

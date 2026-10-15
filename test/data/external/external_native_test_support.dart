@@ -11,6 +11,7 @@ final class FakeExternalNativeCalls
         ExternalNativeCalls,
         ExternalNativeCredentialCalls,
         ExternalNativeExchangeCalls,
+        ExternalNativeExchangeConsumptionCalls,
         ExternalNativeDiscoveryCalls {
   FakeExternalNativeCalls() {
     final library = Platform.isWindows
@@ -100,6 +101,85 @@ final class FakeExternalNativeCalls
   int nextExchangeIdentity = 1, unknownExchangeEntries = 0, exchangeDeletes = 0;
   int exchangeStatus = 0;
   bool throwExchange = false;
+  @override
+  bool exchangeConsumptionAvailable = true;
+  final exchangeReadTickets = <String, (int, (int, String), int, Uint8List)>{};
+  int exchangeReleases = 0, exchangeConsumes = 0;
+  int consumptionStatus = 0, releaseStatus = 0;
+  bool throwReadBegin = false,
+      throwConsume = false,
+      throwRelease = false,
+      invalidReadTicket = false;
+  String _readToken(Pointer<Uint8> ticket) => ticket.asTypedList(24).join(',');
+  @override
+  int exchangeReadBegin(
+      int version,
+      int owner,
+      int kind,
+      Pointer<Uint8> id,
+      Pointer<Uint8> output,
+      int capacity,
+      Pointer<Uint64> written,
+      Pointer<Uint8> ticket) {
+    ticket.asTypedList(24).fillRange(0, 24, 0);
+    if (exchangeReadTickets.values.where((r) => r.$1 == owner).length >= 32) {
+      written.value = 0;
+      return 3;
+    }
+    final status =
+        exchangeRead(version, owner, kind, id, output, capacity, written);
+    if (status != 0) return status;
+    ticket.cast<Uint64>().value = nextTicket++;
+    ticket.asTypedList(24).fillRange(8, 24, 42);
+    final key = (kind, _exchangeId(id));
+    exchangeReadTickets[_readToken(ticket)] = (
+      owner,
+      key,
+      exchangeIdentities[key]!,
+      Uint8List.fromList(exchangeFiles[key]!)
+    );
+    if (throwReadBegin) throw StateError('synthetic acquire unknown');
+    if (invalidReadTicket) ticket.asTypedList(24).fillRange(0, 24, 0);
+    return 0;
+  }
+
+  @override
+  int exchangeConsume(int version, int owner, Pointer<Uint8> ticket) {
+    final key = _readToken(ticket);
+    final r = exchangeReadTickets[key];
+    if (r == null || r.$1 != owner || !owners.containsKey(owner)) return 1;
+    exchangeReadTickets.remove(key);
+    exchangeConsumes++;
+    if (throwConsume) throw StateError('synthetic deletion unknown');
+    if (consumptionStatus != 0) return consumptionStatus;
+    if (exchangeFiles.length + unknownExchangeEntries > 32 ||
+        exchangeIdentities[r.$2] != r.$3) {
+      return 4;
+    }
+    final current = exchangeFiles[r.$2];
+    if (current == null ||
+        current.length != r.$4.length ||
+        !List.generate(current.length, (i) => current[i] == r.$4[i])
+            .every((v) => v)) {
+      return 5;
+    }
+    exchangeFiles.remove(r.$2);
+    exchangeIdentities.remove(r.$2);
+    exchangeDeletes++;
+    return 0;
+  }
+
+  @override
+  int exchangeRelease(int version, int owner, Pointer<Uint8> ticket) {
+    final key = _readToken(ticket);
+    final r = exchangeReadTickets[key];
+    if (r == null || r.$1 != owner || !owners.containsKey(owner)) return 1;
+    exchangeReadTickets.remove(key);
+    exchangeReleases++;
+    if (throwRelease) throw StateError('synthetic release failure');
+    return releaseStatus;
+  }
+
   String _exchangeId(Pointer<Uint8> id) =>
       id.asTypedList(16).map((v) => v.toRadixString(16).padLeft(2, '0')).join();
   @override
@@ -304,6 +384,7 @@ final class FakeExternalNativeCalls
     tickets.removeWhere((_, owner) => owner == token);
     credentialTickets.removeWhere((_, entry) => entry.$1 == token);
     exchangeReceipts.removeWhere((_, entry) => entry.$1 == token);
+    exchangeReadTickets.removeWhere((_, entry) => entry.$1 == token);
     if (throwClose) throw StateError('synthetic private close detail');
     return closeStatus;
   }
