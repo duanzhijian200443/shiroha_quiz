@@ -1226,6 +1226,57 @@ Fixed Native object access and same-ticket epoch/high-water persistence use
 P19/P23/P25; P22 still owns the descriptor and independent trusted inputs.
 Discovery data supplies no P15 evidence, Pairing, Session or connection
 authority. No initial Pin or production consumer is introduced.
+
+P27-D0 freezes only the bounded bootstrap decisions in Windows readiness
+§9.C.5/§9.C.8/§9.D; it does not implement or activate P27. First trust requires
+an explicit trusted App public-material export and independent full-digest
+comparison on the Bridge, with no automatic TOFU or Discovery-selected anchor.
+App binds the initial digest to exact P22 Challenge bytes whose P24 creation
+AND identity-bound Submission counterpart consumption both succeeded; Bridge
+uses the original safely read, strictly decoded bytes, never a reconstructed
+DTO. Failed/unknown Submission consumption blocks App display and further
+Approval/Proof processing; an existing P15 request is not silently reset. Imported public inputs and comparison digests remain
+non-authorizing. Initial manual comparison must finish within the live Challenge;
+P27's concrete deadline cannot exceed 600 seconds, and extending the current
+30-second request requires matching P15 binding and regression changes. The
+post-verification private Evidence Window remains 30 seconds.
+
+Initial Bridge kind 4 persistence is ordered after confirmed Association CAS
+and P0 completion, followed by a separate trusted local two-surface manual
+completion check. Before displaying it, App freshly validates the actual
+persisted Association, exact identity, current management/runtime/generation
+and P0 `pairedDisabled`. The displayed committed Revision comes from that
+current record, not `expectedRevision + 1`. Bridge has no authenticated
+post-display signal of App invalidation; App withdraws invalidated displays,
+but cannot guarantee the Bridge observes withdrawal. The completion digest defined in
+§9.C.5 binds the original initial-trust digest, actual Revision and confirmed
+completion status. Bridge must retain the same in-memory Enrollment/key and
+require explicit manual confirmation before one Missing-only protected-store
+attempt. The Bridge's local monotonic, single-use confirmation window expires
+no later than 120 seconds after successful Proof publication, and cannot be
+renewed or used after Enrollment invalidation. That bound neither extends the
+Challenge deadline nor P15's 30-second Evidence Window. No fourth Exchange
+message, listener, implicit ACK, signed receipt or new authorization system is
+introduced; neither digest is P15 evidence or a continuous authorization
+credential. App-side invalidation after a valid display may not reach Bridge;
+kind 4 persistence never provides authorization and current Application checks
+remain mandatory. Current P15 private evidence production,
+CAS/idempotency, P0 state ownership and separate Enablement remain unchanged.
+
+Unknown CAS, P0 failure or lost completion acknowledgement supplies no manual
+completion confirmation and cannot authorize kind 4. Bridge save failure,
+unknown commit or resource-release failure never triggers an automatic retry;
+existing valid credentials, corruption and Pin conflicts are not overwritten.
+If App completed but Bridge exits before persistence, its unpersisted key is
+lost and an unusable Association may remain. This availability cost is accepted:
+no Association residue, manual digest or stored credential restores Paired,
+Sessions or Enablement. Later explicit protected reads establish storage facts
+only. Recovery uses the existing trusted fresh-runtime/standard-Pairing flow,
+including revoke-first when a new credential replaces an active Association.
+The readiness failure matrix owns each interruption boundary; no cross-process
+atomicity, new cancel/reset API, background recovery or implementation authority
+is inferred from this documentation amendment.
+
 M1–M4 real security remain WINDOWS_PENDING; G0 and X0–X12 are unapproved and
 not run. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
 AR-R6A = NOT_ACCEPTED. No Codex process-brand authentication is claimed.
