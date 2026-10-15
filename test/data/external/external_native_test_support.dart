@@ -47,6 +47,7 @@ final class FakeExternalNativeCalls
   final tickets = <int, int>{};
 
   final credentialFiles = <int, Uint8List>{};
+  void Function(int kind)? beforeCredentialBegin;
   final exchangeFiles = <(int, String), Uint8List>{};
   final exchangeIdentities = <(int, String), int>{};
   final exchangeReceipts = <int, (int, (int, String), int)>{};
@@ -112,6 +113,7 @@ final class FakeExternalNativeCalls
   @override
   int credentialBegin(int version, int owner, int kind, Pointer<Uint8> output,
       int capacity, Pointer<Uint64> written, Pointer<Uint64> ticket) {
+    beforeCredentialBegin?.call(kind);
     written.value = 0;
     ticket.value = 0;
     if (![1, 2, 4].contains(kind) || owners[owner] != (kind == 4 ? 2 : 1)) {

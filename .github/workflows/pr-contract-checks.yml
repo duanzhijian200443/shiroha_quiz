@@ -467,6 +467,7 @@ jobs:
             'test/data/external/association_object_codec_test.dart',
             'test/data/external/windows_credential_association_store_test.dart',
             'test/data/external/windows_credential_object_store_test.dart',
+            'test/data/external/windows_credential_initialization_test.dart',
             'test/data/external/external_certificate_der_test.dart',
             'test/data/external/external_credential_object_codec_test.dart',
             'test/data/external/windows_external_crypto_test.dart',

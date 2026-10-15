@@ -1216,6 +1216,11 @@ P24's inactive Exchange file-I/O candidate is owned by Windows readiness §16.
 Its fixed-kind/ID Native access, P22-decoded public DTOs and creator-only cleanup
 receipts supply no verification evidence, pairing transition, consumption order
 or association commit. P0/P15 remain the only owners of those decisions.
+P25's inactive credential initialization and restricted Client leaf issuer are
+owned by Windows readiness §17. An issued leaf and its exact-DER digest remain
+public correlation material: neither proves Client possession nor creates a
+Principal, PairingProof, Session, Association, Grant or Enablement. No production
+consumer calls this infrastructure; P27 enrollment remains separately scoped.
 M1–M4 real security remain WINDOWS_PENDING; G0 and X0–X12 are unapproved and
 not run. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
 AR-R6A = NOT_ACCEPTED. No Codex process-brand authentication is claimed.

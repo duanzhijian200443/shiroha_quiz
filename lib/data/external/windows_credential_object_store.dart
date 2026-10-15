@@ -87,6 +87,34 @@ final class WindowsCredentialObjectStore {
     }
   }
 
+  /// Creates only when Missing under one held Owner ticket. The synchronous
+  /// factory runs after the existence check; an existing object never invokes
+  /// it. Returns false for an existing strictly decoded object, without writing.
+  /// Factory output is owned and wiped here. No uncertain commit is retried.
+  bool createIfMissing(int kind, ExternalCredentialObject Function() create) {
+    final transaction = _native(() => _owner.beginCredential(kind));
+    ExternalCredentialObject? previous, created;
+    Uint8List? plaintext, ciphertext;
+    try {
+      previous = _decode(transaction, kind);
+      if (previous != null) return false;
+      created = create();
+      if (created.kind != kind) {
+        credentialFail(ExternalCredentialFailure.invalidInput);
+      }
+      plaintext = ExternalCredentialObjectCodec.encode(created);
+      ciphertext = _native(() => _owner.protectCredential(plaintext!));
+      _native(() => transaction.commit(ciphertext!));
+      return true;
+    } finally {
+      plaintext?.fillRange(0, plaintext.length, 0);
+      ciphertext?.fillRange(0, ciphertext.length, 0);
+      _wipe(previous);
+      _wipe(created);
+      _native(transaction.abort);
+    }
+  }
+
   static void _wipe(ExternalCredentialObject? object) {
     final fields = switch (object) {
       ExternalIssuerKeyPair() => [
