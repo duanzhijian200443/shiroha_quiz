@@ -115,7 +115,10 @@ The P20 Data adapter `WindowsCredentialAssociationStore` implements the existing
 P15 association port using strict kind 3 plaintext, user-scope DPAPI and the
 parent-bound Native file transaction. It adds no verifier or Application authority
 and stays absent from startup, Agent/MCP and P12/P15 runtime composition.
-The readiness contract sections 10–12 own these production source slices and
+The inactive P21 Infrastructure candidate adds P-256/PKCS#8 primitives, strict
+credential/certificate codecs and an explicit crypto adapter in the same helper;
+no Application/Domain certificate or Windows dependency is introduced.
+The readiness contract sections 10–13 own these production source slices and
 their pending Windows acceptance.
 
 Persistence formats and provider formats are implementation details, not public application contracts.

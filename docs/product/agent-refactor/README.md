@@ -20,7 +20,9 @@ in merged PR #265. P15 offline Credential boundary IMPLEMENTATION CANDIDATE.
 P16 production primitive freeze accepted as a static decision in merged PR #267;
 P17 tiered experiment-gate / X.509 encoding amendment is documentation only;
 P18 Native Helper/FFI production source slice has G0-L0 evidence, real Windows
-functionality LOCAL-L1 PENDING.**
+functionality LOCAL-L1 PENDING; P19 protected-object and P20 association source
+slices are merged, with PR #277 isolated-root P20 functional evidence;
+P21 credential/certificate primitives are an inactive G0-L0 candidate.**
 
 The Provider seam, typed capability/executor/projection path and Runtime split/
 transcript are delivered in the preceding merged stages. Historical AR-R3
@@ -140,8 +142,15 @@ owns the ABI/ownership/failure contract. Local native compilation/export checks
 and fake-only core/Dart tests establish G0-L0 mechanical evidence, not real
 Windows functionality. No Credential Store, protected root, key/certificate,
 Host or Bridge composition is supplied; LOCAL-L1 remains PENDING.
-Next scoped Package 1 work prioritizes protected file objects, NTFS validation
-and the exclusive writer locks before wiring a versioned DPAPI store.
+P19 and P20 are merged source slices under readiness §§11–12: protected
+objects/single-writer ownership and the kind 3 association backend. Merged
+PR #277 records isolated-root first-create, replacement and DPAPI readback
+with no temporary residue. Production-root/full Windows acceptance remains
+pending; this is neither G0-I nor transport/Host acceptance.
+P21's current candidate under readiness §13 supplies inactive P-256 primitives,
+PKCS#8 conversion, raw/DER signatures, X.509 structure/vector checks and strict
+kind 1/2/4 codecs with a minimal explicit Dart adapter. It is G0-L0 only,
+without production credentials, store publication or runtime activation.
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 Production Host/IPC, MCP vNext and READ fallback continuation remain unimplemented
 targets. Current product behavior

@@ -26,10 +26,57 @@ enum ShirohaNativeStatus {
   SHIROHA_NATIVE_UNAVAILABLE = 4,
   SHIROHA_NATIVE_DATA_CORRUPT = 5,
   SHIROHA_NATIVE_MISSING = 6,
-  SHIROHA_NATIVE_COMMIT_UNKNOWN = 7
+  SHIROHA_NATIVE_COMMIT_UNKNOWN = 7,
+  // ABI-3 additive: returned only by the ECDSA verification export below when a
+  // well-formed key/digest/signature triple does not verify. It never replaces
+  // or renumbers an existing status, and pre-P21 callers never observe it.
+  SHIROHA_NATIVE_VERIFICATION_REJECTED = 8
 };
 
 enum ShirohaNativeOwner { SHIROHA_NATIVE_APP = 1, SHIROHA_NATIVE_BRIDGE = 2 };
+
+// ABI-3 additive ECDSA P-256 / SHA-256 primitives (frozen P16 section 9.A.2). They
+// accept ABI 3 only, never 1/2, and add no new ABI number: the twelve P18-P20
+// exports keep byte-identical signatures and semantics, so an existing ABI-3
+// caller is unaffected. A caller that needs these symbols must load them
+// explicitly; absence means an older helper, never a downgraded operation.
+// All spans are borrowed, live, disjoint storage of the stated extent; output
+// and disjoint count storage is cleared before work and on failure; aliased /
+// invalid spans are unusable and remain untouched. Private-key /
+// signature buffers are wiped on every failure path. No C++ object, container
+// or exception crosses this boundary. Callers must dispose of their own copies.
+#define SHIROHA_NATIVE_ECDSA_PKCS8_MAX 256u
+#define SHIROHA_NATIVE_ECDSA_POINT_BYTES 65u
+#define SHIROHA_NATIVE_ECDSA_DIGEST_BYTES 32u
+#define SHIROHA_NATIVE_ECDSA_RAW_BYTES 64u
+
+// Generates a fresh P-256 key pair. Writes PKCS#8 DER (1..256 bytes) and the
+// 65-byte uncompressed point (0x04 || X || Y). Real CNG key generation is a
+// G0-L1 operation; this export is never invoked by G0-L0 tests.
+SHIROHA_NATIVE_API int32_t SHIROHA_NATIVE_CALL shiroha_native_ecdsa_generate_key(
+    uint32_t version, uint8_t* private_key, uint64_t private_capacity,
+    uint64_t* private_written, uint8_t* public_key, uint64_t public_capacity,
+    uint64_t* public_written);
+
+// Public point is explicit (65 bytes), including for PKCS#8 without a SEC1
+// publicKey. CNG validates the full private/public pair. Signature capacity=64;
+// generated public capacity=65; private capacity is bounded at 256.
+// Signs one 32-byte SHA-256 digest and writes the fixed 64-byte raw r||s.
+// The DER ECDSA-Sig-Value form used by X.509 is a separate conversion owned by
+// the certificate encoder; this export never emits DER.
+SHIROHA_NATIVE_API int32_t SHIROHA_NATIVE_CALL shiroha_native_ecdsa_sign_digest(
+    uint32_t version, const uint8_t* private_key, uint64_t private_length,
+    const uint8_t* public_key, uint64_t public_length,
+    const uint8_t* digest, uint64_t digest_length, uint8_t* signature,
+    uint64_t signature_capacity, uint64_t* signature_written);
+
+// Verifies one 64-byte raw r||s over a 32-byte SHA-256 digest. OK means the
+// signature verified; VERIFICATION_REJECTED means it did not; malformed input,
+// wrong curve or wrong size is INVALID_INPUT / DATA_CORRUPT and never OK.
+SHIROHA_NATIVE_API int32_t SHIROHA_NATIVE_CALL shiroha_native_ecdsa_verify_digest(
+    uint32_t version, const uint8_t* public_key, uint64_t public_length,
+    const uint8_t* digest, uint64_t digest_length, const uint8_t* signature,
+    uint64_t signature_length);
 
 // Owner calls accept ABI 2/3. No caller paths/HANDLEs. token is aligned, live uint64_t storage.
 // Success transfers a process-local owner token (never reused); failure sets 0.
