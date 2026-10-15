@@ -343,7 +343,7 @@ acceptance remain separately unimplemented/pending. No ABI, P0/P12/P15 state,
 P9/P10, schema/B0, S0 or activation gate changes. HOST_STABILITY_HALT = ACTIVE;
 TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 
-P23 adds the inactive Protected Credential Object Store G0-L0 candidate under
+P23, merged in PR #281, adds the inactive Protected Credential Object Store G0-L0 candidate under
 [Windows readiness §15](../product/agent-refactor/windows-host-security-readiness.md#15-p23-protected-credential-object-store-candidate-g0-l0-only):
 SOURCE IMPLEMENTED / OFFLINE TESTED fixed kinds 1/2/4, shared owner transaction
 exclusion with P20, strict P21 object decoding, P18 DPAPI and Win32
@@ -353,6 +353,20 @@ and FORMAL ACCEPTANCE PENDING include these new objects; P20's isolated-root
 functional result is not extended. Initialization, issuance/rotation, Pairing,
 Discovery/exchange I/O, Transport and Host activation remain outside this slice.
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
+
+P24 adds the inactive Protected Exchange File-I/O G0-L0 candidate under
+[Windows readiness §16](../product/agent-refactor/windows-host-security-readiness.md#16-protected-exchange-file-io-source-candidate-p24-g0-l0-only):
+SOURCE IMPLEMENTED / OFFLINE TESTED fixed-kind/ID Native Exchange create/read
+and creator-only cleanup beneath the App-created exchange directory, with
+strict P22 codec boundaries, bounded 1024/4096/256 caps and a
+directory-identity-bound short cross-process quota exclusion. ABI 3 adds three
+optional exports; the original eighteen retain their signatures and behavior.
+REAL WINDOWS PENDING and FORMAL ACCEPTANCE PENDING include named-mutex
+cross-process/cross-session behavior, NTFS/DACL/parent/reparse enforcement and
+handle-based deletion; P20's isolated-root functional result is not extended.
+Consumption authority (P27), Pairing, Discovery publication, Transport and Host
+activation remain outside this slice. HOST_STABILITY_HALT = ACTIVE;
+TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 
 The retained target is Codex/Claude MCP Bridge → Shiroha External Host →
 authenticated and authorized question-bank READ/STAGE services.

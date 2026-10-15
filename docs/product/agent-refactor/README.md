@@ -23,8 +23,8 @@ P18 Native Helper/FFI production source slice has G0-L0 evidence, real Windows
 functionality LOCAL-L1 PENDING; P19 protected-object and P20 association source
 slices are merged, with PR #277 isolated-root P20 functional evidence;
 P21 credential/certificate primitives are merged in PR #278, inactive G0-L0;
-P22 is merged in PR #280; P23 adds inactive G0-L0 fixed credential-object
-transactions and persistence only.**
+P22 is merged in PR #280; P23 is merged in PR #281; P24 adds inactive G0-L0
+protected Exchange file I/O with creator-only cleanup only.**
 
 The Provider seam, typed capability/executor/projection path and Runtime split/
 transcript are delivered in the preceding merged stages. Historical AR-R3
@@ -158,12 +158,19 @@ and Discovery descriptor codecs, fixed public vectors and pure validation agains
 explicit trusted inputs. Decoded DTOs/signature results supply no P15 authority.
 No file publisher/reader, actual crypto operation, pairing flow, Host/Bridge or
 transport is activated; this is G0-L0 format/validation implementation only.
-P23 under readiness §15 adds SOURCE IMPLEMENTED / OFFLINE TESTED fixed kind
+P23, merged in PR #281, under readiness §15 adds SOURCE IMPLEMENTED / OFFLINE TESTED fixed kind
 1/2/4 protected-object transactions and `WindowsCredentialObjectStore`, with
 strict existing-object decoding, user-scope DPAPI and Win32 handle-relative
 publication. ABI 3 adds three optional exports while preserving P20 behavior.
 REAL WINDOWS PENDING / FORMAL ACCEPTANCE PENDING remain explicit; no credential
 initialization, signing/rotation, Pairing, Discovery I/O or startup is activated.
+P24 under readiness §16 adds SOURCE IMPLEMENTED / OFFLINE TESTED fixed-kind/ID
+Native Exchange create/read and creator-only cleanup with strict P22 codec
+boundaries and directory-identity-bound cross-process quota exclusion. ABI 3
+adds three optional exports while preserving all eighteen existing exports.
+REAL WINDOWS PENDING / FORMAL ACCEPTANCE PENDING remain explicit; no Pairing
+transition, consumption order, credential ticket, Host/Bridge activation or
+startup is supplied. P20's isolated-root functional result is not extended.
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 Production Host/IPC, MCP vNext and READ fallback continuation remain unimplemented
 targets. Current product behavior
