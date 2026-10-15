@@ -117,6 +117,25 @@ SHIROHA_NATIVE_API int32_t SHIROHA_NATIVE_CALL shiroha_native_credential_commit(
 SHIROHA_NATIVE_API int32_t SHIROHA_NATIVE_CALL shiroha_native_credential_abort(
     uint32_t version, uint64_t owner, uint64_t ticket);
 
+// Optional ABI-3 P24 capability. Kind 1=submission (Bridge writes/App reads),
+// 2=challenge (App writes/Bridge reads), 3=proof (Bridge writes/App reads).
+// id is exactly 16 borrowed bytes; native constructs the ONLY legal basename.
+// All spans/counts are live and disjoint; valid outputs clear on failure.
+// Caps: 1024/4096/256. No P22 parsing/authorization is implied by raw I/O.
+// Create-new never overwrites. Success returns a process-local, owner-bound
+// creator receipt with a retained identity pin (32 max). No read/delete-on-read.
+// Cleanup consumes one creator receipt on every result, reopens the exact name
+// under the verified directory and deletes by verified handle only on identity
+// match. Owner close drops pins WITHOUT deleting files. No retry or sweep.
+SHIROHA_NATIVE_API int32_t SHIROHA_NATIVE_CALL shiroha_native_exchange_create(
+    uint32_t version, uint64_t owner, uint32_t kind, const uint8_t* id,
+    const uint8_t* input, uint64_t length, uint64_t* receipt);
+SHIROHA_NATIVE_API int32_t SHIROHA_NATIVE_CALL shiroha_native_exchange_read(
+    uint32_t version, uint64_t owner, uint32_t kind, const uint8_t* id,
+    uint8_t* output, uint64_t capacity, uint64_t* written);
+SHIROHA_NATIVE_API int32_t SHIROHA_NATIVE_CALL shiroha_native_exchange_cleanup(
+    uint32_t version, uint64_t owner, uint64_t receipt);
+
 SHIROHA_NATIVE_API uint32_t SHIROHA_NATIVE_CALL shiroha_native_abi_version(void);
 
 // Helper allocates zero-initialized, 8-byte-aligned storage (1..MAX_BYTES).

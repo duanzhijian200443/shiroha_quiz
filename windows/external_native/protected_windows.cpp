@@ -35,7 +35,7 @@ auto create_function() noexcept -> decltype(&NtCreateFile) {
 struct SecurityRecipe {
   SECURITY_DESCRIPTOR descriptor{};
   std::vector<uint8_t> acl;
-  bool build(const Sid& sid, bool directory) {
+  bool build(const Sid& sid, bool directory, DWORD access = FILE_ALL_ACCESS) {
     if (sid.empty() || !IsValidSid(const_cast<uint8_t*>(sid.data())) ||
         GetLengthSid(const_cast<uint8_t*>(sid.data())) != sid.size()) return false;
     const auto size = sizeof(ACL) + sizeof(ACCESS_ALLOWED_ACE) - sizeof(DWORD) + sid.size();
@@ -46,7 +46,7 @@ struct SecurityRecipe {
         InitializeAcl(dacl, static_cast<DWORD>(size), ACL_REVISION) &&
         AddAccessAllowedAceEx(dacl, ACL_REVISION,
             directory ? CONTAINER_INHERIT_ACE | OBJECT_INHERIT_ACE : 0,
-            FILE_ALL_ACCESS, const_cast<uint8_t*>(sid.data())) &&
+            access, const_cast<uint8_t*>(sid.data())) &&
         SetSecurityDescriptorDacl(&descriptor, TRUE, dacl, FALSE) &&
         SetSecurityDescriptorControl(&descriptor, SE_DACL_PROTECTED, SE_DACL_PROTECTED);
   }
@@ -230,6 +230,111 @@ class WindowsObjects final : public ObjectOperations {
   int32_t credential_replace(HANDLE temporary, HANDLE directory, uint32_t kind, bool existing) override {
     return rename_credential(SetFileInformationByHandle, temporary, directory, kind, existing);
   }
+  int32_t exchange_lock(const ObjectInfo& directory, const Sid& sid, HANDLE& result) override {
+    result = nullptr;
+    // Cross-session Exchange quota serialization. No extra directory entry.
+    const auto name = L"Global\\Shiroha.Exchange." + std::to_wstring(directory.volume) + L"." + std::to_wstring(directory.file);
+    SecurityRecipe recipe;
+    if (!recipe.build(sid, false, MUTEX_ALL_ACCESS)) return SHIROHA_NATIVE_UNAVAILABLE;
+    SECURITY_ATTRIBUTES attributes{sizeof(SECURITY_ATTRIBUTES), &recipe.descriptor, FALSE};
+    WinHandle mutex;
+    mutex.value = CreateMutexExW(&attributes, name.c_str(), 0, MUTEX_ALL_ACCESS);
+    if (!mutex.value) return SHIROHA_NATIVE_UNAVAILABLE;
+    LocalAllocation security;
+    PSID owner = nullptr;
+    PACL dacl = nullptr;
+    if (GetSecurityInfo(mutex.value, SE_KERNEL_OBJECT, OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+        &owner, nullptr, &dacl, nullptr, &security.value) != ERROR_SUCCESS || !security.value ||
+        !IsValidSecurityDescriptor(security.value) || !owner || !IsValidSid(owner) ||
+        !EqualSid(owner, const_cast<uint8_t*>(sid.data()))) return SHIROHA_NATIVE_UNAVAILABLE;
+    BOOL present = FALSE, defaulted = FALSE;
+    SECURITY_DESCRIPTOR_CONTROL control = 0;
+    DWORD revision = 0;
+    if (!GetSecurityDescriptorDacl(security.value, &present, &dacl, &defaulted) || !present || !dacl ||
+        !IsValidAcl(dacl) || !GetSecurityDescriptorControl(security.value, &control, &revision) ||
+        !(control & SE_DACL_PROTECTED) || dacl->AceCount != 1) return SHIROHA_NATIVE_UNAVAILABLE;
+    void* ace = nullptr;
+    if (!GetAce(dacl, 0, &ace) || !ace) return SHIROHA_NATIVE_UNAVAILABLE;
+    const auto* allowed = static_cast<const ACCESS_ALLOWED_ACE*>(ace);
+    if (allowed->Header.AceType != ACCESS_ALLOWED_ACE_TYPE || allowed->Header.AceFlags != 0 ||
+        allowed->Header.AceSize != sizeof(ACCESS_ALLOWED_ACE) - sizeof(DWORD) + sid.size() ||
+        allowed->Mask != MUTEX_ALL_ACCESS || !IsValidSid(const_cast<DWORD*>(&allowed->SidStart)) ||
+        GetLengthSid(const_cast<DWORD*>(&allowed->SidStart)) != sid.size() ||
+        !EqualSid(const_cast<DWORD*>(&allowed->SidStart), const_cast<uint8_t*>(sid.data()))) return SHIROHA_NATIVE_UNAVAILABLE;
+    const auto wait = WaitForSingleObject(mutex.value, 0);
+    if (wait == WAIT_ABANDONED) { ReleaseMutex(mutex.value); return SHIROHA_NATIVE_UNAVAILABLE; }
+    if (wait != WAIT_OBJECT_0) return SHIROHA_NATIVE_UNAVAILABLE;
+    result = mutex.value; mutex.value = nullptr;
+    return SHIROHA_NATIVE_OK;
+  }
+  bool exchange_unlock(HANDLE mutex) noexcept override {
+    const bool released = ReleaseMutex(mutex) != FALSE;
+    const bool closed = CloseHandle(mutex) != FALSE;
+    return released && closed;
+  }
+  int32_t exchange_count(HANDLE directory, size_t& count) override {
+    count = 0;
+    alignas(FILE_ID_BOTH_DIR_INFO) uint8_t buffer[65536]{};
+    bool first = true;
+    for (;;) {
+      SecureZeroMemory(buffer, sizeof(buffer));
+      if (!GetFileInformationByHandleEx(directory,
+          first ? FileIdBothDirectoryRestartInfo : FileIdBothDirectoryInfo, buffer, sizeof(buffer)))
+        return GetLastError() == ERROR_NO_MORE_FILES ? SHIROHA_NATIVE_OK : SHIROHA_NATIVE_UNAVAILABLE;
+      first = false;
+      size_t offset = 0;
+      for (;;) {
+        const auto base = offsetof(FILE_ID_BOTH_DIR_INFO, FileName);
+        if (offset > sizeof(buffer) - base) return SHIROHA_NATIVE_UNAVAILABLE;
+        const auto* info = reinterpret_cast<const FILE_ID_BOTH_DIR_INFO*>(buffer + offset);
+        if (info->FileNameLength % 2 || info->FileNameLength > sizeof(buffer) - offset - base) return SHIROHA_NATIVE_UNAVAILABLE;
+        const std::wstring name(info->FileName, info->FileNameLength / 2);
+        // ALL objects count, including directories, unknown names and leftovers.
+        if (name != L"." && name != L".." && ++count > 32) return SHIROHA_NATIVE_OK;
+        if (!info->NextEntryOffset) break;
+        if (info->NextEntryOffset < base || info->NextEntryOffset % alignof(FILE_ID_BOTH_DIR_INFO) ||
+            info->NextEntryOffset > sizeof(buffer) - offset - base) return SHIROHA_NATIVE_UNAVAILABLE;
+        offset += info->NextEntryOffset;
+      }
+    }
+  }
+  int32_t exchange_open(HANDLE directory, const std::wstring& name, uint32_t mode,
+                        const Sid& sid, HANDLE& result) override {
+    result = nullptr;
+    if (!safe_component(name) || mode > 3) return SHIROHA_NATIVE_INVALID_INPUT;
+    SecurityRecipe security;
+    if (mode == 0 && !security.build(sid, false)) return SHIROHA_NATIVE_UNAVAILABLE;
+    ACCESS_MASK access = READ_CONTROL | FILE_READ_ATTRIBUTES | SYNCHRONIZE;
+    if (mode != 3) access |= FILE_READ_DATA;
+    if (mode == 0) access |= FILE_WRITE_DATA;
+    if (mode == 3) access |= DELETE;
+    WinHandle acquired;
+    const auto status = open_native(directory, name, false, true, mode == 0 ? FILE_CREATE : FILE_OPEN,
+        mode == 0 ? &security.descriptor : nullptr, acquired.value, access,
+        mode == 2 ? FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE : FILE_SHARE_READ);
+    if (status == static_cast<NTSTATUS>(0xC0000034u)) return SHIROHA_NATIVE_MISSING;
+    if (status != 0) return SHIROHA_NATIVE_UNAVAILABLE;
+    // Reject an on-disk casing alias on normal case-insensitive NTFS as well.
+    alignas(FILE_NAME_INFO) uint8_t bytes[65536]{};
+    if (!GetFileInformationByHandleEx(acquired.value, FileNameInfo, bytes, sizeof(bytes))) return SHIROHA_NATIVE_UNAVAILABLE;
+    const auto* info = reinterpret_cast<const FILE_NAME_INFO*>(bytes);
+    if (info->FileNameLength % 2 || info->FileNameLength > sizeof(bytes) - offsetof(FILE_NAME_INFO, FileName)) return SHIROHA_NATIVE_UNAVAILABLE;
+    const std::wstring actual(info->FileName, info->FileNameLength / 2);
+    if (actual.substr(actual.find_last_of(L'\\') + 1) != name) return SHIROHA_NATIVE_UNAVAILABLE;
+    result = acquired.value; acquired.value = nullptr;
+    return SHIROHA_NATIVE_OK;
+  }
+  int32_t exchange_read(HANDLE file, size_t maximum, std::vector<uint8_t>& output) override {
+    LARGE_INTEGER size{};
+    if (!GetFileSizeEx(file, &size)) return SHIROHA_NATIVE_UNAVAILABLE;
+    if (size.QuadPart <= 0 || static_cast<uint64_t>(size.QuadPart) > maximum) return SHIROHA_NATIVE_DATA_CORRUPT;
+    return read_file(file, output);
+  }
+  int32_t exchange_delete(HANDLE file) override {
+    FILE_DISPOSITION_INFO disposition{TRUE};
+    return SetFileInformationByHandle(file, FileDispositionInfo, &disposition, sizeof(disposition))
+        ? SHIROHA_NATIVE_OK : SHIROHA_NATIVE_UNAVAILABLE;
+  }
   int32_t read_file(HANDLE file, std::vector<uint8_t>& output) override {
     LARGE_INTEGER size{}, after{};
     if (!GetFileSizeEx(file, &size)) return SHIROHA_NATIVE_UNAVAILABLE;
@@ -371,4 +476,15 @@ int32_t SHIROHA_NATIVE_CALL shiroha_native_credential_commit(uint32_t version, u
 }
 int32_t SHIROHA_NATIVE_CALL shiroha_native_credential_abort(uint32_t version, uint64_t owner, uint64_t ticket) {
   return owners.credential_abort(version, owner, ticket);
+}
+int32_t SHIROHA_NATIVE_CALL shiroha_native_exchange_create(uint32_t version, uint64_t owner,
+    uint32_t kind, const uint8_t* id, const uint8_t* input, uint64_t length, uint64_t* receipt) {
+  return owners.exchange_create(version, owner, kind, id, input, length, receipt);
+}
+int32_t SHIROHA_NATIVE_CALL shiroha_native_exchange_read(uint32_t version, uint64_t owner,
+    uint32_t kind, const uint8_t* id, uint8_t* output, uint64_t capacity, uint64_t* written) {
+  return owners.exchange_read(version, owner, kind, id, output, capacity, written);
+}
+int32_t SHIROHA_NATIVE_CALL shiroha_native_exchange_cleanup(uint32_t version, uint64_t owner, uint64_t receipt) {
+  return owners.exchange_cleanup(version, owner, receipt);
 }

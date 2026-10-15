@@ -46,6 +46,14 @@ struct ObjectOperations {
   virtual int32_t write_file(HANDLE, const uint8_t*, uint64_t) { return SHIROHA_NATIVE_UNAVAILABLE; }
   virtual int32_t flush_file(HANDLE) { return SHIROHA_NATIVE_UNAVAILABLE; }
   virtual int32_t replace_file(HANDLE, HANDLE, bool) { return SHIROHA_NATIVE_COMMIT_UNKNOWN; }
+  // P24: short-lived Exchange-only cross-process exclusion, not a store ticket.
+  virtual int32_t exchange_lock(const ObjectInfo&, const Sid&, HANDLE&) { return SHIROHA_NATIVE_UNAVAILABLE; }
+  virtual bool exchange_unlock(HANDLE) noexcept { return false; }
+  virtual int32_t exchange_count(HANDLE, size_t&) { return SHIROHA_NATIVE_UNAVAILABLE; }
+  // mode: 0=create-new, 1=read, 2=identity pin, 3=identity-bound deletion.
+  virtual int32_t exchange_open(HANDLE, const std::wstring&, uint32_t, const Sid&, HANDLE&) { return SHIROHA_NATIVE_UNAVAILABLE; }
+  virtual int32_t exchange_read(HANDLE, size_t, std::vector<uint8_t>&) { return SHIROHA_NATIVE_UNAVAILABLE; }
+  virtual int32_t exchange_delete(HANDLE) { return SHIROHA_NATIVE_UNAVAILABLE; }
 };
 
 bool safe_component(const std::wstring& name) noexcept;
@@ -79,11 +87,20 @@ class ProtectedObjects final {
   int32_t credential_begin(uint32_t, uint64_t, uint32_t, uint8_t*, uint64_t, uint64_t*, uint64_t*) noexcept;
   int32_t credential_commit(uint32_t, uint64_t, uint64_t, const uint8_t*, uint64_t) noexcept;
   int32_t credential_abort(uint32_t, uint64_t, uint64_t) noexcept;
+  int32_t exchange_create(uint32_t, uint64_t, uint32_t, const uint8_t*, const uint8_t*, uint64_t, uint64_t*) noexcept;
+  int32_t exchange_read(uint32_t, uint64_t, uint32_t, const uint8_t*, uint8_t*, uint64_t, uint64_t*) noexcept;
+  int32_t exchange_cleanup(uint32_t, uint64_t, uint64_t) noexcept;
  private:
   int32_t begin(uint32_t, uint64_t, uint32_t, uint8_t*, uint64_t, uint64_t*, uint64_t*) noexcept;
   int32_t commit(uint32_t, uint64_t, uint64_t, bool, const uint8_t*, uint64_t, CommitDiagnostic*) noexcept;
   int32_t abort(uint32_t, uint64_t, uint64_t, bool) noexcept;
   struct Pin { HANDLE handle = nullptr; ObjectInfo identity; bool owner, dacl; };
+  struct ExchangeReceipt {
+    uint64_t token = 0;
+    HANDLE pin = nullptr;
+    ObjectInfo identity;
+    std::wstring name;
+  };
   struct Lease {
     uint64_t token = 0;
     std::vector<Pin> pins;
@@ -95,6 +112,8 @@ class ProtectedObjects final {
     ObjectInfo target_identity;
     bool missing = false;
     std::wstring runtime_id;
+    Pin exchange{}; // Separate from the unchanged P19/P20/P23 pin layout.
+    std::array<ExchangeReceipt, 32> exchange_receipts{};
   };
   int32_t add(Lease& lease, HANDLE parent, const wchar_t* name,
               bool directory, const Sid& sid, bool dacl, bool create = true);
@@ -106,6 +125,9 @@ class ProtectedObjects final {
   int32_t check(Lease&, Sid&);
   int32_t target_current(Lease&, const Sid&);
   bool finish(Lease&) noexcept;
+  int32_t exchange_directory(Lease&, Sid&);
+  int32_t exchange_operation(uint64_t, uint32_t, const uint8_t*, const uint8_t*, uint64_t,
+      uint8_t*, uint64_t, uint64_t*, uint64_t*, bool);
   ObjectOperations& ops_;
   const OpenMode mode_;
   std::mutex mutex_;

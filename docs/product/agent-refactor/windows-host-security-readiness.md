@@ -2333,3 +2333,99 @@ certificate issuance/rotation/chain acceptance, Discovery/exchange I/O, Pairing,
 Transport, Host/Bridge process or main.dart activation is supplied.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
+
+## 16. Protected Exchange file-I/O source candidate (P24, G0-L0 only)
+
+This responsibility slice adds inactive Native/FFI I/O and
+`WindowsExchangeFileStore`; P24 is an implementation identifier, not a new
+frozen business stage. Sections 9.B.4/9.C.5/9.D and P0/P15 remain unchanged.
+No Composition Root references the adapter. The three fixed objects are:
+
+| Kind | Exact basename | Creator | Reader | Byte cap |
+|---|---|---|---|---|
+| 1 | `submission-<32lowerhex>.pub` | Bridge | App | 1024 |
+| 2 | `pairing-<32lowerhex>.chal` | App | Bridge | 4096 |
+| 3 | `proof-<32lowerhex>.bin` | Bridge | App | 256 |
+
+The optional ABI-3 additions are `shiroha_native_exchange_create`,
+`shiroha_native_exchange_read` and `shiroha_native_exchange_cleanup`, all
+`__cdecl` fixed-width calls. Existing eighteen exports retain their signatures
+and behavior. Missing optional symbols fail closed; no alternate library,
+version downgrade or ordinary Dart file fallback exists. Create/Read accept
+only an owner token, fixed kind and sixteen borrowed raw ID bytes; Native
+constructs the basename. Buffers/counts are borrowed, bounded and disjoint;
+valid read/count/receipt output is cleared on failure. Native binds the fixed
+magic/version/ID and enforces byte caps, but does not duplicate P22's parser.
+The Data adapter runs the complete existing P22 codec before creation and
+after every read, including exact basename/internal-ID binding. Raw I/O and
+decoded DTOs never establish possession, approval, trust or consumption.
+
+Exchange opens reuse P19's current-user SID, exact protected owner-only DACL,
+local fixed NTFS, no-reparse and parent-handle checks. Each operation opens
+`exchange` existing-only beneath the pinned `external` directory; Bridge cannot
+initialize or repair this App-owned directory. Its additional Exchange pin
+stays outside P19/P20/P23's unchanged credential-directory layout. Bridge
+retains only its own `bridge/client.lock`; no App trust/state/discovery access
+or `runtime.lock` acquisition is granted. Credential-store read/CAS/commit
+tickets and their locks do not serialize Exchange operations.
+
+Count-then-create alone is insufficient: independent App/Bridge processes can
+both observe 31 entries before either creates. The minimal supplemental
+mechanism is a short-lived kernel mutex named
+`Global\Shiroha.Exchange.<volumeSerial>.<directoryFileIndex>`, derived only
+from the verified directory identity. Creation supplies a protected DACL with
+one current-SID allow ACE for MUTEX_ALL_ACCESS; every open verifies that exact
+owner/DACL/ACE recipe through SE_KERNEL_OBJECT. Acquisition uses a zero-time
+wait; contention, wrong type/security or abandonment returns unavailable with
+no file mutation. The abandoned acquisition is released and never continues
+the interrupted operation. This is quota serialization only, not a global
+authorization registry, store transaction or Pairing state machine.
+
+While holding that guard, Native revalidates pins, counts every non-dot entry
+(including unknown names, directories and crash leftovers) and performs one
+operation. At 32 entries creation is refused; above 32 reads/creates are
+unavailable. No sweep frees capacity. CREATE_NEW never opens or truncates a
+collision. The creator completes write/flush and identity/security checks
+before success; readers cannot share an outstanding writer. Read buffers are
+size-bounded before allocation/read, then identity/security are checked again.
+The actual opened basename must also match exactly, rejecting a disk casing
+alias. Normal create/read/delete opens deny delete sharing while the decision
+uses the handle. There is no rename/replace operation. The quota serializes
+cooperating helper operations; hostile same-SID modifications remain inside
+the existing §9.B.5/9.D risk boundary, not a new same-SID isolation claim.
+
+Create returns an opaque, owner-bound creator receipt only after success. Its
+retained read-only handle pins the file identity before the write handle closes,
+preventing file-index recycling from becoming cleanup authority. At most 32
+such pins exist per owner, in addition to its bounded directory/lock pins.
+Explicit Cleanup consumes one receipt on every outcome, validates both that
+pin and a fresh relative open against the captured volume/file identity and
+full security recipe, then uses FileDispositionInfo on that verified handle.
+An unrelated owner, substituted name/object, changed security or unknown
+identity cannot be deleted. Failed handle release quarantines ownership and
+never retries a potentially stale HANDLE. Owner close releases pins, never
+deletes Exchange files. Failed/partial creation yields no receipt and leaves
+only inert residue; no rollback sweep or automatic retry runs. Reading produces
+no cleanup receipt and never deletes a counterpart's file. P27 must own any
+future counterpart consumption authority/order and P15-result coupling; this
+slice supplies none of that workflow.
+
+Evidence is limited to source inspection, MSVC compile/export/hardening/import
+checks, the production core with synthetic ObjectOperations, Dart injected FFI
+and the unchanged P22 vectors. The focused native check inspects imports before
+executing only Exchange and affected owner/store Fake regressions; it never
+loads the production DLL. Tests cover role/owner boundaries, CREATE_NEW,
+unknown-entry caps, deterministic cross-core count/create contention, malformed
+payload rejection, identity/security drift and explicit creator-only cleanup.
+Exact test results and Git identities belong to delivery evidence.
+
+REAL WINDOWS PENDING: actual named-mutex creation/security/cross-process and
+cross-session exclusion/abandonment; NTFS/DACL/parent/reparse/volume enforcement;
+share-mode behavior, casing checks, crash/durability, retained identity lifetime
+and handle-based deletion. These require separately authorized G0-L1 subsets
+and independent G0-I acceptance, not Fake success. P20's earlier functional
+subset proves none of these new Exchange operations. No issuer, credential
+initialization, Discovery publication, Pairing, listener, transport, Host,
+P25–P27 implementation or AR-R6B activation is supplied.
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
