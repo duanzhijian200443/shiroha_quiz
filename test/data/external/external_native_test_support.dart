@@ -6,7 +6,8 @@ import 'package:shiroha_quiz/data/external/native/external_native_bindings.dart'
 
 /// Test-only allocator + fake calls. Never opens the production helper, calls
 /// DPAPI, reads credentials or implements an Application authentication backend.
-final class FakeExternalNativeCalls implements ExternalNativeCalls {
+final class FakeExternalNativeCalls
+    implements ExternalNativeCalls, ExternalNativeCredentialCalls {
   FakeExternalNativeCalls() {
     final library = Platform.isWindows
         ? DynamicLibrary.open('msvcrt.dll')
@@ -41,6 +42,60 @@ final class FakeExternalNativeCalls implements ExternalNativeCalls {
   int associationReadStatus = 0, associationCommitStatus = 0, commits = 0;
   int nextTicket = 1;
   final tickets = <int, int>{};
+
+  final credentialFiles = <int, Uint8List>{};
+  final credentialTickets = <int, (int, int)>{};
+  int credentialAborts = 0;
+  @override
+  int credentialBegin(int version, int owner, int kind, Pointer<Uint8> output,
+      int capacity, Pointer<Uint64> written, Pointer<Uint64> ticket) {
+    written.value = 0;
+    ticket.value = 0;
+    if (![1, 2, 4].contains(kind) || owners[owner] != (kind == 4 ? 2 : 1)) {
+      return 1;
+    }
+    if (ownerStatus != 0) return ownerStatus;
+    if (tickets.containsValue(owner) ||
+        credentialTickets.values.any((v) => v.$1 == owner)) {
+      return 3;
+    }
+    if (associationReadStatus != 0) return associationReadStatus;
+    ticket.value = nextTicket++;
+    credentialTickets[ticket.value] = (owner, kind);
+    if (throwAssociationBegin) throw StateError('synthetic private begin');
+    final bytes = credentialFiles[kind];
+    if (bytes == null) return 6;
+    if (bytes.isEmpty || bytes.length > capacity) {
+      credentialTickets.remove(ticket.value);
+      ticket.value = 0;
+      return 5;
+    }
+    output.asTypedList(bytes.length).setAll(0, bytes);
+    written.value = bytes.length;
+    return 0;
+  }
+
+  @override
+  int credentialCommit(
+      int version, int owner, int ticket, Pointer<Uint8> input, int length) {
+    final entry = credentialTickets.remove(ticket);
+    if (entry == null || entry.$1 != owner) return 1;
+    if (associationCommitStatus != 0) return associationCommitStatus;
+    credentialFiles[entry.$2] = Uint8List.fromList(input.asTypedList(length));
+    commits++;
+    if (throwAssociationAfterCommit) {
+      throw StateError('synthetic private commit');
+    }
+    return unknownAfterCommit ? 7 : 0;
+  }
+
+  @override
+  int credentialAbort(int version, int owner, int ticket) {
+    credentialAborts++;
+    final entry = credentialTickets.remove(ticket);
+    if (throwAssociationAbort) throw StateError('synthetic private abort');
+    return entry?.$1 == owner ? 0 : 1;
+  }
 
   @override
   int associationBegin(int version, int owner, Pointer<Uint8> output,
@@ -135,6 +190,7 @@ final class FakeExternalNativeCalls implements ExternalNativeCalls {
     if (!owners.containsKey(token)) return 1;
     owners.remove(token);
     tickets.removeWhere((_, owner) => owner == token);
+    credentialTickets.removeWhere((_, entry) => entry.$1 == token);
     if (throwClose) throw StateError('synthetic private close detail');
     return closeStatus;
   }

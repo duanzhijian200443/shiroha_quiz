@@ -25,7 +25,7 @@ ProtectedObjects::Lease* ProtectedObjects::find(uint64_t token) noexcept {
   return nullptr;
 }
 int32_t ProtectedObjects::check(Lease& lease, Sid& sid) {
-  if (lease.denied || lease.quarantined || lease.role != SHIROHA_NATIVE_APP)
+  if (lease.denied || lease.quarantined)
     return SHIROHA_NATIVE_UNAVAILABLE;
   lease.denied = true;
   auto status = ops_.user_sid(sid);
@@ -45,12 +45,11 @@ bool ProtectedObjects::finish(Lease& lease) noexcept {
   return ok;
 }
 int32_t ProtectedObjects::target_current(Lease& lease, const Sid& sid) {
-  // App acquisition fixes state at pin 6, after the OS-exclusive lock at 3.
-  if (lease.pins.size() != 9) return SHIROHA_NATIVE_UNAVAILABLE;
+  if (lease.pins.size() != (lease.role == SHIROHA_NATIVE_APP ? 9u : 5u)) return SHIROHA_NATIVE_UNAVAILABLE;
   HANDLE observed = nullptr;
   int32_t status = SHIROHA_NATIVE_UNAVAILABLE;
   try {
-    status = ops_.association_open(lease.pins[6].handle, sid, observed);
+    status = open_target(lease, sid, observed);
     if (status == SHIROHA_NATIVE_MISSING) {
       status = lease.missing ? SHIROHA_NATIVE_OK : SHIROHA_NATIVE_UNAVAILABLE;
     } else if (status == SHIROHA_NATIVE_OK && observed && observed != INVALID_HANDLE_VALUE) {
@@ -74,7 +73,7 @@ int32_t ProtectedObjects::target_current(Lease& lease, const Sid& sid) {
   return status;
 }
 
-int32_t ProtectedObjects::association_begin(uint32_t version, uint64_t owner,
+int32_t ProtectedObjects::begin(uint32_t version, uint64_t owner, uint32_t kind,
     uint8_t* output, uint64_t capacity, uint64_t* written, uint64_t* ticket) noexcept try {
   if (!span(output, capacity) || !count(written) || !count(ticket) ||
       overlap(output, capacity, written, 8) || overlap(output, capacity, ticket, 8) ||
@@ -84,14 +83,18 @@ int32_t ProtectedObjects::association_begin(uint32_t version, uint64_t owner,
   std::lock_guard<std::mutex> guard(mutex_);
   auto* lease = find(owner);
   if (!lease) return SHIROHA_NATIVE_INVALID_INPUT;
+  if ((kind != 1 && kind != 2 && kind != 3 && kind != 4) ||
+      lease->role != static_cast<uint32_t>(kind == 4 ? SHIROHA_NATIVE_BRIDGE : SHIROHA_NATIVE_APP))
+    return kind == 3 ? SHIROHA_NATIVE_UNAVAILABLE : SHIROHA_NATIVE_INVALID_INPUT;
   if (lease->ticket || next_ticket_ > INT64_MAX) return SHIROHA_NATIVE_RESOURCE_LIMIT;
+  lease->kind = kind;
   int32_t status = SHIROHA_NATIVE_UNAVAILABLE;
   try {
     Sid sid;
     status = check(*lease, sid);
-    if (status == SHIROHA_NATIVE_OK && lease->pins.size() != 9) status = SHIROHA_NATIVE_UNAVAILABLE;
+    if (status == SHIROHA_NATIVE_OK && lease->pins.size() != (lease->role == SHIROHA_NATIVE_APP ? 9u : 5u)) status = SHIROHA_NATIVE_UNAVAILABLE;
     if (status == SHIROHA_NATIVE_OK) {
-      status = ops_.association_open(lease->pins[6].handle, sid, lease->target);
+      status = open_target(*lease, sid, lease->target);
       lease->missing = status == SHIROHA_NATIVE_MISSING;
       if (lease->missing && lease->target) status = SHIROHA_NATIVE_UNAVAILABLE;
       if (status == SHIROHA_NATIVE_OK) {
@@ -99,7 +102,7 @@ int32_t ProtectedObjects::association_begin(uint32_t version, uint64_t owner,
         else status = ops_.inspect(lease->target, lease->target_identity);
         if (status == SHIROHA_NATIVE_OK &&
             (!object_valid(lease->target_identity, sid, false, true, true) ||
-             lease->target_identity.volume != lease->pins[6].identity.volume)) status = SHIROHA_NATIVE_UNAVAILABLE;
+             lease->target_identity.volume != lease->pins[directory(*lease)].identity.volume)) status = SHIROHA_NATIVE_UNAVAILABLE;
         if (status == SHIROHA_NATIVE_OK) {
           std::vector<uint8_t> bytes;
           status = ops_.read_file(lease->target, bytes);
@@ -127,8 +130,8 @@ int32_t ProtectedObjects::association_begin(uint32_t version, uint64_t owner,
   return status;
 } catch (...) { return SHIROHA_NATIVE_UNAVAILABLE; }
 
-int32_t ProtectedObjects::association_commit(uint32_t version, uint64_t owner,
-    uint64_t ticket, const uint8_t* input, uint64_t length, CommitDiagnostic* diagnostic) noexcept try {
+int32_t ProtectedObjects::commit(uint32_t version, uint64_t owner,
+    uint64_t ticket, bool credential, const uint8_t* input, uint64_t length, CommitDiagnostic* diagnostic) noexcept try {
   CommitDiagnostic local;
   auto& detail = diagnostic ? *diagnostic : local;
   detail = {};
@@ -136,7 +139,7 @@ int32_t ProtectedObjects::association_commit(uint32_t version, uint64_t owner,
   if (!span(input, length)) return SHIROHA_NATIVE_INVALID_INPUT;
   std::lock_guard<std::mutex> guard(mutex_);
   auto* lease = find(owner);
-  if (!lease || !ticket || lease->ticket != ticket) return SHIROHA_NATIVE_INVALID_INPUT;
+  if (!lease || !ticket || lease->ticket != ticket || (lease->kind != 3) != credential) return SHIROHA_NATIVE_INVALID_INPUT;
   int32_t status = SHIROHA_NATIVE_UNAVAILABLE;
   bool replacing = false;
   try {
@@ -145,7 +148,7 @@ int32_t ProtectedObjects::association_commit(uint32_t version, uint64_t owner,
     status = check(*lease, sid);
     if (status == SHIROHA_NATIVE_OK) status = target_current(*lease, sid);
     size_t leftovers = 0;
-    if (status == SHIROHA_NATIVE_OK) status = ops_.temporary_count(lease->pins[6].handle, leftovers);
+    if (status == SHIROHA_NATIVE_OK) status = ops_.temporary_count(lease->pins[directory(*lease)].handle, leftovers);
     if (status == SHIROHA_NATIVE_OK && leftovers >= 32) status = SHIROHA_NATIVE_RESOURCE_LIMIT;
     std::wstring runtime, random;
     if (status == SHIROHA_NATIVE_OK) status = ops_.random_name(runtime, random);
@@ -154,14 +157,14 @@ int32_t ProtectedObjects::association_commit(uint32_t version, uint64_t owner,
       if (lease->runtime_id.empty()) lease->runtime_id = runtime;
       const auto name = L"~tmp-" + lease->runtime_id + L"-" + random;
       status = check(*lease, sid);
-      if (status == SHIROHA_NATIVE_OK) status = ops_.temporary_create(lease->pins[6].handle, name, sid, lease->temporary);
+      if (status == SHIROHA_NATIVE_OK) status = ops_.temporary_create(lease->pins[directory(*lease)].handle, name, sid, lease->temporary);
     }
     if (status == SHIROHA_NATIVE_OK) {
       ObjectInfo temp;
       if (!lease->temporary || lease->temporary == INVALID_HANDLE_VALUE) status = SHIROHA_NATIVE_UNAVAILABLE;
       else status = ops_.inspect(lease->temporary, temp);
       if (status == SHIROHA_NATIVE_OK &&
-          (!object_valid(temp, sid, false, true, true) || temp.volume != lease->pins[6].identity.volume)) status = SHIROHA_NATIVE_UNAVAILABLE;
+          (!object_valid(temp, sid, false, true, true) || temp.volume != lease->pins[directory(*lease)].identity.volume)) status = SHIROHA_NATIVE_UNAVAILABLE;
       if (status == SHIROHA_NATIVE_OK) status = ops_.write_file(lease->temporary, input, length);
       if (status == SHIROHA_NATIVE_OK) status = ops_.flush_file(lease->temporary);
       if (status == SHIROHA_NATIVE_OK) status = check(*lease, sid);
@@ -171,7 +174,7 @@ int32_t ProtectedObjects::association_commit(uint32_t version, uint64_t owner,
       if (status == SHIROHA_NATIVE_OK &&
           (!object_valid(current, sid, false, true, true) || current.volume != temp.volume || current.file != temp.file)) status = SHIROHA_NATIVE_UNAVAILABLE;
       if (status == SHIROHA_NATIVE_OK && lease->target) {
-        // Class 10 cannot replace an open destination. Identity/security/name
+        // Non-extended rename cannot replace an open destination. Identity/security/name
         // checks above precede the one close; owner/lock/parent pins stay held.
         // This does not close the accepted same-SID check-to-rename race.
         const auto target = lease->target;
@@ -185,7 +188,9 @@ int32_t ProtectedObjects::association_commit(uint32_t version, uint64_t owner,
       if (status == SHIROHA_NATIVE_OK) {
         replacing = true;
         detail.stage = CommitStage::rename;
-        status = ops_.replace_file(lease->temporary, lease->pins[6].handle, !lease->missing);
+        status = lease->kind == 3
+            ? ops_.replace_file(lease->temporary, lease->pins[directory(*lease)].handle, !lease->missing)
+            : ops_.credential_replace(lease->temporary, lease->pins[directory(*lease)].handle, lease->kind, !lease->missing);
         // A wrapper must explicitly report success; every other replace result
         // is uncertain, irrespective of what the target now appears to contain.
         if (status != SHIROHA_NATIVE_OK) status = SHIROHA_NATIVE_COMMIT_UNKNOWN;
@@ -220,11 +225,30 @@ int32_t ProtectedObjects::association_commit(uint32_t version, uint64_t owner,
   if (diagnostic) diagnostic->exception = true;
   return SHIROHA_NATIVE_UNAVAILABLE;
 }
-int32_t ProtectedObjects::association_abort(uint32_t version, uint64_t owner, uint64_t ticket) noexcept try {
+int32_t ProtectedObjects::abort(uint32_t version, uint64_t owner, uint64_t ticket, bool credential) noexcept try {
   if (version != SHIROHA_NATIVE_ABI_VERSION) return SHIROHA_NATIVE_ABI_MISMATCH;
   std::lock_guard<std::mutex> guard(mutex_);
   auto* lease = find(owner);
-  if (!lease || !ticket || lease->ticket != ticket) return SHIROHA_NATIVE_INVALID_INPUT;
+  if (!lease || !ticket || lease->ticket != ticket || (lease->kind != 3) != credential) return SHIROHA_NATIVE_INVALID_INPUT;
   return finish(*lease) ? SHIROHA_NATIVE_OK : SHIROHA_NATIVE_UNAVAILABLE;
 } catch (...) { return SHIROHA_NATIVE_UNAVAILABLE; }
+int32_t ProtectedObjects::open_target(Lease& lease, const Sid& sid, HANDLE& result) {
+  return lease.kind == 3 ? ops_.association_open(lease.pins[directory(lease)].handle, sid, result)
+      : ops_.credential_open(lease.pins[directory(lease)].handle, lease.kind, sid, result);
+}
+int32_t ProtectedObjects::association_begin(uint32_t v, uint64_t o, uint8_t* b, uint64_t n, uint64_t* w, uint64_t* t) noexcept {
+  return begin(v, o, 3, b, n, w, t);
+}
+int32_t ProtectedObjects::association_commit(uint32_t v, uint64_t o, uint64_t t, const uint8_t* b, uint64_t n, CommitDiagnostic* d) noexcept {
+  return commit(v, o, t, false, b, n, d);
+}
+int32_t ProtectedObjects::association_abort(uint32_t v, uint64_t o, uint64_t t) noexcept { return abort(v, o, t, false); }
+int32_t ProtectedObjects::credential_begin(uint32_t v, uint64_t o, uint32_t k, uint8_t* b, uint64_t n, uint64_t* w, uint64_t* t) noexcept {
+  // Invalid kinds still pass through begin's output-clearing and version checks.
+  return begin(v, o, k == 3 ? 0u : k, b, n, w, t);
+}
+int32_t ProtectedObjects::credential_commit(uint32_t v, uint64_t o, uint64_t t, const uint8_t* b, uint64_t n) noexcept {
+  return commit(v, o, t, true, b, n, nullptr);
+}
+int32_t ProtectedObjects::credential_abort(uint32_t v, uint64_t o, uint64_t t) noexcept { return abort(v, o, t, true); }
 }  // namespace shiroha_native

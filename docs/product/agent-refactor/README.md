@@ -23,7 +23,8 @@ P18 Native Helper/FFI production source slice has G0-L0 evidence, real Windows
 functionality LOCAL-L1 PENDING; P19 protected-object and P20 association source
 slices are merged, with PR #277 isolated-root P20 functional evidence;
 P21 credential/certificate primitives are merged in PR #278, inactive G0-L0;
-P22 implements the inactive G0-L0 Bootstrap Codec candidate only.**
+P22 is merged in PR #280; P23 adds inactive G0-L0 fixed credential-object
+transactions and persistence only.**
 
 The Provider seam, typed capability/executor/projection path and Runtime split/
 transcript are delivered in the preceding merged stages. Historical AR-R3
@@ -152,11 +153,17 @@ P21, merged in PR #278, under readiness §13 supplies inactive P-256 primitives,
 PKCS#8 conversion, raw/DER signatures, X.509 structure/vector checks and strict
 kind 1/2/4 codecs with a minimal explicit Dart adapter. It is G0-L0 only,
 without production credentials, store publication or runtime activation.
-P22 under readiness §14 supplies strict pairing-transcript, exchange-file-payload
+P22, merged in PR #280, under readiness §14 supplies strict pairing-transcript, exchange-file-payload
 and Discovery descriptor codecs, fixed public vectors and pure validation against
 explicit trusted inputs. Decoded DTOs/signature results supply no P15 authority.
 No file publisher/reader, actual crypto operation, pairing flow, Host/Bridge or
 transport is activated; this is G0-L0 format/validation implementation only.
+P23 under readiness §15 adds SOURCE IMPLEMENTED / OFFLINE TESTED fixed kind
+1/2/4 protected-object transactions and `WindowsCredentialObjectStore`, with
+strict existing-object decoding, user-scope DPAPI and Win32 handle-relative
+publication. ABI 3 adds three optional exports while preserving P20 behavior.
+REAL WINDOWS PENDING / FORMAL ACCEPTANCE PENDING remain explicit; no credential
+initialization, signing/rotation, Pairing, Discovery I/O or startup is activated.
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 Production Host/IPC, MCP vNext and READ fallback continuation remain unimplemented
 targets. Current product behavior
