@@ -1232,8 +1232,10 @@ P27-D0 freezes only the bounded bootstrap decisions in Windows readiness
 an explicit trusted App public-material export and independent full-digest
 comparison on the Bridge, with no automatic TOFU or Discovery-selected anchor.
 App binds the initial digest to exact P22 Challenge bytes whose P24 creation
-succeeded; Bridge uses the original safely read, strictly decoded bytes, never
-a reconstructed DTO. Imported public inputs and comparison digests remain
+AND identity-bound Submission counterpart consumption both succeeded; Bridge
+uses the original safely read, strictly decoded bytes, never a reconstructed
+DTO. Failed/unknown Submission consumption blocks App display and further
+Approval/Proof processing; an existing P15 request is not silently reset. Imported public inputs and comparison digests remain
 non-authorizing. Initial manual comparison must finish within the live Challenge;
 P27's concrete deadline cannot exceed 600 seconds, and extending the current
 30-second request requires matching P15 binding and regression changes. The
@@ -1244,13 +1246,21 @@ and P0 completion, followed by a separate trusted local two-surface manual
 completion check. Before displaying it, App freshly validates the actual
 persisted Association, exact identity, current management/runtime/generation
 and P0 `pairedDisabled`. The displayed committed Revision comes from that
-current record, not `expectedRevision + 1`. The completion digest defined in
+current record, not `expectedRevision + 1`. Bridge has no authenticated
+post-display signal of App invalidation; App withdraws invalidated displays,
+but cannot guarantee the Bridge observes withdrawal. The completion digest defined in
 §9.C.5 binds the original initial-trust digest, actual Revision and confirmed
 completion status. Bridge must retain the same in-memory Enrollment/key and
 require explicit manual confirmation before one Missing-only protected-store
-attempt. No fourth Exchange message, listener, implicit ACK, signed receipt or
-new authorization system is introduced; neither digest is P15 evidence or a
-continuous authorization credential. Current P15 private evidence production,
+attempt. The Bridge's local monotonic, single-use confirmation window expires
+no later than 120 seconds after successful Proof publication, and cannot be
+renewed or used after Enrollment invalidation. That bound neither extends the
+Challenge deadline nor P15's 30-second Evidence Window. No fourth Exchange
+message, listener, implicit ACK, signed receipt or new authorization system is
+introduced; neither digest is P15 evidence or a continuous authorization
+credential. App-side invalidation after a valid display may not reach Bridge;
+kind 4 persistence never provides authorization and current Application checks
+remain mandatory. Current P15 private evidence production,
 CAS/idempotency, P0 state ownership and separate Enablement remain unchanged.
 
 Unknown CAS, P0 failure or lost completion acknowledgement supplies no manual

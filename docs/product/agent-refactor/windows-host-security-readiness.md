@@ -1174,7 +1174,13 @@ Flow:
    leaf DER (≤ 2 KiB) —
    and, only after successful Challenge creation is confirmed, consumes the
    submission (its content is now represented by the leaf and the request).
-   Cap 4 KiB. The initial manual trust check below binds those published bytes.
+   Neither the App's initial-trust display nor subsequent Approval/Proof
+   processing is permitted until Challenge creation AND identity-bound
+   counterpart consumption of Submission are both confirmed successful.
+   Failed or unknown consumption closes this attempt: no display, automatic
+   retry, inferred deletion from an absent filename, or P15 approval/completion;
+   use explicit fresh-runtime recovery under §9.C.8. Cap 4 KiB. The initial
+   manual trust check below binds those published bytes.
 3. The user approves locally (P11 management surface; UI copy is not frozen
    here).
 4. The Bridge safely reads the challenge file, establishes first trust through
@@ -1247,8 +1253,10 @@ initialTrustDigest = SHA-256(
 
 Each digest input is its raw 32 bytes, not hexadecimal text. On the App,
 `challengeBytes` is the retained exact serialized P22 payload whose P24 creation
-has been confirmed successful, including magic/version; an unpublished
-candidate or uncertain creation cannot support the display. On the Bridge it
+has been confirmed successful, including magic/version, and the corresponding
+Submission consumption is confirmed successful. An unpublished candidate,
+uncertain creation or failed/unknown counterpart consumption cannot support
+the display. On the Bridge it
 is the original bytes returned by P24 safe reading and accepted by complete P22
 strict decoding. Neither side re-encodes a decoded DTO or reconstructs a
 logically equivalent message for this comparison. The bytes bind Submission ID,
@@ -1294,12 +1302,23 @@ unchanged. App uses its retained request/publication binding, not proof-supplied
 replacement fields. It displays the completed state, actual Revision and full
 64-character lowercase completion digest only while its owning context remains
 current; close, Restore, revoke or management/runtime invalidation withdraws it.
+The Bridge cannot independently observe App-side invalidation after display.
+App withdrawal is best-effort visibility, not a cross-process freshness signal;
+this manual protocol cannot guarantee that an already displayed confirmation
+remains current at the later Bridge write.
 
 The user independently checks that App display against the Bridge for the same
 still-live, in-memory Enrollment. Bridge accepts only the exact locally bound
 request and a Revision consistent with the existing CAS/idempotency contract,
 computes the full completion digest and requires a separate explicit local
-"confirm completion and save credential" action. That action permits one
+"confirm completion and save credential" action. Bridge also rejects that action
+if its own monotonic, single-use confirmation window has expired (no later than
+120 seconds after its successful Proof publication), the Enrollment has changed,
+or its local context is no longer live. This window is separate from the
+Challenge deadline and P15's 30-second private Evidence Window and extends
+neither. It cannot establish continuous App-side validity; a subsequently
+invalidated App display may remain unknowable to Bridge until normal Application
+authorization checks fail closed. That action permits one
 Missing-only kind 4 transaction through the existing protected store; no Client
 private key or initial kind 4 is persisted before this check. Existing valid
 credentials, corrupt objects and conflicting Pins are never overwritten.
@@ -1373,11 +1392,13 @@ P27-D0 failure matrix for the manual bootstrap/completion amendment in §9.C.5:
 
 | Boundary/result | Completion display / initial kind 4 | Required consequence |
 |---|---|---|
-| Missing/wrong imported trust, mismatched raw Challenge or manual digest, unsafe read, unconfirmed Challenge publication or expired request | Neither completion display nor kind 4 | Reject; no trust from Discovery, no proof/expiry bypass and no automatic retry |
+| Missing/wrong imported trust, mismatched raw Challenge or manual digest, unsafe read, unconfirmed Challenge publication, failed/unknown Submission consumption or expired request | Neither completion display nor kind 4 | Reject; no trust from Discovery, no proof/expiry bypass and no automatic retry |
 | No independent Approval, invalid/expired/reused Proof or failed Exchange consumption | Neither | No Pairing success; preserve the original one-use and explicit-runtime-recovery rules |
 | Association CAS fails or returns `commitUnknown` | Neither | Unknown is not committed success; a later explicit read establishes storage facts only, never Paired |
 | Association committed but P0 fails or its completion acknowledgement is lost | Neither | Residual Association is non-authorizing; do not infer success, compensate by overwrite or silently resume |
-| Both succeeded but completion display is stale, mismatched, unconfirmed or its management/runtime context invalidates | No initial kind 4 | Reject the Bridge save; no copied digest, cached display or old Enrollment can confirm a new attempt |
+| Both succeeded but App detects invalidation before presenting/maintaining its completion display, or comparison mismatches | No valid App confirmation | App withdraws/rejects display; Bridge must not accept a mismatch or copied digest as a local confirmation |
+| Bridge local Enrollment changes, closes or exceeds the 120-second single-use window | No initial kind 4 | Reject save; no stale local context or old Enrollment can confirm a new attempt |
+| App invalidates after an earlier valid display, without Bridge observing it | A timely manual Bridge save may still occur | Cross-process freshness is not guaranteed by human comparison; stored kind 4 remains non-authorizing and later Application checks deny stale or revoked authority |
 | Both succeeded but Bridge exits before initial kind 4 commit | No durable Bridge private key | The unpersisted key is lost; accept an unusable Association residue rather than auto-repairing Pairing |
 | Initial kind 4 save fails, is `commitUnknown`, or sensitive-resource release fails | Never report save success or automatically retry | Settle the local attempt once; any later explicit protected read establishes credential facts only |
 | Initial kind 4 encounters existing valid credentials, corruption or a conflicting Pin | No overwrite | Fail closed; no silent Pin replacement, key regeneration or recovery write |
