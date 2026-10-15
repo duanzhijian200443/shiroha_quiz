@@ -105,6 +105,18 @@ SHIROHA_NATIVE_API int32_t SHIROHA_NATIVE_CALL shiroha_native_association_commit
 SHIROHA_NATIVE_API int32_t SHIROHA_NATIVE_CALL shiroha_native_association_abort(
     uint32_t version, uint64_t owner, uint64_t ticket);
 
+// ABI-3 optional additive capability: fixed kinds 1/2 App, 4 Bridge only.
+// Same borrowed-span, zero-on-failure, one-ticket and bounded ciphertext rules
+// as association calls. The owner shares ONE transaction across all its kinds.
+// Commit/abort accept only tickets issued by credential_begin. No paths/HANDLEs.
+SHIROHA_NATIVE_API int32_t SHIROHA_NATIVE_CALL shiroha_native_credential_begin(
+    uint32_t version, uint64_t owner, uint32_t kind, uint8_t* output,
+    uint64_t capacity, uint64_t* written, uint64_t* ticket);
+SHIROHA_NATIVE_API int32_t SHIROHA_NATIVE_CALL shiroha_native_credential_commit(
+    uint32_t version, uint64_t owner, uint64_t ticket, const uint8_t* input, uint64_t length);
+SHIROHA_NATIVE_API int32_t SHIROHA_NATIVE_CALL shiroha_native_credential_abort(
+    uint32_t version, uint64_t owner, uint64_t ticket);
+
 SHIROHA_NATIVE_API uint32_t SHIROHA_NATIVE_CALL shiroha_native_abi_version(void);
 
 // Helper allocates zero-initialized, 8-byte-aligned storage (1..MAX_BYTES).

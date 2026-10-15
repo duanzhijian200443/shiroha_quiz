@@ -4,7 +4,7 @@ param([ValidateSet('Debug', 'Release')][string]$Configuration = 'Debug')
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$build = Join-Path $root 'build/p21-native'
+$build = Join-Path $root 'build/p23-native'
 $cmakeCommand = Get-Command cmake -ErrorAction SilentlyContinue
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
 $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
@@ -33,8 +33,9 @@ $expected = @('shiroha_native_abi_version', 'shiroha_native_buffer_alloc', 'shir
     'shiroha_native_local_app_data', 'shiroha_native_dpapi_protect', 'shiroha_native_dpapi_unprotect',
     'shiroha_native_owner_acquire', 'shiroha_native_owner_validate', 'shiroha_native_owner_close',
     'shiroha_native_association_begin', 'shiroha_native_association_commit', 'shiroha_native_association_abort',
-    'shiroha_native_ecdsa_generate_key', 'shiroha_native_ecdsa_sign_digest', 'shiroha_native_ecdsa_verify_digest')
-if ($actual.Count -ne 15 -or @(Compare-Object $expected $actual).Count -ne 0) { throw 'Unexpected DLL ABI exports' }
+    'shiroha_native_ecdsa_generate_key', 'shiroha_native_ecdsa_sign_digest', 'shiroha_native_ecdsa_verify_digest',
+    'shiroha_native_credential_begin', 'shiroha_native_credential_commit', 'shiroha_native_credential_abort')
+if ($actual.Count -ne 18 -or @(Compare-Object $expected $actual).Count -ne 0) { throw 'Unexpected DLL ABI exports' }
 $headers = (& $dumpbin /headers $dll | Out-String)
 if ($LASTEXITCODE -ne 0 -or $headers -notmatch '8664 machine \(x64\)') { throw 'DLL is not x64' }
 foreach ($flag in @('Dynamic base', 'NX compatible', 'Control Flow Guard')) {
@@ -47,11 +48,12 @@ foreach ($name in @('CryptProtectData', 'CryptUnprotectData', 'SHGetKnownFolderP
     'ReadFile', 'WriteFile', 'FlushFileBuffers', 'GetFileInformationByHandleEx', 'BCryptGenRandom',
     'BCryptOpenAlgorithmProvider', 'BCryptGenerateKeyPair', 'BCryptFinalizeKeyPair', 'BCryptExportKey',
     'BCryptImportKeyPair', 'BCryptSignHash', 'BCryptVerifySignature', 'BCryptDestroyKey',
-    'BCryptCloseAlgorithmProvider')) {
+    'BCryptCloseAlgorithmProvider', 'SetFileInformationByHandle')) {
     if ($imports -notmatch "\b$name\b") { throw "Missing production system import: $name" }
 }
-# NtSetInformationFile is dynamically resolved in ntdll, never kernel-linked.
-if ($imports -match 'SetFileInformationByHandle|ntoskrnl') { throw 'Unexpected publication fallback/kernel import' }
+# P20 resolves NtSetInformationFile; P23 uses the documented Win32 relative rename.
+# No kernel linkage or path-based publication fallback is allowed.
+if ($imports -match 'ntoskrnl|MoveFileEx[AW]') { throw 'Unexpected publication fallback/kernel import' }
 $wrapper = Get-Content (Join-Path $PSScriptRoot 'protected_windows.cpp') -Raw
 if ($wrapper -notmatch 'GetProcAddress\(module, "NtSetInformationFile"\)') { throw 'Missing user-mode publication entry' }
 # Inspect before executing. These executables link only production pure cores +
@@ -92,7 +94,7 @@ foreach ($name in @('shiroha_batch3_existing_only.dll', 'shiroha_assoc_candidate
 $candidateExports = (& $dumpbin /exports (Join-Path $build "$Configuration/shiroha_batch3_existing_only.dll") | Out-String)
 if ($LASTEXITCODE -ne 0) { throw 'Existing-only export inspection failed' }
 $candidateNames = @([regex]::Matches($candidateExports, '(?m)^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(\w+)(?:\s+=.*)?\s*$') | ForEach-Object { $_.Groups[1].Value })
-if ($candidateNames.Count -ne 15 -or @(Compare-Object $expected $candidateNames).Count -ne 0) { throw 'Existing-only ABI drift' }
+if ($candidateNames.Count -ne 18 -or @(Compare-Object $expected $candidateNames).Count -ne 0) { throw 'Existing-only ABI drift' }
 # Assert the three targets remain separate even when both diagnostic options
 # are enabled. Configure dependencies are not compiler definitions/includes.
 foreach ($target in @('shiroha_external_native', 'shiroha_batch3_existing_only', 'shiroha_p20_minimal_test')) {
@@ -117,4 +119,4 @@ if ($LASTEXITCODE -ne 0) { throw 'Fake-only native contracts failed' }
 if ($LASTEXITCODE -ne 0) { throw 'Fake pin-owner contracts failed' }
 & $readerTest
 if ($LASTEXITCODE -ne 0) { throw 'Fake reader contracts failed' }
-Write-Output 'PASS: MSVC x64, fifteen ABI exports, hardening, production imports and fake-only native contracts (no LOCAL-L1 acceptance)'
+Write-Output 'PASS: MSVC x64, eighteen ABI exports, hardening, production imports and fake-only native contracts (no LOCAL-L1 acceptance)'

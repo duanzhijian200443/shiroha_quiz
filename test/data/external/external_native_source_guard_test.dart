@@ -96,6 +96,9 @@ void main() {
       'shiroha_native_association_begin',
       'shiroha_native_association_commit',
       'shiroha_native_association_abort',
+      'shiroha_native_credential_begin',
+      'shiroha_native_credential_commit',
+      'shiroha_native_credential_abort',
     ]) {
       expect(header, contains(symbol));
       expect(bindings, contains("'$symbol'"));
@@ -206,7 +209,15 @@ void main() {
             'file_share != MAXDWORD ? file_share : (exclusive ? 0 : FILE_SHARE_READ | FILE_SHARE_WRITE)'));
     expect(source, contains('GetProcAddress(module, "NtSetInformationFile")'));
     expect(source, contains('rename_association('));
-    expect(source, isNot(contains('SetFileInformationByHandle')));
+    expect(source, contains('rename_credential(SetFileInformationByHandle'));
+    final credential =
+        File('windows/external_native/credential_rename.h').readAsStringSync();
+    expect(credential, contains('info.RootDirectory = directory'));
+    expect(credential, contains('FileRenameInfo, &info, length'));
+    expect(credential, isNot(contains('NtSetInformationFile')));
+    for (final name in ['issuer.bin', 'server.bin', 'client.bin']) {
+      expect(credential, contains(name));
+    }
     final rename =
         File('windows/external_native/association_rename.h').readAsStringSync();
     expect(rename, contains('NTSTATUS(NTAPI*)'));
@@ -247,6 +258,8 @@ void main() {
         final source = file.readAsStringSync();
         expect(source, isNot(contains('WindowsExternalNative')),
             reason: file.path);
+        expect(source, isNot(contains('WindowsCredentialObjectStore')),
+            reason: file.path);
         expect(source, isNot(contains('WindowsCredentialAssociationStore')),
             reason: file.path);
         expect(source, isNot(contains('external_native_bindings')),
@@ -258,6 +271,7 @@ void main() {
     final main = File('lib/main.dart').readAsStringSync();
     expect(main, isNot(contains('WindowsExternalNative')));
     expect(main, isNot(contains('WindowsCredentialAssociationStore')));
+    expect(main, isNot(contains('WindowsCredentialObjectStore')));
     expect(main, isNot(contains('external/native/')));
     for (final root in ['lib/data/external', 'lib/application/external']) {
       for (final file

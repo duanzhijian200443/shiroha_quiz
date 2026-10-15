@@ -122,7 +122,11 @@ P22 adds inactive pure Data codecs for the pairing transcript, public exchange
 payloads and Discovery descriptor, with explicit non-authorizing digest/signature
 interfaces and caller-owned trust/high-water inputs. No file access, Native call,
 P15 evidence producer or production composition is added.
-The readiness contract sections 10–14 own these production source slices and
+The inactive P23 Data adapter `WindowsCredentialObjectStore` adds fixed kind
+1/2/4 persistence through those same owners, strict P21 codecs, P18 DPAPI and
+Win32 handle-relative native transactions; App kinds 1/2/3 share one ticket.
+No credential lifecycle, initialization, issuer, Pairing or startup is supplied.
+The readiness contract sections 10–15 own these production source slices and
 their pending Windows acceptance.
 
 Persistence formats and provider formats are implementation details, not public application contracts.

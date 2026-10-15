@@ -37,6 +37,8 @@ struct ObjectOperations {
   virtual bool close(HANDLE handle) noexcept = 0;
   // P20 fixed file seam. Defaults deny so P19-only fakes remain inert.
   virtual int32_t association_open(HANDLE, const Sid&, HANDLE&) { return SHIROHA_NATIVE_UNAVAILABLE; }
+  virtual int32_t credential_open(HANDLE, uint32_t, const Sid&, HANDLE&) { return SHIROHA_NATIVE_UNAVAILABLE; }
+  virtual int32_t credential_replace(HANDLE, HANDLE, uint32_t, bool) { return SHIROHA_NATIVE_COMMIT_UNKNOWN; }
   virtual int32_t read_file(HANDLE, std::vector<uint8_t>&) { return SHIROHA_NATIVE_UNAVAILABLE; }
   virtual int32_t temporary_count(HANDLE, size_t&) { return SHIROHA_NATIVE_UNAVAILABLE; }
   virtual int32_t random_name(std::wstring&, std::wstring&) { return SHIROHA_NATIVE_UNAVAILABLE; }
@@ -74,13 +76,20 @@ class ProtectedObjects final {
   int32_t association_commit(uint32_t, uint64_t, uint64_t, const uint8_t*, uint64_t,
                              CommitDiagnostic* = nullptr) noexcept;
   int32_t association_abort(uint32_t, uint64_t, uint64_t) noexcept;
+  int32_t credential_begin(uint32_t, uint64_t, uint32_t, uint8_t*, uint64_t, uint64_t*, uint64_t*) noexcept;
+  int32_t credential_commit(uint32_t, uint64_t, uint64_t, const uint8_t*, uint64_t) noexcept;
+  int32_t credential_abort(uint32_t, uint64_t, uint64_t) noexcept;
  private:
+  int32_t begin(uint32_t, uint64_t, uint32_t, uint8_t*, uint64_t, uint64_t*, uint64_t*) noexcept;
+  int32_t commit(uint32_t, uint64_t, uint64_t, bool, const uint8_t*, uint64_t, CommitDiagnostic*) noexcept;
+  int32_t abort(uint32_t, uint64_t, uint64_t, bool) noexcept;
   struct Pin { HANDLE handle = nullptr; ObjectInfo identity; bool owner, dacl; };
   struct Lease {
     uint64_t token = 0;
     std::vector<Pin> pins;
     bool denied = false, quarantined = false;
     uint32_t role = 0;
+    uint32_t kind = 3;
     uint64_t ticket = 0;
     HANDLE target = nullptr, temporary = nullptr;
     ObjectInfo target_identity;
@@ -92,6 +101,8 @@ class ProtectedObjects final {
   int32_t inspect_pins(Lease& lease, const Sid& sid);
   bool release(Lease& lease) noexcept;
   Lease* find(uint64_t token) noexcept;
+  static size_t directory(const Lease& lease) noexcept { return lease.kind == 3 ? 6u : lease.kind == 4 ? 3u : 5u; }
+  int32_t open_target(Lease&, const Sid&, HANDLE&);
   int32_t check(Lease&, Sid&);
   int32_t target_current(Lease&, const Sid&);
   bool finish(Lease&) noexcept;

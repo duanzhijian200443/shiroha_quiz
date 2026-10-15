@@ -331,7 +331,7 @@ No real key/certificate experiment, store publication, TLS, Discovery, Host,
 AR-R6B or production Principal/Session composition is activated. The above
 halt/acceptance states remain unchanged; full acceptance requires separate grants.
 
-P22 supplies only the inactive Discovery/Pairing Bootstrap Codec G0-L0 candidate
+P22, merged in PR #280, supplies only the inactive Discovery/Pairing Bootstrap Codec G0-L0 candidate
 under [Windows readiness §14](../product/agent-refactor/windows-host-security-readiness.md#14-p22-discoverypairing-bootstrap-codec-foundation-g0-l0-only):
 strict possession transcript, exchange submission/challenge/proof payloads and
 signed endpoint descriptor bytes, with explicit framing, public fixed vectors,
@@ -342,6 +342,17 @@ approval/nonce/evidence lifecycle, Pairing, Host/Bridge, Transport and Windows
 acceptance remain separately unimplemented/pending. No ABI, P0/P12/P15 state,
 P9/P10, schema/B0, S0 or activation gate changes. HOST_STABILITY_HALT = ACTIVE;
 TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
+
+P23 adds the inactive Protected Credential Object Store G0-L0 candidate under
+[Windows readiness §15](../product/agent-refactor/windows-host-security-readiness.md#15-p23-protected-credential-object-store-candidate-g0-l0-only):
+SOURCE IMPLEMENTED / OFFLINE TESTED fixed kinds 1/2/4, shared owner transaction
+exclusion with P20, strict P21 object decoding, P18 DPAPI and Win32
+handle-relative publication. ABI 3 adds three optional exports; the original
+fifteen and kind 3 association semantics remain compatible. REAL WINDOWS PENDING
+and FORMAL ACCEPTANCE PENDING include these new objects; P20's isolated-root
+functional result is not extended. Initialization, issuance/rotation, Pairing,
+Discovery/exchange I/O, Transport and Host activation remain outside this slice.
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 
 The retained target is Codex/Claude MCP Bridge → Shiroha External Host →
 authenticated and authorized question-bank READ/STAGE services.

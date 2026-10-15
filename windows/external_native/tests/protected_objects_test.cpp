@@ -41,12 +41,27 @@ struct Fake final : ObjectOperations {
   std::vector<std::wstring> file_events;
   HANDLE state = nullptr;
   HANDLE flushed = nullptr;
-  int32_t association_open(HANDLE parent, const Sid&, HANDLE& out) override {
+  std::wstring active_name = L"associations.bin";
+  int32_t association_open(HANDLE parent, const Sid& sid_value, HANDLE& out) override {
+    active_name = L"associations.bin";
+    return fixed_open(parent, sid_value, out);
+  }
+  int32_t credential_open(HANDLE parent, uint32_t kind, const Sid& sid_value, HANDLE& out) override {
+    check(kind == 1 || kind == 2 || kind == 4, "fixed credential kind");
+    active_name = kind == 1 ? L"issuer.bin" : kind == 2 ? L"server.bin" : L"client.bin";
+    check(calls[calls.size() - (kind == 4 ? 2u : 4u)] == (kind == 4 ? L"bridge" : L"trust"), "fixed parent role");
+    return fixed_open(parent, sid_value, out);
+  }
+  int32_t credential_replace(HANDLE h, HANDLE parent, uint32_t kind, bool existing) override {
+    check(active_name == (kind == 1 ? L"issuer.bin" : kind == 2 ? L"server.bin" : L"client.bin"), "publication kind");
+    return replace_file(h, parent, existing);
+  }
+  int32_t fixed_open(HANDLE parent, const Sid&, HANDLE& out) {
     state = parent; out = nullptr;
     file_events.push_back(L"open");
     check(handles.count(parent) == 1, "association parent held");
     if (fail_stage == L"open") return SHIROHA_NATIVE_UNAVAILABLE;
-    const auto key = std::make_pair(handles[parent].file, std::wstring{L"associations.bin"});
+    const auto key = std::make_pair(handles[parent].file, active_name);
     if (!objects.count(key)) return SHIROHA_NATIVE_MISSING;
     out = handle(objects[key], false);
     return SHIROHA_NATIVE_OK;
@@ -58,7 +73,7 @@ struct Fake final : ObjectOperations {
   }
   int32_t temporary_count(HANDLE, size_t& out) override {
     file_events.push_back(L"count"); out = leftovers;
-    return fail_stage == L"count" ? SHIROHA_NATIVE_UNAVAILABLE : SHIROHA_NATIVE_OK;
+    return fail_stage == L"work" ? SHIROHA_NATIVE_RESOURCE_LIMIT : fail_stage == L"count" ? SHIROHA_NATIVE_UNAVAILABLE : SHIROHA_NATIVE_OK;
   }
   int32_t random_name(std::wstring& runtime, std::wstring& random) override {
     runtime = L"0123456789abcdef"; random = L"01234567";
@@ -83,7 +98,7 @@ struct Fake final : ObjectOperations {
     file_events.push_back(L"flush");
     if (lock_lost_on_flush) for (auto& item : handles) if (is_lock[item.first]) item.second.file++;
     if (target_changed_on_flush) {
-      const auto key = std::make_pair(handles[state].file, std::wstring{L"associations.bin"});
+      const auto key = std::make_pair(handles[state].file, active_name);
       objects[key] = good(false);
     }
     if (fail_stage == L"flush") return SHIROHA_NATIVE_UNAVAILABLE;
@@ -95,7 +110,7 @@ struct Fake final : ObjectOperations {
     check(flushed == h, "completed Flush precedes atomic replace");
     check(handles.count(parent) == 1 && !locked.empty(), "parent and writer lock remain held at rename");
     file_events.push_back(existing ? L"replace-existing" : L"replace-new");
-    const auto key = std::make_pair(handles[parent].file, std::wstring{L"associations.bin"});
+    const auto key = std::make_pair(handles[parent].file, active_name);
     if (objects.count(key)) {
       for (const auto& held : handles) {
         if (held.second.file == objects[key].file) return SHIROHA_NATIVE_COMMIT_UNKNOWN;
@@ -180,6 +195,79 @@ struct Fake final : ObjectOperations {
 }  // namespace
 
 int main() {
+  for (const uint32_t kind : {1u, 2u, 4u}) {
+    for (const auto* failure : {L"none", L"open", L"read", L"count", L"random", L"create", L"write", L"flush", L"replace", L"post", L"stale", L"lock", L"collision", L"limit", L"work"}) {
+      Fake f; ProtectedObjects core(f); uint64_t owner = 0, ticket = 0, written = 0;
+      uint8_t output[64]{}, input[]{4, 5, 6};
+      if (kind == 4) { uint64_t seed = 0; check(core.acquire(3, 1, &seed) == 0 && core.close(3, seed) == 0, "App seeds shared parent"); }
+      check(core.acquire(3, kind == 4 ? 2u : 1u, &owner) == 0, "credential owner");
+      check(core.credential_begin(3, owner, kind, output, sizeof(output), &written, &ticket) == SHIROHA_NATIVE_MISSING, "credential Missing");
+      const auto original_ticket = ticket;
+      uint64_t second_ticket = 9, second_written = 9;
+      check(core.credential_begin(3, owner, kind == 1 ? 2u : kind, output, sizeof(output), &second_written, &second_ticket) == SHIROHA_NATIVE_RESOURCE_LIMIT && second_ticket == 0, "cross-kind exclusion");
+      if (kind != 4) check(core.association_begin(3, owner, output, sizeof(output), &second_written, &second_ticket) == SHIROHA_NATIVE_RESOURCE_LIMIT, "P20 cross-kind exclusion");
+      check(core.association_abort(3, owner, ticket) == SHIROHA_NATIVE_INVALID_INPUT, "wrong interface ticket");
+      check(core.credential_commit(3, owner, ticket + 1, input, sizeof(input)) == SHIROHA_NATIVE_INVALID_INPUT, "wrong ticket");
+      check(core.credential_commit(3, owner, original_ticket, input, sizeof(input)) == 0, "credential first commit");
+      check(core.credential_abort(3, owner, original_ticket) == SHIROHA_NATIVE_INVALID_INPUT, "consumed ticket");
+      // Fake temporaries use a fixed name: successful rename removes it.
+      const std::wstring stage(failure);
+      if (stage == L"open" || stage == L"read") f.fail_stage = stage;
+      const auto begun = core.credential_begin(3, owner, kind, output, sizeof(output), &written, &ticket);
+      if (stage == L"open" || stage == L"read") {
+        check(begun == SHIROHA_NATIVE_UNAVAILABLE && written == 0 && ticket == 0, "read failure cleared");
+      } else {
+        check(begun == 0 && written == 3 && output[0] == 4, "credential readback");
+        if (stage == L"post") f.corrupt_published_identity = true;
+        else if (stage == L"stale") f.target_changed_on_flush = true;
+        else if (stage == L"lock") f.lock_lost_on_flush = true;
+        else if (stage == L"collision") f.collision = true;
+        else if (stage == L"limit") f.leftovers = 32;
+        else if (stage == L"work") f.fail_stage = L"work";
+        else if (stage != L"none") f.fail_stage = stage;
+        const auto result = core.credential_commit(3, owner, ticket, input, sizeof(input));
+        const auto expected = stage == L"none" ? SHIROHA_NATIVE_OK
+            : stage == L"replace" || stage == L"post" ? SHIROHA_NATIVE_COMMIT_UNKNOWN
+            : stage == L"limit" || stage == L"work" ? SHIROHA_NATIVE_RESOURCE_LIMIT : SHIROHA_NATIVE_UNAVAILABLE;
+        check(result == expected, "credential failure classification");
+      }
+      f.fail_stage.clear();
+      check(core.close(3, owner) == 0 && f.handles.empty(), "credential owner closes");
+    }
+    Fake f; ProtectedObjects core(f); uint64_t o = 0, t = 0, n = 0;
+    uint8_t b[64]{};
+    if (kind == 4) { uint64_t seed = 0; check(core.acquire(3, 1, &seed) == 0 && core.close(3, seed) == 0, "App seeds role fixture"); }
+    check(core.acquire(3, kind == 4 ? 2u : 1u, &o) == 0, "role fixture");
+    for (const uint32_t bad : {0u, 3u, 5u, 0xffffffffu, kind == 4 ? 1u : 4u}) {
+      check(core.credential_begin(3, o, bad, b, sizeof(b), &n, &t) == SHIROHA_NATIVE_INVALID_INPUT && t == 0 && n == 0, "invalid kind/owner");
+    }
+    check(core.credential_begin(2, o, kind, b, sizeof(b), &n, &t) == SHIROHA_NATIVE_ABI_MISMATCH, "credential ABI");
+    check(core.credential_begin(3, o, kind, b, sizeof(b), &n, &t) == SHIROHA_NATIVE_MISSING, "abort fixture");
+    check(core.credential_abort(3, o, t) == 0, "credential Abort");
+    check(core.credential_begin(3, o, kind, b, sizeof(b), &n, &t) == SHIROHA_NATIVE_MISSING, "owner close transaction");
+    check(core.close(3, o) == 0 && f.handles.empty(), "owner settles credential transaction");
+    check(core.credential_begin(3, o, kind, b, sizeof(b), &n, &t) == SHIROHA_NATIVE_INVALID_INPUT, "closed owner");
+  }
+  for (const uint32_t kind : {1u, 2u, 4u}) {
+    Fake f; ProtectedObjects core(f); uint64_t o = 0, t = 0, n = 0;
+    if (kind == 4) { uint64_t seed = 0; check(core.acquire(3, 1, &seed) == 0 && core.close(3, seed) == 0, "seed closed fixture"); }
+    check(core.acquire(3, kind == 4 ? 2u : 1u, &o) == 0, "memory gate fixture");
+    alignas(8) uint8_t b[64]{};
+    check(core.credential_begin(3, o, kind, nullptr, 64, &n, &t) == SHIROHA_NATIVE_INVALID_INPUT, "null credential buffer");
+    check(core.credential_begin(3, o, kind, b, 64, reinterpret_cast<uint64_t*>(b), &t) == SHIROHA_NATIVE_INVALID_INPUT, "credential overlap");
+    check(core.credential_begin(3, o, kind, b, 64, &n, &n) == SHIROHA_NATIVE_INVALID_INPUT, "credential aliased counts");
+    check(core.credential_begin(3, o, kind, b, 65537, &n, &t) == SHIROHA_NATIVE_INVALID_INPUT, "credential oversize");
+    check(core.credential_begin(3, o, kind, b, sizeof(b), &n, &t) == SHIROHA_NATIVE_MISSING, "pin drift fixture");
+    // Permission drift permanently denies the owner, while Abort still releases
+    // the ticket and Close releases its held lock exactly once.
+    f.handles.begin()->second.dacl_protected = false;
+    // The accepted Known Folder has no DACL requirement: drift the store pin.
+    f.handles[f.state].dacl_protected = false;
+    check(core.credential_commit(3, o, t, b, 3) == SHIROHA_NATIVE_UNAVAILABLE, "credential ACL drift");
+    f.handles[f.state].dacl_protected = true;
+    check(core.credential_begin(3, o, kind, b, sizeof(b), &n, &t) == SHIROHA_NATIVE_UNAVAILABLE, "credential denial permanent");
+    check(core.close(3, o) == 0 && f.handles.empty(), "denied owner closes");
+  }
   // Seed synthetic objects through the unchanged production path, then prove
   // the candidate never asks for creation, including every missing component.
   for (const auto* missing : {L"none", L"Shiroha", L"external", L"runtime.lock",

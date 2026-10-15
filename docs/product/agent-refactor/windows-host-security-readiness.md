@@ -2253,3 +2253,83 @@ operations and protected-file behavior require separate scoped work/grants;
 production activation and G0-I acceptance remain separate and pending.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
+
+
+## 15. P23 protected credential object store candidate (G0-L0 only)
+
+SOURCE IMPLEMENTED: the inactive `WindowsCredentialObjectStore` connects P21's
+strict kind 1/2/4 codec, P18 user-scope DPAPI and P19 owners to native fixed-file
+transactions. Kind 1/2 bind only App `app/trust/{issuer,server}.bin`; kind 4 binds
+only Bridge `bridge/client.bin`. No caller path, filename or HANDLE enters the
+ABI. Kind 3 and `WindowsCredentialAssociationStore` retain their original
+formats, signatures, failures and association authority; no second credential
+backend or SQLite/Provider persistence is introduced.
+
+ABI 3 retains all fifteen P18-P21 exports and adds three optional, lazy-loaded
+`__cdecl` exports (absence fails closed without version downgrade):
+
+| Export | Fixed-width contract |
+|---|---|
+| `shiroha_native_credential_begin` | version=3, owner(u64), kind(u32; 1/2/4), borrowed output/capacity(u64), aligned disjoint written/ticket(u64*) |
+| `shiroha_native_credential_commit` | version=3, same owner/ticket(u64), borrowed ciphertext/length(u64); well-formed Commit consumes the ticket on every result |
+| `shiroha_native_credential_abort` | version=3, same owner/ticket(u64); one settlement, independent of owner lock release |
+
+The existing bounded owner registry holds one transaction across kinds 1/2/3
+for App, and one kind 4 transaction for Bridge. Their OS-exclusive locks remain
+independent and held through read, validation, DPAPI, write/Flush, publication
+and post-publication checks, until explicit owner close. Owner close settles a
+retained transaction; uncertain closes quarantine and never retry handles.
+The 64 KiB object, 32-leftover, 4096-entry and existing handle/owner budgets stay
+unchanged. Unknown files/leftovers are neither read nor removed.
+
+Publication for kinds 1/2/4 uses the frozen section 9.B.4 Win32
+`SetFileInformationByHandle(FileRenameInfo)` form. Microsoft's
+[FILE_RENAME_INFO contract](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info)
+permits a directory handle in RootDirectory with a relative filename. The only
+names are `issuer.bin`, `server.bin`, `client.bin`: each ten UTF-16 units,
+20 bytes excluding NUL, in a zero-initialized 48-byte x64 allocation. Layout,
+alignment, field offsets, sufficient capacity and C ABI signatures are checked
+at compile time and through injected fake calls. This uses no extended flags,
+path fallback, `MoveFileExW` or P20 NT publication exception.
+
+The shared transaction core revalidates captured target identity/security and
+held pins, creates one same-directory CREATE_NEW temp with explicit owner/DACL,
+completes Write and Flush, and checks target/temp again. Non-extended replacement
+requires the existing destination read handle to close once before publication;
+App/Bridge owner, writer lock and every directory pin remain held. There is no
+reopen between this close and rename. As for P20, the accepted same-SID
+check/close-to-rename race remains: final published identity checks cannot prove
+which intervening same-SID object was replaced. No stronger anti-replacement or
+continuous destination-handle guarantee is claimed. Failed writes/Flush preserve
+the previous target and leave inert temps; rename failure or post-publication
+validation failure is commitUnknown, never success or automatic retry.
+
+Read performs Begin -> Missing or DPAPI Unprotect -> strict expected-kind decode
+-> independent caller-owned snapshot -> Abort. Write first strictly decodes any
+existing object under the same ticket, then encodes the supplied correct kind,
+Protects and Commits it. Corruption never becomes overwrite, reset or rekey.
+Unknown magic/version/kind, trailing/truncated/oversized bytes and invalid DER
+fail closed; Missing, dataCorrupt, unavailable and commitUnknown remain distinct.
+Sensitive native and intermediate Dart buffers are wiped/released after bounded
+use; returned snapshots belong to the caller, with P18/P21's GC-copy limitation.
+No credential content enters errors, logs, goldens or CI artifacts.
+
+OFFLINE TESTED: the native fake core and injected Win32 layout seam cover fixed
+kind/role mapping, cross-kind exclusion including P20, first create/replacement,
+readback, ticket/owner lifetime, identity/lock drift, collision, bounded leftovers,
+write/Flush/publication failures and uncertain outcomes. Dart fake FFI/DPAPI
+round trips, malformed payload rejection, role isolation, resource/error cleanup
+and no uncertain Commit retry join the standing External CI manifest. MSVC x64
+/W4 /WX, ASLR/DEP/CFG, exact eighteen exports, system imports and fake-executable
+isolation gates precede native fake execution. They never load the production DLL.
+Exact commands, counts and candidate identity belong to delivery evidence.
+
+P20 is merged with PR #277's isolated-root functional subset; P21 is merged in
+PR #278 and P22 in PR #280. Their evidence keeps its original scope. P23's
+REAL WINDOWS PENDING and FORMAL ACCEPTANCE PENDING include actual kind 1/2/4
+NTFS/DPAPI/replacement and all independent G0-I requirements. Fake evidence does
+not extend P20's real functional result to these files. No real keys, issuer,
+certificate issuance/rotation/chain acceptance, Discovery/exchange I/O, Pairing,
+Transport, Host/Bridge process or main.dart activation is supplied.
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.

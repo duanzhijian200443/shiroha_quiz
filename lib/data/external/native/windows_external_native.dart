@@ -394,6 +394,109 @@ final class ExternalProtectedObjects {
     }
   }
 
+  ExternalNativeCredentialCalls get _credentialCalls {
+    final calls = _adapter._calls;
+    if (calls is! ExternalNativeCredentialCalls) {
+      WindowsExternalNative._fail(ExternalNativeFailure.temporarilyUnavailable);
+    }
+    return calls as ExternalNativeCredentialCalls;
+  }
+
+  Uint8List protectCredential(Uint8List bytes) {
+    ensureOpen();
+    return _adapter.protect(bytes);
+  }
+
+  Uint8List unprotectCredential(Uint8List bytes) {
+    ensureOpen();
+    return _adapter.unprotect(bytes);
+  }
+
+  /// Fixed credential transaction only; no caller path, handle or native token.
+  ExternalCredentialTransaction beginCredential(int kind) {
+    Pointer<Uint8> output = nullptr, counts = nullptr;
+    var ticket = 0;
+    try {
+      ensureOpen();
+      if (![1, 2, 4].contains(kind) || _role != (kind == 4 ? 2 : 1)) {
+        WindowsExternalNative._fail(ExternalNativeFailure.invalidInput);
+      }
+      output = _adapter._allocate(WindowsExternalNative.maxBytes);
+      counts = _adapter._allocate(16);
+      final written = counts.cast<Uint64>(),
+          token = (counts + 8).cast<Uint64>();
+      written.value = 0;
+      token.value = 0;
+      final status = _credentialCalls.credentialBegin(
+          WindowsExternalNative.abiVersion,
+          _token,
+          kind,
+          output,
+          WindowsExternalNative.maxBytes,
+          written,
+          token);
+      ticket = token.value;
+      if (status != 6) WindowsExternalNative._checkStatus(status);
+      final length = written.value;
+      if (ticket <= 0 ||
+          length < 0 ||
+          length > WindowsExternalNative.maxBytes ||
+          (status == 6 ? length != 0 : length == 0)) {
+        WindowsExternalNative._fail(ExternalNativeFailure.invalidNativeResult);
+      }
+      final bytes =
+          status == 6 ? null : Uint8List.fromList(output.asTypedList(length));
+      final releasedOutput = output, releasedCounts = counts;
+      output = nullptr;
+      counts = nullptr;
+      try {
+        _adapter._calls.free(releasedOutput);
+      } finally {
+        _adapter._calls.free(releasedCounts);
+      }
+      final result = ExternalCredentialTransaction._(this, ticket, bytes);
+      ticket = 0;
+      return result;
+    } on ExternalNativeException {
+      _associationEpoch++;
+      rethrow;
+    } catch (_) {
+      _associationEpoch++;
+      WindowsExternalNative._fail(ExternalNativeFailure.temporarilyUnavailable);
+    } finally {
+      // Capture a ticket even if the native seam threw after acquiring it.
+      if (ticket == 0 && counts != nullptr) {
+        ticket = (counts + 8).cast<Uint64>().value;
+      }
+      var cleanupFailed = false;
+      try {
+        if (ticket > 0) {
+          WindowsExternalNative._checkStatus(_credentialCalls.credentialAbort(
+              WindowsExternalNative.abiVersion, _token, ticket));
+        }
+      } catch (_) {
+        cleanupFailed = true;
+      } finally {
+        try {
+          if (output != nullptr) _adapter._calls.free(output);
+        } catch (_) {
+          cleanupFailed = true;
+        } finally {
+          try {
+            if (counts != nullptr) _adapter._calls.free(counts);
+          } catch (_) {
+            cleanupFailed = true;
+          }
+        }
+      }
+      if (cleanupFailed) {
+        _associationEpoch++;
+        WindowsExternalNative._fail(
+            ExternalNativeFailure.temporarilyUnavailable);
+      }
+    }
+  }
+
   /// Rechecks the held handles and captured identities without reopening paths.
   /// Denial is permanent for this owner; only close remains permitted.
   void ensureOpen() {
@@ -515,4 +618,85 @@ final class ExternalAssociationTransaction {
 
   @override
   String toString() => 'ExternalAssociationTransaction(REDACTED)';
+}
+
+/// One-use native transaction; caller must commit or abort after actual work.
+final class ExternalCredentialTransaction {
+  ExternalCredentialTransaction._(this._owner, this._ticket, this.encrypted);
+  final ExternalProtectedObjects _owner;
+  final int _ticket;
+  final Uint8List? encrypted;
+  bool _settled = false, _uncertain = false;
+
+  void commit(Uint8List ciphertext) {
+    if (_settled ||
+        _uncertain ||
+        ciphertext.isEmpty ||
+        ciphertext.length > WindowsExternalNative.maxBytes) {
+      WindowsExternalNative._fail(ExternalNativeFailure.invalidInput);
+    }
+    Pointer<Uint8> input = nullptr;
+    var entered = false;
+    try {
+      _owner.ensureOpen();
+      input = _owner._adapter._allocate(ciphertext.length);
+      input.asTypedList(ciphertext.length).setAll(0, ciphertext);
+      entered = true;
+      final status = _owner._credentialCalls.credentialCommit(
+          WindowsExternalNative.abiVersion,
+          _owner._token,
+          _ticket,
+          input,
+          ciphertext.length);
+      _settled =
+          true; // Native consumes a well-formed commit, including denial.
+      if (![0, 1, 2, 3, 4, 5].contains(status)) {
+        WindowsExternalNative._fail(ExternalNativeFailure.commitUnknown);
+      }
+      WindowsExternalNative._checkStatus(status);
+    } on ExternalNativeException {
+      rethrow;
+    } catch (_) {
+      _uncertain = entered;
+      WindowsExternalNative._fail(entered
+          ? ExternalNativeFailure.commitUnknown
+          : ExternalNativeFailure.temporarilyUnavailable);
+    } finally {
+      _owner._associationEpoch++;
+      try {
+        if (input != nullptr) _owner._adapter._calls.free(input);
+      } catch (_) {
+        WindowsExternalNative._fail(entered
+            ? ExternalNativeFailure.commitUnknown
+            : ExternalNativeFailure.temporarilyUnavailable);
+      } finally {
+        encrypted?.fillRange(0, encrypted!.length, 0);
+      }
+    }
+  }
+
+  void abort() {
+    if (_settled) return;
+    _settled = true;
+    encrypted?.fillRange(0, encrypted!.length, 0);
+    // Closing the owner already releases a retained transaction.
+    if (_owner.isClosed) return;
+    try {
+      final status = _owner._credentialCalls.credentialAbort(
+          WindowsExternalNative.abiVersion, _owner._token, _ticket);
+      // A throwing commit seam may already have consumed the ticket. Exactly
+      // one abort attempt settles a still-live ticket without retrying commit.
+      if (!_uncertain || status != 1) {
+        WindowsExternalNative._checkStatus(status);
+      }
+    } catch (_) {
+      _owner._associationEpoch++;
+      WindowsExternalNative._fail(_uncertain
+          ? ExternalNativeFailure.commitUnknown
+          : ExternalNativeFailure.temporarilyUnavailable);
+    }
+  }
+
+  @override
+  String toString() => 'ExternalCredentialTransaction(REDACTED)';
 }

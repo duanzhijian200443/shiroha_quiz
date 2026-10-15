@@ -21,6 +21,18 @@ abstract interface class ExternalNativeCalls {
   int associationAbort(int version, int owner, int ticket);
 }
 
+/// Optional ABI-3 fixed credential transactions. Missing symbols fail closed.
+abstract interface class ExternalNativeCredentialCalls {
+  int credentialBegin(int version, int owner, int kind, Pointer<Uint8> output,
+      int capacity, Pointer<Uint64> written, Pointer<Uint64> ticket);
+  int credentialCommit(
+      int version, int owner, int ticket, Pointer<Uint8> input, int length);
+  int credentialAbort(int version, int owner, int ticket);
+}
+
+typedef _CredentialBeginNative = Int32 Function(Uint32, Uint64, Uint32,
+    Pointer<Uint8>, Uint64, Pointer<Uint64>, Pointer<Uint64>);
+
 /// Optional ABI-3 additive capability; older ABI-3 helpers retain memory/store calls.
 abstract interface class ExternalNativeCryptoCalls {
   int generateKey(
@@ -85,7 +97,10 @@ typedef _AbortNative = Int32 Function(Uint32, Uint64, Uint64);
 
 /// Lookup is passive; only an explicit adapter operation invokes the helper.
 final class FfiExternalNativeCalls
-    implements ExternalNativeCalls, ExternalNativeCryptoCalls {
+    implements
+        ExternalNativeCalls,
+        ExternalNativeCryptoCalls,
+        ExternalNativeCredentialCalls {
   FfiExternalNativeCalls(DynamicLibrary library)
       : _library = library,
         _version = library.lookupFunction<_VersionNative, int Function()>(
@@ -127,6 +142,29 @@ final class FfiExternalNativeCalls
         _abort =
             library.lookupFunction<_AbortNative, int Function(int, int, int)>(
                 'shiroha_native_association_abort');
+
+  late final _credentialBegin = _library.lookupFunction<
+      _CredentialBeginNative,
+      int Function(int, int, int, Pointer<Uint8>, int, Pointer<Uint64>,
+          Pointer<Uint64>)>('shiroha_native_credential_begin');
+  late final _credentialCommit = _library.lookupFunction<
+      _CommitNative,
+      int Function(int, int, int, Pointer<Uint8>,
+          int)>('shiroha_native_credential_commit');
+  late final _credentialAbort =
+      _library.lookupFunction<_AbortNative, int Function(int, int, int)>(
+          'shiroha_native_credential_abort');
+  @override
+  int credentialBegin(int version, int owner, int kind, Pointer<Uint8> output,
+          int capacity, Pointer<Uint64> written, Pointer<Uint64> ticket) =>
+      _credentialBegin(version, owner, kind, output, capacity, written, ticket);
+  @override
+  int credentialCommit(int version, int owner, int ticket, Pointer<Uint8> input,
+          int length) =>
+      _credentialCommit(version, owner, ticket, input, length);
+  @override
+  int credentialAbort(int version, int owner, int ticket) =>
+      _credentialAbort(version, owner, ticket);
 
   final DynamicLibrary _library;
   // Lazy lookups preserve compatibility with pre-P21 ABI-3 helper symbols.
