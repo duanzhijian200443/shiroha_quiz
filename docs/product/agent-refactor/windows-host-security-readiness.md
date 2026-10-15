@@ -1172,17 +1172,20 @@ Flow:
    installationId, generation, runtimeInstanceId, publicationEpoch,
    credentialIdentity, expectedRevision, expiresAtUtcMs and the issued client
    leaf DER (≤ 2 KiB) —
-   and removes the submission (its content is now represented by the leaf and
-   the request). Cap 4 KiB.
+   and, only after successful Challenge creation is confirmed, consumes the
+   submission (its content is now represented by the leaf and the request).
+   Cap 4 KiB. The initial manual trust check below binds those published bytes.
 3. The user approves locally (P11 management surface; UI copy is not frozen
    here).
-4. The Bridge reads the challenge file, self-checks (leaf chains to the pinned
+4. The Bridge safely reads the challenge file, establishes first trust through
+   the independent manual check below, self-checks (leaf chains to that trusted
    anchor, leaf public key equals its own, digest matches the field), signs
    the 9.C.2 transcript and writes the proof file atomically (≤ 256 B).
 5. The App processes the proof only on an explicit trusted local action:
    correlates it with the local request, rebuilds the transcript, verifies the
    signature and all P15 checks, then runs the P15 completion path (association
-   register CAS, P0 completion).
+   register CAS, P0 completion). Only confirmed success of both steps permits
+   the separate manual completion check and initial kind 4 persistence below.
 
 File rules: exact names only; strict versioned decode; single consumption;
 foreign or unexpected files are left untouched; population bounded at 32 files
@@ -1220,6 +1223,94 @@ private-key DER/PEM cannot replace a public point, leaf or raw signature.
 Display metadata is public caller input, not a general secret-content detector.
 All decoded values remain untrusted DTOs. P22 implements no directory access,
 publication, polling, cleanup, correlation state machine or automatic action.
+
+**P27-D0 bounded bootstrap amendment (contract only).** First trust uses an
+explicit App public-material export and independent manual comparison between
+the trusted local App and Bridge surfaces. It is not Discovery self-validation,
+automatic TOFU, a process-name check or an accepting verifier. This amendment
+adds no listener, fourth Exchange payload, signed completion record, P15 evidence
+type or second authorization system. P27 source implementation and its Exchange
+consumption primitive require separate scoped work; this contract does not
+activate them or establish independent review/Windows acceptance.
+
+The App's explicit local action supplies the exact public Issuer DER validated
+through P25 and the Server Leaf SHA-256 digest independently obtained from its
+validated App credentials. The Bridge explicitly imports those public inputs;
+neither is selected from an untrusted Discovery directory. The initial trust
+comparison is exactly:
+
+```text
+initialTrustDigest = SHA-256(
+  ASCII("SHIROHA-EXTERNAL-TRUST-CONFIRM-V1") || 0x00 ||
+  SHA-256(issuerDER) || serverLeafDigest || SHA-256(challengeBytes))
+```
+
+Each digest input is its raw 32 bytes, not hexadecimal text. On the App,
+`challengeBytes` is the retained exact serialized P22 payload whose P24 creation
+has been confirmed successful, including magic/version; an unpublished
+candidate or uncertain creation cannot support the display. On the Bridge it
+is the original bytes returned by P24 safe reading and accepted by complete P22
+strict decoding. Neither side re-encodes a decoded DTO or reconstructs a
+logically equivalent message for this comparison. The bytes bind Submission ID,
+Request ID, Nonce, selected Profile, Installation, Generation, Runtime Instance,
+Epoch, exact Client Leaf/identity, expected Revision and deadline.
+
+Before accepting first trust or signing, the Bridge checks the imported Issuer,
+Client Leaf chain/role/validity, exact Leaf digest, correspondence to its own
+in-memory Client key and its own live Enrollment. Both local surfaces display
+all 64 lowercase hexadecimal characters of `initialTrustDigest`; the user
+independently compares them against the trusted App and explicitly accepts on
+the Bridge. A copied digest or untrusted file alone cannot accept trust.
+Successful comparison establishes only this Enrollment's in-memory anchor,
+installation, epoch and expected Server digest inputs; it does not write kind 4
+or prove Pairing, Approval, possession or authorization by itself.
+
+Initial manual comparison must finish while the Challenge is live. P27 must
+choose its concrete interaction deadline within §9.C.1's 600-second ceiling;
+anything longer than the existing 30-second offline request requires matching
+P15 request binding and regression changes in that implementation slice. The
+post-verification private Evidence Window remains 30 seconds. Neither manual
+check extends a request or evidence window, ignores expiry or revives a consumed
+request. D0 changes no current source deadline.
+
+**Manual completion and initial kind 4 write.** Proof creation, first trust and
+Approval are not completion confirmations. Only after the existing P15
+`completePairing()` returns success may the App prepare a completion display.
+It must freshly read and revalidate the actual current Association and current
+management, confirm the exact Profile/Installation/Credential binding, the same
+live Runtime Instance/Generation and P0 `pairedDisabled`, then compute:
+
+```text
+completionDigest = SHA-256(
+  ASCII("SHIROHA-EXTERNAL-COMPLETION-CONFIRM-V1") || 0x00 ||
+  initialTrustDigest || committedRevision(u64le) || 0x01)
+```
+
+Here `initialTrustDigest` is the original raw 32-byte value and the single final
+byte means both Association and P0 completion were confirmed. `committedRevision`
+comes from that freshly validated persisted record after CAS, never arithmetic
+such as `expectedRevision + 1`; exact-revision idempotent registration remains
+unchanged. App uses its retained request/publication binding, not proof-supplied
+replacement fields. It displays the completed state, actual Revision and full
+64-character lowercase completion digest only while its owning context remains
+current; close, Restore, revoke or management/runtime invalidation withdraws it.
+
+The user independently checks that App display against the Bridge for the same
+still-live, in-memory Enrollment. Bridge accepts only the exact locally bound
+request and a Revision consistent with the existing CAS/idempotency contract,
+computes the full completion digest and requires a separate explicit local
+"confirm completion and save credential" action. That action permits one
+Missing-only kind 4 transaction through the existing protected store; no Client
+private key or initial kind 4 is persisted before this check. Existing valid
+credentials, corrupt objects and conflicting Pins are never overwritten.
+
+These are unsigned human-comparison digests, not receipt files, authentication
+evidence or durable completion tokens. The trusted local user action is the
+confirmation channel; receiving a digest/DTO/file cannot trigger saving. It
+certifies a checked point in time, not continuous freshness or cross-process
+atomicity. Saving kind 4 grants no Session, Grant or runtime Enablement; current
+P0/P12/P15 and Application authorization remain mandatory. Recovery and the
+availability cost of this ordering are frozen in §9.C.8.
 
 #### 9.C.6 Private-key non-leakage (FROZEN design; A1 evidence WINDOWS_PENDING)
 
@@ -1277,6 +1368,32 @@ durable policy stays P1/P11-owned.
   idempotent for the same active tuple). Never a silent resurrection.
 - Repeated failures never expand permission: no state advances without
   cryptographic success, current management and explicit local approval.
+
+P27-D0 failure matrix for the manual bootstrap/completion amendment in §9.C.5:
+
+| Boundary/result | Completion display / initial kind 4 | Required consequence |
+|---|---|---|
+| Missing/wrong imported trust, mismatched raw Challenge or manual digest, unsafe read, unconfirmed Challenge publication or expired request | Neither completion display nor kind 4 | Reject; no trust from Discovery, no proof/expiry bypass and no automatic retry |
+| No independent Approval, invalid/expired/reused Proof or failed Exchange consumption | Neither | No Pairing success; preserve the original one-use and explicit-runtime-recovery rules |
+| Association CAS fails or returns `commitUnknown` | Neither | Unknown is not committed success; a later explicit read establishes storage facts only, never Paired |
+| Association committed but P0 fails or its completion acknowledgement is lost | Neither | Residual Association is non-authorizing; do not infer success, compensate by overwrite or silently resume |
+| Both succeeded but completion display is stale, mismatched, unconfirmed or its management/runtime context invalidates | No initial kind 4 | Reject the Bridge save; no copied digest, cached display or old Enrollment can confirm a new attempt |
+| Both succeeded but Bridge exits before initial kind 4 commit | No durable Bridge private key | The unpersisted key is lost; accept an unusable Association residue rather than auto-repairing Pairing |
+| Initial kind 4 save fails, is `commitUnknown`, or sensitive-resource release fails | Never report save success or automatically retry | Settle the local attempt once; any later explicit protected read establishes credential facts only |
+| Initial kind 4 encounters existing valid credentials, corruption or a conflicting Pin | No overwrite | Fail closed; no silent Pin replacement, key regeneration or recovery write |
+| Initial kind 4 succeeds, followed by restart/Restore/runtime replacement | Existing credential only | Fresh runtime remains unpaired/disabled; persisted credentials never restore Paired, Sessions or Enablement |
+
+The App may already be `pairedDisabled` before a Bridge failure; a lost
+acknowledgement does not roll P0 back. No cross-process atomic commit or
+automatic compensation is promised. Once manual save is attempted its local
+confirmation is spent even on failure/unknown; it cannot be replayed into a
+second save attempt. Bridge never journals the unpersisted key or writes it to
+App, Exchange, Discovery, logs or recovery artifacts. Exit before reliable
+persistence loses that key. Later recovery requires an explicit trusted local
+flow under §9.C.8 and §9.A.6: fresh runtime composition and standard Pairing,
+with revoke-first before a new credential replaces an active Association.
+Neither an orphan Association nor a successfully read kind 4 reconstructs P0
+state. A corrupt or unknown object is not deleted or rewritten to force progress.
 
 ### 9.D Windows Discovery and local isolation (P16-D)
 
@@ -1419,9 +1536,19 @@ Cross-SID test boundary (FROZEN; real runs WINDOWS_PENDING, M5/A3):
   supports same-user Bridge only, and cross-user enrollment write paths are
   not part of v1.
 
-Bridge use of public trust (FROZEN): at enrollment the Bridge pins into its
-own store the anchor DER, the installation id and the enrollment-time
-`publicationEpoch` it validated from the 9.C.5 challenge; afterwards it never
+Bridge use of public trust (FROZEN; P27-D0 ordering amendment): first Enrollment
+establishes anchor provenance through §9.C.5's explicit App export and independent
+manual comparison, never through self-consistent Discovery objects. Trust inputs
+and the Client private key remain only in the same live Bridge Enrollment until
+App Association CAS and P0 completion both succeed and the independent manual
+completion check permits a Missing-only kind 4 commit. The existing kind 4
+format stores the Client key/Leaf, exact anchor DER, installation id and
+enrollment-time `publicationEpoch` validated from the confirmed Challenge. The
+Server Leaf digest remains an independent validation input; it is not a new kind
+4 field. No valid credential or Pin is overwritten. A store object is credential
+material only, never a persisted PairingState or runtime authorization. A Bridge
+exit before persistence may lose its key after App completion; §9.C.8 owns that
+deliberately accepted recovery cost. After successful persistence it never
 trusts discovery objects blindly — it verifies the endpoint signature against
 the pinned anchor, matches installationId, requires the served descriptor's
 `publicationEpoch` to be at least the pinned epoch (below is refused before
