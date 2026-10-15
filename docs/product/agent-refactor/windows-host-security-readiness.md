@@ -1110,6 +1110,17 @@ state; wire fields are never trusted as transcript inputs. The proof file
 App correlates requestId/submissionId with its local request and verifies with
 the public key recorded at leaf issuance.
 
+P22 encoding clarification: the domain includes exactly one NUL, kind is one
+byte, and all integers above use the full unsigned 64-bit domain represented
+as BigInt in Dart. InstallationId is the same canonical lowercase UUID v4 as
+§9.B.3 (36 UTF-8 bytes, within the existing 128-byte cap), so this transcript
+is exactly 201 bytes. Encode/decode reject malformed widths/UUIDs, truncation
+and trailing data. SHA-256 consumes the complete original transcript without
+another domain prefix, text separator, hash-of-hash or normalization. The
+raw signature uses P21's strict nonzero/in-range r and s format. Injected
+signing/verifying functions are primitive mathematical interfaces only; their
+result never supplies a P15 attempt, PairingProof, approval or TLS evidence.
+
 #### 9.C.3 Replay and substitution resistance (FROZEN)
 
 - Proof replay: the nonce and challenge are single-use and consumed on any
@@ -1179,6 +1190,36 @@ per directory; exceeding bounds fails new pairing work closed
 (`temporarilyUnavailable`) without any sweep. Interrupted flows leave only
 inert public-material files; nothing durable exists before the association
 commit (9.B.4), and no automatic retry exists.
+
+P22 minimal framing amendment (version 1, no semantic/order change): magic
+is eight ASCII bytes and version is one byte `0x01`. IDs/nonce/digest/point
+and raw signature are fixed-width raw bytes, not hex text. Each text/DER field
+has one `u16le byteLength` followed by exactly that many bytes. All counters,
+generation, revision and timestamps here are `u64le`, with full-range BigInt
+encoding; live deadline/current-revision admission still belongs to P15.
+InstallationId uses the same canonical UUID v4 form as §9.B.3; profileId is
+16 UUID v4 bytes. Text uses strict UTF-8 (no replacement of malformed sequences
+or lone UTF-16 surrogates); labels/build strings may be empty and are bounded
+by UTF-8 byte count, with no text normalization. A filename is a basename,
+exactly lowercase 32 hex digits for its internal submissionId, with no path,
+case folding, suffix, whitespace or trimming.
+
+| Payload | Exact ordered version-1 fields after magic/version |
+|---|---|
+| Submission | submissionId(16), publicPoint(65), displayLabel(u16+UTF-8 ≤64), clientBuild(u16+UTF-8 ≤32) |
+| Challenge | submissionId(16), requestId(16), nonce(32), profileId(16), installationId(u16+UTF-8), generation(u64), runtimeInstanceId(16), publicationEpoch(u64), credentialIdentity(32), expectedRevision(u64), expiresAtUtcMs(u64), clientLeaf(u16+DER ≤2048) |
+| Proof | submissionId(16), requestId(16), rawSignature(64) |
+
+Existing total caps remain 1024/4096/256 bytes. Decoders consume the complete
+input; wrong magic/version/name/ID, malformed fields, excess/truncated bytes
+or exceeded caps reject. Point shape and client-leaf role/structure use P21;
+the challenge's digest must equal SHA-256 of its exact leaf DER. Structural
+inspection never proves curve membership, signature, chain, validity or trust.
+There is no private-key, credential-object or arbitrary-extension field;
+private-key DER/PEM cannot replace a public point, leaf or raw signature.
+Display metadata is public caller input, not a general secret-content detector.
+All decoded values remain untrusted DTOs. P22 implements no directory access,
+publication, polling, cleanup, correlation state machine or automatic action.
 
 #### 9.C.6 Private-key non-leakage (FROZEN design; A1 evidence WINDOWS_PENDING)
 
@@ -1295,6 +1336,33 @@ text and cross-checked against the store. Mixed or stale combinations fail
 closed on the consumer side because the signature, the installationId match,
 the epoch high-water ordering below and the server-leaf digest binding must
 all hold.
+
+P22 descriptor framing clarification: header is ASCII `SHREXEPD` plus the
+single version byte `0x01`, followed in order by runtimeInstanceId(16),
+publicationEpoch(u64le), generation(u64le), port(u16le), serverLeafDigest(32),
+installationId(u16le byteLength + canonical UTF-8 UUID v4), publishedAtUtcMs
+(u64le), and raw issuer signature(64). With the canonical 36-byte UUID,
+unsigned bytes are exactly 121 bytes and the full descriptor is 185 bytes.
+The signed digest is exactly SHA-256 of ASCII
+`SHIROHA-EXTERNAL-ENDPOINT-V1`, one NUL, and those 121 unsigned bytes including
+magic/version. The signature itself is excluded, with no second hash or
+text encoding. Ports are 1..65535 and the only endpoint host interpretation
+is literal `127.0.0.1`; no host/address field or caller-selected remote host
+is encoded. A published epoch is 1..UINT64_MAX (0 is the unpublished store
+state); generation is informational and never used to order publications.
+
+The pure public-object validator requires caller-supplied, previously trusted
+anchor DER, expected installationId, expected server-leaf digest and verified
+epoch high-water. Supplied `anchor.der` must match the trusted bytes exactly
+and pass P21 issuer structural inspection; supplied `installation.id` is
+exactly 36 canonical UTF-8 bytes without BOM/newline/NUL. The descriptor must
+match the expected installation/digest, its epoch must be at least the verified
+high-water, and its signature must verify with the trusted anchor's public
+key through an explicit injected primitive. Self-consistency, successful
+`inspect()` or an accepting fake never establishes anchor provenance or
+authorization. Full-u64 increment reuses P21's checked `nextEpoch`; overflow
+rejects. P22 performs no high-water write, liveness, issuer chain/current-time
+validation, TLS verification, publication or actual file read.
 
 Publication and cleanup (FROZEN): the App is the sole publisher. Supersession
 single-liveness and store single-writer (FROZEN): the runtime acquires an
@@ -2149,4 +2217,39 @@ This candidate supplies no DPAPI publication for kinds 1/2/4, credential-store
 activation, real key generation/signature experiment, certificate installation,
 TLS, Discovery, enrollment, Host/Bridge runtime or Principal/Session wiring.
 G0-L1 and independent G0-I acceptance remain separate and pending.
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
+
+## 14. P22 Discovery/Pairing Bootstrap Codec Foundation (G0-L0 only)
+
+The inactive pure Data candidate implements `PairingTranscriptCodec`,
+`ExchangeMessageCodec` and `DiscoveryDescriptorCodec` under §9.C/§9.D, with
+small shared byte helpers and P21's existing signature/point/certificate
+structural checks and checked full-u64 epoch semantics. It reuses the existing
+pure SHA-256 implementation; Native sources/exports and ABI 3 are unchanged.
+Only the explicitly supplied signing/verifying functions may perform a
+primitive; no accepting implementation or runtime adapter is installed.
+
+`test/data/external/fixtures/bootstrap_v1.json` freezes exact positive bytes,
+digests, raw signatures and the unchanged P21 public RFC6979 A.2.5 key/role
+certificates. Framing/hash inputs were assembled independently with Python
+struct/hashlib; deterministic public-fixture signatures were independently
+verified with OpenSSL through cryptography. A read-only stdlib verifier and
+test-only pure Dart ECDSA verifier recheck those fixtures without loading the
+production Native helper or using real security objects. Tests cover each
+bound field, strict names/UTF-8/UUID/length/version, every truncation/trailing
+bytes, private-key substitution, role/digest mismatches, trust-pin mismatch,
+epoch rollback/overflow, invalid ports and immutable snapshots. The four
+suites are standing CI entries; scan/import/format/analyze gates precede
+related test execution. No check creates runtime authentication evidence.
+
+The codecs' integer range is a serialization property, not a change to P15
+management/revision/time limits. Existing approval order, 16 pending requests,
+single-use nonce and thirty-second evidence window remain owned by P0/P12/P15.
+A successful signature check alone cannot satisfy any of those owners. P22
+has no P15 port implementation, chain/current-validity verifier, issuer,
+protected store/publication, file reader/writer/poller, Host/Bridge process,
+network connection or production startup registration. Real cryptographic
+operations and protected-file behavior require separate scoped work/grants;
+production activation and G0-I acceptance remain separate and pending.
+
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.

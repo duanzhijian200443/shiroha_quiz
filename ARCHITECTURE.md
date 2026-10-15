@@ -118,7 +118,11 @@ and stays absent from startup, Agent/MCP and P12/P15 runtime composition.
 The inactive P21 Infrastructure candidate adds P-256/PKCS#8 primitives, strict
 credential/certificate codecs and an explicit crypto adapter in the same helper;
 no Application/Domain certificate or Windows dependency is introduced.
-The readiness contract sections 10–13 own these production source slices and
+P22 adds inactive pure Data codecs for the pairing transcript, public exchange
+payloads and Discovery descriptor, with explicit non-authorizing digest/signature
+interfaces and caller-owned trust/high-water inputs. No file access, Native call,
+P15 evidence producer or production composition is added.
+The readiness contract sections 10–14 own these production source slices and
 their pending Windows acceptance.
 
 Persistence formats and provider formats are implementation details, not public application contracts.
