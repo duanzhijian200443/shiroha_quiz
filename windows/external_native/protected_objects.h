@@ -54,6 +54,9 @@ struct ObjectOperations {
   virtual int32_t exchange_open(HANDLE, const std::wstring&, uint32_t, const Sid&, HANDLE&) { return SHIROHA_NATIVE_UNAVAILABLE; }
   virtual int32_t exchange_read(HANDLE, size_t, std::vector<uint8_t>&) { return SHIROHA_NATIVE_UNAVAILABLE; }
   virtual int32_t exchange_delete(HANDLE) { return SHIROHA_NATIVE_UNAVAILABLE; }
+  // P26 fixed Discovery objects; no arbitrary name/path or deletion capability.
+  virtual int32_t discovery_open(HANDLE, uint32_t, HANDLE&) { return SHIROHA_NATIVE_UNAVAILABLE; }
+  virtual int32_t discovery_replace(HANDLE, HANDLE, uint32_t, bool) { return SHIROHA_NATIVE_COMMIT_UNKNOWN; }
 };
 
 bool safe_component(const std::wstring& name) noexcept;
@@ -90,6 +93,8 @@ class ProtectedObjects final {
   int32_t exchange_create(uint32_t, uint64_t, uint32_t, const uint8_t*, const uint8_t*, uint64_t, uint64_t*) noexcept;
   int32_t exchange_read(uint32_t, uint64_t, uint32_t, const uint8_t*, uint8_t*, uint64_t, uint64_t*) noexcept;
   int32_t exchange_cleanup(uint32_t, uint64_t, uint64_t) noexcept;
+  int32_t discovery_read(uint32_t, uint64_t, uint32_t, uint8_t*, uint64_t, uint64_t*) noexcept;
+  int32_t discovery_publish(uint32_t, uint64_t, uint32_t, const uint8_t*, uint64_t) noexcept;
  private:
   int32_t begin(uint32_t, uint64_t, uint32_t, uint8_t*, uint64_t, uint64_t*, uint64_t*) noexcept;
   int32_t commit(uint32_t, uint64_t, uint64_t, bool, const uint8_t*, uint64_t, CommitDiagnostic*) noexcept;
@@ -113,6 +118,7 @@ class ProtectedObjects final {
     bool missing = false;
     std::wstring runtime_id;
     Pin exchange{}; // Separate from the unchanged P19/P20/P23 pin layout.
+    Pin discovery{};
     std::array<ExchangeReceipt, 32> exchange_receipts{};
   };
   int32_t add(Lease& lease, HANDLE parent, const wchar_t* name,
@@ -126,6 +132,8 @@ class ProtectedObjects final {
   int32_t target_current(Lease&, const Sid&);
   bool finish(Lease&) noexcept;
   int32_t exchange_directory(Lease&, Sid&);
+  int32_t discovery_directory(Lease&, Sid&);
+  int32_t discovery_operation(uint64_t, uint32_t, const uint8_t*, uint64_t, uint8_t*, uint64_t, uint64_t*, bool);
   int32_t exchange_operation(uint64_t, uint32_t, const uint8_t*, const uint8_t*, uint64_t,
       uint8_t*, uint64_t, uint64_t*, uint64_t*, bool);
   ObjectOperations& ops_;

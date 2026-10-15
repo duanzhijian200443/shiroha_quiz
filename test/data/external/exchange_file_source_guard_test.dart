@@ -41,7 +41,7 @@ void main() {
             'Exchange Fake executable includes real security operations'),
         lessThan(script.indexOf('& '
             r'$ctest --test-dir')));
-    expect(script, contains('actual.Count -ne 21'));
+    expect(script, contains('actual.Count -ne 23'));
   });
   test(
       'one P22 parsing authority; no startup, state machine, file-path or polling access',

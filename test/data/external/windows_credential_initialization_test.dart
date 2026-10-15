@@ -484,7 +484,10 @@ void main() {
         .listSync(recursive: true)
         .whereType<File>()
         .where((f) => f.path.endsWith('.dart'))) {
-      if (entry.path.replaceAll('\\', '/') == own) continue;
+      if ([own, 'lib/data/external/windows_discovery.dart']
+          .contains(entry.path.replaceAll('\\', '/'))) {
+        continue;
+      }
       expect(entry.readAsStringSync(),
           isNot(contains('WindowsCredentialInitialization')),
           reason: 'Inactive infrastructure must have no production consumer');

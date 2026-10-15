@@ -60,6 +60,9 @@ bool ProtectedObjects::release(Lease& lease) noexcept {
   if (lease.exchange.handle && lease.exchange.handle != INVALID_HANDLE_VALUE &&
       !ops_.close(lease.exchange.handle)) ok = false;
   lease.exchange.handle = nullptr;
+  if (lease.discovery.handle && lease.discovery.handle != INVALID_HANDLE_VALUE &&
+      !ops_.close(lease.discovery.handle)) ok = false;
+  lease.discovery.handle = nullptr;
   // The lock is inserted after root/Bridge and before store directories.
   // No operations can use this denied lease; close every held OS handle once.
   for (auto it = lease.pins.rbegin(); it != lease.pins.rend(); ++it) {

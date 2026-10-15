@@ -1398,6 +1398,13 @@ owner/DACL/volume/reparse/handle-identity checks above enter security
 acceptance.** Directory names, profile-local locations and ACL-less
 conventions are not evidence.
 
+P26's inactive realization is recorded in §18. Bridge Discovery access is
+existing-only and read-only under the Bridge Owner; it neither acquires App
+`runtime.lock` nor opens App trust/state directories. Optional fixed Discovery
+operations remain distinct from Store tickets and Exchange cleanup receipts.
+The three public files have separate publication points: incomplete/mismatched
+public objects reject, with no cross-file atomicity or automatic trust repair.
+
 Cross-SID test boundary (FROZEN; real runs WINDOWS_PENDING, M5/A3):
 
 - Negative: a second disposable principal must fail to read, modify, replace,
@@ -2534,5 +2541,132 @@ prove the data path for public vectors, not actual CNG or Windows certificate
 acceptance. No L1/L2 experiment, certificate installation, Host/Bridge startup,
 TLS/Socket, P26 publication, P27 enrollment, rotation/reset or AR-R6B activation
 is supplied.
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
+
+## 18. Protected Discovery Publisher / Reader foundation (P26, G0-L0 only)
+
+P26 is an inactive Package 1 implementation candidate, not a new frozen stage
+or security acceptance. SOURCE IMPLEMENTED / OFFLINE TESTED applies to the
+fixed public-object I/O, signing/validation coordination and conditional epoch
+persistence below. P25 is merged in PR #283. Its credential validation remains
+the only App certificate/key validation implementation; P22 remains the only
+Discovery codec. No production composition root references these adapters.
+
+### Fixed capability and roles
+
+Two optional ABI-3 exports, `shiroha_native_discovery_publish` and
+`shiroha_native_discovery_read`, accept version, Owner, fixed kind and bounded
+borrowed buffers. Kinds are 1=`endpoint.bin` (185 bytes), 2=`anchor.der`
+(1..1024 bytes), 3=`installation.id` (36 bytes). Read capacity equals the
+respective cap; disjoint valid output/count storage is cleared on failure.
+All existing twenty-one exports retain their signatures and behavior. Lazy
+lookup fails closed on older helpers; there is no path or alternate backend.
+
+| Operation | App Owner | Bridge Owner | Authority produced |
+|---|---|---|---|
+| Publish fixed objects | Yes, held runtime.lock required | Denied | Public data only |
+| Read fixed objects | Yes | Yes, existing Discovery only | Public data only |
+| Advance kind 1 epoch | Yes, same Store ticket | Denied | Persisted counter only |
+| Advance existing kind 4 high-water | Denied | Yes, full-snapshot conditional update | Persisted counter only |
+
+Native reuses P19's parent pins, current SID, exact protected DACL, fixed NTFS,
+Owner, reparse and volume/file identity checks. The additional Discovery pin
+does not change the credential-directory layout or grant Exchange capabilities.
+Bridge retains its own `bridge/client.lock`, never App `runtime.lock` or App
+trust/state access, and cannot create/repair Discovery. Reads validate both the
+held file and a fresh relative name against the original identity, then
+revalidate parents before releasing bytes; a substituted object is rejected,
+never hidden by a path-based reread.
+
+Publish uses explicit protected-DACL CREATE_NEW `~tmp-<runtimeId16>-<rand8>`
+under the verified Discovery directory, bounded leftover counting, write,
+Flush, target identity/Missing recheck, verified-target close, and documented
+handle-relative FileRenameInfo. Post-publication reopen must match the
+temporary's captured volume/file identity and full security recipe. Only
+endpoint may replace an existing validated object. Existing anchor/id must
+have exact expected bytes; mismatches/security failures never overwrite them.
+Temporary collisions and 32 leftovers reject without retry. No Discovery delete
+or cleanup export is supplied. Unknown names, foreign sentinels and all crash
+residues stay untouched, including this runtime's failed temporaries. Handle
+release failure quarantines ownership. A failed/throwing rename or any failure
+after rename entry returns `commitUnknown` and denies further owner operations.
+
+### Publication and persistence ordering
+
+`WindowsDiscoveryPublisher` requires the same App Owner as its injected P25
+credential service. P25 first reads and cryptographically validates persisted
+kind 1/2: exact Issuer binding, signatures, roles, validity and actual private
+key correspondence. Installation identity comes only from kind 1. It then
+re-reads kind 1 under one retained native Store ticket, compares the complete
+expected snapshot, revalidates the Issuer and commits checked BigInt epoch +1
+within that ticket. Missing, conflict and UINT64_MAX reject without creation,
+rollback or identity generation. Other kind formats and Store operations stay
+unchanged; native ticket exclusion remains shared with P20/P23.
+
+Only after that commit does P25 reread/revalidate the pair and sign the existing
+P22 digest once, with raw r||s; it verifies that signature before returning.
+Immediately before public I/O it freshly validates the persisted pair and
+descriptor signature/epoch/installation/digest again, detecting changed signing
+state. Publisher publishes/checks anchor, installation and then endpoint. Each
+file has its own commit point. A failure before endpoint may leave a partial
+set or an old self-consistent endpoint; consumers require all checks and reject
+incomplete/mismatched sets. No three-file atomic transaction is claimed.
+
+A committed epoch survives any subsequent failure. Gaps are harmless; no
+rollback or implicit second publication occurs. `commitUnknown`, including an
+FFI exception after entry or a release failure after a possibly successful
+publish, never reports success; that Publisher instance rejects further calls.
+Uncertain Discovery I/O also permanently denies the affected Dart Owner, so
+constructing another adapter on it cannot bypass the failure boundary.
+Only a later independent explicit operation may establish recovery facts.
+Runtime ID, port and time are explicit offline inputs: they neither publish an
+online service in this task nor prove Listener liveness. Package 2/3 owns real
+startup, shutdown, supersession and publication coordination.
+
+### Reader trust and high-water
+
+`WindowsDiscoveryReader` requires caller-supplied previously trusted Issuer DER,
+expected installation, verified epoch high-water and independently verified
+Server Leaf digest. P22 strictly decodes and validates the three read objects
+and verifies the raw signature through the explicit trusted primitive. A
+self-consistent directory never selects its own anchor. Low epochs reject;
+equal epochs require every other check; generation and file times never order
+publications. The sole host interpretation remains literal `127.0.0.1`.
+
+The optional `readAndAdvanceExistingPin` requires an already existing kind 4,
+compares its anchor/installation/high-water with those independently trusted
+inputs, and uses at least that persisted high-water for validation. Only after
+successful public-object validation does one Bridge Store ticket reread and
+compare the complete expected kind 4 snapshot and monotonically advance its
+epoch. Equal epoch performs the conditional check without writing. Missing or
+racing/invalidated snapshots reject; no initial Pin is created. Client key,
+Client Leaf, anchor and installation bytes are preserved. A failed or unknown
+commit returns no accepted result, never overwrites a newer state or claims
+the new value was reliably persisted. First pinning remains P27.
+
+Results are public Discovery data only. They create no Principal, Session,
+PairingProof, Profile/Grant, P15 evidence or connection permission. Actual
+Server Leaf/TLS-peer binding remains Package 2's full validation responsibility.
+
+### Offline evidence and pending acceptance
+
+Standing Native CI registers the Discovery production Core with synthetic
+operations and checks compile, exact exports, hardening and import isolation
+before execution. Failure injection covers roles/locks/parents/object identity,
+security attributes, temp collision/leftovers, write/Flush/rename/post-validation,
+partial state and unknown outcomes without scanning/deleting foreign objects.
+Standing Dart CI includes Publisher/Reader regressions and source guards;
+fixed public RFC6979/P21 fixture keys and epoch 1/2 vectors exercise actual
+mathematical signature verification, persisted ordering, u64 boundaries,
+Store ticket exclusion/CAS, pin races, partial files, tamper and typed failures.
+P21/P22/P23/P25 key regressions remain covered. Exact local commands/results
+belong to delivery evidence.
+
+REAL WINDOWS PENDING / FORMAL ACCEPTANCE PENDING: actual Discovery NTFS/DACL,
+parent/reparse/object identity enforcement, Flush/rename durability and crash
+recovery, cross-process/cross-SID access, CNG/DPAPI, independent G0-I acceptance
+and real TLS peer binding. No L1/L2/I experiment, Listener/Host/Bridge process,
+TCP/mTLS, production wiring, enrollment or AR-R6B activation is supplied.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.

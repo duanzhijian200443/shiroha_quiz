@@ -29,7 +29,7 @@ if(SHIROHA_P20_MINIMAL_TEST_BUILD)
   configure_file(diagnostics/p20_test_root_config.h.in
     "${CMAKE_CURRENT_BINARY_DIR}/p20/p20_test_root_config.h" @ONLY)
   add_executable(shiroha_p20_minimal_test diagnostics/p20_minimal_test.cpp
-    native_core.cpp native_windows.cpp protected_objects.cpp association_files.cpp exchange_files.cpp protected_windows.cpp)
+    native_core.cpp native_windows.cpp protected_objects.cpp association_files.cpp exchange_files.cpp discovery_files.cpp protected_windows.cpp)
   shiroha_native_settings(shiroha_p20_minimal_test)
   target_compile_definitions(shiroha_p20_minimal_test PRIVATE SHIROHA_P20_DIAGNOSTIC_BUILD)
   target_include_directories(shiroha_p20_minimal_test PRIVATE
@@ -51,7 +51,7 @@ if(SHIROHA_P20_MINIMAL_TEST_BUILD)
 endif()
 
 add_library(shiroha_external_native SHARED native_core.cpp native_windows.cpp
-  protected_objects.cpp association_files.cpp exchange_files.cpp protected_windows.cpp
+  protected_objects.cpp association_files.cpp exchange_files.cpp discovery_files.cpp protected_windows.cpp
   native_crypto.cpp p256_key_codec.cpp crypto_windows.cpp)
 shiroha_native_settings(shiroha_external_native)
 target_link_libraries(shiroha_external_native PRIVATE crypt32 shell32 ole32 uuid advapi32 bcrypt)
@@ -61,7 +61,7 @@ target_link_libraries(shiroha_external_native PRIVATE crypt32 shell32 ole32 uuid
 option(SHIROHA_BATCH3_EXISTING_ONLY_BUILD "Compile Batch 3 no-initialization DLL" OFF)
 if(SHIROHA_BATCH3_EXISTING_ONLY_BUILD)
   add_library(shiroha_batch3_existing_only SHARED native_core.cpp native_windows.cpp
-    protected_objects.cpp association_files.cpp exchange_files.cpp protected_windows.cpp
+    protected_objects.cpp association_files.cpp exchange_files.cpp discovery_files.cpp protected_windows.cpp
     native_crypto.cpp p256_key_codec.cpp crypto_windows.cpp)
   shiroha_native_settings(shiroha_batch3_existing_only)
   target_compile_definitions(shiroha_batch3_existing_only PRIVATE SHIROHA_BATCH3_EXISTING_ONLY)
@@ -108,4 +108,12 @@ if(SHIROHA_L1_CANDIDATE_BUILD)
   shiroha_native_settings(shiroha_assoc_candidate)
   target_include_directories(shiroha_assoc_candidate PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
   target_link_libraries(shiroha_assoc_candidate PRIVATE psapi)
+endif()
+
+if(SHIROHA_NATIVE_OFFLINE_TESTS)
+  add_executable(shiroha_discovery_offline_test protected_objects.cpp association_files.cpp
+    discovery_files.cpp tests/discovery_files_test.cpp)
+  shiroha_native_settings(shiroha_discovery_offline_test)
+  target_include_directories(shiroha_discovery_offline_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+  add_test(NAME shiroha_discovery_offline COMMAND shiroha_discovery_offline_test)
 endif()

@@ -368,7 +368,7 @@ Consumption authority (P27), Pairing, Discovery publication, Transport and Host
 activation remain outside this slice. HOST_STABILITY_HALT = ACTIVE;
 TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 
-P25 is an inactive Package 1 implementation candidate, not a new frozen stage,
+P25, merged in PR #283, is an inactive Package 1 implementation candidate, not a new frozen stage,
 under [Windows readiness §17](../product/agent-refactor/windows-host-security-readiness.md#17-credential-initialization-and-issuance-foundation-p25-g0-l0-only).
 It adds explicit App Issuer/Server initialization, persisted cryptographic
 validation, explicit partial-Server recovery and restricted Client leaf issuance.
@@ -379,6 +379,18 @@ no possession/Pairing/Association evidence. Standing offline coverage uses publi
 P21 vectors and an independent test-only P-256 verifier. Real Windows security,
 certificate/TLS acceptance, Discovery publication, enrollment and production
 wiring remain pending. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
+AR-R6A = NOT_ACCEPTED.
+
+P26 is an inactive Package 1 implementation candidate under
+[Windows readiness §18](../product/agent-refactor/windows-host-security-readiness.md#18-protected-discovery-publisher--reader-foundation-p26-g0-l0-only),
+not a new frozen stage. On merged P25 (PR #283), it adds fixed protected
+Discovery Publisher/Reader Native/FFI and Data adapters, P25-backed signing
+state validation, same-ticket kind 1 epoch increment and conditional existing
+kind 4 high-water advancement. P22 trust inputs remain independently supplied;
+no initial Pin, authorization or production runtime is created. SOURCE
+IMPLEMENTED / OFFLINE TESTED applies only to the inactive foundation. Discovery
+Windows security/durability, Listener/TLS peer binding, enrollment and G0-I
+acceptance remain pending. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
 AR-R6A = NOT_ACCEPTED.
 
 The retained target is Codex/Claude MCP Bridge → Shiroha External Host →

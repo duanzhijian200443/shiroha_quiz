@@ -35,8 +35,8 @@ $expected = @('shiroha_native_abi_version', 'shiroha_native_buffer_alloc', 'shir
     'shiroha_native_association_begin', 'shiroha_native_association_commit', 'shiroha_native_association_abort',
     'shiroha_native_ecdsa_generate_key', 'shiroha_native_ecdsa_sign_digest', 'shiroha_native_ecdsa_verify_digest',
     'shiroha_native_credential_begin', 'shiroha_native_credential_commit', 'shiroha_native_credential_abort',
-    'shiroha_native_exchange_create', 'shiroha_native_exchange_read', 'shiroha_native_exchange_cleanup')
-if ($actual.Count -ne 21 -or @(Compare-Object $expected $actual).Count -ne 0) { throw 'Unexpected DLL ABI exports' }
+    'shiroha_native_exchange_create', 'shiroha_native_exchange_read', 'shiroha_native_exchange_cleanup', 'shiroha_native_discovery_publish', 'shiroha_native_discovery_read')
+if ($actual.Count -ne 23 -or @(Compare-Object $expected $actual).Count -ne 0) { throw 'Unexpected DLL ABI exports' }
 $headers = (& $dumpbin /headers $dll | Out-String)
 if ($LASTEXITCODE -ne 0 -or $headers -notmatch '8664 machine \(x64\)') { throw 'DLL is not x64' }
 foreach ($flag in @('Dynamic base', 'NX compatible', 'Control Flow Guard')) {
@@ -59,7 +59,7 @@ $wrapper = Get-Content (Join-Path $PSScriptRoot 'protected_windows.cpp') -Raw
 if ($wrapper -notmatch 'GetProcAddress\(module, "NtSetInformationFile"\)') { throw 'Missing user-mode publication entry' }
 # Inspect before executing. These executables link only production pure cores +
 # fakes. The production DLL is neither loaded nor called by this check helper.
-foreach ($name in @('shiroha_native_offline_test', 'shiroha_objects_offline_test', 'shiroha_exchange_offline_test', 'shiroha_probe_offline_test', 'shiroha_rename_layout_test', 'shiroha_crypto_offline_test', 'shiroha_p20_root_production_test', 'shiroha_p20_root_diagnostic_test')) {
+foreach ($name in @('shiroha_discovery_offline_test', 'shiroha_native_offline_test', 'shiroha_objects_offline_test', 'shiroha_exchange_offline_test', 'shiroha_probe_offline_test', 'shiroha_rename_layout_test', 'shiroha_crypto_offline_test', 'shiroha_p20_root_production_test', 'shiroha_p20_root_diagnostic_test')) {
     $imports = (& $dumpbin /imports (Join-Path $build "$Configuration/$name.exe") | Out-String)
     # GetProcAddress alone is used by the MSVC CRT even in the layout-only
     # executable. Reject direct loaders/security operations, not CRT machinery.
@@ -95,7 +95,7 @@ foreach ($name in @('shiroha_batch3_existing_only.dll', 'shiroha_assoc_candidate
 $candidateExports = (& $dumpbin /exports (Join-Path $build "$Configuration/shiroha_batch3_existing_only.dll") | Out-String)
 if ($LASTEXITCODE -ne 0) { throw 'Existing-only export inspection failed' }
 $candidateNames = @([regex]::Matches($candidateExports, '(?m)^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(\w+)(?:\s+=.*)?\s*$') | ForEach-Object { $_.Groups[1].Value })
-if ($candidateNames.Count -ne 21 -or @(Compare-Object $expected $candidateNames).Count -ne 0) { throw 'Existing-only ABI drift' }
+if ($candidateNames.Count -ne 23 -or @(Compare-Object $expected $candidateNames).Count -ne 0) { throw 'Existing-only ABI drift' }
 # Assert the three targets remain separate even when both diagnostic options
 # are enabled. Configure dependencies are not compiler definitions/includes.
 foreach ($target in @('shiroha_external_native', 'shiroha_batch3_existing_only', 'shiroha_p20_minimal_test')) {
@@ -120,4 +120,4 @@ if ($LASTEXITCODE -ne 0) { throw 'Fake-only native contracts failed' }
 if ($LASTEXITCODE -ne 0) { throw 'Fake pin-owner contracts failed' }
 & $readerTest
 if ($LASTEXITCODE -ne 0) { throw 'Fake reader contracts failed' }
-Write-Output 'PASS: MSVC x64, twenty-one ABI exports, hardening, production imports and fake-only native contracts (no LOCAL-L1 acceptance)'
+Write-Output 'PASS: MSVC x64, twenty-three ABI exports, hardening, production imports and fake-only native contracts (no LOCAL-L1 acceptance)'

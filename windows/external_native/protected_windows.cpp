@@ -2,6 +2,7 @@
 #include "native_core.h"
 #include "association_rename.h"
 #include "credential_rename.h"
+#include "discovery_rename.h"
 #include "diagnostics/p20_test_root.h"
 #include <aclapi.h>
 #include <winternl.h>
@@ -229,6 +230,19 @@ class WindowsObjects final : public ObjectOperations {
   }
   int32_t credential_replace(HANDLE temporary, HANDLE directory, uint32_t kind, bool existing) override {
     return rename_credential(SetFileInformationByHandle, temporary, directory, kind, existing);
+  }
+  int32_t discovery_open(HANDLE parent, uint32_t kind, HANDLE& result) override {
+    result = nullptr;
+    const auto* name = discovery_name(kind);
+    if (!name) return SHIROHA_NATIVE_INVALID_INPUT;
+    const auto status = open_native(parent, name, false, true, FILE_OPEN, nullptr, result,
+        READ_CONTROL | FILE_READ_ATTRIBUTES | FILE_READ_DATA | SYNCHRONIZE,
+        FILE_SHARE_READ | FILE_SHARE_DELETE);
+    if (status == static_cast<NTSTATUS>(0xC0000034u)) return SHIROHA_NATIVE_MISSING;
+    return status == 0 ? SHIROHA_NATIVE_OK : SHIROHA_NATIVE_UNAVAILABLE;
+  }
+  int32_t discovery_replace(HANDLE temp, HANDLE parent, uint32_t kind, bool replace) override {
+    return rename_discovery(SetFileInformationByHandle, temp, parent, kind, replace);
   }
   int32_t exchange_lock(const ObjectInfo& directory, const Sid& sid, HANDLE& result) override {
     result = nullptr;
@@ -487,4 +501,12 @@ int32_t SHIROHA_NATIVE_CALL shiroha_native_exchange_read(uint32_t version, uint6
 }
 int32_t SHIROHA_NATIVE_CALL shiroha_native_exchange_cleanup(uint32_t version, uint64_t owner, uint64_t receipt) {
   return owners.exchange_cleanup(version, owner, receipt);
+}
+int32_t SHIROHA_NATIVE_CALL shiroha_native_discovery_publish(uint32_t version, uint64_t owner,
+    uint32_t kind, const uint8_t* input, uint64_t length) {
+  return owners.discovery_publish(version, owner, kind, input, length);
+}
+int32_t SHIROHA_NATIVE_CALL shiroha_native_discovery_read(uint32_t version, uint64_t owner,
+    uint32_t kind, uint8_t* output, uint64_t capacity, uint64_t* written) {
+  return owners.discovery_read(version, owner, kind, output, capacity, written);
 }

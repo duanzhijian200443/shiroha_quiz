@@ -115,6 +115,18 @@ def main():
                  + field(blob("clientDer")))
     proof = b"SHREXPRF\1" + blob("submissionId") + blob("requestId") + blob("transcriptSignature")
     require(submission == blob("submission") and challenge == blob("challenge") and proof == blob("proof"))
+    publications = json.loads((ROOT / "test/data/external/fixtures/discovery_publications_v1.json").read_text(encoding="utf8"))["publications"]
+    for epoch, row in enumerate(publications, 1):
+        expected = bytearray(unsigned)
+        expected[25:33] = struct.pack("<Q", epoch)
+        descriptor = bytes.fromhex(row["descriptor"])
+        digest = hashlib.sha256(b"SHIROHA-EXTERNAL-ENDPOINT-V1\0" + expected).digest()
+        signature = bytes.fromhex(row["signature"])
+        require(row["epoch"] == str(epoch) and descriptor == expected + signature)
+        require(bytes.fromhex(row["digest"]) == digest and verify(digest, signature))
+        require(not verify(hashlib.sha256(expected).digest(), signature))
+    require(len(publications) == 2)
+    print("PASS: P26 epoch 1/2 framing/SHA256/ECDSA publication vectors")
     print("PASS: independent framing/SHA256/ECDSA, P21 fixture reuse and 351 byte-tamper rejections")
 
 

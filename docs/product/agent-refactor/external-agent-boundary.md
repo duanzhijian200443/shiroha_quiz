@@ -1221,6 +1221,11 @@ owned by Windows readiness §17. An issued leaf and its exact-DER digest remain
 public correlation material: neither proves Client possession nor creates a
 Principal, PairingProof, Session, Association, Grant or Enablement. No production
 consumer calls this infrastructure; P27 enrollment remains separately scoped.
+P26's inactive Discovery Publisher/Reader is owned by Windows readiness §18.
+Fixed Native object access and same-ticket epoch/high-water persistence use
+P19/P23/P25; P22 still owns the descriptor and independent trusted inputs.
+Discovery data supplies no P15 evidence, Pairing, Session or connection
+authority. No initial Pin or production consumer is introduced.
 M1–M4 real security remain WINDOWS_PENDING; G0 and X0–X12 are unapproved and
 not run. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
 AR-R6A = NOT_ACCEPTED. No Codex process-brand authentication is claimed.
