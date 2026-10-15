@@ -402,6 +402,105 @@ final class ExternalProtectedObjects {
     return calls as ExternalNativeCredentialCalls;
   }
 
+  ExternalNativeExchangeCalls get _exchangeCalls {
+    final calls = _adapter._calls;
+    if (calls is! ExternalNativeExchangeCalls) {
+      WindowsExternalNative._fail(ExternalNativeFailure.temporarilyUnavailable);
+    }
+    return calls as ExternalNativeExchangeCalls;
+  }
+
+  static int _exchangeCap(int kind) => switch (kind) {
+        1 => 1024,
+        2 => 4096,
+        3 => 256,
+        _ => WindowsExternalNative._fail(ExternalNativeFailure.invalidInput),
+      };
+
+  /// Raw bounded I/O only. The Data adapter must apply P22 before creation and
+  /// after reading. A receipt confers creator cleanup only, never Pairing trust.
+  ExternalExchangeReceipt createExchange(
+      int kind, Uint8List id, Uint8List bytes) {
+    final cap = _exchangeCap(kind);
+    if (id.length != 16 ||
+        bytes.isEmpty ||
+        bytes.length > cap ||
+        _role != (kind == 2 ? 1 : 2)) {
+      WindowsExternalNative._fail(ExternalNativeFailure.invalidInput);
+    }
+    Pointer<Uint8> nativeId = nullptr, input = nullptr, count = nullptr;
+    try {
+      ensureOpen();
+      nativeId = _adapter._allocate(16);
+      nativeId.asTypedList(16).setAll(0, id);
+      input = _adapter._allocate(bytes.length);
+      input.asTypedList(bytes.length).setAll(0, bytes);
+      count = _adapter._allocate(8);
+      count.cast<Uint64>().value = 0;
+      WindowsExternalNative._checkStatus(_exchangeCalls.exchangeCreate(3,
+          _token, kind, nativeId, input, bytes.length, count.cast<Uint64>()));
+      final receipt = count.cast<Uint64>().value;
+      if (receipt <= 0) {
+        WindowsExternalNative._fail(ExternalNativeFailure.invalidNativeResult);
+      }
+      return ExternalExchangeReceipt._(this, receipt);
+    } on ExternalNativeException {
+      rethrow;
+    } catch (_) {
+      WindowsExternalNative._fail(ExternalNativeFailure.temporarilyUnavailable);
+    } finally {
+      // On any boundary failure, an unpublished creator pin stays bounded in
+      // this owner until close. Failure NEVER initiates file deletion.
+      _exchangeFree([nativeId, input, count]);
+    }
+  }
+
+  /// Null is Missing; full P22 decoding still belongs to the Data adapter.
+  Uint8List? readExchange(int kind, Uint8List id) {
+    final cap = _exchangeCap(kind);
+    if (id.length != 16 || _role == (kind == 2 ? 1 : 2)) {
+      WindowsExternalNative._fail(ExternalNativeFailure.invalidInput);
+    }
+    Pointer<Uint8> nativeId = nullptr, output = nullptr, count = nullptr;
+    try {
+      ensureOpen();
+      nativeId = _adapter._allocate(16);
+      nativeId.asTypedList(16).setAll(0, id);
+      output = _adapter._allocate(cap);
+      count = _adapter._allocate(8);
+      count.cast<Uint64>().value = 0;
+      final status = _exchangeCalls.exchangeRead(
+          3, _token, kind, nativeId, output, cap, count.cast<Uint64>());
+      if (status != 6) WindowsExternalNative._checkStatus(status);
+      final length = count.cast<Uint64>().value;
+      if (status == 6 && length == 0) return null;
+      if (status == 6 || length <= 0 || length > cap) {
+        WindowsExternalNative._fail(ExternalNativeFailure.invalidNativeResult);
+      }
+      return Uint8List.fromList(output.asTypedList(length));
+    } on ExternalNativeException {
+      rethrow;
+    } catch (_) {
+      WindowsExternalNative._fail(ExternalNativeFailure.temporarilyUnavailable);
+    } finally {
+      _exchangeFree([nativeId, output, count]);
+    }
+  }
+
+  void _exchangeFree(List<Pointer<Uint8>> buffers) {
+    var failed = false;
+    for (final buffer in buffers) {
+      try {
+        if (buffer != nullptr) _adapter._calls.free(buffer);
+      } catch (_) {
+        failed = true;
+      }
+    }
+    if (failed) {
+      WindowsExternalNative._fail(ExternalNativeFailure.temporarilyUnavailable);
+    }
+  }
+
   Uint8List protectCredential(Uint8List bytes) {
     ensureOpen();
     return _adapter.protect(bytes);
@@ -538,6 +637,34 @@ final class ExternalProtectedObjects {
 
   @override
   String toString() => 'ExternalProtectedObjects(REDACTED)';
+}
+
+/// One creator-owned cleanup attempt, independent of any business consumption.
+/// It cannot be constructed from an ID, path or decoded Exchange DTO.
+final class ExternalExchangeReceipt {
+  ExternalExchangeReceipt._(this._owner, this._receipt);
+  final ExternalProtectedObjects _owner;
+  final int _receipt;
+  bool _settled = false;
+
+  void cleanup() {
+    if (_settled) {
+      WindowsExternalNative._fail(ExternalNativeFailure.invalidInput);
+    }
+    _settled = true;
+    try {
+      _owner.ensureOpen();
+      WindowsExternalNative._checkStatus(
+          _owner._exchangeCalls.exchangeCleanup(3, _owner._token, _receipt));
+    } on ExternalNativeException {
+      rethrow;
+    } catch (_) {
+      WindowsExternalNative._fail(ExternalNativeFailure.temporarilyUnavailable);
+    }
+  }
+
+  @override
+  String toString() => 'ExternalExchangeReceipt(REDACTED)';
 }
 
 /// One-use native transaction; caller must commit or abort after actual work.

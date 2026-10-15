@@ -7,7 +7,10 @@ import 'package:shiroha_quiz/data/external/native/external_native_bindings.dart'
 /// Test-only allocator + fake calls. Never opens the production helper, calls
 /// DPAPI, reads credentials or implements an Application authentication backend.
 final class FakeExternalNativeCalls
-    implements ExternalNativeCalls, ExternalNativeCredentialCalls {
+    implements
+        ExternalNativeCalls,
+        ExternalNativeCredentialCalls,
+        ExternalNativeExchangeCalls {
   FakeExternalNativeCalls() {
     final library = Platform.isWindows
         ? DynamicLibrary.open('msvcrt.dll')
@@ -44,6 +47,66 @@ final class FakeExternalNativeCalls
   final tickets = <int, int>{};
 
   final credentialFiles = <int, Uint8List>{};
+  final exchangeFiles = <(int, String), Uint8List>{};
+  final exchangeIdentities = <(int, String), int>{};
+  final exchangeReceipts = <int, (int, (int, String), int)>{};
+  int nextExchangeIdentity = 1, unknownExchangeEntries = 0, exchangeDeletes = 0;
+  int exchangeStatus = 0;
+  bool throwExchange = false;
+  String _exchangeId(Pointer<Uint8> id) =>
+      id.asTypedList(16).map((v) => v.toRadixString(16).padLeft(2, '0')).join();
+  @override
+  int exchangeCreate(int version, int owner, int kind, Pointer<Uint8> id,
+      Pointer<Uint8> input, int length, Pointer<Uint64> receipt) {
+    receipt.value = 0;
+    if (owners[owner] != (kind == 2 ? 1 : 2) || ![1, 2, 3].contains(kind)) {
+      return 1;
+    }
+    if (exchangeStatus != 0) return exchangeStatus;
+    if (exchangeFiles.length + unknownExchangeEntries >= 32) return 4;
+    final key = (kind, _exchangeId(id));
+    if (exchangeFiles.containsKey(key)) return 4;
+    exchangeFiles[key] = Uint8List.fromList(input.asTypedList(length));
+    final identity = nextExchangeIdentity++;
+    exchangeIdentities[key] = identity;
+    receipt.value = nextTicket++;
+    exchangeReceipts[receipt.value] = (owner, key, identity);
+    if (throwExchange) throw StateError('synthetic private Exchange');
+    return 0;
+  }
+
+  @override
+  int exchangeRead(int version, int owner, int kind, Pointer<Uint8> id,
+      Pointer<Uint8> output, int capacity, Pointer<Uint64> written) {
+    written.value = 0;
+    if (!owners.containsKey(owner) || owners[owner] == (kind == 2 ? 1 : 2)) {
+      return 1;
+    }
+    if (exchangeStatus != 0) return exchangeStatus;
+    if (throwExchange) throw StateError('synthetic private Exchange');
+    if (exchangeFiles.length + unknownExchangeEntries > 32) return 4;
+    final bytes = exchangeFiles[(kind, _exchangeId(id))];
+    if (bytes == null) return 6;
+    if (bytes.isEmpty || bytes.length > capacity) return 5;
+    output.asTypedList(bytes.length).setAll(0, bytes);
+    written.value = outputLength ?? bytes.length;
+    return 0;
+  }
+
+  @override
+  int exchangeCleanup(int version, int owner, int receipt) {
+    final r = exchangeReceipts[receipt];
+    if (r == null || r.$1 != owner) return 1;
+    exchangeReceipts.remove(receipt);
+    if (throwExchange) throw StateError('synthetic private Exchange');
+    if (exchangeStatus != 0) return exchangeStatus;
+    if (exchangeIdentities[r.$2] != r.$3) return 4;
+    exchangeFiles.remove(r.$2);
+    exchangeIdentities.remove(r.$2);
+    exchangeDeletes++;
+    return 0;
+  }
+
   final credentialTickets = <int, (int, int)>{};
   int credentialAborts = 0;
   @override
@@ -191,6 +254,7 @@ final class FakeExternalNativeCalls
     owners.remove(token);
     tickets.removeWhere((_, owner) => owner == token);
     credentialTickets.removeWhere((_, entry) => entry.$1 == token);
+    exchangeReceipts.removeWhere((_, entry) => entry.$1 == token);
     if (throwClose) throw StateError('synthetic private close detail');
     return closeStatus;
   }

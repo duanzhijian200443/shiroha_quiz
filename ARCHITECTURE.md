@@ -126,7 +126,12 @@ The inactive P23 Data adapter `WindowsCredentialObjectStore` adds fixed kind
 1/2/4 persistence through those same owners, strict P21 codecs, P18 DPAPI and
 Win32 handle-relative native transactions; App kinds 1/2/3 share one ticket.
 No credential lifecycle, initialization, issuer, Pairing or startup is supplied.
-The readiness contract sections 10–15 own these production source slices and
+The inactive P24 `WindowsExchangeFileStore` uses P22's single strict codec and
+optional ABI-3 fixed-kind/ID I/O. Native owns parent-bound Exchange access,
+CREATE_NEW, bounded reads, directory-identity-bound short quota exclusion and
+creator-only identity-pinned cleanup. Bridge opens App-created Exchange only;
+no credential ticket, App lock, consumer workflow or production wiring is added.
+The readiness contract sections 10–16 own these production source slices and
 their pending Windows acceptance.
 
 Persistence formats and provider formats are implementation details, not public application contracts.

@@ -99,6 +99,9 @@ void main() {
       'shiroha_native_credential_begin',
       'shiroha_native_credential_commit',
       'shiroha_native_credential_abort',
+      'shiroha_native_exchange_create',
+      'shiroha_native_exchange_read',
+      'shiroha_native_exchange_cleanup',
     ]) {
       expect(header, contains(symbol));
       expect(bindings, contains("'$symbol'"));
@@ -272,6 +275,7 @@ void main() {
     expect(main, isNot(contains('WindowsExternalNative')));
     expect(main, isNot(contains('WindowsCredentialAssociationStore')));
     expect(main, isNot(contains('WindowsCredentialObjectStore')));
+    expect(main, isNot(contains('WindowsExchangeFileStore')));
     expect(main, isNot(contains('external/native/')));
     for (final root in ['lib/data/external', 'lib/application/external']) {
       for (final file

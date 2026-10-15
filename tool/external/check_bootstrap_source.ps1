@@ -35,8 +35,23 @@ foreach ($name in $files) {
 foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.dart' -File -Recurse) {
     if ($file.DirectoryName -eq [IO.Path]::GetFullPath((Join-Path $root 'lib/data/external')) -and $files -contains $file.Name) { continue }
     $code = [IO.File]::ReadAllText($file.FullName)
+    # P24 is the one inactive file-I/O consumer of the P22 Exchange codec.
+    # It is guarded separately below; no other consumer becomes permitted.
+    if ($file.FullName -eq [IO.Path]::GetFullPath((Join-Path $root 'lib/data/external/windows_exchange_file_store.dart'))) { continue }
     if ($code -match 'pairing_transcript_codec|exchange_message_codec|discovery_descriptor_codec|external_bootstrap_bytes') {
         throw 'P22 production composition is active'
+    }
+}
+$exchange = [IO.File]::ReadAllText((Join-Path $root 'lib/data/external/windows_exchange_file_store.dart'))
+foreach ($token in @('dart:io', 'dart:ffi', 'PairingProof(', 'AuthenticatedPeerEvidence(',
+    'ExternalCredentialBoundary', 'LocalHostDispatchCore', 'ServerSocket', 'Timer(',
+    'DiscoveryDescriptorCodec', 'PairingTranscriptCodec', 'print(', 'debugPrint(')) {
+    if ($exchange.Contains($token)) { throw 'P24 file adapter escaped its bounded responsibility' }
+}
+foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.dart' -File -Recurse) {
+    if ($file.FullName -eq [IO.Path]::GetFullPath((Join-Path $root 'lib/data/external/windows_exchange_file_store.dart'))) { continue }
+    if ([IO.File]::ReadAllText($file.FullName) -match 'windows_exchange_file_store|WindowsExchangeFileStore') {
+        throw 'P24 production composition is active'
     }
 }
 Write-Output 'PASS: P22 source/import isolation and inactive production composition'

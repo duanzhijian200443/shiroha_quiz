@@ -52,6 +52,14 @@ bool object_valid(const ObjectInfo& i, const Sid& sid, bool directory,
 
 bool ProtectedObjects::release(Lease& lease) noexcept {
   bool ok = finish(lease);
+  for (auto& receipt : lease.exchange_receipts) {
+    if (receipt.pin && !ops_.close(receipt.pin)) ok = false;
+    receipt.pin = nullptr;
+    receipt.token = 0;
+  }
+  if (lease.exchange.handle && lease.exchange.handle != INVALID_HANDLE_VALUE &&
+      !ops_.close(lease.exchange.handle)) ok = false;
+  lease.exchange.handle = nullptr;
   // The lock is inserted after root/Bridge and before store directories.
   // No operations can use this denied lease; close every held OS handle once.
   for (auto it = lease.pins.rbegin(); it != lease.pins.rend(); ++it) {
