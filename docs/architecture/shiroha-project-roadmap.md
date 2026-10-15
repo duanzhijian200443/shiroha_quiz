@@ -368,7 +368,7 @@ Consumption authority (P27), Pairing, Discovery publication, Transport and Host
 activation remain outside this slice. HOST_STABILITY_HALT = ACTIVE;
 TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 
-P25 is an inactive Package 1 implementation candidate, not a new frozen stage,
+P25, merged in PR #283, is an inactive Package 1 implementation candidate, not a new frozen stage,
 under [Windows readiness §17](../product/agent-refactor/windows-host-security-readiness.md#17-credential-initialization-and-issuance-foundation-p25-g0-l0-only).
 It adds explicit App Issuer/Server initialization, persisted cryptographic
 validation, explicit partial-Server recovery and restricted Client leaf issuance.

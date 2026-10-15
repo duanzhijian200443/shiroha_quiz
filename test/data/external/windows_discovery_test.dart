@@ -358,6 +358,33 @@ void main() {
         throwsA(stores.failure(ExternalCredentialFailure.invalidInput)));
     expect(h.calls.commits, count);
   });
+  test('native commit-unknown status denies owner and latches the publisher',
+      () {
+    h.calls.beforeDiscoveryPublish = (kind) {
+      if (kind == 1) h.calls.discoveryStatus = 7;
+    };
+    expect(publish,
+        throwsA(stores.failure(ExternalCredentialFailure.commitUnknown)));
+    expect(h.calls.discoveryFiles.keys, containsAll([2, 3]));
+    expect(h.calls.discoveryFiles.containsKey(1), isFalse);
+    expect(h.owner.isUsable, isFalse);
+    final count = h.calls.commits;
+    expect(
+        publish,
+        throwsA(
+            stores.failure(ExternalCredentialFailure.temporarilyUnavailable)));
+    expect(h.calls.commits, count);
+    final replacement =
+        WindowsDiscoveryPublisher(owner: h.owner, credentials: credentials);
+    expect(
+        () => replacement.publish(
+            runtimeInstanceId: vectorBytes('runtimeInstanceId'),
+            generation: vectorInt('generation'),
+            port: bootstrapVector['port'] as int,
+            publishedAtUtcMs: vectorInt('publishedAtUtcMs')),
+        throwsA(stores.failure(ExternalCredentialFailure.invalidInput)));
+    expect(h.calls.commits, count);
+  });
   test('Bridge cannot borrow App publisher or write objects', () {
     expect(
         () =>

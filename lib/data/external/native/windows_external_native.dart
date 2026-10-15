@@ -447,6 +447,10 @@ final class ExternalProtectedObjects {
       final status =
           calls.discoveryPublish(3, _token, kind, input, bytes.length);
       returned = true;
+      if (![0, 1, 2, 3, 4, 5].contains(status)) {
+        _denied = true;
+        WindowsExternalNative._fail(ExternalNativeFailure.commitUnknown);
+      }
       WindowsExternalNative._checkStatus(status);
     } on ExternalNativeException catch (e) {
       uncertain = (entered && !returned) ||

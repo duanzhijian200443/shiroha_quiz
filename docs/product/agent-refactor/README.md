@@ -24,8 +24,8 @@ functionality LOCAL-L1 PENDING; P19 protected-object and P20 association source
 slices are merged, with PR #277 isolated-root P20 functional evidence;
 P21 credential/certificate primitives are merged in PR #278, inactive G0-L0;
 P22 is merged in PR #280; P23 is merged in PR #281; P24 is merged in PR #282;
-P25 adds inactive G0-L0 credential initialization and restricted Client leaf
-issuance only.**
+P25 is merged in PR #283; P26 adds inactive G0-L0 protected Discovery
+publisher/reader only.**
 
 The Provider seam, typed capability/executor/projection path and Runtime split/
 transcript are delivered in the preceding merged stages. Historical AR-R3
@@ -172,12 +172,19 @@ adds three optional exports while preserving all eighteen existing exports.
 REAL WINDOWS PENDING / FORMAL ACCEPTANCE PENDING remain explicit; no Pairing
 transition, consumption order, credential ticket, Host/Bridge activation or
 startup is supplied. P20's isolated-root functional result is not extended.
-P25 under readiness §17 is an inactive credential initialization/issuance source
+P25, merged in PR #283, under readiness §17 is an inactive credential initialization/issuance source
 candidate: explicit App Issuer/Server creation, persisted cryptographic validation,
 partial-Server recovery and restricted Client leaf issuance. P23 gains only a
 same-ticket create-if-missing operation; its write API, formats and ABI remain
 unchanged. Public fixed-vector tests supply offline evidence only; real Windows
 acceptance, Client possession, Pairing and production wiring remain pending.
+P26 under readiness §18 adds SOURCE IMPLEMENTED / OFFLINE TESTED fixed-kind
+protected Discovery Publisher/Reader Native/FFI and Data adapters, same-ticket
+kind 1 epoch advancement with P25-backed signing-state validation and
+conditional existing kind 4 high-water updates. P22 trust inputs remain
+independently supplied; no initial Pin, listener, TLS, authorization or
+production wiring is added. REAL WINDOWS PENDING / FORMAL ACCEPTANCE PENDING
+remain explicit.
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 Production Host/IPC, MCP vNext and READ fallback continuation remain unimplemented
 targets. Current product behavior
