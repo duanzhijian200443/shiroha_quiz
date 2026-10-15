@@ -25,7 +25,8 @@ slices are merged, with PR #277 isolated-root P20 functional evidence;
 P21 credential/certificate primitives are merged in PR #278, inactive G0-L0;
 P22 is merged in PR #280; P23 is merged in PR #281; P24 is merged in PR #282;
 P25 is merged in PR #283; P26 adds inactive G0-L0 protected Discovery
-publisher/reader only.**
+publisher/reader only; P27-E0 adds an inactive G0-L0 identity/content-bound
+Exchange consumption foundation, SOURCE IMPLEMENTED / OFFLINE TESTED only.**
 
 The Provider seam, typed capability/executor/projection path and Runtime split/
 transcript are delivered in the preceding merged stages. Historical AR-R3
@@ -185,6 +186,19 @@ conditional existing kind 4 high-water updates. P22 trust inputs remain
 independently supplied; no initial Pin, listener, TLS, authorization or
 production wiring is added. REAL WINDOWS PENDING / FORMAL ACCEPTANCE PENDING
 remain explicit.
+P27-E0 under [readiness §16](windows-host-security-readiness.md#p27-e0-identity-bound-consumption-foundation-inactive-g0-l0-only)
+adds SOURCE IMPLEMENTED / OFFLINE TESTED identity/content-bound Exchange
+consumption infrastructure only. Three optional ABI-3 exports
+(`shiroha_native_exchange_read_begin`, `shiroha_native_exchange_consume`,
+`shiroha_native_exchange_release`) preserve the existing twenty-three exports.
+Bounded Owner-bound Reader Tickets retain object identity pins and exact original
+bytes; full P22 strict decoding precedes controlled-read delivery. Explicit
+Consume revalidates identity and exact content on the protected deletion handle;
+Release drops the pin without deleting. Ordinary P24 Read and creator Cleanup
+remain unchanged. No P15 verification evidence or business authorization is
+created; P27-I0 Pairing sequencing and D0 consumption timing remain unimplemented.
+REAL WINDOWS PENDING / FORMAL ACCEPTANCE PENDING remain explicit; no production
+Host/Bridge, Transport or Runtime Enablement is activated.
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 Production Host/IPC, MCP vNext and READ fallback continuation remain unimplemented
 targets. Current product behavior
