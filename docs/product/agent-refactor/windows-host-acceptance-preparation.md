@@ -58,13 +58,46 @@ Batch 1/2 不能给 Host A Batch 3 带来继承许可。
   及所有 Store/Exchange/Discovery/Owner 翻译单元，仅链接 `crypt32`/`bcrypt`/`psapi`；通过 7 符号白名单门禁
   拒绝其余 20 个 ABI-3 导出，内建 1/3/3/6(3 正+3 负)/3 同步预留账本、单次释放槽位与 18 点资源采样。
   其入口 `l1_crypto_candidate_entry` 在 E0 固定拒绝真实运行（`l1_crypto_execution_not_authorized`，exit 10）；
-  CTest 仅注册纯 Fake 的 `shiroha_l1_crypto_probe_offline`。
+  CTest 只注册 Fake 目标，包括 `shiroha_l1_crypto_probe_offline`、
+  `shiroha_l1_crypto_observation_offline` 和 `shiroha_l1_crypto_admission_offline`，
+  不注册真实候选。
 - 当前未提供通过批准的隔离根、仅认证无业务路由的真实 TLS 可执行 Composition；
   也未提供 G0-I 的真实 App/Bridge、可信人工 Pairing、合成 DB/B0 与操作员组合。
 - 构建、部署、启动、停止/销毁是分别授权的动作；编译成功或静态 inventory 不授权启动。
   当前 L0 不构建/安装/运行 App/Bridge Release/AOT，也不调用现有诊断执行器。
 
 ## 2. A0–A12 / X0–X12 正式矩阵
+
+E2 准入加固补充（G0-L0）：`l1_crypto_admission.h` 提供纯 OFFLINE 的
+GrantTarget、FakeGrantCell、OfflineSupervisor 与 OfflineEvidence；
+`l1_native_observation.h` 只在诊断构建中观察原 RAII 的底层返回和资源结算。
+完整 ABI 尝试预算为 `1+3+3+6+3+45+45=106`，最多 5 个同时存活 Buffer；
+失败/返回空值/抛异常的 Allocation 都消耗尝试，释放不重置累计预算。
+底层显式调用表与唯一释放规则见 Native diagnostics README；正常路径观察
+47 个 CNG/crypt32 资源，失败释放保留 UNKNOWN/隔离，不能由 void buffer-free
+正常返回或采样句柄数推导完整释放。Windows 内部不可见分配不在观察承诺内。
+
+Supervisor 模型从实验进程开始尝试计 30 秒，在截止点拒绝新工作；
+已进入的同步原语不可被安全取消，超时不等于退出或结算。Fake Supervisor
+要求独立 observer 记录和原有 18 点采样，不能只相信 Worker 的 PASS/exit=0。
+保留进程启动/结束观察、工作完成数、OS peak bytes 和采样句柄数；没有实测
+精度或精确 handle high-water 声明。真实 Working Set/Commit/Handle ceiling
+仍为 REQUIRES USER DECISION，任何未设限的未来真实申请必须拒绝。
+
+单次授权模型绑定全部目标、身份、Hash、编译器/OS、操作/预算、窗口、用户批准、
+独立审查/验证及 STOP/恢复/Evidence 责任；Fake 消费在启动尝试前发生，
+失败、过期、目标不匹配或未知回执均不重置。复制/重启 Fake 不证明真实单次性。
+真实 Windows 身份证明、权限保护的持久记录、跨进程原子消费、进程创建、
+可信 IPC/observer、独立时钟/STOP、证据 I/O 和产物闭包尚未实施，必须另授。
+此包不选择账户/根目录/真实预算/时间窗口/责任人，不创建实验目录，不触碰 Host A。
+`kRealExecutionAuthorized=false`，E0 入口持续无条件拒绝，CLI/环境变量/配置
+不产生真实通道。最高范围为 L1-CRYPTO ADMISSION SOURCE HARDENED / OFFLINE TESTED；
+所有真实实验和正式验收仍待单独授权。Evidence 仅 OFFLINE/FAKE，无私钥、
+PKCS#8、PEM、完整证书、原始环境/路径或异常正文。
+Native gate 在构建缓存中生成独立 STATIC Hash 清单（源码、工具、EXE、SDK/OS
+及直接依赖名），标明 WORKING_TREE_NOT_FROZEN / executionAuthorized=false。
+该清单不是获准运行产物或完整部署依赖闭包；最终源码提交、产物和真实加载
+依赖的固定目标审查仍是未来申请前置条件。
 
 机器可检查的完整记录为 [acceptance plan](windows-host-acceptance-plan.json) 的 `matrix`。
 每行包含 frozenCriterion、windowsTrial、success、source、offlineTests、依赖、局部层级和责任。
@@ -144,7 +177,7 @@ JSON `environment` 与每份 `requests` 合并后构成申请草案。
 
 | 草案 | 依赖、精确操作候选 | 时限候选 | 对象/边界 |
 |---|---|---|---|
-| L1-CRYPTO | `l1_crypto_probe` 隔离候选与 Fake 门禁已就绪（G0-L0），待固定目标独立源码审查及单次授权；3 次临时 P-256 key generation、3 个证书 encode/sign、6 次验签（3 正/3 改动）、3 次 crypt32 profile 检查；每资源仅一次正常释放 | 30 秒 | 仅限 7 个白名单导出；三组内存测试 issuer/server/client，不装全局信任根，不写正式凭据；证书签名 DER、自定义签名 raw |
+| L1-CRYPTO | E2 隔离准入源码/Fake 模型；ABI 1、Generate 3、Encode/Sign 3、Verify 6（3 正/3 改动）、Policy 3、Allocation/Free 各 45，合计 106；最多 5 个 Buffer 同时存活，每资源一次释放尝试 | 30 秒 | 仅限 7 个白名单导出；三组内存测试 issuer/server/client，不装信任根或写正式凭据；证书 DER、自定义签名 raw；真实 Windows 消费/身份/监督仍需另授实现、固定目标审查及用户单次许可 |
 | L1-OBJECTS | 新根与 §9.D 精确目录逐个一次创建（具体清单/总数 REQUIRES USER DECISION）；App acquire 1、竞争 acquire 1 次预期拒绝、Bridge acquire 1；每对象最多两次安全/身份观察；新目标发布 1、替换 1、读回 2 | 60 秒 | runtime.lock、bridge/client.lock、批准的一个对象/一个临时文件；无第二 SID/攻击/崩溃；隔离诊断 seam 需另行实现审查 |
 | L1-STORE | CRYPTO/OBJECTS 通过；protect 2/unprotect 2（每次 ≤65536 bytes）；association begin ≤3、commit ≤2、abort ≤1；每批选定一种 Store kind | 60 秒 | App kind 1/2/3 或 Bridge kind 4 是候选范围；具体 kind、导出调用账本和对象清单必须另冻，不能一个批次隐含覆盖全部 |
 | L1-RELEASE | 前述精确对象；每尚持有资源正常 close 一次；工作前、每操作后、结算后采样；最终 metadata capture 只有明确纳入授权才允许一次 | 30 秒 | 无重试/强杀/崩溃/清扫；删除列表、身份/次数与预算 REQUIRES USER DECISION |
@@ -237,7 +270,7 @@ Administrator/kernel/same-SID arbitrary code 隔离、品牌/进程真实性、C
 | 分类 / 缺口 | 类型、阻断范围、最小另授范围与复核 |
 |---|---|
 | MUST_FIX_BEFORE_L1：设备/空根/权限/预算/恢复/角色未选 | 环境/操作授权；补齐共同封面和精确调用账本，再固定目标独立 Reviewer/Verifier，不得推断当前主机获准 |
-| MUST_FIX_BEFORE_L1：完整原语隔离入口 | `L1-CRYPTO` 原生隔离候选（`l1_crypto_probe.h`/`.cpp`，`L1-CRYPTO HARNESS SOURCE READY / OFFLINE TESTED`）已在 E0 具备默认拒绝门禁、7 符号白名单、`dumpbin` 物理依赖隔离与 Fake CTest，仍需独立 Reviewer 源码审查及用户单次授权方可开启真实调用；`L1-OBJECTS`/`L1-STORE` 的新空根隔离执行器仍待另授实现与审查 |
+| MUST_FIX_BEFORE_L1：完整原语隔离入口 | E0 默认拒绝/7 符号/PE 隔离基础上，E2 加固 106 次尝试、诊断释放观察及纯 Fake 准入/监督。真实身份、受保护持久消费/跨进程原子性、进程/IPC/独立 STOP 仍待另授实现；源码/产物须独立审查并取得单次用户许可。`L1-OBJECTS`/`L1-STORE` 新空根执行器仍待另授 |
 | MUST_FIX_BEFORE_L1（仅 Host A Batch 3 路线） | 旧根专属契约/实现：非空例外、metadata approval、runtime identity bridge、supervisor lifecycle ruling 分开解决；不读旧根，也不通过重写生产 recipe 规避 |
 | MUST_FIX_BEFORE_L2：真实连接专用 Composition | 源码/入口；另授隔离 Owner/证书/Discovery + 明确原生 I/O 的测试执行器，只认证/连接、无 P9/P10/DB/公开工具；L1 实证和独立源码审查先行 |
 | MUST_FIX_BEFORE_L2：真实 Socket/Handle/TLS 观察 | 测量/源码接口候选；现有 budget.used、whenConnectionsSettled、whenSettled 是显式预约/owning barrier，不是 OS 测量；另审 observer、真实释放确认、未知释放隔离及数值 ceilings |

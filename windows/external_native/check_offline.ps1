@@ -74,7 +74,7 @@ $wrapper = Get-Content (Join-Path $PSScriptRoot 'protected_windows.cpp') -Raw
 if ($wrapper -notmatch 'GetProcAddress\(module, "NtSetInformationFile"\)') { throw 'Missing user-mode publication entry' }
 # Inspect before executing. These executables link only production pure cores +
 # fakes. The production DLL is neither loaded nor called by this check helper.
-foreach ($name in @('shiroha_discovery_offline_test', 'shiroha_native_offline_test', 'shiroha_objects_offline_test', 'shiroha_exchange_offline_test', 'shiroha_probe_offline_test', 'shiroha_rename_layout_test', 'shiroha_crypto_offline_test', 'shiroha_p20_root_production_test', 'shiroha_p20_root_diagnostic_test', 'shiroha_peer_policy_offline_test', 'shiroha_l1_crypto_probe_test')) {
+foreach ($name in @('shiroha_discovery_offline_test', 'shiroha_native_offline_test', 'shiroha_objects_offline_test', 'shiroha_exchange_offline_test', 'shiroha_probe_offline_test', 'shiroha_rename_layout_test', 'shiroha_crypto_offline_test', 'shiroha_p20_root_production_test', 'shiroha_p20_root_diagnostic_test', 'shiroha_peer_policy_offline_test', 'shiroha_l1_crypto_probe_test', 'shiroha_l1_crypto_observation_test', 'shiroha_l1_crypto_admission_test')) {
     $imports = (& $dumpbin /imports (Join-Path $build "$Configuration/$name.exe") | Out-String)
     # GetProcAddress alone is used by the MSVC CRT even in the layout-only
     # executable. Reject direct loaders/security operations, not CRT machinery.
@@ -87,7 +87,9 @@ $testList = (& $ctest --test-dir $build -C $Configuration -N | Out-String)
 if ($LASTEXITCODE -ne 0 -or $testList -match '\b(?:shiroha_p20_minimal_test|shiroha_l1_crypto_candidate|shiroha_assoc_candidate)\b') { throw 'Real L1 candidate registered with CTest' }
 if ($testList -notmatch '\bshiroha_p20_root_production_offline\b' -or
     $testList -notmatch '\bshiroha_p20_root_diagnostic_offline\b' -or
-    $testList -notmatch '\bshiroha_l1_crypto_probe_offline\b') { throw 'Offline Fake coverage missing' }
+    $testList -notmatch '\bshiroha_l1_crypto_probe_offline\b' -or
+    $testList -notmatch '\bshiroha_l1_crypto_observation_offline\b' -or
+    $testList -notmatch '\bshiroha_l1_crypto_admission_offline\b') { throw 'Offline Fake coverage missing' }
 # Compile metadata reader without loading it or invoking any P/Invoke method.
 $csc = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
 & $csc /nologo /target:library /platform:x64 /warnaserror "/out:$build/$Configuration/host_a_metadata.dll" (Join-Path $PSScriptRoot 'diagnostics/host_a_metadata.cs') (Join-Path $PSScriptRoot 'diagnostics/metadata_contract.cs')
@@ -143,12 +145,44 @@ foreach ($target in @('shiroha_external_native', 'shiroha_batch3_existing_only',
     $includes = (@($project.SelectNodes("//*[local-name()='AdditionalIncludeDirectories']") | ForEach-Object InnerText) -join ';')
     $expectedRootOverride = $target -ceq 'shiroha_p20_minimal_test'
     $expectedExistingOnly = $target -ceq 'shiroha_batch3_existing_only'
+    if (($defines -match '\bSHIROHA_L1_CRYPTO_OBSERVATION\b') -ne ($target -ceq 'shiroha_l1_crypto_candidate')) { throw 'Diagnostic observation leaked into another target' }
     if (($defines -match '\bSHIROHA_P20_DIAGNOSTIC_BUILD\b') -ne $expectedRootOverride -or
         ($defines -match '\bSHIROHA_BATCH3_EXISTING_ONLY\b') -ne $expectedExistingOnly -or
         ($includes -match '[\\/]p20(?:;|$)') -ne $expectedRootOverride) { throw 'Diagnostic target configuration isolation failed' }
 }
 # All build/import/export/hardening/isolation gates above must pass before
 # any offline executable runs. Every failure throws under Stop policy.
+# Generated STATIC evidence is a tool-managed build artifact, never a grant or
+# a change to tracked inputs. Dependency names are observed, not a frozen
+# deployment/loader closure. Hashes bind the actual uncommitted source bytes.
+$l1SourceInputs = @('CMakeLists.txt', 'check_offline.ps1', 'shiroha_external_native.h',
+    'native_core.h', 'native_core.cpp', 'native_crypto.h', 'native_crypto.cpp',
+    'p256_key_codec.h', 'p256_key_codec.cpp', 'crypto_windows.cpp',
+    'peer_policy.h', 'peer_policy.cpp', 'peer_policy_windows.cpp',
+    'diagnostics/l1_crypto_probe.h', 'diagnostics/l1_crypto_probe.cpp',
+    'diagnostics/l1_native_observation.h', 'diagnostics/l1_crypto_admission.h',
+    'tests/l1_crypto_fake_win32.h', 'tests/l1_crypto_observation_test.cpp',
+    'tests/l1_crypto_admission_test.cpp', 'tests/l1_crypto_probe_test.cpp')
+$sourceHashes = [ordered]@{}
+foreach ($relative in $l1SourceInputs) {
+    $sourceHashes[$relative] = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot $relative) -Algorithm SHA256).Hash
+}
+$toolHashes = [ordered]@{}
+foreach ($tool in @($cmake, $dumpbin, (Join-Path $installation "VC/Tools/MSVC/$toolsVersion/bin/Hostx64/x64/cl.exe"),
+    (Join-Path $installation "VC/Tools/MSVC/$toolsVersion/bin/Hostx64/x64/link.exe"))) {
+    $toolHashes[(Split-Path -Leaf $tool)] = (Get-FileHash -LiteralPath $tool -Algorithm SHA256).Hash
+}
+$staticManifest = [ordered]@{ evidenceClass='STATIC'; executionAuthorized=$false;
+    sourceStatus='WORKING_TREE_NOT_FROZEN'; configuration=$Configuration;
+    artifactSha256=(Get-FileHash -LiteralPath $l1CryptoExe -Algorithm SHA256).Hash;
+    sources=$sourceHashes; toolHashes=$toolHashes; msvcVersion=$toolsVersion;
+    dependencies=$l1CryptoDepNames; dependencyClosure='REQUIRES_REVIEWED_DEPLOYMENT_CLOSURE' }
+$osVersion = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
+$staticManifest.osBuild = "$($osVersion.CurrentBuildNumber).$($osVersion.UBR)"
+$staticManifest.sdkVersion = $project.SelectSingleNode("//*[local-name()='WindowsTargetPlatformVersion']").InnerText
+$manifestPath = Join-Path $build "$Configuration/l1-crypto-static-manifest.json"
+$staticManifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath -Encoding utf8
+Write-Output "PASS: STATIC L1-CRYPTO inventory SHA256=$((Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash); NOT FROZEN; NO EXECUTION AUTHORITY"
 & $ctest --test-dir $build -C $Configuration --output-on-failure
 if ($LASTEXITCODE -ne 0) { throw 'Fake-only native contracts failed' }
 & (Join-Path $PSScriptRoot 'tests/runner_stop_test.ps1')

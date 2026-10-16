@@ -5,6 +5,52 @@ import 'package:flutter_test/flutter_test.dart';
 final _pathOpen = RegExp(r'\bCreateFile(?:A|W)?\s*\(');
 
 void main() {
+  test('L1 admission stays diagnostic-only and offline targets replace Win32',
+      () {
+    final cmake =
+        File('windows/external_native/CMakeLists.txt').readAsStringSync();
+    final gate =
+        File('windows/external_native/check_offline.ps1').readAsStringSync();
+    final model =
+        File('windows/external_native/diagnostics/l1_crypto_admission.h')
+            .readAsStringSync();
+    final entry = File('windows/external_native/diagnostics/l1_crypto_probe.h')
+        .readAsStringSync();
+    expect(model, contains('kRealExecutionAuthorized = false'));
+    expect(cmake, contains('tests/l1_crypto_fake_win32.h'));
+    for (final target in [
+      'shiroha_l1_crypto_observation_test',
+      'shiroha_l1_crypto_admission_test'
+    ]) {
+      expect(cmake, contains('add_executable($target'));
+      expect(gate, contains("'$target'"));
+      expect(cmake, isNot(contains('target_link_libraries($target')));
+    }
+    expect(cmake, isNot(contains('add_test(NAME shiroha_l1_crypto_candidate')));
+    expect(gate, contains('Diagnostic observation leaked into another target'));
+    final entryGate =
+        entry.substring(entry.indexOf('int l1_crypto_candidate_entry'));
+    expect(entryGate, contains('l1_crypto_execution_not_authorized'));
+    expect(entryGate, isNot(contains('invoke()')));
+    expect(entryGate, isNot(contains('getenv')));
+    final observation =
+        File('windows/external_native/diagnostics/l1_native_observation.h')
+            .readAsStringSync();
+    expect(observation, contains('#ifdef SHIROHA_L1_CRYPTO_OBSERVATION'));
+    for (final source in [model, observation]) {
+      for (final forbidden in [
+        'CreateProcess',
+        'Process.start',
+        'CreateFileW(',
+        'LoadLibraryW(',
+        'getenv(',
+        'GetEnvironmentVariable(',
+        'TerminateProcess('
+      ]) {
+        expect(source, isNot(contains(forbidden)));
+      }
+    }
+  });
   test('path-open guard rejects bare and suffixed calls, allows NtCreateFile',
       () {
     for (final code in [

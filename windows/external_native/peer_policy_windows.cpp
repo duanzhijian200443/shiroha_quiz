@@ -1,7 +1,11 @@
+#include "diagnostics/l1_native_observation.h"
+#include "peer_policy.h"
+#include <cstring>
+// SDK prerequisite order is significant.
+// clang-format off
 #include <windows.h>
 #include <wincrypt.h>
-#include <cstring>
-#include "peer_policy.h"
+// clang-format on
 
 namespace {
 bool oid(const char* a, const char* b) noexcept {
@@ -9,21 +13,46 @@ bool oid(const char* a, const char* b) noexcept {
 }
 template <typename T> struct Decoded {
   T* value = nullptr;
-  ~Decoded() { if (value) LocalFree(value); }
+  L1_NATIVE_OWNER
+  ~Decoded() {
+    if (value)
+      L1_NATIVE_RELEASE(
+          kLocalFree, LocalFree(value),
+          [](auto result) { return result == nullptr; },
+          reinterpret_cast<HLOCAL>(1));
+  }
   bool decode(LPCSTR type, const BYTE* data, DWORD size) noexcept {
     DWORD count = 0;
-    return CryptDecodeObjectEx(X509_ASN_ENCODING, type, data, size,
-        CRYPT_DECODE_ALLOC_FLAG, nullptr, &value, &count) != FALSE;
+    const auto result = L1_NATIVE_CALL(
+        kDecode,
+        CryptDecodeObjectEx(X509_ASN_ENCODING, type, data, size,
+                            CRYPT_DECODE_ALLOC_FLAG, nullptr, &value, &count),
+        [](auto status) { return status != FALSE; }, FALSE);
+    L1_NATIVE_ACQUIRED(value != nullptr);
+    return result != FALSE;
   }
 };
 struct Certificate {
   PCCERT_CONTEXT value;
-  ~Certificate() { if (value) CertFreeCertificateContext(value); }
+  L1_NATIVE_OWNER
+  explicit Certificate(PCCERT_CONTEXT context) : value(context) {
+    L1_NATIVE_ACQUIRED(value != nullptr);
+  }
+  ~Certificate() {
+    if (value)
+      L1_NATIVE_RELEASE(
+          kCertFree, CertFreeCertificateContext(value),
+          [](auto result) { return result != FALSE; }, FALSE);
+  }
 };
 int32_t inspect(const uint8_t* der, size_t length,
                 shiroha_native::PeerPolicy* p) noexcept {
-  Certificate cert{CertCreateCertificateContext(X509_ASN_ENCODING, der,
-                                               static_cast<DWORD>(length))};
+  Certificate cert{L1_NATIVE_CALL(
+      kCertCreate,
+      CertCreateCertificateContext(X509_ASN_ENCODING, der,
+                                   static_cast<DWORD>(length)),
+      [](auto result) { return result != nullptr; },
+      static_cast<PCCERT_CONTEXT>(nullptr))};
   if (!cert.value || !cert.value->pCertInfo) return SHIROHA_NATIVE_VERIFICATION_REJECTED;
   const auto& c = *cert.value->pCertInfo;
   p->v3 = c.dwVersion == CERT_V3;
@@ -49,7 +78,10 @@ int32_t inspect(const uint8_t* der, size_t length,
       oid(curve.value, szOID_ECC_CURVE_P256) &&
       spki.PublicKey.cUnusedBits == 0 && spki.PublicKey.cbData == 65 &&
       spki.PublicKey.pbData[0] == 4;
-  p->valid_now = CertVerifyTimeValidity(nullptr, cert.value->pCertInfo) == 0;
+  p->valid_now =
+      L1_NATIVE_CALL(
+          kTime, CertVerifyTimeValidity(nullptr, cert.value->pCertInfo),
+          [](auto result) { return result == 0; }, static_cast<LONG>(1)) == 0;
   const CERT_EXTENSION *bc = nullptr, *ku = nullptr, *eku = nullptr, *san = nullptr;
   if (c.cExtension != 3 && c.cExtension != 4) return SHIROHA_NATIVE_VERIFICATION_REJECTED;
   for (DWORD i = 0; i < c.cExtension; ++i) {

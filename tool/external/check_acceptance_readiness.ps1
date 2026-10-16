@@ -115,6 +115,29 @@ function Assert-Plan([System.Collections.IDictionary]$Value) {
         'shiroha_native_peer_certificate_policy')
     Require ($l1Crypto.allowedNativeSymbols.Count -eq 7 -and
         @(Compare-Object $allowedL1Symbols @($l1Crypto.allowedNativeSymbols)).Count -eq 0) 'l1_crypto_symbols'
+    Has-Fields $l1Crypto @('admissionModel', 'nativeObservation', 'offlineAdmissionTests',
+        'abiAttemptBudget', 'nativeAttemptBudget', 'admissionEvidenceClass', 'realAdmission', 'resourceObservation')
+    Assert-RepoPath $l1Crypto.admissionModel 'windows/external_native/diagnostics/'
+    Assert-RepoPath $l1Crypto.nativeObservation 'windows/external_native/diagnostics/'
+    Require ($l1Crypto.offlineAdmissionTests.Count -eq 2) 'l1_admission_tests'
+    foreach ($path in $l1Crypto.offlineAdmissionTests) { Assert-RepoPath $path 'windows/external_native/tests/' }
+    $abiBudget = @{ abi=1; generate=3; encodeSign=3; verify=6; policy=3; allocation=45; free=45; total=106; maxLiveBuffers=5 }
+    $nativeBudget = @{ provider_open=12; key_generate=3; key_finalize=3; key_export=3; key_import=9;
+        sign=3; verify=6; provider_close=12; key_destroy=12; certificate_create=3; certificate_free=3;
+        decode=20; local_free=20; time=3 }
+    foreach ($pair in @(@($abiBudget, $l1Crypto.abiAttemptBudget), @($nativeBudget, $l1Crypto.nativeAttemptBudget))) {
+        Require ($pair[0].Count -eq $pair[1].Count) 'l1_attempt_budget'
+        foreach ($name in $pair[0].Keys) {
+            Require (($pair[1][$name] -is [long] -or $pair[1][$name] -is [int]) -and
+                $pair[1][$name] -ceq $pair[0][$name]) 'l1_attempt_budget'
+        }
+    }
+    Require ($l1Crypto.admissionEvidenceClass -ceq 'OFFLINE' -and
+        $l1Crypto.realAdmission -ceq 'BLOCKED_WINDOWS_IDENTITY_ATOMIC_CONSUMPTION_SUPERVISION') 'l1_real_admission_blocked'
+    Require ($l1Crypto.resourceObservation.samples -eq 18) 'l1_observation'
+    foreach ($name in @('workingSetLimitBytes', 'commitLimitBytes', 'sampledHandleLimit')) {
+        Require ($l1Crypto.resourceObservation[$name] -ceq 'REQUIRES USER DECISION') 'l1_unapproved_ceiling'
+    }
     Require ($Value.hostABatch3.state -ceq 'BLOCKED' -and
         $Value.hostABatch3.metadataCaptureAuthorized -ceq $false -and
         $Value.hostABatch3.oldRootAccessAuthorized -ceq $false) 'host_a_blocked'
@@ -167,7 +190,13 @@ if ($SelfTest) {
         { param($p) $p.evidenceFields = @('testId') },
         { param($p) $p.requests[5].Remove('perTrialOperationsCountsAndResources') },
         { param($p) $p.requests[0].allowedNativeSymbols = @('shiroha_native_owner_acquire') },
-        { param($p) $p.requests[0].defaultEntryGate = 'bypassed' }
+        { param($p) $p.requests[0].defaultEntryGate = 'bypassed' },
+        { param($p) $p.requests[0].abiAttemptBudget.allocation = 46 },
+        { param($p) $p.requests[0].abiAttemptBudget.total = 105 },
+        { param($p) $p.requests[0].nativeAttemptBudget.local_free = 19 },
+        { param($p) $p.requests[0].resourceObservation.commitLimitBytes = 1024 },
+        { param($p) $p.requests[0].realAdmission = 'ENABLED' },
+        { param($p) $p.requests[0].admissionEvidenceClass = 'LOCAL-L1' }
     )
     $count = 0
     foreach ($mutate in $mutations) {

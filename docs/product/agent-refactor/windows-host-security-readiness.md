@@ -3418,10 +3418,53 @@ DPAPI, Owner, Store, Exchange, Discovery and Socket translation units. It
 enforces the 7-symbol allowlist, synchronous 1/3/3/6(3+3)/3 call reservation
 ledger, single-attempt buffer/key disposal, 18-point resource observation hook
 and unconditional default-deny entry (`l1_crypto_execution_not_authorized`).
-Highest status for this slice is `L1-CRYPTO HARNESS SOURCE READY / OFFLINE TESTED`;
+At E0, highest status for this slice was `L1-CRYPTO HARNESS SOURCE READY / OFFLINE TESTED`;
 `L1-CRYPTO` remains `DRAFT_NOT_AUTHORIZED` (`executionAuthorized = false`)
 pending independent Reviewer approval, unresolved OS memory/handle ceilings,
 test root/batch ID and an explicit one-shot user grant.
+
+The E2 admission amendment adds diagnostic-only direct CNG/crypt32 observation,
+complete ABI attempt accounting and pure OFFLINE grant/supervisor/evidence models
+under `windows/external_native/diagnostics/l1_crypto_admission.h` and
+`l1_native_observation.h`. Its complete successful sequence reserves 1 ABI +
+3 Generate + 3 Encode/Sign + 6 Verify + 3 Policy + 45 Allocation + 45 Free =
+106 attempts; allocation failure/null/exception consumes its reservation and
+at most 5 buffers are live. Attempts, returns, acceptance, settlement and unknown
+effects remain distinct. No failure replenishes a budget or retries work.
+
+Diagnostic compilation observes direct Provider Open/Close (12/12), Key
+Generate/Finalize/Export/Import (3/3/3/9), Sign/Verify/Destroy (3/6/12),
+Context Create/Free (3/3), Decode/LocalFree (20/20), TimeValidity (3).
+Original RAII owners retain release custody. Returned failure or unknown release
+quarantines that resource without retry, preserves first failure and does not
+skip another owner's legal one-time release. Production compilation/status
+mapping and ABI-3 are unchanged. A returning void buffer-free only settles its
+known C allocation; it proves no Windows-internal or crypto-resource release.
+The SAME wrappers are tested through forced Fake Win32 functions; no security
+library is linked or operational API called in that offline target.
+
+The pure Supervisor starts its candidate 30-second execution clock at the
+process-start attempt, closes new admission at deadline and never invents
+settlement of an uncancellable native call. It requires independent observer
+records, not worker-reported PASS/exit zero. Missing/failed measurement stops;
+unsettled effects remain UNKNOWN. No real process, IPC, kill, restart or watchdog
+is implemented. Eighteen resource checkpoints retain OS-reported peak bytes,
+sampled handles, completed calls and process-start/end observations; byte/ms
+units are not a measured precision guarantee or exact native handle high-water.
+Real working-set/commit/handle ceilings remain REQUIRES USER DECISION.
+
+The grant model binds the complete target/budget/window/identity/approval/review
+and recovery/evidence responsibilities. Its Fake atomic cell consumes before
+launch and cannot reset after failure, mismatch or unknown receipt. This proves
+only the pure state contract, not Windows protected persistence, trusted identity,
+cross-process atomicity, authenticated IPC or restart-proof one-use. Those
+implementations and artifact freezing need separate scoped authority and review.
+`kRealExecutionAuthorized = false`; the original entry still unconditionally
+refuses, with no CLI/environment/configuration bypass. Evidence remains OFFLINE,
+never LOCAL-L1. Highest scope is `L1-CRYPTO ADMISSION SOURCE HARDENED / OFFLINE TESTED`.
+`executionAuthorized = false`, all A rows WINDOWS_PENDING and the Host A halt
+remain unchanged. Diagnostics README and acceptance preparation define the
+remaining real-admission prerequisites, not permission to perform them.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
 REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.

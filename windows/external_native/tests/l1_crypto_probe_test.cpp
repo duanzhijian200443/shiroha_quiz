@@ -16,7 +16,7 @@ using namespace shiroha_l1_crypto;
 void require(bool condition, const char* reason) {
   if (!condition) {
     std::cerr << "FAIL: " << reason << "\n";
-    std::abort();
+    std::exit(1);
   }
 }
 
@@ -26,6 +26,7 @@ struct FakeEnvironment {
   unsigned free_calls = 0;
   unsigned fail_alloc_at = 0;
   bool throw_on_alloc = false;
+  unsigned throw_alloc_at = 0;
   unsigned throw_on_free_at = 0;
 
   unsigned op_calls = 0;
@@ -63,6 +64,7 @@ struct FakeEnvironment {
     live_allocations.clear();
     alloc_calls = free_calls = fail_alloc_at = throw_on_free_at = 0;
     throw_on_alloc = false;
+    throw_alloc_at = 0;
     op_calls = throw_at_op = fail_status_at_op = bad_shape_at_op = 0;
     injected_status = SHIROHA_NATIVE_UNAVAILABLE;
     abi_value = SHIROHA_NATIVE_ABI_VERSION;
@@ -92,7 +94,8 @@ void fill_valid_raw_signature(const uint8_t* digest, uint8_t out_raw[64]) {
   }
   // Ensure r and s have high bit set on index 0 in at least one component to
   // exercise ASN.1 DER leading-zero integer padding in X.509 ECDSA-Sig-Value,
-  // while keeping both strictly < kP256Order (which starts with 0xff 0xff 0xff 0xff 0x00).
+  // while keeping both strictly < kP256Order (which starts with 0xff 0xff 0xff
+  // 0xff 0x00).
   out_raw[0] = 0x80u;
   out_raw[32] = 0x91u;
 }
@@ -109,7 +112,7 @@ uint32_t SHIROHA_NATIVE_CALL fake_abi() {
 
 uint8_t* SHIROHA_NATIVE_CALL fake_alloc(uint64_t capacity) {
   const unsigned call = ++env.alloc_calls;
-  if (env.throw_on_alloc) {
+  if (env.throw_on_alloc || call == env.throw_alloc_at) {
     throw std::runtime_error("synthetic alloc exception");
   }
   if (capacity == 0 || capacity > SHIROHA_NATIVE_MAX_BYTES ||
@@ -343,8 +346,9 @@ void test_normal_sequence_and_redaction() {
   require(ledger.attempted == 16 && ledger.returned == 16 &&
               ledger.completed == 16,
           "16 total calls attempted/returned/completed");
-  // 1 abi + 3 gen + 3 sign + 3 valid verify + 2 valid policy = 12 status-0/ABI calls;
-  // 3 negative verify + 1 negative policy = 4 expected rejections (status 8).
+  // 1 abi + 3 gen + 3 sign + 3 valid verify + 2 valid policy = 12 status-0/ABI
+  // calls; 3 negative verify + 1 negative policy = 4 expected rejections
+  // (status 8).
   require(ledger.successful == 12 && ledger.accepted == 16,
           "12 status-0 successful, 16 accepted");
   require(ledger.abi_reserved == 1 && ledger.generate_reserved == 3 &&
@@ -367,6 +371,18 @@ void test_normal_sequence_and_redaction() {
           "every buffer released once");
   require(ledger.samples == 18 && ledger.observation_failures == 0,
           "18 resource samples (before, 16 steps, after)");
+  require(env.alloc_calls == 45 && env.free_calls == 45 &&
+              ledger.abi_attempted_total == 106,
+          "106 includes 45 alloc + 45 free");
+  constexpr unsigned limits[] = {1, 3, 3, 6, 3, 45, 45};
+  for (size_t i = 0; i < 7; ++i) {
+    const auto& c = ledger.abi_calls[i];
+    require(
+        c.attempted == limits[i] && c.returned == c.attempted &&
+            c.accepted == c.attempted && c.settled == c.attempted &&
+            c.unknown == 0,
+        "distinct per-category attempted/returned/accepted/settled/unknown");
+  }
 
   const std::string summary = ledger.format_redacted_summary();
   require(summary.find("verdict=PASS") != std::string::npos,
@@ -441,7 +457,8 @@ void test_first_failure_stops_immediately() {
               "not_completed step recorded");
     }
   }
-  // Case C: bad output shape despite status 0 on ABI, generate (1..3), sign (4..6)
+  // Case C: bad output shape despite status 0 on ABI, generate (1..3), sign
+  // (4..6)
   for (unsigned step : {1u, 2u, 3u, 4u, 5u, 6u, 7u}) {
     env.reset();
     env.bad_shape_at_op = step;
@@ -569,7 +586,8 @@ void test_expected_rejection_vs_unexpected_outcomes() {
             "role mismatch returning OK is SECURITY_REJECT_MISMATCH");
     require(env.op_calls == 16, "stops at step 16");
   }
-  // Negative verify returning UNAVAILABLE (4) instead of VERIFICATION_REJECTED (8)
+  // Negative verify returning UNAVAILABLE (4) instead of VERIFICATION_REJECTED
+  // (8)
   {
     env.reset();
     env.negative_override_status = SHIROHA_NATIVE_UNAVAILABLE;
@@ -585,7 +603,8 @@ void test_expected_rejection_vs_unexpected_outcomes() {
   }
 }
 
-// 6 & 7. DER ECDSA-Sig-Value vs 64-byte raw r||s boundary and certificate roles.
+// 6 & 7. DER ECDSA-Sig-Value vs 64-byte raw r||s boundary and certificate
+// roles.
 void test_der_raw_signature_boundary_and_certificate_roles() {
   uint8_t raw[64]{};
   uint8_t digest[32]{};
@@ -634,7 +653,8 @@ void test_der_raw_signature_boundary_and_certificate_roles() {
           "SHA-256 NIST abc vector");
 }
 
-// 8 & 9. Single release, duplicate release protection, and unknown release state.
+// 8 & 9. Single release, duplicate release protection, and unknown release
+// state.
 void test_buffer_single_release_and_unknown_state() {
   // Duplicate release on the same slot is blocked without calling free twice.
   {
@@ -656,7 +676,8 @@ void test_buffer_single_release_and_unknown_state() {
                 std::strcmp(ledger.verdict(), "FAIL") == 0,
             "duplicate release recorded as OWNERSHIP_UNKNOWN");
   }
-  // Throwing free marks release_unknown and SETTLEMENT_UNKNOWN without retrying.
+  // Throwing free marks release_unknown and SETTLEMENT_UNKNOWN without
+  // retrying.
   {
     env.reset();
     env.throw_on_free_at = 1;
@@ -798,6 +819,64 @@ void test_forbidden_symbols_and_default_deny_entry() {
           "empty mode argument rejected with 64");
 }
 
+void test_allocation_attempts_and_live_limit() {
+  for (unsigned position = 1; position <= 45; ++position) {
+    for (bool throws : {false, true}) {
+      env.reset();
+      if (throws)
+        env.throw_alloc_at = position;
+      else
+        env.fail_alloc_at = position;
+      L1CryptoLedger ledger;
+      configure_ledger(ledger);
+      L1CryptoApi api{};
+      require(resolve_l1_crypto_api(ledger, fake_symbol_lookup, api),
+              "resolve");
+      require(run_l1_crypto_sequence(api, ledger) == 10,
+              "allocation failure stops");
+      const auto& counts = ledger.abi_calls[5];
+      require(env.alloc_calls == position && counts.attempted == position &&
+                  counts.returned == position - (throws ? 1u : 0u) &&
+                  counts.accepted == position - 1 &&
+                  counts.unknown == (throws ? 1u : 0u),
+              "failed/null/throwing allocation consumes an attempt");
+      require(ledger.buffers_live == 0 && env.free_calls == position - 1,
+              "only successfully acquired buffers released once");
+    }
+  }
+  {
+    env.reset();
+    L1CryptoLedger ledger;
+    configure_ledger(ledger);
+    L1CryptoApi api{};
+    require(resolve_l1_crypto_api(ledger, fake_symbol_lookup, api), "resolve");
+    L1CryptoBufferPool pool(api, ledger);
+    uint8_t* ptr = nullptr;
+    size_t slot = 0;
+    for (unsigned i = 0; i < 45; ++i)
+      require(pool.allocate(8, &ptr, &slot) && pool.release(slot),
+              "cumulative allocation");
+    require(!pool.allocate(8, &ptr, &slot) && env.alloc_calls == 45,
+            "freeing does not reset 45-attempt budget");
+  }
+  {
+    env.reset();
+    L1CryptoLedger ledger;
+    configure_ledger(ledger);
+    L1CryptoApi api{};
+    require(resolve_l1_crypto_api(ledger, fake_symbol_lookup, api), "resolve");
+    L1CryptoBufferPool pool(api, ledger);
+    uint8_t* ptr = nullptr;
+    size_t slot = 0;
+    for (unsigned i = 0; i < 5; ++i)
+      require(pool.allocate(8, &ptr, &slot), "five live buffers");
+    require(!pool.allocate(8, &ptr, &slot) && env.alloc_calls == 5,
+            "live limit independent of cumulative budget");
+    pool.release_all_remaining();
+    require(env.free_calls == 5, "cleanup after live-limit STOP");
+  }
+}
+
 }  // namespace
 
 int main() {
@@ -809,6 +888,7 @@ int main() {
   test_buffer_single_release_and_unknown_state();
   test_resource_sampling_and_timeout_gates();
   test_forbidden_symbols_and_default_deny_entry();
+  test_allocation_attempts_and_live_limit();
   std::cout << "PASS: fake-only L1-CRYPTO harness ledger (3/3/6/3), "
                "7-symbol allowlist, DER/raw boundary, single release, "
                "sampling/30s gates and default-deny entry (no real CNG/crypt32)\n";

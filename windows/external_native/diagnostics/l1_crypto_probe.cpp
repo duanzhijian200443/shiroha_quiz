@@ -62,6 +62,10 @@ int wmain(int argc, wchar_t** argv) {
   return shiroha_l1_crypto::l1_crypto_candidate_entry(
       argc, argv, []() noexcept -> int {
         shiroha_l1_crypto::L1CryptoLedger ledger;
+        shiroha_l1_crypto::NativeObservation native_observation;
+        shiroha_l1_crypto::NativeObservationScope observation_scope(
+            native_observation);
+        ledger.native_observation = &native_observation;
         ledger.sample = sample_process_resources;
         ledger.clock_ms = monotonic_clock_ms;
         shiroha_l1_crypto::L1CryptoApi api{};
