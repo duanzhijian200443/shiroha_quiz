@@ -32,7 +32,13 @@ Package 2 adds an inactive G0-L0 TCP/mTLS transport candidate (readiness §20):
 PACKAGE 2 SOURCE IMPLEMENTED / OFFLINE TESTED only; real TLS/Windows acceptance
 pending. Package 3 adds inactive lifecycle/recovery and static release
 candidate checks (readiness §21): PACKAGE 3 SOURCE IMPLEMENTED / OFFLINE TESTED
-only; final-target CI/review and real Windows/formal acceptance remain pending.**
+only; final-target CI/review and real Windows/formal acceptance remain pending.
+AR-R6A-L1-CRYPTO-E0 adds an isolated default-off CMake compile-only L1-CRYPTO
+harness candidate (7-symbol ABI allowlist, fixed `l1_crypto_execution_not_authorized`
+deny entry, Fake-only offline CTest and static PE header/import/dependents
+audits): L1-CRYPTO HARNESS SOURCE READY / OFFLINE TESTED only; `L1-CRYPTO`
+stays `DRAFT_NOT_AUTHORIZED`; real Windows/formal acceptance and execution
+grants remain pending.**
 
 The Provider seam, typed capability/executor/projection path and Runtime split/
 transcript are delivered in the preceding merged stages. Historical AR-R3
@@ -252,6 +258,26 @@ production activation nor an A-row acceptance, and no real
 shutdown/restart/revoke/crash/release trial or AOT/Release build is performed.
 REAL WINDOWS PENDING / FORMAL ACCEPTANCE PENDING remain explicit; G0-L1, G0-L2
 and G0-I keep their separate grants.
+
+AR-R6A-L1-CRYPTO-E0, recorded under [readiness §21](windows-host-security-readiness.md#21-package-3-lifecycle-and-release-source-candidate-g0-l0-only),
+adds the isolated G0-L0 harness candidate for the future L1-CRYPTO primitive
+batch. The default-off `SHIROHA_L1_CRYPTO_CANDIDATE_BUILD` CMake option compiles
+a separate `shiroha_l1_crypto_candidate` executable from only the pure memory
+core, CNG P-256 and crypt32 peer-policy translation units, linking only
+`crypt32`/`bcrypt`/`psapi`. Its entry unconditionally refuses real execution
+(`l1_crypto_execution_not_authorized`, exit 10); resolution admits only the
+7-symbol ABI allowlist and rejects the other twenty ABI-3 exports before any
+lookup; the synchronous 1/3/3/6(3+3)/3 reservation ledger, single-attempt
+disposal slots, 18-point resource sampling and 30-second candidate ceiling stay
+fixed. `check_offline.ps1` audits PE headers, hardening, DLL dependents and
+import tables without running it, and runs the Fake-only
+`shiroha_l1_crypto_probe_offline` CTest; the real candidate is never a CTest
+entry. The L1-CRYPTO request remains `DRAFT_NOT_AUTHORIZED`
+(`executionAuthorized = false`), and the highest status is L1-CRYPTO HARNESS
+SOURCE READY / OFFLINE TESTED only. No real key/certificate operation, execution
+grant or Windows acceptance is included; REAL WINDOWS PENDING / FORMAL
+ACCEPTANCE PENDING remain explicit, and G0-L1, G0-L2 and G0-I keep their
+separate grants.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 Production Host/IPC, MCP vNext and READ fallback continuation remain unimplemented
