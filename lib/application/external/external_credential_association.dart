@@ -67,3 +67,10 @@ abstract interface class ExternalCredentialAssociationStore {
     required Future<void> Function() validateManagement,
   });
 }
+
+/// Optional read-only inverse query over the SAME protected association object.
+/// Only an independently verified peer DER digest may select this query. A
+/// current unique active result is correlation, never authentication/approval.
+abstract interface class ExternalCredentialIdentityLookup {
+  Future<ExternalCredentialAssociationSnapshot> findCredential(String identity);
+}

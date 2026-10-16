@@ -1305,6 +1305,31 @@ Package 1 SOURCE IMPLEMENTED / OFFLINE TESTED is a source-candidate boundary,
 not Windows or real-process acceptance. REAL WINDOWS PENDING / FORMAL ACCEPTANCE
 PENDING and all production activation gates remain unchanged.
 
+Package 2's inactive transport source candidate is owned by Windows readiness
+section 20. P20 optionally implements `ExternalCredentialIdentityLookup` by
+re-reading the SAME strict protected association object, requiring a unique
+active exact leaf-DER SHA-256 identity and returning its existing monotonic
+snapshot. It creates no identity registry or new persistence. Only after TLS,
+independent crypt32 peer-role policy and mathematical certificate checks may
+that protected result select a local Management reference for P15. No CN,
+display string or request field selects a Profile. P15 `openSession`, P0/P12
+Enablement and P8/P7 current Grant/Context/Egress remain mandatory.
+`WindowsChannelVerification` delegates Pairing unchanged to P27 and uses
+different private, one-use connection-bound Authentication events. Close,
+expiry, Disable, runtime replacement, Association invalidation and observed
+Management revision changes latch those channel bindings invalid. They never
+create Principal/PairingState/Grant authority or reuse a Pairing Proof.
+
+The P8/P10 `whenSettled` barriers are read-only: they observe existing Gateway,
+READ Registry, STAGE and Host owning work without closing, cancelling, retrying
+or expanding authorization. Transport retains reservations until those owners
+and response writing/failed close settle. P9 framing and P10's ten commands,
+Schema Version 1, trusted Context construction and original SubmissionKey
+reconciliation are unchanged. A separate pre-JSON allocation admission bounds
+container/key-scanner work; it grants no schema validity or permission. Real
+business channels, G0-L1/L2/G0-I, Package 3 and production activation are not
+authorized by these source additions.
+
 ## 13. P16 production primitive freeze (accepted static decision; PR #267)
 
 P16 freezes the minimal production candidates that will have to satisfy

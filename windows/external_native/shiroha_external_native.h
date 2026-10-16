@@ -27,13 +27,21 @@ enum ShirohaNativeStatus {
   SHIROHA_NATIVE_DATA_CORRUPT = 5,
   SHIROHA_NATIVE_MISSING = 6,
   SHIROHA_NATIVE_COMMIT_UNKNOWN = 7,
-  // ABI-3 additive: returned only by the ECDSA verification export below when a
-  // well-formed key/digest/signature triple does not verify. It never replaces
+  // ABI-3 additive: explicit ECDSA verification or peer-certificate policy
+  // rejection only. Existing ECDSA mismatch semantics are unchanged. It never replaces
   // or renumbers an existing status, and pre-P21 callers never observe it.
   SHIROHA_NATIVE_VERIFICATION_REJECTED = 8
 };
 
 enum ShirohaNativeOwner { SHIROHA_NATIVE_APP = 1, SHIROHA_NATIVE_BRIDGE = 2 };
+
+// Optional ABI-3 certificate-only policy. role=1 Server, role=2 Client.
+// Borrowed public DER <=16384 bytes; no path, anchor/key access, store lookup,
+// chain construction, Principal or trust decision. TLS proves signatures and
+// possession separately; this capability independently checks crypt32 policy.
+SHIROHA_NATIVE_API int32_t SHIROHA_NATIVE_CALL
+shiroha_native_peer_certificate_policy(uint32_t version, const uint8_t* der,
+                                      uint64_t length, uint32_t role);
 
 // ABI-3 additive ECDSA P-256 / SHA-256 primitives (frozen P16 section 9.A.2). They
 // accept ABI 3 only, never 1/2, and add no new ABI number: the twelve P18-P20

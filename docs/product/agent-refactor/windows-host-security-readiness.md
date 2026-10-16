@@ -3049,3 +3049,164 @@ real App/Bridge process Pairing remain unactivated/unverified. All independent
 G0-I A0–A12 and Package 2/3 gates remain; no L1/L2 experiment, TLS/mTLS, listener,
 production Host, AR-R6B or Release is authorized or activated by this source.
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
+
+## 20. Package 2 TLS and bounded Host adapter (G0-L0 only)
+
+This inactive source candidate adds the `windows_tls_*` Infrastructure group,
+not a production App/Bridge/Host composition. Its constructors do not bind,
+connect, create a TLS context, acquire an Owner or publish a Discovery object.
+Only explicit candidate methods perform those operations. G0-L0 tests inject
+I/O/Native calls; the production DLL, crypt32, CNG, protected files and Sockets
+are never invoked by those tests. Source/offline success cannot satisfy real
+mTLS, Windows security, system stability or formal acceptance.
+
+### B1: explicit transport and coordinated publication
+
+`DartLoopbackTlsIo` binds only the numeric `InternetAddress.loopbackIPv4`, an
+explicit port, `shared: false` and backlog 8. It validates the actual IPv4
+address and exact port after bind and closes mismatches, with no port fallback.
+The accepted Raw TCP peer does not create TLS until the Host has reserved its
+Socket/Handshake resources. `RawSecureSocket.secureServer` requires AND requests
+the Client certificate. The SDK's explicit raw-upgrade API supplies that
+pre-handshake boundary; actual WinSock/BoringSSL behavior is WINDOWS_PENDING.
+
+`TlsContextPlan` validates the exact issuer/leaf signatures, current validity,
+role and mathematical private/public key correspondence using existing P21
+primitives. Its explicit context method uses only
+`SecurityContext(withTrustedRoots: false)`, TLS 1.3 minimum and disabled unsafe
+renegotiation. PEM is leaf first, issuer last; only the exact pinned issuer is
+trusted and advertised for Client authentication. No default roots, bad-cert
+callback, key logging, cipher override, repair, rekey or system installation
+exists. The plan wipes its retained key copy on dispose; SDK/GC copies and
+native TLS memory remain subject to real acceptance, not a zero-copy promise.
+Each validated plan lazily creates exactly one TLS Context, reused by the
+Listener's accepted connections. After acknowledged Socket close and subscription
+cancellation, the I/O adapter clears its Socket/subscription references so P15's
+bounded event cache cannot retain closed Socket/Context graphs. Unknown cleanup
+retains those references/reservations and denies further admission.
+
+`P26TlsStartup` requires an already-acquired Owner/Runtime Lock and the SAME
+Owner for P25 credentials and P26 Publisher. It validates persisted credentials,
+then the Host initializes/checks its candidate budgets, binds and checks the
+listener, and calls P26 publication. P26 keeps its existing durable epoch-before-
+signature-before-publication order. Only acknowledged publication matching the
+port, immutable Runtime ID, Generation, Installation, leaf digest and advanced
+epoch enables candidate admission. Failure, unknown publication or shutdown
+during startup closes the candidate; there is no second independent startup
+flow or automatic retry. Callers retain Owner custody until full drain; this
+source supplies no competing-runtime/crash recovery or Discovery cleanup.
+
+`WindowsTlsBridge` freshly reads existing kind 4 from the same acquired Bridge
+Owner as its P26 Reader. It validates stored Client material against independently
+trusted P27 anchor inputs and invokes P26 signed Discovery/high-water validation
+before connecting ONLY to the descriptor's numeric IPv4 loopback port. The
+Server peer's Native role policy, signature/validity and exact DER SHA-256 must
+then match that verified descriptor. It supplies no READ/STAGE route.
+
+### B2: three layers and existing authority
+
+1. BoringSSL performs mandatory TLS 1.3 chain/signature/validity/CertificateVerify
+   and Client-certificate validation. Offline tests prove configuration and
+   orchestration only; no real handshake conclusion is claimed.
+2. Optional ABI-3 `shiroha_native_peer_certificate_policy` accepts ONLY bounded
+   public DER and Server/Client role. Existing exports and status meanings are
+   retained. `CertCreateCertificateContext` and `CryptDecodeObjectEx` independently
+   inspect v3, inner/outer ECDSA-SHA256, EC/P-256 SPKI, BC/KU/EKU, exact server
+   loopback SAN/absent Client SAN, duplicate/unknown extensions and current
+   validity. `CertFreeCertificateContext`/`LocalFree` release decoded resources.
+   No chain builder, ambient store, network, arbitrary path or key access is
+   exposed. Missing optional symbols reject; P21 DER inspection cannot replace
+   this Native policy. Actual crypt32 behavior remains WINDOWS_PENDING.
+3. SHA-256 over the exact peer DER yields lowercase `credentialIdentity`.
+   P20's optional `ExternalCredentialIdentityLookup.findCredential` rereads the
+   SAME strict protected association object under its existing serialized
+   transaction, requires unique active identity and returns the original
+   monotonic snapshot. The result selects an opaque local Management reference;
+   no CN, label, request field or second registry selects Profile/Principal.
+
+`WindowsChannelVerification` delegates Pairing verification to P27 unchanged.
+Only its own private connection event can enter `verifyAuthentication`, bound
+to the exact current P15 runtime challenge, protected Association, Revision,
+Management reference and peer DER identity. P15 `openSession` and P12/P0 still
+own proof consumption, Principal, finite Enablement and Session minting. Failed,
+unknown or reused events open nothing. Close, runtime replacement, certificate/
+Enablement expiry, Disable, Association invalidation and observed policy revision
+changes permanently invalidate the channel binding. P8/P7 still revalidate the
+Session/current Grant/Scope/Context and final Egress for every operation.
+
+### B3: reservations, bounded input and existing P9/P10
+
+Section 5's first candidate ceilings are fixed at 8 accepted Sockets, 2 pending
+TLS handshakes, 2 global frame pipelines, 1 request per connection, 16 MiB
+explicit protocol reservations, 32 MiB decoded-string reservations and 512 KiB
+global output reservations. Configuration may reduce but cannot increase them.
+The handshake deadline is 5 seconds; frame no-progress/total deadlines are 2/10
+seconds. Each operation reserves synchronously BEFORE creating its Future;
+there is no waiter/unbounded envelope queue. At Socket capacity the Raw accept
+subscription pauses, preventing an accumulated Dart accepted-peer queue; the
+OS backlog is not counted as proof of native memory capacity.
+
+Per accepted TLS Socket, 64 KiB input and 64 KiB output reservations remain
+owned through close. A frame pipeline also reserves one <=64 KiB raw read and
+80 bytes framing scratch. After P9 validates the 16-byte header, BEFORE body
+allocation, it reserves payload bytes + three maximum response-frame copies +
+512 KiB JSON-container allowance, and `4 * payloadBytes + 4 MiB` decoded-string
+allowance. Pre-JSON allocation admission caps lexical structural/string units
+at 4096 and raw JSON key tokens at 256 units. This is allocation admission,
+never a second schema parser. Raw reads request at most the remaining frame or
+64 KiB, preventing coalesced input from creating a frame queue. Global aggregate
+limits may reject another maximum-sized frame/output even below the nominal
+2-pipeline/8-Socket ceiling; no budget is enlarged to admit it. These are
+explicit reservation candidates, NOT a measured whole-process heap/native/OS
+memory ceiling or a production capacity claim.
+
+One bounded response is reserved before write; fixed retained TLS output rings
+remain accounted after the Raw write accepts bytes. Real encryption/kernel
+drain, native/TLS memory peak, cancellation and close acknowledgement require
+the separately granted Windows trials. Timeout only requests close: the
+Handshake slot remains owned until the original upgrade Future and any late
+TLS result settle and close. Pipeline/byte/string/output slots remain owned
+through P8/P7 actual work AND response writing or acknowledged failure close.
+Read-only P8/P10 `whenSettled` barriers observe the existing Gateway, READ
+Registry, STAGE and Host owners without cancelling or changing their lifecycle.
+Cleanup failure poisons new admission and retains uncertain reservations;
+release is idempotent and cannot decrement another owner. Shutdown closes
+admission/evidence immediately, then waits real accepted and owning work.
+Failed Listener/Socket cleanup cannot skip that owning drain: shutdown awaits
+all already-admitted owning work before returning its fixed unavailable result,
+without claiming uncertain resources were released.
+
+The exact order is Admission -> TLS -> crypt32 policy -> protected identity/P15
+-> P0 Session -> P9 strict frame -> P10 typed projection -> P8/P7 current policy
+-> owning service -> final Egress. `IpcEnvelopeDecoder`, `IpcEnvelopeCodec`,
+`OfflineIpcCommandProjection` and `LocalHostDispatchCore` are reused. All P9
+sizes/SHIP/v1 and P10 Schema v1/ten routes stay unchanged. Context creation is
+trusted P8 composition only. Envelope IDs never become STAGE SubmissionKeys.
+Committed-but-lost STAGE waits its original owner and never automatically retries.
+
+### B4: standing offline coverage and remaining gates
+
+Standing CI registers `windows_tls_transport_test`,
+`windows_peer_certificate_policy_test` and `windows_tls_source_guard_test`
+exactly once, alongside directly affected P0/P8/P9/P10/P15/P20/P26/P27 suites.
+P9 maximum-boundary and P10 ten-route semantic matrices reuse their existing
+hard-failing tests rather than duplicate decoders/dispatchers or suites.
+New integration checks cover real public-fixture P-256 math through Pairing,
+Association and P15 Session; explicit startup/publication; fragmented/coalesced
+P9; malformed/unauthenticated input; resource races/deadlines/late results;
+monotonic invalidation; committed STAGE response loss; cleanup failure; and
+signed Discovery/kind 4/Server binding. Native Fake core tests individually
+reject wrong role, signature structure/algorithm, validity, SPKI and extensions.
+MSVC compilation/export/import inspection precedes Fake-only executable runs;
+the helper and crypt32 are never loaded by the offline job.
+
+Only **PACKAGE 2 SOURCE IMPLEMENTED / OFFLINE TESTED** may describe this
+candidate after its required mechanical gates. CI and independent semantic
+review remain delivery gates. G0-L1 is still required for separately approved
+crypt32/CNG/DPAPI/NTFS primitives; G0-L2 for a separately approved bounded TLS
+connection trial with NO business routes; G0-I for complete A0/A2/A4/A6/A7 and
+all remaining formal acceptance. Package 3 owns real shutdown/restart/revoke/
+crash/recovery and packaged validation. None is started or requested here.
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
+REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.

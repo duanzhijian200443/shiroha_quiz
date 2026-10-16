@@ -25,6 +25,9 @@ final class WindowsDiscoveryPublisher {
   final WindowsCredentialInitialization _credentials;
   bool _busy = false, _unknown = false;
 
+  /// Read-only composition identity; no acquisition, I/O or publication.
+  bool usesOwner(ExternalProtectedObjects owner) => identical(_owner, owner);
+
   DiscoveryDescriptor publish(
       {required Uint8List runtimeInstanceId,
       required BigInt generation,
@@ -72,6 +75,8 @@ final class WindowsDiscoveryReader {
   final ExternalProtectedObjects _owner;
   final BootstrapDigestVerifier _verify;
   bool _busy = false;
+
+  bool usesOwner(ExternalProtectedObjects owner) => identical(_owner, owner);
 
   DiscoveryDescriptor read(DiscoveryExpectations expected) =>
       _operation(() => _read(expected));

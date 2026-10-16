@@ -23,6 +23,16 @@ publication, Discovery directory, pairing or transport. The Python helper only
 reads repository fixtures and verifies public signatures; it never signs or
 creates keys. This is offline evidence, not runtime trust or G0-I acceptance.
 
+Package 2 adds `windows_tls_transport_test`, `windows_peer_certificate_policy_test`
+and `windows_tls_source_guard_test` once in those same shards. The existing
+bootstrap gate chains `check_tls_source.ps1`; the Native job compiles/inspects
+the optional certificate-only ABI-3 export and crypt32 imports, then runs the
+pure decoded-policy Fake core without linking or loading crypt32/the helper.
+P0/P8/P9/P10/P15/P20/P26/P27 direct regressions retain their existing suites,
+including all ten P10 typed routes. TLS tests inject channels, clocks and
+deadlines; real BoringSSL/crypt32/WinSock/resource/close behavior stays
+WINDOWS_PENDING. These gates never bind or connect a Socket or start a Host.
+
 P18 adds `windows_external_native_test.dart` and
 `external_native_source_guard_test.dart` to the same standing shards. The first
 uses test-only calls and a C-runtime allocator to check ABI rejection, bounded

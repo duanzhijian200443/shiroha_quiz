@@ -53,6 +53,15 @@ final class LocalHostDispatchCore {
   LocalHostState get state => _state;
   int get pendingCount => _pending;
 
+  /// Read-only settlement barrier for an inactive transport's owning slots.
+  /// A caller deadline/result is not evidence that owning work has finished.
+  Future<void> get whenSettled => Future.wait([
+        _gateway.whenIdle,
+        _gateway.reads.whenIdle,
+        _gateway.stages.whenIdle,
+        _idle?.future ?? Future<void>.value(),
+      ]).then((_) {});
+
   static const _routes = <CapabilityId>[
     ExternalCapabilities.listTargets,
     ExternalCapabilities.createReadContext,

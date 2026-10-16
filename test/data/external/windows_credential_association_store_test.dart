@@ -47,6 +47,25 @@ void main() {
     expect(calls.tickets, isEmpty);
     expect(calls.owners, isEmpty);
   });
+  test(
+      'read-only identity lookup shares protected uniqueness and monotonic snapshots',
+      () async {
+    expect((await store.findCredential(identity)).record, isNull);
+    await register();
+    final selected = await store.findCredential(identity);
+    expect(selected.record!.profileId, profile);
+    expect(selected.isCurrent, isTrue);
+    expect((await store.findCredential('cd' * 32)).record, isNull);
+    await expectLater(store.findCredential(identity.toUpperCase()),
+        failure(ExternalCredentialFailure.invalidInput));
+    await store.revoke(
+        profileId: profile,
+        expectedRevision: 1,
+        validateManagement: management);
+    expect(selected.isCurrent, isFalse);
+    expect((await store.findCredential(identity)).record, isNull);
+    expect(calls.commits, 2);
+  });
   test('no constructor store access; every read reloads actual ciphertext',
       () async {
     expect(calls.tickets, isEmpty);

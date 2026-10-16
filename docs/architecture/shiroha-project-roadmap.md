@@ -417,7 +417,21 @@ bounded Request deadline and a separate 30-second Evidence Window. No alternate
 PairingState, Store, authorization, ABI or wire format is introduced. This is
 PACKAGE 1 SOURCE IMPLEMENTED / OFFLINE TESTED only: REAL WINDOWS PENDING and
 FORMAL ACCEPTANCE PENDING, with no App/Bridge process experience or production
-activation claim. Package 2, AR-R6B and Release remain inactive.
+activation claim. AR-R6B and Release remain inactive.
+
+Package 2 adds an inactive source/offline TCP/mTLS candidate under
+[Windows readiness section 20](../product/agent-refactor/windows-host-security-readiness.md#20-package-2-tls-and-bounded-host-adapter-g0-l0-only).
+Explicit Raw IPv4 accept precedes bounded TLS upgrade; isolated TLS 1.3 contexts,
+optional certificate-only crypt32 ABI-3 policy, current protected Association
+lookup and separate P15 channel verification precede P0 Session/P9/P10/P8/P7.
+Shared candidate reservations and existing owning settlement constrain admission
+and output; no business permission, wire/schema or production startup changes.
+This remains a source/offline candidate, with no real Windows handshake,
+measured native-memory capacity or production Host availability claim.
+Package 3 and AR-R6B remain inactive. HOST_STABILITY_HALT = ACTIVE;
+TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED; REAL WINDOWS PENDING and
+FORMAL ACCEPTANCE PENDING. G0-L1, G0-L2 and G0-I each retain their separate
+prerequisites and exact user grants.
 
 Use namespaced AR-R identifiers to distinguish this route from historical
 R1-R8 typed-core stages:

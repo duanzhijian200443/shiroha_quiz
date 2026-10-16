@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/backup/backup_restore_gate.dart';
 import 'package:shiroha_quiz/application/external/external_credential_association.dart';
+import 'package:shiroha_quiz/application/external/external_authorization.dart';
 import 'package:shiroha_quiz/application/external/external_credential_boundary.dart';
 import 'package:shiroha_quiz/application/external/external_trust_core.dart';
 import 'package:shiroha_quiz/data/external/exchange_message_codec.dart';
@@ -72,7 +73,10 @@ class PairingHarness {
 
   Future<void> open(
       {Duration lifetime = const Duration(seconds: 300),
-      bool duplicateRandom = false}) async {
+      bool duplicateRandom = false,
+      ExternalCredentialVerificationPort Function(
+              WindowsPairingVerification, ExternalAuthorizationManagement)?
+          verifierFactory}) async {
     native.seed(
         1,
         ExternalIssuerKeyPair(
@@ -99,7 +103,8 @@ class PairingHarness {
         credentialFactory: (management) => boundary =
             ExternalCredentialBoundary.offline(
                 associations: associations,
-                verification: verification,
+                verification: verifierFactory?.call(verification, management) ??
+                    verification,
                 management: management,
                 clock: local.clock,
                 installationId: bootstrapVector['installationId'] as String,

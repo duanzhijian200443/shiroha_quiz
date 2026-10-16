@@ -44,7 +44,10 @@ void main() {
       () {
     const owned = [
       'lib/data/external/windows_discovery.dart',
-      'lib/data/external/windows_credential_initialization.dart'
+      'lib/data/external/windows_credential_initialization.dart',
+      'lib/data/external/windows_tls_transport.dart',
+      'lib/data/external/windows_tls_credentials.dart',
+      'lib/data/external/windows_tls_bridge.dart'
     ];
     for (final file in Directory('lib')
         .listSync(recursive: true)

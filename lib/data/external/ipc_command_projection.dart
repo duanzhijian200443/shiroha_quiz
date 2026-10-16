@@ -78,6 +78,9 @@ final class OfflineIpcCommandProjection {
   Completer<void>? _idle;
   Future<void>? _shutdown;
 
+  /// Owning P8/P7 settlement, independent of caller/result availability.
+  Future<void> get whenSettled => _host.whenSettled;
+
   Future<OfflineIpcCommandResult> invoke(UntrustedIpcEnvelope envelope,
       {required ExternalExecutionContext context,
       ExternalCallControl? control,
