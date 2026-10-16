@@ -99,6 +99,56 @@ Native gate 在构建缓存中生成独立 STATIC Hash 清单（源码、工具�
 该清单不是获准运行产物或完整部署依赖闭包；最终源码提交、产物和真实加载
 依赖的固定目标审查仍是未来申请前置条件。
 
+### E3 Windows 单次准入源码候选（仅 G0-L0）
+
+E3 新增 `l1_windows_admission.h` 与 `l1_windows_operations.h/.cpp`，
+承接上述 E2 唯一 GrantTarget/GrantState、OfflineSupervisor、ABI 和 Native 资源账本。
+E2 “没有真实适配源码”的历史描述由本节补充；最高范围为
+**L1-CRYPTO WINDOWS ADMISSION SOURCE PREPARED / OFFLINE TESTED**。
+
+- Windows API 叶子源码仅编译为未链接 OBJECT 库：精确 SID/非提权 Primary Medium Token
+  与启用权限、句柄 File ID/C: NTFS/Owner/受保护单 Owner ACL/非重解析/单链接、
+  LockFileEx 条件烧录和 Flush，以及进程 peak/采样句柄/真实退出观察。均未调用。
+- 完整后端仍拒绝可信批准、身份准入和进程启动；消费在 I/O 前返回 UNKNOWN。
+  单独烧录叶子即使 Flush 成功也只返回 UNKNOWN，未实现可信发行和独立持久请求日志，
+  不声称真实跨进程、断电或重启单次性。普通 JSON 的批准布尔值无效。
+  若选择签名凭据，签名者/验证密钥/信任边界/保管方式先独立冻结，本次不生成可信密钥。
+- Fake 使用共享内存持久模型、独立请求门闩和互斥 E2 Cell，覆盖竞争、客户端重建、
+  消费后崩溃、回执丢失及写入失败 UNKNOWN。它不等于真实 Windows 持久化证明。
+  复制对象字节不能复制独立身份/批准/日志；不宣称防御恶意同 SID 进程或管理员。
+- Worker、消费者、Supervisor 绑定相同批次/设备/账户/Source/Base/EXE/依赖/工具链及范围。
+  Worker port 不接收任意命令行/环境。未来挂起创建、真实 Token/image 复核、认证 IPC、
+  显式句柄/环境与恢复仍为 STOP；没有可运行的真实 Worker 启动器。
+- 状态保留 NOT_STARTED、GRANT_CONSUMED、START_ATTEMPTED、RUNNING、STOP_REQUESTED、
+  SETTLING、COMPLETE、SETTLEMENT_UNKNOWN、BLOCKED；独立记录消费请求与启动尝试。
+  30,000 ms 恰好截止关闭新工作，不终止同步 Native 调用。Supervisor/Native 双向停止门闩
+  及逐原生操作超时清理已纳入 Fake 必要条件，真实异常/缺失/未结算证据不能 PASS。
+  候选禁止复制和移动，共享 Fake 请求记录在启动前保留唯一额度，失败/异常/未知回执不恢复。
+  COMPLETE/SETTLEMENT_UNKNOWN/BLOCKED 的状态、首次失败和完整证据快照不可被迟到事件改写；
+  STOP_REQUESTED/DEADLINE_EXCEEDED/SETTLING 仍可合法释放和结算。接受退出后立即关闭新工作，
+  正常退出进入结算，异常退出 STOP，退出不证明 Native 结算。控制器事件及观察必须串行，
+  Fake 覆盖 EXIT/STOP/SAMPLE 排列与经同一串行边界的并发生产者；这不证明真实跨进程能力。
+- 证据仅 OFFLINE/FAKE：E2 18 点样本和计数、脱敏身份/Hash、发行/消费/启动/退出、
+  STOP/恢复及独立判定字段；Verifier/Reviewer 初始 NOT_RUN。无 raw SID/路径/环境、
+  私钥/证书/进程日志；未提供获准的证据 I/O。
+
+以下全部继续为 **REQUIRES USER DECISION**：精确新根/文件/对象清单、设备、非提权 SID/Token、
+实验窗口、Working Set/Commit/采样句柄上限、STOP/恢复/证据负责人、可信批准来源、
+持久请求日志方案、进程/IPC/句柄/环境计划及最终目标 Reviewer/Verifier。仅 C: 为候选卷；
+本次不创建或检查任何真实测试根，不复用 Host A。
+
+将来真实运行还须独立实现/审查可信发行与日志、父链/产物固定和 IPC/启动，
+并逐项授权安全对象、锁、文件持久化/证据 I/O、进程创建/观察/正常关闭、可选 Job；
+强制终止、Crash Injection 和系统恢复不在本候选权限内。
+冻结方式：另授提交后从精确 Source/Base 重编译，记录 EXE、实际直接依赖与工具链 Hash、
+SDK/OS/配置和完整加载闭包，再取得相同目标独立批准；任意漂移失效。
+当前 STATIC manifest 为 WORKING_TREE_NOT_FROZEN，依赖名不是依赖 Hash。
+离线不能证明真实跨进程持久性、ACL/身份竞争、调度/IPC、未采样句柄或 Windows 内部资源。
+
+`executionAuthorized=false`，L1-CRYPTO DRAFT_NOT_AUTHORIZED，A0–A12 WINDOWS_PENDING；
+原入口继续无条件拒绝，Source Guard 和 Fake PE 审核先于 CTest，所有真实叶子均不注册执行。
+具体叶子能力、STOP 与授权清单见 [diagnostics README](../../../windows/external_native/diagnostics/README.md#windows-admission-candidates-e3-source--compile--fake-only)。
+
 机器可检查的完整记录为 [acceptance plan](windows-host-acceptance-plan.json) 的 `matrix`。
 每行包含 frozenCriterion、windowsTrial、success、source、offlineTests、依赖、局部层级和责任。
 环境统一引用 `environment`，负责人统一引用 `ownership`，失败/STOP 统一引用 `failurePolicy`，
@@ -270,7 +320,7 @@ Administrator/kernel/same-SID arbitrary code 隔离、品牌/进程真实性、C
 | 分类 / 缺口 | 类型、阻断范围、最小另授范围与复核 |
 |---|---|
 | MUST_FIX_BEFORE_L1：设备/空根/权限/预算/恢复/角色未选 | 环境/操作授权；补齐共同封面和精确调用账本，再固定目标独立 Reviewer/Verifier，不得推断当前主机获准 |
-| MUST_FIX_BEFORE_L1：完整原语隔离入口 | E0 默认拒绝/7 符号/PE 隔离基础上，E2 加固 106 次尝试、诊断释放观察及纯 Fake 准入/监督。真实身份、受保护持久消费/跨进程原子性、进程/IPC/独立 STOP 仍待另授实现；源码/产物须独立审查并取得单次用户许可。`L1-OBJECTS`/`L1-STORE` 新空根执行器仍待另授 |
+| MUST_FIX_BEFORE_L1：完整原语隔离入口 | E0/E2 基础上，E3 增加未链接的 Windows 叶子源码与 E2 Supervisor/Fake 持久模型衔接；可信批准、发行/独立持久日志、父链/实际产物固定、进程/IPC/独立真实 STOP 仍为 STOP。源码/产物须独立审查并取得逐项及单次批次许可；见本文件 E3 节。`L1-OBJECTS`/`L1-STORE` 新空根执行器仍待另授 |
 | MUST_FIX_BEFORE_L1（仅 Host A Batch 3 路线） | 旧根专属契约/实现：非空例外、metadata approval、runtime identity bridge、supervisor lifecycle ruling 分开解决；不读旧根，也不通过重写生产 recipe 规避 |
 | MUST_FIX_BEFORE_L2：真实连接专用 Composition | 源码/入口；另授隔离 Owner/证书/Discovery + 明确原生 I/O 的测试执行器，只认证/连接、无 P9/P10/DB/公开工具；L1 实证和独立源码审查先行 |
 | MUST_FIX_BEFORE_L2：真实 Socket/Handle/TLS 观察 | 测量/源码接口候选；现有 budget.used、whenConnectionsSettled、whenSettled 是显式预约/owning barrier，不是 OS 测量；另审 observer、真实释放确认、未知释放隔离及数值 ceilings |

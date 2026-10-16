@@ -19,6 +19,8 @@ struct FakeState {
   bool boundary_failed = false;
   bool also_fail_close = false;
   bool fail_open_writes_handle = false;
+  bool timeout = false;
+  uint64_t clock = 10;
   std::array<unsigned, kNativeOpCount> calls{};
   std::map<const void *, size_t> objects;
   std::map<const void *, unsigned> release_attempts;
@@ -36,6 +38,11 @@ struct FakeState {
     }
     if (op != failure || occurrence != fail_occurrence) return true;
     boundary_failed = true;
+    if (timeout) {
+      clock = 30010;
+      active_native_observation->fail("fake_deadline");
+      return true; // Original synchronous call returns; owners still release.
+    }
     if (throws) throw std::runtime_error("FAKE_ONLY");
     return false;
   }
@@ -66,6 +73,8 @@ struct FakeState {
     boundary_failed = false;
     also_fail_close = false;
     fail_open_writes_handle = false;
+    timeout = false;
+    clock = 10;
     fail_occurrence = 1;
     throws = false;
     server = true;
@@ -75,7 +84,7 @@ bool sample(L1CryptoLedger &ledger) noexcept {
   return ledger.resources(1024, 2048, 3);
 }
 bool clock_ms(uint64_t &ms) noexcept {
-  ms = 10;
+  ms = env.clock;
   return true;
 }
 L1CryptoApi api() {
@@ -372,6 +381,25 @@ int main() {
           "missing observer in observation build cannot PASS");
   }
   env.reset();
+  unsigned timeout_cases = 0;
+  for (size_t i = 0; i < kNativeOpCount; ++i) {
+    for (unsigned occurrence = 1; occurrence <= kNativeLimits[i]; ++occurrence) {
+      env.reset();
+      env.failure = static_cast<NativeOp>(i);
+      env.fail_occurrence = occurrence;
+      env.timeout = true;
+      NativeObservation native;
+      L1CryptoLedger ledger;
+      check(sequence(native, ledger) == 10, "per-operation Fake timeout stops sequence");
+      check(native.stopped && ledger.stopped && !native.complete(),
+            "native/ledger deadline latches remain closed");
+      check(ledger.buffers_live == 0 && native.still_owned == 0 && env.objects.empty(),
+            "timeout never skips sole-owner legal cleanup");
+      ++timeout_cases;
+    }
+  }
+  env.reset();
   std::cout << "PASS: observed wrapper Fake boundaries=" << cases
+            << "; per-operation Fake timeouts=" << timeout_cases
             << "; no real CNG/crypt32, no retry, UNKNOWN retained\n";
 }

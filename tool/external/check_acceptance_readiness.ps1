@@ -135,6 +135,25 @@ function Assert-Plan([System.Collections.IDictionary]$Value) {
     Require ($l1Crypto.admissionEvidenceClass -ceq 'OFFLINE' -and
         $l1Crypto.realAdmission -ceq 'BLOCKED_WINDOWS_IDENTITY_ATOMIC_CONSUMPTION_SUPERVISION') 'l1_real_admission_blocked'
     Require ($l1Crypto.resourceObservation.samples -eq 18) 'l1_observation'
+    Has-Fields $l1Crypto @('windowsAdmission')
+    $windows = $l1Crypto.windowsAdmission
+    Has-Fields $windows @('scope','executionAuthorized','source','offlineTest','sourceGuard',
+        'evidenceClass','backend','realBackend','crossProcessDurability','candidateVolume','evidenceFields')
+    Require ($windows.scope -ceq 'G0-L0 SOURCE / COMPILE / FAKE ONLY' -and
+        $windows.executionAuthorized -ceq $false -and $windows.evidenceClass -ceq 'OFFLINE' -and
+        $windows.backend -ceq 'FAKE' -and $windows.realBackend -ceq 'COMPILE_ONLY_STOP' -and
+        $windows.crossProcessDurability -ceq 'NOT_PROVEN' -and $windows.candidateVolume -ceq 'C:') 'e3_scope'
+    Require ($windows.source.Count -eq 3 -and $windows.evidenceFields.Count -eq 14) 'e3_inventory'
+    foreach ($path in $windows.source) { Assert-RepoPath $path 'windows/external_native/diagnostics/' }
+    Assert-RepoPath $windows.offlineTest 'windows/external_native/tests/'
+    Assert-RepoPath $windows.sourceGuard 'tool/external/'
+    foreach ($field in @('approvalSource','signerKeyTrustAndCustody','exactNewRootAndObjects',
+        'exactAccountSidAndToken','selectedDevice','experimentWindow','workingSetLimitBytes',
+        'commitLimitBytes','sampledHandleLimit','stopRecoveryEvidenceOwners','finalTargetReviewerVerifier',
+        'durableRequestJournal','processIpcHandleEnvironmentPlan')) {
+        Has-Fields $windows @($field)
+        Require ($windows[$field] -ceq 'REQUIRES USER DECISION') 'e3_unapproved_parameter'
+    }
     foreach ($name in @('workingSetLimitBytes', 'commitLimitBytes', 'sampledHandleLimit')) {
         Require ($l1Crypto.resourceObservation[$name] -ceq 'REQUIRES USER DECISION') 'l1_unapproved_ceiling'
     }
@@ -196,7 +215,13 @@ if ($SelfTest) {
         { param($p) $p.requests[0].nativeAttemptBudget.local_free = 19 },
         { param($p) $p.requests[0].resourceObservation.commitLimitBytes = 1024 },
         { param($p) $p.requests[0].realAdmission = 'ENABLED' },
-        { param($p) $p.requests[0].admissionEvidenceClass = 'LOCAL-L1' }
+        { param($p) $p.requests[0].admissionEvidenceClass = 'LOCAL-L1' },
+        { param($p) $p.requests[0].windowsAdmission.executionAuthorized = $true },
+        { param($p) $p.requests[0].windowsAdmission.crossProcessDurability = 'PROVEN' },
+        { param($p) $p.requests[0].windowsAdmission.approvalSource = 'json-user-approved' },
+        { param($p) $p.requests[0].windowsAdmission.commitLimitBytes = 2048 },
+        { param($p) $p.requests[0].windowsAdmission.realBackend = 'ENABLED' },
+        { param($p) $p.requests[0].windowsAdmission.Remove('exactAccountSidAndToken') }
     )
     $count = 0
     foreach ($mutate in $mutations) {
