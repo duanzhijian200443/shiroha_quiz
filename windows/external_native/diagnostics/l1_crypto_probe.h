@@ -201,6 +201,8 @@ struct L1CryptoLedger {
   bool (*clock_ms)(uint64_t& out_ms) noexcept = nullptr;
 
   bool clock_initialized = false;
+  // 30 s budget origin: the first sequence clock observation in this ledger;
+  // the OfflineSupervisor counts instead from its process-start attempt.
   uint64_t start_ms = 0;
   uint64_t last_ms = 0;
   uint64_t elapsed_ms = 0;
@@ -243,7 +245,10 @@ struct L1CryptoLedger {
     }
     last_ms = now;
     elapsed_ms = now - start_ms;
-    if (elapsed_ms > max_elapsed_ms) {
+    // Unified inclusive deadline with OfflineSupervisor::poll: exactly
+    // max_elapsed_ms stops new work. Only already-owned buffers may still
+    // settle once through the release category after this STOP.
+    if (elapsed_ms >= max_elapsed_ms) {
       stop("deadline_exceeded", -1, "BUDGET_EXCEEDED");
       return false;
     }
@@ -405,6 +410,12 @@ struct L1CryptoLedger {
   }
 
   const char* verdict() const noexcept {
+#ifdef SHIROHA_L1_CRYPTO_OBSERVATION
+    // The observation build cannot prove the 47-resource custody without its
+    // installed observer, so a missing NativeObservation refuses PASS. Pure
+    // Fake builds keep the optional observer.
+    if (!native_observation) return "FAIL";
+#endif
     if (settlement_unknown || releases_unknown > 0 || returned < attempted ||
         (native_observation && native_observation->unknown)) {
       return "UNKNOWN";
@@ -419,6 +430,9 @@ struct L1CryptoLedger {
         duplicate_release_attempts != 0 || forbidden_symbol_attempts != 0) {
       return "FAIL";
     }
+    // Independent latches: a native STOP that was not propagated into
+    // `stopped` still fails here through native.complete(); every native call
+    // site stays behind invoke_and_check/observe_native for the propagation.
     if (abi_attempted_total != kMaxTotalAbiAttempts ||
         (native_observation && !native_observation->complete()))
       return "FAIL";

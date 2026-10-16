@@ -94,7 +94,10 @@ Allocation 45 and Free 45: **106 maximum**, not 16 total native calls.
 Null/throwing allocations consume an attempt; successful acquisitions are
 counted separately. Released slots do not reset cumulative budgets. At most
 5 buffers are live. Returned, accepted, settled and unknown are distinct.
-Failure stops new work; only already-owned resources may settle once.
+Failure stops new work; only already-owned resources may settle once. This
+includes deadline STOPs: cleanup releases of already-acquired buffers remain
+legal and are the only calls permitted after the STOP; no new working
+primitive, allocation or release retry follows.
 
 `l1_native_observation.h` is a non-owning diagnostic seam. Only the isolated
 candidate and forced-Fake wrapper test define `SHIROHA_L1_CRYPTO_OBSERVATION`;
@@ -102,6 +105,10 @@ production targets erase its macros to the original calls, with unchanged
 ABI-3/status mapping. Original RAII objects remain sole owners. A failed or
 throwing release leaves custody quarantined/UNKNOWN, never retried, while other
 owners still get their legal single release. The first failure is sticky.
+An observation build requires its installed observer:
+`L1CryptoLedger::verdict()` refuses PASS (`FAIL`) when no `NativeObservation`
+is installed, since the 47-resource custody proof would be absent. Pure Fake
+builds keep the optional observer.
 
 | Direct API operation | Maximum attempts in the fixed successful sequence |
 |---|---:|
@@ -120,6 +127,11 @@ The wrapper test compiles the SAME wrappers with a forced include replacing
 every security API by an in-memory Fake, links no bcrypt/crypt32 and must pass
 the offline PE/import gate before execution. It injects failures/exceptions at
 every occurrence, including cleanup, without creating Windows crypto objects.
+A failed `BCryptOpenAlgorithmProvider` discards its undefined failure-path
+output before custody is recorded in both production and observation
+compilation, so no unconfirmed handle is ever observed as owned or closed and
+the sequence never calls a later working primitive; the forced-Fake test
+injects a failed open that still writes a non-null handle.
 
 `l1_crypto_admission.h` supplies pure OFFLINE models, not a runnable permission:
 
@@ -134,9 +146,13 @@ every occurrence, including cleanup, without creating Windows crypto objects.
 - `OfflineSupervisor` models NOT_STARTED -> ADMITTED -> RUNNING -> SETTLING ->
   COMPLETE and STOP_REQUESTED/DEADLINE_EXCEEDED/SETTLEMENT_UNKNOWN/BLOCKED.
   Observer events, not worker exit=0, decide completion. Thirty seconds starts
-  at process-start attempt; at the deadline new admission closes. A blocked
-  synchronous native call remains unsettled/UNKNOWN; there is no kill, cancel,
-  worker restart, window extension, real clock, IPC or process launcher.
+  at process-start attempt; at the deadline new admission closes. The deadline
+  is inclusive at exactly 30,000 ms (`>=`), the same boundary
+  `L1CryptoLedger::check_clock` uses; the ledger's own ceiling counts from the
+  sequence's first clock observation, so in a composed run the earlier
+  supervisor cutoff stays authoritative. A blocked synchronous native call
+  remains unsettled/UNKNOWN; there is no kill, cancel, worker restart, window
+  extension, real clock, IPC or process launcher.
 - Eighteen samples remain: before work, after each of 16 steps (before buffer
   release), after final settlement. Records retain process-start/end observation,
   completed steps, OS peak working-set/pagefile bytes and sampled handles.

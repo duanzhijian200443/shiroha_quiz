@@ -48,6 +48,7 @@ struct FakeEnvironment {
 
   uint64_t now_ms = 1000;
   uint64_t step_ms = 100;
+  uint64_t timeout_jump_ms = 30001;
   unsigned timeout_at_clock_call = 0;
   unsigned clock_calls = 0;
   bool clock_fails = false;
@@ -76,6 +77,7 @@ struct FakeEnvironment {
     sample_handles = 42;
     now_ms = 1000;
     step_ms = 100;
+    timeout_jump_ms = 30001;
     timeout_at_clock_call = clock_calls = 0;
     clock_fails = clock_backwards = false;
     generate_count = sign_count = verify_count = policy_count = 0;
@@ -285,7 +287,7 @@ bool fake_clock(uint64_t& out_ms) noexcept {
     return true;
   }
   if (env.timeout_at_clock_call > 0 && call >= env.timeout_at_clock_call) {
-    env.now_ms += 30001;
+    env.now_ms += env.timeout_jump_ms;
   } else if (call > 1) {
     env.now_ms += env.step_ms;
   }
@@ -371,6 +373,8 @@ void test_normal_sequence_and_redaction() {
           "every buffer released once");
   require(ledger.samples == 18 && ledger.observation_failures == 0,
           "18 resource samples (before, 16 steps, after)");
+  require(ledger.clock_initialized && ledger.start_ms == 1000,
+          "30 s ledger clock starts at the first observation");
   require(env.alloc_calls == 45 && env.free_calls == 45 &&
               ledger.abi_attempted_total == 106,
           "106 includes 45 alloc + 45 free");
@@ -746,6 +750,43 @@ void test_resource_sampling_and_timeout_gates() {
     require(std::strcmp(ledger.first_failure, "deadline_exceeded") == 0 &&
                 std::strcmp(ledger.failure_code, "BUDGET_EXCEEDED") == 0,
             "timeout records BUDGET_EXCEEDED");
+  }
+  // The unified deadline is inclusive: the first clock observation that
+  // reaches exactly 30,000 ms stops before any primitive, the same boundary
+  // OfflineSupervisor::poll closes at.
+  {
+    env.reset();
+    env.timeout_at_clock_call = 2;
+    env.timeout_jump_ms = 30000;
+    L1CryptoLedger ledger;
+    configure_ledger(ledger);
+    L1CryptoApi api{};
+    require(resolve_l1_crypto_api(ledger, fake_symbol_lookup, api), "resolve");
+    require(run_l1_crypto_sequence(api, ledger) == 10, "exact deadline stops");
+    require(std::strcmp(ledger.first_failure, "deadline_exceeded") == 0 &&
+                ledger.elapsed_ms == 30000 && env.op_calls == 0,
+            "elapsed == 30000 stops before any primitive");
+  }
+  // A deadline STOP after acquisition still settles only the already-owned
+  // buffers once through the release category; no new working primitive,
+  // allocation or retry follows the STOP.
+  {
+    env.reset();
+    env.timeout_at_clock_call = 8;  // three gen_issuer buffers acquired
+    L1CryptoLedger ledger;
+    configure_ledger(ledger);
+    L1CryptoApi api{};
+    require(resolve_l1_crypto_api(ledger, fake_symbol_lookup, api), "resolve");
+    require(run_l1_crypto_sequence(api, ledger) == 10,
+            "deadline after acquisition stops");
+    require(std::strcmp(ledger.first_failure, "deadline_exceeded") == 0,
+            "deadline keeps the first failure");
+    require(env.alloc_calls == 3 && env.free_calls == 3 &&
+                env.live_allocations.empty() && ledger.buffers_live == 0,
+            "acquired buffers settle exactly once after deadline");
+    require(env.generate_count == 0 && env.sign_count == 0 &&
+                env.verify_count == 0 && env.policy_count == 0,
+            "no new working primitive after deadline");
   }
   // Clock backwards / clock failure
   for (bool backwards : {false, true}) {

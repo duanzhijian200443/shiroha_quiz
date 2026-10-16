@@ -242,6 +242,9 @@ class OfflineSupervisor {
       stop(StopReason::kMeasurement, SupervisorState::kStopRequested);
       return false;
     }
+    // Unified inclusive deadline (>=), matching L1CryptoLedger::check_clock:
+    // the 30-second execution clock counts from the recorded process-start
+    // attempt (launch_attempt) and closes exactly at max_execution_ms.
     if (started_ &&
         now_ms - evidence_.launch_attempt_ms >= target_.max_execution_ms) {
       evidence_.deadline_exceeded = true;

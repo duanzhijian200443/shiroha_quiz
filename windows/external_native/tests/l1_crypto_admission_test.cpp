@@ -211,6 +211,9 @@ void supervisor_cases() {
     switch (kind) {
       case 0:
         samples(supervisor);
+        check(supervisor.evidence().launch_attempt_ms == 101,
+              "30 s clock starts at the process-start attempt");
+        check(supervisor.admission_open(30100), "29999 ms still admits");
         check(!supervisor.admission_open(30101),
               "exact deadline closes admission");
         check(supervisor.state() == SupervisorState::kDeadlineExceeded,

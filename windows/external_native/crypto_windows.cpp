@@ -38,12 +38,11 @@ struct AlgorithmProvider {
         BCryptOpenAlgorithmProvider(&handle, BCRYPT_ECDSA_P256_ALGORITHM,
                                     MS_PRIMITIVE_PROVIDER, 0),
         [](auto result) { return result >= 0; }, static_cast<NTSTATUS>(-1));
+    // A failed open confirms no custody in either build: the undefined
+    // failure-path output is discarded before custody observation, so the
+    // observer never records an unowned handle and no destructor close runs.
+    if (status < 0) handle = nullptr;
     L1_NATIVE_ACQUIRED(handle != nullptr);
-    if (status < 0) {
-#ifndef SHIROHA_L1_CRYPTO_OBSERVATION
-      handle = nullptr;
-#endif
-    }
   }
   ~AlgorithmProvider() noexcept {
     if (handle)

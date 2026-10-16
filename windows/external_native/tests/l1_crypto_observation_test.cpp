@@ -18,6 +18,7 @@ struct FakeState {
   bool throws = false;
   bool boundary_failed = false;
   bool also_fail_close = false;
+  bool fail_open_writes_handle = false;
   std::array<unsigned, kNativeOpCount> calls{};
   std::map<const void *, size_t> objects;
   std::map<const void *, unsigned> release_attempts;
@@ -64,6 +65,7 @@ struct FakeState {
     failure = NativeOp::kCount;
     boundary_failed = false;
     also_fail_close = false;
+    fail_open_writes_handle = false;
     fail_occurrence = 1;
     throws = false;
     server = true;
@@ -96,7 +98,12 @@ int sequence(NativeObservation &native, L1CryptoLedger &ledger) {
 
 NTSTATUS fake_BCryptOpenAlgorithmProvider(BCRYPT_ALG_HANDLE *p, LPCWSTR,
                                           LPCWSTR, ULONG) {
-  if (!env.before(NativeOp::kOpen)) return -1;
+  if (!env.before(NativeOp::kOpen)) {
+    // Fault injection: a failed open may still write an undefined non-null
+    // output that the wrapper must discard in every build.
+    if (env.fail_open_writes_handle) *p = env.allocate(8);
+    return -1;
+  }
   *p = env.allocate(8);
   return 0;
 }
@@ -310,6 +317,59 @@ int main() {
               std::strcmp(ledger.failure_code, "ADMISSION_BLOCKED") == 0 &&
               std::strcmp(ledger.verdict(), "UNKNOWN") == 0,
           "cleanup adds UNKNOWN without replacing the original failure");
+  }
+  {
+    // The ledger latch and the observer latch are independent. A native STOP
+    // that was never propagated into `stopped` still cannot produce PASS;
+    // native.complete() gates the verdict.
+    NativeObservation native;
+    L1CryptoLedger ledger;
+    ledger.abi_attempted_total = L1CryptoLedger::kMaxTotalAbiAttempts;
+    ledger.attempted = ledger.returned = ledger.completed =
+        L1CryptoLedger::kTotalPlannedSteps;
+    ledger.accepted = L1CryptoLedger::kTotalPlannedSteps;
+    ledger.samples = L1CryptoLedger::kTotalPlannedSteps + 2;
+    ledger.native_observation = &native;
+    native.fail("key_generate");
+    check(!native.unknown, "deterministic native failure");
+    check(!ledger.stopped, "ledger latch stays independent");
+    check(std::strcmp(ledger.verdict(), "FAIL") == 0,
+          "unpropagated native STOP cannot PASS");
+  }
+  {
+    // A failed Open that still writes a non-null output must not be treated
+    // as confirmed custody: the wrapper discards it in every build, so no
+    // later working primitive runs and the handle is never closed.
+    env.reset();
+    env.failure = NativeOp::kOpen;
+    env.fail_open_writes_handle = true;
+    NativeObservation native;
+    L1CryptoLedger ledger;
+    check(sequence(native, ledger) == 10, "failed open refuses the sequence");
+    check(env.calls[static_cast<size_t>(NativeOp::kOpen)] == 1 &&
+              env.calls[static_cast<size_t>(NativeOp::kGenerate)] == 0,
+          "no working primitive after failed open");
+    check(env.calls[static_cast<size_t>(NativeOp::kClose)] == 0,
+          "unconfirmed handle never closed");
+    check(native.acquired == 0 && native.still_owned == 0 &&
+              native.calls[static_cast<size_t>(NativeOp::kOpen)]
+                      .returned_failure == 1,
+          "failed open records no custody");
+    check(!native.complete() && std::strcmp(ledger.verdict(), "FAIL") == 0,
+          "failed open never PASS");
+  }
+  {
+    // In an observation build the ledger requires its installed observer;
+    // without one the 47-resource custody proof is absent and PASS is refused
+    // even when every sequence step itself completes.
+    env.reset();
+    L1CryptoLedger ledger;
+    ledger.sample = sample;
+    ledger.clock_ms = clock_ms;
+    const int rc = run_l1_crypto_sequence(api(), ledger);
+    check(rc == 10, "observer-less observation build refuses the sequence");
+    check(std::strcmp(ledger.verdict(), "FAIL") == 0,
+          "missing observer in observation build cannot PASS");
   }
   env.reset();
   std::cout << "PASS: observed wrapper Fake boundaries=" << cases
