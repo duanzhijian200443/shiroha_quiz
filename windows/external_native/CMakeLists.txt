@@ -114,10 +114,26 @@ if(SHIROHA_L1_CANDIDATE_BUILD)
   target_link_libraries(shiroha_assoc_candidate PRIVATE psapi)
 endif()
 
+# Compile only; isolated L1-CRYPTO candidate links only pure memory core,
+# CNG P-256 and crypt32 peer policy. Never a CTest entry and never runs in L0.
+option(SHIROHA_L1_CRYPTO_CANDIDATE_BUILD "Compile unapproved future L1-CRYPTO probe (never run in CTest)" OFF)
+if(SHIROHA_L1_CRYPTO_CANDIDATE_BUILD)
+  add_executable(shiroha_l1_crypto_candidate diagnostics/l1_crypto_probe.cpp
+    native_core.cpp native_crypto.cpp p256_key_codec.cpp crypto_windows.cpp
+    peer_policy.cpp peer_policy_windows.cpp)
+  shiroha_native_settings(shiroha_l1_crypto_candidate)
+  target_include_directories(shiroha_l1_crypto_candidate PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+  target_link_libraries(shiroha_l1_crypto_candidate PRIVATE crypt32 bcrypt psapi)
+endif()
+
 if(SHIROHA_NATIVE_OFFLINE_TESTS)
   add_executable(shiroha_discovery_offline_test protected_objects.cpp association_files.cpp
     discovery_files.cpp tests/discovery_files_test.cpp)
   shiroha_native_settings(shiroha_discovery_offline_test)
   target_include_directories(shiroha_discovery_offline_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
   add_test(NAME shiroha_discovery_offline COMMAND shiroha_discovery_offline_test)
+  add_executable(shiroha_l1_crypto_probe_test tests/l1_crypto_probe_test.cpp)
+  shiroha_native_settings(shiroha_l1_crypto_probe_test)
+  target_include_directories(shiroha_l1_crypto_probe_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+  add_test(NAME shiroha_l1_crypto_probe_offline COMMAND shiroha_l1_crypto_probe_test)
 endif()

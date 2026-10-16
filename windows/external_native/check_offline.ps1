@@ -18,7 +18,7 @@ $ctest = Join-Path (Split-Path -Parent $cmake) 'ctest.exe'
 
 # This path is compiled into a diagnostic candidate only; never create/open it.
 $p20CompileOnlyRoot = Join-Path $build 'p20-compile-only-root'
-& $cmake -S $PSScriptRoot -B $build -G 'Visual Studio 17 2022' -A x64 -DSHIROHA_NATIVE_OFFLINE_TESTS=ON -DSHIROHA_BATCH3_EXISTING_ONLY_BUILD=ON -DSHIROHA_L1_CANDIDATE_BUILD=ON -DSHIROHA_P20_MINIMAL_TEST_BUILD=ON "-DSHIROHA_P20_TEST_ROOT=$p20CompileOnlyRoot"
+& $cmake -S $PSScriptRoot -B $build -G 'Visual Studio 17 2022' -A x64 -DSHIROHA_NATIVE_OFFLINE_TESTS=ON -DSHIROHA_BATCH3_EXISTING_ONLY_BUILD=ON -DSHIROHA_L1_CANDIDATE_BUILD=ON -DSHIROHA_L1_CRYPTO_CANDIDATE_BUILD=ON -DSHIROHA_P20_MINIMAL_TEST_BUILD=ON "-DSHIROHA_P20_TEST_ROOT=$p20CompileOnlyRoot"
 if ($LASTEXITCODE -ne 0) { throw 'Native configure failed' }
 # Incremental Debug linking may retain unused imports from the previous API.
 # Rebuild only this tool-managed build tree before inspecting exact artifacts.
@@ -74,7 +74,7 @@ $wrapper = Get-Content (Join-Path $PSScriptRoot 'protected_windows.cpp') -Raw
 if ($wrapper -notmatch 'GetProcAddress\(module, "NtSetInformationFile"\)') { throw 'Missing user-mode publication entry' }
 # Inspect before executing. These executables link only production pure cores +
 # fakes. The production DLL is neither loaded nor called by this check helper.
-foreach ($name in @('shiroha_discovery_offline_test', 'shiroha_native_offline_test', 'shiroha_objects_offline_test', 'shiroha_exchange_offline_test', 'shiroha_probe_offline_test', 'shiroha_rename_layout_test', 'shiroha_crypto_offline_test', 'shiroha_p20_root_production_test', 'shiroha_p20_root_diagnostic_test', 'shiroha_peer_policy_offline_test')) {
+foreach ($name in @('shiroha_discovery_offline_test', 'shiroha_native_offline_test', 'shiroha_objects_offline_test', 'shiroha_exchange_offline_test', 'shiroha_probe_offline_test', 'shiroha_rename_layout_test', 'shiroha_crypto_offline_test', 'shiroha_p20_root_production_test', 'shiroha_p20_root_diagnostic_test', 'shiroha_peer_policy_offline_test', 'shiroha_l1_crypto_probe_test')) {
     $imports = (& $dumpbin /imports (Join-Path $build "$Configuration/$name.exe") | Out-String)
     # GetProcAddress alone is used by the MSVC CRT even in the layout-only
     # executable. Reject direct loaders/security operations, not CRT machinery.
@@ -84,9 +84,10 @@ foreach ($name in @('shiroha_discovery_offline_test', 'shiroha_native_offline_te
 }
 # The real P20 driver is compile-only; inspect registration before execution.
 $testList = (& $ctest --test-dir $build -C $Configuration -N | Out-String)
-if ($LASTEXITCODE -ne 0 -or $testList -match '\bshiroha_p20_minimal_test\b') { throw 'Real P20 driver registered with CTest' }
+if ($LASTEXITCODE -ne 0 -or $testList -match '\b(?:shiroha_p20_minimal_test|shiroha_l1_crypto_candidate|shiroha_assoc_candidate)\b') { throw 'Real L1 candidate registered with CTest' }
 if ($testList -notmatch '\bshiroha_p20_root_production_offline\b' -or
-    $testList -notmatch '\bshiroha_p20_root_diagnostic_offline\b') { throw 'P20 root Fake coverage missing' }
+    $testList -notmatch '\bshiroha_p20_root_diagnostic_offline\b' -or
+    $testList -notmatch '\bshiroha_l1_crypto_probe_offline\b') { throw 'Offline Fake coverage missing' }
 # Compile metadata reader without loading it or invoking any P/Invoke method.
 $csc = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
 & $csc /nologo /target:library /platform:x64 /warnaserror "/out:$build/$Configuration/host_a_metadata.dll" (Join-Path $PSScriptRoot 'diagnostics/host_a_metadata.cs') (Join-Path $PSScriptRoot 'diagnostics/metadata_contract.cs')
@@ -99,7 +100,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Fake pin-owner compile failed' }
 $readerTest = Join-Path $build "$Configuration/host_a_reader_test.exe"
 & $csc /nologo /target:exe /platform:x64 /warnaserror /define:SHIROHA_METADATA_FAKE_ONLY "/out:$readerTest" (Join-Path $PSScriptRoot 'diagnostics/host_a_metadata.cs') (Join-Path $PSScriptRoot 'diagnostics/metadata_contract.cs') (Join-Path $PSScriptRoot 'tests/host_a_reader_test.cs')
 if ($LASTEXITCODE -ne 0) { throw 'Fake reader compile failed' }
-foreach ($name in @('shiroha_batch3_existing_only.dll', 'shiroha_assoc_candidate.exe', 'shiroha_p20_minimal_test.exe')) {
+foreach ($name in @('shiroha_batch3_existing_only.dll', 'shiroha_assoc_candidate.exe', 'shiroha_p20_minimal_test.exe', 'shiroha_l1_crypto_candidate.exe')) {
     $file = Join-Path $build "$Configuration/$name"
     $candidateHeaders = (& $dumpbin /headers $file | Out-String)
     if ($LASTEXITCODE -ne 0 -or $candidateHeaders -notmatch '8664 machine \(x64\)') { throw 'Candidate is not x64' }
@@ -107,13 +108,36 @@ foreach ($name in @('shiroha_batch3_existing_only.dll', 'shiroha_assoc_candidate
         if ($candidateHeaders -notmatch [regex]::Escape($flag)) { throw 'Candidate hardening absent' }
     }
 }
+# Static isolation audit for the compile-only L1-CRYPTO candidate: it may link
+# only kernel32/crypt32/bcrypt/CRT and must never import KnownFolder, DPAPI,
+# NTFS/DACL/Owner, file/directory I/O, certificate stores, sockets or LoadLibrary.
+$l1CryptoExe = Join-Path $build "$Configuration/shiroha_l1_crypto_candidate.exe"
+$l1CryptoDeps = (& $dumpbin /dependents $l1CryptoExe | Out-String)
+if ($LASTEXITCODE -ne 0) { throw 'L1-CRYPTO dependency inspection failed' }
+$l1CryptoDepNames = @([regex]::Matches($l1CryptoDeps, '(?im)^\s+([a-z0-9_.-]+\.dll)\s*$') | ForEach-Object { $_.Groups[1].Value })
+foreach ($dep in $l1CryptoDepNames) {
+    if ($dep -notmatch '^(kernel32|crypt32|bcrypt|msvcp140d?|vcruntime140(?:_1)?d?|ucrtbased|api-ms-win-crt-[a-z0-9-]+)\.dll$') {
+        throw "Unexpected L1-CRYPTO candidate dependency: $dep"
+    }
+}
+$l1CryptoImports = (& $dumpbin /imports $l1CryptoExe | Out-String)
+if ($LASTEXITCODE -ne 0) { throw 'L1-CRYPTO import inspection failed' }
+foreach ($name in @('BCryptOpenAlgorithmProvider', 'BCryptGenerateKeyPair', 'BCryptFinalizeKeyPair', 'BCryptExportKey',
+    'BCryptImportKeyPair', 'BCryptSignHash', 'BCryptVerifySignature', 'BCryptDestroyKey', 'BCryptCloseAlgorithmProvider',
+    'CertCreateCertificateContext', 'CertFreeCertificateContext', 'CryptDecodeObjectEx', 'CertVerifyTimeValidity', 'GetProcessHandleCount')) {
+    if ($l1CryptoImports -notmatch "\b$name\b") { throw "Missing L1-CRYPTO candidate import: $name" }
+}
+if ($l1CryptoImports -notmatch '\b(?:K32)?GetProcessMemoryInfo\b') { throw 'Missing L1-CRYPTO memory sampler import' }
+if ($l1CryptoImports -match 'SHGetKnownFolderPath|CryptProtectData|CryptUnprotectData|NtCreateFile|NtSetInformationFile|CreateFile[AW]|CreateDirectory[AW]|ReadFile|WriteFile|FlushFileBuffers|DeleteFile[AW]|RemoveDirectory[AW]|MoveFileEx[AW]|SetFileInformationByHandle|GetFileInformationByHandleEx|GetSecurityInfo|SetSecurityInfo|GetTokenInformation|OpenProcessToken|GetVolumeInformationByHandleW|CreateMutexExW|CertOpenStore|CertAddCertificate|CertGetCertificateChain|\bLoadLibrary[AW]\b|WSAStartup|\bsocket\b|\bbind\b|\blisten\b|\bconnect\b|shiroha_external_native\.dll') {
+    throw 'L1-CRYPTO candidate includes a forbidden KnownFolder/DPAPI/file/Owner/store/socket/loader import'
+}
 $candidateExports = (& $dumpbin /exports (Join-Path $build "$Configuration/shiroha_batch3_existing_only.dll") | Out-String)
 if ($LASTEXITCODE -ne 0) { throw 'Existing-only export inspection failed' }
 $candidateNames = @([regex]::Matches($candidateExports, '(?m)^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(\w+)(?:\s+=.*)?\s*$') | ForEach-Object { $_.Groups[1].Value })
 if ($candidateNames.Count -ne 27 -or @(Compare-Object $expected $candidateNames).Count -ne 0) { throw 'Existing-only ABI drift' }
 # Assert the three targets remain separate even when both diagnostic options
 # are enabled. Configure dependencies are not compiler definitions/includes.
-foreach ($target in @('shiroha_external_native', 'shiroha_batch3_existing_only', 'shiroha_p20_minimal_test')) {
+foreach ($target in @('shiroha_external_native', 'shiroha_batch3_existing_only', 'shiroha_p20_minimal_test', 'shiroha_l1_crypto_candidate')) {
     [xml]$project = Get-Content (Join-Path $build "$target.vcxproj") -Raw
     $defines = (@($project.SelectNodes("//*[local-name()='PreprocessorDefinitions']") | ForEach-Object InnerText) -join ';')
     $includes = (@($project.SelectNodes("//*[local-name()='AdditionalIncludeDirectories']") | ForEach-Object InnerText) -join ';')

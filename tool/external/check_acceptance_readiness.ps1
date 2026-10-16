@@ -104,6 +104,17 @@ function Assert-Plan([System.Collections.IDictionary]$Value) {
     Require ($Value.requests[4].budgetRef -ceq 'l2Budget' -and
         $Value.requests[4].port -ceq 'REQUIRES USER DECISION') 'l2_bind_budget'
     Require ($Value.requests[5].perTrialOperationsCountsAndResources -ceq 'REQUIRES USER DECISION') 'formal_ledger'
+    $l1Crypto = $Value.requests[0]
+    Has-Fields $l1Crypto @('isolatedHarness', 'offlineHarnessTest', 'allowedNativeSymbols', 'defaultEntryGate')
+    Require ($l1Crypto.isolatedHarness.Count -eq 2 -and
+        $l1Crypto.defaultEntryGate -ceq 'l1_crypto_execution_not_authorized') 'l1_crypto_harness'
+    foreach ($path in $l1Crypto.isolatedHarness) { Assert-RepoPath $path 'windows/external_native/diagnostics/' }
+    Assert-RepoPath $l1Crypto.offlineHarnessTest 'windows/external_native/tests/'
+    $allowedL1Symbols = @('shiroha_native_abi_version', 'shiroha_native_buffer_alloc', 'shiroha_native_buffer_free',
+        'shiroha_native_ecdsa_generate_key', 'shiroha_native_ecdsa_sign_digest', 'shiroha_native_ecdsa_verify_digest',
+        'shiroha_native_peer_certificate_policy')
+    Require ($l1Crypto.allowedNativeSymbols.Count -eq 7 -and
+        @(Compare-Object $allowedL1Symbols @($l1Crypto.allowedNativeSymbols)).Count -eq 0) 'l1_crypto_symbols'
     Require ($Value.hostABatch3.state -ceq 'BLOCKED' -and
         $Value.hostABatch3.metadataCaptureAuthorized -ceq $false -and
         $Value.hostABatch3.oldRootAccessAuthorized -ceq $false) 'host_a_blocked'
@@ -154,7 +165,9 @@ if ($SelfTest) {
         { param($p) $p.environment.device = 'unilaterally-selected-device' },
         { param($p) $p.dependencyOrder = @('X4','X7_PRIMITIVE') },
         { param($p) $p.evidenceFields = @('testId') },
-        { param($p) $p.requests[5].Remove('perTrialOperationsCountsAndResources') }
+        { param($p) $p.requests[5].Remove('perTrialOperationsCountsAndResources') },
+        { param($p) $p.requests[0].allowedNativeSymbols = @('shiroha_native_owner_acquire') },
+        { param($p) $p.requests[0].defaultEntryGate = 'bypassed' }
     )
     $count = 0
     foreach ($mutate in $mutations) {

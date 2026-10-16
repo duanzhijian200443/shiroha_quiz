@@ -46,6 +46,46 @@ files or unexpected objects; no cleanup or retry was performed. The authoritativ
 evidence scope and remaining acceptance boundaries are recorded in
 [canonical readiness §12](../../../docs/product/agent-refactor/windows-host-security-readiness.md#p20-isolated-root-real-windows-functional-validation-2026-10-14).
 
+## Isolated L1-CRYPTO harness candidate (AR-R6A-L1-CRYPTO-E0, G0-L0 only)
+
+`SHIROHA_L1_CRYPTO_CANDIDATE_BUILD=ON` (default `OFF`) compiles the separate
+`shiroha_l1_crypto_candidate` executable from `diagnostics/l1_crypto_probe.cpp`,
+`diagnostics/l1_crypto_probe.h`, `native_core.cpp`, `native_crypto.cpp`,
+`p256_key_codec.cpp`, `crypto_windows.cpp`, `peer_policy.cpp` and
+`peer_policy_windows.cpp`, linking only `crypt32`, `bcrypt` and `psapi`.
+It excludes `native_windows.cpp`, `protected_objects.cpp`,
+`protected_windows.cpp`, `association_files.cpp`, `exchange_files.cpp` and
+`discovery_files.cpp`, and links no `shell32`, `ole32`, `advapi32` or `ws2_32`.
+
+`resolve_l1_crypto_api` enforces an explicit 7-symbol allowlist
+(`shiroha_native_abi_version`, `shiroha_native_buffer_alloc`,
+`shiroha_native_buffer_free`, `shiroha_native_ecdsa_generate_key`,
+`shiroha_native_ecdsa_sign_digest`, `shiroha_native_ecdsa_verify_digest`,
+`shiroha_native_peer_certificate_policy`) and rejects all 20 other ABI-3 exports
+with `UNAUTHORIZED_ACCESS` before invoking any symbol lookup.
+
+`L1CryptoLedger` reserves call budget before every primitive invocation:
+at most 1 ABI check, 3 P-256 key generations, 3 X.509 DER certificate
+encode/sign operations (ASN.1 DER `ECDSA-Sig-Value` over SHA-256 TBS while
+underlying CNG signing emits 64-byte raw `r||s`), 6 signature verifications
+(3 valid + 3 tampered negative cases expecting `SHIROHA_NATIVE_VERIFICATION_REJECTED`)
+and 3 `crypt32` peer-certificate policy checks (Server role=1, Client role=2,
+and 1 role-mismatch negative case), within a 30-second candidate ceiling.
+Every allocated buffer and private key slot is wiped with `SecureZeroMemory`
+and released at most once; duplicate release attempts fail closed with
+`OWNERSHIP_UNKNOWN` and throwing/uncertain releases quarantine the slot with
+`SETTLEMENT_UNKNOWN`. Resource observations (`GetProcessMemoryInfo` peak
+working set/commit and sampled `GetProcessHandleCount`) run before work, after
+each of the 16 primitive steps and after final release settlement (18 samples).
+
+`l1_crypto_candidate_entry` unconditionally refuses real execution in E0 with
+`STOP stage=l1_crypto_execution_not_authorized failure_code=ADMISSION_BLOCKED attempted_native=0`
+(exit code 10; malformed arguments exit 64). No CLI flag, environment variable
+or build switch bypasses that gate. `check_offline.ps1` audits PE headers,
+hardening, DLL dependents and import tables without running the candidate, and
+runs `shiroha_l1_crypto_probe_test` (`shiroha_l1_crypto_probe_offline`) in CTest
+using pure Fakes only.
+
 ## Stop and evidence contract
 
 `association_probe.cpp` uses the original fixed synthetic association sequence.

@@ -3408,5 +3408,20 @@ Verifier/Reviewer evidence. No Release/AOT App/Bridge build or process run,
 real security object, Socket/TLS experiment or production activation is
 performed by this package. Schema v34, B0 v2, S0 and default startup stay intact.
 
+AR-R6A-L1-CRYPTO-E0 adds the G0-L0 isolated `L1-CRYPTO` harness candidate
+(`windows/external_native/diagnostics/l1_crypto_probe.h`,
+`windows/external_native/diagnostics/l1_crypto_probe.cpp`, and Fake-only
+`windows/external_native/tests/l1_crypto_probe_test.cpp`). The opt-in compile
+target `shiroha_l1_crypto_candidate` links only pure memory core, CNG P-256 and
+`crypt32` peer policy (`crypt32`, `bcrypt`, `psapi`), excluding Known Folder,
+DPAPI, Owner, Store, Exchange, Discovery and Socket translation units. It
+enforces the 7-symbol allowlist, synchronous 1/3/3/6(3+3)/3 call reservation
+ledger, single-attempt buffer/key disposal, 18-point resource observation hook
+and unconditional default-deny entry (`l1_crypto_execution_not_authorized`).
+Highest status for this slice is `L1-CRYPTO HARNESS SOURCE READY / OFFLINE TESTED`;
+`L1-CRYPTO` remains `DRAFT_NOT_AUTHORIZED` (`executionAuthorized = false`)
+pending independent Reviewer approval, unresolved OS memory/handle ceilings,
+test root/batch ID and an explicit one-shot user grant.
+
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
 REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
