@@ -669,8 +669,10 @@ void terminal_regressions() {
 }
 
 // E3 review repair: adapter-detected pre-consumption and pre-launch rejections
-// must latch their first causal StopReason through the SAME E2 Supervisor,
-// freeze the terminal BLOCKED result and never consume, restart or launch.
+// must latch their first causal StopReason through the SAME E2 Supervisor and
+// freeze the terminal BLOCKED result. A pre-consumption rejection consumes no
+// grant; a post-consume pre-launch rejection keeps the already consumed grant
+// with no second consumption; neither starts or restarts a Worker.
 void refusal_evidence_regressions() {
   for (unsigned kind = 0; kind < 4; ++kind) {
     FakeDurableStore store;

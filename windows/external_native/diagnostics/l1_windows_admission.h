@@ -238,10 +238,12 @@ class WindowsAdmissionCandidate {
     if (!worker.normal_exit) latch_stop(native);
   }
   // Fail-closed refusal for adapter-detected invalid approval/identity/
-  // observation BEFORE any grant consume or launch attempt: the E2 Supervisor
-  // latches the first causal StopReason and freezes the terminal BLOCKED
-  // result. No grant is consumed, no worker starts, nothing restarts and an
-  // already terminal cause/snapshot is never overwritten.
+  // observation or a failed launch preflight: the E2 Supervisor latches the
+  // first causal StopReason and freezes the terminal BLOCKED result. A
+  // pre-consumption refusal leaves the grant unconsumed; a post-consume
+  // pre-launch refusal keeps the consumed grant consumed without a second
+  // consumption. Neither starts a Worker or restarts anything, and an already
+  // terminal cause/snapshot is never overwritten.
   void refuse(StopReason reason) noexcept {
     if (terminal()) return;
     supervisor_.refuse(reason);

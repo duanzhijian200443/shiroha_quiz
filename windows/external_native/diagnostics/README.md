@@ -101,9 +101,11 @@ START_ATTEMPTED -> RUNNING -> STOP_REQUESTED / SETTLING -> COMPLETE or
 SETTLEMENT_UNKNOWN; admission errors are BLOCKED. Adapter-detected
 pre-consumption and pre-launch preflight rejections latch their first causal
 StopReason (ADMISSION / LAUNCH) through a bounded Supervisor refusal transition
-and freeze the same terminal BLOCKED result; no grant is consumed, no Worker
-starts and a latched cause is never overwritten. The adapter records start
-request BEFORE entering the Worker port, independently of Worker output.
+and freeze the same terminal BLOCKED result: a pre-consumption rejection
+consumes no grant, while a post-consume pre-launch rejection retains the
+already consumed grant without a second consumption; neither starts a Worker,
+and a latched cause is never overwritten. The adapter records start request
+BEFORE entering the Worker port, independently of Worker output.
 
 The candidate is neither copyable nor movable: a consumed admission has one
 controller owner. The shared Fake journal also reserves at most one start
