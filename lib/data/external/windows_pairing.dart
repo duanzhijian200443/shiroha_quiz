@@ -13,6 +13,7 @@ import 'external_credential_object_codec.dart';
 import 'native/windows_external_crypto.dart';
 import 'pairing_transcript_codec.dart';
 import 'windows_credential_initialization.dart';
+import 'native/windows_external_native.dart';
 import 'windows_credential_object_store.dart';
 import 'windows_exchange_file_store.dart';
 
@@ -255,6 +256,23 @@ final class WindowsAppPairing {
   Future<void>? _closing;
   int _pending = 0;
   Completer<void>? _idle;
+
+  /// Public correlation bytes only, shared with the same Runtime's Discovery.
+  Uint8List get runtimeInstanceId => bootstrapCopy(_runtime);
+
+  /// Trusted composition identity only; never a Pairing or Session capability.
+  bool usesRuntime(
+          ExternalProtectedObjects owner,
+          ExternalCredentialBoundary boundary,
+          ExternalCredentialAssociationStore associations,
+          ExternalCredentialVerificationPort verification,
+          Uint8List runtimeInstanceId) =>
+      _credentials.usesOwner(owner) &&
+      _exchange.usesOwner(owner) &&
+      bootstrapEqual(_runtime, runtimeInstanceId) &&
+      identical(_boundary, boundary) &&
+      identical(_associations, associations) &&
+      identical(_verification, verification);
 
   Future<T> _track<T>(Future<T> Function() work) async {
     _check();

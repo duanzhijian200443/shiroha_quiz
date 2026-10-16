@@ -12,6 +12,7 @@ import '../../application/capabilities/capability.dart';
 import '../../application/external/external_credential_association.dart';
 import '../../application/external/external_credential_boundary.dart';
 import '../../application/external/external_trust_core.dart';
+import '../../application/external/external_trust_coordinator.dart';
 import '../../application/external/local_host_dispatch.dart';
 import '../../services/backup/sha256.dart';
 import 'discovery_descriptor_codec.dart';
@@ -24,7 +25,9 @@ import 'native/windows_external_native.dart';
 import 'native/windows_peer_certificate_policy.dart';
 import 'windows_credential_initialization.dart';
 import 'windows_credential_object_store.dart';
+import 'windows_credential_association_store.dart';
 import 'windows_discovery.dart';
+import 'windows_pairing.dart';
 
 part 'windows_tls_resources.dart';
 part 'windows_tls_credentials.dart';

@@ -30,7 +30,9 @@ Exchange consumption foundation. P27-I0 adds inactive Pairing integration:
 PACKAGE 1 SOURCE IMPLEMENTED / OFFLINE TESTED only; real acceptance pending.
 Package 2 adds an inactive G0-L0 TCP/mTLS transport candidate (readiness §20):
 PACKAGE 2 SOURCE IMPLEMENTED / OFFLINE TESTED only; real TLS/Windows acceptance
-pending.**
+pending. Package 3 adds inactive lifecycle/recovery and static release
+candidate checks (readiness §21): PACKAGE 3 SOURCE IMPLEMENTED / OFFLINE TESTED
+only; final-target CI/review and real Windows/formal acceptance remain pending.**
 
 The Provider seam, typed capability/executor/projection path and Runtime split/
 transcript are delivered in the preceding merged stages. Historical AR-R3

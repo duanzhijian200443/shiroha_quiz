@@ -274,11 +274,24 @@ final class ExternalProtectedObjects {
   final int _token;
   final int _role;
   bool _closed = false, _denied = false;
+  bool _runtimeClaimed = false;
   int _associationEpoch = 0;
   final Map<String, int> _associationRevisions = {};
   bool get isClosed => _closed;
   int get associationEpoch => _associationEpoch;
   bool get isUsable => !_closed && !_denied;
+
+  /// One Host may claim this already-held App lock. Sharing one Dart Owner
+  /// between two candidate Hosts must not bypass OS acquisition exclusion.
+  /// This creates no lock or authorization and can never be reset/reused.
+  void claimRuntime() {
+    ensureOpen();
+    if (_role != 1 || _runtimeClaimed) {
+      WindowsExternalNative._fail(ExternalNativeFailure.temporarilyUnavailable);
+    }
+    _runtimeClaimed = true;
+  }
+
   void invalidateAssociationSnapshots() {
     _associationEpoch++;
   }

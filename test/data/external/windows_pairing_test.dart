@@ -884,7 +884,9 @@ void main() {
     for (final file
         in Directory('lib').listSync(recursive: true).whereType<File>()) {
       if (!file.path.endsWith('.dart') ||
-          file.path.replaceAll('\\', '/').endsWith('/windows_pairing.dart')) {
+          file.path.replaceAll('\\', '/').endsWith('/windows_pairing.dart') ||
+          file.path.replaceAll('\\', '/') ==
+              'lib/data/external/windows_tls_transport.dart') {
         continue;
       }
       expect(file.readAsStringSync(), isNot(contains('windows_pairing.dart')),

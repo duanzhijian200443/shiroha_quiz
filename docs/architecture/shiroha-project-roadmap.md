@@ -428,10 +428,26 @@ Shared candidate reservations and existing owning settlement constrain admission
 and output; no business permission, wire/schema or production startup changes.
 This remains a source/offline candidate, with no real Windows handshake,
 measured native-memory capacity or production Host availability claim.
-Package 3 and AR-R6B remain inactive. HOST_STABILITY_HALT = ACTIVE;
+Package 3 source lifecycle coordination is described below; production Host
+and AR-R6B remain inactive. HOST_STABILITY_HALT = ACTIVE;
 TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED; REAL WINDOWS PENDING and
 FORMAL ACCEPTANCE PENDING. G0-L1, G0-L2 and G0-I each retain their separate
 prerequisites and exact user grants.
+
+Package 3 adds the inactive Windows lifecycle/recovery/release source candidate
+under [Windows readiness §21](../product/agent-refactor/windows-host-security-readiness.md#21-package-3-lifecycle-and-release-source-candidate-g0-l0-only).
+The existing TLS Host owns exact-composition/readiness, shutdown and lock-last
+custody through original P8/P27/P15/P12/Association settlement; failed cleanup
+retains quarantine. P15 remains revoke authority and P3 remains the sole STAGE
+commit/reconciliation owner. Static Native/FFI/export/import and package/PE/
+disabled-Bridge checks add no runtime activation. PACKAGE 3 SOURCE IMPLEMENTED /
+OFFLINE TESTED is the bounded candidate boundary, with standing CI and independent
+review still required. Package 1–3 source integration does not close real TLS,
+Windows resources/crash/cross-process/AOT or any full A0–A12 acceptance.
+Discovery cleanup safely retains residues; no new deletion ABI or recovery
+writer exists. G0-L1/L2/I require their separate grants. HOST_STABILITY_HALT =
+ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED; REAL WINDOWS = PENDING;
+FORMAL ACCEPTANCE = PENDING. AR-R6B and production activation remain inactive.
 
 Use namespaced AR-R identifiers to distinguish this route from historical
 R1-R8 typed-core stages:

@@ -171,6 +171,18 @@ caller result without creating another business lifecycle. No startup root
 imports/starts this candidate. Readiness section 20 owns its offline/resource
 limits; real TLS/Windows behavior and production activation remain pending.
 
+The inactive Package 3 extension keeps lifecycle custody in that SAME
+`WindowsTlsHost`: its owned constructor validates P27/P15/P12/P20/P26
+composition identity, reuses P8 readiness and the sole P26 TLS startup, and
+holds the acquired Owner/runtime.lock through connection/business/Pairing/
+boundary/revoke-CAS/Store drain. Unknown cleanup never reports clean closure
+or releases the lock. Socket disconnection invalidates channel evidence,
+not a P0 Session or all Profiles. Read-only composition checks add no authority.
+Pure package/PE checks and a default-disabled standalone Bridge source entry
+perform no loading or alternate business writes. Readiness section 21 owns
+the source/offline evidence and A0–A12 pending acceptance; no default startup,
+schema/B0/S0, P9/P10 or AR-R6B behavior changes.
+
 Persistence formats and provider formats are implementation details, not public application contracts.
 
 ## 3. Frozen typed-learning-core invariants

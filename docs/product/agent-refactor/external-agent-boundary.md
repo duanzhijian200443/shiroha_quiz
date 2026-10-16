@@ -1330,6 +1330,27 @@ container/key-scanner work; it grants no schema validity or permission. Real
 business channels, G0-L1/L2/G0-I, Package 3 and production activation are not
 authorized by these source additions.
 
+Package 3's inactive extension is owned by Windows readiness §21.
+`WindowsTlsHost.owned` retains lifecycle and Store/lock custody inside the
+existing transport Host, with read-only exact-composition identity checks.
+It reuses P8 readiness, P26TlsStartup and P27/P15/P12 shutdown/drain rather than
+adding another startup, PairingState, Session registry or business owner.
+Only confirmed full settlement releases the Owner/runtime.lock; uncertain
+cleanup stays closed with custody retained. Explicit local revoke delegates
+P15's current-management/evidence-close/drain/Association-CAS order before
+Store/Owner release, and failed CAS never revives the runtime.
+
+Disconnect permanently invalidates its own Channel attempt; it does not claim
+P0 per-Session revocation. Already-started STAGE retains P3 effect/settlement
+and reconciles through a new trusted Session with its original SubmissionKey.
+Restore/raw rollback still require old-runtime drain and fresh unpaired/
+disabled composition. P26 residues remain inert and untouched because no
+identity-bound Discovery delete API exists. No path deletion or silent trust
+repair compensates for that limitation. Static package/Native/AOT-source checks
+and the disabled Bridge entry prove no real packaged behavior. SOURCE
+IMPLEMENTED / OFFLINE TESTED never means accepted/activated; all A/X real
+Windows and formal acceptance gates remain pending.
+
 ## 13. P16 production primitive freeze (accepted static decision; PR #267)
 
 P16 freezes the minimal production candidates that will have to satisfy

@@ -1,5 +1,8 @@
 part of 'windows_tls_transport.dart';
 
+/// Coordination phases only. PairingState and Session authority remain P0/P15.
+enum WindowsTlsHostPhase { inactive, preparing, ready, closing, closed }
+
 /// Single inactive Host candidate. Startup does not return readiness until
 /// protected P26 publication has acknowledged the SAME listener/epoch/runtime.
 final class WindowsTlsHost {
@@ -16,6 +19,55 @@ final class WindowsTlsHost {
       : schedule = schedule ?? _tlsSchedule,
         budget = TlsResourceBudget(limits ?? TlsBudgets()) {
     if (port < 1 || port > 65535) _tlsReject();
+    if (startup is P26TlsStartup) {
+      (startup as P26TlsStartup)._owner.claimRuntime();
+    }
+  }
+
+  /// Transfers one already acquired App Owner/lock to this SAME Host lifecycle.
+  /// Acquisition precedes all Store operations. No successor may be composed
+  /// until its predecessor is fully closed and its OS lock can be reacquired.
+  factory WindowsTlsHost.owned({
+    required ExternalProtectedObjects owner,
+    required WindowsAppPairing pairing,
+    required WindowsCredentialAssociationStore associations,
+    required ExternalCredentialBoundary boundary,
+    required ExternalTrustCoordinator coordinator,
+    required P26TlsStartup startup,
+    required WindowsChannelVerification verification,
+    required TlsListenerIo io,
+    required TlsTrustedContext context,
+    required int port,
+    required Duration Function() monotonicNow,
+    TlsBudgets? limits,
+    TlsSchedule? schedule,
+  }) {
+    if (!identical(startup._owner, owner) ||
+        !associations.usesOwner(owner) ||
+        !identical(verification.associations, associations) ||
+        !identical(verification._boundary, boundary) ||
+        !boundary.usesComposition(
+            coordinator, associations, verification, startup.generation) ||
+        !pairing.usesRuntime(owner, boundary, associations,
+            verification.pairing, startup.runtimeInstanceId)) {
+      _tlsReject();
+    }
+    owner.ensureOpen();
+    final candidate = WindowsTlsHost(
+        io: io,
+        startup: startup,
+        verification: verification,
+        host: coordinator.host,
+        context: context,
+        port: port,
+        monotonicNow: monotonicNow,
+        limits: limits,
+        schedule: schedule);
+    candidate._owner = owner;
+    candidate._pairing = pairing;
+    candidate._associations = associations;
+    candidate._boundary = boundary;
+    return candidate;
   }
   final TlsListenerIo io;
   final TlsStartup startup;
@@ -32,12 +84,22 @@ final class WindowsTlsHost {
   StreamSubscription<TlsRawPeer>? _accepts;
   final _connections = <_TlsConnection>{};
   Future<void>? _stopping;
+  Future<void>? _listenerClosing;
   Completer<void>? _startDone;
+  ExternalProtectedObjects? _owner;
+  WindowsAppPairing? _pairing;
+  WindowsCredentialAssociationStore? _associations;
+  ExternalCredentialBoundary? _boundary;
+  Future<void>? _controlWork;
+  WindowsTlsHostPhase _phase = WindowsTlsHostPhase.inactive;
+  WindowsTlsHostPhase get phase => _phase;
   bool get isReady =>
       _ready &&
       !_stopped &&
       startup.isCurrent &&
       budget.isUsable &&
+      (_owner == null || host.isReady) &&
+      (_boundary == null || _boundary!.isCurrent) &&
       _plan?.isCurrent == true;
 
   Future<void> get whenConnectionsSettled =>
@@ -47,9 +109,14 @@ final class WindowsTlsHost {
   Future<void> start() async {
     if (_started || _stopped) _tlsReject();
     _started = true;
+    _phase = WindowsTlsHostPhase.preparing;
     _startDone = Completer<void>();
     try {
       if (!startup.isCurrent || !budget.isUsable) _tlsReject();
+      // Application owns readiness and its ten-route registry. Transport only
+      // observes the existing preparation; it cannot start Application services.
+      if (_owner != null && !host.isReady) _tlsReject();
+      if (_stopped || !startup.isCurrent) _tlsReject();
       _plan = await startup.prepare();
       if (_stopped || !startup.isCurrent || !_plan!.isCurrent) _tlsReject();
       _listener = await io.bind(port); // no TLS object or handshake yet
@@ -63,6 +130,7 @@ final class WindowsTlsHost {
       await startup.publish(_listener!.port);
       if (_stopped || !startup.isCurrent || !_plan!.isCurrent) _tlsReject();
       _ready = true;
+      _phase = WindowsTlsHostPhase.ready;
       _accepts = _listener!.peers.listen(_accept, onError: (Object _) {
         unawaited(shutdown());
       }, onDone: () {
@@ -71,18 +139,28 @@ final class WindowsTlsHost {
     } catch (_) {
       _ready = false;
       _stopped = true;
+      _phase = WindowsTlsHostPhase.closing;
       startup.invalidate();
       try {
-        await _listener?.close();
+        await _closeListener();
       } catch (_) {
         budget.invalidate();
       }
       _plan?.dispose();
+      // Run full owning drain after finally has signalled startup settlement.
+      // Retain the failed Future for an explicit caller's shutdown observation.
+      scheduleMicrotask(() {
+        unawaited(shutdown().catchError((Object _) {}));
+      });
       rethrow;
     } finally {
       _startDone!.complete();
     }
   }
+
+  Future<void> _closeListener() => _listenerClosing ??= () async {
+        await _listener?.close();
+      }();
 
   void _accept(TlsRawPeer raw) {
     // The real RawServerSocket subscription is paused at capacity, preventing
@@ -107,9 +185,13 @@ final class WindowsTlsHost {
     if (_stopping != null) return _stopping!;
     _stopped = true;
     _ready = false;
+    _phase = WindowsTlsHostPhase.closing;
     startup.invalidate();
     verification.close();
     final owning = host.shutdown();
+    // These calls close evidence/admission synchronously, before any await.
+    final pairing = _pairing?.close();
+    final boundary = _boundary?.shutdown();
     return _stopping = () async {
       await _startDone?.future;
       var failed = false;
@@ -125,7 +207,7 @@ final class WindowsTlsHost {
       try {
         // Close the producer before draining the finite accepted set.
         await settle(() async {
-          await _listener?.close();
+          await _closeListener();
         });
         await settle(() async {
           await _accepts?.cancel();
@@ -137,11 +219,44 @@ final class WindowsTlsHost {
         // Even a failed Socket/Listener close cannot shorten owning settlement.
         // Returning a fixed failure is distinct from claiming resources closed.
         await settle(() => owning);
+        await settle(() async {
+          await pairing;
+        });
+        await settle(() async {
+          await boundary;
+        });
+        // P15 revoke drains BEFORE its Association CAS. Keep the Store and lock
+        // alive through that CAS, even when shutdown races the management call.
+        await settle(() async {
+          await _controlWork;
+        });
+        await settle(() async {
+          await _associations?.close();
+        });
       } finally {
         _plan?.dispose();
       }
-      if (failed) {
+      if (failed || !budget.isUsable) {
         credentialFail(ExternalCredentialFailure.temporarilyUnavailable);
+      }
+      // Unknown socket/listener/Store settlement never releases runtime.lock.
+      _owner?.close();
+      _phase = WindowsTlsHostPhase.closed;
+    }();
+  }
+
+  /// Explicit trusted local action, delegated unchanged to P15. No global
+  /// revoke is ever triggered by closing an individual Socket.
+  Future<void> revoke(
+      ExternalProfileReference reference, int expectedRevision) {
+    if (_boundary == null || _stopped || _controlWork != null) _tlsReject();
+    final operation = _boundary!.revoke(reference, expectedRevision);
+    _controlWork = operation;
+    return () async {
+      try {
+        await operation;
+      } finally {
+        await shutdown();
       }
     }();
   }
@@ -191,7 +306,13 @@ final class _TlsConnection {
       channel = await raw.upgrade(owner._plan!);
       cancelHandshake();
       if (_closing || !owner.isReady) {
-        await channel!.close(); // late completion cannot revive this connection
+        try {
+          await channel!
+              .close(); // late completion cannot revive this connection
+        } catch (_) {
+          owner.budget.invalidate();
+          rethrow;
+        }
         _tlsReject();
       }
       handshake.release();

@@ -470,6 +470,8 @@ jobs:
             'test/data/external/windows_credential_initialization_test.dart',
             'test/data/external/windows_pairing_test.dart',
             'test/data/external/windows_tls_transport_test.dart',
+            'test/data/external/windows_tls_lifecycle_test.dart',
+            'test/data/external/windows_release_candidate_test.dart',
             'test/data/external/windows_peer_certificate_policy_test.dart',
             'test/data/external/windows_tls_source_guard_test.dart',
             'test/data/external/windows_discovery_test.dart',

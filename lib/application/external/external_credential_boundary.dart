@@ -130,6 +130,19 @@ final class ExternalCredentialBoundary implements ExternalCredentialPort {
     }
   }
 
+  /// Read-only identity check for trusted lifecycle composition. No authority is
+  /// created, attached or reopened by this check.
+  bool usesComposition(
+          ExternalTrustCoordinator coordinator,
+          ExternalCredentialAssociationStore associations,
+          ExternalCredentialVerificationPort verification,
+          BigInt generation) =>
+      identical(_coordinator, coordinator) &&
+      identical(_associations, associations) &&
+      identical(_verification, verification) &&
+      _generation != null &&
+      BigInt.from(_generation!) == generation;
+
   void _check([ExternalCredentialChallenge? challenge]) {
     BackupRestoreMutationGate.instance.ensureMutationAllowed();
     if (challenge != null &&

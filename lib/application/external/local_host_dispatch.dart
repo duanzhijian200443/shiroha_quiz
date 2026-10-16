@@ -53,6 +53,10 @@ final class LocalHostDispatchCore {
   LocalHostState get state => _state;
   int get pendingCount => _pending;
 
+  /// Read-only prerequisite for an inactive transport; only the existing
+  /// Application startup path may perform readiness preparation.
+  bool get isReady => _ready;
+
   /// Read-only settlement barrier for an inactive transport's owning slots.
   /// A caller deadline/result is not evidence that owning work has finished.
   Future<void> get whenSettled => Future.wait([
