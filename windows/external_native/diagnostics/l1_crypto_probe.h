@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "diagnostics/l1_native_observation.h"
 #include "shiroha_external_native.h"
 
 // G0-L0 source/offline harness candidate for future L1-CRYPTO only.
@@ -107,6 +108,10 @@ struct L1CryptoLedger {
   static constexpr unsigned kMaxVerifyPositiveCalls = 3;
   static constexpr unsigned kMaxVerifyNegativeCalls = 3;
   static constexpr unsigned kMaxPeerPolicyCalls = 3;
+  static constexpr unsigned kMaxAllocationAttempts = 45;
+  static constexpr unsigned kMaxFreeAttempts = 45;
+  static constexpr unsigned kMaxLiveBuffers = 5;
+  static constexpr unsigned kMaxTotalAbiAttempts = 106;
   static constexpr uint64_t kCandidateMaxElapsedMs = 30000;
   static constexpr unsigned kTotalPlannedSteps = 16;
 
@@ -147,6 +152,24 @@ struct L1CryptoLedger {
   unsigned verify_negative_reserved = 0;
   unsigned policy_reserved = 0;
   unsigned budget_rejections = 0;
+  // ABI, generate, encode/sign, verify, policy, allocation, free. Counts are
+  // cumulative, including failed/null/throwing attempts; slots never refill
+  // them.
+  std::array<CallCounts, 7> abi_calls{};
+  unsigned abi_attempted_total = 0;
+  NativeObservation* native_observation = nullptr;
+
+  bool reserve_abi(size_t index, unsigned limit) noexcept {
+    if (abi_attempted_total >= kMaxTotalAbiAttempts ||
+        abi_calls[index].attempted >= limit) {
+      ++budget_rejections;
+      stop("abi_call_budget_exceeded", -1, "BUDGET_EXCEEDED");
+      return false;
+    }
+    ++abi_calls[index].attempted;
+    ++abi_attempted_total;
+    return true;
+  }
 
   unsigned allowed_symbol_resolutions = 0;
   unsigned forbidden_symbol_attempts = 0;
@@ -178,6 +201,8 @@ struct L1CryptoLedger {
   bool (*clock_ms)(uint64_t& out_ms) noexcept = nullptr;
 
   bool clock_initialized = false;
+  // 30 s budget origin: the first sequence clock observation in this ledger;
+  // the OfflineSupervisor counts instead from its process-start attempt.
   uint64_t start_ms = 0;
   uint64_t last_ms = 0;
   uint64_t elapsed_ms = 0;
@@ -220,7 +245,10 @@ struct L1CryptoLedger {
     }
     last_ms = now;
     elapsed_ms = now - start_ms;
-    if (elapsed_ms > max_elapsed_ms) {
+    // Unified inclusive deadline with OfflineSupervisor::poll: exactly
+    // max_elapsed_ms stops new work. Only already-owned buffers may still
+    // settle once through the release category after this STOP.
+    if (elapsed_ms >= max_elapsed_ms) {
       stop("deadline_exceeded", -1, "BUDGET_EXCEEDED");
       return false;
     }
@@ -317,6 +345,17 @@ struct L1CryptoLedger {
       stop("call_budget_exceeded", -1, "BUDGET_EXCEEDED");
       return false;
     }
+    const size_t category = cat == PrimitiveCategory::kAbi           ? 0
+                            : cat == PrimitiveCategory::kGenerateKey ? 1
+                            : cat == PrimitiveCategory::kCertificateEncodeSign
+                                ? 2
+                            : (cat == PrimitiveCategory::kVerifyPositive ||
+                               cat == PrimitiveCategory::kVerifyNegative)
+                                ? 3
+                                : 4;
+    constexpr unsigned limits[] = {1, 3, 3, 6, 3};
+    if (!reserve_abi(category, limits[category])) return false;
+    auto& counts = abi_calls[category];
     const int idx = step_index(step);
     if (idx >= 0) attempted_steps |= (1u << static_cast<unsigned>(idx));
     ++attempted;
@@ -324,11 +363,17 @@ struct L1CryptoLedger {
     try {
       status = static_cast<int>(call());
     } catch (...) {
+      ++counts.unknown;
       stop(step, -1, "SETTLEMENT_UNKNOWN");
       observe(step);
       return false;
     }
     ++returned;
+    ++counts.returned;
+    if (!native_observation || !native_observation->unknown)
+      ++counts.settled;
+    else
+      ++counts.unknown;
     if (idx >= 0) returned_steps |= (1u << static_cast<unsigned>(idx));
     if (!check_clock(step)) {
       observe(step);
@@ -345,8 +390,14 @@ struct L1CryptoLedger {
     const bool is_negative_case =
         (cat == PrimitiveCategory::kVerifyNegative ||
          cat == PrimitiveCategory::kPeerPolicyNegative);
-    if (status == expected_status && shape_valid) {
+    if (native_observation && native_observation->stopped) {
+      stop(native_observation->first_failure, status,
+           native_observation->first_failure_unknown ? "SETTLEMENT_UNKNOWN"
+                                                     : "ADMISSION_BLOCKED");
+      settlement_unknown = settlement_unknown || native_observation->unknown;
+    } else if (status == expected_status && shape_valid) {
       ++accepted;
+      ++counts.accepted;
     } else if (is_negative_case && status == SHIROHA_NATIVE_OK) {
       stop(step, status, "SECURITY_REJECT_MISMATCH");
     } else if (!is_negative_case &&
@@ -359,7 +410,14 @@ struct L1CryptoLedger {
   }
 
   const char* verdict() const noexcept {
-    if (settlement_unknown || releases_unknown > 0 || returned < attempted) {
+#ifdef SHIROHA_L1_CRYPTO_OBSERVATION
+    // The observation build cannot prove the 47-resource custody without its
+    // installed observer, so a missing NativeObservation refuses PASS. Pure
+    // Fake builds keep the optional observer.
+    if (!native_observation) return "FAIL";
+#endif
+    if (settlement_unknown || releases_unknown > 0 || returned < attempted ||
+        (native_observation && native_observation->unknown)) {
       return "UNKNOWN";
     }
     if (observation_failures > 0 || samples < kTotalPlannedSteps + 2) {
@@ -372,6 +430,12 @@ struct L1CryptoLedger {
         duplicate_release_attempts != 0 || forbidden_symbol_attempts != 0) {
       return "FAIL";
     }
+    // Independent latches: a native STOP that was not propagated into
+    // `stopped` still fails here through native.complete(); every native call
+    // site stays behind invoke_and_check/observe_native for the propagation.
+    if (abi_attempted_total != kMaxTotalAbiAttempts ||
+        (native_observation && !native_observation->complete()))
+      return "FAIL";
     return "PASS";
   }
 
@@ -379,7 +443,7 @@ struct L1CryptoLedger {
     char line[1024]{};
     std::snprintf(
         line, sizeof(line),
-        "summary testId=L1-CRYPTO evidenceClass=OFFLINE_HARNESS verdict=%s "
+        "summary testId=L1-CRYPTO evidenceClass=OFFLINE verdict=%s "
         "failureCode=%s firstFailure=%s firstStatus=%d stopped=%d "
         "attempted=%u returned=%u completed=%u successful=%u accepted=%u "
         "abi=%u generate=%u encodeSign=%u verify=%u(pos=%u,neg=%u) policy=%u "
@@ -403,6 +467,36 @@ struct L1CryptoLedger {
         handles_last, handles_max_sampled,
         static_cast<unsigned long long>(elapsed_ms));
     std::string out(line);
+    constexpr std::array<const char*, 7> categories = {
+        "abi",    "generate",   "encodeSign", "verify",
+        "policy", "allocation", "free"};
+    for (size_t i = 0; i < abi_calls.size(); ++i) {
+      const auto& c = abi_calls[i];
+      std::snprintf(line, sizeof(line),
+                    "abi_category=%s attempted=%u returned=%u accepted=%u "
+                    "settled=%u unknown=%u\n",
+                    categories[i], c.attempted, c.returned, c.accepted,
+                    c.settled, c.unknown);
+      out += line;
+    }
+    if (native_observation) {
+      for (size_t i = 0; i < kNativeOpCount; ++i) {
+        const auto& c = native_observation->calls[i];
+        std::snprintf(line, sizeof(line),
+                      "native_category=%s attempted=%u returned=%u accepted=%u "
+                      "settled=%u unknown=%u returnedFailure=%u\n",
+                      kNativeNames[i], c.attempted, c.returned, c.accepted,
+                      c.settled, c.unknown, c.returned_failure);
+        out += line;
+      }
+      std::snprintf(line, sizeof(line),
+                    "native_resources acquired=%u released=%u stillOwned=%u "
+                    "quarantined=%u\n",
+                    native_observation->acquired, native_observation->released,
+                    native_observation->still_owned,
+                    native_observation->quarantined);
+      out += line;
+    }
     for (unsigned i = 0; i < kTotalPlannedSteps; ++i) {
       if (!(attempted_steps & (1u << i))) {
         out += "not_executed step=";
@@ -492,22 +586,32 @@ class L1CryptoBufferPool {
     if (out_slot) *out_slot = kMaxSlots;
     if (ledger_.stopped || !out_ptr || !out_slot || capacity == 0 ||
         capacity > SHIROHA_NATIVE_MAX_BYTES || used_ >= kMaxSlots ||
+        ledger_.buffers_live >= L1CryptoLedger::kMaxLiveBuffers ||
         !api_.allocate) {
       ledger_.stop("buffer_alloc_precondition", -1, "BUDGET_EXCEEDED");
       return false;
     }
+    if (!ledger_.check_clock("buffer_alloc") ||
+        !ledger_.reserve_abi(5, L1CryptoLedger::kMaxAllocationAttempts))
+      return false;
+    auto& counts = ledger_.abi_calls[5];
     uint8_t* mem = nullptr;
     try {
       mem = api_.allocate(static_cast<uint64_t>(capacity));
     } catch (...) {
+      ++counts.unknown;
       ledger_.stop("buffer_alloc_exception", -1, "SETTLEMENT_UNKNOWN");
       return false;
     }
+    ++counts.returned;
+    ++counts.settled;
     if (!mem) {
+      ++counts.returned_failure;
       ledger_.stop("buffer_alloc_null", SHIROHA_NATIVE_RESOURCE_LIMIT,
                    "BUDGET_EXCEEDED");
       return false;
     }
+    ++counts.accepted;
     SecureZeroMemory(mem, capacity);
     const size_t idx = used_++;
     slots_[idx] = Slot{mem, capacity, true, true, false, false, false};
@@ -530,6 +634,13 @@ class L1CryptoBufferPool {
       return false;
     }
     slot.release_attempted = true;
+    if (!ledger_.reserve_abi(6, L1CryptoLedger::kMaxFreeAttempts)) {
+      slot.release_unknown = true;
+      ++ledger_.releases_unknown;
+      ledger_.stop("free_budget_unsettled", -1, "SETTLEMENT_UNKNOWN");
+      return false;
+    }
+    auto& counts = ledger_.abi_calls[6];
     ++ledger_.releases_attempted;
     try {
       SecureZeroMemory(slot.ptr, slot.capacity);
@@ -537,6 +648,9 @@ class L1CryptoBufferPool {
         throw 1;
       }
       api_.deallocate(slot.ptr);
+      ++counts.returned;
+      ++counts.accepted;
+      ++counts.settled;
       slot.ptr = nullptr;
       slot.active = false;
       slot.release_succeeded = true;
@@ -544,6 +658,7 @@ class L1CryptoBufferPool {
       if (ledger_.buffers_live > 0) --ledger_.buffers_live;
       return true;
     } catch (...) {
+      ++counts.unknown;
       slot.release_unknown = true;
       ++ledger_.releases_unknown;
       ledger_.stop("buffer_release_unknown", -1, "SETTLEMENT_UNKNOWN");

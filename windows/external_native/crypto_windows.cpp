@@ -1,3 +1,4 @@
+#include "diagnostics/l1_native_observation.h"
 #include "native_crypto.h"
 #include "p256_key_codec.h"
 
@@ -28,16 +29,26 @@ constexpr NTSTATUS kStatusInvalidSignature = static_cast<NTSTATUS>(0xC000A000L);
 
 struct AlgorithmProvider {
   BCRYPT_ALG_HANDLE handle = nullptr;
+  L1_NATIVE_OWNER
   AlgorithmProvider() noexcept {
     // Frozen candidate: BCRYPT_ECDSA_P256_ALGORITHM + SHA-256, no third-party
     // crypto dependency.
-    if (BCryptOpenAlgorithmProvider(&handle, BCRYPT_ECDSA_P256_ALGORITHM,
-                                    MS_PRIMITIVE_PROVIDER, 0) < 0) {
-      handle = nullptr;
-    }
+    const auto status = L1_NATIVE_CALL(
+        kOpen,
+        BCryptOpenAlgorithmProvider(&handle, BCRYPT_ECDSA_P256_ALGORITHM,
+                                    MS_PRIMITIVE_PROVIDER, 0),
+        [](auto result) { return result >= 0; }, static_cast<NTSTATUS>(-1));
+    // A failed open confirms no custody in either build: the undefined
+    // failure-path output is discarded before custody observation, so the
+    // observer never records an unowned handle and no destructor close runs.
+    if (status < 0) handle = nullptr;
+    L1_NATIVE_ACQUIRED(handle != nullptr);
   }
   ~AlgorithmProvider() noexcept {
-    if (handle) BCryptCloseAlgorithmProvider(handle, 0);
+    if (handle)
+      L1_NATIVE_RELEASE(
+          kClose, BCryptCloseAlgorithmProvider(handle, 0),
+          [](auto result) { return result >= 0; }, static_cast<NTSTATUS>(-1));
   }
   AlgorithmProvider(const AlgorithmProvider&) = delete;
   AlgorithmProvider& operator=(const AlgorithmProvider&) = delete;
@@ -46,9 +57,14 @@ struct AlgorithmProvider {
 
 struct KeyHandle {
   BCRYPT_KEY_HANDLE handle = nullptr;
+  L1_NATIVE_OWNER
+  void record_acquired() noexcept { L1_NATIVE_ACQUIRED(handle != nullptr); }
   KeyHandle() noexcept = default;
   ~KeyHandle() noexcept {
-    if (handle) BCryptDestroyKey(handle);
+    if (handle)
+      L1_NATIVE_RELEASE(
+          kDestroy, BCryptDestroyKey(handle),
+          [](auto result) { return result >= 0; }, static_cast<NTSTATUS>(-1));
   }
   KeyHandle(const KeyHandle&) = delete;
   KeyHandle& operator=(const KeyHandle&) = delete;
@@ -63,10 +79,17 @@ int32_t generate(uint8_t* pkcs8, size_t pkcs8_capacity, size_t* pkcs8_length,
   AlgorithmProvider provider;
   if (!provider.valid()) return SHIROHA_NATIVE_UNAVAILABLE;
   KeyHandle key;
-  if (BCryptGenerateKeyPair(provider.handle, &key.handle, 256, 0) < 0) {
+  const auto generated = L1_NATIVE_CALL(
+      kGenerate, BCryptGenerateKeyPair(provider.handle, &key.handle, 256, 0),
+      [](auto result) { return result >= 0; }, static_cast<NTSTATUS>(-1));
+  key.record_acquired();
+  if (generated < 0) {
     return SHIROHA_NATIVE_UNAVAILABLE;
   }
-  if (BCryptFinalizeKeyPair(key.handle, 0) < 0) {
+  if (L1_NATIVE_CALL(
+          kFinalize, BCryptFinalizeKeyPair(key.handle, 0),
+          [](auto result) { return result >= 0; },
+          static_cast<NTSTATUS>(-1)) < 0) {
     return SHIROHA_NATIVE_UNAVAILABLE;
   }
   struct PrivateBlob {
@@ -76,10 +99,17 @@ int32_t generate(uint8_t* pkcs8, size_t pkcs8_capacity, size_t* pkcs8_length,
   } blob;
   static_assert(sizeof(PrivateBlob) == 104, "CNG ECC blob layout");
   ULONG blob_size = 0;
-  if (BCryptExportKey(key.handle, nullptr, BCRYPT_ECCPRIVATE_BLOB,
-      reinterpret_cast<PUCHAR>(&blob), sizeof(blob), &blob_size, 0) < 0 ||
-      blob_size != sizeof(blob) || blob.header.dwMagic != BCRYPT_ECDSA_PRIVATE_P256_MAGIC ||
-      blob.header.cbKey != 32) return SHIROHA_NATIVE_DATA_CORRUPT;
+  if (L1_NATIVE_CALL(
+          kExport,
+          BCryptExportKey(key.handle, nullptr, BCRYPT_ECCPRIVATE_BLOB,
+                          reinterpret_cast<PUCHAR>(&blob), sizeof(blob),
+                          &blob_size, 0),
+          [](auto result) { return result >= 0; },
+          static_cast<NTSTATUS>(-1)) < 0 ||
+      blob_size != sizeof(blob) ||
+      blob.header.dwMagic != BCRYPT_ECDSA_PRIVATE_P256_MAGIC ||
+      blob.header.cbKey != 32)
+    return SHIROHA_NATIVE_DATA_CORRUPT;
   point[0] = 4;
   std::memcpy(point+1, blob.coordinates_and_scalar, 64);
   size_t written = 0;
@@ -102,13 +132,22 @@ int32_t sign(const uint8_t* pkcs8, size_t pkcs8_length, const uint8_t* point, co
       blob.coordinates_and_scalar+64)) return SHIROHA_NATIVE_DATA_CORRUPT;
   std::memcpy(blob.coordinates_and_scalar,point+1,64);
   KeyHandle key;
-  if (BCryptImportKeyPair(provider.handle, nullptr, BCRYPT_ECCPRIVATE_BLOB,
-      &key.handle, reinterpret_cast<PUCHAR>(&blob), sizeof(blob), 0) < 0)
-    return SHIROHA_NATIVE_DATA_CORRUPT;
+  const auto imported = L1_NATIVE_CALL(
+      kImport,
+      BCryptImportKeyPair(provider.handle, nullptr, BCRYPT_ECCPRIVATE_BLOB,
+                          &key.handle, reinterpret_cast<PUCHAR>(&blob),
+                          sizeof(blob), 0),
+      [](auto result) { return result >= 0; }, static_cast<NTSTATUS>(-1));
+  key.record_acquired();
+  if (imported < 0) return SHIROHA_NATIVE_DATA_CORRUPT;
   ULONG written = 0;
-  if (BCryptSignHash(key.handle, nullptr, const_cast<PUCHAR>(digest),
-                     static_cast<ULONG>(kDigestBytes), raw,
-                     static_cast<ULONG>(kRawBytes), &written, 0) < 0) {
+  if (L1_NATIVE_CALL(
+          kSign,
+          BCryptSignHash(key.handle, nullptr, const_cast<PUCHAR>(digest),
+                         static_cast<ULONG>(kDigestBytes), raw,
+                         static_cast<ULONG>(kRawBytes), &written, 0),
+          [](auto result) { return result >= 0; },
+          static_cast<NTSTATUS>(-1)) < 0) {
     return SHIROHA_NATIVE_DATA_CORRUPT;
   }
   // CNG ECDSA output is exactly 64 bytes of raw r||s. The DER
@@ -130,15 +169,26 @@ int32_t verify(const uint8_t* point, size_t point_length,
   std::memcpy(blob + sizeof(BCRYPT_ECCKEY_BLOB), point + 1,
               2 * kCoordinateBytes);
   KeyHandle key;
-  if (BCryptImportKeyPair(provider.handle, nullptr, BCRYPT_ECCPUBLIC_BLOB,
+  const auto imported = L1_NATIVE_CALL(
+      kImport,
+      BCryptImportKeyPair(provider.handle, nullptr, BCRYPT_ECCPUBLIC_BLOB,
                           &key.handle, blob, static_cast<ULONG>(sizeof(blob)),
-                          0) < 0) {
+                          0),
+      [](auto result) { return result >= 0; }, static_cast<NTSTATUS>(-1));
+  key.record_acquired();
+  if (imported < 0) {
     return SHIROHA_NATIVE_DATA_CORRUPT;
   }
-  const NTSTATUS status = BCryptVerifySignature(
-      key.handle, nullptr, const_cast<PUCHAR>(digest),
-      static_cast<ULONG>(kDigestBytes), const_cast<PUCHAR>(raw),
-      static_cast<ULONG>(kRawBytes), 0);
+  const NTSTATUS status = L1_NATIVE_CALL(
+      kVerify,
+      BCryptVerifySignature(key.handle, nullptr, const_cast<PUCHAR>(digest),
+                            static_cast<ULONG>(kDigestBytes),
+                            const_cast<PUCHAR>(raw),
+                            static_cast<ULONG>(kRawBytes), 0),
+      [](auto result) {
+        return result >= 0 || result == kStatusInvalidSignature;
+      },
+      static_cast<NTSTATUS>(-1));
   if (status >= 0) return SHIROHA_NATIVE_OK;
   // Only an explicit signature mismatch is verificationRejected; every other
   // failure (bad key, unsupported blob, provider error) stays dataCorrupt.

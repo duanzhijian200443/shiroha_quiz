@@ -122,6 +122,7 @@ if(SHIROHA_L1_CRYPTO_CANDIDATE_BUILD)
     native_core.cpp native_crypto.cpp p256_key_codec.cpp crypto_windows.cpp
     peer_policy.cpp peer_policy_windows.cpp)
   shiroha_native_settings(shiroha_l1_crypto_candidate)
+  target_compile_definitions(shiroha_l1_crypto_candidate PRIVATE SHIROHA_L1_CRYPTO_OBSERVATION)
   target_include_directories(shiroha_l1_crypto_candidate PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
   target_link_libraries(shiroha_l1_crypto_candidate PRIVATE crypt32 bcrypt psapi)
 endif()
@@ -136,4 +137,19 @@ if(SHIROHA_NATIVE_OFFLINE_TESTS)
   shiroha_native_settings(shiroha_l1_crypto_probe_test)
   target_include_directories(shiroha_l1_crypto_probe_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
   add_test(NAME shiroha_l1_crypto_probe_offline COMMAND shiroha_l1_crypto_probe_test)
+  # The exact Win32 wrappers, with every security API replaced by the forced
+  # Fake header. No bcrypt/crypt32 link and no operational imports permitted.
+  add_executable(shiroha_l1_crypto_observation_test
+    tests/l1_crypto_observation_test.cpp native_core.cpp native_crypto.cpp
+    p256_key_codec.cpp crypto_windows.cpp peer_policy.cpp peer_policy_windows.cpp)
+  shiroha_native_settings(shiroha_l1_crypto_observation_test)
+  target_compile_definitions(shiroha_l1_crypto_observation_test PRIVATE SHIROHA_L1_CRYPTO_OBSERVATION)
+  target_compile_options(shiroha_l1_crypto_observation_test PRIVATE
+    /FI"${CMAKE_CURRENT_SOURCE_DIR}/tests/l1_crypto_fake_win32.h")
+  target_include_directories(shiroha_l1_crypto_observation_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+  add_test(NAME shiroha_l1_crypto_observation_offline COMMAND shiroha_l1_crypto_observation_test)
+  add_executable(shiroha_l1_crypto_admission_test tests/l1_crypto_admission_test.cpp)
+  shiroha_native_settings(shiroha_l1_crypto_admission_test)
+  target_include_directories(shiroha_l1_crypto_admission_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+  add_test(NAME shiroha_l1_crypto_admission_offline COMMAND shiroha_l1_crypto_admission_test)
 endif()

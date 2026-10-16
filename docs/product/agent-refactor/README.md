@@ -33,6 +33,13 @@ PACKAGE 2 SOURCE IMPLEMENTED / OFFLINE TESTED only; real TLS/Windows acceptance
 pending. Package 3 adds inactive lifecycle/recovery and static release
 candidate checks (readiness §21): PACKAGE 3 SOURCE IMPLEMENTED / OFFLINE TESTED
 only; final-target CI/review and real Windows/formal acceptance remain pending.
+The L1-CRYPTO E2 admission candidate adds complete 106-ABI attempt budgets,
+diagnostic-only direct CNG/crypt32 settlement observation, and pure OFFLINE
+one-use grant/Supervisor/evidence models. Highest scope is L1-CRYPTO ADMISSION
+SOURCE HARDENED / OFFLINE TESTED; real Windows protected grant consumption,
+identity/IPC/process supervision and execution remain BLOCKED. E0 default denial,
+executionAuthorized=false, REAL WINDOWS/FORMAL ACCEPTANCE PENDING remain intact.
+
 AR-R6A-L1-CRYPTO-E0 adds an isolated default-off CMake compile-only L1-CRYPTO
 harness candidate (7-symbol ABI allowlist, fixed `l1_crypto_execution_not_authorized`
 deny entry, Fake-only offline CTest and static PE header/import/dependents
@@ -278,6 +285,18 @@ SOURCE READY / OFFLINE TESTED only. No real key/certificate operation, execution
 grant or Windows acceptance is included; REAL WINDOWS PENDING / FORMAL
 ACCEPTANCE PENDING remain explicit, and G0-L1, G0-L2 and G0-I keep their
 separate grants.
+
+E2 extends the isolated L1-CRYPTO candidate with cumulative 45 allocation/45 free
+attempt budgets (106 ABI total, at most 5 live buffers), non-owning diagnostic
+observation of the same CNG/crypt32 RAII wrappers and their failure/UNKNOWN
+settlement, and pure grant/Supervisor/evidence models. Forced Fake Win32 tests
+exercise the actual wrappers without linking security APIs; the ordinary Native
+gate inspects those targets before CTest. Grant consumption is modeled only in
+memory; Windows identity/protected persistence/cross-process atomicity, real
+process/IPC/STOP supervision and artifact closure require separate authorization.
+Highest scope is L1-CRYPTO ADMISSION SOURCE HARDENED / OFFLINE TESTED. No real
+ceiling/account/time window is chosen, no experiment is run, and the original
+entry stays unconditionally disabled with executionAuthorized=false.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 Production Host/IPC, MCP vNext and READ fallback continuation remain unimplemented

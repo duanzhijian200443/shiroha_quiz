@@ -597,6 +597,33 @@
         "windows/external_native/diagnostics/l1_crypto_probe.cpp"
       ],
       "offlineHarnessTest": "windows/external_native/tests/l1_crypto_probe_test.cpp",
+      "admissionModel": "windows/external_native/diagnostics/l1_crypto_admission.h",
+      "nativeObservation": "windows/external_native/diagnostics/l1_native_observation.h",
+      "offlineAdmissionTests": [
+        "windows/external_native/tests/l1_crypto_admission_test.cpp",
+        "windows/external_native/tests/l1_crypto_observation_test.cpp"
+      ],
+      "abiAttemptBudget": {
+        "abi": 1, "generate": 3, "encodeSign": 3, "verify": 6,
+        "policy": 3, "allocation": 45, "free": 45, "total": 106,
+        "maxLiveBuffers": 5
+      },
+      "nativeAttemptBudget": {
+        "provider_open": 12, "key_generate": 3, "key_finalize": 3,
+        "key_export": 3, "key_import": 9, "sign": 3, "verify": 6,
+        "provider_close": 12, "key_destroy": 12, "certificate_create": 3,
+        "certificate_free": 3, "decode": 20, "local_free": 20, "time": 3
+      },
+      "admissionEvidenceClass": "OFFLINE",
+      "realAdmission": "BLOCKED_WINDOWS_IDENTITY_ATOMIC_CONSUMPTION_SUPERVISION",
+      "resourceObservation": {
+        "samples": 18,
+        "workingSetLimitBytes": "REQUIRES USER DECISION",
+        "commitLimitBytes": "REQUIRES USER DECISION",
+        "sampledHandleLimit": "REQUIRES USER DECISION",
+        "precision": "OS-reported peak bytes; point-sampled handles; no exact native high-water or Windows-internal allocation claim",
+        "releaseBoundary": "Diagnostic build observes direct CNG/crypt32 results; production ABI-3 unchanged; failed/unknown release quarantines without retry"
+      },
       "allowedNativeSymbols": [
         "shiroha_native_abi_version",
         "shiroha_native_buffer_alloc",
@@ -616,6 +643,7 @@
         "Certificate encode/sign: 3 maximum (X.509 DER ECDSA-Sig-Value; custom proofs retain raw r||s)",
         "Verify: 6 maximum (3 valid + 3 altered fixtures)",
         "crypt32 profile checks: 3 maximum",
+        "Buffer allocation attempts: 45; buffer free attempts: 45; all ABI attempts: 106 maximum; at most 5 live buffers",
         "Dispose each owned native/key resource once; never retry unknown close"
       ],
       "maxSecondsCandidate": 30,

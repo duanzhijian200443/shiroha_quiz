@@ -86,6 +86,103 @@ hardening, DLL dependents and import tables without running the candidate, and
 runs `shiroha_l1_crypto_probe_test` (`shiroha_l1_crypto_probe_offline`) in CTest
 using pure Fakes only.
 
+## L1-CRYPTO admission source hardening (E2, OFFLINE only)
+
+The diagnostic ledger reserves all ABI attempts before calling: ABI 1,
+Generate 3, Encode/Sign 3, Verify 6 (3 positive/3 negative), Policy 3,
+Allocation 45 and Free 45: **106 maximum**, not 16 total native calls.
+Null/throwing allocations consume an attempt; successful acquisitions are
+counted separately. Released slots do not reset cumulative budgets. At most
+5 buffers are live. Returned, accepted, settled and unknown are distinct.
+Failure stops new work; only already-owned resources may settle once. This
+includes deadline STOPs: cleanup releases of already-acquired buffers remain
+legal and are the only calls permitted after the STOP; no new working
+primitive, allocation or release retry follows.
+
+`l1_native_observation.h` is a non-owning diagnostic seam. Only the isolated
+candidate and forced-Fake wrapper test define `SHIROHA_L1_CRYPTO_OBSERVATION`;
+production targets erase its macros to the original calls, with unchanged
+ABI-3/status mapping. Original RAII objects remain sole owners. A failed or
+throwing release leaves custody quarantined/UNKNOWN, never retried, while other
+owners still get their legal single release. The first failure is sticky.
+An observation build requires its installed observer:
+`L1CryptoLedger::verdict()` refuses PASS (`FAIL`) when no `NativeObservation`
+is installed, since the 47-resource custody proof would be absent. Pure Fake
+builds keep the optional observer.
+
+| Direct API operation | Maximum attempts in the fixed successful sequence |
+|---|---:|
+| Provider Open / Close | 12 / 12 |
+| Key Generate / Finalize / Export / Import | 3 / 3 / 3 / 9 |
+| Sign / Verify / Destroy | 3 / 6 / 12 |
+| Certificate Context Create / Free | 3 / 3 |
+| CryptDecodeObjectEx / LocalFree | 20 / 20 |
+| CertVerifyTimeValidity | 3 |
+
+This observes 47 acquired resources on the complete path. It is not a promise
+to observe Windows-internal allocations. A returning void ABI buffer free only
+settles the caller's known C allocation; it proves no CNG/crypt32 release.
+Normal production calls do not expose this observation through ABI-3.
+The wrapper test compiles the SAME wrappers with a forced include replacing
+every security API by an in-memory Fake, links no bcrypt/crypt32 and must pass
+the offline PE/import gate before execution. It injects failures/exceptions at
+every occurrence, including cleanup, without creating Windows crypto objects.
+A failed `BCryptOpenAlgorithmProvider` discards its undefined failure-path
+output before custody is recorded in both production and observation
+compilation, so no unconfirmed handle is ever observed as owned or closed and
+the sequence never calls a later working primitive; the forced-Fake test
+injects a failed open that still writes a non-null handle.
+
+`l1_crypto_admission.h` supplies pure OFFLINE models, not a runnable permission:
+
+- `GrantTarget` binds batch/device/account identity digest, Source/Base,
+  EXE/dependency/toolchain hashes, compiler/OS, exact ABI budgets, nonzero
+  working-set/commit/handle limits, execution window, STOP/recovery/evidence
+  owners and scope, user approval, independent review and verification records.
+- `FakeGrantCell` models UNISSUED -> ISSUED -> CONSUMED with terminal
+  EXPIRED/MISMATCH/UNKNOWN/REJECTED. Consumption precedes a launch attempt;
+  failed launch or lost receipt cannot restore ISSUED. Copying/restarting this
+  Fake proves no durable/cross-process one-use guarantee.
+- `OfflineSupervisor` models NOT_STARTED -> ADMITTED -> RUNNING -> SETTLING ->
+  COMPLETE and STOP_REQUESTED/DEADLINE_EXCEEDED/SETTLEMENT_UNKNOWN/BLOCKED.
+  Observer events, not worker exit=0, decide completion. Thirty seconds starts
+  at process-start attempt; at the deadline new admission closes. The deadline
+  is inclusive at exactly 30,000 ms (`>=`), the same boundary
+  `L1CryptoLedger::check_clock` uses; the ledger's own ceiling counts from the
+  sequence's first clock observation, so in a composed run the earlier
+  supervisor cutoff stays authoritative. A blocked synchronous native call
+  remains unsettled/UNKNOWN; there is no kill, cancel, worker restart, window
+  extension, real clock, IPC or process launcher.
+- Eighteen samples remain: before work, after each of 16 steps (before buffer
+  release), after final settlement. Records retain process-start/end observation,
+  completed steps, OS peak working-set/pagefile bytes and sampled handles.
+  Byte/ms units do not prove effective measurement resolution; sampled handles
+  miss transient native handles. No real ceiling is selected in this package.
+- `OfflineEvidence` records safe IDs/digests, ABI/native counts, custody,
+  samples, first fixed failure, deadline/STOP/UNKNOWN and review references.
+  Evidence class is OFFLINE; it has no keys, blobs, certificate, raw path,
+  environment, exception-text or memory-dump fields.
+
+**L1-CRYPTO ADMISSION SOURCE HARDENED / OFFLINE TESTED** is the highest
+permitted status. `kRealExecutionAuthorized = false`; E0's entry still refuses
+unconditionally. Fake approval fields cannot issue a real grant. Before any
+future run, separately authorize and review Windows identity binding, protected
+durable grant storage and cross-process atomic consumption, process creation,
+authenticated observer/worker IPC, independent time/STOP supervision, settled
+release evidence, artifact/dependency closure and approved evidence I/O.
+No CLI, environment variable, copyable configuration or Fake result supplies
+those guarantees. Host A entrypoints and historical objects remain untouched.
+
+The static gate emits `l1-crypto-static-manifest.json` only into its existing
+tool-managed configuration build directory: source and tool SHA-256 inventory,
+actual candidate hash, SDK/OS/MSVC and observed dependency names. It is marked
+STATIC / WORKING_TREE_NOT_FROZEN / executionAuthorized=false; dependency closure
+still requires a reviewed deployment plan. It neither freezes a future runnable
+artifact nor overwrites a tracked input or an experiment's approval record.
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
+REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
+
 ## Stop and evidence contract
 
 `association_probe.cpp` uses the original fixed synthetic association sequence.
