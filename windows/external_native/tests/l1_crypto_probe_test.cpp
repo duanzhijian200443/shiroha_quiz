@@ -1,4 +1,5 @@
 #define SHIROHA_L1_CRYPTO_FAKE_ONLY
+#include "diagnostics/l1_e4_admission.h"
 #include "diagnostics/l1_crypto_probe.h"
 
 #include <cstdlib>
@@ -921,6 +922,87 @@ void test_allocation_attempts_and_live_limit() {
 }  // namespace
 
 int main() {
+  // End-to-end Worker protocol uses the SAME existing synthetic crypto API and
+  // 16-step sequence; no Windows process/IPC or security library is invoked.
+  {
+    using namespace shiroha_l1_crypto::e4;
+    struct Link final : WorkerLink {
+      Digest target{};
+      Admission budget{100, 67108864, 67108864, 30000, 128};
+      std::vector<Frame> sent;
+      unsigned reads = 0;
+      bool send(const Frame &f) override {
+        sent.push_back(f);
+        return true;
+      }
+      bool receive(Frame &out) override {
+        if (reads++ == 0)
+          out = budget.encode(target);
+        else {
+          out = frame(Message::ack, 2, 0, 1, target);
+          put(out.data() + 32, 1, 4);
+        }
+        return true;
+      }
+      bool checkpoint(L1CryptoLedger &l) override { return fake_sample(l); }
+      bool poll_control(Frame &, bool &available) override {
+        available = false;
+        return true;
+      }
+    } link;
+    GrantTarget t;
+    for (auto p :
+         {&t.batch_id, &t.device_id, &t.compiler_id, &t.os_id, &t.stop_owner,
+          &t.recovery_owner, &t.evidence_owner, &t.evidence_scope_id,
+          &t.reviewer_id, &t.verifier_id, &t.user_approval_id})
+      *p = "fake";
+    for (auto p : {&t.account_identity_sha256, &t.exe_sha256,
+                   &t.dependency_manifest_sha256, &t.toolchain_manifest_sha256,
+                   &t.review_sha256, &t.verification_sha256})
+      *p = std::string(64, '1');
+    t.source_sha = t.base_sha = std::string(40, 'a');
+    t.user_scope = "L1-CRYPTO";
+    t.non_elevated = t.reviewer_approved = t.verifier_approved =
+        t.evidence_output_approved = t.user_approved = true;
+    t.working_set_bytes = t.commit_bytes = 67108864;
+    t.handles = 128;
+    t.window_end_ms = 100000;
+    env.reset();
+    env.now_ms = 100;
+    require(worker_session(link, link.target, t, 123, fake_clock,
+                           [](L1CryptoLedger &l, NativeObservation &native) {
+                             // This API fixture models ABI calls; direct
+                             // wrapper observation is covered separately by
+                             // l1_crypto_observation_test. Supply explicit FAKE
+                             // custody.
+                             native.acquired = native.released = 47;
+                             for (size_t i = 0; i < kNativeOpCount; ++i)
+                               native.calls[i] = {kNativeLimits[i],
+                                                  kNativeLimits[i],
+                                                  kNativeLimits[i],
+                                                  kNativeLimits[i],
+                                                  0,
+                                                  0};
+                             L1CryptoApi api{};
+                             require(resolve_l1_crypto_api(
+                                         l, fake_symbol_lookup, api),
+                                     "E4 original resolver");
+                             require(run_l1_crypto_sequence(api, l) == 0,
+                                     "E4 original Fake sequence");
+                           }),
+            "E4 Worker 64B session");
+    require(link.sent.size() == 43,
+            "E4 exactly HELLO + 18 samples + 24 settlement frames");
+    Channel parser(link.target, true);
+    for (const auto &f : link.sent)
+      require(parser.accept(f), "E4 Worker ordered frames");
+    L1CryptoLedger decoded;
+    NativeObservation native;
+    require(parser.records(decoded, native) &&
+                decoded.abi_attempted_total == 106 && decoded.samples == 18,
+            "E4 original ledger survives IPC losslessly; native fixture is not "
+            "Windows proof");
+  }
   test_normal_sequence_and_redaction();
   test_first_failure_stops_immediately();
   test_budget_exhaustion_and_failed_call_consumption();

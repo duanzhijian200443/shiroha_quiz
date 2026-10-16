@@ -49,7 +49,7 @@ struct GrantTarget {
         user_approved, working_set_bytes, commit_bytes, handles,
         window_start_ms, window_end_ms, max_execution_ms, abi_limits);
   }
-  bool valid() const noexcept {
+  bool structure_complete() const noexcept {
     for (const auto *id :
          {&batch_id, &device_id, &compiler_id, &os_id, &stop_owner,
           &recovery_owner, &evidence_owner, &evidence_scope_id, &reviewer_id,
@@ -61,13 +61,16 @@ struct GrantTarget {
       if (!hex_digest(*sha, 64)) return false;
     constexpr std::array<unsigned, 7> limits = {1, 3, 3, 6, 3, 45, 45};
     return hex_digest(source_sha, 40) && hex_digest(base_sha, 40) &&
-           user_scope == "L1-CRYPTO" && non_elevated && reviewer_approved &&
-           verifier_approved && evidence_output_approved && user_approved &&
+           user_scope == "L1-CRYPTO" && non_elevated && evidence_output_approved &&
            working_set_bytes && commit_bytes && handles &&
            abi_limits == limits && max_execution_ms == 30000 &&
            window_end_ms > window_start_ms &&
            window_end_ms - window_start_ms >= max_execution_ms;
   }
+  bool valid_pre_approval() const noexcept {
+    return structure_complete() && reviewer_approved && verifier_approved;
+  }
+  bool valid() const noexcept { return valid_pre_approval() && user_approved; }
 };
 
 enum class GrantState {
@@ -199,15 +202,16 @@ struct OfflineEvidence {
 class OfflineSupervisor {
  public:
   template <typename GrantConsumer>
-  bool admit(GrantConsumer &cell, const GrantTarget &observed, uint64_t now_ms,
-             const std::string &trial_id) {
+  bool admit_dual_clock(GrantConsumer &cell, const GrantTarget &observed,
+                        uint64_t utc_now_ms, uint64_t mono_now_ms,
+                        const std::string &trial_id) {
     if (state_ != SupervisorState::kNotStarted) return false;
-    if (!safe_id(trial_id) || !cell.consume(observed, now_ms)) {
+    if (!safe_id(trial_id) || !cell.consume(observed, utc_now_ms)) {
       stop(StopReason::kAdmission, SupervisorState::kBlocked);
       return false;
     }
     target_ = observed;
-    last_ms_ = now_ms;
+    last_ms_ = mono_now_ms;
     evidence_.batch_id = observed.batch_id;
     evidence_.trial_id = trial_id;
     evidence_.source_sha = observed.source_sha;
@@ -221,19 +225,30 @@ class OfflineSupervisor {
     state_ = SupervisorState::kAdmitted;
     return true;
   }
-  bool begin_launch_attempt(uint64_t now_ms) noexcept {
-    if (state_ != SupervisorState::kAdmitted || !time(now_ms)) return false;
-    evidence_.launch_attempt_ms = now_ms;
+  template <typename GrantConsumer>
+  bool admit(GrantConsumer &cell, const GrantTarget &observed, uint64_t now_ms,
+             const std::string &trial_id) {
+    return admit_dual_clock(cell, observed, now_ms, now_ms, trial_id);
+  }
+  bool begin_launch_attempt_dual_clock(uint64_t utc_now_ms,
+                                       uint64_t mono_now_ms) noexcept {
+    if (state_ != SupervisorState::kAdmitted || !time(mono_now_ms))
+      return false;
+    evidence_.launch_attempt_ms = mono_now_ms;
     evidence_.worker_state = WorkerState::kStartAttempted;
     state_ = SupervisorState::kStartAttempted;
     started_ = true;
-    if (now_ms >= target_.window_end_ms ||
-        target_.window_end_ms - now_ms < target_.max_execution_ms) {
+    if (utc_now_ms < target_.window_start_ms ||
+        utc_now_ms >= target_.window_end_ms ||
+        target_.window_end_ms - utc_now_ms < target_.max_execution_ms) {
       stop(StopReason::kLaunch, SupervisorState::kBlocked);
       evidence_.worker_state = WorkerState::kStartFailed;
       return false;
     }
     return true;
+  }
+  bool begin_launch_attempt(uint64_t now_ms) noexcept {
+    return begin_launch_attempt_dual_clock(now_ms, now_ms);
   }
   bool confirm_launch(WorkerState result) noexcept {
     if (state_ != SupervisorState::kStartAttempted) return false;

@@ -2,10 +2,252 @@
 #define SHIROHA_L1_WINDOWS_ADMISSION_H_
 
 #include "diagnostics/l1_crypto_admission.h"
+#include <climits>
 
 namespace shiroha_l1_crypto {
 // Diagnostic ports only. No production wiring, JSON parser, environment reader,
 // key material, path discovery or activation entry point exists here.
+inline constexpr const char *kHumanApprovalBannerText =
+    u8"\u672c\u64cd\u4f5c\u5c06\u6279\u51c6\u4e00\u6b21\u53d7\u9650\u7684 "
+    u8"Windows "
+    u8"\u5bc6\u7801\u5b66\u5b9e\u9a8c\u542f\u52a8\u5c1d\u8bd5\u3002\u5931\u8d25"
+    u8"\u3001\u8d85\u65f6\u6216\u7ed3\u679c\u672a\u77e5\u5747\u4e0d\u81ea\u52a8"
+    u8"\u91cd\u8bd5\u3002";
+
+struct ObjectIdentityPin {
+  uint64_t volume_serial = 0;
+  std::array<uint8_t, 16> file_id{};
+  bool valid() const noexcept {
+    if (volume_serial == 0)
+      return false;
+    for (uint8_t b : file_id) {
+      if (b != 0)
+        return true;
+    }
+    return false;
+  }
+  bool operator==(const ObjectIdentityPin &other) const noexcept {
+    return volume_serial == other.volume_serial && file_id == other.file_id;
+  }
+  bool operator!=(const ObjectIdentityPin &other) const noexcept {
+    return !(*this == other);
+  }
+};
+
+struct BatchObjectPins {
+  ObjectIdentityPin dir_pin{};
+  ObjectIdentityPin receipt_pin{};
+  ObjectIdentityPin grant_pin{};
+  bool valid() const noexcept {
+    return dir_pin.valid() && receipt_pin.valid() && grant_pin.valid() &&
+           dir_pin.volume_serial == receipt_pin.volume_serial &&
+           dir_pin.volume_serial == grant_pin.volume_serial &&
+           dir_pin.file_id != receipt_pin.file_id &&
+           dir_pin.file_id != grant_pin.file_id &&
+           receipt_pin.file_id != grant_pin.file_id;
+  }
+  bool operator==(const BatchObjectPins &other) const noexcept {
+    return dir_pin == other.dir_pin && receipt_pin == other.receipt_pin &&
+           grant_pin == other.grant_pin;
+  }
+};
+
+class CanonicalHashBuilder {
+public:
+  void put_u8(uint8_t v) { bytes_.push_back(v); }
+  void put_bool(bool v) { bytes_.push_back(v ? 1u : 0u); }
+  void put_u16_le(uint16_t v) {
+    bytes_.push_back(static_cast<uint8_t>(v & 0xffu));
+    bytes_.push_back(static_cast<uint8_t>((v >> 8) & 0xffu));
+  }
+  void put_u32_le(uint32_t v) {
+    for (unsigned i = 0; i < 4; ++i)
+      bytes_.push_back(static_cast<uint8_t>((v >> (i * 8)) & 0xffu));
+  }
+  void put_u64_le(uint64_t v) {
+    for (unsigned i = 0; i < 8; ++i)
+      bytes_.push_back(static_cast<uint8_t>((v >> (i * 8)) & 0xffu));
+  }
+  void put_bytes(const uint8_t *data, size_t len) {
+    put_u32_le(static_cast<uint32_t>(len));
+    if (len > 0 && data)
+      bytes_.insert(bytes_.end(), data, data + len);
+  }
+  void put_str(const std::string &s) {
+    put_bytes(reinterpret_cast<const uint8_t *>(s.data()), s.size());
+  }
+  bool put_wstr_ascii(const std::wstring &ws) {
+    if (ws.empty() || ws.size() > 256)
+      return false;
+    put_u32_le(static_cast<uint32_t>(ws.size()));
+    for (wchar_t wc : ws) {
+      if (wc < 0x20 || wc > 0x7e)
+        return false;
+      bytes_.push_back(static_cast<uint8_t>(wc & 0x7fu));
+    }
+    return true;
+  }
+  void finalize_raw(uint8_t out[32]) const noexcept {
+    sha256_digest(bytes_.data(), bytes_.size(), out);
+  }
+  std::string finalize_hex() const {
+    uint8_t digest[32]{};
+    finalize_raw(digest);
+    static constexpr char kHex[] = "0123456789abcdef";
+    std::string out(64, '0');
+    for (size_t i = 0; i < 32; ++i) {
+      out[i * 2] = kHex[(digest[i] >> 4) & 0x0fu];
+      out[i * 2 + 1] = kHex[digest[i] & 0x0fu];
+    }
+    return out;
+  }
+
+private:
+  std::vector<uint8_t> bytes_;
+};
+
+inline bool decode_hex_bytes(const std::string &hex, uint8_t *out,
+                             size_t expected_bytes) noexcept {
+  if (!out || hex.size() != expected_bytes * 2)
+    return false;
+  auto nibble = [](char c, uint8_t &val) noexcept -> bool {
+    if (c >= '0' && c <= '9') {
+      val = static_cast<uint8_t>(c - '0');
+      return true;
+    }
+    if (c >= 'a' && c <= 'f') {
+      val = static_cast<uint8_t>(10 + (c - 'a'));
+      return true;
+    }
+    return false;
+  };
+  for (size_t i = 0; i < expected_bytes; ++i) {
+    uint8_t hi = 0, lo = 0;
+    if (!nibble(hex[i * 2], hi) || !nibble(hex[i * 2 + 1], lo))
+      return false;
+    out[i] = static_cast<uint8_t>((hi << 4) | lo);
+  }
+  return true;
+}
+
+inline std::string encode_hex_bytes(const uint8_t *data, size_t len) {
+  static constexpr char kHex[] = "0123456789abcdef";
+  std::string out(len * 2, '0');
+  for (size_t i = 0; i < len; ++i) {
+    out[i * 2] = kHex[(data[i] >> 4) & 0x0fu];
+    out[i * 2 + 1] = kHex[data[i] & 0x0fu];
+  }
+  return out;
+}
+
+struct PreApprovalValidation {
+  bool structure_complete = false;
+  bool reviewer_verifier_ready = false;
+  bool user_already_marked_approved = false;
+  bool valid_for_prompt() const noexcept {
+    return structure_complete && reviewer_verifier_ready;
+  }
+};
+
+inline PreApprovalValidation
+evaluate_pre_approval_target(const GrantTarget &t) noexcept {
+  PreApprovalValidation res{};
+  res.user_already_marked_approved = t.user_approved;
+  res.reviewer_verifier_ready =
+      t.reviewer_approved && t.verifier_approved && safe_id(t.reviewer_id) &&
+      safe_id(t.verifier_id) && hex_digest(t.review_sha256, 64) &&
+      hex_digest(t.verification_sha256, 64);
+  res.structure_complete = t.structure_complete();
+  return res;
+}
+
+// Stage 1 Hash: Computable BEFORE human approval and BEFORE any batch file/dir
+// is created. Never reads object_identity_sha256, FileId or user_approved.
+inline bool compute_target_binding_sha256(const GrantTarget &target,
+                                          const std::wstring &account_sid,
+                                          std::string &out_hex64) noexcept {
+  out_hex64.clear();
+  if (!target.valid_pre_approval() || account_sid.empty())
+    return false;
+  try {
+    CanonicalHashBuilder b;
+    b.put_str("SHIROHA_L1_TARGET_HASH_V1");
+    b.put_u32_le(1u);
+    b.put_str(target.batch_id);
+    b.put_str(target.device_id);
+    b.put_str(target.account_identity_sha256);
+    b.put_str(target.source_sha);
+    b.put_str(target.base_sha);
+    b.put_str(target.exe_sha256);
+    b.put_str(target.dependency_manifest_sha256);
+    b.put_str(target.compiler_id);
+    b.put_str(target.os_id);
+    b.put_str(target.toolchain_manifest_sha256);
+    b.put_str(target.stop_owner);
+    b.put_str(target.recovery_owner);
+    b.put_str(target.evidence_owner);
+    b.put_str(target.evidence_scope_id);
+    b.put_str(target.reviewer_id);
+    b.put_str(target.verifier_id);
+    b.put_str(target.review_sha256);
+    b.put_str(target.verification_sha256);
+    b.put_str(target.user_approval_id);
+    b.put_str(target.user_scope);
+    b.put_bool(target.non_elevated);
+    b.put_bool(target.reviewer_approved);
+    b.put_bool(target.verifier_approved);
+    b.put_bool(target.evidence_output_approved);
+    b.put_u64_le(target.working_set_bytes);
+    b.put_u64_le(target.commit_bytes);
+    b.put_u32_le(target.handles);
+    b.put_u64_le(target.window_start_ms);
+    b.put_u64_le(target.window_end_ms);
+    b.put_u64_le(target.max_execution_ms);
+    for (unsigned limit : target.abi_limits) {
+      b.put_u32_le(limit);
+    }
+    if (!b.put_wstr_ascii(account_sid))
+      return false;
+    out_hex64 = b.finalize_hex();
+    return hex_digest(out_hex64, 64);
+  } catch (...) {
+    out_hex64.clear();
+    return false;
+  }
+}
+
+// Stage 2 Hash: Computable ONLY AFTER human approval and AFTER batch directory,
+// approval.receipt and grant.bin are created and pinned by handle.
+// Hard-stops if any FileId or VolumeSerialNumber is zero, missing or duplicate.
+inline bool
+compute_object_identity_sha256(const std::string &target_binding_sha256,
+                               const BatchObjectPins &pins,
+                               const std::string &account_identity_sha256,
+                               std::string &out_hex64) noexcept {
+  out_hex64.clear();
+  if (!hex_digest(target_binding_sha256, 64) || !pins.valid() ||
+      !hex_digest(account_identity_sha256, 64)) {
+    return false;
+  }
+  try {
+    CanonicalHashBuilder b;
+    b.put_str("SHIROHA_L1_OBJECT_HASH_V1");
+    b.put_u32_le(1u);
+    b.put_str(target_binding_sha256);
+    for (const auto *pin :
+         {&pins.dir_pin, &pins.receipt_pin, &pins.grant_pin}) {
+      b.put_u64_le(pin->volume_serial);
+      b.put_bytes(pin->file_id.data(), pin->file_id.size());
+    }
+    b.put_str(account_identity_sha256);
+    out_hex64 = b.finalize_hex();
+    return hex_digest(out_hex64, 64);
+  } catch (...) {
+    out_hex64.clear();
+    return false;
+  }
+}
+
 struct WindowsBinding {
   GrantTarget target;
   // Exact SID stays internal; evidence uses target.account_identity_sha256.

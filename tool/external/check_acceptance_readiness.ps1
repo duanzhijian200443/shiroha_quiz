@@ -147,6 +147,24 @@ function Assert-Plan([System.Collections.IDictionary]$Value) {
     foreach ($path in $windows.source) { Assert-RepoPath $path 'windows/external_native/diagnostics/' }
     Assert-RepoPath $windows.offlineTest 'windows/external_native/tests/'
     Assert-RepoPath $windows.sourceGuard 'tool/external/'
+    $e4 = $windows.e4
+    Require ($e4.executionAuthorized -ceq $false -and
+        $e4.scope -ceq 'G0-L0 SOURCE / COMPILE / FAKE ONLY' -and
+        $e4.approvalMode -ceq 'LOCAL_HUMAN_COOPERATIVE_ONLY' -and
+        $e4.multiFileAtomicTransaction -ceq $false -and $e4.windowsPersistenceProven -ceq $false -and
+        $e4.realRecoveryPolicy -ceq 'REQUIRES USER DECISION') 'e4_authority'
+    foreach ($pair in @(@('receiptBytes',256),@('journalBytes',128),@('frameBytes',64),
+        @('settlementFrames',24),@('maxWorkerFrames',44),@('maxControllerFrames',3),
+        @('maxWireBytes',3008),@('nativeOperationCategories',14))) {
+        Require ($e4[$pair[0]] -eq $pair[1]) 'e4_bounds'
+    }
+    Require ($e4.targetHash -ceq 'VERSIONED_LENGTH_PREFIXED_LE_BEFORE_OBJECT_CREATION' -and
+        $e4.objectHash -ceq 'TARGET_THEN_MEASURED_FILE_IDS_NO_CYCLE' -and
+        $e4.clockPolicy -ceq 'UTC_WINDOW_MONOTONIC_30000_MS_SAME_LAUNCH_ORIGIN' -and
+        $e4.restartPolicy -ceq 'NO_ISSUANCE_OR_LAUNCH_RESUME') 'e4_binding'
+    Require ($e4.source.Count -eq 2) 'e4_sources'
+    foreach ($path in $e4.source) { Assert-RepoPath $path 'windows/external_native/diagnostics/' }
+    Assert-RepoPath $e4.offlineTest 'windows/external_native/tests/'
     foreach ($field in @('approvalSource','signerKeyTrustAndCustody','exactNewRootAndObjects',
         'exactAccountSidAndToken','selectedDevice','experimentWindow','workingSetLimitBytes',
         'commitLimitBytes','sampledHandleLimit','stopRecoveryEvidenceOwners','finalTargetReviewerVerifier',
@@ -221,7 +239,13 @@ if ($SelfTest) {
         { param($p) $p.requests[0].windowsAdmission.approvalSource = 'json-user-approved' },
         { param($p) $p.requests[0].windowsAdmission.commitLimitBytes = 2048 },
         { param($p) $p.requests[0].windowsAdmission.realBackend = 'ENABLED' },
-        { param($p) $p.requests[0].windowsAdmission.Remove('exactAccountSidAndToken') }
+        { param($p) $p.requests[0].windowsAdmission.Remove('exactAccountSidAndToken') },
+        { param($p) $p.requests[0].windowsAdmission.e4.executionAuthorized = $true },
+        { param($p) $p.requests[0].windowsAdmission.e4.multiFileAtomicTransaction = $true },
+        { param($p) $p.requests[0].windowsAdmission.e4.settlementFrames = 23 },
+        { param($p) $p.requests[0].windowsAdmission.e4.maxWireBytes = 4096 },
+        { param($p) $p.requests[0].windowsAdmission.e4.clockPolicy = 'UTC_ONLY' },
+        { param($p) $p.requests[0].windowsAdmission.e4.windowsPersistenceProven = $true }
     )
     $count = 0
     foreach ($mutate in $mutations) {

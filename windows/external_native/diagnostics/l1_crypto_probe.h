@@ -225,6 +225,13 @@ struct L1CryptoLedger {
     stopped = true;
   }
 
+  void bind_launch_origin(uint64_t launch_attempt_mono_ms) noexcept {
+    clock_initialized = true;
+    start_ms = launch_attempt_mono_ms;
+    last_ms = launch_attempt_mono_ms;
+    elapsed_ms = 0;
+  }
+
   bool check_clock(const char* step) noexcept {
     if (!clock_ms) return !stopped;
     uint64_t now = 0;

@@ -644,6 +644,31 @@
         "finalTargetReviewerVerifier": "REQUIRES USER DECISION",
         "durableRequestJournal": "REQUIRES USER DECISION",
         "processIpcHandleEnvironmentPlan": "REQUIRES USER DECISION",
+        "e4": {
+          "scope": "G0-L0 SOURCE / COMPILE / FAKE ONLY",
+          "executionAuthorized": false,
+          "approvalMode": "LOCAL_HUMAN_COOPERATIVE_ONLY",
+          "source": [
+            "windows/external_native/diagnostics/l1_e4_admission.h",
+            "windows/external_native/diagnostics/l1_e4_protocol.h"
+          ],
+          "offlineTest": "windows/external_native/tests/l1_e4_test.cpp",
+          "targetHash": "VERSIONED_LENGTH_PREFIXED_LE_BEFORE_OBJECT_CREATION",
+          "objectHash": "TARGET_THEN_MEASURED_FILE_IDS_NO_CYCLE",
+          "receiptBytes": 256,
+          "journalBytes": 128,
+          "frameBytes": 64,
+          "settlementFrames": 24,
+          "maxWorkerFrames": 44,
+          "maxControllerFrames": 3,
+          "maxWireBytes": 3008,
+          "nativeOperationCategories": 14,
+          "clockPolicy": "UTC_WINDOW_MONOTONIC_30000_MS_SAME_LAUNCH_ORIGIN",
+          "restartPolicy": "NO_ISSUANCE_OR_LAUNCH_RESUME",
+          "multiFileAtomicTransaction": false,
+          "windowsPersistenceProven": false,
+          "realRecoveryPolicy": "REQUIRES USER DECISION"
+        },
         "evidenceFields": [
           "batchTrialSourceBase", "exeDependencyToolchainDigests", "pseudonymousDeviceAccount",
           "persistedIssuance", "consumptionRequestStarted", "consumptionConfirmedOrUnknown",
