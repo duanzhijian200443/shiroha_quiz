@@ -706,11 +706,13 @@ void main() {
         consumers.add(file.path.replaceAll('\\', '/'));
       }
     }
-    // Exact offline consumers only. P12 owns an offline core; P10 receives it.
+    // Exact inactive consumers only. Package 2 receives the existing P8 core;
+    // windows_tls_source_guard_test independently forbids production wiring.
     consumers.sort();
     expect(consumers, [
       'lib/application/external/external_trust_coordinator.dart',
       'lib/data/external/ipc_command_projection.dart',
+      'lib/data/external/windows_tls_host.dart',
     ]);
     final coordinator = File(consumers.first).readAsStringSync();
     expect(

@@ -1,5 +1,14 @@
 import 'dart:ffi';
 
+/// Optional ABI-3, public DER and role only. Older helpers fail closed lazily.
+abstract interface class ExternalNativePeerPolicyCalls {
+  int peerCertificatePolicy(
+      int version, Pointer<Uint8> der, int length, int role);
+}
+
+typedef _PeerPolicyNative = Int32 Function(
+    Uint32, Pointer<Uint8>, Uint64, Uint32);
+
 /// Infrastructure call seam only; it supplies no credential/authentication port.
 abstract interface class ExternalNativeCalls {
   int abiVersion();
@@ -147,6 +156,7 @@ final class FfiExternalNativeCalls
         ExternalNativeCredentialCalls,
         ExternalNativeExchangeCalls,
         ExternalNativeExchangeConsumptionCalls,
+        ExternalNativePeerPolicyCalls,
         ExternalNativeDiscoveryCalls {
   FfiExternalNativeCalls(DynamicLibrary library)
       : _library = library,
@@ -360,6 +370,14 @@ final class FfiExternalNativeCalls
           version, point, pointLength, digest, digestLength, signature, length);
 
   final int Function() _version;
+  late final _peerPolicy = _library.lookupFunction<
+      _PeerPolicyNative,
+      int Function(int, Pointer<Uint8>, int,
+          int)>('shiroha_native_peer_certificate_policy');
+  @override
+  int peerCertificatePolicy(
+          int version, Pointer<Uint8> der, int length, int role) =>
+      _peerPolicy(version, der, length, role);
   final Pointer<Uint8> Function(int) _allocate;
   final void Function(Pointer<Uint8>) _free;
   final int Function(int, Pointer<Uint8>, int, Pointer<Uint64>) _folder;

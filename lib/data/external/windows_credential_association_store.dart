@@ -9,7 +9,9 @@ import 'native/windows_external_native.dart';
 /// Unactivated production P15 backend. Caller supplies an explicitly acquired
 /// App owner and retains its OS lock through store drain and owner close.
 final class WindowsCredentialAssociationStore
-    implements ExternalCredentialAssociationStore {
+    implements
+        ExternalCredentialAssociationStore,
+        ExternalCredentialIdentityLookup {
   WindowsCredentialAssociationStore(this._owner, {int Function()? nowUtcMs})
       : _now =
             nowUtcMs ?? (() => DateTime.now().toUtc().millisecondsSinceEpoch);
@@ -118,6 +120,34 @@ final class WindowsCredentialAssociationStore
               records.where((r) => r.association.profileId == profileId);
           _guard();
           return _snapshot(match.isEmpty ? null : match.single.association);
+        } finally {
+          _native(txn.abort);
+        }
+      });
+
+  @override
+  Future<ExternalCredentialAssociationSnapshot> findCredential(
+          String identity) =>
+      _run(() async {
+        if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(identity)) {
+          credentialFail(ExternalCredentialFailure.invalidInput);
+        }
+        final txn = _begin();
+        try {
+          // The existing strict codec enforces global identity uniqueness;
+          // no cache, second registry, or client-supplied Profile is consulted.
+          final records = _load(txn);
+          final matches = records
+              .where((r) =>
+                  !r.association.revoked &&
+                  r.association.credentialIdentity == identity)
+              .toList();
+          if (matches.length > 1) {
+            _invalidate();
+            credentialFail(ExternalCredentialFailure.dataCorrupt);
+          }
+          _guard();
+          return _snapshot(matches.isEmpty ? null : matches.single.association);
         } finally {
           _native(txn.abort);
         }

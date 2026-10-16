@@ -656,10 +656,21 @@ void main() {
         consumers.add(file.path.replaceAll('\\', '/'));
       }
     }
-    // P10 is the only authorized offline consumer; production remains unwired.
-    expect(consumers, ['lib/data/external/ipc_command_projection.dart']);
+    // Exactly P10 plus the separately guarded inactive Package 2 library.
+    consumers.sort();
+    expect(consumers, [
+      'lib/data/external/ipc_command_projection.dart',
+      'lib/data/external/windows_tls_transport.dart'
+    ]);
     for (final consumer in consumers) {
       final body = File(consumer).readAsStringSync();
+      if (consumer == 'lib/data/external/windows_tls_transport.dart') {
+        expect(body, contains("part 'windows_tls_io.dart'"));
+        expect(body, contains("part 'windows_tls_host.dart'"));
+        // The complete TLS group has its own hard-failing no-startup/isolated-
+        // TLS13/explicit-I/O guards; the codec itself stays entirely pure.
+        continue;
+      }
       for (final forbidden in [
         'dart:io',
         'dart:ffi',

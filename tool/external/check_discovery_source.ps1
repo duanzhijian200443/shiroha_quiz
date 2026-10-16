@@ -7,7 +7,8 @@ $allowed = @('windows_discovery.dart', 'windows_credential_initialization.dart')
 foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.dart' -File -Recurse) {
     $code = [IO.File]::ReadAllText($file.FullName)
     $owned = $file.DirectoryName -eq [IO.Path]::GetFullPath((Join-Path $root 'lib/data/external')) -and $file.Name -in $allowed
-    if (!$owned -and $code -match 'windows_discovery|WindowsDiscoveryPublisher|WindowsDiscoveryReader') {
+    $tlsConsumer = $file.DirectoryName -eq [IO.Path]::GetFullPath((Join-Path $root 'lib/data/external')) -and $file.Name -in @('windows_tls_transport.dart', 'windows_tls_credentials.dart', 'windows_tls_bridge.dart')
+    if (!$owned -and !$tlsConsumer -and $code -match 'windows_discovery|WindowsDiscoveryPublisher|WindowsDiscoveryReader') {
         throw 'P26 production composition is active'
     }
     if ($owned) {

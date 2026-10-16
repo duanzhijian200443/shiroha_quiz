@@ -160,6 +160,17 @@ the Package 1 integration, bounded resources and explicit recovery interface.
 The readiness contract sections 10–19 own these production source slices and
 their pending Windows acceptance.
 
+The inactive Package 2 transport group in `lib/data/external/windows_tls_*`
+adds explicit Raw IPv4 accept/TLS upgrade, isolated TLS 1.3 context plans,
+crypt32 peer-role policy through an optional certificate-only ABI-3 capability,
+P20's read-only inverse query over the same protected associations and private
+P15 channel attempts. P27 Pairing events remain separate. P0/P12 alone mint
+Sessions; trusted P8 Contexts and unchanged P9/P10/P7 authorize every command.
+The P8/P10 read-only settlement barrier lets transport reservations outlive a
+caller result without creating another business lifecycle. No startup root
+imports/starts this candidate. Readiness section 20 owns its offline/resource
+limits; real TLS/Windows behavior and production activation remain pending.
+
 Persistence formats and provider formats are implementation details, not public application contracts.
 
 ## 3. Frozen typed-learning-core invariants

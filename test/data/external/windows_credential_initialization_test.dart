@@ -487,7 +487,8 @@ void main() {
       if ([
         own,
         'lib/data/external/windows_discovery.dart',
-        'lib/data/external/windows_pairing.dart'
+        'lib/data/external/windows_pairing.dart',
+        'lib/data/external/windows_tls_credentials.dart'
       ].contains(entry.path.replaceAll('\\', '/'))) {
         continue;
       }

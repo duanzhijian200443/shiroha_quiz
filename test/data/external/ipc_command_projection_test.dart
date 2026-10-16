@@ -802,6 +802,12 @@ void main() {
         .whereType<File>()
         .where((f) =>
             f.path.endsWith('.dart') && !f.path.contains('ipc_command_'))) {
+      if (path.path.replaceAll('\\', '/') ==
+          'lib/data/external/windows_tls_transport.dart') {
+        expect(
+            path.readAsStringSync(), contains("part 'windows_tls_host.dart'"));
+        continue; // exact inactive consumer, guarded by windows_tls_source_guard
+      }
       expect(path.readAsStringSync(),
           isNot(contains('ipc_command_projection.dart')),
           reason: path.path);
