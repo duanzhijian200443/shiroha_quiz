@@ -1,0 +1,817 @@
+{
+  "schemaVersion": 1,
+  "purpose": "G0-L0 acceptance preparation only; validation success grants no execution authority",
+  "authority": "docs/product/agent-refactor/windows-host-security-readiness.md",
+  "guide": "docs/product/agent-refactor/windows-host-acceptance-preparation.md",
+  "executionAuthorized": false,
+  "invariants": {
+    "HOST_STABILITY_HALT": "ACTIVE",
+    "TRANSPORT": "BLOCKED",
+    "AR-R6A": "NOT_ACCEPTED",
+    "REAL WINDOWS": "PENDING",
+    "FORMAL ACCEPTANCE": "PENDING"
+  },
+  "environment": {
+    "target": "Separately approved Windows 11 x64 candidate; actual edition/build/patch/toolchain are undecided",
+    "device": "REQUIRES USER DECISION",
+    "independentKernelEvidence": "REQUIRES USER DECISION",
+    "osEditionBuildPatch": "REQUIRES USER DECISION",
+    "architecture": "REQUIRES USER DECISION",
+    "toolchainAndLockfile": "REQUIRES USER DECISION",
+    "sourceSha": "REQUIRES USER DECISION",
+    "baseSha": "REQUIRES USER DECISION",
+    "artifactSha256Manifest": "REQUIRES USER DECISION",
+    "testRoot": "REQUIRES USER DECISION",
+    "rootOwnership": "REQUIRES USER DECISION",
+    "principalA": "REQUIRES USER DECISION",
+    "principalBAndDistinctSid": "REQUIRES USER DECISION",
+    "resourceMeasurementMethod": "REQUIRES USER DECISION",
+    "osPeakMemoryLimitBytes": "REQUIRES USER DECISION",
+    "osHandleLimit": "REQUIRES USER DECISION",
+    "backupOperator": "REQUIRES USER DECISION",
+    "recoveryOperator": "REQUIRES USER DECISION",
+    "cleanupOperator": "REQUIRES USER DECISION",
+    "verifier": "REQUIRES USER DECISION",
+    "reviewer": "REQUIRES USER DECISION"
+  },
+  "ownership": {
+    "evidenceOwner": "REQUIRES USER DECISION",
+    "requireIndependentReviewer": true,
+    "requireFixedTargetVerifier": true,
+    "responsibility": "Each row names a technical responsibility; operators are not appointed by this file."
+  },
+  "failurePolicy": {
+    "codes": [
+      "ADMISSION_BLOCKED",
+      "TARGET_DRIFT",
+      "ENVIRONMENT_DRIFT",
+      "OWNERSHIP_UNKNOWN",
+      "SECURITY_REJECT_MISMATCH",
+      "UNAUTHORIZED_ACCESS",
+      "BUDGET_EXCEEDED",
+      "MEASUREMENT_UNAVAILABLE",
+      "SETTLEMENT_UNKNOWN",
+      "COMMIT_UNKNOWN",
+      "ARTIFACT_INVALID",
+      "SYSTEM_ANOMALY"
+    ],
+    "stop": "Stop new admission on first unexpected result, ownership ambiguity, unauthorized primitive/object/business access, bind mismatch, secret exposure, budget excess, drift or system anomaly. No automatic retry, kill, cleanup or privilege increase.",
+    "recovery": "On responsive approved device, await original owning work then only authorized teardown. Unknown settlement retains custody and UNKNOWN effect. Only the named preapproved operator/image procedure handles unresponsive devices.",
+    "privacy": "Counts, fixed codes, pseudonymous IDs and public digest references only; no keys/blobs/key logs/raw paths/environment/prompts/answers/private content or sensitive dumps."
+  },
+  "l2Budget": {
+    "sockets": 8,
+    "pendingHandshakes": 2,
+    "activePipelines": 2,
+    "protocolBytes": 16777216,
+    "decodedStringBytes": 33554432,
+    "outputBytes": 524288,
+    "handshakeSeconds": 5,
+    "noProgressSeconds": 2,
+    "frameSeconds": 10,
+    "requestsPerConnection": 1
+  },
+  "dependencyOrder": [
+    "X3",
+    "X1",
+    "X0",
+    "X2",
+    "X6",
+    "X7_PRIMITIVE",
+    "X4",
+    "X7_SETTLEMENT",
+    "X5",
+    "X8",
+    "X9",
+    "X10",
+    "X11",
+    "X12"
+  ],
+  "matrix": [
+    {
+      "id": "A0",
+      "trial": "X0",
+      "contractSections": [
+        "6",
+        "7",
+        "9.F",
+        "21"
+      ],
+      "responsibility": "Loopback-only startup",
+      "dependencies": [
+        "X1",
+        "X3"
+      ],
+      "businessSettlementRequires": [],
+      "state": "WINDOWS_PENDING",
+      "formalTier": "G0-I",
+      "localSubsets": ["G0-L2"],
+      "localScope": "L2 actual bind/address/normal close only; L1 supplies credential/descriptor prerequisites.",
+      "environmentRef": "environment",
+      "ownersRef": "ownership",
+      "failurePolicyRef": "failurePolicy",
+      "source": [
+        "lib/data/external/windows_tls_host.dart",
+        "lib/data/external/windows_tls_io.dart",
+        "lib/data/external/windows_discovery.dart"
+      ],
+      "offlineTests": [
+        "test/data/external/windows_tls_transport_test.dart",
+        "test/data/external/windows_tls_lifecycle_test.dart",
+        "test/data/external/windows_discovery_test.dart"
+      ],
+      "offlineEvidence": "Source/Fake/static subset only; exact current-run and historical CI results belong to delivery evidence.",
+      "frozenCriterion": "Actual local address exactly 127.0.0.1, selected port, shared=false; reject wildcard/LAN/IPv6/configuration substitution and unprotected publication.",
+      "windowsTrial": "Separately granted X0: Measure actual bound address and publication acknowledgement; mismatches have zero usable admission.",
+      "success": "Measure actual bound address and publication acknowledgement; mismatches have zero usable admission.",
+      "blockerClass": "MUST_FIX_BEFORE_L2"
+    },
+    {
+      "id": "A1",
+      "trial": "X1",
+      "contractSections": [
+        "6",
+        "7",
+        "9.F",
+        "21"
+      ],
+      "responsibility": "Unique credential to selected existing Profile",
+      "dependencies": [
+        "X3"
+      ],
+      "businessSettlementRequires": [],
+      "state": "WINDOWS_PENDING",
+      "formalTier": "G0-I",
+      "localSubsets": ["G0-L1"],
+      "localScope": "L1 temporary certificate/key/proof/test-association primitives; full Profile uniqueness/TLS correlation remains G0-I.",
+      "environmentRef": "environment",
+      "ownersRef": "ownership",
+      "failurePolicyRef": "failurePolicy",
+      "source": [
+        "lib/data/external/windows_pairing.dart",
+        "lib/data/external/windows_credential_initialization.dart",
+        "lib/data/external/windows_credential_association_store.dart"
+      ],
+      "offlineTests": [
+        "test/data/external/windows_pairing_test.dart",
+        "test/data/external/windows_credential_initialization_test.dart",
+        "test/data/external/windows_credential_association_store_test.dart"
+      ],
+      "offlineEvidence": "Source/Fake/static subset only; exact current-run and historical CI results belong to delivery evidence.",
+      "frozenCriterion": "Fresh real possession proof resolves exactly one selected Profile; duplicate identity, substitution and generation mismatch resolve none; X2/X4 correlate the same TLS peer.",
+      "windowsTrial": "Separately granted X1: One active association per identity/Profile; all substituted/duplicate cases open zero Sessions.",
+      "success": "One active association per identity/Profile; all substituted/duplicate cases open zero Sessions.",
+      "blockerClass": "MUST_FIX_BEFORE_L1"
+    },
+    {
+      "id": "A2",
+      "trial": "X2",
+      "contractSections": [
+        "6",
+        "7",
+        "9.F",
+        "21"
+      ],
+      "responsibility": "Real TLS and certificate rejection",
+      "dependencies": [
+        "X0",
+        "X1",
+        "X3"
+      ],
+      "businessSettlementRequires": [],
+      "state": "WINDOWS_PENDING",
+      "formalTier": "G0-I",
+      "localSubsets": ["G0-L2"],
+      "localScope": "L2 exact valid and negative TLS certificate cases without business; L1 primitive evidence is prerequisite.",
+      "environmentRef": "environment",
+      "ownersRef": "ownership",
+      "failurePolicyRef": "failurePolicy",
+      "source": [
+        "lib/data/external/windows_tls_credentials.dart",
+        "lib/data/external/windows_tls_channel.dart",
+        "lib/data/external/native/windows_peer_certificate_policy.dart"
+      ],
+      "offlineTests": [
+        "test/data/external/windows_tls_transport_test.dart",
+        "test/data/external/windows_peer_certificate_policy_test.dart",
+        "test/data/external/windows_external_crypto_test.dart"
+      ],
+      "offlineEvidence": "Source/Fake/static subset only; exact current-run and historical CI results belong to delivery evidence.",
+      "frozenCriterion": "Valid control succeeds only under exact pinned anchor and TLS 1.3; missing/forged/wrong-anchor/wrong-role/expired/retired/replayed credentials yield no usable Session, handler or content.",
+      "windowsTrial": "Separately granted X2: One valid control; every named negative rejected; negotiated TLS version 1.3, zero TLS 1.2 success and zero fallback.",
+      "success": "One valid control; every named negative rejected; negotiated TLS version 1.3, zero TLS 1.2 success and zero fallback.",
+      "blockerClass": "MUST_FIX_BEFORE_L2"
+    },
+    {
+      "id": "A3",
+      "trial": "X3",
+      "contractSections": [
+        "6",
+        "7",
+        "9.F",
+        "21"
+      ],
+      "responsibility": "Protected-object cross-SID secrecy and integrity",
+      "dependencies": [],
+      "businessSettlementRequires": [],
+      "state": "WINDOWS_PENDING",
+      "formalTier": "G0-I",
+      "localSubsets": ["G0-L1"],
+      "localScope": "L1 owned-object inspection, DPAPI roundtrip, locks and finite replacement only; no second SID/aggressive negatives inferred.",
+      "environmentRef": "environment",
+      "ownersRef": "ownership",
+      "failurePolicyRef": "failurePolicy",
+      "source": [
+        "lib/data/external/native/windows_external_native.dart",
+        "lib/data/external/windows_credential_object_store.dart",
+        "lib/data/external/windows_credential_association_store.dart",
+        "lib/data/external/windows_exchange_file_store.dart"
+      ],
+      "offlineTests": [
+        "test/data/external/windows_external_native_test.dart",
+        "test/data/external/windows_credential_object_store_test.dart",
+        "test/data/external/windows_credential_association_store_test.dart",
+        "test/data/external/windows_exchange_consumption_test.dart"
+      ],
+      "offlineEvidence": "Source/Fake/static subset only; exact current-run and historical CI results belong to delivery evidence.",
+      "frozenCriterion": "Unauthorized second SID cannot read/alter/replace/delete/redirect protected objects; reject inheritance/reparse/parent replacement/corruption; never silently rekey.",
+      "windowsTrial": "Separately granted X3: All protected negative attempts denied; original sentinel identities/content unchanged; zero silent rekeys.",
+      "success": "All protected negative attempts denied; original sentinel identities/content unchanged; zero silent rekeys.",
+      "blockerClass": "MUST_FIX_BEFORE_L1"
+    },
+    {
+      "id": "A4",
+      "trial": "X4",
+      "contractSections": [
+        "6",
+        "7",
+        "9.F",
+        "21"
+      ],
+      "responsibility": "B-class authorization",
+      "dependencies": [
+        "X0",
+        "X1",
+        "X2",
+        "X3",
+        "X6",
+        "X7_PRIMITIVE"
+      ],
+      "businessSettlementRequires": [],
+      "state": "WINDOWS_PENDING",
+      "formalTier": "G0-I",
+      "localSubsets": [],
+      "localScope": "No real business admission under L1/L2.",
+      "environmentRef": "environment",
+      "ownersRef": "ownership",
+      "failurePolicyRef": "failurePolicy",
+      "source": [
+        "lib/data/external/windows_tls_channel.dart",
+        "lib/data/external/windows_tls_host.dart"
+      ],
+      "offlineTests": [
+        "test/data/external/windows_tls_transport_test.dart"
+      ],
+      "offlineEvidence": "Source/Fake/static subset only; exact current-run and historical CI results belong to delivery evidence.",
+      "frozenCriterion": "Unauthorized SID may connect but receives no business data; independently provisioned second-SID client follows current Profile/Grant/Scope/Egress/Enablement.",
+      "windowsTrial": "Separately granted X4: Positive synthetic READ/STAGE follows exact approved policy; every denied path has zero handler/content release.",
+      "success": "Positive synthetic READ/STAGE follows exact approved policy; every denied path has zero handler/content release.",
+      "blockerClass": "MUST_FIX_BEFORE_G0-I"
+    },
+    {
+      "id": "A5",
+      "trial": "X5",
+      "contractSections": [
+        "6",
+        "7",
+        "9.F",
+        "21"
+      ],
+      "responsibility": "Disable revoke expiry restart Restore",
+      "dependencies": [
+        "X4",
+        "X7_SETTLEMENT"
+      ],
+      "businessSettlementRequires": [],
+      "state": "WINDOWS_PENDING",
+      "formalTier": "G0-I",
+      "localSubsets": ["G0-L1","G0-L2"],
+      "localScope": "L1 explicit test-credential invalidation/reload; L2 normal connection closure only. Neither proves business-authority lifecycle.",
+      "environmentRef": "environment",
+      "ownersRef": "ownership",
+      "failurePolicyRef": "failurePolicy",
+      "source": [
+        "lib/data/external/windows_tls_host.dart",
+        "lib/data/external/windows_tls_channel.dart"
+      ],
+      "offlineTests": [
+        "test/data/external/windows_tls_lifecycle_test.dart",
+        "test/data/external/windows_pairing_test.dart"
+      ],
+      "offlineEvidence": "Source/Fake/static subset only; exact current-run and historical CI results belong to delivery evidence.",
+      "frozenCriterion": "No old Session/Context/Enablement or withheld egress revives after disable/revoke/expiry/rotation/restart/Restore/raw rollback; fresh proof and rebinding required.",
+      "windowsTrial": "Separately granted X5: Zero resurrection; failed revoke CAS never recorded as success; history may remain while authorization stays disabled.",
+      "success": "Zero resurrection; failed revoke CAS never recorded as success; history may remain while authorization stays disabled.",
+      "blockerClass": "MUST_FIX_BEFORE_G0-I"
+    },
+    {
+      "id": "A6",
+      "trial": "X6",
+      "contractSections": [
+        "6",
+        "7",
+        "9.F",
+        "21"
+      ],
+      "responsibility": "Header validation before body allocation",
+      "dependencies": [
+        "X0",
+        "X1",
+        "X2",
+        "X3"
+      ],
+      "businessSettlementRequires": [],
+      "state": "WINDOWS_PENDING",
+      "formalTier": "G0-I",
+      "localSubsets": [],
+      "localScope": "No live framing trial under authentication/connection-only L2.",
+      "environmentRef": "environment",
+      "ownersRef": "ownership",
+      "failurePolicyRef": "failurePolicy",
+      "source": [
+        "lib/data/external/ipc_envelope_codec.dart",
+        "lib/data/external/windows_tls_host.dart"
+      ],
+      "offlineTests": [
+        "test/data/external/ipc_envelope_codec_test.dart",
+        "test/data/external/windows_tls_transport_test.dart"
+      ],
+      "offlineEvidence": "Source/Fake/static subset only; exact current-run and historical CI results belong to delivery evidence.",
+      "frozenCriterion": "Reject zero/high-bit/over-limit/unsupported header and invalid ID before declared body allocation; safe close without resync or weaker limits.",
+      "windowsTrial": "Separately granted X6: Declared-body allocation and handler count both zero for every invalid header/ID; channel closed.",
+      "success": "Declared-body allocation and handler count both zero for every invalid header/ID; channel closed.",
+      "blockerClass": "MUST_FIX_BEFORE_G0-I"
+    },
+    {
+      "id": "A7",
+      "trial": "X7",
+      "contractSections": [
+        "6",
+        "7",
+        "9.F",
+        "21"
+      ],
+      "responsibility": "Budgets backpressure settlement",
+      "dependencies": [
+        "X0",
+        "X1",
+        "X2",
+        "X3",
+        "X6"
+      ],
+      "businessSettlementRequires": [
+        "X4"
+      ],
+      "state": "WINDOWS_PENDING",
+      "formalTier": "G0-I",
+      "localSubsets": ["G0-L2"],
+      "localScope": "L2 exact sockets/handshakes/handles/deadlines and explicitly granted bounded slow/cut connection cases only; no framing/stress/business settlement.",
+      "environmentRef": "environment",
+      "ownersRef": "ownership",
+      "failurePolicyRef": "failurePolicy",
+      "source": [
+        "lib/data/external/windows_tls_resources.dart",
+        "lib/data/external/windows_tls_host.dart",
+        "lib/data/external/windows_tls_io.dart"
+      ],
+      "offlineTests": [
+        "test/data/external/windows_tls_transport_test.dart",
+        "test/data/external/windows_tls_lifecycle_test.dart"
+      ],
+      "offlineEvidence": "Source/Fake/static subset only; exact current-run and historical CI results belong to delivery evidence.",
+      "frozenCriterion": "Frozen reservations and deadlines hold for fragmented/coalesced/slow/cut/cancelled traffic; resources released only after original work and acknowledged close settle.",
+      "windowsTrial": "Separately granted X7: 8 sockets/2 handshakes/2 pipelines; 16 MiB protocol/32 MiB strings/512 KiB output; 5/2/10 s deadlines; no premature reuse; measured OS ceilings separately frozen.",
+      "success": "8 sockets/2 handshakes/2 pipelines; 16 MiB protocol/32 MiB strings/512 KiB output; 5/2/10 s deadlines; no premature reuse; measured OS ceilings separately frozen.",
+      "blockerClass": "MUST_FIX_BEFORE_G0-I"
+    },
+    {
+      "id": "A8",
+      "trial": "X8",
+      "contractSections": [
+        "6",
+        "7",
+        "9.F",
+        "21"
+      ],
+      "responsibility": "Lost STAGE response and original-key reconciliation",
+      "dependencies": [
+        "X4",
+        "X5",
+        "X6",
+        "X7_SETTLEMENT"
+      ],
+      "businessSettlementRequires": [],
+      "state": "WINDOWS_PENDING",
+      "formalTier": "G0-I",
+      "localSubsets": [],
+      "localScope": "STAGE and committed response-loss trials forbidden under L1/L2.",
+      "environmentRef": "environment",
+      "ownersRef": "ownership",
+      "failurePolicyRef": "failurePolicy",
+      "source": [
+        "lib/data/external/windows_tls_host.dart",
+        "lib/data/external/ipc_command_projection.dart"
+      ],
+      "offlineTests": [
+        "test/data/external/windows_tls_lifecycle_test.dart",
+        "test/data/external/ipc_command_projection_test.dart"
+      ],
+      "offlineEvidence": "Source/Fake/static subset only; exact current-run and historical CI results belong to delivery evidence.",
+      "frozenCriterion": "Commit then cut response; fresh admitted Session reconciles original SubmissionKey to same Proposal; no restage/duplicate/formal Question COMMIT. Revoke-first publishes none; publication-first retains history without unauthorized egress.",
+      "windowsTrial": "Separately granted X8: Exactly one original Proposal after lost response, zero duplicate/formal Question writes; unknown remains unknown until original-key reconciliation.",
+      "success": "Exactly one original Proposal after lost response, zero duplicate/formal Question writes; unknown remains unknown until original-key reconciliation.",
+      "blockerClass": "MUST_FIX_BEFORE_G0-I"
+    },
+    {
+      "id": "A9",
+      "trial": "X9",
+      "contractSections": [
+        "6",
+        "7",
+        "9.F",
+        "21"
+      ],
+      "responsibility": "Bridge has no alternate business writer",
+      "dependencies": [],
+      "businessSettlementRequires": [],
+      "state": "WINDOWS_PENDING",
+      "formalTier": "G0-I",
+      "localSubsets": [],
+      "localScope": "L0 source/Fake unavailable-path checks only; real App/Bridge business runs require G0-I.",
+      "environmentRef": "environment",
+      "ownersRef": "ownership",
+      "failurePolicyRef": "failurePolicy",
+      "source": [
+        "lib/data/external/windows_release_candidate.dart"
+      ],
+      "offlineTests": [
+        "test/data/external/windows_release_candidate_test.dart"
+      ],
+      "offlineEvidence": "Source/Fake/static subset only; exact current-run and historical CI results belong to delivery evidence.",
+      "frozenCriterion": "App absent/not-ready/closed/recovering is bounded unavailable/denied; packaged Bridge never opens business SQLite, repositories/migrations or replacement writer.",
+      "windowsTrial": "Separately granted X9: Zero business-DB opens/writes in Bridge audit; all unavailable cases settle inside separately approved deadline.",
+      "success": "Zero business-DB opens/writes in Bridge audit; all unavailable cases settle inside separately approved deadline.",
+      "blockerClass": "MUST_FIX_BEFORE_G0-I"
+    },
+    {
+      "id": "A10",
+      "trial": "X10",
+      "contractSections": [
+        "6",
+        "7",
+        "9.F",
+        "21"
+      ],
+      "responsibility": "Ten external routes and six MCP v0 tools",
+      "dependencies": [],
+      "businessSettlementRequires": [],
+      "state": "WINDOWS_PENDING",
+      "formalTier": "G0-I",
+      "localSubsets": [],
+      "localScope": "L0 compatibility/source regressions; L1/L2 grant no publication or tool authority.",
+      "environmentRef": "environment",
+      "ownersRef": "ownership",
+      "failurePolicyRef": "failurePolicy",
+      "source": [
+        "lib/data/external/ipc_command_projection.dart",
+        "lib/data/external/ipc_command_schema.dart"
+      ],
+      "offlineTests": [
+        "test/data/external/ipc_command_projection_test.dart",
+        "test/data/external/ipc_command_schema_test.dart"
+      ],
+      "offlineEvidence": "Source/Fake/static subset only; exact current-run and historical CI results belong to delivery evidence.",
+      "frozenCriterion": "Keep exactly ten internal external routes and six read-only MCP v0 tools; external COMMIT/DESTRUCTIVE/Built-in denied; no vNext registration.",
+      "windowsTrial": "Separately granted X10: 10 external routes, 6 MCP v0 READ tools; zero added tools/forbidden routes; any stdio process test separately granted.",
+      "success": "10 external routes, 6 MCP v0 READ tools; zero added tools/forbidden routes; any stdio process test separately granted.",
+      "blockerClass": "MUST_FIX_BEFORE_G0-I"
+    },
+    {
+      "id": "A11",
+      "trial": "X11",
+      "contractSections": [
+        "6",
+        "7",
+        "9.F",
+        "21"
+      ],
+      "responsibility": "Single runtime and owner-safe residue",
+      "dependencies": [
+        "X3",
+        "X7_SETTLEMENT"
+      ],
+      "businessSettlementRequires": [],
+      "state": "WINDOWS_PENDING",
+      "formalTier": "G0-I",
+      "localSubsets": ["G0-L1","G0-L2"],
+      "localScope": "L1 owned-lock contention/normal release; L2 its one candidate's normal Socket close. No crash/competing Host/foreign-object attack inferred.",
+      "environmentRef": "environment",
+      "ownersRef": "ownership",
+      "failurePolicyRef": "failurePolicy",
+      "source": [
+        "lib/data/external/windows_tls_host.dart",
+        "lib/data/external/windows_discovery.dart",
+        "lib/data/external/windows_exchange_file_store.dart"
+      ],
+      "offlineTests": [
+        "test/data/external/windows_tls_lifecycle_test.dart",
+        "test/data/external/windows_discovery_test.dart",
+        "test/data/external/windows_exchange_consumption_test.dart"
+      ],
+      "offlineEvidence": "Source/Fake/static subset only; exact current-run and historical CI results belong to delivery evidence.",
+      "frozenCriterion": "Second live runtime neither binds/publishes/serves nor writes Store; close/startup races/crashed predecessor/replacement never delete foreign objects. Ambiguous custody denies and retains residue.",
+      "windowsTrial": "Separately granted X11: At most 1 live runtime/writer; zero interleaved Store transactions or foreign sentinel changes; unknown release keeps lock/admission quarantined.",
+      "success": "At most 1 live runtime/writer; zero interleaved Store transactions or foreign sentinel changes; unknown release keeps lock/admission quarantined.",
+      "blockerClass": "MUST_FIX_BEFORE_G0-I"
+    },
+    {
+      "id": "A12",
+      "trial": "X12",
+      "contractSections": [
+        "6",
+        "7",
+        "9.F",
+        "21"
+      ],
+      "responsibility": "AOT deployment and abnormal launch",
+      "dependencies": [
+        "X1",
+        "X2",
+        "X3",
+        "X4",
+        "X5",
+        "X6",
+        "X7_SETTLEMENT",
+        "X8",
+        "X9",
+        "X10",
+        "X11"
+      ],
+      "businessSettlementRequires": [],
+      "state": "WINDOWS_PENDING",
+      "formalTier": "G0-I",
+      "localSubsets": ["G0-L1"],
+      "localScope": "L1 separately approved primitive-only helper loading in space/Unicode paths; no App/Bridge Release/AOT activation or full deployment acceptance.",
+      "environmentRef": "environment",
+      "ownersRef": "ownership",
+      "failurePolicyRef": "failurePolicy",
+      "source": [
+        "lib/data/external/windows_release_candidate.dart",
+        "lib/data/external/native/windows_external_native.dart"
+      ],
+      "offlineTests": [
+        "test/data/external/windows_release_candidate_test.dart",
+        "test/data/external/windows_tls_lifecycle_test.dart"
+      ],
+      "offlineEvidence": "Source/Fake/static subset only; exact current-run and historical CI results belong to delivery evidence.",
+      "frozenCriterion": "Exact non-elevated App/Bridge AOT package works from space/Unicode roots with sanitized environment; cold-start/upgrade/abnormal-close and invalid-artifact rejection; stale endpoint/leaf/high-water and same-generation successor cases.",
+      "windowsTrial": "Separately granted X12: All inventory/hash/ABI/x64/Release dependency checks pass; invalid DLL/Store/Anchor denies before Owner; successor accepted without re-enrollment; old endpoint cannot impersonate.",
+      "success": "All inventory/hash/ABI/x64/Release dependency checks pass; invalid DLL/Store/Anchor denies before Owner; successor accepted without re-enrollment; old endpoint cannot impersonate.",
+      "blockerClass": "MUST_FIX_BEFORE_G0-I"
+    }
+  ],
+  "requests": [
+    {
+      "id": "L1-CRYPTO",
+      "tier": "G0-L1",
+      "state": "DRAFT_NOT_AUTHORIZED",
+      "executionAuthorized": false,
+      "environmentRef": "environment",
+      "ownersRef": "ownership",
+      "failurePolicyRef": "failurePolicy",
+      "dependsOn": [
+        "Independent review of exact helper and isolated entry"
+      ],
+      "allowedObjects": [
+        "3 ephemeral in-memory issuer/server/client key pairs",
+        "3 public test certificates; no ambient certificate store"
+      ],
+      "operations": [
+        "Generate key: 3 maximum",
+        "Certificate encode/sign: 3 maximum (X.509 DER ECDSA-Sig-Value; custom proofs retain raw r||s)",
+        "Verify: 6 maximum (3 valid + 3 altered fixtures)",
+        "crypt32 profile checks: 3 maximum",
+        "Dispose each owned native/key resource once; never retry unknown close"
+      ],
+      "maxSecondsCandidate": 30,
+      "memoryLimitBytes": "REQUIRES USER DECISION",
+      "handleLimit": "REQUIRES USER DECISION",
+      "backupAndRecovery": "Named operators and approved image/procedure required before admission; no implicit force termination.",
+      "cleanup": "Memory-only key disposal; no persisted key/store deletion or certificate installation.",
+      "grantAndTimeWindow": "REQUIRES USER DECISION",
+      "resultFormat": "evidenceFields + evidence class + row/trial/case IDs; UNKNOWN never PASS"
+    },
+    {
+      "id": "L1-OBJECTS",
+      "tier": "G0-L1",
+      "state": "DRAFT_NOT_AUTHORIZED",
+      "executionAuthorized": false,
+      "environmentRef": "environment",
+      "ownersRef": "ownership",
+      "failurePolicyRef": "failurePolicy",
+      "dependsOn": [
+        "L1-CRYPTO when credential fixtures are used",
+        "Separately reviewed isolated-root object harness"
+      ],
+      "allowedObjects": [
+        "One NEW approved NTFS root and exact 9.D relative App/Bridge layout",
+        "runtime.lock and bridge/client.lock only",
+        "One approved disposable object and one identity-bound temporary"
+      ],
+      "operations": [
+        "Create each approved layout directory once; exact directory list/count must be in grant",
+        "Acquire App lock: 1; competing acquisition: 1 expected denial; Bridge lock: 1",
+        "Owner/DACL/volume/reparse/identity observation: at most 2 per approved object",
+        "One new-target publication and one existing-target replace; 2 readbacks",
+        "Normal release once per owned handle; no second SID or adversarial replacement"
+      ],
+      "maxSecondsCandidate": 60,
+      "memoryLimitBytes": "REQUIRES USER DECISION",
+      "handleLimit": "REQUIRES USER DECISION",
+      "backupAndRecovery": "Named operators and approved image/procedure required before admission; no implicit force termination.",
+      "cleanup": "No directory sweep, historical-root access or ACL repair. Explicit per-object owned-identity cleanup list required; absent grant retain inert objects.",
+      "grantAndTimeWindow": "REQUIRES USER DECISION",
+      "resultFormat": "evidenceFields + evidence class + row/trial/case IDs; UNKNOWN never PASS",
+      "exactDirectoryListAndCount": "REQUIRES USER DECISION"
+    },
+    {
+      "id": "L1-STORE",
+      "tier": "G0-L1",
+      "state": "DRAFT_NOT_AUTHORIZED",
+      "executionAuthorized": false,
+      "environmentRef": "environment",
+      "ownersRef": "ownership",
+      "failurePolicyRef": "failurePolicy",
+      "dependsOn": [
+        "L1-CRYPTO",
+        "L1-OBJECTS",
+        "Reviewed isolated Store composition"
+      ],
+      "allowedObjects": [
+        "Only approved kind 1/2/3 App and kind 4 Bridge test objects",
+        "At most 2 Store publication temporaries total, sequential"
+      ],
+      "operations": [
+        "DPAPI protect: 2; unprotect: 2, <=65536 bytes each",
+        "association_begin: 3 maximum; association_commit: 2 maximum; association_abort: 1 maximum",
+        "Choose ONE Store object kind per batch; other kinds require new object/call grant",
+        "No automatic recovery, rekey, live Pairing, Socket or business route"
+      ],
+      "maxSecondsCandidate": 60,
+      "memoryLimitBytes": "REQUIRES USER DECISION",
+      "handleLimit": "REQUIRES USER DECISION",
+      "backupAndRecovery": "Named operators and approved image/procedure required before admission; no implicit force termination.",
+      "cleanup": "At most the explicitly approved current-batch objects after settled release; unknown commit retains residue for separate decision.",
+      "grantAndTimeWindow": "REQUIRES USER DECISION",
+      "resultFormat": "evidenceFields + evidence class + row/trial/case IDs; UNKNOWN never PASS",
+      "selectedStoreKind": "REQUIRES USER DECISION"
+    },
+    {
+      "id": "L1-RELEASE",
+      "tier": "G0-L1",
+      "state": "DRAFT_NOT_AUTHORIZED",
+      "executionAuthorized": false,
+      "environmentRef": "environment",
+      "ownersRef": "ownership",
+      "failurePolicyRef": "failurePolicy",
+      "dependsOn": [
+        "Applicable preceding L1 evidence",
+        "Independently reviewed normal-release observation"
+      ],
+      "allowedObjects": [
+        "Only exact objects and handles already granted to this batch"
+      ],
+      "operations": [
+        "One normal close per still-owned resource; no duplicate close",
+        "Resource samples before work, after each completed operation and after final settlement",
+        "One final metadata capture only if separately included in the grant; no old-root capture"
+      ],
+      "maxSecondsCandidate": 30,
+      "memoryLimitBytes": "REQUIRES USER DECISION",
+      "handleLimit": "REQUIRES USER DECISION",
+      "backupAndRecovery": "Named operators and approved image/procedure required before admission; no implicit force termination.",
+      "cleanup": "Only positively owned listed test objects; delete counts and immutable identities REQUIRES USER DECISION; no cleanup follows uncertainty.",
+      "grantAndTimeWindow": "REQUIRES USER DECISION",
+      "resultFormat": "evidenceFields + evidence class + row/trial/case IDs; UNKNOWN never PASS"
+    },
+    {
+      "id": "L2-AUTH",
+      "tier": "G0-L2",
+      "state": "DRAFT_NOT_AUTHORIZED",
+      "executionAuthorized": false,
+      "environmentRef": "environment",
+      "ownersRef": "ownership",
+      "failurePolicyRef": "failurePolicy",
+      "dependsOn": [
+        "Necessary passing fixed-target LOCAL-L1 evidence",
+        "Independent implementation review",
+        "Reviewed connection-only isolated composition",
+        "Explicit port/bind/device/artifact grant"
+      ],
+      "allowedObjects": [
+        "One numeric 127.0.0.1 selected port; shared=false",
+        "Test server/client/alternate-anchor fixtures from exact approved L1 output"
+      ],
+      "operations": [
+        "Exactly 7 sequential connection cases: valid, missing, forged, wrong-anchor, wrong-role, expired, retired",
+        "At most 1 handshake per case; no retries",
+        "TLS 1.2 floor rejection: 1 separate attempt (8 attempts total)",
+        "Zero P9 frames, READ/STAGE/business Contexts, public tools or App database operations",
+        "Actual Socket/Handle/TLS allocation and final release observations required"
+      ],
+      "maxSecondsCandidate": 120,
+      "memoryLimitBytes": "REQUIRES USER DECISION",
+      "handleLimit": "REQUIRES USER DECISION",
+      "backupAndRecovery": "Named operators and approved image/procedure required before admission; no implicit force termination.",
+      "cleanup": "Close admission, await original upgrade/Socket close; dispose own contexts/resources once. Failed/unknown release retains custody and stops. No object deletion inferred.",
+      "grantAndTimeWindow": "REQUIRES USER DECISION",
+      "resultFormat": "evidenceFields + evidence class + row/trial/case IDs; UNKNOWN never PASS",
+      "budgetRef": "l2Budget",
+      "port": "REQUIRES USER DECISION",
+      "osMemoryAndTlsObservation": "Sampled process peak working set/commit plus handles and exact owned socket/handshake lifetimes; sampler/observer tooling and sampling completeness require separate review. No claim of exact native TLS heap accounting from Fake counters."
+    },
+    {
+      "id": "G0-I-FORMAL",
+      "tier": "G0-I",
+      "state": "DRAFT_NOT_AUTHORIZED",
+      "executionAuthorized": false,
+      "environmentRef": "environment",
+      "ownersRef": "ownership",
+      "failurePolicyRef": "failurePolicy",
+      "dependsOn": [
+        "Independent-kernel environment and two disposable distinct-SID principals",
+        "All X dependencies in dependencyOrder",
+        "Reviewed App/Bridge test composition and trusted Pairing surface",
+        "Separate build/deploy/process/recovery grants"
+      ],
+      "allowedObjects": [
+        "Separate empty NTFS roots per approved Principal; only synthetic SQLite/B0 assets",
+        "Exact App/Bridge AOT/DLL/plugin/dependency inventory and hashes"
+      ],
+      "operations": [
+        "Each X0-X12 row requires a case-by-case operation/count/resource ledger before grant",
+        "X7 primitive resources before X4; X7 business settlement after X4",
+        "X12 build/install/launch/upgrade/termination/crash cases require explicit individual counts",
+        "No trial starts with unresolved operation counts or OS resource limits"
+      ],
+      "maxSecondsCandidate": 600,
+      "memoryLimitBytes": "REQUIRES USER DECISION",
+      "handleLimit": "REQUIRES USER DECISION",
+      "backupAndRecovery": "Named operators and approved image/procedure required before admission; no implicit force termination.",
+      "cleanup": "Per-X owner-bound teardown and separately approved image recovery; preserve original STAGE keys and unknown outcomes. Security and system stability verdicts remain separate.",
+      "grantAndTimeWindow": "REQUIRES USER DECISION",
+      "resultFormat": "evidenceFields + evidence class + row/trial/case IDs; UNKNOWN never PASS",
+      "perTrialOperationsCountsAndResources": "REQUIRES USER DECISION"
+    }
+  ],
+  "evidenceFields": [
+    "testId",
+    "sourceSha",
+    "baseSha",
+    "artifactSha256",
+    "osToolchainId",
+    "deviceId",
+    "trialId",
+    "expectedCriterion",
+    "actualState",
+    "resourceCounts",
+    "elapsedMilliseconds",
+    "failureCode",
+    "verifier",
+    "reviewer",
+    "verdict",
+    "stopResult",
+    "recoveryResult"
+  ],
+  "evidenceStates": [
+    "NOT_RUN",
+    "BLOCKED",
+    "PASS",
+    "FAIL",
+    "INCONCLUSIVE",
+    "UNKNOWN"
+  ],
+  "evidenceClasses": [
+    "STATIC",
+    "OFFLINE",
+    "LOCAL-L1",
+    "LOCAL-L2",
+    "INDEPENDENT-WINDOWS"
+  ],
+  "hostABatch3": {
+    "state": "BLOCKED",
+    "metadataCaptureAuthorized": false,
+    "oldRootAccessAuthorized": false,
+    "reason": "Non-empty-root exception, independently reviewed metadata capture, runtime identity bridge and supervisor lifecycle ruling remain separate prerequisites; prior Batch 1/2 grants are consumed/non-inheriting."
+  }
+}

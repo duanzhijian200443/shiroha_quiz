@@ -272,6 +272,7 @@ limit the module contract to Assistant features.
 | Compile-time modules, contributions, dependencies and storage compatibility | [module-system.md](module-system.md) |
 | External identity, grants, context handles, egress and local Host/IPC | [external-agent-boundary.md](external-agent-boundary.md) |
 | Windows credential/IPC security readiness, frozen primitives, tiered local experiment gates and independent Windows acceptance | [windows-host-security-readiness.md](windows-host-security-readiness.md) |
+| Windows acceptance evidence matrix, entry gaps and unapproved L1/L2/I request templates (G0-L0 only) | [windows-host-acceptance-preparation.md](windows-host-acceptance-preparation.md), [static plan](windows-host-acceptance-plan.json) |
 | MCP profile, Tools, protocol schemas and reference-client packaging boundary | [mcp-vnext-contract.md](mcp-vnext-contract.md) |
 | Generated question admission, durable Review, atomic commit and retention | [generated-question-proposals.md](generated-question-proposals.md) |
 
