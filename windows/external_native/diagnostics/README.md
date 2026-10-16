@@ -86,6 +86,123 @@ hardening, DLL dependents and import tables without running the candidate, and
 runs `shiroha_l1_crypto_probe_test` (`shiroha_l1_crypto_probe_offline`) in CTest
 using pure Fakes only.
 
+## Windows admission candidates (E3, SOURCE / COMPILE / FAKE ONLY)
+
+Highest permitted description: **L1-CRYPTO WINDOWS ADMISSION SOURCE PREPARED /
+OFFLINE TESTED**. This is not an executable L1 grant or Windows acceptance.
+The E2 description below records its original boundary; this E3 section owns
+the added diagnostic adapter and its remaining STOPs.
+
+`l1_windows_admission.h` injects WindowsOperations into the SAME E2
+OfflineSupervisor/GrantTarget. GrantState, ABI ledger and NativeObservation
+remain the sole models; no production authorization service is added.
+States are NOT_STARTED -> GRANT_CONSUMED (`kAdmitted` compatibility alias) ->
+START_ATTEMPTED -> RUNNING -> STOP_REQUESTED / SETTLING -> COMPLETE or
+SETTLEMENT_UNKNOWN; admission errors are BLOCKED. The adapter records start
+request BEFORE entering the Worker port, independently of Worker output.
+
+The candidate is neither copyable nor movable: a consumed admission has one
+controller owner. The shared Fake journal also reserves at most one start
+request before a simulated launch, including failure, exception or lost receipt;
+reconstructed clients cannot reset it. This remains a Fake model, not Windows
+cross-process persistence. All candidate methods/observations run on one
+serialized controller boundary; future IPC must dispatch EXIT/STOP/SAMPLE there.
+Fake tests cover all event orders and producers using that explicit boundary.
+
+COMPLETE, SETTLEMENT_UNKNOWN and BLOCKED are immutable terminals. Late polls,
+samples, exits, settlement and STOP preserve the complete evidence snapshot and
+original failure. STOP_REQUESTED, DEADLINE_EXCEEDED and SETTLING are not terminal:
+already-owned cleanup and original settlement remain legal. Accepted Worker exit
+is sticky and closes new work immediately. Normal exit enters SETTLING without
+inventing a native error or release; abnormal exit latches STOP. Neither exit
+proves Native settlement, and later exit/records cannot repair terminal UNKNOWN.
+
+Consumption evidence distinguishes persisted issuance, request started,
+confirmed consume and UNKNOWN. The port requires a durable external
+request-start reservation before E2 conditional consume. One batch has at
+most one winner; crash, write failure, lost reply, failed launch and UNKNOWN
+never reset it. FakeDurableStore holds a mutex-protected E2 FakeGrantCell and
+separate sticky request journal, shared by reconstructed clients. Repeated
+thread races and reconstructed-client replay tests are OFFLINE evidence only:
+they do NOT prove separate Windows processes, disk flush, reboot or power-loss
+behavior. Copying fake file bytes cannot reproduce the separately pinned
+object/authority/journal. No claim of protection against arbitrary malicious
+same-SID processes or administrators is made.
+
+`l1_windows_operations.h/.cpp` are real Windows API leaf source, compiled into
+an opt-in OBJECT library (`SHIROHA_L1_WINDOWS_ADMISSION_SOURCE`, default OFF).
+No executable links it. Leaves check exact process Token SID, primary/medium/
+non-elevated status and enabled privileges (only traverse allowed); inspect
+borrowed handle File ID/volume, C: NTFS, link count, reparse/delete state,
+one-byte shape, exact Owner and a protected single owner-only full-access ACE;
+and prepare exclusive nonblocking LockFileEx, conditional one-byte burn,
+WriteFile/FlushFileBuffers and independent process peak/handle/exit sampling.
+These functions are NEVER called by L0 tests. They create/delete no root or
+unknown object. The narrow ACL is a candidate restriction, not permission to
+change an existing DACL; parent chain, device, image/dependency pins still need
+trusted construction. No root path is selected or probed.
+
+The integrated Win32 backend unconditionally rejects trusted approval,
+identity admission and process creation. Consume returns UNKNOWN before
+security/file/lock access. Even the separate burn leaf NEVER returns a
+confirmed permit: successful Flush is insufficient without an independently
+durable request journal/issuance anchor. It supplies no trusted issuance,
+cross-process restart-proof consumer, protected IPC or Worker launcher.
+This deliberate STOP cannot be cleared by JSON, CLI, environment or a build
+option. Existing crypto candidate entry still unconditionally rejects.
+
+Future authority must independently bind the full GrantTarget, exact SID and
+object pin, including device, Source/Base, EXE/dependency/toolchain digests,
+window, exact 1/3/3/6/3/45/45 budgets, ceilings, user batch scope and final
+Reviewer/Verifier records. `user_approved=true` is never a trusted source.
+Signer, verification key, trust boundary and key custody are REQUIRES USER
+DECISION if signed credentials are chosen; no signing key is minted here.
+Worker port takes only immutable binding, no arbitrary arguments/environment.
+Future start must pin the image/dependency closure, create suspended with a
+sanitized explicit environment/handle list, independently verify actual Token
+and image, authenticate same-batch IPC, then resume. Those operations remain
+unimplemented STOPs and need separate exact process/IPC/Job/file-I/O authority.
+
+The adapter cross-latches Supervisor STOP into NativeObservation and native
+STOP into Supervisor; only original owners may release after STOP. Exact
+30,000 ms closes admission from start attempt. It never cancels or terminates
+an in-flight synchronous call, retries, restarts, injects crashes or kills on
+timeout. Missing observer/exit/records or unsettled calls cannot PASS. E2 P3
+cross-latch coverage is now prerequisite coverage; forced-Fake wrapper tests
+also inject deadline STOP at every direct native operation occurrence and
+verify legal sole-owner cleanup, without expanding production behavior.
+
+WindowsAdmissionEvidence contains only OFFLINE/FAKE classification, E2 safe
+IDs/digests/counters/18 checkpoint samples, consumption/start/exit/STOP state,
+dependency/toolchain/account/object digests, recovery status and independent
+verdict fields (NOT_RUN until independently assigned). No raw SID, path,
+environment, secret, private key, PKCS#8/PEM, certificate, TLS key log or
+process log is serialized. This is an in-memory schema, not approved evidence
+I/O. Review/verification target record hashes are bindings, not self-approval.
+
+Before real L1: select exact new C: root/object inventory, device, SID/Token,
+window, Working Set/Commit/sampled-handle ceilings, STOP/recovery/evidence
+owners, approval authority and fixed-target reviews; implement/review trusted
+issuance, durable request journal, parent/image/dependency pins and IPC/launch;
+separately authorize each security/file/lock/process/observe/evidence operation.
+All undecided fields stay REQUIRES USER DECISION. No Host A reuse or inspection.
+OS internals, transient unsampled handles, ACL/identity races, durable writes,
+real scheduling/IPC and physical reboot are not proved by these Fake tests.
+
+Build freezing uses the STATIC source/tool/EXE manifest produced by
+`check_offline.ps1`, marked WORKING_TREE_NOT_FROZEN. Before a future request,
+commit under separate authority, rebuild exact source/base, hash EXE and every
+actual direct dependency plus toolchain, record SDK/OS/configuration and source
+inventory, freeze loader closure and independent approvals, then reject any
+drift. Dependency names alone are not hashes or a deployment closure.
+
+`check_l1_windows_source.ps1 -SelfTest` guards compile-only isolation and STOPs;
+native gate audits the Fake PE/imports BEFORE CTest. Real leaves/crypto entry
+are never registered for execution. `executionAuthorized=false`,
+L1-CRYPTO DRAFT_NOT_AUTHORIZED, all A0–A12 WINDOWS_PENDING;
+HOST_STABILITY_HALT ACTIVE, TRANSPORT BLOCKED, AR-R6A NOT_ACCEPTED,
+REAL WINDOWS PENDING, FORMAL ACCEPTANCE PENDING.
+
 ## L1-CRYPTO admission source hardening (E2, OFFLINE only)
 
 The diagnostic ledger reserves all ABI attempts before calling: ABI 1,

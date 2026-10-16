@@ -616,6 +616,42 @@
       },
       "admissionEvidenceClass": "OFFLINE",
       "realAdmission": "BLOCKED_WINDOWS_IDENTITY_ATOMIC_CONSUMPTION_SUPERVISION",
+      "windowsAdmission": {
+        "scope": "G0-L0 SOURCE / COMPILE / FAKE ONLY",
+        "executionAuthorized": false,
+        "source": [
+          "windows/external_native/diagnostics/l1_windows_admission.h",
+          "windows/external_native/diagnostics/l1_windows_operations.h",
+          "windows/external_native/diagnostics/l1_windows_operations.cpp"
+        ],
+        "offlineTest": "windows/external_native/tests/l1_windows_admission_test.cpp",
+        "sourceGuard": "tool/external/check_l1_windows_source.ps1",
+        "evidenceClass": "OFFLINE",
+        "backend": "FAKE",
+        "realBackend": "COMPILE_ONLY_STOP",
+        "crossProcessDurability": "NOT_PROVEN",
+        "approvalSource": "REQUIRES USER DECISION",
+        "signerKeyTrustAndCustody": "REQUIRES USER DECISION",
+        "candidateVolume": "C:",
+        "exactNewRootAndObjects": "REQUIRES USER DECISION",
+        "exactAccountSidAndToken": "REQUIRES USER DECISION",
+        "selectedDevice": "REQUIRES USER DECISION",
+        "experimentWindow": "REQUIRES USER DECISION",
+        "workingSetLimitBytes": "REQUIRES USER DECISION",
+        "commitLimitBytes": "REQUIRES USER DECISION",
+        "sampledHandleLimit": "REQUIRES USER DECISION",
+        "stopRecoveryEvidenceOwners": "REQUIRES USER DECISION",
+        "finalTargetReviewerVerifier": "REQUIRES USER DECISION",
+        "durableRequestJournal": "REQUIRES USER DECISION",
+        "processIpcHandleEnvironmentPlan": "REQUIRES USER DECISION",
+        "evidenceFields": [
+          "batchTrialSourceBase", "exeDependencyToolchainDigests", "pseudonymousDeviceAccount",
+          "persistedIssuance", "consumptionRequestStarted", "consumptionConfirmedOrUnknown",
+          "startRequestStarted", "abiAttemptsReturnsAcceptedSettledUnknown", "nativeOwnersSettlement",
+          "peakWorkingSetCommit", "sampledHandlesAndPositions", "observedWorkerStartExit",
+          "deadlineFirstFailureStopRecovery", "independentVerifierReviewerVerdicts"
+        ]
+      },
       "resourceObservation": {
         "samples": 18,
         "workingSetLimitBytes": "REQUIRES USER DECISION",

@@ -33,6 +33,20 @@ PACKAGE 2 SOURCE IMPLEMENTED / OFFLINE TESTED only; real TLS/Windows acceptance
 pending. Package 3 adds inactive lifecycle/recovery and static release
 candidate checks (readiness §21): PACKAGE 3 SOURCE IMPLEMENTED / OFFLINE TESTED
 only; final-target CI/review and real Windows/formal acceptance remain pending.
+The L1-CRYPTO E3 Windows admission candidate adds unlinked compile-only Win32
+Token/object/lock/burn/observation leaves and injects durable-consumption/Worker
+ports into the same E2 Supervisor. Its actual Windows backend still denies
+trusted approval, identity and launch; consume stays UNKNOWN before I/O.
+Only Fake races/reconstructed-client replay/UNKNOWN/STOP/settlement are tested;
+no real cross-process durability or runnable L1 grant is claimed. See
+[readiness E3](windows-host-security-readiness.md#e3-windows-admission-source-candidate-g0-l0-only)
+and [diagnostic boundaries](../../../windows/external_native/diagnostics/README.md#windows-admission-candidates-e3-source--compile--fake-only).
+Highest scope: L1-CRYPTO WINDOWS ADMISSION SOURCE PREPARED / OFFLINE TESTED.
+Exact new C: root/objects/SID/device/window/OS ceilings/owners/approval source,
+durable journal and IPC/process plan remain REQUIRES USER DECISION.
+No actual Windows leaves are executed; executionAuthorized=false,
+L1-CRYPTO DRAFT_NOT_AUTHORIZED and all A0–A12 WINDOWS_PENDING remain.
+
 The L1-CRYPTO E2 admission candidate adds complete 106-ABI attempt budgets,
 diagnostic-only direct CNG/crypt32 settlement observation, and pure OFFLINE
 one-use grant/Supervisor/evidence models. Highest scope is L1-CRYPTO ADMISSION

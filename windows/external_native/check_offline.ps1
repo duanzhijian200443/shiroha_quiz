@@ -3,6 +3,7 @@ param([ValidateSet('Debug', 'Release')][string]$Configuration = 'Debug')
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+& (Join-Path $PSScriptRoot '../../tool/external/check_l1_windows_source.ps1') -SelfTest
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $build = Join-Path $root 'build/p23-native'
 $cmakeCommand = Get-Command cmake -ErrorAction SilentlyContinue
@@ -18,7 +19,7 @@ $ctest = Join-Path (Split-Path -Parent $cmake) 'ctest.exe'
 
 # This path is compiled into a diagnostic candidate only; never create/open it.
 $p20CompileOnlyRoot = Join-Path $build 'p20-compile-only-root'
-& $cmake -S $PSScriptRoot -B $build -G 'Visual Studio 17 2022' -A x64 -DSHIROHA_NATIVE_OFFLINE_TESTS=ON -DSHIROHA_BATCH3_EXISTING_ONLY_BUILD=ON -DSHIROHA_L1_CANDIDATE_BUILD=ON -DSHIROHA_L1_CRYPTO_CANDIDATE_BUILD=ON -DSHIROHA_P20_MINIMAL_TEST_BUILD=ON "-DSHIROHA_P20_TEST_ROOT=$p20CompileOnlyRoot"
+& $cmake -S $PSScriptRoot -B $build -G 'Visual Studio 17 2022' -A x64 -DSHIROHA_NATIVE_OFFLINE_TESTS=ON -DSHIROHA_BATCH3_EXISTING_ONLY_BUILD=ON -DSHIROHA_L1_CANDIDATE_BUILD=ON -DSHIROHA_L1_CRYPTO_CANDIDATE_BUILD=ON -DSHIROHA_L1_WINDOWS_ADMISSION_SOURCE=ON -DSHIROHA_P20_MINIMAL_TEST_BUILD=ON "-DSHIROHA_P20_TEST_ROOT=$p20CompileOnlyRoot"
 if ($LASTEXITCODE -ne 0) { throw 'Native configure failed' }
 # Incremental Debug linking may retain unused imports from the previous API.
 # Rebuild only this tool-managed build tree before inspecting exact artifacts.
@@ -74,11 +75,11 @@ $wrapper = Get-Content (Join-Path $PSScriptRoot 'protected_windows.cpp') -Raw
 if ($wrapper -notmatch 'GetProcAddress\(module, "NtSetInformationFile"\)') { throw 'Missing user-mode publication entry' }
 # Inspect before executing. These executables link only production pure cores +
 # fakes. The production DLL is neither loaded nor called by this check helper.
-foreach ($name in @('shiroha_discovery_offline_test', 'shiroha_native_offline_test', 'shiroha_objects_offline_test', 'shiroha_exchange_offline_test', 'shiroha_probe_offline_test', 'shiroha_rename_layout_test', 'shiroha_crypto_offline_test', 'shiroha_p20_root_production_test', 'shiroha_p20_root_diagnostic_test', 'shiroha_peer_policy_offline_test', 'shiroha_l1_crypto_probe_test', 'shiroha_l1_crypto_observation_test', 'shiroha_l1_crypto_admission_test')) {
+foreach ($name in @('shiroha_discovery_offline_test', 'shiroha_native_offline_test', 'shiroha_objects_offline_test', 'shiroha_exchange_offline_test', 'shiroha_probe_offline_test', 'shiroha_rename_layout_test', 'shiroha_crypto_offline_test', 'shiroha_p20_root_production_test', 'shiroha_p20_root_diagnostic_test', 'shiroha_peer_policy_offline_test', 'shiroha_l1_crypto_probe_test', 'shiroha_l1_crypto_observation_test', 'shiroha_l1_crypto_admission_test', 'shiroha_l1_windows_admission_test')) {
     $imports = (& $dumpbin /imports (Join-Path $build "$Configuration/$name.exe") | Out-String)
     # GetProcAddress alone is used by the MSVC CRT even in the layout-only
     # executable. Reject direct loaders/security operations, not CRT machinery.
-    if ($LASTEXITCODE -ne 0 -or $imports -match 'CertCreateCertificateContext|CertFreeCertificateContext|CryptDecodeObjectEx|CertVerifyTimeValidity|CryptProtectData|CryptUnprotectData|SHGetKnownFolderPath|NtCreateFile|NtSetInformationFile|GetSecurityInfo|GetTokenInformation|GetVolumeInformationByHandleW|CreateFile[AW]|CreateDirectory[AW]|ReadFile|WriteFile|FlushFileBuffers|SetFileInformationByHandle|GetFileInformationByHandleEx|BCryptGenRandom|BCryptOpenAlgorithmProvider|BCryptGenerateKeyPair|BCryptFinalizeKeyPair|BCryptExportKey|BCryptImportKeyPair|BCryptSignHash|BCryptVerifySignature|\bLoadLibrary[AW]\b|shiroha_external_native\.dll') {
+    if ($LASTEXITCODE -ne 0 -or $imports -match 'CertCreateCertificateContext|CertFreeCertificateContext|CryptDecodeObjectEx|CertVerifyTimeValidity|CryptProtectData|CryptUnprotectData|SHGetKnownFolderPath|NtCreateFile|NtSetInformationFile|GetSecurityInfo|GetTokenInformation|OpenProcessToken|GetVolumeInformationByHandleW|CreateFile[AW]|CreateDirectory[AW]|ReadFile|WriteFile|FlushFileBuffers|SetFileInformationByHandle|GetFileInformationByHandleEx|LockFileEx|UnlockFileEx|CreateProcess[AW]|AssignProcessToJobObject|BCryptGenRandom|BCryptOpenAlgorithmProvider|BCryptGenerateKeyPair|BCryptFinalizeKeyPair|BCryptExportKey|BCryptImportKeyPair|BCryptSignHash|BCryptVerifySignature|\bLoadLibrary[AW]\b|shiroha_external_native\.dll') {
         throw 'Offline executable includes a real security/file operation'
     }
 }
@@ -89,6 +90,7 @@ if ($testList -notmatch '\bshiroha_p20_root_production_offline\b' -or
     $testList -notmatch '\bshiroha_p20_root_diagnostic_offline\b' -or
     $testList -notmatch '\bshiroha_l1_crypto_probe_offline\b' -or
     $testList -notmatch '\bshiroha_l1_crypto_observation_offline\b' -or
+    $testList -notmatch '\bshiroha_l1_windows_admission_offline\b' -or
     $testList -notmatch '\bshiroha_l1_crypto_admission_offline\b') { throw 'Offline Fake coverage missing' }
 # Compile metadata reader without loading it or invoking any P/Invoke method.
 $csc = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
@@ -161,6 +163,8 @@ $l1SourceInputs = @('CMakeLists.txt', 'check_offline.ps1', 'shiroha_external_nat
     'peer_policy.h', 'peer_policy.cpp', 'peer_policy_windows.cpp',
     'diagnostics/l1_crypto_probe.h', 'diagnostics/l1_crypto_probe.cpp',
     'diagnostics/l1_native_observation.h', 'diagnostics/l1_crypto_admission.h',
+    'diagnostics/l1_windows_admission.h', 'diagnostics/l1_windows_operations.h',
+    'diagnostics/l1_windows_operations.cpp', 'tests/l1_windows_admission_test.cpp',
     'tests/l1_crypto_fake_win32.h', 'tests/l1_crypto_observation_test.cpp',
     'tests/l1_crypto_admission_test.cpp', 'tests/l1_crypto_probe_test.cpp')
 $sourceHashes = [ordered]@{}
@@ -183,6 +187,7 @@ $staticManifest.sdkVersion = $project.SelectSingleNode("//*[local-name()='Window
 $manifestPath = Join-Path $build "$Configuration/l1-crypto-static-manifest.json"
 $staticManifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath -Encoding utf8
 Write-Output "PASS: STATIC L1-CRYPTO inventory SHA256=$((Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash); NOT FROZEN; NO EXECUTION AUTHORITY"
+& (Join-Path $root 'tool/external/check_acceptance_readiness.ps1') -SelfTest
 & $ctest --test-dir $build -C $Configuration --output-on-failure
 if ($LASTEXITCODE -ne 0) { throw 'Fake-only native contracts failed' }
 & (Join-Path $PSScriptRoot 'tests/runner_stop_test.ps1')

@@ -128,6 +128,8 @@ class FakeGrantCell {
 enum class SupervisorState {
   kNotStarted,
   kAdmitted,
+  kGrantConsumed = kAdmitted,
+  kStartAttempted,
   kRunning,
   kSettling,
   kComplete,
@@ -136,6 +138,13 @@ enum class SupervisorState {
   kSettlementUnknown,
   kBlocked
 };
+// Deadline/STOP/settling retain owning cleanup; only these final results
+// freeze.
+inline bool supervisor_terminal(SupervisorState state) noexcept {
+  return state == SupervisorState::kComplete ||
+         state == SupervisorState::kSettlementUnknown ||
+         state == SupervisorState::kBlocked;
+}
 enum class OfflineVerdict { kNotRun, kPass, kFail, kUnknown, kInconclusive };
 enum class StopReason {
   kNone,
@@ -189,7 +198,8 @@ struct OfflineEvidence {
 // exists.
 class OfflineSupervisor {
  public:
-  bool admit(FakeGrantCell &cell, const GrantTarget &observed, uint64_t now_ms,
+  template <typename GrantConsumer>
+  bool admit(GrantConsumer &cell, const GrantTarget &observed, uint64_t now_ms,
              const std::string &trial_id) {
     if (state_ != SupervisorState::kNotStarted) return false;
     if (!safe_id(trial_id) || !cell.consume(observed, now_ms)) {
@@ -211,21 +221,41 @@ class OfflineSupervisor {
     state_ = SupervisorState::kAdmitted;
     return true;
   }
-  bool launch_attempt(uint64_t now_ms, bool fake_started) noexcept {
+  bool begin_launch_attempt(uint64_t now_ms) noexcept {
     if (state_ != SupervisorState::kAdmitted || !time(now_ms)) return false;
     evidence_.launch_attempt_ms = now_ms;
     evidence_.worker_state = WorkerState::kStartAttempted;
+    state_ = SupervisorState::kStartAttempted;
     started_ = true;
-    if (!fake_started || now_ms >= target_.window_end_ms ||
+    if (now_ms >= target_.window_end_ms ||
         target_.window_end_ms - now_ms < target_.max_execution_ms) {
       stop(StopReason::kLaunch, SupervisorState::kBlocked);
-      evidence_.worker_state =
-          fake_started ? WorkerState::kUnknown : WorkerState::kStartFailed;
+      evidence_.worker_state = WorkerState::kStartFailed;
+      return false;
+    }
+    return true;
+  }
+  bool confirm_launch(WorkerState result) noexcept {
+    if (state_ != SupervisorState::kStartAttempted) return false;
+    if (result == WorkerState::kUnknown) {
+      stop(StopReason::kLaunch, SupervisorState::kSettlementUnknown);
+      evidence_.worker_state = WorkerState::kUnknown;
+      evidence_.verdict = OfflineVerdict::kUnknown;
+      return false;
+    }
+    if (result != WorkerState::kRunning) {
+      stop(StopReason::kLaunch, SupervisorState::kBlocked);
+      evidence_.worker_state = WorkerState::kStartFailed;
       return false;
     }
     state_ = SupervisorState::kRunning;
     evidence_.worker_state = WorkerState::kRunning;
     return true;
+  }
+  bool launch_attempt(uint64_t now_ms, bool fake_started) noexcept {
+    return begin_launch_attempt(now_ms) &&
+           confirm_launch(fake_started ? WorkerState::kRunning
+                                       : WorkerState::kStartFailed);
   }
   bool admission_open(uint64_t now_ms) noexcept {
     if (!poll(now_ms, true)) return false;
@@ -233,10 +263,7 @@ class OfflineSupervisor {
            evidence_.first_failure == StopReason::kNone;
   }
   bool poll(uint64_t now_ms, bool monitor_healthy) noexcept {
-    if (state_ == SupervisorState::kComplete ||
-        state_ == SupervisorState::kSettlementUnknown ||
-        state_ == SupervisorState::kBlocked ||
-        state_ == SupervisorState::kNotStarted)
+    if (supervisor_terminal(state_) || state_ == SupervisorState::kNotStarted)
       return false;
     if (!monitor_healthy || !time(now_ms)) {
       stop(StopReason::kMeasurement, SupervisorState::kStopRequested);
@@ -283,31 +310,38 @@ class OfflineSupervisor {
   void worker_failed() noexcept {
     stop(StopReason::kWorker, SupervisorState::kStopRequested);
   }
+  void observe_worker_exit(uint64_t now_ms) noexcept {
+    if (supervisor_terminal(state_) || !started_ ||
+        evidence_.process_exit_observed || !time(now_ms))
+      return;
+    evidence_.process_exit_observed = true;
+    evidence_.worker_state = WorkerState::kExitObserved;
+    evidence_.process_end_ms = now_ms;
+    begin_settlement();
+  }
   void begin_settlement() noexcept {
-    if (started_ && state_ != SupervisorState::kComplete &&
-        state_ != SupervisorState::kBlocked &&
-        state_ != SupervisorState::kSettlementUnknown)
+    if (started_ && !supervisor_terminal(state_))
       state_ = SupervisorState::kSettling;
   }
   // Observer records, not worker exit=0 or a worker-provided PASS string.
   void settle(uint64_t now_ms, bool observed_exit, const L1CryptoLedger &ledger,
               const NativeObservation &native) noexcept {
-    if (!started_ || state_ == SupervisorState::kComplete ||
-        state_ == SupervisorState::kBlocked ||
-        state_ == SupervisorState::kSettlementUnknown)
-      return;
+    if (!started_ || supervisor_terminal(state_)) return;
     poll(now_ms, true);
     evidence_.abi = ledger.abi_calls;
     evidence_.native = native;
     evidence_.buffers_acquired = ledger.buffers_allocated;
     evidence_.buffers_live = ledger.buffers_live;
-    evidence_.process_exit_observed = observed_exit;
-    evidence_.worker_state =
-        observed_exit ? WorkerState::kExitObserved : WorkerState::kUnknown;
+    if (observed_exit && !evidence_.process_exit_observed) {
+      evidence_.process_exit_observed = true;
+      evidence_.process_end_ms = now_ms;
+    }
+    evidence_.worker_state = evidence_.process_exit_observed
+                                 ? WorkerState::kExitObserved
+                                 : WorkerState::kUnknown;
     evidence_.completed_native_calls = ledger.completed;
-    if (observed_exit) evidence_.process_end_ms = now_ms;
-    bool unresolved = !observed_exit || native.unknown || native.still_owned ||
-                      native.quarantined ||
+    bool unresolved = !evidence_.process_exit_observed || native.unknown ||
+                      native.still_owned || native.quarantined ||
                       native.acquired != native.released ||
                       ledger.settlement_unknown;
     bool exact =
@@ -359,6 +393,7 @@ class OfflineSupervisor {
     return true;
   }
   void stop(StopReason reason, SupervisorState state) noexcept {
+    if (supervisor_terminal(state_)) return;
     if (evidence_.first_failure == StopReason::kNone)
       evidence_.first_failure = reason;
     state_ = state;
