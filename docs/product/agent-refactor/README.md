@@ -27,7 +27,10 @@ P22 is merged in PR #280; P23 is merged in PR #281; P24 is merged in PR #282;
 P25 is merged in PR #283; P26 adds inactive G0-L0 protected Discovery
 publisher/reader only; P27-E0 adds an inactive G0-L0 identity/content-bound
 Exchange consumption foundation. P27-I0 adds inactive Pairing integration:
-PACKAGE 1 SOURCE IMPLEMENTED / OFFLINE TESTED only; real acceptance pending.**
+PACKAGE 1 SOURCE IMPLEMENTED / OFFLINE TESTED only; real acceptance pending.
+Package 2 adds an inactive G0-L0 TCP/mTLS transport candidate (readiness §20):
+PACKAGE 2 SOURCE IMPLEMENTED / OFFLINE TESTED only; real TLS/Windows acceptance
+pending.**
 
 The Provider seam, typed capability/executor/projection path and Runtime split/
 transcript are delivered in the preceding merged stages. Historical AR-R3
@@ -210,6 +213,19 @@ single-use Bridge completion window is at most 120 seconds. Package 1 reaches
 SOURCE IMPLEMENTED / OFFLINE TESTED only. No real UI/process Pairing, Windows
 security acceptance, listener, TLS, new authorization or production wiring is
 claimed. Section 19's table is the Package 1 integration coverage index.
+
+Package 2 under [readiness §20](windows-host-security-readiness.md#20-package-2-tls-and-bounded-host-adapter-g0-l0-only)
+adds an inactive SOURCE IMPLEMENTED / OFFLINE TESTED TCP/mTLS transport
+candidate: explicit Raw IPv4 accept with bounded TLS upgrade, isolated explicit
+TLS 1.3 contexts, an optional certificate-only ABI-3
+`shiroha_native_peer_certificate_policy` export, P20 read-only inverse
+association lookup, private one-use P15 channel evidence, P26-acknowledged
+publication and the unchanged P9/P10/P8/P7 pipeline under fixed first-candidate
+ceilings (one request per connection). Source guards keep the group unwired; no
+listener, TLS context, credential object, Host or Bridge production composition
+is activated. REAL WINDOWS PENDING / FORMAL ACCEPTANCE PENDING remain explicit;
+G0-L1, G0-L2 and G0-I keep their separate grants and Package 3 is not started.
+
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 Production Host/IPC, MCP vNext and READ fallback continuation remain unimplemented
 targets. Current product behavior

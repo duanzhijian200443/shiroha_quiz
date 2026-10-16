@@ -434,7 +434,7 @@ void main() {
     expect(binding.isLive, isFalse);
   });
   test(
-      'B3 fragmented and coalesced P9 reaches unchanged P10/P8 under real P15 binding',
+      'B3 fragmented P9 reaches unchanged P10/P8 once; coalesced second request is never dispatched',
       () async {
     await h.enable();
     await h.start();
@@ -446,13 +446,15 @@ void main() {
     h.listener.controller.add(MemoryRawPeer(channel));
     await channel.written.future;
     await pumpEventQueue(times: 12);
-    expect(channel.writes, hasLength(2));
-    for (final output in channel.writes) {
-      final response = IpcEnvelopeDecoder().consume(output).envelope!;
-      expect(response.requestId, 'wire-id');
-      expect(jsonDecode(response.payload)['error'], isNull);
-    }
-    await h.settle(channel);
+    // One request per connection: the coalesced second frame must never reach
+    // a second P9/P10/P8 dispatch, and only the implementation may close.
+    expect(channel.writes, hasLength(1));
+    final response =
+        IpcEnvelopeDecoder().consume(channel.writes.single).envelope!;
+    expect(response.requestId, 'wire-id');
+    expect(jsonDecode(response.payload)['error'], isNull);
+    await h.candidate!.whenConnectionsSettled;
+    expect(channel.open, isFalse);
     for (final kind in TlsResource.values) {
       expect(h.candidate!.budget.used(kind), 0, reason: kind.name);
     }

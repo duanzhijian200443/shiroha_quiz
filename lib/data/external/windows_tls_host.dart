@@ -200,9 +200,9 @@ final class _TlsConnection {
       if (!live) _tlsReject();
       final projection = OfflineIpcCommandProjection(
           host: owner.host, authentication: session!);
-      while (live) {
-        await _frame(projection);
-      }
+      // Frozen first-candidate ceiling: one request per connection; the single
+      // frame settles before acknowledged close and reservation release.
+      await _frame(projection);
     } catch (_) {
       // Fixed fail-closed boundary. No wire echo, retry, alternate parser or
       // inference of STAGE effect. Owning P8 settlement is awaited in _frame.
