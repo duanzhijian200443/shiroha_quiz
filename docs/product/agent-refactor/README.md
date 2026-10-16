@@ -30,7 +30,9 @@ Exchange consumption foundation. P27-I0 adds inactive Pairing integration:
 PACKAGE 1 SOURCE IMPLEMENTED / OFFLINE TESTED only; real acceptance pending.
 Package 2 adds an inactive G0-L0 TCP/mTLS transport candidate (readiness §20):
 PACKAGE 2 SOURCE IMPLEMENTED / OFFLINE TESTED only; real TLS/Windows acceptance
-pending.**
+pending. Package 3 adds inactive lifecycle/recovery and static release
+candidate checks (readiness §21): PACKAGE 3 SOURCE IMPLEMENTED / OFFLINE TESTED
+only; final-target CI/review and real Windows/formal acceptance remain pending.**
 
 The Provider seam, typed capability/executor/projection path and Runtime split/
 transcript are delivered in the preceding merged stages. Historical AR-R3
@@ -224,7 +226,32 @@ publication and the unchanged P9/P10/P8/P7 pipeline under fixed first-candidate
 ceilings (one request per connection). Source guards keep the group unwired; no
 listener, TLS context, credential object, Host or Bridge production composition
 is activated. REAL WINDOWS PENDING / FORMAL ACCEPTANCE PENDING remain explicit;
-G0-L1, G0-L2 and G0-I keep their separate grants and Package 3 is not started.
+G0-L1, G0-L2 and G0-I keep their separate grants. Package 3's now-delivered
+source candidate below is not production lifecycle/release activation.
+
+Package 3 under [readiness §21](windows-host-security-readiness.md#21-package-3-lifecycle-and-release-source-candidate-g0-l0-only)
+adds an inactive owned-Host lifecycle, recovery evidence and static release
+inspection candidate: `WindowsTlsHost.owned` transfers one already acquired App
+Owner with `runtime.lock` custody into the SAME Package 2 Host, validating the
+exact P26/P25 Owner, P20 Store, P27 Pairing verifier, attached P15 boundary and
+P12 coordinator, with a one-use `claimRuntime` and the `inactive -> preparing
+-> ready -> closing -> closed` phases. Sticky fail-closed shutdown closes
+admission and waits accepted work, P8/P7 owning settlement, P27 operations,
+P15/P12 verification/drain and a started revoke CAS before P20 Store close,
+releasing the Owner/`runtime.lock` last; uncertain cleanup retains custody and
+never reports clean closure. Channel close invalidates only its own attempt;
+explicit `revoke()` delegates the P15 management check -> evidence/admission
+close -> drain -> Association CAS without reopening a failed CAS. The A8
+offline fixture cuts a Fake Channel after the actual P3 commit and reconciles
+the original SubmissionKey through a fresh P15 Session without restage.
+`WindowsExternalReleaseCandidate` performs pure package/PE inventory checks
+without loading, and the default-disabled `tool/external/bridge_candidate.dart`
+AOT entry refuses activation (64/78); source guards keep the group unwired.
+Package 3 reaches SOURCE IMPLEMENTED / OFFLINE TESTED only: it is neither
+production activation nor an A-row acceptance, and no real
+shutdown/restart/revoke/crash/release trial or AOT/Release build is performed.
+REAL WINDOWS PENDING / FORMAL ACCEPTANCE PENDING remain explicit; G0-L1, G0-L2
+and G0-I keep their separate grants.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 Production Host/IPC, MCP vNext and READ fallback continuation remain unimplemented

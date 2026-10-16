@@ -562,6 +562,13 @@ void main() {
     expect(h.candidate!.budget.isUsable, isFalse);
     expect(h.candidate!.budget.used(TlsResource.socket), 1);
     channel.failClose = false;
+    // An unknown cleanup remains a failed shutdown even after the Fake's
+    // failure switch changes. Settled connection Futures do not prove release.
+    await expectLater(h.candidate!.shutdown(), throwsA(anything));
+    await expectLater(h.candidate!.shutdown(), throwsA(anything));
+    expect(h.candidate!.phase, WindowsTlsHostPhase.closing);
+    expect(h.candidate!.budget.used(TlsResource.socket), 1);
+    h.candidate = null; // Explicit fixture cleanup, no production close retry.
   });
 
   for (final mode in ['port', 'shared', 'publishUnknown']) {

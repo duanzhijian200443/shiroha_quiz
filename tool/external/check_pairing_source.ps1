@@ -12,6 +12,9 @@ foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.
             '.cleanup(', '.write(', '.enable(', 'openSession(', 'createProfile(')) {
             if ($code.Contains($token)) { throw "P27 candidate escaped bounded Pairing: $token" }
         }
+    } elseif ($file.FullName -in @((Join-Path $root 'lib/data/external/windows_tls_transport.dart'), (Join-Path $root 'lib/data/external/windows_tls_host.dart'))) {
+        # Exact inactive Package 3 consumer; its own hard-failing gate rejects
+        # production wiring and alternate authorization/persistence.
     } elseif ($code -match 'windows_pairing|WindowsAppPairing|WindowsBridgePairing|WindowsPairingVerification') {
         throw 'P27 production composition is active'
     }

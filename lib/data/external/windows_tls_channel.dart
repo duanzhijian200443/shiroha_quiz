@@ -26,6 +26,7 @@ final class WindowsChannelVerification
   ExternalCredentialBoundary? _boundary;
   final _attempts = <_ChannelAttempt>{};
   final _channels = Set<TlsChannel>.identity();
+  final _seenChannels = Set<TlsChannel>.identity();
   bool _closed = false;
 
   void attach(ExternalCredentialBoundary boundary) {
@@ -42,6 +43,8 @@ final class WindowsChannelVerification
         plan.role != TlsPeerRole.server ||
         !plan.isCurrent ||
         _channels.length >= 8 ||
+        _seenChannels.length >= ExternalCredentialBoundary.maxVerifiedEvents ||
+        !_seenChannels.add(channel) ||
         !_channels.add(channel)) {
       _tlsReject();
     }

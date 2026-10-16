@@ -3210,3 +3210,197 @@ crash/recovery and packaged validation. None is started or requested here.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
 REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
+
+## 21. Package 3 lifecycle and release source candidate (G0-L0 only)
+
+This extends the inactive Package 1/2 source candidate. C1–C4 supply controlled
+lifecycle coordination, deterministic recovery evidence and a static release
+inspection contract. **PACKAGE 3 SOURCE IMPLEMENTED / OFFLINE TESTED** describes
+only that bounded source candidate. It is neither a production activation nor
+an A-row acceptance. Exact local commands/results belong to delivery evidence;
+current-target standing CI and independent review remain separate gates.
+
+### C1: the existing Host owns coordination and lock custody
+
+`WindowsTlsHost.owned` transfers an already acquired App
+`ExternalProtectedObjects` Owner, including its exclusive `runtime.lock`, to
+the SAME Package 2 Host. Construction checks the exact P26/P25 Owner, P20
+Store, P27 Pairing verifier, attached P15 boundary and P12 coordinator.
+The P27 public Runtime ID is the SAME value as P26 publication and P15's
+attached generation must match; mismatches reject before bind/publication. The
+read-only `usesOwner`, `usesRuntime` and `usesComposition` checks create no
+authority. Trusted composition acquires its own Owner before ANY Store work;
+the existing Owner's one-use `claimRuntime` also rejects two Hosts sharing the
+same acquired Dart capability, without closing or disturbing its first Host;
+the OS lock excludes a concurrent writer/listener. In-process replacement
+awaits the old Host's successful full shutdown before independent acquisition
+and a fresh P0/P12/P15 composition. Acquisition failure performs no bind,
+publication or Store mutation. There is no PID/age heuristic or lock deletion.
+
+The coordination phases are `inactive -> preparing -> ready -> closing ->
+closed`, not PairingState or a second business lifecycle. `start()` remains the
+only transport pipeline: acquired Owner -> trusted P12 Application startup
+completes P8 database/recovery/module/ten-route readiness -> transport observes
+P8's read-only CURRENT Ready prerequisite -> `P26TlsStartup.prepare` validates
+current persisted credentials -> fixed
+candidate budget/bind/address checks -> P26 durable epoch commit and protected
+publication -> matching current Runtime/leaf/port/epoch acknowledgement ->
+Ready. Constructors perform no OS acquisition or network call. Any startup
+failure closes admission and schedules the same full shutdown; no alternate
+listener, old Discovery readiness, rekey or retry exists.
+
+Shutdown is sticky and idempotent. It immediately closes candidate admission,
+startup validity, channel evidence, P27 Pairing and P15/P8 admission. It waits
+the ORIGINAL startup, closes the Listener once, cancels the accept producer,
+requests accepted Channel/Socket closure and waits every accepted connection's
+original handshake/decode/business/output work. P8/P7/READ/STAGE owning work,
+P27 operations, P15/P12 verification/drain and a started P15 revoke CAS settle
+before P20 Store close. TLS plans are disposed; only then may the Owner and
+`runtime.lock` close. P15 alone advances P0 generation after its owning drain.
+No timeout, cancelled caller or response result substitutes for settlement.
+
+Failed Listener/Socket/Store/control settlement keeps phase `closing`, admission
+closed and the Owner/lock retained. Owner-close failure likewise cannot report
+`closed`; the original failed shutdown Future is returned again. Quarantined
+reservations are retained, with no automatic release/retry/re-admission. Native
+close owns its existing quarantine; Dart cannot prove actual OS release.
+
+### C2: disconnect, revoke and recovery stay with their original owners
+
+Socket close invalidates only that connection's TLS/P15 attempts. A bounded
+identity-history set rejects reuse of the same Channel object permanently,
+including a failed first attempt; it is NOT a Session registry. P0 has no
+per-Session revoke. Other legitimate Sessions and P4–P6 READ references retain
+their original semantics. P15/P0 Session validity and P8/P7 current
+Grant/Scope/Revision/final Egress checks remain mandatory.
+
+`WindowsTlsHost.revoke` is an explicit trusted local action that delegates the
+existing P15 management check -> evidence/admission close -> owning/P12 drain
+-> Association CAS sequence, then the SAME Host shutdown. Store/lock custody
+outlives that CAS. A failed CAS is not revoke success and never reopens the
+runtime. Disable/finite Enablement expiry and credential validity still reject
+through existing authorities. Retired leaf/invalid anchor cannot reauthenticate;
+no new renewal/rotation convenience API exists. A new Server plan/listener needs
+old-runtime disposal. Signed anchor rotation remains unavailable until its
+undefined record format receives separate scope; explicit re-enrollment is the
+existing alternative, never silent Pin/Issuer replacement.
+
+Restore/raw rollback callers must await full shutdown before the existing B0
+swap, then build fresh unpaired/disabled authority. No Association/kind 4,
+historical Proposal or crash residue restores Sessions, Contexts or Enablement.
+P27 unknown-completion recovery remains §9.C.8, with revoke-first replacement.
+No schema repair, orphan Association deletion, extra receipt or journal exists.
+
+The A8 offline fixture cuts a Fake Channel AFTER P3's actual isolated SQLite
+Proposal commit and BEFORE response writing. Pipeline custody lasts through
+the original `afterCommit` continuation; no frame is delivered and the client
+has an UNKNOWN result. A different fresh P15-authenticated Session opens P8
+Reconciliation with the ORIGINAL SubmissionKey and finds the unchanged one
+Proposal. Envelope ID is deliberately different; no restage/formal COMMIT occurs.
+The transaction-before-publication and after-commit revoke fixtures distinguish
+no new Proposal from a legal retained Proposal. Existing P3/P8/P12 tests retain
+safe unknown-result and restart/reconciliation evidence across SQLite reopen.
+
+**Residue policy:** P26 still has only Publish/Read exports; no identity-bound
+Discovery deletion capability exists. Normal shutdown leaves Endpoint/Anchor/
+Installation and failed temporaries inert. It never deletes by path, sweeps
+directories, touches foreign sentinels, replaces trust or treats absence as
+settled deletion. P24 creator cleanup/E0 counterpart consumption retain their
+exact Owner/identity/content checks. If a future cleanup requirement needs
+Endpoint deletion, the minimal separately scoped addition is an opaque
+Owner/Runtime-bound publication pin plus conditional handle-identity deletion,
+with parent/volume/file identity revalidation and unknown-release quarantine.
+That interface is NOT implemented, and this package adds no Native ABI. Safe
+retention is the implemented policy; successful deletion is not claimed.
+
+### C3: static Windows package and loading contract
+
+`WindowsExternalReleaseCandidate` is a pure inventory/PE inspection module.
+It checks mandatory build-relative files, declared plugin libraries, malformed
+PE signatures/offsets, x64 machine and PE32+ header shape without loading bytes.
+Unknown objects reject without deletion. This is a minimum inventory, not proof
+of a complete signed installer or the Windows loader's acceptance.
+
+| Candidate | Minimum required package inputs / dependency rule |
+|---|---|
+| Flutter App | `shiroha_quiz.exe`, `flutter_windows.dll`, `shiroha_external_native.dll`, `data/app.so`, `data/icudtl.dat`, `data/flutter_assets/AssetManifest.bin`, actual build-declared plugin DLLs/assets. Existing Windows CMake installs the helper beside the executable and AOT library for Profile/Release; Runner does not load or initialize External Host. |
+| Standalone Bridge | `shiroha_bridge.exe` and the same Native DLL; no Flutter engine or App business database. `tool/external/bridge_candidate.dart` is an unactivated AOT SOURCE entry: invalid arguments refuse with 64; otherwise it refuses activation with 78. No process is compiled/launched by its tests and no connector is started. |
+| Loader | Existing `WindowsExternalNative.open` resolves ONLY `Platform.resolvedExecutable`'s directory plus the fixed DLL name, by absolute Windows path. No PATH/CWD/environment/native-location override, download, elevation or fallback. Missing/invalid image or ABI mismatch rejects before Owner acquisition. |
+| Native | ABI 3, x64, exactly 27 current FFI/export names. `check_offline.ps1` compares the compiled DLL exports with the ACTUAL Dart bindings, checks hardening, imports and a fixed system/CRT dependency family. Production DLL is never loaded by offline checks. |
+
+Current export inventory, all prefixed `shiroha_native_`:
+
+| Group | Exact suffixes |
+|---|---|
+| Base (6) | `abi_version`, `buffer_alloc`, `buffer_free`, `local_app_data`, `dpapi_protect`, `dpapi_unprotect` |
+| Owner (3) | `owner_acquire`, `owner_validate`, `owner_close` |
+| Association (3) | `association_begin`, `association_commit`, `association_abort` |
+| Crypto (3) | `ecdsa_generate_key`, `ecdsa_sign_digest`, `ecdsa_verify_digest` |
+| Credential (3) | `credential_begin`, `credential_commit`, `credential_abort` |
+| Exchange (3) | `exchange_create`, `exchange_read`, `exchange_cleanup` |
+| Discovery (2) | `discovery_publish`, `discovery_read` |
+| Original read consumption (3) | `exchange_read_begin`, `exchange_consume`, `exchange_release` |
+| Peer certificate (1) | `peer_certificate_policy` |
+
+Native links crypt32/shell32/ole32/advapi32/bcrypt plus kernel/CRT dependencies;
+the static gate reports actual dependencies. Local Debug CRT imports are NOT
+redistributable Release evidence. Release CRT distribution, exact dependency
+hashes and the actual AOT closure remain WINDOWS_PENDING. Fake loading tests
+cover Unicode/space paths, missing/wrong DLL and ABI mismatch with zero Owner/
+security calls. Missing credentials and invalid Endpoint/Anchor remain covered
+by the original Store/P26/Bridge fixtures. The Bridge entry's recursive local
+import/export/part audit rejects Flutter, SQLite, App repositories, migrations
+and Provider stores; shared Application types confer no alternate writer.
+
+Future X12 procedure (NOT executed or authorized here): freeze the reviewed
+source/toolchain/dependency lockfiles and exact non-elevated Windows device;
+separately authorize `flutter build windows --release` and
+`dart compile exe tool/external/bridge_candidate.dart -o <approved-package>/shiroha_bridge.exe`.
+Inspect the resulting package inventory, SHA-256 hashes and Native
+`dumpbin /headers`, `/exports`, `/imports`, `/dependents` outputs without loading
+it. Verify Release CRT distribution and absence of Debug/developer dependencies.
+Only after the corresponding runtime grant, use approved space/Unicode package
+roots and sanitized PATH/CWD to check cold start, missing/wrong-architecture/
+ABI-mismatched DLLs, missing/corrupt stores and invalid Discovery/Anchor. The
+current Bridge entry must refuse activation; a functional App/Bridge launch
+requires separately reviewed/authorized composition. Upgrade/abnormal-close,
+real resource release and any crash/termination trial remain separately granted
+G0-I cases with synthetic data and fixed-target independent evidence. AOT
+compilation alone, including a disabled-entry executable, passes no A row.
+
+### C4: standing coverage and A/X acceptance map
+
+`windows_tls_lifecycle_test` and `windows_release_candidate_test` are each
+registered once in hard-failing PR contract checks. Existing TLS, P27, P26,
+P20/P23, P0/P12/P15, P3/P7/P8/P9/P10, B0, architecture and MCP v0 suites remain
+required. Source guards admit only the exact inactive P27 consumer in the TLS
+group, retaining the prohibition on production composition. No gate is skipped
+or weakened, and no vNext/COMMIT/DESTRUCTIVE/SQL RPC is added.
+
+Every row below is **SOURCE IMPLEMENTED / OFFLINE TESTED** only for its named
+source/Fake/static subset. EVERY row is still **REAL WINDOWS PENDING / FORMAL
+ACCEPTANCE PENDING** for its complete §7 criterion. None is A-row PASS.
+
+| A / X | Offline responsibility and standing evidence | Required real evidence |
+|---|---|---|
+| 0 | lifecycle phase/readiness/bind/publication races; P26 exact Runtime/leaf/port/epoch binding | X0 actual loopback-only startup/publication, wrong-address refusal |
+| 1–2 | P27 public-vector possession; TLS/P15 identity, one-use/reused Channel, wrong/retired/expired peer and anchor cases | X1/X2 actual CNG/crypt32 and TLS 1.3 rejection matrix |
+| 3–4 | Native/P20/P23 Owner/CAS/snapshot failures; P4–P8 current policy and final release | X3/X4 actual NTFS/DPAPI/cross-SID isolation and business admission |
+| 5 | lifecycle Revoke CAS success/failure/drain; P12/P15 and B0 Restore/raw rollback/no resurrection | X5 real disable/revoke/expiry/rotation/restart/Restore |
+| 6–7 | P9 header/ID before payload; unchanged ceilings; TLS resource/deadline/late-handshake/write/unknown-cleanup cases | X6/X7 actual allocation/native-memory/handle/backpressure and settled-close measurements |
+| 8 | lifecycle real isolated P3 commit -> Fake disconnect -> fresh P15 Session -> original-key same-Proposal reconciliation; before/after revoke order | X8 approved real-channel response cut with synthetic data (outside L1/L2) |
+| 9 | disabled Bridge entry and recursive no-database/no-migration/no-alternate-writer source audit | X9 packaged App absence/not-ready/closed Bridge and synthetic-DB access audit |
+| 10 | unchanged ten P9/P10 routes, six MCP v0 READ tools and architecture guards | X10 full compatibility criterion, separately named stdio runtime trial if needed |
+| 11 | Owner exclusion/last release, sticky shutdown/unknown cleanup; P26 epoch gaps/same Generation and identity/sentinel Fake cases; P24/E0 identity-bound cleanup tests | X11 real two-runtime single-liveness, crash/termination/replacement, foreign-object safety; no Discovery deletion proof claimed |
+| 12 | Native MSVC compile/FFI/export/import/x64, pure inventory/PE and Unicode/space loader Fakes | X12 full packaged AOT/non-elevated/sanitized-environment cold start, upgrade and abnormal close |
+
+Next real work requires independent source review and separately frozen G0-L1
+objects/operations/budgets, then separately granted G0-L2 connection-only trials
+after prerequisites. Full X5/X8–X12 business/crash/AOT acceptance needs G0-I,
+an independent-kernel Windows environment, exact grants and fixed-target
+Verifier/Reviewer evidence. No Release/AOT App/Bridge build or process run,
+real security object, Socket/TLS experiment or production activation is
+performed by this package. Schema v34, B0 v2, S0 and default startup stay intact.
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
+REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.

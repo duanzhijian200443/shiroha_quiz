@@ -16,6 +16,8 @@ final class WindowsCredentialAssociationStore
       : _now =
             nowUtcMs ?? (() => DateTime.now().toUtc().millisecondsSinceEpoch);
   final ExternalProtectedObjects _owner;
+
+  bool usesOwner(ExternalProtectedObjects owner) => identical(_owner, owner);
   final int Function() _now;
   Future<void> _tail = Future.value();
   int _pending = 0, _epoch = 0;

@@ -25,6 +25,8 @@ final class WindowsExchangeFileStore {
   WindowsExchangeFileStore(this._owner);
   final ExternalProtectedObjects _owner;
 
+  bool usesOwner(ExternalProtectedObjects owner) => identical(_owner, owner);
+
   T _native<T>(T Function() operation) {
     try {
       return operation();

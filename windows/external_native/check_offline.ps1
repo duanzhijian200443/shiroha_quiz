@@ -39,6 +39,18 @@ $expected = @('shiroha_native_abi_version', 'shiroha_native_buffer_alloc', 'shir
     'shiroha_native_exchange_read_begin', 'shiroha_native_exchange_consume', 'shiroha_native_exchange_release',
     'shiroha_native_peer_certificate_policy')
 if ($actual.Count -ne 27 -or @(Compare-Object $expected $actual).Count -ne 0) { throw 'Unexpected DLL ABI exports' }
+$bindings = [IO.File]::ReadAllText((Join-Path $root 'lib/data/external/native/external_native_bindings.dart'))
+$ffiSymbols = @([regex]::Matches($bindings, "'(?<name>shiroha_native_[a-z_]+)'" ) | ForEach-Object { $_.Groups['name'].Value } | Sort-Object -Unique)
+if (@(Compare-Object ($actual | Sort-Object -Unique) $ffiSymbols).Count -ne 0) { throw 'FFI/DLL symbol mismatch' }
+$dependencies = (& $dumpbin /dependents $dll | Out-String)
+if ($LASTEXITCODE -ne 0) { throw 'DLL dependency inspection failed' }
+$dependencyNames = @([regex]::Matches($dependencies, '(?im)^\s+([a-z0-9_.-]+\.dll)\s*$') | ForEach-Object { $_.Groups[1].Value })
+foreach ($dependency in $dependencyNames) {
+    if ($dependency -notmatch '^(kernel32|crypt32|shell32|ole32|advapi32|bcrypt|msvcp140d?|vcruntime140(?:_1)?d?|ucrtbased|api-ms-win-crt-[a-z0-9-]+)\.dll$') {
+        throw 'Unexpected Native dependency'
+    }
+}
+Write-Output "PASS: 27 FFI exports match x64 Native DLL; dependencies=$($dependencyNames -join ',') (static only)"
 $headers = (& $dumpbin /headers $dll | Out-String)
 if ($LASTEXITCODE -ne 0 -or $headers -notmatch '8664 machine \(x64\)') { throw 'DLL is not x64' }
 foreach ($flag in @('Dynamic base', 'NX compatible', 'Control Flow Guard')) {
