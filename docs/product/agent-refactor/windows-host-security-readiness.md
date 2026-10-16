@@ -41,6 +41,12 @@ remain BLOCKED_ON_G0 without their exact batch grant (section 9.F).
 
 ## 1. Decision and evidence classification
 
+The reusable [acceptance preparation guide](windows-host-acceptance-preparation.md)
+and [machine-checkable plan](windows-host-acceptance-plan.json) map sections
+6/7/9.F/21 to unapproved L1/L2/I request templates, source evidence and entry gaps.
+They grant no experiment authority and close no WINDOWS_PENDING item. Exact
+Git/CI/Review results remain delivery evidence, not an execution ledger here.
+
 Retain IPv4 Loopback TCP + mTLS as the preferred candidate and Named Pipe as
 the sole fallback. Standard Dart APIs support relevant TLS primitives; that
 does not prove protected Discovery, credential issuance/storage, handshake
