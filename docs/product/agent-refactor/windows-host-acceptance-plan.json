@@ -592,6 +592,21 @@
       "dependsOn": [
         "Independent review of exact helper and isolated entry"
       ],
+      "isolatedHarness": [
+        "windows/external_native/diagnostics/l1_crypto_probe.h",
+        "windows/external_native/diagnostics/l1_crypto_probe.cpp"
+      ],
+      "offlineHarnessTest": "windows/external_native/tests/l1_crypto_probe_test.cpp",
+      "allowedNativeSymbols": [
+        "shiroha_native_abi_version",
+        "shiroha_native_buffer_alloc",
+        "shiroha_native_buffer_free",
+        "shiroha_native_ecdsa_generate_key",
+        "shiroha_native_ecdsa_sign_digest",
+        "shiroha_native_ecdsa_verify_digest",
+        "shiroha_native_peer_certificate_policy"
+      ],
+      "defaultEntryGate": "l1_crypto_execution_not_authorized",
       "allowedObjects": [
         "3 ephemeral in-memory issuer/server/client key pairs",
         "3 public test certificates; no ambient certificate store"

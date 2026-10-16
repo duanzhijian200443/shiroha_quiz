@@ -52,6 +52,13 @@ Batch 1/2 不能给 Host A Batch 3 带来继承许可。
   `externalHostActivationPending`。它不是完整 Windows 验收 Bridge。
 - `OwnedHarness` / `TlsHarness`（windows_tls_lifecycle/transport tests）使用 Fake listener/channel/native、
   公共签名向量和合成 SQLite。可复用确定性测试思想和端口，不能直接改成真实设备执行器。
+- `windows/external_native/diagnostics/l1_crypto_probe.h` 与 `l1_crypto_probe.cpp`（由默认关闭的
+  `SHIROHA_L1_CRYPTO_CANDIDATE_BUILD` 编译为 `shiroha_l1_crypto_candidate.exe`）提供 `L1-CRYPTO`
+  专用短生命周期原生候选：物理排除 `native_windows.cpp`、`protected_objects.cpp`、`protected_windows.cpp`
+  及所有 Store/Exchange/Discovery/Owner 翻译单元，仅链接 `crypt32`/`bcrypt`/`psapi`；通过 7 符号白名单门禁
+  拒绝其余 20 个 ABI-3 导出，内建 1/3/3/6(3 正+3 负)/3 同步预留账本、单次释放槽位与 18 点资源采样。
+  其入口 `l1_crypto_candidate_entry` 在 E0 固定拒绝真实运行（`l1_crypto_execution_not_authorized`，exit 10）；
+  CTest 仅注册纯 Fake 的 `shiroha_l1_crypto_probe_offline`。
 - 当前未提供通过批准的隔离根、仅认证无业务路由的真实 TLS 可执行 Composition；
   也未提供 G0-I 的真实 App/Bridge、可信人工 Pairing、合成 DB/B0 与操作员组合。
 - 构建、部署、启动、停止/销毁是分别授权的动作；编译成功或静态 inventory 不授权启动。
@@ -137,7 +144,7 @@ JSON `environment` 与每份 `requests` 合并后构成申请草案。
 
 | 草案 | 依赖、精确操作候选 | 时限候选 | 对象/边界 |
 |---|---|---|---|
-| L1-CRYPTO | 独立源码审查和隔离入口；3 次临时 P-256 key generation、3 个证书 encode/sign、6 次验签（3 正/3 改动）、3 次 crypt32 profile 检查；每资源仅一次正常释放 | 30 秒 | 三组内存测试 issuer/server/client，不装全局信任根，不写正式凭据；证书签名 DER、自定义签名 raw |
+| L1-CRYPTO | `l1_crypto_probe` 隔离候选与 Fake 门禁已就绪（G0-L0），待固定目标独立源码审查及单次授权；3 次临时 P-256 key generation、3 个证书 encode/sign、6 次验签（3 正/3 改动）、3 次 crypt32 profile 检查；每资源仅一次正常释放 | 30 秒 | 仅限 7 个白名单导出；三组内存测试 issuer/server/client，不装全局信任根，不写正式凭据；证书签名 DER、自定义签名 raw |
 | L1-OBJECTS | 新根与 §9.D 精确目录逐个一次创建（具体清单/总数 REQUIRES USER DECISION）；App acquire 1、竞争 acquire 1 次预期拒绝、Bridge acquire 1；每对象最多两次安全/身份观察；新目标发布 1、替换 1、读回 2 | 60 秒 | runtime.lock、bridge/client.lock、批准的一个对象/一个临时文件；无第二 SID/攻击/崩溃；隔离诊断 seam 需另行实现审查 |
 | L1-STORE | CRYPTO/OBJECTS 通过；protect 2/unprotect 2（每次 ≤65536 bytes）；association begin ≤3、commit ≤2、abort ≤1；每批选定一种 Store kind | 60 秒 | App kind 1/2/3 或 Bridge kind 4 是候选范围；具体 kind、导出调用账本和对象清单必须另冻，不能一个批次隐含覆盖全部 |
 | L1-RELEASE | 前述精确对象；每尚持有资源正常 close 一次；工作前、每操作后、结算后采样；最终 metadata capture 只有明确纳入授权才允许一次 | 30 秒 | 无重试/强杀/崩溃/清扫；删除列表、身份/次数与预算 REQUIRES USER DECISION |
@@ -230,7 +237,7 @@ Administrator/kernel/same-SID arbitrary code 隔离、品牌/进程真实性、C
 | 分类 / 缺口 | 类型、阻断范围、最小另授范围与复核 |
 |---|---|
 | MUST_FIX_BEFORE_L1：设备/空根/权限/预算/恢复/角色未选 | 环境/操作授权；补齐共同封面和精确调用账本，再固定目标独立 Reviewer/Verifier，不得推断当前主机获准 |
-| MUST_FIX_BEFORE_L1：完整原语隔离入口 | 可执行入口；已有 P20 diagnostic 只证明其小切片，默认 Native resolver 指向生产 Known Folder，不能复用来碰正式根；另授仅测试目标 seam/短生命周期执行器、零 Socket/业务，源码/Fake/失败释放审查后再申请真实调用 |
+| MUST_FIX_BEFORE_L1：完整原语隔离入口 | `L1-CRYPTO` 原生隔离候选（`l1_crypto_probe.h`/`.cpp`，`L1-CRYPTO HARNESS SOURCE READY / OFFLINE TESTED`）已在 E0 具备默认拒绝门禁、7 符号白名单、`dumpbin` 物理依赖隔离与 Fake CTest，仍需独立 Reviewer 源码审查及用户单次授权方可开启真实调用；`L1-OBJECTS`/`L1-STORE` 的新空根隔离执行器仍待另授实现与审查 |
 | MUST_FIX_BEFORE_L1（仅 Host A Batch 3 路线） | 旧根专属契约/实现：非空例外、metadata approval、runtime identity bridge、supervisor lifecycle ruling 分开解决；不读旧根，也不通过重写生产 recipe 规避 |
 | MUST_FIX_BEFORE_L2：真实连接专用 Composition | 源码/入口；另授隔离 Owner/证书/Discovery + 明确原生 I/O 的测试执行器，只认证/连接、无 P9/P10/DB/公开工具；L1 实证和独立源码审查先行 |
 | MUST_FIX_BEFORE_L2：真实 Socket/Handle/TLS 观察 | 测量/源码接口候选；现有 budget.used、whenConnectionsSettled、whenSettled 是显式预约/owning barrier，不是 OS 测量；另审 observer、真实释放确认、未知释放隔离及数值 ceilings |

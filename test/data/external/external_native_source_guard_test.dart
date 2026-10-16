@@ -143,6 +143,50 @@ void main() {
         cmake,
         contains(
             'native_crypto.cpp p256_key_codec.cpp tests/native_crypto_test.cpp'));
+    expect(cmake, contains('option(SHIROHA_L1_CRYPTO_CANDIDATE_BUILD'));
+    expect(cmake, contains('add_executable(shiroha_l1_crypto_candidate'));
+    expect(
+        cmake,
+        contains(
+            'target_link_libraries(shiroha_l1_crypto_candidate PRIVATE crypt32 bcrypt psapi)'));
+    expect(
+        cmake,
+        contains(
+            'add_test(NAME shiroha_l1_crypto_probe_offline COMMAND shiroha_l1_crypto_probe_test)'));
+    final l1Header =
+        File('windows/external_native/diagnostics/l1_crypto_probe.h')
+            .readAsStringSync();
+    final l1Source =
+        File('windows/external_native/diagnostics/l1_crypto_probe.cpp')
+            .readAsStringSync();
+    expect(l1Header, contains('l1_crypto_execution_not_authorized'));
+    expect(l1Header, contains('forbidden_symbol_resolution'));
+    for (final allowed in [
+      'shiroha_native_abi_version',
+      'shiroha_native_buffer_alloc',
+      'shiroha_native_buffer_free',
+      'shiroha_native_ecdsa_generate_key',
+      'shiroha_native_ecdsa_sign_digest',
+      'shiroha_native_ecdsa_verify_digest',
+      'shiroha_native_peer_certificate_policy',
+    ]) {
+      expect(l1Header, contains('"$allowed"'));
+    }
+    for (final forbidden in [
+      'SHGetKnownFolderPath',
+      'CryptProtectData',
+      'CryptUnprotectData',
+      'NtCreateFile',
+      'NtSetInformationFile',
+      'CreateFileW',
+      'CreateDirectoryW',
+      'LoadLibraryW',
+      'CertOpenStore',
+      'CertAddCertificate',
+    ]) {
+      expect(l1Header, isNot(contains(forbidden)));
+      expect(l1Source, isNot(contains(forbidden)));
+    }
     for (final file in [
       'external_certificate_der.dart',
       'external_credential_object_codec.dart',
