@@ -310,6 +310,16 @@ class OfflineSupervisor {
   void worker_failed() noexcept {
     stop(StopReason::kWorker, SupervisorState::kStopRequested);
   }
+  // Bounded fail-closed refusal for rejections an outer adapter detects before
+  // this Supervisor's own admission/launch machinery runs (pre-consumption
+  // denial, post-consume pre-launch preflight failure). Latches the first
+  // causal StopReason and freezes a terminal BLOCKED result; never consumes a
+  // grant, restarts or overwrites a previously latched cause.
+  void refuse(StopReason reason) noexcept {
+    if (reason != StopReason::kAdmission && reason != StopReason::kLaunch)
+      return;
+    stop(reason, SupervisorState::kBlocked);
+  }
   void observe_worker_exit(uint64_t now_ms) noexcept {
     if (supervisor_terminal(state_) || !started_ ||
         evidence_.process_exit_observed || !time(now_ms))

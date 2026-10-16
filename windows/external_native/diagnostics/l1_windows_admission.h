@@ -101,7 +101,7 @@ class WindowsAdmissionCandidate {
     if (!approved.matches(approved) || !safe_id(trial) ||
         !ops_.trusted_approval(approved) || !ops_.inspect(observed) ||
         !observed.matches(approved) || !ops_.now(now_ms)) {
-      block();
+      refuse(StopReason::kAdmission);
       return false;
     }
     approved_ = approved;
@@ -136,7 +136,7 @@ class WindowsAdmissionCandidate {
         !observed.matches(approved_) || at < approved_.target.window_start_ms ||
         at >= approved_.target.window_end_ms ||
         approved_.target.window_end_ms - at < 30000) {
-      block();
+      refuse(StopReason::kLaunch);
       return false;
     }
     // Record independently BEFORE the OS port is entered (including failure).
@@ -237,8 +237,14 @@ class WindowsAdmissionCandidate {
     evidence_.normal_exit_observed = worker.normal_exit;
     if (!worker.normal_exit) latch_stop(native);
   }
-  void block() noexcept {
+  // Fail-closed refusal for adapter-detected invalid approval/identity/
+  // observation BEFORE any grant consume or launch attempt: the E2 Supervisor
+  // latches the first causal StopReason and freezes the terminal BLOCKED
+  // result. No grant is consumed, no worker starts, nothing restarts and an
+  // already terminal cause/snapshot is never overwritten.
+  void refuse(StopReason reason) noexcept {
     if (terminal()) return;
+    supervisor_.refuse(reason);
     blocked_ = true;
     evidence_.stop_requested = true;
   }

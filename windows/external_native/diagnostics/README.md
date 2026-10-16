@@ -98,7 +98,11 @@ OfflineSupervisor/GrantTarget. GrantState, ABI ledger and NativeObservation
 remain the sole models; no production authorization service is added.
 States are NOT_STARTED -> GRANT_CONSUMED (`kAdmitted` compatibility alias) ->
 START_ATTEMPTED -> RUNNING -> STOP_REQUESTED / SETTLING -> COMPLETE or
-SETTLEMENT_UNKNOWN; admission errors are BLOCKED. The adapter records start
+SETTLEMENT_UNKNOWN; admission errors are BLOCKED. Adapter-detected
+pre-consumption and pre-launch preflight rejections latch their first causal
+StopReason (ADMISSION / LAUNCH) through a bounded Supervisor refusal transition
+and freeze the same terminal BLOCKED result; no grant is consumed, no Worker
+starts and a latched cause is never overwritten. The adapter records start
 request BEFORE entering the Worker port, independently of Worker output.
 
 The candidate is neither copyable nor movable: a consumed admission has one

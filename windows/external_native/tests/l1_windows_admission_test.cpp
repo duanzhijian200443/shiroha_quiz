@@ -668,6 +668,109 @@ void terminal_regressions() {
   }
 }
 
+// E3 review repair: adapter-detected pre-consumption and pre-launch rejections
+// must latch their first causal StopReason through the SAME E2 Supervisor,
+// freeze the terminal BLOCKED result and never consume, restart or launch.
+void refusal_evidence_regressions() {
+  for (unsigned kind = 0; kind < 4; ++kind) {
+    FakeDurableStore store;
+    store.issue();
+    FakeWindows os(store);
+    switch (kind) {
+      case 0:
+        os.approval = false;
+        break;  // untrusted independent approval
+      case 1:
+        os.inspect_ok = false;
+        break;  // identity observation failed
+      case 2:
+        os.observed.account_sid = L"OTHER-SID";
+        break;  // observed identity mismatch
+      case 3:
+        os.clock_ok = false;
+        break;  // time source failed
+    }
+    WindowsAdmissionCandidate c(os);
+    NativeObservation native;
+    L1CryptoLedger ledger;
+    check(!c.admit(binding(), "fake-refusal") && !c.start() &&
+              c.state() == SupervisorState::kBlocked,
+          "adapter refusal is terminal BLOCKED");
+    const auto e = c.evidence();
+    check(e.observation.first_failure == StopReason::kAdmission &&
+              e.stop_requested,
+          "pre-consumption refusal latches Admission first failure");
+    check(!e.identity_verified && !e.start_request_started &&
+              e.observation.worker_state == WorkerState::kNotStarted &&
+              !e.observation.launch_attempt_ms,
+          "refusal records no identity, start request or launch attempt");
+    check(e.observation.verdict == OfflineVerdict::kInconclusive,
+          "known denial is INCONCLUSIVE, never UNKNOWN or PASS");
+    check(!e.consumption.persisted_issuance && !e.consumption.request_started &&
+              !e.consumption.confirmed && !e.consumption.unknown &&
+              e.consumption.state == GrantState::kUnissued,
+          "refusal fabricates no consumption record");
+    check(store.consume_calls == 0 && store.cell.consumption_attempts() == 0 &&
+              store.cell.state() == GrantState::kIssued && !store.winners &&
+              !store.start_attempts && !os.launches,
+          "denied attempt consumes no grant and starts no worker");
+    late_events(c, os, ledger, native);
+  }
+  {
+    FakeDurableStore store;
+    store.issue();
+    FakeWindows os(store);
+    auto bad = binding();
+    bad.target.batch_id = "C:\\private\\secret.pem";
+    WindowsAdmissionCandidate c(os);
+    NativeObservation native;
+    L1CryptoLedger ledger;
+    check(!c.admit(bad, "fake-refusal") &&
+              c.state() == SupervisorState::kBlocked &&
+              c.evidence().observation.first_failure ==
+                  StopReason::kAdmission &&
+              c.evidence().observation.batch_id.empty() && !os.launches,
+          "invalid binding refuses before approval observation and evidence");
+    late_events(c, os, ledger, native);
+  }
+  for (unsigned kind = 0; kind < 2; ++kind) {
+    FakeDurableStore store;
+    store.issue();
+    FakeWindows os(store);
+    WindowsAdmissionCandidate c(os);
+    NativeObservation native;
+    L1CryptoLedger ledger;
+    check(c.admit(binding(), "fake-prelaunch-refusal") &&
+              c.state() == SupervisorState::kGrantConsumed,
+          "pre-launch refusal fixture consumes once");
+    if (kind == 0) os.clock_ok = false;
+    if (kind == 1) os.observed.account_sid = L"OTHER-SID";
+    check(!c.start() && c.state() == SupervisorState::kBlocked,
+          "post-consume preflight refusal is terminal BLOCKED");
+    const auto e = c.evidence();
+    check(e.observation.first_failure == StopReason::kLaunch &&
+              !e.start_request_started && !e.observation.launch_attempt_ms &&
+              e.observation.worker_state == WorkerState::kNotStarted,
+          "pre-launch refusal latches Launch before any start request");
+    check(e.stop_requested && e.identity_verified && e.consumption.confirmed &&
+              !e.consumption.unknown,
+          "confirmed consume evidence is retained");
+    check(e.observation.verdict == OfflineVerdict::kInconclusive,
+          "known pre-launch refusal is INCONCLUSIVE, never UNKNOWN or PASS");
+    check(!store.start_attempts && !os.launches && store.consume_calls == 1 &&
+              store.winners == 1 && store.cell.state() == GrantState::kConsumed,
+          "refusal starts no worker and consumes no second grant");
+    check(!c.start() && !c.admit(binding(), "fake-refusal-late"),
+          "refused pre-launch never restarts");
+    late_events(c, os, ledger, native);
+    FakeWindows reconstructed(store);
+    WindowsAdmissionCandidate replay(reconstructed);
+    check(!replay.admit(binding(), "fake-refusal-replay") &&
+              !store.start_attempts && !os.launches,
+          "consumed batch is never reissued to a reconstructed client");
+  }
+}
+
 void exit_regressions() {
   {
     OfflineSupervisor supervisor;
@@ -845,6 +948,7 @@ int main() {
   supervisor_matrix();
   unique_start_regressions();
   terminal_regressions();
+  refusal_evidence_regressions();
   exit_regressions();
   serialized_event_regressions();
   std::cout << "PASS: OFFLINE/FAKE E3: 64 races, restart/UNKNOWN, identity, "
@@ -853,6 +957,6 @@ int main() {
                "unique-start cases; "
                "10 terminal groups + 2 exit-UNKNOWN groups; snapshot checks="
             << terminal_snapshot_checks
-            << "; 6 exit/deadline cases; 24 event permutations; 1 serialized "
-               "producer race\n";
+            << "; 6 exit/deadline cases; 7 refusal-evidence cases; "
+               "24 event permutations; 1 serialized producer race\n";
 }

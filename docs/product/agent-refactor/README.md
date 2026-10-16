@@ -312,6 +312,25 @@ Highest scope is L1-CRYPTO ADMISSION SOURCE HARDENED / OFFLINE TESTED. No real
 ceiling/account/time window is chosen, no experiment is run, and the original
 entry stays unconditionally disabled with executionAuthorized=false.
 
+E3 under [readiness E3](windows-host-security-readiness.md#e3-windows-admission-source-candidate-g0-l0-only)
+extends the SAME E2 Supervisor with independent WindowsOperations ports
+(trusted approval, measured binding, time, durable conditional consume, unique
+Worker start, independent observation), adds the default-off, unlinked
+compile-only Win32 Token/object/lock/burn/observation OBJECT source with a
+static source guard, and covers the durable-request journal, single-owner
+Worker start, exit/STOP cross-latching and immutable terminal evidence
+(including the bounded adapter-refusal first-failure/terminal-BLOCKED
+transition) in Fake tests only. The real backend always fails
+trusted_approval/inspect/start and returns UNKNOWN before any consume I/O;
+G0-L0 SOURCE / COMPILE / FAKE ONLY proves no real cross-process durability or
+scheduling. Highest scope is L1-CRYPTO WINDOWS ADMISSION SOURCE PREPARED /
+OFFLINE TESTED; no production or ABI change is included, executionAuthorized =
+false and L1-CRYPTO DRAFT_NOT_AUTHORIZED remain, all 13 A0–A12
+WINDOWS_PENDING rows and the pending user grants stay open, and
+HOST_STABILITY_HALT = ACTIVE / TRANSPORT = BLOCKED / AR-R6A = NOT_ACCEPTED are
+unchanged. Exact new root/objects/SID/device/window/ceilings/owners/approval
+source, durable journal and IPC/process plan stay REQUIRES USER DECISION.
+
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 Production Host/IPC, MCP vNext and READ fallback continuation remain unimplemented
 targets. Current product behavior
