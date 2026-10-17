@@ -181,9 +181,18 @@ public:
     // alone must not end the pump. poll() keeps enforcing health and the
     // launch-anchored deadline; a real deadline latch ends the bounded drain.
     if (!controller_sample(o) || !worker_sample(o)) return finish(false);
-    if (!core_.poll(r, o.healthy) &&
-        (!worker_stopped_ || core_.state() == SupervisorState::kDeadlineExceeded))
-      return finish(false);
+    bool monitor_ok = false;
+    if (!core_.poll(r, o.healthy, &monitor_ok)) {
+      const auto launch = core_.evidence().observation.launch_attempt_ms;
+      // Only the already-latched Worker STOP permits bounded settlement
+      // draining. A failed clock/Grant observation, terminal Supervisor state,
+      // or elapsed launch deadline must end the drain and retain custody.
+      if (!worker_stopped_ || !monitor_ok ||
+          core_.state() != SupervisorState::kStopRequested ||
+          r.mono < launch ||
+          r.mono - launch >= target_.grant.max_execution_ms)
+        return finish(false);
+    }
     if (o.exited && parts_ == 24) return finish(o.normal_exit);
     // ACK ends the stream. EOF can precede the OS exit observation; wait only
     // on the retained process, within the SAME deadline, rather than treating
@@ -200,12 +209,12 @@ public:
       const auto type = e4::get(f.data() + 6, 2);
       if (type == unsigned(e4::Message::hello)) {
         if (evidence_.admission_sent || !platform_.inspect_target(target_)) return finish(false);
-        // The heavy post-HELLO identity/dependency re-inspection may itself
-        // consume controller budget: an independent observation and the FULL
-        // controller budget check close that window before the first work
-        // permission. The SAME launch-anchored inclusive deadline still
-        // applies; the extra sample never earns fresh execution time.
-        if (!controller_sample(platform_.observe())) return finish(false);
+        // Post-HELLO re-inspection can change either process's peaks. Check
+        // BOTH approved budgets before the first work permission; this fresh
+        // observation never extends the original launch deadline.
+        const auto fresh = platform_.observe();
+        if (!controller_sample(fresh) || !worker_sample(fresh))
+          return finish(false);
         e4::Admission a;
         a.origin = core_.evidence().observation.launch_attempt_ms;
         a.working = target_.grant.working_set_bytes;

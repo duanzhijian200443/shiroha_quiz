@@ -37,7 +37,7 @@ y::FixedTarget target() {
 }
 struct Io final : x::GrantIo {
   unsigned issues = 0, requests = 0, burns = 0, starts = 0, operations = 0, fail_at = 0;
-  bool issued = false, requested = false, throwing = false;
+  bool issued = false, requested = false, throwing = false, inspect_fail_once = false;
   x::Journal bytes{};
   bool principal(const std::wstring &s) override { return s == L"FAKE-SID"; }
   x::IoResult outcome() {
@@ -55,7 +55,10 @@ struct Io final : x::GrantIo {
     }
     return outcome();
   }
-  bool inspect(const BatchObjectPins &p) override { return p.valid(); }
+  bool inspect(const BatchObjectPins &p) override {
+    if (inspect_fail_once) { inspect_fail_once = false; return false; }
+    return p.valid();
+  }
   x::IoResult request_new(const x::Journal &j) override {
     ++requests;
     if (requested) return x::IoResult::denied;
@@ -76,6 +79,7 @@ struct Fake final : y::Platform {
   bool inspect_ok = true, healthy = true, exited = false, normal = true;
   bool close_ok = true, io_close_ok = true, transport_ok = true, send_ok = true;
   bool throw_create = false, deadline_at_send = false, budget_blow_at_send = false;
+  bool worker_budget_blow_at_send = false;
   uint64_t mono = 500, launch = 0;
   uint64_t controller_working = 1024, worker_working = 2048;
   x::WorkerStart started{true, false, true, true, true, true, true, true, true, true, 123};
@@ -88,6 +92,7 @@ struct Fake final : y::Platform {
     ++touches; ++inspections;
     if (deadline_at_send && inspections == 3) mono = launch + 30000;
     if (budget_blow_at_send && inspections == 3) controller_working = 99999;
+    if (worker_budget_blow_at_send && inspections == 3) worker_working = 99999;
     return inspect_ok && !(drift && inspections > 1);
   }
   bool approve(const x::ApprovalPromptModel &p, x::ApprovalUiResponse &r) override {
@@ -331,6 +336,37 @@ void worker_stop_tail() {
         "unpaid tail retains operator custody under one bounded STOP");
   }
   {
+    // A one-shot Grant pin inspection failure must end STOP-tail draining
+    // immediately, even if a later inspection would recover.
+    Fixture f;
+    check(f.controller.begin(), "post-STOP Grant inspection fixture admitted");
+    x::Digest d{};
+    decode_hex_bytes(f.os.shown.target_hash, d.data(), 32);
+    auto stop = x::frame(x::Message::stop, 2, 0, 1, d);
+    x::put(stop.data() + 32, unsigned(StopReason::kWorker), 4);
+    f.os.incoming.push_back(stop);
+    check(f.controller.pump(), "Worker STOP opens only the bounded cleanup tail");
+    f.io.inspect_fail_once = true;
+    check(!f.controller.pump() && f.controller.evidence().finished &&
+        f.controller.evidence().handoff_required && f.os.handoffs == 1,
+        "Grant pin observation failure after STOP ends cleanup, not an unbounded drain");
+  }
+  {
+    // A failed post-STOP clock validation is independently terminal.
+    Fixture f;
+    check(f.controller.begin(), "post-STOP clock fixture admitted");
+    x::Digest d{};
+    decode_hex_bytes(f.os.shown.target_hash, d.data(), 32);
+    auto stop = x::frame(x::Message::stop, 2, 0, 1, d);
+    x::put(stop.data() + 32, unsigned(StopReason::kWorker), 4);
+    f.os.incoming.push_back(stop);
+    check(f.controller.pump(), "clock fixture Worker STOP received");
+    f.os.mono = f.os.launch - 1;
+    check(!f.controller.pump() && f.controller.evidence().finished &&
+        f.controller.evidence().handoff_required,
+        "clock regression after Worker STOP cannot sustain settlement draining");
+  }
+  {
     // Exit must not waive an already-observed peak: the final observation is
     // still budget-authoritative, and an unavailable exit measurement is an
     // explicit downgrade instead of a silent pass.
@@ -360,6 +396,14 @@ void deadline_and_transport() {
         f.os.handoffs == 1, "budget spent by the post-HELLO re-inspection blocks ADMISSION");
     check(f.controller.evidence().core.observation.verdict == OfflineVerdict::kUnknown,
         "no first work permission after a controller budget breach");
+  }
+  {
+    Fixture f; f.os.worker_budget_blow_at_send = true;
+    check(!f.controller.begin() && f.os.outgoing.empty() &&
+        f.os.creates == 1 && f.os.handoffs == 1,
+        "post-HELLO Worker budget breach blocks first ADMISSION");
+    check(f.controller.evidence().core.observation.verdict == OfflineVerdict::kUnknown,
+        "unadmitted Worker budget breach retains custody for recovery");
   }
   for (unsigned mode = 0; mode < 5; ++mode) {
     Fixture f; check(f.controller.begin(), "failure fixture admitted");
