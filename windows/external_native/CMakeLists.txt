@@ -157,6 +157,11 @@ if(SHIROHA_NATIVE_OFFLINE_TESTS)
   target_include_directories(shiroha_l1_windows_admission_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
   add_test(NAME shiroha_l1_windows_admission_offline COMMAND shiroha_l1_windows_admission_test)
   set_tests_properties(shiroha_l1_windows_admission_offline PROPERTIES TIMEOUT 30)
+  add_executable(shiroha_l1_e4_test tests/l1_e4_test.cpp)
+  shiroha_native_settings(shiroha_l1_e4_test)
+  target_include_directories(shiroha_l1_e4_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+  add_test(NAME shiroha_l1_e4_offline COMMAND shiroha_l1_e4_test)
+  set_tests_properties(shiroha_l1_e4_offline PROPERTIES TIMEOUT 30)
 endif()
 
 # E3 SOURCE/COMPILE ONLY: no executable, export, runtime dependency or CTest.

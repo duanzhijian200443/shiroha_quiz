@@ -75,11 +75,11 @@ $wrapper = Get-Content (Join-Path $PSScriptRoot 'protected_windows.cpp') -Raw
 if ($wrapper -notmatch 'GetProcAddress\(module, "NtSetInformationFile"\)') { throw 'Missing user-mode publication entry' }
 # Inspect before executing. These executables link only production pure cores +
 # fakes. The production DLL is neither loaded nor called by this check helper.
-foreach ($name in @('shiroha_discovery_offline_test', 'shiroha_native_offline_test', 'shiroha_objects_offline_test', 'shiroha_exchange_offline_test', 'shiroha_probe_offline_test', 'shiroha_rename_layout_test', 'shiroha_crypto_offline_test', 'shiroha_p20_root_production_test', 'shiroha_p20_root_diagnostic_test', 'shiroha_peer_policy_offline_test', 'shiroha_l1_crypto_probe_test', 'shiroha_l1_crypto_observation_test', 'shiroha_l1_crypto_admission_test', 'shiroha_l1_windows_admission_test')) {
+foreach ($name in @('shiroha_discovery_offline_test', 'shiroha_native_offline_test', 'shiroha_objects_offline_test', 'shiroha_exchange_offline_test', 'shiroha_probe_offline_test', 'shiroha_rename_layout_test', 'shiroha_crypto_offline_test', 'shiroha_p20_root_production_test', 'shiroha_p20_root_diagnostic_test', 'shiroha_peer_policy_offline_test', 'shiroha_l1_crypto_probe_test', 'shiroha_l1_crypto_observation_test', 'shiroha_l1_crypto_admission_test', 'shiroha_l1_windows_admission_test', 'shiroha_l1_e4_test')) {
     $imports = (& $dumpbin /imports (Join-Path $build "$Configuration/$name.exe") | Out-String)
     # GetProcAddress alone is used by the MSVC CRT even in the layout-only
     # executable. Reject direct loaders/security operations, not CRT machinery.
-    if ($LASTEXITCODE -ne 0 -or $imports -match 'CertCreateCertificateContext|CertFreeCertificateContext|CryptDecodeObjectEx|CertVerifyTimeValidity|CryptProtectData|CryptUnprotectData|SHGetKnownFolderPath|NtCreateFile|NtSetInformationFile|GetSecurityInfo|GetTokenInformation|OpenProcessToken|GetVolumeInformationByHandleW|CreateFile[AW]|CreateDirectory[AW]|ReadFile|WriteFile|FlushFileBuffers|SetFileInformationByHandle|GetFileInformationByHandleEx|LockFileEx|UnlockFileEx|CreateProcess[AW]|AssignProcessToJobObject|BCryptGenRandom|BCryptOpenAlgorithmProvider|BCryptGenerateKeyPair|BCryptFinalizeKeyPair|BCryptExportKey|BCryptImportKeyPair|BCryptSignHash|BCryptVerifySignature|\bLoadLibrary[AW]\b|shiroha_external_native\.dll') {
+    if ($LASTEXITCODE -ne 0 -or $imports -match 'CertCreateCertificateContext|CertFreeCertificateContext|CryptDecodeObjectEx|CertVerifyTimeValidity|CryptProtectData|CryptUnprotectData|SHGetKnownFolderPath|NtCreateFile|NtSetInformationFile|GetSecurityInfo|GetTokenInformation|OpenProcessToken|GetVolumeInformationByHandleW|CreateFile[AW]|CreateDirectory[AW]|ReadFile|WriteFile|FlushFileBuffers|SetFileInformationByHandle|GetFileInformationByHandleEx|LockFileEx|UnlockFileEx|CreateProcess[AW]|ResumeThread|MessageBox[AW]|DialogBoxIndirectParam[AW]|CreateNamedPipe[AW]|CreatePipe|PeekNamedPipe|AssignProcessToJobObject|BCryptGenRandom|BCryptOpenAlgorithmProvider|BCryptGenerateKeyPair|BCryptFinalizeKeyPair|BCryptExportKey|BCryptImportKeyPair|BCryptSignHash|BCryptVerifySignature|\bLoadLibrary[AW]\b|shiroha_external_native\.dll') {
         throw 'Offline executable includes a real security/file operation'
     }
 }
@@ -91,6 +91,7 @@ if ($testList -notmatch '\bshiroha_p20_root_production_offline\b' -or
     $testList -notmatch '\bshiroha_l1_crypto_probe_offline\b' -or
     $testList -notmatch '\bshiroha_l1_crypto_observation_offline\b' -or
     $testList -notmatch '\bshiroha_l1_windows_admission_offline\b' -or
+    $testList -notmatch '\bshiroha_l1_e4_offline\b' -or
     $testList -notmatch '\bshiroha_l1_crypto_admission_offline\b') { throw 'Offline Fake coverage missing' }
 # Compile metadata reader without loading it or invoking any P/Invoke method.
 $csc = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
@@ -164,7 +165,8 @@ $l1SourceInputs = @('CMakeLists.txt', 'check_offline.ps1', 'shiroha_external_nat
     'diagnostics/l1_crypto_probe.h', 'diagnostics/l1_crypto_probe.cpp',
     'diagnostics/l1_native_observation.h', 'diagnostics/l1_crypto_admission.h',
     'diagnostics/l1_windows_admission.h', 'diagnostics/l1_windows_operations.h',
-    'diagnostics/l1_windows_operations.cpp', 'tests/l1_windows_admission_test.cpp',
+    'diagnostics/l1_windows_operations.cpp', 'diagnostics/l1_e4_admission.h',
+    'diagnostics/l1_e4_protocol.h', 'tests/l1_e4_test.cpp', 'tests/l1_windows_admission_test.cpp',
     'tests/l1_crypto_fake_win32.h', 'tests/l1_crypto_observation_test.cpp',
     'tests/l1_crypto_admission_test.cpp', 'tests/l1_crypto_probe_test.cpp')
 $sourceHashes = [ordered]@{}

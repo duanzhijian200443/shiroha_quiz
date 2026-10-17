@@ -43,6 +43,9 @@ struct CallCounts {
 };
 
 struct NativeObservation {
+  // Diagnostic Worker session may close admission between direct native calls.
+  // Release owners never consult this callback. Production macros remain erased.
+  bool (*check_admission)() noexcept = nullptr;
   std::array<CallCounts, kNativeOpCount> calls{};
   unsigned acquired = 0, released = 0, still_owned = 0, quarantined = 0;
   bool stopped = false, unknown = false, first_failure_unknown = false;
@@ -91,6 +94,10 @@ Result observe_native(NativeOp op, bool release, NativeObservation *observer,
   if (!observer) return call();
   const auto index = static_cast<size_t>(op);
   auto &counts = observer->calls[index];
+  if (!release && observer->check_admission && !observer->check_admission()) {
+    observer->fail("supervisor_stop");
+    return failure;
+  }
   // Cleanup remains legal after STOP; a recording failure never skips another
   // owner's one release. Business operations cannot continue after first error.
   if ((!release && observer->stopped) ||

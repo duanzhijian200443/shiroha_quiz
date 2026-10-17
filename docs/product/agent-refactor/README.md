@@ -33,6 +33,25 @@ PACKAGE 2 SOURCE IMPLEMENTED / OFFLINE TESTED only; real TLS/Windows acceptance
 pending. Package 3 adds inactive lifecycle/recovery and static release
 candidate checks (readiness §21): PACKAGE 3 SOURCE IMPLEMENTED / OFFLINE TESTED
 only; final-target CI/review and real Windows/formal acceptance remain pending.
+
+The L1-CRYPTO E4 Windows admission candidate adds unlinked compile-only
+Approval UI / Grant IO / suspended-Worker OBJECT leaves to the same E2
+Supervisor: a two-step local-human prompt and receipt, target-then-object
+identity binding, CREATE_NEW durable-request one-use with a locked conditional
+burn, UTC window validation with monotonic 30000ms supervision, six 64-byte
+message types with 24-part settlement and an injected suspended-Worker port.
+Only Fake approval/persistence/deadline/custody paths are tested; the real entry
+and integrated backend still deny, the real leaves are not linked, registered
+with CTest or activated, and no real Windows UI/process/IPC/crypto experiment
+ran. See
+[readiness E4](windows-host-security-readiness.md#e4-local-human-single-use-admission-source-candidate-g0-l0)
+and [diagnostic boundaries](../../../windows/external_native/diagnostics/README.md#e4-local-human-admission-candidate-g0-l0-only).
+Highest scope: L1-CRYPTO E4 ADMISSION SOURCE IMPLEMENTED / OFFLINE TESTED.
+executionAuthorized=false, L1-CRYPTO DRAFT_NOT_AUTHORIZED, all 13 A0–A12
+WINDOWS_PENDING rows and the real ceiling/root/SID/window/owner decisions remain;
+HOST_STABILITY_HALT = ACTIVE / TRANSPORT = BLOCKED / AR-R6A = NOT_ACCEPTED
+are unchanged.
+
 The L1-CRYPTO E3 Windows admission candidate adds unlinked compile-only Win32
 Token/object/lock/burn/observation leaves and injects durable-consumption/Worker
 ports into the same E2 Supervisor. Its actual Windows backend still denies
@@ -330,6 +349,29 @@ WINDOWS_PENDING rows and the pending user grants stay open, and
 HOST_STABILITY_HALT = ACTIVE / TRANSPORT = BLOCKED / AR-R6A = NOT_ACCEPTED are
 unchanged. Exact new root/objects/SID/device/window/ceilings/owners/approval
 source, durable journal and IPC/process plan stay REQUIRES USER DECISION.
+
+E4 under [readiness E4](windows-host-security-readiness.md#e4-local-human-single-use-admission-source-candidate-g0-l0)
+adds the local-human one-shot admission candidate over the SAME E2 Supervisor and
+GrantTarget. A two-step `ApprovalPromptModel`/response gates issuance; the
+immutable target hash excludes the derived approval flag and a second hash binds
+that target to the created receipt/grant object IDs, while the 256-byte receipt
+and 128-byte journal keep the issue/request/consume/start order. CREATE_NEW
+reservation and a locked conditional burn precede one suspended-create attempt;
+an uncertain reply, lost receipt, pin drift, failed post-creation inspection or
+UNKNOWN keeps custody and never reissues the Batch. UTC alone validates the
+approval window while monotonic time alone drives the inclusive 30000ms deadline,
+so a late handshake earns no extension and a HELLO/SAMPLE after the deadline is
+never admitted. Diagnostic IPC is six types over fixed 64-byte frames with
+44/3/3008 byte caps and 24-part settlement; the Windows Approval UI, Grant IO and
+CREATE_SUSPENDED/Resume leaves stay compile-only in the unlinked OBJECT library,
+with no CTest entry, production link, Host/Bridge/Store/TLS/ABI change or
+activation. Fake approval/persistence/deadline/custody tests only: real Approval
+UI, NTFS durability, process/IPC/crypto, deadline and recovery behavior remain
+unproven. Highest scope is L1-CRYPTO ADMISSION SOURCE IMPLEMENTED / OFFLINE
+TESTED; executionAuthorized = false and L1-CRYPTO DRAFT_NOT_AUTHORIZED remain,
+all 13 A0–A12 WINDOWS_PENDING rows stay open, and every real Worker/Controller
+ceiling, new root, SID/device/window, STOP/recovery/evidence owner and recovery
+operation stays REQUIRES USER DECISION.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 Production Host/IPC, MCP vNext and READ fallback continuation remain unimplemented

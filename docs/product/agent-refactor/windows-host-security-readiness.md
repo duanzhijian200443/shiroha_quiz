@@ -3560,3 +3560,64 @@ conferred by this source preparation.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
 REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
+
+### E4 local-human single-use admission source candidate (G0-L0)
+
+E4 supplements, and does not retroactively change, the E2/E3 source boundary.
+The diagnostic-only `l1_e4_admission.h` / `l1_e4_protocol.h` compose the same
+GrantTarget, OfflineSupervisor, ABI ledger and NativeObservation. Full durable
+wire/hash/persistence/custody rules are owned by
+[diagnostics README E4](../../../windows/external_native/diagnostics/README.md#e4-local-human-admission-candidate-g0-l0-only).
+The machine plan indexes this slice under `requests[0].windowsAdmission.e4`.
+
+Pre-approval validity, independent review readiness, human confirmation and
+issuance stay separate. A versioned length-prefixed LE target hash excludes
+the derived user-approved flag and later object IDs; the second hash binds that
+target to measured directory/receipt/grant IDs. Missing/drifting IDs STOP.
+Only a matching two-step local-human response can reach issuance; it is not
+strong authentication against malicious same-SID automation. No signing/test
+key or JSON/CLI/environment flag provides authority.
+
+The receipt is 256 bytes, write-ahead journal 128, marker one byte. CREATE_NEW
+request reservation and locked conditional burn precede launch. Sequential
+WriteFile/Flush operations are not one multi-file atomic transaction and prove
+no power-loss durability. Unknown/partial/existing records and lost receipts
+never restore or reissue a Batch. Restarted controllers cannot resume approval.
+
+UTC alone validates the approved window, monotonic time alone drives the
+Supervisor and Worker from the same actual launch-attempt origin (30000ms).
+UTC much greater than monotonic is valid; rollback, invalid source, session
+change or >1000ms relative drift rejects. A delayed handshake earns no time.
+
+Diagnostic IPC has six message types and 64-byte LE frames. ADMISSION explicitly
+contains handles/Working Set/Commit. Positive partial reads accumulate exactly
+one frame; incomplete EOF/timeout/malformed sequence rejects. Settlement uses
+24 parts with all seven ABI and fourteen NativeOp six-field u32 CallCounts,
+all declared scalar counters, clocks, STOP/UNKNOWN/first-failure fields and
+checksum. Maximum Worker/Controller frames are 44/3, combined 3008 bytes.
+Missing data never PASS; independent controller observations still govern time,
+resource ceilings, process identity and actual exit. Worker exit zero is insufficient.
+
+Suspended creation, token/image/dependency checks, fixed environment/explicit
+inherited pipe handles, UI and journal Windows leaves are SOURCE/COMPILE only
+in the unlinked OBJECT library. Actual creation is distinct from work admission;
+Resume failure/unknown cannot retry. Created-process failure keeps UNKNOWN
+custody; CloseHandle is not termination. Controller crash may leave a suspended
+child. Exact recovery/retention/handle-close and any required termination authority
+remain hard prerequisites for real L1, never automatic actions.
+
+All real Worker/Controller/UI memory/Commit/sampled-handle ceilings and valid
+measurement methods remain REQUIRES USER DECISION. 64 MiB/128 handles are only
+unverified synthetic examples. No approved numbers/method means DENY. This
+local-human mode records a design choice, not permission to launch its UI or
+create a new C: experiment root. No Host A access/reuse or production activation.
+
+Eligible source description after actual passing checks is E4 ADMISSION SOURCE
+IMPLEMENTED / OFFLINE TESTED, never REAL WINDOWS TESTED or LOCAL-L1 PASS.
+The original real entry and integrated backend remain unconditionally closed;
+CTest runs only Fakes. Real device/object/security/IPC/crypto behavior, OS recovery
+and formal acceptance remain pending; all future real actions require exact
+separate batch scope.
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
+REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.

@@ -86,6 +86,219 @@ hardening, DLL dependents and import tables without running the candidate, and
 runs `shiroha_l1_crypto_probe_test` (`shiroha_l1_crypto_probe_offline`) in CTest
 using pure Fakes only.
 
+## E4 local human admission candidate (G0-L0 only)
+
+E4 supplements the historical E3 boundary. Highest eligible source description:
+**E4 ADMISSION SOURCE IMPLEMENTED / OFFLINE TESTED**, subject to the actual
+Executor checks recorded with delivery. It grants no real execution. The original
+`l1_crypto_candidate_entry` still unconditionally refuses; all default integrated
+`Win32AdmissionOperations` methods still STOP. The new Windows leaves compile
+only in the same unlinked OBJECT library. No UI, Controller or Worker executable
+is added or registered with CTest. No production Host/Bridge/Store/TLS/ABI changes.
+
+`l1_e4_admission.h` and `l1_e4_protocol.h` are directly coupled diagnostic
+modules, not a new production approval service. `Controller` composes the SAME
+E2 OfflineSupervisor; GrantFlow supplies its conditional consume port. The
+original E3 candidate, FakeGrantCell, immutable terminals, accepted-exit latch,
+sole-owner releases and one-start regressions remain authoritative.
+
+### Human approval, hashes and object binding
+
+Pre-approval structural completeness, independent review readiness, human
+confirmation and controller issuance are four separate facts. `user_approved`
+is false before approval and is never an authority. The UI response is accepted
+only against its original immutable prompt, matching target digest and suffix,
+completed first-step acknowledgment, no cancellation/timeout, current UTC
+window and fresh measured object pins. CLI/environment/JSON cannot issue it.
+The UI leaf renders the fixed warning, target summary and second-step suffix
+input; the controller alone owns issuance and file writes. Agent-supplied
+candidate data remains untrusted. No fake/test key or repository flag is authority.
+
+The threat model is cooperative-lab accidental-launch/replay prevention.
+A normal desktop dialog, code entry, local ACL, hash or pipe is NOT proof
+against malicious same-SID input simulation or file modification. Same-SID
+malware, Admin/SYSTEM/kernel attackers, malicious disk rollback, kernel/hardware
+failures and unverified power-loss guarantees are explicitly excluded.
+
+Hash DAG (all hashes SHA-256):
+
+1. Domain `SHIROHA_L1_TARGET_HASH_V1`, version u32=1; all GrantTarget fields in
+   its declared identity order EXCEPT the derived `user_approved`, followed by
+   exact internal SID encoded as printable ASCII. Strings have u32 byte lengths;
+   integers are explicit LE32/LE64, booleans one byte, ABI limits seven LE32.
+   This hash requires no filesystem objects and is displayed before confirmation.
+2. After approval, the newly created directory/receipt/grant handles yield
+   VolumeSerial/128-bit File IDs. Domain `SHIROHA_L1_OBJECT_HASH_V1`, version=1,
+   target hash string, then each pin in directory/receipt/grant order
+   (LE64 volume + length-prefixed 16 bytes), then account digest string.
+   No reverse edge exists. Zero/missing/duplicate IDs or volume disagreement STOP.
+3. Receipt stores target/account digests and the FULL safe Batch ID (up to 80
+   bytes). Consumer re-inspects the pinned objects and rejects any identity drift.
+   Hashes are integrity bindings, not signatures or independent issuance proof.
+
+The 256-byte receipt is SAPR (LE32 0x52504153), LE16 version=1/flags=3;
+LE64 UTC/mono/controller-session at offsets 8/16/24; binary target/account
+hashes at 32/64; Batch ID byte length at 96 and up to 80 bytes at 97;
+zero padding through 223; SHA256(bytes 0..223) at 224..255.
+
+### Ordered persistence candidate; no cross-file atomicity claim
+
+The caller provides a fresh approved C: NTFS batch root and retained parent
+chain pins. No root discovery or historical-root fallback exists. Controlled
+children have exact Owner, protected single-owner full-access ACE, no reparse,
+no write/delete sharing and exact lengths. Artifacts/system dependencies instead
+retain their original security descriptors: freeze and compare Owner/DACL SDDL
+hashes, file identities and full byte hashes, without changing system ACLs.
+
+UNISSUED -> human-confirmed -> CREATE_NEW receipt/grant -> APPROVED;
+CREATE_NEW request -> CONSUMPTION_REQUESTED -> locked conditional 1-to-2 grant
+burn -> flushed CONSUMED request -> GRANT_CONSUMED;
+flushed START_ATTEMPTED request -> one suspended-create attempt -> RUNNING or
+BLOCKED/SETTLEMENT_UNKNOWN -> owning settlement -> immutable terminal.
+
+`FILE_CREATE` relative to the retained parent is CREATE_NEW: concurrent normal
+consumers have at most one request creator. LockFileEx additionally excludes
+concurrent marker access. Every WriteFile is exact-length, then FlushFileBuffers.
+This is ordered write-ahead intent, NOT one atomic multi-file transaction and
+NOT proven power-loss durability. Empty/partial/existing request, failed Flush,
+lost reply, uncertain burn, start failure or crash permanently denies replay.
+No file/lock is deleted, repaired or silently overwritten to recover authority.
+The controller session does not resume after restart; a fresh GrantFlow cannot
+consume an old receipt and CREATE_NEW prevents reissuing that Batch.
+
+The 128-byte journal is SJNL (LE32 0x4c4e4a53), LE16 version=1; stage u8
+at 6 (1=requested,2=consumed,3=start), zero at 7; LE64 session/UTC/start-mono
+at 8/16/24; full binary target/object digests at 32/64; SHA256(first 96) at 96.
+No claimed boot identifier is synthesized from a wall-clock estimate.
+
+### Dual clocks and Worker custody
+
+UTC Epoch ms alone validates the approval window (inclusive start, exclusive
+end, at least 30000ms remaining before consume/start). GetTickCount64 ms alone
+drives E2 last-time, launch origin and all subsequent poll/sample/settle events.
+Dual-clock E2 overloads preserve the original single-clock tests. Relative UTC
+and mono deltas may differ by at most 1000ms; any rollback, greater drift,
+invalid source, session change or wrap closes admission. utc >> mono is normal.
+The launch window is sampled again after the durable START intent and after
+artifact inspection, before process creation. Journal start-mono records the
+intent reservation; the Supervisor/Worker deadline uses the fresh launcher
+entry origin. Slow persistence cannot admit a launch using an old UTC reading.
+Approval is process-session bound: restart/OS reboot cannot resume it, even if
+the wall clock remains within the old window. The session tag is not asserted
+to be a Windows boot identity. Worker Ledger binds the SAME launch origin from
+ADMISSION; late IPC cannot acquire a fresh 30 seconds. The NativeObservation
+diagnostic callback checks this origin and the independently sequenced reverse
+STOP channel before each new direct native call. Sole-owner release bypasses
+that admission callback, preserving cleanup after STOP.
+
+Suspended-create uses a pinned hashed EXE, parent-pinned working directory,
+fixed numeric pipe-handle arguments, an explicit two-handle inheritance list,
+and a newly constructed SystemRoot/WINDIR-only environment. No caller-supplied
+command/environment is accepted. Before Resume, independently check actual
+non-elevated primary Medium SID/token, actual image File ID and inheritance;
+recheck the complete module/hash manifest after loader HELLO before any crypto.
+The strict dependency leaf may reject unsupported targets; no fallback is allowed.
+
+CreateProcess failure means no child; successful creation means custody exists,
+not that crypto ran. Token/image/dependency/handle mismatch prevents Resume;
+Resume failure/unknown is never retried. Missing HELLO prevents work admission.
+All created-but-unsettled paths retain UNKNOWN and explicit process/thread custody.
+CloseHandle is not termination. Controller crash can leave a suspended process;
+pipe EOF only helps responsive resumed workers, not stuck syscalls or suspended
+threads. Real L1 requires a named operator, explicit bounded custody/recovery and
+handle-close policy, plus separately approved termination if that policy needs it.
+Normal process/thread handle close has its own one-attempt, observed-exit-only leaf;
+exit alone never marks those handles released. Unknown close keeps custody UNKNOWN.
+No automatic terminate, Job kill, restart, crash injection or restoration exists.
+
+### Exact diagnostic IPC version 1
+
+Only inherited anonymous pipe handles connect the single frozen Worker and
+Controller. This is diagnostic supervision, not the production TCP/mTLS transport
+or a P9/P10 route. Handles/target/actual child identity establish the cooperative
+session; the public digest is not a secret authenticator.
+
+Each frame is exactly 64 bytes. Header: wire ASCII SHL1 (53 48 4c 31;
+LE32 integer **0x314c4853**), LE16 version at 4, type at 6, independent
+per-direction LE32 sequence at 8 (start 1, increment exactly 1), LE16 part/total
+at 12/14, target digest first 16 binary bytes at 16; payload 32 bytes at 32.
+Partial stream reads accumulate into one fixed 64-byte buffer; max 64 positive
+chunks, caller deadline checked before/after every bounded read. Zero-progress,
+oversized return, truncated EOF, error/timeout or malformed frame rejects. An OS
+syscall itself is not claimed forcibly interruptible.
+
+| Type/direction | Payload (offset relative to byte 32) | Bound/order |
+|---|---|---|
+| 1 HELLO Worker->Controller | PID u32 at 0, ABI=3 at 4, attempted=0 at 8, zero at 12, EXE digest prefix16 at 16 | First, exactly once; compare with independently created process |
+| 2 ADMISSION Controller->Worker | origin u64 at 0, duration=30000 u32 at 8, handles u32 at 12, WS/Commit u64 at 16/24 | First, exactly once; all three ceilings positive and match target |
+| 3 SAMPLE Worker->Controller | mono/peakWS/peakCommit u64 at 0/8/16, handles/completed u32 at 24/28 | Indices 0..17 in order, total=18; completed=index except last=16 |
+| 4 STOP either way | StopReason u32 at 0, status i32 at 4, mono u64 at 8, zero16 at 16 | At most one per direction; no new work, owning releases remain legal |
+| 5 SETTLEMENT Worker->Controller | Next 32 bytes of canonical settlement blob | Exactly 24 parts 0..23, total=24, no samples after start of settlement |
+| 6 ACK Controller->Worker | status=1 u32 at 0, zero28 at 4 | Once after complete settlement; not PASS authority |
+
+Worker max 44 frames/2816 bytes; Controller max 3/192 bytes; combined max
+47/3008. STOP may interleave once; non-STOP messages retain strict order. No
+arbitrary commands, resync, retries, business content or dynamic allocation from
+untrusted lengths. Missing/duplicate/out-of-order/wrong-digest/illegal fields
+poison the directional parser. Incomplete settlement can never PASS.
+
+Settlement blob (768 bytes carried by 24 frames; all offsets fixed):
+
+- 0..503: seven ABI then fourteen NativeOp CallCounts in source enum order;
+  each has six LE32 values attempted/returned/accepted/settled/unknown/returned_failure.
+- 504..631: thirty-two LE32 ledger fields in `e4::scalars` order: step bitsets3,
+  attempted/returned/completed/successful/accepted5, reservation counters7,
+  budget rejections, ABI total, allowed/forbidden symbols, buffer/release counters6,
+  observation counters3, first/last/max handles3, handle ceiling. No u8 narrowing.
+- 632..647: acquired/released/still_owned/quarantined LE32 Native counts.
+- 648..711: eight LE64 ledger values peakWS/peakCommit/WS-limit/Commit-limit/
+  max-elapsed/start/last/elapsed.
+- 712..731: LE32 flags (bits clock-initialized, ledger STOP, ledger UNKNOWN,
+  native STOP, native UNKNOWN, first-failure UNKNOWN), signed status32, failure-code
+  ID, ledger-first-stage ID, native-first-stage ID. IDs use the fixed source tables;
+  unknown arbitrary strings fail encoding, never serialize raw exception text.
+- 732..735 zero; 736..767 SHA256(first 736 bytes). The fixed table preserves
+  every declared typed counter and failure flag. Pointers/callbacks are not data.
+
+Controller independently owns time, process identity, live resource samples and
+exit observations. Worker ABI/native counters are instrumented self-report, not
+independent OS resource-release proof. At each checkpoint Controller measures
+its retained process handle and checks the stricter peaks/handle counts; missing
+or zero independent measurement closes admission. Exit=0 alone never PASS. PASS
+requires independently confirmed Worker process/thread-handle closure, the
+complete 18 points and 24 records plus the unchanged E2 exact ABI,
+Native and settlement conditions. Late events cannot rewrite terminal evidence.
+
+### Evidence and remaining real gates
+
+Offline tests are explicitly FAKE/OFFLINE, including 64 CREATE_NEW races,
+per-field encode/decode comparisons, fragmented reads, UTC>>mono, injected crash/
+write/receipt failures and suspended-start custody. They prove no OS permissions,
+true cross-process persistence, reboot behavior or power-loss safety.
+The evidence keeps target/object/approval digests, consume/start facts, custody,
+E2 counters/18 samples/first STOP/verdict and no raw SID, paths, environment,
+private key, full certificate, process logs or dump. Reviewer/Verifier judgments
+remain independent delivery evidence.
+
+Working Set/Commit/sampled handle ceilings for Worker AND Controller/UI,
+observation methods, exact new root/ancestor pins, current device/SID/OS,
+experiment UTC window, artifacts/full dependency closure, STOP/recovery/evidence
+owners and recovery operations are **REQUIRES USER DECISION**. 64 MiB/128 handles
+in synthetic fixtures are unverified examples, never real defaults. No numeric
+limit or valid observation method means DENY. Do not reuse or inspect Host A.
+
+After source delivery: current-head/current-base CI, necessary independent
+Windows compile/static/Fake Verifier (if CI does not cover that fixed target),
+independent Reviewer, and separately authorized Git delivery/merge. Even merger
+leaves real entry denied. Before LOCAL-L1, separately authorize frozen builds,
+root/objects/security/lock/flush/evidence I/O, actual UI, process creation/Resume,
+IPC/observation/normal close and the exact crypto batch, after recovery policy is
+ruled. Enabling a real entry would require its own explicit source/runtime scope;
+no build option, JSON or command can unlock this E4 candidate automatically.
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
+REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
+
 ## Windows admission candidates (E3, SOURCE / COMPILE / FAKE ONLY)
 
 Highest permitted description: **L1-CRYPTO WINDOWS ADMISSION SOURCE PREPARED /
