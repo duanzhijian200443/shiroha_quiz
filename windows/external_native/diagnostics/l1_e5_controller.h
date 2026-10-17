@@ -213,7 +213,9 @@ public:
         // BOTH approved budgets before the first work permission; this fresh
         // observation never extends the original launch deadline.
         const auto fresh = platform_.observe();
-        if (!controller_sample(fresh) || !worker_sample(fresh))
+        // Even a healthy, in-budget exited Worker cannot receive new work.
+        // Post-inspection exit closes the first ADMISSION permanently.
+        if (fresh.exited || !controller_sample(fresh) || !worker_sample(fresh))
           return finish(false);
         e4::Admission a;
         a.origin = core_.evidence().observation.launch_attempt_ms;

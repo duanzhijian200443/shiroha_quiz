@@ -79,7 +79,7 @@ struct Fake final : y::Platform {
   bool inspect_ok = true, healthy = true, exited = false, normal = true;
   bool close_ok = true, io_close_ok = true, transport_ok = true, send_ok = true;
   bool throw_create = false, deadline_at_send = false, budget_blow_at_send = false;
-  bool worker_budget_blow_at_send = false;
+  bool worker_budget_blow_at_send = false, worker_exit_at_send = false;
   uint64_t mono = 500, launch = 0;
   uint64_t controller_working = 1024, worker_working = 2048;
   x::WorkerStart started{true, false, true, true, true, true, true, true, true, true, 123};
@@ -93,6 +93,7 @@ struct Fake final : y::Platform {
     if (deadline_at_send && inspections == 3) mono = launch + 30000;
     if (budget_blow_at_send && inspections == 3) controller_working = 99999;
     if (worker_budget_blow_at_send && inspections == 3) worker_working = 99999;
+    if (worker_exit_at_send && inspections == 3) exited = true;
     return inspect_ok && !(drift && inspections > 1);
   }
   bool approve(const x::ApprovalPromptModel &p, x::ApprovalUiResponse &r) override {
@@ -404,6 +405,19 @@ void deadline_and_transport() {
         "post-HELLO Worker budget breach blocks first ADMISSION");
     check(f.controller.evidence().core.observation.verdict == OfflineVerdict::kUnknown,
         "unadmitted Worker budget breach retains custody for recovery");
+  }
+  {
+    Fixture f; f.os.worker_exit_at_send = true;
+    check(!f.controller.begin() && f.os.exited && f.os.creates == 1 &&
+        f.os.outgoing.empty() && !f.controller.evidence().admission_sent,
+        "Worker exit during post-HELLO inspection permanently blocks ADMISSION");
+    auto e = f.controller.evidence();
+    check(e.finished && e.core.observation.process_exit_observed &&
+        f.os.closes == 1 && !e.handoff_required,
+        "observed early exit settles process custody without a new work permit");
+    check(e.core.observation.verdict == OfflineVerdict::kUnknown &&
+        e.core.observation.settlement_incomplete,
+        "exit without Native/IPC settlement cannot become PASS");
   }
   for (unsigned mode = 0; mode < 5; ++mode) {
     Fixture f; check(f.controller.begin(), "failure fixture admitted");
