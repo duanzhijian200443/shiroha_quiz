@@ -115,11 +115,13 @@ and source contents are never used to infer harmless comment-only edits.
 The workflow consumes the plan through named job outputs, but the aggregate does
 not trust those booleans. `verify_ci_plan.py` re-reads the uploaded
 `ci-impact-plan` artifact, checks its SHA-256, binds it to the checked-out
-commit and event, recomputes classification from Git, revalidates every reuse
-claim, compares each GitHub `needs.<job>.result` with the planned status, and,
-when contracts execute, requires exactly the four `Contract shard N/4` jobs with
-`success`. Missing or malformed evidence fails the aggregate. GitHub
-`skipped` is accepted only for `NOT_APPLICABLE` or verified `REUSE` units.
+commit and event, recomputes classification from Git, requires every required
+unit to be `EXECUTE` or recorded `REUSE` (never silently `NOT_APPLICABLE`),
+revalidates every reuse claim, compares each GitHub `needs.<job>.result` with the
+planned status, and, when contracts execute, requires exactly the four
+`Contract shard N/4` jobs with `success`. Missing or malformed evidence fails the
+aggregate. GitHub `skipped` is accepted only for `NOT_APPLICABLE` or verified
+`REUSE` units.
 
 ## Verified cross-head reuse
 

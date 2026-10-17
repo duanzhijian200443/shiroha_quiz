@@ -88,7 +88,20 @@ def validate(plan, repo, results, api, event_name, event, run_id, attempt, now=N
 
     _require(results.get("impact") == "success", "impact_not_success")
 
+    # requiredJobs is the pre-reuse rule decision and units is the post-reuse
+    # dispatch. A unit cannot be downgraded to NOT_APPLICABLE (or upgraded to
+    # REUSE) unless both agree, so a tampered or buggy plan cannot skip a
+    # required unit while still passing the result comparison.
+    for job in impact.JOBS:
+        required = plan["requiredJobs"].get(job)
+        status = plan["units"][job]["status"]
+        if required is False:
+            _require(status == impact.NOT_APPLICABLE, "classification_mismatch")
+        else:
+            _require(required is True and status in (impact.EXECUTE, impact.REUSE),
+                     "classification_mismatch")
     reuse_units = [job for job in impact.JOBS if plan["units"][job]["status"] == impact.REUSE]
+    _require(sorted(reuse_units) == sorted(plan["reuse"].get("units") or []), "reuse_mismatch")
     if reuse_units:
         try:
             reuse.validate_applied(repo, plan, api, now)

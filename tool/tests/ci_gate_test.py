@@ -270,6 +270,28 @@ class GateTest(GateFixture):
         with self.assertRaisesRegex(gate.GateError, "reuse_evidence_mismatch"):
             self.validate(drifted, event, results, api)
 
+    def test_required_unit_cannot_be_downgraded_to_not_applicable(self):
+        head = self.commit({"lib/app.dart": "code\n"})
+        plan, event = self.build(head)
+        broken = json.loads(json.dumps(plan))
+        broken["units"]["static"] = {"status": impact.NOT_APPLICABLE, "reason": "tampered"}
+        impact.seal(broken)
+        api = FakeApi(jobs={(2000, 1): jobs_for(
+            ["TRAIN C finalization parity"] + SHARDS)})
+        with self.assertRaisesRegex(gate.GateError, "classification_mismatch"):
+            self.validate(broken, event, self.results(broken), api)
+
+    def test_reuse_unit_must_be_recorded_in_the_reuse_block(self):
+        head = self.commit({"lib/app.dart": "code\n"})
+        plan, event = self.build(head)
+        broken = json.loads(json.dumps(plan))
+        broken["units"]["static"] = {"status": impact.REUSE, "reason": "unrecorded"}
+        broken["reuse"] = {"status": "APPLIED", "code": "reuse_applied", "source": {}, "units": []}
+        impact.seal(broken)
+        api = FakeApi(jobs={(2000, 1): jobs_for(SHARDS)})
+        with self.assertRaisesRegex(gate.GateError, "reuse_mismatch"):
+            self.validate(broken, event, self.results(broken), api)
+
     def test_reuse_status_without_evidence_is_rejected(self):
         head = self.commit({"lib/app.dart": "code\n"})
         plan, event = self.build(head)
@@ -278,7 +300,7 @@ class GateTest(GateFixture):
         impact.seal(broken)
         api = FakeApi(jobs={(2000, 1): jobs_for(
             ["TRAIN C finalization parity"] + SHARDS)})
-        with self.assertRaisesRegex(gate.GateError, "reuse_reuse_mismatch"):
+        with self.assertRaisesRegex(gate.GateError, "reuse_mismatch"):
             self.validate(broken, event, self.results(broken, {"static": "skipped"}), api)
 
 
