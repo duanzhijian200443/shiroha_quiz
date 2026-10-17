@@ -836,7 +836,9 @@
         "maxObservationsPerObject": 2,
         "newTargetPublish": 1,
         "existingTargetReplace": 1,
-        "readbacks": 2
+        "readbacks": 2,
+        "publishKind": "REQUIRES USER DECISION",
+        "rootBinding": "APPROVED_ROOT_VOLUME_AND_FILE_ID_MUST_EQUAL_INJECTED_SEAM"
       }
     },
     {
@@ -857,8 +859,8 @@
         "At most 2 Store publication temporaries total, sequential"
       ],
       "operations": [
-        "DPAPI protect: 2; unprotect: 2, <=65536 bytes each",
-        "association_begin: 3 maximum; association_commit: 2 maximum; association_abort: 1 maximum",
+        "DPAPI protect: 2; unprotect: 2, plaintext <=65024 bytes each (65536-byte ABI buffer)",
+        "credential_begin (kinds 1/2/4) or association_begin (kind 3): 3 maximum; matching commit: 2 maximum; matching abort: 1 maximum",
         "Choose ONE Store object kind per batch; other kinds require new object/call grant",
         "No automatic recovery, rekey, live Pairing, Socket or business route"
       ],
@@ -878,6 +880,8 @@
         "dpapiProtect": 2,
         "dpapiUnprotect": 2,
         "maxPayloadBytes": 65536,
+        "maxPlaintextBytes": 65024,
+        "rootBinding": "APPROVED_ROOT_VOLUME_AND_FILE_ID_MUST_EQUAL_INJECTED_SEAM",
         "storeBegin": 3,
         "storeCommit": 2,
         "storeAbort": 1,

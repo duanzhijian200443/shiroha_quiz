@@ -121,22 +121,36 @@ description after passing checks: **R6A-B1 L1 UNIFIED SOURCE READY / OFFLINE TES
   and unreturned-syscall `UNKNOWN` retention, while `L1-CRYPTO` retains its exact
   7 ABI-3 symbols, 106 ABI attempts, 5 live buffers, 47 direct Native owners and
   18 checkpoints.
-- **B1-C (`L1-OBJECTS`)**: `B1ObjectsDiagnostic` isolates protected-object
-  verification from production App/Bridge roots and Host A under frozen candidate
+- **B1-C (`L1-OBJECTS`)**: `B1ObjectsDiagnostic` requires an explicit
+  `ApprovedRootPin` (approved absolute path + NTFS volume + File ID) and, before
+  any protected object opens, probes the injected `ObjectOperations` seam with
+  one `local_directory`/`inspect`/`close` sequence and rejects it unless the
+  probed root identity equals the approved pin (`ISOLATION_ROOT_MISMATCH`). The
+  path blacklist is therefore only supplementary: a production or Host A seam is
+  rejected even when the path text looks approved. Its publication/readback
+  object kind is an explicit required parameter (`1` or `2`), never a silent
+  default; association/Bridge objects belong to `L1-STORE`. Frozen candidate
   budgets (App acquire <=1, competing acquire <=1 expected rejected, Bridge
   acquire <=1, security/identity observations <=2 per object, new-target publish
-  <=1, existing-target replace <=1, readbacks <=2, 60,000 ms ceiling), checking
+  <=1, existing-target replace <=1, readbacks <=2, 60,000 ms ceiling) bound
   C: NTFS volume/File ID, Owner SID, protected single-ACE DACL, parent identity,
   no reparse, link count, `runtime.lock`/`client.lock` ownership and unknown
-  custody retention without deleting unknown objects.
+  custody retention without deleting unknown objects. Residual: the seam is
+  probed once per trial at `begin`; a differential seam that changes roots
+  between calls is out of G0-L0 scope and must be re-pinned at the real trial.
 - **B1-D (`L1-STORE`)**: `B1StoreDiagnostic` and `StorePrimitiveLedger` wrap the
-  existing P18/P20/P21/P23 DPAPI and Store/Association codecs under frozen
-  single-kind candidate budgets (DPAPI Protect <=2, Unprotect <=2, payload
-  <=65,536 B, Begin <=3, Commit <=2, Abort <=1, 60,000 ms ceiling), requiring
-  exactly one `StoreKindSelection` per batch (`1`, `2`, `3` or `4`, never
-  bundling App 1/2/3 with Bridge 4), enforcing `SHREXOBJ` v1 format/CAS/create-if-missing
-  and expanding upper Store operations into an auditable primitive ledger while
-  zeroing transient buffers.
+  existing P18/P20/P21/P23 DPAPI and Store/Association transactions under frozen
+  single-kind candidate budgets (DPAPI Protect <=2, Unprotect <=2, plaintext
+  <=65,024 B of the 65,536 B ABI buffer, Begin <=3, Commit <=2, Abort <=1,
+  60,000 ms ceiling), requiring exactly one `StoreKindSelection` per batch (`1`,
+  `2`, `3` or `4`, never bundling App 1/2/3 with Bridge 4), binding the same
+  approved isolated-root identity, reusing the existing native CAS/
+  create-if-missing transaction, and expanding upper Store operations into an
+  auditable primitive ledger while zeroing transient buffers. `SHREXOBJ` v1
+  object framing is NOT enforced here: it stays in the existing codec layer
+  above the native store. Because the ABI-3 buffer ceiling is exactly 65,536 B,
+  a maximum-size plaintext can never be protected; the realizable plaintext
+  ceiling reserves DPAPI framing room instead of relying on the Fake transform.
 - **B1-E (`L1-RELEASE`) & cross-Trial isolation**: `B1ReleaseLedger` enforces
   unique owner registration, at most one release attempt per owned resource,
   independent owner release after STOP, no retry on failed release, void-return

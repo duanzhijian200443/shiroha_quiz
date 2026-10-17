@@ -85,6 +85,7 @@ function Assert-Isolation([hashtable]$Text) {
         $cmake -match '(?s)target_link_libraries\(shiroha_l1_b1_unified_test' -or
         $b1Header -notmatch 'kUnifiedRealExecutionAuthorized = false;' -or
         $b1Header -notmatch 'operation_allowed_for_trial' -or
+        $b1Header -notmatch 'probe_isolated_root' -or
         $b1Worker -match 'shiroha_native_(?:abi_version|buffer_alloc|buffer_free|ecdsa_\w+|peer_certificate_policy)\s*\(|resolve_l1_crypto_api|run_l1_crypto_sequence|\b(?:TerminateProcess|CreateJobObject[AW]|BCrypt\w+|Cert\w+|Crypt\w+)\s*\(') {
         throw 'B1 unified isolation, zero-crypto Admission-only Worker or Fake registration missing'
     }

@@ -3624,10 +3624,13 @@ symbols, 106 ABI attempts, 5 live buffers, 47 Native resources, 18 checkpoints,
 30s inclusive deadline, dual-clock isolation, pre-ADMISSION zero crypto, ACK !=
 PASS, exit != Native settlement, unreturned syscall `UNKNOWN`). B1-C supplies
 `B1ObjectsDiagnostic` (App/competing/Bridge acquire 1/1/1, observations <=2 per
-object, publish 1, replace 1, readback 2, 60s ceiling). B1-D supplies
+object, publish 1, replace 1, readback 2, 60s ceiling, explicit publication kind
+`1`/`2`, and an approved-root Volume/File-ID binding probed against the injected
+seam before any object opens). B1-D supplies
 `B1StoreDiagnostic` and `StorePrimitiveLedger` (Protect <=2, Unprotect <=2,
-payload <=65,536 B, Begin <=3, Commit <=2, Abort <=1, 60s ceiling, single
-`StoreKindSelection` per batch). B1-E supplies `B1ReleaseLedger` (unique owner,
+plaintext <=65,024 B of the 65,536 B ABI buffer, Begin <=3, Commit <=2,
+Abort <=1, 60s ceiling, single `StoreKindSelection` per batch, same root
+binding). B1-E supplies `B1ReleaseLedger` (unique owner,
 at most one release attempt, independent owner release after STOP, no delete
 without ownership proof, 30s non-forcing ceiling) and strict per-Trial operation
 allowlists (`operation_allowed_for_trial`). Highest eligible description after

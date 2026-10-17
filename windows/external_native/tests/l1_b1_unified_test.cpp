@@ -680,6 +680,37 @@ void test_b1_b_crypto_e5_alignment() {
               sup.evidence().verdict == OfflineVerdict::kUnknown,
           "unreturned synchronous call at timeout forces UNKNOWN");
   }
+
+  // 4. Admission-only settlement never accepts a non-zero crypto ledger: the
+  // Trial-specific zero ledger can never be traded for a weaker Crypto standard.
+  {
+    const auto adm_target = make_target(true);
+    OfflineSupervisor sup;
+    FakeGrantCell cell;
+    auto g = adm_target.grant;
+    g.user_approved = true;
+    check(cell.issue(g) &&
+              sup.admit(cell, g, g.window_start_ms, "L1-ADMISSION") &&
+              sup.launch_attempt(g.window_start_ms + 1, true),
+          "admit admission-only supervisor");
+    for (unsigned i = 0; i < 18; ++i) {
+      ResourceSample s{};
+      s.observed_at_ms = g.window_start_ms + 2 + i;
+      s.peak_working_set = 2048;
+      s.peak_commit = 4096;
+      s.handles = 4;
+      s.completed_calls = 0;
+      check(sup.sample(s, true), "admission-only resource sample");
+    }
+    L1CryptoLedger l;
+    NativeObservation n;
+    l.samples = 18;
+    l.abi_calls[0] = {1, 1, 1, 1, 0, 0};
+    sup.settle(g.window_start_ms + 20, true, l, n);
+    check(sup.evidence().verdict == OfflineVerdict::kFail &&
+              sup.state() == SupervisorState::kComplete,
+          "admission-only settlement rejects a non-zero ABI ledger");
+  }
 }
 
 // ============================================================================
@@ -702,6 +733,19 @@ struct FakeProtectedStoreEnv final : shiroha_native::ObjectOperations {
   bool fail_close = false;
   bool fail_inspect = false;
   size_t leftovers = 0;
+
+  // Seed the seam root up front so its identity is deterministic and can be
+  // approved independently, exactly like an approved isolated root.
+  FakeProtectedStoreEnv() {
+    objects[std::make_pair(uint64_t{0}, std::wstring{L"LOCAL"})] =
+        make_good(true);
+  }
+  z::ApprovedRootPin approved_root(const std::string &directory) const {
+    const auto it =
+        objects.find(std::make_pair(uint64_t{0}, std::wstring{L"LOCAL"}));
+    if (it == objects.end()) return z::ApprovedRootPin{directory, 0, 0};
+    return z::ApprovedRootPin{directory, it->second.volume, it->second.file};
+  }
 
   shiroha_native::ObjectInfo make_good(bool dir) {
     shiroha_native::ObjectInfo i;
@@ -850,23 +894,35 @@ void test_b1_c_objects_diagnostic() {
   {
     FakeProtectedStoreEnv env;
     z::B1ObjectsDiagnostic bad_prod(
-        "C:\\Users\\alice\\AppData\\Local\\ShirohaQuiz", env.sid, env);
+        env.approved_root("C:\\Users\\alice\\AppData\\Local\\ShirohaQuiz"),
+        env.sid, env, 1);
     check(!bad_prod.begin(1000) &&
               std::strcmp(bad_prod.failure_code(), "ADMISSION_BLOCKED") == 0,
           "production ShirohaQuiz root rejected");
 
-    z::B1ObjectsDiagnostic bad_host_a("C:\\Shiroha\\Host_A_Trial", env.sid,
-                                      env);
+    z::B1ObjectsDiagnostic bad_host_a(
+        env.approved_root("C:\\Shiroha\\Host_A_Trial"), env.sid, env, 1);
     check(!bad_host_a.begin(1000) &&
               std::strcmp(bad_host_a.failure_code(), "ADMISSION_BLOCKED") == 0,
           "Host A historical root rejected");
+
+    // Isolation is decided by the seam's root identity, never by path text: a
+    // production-rooted seam is rejected even with a plausible approved path.
+    auto wrong_root = env.approved_root("C:\\SYNTHETIC\\B1_OBJECTS");
+    wrong_root.file += 1;
+    z::B1ObjectsDiagnostic bad_seam(wrong_root, env.sid, env, 1);
+    check(!bad_seam.begin(1000) &&
+              std::strcmp(bad_seam.failure_code(),
+                          "ISOLATION_ROOT_MISMATCH") == 0,
+          "seam root not equal to the approved isolated root is rejected");
   }
 
   // 2. Reject cross-trial invocation (e.g. L1-CRYPTO grant trying L1-OBJECTS)
   {
     FakeProtectedStoreEnv env;
-    z::B1ObjectsDiagnostic wrong_grant("C:\\SYNTHETIC\\B1_OBJECTS", env.sid,
-                                       env, z::TrialKind::kCrypto);
+    z::B1ObjectsDiagnostic wrong_grant(
+        env.approved_root("C:\\SYNTHETIC\\B1_OBJECTS"), env.sid, env, 1,
+        z::TrialKind::kCrypto);
     check(!wrong_grant.begin(1000) &&
               wrong_grant.verdict() == OfflineVerdict::kFail &&
               std::strcmp(wrong_grant.failure_code(), "UNAUTHORIZED_ACCESS") ==
@@ -877,7 +933,8 @@ void test_b1_c_objects_diagnostic() {
   // 3. Full positive L1-OBJECTS flow within exact frozen budget
   {
     FakeProtectedStoreEnv env;
-    z::B1ObjectsDiagnostic diag("C:\\SYNTHETIC\\B1_OBJECTS", env.sid, env);
+    z::B1ObjectsDiagnostic diag(
+        env.approved_root("C:\\SYNTHETIC\\B1_OBJECTS"), env.sid, env, 1);
     check(diag.begin(1000), "L1-OBJECTS begin");
 
     auto parent_info = env.make_good(true);
@@ -927,7 +984,8 @@ void test_b1_c_objects_diagnostic() {
   // reparse point, hard link count != 1, over-budget, 60s timeout, unknown close
   for (unsigned neg = 0; neg < 8; ++neg) {
     FakeProtectedStoreEnv env;
-    z::B1ObjectsDiagnostic diag("C:\\SYNTHETIC\\B1_OBJECTS", env.sid, env);
+    z::B1ObjectsDiagnostic diag(
+        env.approved_root("C:\\SYNTHETIC\\B1_OBJECTS"), env.sid, env, 1);
     check(diag.begin(1000) && diag.acquire_app_lock(1001), "setup negative");
     auto parent_info = env.make_good(true);
     auto child_info = env.make_good(false);
@@ -981,7 +1039,8 @@ void test_b1_c_objects_diagnostic() {
   {
     FakeProtectedStoreEnv env;
     env.unknown_after_replace = true;
-    z::B1ObjectsDiagnostic diag("C:\\SYNTHETIC\\B1_OBJECTS", env.sid, env);
+    z::B1ObjectsDiagnostic diag(
+        env.approved_root("C:\\SYNTHETIC\\B1_OBJECTS"), env.sid, env, 1);
     check(diag.begin(1000) && diag.acquire_app_lock(1005), "begin");
     std::vector<uint8_t> v1 = {1, 2, 3}, rb;
     check(!diag.publish_new_target(1010, v1, rb) &&
@@ -1020,14 +1079,16 @@ void test_b1_d_store_diagnostic() {
   // invalid Store kind
   {
     FakeProtectedStoreEnv env;
-    z::B1StoreDiagnostic bundled("C:\\SYNTHETIC\\B1_STORE", 1, 4, kFakeDpapiOps,
-                                 env);
+    z::B1StoreDiagnostic bundled(
+        env.approved_root("C:\\SYNTHETIC\\B1_STORE"), env.sid, 1, 4,
+        kFakeDpapiOps, env);
     check(!bundled.begin(1000) &&
               std::strcmp(bundled.failure_code(), "ADMISSION_BLOCKED") == 0,
           "bundling 4 Store kinds in one batch is rejected");
 
-    z::B1StoreDiagnostic invalid_kind("C:\\SYNTHETIC\\B1_STORE", 0, 1,
-                                      kFakeDpapiOps, env);
+    z::B1StoreDiagnostic invalid_kind(
+        env.approved_root("C:\\SYNTHETIC\\B1_STORE"), env.sid, 0, 1,
+        kFakeDpapiOps, env);
     check(!invalid_kind.begin(1000) &&
               std::strcmp(invalid_kind.failure_code(), "ADMISSION_BLOCKED") ==
                   0,
@@ -1037,8 +1098,9 @@ void test_b1_d_store_diagnostic() {
   // 2. Reject cross-trial invocation (e.g., L1-CRYPTO grant calling L1-STORE)
   {
     FakeProtectedStoreEnv env;
-    z::B1StoreDiagnostic wrong_grant("C:\\SYNTHETIC\\B1_STORE", 1, 1,
-                                     kFakeDpapiOps, env, z::TrialKind::kCrypto);
+    z::B1StoreDiagnostic wrong_grant(
+        env.approved_root("C:\\SYNTHETIC\\B1_STORE"), env.sid, 1, 1,
+        kFakeDpapiOps, env, z::TrialKind::kCrypto);
     check(!wrong_grant.begin(1000) &&
               std::strcmp(wrong_grant.failure_code(), "UNAUTHORIZED_ACCESS") ==
                   0,
@@ -1058,8 +1120,8 @@ void test_b1_d_store_diagnostic() {
                 seeder.close(3, seed_tok) == 0,
             "seed shared parent for kind 4");
     }
-    z::B1StoreDiagnostic store("C:\\SYNTHETIC\\B1_STORE", kind, 1,
-                               kFakeDpapiOps, env);
+    z::B1StoreDiagnostic store(env.approved_root("C:\\SYNTHETIC\\B1_STORE"),
+                               env.sid, kind, 1, kFakeDpapiOps, env);
     check(store.begin(1000), "L1-STORE begin for single kind");
 
     // Protect 2 & Unprotect 2 (including max 65536-byte boundary)
@@ -1070,12 +1132,12 @@ void test_b1_d_store_diagnostic() {
               recovered1 == plain1,
           "DPAPI protect/unprotect 1");
 
-    std::vector<uint8_t> plain2(65536, 0x42);
+    std::vector<uint8_t> plain2(z::StoreBudget::kMaxPlaintextBytes, 0x42);
     std::vector<uint8_t> cipher2, recovered2;
     check(store.dpapi_protect(1030, kind, plain2, cipher2) &&
               store.dpapi_unprotect(1040, kind, cipher2, recovered2) &&
               recovered2 == plain2,
-          "DPAPI protect/unprotect 2 at 65536-byte limit");
+          "DPAPI protect/unprotect 2 at the realizable plaintext limit");
 
     // Begin 1 (create-if-missing) -> Commit 1
     std::vector<uint8_t> existing;
@@ -1127,8 +1189,8 @@ void test_b1_d_store_diagnostic() {
   // 3rd protect, 4th begin, 2nd abort, COMMIT_UNKNOWN -> UNKNOWN
   {
     FakeProtectedStoreEnv env;
-    z::B1StoreDiagnostic store("C:\\SYNTHETIC\\B1_STORE", 1, 1, kFakeDpapiOps,
-                               env);
+    z::B1StoreDiagnostic store(env.approved_root("C:\\SYNTHETIC\\B1_STORE"),
+                               env.sid, 1, 1, kFakeDpapiOps, env);
     check(store.begin(1000), "begin");
     std::vector<uint8_t> data = {1, 2}, out;
     check(!store.dpapi_protect(1010, 4, data, out) &&
@@ -1137,19 +1199,20 @@ void test_b1_d_store_diagnostic() {
   }
   {
     FakeProtectedStoreEnv env;
-    z::B1StoreDiagnostic store("C:\\SYNTHETIC\\B1_STORE", 1, 1, kFakeDpapiOps,
-                               env);
+    z::B1StoreDiagnostic store(env.approved_root("C:\\SYNTHETIC\\B1_STORE"),
+                               env.sid, 1, 1, kFakeDpapiOps, env);
     check(store.begin(1000), "begin");
-    std::vector<uint8_t> oversize(65537, 1), out;
+    std::vector<uint8_t> oversize(z::StoreBudget::kMaxPlaintextBytes + 1, 1),
+        out;
     check(!store.dpapi_protect(1010, 1, oversize, out) &&
               std::strcmp(store.failure_code(), "BUDGET_EXCEEDED") == 0,
-          "payload > 65536 bytes is rejected");
+          "plaintext beyond the realizable DPAPI ceiling is rejected");
   }
   {
     FakeProtectedStoreEnv env;
     env.unknown_after_replace = true;
-    z::B1StoreDiagnostic store("C:\\SYNTHETIC\\B1_STORE", 3, 1, kFakeDpapiOps,
-                               env);
+    z::B1StoreDiagnostic store(env.approved_root("C:\\SYNTHETIC\\B1_STORE"),
+                               env.sid, 3, 1, kFakeDpapiOps, env);
     check(store.begin(1000), "begin");
     std::vector<uint8_t> existing, payload = {7, 8, 9};
     uint64_t ticket = 0;

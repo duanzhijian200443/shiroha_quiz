@@ -133,8 +133,13 @@ inline void run_l1_admission_only_sequence(L1CryptoLedger &l,
     l.stop("before_work", SHIROHA_NATIVE_UNAVAILABLE, "UNAUTHORIZED_ACCESS");
     return;
   }
+  // Sample 1 is the pre-work baseline, samples 2..17 follow each admission/IPC
+  // step, sample 18 is the final settlement observation.
   for (unsigned i = 0; i < 18; ++i) {
-    if (!l.observe(i == 0 ? "before_work" : "after_final_settlement")) {
+    const char *stage = i == 0    ? "before_work"
+                        : i == 17 ? "after_final_settlement"
+                                  : "after_admission_step";
+    if (!l.observe(stage)) {
       return;
     }
   }
@@ -640,15 +645,64 @@ inline bool valid_isolated_l1_root(const std::string &path) noexcept {
   return true;
 }
 
+// Explicitly approved isolated-root identity. The path string above is only a
+// supplementary blacklist: isolation is enforced by binding the injected native
+// seam's OWN root handle to this identity before any protected object opens.
+// A production or Host A seam therefore fails even with a plausible path text.
+struct ApprovedRootPin {
+  std::string directory;
+  uint64_t volume = 0;
+  uint64_t file = 0;
+  bool complete() const noexcept {
+    return valid_isolated_l1_root(directory) && volume && file;
+  }
+};
+
+// One-shot probe of the seam root. Creates nothing, never retries a close, and
+// returns the opened handle only on success so exactly one Owner can close it.
+// SHIROHA_NATIVE_COMMIT_UNKNOWN means the probe handle's custody is unknown.
+inline int32_t probe_isolated_root(shiroha_native::ObjectOperations &ops,
+                                   const shiroha_native::Sid &sid,
+                                   shiroha_native::ObjectInfo &info,
+                                   HANDLE &handle) noexcept {
+  handle = nullptr;
+  if (sid.empty()) return SHIROHA_NATIVE_INVALID_INPUT;
+  HANDLE opened = nullptr;
+  const int32_t open_rc = ops.local_directory(opened);
+  if (open_rc != SHIROHA_NATIVE_OK) return open_rc;
+  if (!opened || opened == INVALID_HANDLE_VALUE)
+    return SHIROHA_NATIVE_UNAVAILABLE;
+  shiroha_native::ObjectInfo observed{};
+  const int32_t inspect_rc = ops.inspect(opened, observed);
+  if (inspect_rc != SHIROHA_NATIVE_OK ||
+      !shiroha_native::object_valid(observed, sid, true, true, true)) {
+    if (!ops.close(opened)) return SHIROHA_NATIVE_COMMIT_UNKNOWN;
+    return inspect_rc != SHIROHA_NATIVE_OK ? inspect_rc
+                                           : SHIROHA_NATIVE_UNAVAILABLE;
+  }
+  handle = opened;
+  info = observed;
+  return SHIROHA_NATIVE_OK;
+}
+
+// B1-C publishes/readback one explicitly approved App object kind. Kinds 1/2
+// are the only credential objects in scope; association (3) and Bridge (4)
+// belong to L1-STORE and are rejected instead of being silently substituted.
+inline bool valid_app_publish_kind(uint32_t kind) noexcept {
+  return kind == 1 || kind == 2;
+}
+
 class B1ObjectsDiagnostic {
  public:
-  B1ObjectsDiagnostic(const std::string &isolated_root,
+  B1ObjectsDiagnostic(const ApprovedRootPin &root_pin,
                       const shiroha_native::Sid &approved_sid,
                       shiroha_native::ObjectOperations &ops,
+                      uint32_t publish_kind,
                       TrialKind grant_trial = TrialKind::kObjects)
-      : isolated_root_(isolated_root),
+      : root_pin_(root_pin),
         approved_sid_(approved_sid),
         ops_(ops),
+        publish_kind_(publish_kind),
         objects_(ops, shiroha_native::ProtectedObjects::OpenMode::initialize),
         grant_trial_(grant_trial),
         release_(grant_trial) {}
@@ -665,10 +719,11 @@ class B1ObjectsDiagnostic {
                                      OperationDomain::kObjectsLockAndPublish)) {
       return fail("UNAUTHORIZED_ACCESS", OfflineVerdict::kFail);
     }
-    if (!valid_isolated_l1_root(isolated_root_) || approved_sid_.empty()) {
+    if (!valid_isolated_l1_root(root_pin_.directory) || approved_sid_.empty() ||
+        !root_pin_.complete() || !valid_app_publish_kind(publish_kind_)) {
       return fail("ADMISSION_BLOCKED", OfflineVerdict::kInconclusive);
     }
-    return true;
+    return bind_isolated_root();
   }
 
   bool register_approved_object(const std::string &object_id,
@@ -808,8 +863,8 @@ class B1ObjectsDiagnostic {
     uint8_t scratch[64]{};
     uint64_t needed = 0, ticket = 0;
     const int32_t begin_rc = objects_.credential_begin(
-        SHIROHA_NATIVE_ABI_VERSION, app_token_, 1, scratch, sizeof(scratch),
-        &needed, &ticket);
+        SHIROHA_NATIVE_ABI_VERSION, app_token_, publish_kind_, scratch,
+        sizeof(scratch), &needed, &ticket);
     if (begin_rc != SHIROHA_NATIVE_MISSING || !ticket) {
       return fail("OWNERSHIP_UNKNOWN", OfflineVerdict::kFail);
     }
@@ -842,7 +897,7 @@ class B1ObjectsDiagnostic {
     std::vector<uint8_t> current(expected_previous.size() + 64);
     uint64_t written = 0, ticket = 0;
     const int32_t begin_rc = objects_.credential_begin(
-        SHIROHA_NATIVE_ABI_VERSION, app_token_, 1, current.data(),
+        SHIROHA_NATIVE_ABI_VERSION, app_token_, publish_kind_, current.data(),
         current.size(), &written, &ticket);
     if (begin_rc != SHIROHA_NATIVE_OK || !ticket) {
       return fail("OWNERSHIP_UNKNOWN", OfflineVerdict::kFail);
@@ -867,7 +922,9 @@ class B1ObjectsDiagnostic {
   // Normal single release per owned lock lease (runtime.lock and client.lock).
   bool release_locks_and_settle(uint64_t now_ms) noexcept {
     if (!started_ || settled_) return false;
-    if (!check_time(now_ms)) return false;
+    // A deadline latches the failure but never cancels the single legal release
+    // attempt or the settlement record.
+    check_time(now_ms);
     if (app_token_) {
       const int32_t rc = objects_.close(SHIROHA_NATIVE_ABI_VERSION, app_token_);
       release_.release_once(1001, "app-runtime-lock-owner",
@@ -898,6 +955,7 @@ class B1ObjectsDiagnostic {
         competing_denied_ && bridge_acquire_attempts_ == 1 &&
         new_publish_attempts_ == 1 && replace_attempts_ == 1 &&
         readback_attempts_ == 2) {
+      if (verdict_ != OfflineVerdict::kNotRun) return false;
       verdict_ = OfflineVerdict::kPass;
       return true;
     }
@@ -919,6 +977,33 @@ class B1ObjectsDiagnostic {
   unsigned readbacks() const noexcept { return readback_attempts_; }
 
  private:
+  // The injected seam must be rooted at the approved isolated root. Path text
+  // alone never proves isolation; the probed identity does. The probe handle is
+  // its own Owner and receives exactly one close attempt.
+  bool bind_isolated_root() noexcept {
+    shiroha_native::ObjectInfo root{};
+    HANDLE handle = nullptr;
+    const int32_t rc = probe_isolated_root(ops_, approved_sid_, root, handle);
+    if (rc == SHIROHA_NATIVE_COMMIT_UNKNOWN) {
+      return fail("SETTLEMENT_UNKNOWN", OfflineVerdict::kUnknown);
+    }
+    if (rc != SHIROHA_NATIVE_OK || root.volume != root_pin_.volume ||
+        root.file != root_pin_.file) {
+      return fail("ISOLATION_ROOT_MISMATCH", OfflineVerdict::kFail);
+    }
+    if (!release_.register_acquired(1000, "isolated-root-prober",
+                                    ResourceKind::kProtectedLockLease)) {
+      // The probe handle cannot be tracked; close it once without a retry.
+      if (!ops_.close(handle)) release_.mark_observation_lost();
+      return fail("OWNERSHIP_UNKNOWN", OfflineVerdict::kFail);
+    }
+    if (!release_.release_once(1000, "isolated-root-prober",
+                               ops_.close(handle))) {
+      return fail("SETTLEMENT_UNKNOWN", OfflineVerdict::kUnknown);
+    }
+    return true;
+  }
+
   bool perform_readback(uint64_t now_ms, const std::vector<uint8_t> &expected,
                         std::vector<uint8_t> &out) noexcept {
     if (!check_gate(now_ms)) return false;
@@ -929,8 +1014,8 @@ class B1ObjectsDiagnostic {
     out.assign(expected.size() + 64, 0);
     uint64_t written = 0, ticket = 0;
     const int32_t begin_rc = objects_.credential_begin(
-        SHIROHA_NATIVE_ABI_VERSION, app_token_, 1, out.data(), out.size(),
-        &written, &ticket);
+        SHIROHA_NATIVE_ABI_VERSION, app_token_, publish_kind_, out.data(),
+        out.size(), &written, &ticket);
     if (begin_rc != SHIROHA_NATIVE_OK || !ticket) {
       return fail("OWNERSHIP_UNKNOWN", OfflineVerdict::kFail);
     }
@@ -969,9 +1054,10 @@ class B1ObjectsDiagnostic {
     return false;
   }
 
-  std::string isolated_root_;
+  ApprovedRootPin root_pin_;
   shiroha_native::Sid approved_sid_;
   shiroha_native::ObjectOperations &ops_;
+  uint32_t publish_kind_;
   shiroha_native::ProtectedObjects objects_;
   TrialKind grant_trial_;
   B1ReleaseLedger release_;
@@ -999,6 +1085,14 @@ struct StoreBudget {
   static constexpr unsigned kMaxProtect = 2;
   static constexpr unsigned kMaxUnprotect = 2;
   static constexpr size_t kMaxPayloadBytes = 65536;
+  // The ABI-3 buffer ceiling is exactly 65536 bytes, so a maximum-size
+  // plaintext can never be protected: DPAPI framing needs its own room inside
+  // that fixed buffer. The realizable plaintext ceiling is therefore lower by
+  // the reserved framing allowance and is never silently relaxed by a Fake
+  // transform.
+  static constexpr size_t kDpapiFramingReserveBytes = 512;
+  static constexpr size_t kMaxPlaintextBytes =
+      kMaxPayloadBytes - kDpapiFramingReserveBytes;
   static constexpr unsigned kMaxBegin = 3;
   static constexpr unsigned kMaxCommit = 2;
   static constexpr unsigned kMaxAbort = 1;
@@ -1034,16 +1128,19 @@ class B1StoreDiagnostic {
  public:
   // Single store_kind must be explicitly selected for the batch (1, 2, 3, or 4).
   // Passing multiple kinds (e.g. bundling App 1/2/3 and Bridge 4) is rejected.
-  B1StoreDiagnostic(const std::string &isolated_root,
+  B1StoreDiagnostic(const ApprovedRootPin &root_pin,
+                    const shiroha_native::Sid &approved_sid,
                     uint32_t selected_store_kind,
                     unsigned bundled_kind_count,
                     const shiroha_native::Operations &dpapi_ops,
                     shiroha_native::ObjectOperations &object_ops,
                     TrialKind grant_trial = TrialKind::kStore)
-      : isolated_root_(isolated_root),
+      : root_pin_(root_pin),
+        approved_sid_(approved_sid),
         selected_kind_(selected_store_kind),
         bundled_kind_count_(bundled_kind_count),
         dpapi_ops_(dpapi_ops),
+        object_ops_(object_ops),
         objects_(object_ops,
                  shiroha_native::ProtectedObjects::OpenMode::initialize),
         grant_trial_(grant_trial),
@@ -1062,10 +1159,11 @@ class B1StoreDiagnostic {
       return fail("UNAUTHORIZED_ACCESS", OfflineVerdict::kFail);
     }
     // Reject missing/invalid Store kind or bundling multiple kinds in one batch
-    if (!valid_isolated_l1_root(isolated_root_) ||
+    if (!valid_isolated_l1_root(root_pin_.directory) || !root_pin_.complete() ||
         !valid_single_store_kind(selected_kind_) || bundled_kind_count_ != 1u) {
       return fail("ADMISSION_BLOCKED", OfflineVerdict::kFail);
     }
+    if (!bind_isolated_root()) return false;
     const uint32_t role = required_role_for_store_kind(selected_kind_);
     ++ledger_.owner_acquire.attempted;
     ++ledger_.total_abi_attempts;
@@ -1078,8 +1176,21 @@ class B1StoreDiagnostic {
     }
     ++ledger_.owner_acquire.accepted;
     owner_token_ = tok;
-    release_.register_acquired(2001, "store-batch-owner",
-                               ResourceKind::kProtectedLockLease);
+    if (!release_.register_acquired(2001, "store-batch-owner",
+                                    ResourceKind::kProtectedLockLease)) {
+      // Untracked Owner cannot be settled; close it once without a retry.
+      ++ledger_.owner_close.attempted;
+      ++ledger_.total_abi_attempts;
+      const int32_t close_rc =
+          objects_.close(SHIROHA_NATIVE_ABI_VERSION, owner_token_);
+      ++ledger_.owner_close.returned;
+      if (close_rc == SHIROHA_NATIVE_OK)
+        ++ledger_.owner_close.accepted;
+      else
+        ++ledger_.owner_close.unknown;
+      owner_token_ = 0;
+      return fail("OWNERSHIP_UNKNOWN", OfflineVerdict::kFail);
+    }
     return true;
   }
 
@@ -1088,14 +1199,13 @@ class B1StoreDiagnostic {
                      std::vector<uint8_t> &ciphertext_out) noexcept {
     if (!check_gate(now_ms, requested_kind)) return false;
     if (ledger_.dpapi_protect.attempted >= StoreBudget::kMaxProtect ||
-        plaintext.empty() || plaintext.size() > StoreBudget::kMaxPayloadBytes) {
+        plaintext.empty() ||
+        plaintext.size() > StoreBudget::kMaxPlaintextBytes) {
       return fail("BUDGET_EXCEEDED", OfflineVerdict::kFail);
     }
     ++ledger_.dpapi_protect.attempted;
     ++ledger_.total_abi_attempts;
-    const size_t out_cap =
-        (std::min)(plaintext.size() + 64, StoreBudget::kMaxPayloadBytes);
-    ciphertext_out.assign(out_cap, 0);
+    ciphertext_out.assign(StoreBudget::kMaxPayloadBytes, 0);
     uint64_t written = 0;
     const int32_t rc = shiroha_native::transform(
         SHIROHA_NATIVE_ABI_VERSION, plaintext.data(), plaintext.size(),
@@ -1126,9 +1236,7 @@ class B1StoreDiagnostic {
     }
     ++ledger_.dpapi_unprotect.attempted;
     ++ledger_.total_abi_attempts;
-    const size_t out_cap =
-        (std::min)(ciphertext.size() + 64, StoreBudget::kMaxPayloadBytes);
-    std::vector<uint8_t> scratch(out_cap, 0);
+    std::vector<uint8_t> scratch(StoreBudget::kMaxPayloadBytes, 0);
     uint64_t written = 0;
     const int32_t rc = shiroha_native::transform(
         SHIROHA_NATIVE_ABI_VERSION, ciphertext.data(), ciphertext.size(),
@@ -1190,12 +1298,32 @@ class B1StoreDiagnostic {
     }
     SecureZeroMemory(buf.data(), buf.size());
     ++ledger_.memory_zeroed_buffers;
+    const uint64_t ticket_res = 2100 + ledger_.store_begin.attempted;
+    if (!release_.register_acquired(ticket_res, "store-batch-owner",
+                                    ResourceKind::kStoreTicket)) {
+      // An untracked ticket would bypass settlement; abort it exactly once.
+      ++ledger_.store_abort.attempted;
+      ++ledger_.total_abi_attempts;
+      int32_t abort_rc = SHIROHA_NATIVE_UNAVAILABLE;
+      if (selected_kind_ == 3) {
+        abort_rc = objects_.association_abort(SHIROHA_NATIVE_ABI_VERSION,
+                                              owner_token_, ticket);
+      } else {
+        abort_rc = objects_.credential_abort(SHIROHA_NATIVE_ABI_VERSION,
+                                             owner_token_, ticket);
+      }
+      ++ledger_.store_abort.returned;
+      if (abort_rc == SHIROHA_NATIVE_OK)
+        ++ledger_.store_abort.accepted;
+      else
+        ++ledger_.store_abort.returned_failure;
+      fail("OWNERSHIP_UNKNOWN", OfflineVerdict::kFail);
+      return SHIROHA_NATIVE_UNAVAILABLE;
+    }
     active_ticket_ = ticket;
     ticket_out = ticket;
+    active_ticket_resource_id_ = ticket_res;
     ++ledger_.store_begin.accepted;
-    release_.register_acquired(2100 + ledger_.store_begin.attempted,
-                               "store-batch-owner", ResourceKind::kStoreTicket);
-    active_ticket_resource_id_ = 2100 + ledger_.store_begin.attempted;
     return rc;
   }
 
@@ -1288,7 +1416,9 @@ class B1StoreDiagnostic {
 
   bool close_and_settle(uint64_t now_ms) noexcept {
     if (!started_ || settled_) return false;
-    if (!check_time(now_ms)) return false;
+    // A deadline latches the failure but never cancels the single legal close
+    // or the settlement record.
+    check_time(now_ms);
     if (owner_token_) {
       ++ledger_.owner_close.attempted;
       ++ledger_.total_abi_attempts;
@@ -1320,6 +1450,7 @@ class B1StoreDiagnostic {
       if (verdict_ == OfflineVerdict::kNotRun) verdict_ = OfflineVerdict::kFail;
       return false;
     }
+    if (verdict_ != OfflineVerdict::kNotRun) return false;
     verdict_ = OfflineVerdict::kPass;
     return true;
   }
@@ -1331,6 +1462,32 @@ class B1StoreDiagnostic {
   uint32_t selected_kind() const noexcept { return selected_kind_; }
 
  private:
+  // Same seam binding as B1-C: the injected ObjectOperations root must match
+  // the approved isolated-root identity, not merely a plausible path string.
+  bool bind_isolated_root() noexcept {
+    shiroha_native::ObjectInfo root{};
+    HANDLE handle = nullptr;
+    const int32_t rc =
+        probe_isolated_root(object_ops_, approved_sid_, root, handle);
+    if (rc == SHIROHA_NATIVE_COMMIT_UNKNOWN) {
+      return fail("SETTLEMENT_UNKNOWN", OfflineVerdict::kUnknown);
+    }
+    if (rc != SHIROHA_NATIVE_OK || root.volume != root_pin_.volume ||
+        root.file != root_pin_.file) {
+      return fail("ISOLATION_ROOT_MISMATCH", OfflineVerdict::kFail);
+    }
+    if (!release_.register_acquired(2000, "isolated-root-prober",
+                                    ResourceKind::kProtectedLockLease)) {
+      if (!object_ops_.close(handle)) release_.mark_observation_lost();
+      return fail("OWNERSHIP_UNKNOWN", OfflineVerdict::kFail);
+    }
+    if (!release_.release_once(2000, "isolated-root-prober",
+                               object_ops_.close(handle))) {
+      return fail("SETTLEMENT_UNKNOWN", OfflineVerdict::kUnknown);
+    }
+    return true;
+  }
+
   bool check_time(uint64_t now_ms) noexcept {
     if (now_ms < last_ms_) {
       return fail("MEASUREMENT_UNAVAILABLE", OfflineVerdict::kInconclusive);
@@ -1360,10 +1517,12 @@ class B1StoreDiagnostic {
     return false;
   }
 
-  std::string isolated_root_;
+  ApprovedRootPin root_pin_;
+  shiroha_native::Sid approved_sid_;
   uint32_t selected_kind_;
   unsigned bundled_kind_count_;
   const shiroha_native::Operations &dpapi_ops_;
+  shiroha_native::ObjectOperations &object_ops_;
   shiroha_native::ProtectedObjects objects_;
   TrialKind grant_trial_;
   B1ReleaseLedger release_;

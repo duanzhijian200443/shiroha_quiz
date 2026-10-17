@@ -229,8 +229,8 @@ JSON `environment` 与每份 `requests` 合并后构成申请草案。
 |---|---|---|---|
 | L1-ADMISSION | 无前置 L1；零 CNG/crypt32 密码学调用（ABI=0、Native=0）；复用 E4/E5 两步人工确认、CREATE_NEW 256B receipt/1B grant/128B journal（6 次写入/Flush、1 次条件 burn）、单次挂起创建、Token/映像/依赖校验、Resume 1 次、64B IPC（44/3 帧上限、18 点采样、24 段零密码学结算）、正常退出观察与各持有句柄 1 次关闭 | 30 秒 | `l1_b1_admission_worker.cpp` 独立无密码学 Worker 候选（不得用 Crypto Worker 冒充）；五阶段账本（consume/create/resume/ipc/close）与六状态进程生命周期；未退出/未知保留 Custody 与人工交接 |
 | L1-CRYPTO | L1-ADMISSION 独立通过 + 新批次授权；ABI 1、Generate 3、Encode/Sign 3、Verify 6（3 正/3 改动）、Policy 3、Allocation/Free 各 45，合计 106；最多 5 个 Buffer 同时存活，47 个直接 Native 资源，每资源一次释放尝试 | 30 秒 | 仅限 7 个白名单导出；三组内存测试 issuer/server/client，不装信任根或写正式凭据；证书 DER、自定义签名 raw；收到 ADMISSION 前零密码学操作 |
-| L1-OBJECTS | L1-ADMISSION 独立通过 + 新批次授权；新根与 §9.D 精确目录逐个一次创建（具体清单/总数 REQUIRES USER DECISION）；App acquire 1、竞争 acquire 1 次预期拒绝、Bridge acquire 1；每对象最多两次安全/身份观察；新目标发布 1、替换 1、读回 2 | 60 秒 | `B1ObjectsDiagnostic`；`runtime.lock`、`bridge/client.lock`、批准的一个对象/一个临时文件；检查 C: NTFS volume/File ID、Owner SID、受保护单 ACE DACL、父目录身份、非重解析、硬链接数；未知归属保留不删，禁用 Host A 与正式根 |
-| L1-STORE | L1-ADMISSION、L1-CRYPTO、L1-OBJECTS 独立通过 + 新批次授权；protect 2/unprotect 2（每次 ≤65536 bytes）；association/store begin ≤3、commit ≤2、abort ≤1；每批仅选定单一 Store kind（1、2、3 或 4） | 60 秒 | `B1StoreDiagnostic` + `StorePrimitiveLedger`；复用 P18/P20/P21/P23 既有格式与 CAS/create-if-missing；不建第二套 DPAPI 存储；不得把 App kind 1/2/3 与 Bridge kind 4 混入同批；展开底层原语调用账本并擦除临时敏感缓冲 |
+| L1-OBJECTS | L1-ADMISSION 独立通过 + 新批次授权；新根与 §9.D 精确目录逐个一次创建（具体清单/总数 REQUIRES USER DECISION）；App acquire 1、竞争 acquire 1 次预期拒绝、Bridge acquire 1；每对象最多两次安全/身份观察；新目标发布 1、替换 1、读回 2 | 60 秒 | `B1ObjectsDiagnostic`；`runtime.lock`、`bridge/client.lock`、批准的一个对象/一个临时文件；必须提交批准根的 Volume/File ID 并在 `begin` 时与注入 seam 实测身份比对（路径黑名单仅为补充），发布/读回 kind 为必填批准项（1 或 2，`REQUIRES USER DECISION`）；检查 C: NTFS volume/File ID、Owner SID、受保护单 ACE DACL、父目录身份、非重解析、硬链接数；未知归属保留不删，禁用 Host A 与正式根 |
+| L1-STORE | L1-ADMISSION、L1-CRYPTO、L1-OBJECTS 独立通过 + 新批次授权；protect 2/unprotect 2（明文字节 ≤65024，ABI 缓冲上界 65536）；credential（kind 1/2/4）或 association（kind 3）begin ≤3、对应 commit ≤2、对应 abort ≤1；每批仅选定单一 Store kind（1、2、3 或 4） | 60 秒 | `B1StoreDiagnostic` + `StorePrimitiveLedger`；同样绑定批准根身份；复用 P18/P20/P21/P23 既有 native CAS/create-if-missing 事务（`SHREXOBJ` 帧在 native 之上的既有编解码层，不属 B1-D 范围）；不建第二套 DPAPI 存储；不得把 App kind 1/2/3 与 Bridge kind 4 混入同批；展开底层原语调用账本并擦除临时敏感缓冲 |
 | L1-RELEASE | 前述已授权试验精确对象；每已登记唯一 Owner 的资源仅允许 1 次释放尝试；工作前、每操作后、结算后采样；最终 metadata capture 只有明确纳入授权才允许一次 | 30 秒 | `B1ReleaseLedger`；STOP 不阻止其他独立 Owner 合法释放；释放失败不重试；Void 返回不证底层释放、CloseHandle 不证进程退出、超时不证同步调用终止；无所有权证明禁止删除；无重试/强杀/崩溃/清扫 |
 
 五份申请共同的设备/根/OS/产物/资源上限/负责人/窗口都尚未选择，
@@ -449,9 +449,11 @@ Native 各类别尝试上限仍为机器计划的 `nativeAttemptBudget`；每个
 
 **Trial 3 (`L1-OBJECTS`)、Trial 4 (`L1-STORE`)、Trial 5 (`L1-RELEASE`) — 独立申请，默认拒绝。**
 B1 在 `l1_b1_unified.h` 中同时补齐了 `B1ObjectsDiagnostic`（60s，App/Competing/Bridge
-acquire 1/1/1、每对象观察 ≤2、发布 1、替换 1、读回 2）、`B1StoreDiagnostic` +
+acquire 1/1/1、每对象观察 ≤2、发布 1、替换 1、读回 2、发布 kind 必填批准、批准根
+Volume/File ID 与注入 seam 实测绑定）、`B1StoreDiagnostic` +
 `StorePrimitiveLedger`（60s，单批单一 Store kind 1/2/3/4、Protect/Unprotect ≤2、
-数据 ≤65536 B、Begin ≤3、Commit ≤2、Abort ≤1）和 `B1ReleaseLedger`（30s，每唯一
+明文 ≤65024 B（ABI 缓冲上界 65536）、Begin ≤3、Commit ≤2、Abort ≤1、同样绑定批准根）
+和 `B1ReleaseLedger`（30s，每唯一
 Owner 最多 1 次释放尝试、STOP 允许其他独立 Owner 释放、无所有权证明禁删），并在
 `windows-host-acceptance-plan.json` 的 `requests[0..4]` 中冻结五份独立申请模板。
 任一试验获批均不自动解锁下一项试验。

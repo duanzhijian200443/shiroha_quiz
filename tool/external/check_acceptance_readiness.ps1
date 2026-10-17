@@ -216,6 +216,8 @@ function Assert-Plan([System.Collections.IDictionary]$Value) {
         $b1Obj.bridgeAcquire -eq 1 -and $b1Obj.maxObservationsPerObject -eq 2 -and
         $b1Obj.newTargetPublish -eq 1 -and $b1Obj.existingTargetReplace -eq 1 -and
         $b1Obj.readbacks -eq 2) 'b1_objects'
+    Require ($b1Obj.publishKind -ceq 'REQUIRES USER DECISION' -and
+        $b1Obj.rootBinding -ceq 'APPROVED_ROOT_VOLUME_AND_FILE_ID_MUST_EQUAL_INJECTED_SEAM') 'b1_objects_root'
     Assert-RepoPath $b1Obj.source 'windows/external_native/diagnostics/'
     Assert-RepoPath $b1Obj.offlineTest 'windows/external_native/tests/'
     $l1Store = $Value.requests[3]
@@ -224,9 +226,11 @@ function Assert-Plan([System.Collections.IDictionary]$Value) {
     Require ($b1Store.scope -ceq 'G0-L0 SOURCE / COMPILE / FAKE ONLY' -and
         $b1Store.executionAuthorized -ceq $false -and
         $b1Store.dpapiProtect -eq 2 -and $b1Store.dpapiUnprotect -eq 2 -and
-        $b1Store.maxPayloadBytes -eq 65536 -and $b1Store.storeBegin -eq 3 -and
-        $b1Store.storeCommit -eq 2 -and $b1Store.storeAbort -eq 1 -and
-        $b1Store.singleKindPerBatch -ceq $true) 'b1_store'
+        $b1Store.maxPayloadBytes -eq 65536 -and
+        $b1Store.maxPlaintextBytes -eq 65024 -and
+        $b1Store.rootBinding -ceq 'APPROVED_ROOT_VOLUME_AND_FILE_ID_MUST_EQUAL_INJECTED_SEAM' -and
+        $b1Store.storeBegin -eq 3 -and $b1Store.storeCommit -eq 2 -and
+        $b1Store.storeAbort -eq 1 -and $b1Store.singleKindPerBatch -ceq $true) 'b1_store'
     Assert-RepoPath $b1Store.source 'windows/external_native/diagnostics/'
     Assert-RepoPath $b1Store.offlineTest 'windows/external_native/tests/'
     $l1Release = $Value.requests[4]
