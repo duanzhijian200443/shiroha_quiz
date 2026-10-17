@@ -82,7 +82,11 @@ function Invoke-AggregateFixture([hashtable]$Results) {
     Assert-True (!$rendered.Contains('${{')) 'all aggregate inputs substituted'
     [IO.File]::WriteAllText($gateFixture, $rendered, [Text.UTF8Encoding]::new($false))
     & $hostExecutable -NoProfile -File $gateFixture | Out-Null
-    return $LASTEXITCODE
+    $childExit = $LASTEXITCODE
+    # The Actions pwsh wrapper ends every step with `exit $LASTEXITCODE`, so an
+    # intentionally failing child must not leak its status into this step.
+    $global:LASTEXITCODE = 0
+    return $childExit
 }
 $successes = @{}
 foreach ($job in $requiredJobs) { $successes[$job] = 'success' }
@@ -94,6 +98,7 @@ foreach ($job in $requiredJobs) {
         Assert-True ((Invoke-AggregateFixture $results) -ne 0) "aggregate rejects $job result '$result'"
     }
 }
+Assert-True ($LASTEXITCODE -eq 0) 'expected child failures leave the step exit status clean'
 Write-Output 'PASS: parallel shard source/vector order; aggregate accepts success and rejects 16 non-success cases'
 
 $block = [regex]::Match($workflow, '(?s)\$tests = @\((.*?)\n\s*\)')
