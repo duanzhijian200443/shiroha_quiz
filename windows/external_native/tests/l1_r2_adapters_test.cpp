@@ -458,7 +458,8 @@ void test_state_gates_and_unknown_evidence() {
     check(t.journal.count() == 3,
           "accepted pre-create failure records ready/accepted/UNKNOWN only");
   }
-  // A legal release is terminal: a late controller loss cannot rewrite it.
+  // A legal release is terminal. Replayed commands and late controller loss
+  // must preserve both the in-memory state and the flushed responsibility log.
   {
     R2Fixture t;
     ControllerBoot boot(t.c);
@@ -467,9 +468,33 @@ void test_state_gates_and_unknown_evidence() {
     check(r::controller_process_entry(1, argv, boot) == 0,
           "normal R2 closed loop before terminal-release probe");
     const auto records = t.journal.count();
+    check(t.custodian.state() == z::State::released &&
+              !t.custodian.retained() &&
+              last_journal_state(t) == unsigned(z::State::released),
+          "normal release is terminal and has no retained custody");
+    // Exercise the real Endpoint/Proxy error path, not just direct calls.
+    const auto replay = t.proxy.accept_intent(t.f);
+    check(replay.status != r::IoStatus::kOk &&
+              t.custodian.state() == z::State::released &&
+              !t.custodian.retained() && t.journal.count() == records,
+          "replayed accept over the control channel cannot reopen released custody");
+    // These previously entered unknown() and silently rewrote released.
+    const auto duplicate_create = t.custodian.create();
+    const auto duplicate_ack = t.custodian.acknowledge_identity({});
+    bool known = true;
+    const bool duplicate_resume = t.custodian.resume(known);
+    check(!duplicate_create.created &&
+              duplicate_ack.status != r::IoStatus::kOk &&
+              !duplicate_resume && !known &&
+              t.owner.base.creates == 1 && t.owner.base.resumes == 1 &&
+              t.owner.base.close_calls == 1 &&
+              t.custodian.state() == z::State::released &&
+              !t.custodian.retained() && t.journal.count() == records &&
+              last_journal_state(t) == unsigned(z::State::released),
+          "duplicate create/ack/resume cannot rewrite terminal state or evidence");
     t.custodian.controller_lost();
     check(t.custodian.state() == z::State::released &&
-              t.journal.count() == records,
+              !t.custodian.retained() && t.journal.count() == records,
           "controller loss after legal release does not rewrite terminal state");
   }
 }

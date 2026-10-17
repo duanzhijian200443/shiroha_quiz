@@ -147,9 +147,15 @@ bool CustodyJournal::append(State state,const r1::ProcessIdentity &process) {
 Custodian::Custodian(r1::Frozen f,Limits l,OwnerPort &o,ProofPort &p,CustodyJournal &j)
     :frozen_(std::move(f)),limits_(std::move(l)),owner_(o),proof_(p),journal_(j) {}
 bool Custodian::unknown() {
+  // Released is irreversible. A stale/replayed command must not reopen custody
+  // or change the in-memory terminal state, even without a journal append.
+  if (state_ == State::released) {
+    stopped_ = true;
+    return false;
+  }
   // Record the terminal responsibility state exactly once. A failed journal is
   // already terminal; a legal release is never rewritten by a later loss.
-  if (state_ != State::unknown && state_ != State::released && !journal_.failed()) {
+  if (state_ != State::unknown && !journal_.failed()) {
     try { journal_.append(State::unknown,identity_); } catch (...) {}
   }
   state_=State::unknown;stopped_=true;return false;
