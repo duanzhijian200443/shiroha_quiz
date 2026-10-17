@@ -462,6 +462,24 @@ Source/Fake readiness does not advance real AR-R6A acceptance. All five G0-L1
 trials (`L1-ADMISSION`, `L1-CRYPTO`, `L1-OBJECTS`, `L1-STORE`, `L1-RELEASE`)
 remain `DRAFT_NOT_AUTHORIZED` and require separate fixed-target trials,
 independent evidence and user grants; no general stage is added.
+The [B2 fixed-target preparation boundary](../product/agent-refactor/windows-host-security-readiness.md#r6a-b2-fixed-target-preparation-boundary-g0-l0)
+extends those same templates with artifact, resource, recovery and evidence
+requirements. Real Admission remains blocked by the absent fixed executable
+composition and external crash-custody/evidence handoff, as well as unselected
+device/budgets and independent target approval. No default denial is lifted;
+preparation does not advance real acceptance or grant the next trial.
+The [B2-R1 source amendment](../product/agent-refactor/windows-host-security-readiness.md#b2-r1-admission-wiring-amendment-g0-l0)
+adds closed diagnostic entry candidates plus measurement, sole-creator custody
+and evidence interfaces with Fake end-to-end coverage. Actual independent OS
+custody/retention remains blocked; no third process/service or live authority
+is introduced, and real acceptance is unchanged.
+The [B2-R2 adapter completion](../product/agent-refactor/windows-host-security-readiness.md#b2-r2-batch-custodian-and-windows-admission-adapters-g0-l0)
+adds the per-batch Custodian candidate, compile-only Windows identity/pin and
+persistent evidence adapters, nine-field three-process resource limits and
+hard OS call bounds with Fake crash-window verification (**B2 WINDOWS ADMISSION
+SOURCE REVIEWABLE / OFFLINE TESTED**). All runtime gates remain closed and all
+five L1 trials remain `DRAFT_NOT_AUTHORIZED` pending user target selection and
+per-batch authorization.
 
 Use namespaced AR-R identifiers to distinguish this route from historical
 R1-R8 typed-core stages:

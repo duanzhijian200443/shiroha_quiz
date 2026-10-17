@@ -3658,6 +3658,128 @@ independent trial application templates remain `DRAFT_NOT_AUTHORIZED`
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
 REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
 
+### R6A-B2 fixed-target preparation boundary (G0-L0)
+
+B2's reusable fixed-target inventory, concentrated unresolved parameters,
+first Admission operation ledger and unified redacted evidence cover are in
+[acceptance preparation B2](windows-host-acceptance-preparation.md#b2-fixed-target-applications-and-stop-1-g0-l0).
+The same machine plan's `requests[0..4]` reference `l1Preparation`; this extends
+the existing unapproved templates, not a second approval database or runtime
+configuration. Readiness checks reject selected-device/resource defaults,
+invented artifact freezing, automatic kill/replay and promotion to formal PASS.
+Both security and system-stability verdicts must be retained separately.
+
+Real Admission remains source-blocked: E5 WindowsController and B1's independent
+zero-crypto Worker are unlinked OBJECTs without fixed executable entries. Real
+device/OS and toolchain labels do not supply measured provenance or trusted pin
+handoff. The current `WindowsPlatform::handoff` only sets an in-memory flag;
+process/thread custody and Evidence are not externally persisted. The E4 128B
+Journal records the launch request, not the created process's PID/creation-time
+identity. A Controller crash can lose both custody information and evidence;
+no reviewed external custodian/acknowledgment or LOCAL-L1 export is implemented.
+These are launch blockers, not permission to add automatic process termination.
+
+The smallest remaining diagnostic composition must connect the existing target,
+human approval, identity/pins, Worker and independent observation to reviewed
+external custody/evidence handling. It must retain the default denials pending
+separate review, exact frozen artifacts and user batch authority. No CLI, JSON,
+environment, Fake Approval or unconditional true gate supplies that authority.
+New process cleanup capabilities require their own explicit scope; an actual
+termination requires separate authority for the verified process. No changes to
+production ABI, E4 Receipt/Grant/Journal/wire formats or production startup follow
+from this preparation. OBJECTS/STORE still need their own reviewed composition;
+the 30s E5 ADMISSION/CRYPTO target is not a 60s generic trial executor.
+
+Candidate STATIC manifests are never final device evidence. Formal target
+hashes follow final source commit, clean build and independent review; each trial
+requires complete direct/loaded dependency identity closure, actual selected OS,
+six distinct Controller/Worker resource ceilings and approved sampling limits.
+No device, SID, root, numeric ceiling, recovery operator or termination grant is
+chosen by this template. A separately bounded read-only sampling application
+cannot implicitly start a Worker. Until source and decision blockers close,
+report **B2-L1-ADMISSION BLOCKED**, STOP before any real operation, and retain
+all five independent `DRAFT_NOT_AUTHORIZED` requests. LOCAL-L1 success still
+cannot satisfy a complete A0–A12 row or inherit the next trial's permission.
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
+REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
+
+### B2-R1 Admission wiring amendment (G0-L0)
+
+The B2 audit above is amended by the diagnostic-only `l1_r1_wiring.h/.cpp`
+composition and dedicated Controller/Worker candidate entries. Both candidates
+link the same injected code exercised by the new Fake CTest; their concrete
+`ClosedWindowsBoundary` has no real backend or CLI/environment/build opt-in.
+The original E0/E3/E5 denials and unlinked Win32 leaves remain closed. Original
+E4/B1 admission, launch_once, Supervisor, Ledger and six-message IPC are reused.
+An optional R1 manifest digest extends the existing E5 Scope canonical hash
+and human display; an empty field preserves old hash bytes. E4's target/record/
+wire formats and the 27-symbol ABI are unchanged. Build/hash first, then supply
+the immutable target; the EXE never embeds its own final hash.
+
+IdentityPort separately measures runtime device/OS/Token, build provenance,
+artifact/dependency bytes and owner-bound pins before comparing them. CustodyPort
+models a separately surviving sole creator accepting responsibility BEFORE
+creation, identity/handle acknowledgment before Resume, and no replay following
+Controller loss or UNKNOWN. EvidenceSink models bounded redacted hash-chain
+records with explicit preservation acknowledgments. Fake-only origins cannot
+produce LOCAL-L1 or a system-stability PASS. Failed evidence never grants work
+or suppresses another owner's legal single release. Original B1-C publication
+identity tests remain mandatory.
+
+These interfaces and deterministic windows do NOT implement authenticated real
+cross-process custody or real evidence retention. A per-batch external creator
+would require its own launch/identity/channel/resource authority and reviewed
+behavior while a synchronous call or Worker remains unsettled; it is not a
+silently added service. Independent responsibility and survival cannot be
+proved by an in-memory ACK. Consequently C remains BLOCKED at the real boundary,
+and the aggregate is **B2 ADMISSION SOURCE BLOCKED**. A/B/D are source/Fake
+interface closures only, not real runtime acceptance.
+
+The existing application owns the complete call-site/port ledger, bounded P
+formulas, remaining Win32/UI/short-read constraints and minimum authority in
+[B2-R1 preparation](windows-host-acceptance-preparation.md#b2-r1-diagnostic-wiring-amendment-g0-l0).
+Its machine fields remain in `l1Preparation.r1Wiring`, executionAuthorized=false.
+Actual device/SID/root, six primary process resource ceilings, sampling bounds,
+third-creator budgets/recovery, evidence destination/retention, final binaries/
+dependencies and independent target review remain undecided. No new process,
+security object, file persistence or real approval UI is executed in G0-L0.
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
+REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
+
+### B2-R2 Batch Custodian and Windows admission adapters (G0-L0)
+
+B2-R2 adds `l1_r2_adapters.h/.cpp`, `l1_r2_custodian_entry.cpp`,
+`l1_r2_windows.h/.cpp` and `tests/l1_r2_adapters_test.cpp` on the same B2 branch
+to close the R1 source gaps without starting any real Windows trial. A dedicated
+per-batch Custodian candidate (`shiroha_l1_r2_custodian_candidate.exe`) owns
+sole Worker creation, process/thread/pipe HANDLE retention, identity observation,
+Resume and observed-exit closure across a bounded 512B control channel, while
+Controller retains human approval, E4 Grant consumption and supervision.
+Before creating the Worker, Custodian independently verifies E4 Receipt/Grant/
+Journal consumption proof and records its own versioned 512B hash-chained
+`CustodyJournal` (`<=16` records, 12 forward lifecycle states, never claimed as
+a four-file atomic transaction with E4). Unlinked Windows adapters
+(`shiroha_l1_r2_windows` OBJECT) implement direct OS/token/process/pin/artifact
+measurement (`<=16 MiB`, exact `64 KiB` blocks, `<=256` `ReadFile` calls per
+artifact, immediate STOP on short reads), bounded single-dialog UI (`<=128`
+events, `<=60s`), bounded polls (`<=512`, `<=50ms`), and 8192B hash-chained
+`PersistentEvidence` records (`<=P+32`, one write and flush per record).
+
+Resource accounting now enforces nine separate ceilings across Controller,
+Custodian and Worker (`Limits::process[0..2]`), bound into `Manifest::r2_sha256`
+and the E4 Target Hash. All three candidate executables keep live execution
+unconditionally disabled (`allow_live_execution() == false`, exit 10) and are
+excluded from CTest. Highest eligible status after passing offline checks is
+**B2 WINDOWS ADMISSION SOURCE REVIEWABLE / OFFLINE TESTED**. Actual device,
+SID, isolated root, nine numeric resource ceilings, operator/reviewer/verifier
+appointments and single-batch execution authority remain `REQUIRES USER DECISION`;
+all five L1 trials stay `DRAFT_NOT_AUTHORIZED`.
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
+REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
+
 ### E4 local-human single-use admission source candidate (G0-L0)
 
 E4 supplements, and does not retroactively change, the E2/E3 source boundary.

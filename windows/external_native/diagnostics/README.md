@@ -184,7 +184,78 @@ description after passing checks: **R6A-B1 L1 UNIFIED SOURCE READY / OFFLINE TES
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
 REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
 
+## B2 fixed-target readiness and crash custody (G0-L0 only)
+
+Reuse the E2–E5/B1 sources below; B2 adds no executable, new Native ABI or
+alternative Grant/IPC/Supervisor. Five separate requests in the existing
+[machine plan](../../../docs/product/agent-refactor/windows-host-acceptance-plan.json)
+reference one `l1Preparation` template. The full artifact list, separate six
+Controller/Worker resource inputs, read-only sampling application constraints,
+1A/1B operation ledger and redacted evidence cover live in
+[acceptance preparation B2](../../../docs/product/agent-refactor/windows-host-acceptance-preparation.md#b2-fixed-target-applications-and-stop-1-g0-l0).
+
+No Controller or Admission Worker EXE/link closure exists. The Admission OBJECT
+has no crypto resolver/calls; this is not a final-PE import proof. E5's device/OS
+labels and toolchain hashes need measured provenance from a separately selected
+device/build, plus approved pin acquisition. `handoff()` only sets an in-memory
+flag. The 128B E4 journal has no created PID/creation-time identity and Evidence
+is memory-only. A Controller crash can lose custody/evidence; an external
+custodian and reviewed redacted output/acknowledgment interface are necessary
+before launch. A bare PID, flag or closed HANDLE is not recovery proof.
+Do not change E4 formats or add automatic kill, retry, cleanup or elevation.
+New cleanup capabilities and any actual exact-process termination need separate
+authority. OBJECTS/STORE cannot be routed through the unchanged 30s E5 target.
+
+Until these source and fixed-target decision blockers close, report
+**B2-L1-ADMISSION BLOCKED** and STOP before any real operation. Runtime gates
+remain unconditionally denied; no STATIC manifest or passing Fake check grants
+execution. Actual user authority, final source/build/dependency freeze, standing
+CI and independent fixed-target review/OS verification remain prerequisites.
+
 ## E5 controlled diagnostic composition (G0-L0 only)
+
+**B2-R1 amendment:** the historical absence of diagnostic entry/interface
+sources below is superseded only by `l1_r1_wiring.h/.cpp` and two dedicated
+entry candidates. These link a common pure injected composition; a final
+ClosedWindowsBoundary supplies no actual identity/creator/evidence backend.
+Neither EXE is registered with CTest. The new Fake test uses both actual entry
+functions, independent in-memory creator lifetime and bidirectional Worker
+messages, with no prefilled successful ACK. E4 launch_once/Grant/IPC and E5/B1
+Controller/sequence remain authoritative. An optional R1 manifest digest is
+included in the existing E5 Scope hash/human summary; old empty-field hashes
+and all E4 record/wire bytes remain unchanged.
+
+IdentityPort compares separately measured runtime/build/pins with immutable
+approved data; hash binaries before supplying a target to avoid self-reference.
+CustodyPort accepts before create, binds created identity and acknowledges
+owner handles before Resume. Only the independent creator may create/Resume,
+and Controller loss never resets its attempt. Fake ownership/retention is not
+Windows custody proof. EvidenceSink uses bounded safe records, sequence/hash
+integrity and explicit preserve acknowledgments; failure/unknown never PASS.
+Runtime classification remains OFFLINE/FAKE and stability NOT_RUN.
+
+Actual authenticated external creator/retention/OS adapters are absent. A new
+per-batch custodian process would require specific process/channel/resource/
+recovery authority and independent review; no service or recovery capability
+is added here. Result: **B2 ADMISSION SOURCE BLOCKED**, with A/B/D source/Fake
+interface closures and C's real boundary BLOCKED. Exact port limits, all legacy
+OS API call sites and remaining budgets are in the SAME
+[B2-R1 application](../../../docs/product/agent-refactor/windows-host-acceptance-preparation.md#b2-r1-diagnostic-wiring-amendment-g0-l0).
+No real root, UI, process, SID/token query or evidence persistence is performed.
+
+**B2-R2 amendment:** `l1_r2_adapters.h/.cpp`, `l1_r2_custodian_entry.cpp`,
+`l1_r2_windows.h/.cpp` and `tests/l1_r2_adapters_test.cpp` complete the
+reviewable source candidates for the three-process model (Controller +
+per-batch Custodian + Admission-only Worker), Windows identity/pin measurement,
+versioned 512B `CustodyJournal` (`<=16` records), 8192B `PersistentEvidence`
+(`<=P+32` records) and nine-field three-process resource limits (`Limits`,
+`kPolls=512`, `kUiEvents=128`, `kArtifactBytes=16 MiB` in exact `64 KiB` blocks,
+`<=256` `ReadFile` calls/file with immediate short-read STOP). `shiroha_l1_r2_windows`
+compiles as an unlinked OBJECT; `shiroha_l1_r2_custodian_candidate` links only
+the pure adapter core and unconditionally denies live execution (`exit 10`).
+See [B2-R2 preparation](../../../docs/product/agent-refactor/windows-host-acceptance-preparation.md#b2-r2-batch-custodian-windows-adapters-and-hard-os-ceilings-g0-l0)
+and [readiness B2-R2](../../../docs/product/agent-refactor/windows-host-security-readiness.md#b2-r2-batch-custodian-and-windows-admission-adapters-g0-l0).
+Highest status: **B2 WINDOWS ADMISSION SOURCE REVIEWABLE / OFFLINE TESTED**.
 
 `l1_e5_controller.h`, `l1_e5_windows.h/.cpp` and `l1_e5_worker.cpp` compose the
 existing E4 GrantFlow, Controller/protocol, E2 Supervisor/ledger, original
