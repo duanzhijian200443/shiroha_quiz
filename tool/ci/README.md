@@ -15,11 +15,15 @@ P3-P12 behavior only; it is not Windows Credential, mTLS, ACL, Discovery or
 Host acceptance and it clears no WINDOWS_PENDING item.
 
 P22 adds pairing transcript, exchange payload, Discovery descriptor and source
-guard suites to the same manifest. The static job scans their inactive source
-boundary; contract shards require static success and scan again before the
-stdlib-only independent Python framing/SHA-256/P-256 vector verifier and Flutter
-tests. Fixed public RFC6979/P21 vectors exercise no real Windows crypto, file
-publication, Discovery directory, pairing or transport. The Python helper only
+guard suites to the same manifest. Static checks and contract shards run
+independently: shards consume no Static job outputs. Each shard scans the
+inactive source boundary before the stdlib-only independent Python
+framing/SHA-256/P-256 vector verifier and Flutter tests. The final
+`Changed Dart and focused contracts` job still requires Static, every contract
+shard, TRAIN C parity and Windows Native success; failed, cancelled or skipped
+checks cannot satisfy that gate. Fixed public RFC6979/P21 vectors exercise no
+real Windows crypto, file publication, Discovery directory, pairing or
+transport. The Python helper only
 reads repository fixtures and verifies public signatures; it never signs or
 creates keys. This is offline evidence, not runtime trust or G0-I acceptance.
 

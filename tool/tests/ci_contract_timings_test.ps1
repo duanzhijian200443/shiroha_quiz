@@ -55,6 +55,52 @@ Expect-Rejected (@($events) + @(@{type='testDone';time=190;testID=1}))
 Expect-Rejected @(@{type='suite';time=0;suite=@{id=0;path=(Join-Path $root '../outside_test.dart')}})
 
 $workflow = Get-Content -LiteralPath $workflowPath -Raw
+$contracts = [regex]::Match($workflow, '(?ms)^  contracts:\r?\n(.*?)(?=^  [a-z_]+:|\z)')
+Assert-True $contracts.Success 'contracts job exists'
+Assert-True (!($contracts.Value -match '(?m)^    needs:')) 'contract shards declare no job dependencies'
+$sourceGate = $contracts.Value.IndexOf('run: ./tool/external/check_bootstrap_source.ps1')
+$vectorGate = $contracts.Value.IndexOf('run: python3 tool/external/verify_bootstrap_vectors.py')
+$testRun = $contracts.Value.IndexOf('& flutter test --concurrency=1 --file-reporter')
+Assert-True ($sourceGate -ge 0 -and $vectorGate -gt $sourceGate -and $testRun -gt $vectorGate) 'each shard guards source and public vectors before tests'
+
+$verify = [regex]::Match($workflow, '(?ms)^  verify:\r?\n(.*?)(?=^  [a-z_]+:|\z)')
+Assert-True ($verify.Success -and $verify.Value.Contains('    if: always()')) 'aggregate runs after upstream failures'
+$requiredJobs = @('static', 'train_c_finalization_parity', 'contracts', 'windows_native')
+foreach ($job in $requiredJobs) {
+    Assert-True ($verify.Value.Contains("      - $job")) "aggregate waits for $job"
+}
+$gate = [regex]::Match($verify.Value, '(?s)- name: Require all verification jobs.*?        run: \|\r?\n(.*?)(?=\r?\n      - |\z)')
+Assert-True $gate.Success 'aggregate gate script exists'
+$gateScript = $gate.Groups[1].Value -replace '(?m)^ {10}', ''
+$gateFixture = Join-Path $fixture 'aggregate-gate.ps1'
+$hostExecutable = (Get-Process -Id $PID).Path
+function Invoke-AggregateFixture([hashtable]$Results) {
+    $rendered = $gateScript
+    foreach ($job in $requiredJobs) {
+        $rendered = $rendered.Replace(('${{ needs.' + $job + '.result }}'), $Results[$job])
+    }
+    Assert-True (!$rendered.Contains('${{')) 'all aggregate inputs substituted'
+    [IO.File]::WriteAllText($gateFixture, $rendered, [Text.UTF8Encoding]::new($false))
+    & $hostExecutable -NoProfile -File $gateFixture | Out-Null
+    $childExit = $LASTEXITCODE
+    # The Actions pwsh wrapper ends every step with `exit $LASTEXITCODE`, so an
+    # intentionally failing child must not leak its status into this step.
+    $global:LASTEXITCODE = 0
+    return $childExit
+}
+$successes = @{}
+foreach ($job in $requiredJobs) { $successes[$job] = 'success' }
+Assert-True ((Invoke-AggregateFixture $successes) -eq 0) 'all required jobs successful'
+foreach ($job in $requiredJobs) {
+    foreach ($result in @('failure', 'cancelled', 'skipped', '')) {
+        $results = $successes.Clone()
+        $results[$job] = $result
+        Assert-True ((Invoke-AggregateFixture $results) -ne 0) "aggregate rejects $job result '$result'"
+    }
+}
+Assert-True ($LASTEXITCODE -eq 0) 'expected child failures leave the step exit status clean'
+Write-Output 'PASS: parallel shard source/vector order; aggregate accepts success and rejects 16 non-success cases'
+
 $block = [regex]::Match($workflow, '(?s)\$tests = @\((.*?)\n\s*\)')
 $paths = @([regex]::Matches($block.Groups[1].Value, "'([^']+_test\.dart)'") | ForEach-Object { $_.Groups[1].Value })
 Assert-True ($paths.Count -eq @($paths | Select-Object -Unique).Count) 'no duplicate standing tests'

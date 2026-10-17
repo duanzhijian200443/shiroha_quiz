@@ -2400,8 +2400,11 @@ production Native helper or using real security objects. Tests cover each
 bound field, strict names/UTF-8/UUID/length/version, every truncation/trailing
 bytes, private-key substitution, role/digest mismatches, trust-pin mismatch,
 epoch rollback/overflow, invalid ports and immutable snapshots. The four
-suites are standing CI entries; scan/import/format/analyze gates precede
-related test execution. No check creates runtime authentication evidence.
+suites are standing CI entries. Each shard's source/import scan and independent
+public-vector verification precede its Flutter tests. Static format/analyze
+checks run independently of the shards, and the final aggregate gate requires
+every one of these jobs to succeed. No check creates runtime authentication
+evidence.
 
 The codecs' integer range is a serialization property, not a change to P15
 management/revision/time limits. Existing approval order, 16 pending requests,
