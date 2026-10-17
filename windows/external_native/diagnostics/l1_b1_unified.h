@@ -345,7 +345,10 @@ class B1ReleaseLedger {
       : trial_(trial) {}
 
   bool begin_window(uint64_t start_ms) noexcept {
-    if (clock_started_) return false;
+    // Do not restore admission after a failed pre-window operation.
+    if (clock_started_ || settled_ || stopped_ || observation_lost_ ||
+        first_failure_code_ != std::string("NONE"))
+      return false;
     clock_started_ = true;
     start_ms_ = last_ms_ = start_ms;
     return true;
@@ -353,13 +356,15 @@ class B1ReleaseLedger {
 
   bool advance_clock(uint64_t now_ms) noexcept {
     if (!clock_started_ || now_ms < last_ms_) {
-      latch_failure("resource_observation_invalid", "MEASUREMENT_UNAVAILABLE",
-                    true);
+      // An invalid clock ends new work, but never cancels a legal owned release.
+      mark_observation_lost();
       return false;
     }
+    if (settled_ || stopped_ || deadline_exceeded_) return false;
     last_ms_ = now_ms;
     if (now_ms - start_ms_ >= kMaxReleaseMs) {
       deadline_exceeded_ = true;
+      stopped_ = true;
       // Inclusive 30s deadline stops new work, but NEVER forcibly terminates
       // an in-flight synchronous OS/Native call.
       if (in_flight_sync_calls_ > 0) {
@@ -377,6 +382,11 @@ class B1ReleaseLedger {
   bool register_acquired(uint64_t resource_id, const std::string &owner_id,
                          ResourceKind kind,
                          uint64_t parent_resource_id = 0) noexcept {
+    // A resource cannot be admitted without a live, observed timing window.
+    if (!clock_started_ || observation_lost_) {
+      mark_observation_lost();
+      return false;
+    }
     if (settled_ || stopped_ || deadline_exceeded_ || !resource_id ||
         !safe_id(owner_id)) {
       latch_failure("duplicate_or_unowned_release", "OWNERSHIP_UNKNOWN", true);
@@ -423,6 +433,7 @@ class B1ReleaseLedger {
 
   void mark_observation_lost() noexcept {
     observation_lost_ = true;
+    stopped_ = true;
     unknown_ = true;
     latch_failure("resource_observation_failed", "MEASUREMENT_UNAVAILABLE",
                   true);
@@ -508,6 +519,10 @@ class B1ReleaseLedger {
 
   OfflineVerdict settle() noexcept {
     if (settled_) return verdict_;
+    // Missing time or missing owned-release evidence must never report PASS.
+    if (!clock_started_) mark_observation_lost();
+    if (entries_.empty() && clock_started_)
+      latch_failure("resource_observation_invalid", "ARTIFACT_INVALID", false);
     settled_ = true;
     for (const auto &entry : entries_) {
       if (entry.kind == ResourceKind::kProcessHandle &&

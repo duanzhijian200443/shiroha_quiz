@@ -1425,7 +1425,69 @@ void test_b1_e_release_settlement() {
                 z::OperationDomain::kCryptoAbiPrimitive),
         "strict cross-Trial Operation Allowlist isolation");
 
-  // 2. Positive release + STOP does NOT block independent Owner's single legal
+  // 2. Missing clock, invalid clock and lost observation are fail-closed.
+  {
+    z::B1ReleaseLedger rel;
+    check(rel.settle() == OfflineVerdict::kUnknown && rel.stopped() &&
+              rel.unknown() &&
+              std::strcmp(rel.failure_code(), "MEASUREMENT_UNAVAILABLE") == 0,
+          "no release timing window can never settle PASS");
+  }
+  {
+    z::B1ReleaseLedger rel;
+    check(!rel.register_acquired(1, "owner-a", z::ResourceKind::kAbiBuffer) &&
+              rel.acquired() == 0 && rel.stopped() && rel.unknown() &&
+              !rel.begin_window(100) &&
+              rel.settle() == OfflineVerdict::kUnknown,
+          "pre-window acquisition cannot be legalized by starting a later clock");
+  }
+  {
+    z::B1ReleaseLedger rel;
+    check(rel.begin_window(100) &&
+              rel.settle() == OfflineVerdict::kFail &&
+              std::strcmp(rel.failure_code(), "ARTIFACT_INVALID") == 0,
+          "empty timed window has no release evidence and cannot PASS");
+  }
+  {
+    z::B1ReleaseLedger rel;
+    check(rel.begin_window(1000) &&
+              rel.register_acquired(1, "owner-a", z::ResourceKind::kAbiBuffer),
+          "observation-loss fixture has tracked Owner");
+    rel.mark_observation_lost();
+    check(rel.stopped() && rel.unknown() &&
+              !rel.register_acquired(2, "owner-b", z::ResourceKind::kAbiBuffer) &&
+              rel.acquired() == 1 &&
+              rel.release_once(1, "owner-a", true) && rel.still_owned() == 0 &&
+              rel.release_attempts() == 1 &&
+              rel.settle() == OfflineVerdict::kUnknown,
+          "lost observation blocks new Owners but allows one legal owned release");
+  }
+  {
+    z::B1ReleaseLedger rel;
+    check(rel.begin_window(1000) &&
+              rel.register_acquired(1, "owner-a", z::ResourceKind::kAbiBuffer),
+          "clock-rollback fixture has tracked Owner");
+    check(!rel.advance_clock(999) && rel.stopped() && rel.unknown() &&
+              !rel.register_acquired(2, "owner-b", z::ResourceKind::kAbiBuffer) &&
+              rel.acquired() == 1 &&
+              rel.release_once(1, "owner-a", true) &&
+              rel.settle() == OfflineVerdict::kUnknown,
+          "clock rollback stops acquisition and preserves UNKNOWN settlement");
+  }
+  {
+    z::B1ReleaseLedger rel;
+    check(rel.begin_window(1000) &&
+              rel.register_acquired(1, "owner-a", z::ResourceKind::kAbiBuffer),
+          "inclusive deadline fixture has tracked Owner");
+    check(!rel.advance_clock(31000) && rel.deadline_exceeded() && rel.stopped() &&
+              !rel.register_acquired(2, "owner-b", z::ResourceKind::kAbiBuffer) &&
+              rel.acquired() == 1 &&
+              rel.release_once(1, "owner-a", true) &&
+              rel.settle() != OfflineVerdict::kPass,
+          "inclusive 30s cutoff blocks new acquisition but not owned cleanup");
+  }
+
+  // 3. Positive release + STOP does NOT block independent Owner's single legal
   // release
   {
     z::B1ReleaseLedger rel(z::TrialKind::kRelease);
