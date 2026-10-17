@@ -198,13 +198,21 @@ public:
     Receipt b{};
     if (!receipt(p, clock, b))
       return false;
-    if (io_.issue_new(b, pins_) != IoResult::ok || !pins_.valid() ||
-        !io_.inspect(pins_))
+    // Only a deterministic denial is a known non-issuance. An uncertain
+    // CREATE_NEW reply, and every failure after a possibly successful creation,
+    // may already have left the receipt/grant on disk: keep UNKNOWN so the
+    // record is never downgraded to a clean "never issued" denial.
+    const auto created = io_.issue_new(b, pins_);
+    if (created == IoResult::unknown)
+      return uncertain();
+    if (created != IoResult::ok)
       return false;
+    if (!pins_.valid() || !io_.inspect(pins_))
+      return uncertain();
     if (!compute_object_identity_sha256(p.target_hash, pins_,
                                         current.account_identity_sha256,
                                         object_hash_))
-      return false;
+      return uncertain();
     target_ = current;
     target_.user_approved = true;
     hash_ = p.target_hash;
@@ -417,9 +425,18 @@ public:
       stop();
       return false;
     }
-    if (!supervisor_.poll(r.mono, true))
+    const bool open = supervisor_.poll(r.mono, true);
+    if (!open)
       stop();
     auto type = get(f.data() + 6, 2);
+    // The inclusive deadline (and any latched failure) closes new work. A HELLO
+    // or SAMPLE accepted after that must never report success, or the caller
+    // could still treat the handshake as admitted and forward ADMISSION.
+    // STOP, ACK and settlement parts stay legal so bounded cleanup and owning
+    // settlement remain possible.
+    if ((type == 1 || type == 3) &&
+        (!open || supervisor_.state() != SupervisorState::kRunning))
+      return false;
     if (type == 1) {
       uint8_t expected_image[32]{};
       decode_hex_bytes(grant_.target().exe_sha256, expected_image, 32);

@@ -71,6 +71,7 @@ struct Io final : GrantIo {
   unsigned operation = 0, fail_at = 0;
   bool lost_reply = false;
   bool throw_failure = false;
+  bool inspect_denied = false;
   explicit Io(Store &s) : store(s) {}
   bool principal(const std::wstring &sid) override {
     return sid == L"FAKE-SID";
@@ -94,7 +95,9 @@ struct Io final : GrantIo {
     p = store.objects;
     return IoResult::ok;
   }
-  bool inspect(const BatchObjectPins &p) override { return p == store.objects; }
+  bool inspect(const BatchObjectPins &p) override {
+    return !inspect_denied && p == store.objects;
+  }
   IoResult request_new(const Journal &j) override {
     std::lock_guard<std::mutex> lock(store.mutex);
     if (store.requested)
@@ -389,6 +392,63 @@ void clocks_and_grants() {
           "64 independent CREATE_NEW races one winner");
   }
 }
+// A deterministic CREATE_NEW denial is a clean non-issuance; an uncertain reply
+// or any failure after a possibly successful creation must keep UNKNOWN custody
+// instead of being downgraded to a never-issued record.
+void issue_uncertainty() {
+  auto p = make_prompt();
+  auto r = answer(p);
+  {
+    Store s;
+    Io io(s);
+    io.fail_at = 1;
+    GrantFlow g(io);
+    Worker w;
+    Controller c(g, w);
+    check(!g.issue(p, r, target(), L"FAKE-SID", clock_at()) && s.issued &&
+              g.record().state == GrantState::kUnknown && g.record().unknown &&
+              !g.record().persisted_issuance,
+          "lost CREATE_NEW reply keeps UNKNOWN, never a clean denial");
+    check(!c.admit(clock_at(1), "fake") && w.calls == 0 &&
+              c.evidence().consumption.unknown &&
+              c.evidence().observation.verdict == OfflineVerdict::kUnknown,
+          "UNKNOWN issuance never becomes a positive admission");
+    Io replay(s);
+    GrantFlow again(replay);
+    check(!again.issue(p, r, target(), L"FAKE-SID", clock_at(2)) &&
+              again.record().state == GrantState::kUnissued &&
+              !again.record().unknown,
+          "created receipt stays unauthorised without a second UNKNOWN");
+  }
+  {
+    Store s;
+    Io io(s);
+    io.fail_at = 1;
+    io.throw_failure = true;
+    GrantFlow g(io);
+    check(!g.issue(p, r, target(), L"FAKE-SID", clock_at()) && s.issued &&
+              g.record().unknown && g.record().state == GrantState::kUnknown,
+          "throwing issuance keeps UNKNOWN custody");
+  }
+  {
+    Store s;
+    s.objects.grant_pin = s.objects.receipt_pin;
+    Io io(s);
+    GrantFlow g(io);
+    check(!g.issue(p, r, target(), L"FAKE-SID", clock_at()) && s.issued &&
+              g.record().unknown && g.record().state == GrantState::kUnknown,
+          "unusable created pins keep UNKNOWN");
+  }
+  {
+    Store s;
+    Io io(s);
+    io.inspect_denied = true;
+    GrantFlow g(io);
+    check(!g.issue(p, r, target(), L"FAKE-SID", clock_at()) && s.issued &&
+              g.record().unknown && g.record().state == GrantState::kUnknown,
+          "failed post-creation inspection keeps UNKNOWN");
+  }
+}
 void full_records(L1CryptoLedger &l, NativeObservation &n) {
   constexpr unsigned limits[] = {1, 3, 3, 6, 3, 45, 45};
   for (unsigned i = 0; i < 7; ++i)
@@ -473,6 +533,99 @@ void end_to_end_controller() {
                   before.observation.process_end_ms &&
               c.evidence().logs_complete == before.logs_complete,
           "late events preserve terminal evidence");
+  }
+}
+struct Launch {
+  Store store;
+  Io io{store};
+  GrantFlow grant{io};
+  Worker worker;
+  Controller controller{grant, worker};
+  bool start() {
+    auto p = make_prompt();
+    return grant.issue(p, answer(p), target(), L"FAKE-SID", clock_at()) &&
+           controller.admit(clock_at(1), "fake") &&
+           controller.start(clock_at(2));
+  }
+};
+Frame hello_frame(const Digest &d, uint32_t pid) {
+  auto f = frame(Message::hello, 1, 0, 1, d);
+  put(f.data() + 32, pid, 4);
+  put(f.data() + 36, 3, 4);
+  Digest image{};
+  decode_hex_bytes(target().exe_sha256, image.data(), 32);
+  std::copy_n(image.begin(), 16, f.begin() + 48);
+  return f;
+}
+Frame sample_frame(const Digest &d, uint32_t seq, uint16_t index) {
+  auto f = frame(Message::sample, seq, index, 18, d);
+  put(f.data() + 32, 504 + index, 8);
+  put(f.data() + 40, 512, 8);
+  put(f.data() + 48, 1024, 8);
+  put(f.data() + 56, 4, 4);
+  put(f.data() + 60, index == 17 ? 16 : index, 4);
+  return f;
+}
+// Rejected new work must still allow bounded STOP, owning settlement and the
+// original UNKNOWN outcome; it must never manufacture PASS or a clean close.
+void rejected_tail(Controller &c, const Digest &d, uint64_t base,
+                   uint32_t seq) {
+  auto stop = frame(Message::stop, seq, 0, 1, d);
+  put(stop.data() + 32, unsigned(StopReason::kWorker), 4);
+  check(c.receive(stop, {}, clock_at(base)),
+        "STOP after rejection stays legal");
+  L1CryptoLedger l;
+  NativeObservation n;
+  full_records(l, n);
+  n.unknown = true;
+  Settlement bytes{};
+  encode_settlement(l, n, bytes);
+  auto frames = settlement_frames(bytes, d, seq + 1);
+  for (unsigned i = 0; i < 24; ++i)
+    check(c.receive(frames[i], {}, clock_at(base + 1 + i)),
+          "settlement part accepted after rejection");
+  c.settle(clock_at(base + 30), true, true, true);
+  check(c.state() == SupervisorState::kSettlementUnknown &&
+            c.evidence().observation.verdict == OfflineVerdict::kUnknown,
+        "rejected new work keeps the original UNKNOWN settlement");
+}
+// The inclusive 30000ms deadline closes new work: a late HELLO/SAMPLE may never
+// report success even when the Worker identity and UTC window still match.
+void deadline_closes_new_work() {
+  auto p = make_prompt();
+  Digest d{};
+  decode_hex_bytes(p.target_hash, d.data(), 32);
+  {
+    Launch f;
+    check(f.start(), "deadline fixture launches");
+    // launch_attempt_ms is the 502ms origin, so the deadline is +30002ms here.
+    check(!f.controller.receive(hello_frame(d, 123), {}, clock_at(30002)) &&
+              f.controller.evidence().observation.deadline_exceeded &&
+              f.controller.evidence().observation.first_failure ==
+                  StopReason::kDeadline &&
+              f.worker.calls == 1,
+          "HELLO at exactly the deadline is never admitted");
+    rejected_tail(f.controller, d, 30003, 2);
+  }
+  {
+    Launch f;
+    check(f.start(), "sample deadline fixture launches");
+    check(f.controller.receive(hello_frame(d, 123), {}, clock_at(29999)),
+          "HELLO before the deadline is admitted");
+    check(!f.controller.receive(sample_frame(d, 2, 0),
+                                {504u, 512, 1024, 4, 0}, clock_at(30002)) &&
+              f.controller.evidence().observation.deadline_exceeded &&
+              f.controller.evidence().observation.sample_count == 0,
+          "SAMPLE at exactly the deadline is never admitted");
+    rejected_tail(f.controller, d, 30003, 3);
+  }
+  {
+    Launch f;
+    check(f.start(), "late hello fixture launches");
+    check(!f.controller.receive(hello_frame(d, 123), {}, clock_at(30005)) &&
+              f.controller.evidence().observation.deadline_exceeded,
+          "HELLO after the deadline is never admitted");
+    rejected_tail(f.controller, d, 30006, 2);
   }
 }
 void settlement_and_stream() {
@@ -705,9 +858,11 @@ int main() {
   check(!kRealExecutionAuthorized, "real default denial");
   hashes_approval();
   clocks_and_grants();
+  issue_uncertainty();
   settlement_and_stream();
   worker_failures();
   end_to_end_controller();
+  deadline_closes_new_work();
   std::cout << "PASS: OFFLINE/FAKE E4 assertions=" << assertions
             << "; races=64; real Windows NOT RUN\n";
 }
