@@ -615,6 +615,7 @@ struct ApprovedObjectPin {
   bool is_directory = false;
   bool check_dacl = true;
   unsigned observations = 0;
+  bool security_observed = false;
 };
 
 // Isolated root path check: must be an explicit C:\ path, NEVER borrowing the
@@ -733,6 +734,9 @@ class B1ObjectsDiagnostic {
     if (!started_ || stopped_ || !safe_id(object_id) || !expected_volume ||
         !expected_file_id)
       return false;
+    if (!check_dacl) {
+      return fail("UNAUTHORIZED_ACCESS", OfflineVerdict::kFail);
+    }
     for (const auto &item : approved_objects_) {
       if (item.object_id == object_id) return false;
     }
@@ -842,9 +846,10 @@ class B1ObjectsDiagnostic {
         info.file != pin->expected_file_id ||
         (!pin->is_directory && info.links != 1u) ||
         !shiroha_native::object_valid(info, approved_sid_, pin->is_directory,
-                                      true, pin->check_dacl)) {
+                                      true, true)) {
       return fail("OWNERSHIP_UNKNOWN", OfflineVerdict::kFail);
     }
+    pin->security_observed = true;
     return true;
   }
 
@@ -951,10 +956,14 @@ class B1ObjectsDiagnostic {
       if (verdict_ == OfflineVerdict::kNotRun) verdict_ = OfflineVerdict::kFail;
       return false;
     }
-    if (app_acquire_attempts_ == 1 && competing_acquire_attempts_ == 1 &&
-        competing_denied_ && bridge_acquire_attempts_ == 1 &&
-        new_publish_attempts_ == 1 && replace_attempts_ == 1 &&
-        readback_attempts_ == 2) {
+    bool all_objects_observed = !approved_objects_.empty();
+    for (const auto &pin : approved_objects_) {
+      if (!pin.security_observed) all_objects_observed = false;
+    }
+    if (all_objects_observed && app_acquire_attempts_ == 1 &&
+        competing_acquire_attempts_ == 1 && competing_denied_ &&
+        bridge_acquire_attempts_ == 1 && new_publish_attempts_ == 1 &&
+        replace_attempts_ == 1 && readback_attempts_ == 2) {
       if (verdict_ != OfflineVerdict::kNotRun) return false;
       verdict_ = OfflineVerdict::kPass;
       return true;
@@ -987,8 +996,7 @@ class B1ObjectsDiagnostic {
     if (rc == SHIROHA_NATIVE_COMMIT_UNKNOWN) {
       return fail("SETTLEMENT_UNKNOWN", OfflineVerdict::kUnknown);
     }
-    if (rc != SHIROHA_NATIVE_OK || root.volume != root_pin_.volume ||
-        root.file != root_pin_.file) {
+    if (rc != SHIROHA_NATIVE_OK) {
       return fail("ISOLATION_ROOT_MISMATCH", OfflineVerdict::kFail);
     }
     if (!release_.register_acquired(1000, "isolated-root-prober",
@@ -1000,6 +1008,9 @@ class B1ObjectsDiagnostic {
     if (!release_.release_once(1000, "isolated-root-prober",
                                ops_.close(handle))) {
       return fail("SETTLEMENT_UNKNOWN", OfflineVerdict::kUnknown);
+    }
+    if (root.volume != root_pin_.volume || root.file != root_pin_.file) {
+      return fail("ISOLATION_ROOT_MISMATCH", OfflineVerdict::kFail);
     }
     return true;
   }
@@ -1451,6 +1462,17 @@ class B1StoreDiagnostic {
       return false;
     }
     if (verdict_ != OfflineVerdict::kNotRun) return false;
+    // Attempt ceilings only limit work. PASS additionally requires the full
+    // successful candidate: two DPAPI round trips and three transactions
+    // settled by two commits and one abort, with the Owner released.
+    if (ledger_.owner_acquire.settled != 1 ||
+        ledger_.owner_close.settled != 1 ||
+        ledger_.dpapi_protect.settled != 2 ||
+        ledger_.dpapi_unprotect.settled != 2 ||
+        ledger_.store_begin.settled != 3 || ledger_.store_commit.settled != 2 ||
+        ledger_.store_abort.settled != 1) {
+      return fail("ARTIFACT_INVALID", OfflineVerdict::kFail);
+    }
     verdict_ = OfflineVerdict::kPass;
     return true;
   }
@@ -1472,8 +1494,7 @@ class B1StoreDiagnostic {
     if (rc == SHIROHA_NATIVE_COMMIT_UNKNOWN) {
       return fail("SETTLEMENT_UNKNOWN", OfflineVerdict::kUnknown);
     }
-    if (rc != SHIROHA_NATIVE_OK || root.volume != root_pin_.volume ||
-        root.file != root_pin_.file) {
+    if (rc != SHIROHA_NATIVE_OK) {
       return fail("ISOLATION_ROOT_MISMATCH", OfflineVerdict::kFail);
     }
     if (!release_.register_acquired(2000, "isolated-root-prober",
@@ -1484,6 +1505,9 @@ class B1StoreDiagnostic {
     if (!release_.release_once(2000, "isolated-root-prober",
                                object_ops_.close(handle))) {
       return fail("SETTLEMENT_UNKNOWN", OfflineVerdict::kUnknown);
+    }
+    if (root.volume != root_pin_.volume || root.file != root_pin_.file) {
+      return fail("ISOLATION_ROOT_MISMATCH", OfflineVerdict::kFail);
     }
     return true;
   }

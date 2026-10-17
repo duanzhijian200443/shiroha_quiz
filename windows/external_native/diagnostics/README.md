@@ -126,6 +126,8 @@ description after passing checks: **R6A-B1 L1 UNIFIED SOURCE READY / OFFLINE TES
   any protected object opens, probes the injected `ObjectOperations` seam with
   one `local_directory`/`inspect`/`close` sequence and rejects it unless the
   probed root identity equals the approved pin (`ISOLATION_ROOT_MISMATCH`). The
+  probe handle is registered and closed exactly once even on identity mismatch;
+  a failed close retains quarantined custody and an `UNKNOWN` verdict. The
   path blacklist is therefore only supplementary: a production or Host A seam is
   rejected even when the path text looks approved. Its publication/readback
   object kind is an explicit required parameter (`1` or `2`), never a silent
@@ -135,7 +137,10 @@ description after passing checks: **R6A-B1 L1 UNIFIED SOURCE READY / OFFLINE TES
   <=1, existing-target replace <=1, readbacks <=2, 60,000 ms ceiling) bound
   C: NTFS volume/File ID, Owner SID, protected single-ACE DACL, parent identity,
   no reparse, link count, `runtime.lock`/`client.lock` ownership and unknown
-  custody retention without deleting unknown objects. Residual: the seam is
+  custody retention without deleting unknown objects. DACL checks cannot be
+  disabled. PASS requires a nonempty approved-object set, at least one successful
+  security/identity/parent observation for every pin, and the complete lock,
+  publication, replacement and readback sequence. Residual: the seam is
   probed once per trial at `begin`; a differential seam that changes roots
   between calls is out of G0-L0 scope and must be re-pinned at the real trial.
 - **B1-D (`L1-STORE`)**: `B1StoreDiagnostic` and `StorePrimitiveLedger` wrap the
@@ -151,6 +156,11 @@ description after passing checks: **R6A-B1 L1 UNIFIED SOURCE READY / OFFLINE TES
   above the native store. Because the ABI-3 buffer ceiling is exactly 65,536 B,
   a maximum-size plaintext can never be protected; the realizable plaintext
   ceiling reserves DPAPI framing room instead of relying on the Fake transform.
+  Budget ceilings alone never establish PASS: the candidate must successfully
+  settle two Protect, two Unprotect, three Begin, two Commit and one Abort
+  operations plus Owner release. Zero work or a partial sequence is non-PASS;
+  unsettled custody remains `UNKNOWN`. Root-probe mismatch uses the same
+  single-close/custody rule as B1-C.
 - **B1-E (`L1-RELEASE`) & cross-Trial isolation**: `B1ReleaseLedger` enforces
   unique owner registration, at most one release attempt per owned resource,
   independent owner release after STOP, no retry on failed release, void-return

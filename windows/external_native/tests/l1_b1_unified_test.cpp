@@ -726,6 +726,7 @@ struct FakeProtectedStoreEnv final : shiroha_native::ObjectOperations {
   std::set<uint64_t> locked;
   std::vector<std::wstring> calls;
   std::map<HANDLE, bool> is_lock;
+  std::map<HANDLE, unsigned> close_attempts;
   std::map<uint64_t, std::vector<uint8_t>> contents;
   HANDLE state = nullptr, flushed = nullptr;
   std::wstring active_name = L"issuer.bin";
@@ -804,6 +805,7 @@ struct FakeProtectedStoreEnv final : shiroha_native::ObjectOperations {
     return SHIROHA_NATIVE_OK;
   }
   bool close(HANDLE h) noexcept override {
+    ++close_attempts[h];
     if (fail_close) return false;
     if (!handles.count(h)) return false;
     if (is_lock[h]) locked.erase(handles[h].file);
@@ -890,6 +892,94 @@ struct FakeProtectedStoreEnv final : shiroha_native::ObjectOperations {
 // B1-C Tests: L1-OBJECTS Restricted Diagnostic Candidate
 // ============================================================================
 void test_b1_c_objects_diagnostic() {
+  // A successful root probe owns its handle even when the approved pin differs.
+  for (bool wrong_volume : {false, true}) {
+    for (bool close_fails : {false, true}) {
+      FakeProtectedStoreEnv env;
+      auto root = env.approved_root("C:\\SYNTHETIC\\B1_OBJECTS");
+      if (wrong_volume)
+        ++root.volume;
+      else
+        ++root.file;
+      env.fail_close = close_fails;
+      z::B1ObjectsDiagnostic diag(root, env.sid, env, 1);
+      check(!diag.begin(1000), "OBJECTS rejects mismatched root identity");
+      check(env.close_attempts.size() == 1 &&
+                env.close_attempts.begin()->second == 1 &&
+                env.handles.size() == (close_fails ? 1u : 0u) &&
+                env.calls == std::vector<std::wstring>{L"LOCAL"},
+            "OBJECTS root mismatch closes once before any child opens");
+      check(
+          !diag.release_locks_and_settle(1010) &&
+              diag.verdict() == (close_fails ? OfflineVerdict::kUnknown
+                                             : OfflineVerdict::kFail) &&
+              diag.release_ledger().acquired() == 1 &&
+              diag.release_ledger().release_attempts() == 1 &&
+              diag.release_ledger().still_owned() == (close_fails ? 1u : 0u) &&
+              diag.release_ledger().quarantined() == (close_fails ? 1u : 0u) &&
+              env.close_attempts.begin()->second == 1,
+          "OBJECTS root mismatch retains UNKNOWN custody without retry");
+    }
+  }
+
+  // DACL checks cannot be disabled, even if the caller ignores rejection.
+  {
+    FakeProtectedStoreEnv env;
+    z::B1ObjectsDiagnostic diag(env.approved_root("C:\\SYNTHETIC\\B1_OBJECTS"),
+                                env.sid, env, 1);
+    check(diag.begin(1000), "begin DACL bypass negative");
+    auto info = env.make_good(false);
+    check(!diag.register_approved_object("unchecked", info.volume, info.file,
+                                         false, false) &&
+              !diag.acquire_app_lock(1010) &&
+              !diag.release_locks_and_settle(1020) &&
+              diag.verdict() == OfflineVerdict::kFail && env.handles.empty(),
+          "disabled DACL observation is rejected and cannot lead to PASS");
+  }
+
+  // Completing file operations cannot replace security evidence for EVERY pin.
+  // 0: no approved set; 1: zero observations; 2: only one of two pins observed;
+  // 3: each approved pin observed once (the minimum, within the <=2 budget).
+  for (unsigned mode = 0; mode < 4; ++mode) {
+    FakeProtectedStoreEnv env;
+    z::B1ObjectsDiagnostic diag(env.approved_root("C:\\SYNTHETIC\\B1_OBJECTS"),
+                                env.sid, env, 1);
+    check(diag.begin(1000) && diag.acquire_app_lock(1010) &&
+              diag.attempt_competing_app_lock(1020) &&
+              diag.acquire_bridge_lock(1030),
+          "security completion test acquires all required locks");
+    if (mode != 0) {
+      auto parent = env.make_good(true);
+      auto info = env.make_good(false);
+      HANDLE handle = env.make_handle(info, false);
+      check(
+          diag.register_approved_object("first", info.volume, info.file, false),
+          "register first completion pin");
+      if (mode >= 2) {
+        check(diag.register_approved_object("second", info.volume, info.file,
+                                            false) &&
+                  diag.observe_object_security(1040, "first", handle, parent,
+                                               parent.volume, parent.file),
+              "observe first completion pin");
+        if (mode == 3) {
+          check(diag.observe_object_security(1050, "second", handle, parent,
+                                             parent.volume, parent.file),
+                "observe second completion pin");
+        }
+      }
+      check(env.close(handle), "release borrowed observation handle");
+    }
+    std::vector<uint8_t> first{1, 2}, second{3, 4}, readback;
+    check(diag.publish_new_target(1060, first, readback) &&
+              diag.replace_existing_target(1070, first, second, readback),
+          "security completion test performs publish, replace and readbacks");
+    check(diag.release_locks_and_settle(1080) == (mode == 3) &&
+              diag.verdict() ==
+                  (mode == 3 ? OfflineVerdict::kPass : OfflineVerdict::kFail) &&
+              diag.release_ledger().still_owned() == 0 && env.handles.empty(),
+          "OBJECTS PASS requires a nonempty fully observed approved set");
+  }
+
   // 1. Reject production App/Bridge root and Host A root
   {
     FakeProtectedStoreEnv env;
@@ -1075,6 +1165,82 @@ const shiroha_native::Operations kFakeDpapiOps{
     fake_known_folder, fake_free_task};
 
 void test_b1_d_store_diagnostic() {
+  for (bool wrong_volume : {false, true}) {
+    for (bool close_fails : {false, true}) {
+      FakeProtectedStoreEnv env;
+      auto root = env.approved_root("C:\\SYNTHETIC\\B1_STORE");
+      if (wrong_volume)
+        ++root.volume;
+      else
+        ++root.file;
+      env.fail_close = close_fails;
+      z::B1StoreDiagnostic store(root, env.sid, 1, 1, kFakeDpapiOps, env);
+      check(!store.begin(1000), "STORE rejects mismatched root identity");
+      check(env.close_attempts.size() == 1 &&
+                env.close_attempts.begin()->second == 1 &&
+                env.handles.size() == (close_fails ? 1u : 0u) &&
+                env.calls == std::vector<std::wstring>{L"LOCAL"} &&
+                store.ledger().owner_acquire.attempted == 0,
+            "STORE root mismatch closes once before Owner acquisition");
+      check(
+          !store.close_and_settle(1010) &&
+              store.verdict() == (close_fails ? OfflineVerdict::kUnknown
+                                              : OfflineVerdict::kFail) &&
+              store.release_ledger().acquired() == 1 &&
+              store.release_ledger().release_attempts() == 1 &&
+              store.release_ledger().still_owned() == (close_fails ? 1u : 0u) &&
+              store.release_ledger().quarantined() == (close_fails ? 1u : 0u) &&
+              env.close_attempts.begin()->second == 1,
+          "STORE root mismatch retains UNKNOWN custody without retry");
+    }
+  }
+
+  // Every prefix is within budget; only the complete successful trial may PASS.
+  for (unsigned steps = 0; steps <= 10; ++steps) {
+    FakeProtectedStoreEnv env;
+    z::B1StoreDiagnostic store(env.approved_root("C:\\SYNTHETIC\\B1_STORE"),
+                               env.sid, 1, 1, kFakeDpapiOps, env);
+    check(store.begin(1000), "begin STORE completion prefix");
+    std::vector<uint8_t> plain{1, 2, 3}, cipher, recovered, existing;
+    uint64_t ticket = 0;
+    if (steps >= 1)
+      check(store.dpapi_protect(1010, 1, plain, cipher), "prefix Protect 1");
+    if (steps >= 2)
+      check(store.dpapi_unprotect(1020, 1, cipher, recovered),
+            "prefix Unprotect 1");
+    if (steps >= 3)
+      check(store.dpapi_protect(1030, 1, plain, cipher), "prefix Protect 2");
+    if (steps >= 4)
+      check(store.dpapi_unprotect(1040, 1, cipher, recovered),
+            "prefix Unprotect 2");
+    if (steps >= 5)
+      check(store.store_begin(1050, 1, existing, ticket) ==
+                SHIROHA_NATIVE_MISSING,
+            "prefix Begin 1");
+    if (steps >= 6)
+      check(store.store_commit(1060, 1, ticket, cipher) == SHIROHA_NATIVE_OK,
+            "prefix Commit 1");
+    if (steps >= 7)
+      check(store.store_begin(1070, 1, existing, ticket) == SHIROHA_NATIVE_OK,
+            "prefix Begin 2");
+    if (steps >= 8)
+      check(store.store_commit(1080, 1, ticket, cipher) == SHIROHA_NATIVE_OK,
+            "prefix Commit 2");
+    if (steps >= 9)
+      check(store.store_begin(1090, 1, existing, ticket) == SHIROHA_NATIVE_OK,
+            "prefix Begin 3");
+    if (steps >= 10)
+      check(store.store_abort(1100, 1, ticket) == SHIROHA_NATIVE_OK,
+            "prefix Abort 1");
+    const bool outstanding_ticket = steps == 5 || steps == 7 || steps == 9;
+    const auto expected = steps == 10          ? OfflineVerdict::kPass
+                          : outstanding_ticket ? OfflineVerdict::kUnknown
+                                               : OfflineVerdict::kFail;
+    check(store.close_and_settle(1110) == (steps == 10) &&
+              store.verdict() == expected && env.handles.empty(),
+          "STORE zero/partial work cannot PASS; complete trial can PASS");
+  }
+
   // 1. Reject bundling multiple Store kinds (e.g., App 1/2/3 + Bridge 4) or
   // invalid Store kind
   {

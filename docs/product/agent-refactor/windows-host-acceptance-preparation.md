@@ -236,6 +236,11 @@ JSON `environment` 与每份 `requests` 合并后构成申请草案。
 五份申请共同的设备/根/OS/产物/资源上限/负责人/窗口都尚未选择，
 状态 **DRAFT_NOT_AUTHORIZED**（`executionAuthorized = false`）。有上限不表示必须完成这些调用；首个异常立即减少后续操作至零，
 只保留原契约准许的单次安全释放。下层 Native 调用可能阻塞，候选时限不是硬终止保证。
+预算上限与 PASS 完成性分开判定：OBJECTS 不允许关闭 DACL 检查，批准对象集合须非空，
+每个批准对象至少成功完成一次安全/身份/父目录观察，并完成锁/发布/替换/读回步骤；
+STORE 须成功结算 Protect 2、Unprotect 2、Begin 3、Commit 2、Abort 1 及 Owner 释放。
+零工作量或部分完成不得 PASS。两者的根探测句柄在身份不匹配时仍登记并只关闭一次，
+关闭失败保留 UNKNOWN custody，不重试。
 每种实验均有独立 Operation Allowlist（`operation_allowed_for_trial`），CRYPTO 授权绝不顺带允许 OBJECTS 或 STORE 操作。
 
 ### Host A Batch 3 独立阻断
