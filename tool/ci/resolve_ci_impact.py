@@ -1,4 +1,9 @@
-"""Offline PR impact observation. Recommendations never authorize skipped jobs."""
+"""Offline PR impact planning. A plan may omit a unit only through fixed rules.
+
+The plan is bound to the event identities, the rule digest, the workflow digest
+and a content digest of every tracked input outside the ordinary document
+allowlist. It never contains source contents or raw Git stderr.
+"""
 
 import argparse
 from dataclasses import dataclass
@@ -6,18 +11,35 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import platform
 import posixpath
 import re
 import subprocess
+import sys
 from urllib.parse import unquote
 
 
 JOBS = ("static", "windows_native", "train_c_finalization_parity", "contracts")
+EXECUTE = "EXECUTE"
+NOT_APPLICABLE = "NOT_APPLICABLE"
+REUSE = "REUSE"
 ROOT = Path(__file__).resolve().parents[2]
+WORKFLOW = ".github/workflows/pr-contract-checks.yml"
 ACCEPTANCE_MATERIALS = {
     "docs/product/agent-refactor/windows-host-acceptance-plan.json",
     "docs/product/agent-refactor/windows-host-acceptance-preparation.md",
 }
+PINNED_INPUTS = (
+    WORKFLOW,
+    "tool/ci/impact_rules.json",
+    "tool/ci/resolve_ci_impact.py",
+    "tool/ci/resolve_ci_reuse.py",
+    "tool/ci/verify_ci_plan.py",
+    "tool/verify_changed.ps1",
+    "pubspec.lock",
+    "pubspec.yaml",
+    "analysis_options.yaml",
+)
 
 
 class ImpactError(Exception):
@@ -115,6 +137,13 @@ def changes_between(repo, before, after):
     return result
 
 
+def ordinary_document(change, rules):
+    """True only for an in-place content edit of an allowlisted ordinary document."""
+    return (change.path in rules["ordinaryDocuments"]
+            and change.status == "M"
+            and change.old_mode == change.new_mode == "100644")
+
+
 def classify(changes, rules):
     required, reasons = set(), set()
     if not changes:
@@ -128,7 +157,7 @@ def classify(changes, rules):
             reasons.add("unsafe_path_or_type")
             continue
         if path in rules["ordinaryDocuments"]:
-            if change.status == "M" and change.old_mode == change.new_mode == "100644":
+            if ordinary_document(change, rules):
                 reasons.add("ordinary_document")
             else:
                 required.update(JOBS)
@@ -152,46 +181,180 @@ def classify(changes, rules):
     return required, reasons
 
 
-def check_readme_links(repo, tested):
-    text = git(repo, "show", f"{tested}:README.md").decode("utf-8")
-    # Validate local file targets only; no external network requests. Unsupported
-    # Markdown reference syntax widens the recommendation rather than guessing.
+def local_markdown_targets(text):
+    """Return inline local file targets and whether the grammar was unsupported.
+
+    Angle-bracketed destinations may contain spaces. A plain destination ends at
+    whitespace, after which only a quoted or parenthesised optional title is
+    accepted. Reference-style definitions and unknown trailing tokens widen the
+    recommendation instead of guessing a partial path.
+    """
     unsupported = bool(re.search(r"(?m)^\s*\[[^\]]+\]:", text))
-    for match in re.finditer(r"\[[^\]\r\n]*\]\(([^)\r\n]+)\)", text):
-        target = match[1].strip().split()[0].strip("<>")
+    targets = []
+    title = re.compile(r"^(?:\"[^\"]*\"|'[^']*'|\([^)]*\))$")
+    for match in re.finditer(r"\[[^\]\r\n]*\]\(([^)\r\n]*)\)", text):
+        raw = match.group(1).strip()
+        if raw.startswith("<"):
+            end = raw.find(">")
+            if end < 0:
+                unsupported = True
+                continue
+            target = raw[1:end].strip()
+            remainder = raw[end + 1:].strip()
+        else:
+            parts = raw.split(None, 1)
+            target = parts[0] if parts else ""
+            remainder = parts[1].strip() if len(parts) == 2 else ""
+        if remainder and not title.match(remainder):
+            unsupported = True
+            continue
+        if not target:
+            unsupported = True
+            continue
         if re.match(r"^(?:https?://|mailto:)", target) or target.startswith("#"):
             continue
         target = unquote(target.split("#", 1)[0])
         if not safe_path(target):
             unsupported = True
             continue
+        targets.append(posixpath.normpath(target))
+    return targets, unsupported
+
+
+def check_readme_links(repo, tested):
+    text = git(repo, "show", f"{tested}:README.md").decode("utf-8")
+    # Validate local file targets only; no external network requests. Unsupported
+    # Markdown reference syntax widens the recommendation rather than guessing.
+    targets, unsupported = local_markdown_targets(text)
+    for target in targets:
         try:
-            git(repo, "cat-file", "-e", f"{tested}:{posixpath.normpath(target)}")
+            git(repo, "cat-file", "-e", f"{tested}:{target}")
         except ImpactError:
             raise ImpactError("missing_document_reference") from None
     return unsupported
 
 
-def resolve_plan(repo, event_name, event, rules, rules_hash, mode="shadow", tested_ref="HEAD"):
-    if mode not in ("shadow", "full"):
+def _blob_sha(repo, ref, path):
+    try:
+        raw = git(repo, "rev-parse", "--verify", f"{ref}:{path}")
+    except ImpactError:
+        return None
+    return raw.decode().strip()
+
+
+def workflow_sha256(repo, ref):
+    try:
+        raw = git(repo, "show", f"{ref}:{WORKFLOW}")
+    except ImpactError:
+        return None
+    return hashlib.sha256(raw).hexdigest()
+
+
+def tree_sha256(repo, ref, rules):
+    raw = git(repo, "ls-tree", "-r", "-z", "--full-tree", ref)
+    lines = []
+    for entry in raw.split(b"\0"):
+        if not entry:
+            continue
+        meta, path = entry.split(b"\t", 1)
+        mode, kind, obj = meta.decode("ascii").split()
+        name = path.decode("utf-8")
+        if kind == "blob" and name in rules["ordinaryDocuments"]:
+            continue
+        lines.append(f"{mode} {kind} {obj} {name}")
+    lines.sort()
+    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
+
+def flutter_version(repo, ref):
+    try:
+        text = git(repo, "show", f"{ref}:{WORKFLOW}").decode("utf-8")
+    except ImpactError:
+        return "unknown"
+    versions = sorted(set(re.findall(r"(?m)^\s+flutter-version:\s*(\S+)\s*$", text)))
+    return versions[0] if len(versions) == 1 else "unknown"
+
+
+def pinned_inputs(repo, ref):
+    return {path: _blob_sha(repo, ref, path) for path in PINNED_INPUTS}
+
+
+def runner():
+    return {
+        "os": platform.system(),
+        "image": os.environ.get("ImageOS", ""),
+        "imageVersion": os.environ.get("ImageVersion", ""),
+    }
+
+
+def canonical(plan):
+    body = {key: value for key, value in plan.items() if key != "planSha256"}
+    return hashlib.sha256(
+        json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def seal(plan):
+    plan["planSha256"] = canonical(plan)
+    return plan
+
+
+def read_plan(path):
+    try:
+        plan = json.loads(Path(path).read_bytes(), object_pairs_hook=unique_fields)
+    except (OSError, ValueError, TypeError):
+        raise ImpactError("invalid_plan") from None
+    if type(plan) is not dict or plan.get("version") != 2:
+        raise ImpactError("invalid_plan")
+    if plan.get("planSha256") != canonical(plan):
+        raise ImpactError("plan_digest_mismatch")
+    if set(plan.get("units", {})) != set(JOBS):
+        raise ImpactError("invalid_plan")
+    for job in JOBS:
+        unit = plan["units"][job]
+        if type(unit) is not dict or unit.get("status") not in (EXECUTE, NOT_APPLICABLE, REUSE):
+            raise ImpactError("invalid_plan")
+    return plan
+
+
+def commit_sha(repo, ref):
+    try:
+        raw = git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}")
+    except ImpactError:
+        raise ImpactError("invalid_target") from None
+    return sha(raw.decode().strip())
+
+
+def resolve_plan(repo, event_name, event, rules, rules_hash, mode="plan", tested_ref="HEAD"):
+    if mode not in ("plan", "full"):
         raise ImpactError("invalid_mode")
     if not isinstance(event, dict):
         raise ImpactError("invalid_event")
-    tested = sha(git(repo, "rev-parse", "--verify", f"{tested_ref}^{{commit}}").decode().strip())
+    tested = commit_sha(repo, tested_ref)
     plan = {
-        "version": 1, "mode": mode, "event": event_name, "headSha": tested,
+        "version": 2, "mode": mode, "event": event_name, "headSha": tested,
         "baseSha": None, "mergeBaseSha": None, "testedSha": tested,
-        "rulesSha256": rules_hash, "changedFileCount": 0,
-        "recommendedJobs": dict.fromkeys(JOBS, True),
-        "executionJobs": dict.fromkeys(JOBS, True), "reasons": [],
+        "rulesSha256": rules_hash, "workflowSha256": workflow_sha256(repo, tested),
+        "treeSha256": tree_sha256(repo, tested, rules), "flutterVersion": flutter_version(repo, tested),
+        "runner": runner(), "changedFileCount": 0,
+        "requiredJobs": dict.fromkeys(JOBS, True),
+        "units": {job: {"status": EXECUTE, "reason": "non_pr_full"} for job in JOBS},
+        "reasons": [], "reuse": {"status": "NOT_EVALUATED", "code": "reuse_not_evaluated"},
     }
     if event_name != "pull_request":
-        if event_name == "push" and sha(event.get("after")) != tested:
-            raise ImpactError("target_mismatch")
-        if event_name == "push" and event.get("before") not in (None, "0" * 40):
-            plan["baseSha"] = sha(event["before"])
-        plan["reasons"] = ["non_pr_full"]
-        return plan
+        if event_name == "push":
+            if sha(event.get("after")) != tested:
+                raise ImpactError("target_mismatch")
+            if event.get("before") not in (None, "0" * 40):
+                plan["baseSha"] = sha(event["before"])
+            reason = "push_full"
+        elif event_name == "schedule":
+            reason = "scheduled_full"
+        else:
+            reason = "manual_full"
+        plan["reasons"] = [reason]
+        for job in JOBS:
+            plan["units"][job]["reason"] = reason
+        return seal(plan)
     try:
         head = sha(event["pull_request"]["head"]["sha"])
         base = sha(event["pull_request"]["base"]["sha"])
@@ -215,7 +378,9 @@ def resolve_plan(repo, event_name, event, rules, rules_hash, mode="shadow", test
         if str(error) == "target_mismatch":
             raise
         plan["reasons"] = ["diff_unavailable_full"]
-        return plan
+        for job in JOBS:
+            plan["units"][job]["reason"] = "diff_unavailable_full"
+        return seal(plan)
     git(repo, "diff", "--no-ext-diff", "--check", merge_base, head, "--")
     git(repo, "diff", "--no-ext-diff", "--check", base, tested, "--")
     required, reasons = classify(changes, rules)
@@ -228,16 +393,44 @@ def resolve_plan(repo, event_name, event, rules, rules_hash, mode="shadow", test
     if mode == "full":
         required.update(JOBS)
         reasons.add("forced_full")
-    plan.update(changedFileCount=len({change.path for change in changes}), reasons=sorted(reasons),
-                recommendedJobs={job: job in required for job in JOBS})
-    return plan
+    plan["reasons"] = sorted(reasons)
+    plan["requiredJobs"] = {job: job in required for job in JOBS}
+    plan["units"] = {
+        job: {"status": EXECUTE if job in required else NOT_APPLICABLE,
+              "reason": "changed_input_requires_unit" if job in required else "no_changed_input_requires_unit"}
+        for job in JOBS
+    }
+    plan.update(changedFileCount=len({change.path for change in changes}))
+    return seal(plan)
+
+
+def write_outputs(plan, path):
+    lines = [f"mode={plan['mode']}", f"planDigest={plan['planSha256']}"]
+    for job in JOBS:
+        key = "unit" + "".join(part.capitalize() for part in job.split("_"))
+        status = plan["units"][job]["status"]
+        lines.append(f"{key}={'execute' if status == EXECUTE else 'skip'}")
+        lines.append(f"{key}Status={status}")
+    Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def summary(plan):
+    lines = ["## CI impact plan", f"Mode: {plan['mode']}; units drive job execution.",
+             f"Head: `{plan['headSha']}`; Base: `{plan['baseSha']}`; Tested: `{plan['testedSha']}`.",
+             f"Changed files: {plan['changedFileCount']}; reasons: {', '.join(plan['reasons'])}.",
+             f"Reuse: {plan['reuse']['status']} ({plan['reuse']['code']}).",
+             "", "| Unit | Status | Reason |", "|---|---|---|"]
+    for job in JOBS:
+        unit = plan["units"][job]
+        lines.append(f"| {job} | {unit['status']} | {unit['reason']} |")
+    return "\n".join(lines) + "\n"
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--event-path", default=os.environ.get("GITHUB_EVENT_PATH"))
     parser.add_argument("--event-name", default=os.environ.get("GITHUB_EVENT_NAME"))
-    parser.add_argument("--mode", choices=("shadow", "full"), default="shadow")
+    parser.add_argument("--mode", choices=("plan", "full"), default="plan")
     args = parser.parse_args()
     try:
         if not args.event_path or not args.event_name:
@@ -245,25 +438,36 @@ def main():
         event = json.loads(Path(args.event_path).read_text(encoding="utf-8"), object_pairs_hook=unique_fields)
         rules, digest = read_rules(ROOT / "tool/ci/impact_rules.json")
         plan = resolve_plan(ROOT, args.event_name, event, rules, digest, args.mode)
-        output = ROOT / ".dart_tool/ci-impact/plan.json"
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
-        lines = ["## CI impact observation", f"Mode: {plan['mode']}; all validation jobs execute.",
-                 f"Head: `{plan['headSha']}`; Base: `{plan['baseSha']}`; Tested: `{plan['testedSha']}`.",
-                 f"Changed files: {plan['changedFileCount']}; reasons: {', '.join(plan['reasons'])}.",
-                 "", "| Job | Recommended | Actual policy |", "|---|---|---|"]
-        for job in JOBS:
-            lines.append(f"| {job} | {'execute' if plan['recommendedJobs'][job] else 'not applicable'} | execute |")
-        summary = "\n".join(lines) + "\n"
+        if args.event_name == "pull_request" and args.mode == "plan":
+            sys.path.insert(0, str(Path(__file__).resolve().parent))
+            import resolve_ci_reuse
+            pull = event.get("pull_request") or {}
+            head_event = pull.get("head") or {}
+            plan = resolve_ci_reuse.apply(
+                ROOT, plan, resolve_ci_reuse.GitHubApi.from_environment(os.environ),
+                repo_full_name=(head_event.get("repo") or {}).get("full_name"),
+                base_repo_full_name=(event.get("repository") or {}).get("full_name"),
+                pr_number=pull.get("number"), head_ref=head_event.get("ref"),
+            )
+        write_plan(plan)
+        text = summary(plan)
         if os.environ.get("GITHUB_STEP_SUMMARY"):
             with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
-                stream.write(summary)
-        print(summary)
+                stream.write(text)
+        if os.environ.get("GITHUB_OUTPUT"):
+            write_outputs(plan, os.environ["GITHUB_OUTPUT"])
+        print(text)
         return 0
     except (ImpactError, OSError, ValueError) as error:
         code = str(error) if isinstance(error, ImpactError) else "input_or_output_invalid"
         print(f"FAIL: ci_impact:{code}")
         return 1
+
+
+def write_plan(plan):
+    output = ROOT / ".dart_tool/ci-impact/plan.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

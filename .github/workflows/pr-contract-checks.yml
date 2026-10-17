@@ -10,23 +10,35 @@ on:
       - master
       - integration/train-c-package-b-final
       - 'fix/train-c-*'
+  schedule:
+    # Monday 04:00 Asia/Shanghai (Sunday 20:00 UTC): weekly full regression.
+    - cron: '0 20 * * 0'
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   # A push checks the branch head while a pull_request checks the merge ref, and both
   # can carry the same branch name; sharing one group would let a branch push cancel
-  # the required PR run. Manual dispatch stays with the PR run and only queues.
-  group: pr-contract-${{ github.event_name == 'push' && 'push' || 'review' }}-${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+  # the required PR run. Manual and scheduled runs own a third namespace and never
+  # cancel a required PR run.
+  group: pr-contract-${{ github.event_name == 'push' && 'push' || github.event_name == 'schedule' && 'schedule' || 'review' }}-${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 jobs:
   impact:
-    name: Change impact analysis (shadow)
+    name: Change impact analysis
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
+    outputs:
+      mode: ${{ steps.plan.outputs.mode }}
+      planDigest: ${{ steps.plan.outputs.planDigest }}
+      static: ${{ steps.plan.outputs.unitStatic }}
+      native: ${{ steps.plan.outputs.unitWindowsNative }}
+      trainC: ${{ steps.plan.outputs.unitTrainCFinalizationParity }}
+      contracts: ${{ steps.plan.outputs.unitContracts }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -35,6 +47,11 @@ jobs:
 
       - name: Check impact classification regressions
         run: python3 -B -m unittest discover -s tool/tests -p ci_impact_test.py
+
+      - name: Check reuse and aggregate regressions
+        run: |
+          python3 -B -m unittest discover -s tool/tests -p ci_reuse_test.py
+          python3 -B -m unittest discover -s tool/tests -p ci_gate_test.py
 
       - name: Check standing coverage, timing and aggregate gate
         shell: pwsh
@@ -52,21 +69,26 @@ jobs:
         shell: pwsh
         run: ./tool/external/check_acceptance_readiness.ps1 -SelfTest
 
-      - name: Observe PR impact without skipping validation
-        run: python3 -B tool/ci/resolve_ci_impact.py --mode shadow
+      - name: Resolve verification plan
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -B tool/ci/resolve_ci_impact.py --mode plan
 
-      - name: Upload shadow impact observation
+      - name: Upload verification plan
         if: always()
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: ci-impact-shadow
+          name: ci-impact-plan
           path: .dart_tool/ci-impact/plan.json
           retention-days: 7
           if-no-files-found: warn
 
   windows_native:
     name: Windows native offline contracts
+    needs: impact
+    if: needs.impact.outputs.native == 'execute'
     runs-on: windows-2022
     timeout-minutes: 10
     steps:
@@ -78,6 +100,8 @@ jobs:
 
   static:
     name: Static changed-Dart checks
+    needs: impact
+    if: needs.impact.outputs.static == 'execute'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -143,6 +167,8 @@ jobs:
 
   train_c_finalization_parity:
     name: TRAIN C finalization parity
+    needs: impact
+    if: needs.impact.outputs.trainC == 'execute'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -196,6 +222,8 @@ jobs:
 
   contracts:
     name: Contract shard ${{ matrix.shard }}/4
+    needs: impact
+    if: needs.impact.outputs.contracts == 'execute'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -234,14 +262,14 @@ jobs:
             # Order calibrated from Linux suite timings; keep modulo sharding.
             'test/practice_answer_attempt_lifecycle_test.dart',
             'test/tool/train_c_runtime_evidence_source_test.dart',
-            'test/r7e_full_production_v2_activation_acceptance_test.dart',
+            'test/ocr_smoke_report_test.dart',
             'test/r7d_v2_first_question_list_acceptance_test.dart',
             'test/profile_screen_test.dart',
             'test/widget_test.dart',
             'test/home_page_test.dart',
             'test/ui/home/today_controller_test.dart',
             'test/ui/home/home_training_v2_test.dart',
-            'test/practice_page_v2_test.dart',
+            'test/backup/backup_export_test.dart',
             'test/r8_legacy_retirement_acceptance_test.dart',
             'test/backup/answer_completion_backup_test.dart',
             'test/ui/assistant/assistant_workspace_shell_test.dart',
@@ -252,7 +280,7 @@ jobs:
             'test/tool/train_c_l1b_phase_controller_test.dart',
             'test/tool/train_c_evidence_collector_test.dart',
             'test/import_target_workflow_widget_test.dart',
-            'test/data/repositories/training_question_selection_test.dart',
+            'test/data/repositories/study_activity_repository_test.dart',
             'test/tool/train_c_evidence_probe_test.dart',
             'test/backup/backup_restore_test.dart',
             'test/backup/training_content_backup_test.dart',
@@ -298,11 +326,11 @@ jobs:
             'test/spl1_v0_acceptance_test.dart',
             'test/question_repository_v2_test.dart',
             'test/tool/train_c_head_identity_gate_test.dart',
-            'test/tool/train_c_l1_preflight_test.dart',
+            'test/ui/theme/app_theme_test.dart',
             'test/ui/pages/supplemental_answer_review_screen_test.dart',
-            'test/wrong_book_page_v2_test.dart',
+            'test/data/external/windows_credential_initialization_test.dart',
             'test/database_runtime_profile_test.dart',
-            'test/data/repositories/study_activity_repository_test.dart',
+            'test/data/repositories/training_question_selection_test.dart',
             'test/answer_completion_ui_acceptance_test.dart',
             'test/ui/pages/p6_supplemental_answer_activation_test.dart',
             'test/database_v24_migration_test.dart',
@@ -327,7 +355,7 @@ jobs:
             'test/answer_entry_guard_ui_test.dart',
             'test/core/database/study_activity_v30_schema_test.dart',
             'test/task_manager_cleanup_test.dart',
-            'test/backup/backup_export_test.dart',
+            'test/practice_page_v2_test.dart',
             'test/data/repositories/conversation_repository_test.dart',
             'test/backup/backup_restore_gate_test.dart',
             'test/ocr_smoke_path_helpers_test.dart',
@@ -419,7 +447,7 @@ jobs:
             'test/ui/pages/practice_study_activity_test.dart',
             'test/ui/pages/mock_exam_study_activity_test.dart',
             'test/services/file_library/managed_file_storage_adapter_test.dart',
-            'test/ocr_smoke_report_test.dart',
+            'test/r7e_full_production_v2_activation_acceptance_test.dart',
             'test/ui/assistant/u1_lifecycle_ux_reviewer_regression_test.dart',
             'test/core/database/rag1_fts5_capability_test.dart',
             'test/core/database/import_task_v31_schema_test.dart',
@@ -470,7 +498,7 @@ jobs:
             'test/ui/generated_question/generated_proposal_edit_test.dart',
             'test/ui/generated_question/generated_proposal_approval_test.dart',
             # Appearance tokens/persistence and the AI capability hub regressions.
-            'test/ui/theme/app_theme_test.dart',
+            'test/tool/train_c_l1_preflight_test.dart',
             'test/ui/theme/appearance_axes_test.dart',
             'test/ui/theme/appearance_persistence_test.dart',
             'test/ui/home/today_visual_polish_test.dart',
@@ -508,7 +536,7 @@ jobs:
             'test/data/external/association_object_codec_test.dart',
             'test/data/external/windows_credential_association_store_test.dart',
             'test/data/external/windows_credential_object_store_test.dart',
-            'test/data/external/windows_credential_initialization_test.dart',
+            'test/wrong_book_page_v2_test.dart',
             'test/data/external/windows_pairing_test.dart',
             'test/data/external/windows_tls_transport_test.dart',
             'test/data/external/windows_tls_lifecycle_test.dart',
@@ -579,29 +607,40 @@ jobs:
       - windows_native
     if: always()
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
 
     steps:
-      - name: Require all verification jobs
-        shell: pwsh
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download verification plan
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: ci-impact-plan
+          path: .dart_tool/ci-impact
+
+      - name: Require planned units and fail closed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT_IMPACT: ${{ needs.impact.result }}
+          RESULT_STATIC: ${{ needs.static.result }}
+          RESULT_WINDOWS_NATIVE: ${{ needs.windows_native.result }}
+          RESULT_TRAIN_C_FINALIZATION_PARITY: ${{ needs.train_c_finalization_parity.result }}
+          RESULT_CONTRACTS: ${{ needs.contracts.result }}
         run: |
-          $impactResult = '${{ needs.impact.result }}'
-          $staticResult = '${{ needs.static.result }}'
-          $parityResult = '${{ needs.train_c_finalization_parity.result }}'
-          $contractsResult = '${{ needs.contracts.result }}'
-          $nativeResult = '${{ needs.windows_native.result }}'
+          python3 -B tool/ci/verify_ci_plan.py \
+            --plan .dart_tool/ci-impact/plan.json \
+            --output .dart_tool/ci-execution/report.json
 
-          Write-Output "Impact observation and safety checks: $impactResult"
-          Write-Output 'CI scope: shadow observation; all verification jobs required'
-          Write-Output "Static checks: $staticResult"
-          Write-Output "TRAIN C finalization parity: $parityResult"
-          Write-Output "Contract shards: $contractsResult"
-          Write-Output "Windows native offline contracts: $nativeResult"
-
-          if ($impactResult -ne 'success' -or
-              $staticResult -ne 'success' -or
-              $parityResult -ne 'success' -or
-              $contractsResult -ne 'success' -or
-              $nativeResult -ne 'success') {
-            exit 1
-          }
+      - name: Upload execution report
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-execution-report
+          path: .dart_tool/ci-execution/report.json
+          retention-days: 7
+          if-no-files-found: warn
