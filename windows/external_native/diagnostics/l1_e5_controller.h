@@ -176,7 +176,14 @@ public:
     if (!attempted_ || evidence_.finished) return false;
     auto r = reading();
     auto o = platform_.observe();
-    if (!controller_sample(o) || !worker_sample(o) || !core_.poll(r, o.healthy)) return finish(false);
+    // A Worker failure STOP closes new work but still owes its already-produced
+    // settlement tail inside the SAME inclusive deadline, so the latched STOP
+    // alone must not end the pump. poll() keeps enforcing health and the
+    // launch-anchored deadline; a real deadline latch ends the bounded drain.
+    if (!controller_sample(o) || !worker_sample(o)) return finish(false);
+    if (!core_.poll(r, o.healthy) &&
+        (!worker_stopped_ || core_.state() == SupervisorState::kDeadlineExceeded))
+      return finish(false);
     if (o.exited && parts_ == 24) return finish(o.normal_exit);
     // ACK ends the stream. EOF can precede the OS exit observation; wait only
     // on the retained process, within the SAME deadline, rather than treating
@@ -193,6 +200,12 @@ public:
       const auto type = e4::get(f.data() + 6, 2);
       if (type == unsigned(e4::Message::hello)) {
         if (evidence_.admission_sent || !platform_.inspect_target(target_)) return finish(false);
+        // The heavy post-HELLO identity/dependency re-inspection may itself
+        // consume controller budget: an independent observation and the FULL
+        // controller budget check close that window before the first work
+        // permission. The SAME launch-anchored inclusive deadline still
+        // applies; the extra sample never earns fresh execution time.
+        if (!controller_sample(platform_.observe())) return finish(false);
         e4::Admission a;
         a.origin = core_.evidence().observation.launch_attempt_ms;
         a.working = target_.grant.working_set_bytes;
@@ -207,7 +220,14 @@ public:
         e4::put(ack.data() + 32, 1, 4);
         evidence_.ack_sent = true;
         if (!platform_.send(ack)) return finish(false);
-      } else if (type == unsigned(e4::Message::stop)) return finish(false);
+      } else if (type == unsigned(e4::Message::stop)) {
+        // The Worker failed itself and core_.receive already latched it, so no
+        // HELLO/SAMPLE can be re-authorized (the E4 channel rejects both).
+        // Its 24 already-produced settlement parts and the ACK they earn are
+        // still collected within the SAME deadline instead of collapsing a
+        // settleable failure into UNKNOWN custody.
+        worker_stopped_ = true;
+      }
     }
     if (o.exited && (!available || parts_ == 24)) return finish(o.normal_exit);
     return true;
@@ -242,11 +262,16 @@ private:
   }
   bool worker_sample(const Observation &o) const noexcept {
     const auto &s = o.worker;
-    // Exit can reduce live handles to zero. It still requires all PRIOR
-    // independent checkpoints and owning settlement, never a new sample.
-    return o.healthy && (o.exited || (s.peak_working_set && s.peak_commit && s.handles &&
-        s.peak_working_set <= target_.grant.working_set_bytes &&
-        s.peak_commit <= target_.grant.commit_bytes && s.handles <= target_.grant.handles));
+    // Live handles may legitimately drop to zero once the process is gone, so
+    // they are only checked while it runs. Already-observed memory peaks are
+    // NOT erased by exit and stay budget-authoritative, including on the final
+    // exit observation. A healthy observation without peaks is an unavailable
+    // measurement: it is an explicit downgrade, never a waived check.
+    if (!o.healthy || !s.peak_working_set || !s.peak_commit) return false;
+    if (!o.exited && (!s.handles || s.handles > target_.grant.handles))
+      return false;
+    return s.peak_working_set <= target_.grant.working_set_bytes &&
+           s.peak_commit <= target_.grant.commit_bytes;
   }
   bool finish(bool normal) noexcept {
     if (evidence_.finished) return false;
@@ -290,7 +315,7 @@ private:
   e4::ClockValidator clock_;
   Evidence evidence_;
   unsigned parts_ = 0;
-  bool attempted_ = false;
+  bool attempted_ = false, worker_stopped_ = false;
 };
 } // namespace e5
 } // namespace shiroha_l1_crypto

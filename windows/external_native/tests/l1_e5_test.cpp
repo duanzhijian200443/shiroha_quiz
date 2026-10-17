@@ -75,9 +75,9 @@ struct Fake final : y::Platform {
   bool enabled = true, cancel = false, checked = true, drift = false, bad_hash = false;
   bool inspect_ok = true, healthy = true, exited = false, normal = true;
   bool close_ok = true, io_close_ok = true, transport_ok = true, send_ok = true;
-  bool throw_create = false, deadline_at_send = false;
+  bool throw_create = false, deadline_at_send = false, budget_blow_at_send = false;
   uint64_t mono = 500, launch = 0;
-  uint64_t controller_working = 1024;
+  uint64_t controller_working = 1024, worker_working = 2048;
   x::WorkerStart started{true, false, true, true, true, true, true, true, true, true, 123};
   std::deque<x::Frame> incoming;
   std::vector<x::Frame> outgoing;
@@ -87,6 +87,7 @@ struct Fake final : y::Platform {
   bool inspect_target(const y::FixedTarget &) override {
     ++touches; ++inspections;
     if (deadline_at_send && inspections == 3) mono = launch + 30000;
+    if (budget_blow_at_send && inspections == 3) controller_working = 99999;
     return inspect_ok && !(drift && inspections > 1);
   }
   bool approve(const x::ApprovalPromptModel &p, x::ApprovalUiResponse &r) override {
@@ -114,7 +115,7 @@ struct Fake final : y::Platform {
   }
   y::Observation observe() override {
     ++touches;
-    return {{mono, 2048, 4096, exited ? 0u : 4u, 0}, {mono, controller_working, 2048, 4, 0}, healthy, exited, normal};
+    return {{mono, worker_working, 4096, exited ? 0u : 4u, 0}, {mono, controller_working, 2048, 4, 0}, healthy, exited, normal};
   }
   bool next(x::Frame &f, bool &available) override {
     ++touches;
@@ -132,16 +133,8 @@ struct Fixture {
   Fake os{io};
   y::Controller controller{target(), io, os};
 };
-void tail(Fixture &f, bool unknown = false, unsigned parts = 24) {
-  x::Digest d{};
-  decode_hex_bytes(f.os.shown.target_hash, d.data(), 32);
-  for (uint16_t i = 0; i < 18; ++i) {
-    auto frame = x::frame(x::Message::sample, i + 2, i, 18, d);
-    x::put(frame.data() + 32, f.os.mono, 8);
-    x::put(frame.data() + 40, 2048, 8); x::put(frame.data() + 48, 4096, 8);
-    x::put(frame.data() + 56, 4, 4); x::put(frame.data() + 60, i == 17 ? 16 : i, 4);
-    f.os.incoming.push_back(frame);
-  }
+void push_settlement(Fixture &f, const x::Digest &d, uint32_t seq,
+                     unsigned parts, bool unknown = false) {
   L1CryptoLedger l;
   NativeObservation n;
   constexpr unsigned limits[] = {1, 3, 3, 6, 3, 45, 45};
@@ -152,8 +145,20 @@ void tail(Fixture &f, bool unknown = false, unsigned parts = 24) {
   l.samples = 18; n.acquired = n.released = 47; n.unknown = unknown;
   x::Settlement bytes{};
   check(x::encode_settlement(l, n, bytes), "same E4 settlement encoding");
-  auto frames = x::settlement_frames(bytes, d, 20);
+  auto frames = x::settlement_frames(bytes, d, seq);
   for (unsigned i = 0; i < parts; ++i) f.os.incoming.push_back(frames[i]);
+}
+void tail(Fixture &f, bool unknown = false, unsigned parts = 24) {
+  x::Digest d{};
+  decode_hex_bytes(f.os.shown.target_hash, d.data(), 32);
+  for (uint16_t i = 0; i < 18; ++i) {
+    auto frame = x::frame(x::Message::sample, i + 2, i, 18, d);
+    x::put(frame.data() + 32, f.os.mono, 8);
+    x::put(frame.data() + 40, 2048, 8); x::put(frame.data() + 48, 4096, 8);
+    x::put(frame.data() + 56, 4, 4); x::put(frame.data() + 60, i == 17 ? 16 : i, 4);
+    f.os.incoming.push_back(frame);
+  }
+  push_settlement(f, d, 20, parts, unknown);
 }
 void approvals() {
   {
@@ -250,11 +255,111 @@ void pipeline() {
         f.controller.evidence().core.observation.verdict == verdict, "late events cannot rewrite final snapshot");
   }
 }
+// The E4 Worker protocol permits a failure STOP followed by its 24 already
+// produced settlement parts, the ACK and then the observed exit. E5 must
+// collect that tail inside the SAME deadline, keep the failure verdict, and
+// never re-authorize work because the run failed.
+void worker_stop_tail() {
+  {
+    Fixture f;
+    check(f.controller.begin() && f.os.outgoing.size() == 1, "worker STOP fixture admitted");
+    x::Digest d{};
+    decode_hex_bytes(f.os.shown.target_hash, d.data(), 32);
+    for (uint16_t i = 0; i < 3; ++i) {
+      auto frame = x::frame(x::Message::sample, i + 2, i, 18, d);
+      x::put(frame.data() + 32, f.os.mono, 8);
+      x::put(frame.data() + 40, 2048, 8); x::put(frame.data() + 48, 4096, 8);
+      x::put(frame.data() + 56, 4, 4); x::put(frame.data() + 60, i, 4);
+      f.os.incoming.push_back(frame);
+    }
+    auto stop = x::frame(x::Message::stop, 5, 0, 1, d);
+    x::put(stop.data() + 32, unsigned(StopReason::kWorker), 4);
+    f.os.incoming.push_back(stop);
+    push_settlement(f, d, 6, 24);
+    while (!f.os.incoming.empty())
+      check(f.controller.pump(), "STOP then owed settlement drained in order");
+    check(f.os.outgoing.size() == 2 && x::get(f.os.outgoing[1].data() + 6, 2) == 6 &&
+        f.controller.evidence().ack_sent, "settlement after STOP still earns the ACK");
+    f.os.exited = true; f.os.normal = false;
+    check(!f.controller.pump(), "bounded terminal settlement after the STOP tail");
+    auto e = f.controller.evidence();
+    check(e.core.observation.verdict == OfflineVerdict::kFail &&
+        !e.core.observation.settlement_incomplete,
+        "worker STOP settles complete Native records as FAIL, not UNKNOWN");
+    check(e.core.observation.first_failure == StopReason::kWorker,
+        "the Worker STOP stays the first causal failure");
+    check(!e.handoff_required && !e.stop_attempted,
+        "drained custody needs no handoff and no second STOP");
+  }
+  {
+    // A failure STOP ends nothing but cleanup: new work can never be admitted.
+    Fixture f;
+    check(f.controller.begin(), "post-STOP re-authorization fixture admitted");
+    x::Digest d{};
+    decode_hex_bytes(f.os.shown.target_hash, d.data(), 32);
+    auto stop = x::frame(x::Message::stop, 2, 0, 1, d);
+    x::put(stop.data() + 32, unsigned(StopReason::kWorker), 4);
+    f.os.incoming.push_back(stop);
+    check(f.controller.pump() && !f.controller.evidence().finished,
+        "STOP alone keeps the bounded cleanup window open");
+    auto sample = x::frame(x::Message::sample, 3, 0, 18, d);
+    x::put(sample.data() + 32, f.os.mono, 8);
+    x::put(sample.data() + 40, 2048, 8); x::put(sample.data() + 48, 4096, 8);
+    x::put(sample.data() + 56, 4, 4); x::put(sample.data() + 60, 0, 4);
+    f.os.incoming.push_back(sample);
+    check(!f.controller.pump(), "SAMPLE after STOP is never re-authorized");
+    auto e = f.controller.evidence();
+    check(e.core.observation.verdict == OfflineVerdict::kUnknown && e.handoff_required,
+        "rejected new work keeps UNKNOWN custody");
+  }
+  {
+    // The retained tail is still bounded by the original inclusive deadline.
+    Fixture f;
+    check(f.controller.begin(), "bounded drain fixture admitted");
+    x::Digest d{};
+    decode_hex_bytes(f.os.shown.target_hash, d.data(), 32);
+    auto stop = x::frame(x::Message::stop, 2, 0, 1, d);
+    x::put(stop.data() + 32, unsigned(StopReason::kWorker), 4);
+    f.os.incoming.push_back(stop);
+    push_settlement(f, d, 3, 5);
+    while (!f.os.incoming.empty()) check(f.controller.pump(), "partial tail drained");
+    f.os.mono = f.os.launch + 30000;
+    check(!f.controller.pump() && f.controller.evidence().handoff_required,
+        "incomplete settlement after STOP ends UNKNOWN at the original deadline");
+    check(f.controller.evidence().core.observation.verdict == OfflineVerdict::kUnknown &&
+        f.controller.evidence().stop_attempted,
+        "unpaid tail retains operator custody under one bounded STOP");
+  }
+  {
+    // Exit must not waive an already-observed peak: the final observation is
+    // still budget-authoritative, and an unavailable exit measurement is an
+    // explicit downgrade instead of a silent pass.
+    for (unsigned mode = 0; mode < 2; ++mode) {
+      Fixture f;
+      check(f.controller.begin() && f.os.outgoing.size() == 1, "post-exit budget fixture admitted");
+      tail(f);
+      while (!f.os.incoming.empty()) check(f.controller.pump(), "full run before the exit observation");
+      f.os.worker_working = mode ? 0 : 99999;
+      f.os.exited = true; f.os.normal = true;
+      check(!f.controller.pump(), "post-exit peak/unavailable measurement cannot PASS");
+      auto e = f.controller.evidence();
+      check(e.core.observation.verdict == OfflineVerdict::kFail && !e.handoff_required,
+          "over-budget or missing exit peaks settle FAIL with closed custody");
+    }
+  }
+}
 void deadline_and_transport() {
   {
     Fixture f; f.os.deadline_at_send = true;
     check(!f.controller.begin() && f.os.outgoing.empty() && f.os.creates == 1,
         "late identity inspection cannot forward ADMISSION at inclusive deadline");
+  }
+  {
+    Fixture f; f.os.budget_blow_at_send = true;
+    check(!f.controller.begin() && f.os.outgoing.empty() && f.os.creates == 1 &&
+        f.os.handoffs == 1, "budget spent by the post-HELLO re-inspection blocks ADMISSION");
+    check(f.controller.evidence().core.observation.verdict == OfflineVerdict::kUnknown,
+        "no first work permission after a controller budget breach");
   }
   for (unsigned mode = 0; mode < 5; ++mode) {
     Fixture f; check(f.controller.begin(), "failure fixture admitted");
@@ -273,7 +378,7 @@ void deadline_and_transport() {
 }
 } // namespace
 int main() {
-  approvals(); one_use_and_failures(); pipeline(); deadline_and_transport();
+  approvals(); one_use_and_failures(); pipeline(); worker_stop_tail(); deadline_and_transport();
   std::cout << "PASS: E5 OFFLINE/FAKE checks=" << checks
       << "; Windows persistence/process/crypto NOT EXECUTED\n";
 }
