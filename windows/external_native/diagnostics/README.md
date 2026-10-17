@@ -86,6 +86,103 @@ hardening, DLL dependents and import tables without running the candidate, and
 runs `shiroha_l1_crypto_probe_test` (`shiroha_l1_crypto_probe_offline`) in CTest
 using pure Fakes only.
 
+## E5 controlled diagnostic composition (G0-L0 only)
+
+`l1_e5_controller.h`, `l1_e5_windows.h/.cpp` and `l1_e5_worker.cpp` compose the
+existing E4 GrantFlow, Controller/protocol, E2 Supervisor/ledger, original
+`run_l1_crypto_sequence` and NativeObservation. They add no Grant/journal/wire
+format or production ABI. The Windows Controller and Worker are unlinked OBJECT
+targets under the existing default-off source option, with no executable entry.
+The E0 entry and E3 integrated backend still unconditionally deny. E5's concrete
+`WindowsPlatform::runtime_allowed()` also unconditionally returns false, before
+any UI, token, clock, file, pipe or close operation. No CLI/environment/JSON or
+build option lifts that refusal. Highest eligible description after passing
+checks: **E5 CONTROLLED ADMISSION SOURCE READY / OFFLINE TESTED**.
+
+The serial Controller owns the immutable target, human prompt, GrantFlow and
+E4 Controller. It performs: fixed-target inspection -> local-human summary and
+typed suffix -> post-dialog identity/resource inspection -> issue receipt/grant
+-> write-ahead request/burn/consumed/start -> one suspended-create attempt ->
+actual Token/image checks and pinned dependency bytes -> single Resume ->
+loader HELLO and actual module closure -> original HELLO parser -> ADMISSION
+-> independent samples/STOP/deadline -> 24-part settlement -> ACK -> independently
+observed exit -> one owned-handle close -> immutable Evidence. Pipe EOF after ACK
+does not stand in for observed process exit. ACK is a protocol receipt, never PASS.
+
+The additional E5 scope hash (`SHIROHA_L1_E5_SCOPE_V1`, existing canonical hash
+builder) is stored in the existing E4 `evidence_scope_id`. It binds the exact
+new C: directory, fixed object inventory, cleanup owner, approved manual recovery
+record digest, Controller EXE digest, Controller/UI WS/Commit/handle ceilings and
+fixed observation method. E4's existing target hash therefore binds these inputs
+without changing E4 hashing, receipts or wire bytes. The expanded human summary
+shows these fields under that SAME target hash/suffix. E5 reconstructs the exact
+display and forwards the SAME human response to E4 confirmation; it does not
+synthesize an approval. Missing reviews, recovery approval, numeric limits,
+cancellation or measured drift denies. Cooperative accidental-operation/replay
+prevention only: no malicious same-SID authentication claim.
+
+The dependency manifest used by this composition has domain
+`SHIROHA_L1_E5_DEPENDENCIES_V1`; each retained manifest entry contributes LE64
+VolumeSerial, length-prefixed FileId16, original Owner/DACL security digest and
+full artifact SHA256, in frozen order. It includes the Worker image and complete
+expected loaded module set (maximum 128), with no duplicate identities; that
+bound and uniqueness are enforced before create and again by the post-HELLO
+module closure. Files are rehashed before create; the E4 actual module closure
+is checked after HELLO before any work. Before Resume, dependencies mean retained/pinned artifact
+closure; actual loader module enumeration is explicitly the post-HELLO step.
+No arbitrary LoadLibrary, source discovery or Store access is added.
+
+The Worker-side pipe adapter calls `worker_candidate`, which invokes the SAME
+E4 `worker_session`, seven-symbol resolver, crypto sequence and original resource
+owners. It performs no ABI/crypto work before target-bound ADMISSION. A future
+fixed Worker image must compile the original crypto/peer wrappers with
+`SHIROHA_L1_CRYPTO_OBSERVATION`, as the E0 candidate does; the unlinked Worker
+OBJECT alone is not a runnable image or evidence of that complete link closure.
+The six original 64-byte message types, 44/3 frame limits, 18 checkpoints,
+106 ABI attempts, 5 live buffers and 47 direct Native owners remain unchanged.
+
+Idle polls use a narrow E4 `Controller::poll` adapter to the SAME Supervisor.
+At 30000ms (inclusive) it closes admission even if no frame arrives, and checks
+again after identity inspection before sending ADMISSION. Each pump handles at
+most one frame. Reads retain partial frames without inventing EOF or blocking
+on absent bytes; bounded loader/Worker waits do not retry create/Resume/effects.
+Synchronous Windows syscalls remain uncancellable. Resource checks cover both
+Worker and Controller/UI OS peaks and sampled handles; no exact handle high-water
+or hard kernel allocation cap is claimed. E5 final verdict is UNKNOWN when owned
+I/O close is unknown even if the inner crypto ledger independently completed.
+
+Created/creation-unknown children retain explicit process/thread custody.
+Failed validation/Resume/HELLO does not close a live process handle or imply exit.
+STOP/timeout never kills. Named Recovery owner receives a handoff-required flag,
+PID and retained custody; the embedding operator must acknowledge that handoff
+using the approved manual plan. This flag is not operator acknowledgment or OS
+recovery. Missing plan/owner/acknowledgment means STOP; no safe real launch claim.
+Owned receipt/grant/journal and pipe handles get one explicit close attempt;
+borrowed directory/artifact/ancestor pins remain with the approved composition.
+Sequential writes/Flush are not a multi-file atomic transaction or power-loss
+proof. Unknown writes, crash, consumed grants and failed launch never restore
+authority. Fake replay/race results remain OFFLINE, never NTFS proof.
+
+The only concrete Windows runtime gate remains closed. Real use still needs
+separate Git delivery/fixed-target review; measured device/OS/SID and newly-created
+root/ancestor/artifact pins supplied by an approved fixed composition; frozen
+source/build/toolchain/EXE/dependency bytes; a reviewed single-purpose entry and
+approved process-custody/recovery/borrowed-pin/evidence closure. Caller-supplied
+`observed_device_id`/`observed_os_id` values are comparisons, not independent OS
+identity attestation. No such composition is inferred from ordinary data.
+No real entry, process, root, approval or evidence file is created here.
+
+Trial applications are separately owned by
+[acceptance preparation E5](../../../docs/product/agent-refactor/windows-host-acceptance-preparation.md#e5-two-independent-single-trial-applications).
+Trial 1 requires an admission-only image with no crypto linkage; the E5 crypto
+Worker cannot be relabeled as that image. Trial 2 requires independently accepted
+Trial 1 evidence and a NEW user grant. Exact parameters remain unselected.
+Source/Fake checks belong to standing `check_offline.ps1` CI; real trials require
+named independent fixed-target Verifier/Reviewer. No real executable is CTest.
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
+REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
+
 ## E4 local human admission candidate (G0-L0 only)
 
 E4 supplements the historical E3 boundary. Highest eligible source description:

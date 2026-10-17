@@ -814,6 +814,18 @@ e4::IoResult E4WindowsGrantIo::update_request(const e4::Journal &bytes) {
     return e4::IoResult::unknown;
   return e4::IoResult::ok;
 }
+bool E4WindowsGrantIo::close_owned_records() noexcept {
+  if (close_attempted_) return close_complete_;
+  close_attempted_ = true;
+  bool ok = true;
+  for (auto pin : {&journal_, &grant_, &receipt_}) {
+    if (pin->handle && pin->handle != INVALID_HANDLE_VALUE) {
+      if (CloseHandle(pin->handle)) pin->handle = INVALID_HANDLE_VALUE;
+      else ok = false;
+    }
+  }
+  return close_complete_ = ok;
+}
 bool show_e4_approval(const e4::ApprovalPromptModel &p,
                       e4::ApprovalUiResponse &response) noexcept {
   // UI leaf is intentionally independent of grant issuance. The controller

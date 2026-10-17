@@ -34,6 +34,18 @@ pending. Package 3 adds inactive lifecycle/recovery and static release
 candidate checks (readiness §21): PACKAGE 3 SOURCE IMPLEMENTED / OFFLINE TESTED
 only; final-target CI/review and real Windows/formal acceptance remain pending.
 
+The E5 controlled diagnostic composition connects the same E4 issuance,
+write-ahead consumption, suspended Worker, six-message IPC and E2 Supervisor/
+Native settlement under one fixed-target local-human Controller. Extra directory,
+Controller budgets and manual recovery scope are bound into the existing target
+hash. Controller/Worker remain unlinked OBJECTs, without executable entries;
+E0/E3/E5 real gates all deny. Highest eligible description after actual passing
+checks: **E5 CONTROLLED ADMISSION SOURCE READY / OFFLINE TESTED**.
+See [readiness E5](windows-host-security-readiness.md#e5-controlled-diagnostic-admission-composition-g0-l0)
+and [independent Trial 1 / Trial 2 applications](windows-host-acceptance-preparation.md#e5-two-independent-single-trial-applications).
+No real identity/root/entry/recovery approval, NTFS proof or LOCAL-L1 PASS is
+inferred; all existing HALT/Transport/AR-R6A/Windows/formal gates remain unchanged.
+
 The L1-CRYPTO E4 Windows admission candidate adds unlinked compile-only
 Approval UI / Grant IO / suspended-Worker OBJECT leaves to the same E2
 Supervisor: a two-step local-human prompt and receipt, target-then-object

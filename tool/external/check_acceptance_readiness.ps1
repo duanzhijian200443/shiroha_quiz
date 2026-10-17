@@ -165,6 +165,25 @@ function Assert-Plan([System.Collections.IDictionary]$Value) {
     Require ($e4.source.Count -eq 2) 'e4_sources'
     foreach ($path in $e4.source) { Assert-RepoPath $path 'windows/external_native/diagnostics/' }
     Assert-RepoPath $e4.offlineTest 'windows/external_native/tests/'
+    $e5 = $windows.e5
+    Require ($e5.scope -ceq 'G0-L0 SOURCE / COMPILE / FAKE ONLY' -and
+        $e5.executionAuthorized -ceq $false -and
+        $e5.realEntry -ceq 'ABSENT_RUNTIME_UNCONDITIONALLY_DENIED' -and
+        $e5.windowsPersistenceProven -ceq $false) 'e5_authority'
+    Require ($e5.source.Count -eq 4) 'e5_sources'
+    foreach ($path in $e5.source) { Assert-RepoPath $path 'windows/external_native/diagnostics/' }
+    Assert-RepoPath $e5.offlineTest 'windows/external_native/tests/'
+    Require (($e5.trialOrder -join ',') -ceq 'L1-ADMISSION,L1-CRYPTO' -and
+        $e5.cryptoTrialRequires -ceq 'INDEPENDENT_TRIAL_1_PASS_AND_NEW_EXPLICIT_USER_GRANT' -and
+        $e5.admissionTrial.executionAuthorized -ceq $false -and
+        $e5.admissionTrial.cryptoPrimitives -eq 0 -and
+        $e5.admissionTrial.maxCreateAttempts -eq 1 -and
+        $e5.admissionTrial.maxResumeAttempts -eq 1 -and
+        $e5.admissionTrial.requiresAdmissionOnlyImage -ceq $true -and
+        $e5.admissionTrial.remainingParameters -ceq 'REQUIRES USER DECISION') 'e5_trials'
+    Require ($e5.scopeBinding -ceq 'E4_TARGET_EVIDENCE_SCOPE_SHA256_WITH_EXACT_VISIBLE_FIELDS' -and
+        $e5.supervisor -ceq 'SAME_E2_VIA_E4_IDLE_POLL_30000_MS' -and
+        $e5.custody -ceq 'MANUAL_OPERATOR_HANDOFF_STOP_NO_AUTOMATIC_KILL') 'e5_binding'
     foreach ($field in @('approvalSource','signerKeyTrustAndCustody','exactNewRootAndObjects',
         'exactAccountSidAndToken','selectedDevice','experimentWindow','workingSetLimitBytes',
         'commitLimitBytes','sampledHandleLimit','stopRecoveryEvidenceOwners','finalTargetReviewerVerifier',
@@ -245,7 +264,13 @@ if ($SelfTest) {
         { param($p) $p.requests[0].windowsAdmission.e4.settlementFrames = 23 },
         { param($p) $p.requests[0].windowsAdmission.e4.maxWireBytes = 4096 },
         { param($p) $p.requests[0].windowsAdmission.e4.clockPolicy = 'UTC_ONLY' },
-        { param($p) $p.requests[0].windowsAdmission.e4.windowsPersistenceProven = $true }
+        { param($p) $p.requests[0].windowsAdmission.e4.windowsPersistenceProven = $true },
+        { param($p) $p.requests[0].windowsAdmission.e5.executionAuthorized = $true },
+        { param($p) $p.requests[0].windowsAdmission.e5.admissionTrial.cryptoPrimitives = 1 },
+        { param($p) $p.requests[0].windowsAdmission.e5.admissionTrial.maxCreateAttempts = 2 },
+        { param($p) $p.requests[0].windowsAdmission.e5.trialOrder = @('L1-CRYPTO','L1-ADMISSION') },
+        { param($p) $p.requests[0].windowsAdmission.e5.cryptoTrialRequires = 'INHERIT_TRIAL_1' },
+        { param($p) $p.requests[0].windowsAdmission.e5.custody = 'KILL_ON_TIMEOUT' }
     )
     $count = 0
     foreach ($mutate in $mutations) {

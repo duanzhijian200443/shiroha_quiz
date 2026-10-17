@@ -361,8 +361,8 @@ Host A 阻断、27 个 ABI header/FFI/既有编译 gate 源符号匹配和引用
 PASS 仅表示结构检查通过；不验证自然语言充分性、人工批准真实性、真实内存/释放或当前 CI 成功。
 两个检查器已由 `windows/external_native/check_offline.ps1` 接入 standing CI：该脚本在
 `pr-contract-checks.yml` 的 `windows_native` 作业内无条件执行
-`check_l1_windows_source.ps1 -SelfTest`（8 个源码隔离负例）与
-`check_acceptance_readiness.ps1 -SelfTest`（40 个计划负例，含 6 个 E4 字段），任一失败即
+`check_l1_windows_source.ps1 -SelfTest`（12 个源码隔离负例）与
+`check_acceptance_readiness.ps1 -SelfTest`（46 个计划负例，含 E4 及 6 个 E5 负例），任一失败即
 throw 使作业红。因此这些确定性检查已有硬失败覆盖，不再触发"另插固定目标 Verifier"的条件；
 独立 Reviewer 仍须审阅 JSON/文档与主契约的语义一致性，未来调整覆盖范围需明确 CI 修改范围。
 CI 的独立 `impact` 作业另行无条件执行 Bootstrap、上述两个 `-SelfTest` 及
@@ -383,6 +383,77 @@ Native 编译/导出检查可沿用现有 check_offline gate；只修改准备�
 当前 Executor 可完成 D1–D4 的 G0-L0 准备后停下；Git staging/commit/push/PR/merge 均另授。
 非平凡 PR 需最终目标 standing PR contract checks 与独立 Reviewer；确定性准备检查之外的真实 Windows
 验收必须有独立 fixed-target Verifier。本文件本身不制造任何独立批准，也不启动下一阶段。
+
+### E5 two independent single-trial applications
+
+以下是可审批的单次申请模板，**均未授权**，不是可执行任务包。
+E5 的接线及冻结格式由
+[diagnostics E5](../../../windows/external_native/diagnostics/README.md#e5-controlled-diagnostic-composition-g0-l0-only)
+及 [readiness E5](windows-host-security-readiness.md#e5-controlled-diagnostic-admission-composition-g0-l0)
+拥有。最高源码范围为 **E5 CONTROLLED ADMISSION SOURCE READY / OFFLINE TESTED**。
+E0/E3/E5 Windows 运行门禁继续拒绝，Controller/Worker 只编译为未链接 OBJECT；
+不得以改 E0 返回值、CLI、环境变量或普通 JSON 批准布尔值开启运行。
+
+| 必填冻结字段 | Trial 1 / Trial 2 的审批要求 |
+|---|---|
+| 当前 Windows 设备、Edition/Build/Patch、x64、内部精确 SID、Token | 待用户确认并另授只读实测；必须为非提权 Primary / Medium，启用权限仅允许遍历检查；现有设备/OS 字符串不是独立身份实测 |
+| 精确新目录 | 各批独立、全新、未存在的 C: NTFS 目录，待用户确认；不得复用历史 Host A 或生产目录；未授权探测/创建 |
+| 固定对象清单 | 每批一个目录；其内仅 `approval.receipt` 256 B、`grant.bin` 1 B、`request.journal` 128 B；两条匿名管道、一个 Worker 及其主线程；借用并保留父链/EXE/依赖 pins；Evidence 默认仅内存返回，不写文件 |
+| 精确 Batch ID | 每批独立的安全 ID，待用户确认；失败、UNKNOWN、崩溃或重启均废弃，不重发同一批次 |
+| Worker 和 Controller/UI 的 WS / Commit / Handle 上限 | 六个数值均待用户确认；不沿用 64 MiB / 128 Handles 示例。方法候选：`GetProcessMemoryInfo` 的 PeakWorkingSetSize / PeakPagefileUsage，`GetProcessHandleCount` 的点采样；方法及采样次数上限也须批准 |
+| 实验窗口 | 每批独立 UTC 起止，待确认；消费及启动须至少剩余 30000 ms；候选工作从唯一启动尝试起最多 30 秒，不因握手延迟续期 |
+| STOP、恢复、清理、Evidence 负责人 | 四项姓名/安全 ID 均待用户确认；恢复文档 Hash、人工交接确认方式、借用 pins 的最终关闭职责必须独立冻结 |
+| Source / Base / EXE / 依赖 / 工具链 | 待单独授权 Git 交付后固定 Source/Base Git 身份、源码清单 SHA-256，重编译并固定 Controller、对应 Worker、全部实际依赖及工具链 SHA-256、SDK/配置；当前 working-tree STATIC manifest 不是冻结产物，依赖名不是依赖 Hash |
+| 固定目标 Verifier / Reviewer | 两个独立身份及匹配本批 Source/Base/产物/环境的判定记录 Hash，均待指定；Executor 自检不替代独立批准 |
+
+**Trial 1 — L1-ADMISSION，独立申请，默认拒绝。**
+仅验证上述新对象上的身份、发行/WAL/单次消费、进程创建和观察、IPC 及正常结算。
+必须先冻结并审查**不链接、不调用 CNG/crypt32 密码学实现**的准入专用映像；
+E5 的 Crypto Worker 不符合此映像要求。沿用现有 Grant/Journal/六类诊断帧，
+机制结算报告单独判定，不能伪造 106 次调用或原 Supervisor 的 Crypto PASS。
+不得调用生产 Store、网络、App、Bridge、DPAPI、证书 Store 或密码学原语。
+
+若目录建立和随后运行需要不同许可，同一次 Trial 1 申请分两项授权：
+
+1. **1A 对象准备/只读冻结**：批准的精确新目录 CREATE_NEW 最多一次，仅给该
+   目录设置一次已批准的 Owner/DACL；读既定父链/产物和 Token，记录实际 File ID、
+   volume、Owner/DACL/Hash。所有读取/临时句柄次数上限由固定产物审查列明后批准。
+   目标存在、未知、漂移或需修改父级 ACL 即 STOP；不发行 Grant、不启动 Worker。
+2. **1B 单次准入**：仅在 1A 目标复核通过后批准。两步人工审批一次；三个固定
+   文件各 CREATE_NEW 最多一次；发行/消费/启动顺序合计精确写入和 Flush 各最多六次
+   （receipt 1、grant 2、journal 3），条件 burn 一次及 Lock/Unlock 各一次；
+   挂起创建最多一次、Resume 最多一次；两条管道、最多 44/3 帧；只对已确认退出的
+   Worker 进程/线程各关闭一次，三个记录和四个管道端的已取得句柄各关闭一次。
+   观察/校验用的临时句柄、采样/轮询和借用 pins 的关闭总次数必须在固定目标操作清单
+   中补齐再批准；UNKNOWN 关闭不重试。Controller/UI 自身启动也须在本次许可中列明。
+
+1A 不授权 1B。审批尚未冻结的次数不视为无上限许可；任一字段未定时不得发出可执行批准。
+禁止强杀、Kill-on-timeout、崩溃注入、重启恢复、删除/覆盖记录或自动重试。
+挂起残留/未知创建/卡住原语/未退出即保留 PID、process/thread custody，通知指定
+人工操作员并 STOP；未获批准的恢复操作只能另请授权，不能用 CloseHandle 推导退出。
+清理只在实测结算且所有者确认后进行，删除实验目录/记录仍需用户明确授权。
+独立 Verifier 核验本批身份、写入顺序、消费一次性、实际退出及关闭证据，Reviewer
+判定通过后才能满足 Trial 2 的前置；Fake 竞争不是 NTFS/断电持久性证明。
+
+**Trial 2 — L1-CRYPTO，第二份独立申请，默认拒绝。**
+仅在 Trial 1 完成、独立证据判定通过，且用户针对新的精确 Batch/目录/窗口再次明确
+授权后，才申请 E5 Crypto Worker 的一次启动。复用已验证的准入机制；重新冻结
+本批全部参数和 1B 中每类真实 OS 操作及次数，不继承 Trial 1 的授权。
+只允许既有七个 ABI 符号：ABI 1、Generate 3、Encode/Sign 3、Verify 6（3 正/3 改动）、
+Policy 3、Allocation 45、Free 45，总计 **106 次 ABI 尝试**；最多 **5** 个同时存活
+Buffer、**47** 个直接 Native 资源、**18** 点采样、**30000 ms** 候选工作期限。
+Native 各类别尝试上限仍为机器计划的 `nativeAttemptBudget`；每个 owner 只释放一次。
+首次异常停止新工作，失败不自动重试；正常退出不代替 IPC/Native/句柄结算。
+未知释放/未返回调用/进程未退出保留 UNKNOWN 和人工交接，不增加终止权限。
+无生产 Store、网络、App/Bridge、信任根安装或正式凭据；只处理内存测试键/公开证书。
+
+最小真实准入阻塞：必填参数及操作次数尚未批准；无已审查固定运行入口/Trial 1
+无密码学映像/实测身份与新目录 pin 交接；Source/EXE/依赖未冻结；人工恢复/清理和
+借用句柄交接方案、独立目标 Verifier/Reviewer 未指定。解除这些阻塞仍需分别授权
+Git 交付及真实试验，不能把 E5 编译/Fake 成功当作启动许可或新增通用研发阶段。
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
+REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
 
 ### E4 local-human single-use admission source candidate (G0-L0)
 
