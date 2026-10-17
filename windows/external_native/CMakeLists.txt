@@ -173,6 +173,18 @@ if(SHIROHA_NATIVE_OFFLINE_TESTS)
   target_include_directories(shiroha_l1_b1_unified_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
   add_test(NAME shiroha_l1_b1_unified_offline COMMAND shiroha_l1_b1_unified_test)
   set_tests_properties(shiroha_l1_b1_unified_offline PROPERTIES TIMEOUT 30)
+  add_executable(shiroha_l1_r1_wiring_test diagnostics/l1_r1_wiring.cpp
+    tests/l1_r1_wiring_test.cpp)
+  shiroha_native_settings(shiroha_l1_r1_wiring_test)
+  target_include_directories(shiroha_l1_r1_wiring_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+  add_test(NAME shiroha_l1_r1_wiring_offline COMMAND shiroha_l1_r1_wiring_test)
+  set_tests_properties(shiroha_l1_r1_wiring_offline PROPERTIES TIMEOUT 30)
+  add_executable(shiroha_l1_r2_adapters_test diagnostics/l1_r1_wiring.cpp
+    diagnostics/l1_r2_adapters.cpp tests/l1_r2_adapters_test.cpp)
+  shiroha_native_settings(shiroha_l1_r2_adapters_test)
+  target_include_directories(shiroha_l1_r2_adapters_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+  add_test(NAME shiroha_l1_r2_adapters_offline COMMAND shiroha_l1_r2_adapters_test)
+  set_tests_properties(shiroha_l1_r2_adapters_offline PROPERTIES TIMEOUT 30)
 endif()
 
 # E3 SOURCE/COMPILE ONLY: no executable, export, runtime dependency or CTest.
@@ -193,4 +205,20 @@ if(SHIROHA_L1_WINDOWS_ADMISSION_SOURCE)
   add_library(shiroha_l1_b1_admission_worker OBJECT diagnostics/l1_b1_admission_worker.cpp)
   shiroha_native_settings(shiroha_l1_b1_admission_worker)
   target_include_directories(shiroha_l1_b1_admission_worker PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+  # R1 entries link the SAME pure injected composition used by the Fake test.
+  # ClosedWindowsBoundary supplies no real ports; neither EXE is a CTest entry.
+  foreach(role controller worker)
+    add_executable(shiroha_l1_r1_${role}_candidate diagnostics/l1_r1_wiring.cpp
+      diagnostics/l1_r1_${role}_entry.cpp)
+    shiroha_native_settings(shiroha_l1_r1_${role}_candidate)
+    target_include_directories(shiroha_l1_r1_${role}_candidate PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+  endforeach()
+  # R2 Windows backends remain unlinked OBJECTs. Pure Custodian entry denies.
+  add_library(shiroha_l1_r2_windows OBJECT diagnostics/l1_r2_windows.cpp)
+  shiroha_native_settings(shiroha_l1_r2_windows)
+  target_include_directories(shiroha_l1_r2_windows PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+  add_executable(shiroha_l1_r2_custodian_candidate diagnostics/l1_r2_adapters.cpp
+    diagnostics/l1_r1_wiring.cpp diagnostics/l1_r2_custodian_entry.cpp)
+  shiroha_native_settings(shiroha_l1_r2_custodian_candidate)
+  target_include_directories(shiroha_l1_r2_custodian_candidate PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 endif()

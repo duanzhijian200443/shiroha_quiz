@@ -26,7 +26,7 @@ function Assert-RepoPath([string]$Path, [string]$Prefix) {
 }
 function Assert-Plan([System.Collections.IDictionary]$Value) {
     Has-Fields $Value @('schemaVersion', 'purpose', 'authority', 'guide', 'executionAuthorized',
-        'invariants', 'environment', 'ownership', 'failurePolicy', 'l2Budget',
+        'invariants', 'environment', 'ownership', 'failurePolicy', 'l1Preparation', 'l2Budget',
         'dependencyOrder', 'matrix', 'requests', 'evidenceFields', 'hostABatch3')
     Require ($Value.schemaVersion -eq 1 -and $Value.executionAuthorized -ceq $false) 'not_authorized'
     Require ($Value.authority -ceq 'docs/product/agent-refactor/windows-host-security-readiness.md') 'authority'
@@ -50,6 +50,123 @@ function Assert-Plan([System.Collections.IDictionary]$Value) {
         $Value.ownership.requireFixedTargetVerifier -ceq $true) 'independence'
     Has-Fields $Value.failurePolicy @('codes', 'stop', 'recovery', 'privacy')
     Require ($Value.failurePolicy.codes.Count -eq 12) 'failure_codes'
+    # Shared application fields, never an execution configuration or second
+    # approval store. Selected private parameters belong in a separately
+    # authorized restricted application, not in this tracked template.
+    $l1 = $Value.l1Preparation
+    Require ($l1.scope -ceq 'G0-L0 SOURCE / COMPILE / FAKE / READ-ONLY READINESS' -and
+        $l1.executionAuthorized -ceq $false -and $l1.templateOnly -ceq $true -and
+        $l1.runtimeEntry -ceq 'BLOCKED_REVIEWED_FIXED_COMPOSITION_REQUIRED') 'l1_preparation_authority'
+    $r1 = $l1.r1Wiring
+    Require ($r1.scope -ceq 'G0-L0 SOURCE / COMPILE / FAKE ONLY' -and
+        $r1.executionAuthorized -ceq $false -and
+        $r1.realEntry -ceq 'CLOSED_WINDOWS_BOUNDARY_NO_REAL_BACKENDS' -and
+        $r1.realCustody -ceq 'BLOCKED_AUTHENTICATED_SHORT_LIVED_EXTERNAL_CREATOR_AND_RETENTION_BOUNDARY_REQUIRED' -and
+        $r1.realEvidence -ceq 'BLOCKED_DESTINATION_ACCESS_RETENTION_AND_EXTERNAL_DURABILITY_ADAPTER' -and
+        $r1.localL1EvidenceImplemented -ceq $false -and
+        $r1.sourceMaxPumps -eq 4096 -and $r1.approvedPumps -ceq 'REQUIRES USER DECISION') 'r1_authority'
+    Require ($r1.source.Count -eq 4 -and
+        $r1.controllerCandidate -ceq 'shiroha_l1_r1_controller_candidate' -and
+        $r1.workerCandidate -ceq 'shiroha_l1_r1_worker_candidate' -and
+        $r1.fixedTargetBinding -ceq 'OPTIONAL_R1_MANIFEST_IN_EXISTING_E5_SCOPE_THEN_UNCHANGED_E4_TARGET_HASH' -and
+        $r1.artifactHashOrder -ceq 'BUILD_BINARIES_HASH_THEN_SUPPLY_IMMUTABLE_TARGET_NO_EMBEDDED_SELF_HASH' -and
+        $r1.identityPort -ceq 'INDEPENDENT_RUNTIME_BUILD_AND_OWNED_PIN_MEASUREMENTS_FAKE_ONLY' -and
+        $r1.custodyPort -ceq 'EXTERNAL_SOLE_CREATOR_ACCEPTED_BEFORE_CREATE_AND_IDENTITY_ACK_BEFORE_RESUME_FAKE_ONLY' -and
+        $r1.evidencePort -ceq 'REDACTED_HASH_CHAIN_ACKNOWLEDGED_BOUNDED_RECORDS_FAKE_ONLY' -and
+        $r1.osApiLedger -ceq 'SOURCE_CALL_SITES_AND_FORMULAS_IN_GUIDE_REAL_ADAPTERS_ABSENT_NO_EXECUTABLE_OS_BUDGET') 'r1_binding'
+    foreach ($path in $r1.source) { Assert-RepoPath $path 'windows/external_native/diagnostics/' }
+    Assert-RepoPath $r1.offlineTest 'windows/external_native/tests/'
+    $r1Limits = @{ independentMeasurements=5; closePinSetAttempts=1; custodyIntentAccept=1;
+        createAttempts=1; processIdentity=1; custodyIdentityAck=1; resumeAttempts=1;
+        tokenImageHandleChecksEach=1; dependencyChecks=2; loaderHello=1;
+        grantPrincipalIssueRequestBurnEach=1; journalUpdates=2; recordInspections='3*P+16';
+        controllerClocks='4*P+16'; controllerObservations='2*P+16'; nextFrames='P';
+        sendFrames=3; evidencePreserveAttempts='P+32' }
+    Require ($r1.operationCeilings.Count -eq $r1Limits.Count) 'r1_limits'
+    foreach ($name in $r1Limits.Keys) {
+        Require ($r1.operationCeilings[$name] -ceq $r1Limits[$name]) 'r1_limits'
+    }
+    Has-Fields $l1 @('r2Adapters')
+    $r2 = $l1.r2Adapters
+    Require ($r2.scope -ceq 'G0-L0 SOURCE / COMPILE / FAKE ONLY' -and
+        $r2.executionAuthorized -ceq $false -and
+        $r2.source.Count -eq 5 -and
+        $r2.custodianCandidate -ceq 'shiroha_l1_r2_custodian_candidate' -and
+        $r2.windowsObjectTarget -ceq 'shiroha_l1_r2_windows' -and
+        $r2.threeProcessModel -ceq 'CONTROLLER_APPROVAL_SUPERVISOR_CUSTODIAN_SOLE_CREATOR_OWNER_WORKER_ADMISSION_ONLY' -and
+        $r2.custodyLifecycle -ceq 'PREAPPROVED_READY_ACCEPTED_CONSUMED_INTENT_ATTEMPT_IDENTITY_ACKNOWLEDGED_RESUME_INTENT_RESUMED_EXITED_SETTLED_RELEASED_OR_UNKNOWN' -and
+        $r2.custodyJournalFormat -ceq 'SEPARATE_VERSIONED_512B_HASH_CHAIN_MAX_16_RECORDS_NOT_FOUR_FILE_ATOMIC_TRANSACTION' -and
+        $r2.evidenceRecordFormat -ceq 'FIXED_8192B_ALLOWLIST_HASH_CHAIN_MAX_P_PLUS_32_RECORDS_SINGLE_WRITE_AND_FLUSH') 'r2_authority'
+    foreach ($path in $r2.source) { Assert-RepoPath $path 'windows/external_native/diagnostics/' }
+    Assert-RepoPath $r2.offlineTest 'windows/external_native/tests/'
+    $r2Ceilings = @{ maxPolls=512; maxPollSleepMs=50; maxUiEvents=128; maxApprovalWindowMs=60000;
+        maxHandoffWindowMs=30000; maxArtifactBytes=16777216; artifactReadBlockBytes=65536;
+        maxArtifactReadCallsPerFile=256; shortArtifactReadPolicy='STOP_IMMEDIATELY_NO_BYTE_LOOP';
+        maxPins=64; maxParents=16; maxDependencies=32; custodianLaunchesPerBatch=1;
+        workerCreatesPerBatch=1; workerResumesPerBatch=1; custodyJournalMaxWrites=16;
+        evidenceRecordBytes=8192; threeProcessResourceLimits=9 }
+    Require ($r2.hardCeilings.Count -eq $r2Ceilings.Count) 'r2_ceilings'
+    foreach ($name in $r2Ceilings.Keys) {
+        Require ($r2.hardCeilings[$name] -ceq $r2Ceilings[$name]) 'r2_ceilings'
+    }
+    $pending = @('selectedDevice','osEditionBuildPatchX64','privateExactSidAndPublicAccountDigest',
+        'operatorAndApprover','newRootAndExactParentObjectInventory','forbiddenProductionAndHostARootAliases',
+        'ownerDaclVolumeFileIdPinAcquisition','batchCaseIdsAndUtcWindow','controllerWorkingSetBytes',
+        'controllerCommitBytes','controllerSampledHandles','custodianWorkingSetBytes',
+        'custodianCommitBytes','custodianSampledHandles','workerWorkingSetBytes','workerCommitBytes',
+        'workerSampledHandles','pollIntervalMaximumCountAndSamplingError','metadataTokenTemporaryHandleOperationCounts',
+        'stopRecoveryEvidenceAndBorrowedPinOwners','backupConfirmationAndRecoveryRecordDigest',
+        'externalCrashCustodyAndEvidenceHandoff','evidenceDestinationWriteCountAndRetention',
+        'fixedTargetIndependentVerifierReviewer')
+    Has-Fields $l1.parameters $pending
+    Require ($l1.parameters.Count -eq $pending.Count) 'l1_parameter_inventory'
+    foreach ($name in $pending) {
+        Require ($l1.parameters[$name] -ceq 'REQUIRES USER DECISION') 'l1_no_selected_parameters'
+    }
+    $freezeFields = @('sourceCommitSha','baseSha','cleanTrackedAndUntrackedWorktree',
+        'sourceInventorySha256','msvcVersionAndToolHashes','windowsSdkVersion','cmakeVersionAndHash',
+        'configurationGeneratorArchitectureAndFlags','controllerExeSha256','workerExeSha256',
+        'nativeDllSha256OrReviewedNotLinked','directDependencyNamesAndHashes','actualLoadedModuleClosure',
+        'dependencyVolumeFileIdsAndOwnerDaclDigests','actualOsEditionBuildPatchX64',
+        'exactCommandArgumentsEnvironmentAndInheritedHandles','peX64HardeningImportsExportsAndForbiddenModules',
+        'targetBindingSha256','artifactManifestSha256','finalHeadCurrentBaseCiReviewAndVerification')
+    $freeze = $l1.artifactFreeze
+    Require ($freeze.status -ceq 'CANDIDATE_NOT_FROZEN' -and
+        ($freeze.requiredFields -join ',') -ceq ($freezeFields -join ',') -and
+        $freeze.admissionNativeDll -ceq 'NOT_LINKED_REQUIRED_ZERO_CRYPTO_DPAPI' -and
+        $freeze.cryptoNativeDll -ceq 'STATICALLY_LINKED_SEVEN_SYMBOL_CORE_CANDIDATE_NOT_PRODUCTION_DLL' -and
+        $freeze.objectsStoreReleaseNativeDll -ceq 'REQUIRES_REVIEWED_PER_TRIAL_LINK_CLOSURE' -and
+        $freeze.driftPolicy -ceq 'ANY_SOURCE_ARTIFACT_DEPENDENCY_TOOLCHAIN_OS_OR_SCOPE_DRIFT_INVALIDATES_APPROVAL') 'l1_freeze'
+    $observe = $l1.observation
+    Require ($observe.method -ceq 'GetProcessMemoryInfo.PeakWorkingSetSize.PeakPagefileUsage+GetProcessHandleCount' -and
+        $observe.admissionCryptoWorkerProtocolSamples -eq 18 -and
+        $observe.controllerSampling -ceq 'SEPARATE_BOUNDED_POLL_AND_PRE_POST_APPROVAL_OBSERVATIONS' -and
+        $observe.intervalCountAndErrorRef -ceq 'l1Preparation.parameters.pollIntervalMaximumCountAndSamplingError' -and
+        $observe.coverage -ceq 'OS_REPORTED_PEAK_BYTES_POINT_SAMPLED_HANDLES_NO_EXACT_HIGH_WATER_OR_INTERNAL_ALLOCATION_CLAIM' -and
+        $observe.missingMeasurement -ceq 'UNKNOWN_NEVER_PASS' -and
+        $observe.readOnlySamplingPrerequisite -ceq 'SEPARATE_USER_GRANT_EXACT_DEVICE_EXISTING_PROCESS_IDENTITIES_METHOD_COUNTS_WINDOW_AND_OUTPUT_NO_LAUNCH_OR_OBJECT_CREATION') 'l1_observation'
+    $recovery = $l1.recovery
+    foreach ($name in @('automaticKill','automaticRetryOrReplay','automaticCleanupOrElevation',
+        'unknownReleaseMayRetry','crashIdentificationImplemented','externalEvidencePersistenceImplemented')) {
+        Require ($recovery[$name] -ceq $false) 'l1_recovery_denied'
+    }
+    Require ($recovery.processHandleCloseRequiresObservedExit -ceq $true -and
+        $recovery.synchronousCallReturnRequired -ceq $true -and
+        $recovery.crashIdentificationRequired -ceq 'EXTERNAL_CUSTODIAN_PID_CREATION_TIME_IMAGE_AND_ACCOUNT_BINDING_NO_PID_ONLY_RECOVERY' -and
+        $recovery.evidenceDefault -ceq 'MEMORY_ONLY_LOST_ON_CONTROLLER_CRASH' -and
+        $recovery.terminationAuthority -ceq 'SEPARATE_EXPLICIT_USER_GRANT_FOR_EXACT_VERIFIED_PROCESS' -and
+        $recovery.restartPolicy -ceq 'NO_REISSUE_NO_RESUME_NO_REPLAY_PRESERVE_RECEIPT_GRANT_JOURNAL_AND_UNKNOWN_CUSTODY') 'l1_recovery'
+    $evidenceFields = @('evidenceClass','targetBindingSha256','artifactManifestSha256','batchId','trialId',
+        'caseId','sourceSha','baseSha','actualOsIdentityDigest','deviceAndAccountAliases','resourceObservationSource',
+        'issuanceRequestConsumeStartRecords','workerIdentityIpcAndObservedExit',
+        'abiNativeStoreObjectAttemptsReturnsSettlement','samplesTimingAndBlindSpots','firstFailureAllStopsAndUnknowns',
+        'residualCustodyAndManualRecovery','independentVerifierRecord','independentReviewerRecord',
+        'securityVerdict','systemStabilityVerdict')
+    Require (($l1.evidence.requiredFields -join ',') -ceq ($evidenceFields -join ',') -and
+        $l1.evidence.formalPromotionAllowed -ceq $false -and
+        $l1.evidence.localPassRule -ceq 'ONLY_EXPLICITLY_AUTHORIZED_ACTUALLY_EXECUTED_COMPLETE_SINGLE_SUBSET' -and
+        $l1.evidence.privacy -ceq 'ALIASES_DIGESTS_COUNTS_FIXED_CODES_NO_KEYS_FULL_CERTIFICATES_RAW_SID_SENSITIVE_PATHS_OR_PRIVATE_CONTENT' -and
+        $l1.evidence.releaseIntegration -ceq 'EXPLICITLY_INCLUDE_EXACT_RELEASE_SUBSET_IN_PARENT_TRIAL_GRANT_OR_SEPARATE_GRANT') 'l1_evidence'
     $budgets = @{ sockets=8; pendingHandshakes=2; activePipelines=2; protocolBytes=16777216;
         decodedStringBytes=33554432; outputBytes=524288; handshakeSeconds=5;
         noProgressSeconds=2; frameSeconds=10; requestsPerConnection=1 }
@@ -92,6 +209,7 @@ function Assert-Plan([System.Collections.IDictionary]$Value) {
             'memoryLimitBytes','handleLimit','backupAndRecovery','cleanup','grantAndTimeWindow','resultFormat')
         Require ($request.id -ceq $ids[$i] -and $request.state -ceq 'DRAFT_NOT_AUTHORIZED' -and
             $request.executionAuthorized -ceq $false) 'request_authority'
+        if ($i -lt 5) { Require ($request.preparationRef -ceq 'l1Preparation') 'l1_preparation_reference' }
         $tier = if ($i -lt 5) { 'G0-L1' } elseif ($i -eq 5) { 'G0-L2' } else { 'G0-I' }
         Require ($request.tier -ceq $tier -and $request.maxSecondsCandidate -gt 0 -and
             $request.maxSecondsCandidate -le 600) 'request_scope'
@@ -118,6 +236,7 @@ function Assert-Plan([System.Collections.IDictionary]$Value) {
     foreach ($path in $b1.source) { Assert-RepoPath $path 'windows/external_native/diagnostics/' }
     Assert-RepoPath $b1.offlineTest 'windows/external_native/tests/'
     $l1Crypto = $Value.requests[1]
+    Require ($l1Crypto.plannedSteps -eq 16 -and $l1Crypto.directNativeResources -eq 47) 'l1_crypto_sequence'
     Has-Fields $l1Crypto @('isolatedHarness', 'offlineHarnessTest', 'allowedNativeSymbols', 'defaultEntryGate')
     Require ($l1Crypto.isolatedHarness.Count -eq 2 -and
         $l1Crypto.defaultEntryGate -ceq 'l1_crypto_execution_not_authorized') 'l1_crypto_harness'
@@ -221,6 +340,8 @@ function Assert-Plan([System.Collections.IDictionary]$Value) {
     Assert-RepoPath $b1Obj.source 'windows/external_native/diagnostics/'
     Assert-RepoPath $b1Obj.offlineTest 'windows/external_native/tests/'
     $l1Store = $Value.requests[3]
+    Require ('L1-ADMISSION real Windows trial PASS' -cin $l1Store.dependsOn -and
+        'L1-CRYPTO' -cin $l1Store.dependsOn -and 'L1-OBJECTS' -cin $l1Store.dependsOn) 'l1_store_prerequisites'
     Require ($l1Store.selectedStoreKind -ceq 'REQUIRES USER DECISION') 'l1_store_kind'
     $b1Store = $l1Store.b1Store
     Require ($b1Store.scope -ceq 'G0-L0 SOURCE / COMPILE / FAKE ONLY' -and
@@ -324,7 +445,43 @@ if ($SelfTest) {
         { param($p) $p.requests[0].b1Unified.cryptoPrimitives = 1 },
         { param($p) $p.requests[2].b1Objects.competingAcquire = 2 },
         { param($p) $p.requests[3].b1Store.singleKindPerBatch = $false },
-        { param($p) $p.requests[4].b1Release.closeHandleProvesProcessExit = $true }
+        { param($p) $p.requests[4].b1Release.closeHandleProvesProcessExit = $true },
+        { param($p) $p.Remove('l1Preparation') },
+        { param($p) $p.l1Preparation.executionAuthorized = $true },
+        { param($p) $p.l1Preparation.runtimeEntry = 'ENABLED' },
+        { param($p) $p.requests[0].preparationRef = 'environment' },
+        { param($p) $p.l1Preparation.parameters.workerWorkingSetBytes = 67108864 },
+        { param($p) $p.l1Preparation.parameters.Remove('controllerSampledHandles') },
+        { param($p) $p.l1Preparation.artifactFreeze.status = 'FROZEN' },
+        { param($p) $p.l1Preparation.artifactFreeze.requiredFields = @('sourceCommitSha') },
+        { param($p) $p.l1Preparation.artifactFreeze.admissionNativeDll = 'PRODUCTION_DLL' },
+        { param($p) $p.l1Preparation.observation.coverage = 'EXACT_HANDLE_HIGH_WATER' },
+        { param($p) $p.l1Preparation.observation.readOnlySamplingPrerequisite = 'IMPLICIT_READONLY_AUTHORITY' },
+        { param($p) $p.l1Preparation.recovery.automaticKill = $true },
+        { param($p) $p.l1Preparation.recovery.processHandleCloseRequiresObservedExit = $false },
+        { param($p) $p.l1Preparation.recovery.crashIdentificationImplemented = $true },
+        { param($p) $p.l1Preparation.recovery.externalEvidencePersistenceImplemented = $true },
+        { param($p) $p.l1Preparation.recovery.unknownReleaseMayRetry = $true },
+        { param($p) $p.l1Preparation.evidence.requiredFields = @('securityVerdict') },
+        { param($p) $p.l1Preparation.evidence.formalPromotionAllowed = $true },
+        { param($p) $p.l1Preparation.evidence.releaseIntegration = 'INHERIT_ANY_TRIAL' },
+        { param($p) $p.requests[1].plannedSteps = 18 },
+        { param($p) $p.requests[1].directNativeResources = 48 },
+        { param($p) $p.requests[3].dependsOn = @('L1-CRYPTO','L1-OBJECTS') },
+        { param($p) $p.l1Preparation.r1Wiring.executionAuthorized = $true },
+        { param($p) $p.l1Preparation.r1Wiring.realEntry = 'ENABLED' },
+        { param($p) $p.l1Preparation.r1Wiring.realCustody = 'PROVEN' },
+        { param($p) $p.l1Preparation.r1Wiring.realEvidence = 'PERSISTED' },
+        { param($p) $p.l1Preparation.r1Wiring.localL1EvidenceImplemented = $true },
+        { param($p) $p.l1Preparation.r1Wiring.artifactHashOrder = 'COMPILE_SELF_HASH' },
+        { param($p) $p.l1Preparation.r1Wiring.operationCeilings.createAttempts = 2 },
+        { param($p) $p.l1Preparation.r1Wiring.operationCeilings.evidencePreserveAttempts = 'UNBOUNDED' },
+        { param($p) $p.l1Preparation.r1Wiring.approvedPumps = 128 },
+        { param($p) $p.l1Preparation.r2Adapters.executionAuthorized = $true },
+        { param($p) $p.l1Preparation.r2Adapters.hardCeilings.maxPolls = 30000 },
+        { param($p) $p.l1Preparation.r2Adapters.hardCeilings.maxArtifactReadCallsPerFile = 67108864 },
+        { param($p) $p.l1Preparation.r2Adapters.hardCeilings.threeProcessResourceLimits = 6 },
+        { param($p) $p.l1Preparation.parameters.custodianWorkingSetBytes = 67108864 }
     )
     $count = 0
     foreach ($mutate in $mutations) {

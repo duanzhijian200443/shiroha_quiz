@@ -75,7 +75,7 @@ $wrapper = Get-Content (Join-Path $PSScriptRoot 'protected_windows.cpp') -Raw
 if ($wrapper -notmatch 'GetProcAddress\(module, "NtSetInformationFile"\)') { throw 'Missing user-mode publication entry' }
 # Inspect before executing. These executables link only production pure cores +
 # fakes. The production DLL is neither loaded nor called by this check helper.
-foreach ($name in @('shiroha_discovery_offline_test', 'shiroha_native_offline_test', 'shiroha_objects_offline_test', 'shiroha_exchange_offline_test', 'shiroha_probe_offline_test', 'shiroha_rename_layout_test', 'shiroha_crypto_offline_test', 'shiroha_p20_root_production_test', 'shiroha_p20_root_diagnostic_test', 'shiroha_peer_policy_offline_test', 'shiroha_l1_crypto_probe_test', 'shiroha_l1_crypto_observation_test', 'shiroha_l1_crypto_admission_test', 'shiroha_l1_windows_admission_test', 'shiroha_l1_e4_test', 'shiroha_l1_e5_test', 'shiroha_l1_b1_unified_test')) {
+foreach ($name in @('shiroha_discovery_offline_test', 'shiroha_native_offline_test', 'shiroha_objects_offline_test', 'shiroha_exchange_offline_test', 'shiroha_probe_offline_test', 'shiroha_rename_layout_test', 'shiroha_crypto_offline_test', 'shiroha_p20_root_production_test', 'shiroha_p20_root_diagnostic_test', 'shiroha_peer_policy_offline_test', 'shiroha_l1_crypto_probe_test', 'shiroha_l1_crypto_observation_test', 'shiroha_l1_crypto_admission_test', 'shiroha_l1_windows_admission_test', 'shiroha_l1_e4_test', 'shiroha_l1_e5_test', 'shiroha_l1_b1_unified_test', 'shiroha_l1_r1_wiring_test', 'shiroha_l1_r2_adapters_test', 'shiroha_l1_r1_controller_candidate', 'shiroha_l1_r1_worker_candidate', 'shiroha_l1_r2_custodian_candidate')) {
     $imports = (& $dumpbin /imports (Join-Path $build "$Configuration/$name.exe") | Out-String)
     # GetProcAddress alone is used by the MSVC CRT even in the layout-only
     # executable. Reject direct loaders/security operations, not CRT machinery.
@@ -85,7 +85,7 @@ foreach ($name in @('shiroha_discovery_offline_test', 'shiroha_native_offline_te
 }
 # The real P20 driver is compile-only; inspect registration before execution.
 $testList = (& $ctest --test-dir $build -C $Configuration -N | Out-String)
-if ($LASTEXITCODE -ne 0 -or $testList -match '\b(?:shiroha_p20_minimal_test|shiroha_l1_crypto_candidate|shiroha_assoc_candidate|shiroha_l1_b1_admission_worker)\b') { throw 'Real L1 candidate registered with CTest' }
+if ($LASTEXITCODE -ne 0 -or $testList -match '\b(?:shiroha_p20_minimal_test|shiroha_l1_crypto_candidate|shiroha_assoc_candidate|shiroha_l1_b1_admission_worker|shiroha_l1_r1_controller_candidate|shiroha_l1_r1_worker_candidate|shiroha_l1_r2_custodian_candidate|shiroha_l1_r2_windows)\b') { throw 'Real L1 candidate registered with CTest' }
 if ($testList -notmatch '\bshiroha_p20_root_production_offline\b' -or
     $testList -notmatch '\bshiroha_p20_root_diagnostic_offline\b' -or
     $testList -notmatch '\bshiroha_l1_crypto_probe_offline\b' -or
@@ -94,6 +94,8 @@ if ($testList -notmatch '\bshiroha_p20_root_production_offline\b' -or
     $testList -notmatch '\bshiroha_l1_e4_offline\b' -or
     $testList -notmatch '\bshiroha_l1_e5_offline\b' -or
     $testList -notmatch '\bshiroha_l1_b1_unified_offline\b' -or
+    $testList -notmatch '\bshiroha_l1_r1_wiring_offline\b' -or
+    $testList -notmatch '\bshiroha_l1_r2_adapters_offline\b' -or
     $testList -notmatch '\bshiroha_l1_crypto_admission_offline\b') { throw 'Offline Fake coverage missing' }
 # Compile metadata reader without loading it or invoking any P/Invoke method.
 $csc = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
@@ -107,12 +109,47 @@ if ($LASTEXITCODE -ne 0) { throw 'Fake pin-owner compile failed' }
 $readerTest = Join-Path $build "$Configuration/host_a_reader_test.exe"
 & $csc /nologo /target:exe /platform:x64 /warnaserror /define:SHIROHA_METADATA_FAKE_ONLY "/out:$readerTest" (Join-Path $PSScriptRoot 'diagnostics/host_a_metadata.cs') (Join-Path $PSScriptRoot 'diagnostics/metadata_contract.cs') (Join-Path $PSScriptRoot 'tests/host_a_reader_test.cs')
 if ($LASTEXITCODE -ne 0) { throw 'Fake reader compile failed' }
-foreach ($name in @('shiroha_batch3_existing_only.dll', 'shiroha_assoc_candidate.exe', 'shiroha_p20_minimal_test.exe', 'shiroha_l1_crypto_candidate.exe')) {
+foreach ($name in @('shiroha_batch3_existing_only.dll', 'shiroha_assoc_candidate.exe', 'shiroha_p20_minimal_test.exe', 'shiroha_l1_crypto_candidate.exe', 'shiroha_l1_r1_controller_candidate.exe', 'shiroha_l1_r1_worker_candidate.exe', 'shiroha_l1_r2_custodian_candidate.exe')) {
     $file = Join-Path $build "$Configuration/$name"
     $candidateHeaders = (& $dumpbin /headers $file | Out-String)
     if ($LASTEXITCODE -ne 0 -or $candidateHeaders -notmatch '8664 machine \(x64\)') { throw 'Candidate is not x64' }
     foreach ($flag in @('Dynamic base', 'NX compatible', 'Control Flow Guard')) {
         if ($candidateHeaders -notmatch [regex]::Escape($flag)) { throw 'Candidate hardening absent' }
+    }
+}
+# R1 entries contain only the shared injected core and their closed bootstrap.
+# They never link the dormant Win32 leaves, Crypto Worker, Native DLL or DPAPI.
+foreach ($role in @('controller','worker')) {
+    $name = "shiroha_l1_r1_${role}_candidate"
+    [xml]$r1Project = Get-Content (Join-Path $build "$name.vcxproj") -Raw
+    $units = @($r1Project.SelectNodes("//*[local-name()='ClCompile'][@Include]") | ForEach-Object {
+        [IO.Path]::GetFileName($_.GetAttribute('Include'))
+    })
+    if ($units.Count -ne 2 -or
+        @(Compare-Object @('l1_r1_wiring.cpp',"l1_r1_${role}_entry.cpp") $units).Count) {
+        throw 'R1 candidate source/link closure drift'
+    }
+    $r1Deps = (& $dumpbin /dependents (Join-Path $build "$Configuration/$name.exe") | Out-String)
+    if ($LASTEXITCODE -ne 0) { throw 'R1 dependency inspection failed' }
+    foreach ($match in [regex]::Matches($r1Deps, '(?im)^\s+([a-z0-9_.-]+\.dll)\s*$')) {
+        if ($match.Groups[1].Value -notmatch '^(kernel32|msvcp140d?|vcruntime140(?:_1)?d?|ucrtbased|api-ms-win-crt-[a-z0-9-]+)\.dll$') {
+            throw 'R1 candidate includes non-CRT/system dependency'
+        }
+    }
+}
+[xml]$r2Project = Get-Content (Join-Path $build 'shiroha_l1_r2_custodian_candidate.vcxproj') -Raw
+$r2Units = @($r2Project.SelectNodes("//*[local-name()='ClCompile'][@Include]") | ForEach-Object {
+    [IO.Path]::GetFileName($_.GetAttribute('Include'))
+})
+if ($r2Units.Count -ne 3 -or
+    @(Compare-Object @('l1_r2_adapters.cpp','l1_r1_wiring.cpp','l1_r2_custodian_entry.cpp') $r2Units).Count) {
+    throw 'R2 custodian candidate source/link closure drift'
+}
+$r2Deps = (& $dumpbin /dependents (Join-Path $build "$Configuration/shiroha_l1_r2_custodian_candidate.exe") | Out-String)
+if ($LASTEXITCODE -ne 0) { throw 'R2 dependency inspection failed' }
+foreach ($match in [regex]::Matches($r2Deps, '(?im)^\s+([a-z0-9_.-]+\.dll)\s*$')) {
+    if ($match.Groups[1].Value -notmatch '^(kernel32|msvcp140d?|vcruntime140(?:_1)?d?|ucrtbased|api-ms-win-crt-[a-z0-9-]+)\.dll$') {
+        throw 'R2 custodian candidate includes non-CRT/system dependency'
     }
 }
 # Static isolation audit for the compile-only L1-CRYPTO candidate: it may link
@@ -171,6 +208,13 @@ $l1SourceInputs = @('CMakeLists.txt', 'check_offline.ps1', 'shiroha_external_nat
     'diagnostics/l1_e4_protocol.h', 'diagnostics/l1_e5_controller.h',
     'diagnostics/l1_e5_windows.h', 'diagnostics/l1_e5_windows.cpp', 'diagnostics/l1_e5_worker.cpp',
     'diagnostics/l1_b1_unified.h', 'diagnostics/l1_b1_admission_worker.cpp',
+    'diagnostics/l1_r1_wiring.h', 'diagnostics/l1_r1_wiring.cpp',
+    'diagnostics/l1_r1_controller_entry.cpp', 'diagnostics/l1_r1_worker_entry.cpp',
+    'diagnostics/l1_r2_adapters.h', 'diagnostics/l1_r2_adapters.cpp',
+    'diagnostics/l1_r2_custodian_entry.cpp', 'diagnostics/l1_r2_windows.h',
+    'diagnostics/l1_r2_windows.cpp', 'tests/l1_r1_fixture.h',
+    'tests/l1_r2_adapters_test.cpp',
+    'tests/l1_r1_wiring_test.cpp',
     'tests/l1_b1_unified_test.cpp',
     'tests/l1_e5_test.cpp', 'tests/l1_e4_test.cpp', 'tests/l1_windows_admission_test.cpp',
     'tests/l1_crypto_fake_win32.h', 'tests/l1_crypto_observation_test.cpp',
@@ -189,6 +233,11 @@ $staticManifest = [ordered]@{ evidenceClass='STATIC'; executionAuthorized=$false
     artifactSha256=(Get-FileHash -LiteralPath $l1CryptoExe -Algorithm SHA256).Hash;
     sources=$sourceHashes; toolHashes=$toolHashes; msvcVersion=$toolsVersion;
     dependencies=$l1CryptoDepNames; dependencyClosure='REQUIRES_REVIEWED_DEPLOYMENT_CLOSURE' }
+$staticManifest.r1CandidateSha256 = [ordered]@{}
+foreach ($role in @('controller','worker')) {
+    $staticManifest.r1CandidateSha256[$role] = (Get-FileHash -LiteralPath (Join-Path $build "$Configuration/shiroha_l1_r1_${role}_candidate.exe") -Algorithm SHA256).Hash
+}
+$staticManifest.r1CandidateSha256['custodian'] = (Get-FileHash -LiteralPath (Join-Path $build "$Configuration/shiroha_l1_r2_custodian_candidate.exe") -Algorithm SHA256).Hash
 $osVersion = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
 $staticManifest.osBuild = "$($osVersion.CurrentBuildNumber).$($osVersion.UBR)"
 $staticManifest.sdkVersion = $project.SelectSingleNode("//*[local-name()='WindowsTargetPlatformVersion']").InnerText

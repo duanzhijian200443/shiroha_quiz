@@ -59,6 +59,178 @@
     "recovery": "On responsive approved device, await original owning work then only authorized teardown. Unknown settlement retains custody and UNKNOWN effect. Only the named preapproved operator/image procedure handles unresponsive devices.",
     "privacy": "Counts, fixed codes, pseudonymous IDs and public digest references only; no keys/blobs/key logs/raw paths/environment/prompts/answers/private content or sensitive dumps."
   },
+  "l1Preparation": {
+    "scope": "G0-L0 SOURCE / COMPILE / FAKE / READ-ONLY READINESS",
+    "executionAuthorized": false,
+    "templateOnly": true,
+    "runtimeEntry": "BLOCKED_REVIEWED_FIXED_COMPOSITION_REQUIRED",
+    "r1Wiring": {
+      "scope": "G0-L0 SOURCE / COMPILE / FAKE ONLY",
+      "executionAuthorized": false,
+      "source": [
+        "windows/external_native/diagnostics/l1_r1_wiring.h",
+        "windows/external_native/diagnostics/l1_r1_wiring.cpp",
+        "windows/external_native/diagnostics/l1_r1_controller_entry.cpp",
+        "windows/external_native/diagnostics/l1_r1_worker_entry.cpp"
+      ],
+      "offlineTest": "windows/external_native/tests/l1_r1_wiring_test.cpp",
+      "controllerCandidate": "shiroha_l1_r1_controller_candidate",
+      "workerCandidate": "shiroha_l1_r1_worker_candidate",
+      "fixedTargetBinding": "OPTIONAL_R1_MANIFEST_IN_EXISTING_E5_SCOPE_THEN_UNCHANGED_E4_TARGET_HASH",
+      "artifactHashOrder": "BUILD_BINARIES_HASH_THEN_SUPPLY_IMMUTABLE_TARGET_NO_EMBEDDED_SELF_HASH",
+      "realEntry": "CLOSED_WINDOWS_BOUNDARY_NO_REAL_BACKENDS",
+      "identityPort": "INDEPENDENT_RUNTIME_BUILD_AND_OWNED_PIN_MEASUREMENTS_FAKE_ONLY",
+      "custodyPort": "EXTERNAL_SOLE_CREATOR_ACCEPTED_BEFORE_CREATE_AND_IDENTITY_ACK_BEFORE_RESUME_FAKE_ONLY",
+      "realCustody": "BLOCKED_AUTHENTICATED_SHORT_LIVED_EXTERNAL_CREATOR_AND_RETENTION_BOUNDARY_REQUIRED",
+      "evidencePort": "REDACTED_HASH_CHAIN_ACKNOWLEDGED_BOUNDED_RECORDS_FAKE_ONLY",
+      "realEvidence": "BLOCKED_DESTINATION_ACCESS_RETENTION_AND_EXTERNAL_DURABILITY_ADAPTER",
+      "sourceMaxPumps": 4096,
+      "approvedPumps": "REQUIRES USER DECISION",
+      "operationCeilings": {
+        "independentMeasurements": 5,
+        "closePinSetAttempts": 1,
+        "custodyIntentAccept": 1,
+        "createAttempts": 1,
+        "processIdentity": 1,
+        "custodyIdentityAck": 1,
+        "resumeAttempts": 1,
+        "tokenImageHandleChecksEach": 1,
+        "dependencyChecks": 2,
+        "loaderHello": 1,
+        "grantPrincipalIssueRequestBurnEach": 1,
+        "journalUpdates": 2,
+        "recordInspections": "3*P+16",
+        "controllerClocks": "4*P+16",
+        "controllerObservations": "2*P+16",
+        "nextFrames": "P",
+        "sendFrames": 3,
+        "evidencePreserveAttempts": "P+32"
+      },
+      "osApiLedger": "SOURCE_CALL_SITES_AND_FORMULAS_IN_GUIDE_REAL_ADAPTERS_ABSENT_NO_EXECUTABLE_OS_BUDGET",
+      "localL1EvidenceImplemented": false
+    },
+    "r2Adapters": {
+      "scope": "G0-L0 SOURCE / COMPILE / FAKE ONLY",
+      "executionAuthorized": false,
+      "source": [
+        "windows/external_native/diagnostics/l1_r2_adapters.h",
+        "windows/external_native/diagnostics/l1_r2_adapters.cpp",
+        "windows/external_native/diagnostics/l1_r2_custodian_entry.cpp",
+        "windows/external_native/diagnostics/l1_r2_windows.h",
+        "windows/external_native/diagnostics/l1_r2_windows.cpp"
+      ],
+      "offlineTest": "windows/external_native/tests/l1_r2_adapters_test.cpp",
+      "custodianCandidate": "shiroha_l1_r2_custodian_candidate",
+      "windowsObjectTarget": "shiroha_l1_r2_windows",
+      "threeProcessModel": "CONTROLLER_APPROVAL_SUPERVISOR_CUSTODIAN_SOLE_CREATOR_OWNER_WORKER_ADMISSION_ONLY",
+      "custodyLifecycle": "PREAPPROVED_READY_ACCEPTED_CONSUMED_INTENT_ATTEMPT_IDENTITY_ACKNOWLEDGED_RESUME_INTENT_RESUMED_EXITED_SETTLED_RELEASED_OR_UNKNOWN",
+      "custodyJournalFormat": "SEPARATE_VERSIONED_512B_HASH_CHAIN_MAX_16_RECORDS_NOT_FOUR_FILE_ATOMIC_TRANSACTION",
+      "evidenceRecordFormat": "FIXED_8192B_ALLOWLIST_HASH_CHAIN_MAX_P_PLUS_32_RECORDS_SINGLE_WRITE_AND_FLUSH",
+      "hardCeilings": {
+        "maxPolls": 512,
+        "maxPollSleepMs": 50,
+        "maxUiEvents": 128,
+        "maxApprovalWindowMs": 60000,
+        "maxHandoffWindowMs": 30000,
+        "maxArtifactBytes": 16777216,
+        "artifactReadBlockBytes": 65536,
+        "maxArtifactReadCallsPerFile": 256,
+        "shortArtifactReadPolicy": "STOP_IMMEDIATELY_NO_BYTE_LOOP",
+        "maxPins": 64,
+        "maxParents": 16,
+        "maxDependencies": 32,
+        "custodianLaunchesPerBatch": 1,
+        "workerCreatesPerBatch": 1,
+        "workerResumesPerBatch": 1,
+        "custodyJournalMaxWrites": 16,
+        "evidenceRecordBytes": 8192,
+        "threeProcessResourceLimits": 9
+      }
+    },
+    "parameters": {
+      "selectedDevice": "REQUIRES USER DECISION",
+      "osEditionBuildPatchX64": "REQUIRES USER DECISION",
+      "privateExactSidAndPublicAccountDigest": "REQUIRES USER DECISION",
+      "operatorAndApprover": "REQUIRES USER DECISION",
+      "newRootAndExactParentObjectInventory": "REQUIRES USER DECISION",
+      "forbiddenProductionAndHostARootAliases": "REQUIRES USER DECISION",
+      "ownerDaclVolumeFileIdPinAcquisition": "REQUIRES USER DECISION",
+      "batchCaseIdsAndUtcWindow": "REQUIRES USER DECISION",
+      "controllerWorkingSetBytes": "REQUIRES USER DECISION",
+      "controllerCommitBytes": "REQUIRES USER DECISION",
+      "controllerSampledHandles": "REQUIRES USER DECISION",
+      "custodianWorkingSetBytes": "REQUIRES USER DECISION",
+      "custodianCommitBytes": "REQUIRES USER DECISION",
+      "custodianSampledHandles": "REQUIRES USER DECISION",
+      "workerWorkingSetBytes": "REQUIRES USER DECISION",
+      "workerCommitBytes": "REQUIRES USER DECISION",
+      "workerSampledHandles": "REQUIRES USER DECISION",
+      "pollIntervalMaximumCountAndSamplingError": "REQUIRES USER DECISION",
+      "metadataTokenTemporaryHandleOperationCounts": "REQUIRES USER DECISION",
+      "stopRecoveryEvidenceAndBorrowedPinOwners": "REQUIRES USER DECISION",
+      "backupConfirmationAndRecoveryRecordDigest": "REQUIRES USER DECISION",
+      "externalCrashCustodyAndEvidenceHandoff": "REQUIRES USER DECISION",
+      "evidenceDestinationWriteCountAndRetention": "REQUIRES USER DECISION",
+      "fixedTargetIndependentVerifierReviewer": "REQUIRES USER DECISION"
+    },
+    "artifactFreeze": {
+      "status": "CANDIDATE_NOT_FROZEN",
+      "requiredFields": [
+        "sourceCommitSha", "baseSha", "cleanTrackedAndUntrackedWorktree",
+        "sourceInventorySha256", "msvcVersionAndToolHashes", "windowsSdkVersion",
+        "cmakeVersionAndHash", "configurationGeneratorArchitectureAndFlags",
+        "controllerExeSha256", "workerExeSha256", "nativeDllSha256OrReviewedNotLinked",
+        "directDependencyNamesAndHashes", "actualLoadedModuleClosure",
+        "dependencyVolumeFileIdsAndOwnerDaclDigests", "actualOsEditionBuildPatchX64",
+        "exactCommandArgumentsEnvironmentAndInheritedHandles",
+        "peX64HardeningImportsExportsAndForbiddenModules", "targetBindingSha256",
+        "artifactManifestSha256", "finalHeadCurrentBaseCiReviewAndVerification"
+      ],
+      "admissionNativeDll": "NOT_LINKED_REQUIRED_ZERO_CRYPTO_DPAPI",
+      "cryptoNativeDll": "STATICALLY_LINKED_SEVEN_SYMBOL_CORE_CANDIDATE_NOT_PRODUCTION_DLL",
+      "objectsStoreReleaseNativeDll": "REQUIRES_REVIEWED_PER_TRIAL_LINK_CLOSURE",
+      "driftPolicy": "ANY_SOURCE_ARTIFACT_DEPENDENCY_TOOLCHAIN_OS_OR_SCOPE_DRIFT_INVALIDATES_APPROVAL"
+    },
+    "observation": {
+      "method": "GetProcessMemoryInfo.PeakWorkingSetSize.PeakPagefileUsage+GetProcessHandleCount",
+      "admissionCryptoWorkerProtocolSamples": 18,
+      "controllerSampling": "SEPARATE_BOUNDED_POLL_AND_PRE_POST_APPROVAL_OBSERVATIONS",
+      "intervalCountAndErrorRef": "l1Preparation.parameters.pollIntervalMaximumCountAndSamplingError",
+      "coverage": "OS_REPORTED_PEAK_BYTES_POINT_SAMPLED_HANDLES_NO_EXACT_HIGH_WATER_OR_INTERNAL_ALLOCATION_CLAIM",
+      "missingMeasurement": "UNKNOWN_NEVER_PASS",
+      "readOnlySamplingPrerequisite": "SEPARATE_USER_GRANT_EXACT_DEVICE_EXISTING_PROCESS_IDENTITIES_METHOD_COUNTS_WINDOW_AND_OUTPUT_NO_LAUNCH_OR_OBJECT_CREATION"
+    },
+    "recovery": {
+      "automaticKill": false,
+      "automaticRetryOrReplay": false,
+      "automaticCleanupOrElevation": false,
+      "processHandleCloseRequiresObservedExit": true,
+      "unknownReleaseMayRetry": false,
+      "synchronousCallReturnRequired": true,
+      "crashIdentificationRequired": "EXTERNAL_CUSTODIAN_PID_CREATION_TIME_IMAGE_AND_ACCOUNT_BINDING_NO_PID_ONLY_RECOVERY",
+      "crashIdentificationImplemented": false,
+      "evidenceDefault": "MEMORY_ONLY_LOST_ON_CONTROLLER_CRASH",
+      "externalEvidencePersistenceImplemented": false,
+      "terminationAuthority": "SEPARATE_EXPLICIT_USER_GRANT_FOR_EXACT_VERIFIED_PROCESS",
+      "restartPolicy": "NO_REISSUE_NO_RESUME_NO_REPLAY_PRESERVE_RECEIPT_GRANT_JOURNAL_AND_UNKNOWN_CUSTODY"
+    },
+    "evidence": {
+      "requiredFields": [
+        "evidenceClass", "targetBindingSha256", "artifactManifestSha256",
+        "batchId", "trialId", "caseId", "sourceSha", "baseSha",
+        "actualOsIdentityDigest", "deviceAndAccountAliases", "resourceObservationSource",
+        "issuanceRequestConsumeStartRecords", "workerIdentityIpcAndObservedExit",
+        "abiNativeStoreObjectAttemptsReturnsSettlement", "samplesTimingAndBlindSpots",
+        "firstFailureAllStopsAndUnknowns", "residualCustodyAndManualRecovery",
+        "independentVerifierRecord", "independentReviewerRecord",
+        "securityVerdict", "systemStabilityVerdict"
+      ],
+      "privacy": "ALIASES_DIGESTS_COUNTS_FIXED_CODES_NO_KEYS_FULL_CERTIFICATES_RAW_SID_SENSITIVE_PATHS_OR_PRIVATE_CONTENT",
+      "localPassRule": "ONLY_EXPLICITLY_AUTHORIZED_ACTUALLY_EXECUTED_COMPLETE_SINGLE_SUBSET",
+      "formalPromotionAllowed": false,
+      "releaseIntegration": "EXPLICITLY_INCLUDE_EXACT_RELEASE_SUBSET_IN_PARENT_TRIAL_GRANT_OR_SEPARATE_GRANT"
+    }
+  },
   "l2Budget": {
     "sockets": 8,
     "pendingHandshakes": 2,
@@ -583,6 +755,7 @@
   "requests": [
     {
       "id": "L1-ADMISSION",
+      "preparationRef": "l1Preparation",
       "tier": "G0-L1",
       "state": "DRAFT_NOT_AUTHORIZED",
       "executionAuthorized": false,
@@ -633,6 +806,7 @@
     },
     {
       "id": "L1-CRYPTO",
+      "preparationRef": "l1Preparation",
       "tier": "G0-L1",
       "state": "DRAFT_NOT_AUTHORIZED",
       "executionAuthorized": false,
@@ -659,6 +833,8 @@
         "policy": 3, "allocation": 45, "free": 45, "total": 106,
         "maxLiveBuffers": 5
       },
+      "plannedSteps": 16,
+      "directNativeResources": 47,
       "nativeAttemptBudget": {
         "provider_open": 12, "key_generate": 3, "key_finalize": 3,
         "key_export": 3, "key_import": 9, "sign": 3, "verify": 6,
@@ -794,6 +970,7 @@
     },
     {
       "id": "L1-OBJECTS",
+      "preparationRef": "l1Preparation",
       "tier": "G0-L1",
       "state": "DRAFT_NOT_AUTHORIZED",
       "executionAuthorized": false,
@@ -843,6 +1020,7 @@
     },
     {
       "id": "L1-STORE",
+      "preparationRef": "l1Preparation",
       "tier": "G0-L1",
       "state": "DRAFT_NOT_AUTHORIZED",
       "executionAuthorized": false,
@@ -850,6 +1028,7 @@
       "ownersRef": "ownership",
       "failurePolicyRef": "failurePolicy",
       "dependsOn": [
+        "L1-ADMISSION real Windows trial PASS",
         "L1-CRYPTO",
         "L1-OBJECTS",
         "Reviewed isolated Store composition"
@@ -890,6 +1069,7 @@
     },
     {
       "id": "L1-RELEASE",
+      "preparationRef": "l1Preparation",
       "tier": "G0-L1",
       "state": "DRAFT_NOT_AUTHORIZED",
       "executionAuthorized": false,

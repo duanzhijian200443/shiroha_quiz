@@ -49,6 +49,33 @@ eligible description after actual passing checks:
 [readiness R6A-B1](windows-host-security-readiness.md#r6a-b1-unified-g0-l1-diagnostic-infrastructure-g0-l0)
 and [diagnostics R6A-B1](../../../windows/external_native/diagnostics/README.md#r6a-b1-unified-g0-l1-diagnostic-infrastructure-g0-l0-only).
 
+B2 extends the same five unapproved request templates with a shared fixed-target
+artifact inventory, separate Controller/Worker resource inputs, external custody
+and evidence prerequisites, and the first Admission operation ledger. See
+[readiness B2](windows-host-security-readiness.md#r6a-b2-fixed-target-preparation-boundary-g0-l0)
+and [Admission application](windows-host-acceptance-preparation.md#b2-fixed-target-applications-and-stop-1-g0-l0).
+No runnable fixed Admission entry or crash-surviving external custody/evidence
+bridge exists; the result stays **B2-L1-ADMISSION BLOCKED** pending those source
+interfaces, artifact review and exact user decisions. Default denials stay closed;
+the shared machine template is neither execution authority nor a second database.
+
+The [B2-R1 amendment](windows-host-security-readiness.md#b2-r1-admission-wiring-amendment-g0-l0)
+adds dedicated closed Controller/Worker EXE candidates over the same injected
+composition, independent measurement/pin ports, a sole-creator Custody port and
+bounded redacted Evidence sink with end-to-end Fake tests. It supersedes the
+earlier absence of source interfaces, while actual cross-process custody and
+retention remain BLOCKED. This is **B2 ADMISSION SOURCE BLOCKED** overall;
+source/Fake closures grant no real execution or acceptance.
+
+The [B2-R2 amendment](windows-host-security-readiness.md#b2-r2-batch-custodian-and-windows-admission-adapters-g0-l0)
+completes the per-batch Custodian candidate (`shiroha_l1_r2_custodian_candidate`),
+compile-only Windows identity/pin/persistence/owner adapters (`shiroha_l1_r2_windows`),
+nine-field three-process resource budgets and hard OS call ceilings (`kPolls=512`,
+`kUiEvents=128`, `<=256` `ReadFile` blocks per `<=16 MiB` artifact) with Fake
+three-process and crash-window tests. Live execution stays unconditionally
+denied (`exit 10`), and all five L1 requests remain `DRAFT_NOT_AUTHORIZED`.
+Highest status is **B2 WINDOWS ADMISSION SOURCE REVIEWABLE / OFFLINE TESTED**.
+
 The E5 controlled diagnostic composition connects the same E4 issuance,
 write-ahead consumption, suspended Worker, six-message IPC and E2 Supervisor/
 Native settlement under one fixed-target local-human Controller. Extra directory,

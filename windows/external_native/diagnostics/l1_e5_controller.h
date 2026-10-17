@@ -9,6 +9,9 @@ namespace e5 {
 struct FixedScope {
   std::string directory, cleanup_owner, recovery_record_sha256;
   std::string controller_exe_sha256;
+  // Optional diagnostic wiring manifest, hashed by the SAME canonical builder.
+  // Empty preserves the existing E5 scope bytes. Never an execution permit.
+  std::string wiring_manifest_sha256;
   uint64_t controller_working = 0, controller_commit = 0;
   uint32_t controller_handles = 0;
   bool recovery_approved = false;
@@ -31,7 +34,8 @@ struct FixedScope {
     }
     return safe_id(cleanup_owner) && hex_digest(recovery_record_sha256, 64) &&
            hex_digest(controller_exe_sha256, 64) && controller_working &&
-           controller_commit && controller_handles && recovery_approved;
+           controller_commit && controller_handles && recovery_approved &&
+           (wiring_manifest_sha256.empty() || hex_digest(wiring_manifest_sha256, 64));
   }
   std::string hash() const {
     CanonicalHashBuilder b;
@@ -46,6 +50,10 @@ struct FixedScope {
     b.put_bool(recovery_approved);
     b.put_str(measurement);
     b.put_str(inventory);
+    if (!wiring_manifest_sha256.empty()) {
+      b.put_str("SHIROHA_L1_R1_WIRING_SCOPE_V1");
+      b.put_str(wiring_manifest_sha256);
+    }
     return b.finalize_hex();
   }
 };
@@ -66,6 +74,8 @@ inline bool presentation(const FixedTarget &t, e4::ApprovalPromptModel &base,
   display.summary += "\nObjects=" + std::string(FixedScope::inventory);
   display.summary += "\nMeasurement=" + std::string(FixedScope::measurement);
   display.summary += "\nController EXE=" + t.scope.controller_exe_sha256;
+  if (!t.scope.wiring_manifest_sha256.empty())
+    display.summary += "\nWiring manifest=" + t.scope.wiring_manifest_sha256;
   display.summary += "\nController Working/Commit/SampledHandles=" +
       std::to_string(t.scope.controller_working) + "/" +
       std::to_string(t.scope.controller_commit) + "/" +

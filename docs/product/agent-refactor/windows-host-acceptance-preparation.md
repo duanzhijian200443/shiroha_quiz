@@ -371,8 +371,8 @@ Host A 阻断、27 个 ABI header/FFI/既有编译 gate 源符号匹配和引用
 PASS 仅表示结构检查通过；不验证自然语言充分性、人工批准真实性、真实内存/释放或当前 CI 成功。
 两个检查器已由 `windows/external_native/check_offline.ps1` 接入 standing CI：该脚本在
 `pr-contract-checks.yml` 的 `windows_native` 作业内执行
-`check_l1_windows_source.ps1 -SelfTest`（15 个源码隔离负例，含 B1 Admission-only 无密码学守卫）与
-`check_acceptance_readiness.ps1 -SelfTest`（51 个计划负例，含 E4、E5 及 B1 五份统一申请负例），任一失败即
+`check_l1_windows_source.ps1 -SelfTest`（含 B1 Admission-only 及 R1 入口/托管/证据隔离负例，数量以实际输出为准）与
+`check_acceptance_readiness.ps1 -SelfTest`（含 E4、E5、B1 及 B2 共同冻结/恢复/证据负例；数量以实际输出为准），任一失败即
 throw 使作业红。该作业现由影响计划调度，但任何验收材料、Source Guard、Native 源码或
 `tool/external/` 变更都会要求它执行；因此这些确定性检查仍有硬失败覆盖，不再触发
 "另插固定目标 Verifier"的条件；
@@ -477,6 +477,260 @@ Owner 最多 1 次释放尝试、STOP 允许其他独立 Owner 释放、无所�
 pin 交接；Source/EXE/依赖未冻结；人工恢复/清理和借用句柄交接方案、独立目标
 Verifier/Reviewer 未指定。解除这些阻塞仍需分别授权 Git 交付及真实试验，不能把
 E5/B1 编译/Fake 成功当作启动许可或新增通用研发阶段。
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
+REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
+
+### B2 fixed-target applications and STOP-1 (G0-L0)
+
+B2 复用上节五份申请和同一机器计划的 `requests[0..4]`，共同参数只在
+`l1Preparation` 定义、由各申请的 `preparationRef` 引用。它不是新的审批数据库、
+运行配置或授权接口。填写参数、检查器 PASS、人工 UI、B1 合并均不发行真实许可。
+存在以下源码阻塞时，结论必须是 **B2-L1-ADMISSION BLOCKED**；本节可交付供审查的
+首次申请草案，但不能签发可执行批准。当前轮次必须 STOP-1，后续也不得自动开始 CRYPTO。
+
+#### 入口核对与最小源码阻塞
+
+下表保留 B2 首次静态审计的历史边界；R1 的接线源码、端口及剩余实机阻塞以
+下文 **B2-R1 diagnostic wiring amendment** 为准，不把已补齐的 Fake 接口继续称为不存在。
+
+| 边界 | 已有能力与尚缺的必要接口 |
+|---|---|
+| Admission Controller/Worker | `b1::UnifiedAdmissionController` 包装原 E5 Controller，可组合原 E4 GrantFlow/IPC/E2 Supervisor；`b1::admission_only_worker` 是独立无 Crypto 解析器/调用的候选。CMake 仍仅生成 E5 Windows、Crypto Worker、B1 Admission Worker 的未链接 OBJECT；没有 Controller/Admission EXE、`wmain` 或固定目标装配入口。不要增加一个只会返回拒绝的 EXE 冒充完成实测接线。 |
+| 执行信任边界 | `WindowsPlatform::runtime_allowed()` 固定 false，E0/E3/B1 默认拒绝保留。需要单独审查的单批固定入口/授权边界；CLI、环境、JSON 或 Fake Approval 不能授予执行权。Worker 如何接收并核验同一不可变 FixedTarget 仍需入口装配；最终 EXE Hash 不能靠编译进它自身形成自引用冻结。 |
+| 系统/工具链身份 | `WindowsPlatform::inspect_target` 会核对 Token、父链、映像及依赖 pins；但 `WindowsPins.observed_device_id/observed_os_id` 是调用方标签。GrantTarget 绑定 compiler/toolchain 摘要，并不实测编译器。缺少选定设备的实际 OS/设备证据、构建证明及受审查的 pin 获取/保留/交接组合；不能自动拿当前 SID 或字符串当用户选择。 |
+| 人工发行顺序 | 原 Controller 先检查目标和资源，显示完整摘要/输入后缀，复核同一目标和人工响应，才调用原 `GrantFlow::issue`。这条顺序可复用；真实 UI、文件和单次性均未验证。不能合成勾选或把模板参数解释为批准。 |
+| 创建失败与 Custody | Win32 `CreateProcessW` 返回失败且未取得子进程时，不宣称存在可清理 Worker；管道/记录等已取得资源各由原 Owner 保管。创建成功后的 Token/映像/依赖/Resume/HELLO 失败，由 `WindowsPlatform.custody_` 持有原 process/thread；进程未退出不能关闭后宣称结算，更不能再 Resume。创建结果未知时只保留可证归属，不能猜 PID。 |
+| Controller 崩溃 | `WindowsPlatform::handoff` 仅设置内存标志，没有外部托管者确认/持久证据写入；`SuspendedWorkerCustody` 无析构清理。Controller 消失会失去其内存句柄；不能称其仍持有可供人工使用的 HANDLE。现有 128B Journal 记录启动请求/时间/Hash，不含创建后 PID/创建时间/进程身份。缺少在允许创建前就可用的外部人工 Custody 及崩溃证据交接，故不能安全声称人工可识别残留。 |
+| 证据保存 | `e5::Evidence` 仍为 OFFLINE/FAKE 的内存快照。没有 LOCAL-L1 受审查结果导出/脱敏/批准输出适配；`FixedScope::inventory` 明确 external-evidence:0。不能仅重命名证据等级。外部人工记录或新持久输出的目的地、写入次数、所有者和保留方式须先冻结；新增 I/O 必须纳入原 scope/摘要，不改 E4 记录格式。 |
+| OBJECTS/STORE/RELEASE | 原 B1 专用诊断和 sole-owner 账本可复用；不是已装配真实 Controller/Worker。`GrantTarget` 只接受 ADMISSION/CRYPTO，E5 固定 30s，不能直接把它改名用于 60s OBJECTS/STORE。需要各 Trial 隔离入口接线与审查，不扩大生产 ABI、不重建 Grant/IPC/Supervisor。 |
+
+最小后续源码责任限于诊断 composition：固定目标传递与入口、实际设备/产物/pin 证据桥接、
+外部 Custody/脱敏证据交接及其 Fake 回归；不改生产启动、E4 字节格式或既有默认拒绝。
+信任边界未完成单独审查前，不通过“返回 true”补齐入口。新增自动 Kill、取消同步原语、
+重启/恢复 Worker、借 PID 重新打开或关闭/终止进程的能力不在这里实现；即使仅准备源码，
+也应先取得该能力的具体范围授权。人工终止某个精确已验证进程另需单次操作许可。
+
+#### 五份申请的共同固定产物清单
+
+每份申请都须附 `l1Preparation.artifactFreeze.requiredFields` 的全部字段；非适用项须有
+独立审查理由，不能留空或用旧 Trial 的批准填充。
+
+| 项目 | 候选冻结方法 / 当前缺口 |
+|---|---|
+| Source/Base、干净工作树 | 正式 Source 是最终提交的 40 位 SHA，Base 是批准的 merge target；跟踪/未跟踪文件均检查。源码改动中只有候选字节清单；无 commit 权限不制造最终 Source 身份，已有无关文件保留。 |
+| 工具链 | MSVC/Windows SDK/CMake 精确版本；cl/link/cmake 工具 SHA-256、配置/生成器/x64/编译链接 flags 和源码清单摘要。编译主机信息只属 STATIC，不能选定实验机。 |
+| Controller/Worker/Native | 各自 SHA-256；Admission 不链接 Native/Crypto/DPAPI DLL，Native 项须记“经审查不链接”，不能为凑清单加载生产 DLL。E0 Crypto EXE 静态链接七符号 core，仅是拒绝运行候选，不能替代完整 E5 Worker。OBJECTS/STORE/RELEASE 的实际链接模型待固定入口决定；生产 ABI-3 仍是 27 导出。 |
+| 依赖闭包 | 直接导入名/Hash、实际加载模块闭包、每文件 Volume/File ID、Owner/DACL 摘要及保留 pin。E5 manifest 包含 Worker 映像，最多 128 个不重复身份；加载闭包在 HELLO 后、ADMISSION 前核对。仅 dumpbin 依赖名不是完整闭包，未授权不得为取得闭包启动 Worker。 |
+| 设备/PE | 实际 OS Edition/Build/Patch/x64、设备别名及身份来源；PE x64、ASLR/NX/CFG、导入/导出限制。Admission 物理无 Crypto/DPAPI 引用和依赖须在最终 PE/link 闭包验证；OBJECT-only 源码守卫不等于 EXE 证明。 |
+| 入口调用 | 精确 Controller 命令/参数、工作目录、环境、继承句柄和 UI 启动次数。当前叶子的 Worker 命令形状为 `l1-worker <read-handle> <write-handle>`，但无解析它的可执行入口，因此不是可执行命令。仅 SystemRoot/WINDIR 的固定环境、显式两管道端继承清单须审查；参数本身不授予许可。 |
+| 绑定与审查 | E4 Target Hash、产物 Manifest Hash、最终 Head/当前 Base 的 standing CI、独立 Reviewer/必要 Verifier 记录；Review 产物与实测产物完全相同。任一 Source/产物/依赖/工具链/OS/范围漂移使批准失效，重新冻结，不继承旧 Hash 的许可。 |
+
+工作树 STATIC manifest 只能表示 **CANDIDATE_NOT_FROZEN**。本准备不默认构建/安装/运行
+App/Bridge Release/AOT，也不为填写缺失字段探测系统安全对象或读取已有实验根。
+
+#### 集中未决参数与资源采样申请
+
+完整未决表在 `l1Preparation.parameters`，与原 `environment`/`ownership` 配合：
+
+| 参数组 | 必须由用户选定或另授实测的输入 |
+|---|---|
+| 设备/账户/批准者 | 设备、Edition/Build/Patch/x64、操作员/批准者；受限申请中的精确 SID、公开 account digest；非提权 Primary Medium Token。不自动选择当前开发机或查询当前 SID。 |
+| 新空间/禁止对象 | 全新独立 C: NTFS 目录及每级父目录/对象/文件清单、Owner/DACL/Volume/File ID 获取与校验方法；生产根/Host A 根的受限精确清单，公开只用别名。路径黑名单不能证明隔离，不访问禁止根来“确认”其内容。 |
+| Controller 三项 | Working Set bytes、Commit bytes、sampled handles 上限分别待定，包含 Approval UI；不得套用 64 MiB/128 handles。 |
+| Custodian 三项 | Working Set bytes、Commit bytes、sampled handles 上限分别待定，单列第三进程预算，不得并入 Controller。 |
+| Worker 三项 | Working Set bytes、Commit bytes、sampled handles 上限分别待定，不能沿用 Controller 数字。 |
+| 观测完整性 | GetProcessMemoryInfo 的 OS peak bytes 和 GetProcessHandleCount 点采样候选；Worker 18 个协议点，与 Controller/poll 观察分开。Admission 的 18 个 Worker 点由循环连续产生，不是均匀时间采样或真实阶段逐点观测。间隔/最大采样和轮询次数、误差来源及不可观测区间待定；不存在当前可声称的最大误差或精确 handle high-water。 |
+| 职责/恢复/证据 | STOP、Recovery、Evidence、借用 pin 最终关闭责任人、备份确认/恢复记录摘要、外部托管确认、证据目的地/写入次数/保留期限、Verifier/Reviewer、Batch/case/UTC 窗口。 |
+
+如果六个资源上限必须依靠先行只读采样确定，申请必须单列：**指定设备、已存在且明确
+获准观察的进程身份、方法、次数、间隔、时窗、观察者本身预算与脱敏输出**；不启动任何
+候选进程，不创建实验对象，不查询未批准根或凭据。本轮未运行这项采样，亦不以“只读”
+自动获得权限。若目标 Worker 尚不存在，采样申请不能借此启动它；首次受控启动及其保守
+预算需要另行明确批准，不能声称已有真实依据。
+
+#### 首次 L1-ADMISSION 申请操作账本（未授权）
+
+申请 ID/Batch/case、精确 Target/Artifact Hash、设备/SID/根、六项上限、窗口与职责均引用
+上述共同表且待定。申请拆为 **1A 对象准备/只读冻结** 与 **1B 单次准入**，分别批准，
+1A 成功不授权 1B。下表是确定上限与必须补齐的次数，不是可执行脚本。
+
+| 子项 | 固定动作与上限 / 尚须冻结 |
+|---|---|
+| 1A 根 | 一个批准的新目录 CREATE_NEW ≤1；仅该目录的批准 Owner/DACL 设置 ≤1；若存在/未知/需修改父 ACL 即 STOP。每级父链/产物/Token/元数据读取、临时句柄及其关闭次数由固定入口展开，当前待定，不视为无限次。 |
+| 1A 交接 | 新根和批准父链的 Volume/File ID/Owner/DACL、EXE/依赖 Hash 与 pins 由指定负责人保留、复核并交接；精确借用数量/最终关闭次数待定。不发行 Grant、不创建管道、不启动 Worker。 |
+| 1B Controller/UI | Controller 自身启动 ≤1；一次摘要确认、一次手输六字符后缀；批准前后原目标/预算复核。外部真实许可必须先存在，UI 不产生全局执行权；取消不再弹出或重试。 |
+| 1B 持久记录 | 三文件各 CREATE_NEW ≤1：256B Receipt、1B Grant、128B Journal；写入/Flush 各 ≤6（Receipt 1、Grant 2、Journal 3）；Grant 条件 burn ≤1，Lock/Unlock 各 ≤1，烧录前读取 marker ≤1。完整元数据/校验读取、临时资源的低层调用总次数仍待固定源码展开，不能由这六次写入推断。 |
+| 1B 启动 | 持久请求→消费确认→启动记录，均先于 Create；挂起 Worker 创建 ≤1，Token/Image/依赖精确复核后 Resume ≤1；失败、UNKNOWN、崩溃或截止均不返还额度。进程身份验证及临时句柄次数待定；禁止启动 Crypto Worker。 |
+| 1B IPC/工作 | 两条匿名管道（四端）；仅 Worker 两端继承；六类 64B 帧，Worker ≤44、Controller ≤3、总字节 ≤3008；18 点资源样本、24 段完整零密码学结算。所有 Crypto ABI 尝试=0、直接 Crypto Native 资源尝试=0；OS Token/文件/管道操作另计。 |
+| 1B 时间/观察 | 同一启动尝试起 30000 ms 包含式截止，不因 HELLO/检查/无数据续期；UTC/monotonic 双时钟；独立进程退出观察、Controller/Worker 资源观察。采样/轮询上限、间隔/误差及所有观察调用次数待定；时限不保证内核同步调用可取消。 |
+| 1B 正常结算 | 已实际观察退出后，Controller 拥有的 process/thread 句柄各 ≤1 次关闭；Controller 拥有的三个记录句柄/四管道端各 ≤1；Worker 自己拥有的两个继承端各 ≤1；父端重复句柄与子端是不同 Owner。临时/借用 pins 清单和正常最终关闭职责须先冻结。若把此项作为 L1-RELEASE 子集验收，必须在本批批准中明示。 |
+| 1B 异常/证据 | 第一异常关闭新工作；同步调用未返回、未退出、未知释放均 UNKNOWN 并移交外部 Custody，不重试。证据保存由 Evidence owner 在关键节点及退出/STOP 后完成；当前仅内存，外部记录方案/次数未定，因此阻断启动。目录/文件删除=0、Kill=0、Crash Injection=0、提权=0、重放=0。 |
+
+每个有界副作用仍需真实授权；任何“待定”次数/预算/接口都阻止批准 1B。
+若 Controller 崩溃，保留现场/三记录且不得重新运行发行者；外部 Recovery owner 只能按
+**已批准**步骤对精确 PID+创建时间+映像/账户绑定识别原进程。现有代码尚无该交接能力，
+不按 PID 独自寻找或终止进程。没有终止权时保留 UNKNOWN，另申请特定进程处置；
+CloseHandle、void 返回、超时、进程退出均不能补造底层资源或效果 PASS。恢复后以原
+消费/启动记录、外部 Custody 观察和禁止重新发行/Resume 的记录证明无隐式重放；无法
+证明则维持 UNKNOWN，不重新启动“验证”。
+
+#### 独立证据与后续四份申请
+
+`l1Preparation.evidence.requiredFields` 定义五份统一证据封面，叠加原 `evidenceFields`：
+STATIC/OFFLINE/LOCAL-L1 分类、Target/Artifact Manifest Hash、Batch/Trial/case、OS/身份
+来源与别名、发行/请求/消费/启动、Worker 身份/IPC/退出、各预算的尝试/返回/接受/结算/
+UNKNOWN、样本/盲区、全部 STOP、残留 Custody/人工恢复、Verifier/Reviewer 目标记录。
+安全和系统稳定性必须两个独立 Verdict。保存次数/时点和脱敏责任由 Evidence owner
+事先批准；公开结果不得含原始 SID、敏感绝对路径、私钥、证书全文、个人文件/数据库或
+原始异常/进程日志。崩溃时未保全的数据写缺失/UNKNOWN，不能回填为观察值。
+
+LOCAL-L1 PASS 仅属获准、实际执行且完整证明的单一子集；不提升任何 A0–A12。
+独立 Verifier 对实机/OS、单次性/身份/退出/恢复作匹配目标检查，Reviewer 对范围和语义
+给独立判断；Executor 的离线输出不是两者批准。最终源码提交/构建后才冻结正式 Hash，
+并满足 final-head/current-base standing CI 和独立审查，不用旧 B1 记录批准 B2。
+
+Trial 2 保持 16 步、18 点、7 符号、106 尝试、5 live buffers、47 直接资源和 30s；
+Trial 3 保持批准对象 ID/kind 1/2/父目录及实际发布身份链，不能退回观察 A/发布 B；
+Trial 4 必须 Admission/Crypto/Objects 相应实测独立 PASS、新批单一 kind，明文 ≤65024 B、
+Protect/Unprotect 2/2、Begin/Commit/Abort 3/2/1、60s；Trial 5 每唯一 Owner 最多一次合法
+释放尝试、结算窗口 ≤30s。各自操作/前置/清单仍由原 requests 行拥有，任一结果不授予
+下一项权限。Release 与其他 Trial 合并观察须明示精确释放子集，或独立许可，不默认扩权。
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
+REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
+
+### B2-R1 diagnostic wiring amendment (G0-L0)
+
+R1 实现 `l1_r1_wiring.h/.cpp`、专用 Controller/Worker entry 和
+`tests/l1_r1_wiring_test.cpp`。这些均为独立诊断代码；原 E2–E5/B1 Grant/Journal/
+Supervisor/Ledger/64B IPC/ProtectedObjects 不重写，生产 ABI 不变。机器字段沿用
+`l1Preparation.r1Wiring`，仍不是执行配置。当前总结果为 **B2 ADMISSION SOURCE BLOCKED**。
+
+| 修复 | 源码责任及界限 |
+|---|---|
+| A 固定接线 | **CLOSED（SOURCE/FAKE）**。两个 EXE 链接同一个 `Composition` 与入口函数；生产 bootstrap 固定 `ClosedWindowsBoundary`，无可配置真实后端。Fake Controller 入口经原 `UnifiedAdmissionController`/E5/E4 发起，独立 Fake creator 用原 `launch_once` 创建/核验/Resume，Worker 入口调用原 `admission_only_worker_candidate`；实际双向内存管道等待正确 ADMISSION，18 点/24 段结算后由真实 Controller 算法发 ACK，无预填成功 ACK。两 EXE 从不注册 CTest，不能把 Crypto Worker 改名使用。 |
+| B 独立测量/Pin | **CLOSED（接口/FAKE）**。`IdentityPort::measure` 先测量，再比对 `Frozen`；设备、OS、Token/SID、独立 BuildEvidence、Controller/Worker/dependencies、精确 pin/parent/security/owner 均分别比较。`Origin::kFake` 不可提升为 Windows 实测。每个 pin 由 manifest 的单一 `pin_owner` 持有；Controller 不取得借用 HANDLE。真实 Windows adapter 未实现，本轮不测当前机器。 |
+| C 独立 Custody | **BLOCKED（真实边界）**；`CustodyPort`/独立存活 Fake creator 及崩溃窗口回归已补齐。创建权只属于 creator，创建前接受 Intent；创建后绑定 PID+creation time+image+account+Target，确认其仍拥有 process/thread 才允许 Resume。Controller 无创建/恢复 fallback。真实外部创建者、认证的跨进程交接、创建前可验证责任记录、UNKNOWN 保留未实现；Fake receipt/内存 ACK 不是实际托管证明。 |
+| D Evidence | **CLOSED（接口/FAKE）**。`EvidenceSink` 接受白名单 Record、递增序号/前记录 Hash，返回完整性与保留确认；调用/写后 ACK 丢失、拒绝、异常、错 Hash 均 UNKNOWN，不重试、不 PASS。E5/B1 Evidence 留在 Result，Record 仅投影安全字段。真实持久 adapter、目的地/ACL/保留期限/Owner 未实现或批准，故不宣称 LOCAL-L1 崩溃保全。 |
+
+实际 Windows 入口均拒绝，**不是**实机接线 CLOSED。仅端口/Fake 结果可审查；真实信任
+边界和操作预算完整前不得改门禁、签发执行许可或宣称 L1-ADMISSION READY TO EXECUTE。
+
+#### 固定 Target、产物与 Owner
+
+先构建两个不嵌入目标的 EXE，再从最终产物计算 Hash，装配只读 `Frozen`；Worker 的
+不可变目标通过受审查 composition 的 `EntryPort` 传入，不靠自身二进制内嵌 Hash。
+Artifact/build、选定设备/OS 摘要、pin 清单/parent/security/owner、P 和三类 Owner 经
+原 `CanonicalHashBuilder` 得到 R1 Manifest Hash，写入 E5 `FixedScope` 新增的可选
+`wiring_manifest_sha256`，再进入原 E4 Target Hash/人工摘要。空字段保留旧 E5 Hash
+字节，非空附加带 domain 的摘要；E4 Receipt/Grant/Journal/帧字节完全不变。
+Worker 只接收两个不同的正整数管道 token，Controller 不接收其他参数；这些数值是
+传输数据，不是权限。Closed bootstrap 不调用 Fake attach 或任何 Win32 安全叶子。
+
+Owner 分工：Controller 独占一次 issuance/consume/start 请求和原 Supervisor；外部
+creator 独占 Worker 创建/Resume、process/thread 与管道；pin Owner 持有所有祖先、根、
+映像和依赖 pins；Evidence owner 独占输出保留。原 GrantIo 仍是记录文件唯一 Owner，
+诊断端口不接收复制 HANDLE。退出未知或创建结果 UNKNOWN 时不关闭借用 pins，交外部
+Owner 保留；确认退出后才允许一次句柄结算/最终 pin 关闭，失败不重试。
+
+#### Custody 窗口与尚需的具体授权
+
+交接 receipt 必须包含所观察 ProcessIdentity 的规范 Hash，覆盖 PID、创建时间、映像、
+账户、Target 和 Owner；其他进程的 ACK 不可复用。每个启动步骤和 Resume 前都复核同一
+启动原点的双时钟/30秒包含式期限；耗时的 ACK 不延长窗口，截止后禁止 Resume。
+
+同批路径为 Create Intent → Custody Accepted → 原人工批准/持久消费/start → Create
+Attempt → Process Identity Observed → Custody Handoff Acknowledged → Resume →
+IPC → Exit Observed → Handle Settlement；任一不确定进入 UNKNOWN/Recovery Required。
+Fake creator 的状态/句柄 token 寿命超过 Controller 对象；不靠 Controller 析构执行清理。
+确定性回归覆盖接受后但创建前、创建尝试前、已创建未观察身份、身份后未交接、交接 ACK
+丢失/已记录但未返回、Resume 后和正常交接后 Controller 消失。旧 Intent/创建额度不恢复，
+重建 Controller 也不允许重新创建/Resume。Receipt/Journals 的原单次性仍由原 E4 拥有。
+
+最小真实方案需要一个**专用于该 Batch 的外部创建/托管进程**在创建前承担责任，
+不需要生产服务，但它是新增实际进程与信任边界。必须另行冻结并授权其启动次数、身份、
+认证 IPC、独立三项资源预算、证据保留/确认和 Controller 死亡后的行为；不能只给现有
+Controller/Worker 六项预算就启动第三进程。同步调用不返回时如何保留这个 Owner、谁
+接手及其退出条件也必须裁定，不能默许变成长驻服务或超时退出丢失 Custody。
+真实 adapter/协议与这项权限边界独立审查前 C 保持 BLOCKED。本轮未实现自动 Kill、
+OpenProcess 按 PID 恢复、句柄转移、崩溃注入或真实保全文件；实际终止仍须特定进程许可。
+
+#### 同一 1A/1B 申请的精确端口账本
+
+令 **P** 为批准的 Controller pump 总上限，必须 `1 ≤ P ≤ 4096`，当前 P、实际间隔、
+误差和盲区均 `REQUIRES USER DECISION`。4096 是源码硬上界，不是已批准负载。所有
+调用计数在尝试前消耗；首次不确定停止新工作，释放仅限已拥有资源。下表是新组合中
+可执行的端口上界，不能替代尚未存在的真实 adapter 的 OS 调用预算。
+
+| 调用位置 | 单批硬上界与最早边界 |
+|---|---|
+| `Composition::begin/inspect_target` 独立测量 | 1 次预检 + 最多 4 次（人工前、人工后、创建前、HELLO 后）；总 ≤5。测量失败不发行/启动；后置漂移不发送 ADMISSION。 |
+| Custody Intent/Accept | ≤1，早于 Grant/Worker；拒绝/未知不启动，已有独立责任记录不重置。 |
+| `start_suspended` / 原 `launch_once` | create ≤1；process identity ≤1；Token/Image/handles 检查各≤1；dependency 检查≤2（Resume 前、HELLO 后）；identity ACK≤1；Resume≤1；loader HELLO≤1。ACK 失败留挂起 Custody，不 Resume。 |
+| 原 `GrantFlow` / R1 GrantIo wrapper | principal/issue/request/burn 各≤1，Journal update≤2；记录 inspect≤`3P+16`（新 wrapper 在调用前硬拒绝超限）。仍是三文件各创建≤1、总写/Flush≤6、Lock/Unlock/marker read 各≤1。 |
+| `read_clock/observe/next/send` | Controller clock≤`4P+16`；Controller+Worker 组合 observation≤`2P+16`；next≤P；send≤3；每次 next 交付一个原64B Frame，无无限内层循环。Worker 原44帧、Controller原3帧、总3008B不变。 |
+| 原 Worker | 收到正确 ADMISSION 后执行18点（连续协议检查点，非时间间隔保证）及24段零 Crypto/DPAPI/Store 结算；仍为30秒包含式期限。 |
+| 退出/关闭 | 独立退出观察后 process/thread 各一次关闭；记录/管道各已取得 Owner 一次关闭；pin 集合最终 close 请求≤1。正在同步调用/未退出不结算；Evidence 失败仍允许已拥有 Owner 的单次释放。 |
+| `EvidenceSink::preserve` | ≤`P+32` 次尝试，关键副作用前后及每次 pump 保存；序号/目标/前 Hash 和 receipt 完整性校验。Record 字段固定白名单、最长安全 ID 80、Hash 64、样本18/ABI7/Native14，不接收任意字节正文。真实每条编码/Write/Flush 次数及字节上限须由实际输出 adapter 展开后批准。 |
+
+**1A 未新增真实根 adapter**：根 CREATE_NEW≤1、批准 Owner/DACL 设置≤1，精确祖先/
+根/文件清单、读/临时句柄次数及 acquisition 方案仍待用户固定；没有这些参数不得执行。
+**1B 当前真实 OS API 调用预算为零**：R1 新源码仅调用注入端口，不链接实际 Windows
+叶子、Native DLL、Crypto/DPAPI/Store。以下是既有叶子的完整 API 类别/位置与逐次上界，
+用于实际 adapter 的展开；不伪造一个尚不存在的可执行 OS 账本。
+
+| 既有源码位置 | API 类型及逐次上界（均未运行） |
+|---|---|
+| `l1_windows_operations.cpp::inspect_exact_token/token_field` | ConvertStringSidToSid/OpenProcessToken 各≤1；5个 token_field 各 GetTokenInformation≤2（合计≤10）；EqualSid、IsValidSid、IsTokenRestricted、LookupPrivilegeValue 各≤1；GetSidSubAuthorityCount≤2、GetSidSubAuthority≤1；已取得 Token CloseHandle≤1、SID LocalFree≤1。 |
+| 同文件 `inspect_e4_pin` | 每 pin：GetFinalPathNameByHandle/GetVolumeInformationByHandle 各≤1，GetFileInformationByHandleEx≤3；ConvertStringSidToSid/GetSecurityInfo/IsValidAcl/GetSecurityDescriptorControl/GetAce 各≤1、EqualSid≤2、LocalFree≤2。 |
+| 同文件 `inspect_e4_parent_chain` | 祖先数 H≤16；每级 FinalPath/Volume 各≤1、FileInformation≤2；首级 GetSecurityInfo/SDDL conversion各≤1、LocalFree≤2；其余 H−1 级各调用一次上述 pin 检查。 |
+| 同文件 `create_e4_record/write_e4_record` | 每 create：pin检查≤1，GetModuleHandle/GetProcAddress/ConvertSid各≤1、LocalFree≤1；InitializeSecurityDescriptor/SetOwner/InitializeAcl/AddAccessAllowedAceEx/SetDacl/SetControl六项各≤1，NtCreateFile≤1（失败返回的已取得句柄 CloseHandle≤1）。每 write：FileInformation≤2、pin检查≤2、SetFilePointer/WriteFile/FlushFileBuffers各≤1；无 replace/delete fallback。 |
+| 同文件 `E4WindowsGrantIo` | issue 创建/写各≤2、额外 FileId≤2、inspect≤1；request 创建/写/FileId各≤1；burn pin检查≤2、Lock/Unlock/SetPointer/marker Read各≤1、write≤1；两个 update各write≤1；每 inspect：principal≤1和目录/Receipt/Grant pin检查共≤3；记录 CloseHandle≤3且各一次。 |
+| 同文件 `verify_e4_artifact` | 每文件≤64MiB，FileInformation≤3、GetSecurityInfo/SDDL conversion/SetPointer各≤1、LocalFree≤2；ReadFile 每次至少前进1B，因此最坏 **67,108,864 次/文件**，不能误写为1024次。实际 adapter 必须另定更小可接受的调用预算/失败关闭规则；当前不获授权运行此极端上界。 |
+| 同文件 `inspect_e4_image/inspect_e4_dependencies` | image：FinalPath/QueryFullProcessImageName/CreateFile/FileId/Close各≤1；dependencies D≤128：EnumProcessModulesEx≤1，每模块 GetModuleFileName/CreateFile/FileId/Close各≤1，加每个匹配 pin一次artifact校验。加载闭包不能由名字清单代替。 |
+| 同文件 `create_e4_suspended/resume_e4_once/close_e4_observed_exit` | 创建前pin检查/artifact校验各≤1；FinalPath≤2、GetWindowsDirectory≤1、GetHandleInformation/GetFileType各≤2、InitializeProcThreadAttributeList≤2、Update/Delete属性表各≤1、额外双时钟读≤1、CreateProcessW≤1；ResumeThread≤1；退出 Wait≤1及process/thread Close各≤1。实际外部 creator adapter 未接线，不能把Controller直接创建冒充外部创建。 |
+| 同文件 `create_e4_pipe_pair/read_e4_pipe_chunk` 与 B1 Worker | CreatePipe≤2、SetHandleInformation≤2；每读 chunk：Peek≤1、ReadFile≤1、GetTickCount64≤2、容量≤64B；Worker send每帧WriteFile≤1，最多44；其 inherited两端各Close≤1。Win32 Worker receive/poll原有30000次循环/时钟截止，真实轮询预算须缩到批准值并由 adapter 硬限制。 |
+| 同文件 `read_e4_clock/observe_process` | 每clock：GetSystemTimePreciseAsFileTime/GetTickCount64各≤1；每process观察：GetProcessMemoryInfo/GetProcessHandleCount/WaitForSingleObject/GetTickCount64各≤1、确认退出后GetExitCodeProcess≤1；E5组合观察至多两个process（pseudo GetCurrentProcess每组≤1）。两种峰值bytes与点采样handle分别报告。 |
+| 同文件 `show_e4_approval` | MultiByteToWideChar≤2、摘要MessageBox/后缀Dialog/GetModuleHandle各≤1；初始化SetWindowLongPtr/SendMessage/SetTimer各≤1、CreateWindowEx≤4；每事件GetWindowLongPtr≤1、终结GetDlgItemText/EndDialog各≤1。消息数取决于人机交互，实际受限输入/事件预算尚未实现；不把“一次UI”换算成无上限许可。 |
+| 新 Identity/Custody/Evidence ports | 本轮 Windows API调用=0；第三进程创建/认证、创建时间测量、真实 pin acquisition、输出持久化/保留无实现，不能列作已关闭的实机预算。它们和 Win32 UI/短读/轮询的剩余预算约束使完整1A/1B准入继续 BLOCKED。 |
+
+0不是忽略所需操作，而是当前禁止执行；真实底层预算、采样精度、外部托管信任边界、
+三进程资源/恢复/证据方案、最终 Hash/依赖及独立 Reviewer/Verifier 尚需固定。
+本轮不新增长期服务、账户/权限、真正的目录/Grant/Journal/Lock/进程/输出文件。
+
+新回归只使用 Fake I/O和内存线程，不创建 Worker OS进程；覆盖漂移、未批准/单次性、
+创建/交接崩溃窗口、失去ACK、退出未知、Evidence失败/UNKNOWN、截止与合法释放、终态
+不可变；原 B1-C 绑定回归仍在同一 Fake CTest 中执行。机械通过不关闭真实 Custody。
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
+REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
+
+### B2-R2 Batch Custodian, Windows adapters and hard OS ceilings (G0-L0)
+
+R2 在同一 B2 分支集中实现 `l1_r2_adapters.h/.cpp`、`l1_r2_custodian_entry.cpp`、
+`l1_r2_windows.h/.cpp` 与 `tests/l1_r2_adapters_test.cpp`。机器字段写入
+`l1Preparation.r2Adapters` 及九项三进程资源参数，不新增第二套验收计划。所有五份
+L1 实验保持 `DRAFT_NOT_AUTHORIZED`；最高状态为
+**B2 WINDOWS ADMISSION SOURCE REVIEWABLE / OFFLINE TESTED**。
+
+| 责任模块 | R2 源码实现与硬边界 |
+|---|---|
+| 1. 独立 Batch Custodian | `Custodian`、`Endpoint`、`Proxy`、`CustodyJournal` 及 `shiroha_l1_r2_custodian_candidate.exe`。每 Batch 最多启动一次；Controller 只拥有人工审批与 `GrantIo`/Supervisor，所有 Worker 创建、process/thread/pipe HANDLE 持有、身份观察、Resume 与退出关闭均经 512B 受约束控制通道由 Custodian 独占执行。Custodian 在 `create()` 前通过 `ProofPort::read_once` 独立校验 E4 256B Receipt、1B Grant(`marker==2`)、128B Journal(`stage==3`) 及因果时钟序，不把普通 IPC ACK 当作持久化证明。`CustodyJournal` 定义独立版本(`0x324a4353`)、512B 哈希链记录（上限 16 条，正向 12 个状态转换：`ready` → `accepted` → `consumed` → `intent` → `attempt` → `identity` → `acknowledged` → `resume_intent` → `resumed` → `exited` → `settled` → `released`），每条写后立即 Flush 并前后复核父目录/文件 pin，不宣称与 E4 三文件构成四文件原子事务。Controller 崩溃或失联时 Custodian 写入 `unknown` 并保留原 HANDLE，不自动 Terminate/重启/清扫。Custodian 对 `dependencies`（`identity`/`resumed`）、`next`/`send`（`resumed`）、`observe`（`accepted` 仅 Controller/Custodian 采样，或 `resumed`）、`close_owned_io`（`settled`）使用显式状态允许表；任何 UNKNOWN 终止最多写一条 `unknown` 记录，合法 `released` 后迟到的失联不得改写终态。`WindowsControl::serve_once` 在 `peer_checked`/`take`/`put` 失败时通知 Custodian 一次并停止服务。 |
+| 2. Windows Identity / Pin Adapter | `l1_r2_windows.h/.cpp`（编译为未链接 OBJECT `shiroha_l1_r2_windows`）提供 `measure_runtime`、`measure_artifact`、`inspect_process_pin`、`bounded_dependencies`、`WindowsIdentity`、`WindowsProof`、`WindowsControl`、`WindowsWorkerLink`、`bounded_approval` 与 `WindowsOwner`。先从 `RtlGetVersion`/`GetProductInfo`/注册表 UBR/`IsWow64Process2`/Token SID/进程创建时间与 Volume/File ID 实测来源采集，再由 `Frozen::matches` 比对，拒绝把字符串/环境变量/JSON 当作 OS 证明。`bounded_hash` 将单文件限制为 `≤16 MiB`、固定 `64 KiB` 块（最多 256 次 `ReadFile`），任何短读或读后大小变化立即 STOP，消除 R1 逐字节极端上界。每个借用 pin 与进程 pin 标明唯一 Owner，不在未退出或 UNKNOWN 时关闭。`bounded_approval` 要求摘要、复核确认、后缀输入与批准按钮四个控件全部创建成功，并校验摘要文本长度与可见性；任一失败立即 `cancelled`，`displayed_hash` 仅在完整获批响应时写入，摘要使用可滚动只读多行控件，避免固定对话框裁剪长文本。 |
+| 3. Evidence Persistence Adapter | `PersistentEvidence` 与 `WindowsPersistence` 复用 R1 `EvidenceSink`，将固定白名单 `Record` 编码为版本化 8192B 记录（上限 `P+32` 条，含前序 Hash、Target/Batch/Owner、18 点样本、ABI 7 类、Native 14 类、双 Verdict）。每条记录恰好一次 `WriteFile` + 一次 `FlushFileBuffers` 及前后目标/父链复核；短写、Flush 失败、校验失败或 ACK 丢失立即熔断流并置 `UNKNOWN`，绝不补写伪造 PASS。Controller 崩溃时 Custodian 可通过独立 `evidence-custodian.r2` 流保留 `kRecoveryRequired` 证据。8192B `Record` 白名单仍只含 Controller 峰值与 18 点 Worker 样本；Custodian 三进程峰值在内存 `peaks_` 中分别核对，第三进程峰值的版本化持久化列为 P3 后续格式决策，不宣称已写入持久化证据。 |
+| 4. 三进程九项预算与硬上限 | `Limits` 强制要求 Controller、Custodian、Worker 各自独立的 Peak Working Set、Peak Commit、Sampled Handles 共九项非零上限（经 `OwnerPort::sample_three` 每次观察同步核对并分别记录峰值），并通过 `Manifest::r2_sha256` 绑定进 Target Hash。三进程峰值在 `Custodian::peaks()` 内存中分别保留；持久化 8192B `Record` 仍只含 Controller 峰值与 Worker 18 点样本，第三进程峰值不进入当前冻结记录格式。硬编码上限：`kPolls = 512`（取代原未批准的 30000 次轮询）、`poll_ms ∈ [1, 50]`、`kUiEvents = 128`（单模型无模式对话框统管全部消息，取代无界双弹窗）、`approval_ms ≤ 60000`、`handoff_ms ≤ 30000`、`kPins = 64`、`kParents = 16`、`kDependencies = 32`。 |
+
+#### R2 收口后的 L1-ADMISSION 硬性操作与 OS API 上界
+
+令批准轮询上限 `P ≤ 512`、祖先链深度 `H ≤ 16`、依赖模块数 `D ≤ 32`、受检 pin 总数 `M ≤ 64`：
+
+- **进程与创建**：Controller 启动 ≤1、Custodian 启动 ≤1、Worker `CreateProcessW(CREATE_SUSPENDED)` ≤1、`ResumeThread` ≤1；任一失败或 UNKNOWN 均保留 Custody 且不重试。
+- **产物与依赖读取**：每产物文件 `≤16 MiB`，`ReadFile` 块大小固定 `65536 B`，单文件 `ReadFile ≤ 256` 次（短读立即失败关闭）；Resume 前静态校验 `D` 个依赖 pin，HELLO 后 `EnumProcessModulesEx` ≤1 并核对 `D` 个已加载模块 File ID 与 SHA-256。
+- **控制与工作管道**：Controller↔Custodian 控制通道（512B 包）交换 `≤ 8P + 64` 次；Custodian↔Worker 64B 帧通道：Worker 发送 ≤44 帧、Custodian 转发 Controller 发送 ≤3 帧，Custodian 与 Worker 各自 `PeekNamedPipe`/`ReadFile` 轮询均硬限制 `≤ P`（512 次）且包含在 30000 ms 期限内。
+- **人工确认 UI**：单个有界对话框，窗口创建 ≤5、消息分发 `≤ 128` 事件、总时长 `≤ 60000 ms`。
+- **持久化写入**：E4 三文件创建各 ≤1、写入/Flush 各 ≤6；CustodyJournal (`custody.r2`) 创建 ≤1、512B 写入/Flush 各 ≤16；Evidence (`evidence-controller.r2` / `evidence-custodian.r2`) 创建各 ≤1、8192B 写入/Flush 各 `≤ P + 32`。
+- **同步调用盲区与人工恢复**：Win32 同步 I/O 或内核调用无法被用户态硬性取消；若调用未返回或 Worker 未观察到 OS 退出，禁止调用 `CloseHandle` 伪造结算，保持 `UNKNOWN` 并由具名 Recovery owner 按已批准的（PID + 创建时间 + 映像 + 账户 SID）绑定接管，任何实际进程终止仍须针对该已验证进程的单独用户授权。
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
 REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
