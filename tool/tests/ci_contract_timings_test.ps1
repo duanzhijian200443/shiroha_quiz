@@ -65,7 +65,7 @@ Assert-True ($sourceGate -ge 0 -and $vectorGate -gt $sourceGate -and $testRun -g
 
 $verify = [regex]::Match($workflow, '(?ms)^  verify:\r?\n(.*?)(?=^  [a-z_]+:|\z)')
 Assert-True ($verify.Success -and $verify.Value.Contains('    if: always()')) 'aggregate runs after upstream failures'
-$requiredJobs = @('static', 'train_c_finalization_parity', 'contracts', 'windows_native')
+$requiredJobs = @('impact', 'static', 'train_c_finalization_parity', 'contracts', 'windows_native')
 foreach ($job in $requiredJobs) {
     Assert-True ($verify.Value.Contains("      - $job")) "aggregate waits for $job"
 }
@@ -99,7 +99,7 @@ foreach ($job in $requiredJobs) {
     }
 }
 Assert-True ($LASTEXITCODE -eq 0) 'expected child failures leave the step exit status clean'
-Write-Output 'PASS: parallel shard source/vector order; aggregate accepts success and rejects 16 non-success cases'
+Write-Output 'PASS: parallel shard source/vector order; aggregate accepts success and rejects 20 non-success cases'
 
 $block = [regex]::Match($workflow, '(?s)\$tests = @\((.*?)\n\s*\)')
 $paths = @([regex]::Matches($block.Groups[1].Value, "'([^']+_test\.dart)'") | ForEach-Object { $_.Groups[1].Value })

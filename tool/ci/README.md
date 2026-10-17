@@ -88,3 +88,66 @@ stale work inside their own namespace, while a manual dispatch queues instead of
 canceling a required PR run. Cancellation prevents overlapping stale runs,
 not a second run started after the first has completed. Required PR checks still
 run normally, including after merges on master.
+
+## Impact classification: shadow observation
+
+`resolve_ci_impact.py` and `impact_rules.json` describe coarse verification
+units, not individual test selection. The classifier uses only Python's standard
+library and read-only Git commands. Its observation job installs no Flutter.
+It runs independently of the existing jobs and is mandatory in the final
+aggregate; an observation failure cannot silently approve the workflow.
+
+The workflow currently observes recommendations while **all existing checks
+still execute**. No job consumes recommendations in an `if` or matrix expression.
+The report separates `recommendedJobs` from the always-full `executionJobs`;
+it is not a reusable test PASS. The report contains target SHAs, a rule-file
+SHA-256, counts and fixed categories, never source contents or raw Git errors.
+The job summary and advisory seven-day artifact permit comparison with the
+complete validation run. Missing observation artifacts never authorize skipping.
+
+There are two separate optimization goals: ordinary standalone documentation
+PRs, and documentation repairs appended to an already-tested code PR. Current
+recommendations use the entire PR diff, so the latter still includes the code
+changes. Cross-head result reuse belongs to a later, separately bounded change;
+an Agent's description of a repair as non-functional is not evidence of input
+equivalence. Contract documents read by a checker remain verification inputs.
+
+| Input | Recommended existing jobs |
+|---|---|
+| Only an ordinary root `README.md` content edit | None; impact/safety checks and final gate remain mandatory |
+| Dart under `lib/` or `test/`, including comments; TRAIN C tools | Static, all four contract shards and TRAIN C parity |
+| Native C++/header/C# source or tests | Windows Native and all four contract shards |
+| Native Dart bindings/adapters | All existing jobs |
+| Acceptance plan JSON or preparation guide alone | All four contract shards, plus unconditional impact/safety checks |
+| Other Markdown, including security and diagnostic READMEs | All existing jobs |
+| Workflow, classifier, checkers, lockfiles, build configuration or unknown paths | All existing jobs |
+
+The only ordinary-document allowlist entry is root `README.md`; additions,
+deletions, renames, symlinks and executable-mode changes do not use that route.
+Local inline Markdown file references are checked from the tested Git tree
+without network access; unsupported reference forms widen to full validation.
+Security Markdown cannot be overridden by a more permissive path route.
+Source contents are never used to infer harmless comment-only edits.
+
+For a PR the report binds event Head/Base, its unique merge base and the actual
+checked-out merge commit, whose two parents must match Base/Head in that order.
+Classification unions cumulative merge-base-to-Head changes with Base-to-tested
+changes. NUL-framed raw diffs retain deleted paths, names with spaces and both
+sides of a rename. Base divergence, unknown inputs, unavailable diff evidence,
+empty diffs and non-PR events recommend full validation. Malformed rules or
+target mismatches fail the observation job. Committed whitespace errors fail
+instead of being hidden in a full recommendation.
+
+`--mode full` is the classifier fallback; manual and push events already
+recommend full validation. Both supported modes execute every existing job.
+There is deliberately no selective-execution switch yet. Activating skips needs
+successful shadow/full CI comparison, fixed-target independent verification and
+review of the activation change. GitHub still evaluates individual check runs;
+the aggregate rejects every required failed, cancelled, skipped or missing
+result, including the impact job. Before merge, target freshness must still be
+checked under `AGENTS.md`; an event snapshot does not prove a later Base is current.
+
+The impact job additionally executes Bootstrap and both Windows Source Guard /
+Acceptance Readiness SelfTests on every event. Their existing Native-job calls
+and each shard's source/vector checks remain in place during shadow observation.
+No G0-L1/L2 experiment, production DLL loading or Host activation is added.
