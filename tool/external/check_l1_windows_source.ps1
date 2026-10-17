@@ -10,19 +10,20 @@ foreach ($path in @('CMakeLists.txt', 'diagnostics/l1_crypto_probe.h',
     'diagnostics/l1_windows_operations.cpp', 'diagnostics/l1_e4_admission.h',
     'diagnostics/l1_e4_protocol.h', 'diagnostics/l1_windows_operations.h',
     'diagnostics/l1_e5_controller.h', 'diagnostics/l1_e5_windows.h',
-    'diagnostics/l1_e5_windows.cpp', 'diagnostics/l1_e5_worker.cpp')) {
+    'diagnostics/l1_e5_windows.cpp', 'diagnostics/l1_e5_worker.cpp',
+    'diagnostics/l1_b1_unified.h', 'diagnostics/l1_b1_admission_worker.cpp')) {
     $sources[$path] = [IO.File]::ReadAllText((Join-Path $native $path))
 }
 function Assert-Isolation([hashtable]$Text) {
     $cmake = $Text['CMakeLists.txt']
     $ops = $Text['diagnostics/l1_windows_operations.cpp']
-    if ($cmake -notmatch 'add_library\(shiroha_l1_windows_operations OBJECT diagnostics/l1_windows_operations.cpp\)' -or
+    if ($cmake -notmatch 'add_library\(shiroha_l1_windows_operations OBJECT diagnostics/l1_windows_operations\.cpp\)' -or
         $cmake -match '(?s)add_executable\([^)]*l1_windows_operations' -or
         $cmake -match '(?s)target_link_libraries\([^)]*shiroha_l1_windows_operations|TARGET_OBJECTS:shiroha_l1_windows_operations' -or
         $cmake -match '(?s)add_test\([^)]*(?:shiroha_l1_windows_operations|shiroha_l1_crypto_candidate)\b') {
         throw 'E3 Windows leaves must remain compile-only and unlinked'
     }
-    if ($cmake -notmatch 'add_executable\(shiroha_l1_windows_admission_test tests/l1_windows_admission_test.cpp\)' -or
+    if ($cmake -notmatch 'add_executable\(shiroha_l1_windows_admission_test tests/l1_windows_admission_test\.cpp\)' -or
         $cmake -notmatch 'add_test\(NAME shiroha_l1_windows_admission_offline COMMAND shiroha_l1_windows_admission_test\)') {
         throw 'E3 Fake test registration missing'
     }
@@ -58,8 +59,8 @@ function Assert-Isolation([hashtable]$Text) {
         throw 'E4 wire/budget contract missing'
     }
     $e5 = $Text['diagnostics/l1_e5_windows.cpp']
-    if ($cmake -notmatch 'add_library\(shiroha_l1_e5_windows OBJECT diagnostics/l1_e5_windows.cpp\)' -or
-        $cmake -notmatch 'add_library\(shiroha_l1_e5_worker OBJECT diagnostics/l1_e5_worker.cpp\)' -or
+    if ($cmake -notmatch 'add_library\(shiroha_l1_e5_windows OBJECT diagnostics/l1_e5_windows\.cpp\)' -or
+        $cmake -notmatch 'add_library\(shiroha_l1_e5_worker OBJECT diagnostics/l1_e5_worker\.cpp\)' -or
         [regex]::Matches($cmake, 'diagnostics/l1_e5_(?:windows|worker)\.cpp').Count -ne 2 -or
         $cmake -match '(?s)target_link_libraries\([^)]*shiroha_l1_e5_windows|TARGET_OBJECTS:shiroha_l1_e5_windows' -or
         $cmake -match '(?s)target_link_libraries\([^)]*shiroha_l1_e5_worker|TARGET_OBJECTS:shiroha_l1_e5_worker' -or
@@ -72,6 +73,20 @@ function Assert-Isolation([hashtable]$Text) {
         $Text['diagnostics/l1_e5_controller.h'] -notmatch 'display.summary != fresh_display.summary' -or
         $Text['diagnostics/l1_e5_controller.h'] -notmatch 'core_.poll\(reading\(\), true\)') {
         throw 'E5 closed runtime, human binding, original deadline or OBJECT/Fake isolation missing'
+    }
+    $b1Header = $Text['diagnostics/l1_b1_unified.h']
+    $b1Worker = $Text['diagnostics/l1_b1_admission_worker.cpp']
+    if ($cmake -notmatch 'add_library\(shiroha_l1_b1_admission_worker OBJECT diagnostics/l1_b1_admission_worker\.cpp\)' -or
+        [regex]::Matches($cmake, 'diagnostics/l1_b1_admission_worker\.cpp').Count -ne 1 -or
+        $cmake -match '(?s)target_link_libraries\([^)]*shiroha_l1_b1_admission_worker|TARGET_OBJECTS:shiroha_l1_b1_admission_worker' -or
+        $cmake -match '(?s)target_compile_definitions\(shiroha_l1_b1_admission_worker[^\)]*SHIROHA_L1_CRYPTO_OBSERVATION' -or
+        $cmake -match '(?s)add_test\([^)]*shiroha_l1_b1_admission_worker\b' -or
+        $cmake -notmatch 'add_test\(NAME shiroha_l1_b1_unified_offline COMMAND shiroha_l1_b1_unified_test\)' -or
+        $cmake -match '(?s)target_link_libraries\(shiroha_l1_b1_unified_test' -or
+        $b1Header -notmatch 'kUnifiedRealExecutionAuthorized = false;' -or
+        $b1Header -notmatch 'operation_allowed_for_trial' -or
+        $b1Worker -match 'shiroha_native_(?:abi_version|buffer_alloc|buffer_free|ecdsa_\w+|peer_certificate_policy)\s*\(|resolve_l1_crypto_api|run_l1_crypto_sequence|\b(?:TerminateProcess|CreateJobObject[AW]|BCrypt\w+|Cert\w+|Crypt\w+)\s*\(') {
+        throw 'B1 unified isolation, zero-crypto Admission-only Worker or Fake registration missing'
     }
 }
 Assert-Isolation $sources
@@ -88,7 +103,10 @@ if ($SelfTest) {
         @{ path='diagnostics/l1_e5_windows.cpp'; before='return false; // Fixed runtime'; after='return true; // Fixed runtime' },
         @{ path='CMakeLists.txt'; before='add_library(shiroha_l1_e5_windows OBJECT'; after='add_library(shiroha_l1_e5_windows SHARED' },
         @{ path='diagnostics/l1_e5_controller.h'; before='display.summary != fresh_display.summary'; after='false' },
-        @{ path='diagnostics/l1_e5_controller.h'; before='core_.poll(reading(), true)'; after='true' }
+        @{ path='diagnostics/l1_e5_controller.h'; before='core_.poll(reading(), true)'; after='true' },
+        @{ path='diagnostics/l1_b1_unified.h'; before='kUnifiedRealExecutionAuthorized = false;'; after='kUnifiedRealExecutionAuthorized = true;' },
+        @{ path='CMakeLists.txt'; before='add_library(shiroha_l1_b1_admission_worker OBJECT'; after='add_library(shiroha_l1_b1_admission_worker SHARED' },
+        @{ path='diagnostics/l1_b1_admission_worker.cpp'; before='admission_only_worker_candidate('; after='run_l1_crypto_sequence(' }
     )
     foreach ($case in $cases) {
         $copy = $sources.Clone()
@@ -97,6 +115,6 @@ if ($SelfTest) {
         try { Assert-Isolation $copy } catch { $rejected = $true }
         if (!$rejected) { throw 'Source guard mutation escaped rejection' }
     }
-    Write-Output "PASS: E3 source guard; $($cases.Count) in-memory mutation rejections"
+    Write-Output "PASS: E3/B1 source guard; $($cases.Count) in-memory mutation rejections"
 }
-Write-Output 'PASS: E3 compile-only Windows leaves, Fake-only registration, unconditional real STOP (STATIC)'
+Write-Output 'PASS: E3/B1 compile-only Windows leaves, Fake-only registration, unconditional real STOP (STATIC)'

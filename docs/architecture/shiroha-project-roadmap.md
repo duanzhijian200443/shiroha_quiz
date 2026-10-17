@@ -451,10 +451,17 @@ FORMAL ACCEPTANCE = PENDING. AR-R6B and production activation remain inactive.
 
 The E5 diagnostic composition under
 [readiness E5](../product/agent-refactor/windows-host-security-readiness.md#e5-controlled-diagnostic-admission-composition-g0-l0)
-connects E4 admission/IPC with the same Supervisor and crypto owners, remaining
-unlinked source with default-denied runtime. Source/Fake readiness does not
-advance real AR-R6A acceptance. L1-ADMISSION and later L1-CRYPTO require separate
-fixed-target trials, independent evidence and user grants; no general stage is added.
+and R6A-B1 unified G0-L1 offline infrastructure under
+[readiness R6A-B1](../product/agent-refactor/windows-host-security-readiness.md#r6a-b1-unified-g0-l1-diagnostic-infrastructure-g0-l0)
+connect E4 admission/IPC with the same Supervisor, an unlinked zero-crypto
+`L1-ADMISSION` Worker candidate, `L1-CRYPTO` owners, `L1-OBJECTS` / `L1-STORE`
+isolated diagnostics, `L1-RELEASE` sole-owner settlement and strict per-Trial
+operation allowlists (`R6A-B1 L1 UNIFIED SOURCE READY / OFFLINE TESTED`),
+remaining unlinked/offline source with all three default runtime gates denied.
+Source/Fake readiness does not advance real AR-R6A acceptance. All five G0-L1
+trials (`L1-ADMISSION`, `L1-CRYPTO`, `L1-OBJECTS`, `L1-STORE`, `L1-RELEASE`)
+remain `DRAFT_NOT_AUTHORIZED` and require separate fixed-target trials,
+independent evidence and user grants; no general stage is added.
 
 Use namespaced AR-R identifiers to distinguish this route from historical
 R1-R8 typed-core stages:

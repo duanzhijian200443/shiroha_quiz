@@ -349,8 +349,9 @@ inline std::array<Frame, 24> settlement_frames(const Settlement &s,
 // settlement. A second parser must be used for the reverse direction.
 class Channel {
 public:
-  Channel(Digest target, bool from_worker)
-      : target_(target), worker_(from_worker) {}
+  Channel(Digest target, bool from_worker, bool admission_only = false)
+      : target_(target), worker_(from_worker),
+        admission_only_(admission_only) {}
   bool accept(const Frame &f) {
     if (failed_ || count_ >= (worker_ ? 44u : 3u))
       return fail();
@@ -375,9 +376,10 @@ public:
             get(p + 4, 4) != 3 || get(p + 8, 4) || !zero(p + 12, 4))
           return fail();
       } else if (type == 3) {
+        const auto expected_completed =
+            admission_only_ ? 0u : (samples_ == 17 ? 16u : samples_);
         if (stopped_ || parts_ || samples_ >= 18 || total != 18 ||
-            part != samples_ ||
-            get(p + 28, 4) != (samples_ == 17 ? 16 : samples_))
+            part != samples_ || get(p + 28, 4) != expected_completed)
           return fail();
         ++samples_;
       } else if (type == 5) {
@@ -424,7 +426,8 @@ private:
     return false;
   }
   Digest target_;
-  bool worker_, failed_ = false, stopped_ = false, acknowledged_ = false;
+  bool worker_, admission_only_ = false, failed_ = false, stopped_ = false,
+                acknowledged_ = false;
   unsigned count_ = 0, samples_ = 0, parts_ = 0;
   Settlement settlement_{};
 };

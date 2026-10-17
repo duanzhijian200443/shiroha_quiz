@@ -49,6 +49,10 @@ struct GrantTarget {
         user_approved, working_set_bytes, commit_bytes, handles,
         window_start_ms, window_end_ms, max_execution_ms, abi_limits);
   }
+  bool is_admission_only() const noexcept {
+    constexpr std::array<unsigned, 7> zero_limits = {0, 0, 0, 0, 0, 0, 0};
+    return user_scope == "L1-ADMISSION" && abi_limits == zero_limits;
+  }
   bool structure_complete() const noexcept {
     for (const auto *id :
          {&batch_id, &device_id, &compiler_id, &os_id, &stop_owner,
@@ -60,10 +64,13 @@ struct GrantTarget {
           &toolchain_manifest_sha256, &review_sha256, &verification_sha256})
       if (!hex_digest(*sha, 64)) return false;
     constexpr std::array<unsigned, 7> limits = {1, 3, 3, 6, 3, 45, 45};
+    const bool valid_scope =
+        (user_scope == "L1-CRYPTO" && abi_limits == limits) ||
+        is_admission_only();
     return hex_digest(source_sha, 40) && hex_digest(base_sha, 40) &&
-           user_scope == "L1-CRYPTO" && non_elevated && evidence_output_approved &&
+           valid_scope && non_elevated && evidence_output_approved &&
            working_set_bytes && commit_bytes && handles &&
-           abi_limits == limits && max_execution_ms == 30000 &&
+           max_execution_ms == 30000 &&
            window_end_ms > window_start_ms &&
            window_end_ms - window_start_ms >= max_execution_ms;
   }
@@ -301,10 +308,13 @@ class OfflineSupervisor {
         state_ != SupervisorState::kSettling)
       return false;
     if (!poll(sample.observed_at_ms, measurement_ok)) return false;
+    const uint32_t expected_completed =
+        target_.is_admission_only()
+            ? 0u
+            : (evidence_.sample_count == 17 ? 16u : evidence_.sample_count);
     if (evidence_.sample_count >= evidence_.samples.size() ||
         !sample.peak_working_set || !sample.peak_commit || !sample.handles ||
-        sample.completed_calls !=
-            (evidence_.sample_count == 17 ? 16 : evidence_.sample_count) ||
+        sample.completed_calls != expected_completed ||
         (evidence_.sample_count &&
          (sample.peak_working_set <
               evidence_.samples[evidence_.sample_count - 1].peak_working_set ||
@@ -369,18 +379,37 @@ class OfflineSupervisor {
                       native.still_owned || native.quarantined ||
                       native.acquired != native.released ||
                       ledger.settlement_unknown;
+    const bool admission_only = target_.is_admission_only();
     bool exact =
-        ledger.abi_attempted_total == 106 && ledger.attempted == 16 &&
-        ledger.returned == 16 && ledger.completed == 16 &&
-        ledger.accepted == 16 && ledger.successful == 12 &&
-        ledger.buffers_allocated == 45 && ledger.releases_attempted == 45 &&
-        ledger.releases_succeeded == 45 && !ledger.duplicate_release_attempts &&
-        !ledger.forbidden_symbol_attempts && !ledger.observation_failures &&
-        ledger.samples == 18 && !ledger.stopped && native.complete();
-    for (const auto &count : native.calls)
+        admission_only
+            ? (ledger.abi_attempted_total == 0 && ledger.attempted == 0 &&
+               ledger.returned == 0 && ledger.completed == 0 &&
+               ledger.accepted == 0 && ledger.successful == 0 &&
+               ledger.buffers_allocated == 0 && ledger.releases_attempted == 0 &&
+               ledger.releases_succeeded == 0 &&
+               !ledger.duplicate_release_attempts &&
+               !ledger.forbidden_symbol_attempts &&
+               !ledger.observation_failures && ledger.samples == 18 &&
+               !ledger.stopped && !native.acquired && !native.released &&
+               !native.still_owned && !native.quarantined && !native.stopped &&
+               !native.unknown)
+            : (ledger.abi_attempted_total == 106 && ledger.attempted == 16 &&
+               ledger.returned == 16 && ledger.completed == 16 &&
+               ledger.accepted == 16 && ledger.successful == 12 &&
+               ledger.buffers_allocated == 45 &&
+               ledger.releases_attempted == 45 &&
+               ledger.releases_succeeded == 45 &&
+               !ledger.duplicate_release_attempts &&
+               !ledger.forbidden_symbol_attempts &&
+               !ledger.observation_failures && ledger.samples == 18 &&
+               !ledger.stopped && native.complete());
+    for (const auto &count : native.calls) {
       unresolved = unresolved || count.unknown ||
                    count.returned != count.attempted ||
                    count.settled != count.attempted;
+      if (admission_only)
+        exact = exact && count.attempted == 0 && count.accepted == 0;
+    }
     for (size_t i = 0; i < evidence_.abi.size(); ++i) {
       const auto &count = evidence_.abi[i];
       unresolved = unresolved || count.unknown ||

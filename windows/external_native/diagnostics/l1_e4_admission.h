@@ -77,10 +77,17 @@ inline bool prompt(const GrantTarget &target, const std::wstring &sid,
       {"Approval ID", &t.user_approval_id}};
   for (auto field : fields)
     p.summary += "\n" + std::string(field.first) + "=" + *field.second;
-  p.summary += "\nG0-L1 / L1-CRYPTO; Non-elevated primary Medium token; "
-               "Review/Verification=APPROVED";
-  p.summary += "\nABI 1/3/3/6/3/45/45=106; buffers=5; direct native=47; "
-               "samples=18; deadline=30000ms";
+  if (t.is_admission_only()) {
+    p.summary += "\nG0-L1 / L1-ADMISSION; Non-elevated primary Medium token; "
+                 "Review/Verification=APPROVED";
+    p.summary += "\nABI 0/0/0/0/0/0/0=0; buffers=0; direct native=0; "
+                 "samples=18; deadline=30000ms";
+  } else {
+    p.summary += "\nG0-L1 / L1-CRYPTO; Non-elevated primary Medium token; "
+                 "Review/Verification=APPROVED";
+    p.summary += "\nABI 1/3/3/6/3/45/45=106; buffers=5; direct native=47; "
+                 "samples=18; deadline=30000ms";
+  }
   p.summary += "\nUTC=" + std::to_string(t.window_start_ms) + ".." +
                std::to_string(t.window_end_ms);
   p.summary +=
@@ -377,7 +384,7 @@ public:
     if (ok) {
       Digest d{};
       decode_hex_bytes(grant_.hash(), d.data(), 32);
-      channel_ = Channel(d, true);
+      channel_ = Channel(d, true, grant_.target().is_admission_only());
     }
     return ok;
   }
@@ -574,6 +581,7 @@ struct WorkerContext {
   unsigned samples = 0;
   Channel *controller = nullptr;
   L1CryptoLedger *ledger = nullptr;
+  bool admission_only = false;
 };
 inline thread_local WorkerContext *worker_context = nullptr;
 inline bool worker_admission() noexcept try {
@@ -605,7 +613,7 @@ inline bool worker_sample(L1CryptoLedger &l) noexcept {
   put(p + 8, l.peak_working_set, 8);
   put(p + 16, l.peak_commit, 8);
   put(p + 24, l.handles_last, 4);
-  put(p + 28, c->samples == 17 ? 16 : c->samples, 4);
+  put(p + 28, c->admission_only ? 0u : (c->samples == 17 ? 16u : c->samples), 4);
   ++c->samples;
   return c->link->send(f);
 }
@@ -616,6 +624,7 @@ bool worker_session(WorkerLink &link, const Digest &target,
   if (worker_context || !clock || !pid || !frozen.valid())
     return false;
   WorkerContext context{&link, target};
+  context.admission_only = frozen.is_admission_only();
   auto hello = frame(Message::hello, context.seq++, 0, 1, target);
   put(hello.data() + 32, pid, 4);
   put(hello.data() + 36, 3, 4);

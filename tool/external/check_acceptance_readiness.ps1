@@ -83,7 +83,7 @@ function Assert-Plan([System.Collections.IDictionary]$Value) {
             Require ([regex]::Matches($workflow, [regex]::Escape("'$path'")).Count -eq 1) 'standing_test'
         }
     }
-    $ids = @('L1-CRYPTO','L1-OBJECTS','L1-STORE','L1-RELEASE','L2-AUTH','G0-I-FORMAL')
+    $ids = @('L1-ADMISSION','L1-CRYPTO','L1-OBJECTS','L1-STORE','L1-RELEASE','L2-AUTH','G0-I-FORMAL')
     Require ($Value.requests.Count -eq $ids.Count) 'request_count'
     for ($i = 0; $i -lt $ids.Count; $i++) {
         $request = $Value.requests[$i]
@@ -92,7 +92,7 @@ function Assert-Plan([System.Collections.IDictionary]$Value) {
             'memoryLimitBytes','handleLimit','backupAndRecovery','cleanup','grantAndTimeWindow','resultFormat')
         Require ($request.id -ceq $ids[$i] -and $request.state -ceq 'DRAFT_NOT_AUTHORIZED' -and
             $request.executionAuthorized -ceq $false) 'request_authority'
-        $tier = if ($i -lt 4) { 'G0-L1' } elseif ($i -eq 4) { 'G0-L2' } else { 'G0-I' }
+        $tier = if ($i -lt 5) { 'G0-L1' } elseif ($i -eq 5) { 'G0-L2' } else { 'G0-I' }
         Require ($request.tier -ceq $tier -and $request.maxSecondsCandidate -gt 0 -and
             $request.maxSecondsCandidate -le 600) 'request_scope'
         Require ($request.environmentRef -ceq 'environment' -and $request.ownersRef -ceq 'ownership' -and
@@ -101,10 +101,23 @@ function Assert-Plan([System.Collections.IDictionary]$Value) {
             $request.handleLimit -ceq 'REQUIRES USER DECISION' -and
             $request.grantAndTimeWindow -ceq 'REQUIRES USER DECISION') 'unresolved_grant'
     }
-    Require ($Value.requests[4].budgetRef -ceq 'l2Budget' -and
-        $Value.requests[4].port -ceq 'REQUIRES USER DECISION') 'l2_bind_budget'
-    Require ($Value.requests[5].perTrialOperationsCountsAndResources -ceq 'REQUIRES USER DECISION') 'formal_ledger'
-    $l1Crypto = $Value.requests[0]
+    Require ($Value.requests[5].budgetRef -ceq 'l2Budget' -and
+        $Value.requests[5].port -ceq 'REQUIRES USER DECISION') 'l2_bind_budget'
+    Require ($Value.requests[6].perTrialOperationsCountsAndResources -ceq 'REQUIRES USER DECISION') 'formal_ledger'
+    $l1Admission = $Value.requests[0]
+    Has-Fields $l1Admission @('b1Unified')
+    $b1 = $l1Admission.b1Unified
+    Require ($b1.scope -ceq 'G0-L0 SOURCE / COMPILE / FAKE ONLY' -and
+        $b1.executionAuthorized -ceq $false -and
+        $b1.crossTrialIsolation -ceq 'STRICT_PER_TRIAL_OPERATION_ALLOWLIST' -and
+        $b1.cryptoPrimitives -eq 0 -and $b1.abiAttemptTotal -eq 0 -and
+        $b1.nativeResources -eq 0 -and $b1.samples -eq 18 -and
+        ($b1.phases -join ',') -ceq 'consume,create,resume,ipc,close' -and
+        ($b1.lifecycleStates -join ',') -ceq 'UNCREATED,CREATED_SUSPENDED,RESUMED,EXITED,HANDLES_RELEASED,CUSTODY_RETAINED_UNKNOWN') 'b1_admission'
+    Require ($b1.source.Count -eq 2) 'b1_sources'
+    foreach ($path in $b1.source) { Assert-RepoPath $path 'windows/external_native/diagnostics/' }
+    Assert-RepoPath $b1.offlineTest 'windows/external_native/tests/'
+    $l1Crypto = $Value.requests[1]
     Has-Fields $l1Crypto @('isolatedHarness', 'offlineHarnessTest', 'allowedNativeSymbols', 'defaultEntryGate')
     Require ($l1Crypto.isolatedHarness.Count -eq 2 -and
         $l1Crypto.defaultEntryGate -ceq 'l1_crypto_execution_not_authorized') 'l1_crypto_harness'
@@ -194,6 +207,38 @@ function Assert-Plan([System.Collections.IDictionary]$Value) {
     foreach ($name in @('workingSetLimitBytes', 'commitLimitBytes', 'sampledHandleLimit')) {
         Require ($l1Crypto.resourceObservation[$name] -ceq 'REQUIRES USER DECISION') 'l1_unapproved_ceiling'
     }
+    $l1Objects = $Value.requests[2]
+    Require ($l1Objects.exactDirectoryListAndCount -ceq 'REQUIRES USER DECISION') 'l1_objects_dirs'
+    $b1Obj = $l1Objects.b1Objects
+    Require ($b1Obj.scope -ceq 'G0-L0 SOURCE / COMPILE / FAKE ONLY' -and
+        $b1Obj.executionAuthorized -ceq $false -and
+        $b1Obj.appAcquire -eq 1 -and $b1Obj.competingAcquire -eq 1 -and
+        $b1Obj.bridgeAcquire -eq 1 -and $b1Obj.maxObservationsPerObject -eq 2 -and
+        $b1Obj.newTargetPublish -eq 1 -and $b1Obj.existingTargetReplace -eq 1 -and
+        $b1Obj.readbacks -eq 2) 'b1_objects'
+    Assert-RepoPath $b1Obj.source 'windows/external_native/diagnostics/'
+    Assert-RepoPath $b1Obj.offlineTest 'windows/external_native/tests/'
+    $l1Store = $Value.requests[3]
+    Require ($l1Store.selectedStoreKind -ceq 'REQUIRES USER DECISION') 'l1_store_kind'
+    $b1Store = $l1Store.b1Store
+    Require ($b1Store.scope -ceq 'G0-L0 SOURCE / COMPILE / FAKE ONLY' -and
+        $b1Store.executionAuthorized -ceq $false -and
+        $b1Store.dpapiProtect -eq 2 -and $b1Store.dpapiUnprotect -eq 2 -and
+        $b1Store.maxPayloadBytes -eq 65536 -and $b1Store.storeBegin -eq 3 -and
+        $b1Store.storeCommit -eq 2 -and $b1Store.storeAbort -eq 1 -and
+        $b1Store.singleKindPerBatch -ceq $true) 'b1_store'
+    Assert-RepoPath $b1Store.source 'windows/external_native/diagnostics/'
+    Assert-RepoPath $b1Store.offlineTest 'windows/external_native/tests/'
+    $l1Release = $Value.requests[4]
+    $b1Rel = $l1Release.b1Release
+    Require ($b1Rel.scope -ceq 'G0-L0 SOURCE / COMPILE / FAKE ONLY' -and
+        $b1Rel.executionAuthorized -ceq $false -and
+        $b1Rel.maxReleaseAttemptsPerOwnedResource -eq 1 -and
+        $b1Rel.stopAllowsIndependentOwnerRelease -ceq $true -and
+        $b1Rel.closeHandleProvesProcessExit -ceq $false -and
+        $b1Rel.timeoutProvesSyncCallTerminated -ceq $false) 'b1_release'
+    Assert-RepoPath $b1Rel.source 'windows/external_native/diagnostics/'
+    Assert-RepoPath $b1Rel.offlineTest 'windows/external_native/tests/'
     Require ($Value.hostABatch3.state -ceq 'BLOCKED' -and
         $Value.hostABatch3.metadataCaptureAuthorized -ceq $false -and
         $Value.hostABatch3.oldRootAccessAuthorized -ceq $false) 'host_a_blocked'
@@ -221,7 +266,7 @@ Require $expectedArray.Success 'native_gate_inventory'
 $expected = @([regex]::Matches($expectedArray.Groups[1].Value, "'(shiroha_native_[a-z_]+)'") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
 Require ($header.Contains('#define SHIROHA_NATIVE_ABI_VERSION 3u') -and $declared.Count -eq 27 -and
     @(Compare-Object $declared $bound).Count -eq 0 -and @(Compare-Object $declared $expected).Count -eq 0) 'abi_source_inventory'
-Write-Output 'PASS: G0-L0 plan structure; 13 WINDOWS_PENDING rows; 6 unapproved drafts; 27 ABI-3 source symbols. NO EXPERIMENT AUTHORITY.'
+Write-Output 'PASS: G0-L0 plan structure; 13 WINDOWS_PENDING rows; 7 unapproved drafts (5 G0-L1 + L2 + G0-I); 27 ABI-3 source symbols. NO EXPERIMENT AUTHORITY.'
 
 if ($SelfTest) {
     $mutations = @(
@@ -231,46 +276,51 @@ if ($SelfTest) {
         { param($p) $p.matrix[4].dependencies = @('X0','X1','X2','X3','X6') },
         { param($p) $p.matrix[7].businessSettlementRequires = @() },
         { param($p) $p.executionAuthorized = $true },
-        { param($p) $p.requests[4].executionAuthorized = $true },
+        { param($p) $p.requests[5].executionAuthorized = $true },
         { param($p) $p.l2Budget.sockets = 9 },
         { param($p) $p.environment.Remove('reviewer') },
         { param($p) $p.failurePolicy.Remove('recovery') },
         { param($p) $p.hostABatch3.oldRootAccessAuthorized = $true },
-        { param($p) $p.requests[0].operations = @() },
-        { param($p) $p.requests[0].Remove('handleLimit') },
-        { param($p) $p.requests[0].maxSecondsCandidate = 0 },
+        { param($p) $p.requests[1].operations = @() },
+        { param($p) $p.requests[1].Remove('handleLimit') },
+        { param($p) $p.requests[1].maxSecondsCandidate = 0 },
         { param($p) $p.matrix[0].source = @('lib/../../outside.dart') },
         { param($p) $p.matrix[0].offlineTests = @('test/not_in_ci_test.dart') },
         { param($p) $p.environment.device = 'unilaterally-selected-device' },
         { param($p) $p.dependencyOrder = @('X4','X7_PRIMITIVE') },
         { param($p) $p.evidenceFields = @('testId') },
-        { param($p) $p.requests[5].Remove('perTrialOperationsCountsAndResources') },
-        { param($p) $p.requests[0].allowedNativeSymbols = @('shiroha_native_owner_acquire') },
-        { param($p) $p.requests[0].defaultEntryGate = 'bypassed' },
-        { param($p) $p.requests[0].abiAttemptBudget.allocation = 46 },
-        { param($p) $p.requests[0].abiAttemptBudget.total = 105 },
-        { param($p) $p.requests[0].nativeAttemptBudget.local_free = 19 },
-        { param($p) $p.requests[0].resourceObservation.commitLimitBytes = 1024 },
-        { param($p) $p.requests[0].realAdmission = 'ENABLED' },
-        { param($p) $p.requests[0].admissionEvidenceClass = 'LOCAL-L1' },
-        { param($p) $p.requests[0].windowsAdmission.executionAuthorized = $true },
-        { param($p) $p.requests[0].windowsAdmission.crossProcessDurability = 'PROVEN' },
-        { param($p) $p.requests[0].windowsAdmission.approvalSource = 'json-user-approved' },
-        { param($p) $p.requests[0].windowsAdmission.commitLimitBytes = 2048 },
-        { param($p) $p.requests[0].windowsAdmission.realBackend = 'ENABLED' },
-        { param($p) $p.requests[0].windowsAdmission.Remove('exactAccountSidAndToken') },
-        { param($p) $p.requests[0].windowsAdmission.e4.executionAuthorized = $true },
-        { param($p) $p.requests[0].windowsAdmission.e4.multiFileAtomicTransaction = $true },
-        { param($p) $p.requests[0].windowsAdmission.e4.settlementFrames = 23 },
-        { param($p) $p.requests[0].windowsAdmission.e4.maxWireBytes = 4096 },
-        { param($p) $p.requests[0].windowsAdmission.e4.clockPolicy = 'UTC_ONLY' },
-        { param($p) $p.requests[0].windowsAdmission.e4.windowsPersistenceProven = $true },
-        { param($p) $p.requests[0].windowsAdmission.e5.executionAuthorized = $true },
-        { param($p) $p.requests[0].windowsAdmission.e5.admissionTrial.cryptoPrimitives = 1 },
-        { param($p) $p.requests[0].windowsAdmission.e5.admissionTrial.maxCreateAttempts = 2 },
-        { param($p) $p.requests[0].windowsAdmission.e5.trialOrder = @('L1-CRYPTO','L1-ADMISSION') },
-        { param($p) $p.requests[0].windowsAdmission.e5.cryptoTrialRequires = 'INHERIT_TRIAL_1' },
-        { param($p) $p.requests[0].windowsAdmission.e5.custody = 'KILL_ON_TIMEOUT' }
+        { param($p) $p.requests[6].Remove('perTrialOperationsCountsAndResources') },
+        { param($p) $p.requests[1].allowedNativeSymbols = @('shiroha_native_owner_acquire') },
+        { param($p) $p.requests[1].defaultEntryGate = 'bypassed' },
+        { param($p) $p.requests[1].abiAttemptBudget.allocation = 46 },
+        { param($p) $p.requests[1].abiAttemptBudget.total = 105 },
+        { param($p) $p.requests[1].nativeAttemptBudget.local_free = 19 },
+        { param($p) $p.requests[1].resourceObservation.commitLimitBytes = 1024 },
+        { param($p) $p.requests[1].realAdmission = 'ENABLED' },
+        { param($p) $p.requests[1].admissionEvidenceClass = 'LOCAL-L1' },
+        { param($p) $p.requests[1].windowsAdmission.executionAuthorized = $true },
+        { param($p) $p.requests[1].windowsAdmission.crossProcessDurability = 'PROVEN' },
+        { param($p) $p.requests[1].windowsAdmission.approvalSource = 'json-user-approved' },
+        { param($p) $p.requests[1].windowsAdmission.commitLimitBytes = 2048 },
+        { param($p) $p.requests[1].windowsAdmission.realBackend = 'ENABLED' },
+        { param($p) $p.requests[1].windowsAdmission.Remove('exactAccountSidAndToken') },
+        { param($p) $p.requests[1].windowsAdmission.e4.executionAuthorized = $true },
+        { param($p) $p.requests[1].windowsAdmission.e4.multiFileAtomicTransaction = $true },
+        { param($p) $p.requests[1].windowsAdmission.e4.settlementFrames = 23 },
+        { param($p) $p.requests[1].windowsAdmission.e4.maxWireBytes = 4096 },
+        { param($p) $p.requests[1].windowsAdmission.e4.clockPolicy = 'UTC_ONLY' },
+        { param($p) $p.requests[1].windowsAdmission.e4.windowsPersistenceProven = $true },
+        { param($p) $p.requests[1].windowsAdmission.e5.executionAuthorized = $true },
+        { param($p) $p.requests[1].windowsAdmission.e5.admissionTrial.cryptoPrimitives = 1 },
+        { param($p) $p.requests[1].windowsAdmission.e5.admissionTrial.maxCreateAttempts = 2 },
+        { param($p) $p.requests[1].windowsAdmission.e5.trialOrder = @('L1-CRYPTO','L1-ADMISSION') },
+        { param($p) $p.requests[1].windowsAdmission.e5.cryptoTrialRequires = 'INHERIT_TRIAL_1' },
+        { param($p) $p.requests[1].windowsAdmission.e5.custody = 'KILL_ON_TIMEOUT' },
+        { param($p) $p.requests[0].b1Unified.executionAuthorized = $true },
+        { param($p) $p.requests[0].b1Unified.cryptoPrimitives = 1 },
+        { param($p) $p.requests[2].b1Objects.competingAcquire = 2 },
+        { param($p) $p.requests[3].b1Store.singleKindPerBatch = $false },
+        { param($p) $p.requests[4].b1Release.closeHandleProvesProcessExit = $true }
     )
     $count = 0
     foreach ($mutate in $mutations) {

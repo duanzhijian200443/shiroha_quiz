@@ -34,6 +34,21 @@ pending. Package 3 adds inactive lifecycle/recovery and static release
 candidate checks (readiness §21): PACKAGE 3 SOURCE IMPLEMENTED / OFFLINE TESTED
 only; final-target CI/review and real Windows/formal acceptance remain pending.
 
+R6A-B1 (`l1_b1_unified.h`, `l1_b1_admission_worker.cpp`,
+`tests/l1_b1_unified_test.cpp`) unifies the G0-L0 offline diagnostic
+infrastructure for all five G0-L1 trials (`L1-ADMISSION`, `L1-CRYPTO`,
+`L1-OBJECTS`, `L1-STORE`, `L1-RELEASE`) over the same E2–E5 and Package 1
+foundations: a dedicated zero-crypto `shiroha_l1_b1_admission_worker` OBJECT
+candidate and `UnifiedAdmissionController`, `B1ObjectsDiagnostic` (60s),
+`B1StoreDiagnostic` + `StorePrimitiveLedger` (60s, single kind per batch),
+`B1ReleaseLedger` (30s) and strict per-Trial operation allowlists. All three
+default runtime denials (E0/E3/E5) remain closed and all five G0-L1 trial
+requests remain `DRAFT_NOT_AUTHORIZED` (`executionAuthorized = false`). Highest
+eligible description after actual passing checks:
+**R6A-B1 L1 UNIFIED SOURCE READY / OFFLINE TESTED**. See
+[readiness R6A-B1](windows-host-security-readiness.md#r6a-b1-unified-g0-l1-diagnostic-infrastructure-g0-l0)
+and [diagnostics R6A-B1](../../../windows/external_native/diagnostics/README.md#r6a-b1-unified-g0-l1-diagnostic-infrastructure-g0-l0-only).
+
 The E5 controlled diagnostic composition connects the same E4 issuance,
 write-ahead consumption, suspended Worker, six-message IPC and E2 Supervisor/
 Native settlement under one fixed-target local-human Controller. Extra directory,

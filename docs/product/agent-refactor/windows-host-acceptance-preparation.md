@@ -223,19 +223,20 @@ JSON `environment` 与每份 `requests` 合并后构成申请草案。
 申请中的数字是待审查的上限候选，**不是已授权负载或经测量可行的值**。
 未定的 OS 内存/句柄值保持 REQUIRES USER DECISION；没有完整数值/观测方法不得开始。
 
-### G0-L1 四份最小原语申请候选
+### G0-L1 五份独立原语申请候选（R6A-B1 统一离线基础设施）
 
 | 草案 | 依赖、精确操作候选 | 时限候选 | 对象/边界 |
 |---|---|---|---|
-| L1-CRYPTO | E2 隔离准入源码/Fake 模型；ABI 1、Generate 3、Encode/Sign 3、Verify 6（3 正/3 改动）、Policy 3、Allocation/Free 各 45，合计 106；最多 5 个 Buffer 同时存活，每资源一次释放尝试 | 30 秒 | 仅限 7 个白名单导出；三组内存测试 issuer/server/client，不装信任根或写正式凭据；证书 DER、自定义签名 raw；真实 Windows 消费/身份/监督仍需另授实现、固定目标审查及用户单次许可 |
-| L1-OBJECTS | 新根与 §9.D 精确目录逐个一次创建（具体清单/总数 REQUIRES USER DECISION）；App acquire 1、竞争 acquire 1 次预期拒绝、Bridge acquire 1；每对象最多两次安全/身份观察；新目标发布 1、替换 1、读回 2 | 60 秒 | runtime.lock、bridge/client.lock、批准的一个对象/一个临时文件；无第二 SID/攻击/崩溃；隔离诊断 seam 需另行实现审查 |
-| L1-STORE | CRYPTO/OBJECTS 通过；protect 2/unprotect 2（每次 ≤65536 bytes）；association begin ≤3、commit ≤2、abort ≤1；每批选定一种 Store kind | 60 秒 | App kind 1/2/3 或 Bridge kind 4 是候选范围；具体 kind、导出调用账本和对象清单必须另冻，不能一个批次隐含覆盖全部 |
-| L1-RELEASE | 前述精确对象；每尚持有资源正常 close 一次；工作前、每操作后、结算后采样；最终 metadata capture 只有明确纳入授权才允许一次 | 30 秒 | 无重试/强杀/崩溃/清扫；删除列表、身份/次数与预算 REQUIRES USER DECISION |
+| L1-ADMISSION | 无前置 L1；零 CNG/crypt32 密码学调用（ABI=0、Native=0）；复用 E4/E5 两步人工确认、CREATE_NEW 256B receipt/1B grant/128B journal（6 次写入/Flush、1 次条件 burn）、单次挂起创建、Token/映像/依赖校验、Resume 1 次、64B IPC（44/3 帧上限、18 点采样、24 段零密码学结算）、正常退出观察与各持有句柄 1 次关闭 | 30 秒 | `l1_b1_admission_worker.cpp` 独立无密码学 Worker 候选（不得用 Crypto Worker 冒充）；五阶段账本（consume/create/resume/ipc/close）与六状态进程生命周期；未退出/未知保留 Custody 与人工交接 |
+| L1-CRYPTO | L1-ADMISSION 独立通过 + 新批次授权；ABI 1、Generate 3、Encode/Sign 3、Verify 6（3 正/3 改动）、Policy 3、Allocation/Free 各 45，合计 106；最多 5 个 Buffer 同时存活，47 个直接 Native 资源，每资源一次释放尝试 | 30 秒 | 仅限 7 个白名单导出；三组内存测试 issuer/server/client，不装信任根或写正式凭据；证书 DER、自定义签名 raw；收到 ADMISSION 前零密码学操作 |
+| L1-OBJECTS | L1-ADMISSION 独立通过 + 新批次授权；新根与 §9.D 精确目录逐个一次创建（具体清单/总数 REQUIRES USER DECISION）；App acquire 1、竞争 acquire 1 次预期拒绝、Bridge acquire 1；每对象最多两次安全/身份观察；新目标发布 1、替换 1、读回 2 | 60 秒 | `B1ObjectsDiagnostic`；`runtime.lock`、`bridge/client.lock`、批准的一个对象/一个临时文件；检查 C: NTFS volume/File ID、Owner SID、受保护单 ACE DACL、父目录身份、非重解析、硬链接数；未知归属保留不删，禁用 Host A 与正式根 |
+| L1-STORE | L1-ADMISSION、L1-CRYPTO、L1-OBJECTS 独立通过 + 新批次授权；protect 2/unprotect 2（每次 ≤65536 bytes）；association/store begin ≤3、commit ≤2、abort ≤1；每批仅选定单一 Store kind（1、2、3 或 4） | 60 秒 | `B1StoreDiagnostic` + `StorePrimitiveLedger`；复用 P18/P20/P21/P23 既有格式与 CAS/create-if-missing；不建第二套 DPAPI 存储；不得把 App kind 1/2/3 与 Bridge kind 4 混入同批；展开底层原语调用账本并擦除临时敏感缓冲 |
+| L1-RELEASE | 前述已授权试验精确对象；每已登记唯一 Owner 的资源仅允许 1 次释放尝试；工作前、每操作后、结算后采样；最终 metadata capture 只有明确纳入授权才允许一次 | 30 秒 | `B1ReleaseLedger`；STOP 不阻止其他独立 Owner 合法释放；释放失败不重试；Void 返回不证底层释放、CloseHandle 不证进程退出、超时不证同步调用终止；无所有权证明禁止删除；无重试/强杀/崩溃/清扫 |
 
-四份申请共同的设备/根/OS/产物/资源上限/负责人/窗口都尚未选择，
-状态 **DRAFT_NOT_AUTHORIZED**。有上限不表示必须完成这些调用；首个异常立即减少后续操作至零，
+五份申请共同的设备/根/OS/产物/资源上限/负责人/窗口都尚未选择，
+状态 **DRAFT_NOT_AUTHORIZED**（`executionAuthorized = false`）。有上限不表示必须完成这些调用；首个异常立即减少后续操作至零，
 只保留原契约准许的单次安全释放。下层 Native 调用可能阻塞，候选时限不是硬终止保证。
-Store 候选在实际执行器审查时需把上层操作展开为精确原生调用数，不能跳过任何准入字段。
+每种实验均有独立 Operation Allowlist（`operation_allowed_for_trial`），CRYPTO 授权绝不顺带允许 OBJECTS 或 STORE 操作。
 
 ### Host A Batch 3 独立阻断
 
@@ -361,8 +362,8 @@ Host A 阻断、27 个 ABI header/FFI/既有编译 gate 源符号匹配和引用
 PASS 仅表示结构检查通过；不验证自然语言充分性、人工批准真实性、真实内存/释放或当前 CI 成功。
 两个检查器已由 `windows/external_native/check_offline.ps1` 接入 standing CI：该脚本在
 `pr-contract-checks.yml` 的 `windows_native` 作业内无条件执行
-`check_l1_windows_source.ps1 -SelfTest`（12 个源码隔离负例）与
-`check_acceptance_readiness.ps1 -SelfTest`（46 个计划负例，含 E4 及 6 个 E5 负例），任一失败即
+`check_l1_windows_source.ps1 -SelfTest`（15 个源码隔离负例，含 B1 Admission-only 无密码学守卫）与
+`check_acceptance_readiness.ps1 -SelfTest`（51 个计划负例，含 E4、E5 及 B1 五份统一申请负例），任一失败即
 throw 使作业红。因此这些确定性检查已有硬失败覆盖，不再触发"另插固定目标 Verifier"的条件；
 独立 Reviewer 仍须审阅 JSON/文档与主契约的语义一致性，未来调整覆盖范围需明确 CI 修改范围。
 CI 的独立 `impact` 影子观察作业另行无条件执行 Bootstrap、上述两个 `-SelfTest` 及
@@ -386,7 +387,8 @@ Native 编译/导出检查可沿用现有 check_offline gate；只修改准备�
 E5 的接线及冻结格式由
 [diagnostics E5](../../../windows/external_native/diagnostics/README.md#e5-controlled-diagnostic-composition-g0-l0-only)
 及 [readiness E5](windows-host-security-readiness.md#e5-controlled-diagnostic-admission-composition-g0-l0)
-拥有。最高源码范围为 **E5 CONTROLLED ADMISSION SOURCE READY / OFFLINE TESTED**。
+拥有。在 B1 统一基础设施收口后，最高源码范围为 **R6A-B1 L1 UNIFIED SOURCE READY / OFFLINE TESTED**
+（承接 **E5 CONTROLLED ADMISSION SOURCE READY / OFFLINE TESTED**）。
 E0/E3/E5 Windows 运行门禁继续拒绝，Controller/Worker 只编译为未链接 OBJECT；
 不得以改 E0 返回值、CLI、环境变量或普通 JSON 批准布尔值开启运行。
 
@@ -404,9 +406,11 @@ E0/E3/E5 Windows 运行门禁继续拒绝，Controller/Worker 只编译为未链
 
 **Trial 1 — L1-ADMISSION，独立申请，默认拒绝。**
 仅验证上述新对象上的身份、发行/WAL/单次消费、进程创建和观察、IPC 及正常结算。
-必须先冻结并审查**不链接、不调用 CNG/crypt32 密码学实现**的准入专用映像；
-E5 的 Crypto Worker 不符合此映像要求。沿用现有 Grant/Journal/六类诊断帧，
-机制结算报告单独判定，不能伪造 106 次调用或原 Supervisor 的 Crypto PASS。
+B1 已在 `l1_b1_unified.h` 与 `l1_b1_admission_worker.cpp` 中补齐独立的
+`admission_only_worker_candidate` 与未链接 `OBJECT` 目标 `shiroha_l1_b1_admission_worker`
+（**不链接、不调用 CNG/crypt32 密码学实现**，物理禁止将 Crypto Worker 重命名冒充）。
+沿用现有 Grant/Journal/六类诊断帧，机制结算报告单独判定（ABI=0、Native=0、18 点采样、
+24 段零密码学结算、五阶段账本与六状态生命周期），不能伪造 106 次调用或原 Supervisor 的 Crypto PASS。
 不得调用生产 Store、网络、App、Bridge、DPAPI、证书 Store 或密码学原语。
 
 若目录建立和随后运行需要不同许可，同一次 Trial 1 申请分两项授权：
@@ -443,10 +447,19 @@ Native 各类别尝试上限仍为机器计划的 `nativeAttemptBudget`；每个
 未知释放/未返回调用/进程未退出保留 UNKNOWN 和人工交接，不增加终止权限。
 无生产 Store、网络、App/Bridge、信任根安装或正式凭据；只处理内存测试键/公开证书。
 
-最小真实准入阻塞：必填参数及操作次数尚未批准；无已审查固定运行入口/Trial 1
-无密码学映像/实测身份与新目录 pin 交接；Source/EXE/依赖未冻结；人工恢复/清理和
-借用句柄交接方案、独立目标 Verifier/Reviewer 未指定。解除这些阻塞仍需分别授权
-Git 交付及真实试验，不能把 E5 编译/Fake 成功当作启动许可或新增通用研发阶段。
+**Trial 3 (`L1-OBJECTS`)、Trial 4 (`L1-STORE`)、Trial 5 (`L1-RELEASE`) — 独立申请，默认拒绝。**
+B1 在 `l1_b1_unified.h` 中同时补齐了 `B1ObjectsDiagnostic`（60s，App/Competing/Bridge
+acquire 1/1/1、每对象观察 ≤2、发布 1、替换 1、读回 2）、`B1StoreDiagnostic` +
+`StorePrimitiveLedger`（60s，单批单一 Store kind 1/2/3/4、Protect/Unprotect ≤2、
+数据 ≤65536 B、Begin ≤3、Commit ≤2、Abort ≤1）和 `B1ReleaseLedger`（30s，每唯一
+Owner 最多 1 次释放尝试、STOP 允许其他独立 Owner 释放、无所有权证明禁删），并在
+`windows-host-acceptance-plan.json` 的 `requests[0..4]` 中冻结五份独立申请模板。
+任一试验获批均不自动解锁下一项试验。
+
+最小真实准入阻塞：必填参数及操作次数尚未批准；无已审查固定运行入口/实测身份与新目录
+pin 交接；Source/EXE/依赖未冻结；人工恢复/清理和借用句柄交接方案、独立目标
+Verifier/Reviewer 未指定。解除这些阻塞仍需分别授权 Git 交付及真实试验，不能把
+E5/B1 编译/Fake 成功当作启动许可或新增通用研发阶段。
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
 REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
