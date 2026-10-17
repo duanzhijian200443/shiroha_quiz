@@ -1,4 +1,4 @@
-"""Synthetic/offline impact and scheduling regressions; no provider or OS security I/O."""
+"""Synthetic/offline impact-plan regressions; no provider or OS security I/O."""
 
 import copy
 from contextlib import redirect_stdout
@@ -23,6 +23,15 @@ RULES, DIGEST = impact.read_rules(ROOT / "tool/ci/impact_rules.json")
 ALL = set(impact.JOBS)
 DART = ALL - {"windows_native"}
 NATIVE = {"windows_native", "contracts"}
+E, N, R = impact.EXECUTE, impact.NOT_APPLICABLE, impact.REUSE
+
+
+def statuses(plan):
+    return {job: plan["units"][job]["status"] for job in impact.JOBS}
+
+
+def running(plan):
+    return {job for job, status in statuses(plan).items() if status == E}
 
 
 class ClassificationTest(unittest.TestCase):
@@ -32,8 +41,8 @@ class ClassificationTest(unittest.TestCase):
             ("docs/product/agent-refactor/README.md", ALL),
             ("windows/external_native/diagnostics/README.md", ALL),
             ("docs/product/agent-refactor/windows-host-security-readiness.md", ALL),
-            ("docs/product/agent-refactor/windows-host-acceptance-plan.json", {"contracts"}),
-            ("docs/product/agent-refactor/windows-host-acceptance-preparation.md", {"contracts"}),
+            ("docs/product/agent-refactor/windows-host-acceptance-plan.json", {"windows_native"}),
+            ("docs/product/agent-refactor/windows-host-acceptance-preparation.md", {"windows_native"}),
             ("windows/external_native/native_core.cpp", NATIVE),
             ("windows/external_native/tests/l1_e4_test.cpp", NATIVE),
             ("tool/external/check_acceptance_readiness.ps1", ALL),
@@ -54,6 +63,12 @@ class ClassificationTest(unittest.TestCase):
         for path, jobs in cases:
             with self.subTest(path=path):
                 self.assertEqual(impact.classify([impact.Change(path)], RULES)[0], jobs)
+
+    def test_acceptance_material_maps_to_its_real_consumer(self):
+        # check_acceptance_readiness.ps1 is executed by windows_native, not by the
+        # contract shards. The always-on impact job also runs it.
+        for path in sorted(impact.ACCEPTANCE_MATERIALS):
+            self.assertEqual(impact.classify([impact.Change(path)], RULES)[0], {"windows_native"})
 
     def test_mixed_and_shared_changes_union_requirements(self):
         changes = [impact.Change("lib/application/shared.dart"),
@@ -88,21 +103,30 @@ class ClassificationTest(unittest.TestCase):
             "prefixes": [], "suffixes": [], "jobs": ["static"]})
         self.assertEqual(impact.classify([impact.Change(rules["routes"][0]["paths"][0])], rules)[0], ALL)
 
-    def test_workflow_shadow_cannot_skip_any_existing_job(self):
+    def test_workflow_activation_cannot_skip_the_observer_or_the_gate(self):
         workflow = (ROOT / ".github/workflows/pr-contract-checks.yml").read_text(encoding="utf-8")
         for job in impact.JOBS:
             block = re.search(rf"(?ms)^  {job}:\n.*?(?=^  [a-z_]+:|\Z)", workflow)[0]
-            self.assertNotRegex(block, r"(?m)^    (?:if|needs):")
+            self.assertIn("    needs: impact", block)
+            self.assertRegex(block, r"    if: needs\.impact\.outputs\.\w+ == 'execute'")
         verify = re.search(r"(?ms)^  verify:\n.*", workflow)[0]
-        self.assertIn("      - impact", verify)
+        for job in impact.JOBS:
+            self.assertIn(f"      - {job}", verify)
         self.assertIn("needs.impact.result", verify)
         self.assertIn("if: always()", verify)
+        self.assertIn("tool/ci/verify_ci_plan.py", verify)
+        self.assertIn("RESULT_IMPACT", verify)
         observer = re.search(r"(?ms)^  impact:\n.*?(?=^  [a-z_]+:|\Z)", workflow)[0]
         for script in ("check_l1_windows_source.ps1 -SelfTest", "check_acceptance_readiness.ps1 -SelfTest",
-                       "check_bootstrap_source.ps1", "ci_contract_timings_test.ps1", "ci_impact_test.py"):
+                       "check_bootstrap_source.ps1", "ci_contract_timings_test.ps1", "ci_impact_test.py",
+                       "ci_reuse_test.py", "ci_gate_test.py"):
             self.assertIn(script, observer)
         self.assertNotIn("flutter-action", observer)
-        self.assertIn("python3 -B tool/ci/resolve_ci_impact.py --mode shadow", observer)
+        self.assertIn("python3 -B tool/ci/resolve_ci_impact.py --mode plan", observer)
+        self.assertIn("name: ci-impact-plan", observer)
+        self.assertIn("cron: '0 20 * * 0'", workflow)
+        self.assertIn("'schedule'", workflow)
+        self.assertNotIn("paths-ignore", workflow)
 
 
 class GitInputTest(unittest.TestCase):
@@ -119,7 +143,8 @@ class GitInputTest(unittest.TestCase):
         hooks = self.repo / "empty-hooks"
         hooks.mkdir()
         self.run_git("config", "core.hooksPath", str(hooks))
-        self.base = self.commit({"README.md": "Fixture\n", "lib/app.dart": "initial\n"})
+        self.base = self.commit({"README.md": "Fixture\n", "lib/app.dart": "initial\n",
+                                 "docs/my guide.md": "guide\n"})
 
     def run_git(self, *args):
         return impact.git(self.repo, *args).decode().strip()
@@ -146,19 +171,20 @@ class GitInputTest(unittest.TestCase):
         return impact.resolve_plan(self.repo, "pull_request", event, RULES, DIGEST,
                                    tested_ref=tested or self.merge_commit(head, base), **kwargs)
 
-    def test_readme_only_observation_keeps_full_execution(self):
+    def test_readme_only_plan_marks_every_unit_not_applicable(self):
         head = self.commit({"README.md": "Fixture amended\n"})
         plan = self.plan(head)
-        self.assertFalse(any(plan["recommendedJobs"].values()))
-        self.assertTrue(all(plan["executionJobs"].values()))
+        self.assertEqual(statuses(plan), dict.fromkeys(impact.JOBS, N))
+        self.assertFalse(any(plan["requiredJobs"].values()))
         self.assertEqual(plan["changedFileCount"], 1)
         self.assertEqual(plan["headSha"], head)
         self.assertEqual(plan["baseSha"], self.base)
+        self.assertEqual(plan["planSha256"], impact.canonical(plan))
 
     def test_last_push_readme_does_not_hide_earlier_code_changes(self):
         self.commit({"lib/app.dart": "code change\n"})
         head = self.commit({"README.md": "wording fix\n"})
-        self.assertEqual({j for j, run in self.plan(head)["recommendedJobs"].items() if run}, DART)
+        self.assertEqual(running(self.plan(head)), DART)
 
     def test_diff_parser_retains_spaces_deletes_and_both_rename_paths(self):
         head = self.commit({"lib/app.dart": None, "lib/renamed app.dart": "initial\n"})
@@ -171,7 +197,7 @@ class GitInputTest(unittest.TestCase):
         original_merge = self.merge_commit(head)
         self.run_git("switch", "-q", "-c", "advanced-base", self.base)
         advanced = self.commit({"base.txt": "new base\n"})
-        self.assertTrue(all(self.plan(head, base=advanced)["recommendedJobs"].values()))
+        self.assertTrue(all(self.plan(head, base=advanced)["requiredJobs"].values()))
         with self.assertRaisesRegex(impact.ImpactError, "target_mismatch"):
             self.plan(head, tested=original_merge, base=advanced)
         new_head = self.commit({"README.md": "another push\n"})
@@ -186,14 +212,18 @@ class GitInputTest(unittest.TestCase):
         # merge-result input independently from cumulative branch changes.
         tree = self.run_git("rev-parse", f"{tested}^{{tree}}")
         tested = self.run_git("commit-tree", tree, "-p", self.base, "-p", head, "-m", "merge tree")
-        self.assertEqual({j for j, run in self.plan(head, tested=tested)["recommendedJobs"].items() if run}, DART)
+        self.assertEqual(running(self.plan(head, tested=tested)), DART)
 
-    def test_push_manual_and_forced_full_never_recommend_skipping(self):
+    def test_push_manual_schedule_and_forced_full_execute_everything(self):
         head = self.commit({"README.md": "wording\n"})
-        self.assertTrue(all(self.plan(head, mode="full")["recommendedJobs"].values()))
-        for event_name, event in (("push", {"after": head}), ("workflow_dispatch", {})):
+        self.assertEqual(running(self.plan(head, mode="full")), ALL)
+        for event_name, event, reason in (
+                ("push", {"after": head}, "push_full"),
+                ("workflow_dispatch", {}, "manual_full"),
+                ("schedule", {}, "scheduled_full")):
             plan = impact.resolve_plan(self.repo, event_name, event, RULES, DIGEST)
-            self.assertTrue(all(plan["recommendedJobs"].values()))
+            self.assertEqual(running(plan), ALL)
+            self.assertEqual(plan["reasons"], [reason])
         with self.assertRaisesRegex(impact.ImpactError, "target_mismatch"):
             impact.resolve_plan(self.repo, "push", {"after": self.base}, RULES, DIGEST)
 
@@ -211,7 +241,7 @@ class GitInputTest(unittest.TestCase):
         with patch.object(impact, "changes_between", side_effect=impact.ImpactError("invalid_diff")):
             plan = self.plan(head)
         self.assertEqual(plan["reasons"], ["diff_unavailable_full"])
-        self.assertTrue(all(plan["recommendedJobs"].values()))
+        self.assertEqual(running(plan), ALL)
 
     def test_committed_whitespace_errors_are_not_hidden_by_full_mode(self):
         head = self.commit({"README.md": "trailing spaces  \n"})
@@ -220,14 +250,31 @@ class GitInputTest(unittest.TestCase):
 
     def test_local_references_are_checked_without_network(self):
         head = self.commit({"README.md": "[source](lib/app.dart) [web](https://example.invalid)\n"})
-        self.assertFalse(any(self.plan(head)["recommendedJobs"].values()))
+        self.assertEqual(running(self.plan(head)), set())
         head = self.commit({"README.md": "[missing](lib/missing.dart)\n"})
         with self.assertRaisesRegex(impact.ImpactError, "missing_document_reference"):
             self.plan(head)
 
+    def test_angle_bracket_and_spaced_link_targets_are_resolved(self):
+        head = self.commit({"README.md": "[guide](<docs/my guide.md>)\n"})
+        self.assertEqual(running(self.plan(head)), set())
+        head = self.commit({"README.md": "[guide](<docs/my guide.md> 'title')\n"})
+        self.assertEqual(running(self.plan(head)), set())
+        # A bare destination with a space is ambiguous with an optional title;
+        # CommonMark requires angle brackets, so this fails closed by widening.
+        head = self.commit({"README.md": "[guide](docs/my guide.md)\n"})
+        self.assertEqual(running(self.plan(head)), ALL)
+        head = self.commit({"README.md": "[guide](<docs/missing guide.md>)\n"})
+        with self.assertRaisesRegex(impact.ImpactError, "missing_document_reference"):
+            self.plan(head)
+
     def test_unparsed_document_references_widen_scope(self):
-        head = self.commit({"README.md": "[link][ref]\n\n[ref]: lib/app.dart\n"})
-        self.assertTrue(all(self.plan(head)["recommendedJobs"].values()))
+        for text in ("[link][ref]\n\n[ref]: lib/app.dart\n",
+                     "[guide](<docs/my guide.md> trailing)\n",
+                     "[guide](docs/my guide.md trailing)\n"):
+            with self.subTest(text=text):
+                head = self.commit({"README.md": text})
+                self.assertEqual(running(self.plan(head)), ALL)
 
     def test_invalid_mapping_cannot_expand_the_document_allowlist(self):
         path = self.repo / "rules.json"
@@ -243,6 +290,28 @@ class GitInputTest(unittest.TestCase):
         with self.assertRaisesRegex(impact.ImpactError, "invalid_rules"):
             impact.read_rules(path)
 
+    def test_plan_digest_and_schema_tampering_are_rejected(self):
+        head = self.commit({"README.md": "wording\n"})
+        plan = self.plan(head)
+        path = self.repo / "plan.json"
+        path.write_text(json.dumps(plan), encoding="utf-8")
+        self.assertEqual(impact.read_plan(path)["headSha"], head)
+        plan["units"]["static"] = {"status": impact.NOT_APPLICABLE, "reason": "tampered"}
+        path.write_text(json.dumps(plan), encoding="utf-8")
+        with self.assertRaisesRegex(impact.ImpactError, "plan_digest_mismatch"):
+            impact.read_plan(path)
+        plan["planSha256"] = impact.canonical(plan)
+        path.write_text(json.dumps(plan), encoding="utf-8")
+        self.assertEqual(impact.read_plan(path)["units"]["static"]["status"], impact.NOT_APPLICABLE)
+        plan["units"]["static"]["status"] = "SKIP"
+        impact.seal(plan)
+        path.write_text(json.dumps(plan), encoding="utf-8")
+        with self.assertRaisesRegex(impact.ImpactError, "invalid_plan"):
+            impact.read_plan(path)
+        path.write_text('{"version":2,"version":2}', encoding="utf-8")
+        with self.assertRaisesRegex(impact.ImpactError, "invalid_plan"):
+            impact.read_plan(path)
+
     def test_cli_report_redaction_and_missing_evidence_do_not_skip_execution(self):
         rules_path = self.repo / "tool/ci/impact_rules.json"
         rules_path.parent.mkdir(parents=True)
@@ -250,17 +319,22 @@ class GitInputTest(unittest.TestCase):
         event_path = self.repo / "event.json"
         event_path.write_text("{}", encoding="utf-8")
         summary_path = self.repo / "summary.md"
+        output_path = self.repo / "github-output"
         output = io.StringIO()
         with patch.object(impact, "ROOT", self.repo), patch.object(sys, "argv", [
             "resolve_ci_impact.py", "--event-name", "workflow_dispatch", "--event-path", str(event_path)
-        ]), patch.dict("os.environ", {"GITHUB_STEP_SUMMARY": str(summary_path)}), redirect_stdout(output):
+        ]), patch.dict("os.environ", {"GITHUB_STEP_SUMMARY": str(summary_path),
+                                      "GITHUB_OUTPUT": str(output_path)}), redirect_stdout(output):
             self.assertEqual(impact.main(), 0)
         plan = json.loads((self.repo / ".dart_tool/ci-impact/plan.json").read_text())
-        self.assertTrue(all(plan["executionJobs"].values()))
+        self.assertEqual(running(plan), ALL)
         self.assertEqual(plan["rulesSha256"], impact.read_rules(rules_path)[1])
         self.assertNotIn(str(self.repo), output.getvalue())
         self.assertNotIn("fixture@example.invalid", output.getvalue())
         self.assertTrue(summary_path.exists())
+        outputs = output_path.read_text()
+        self.assertIn("unitStatic=execute", outputs)
+        self.assertIn("planDigest=" + plan["planSha256"], outputs)
         # Corrupt input cannot produce a new success, even if an older report exists.
         event_path.write_text("[invalid", encoding="utf-8")
         output = io.StringIO()

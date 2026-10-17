@@ -57,7 +57,8 @@ Expect-Rejected @(@{type='suite';time=0;suite=@{id=0;path=(Join-Path $root '../o
 $workflow = Get-Content -LiteralPath $workflowPath -Raw
 $contracts = [regex]::Match($workflow, '(?ms)^  contracts:\r?\n(.*?)(?=^  [a-z_]+:|\z)')
 Assert-True $contracts.Success 'contracts job exists'
-Assert-True (!($contracts.Value -match '(?m)^    needs:')) 'contract shards declare no job dependencies'
+Assert-True ($contracts.Value -match '(?m)^    needs: impact\r?$') 'contract shards consume only the plan'
+Assert-True (!($contracts.Value -match '(?m)^      - static\r?$')) 'contract shards do not depend on static'
 $sourceGate = $contracts.Value.IndexOf('run: ./tool/external/check_bootstrap_source.ps1')
 $vectorGate = $contracts.Value.IndexOf('run: python3 tool/external/verify_bootstrap_vectors.py')
 $testRun = $contracts.Value.IndexOf('& flutter test --concurrency=1 --file-reporter')
@@ -69,37 +70,34 @@ $requiredJobs = @('impact', 'static', 'train_c_finalization_parity', 'contracts'
 foreach ($job in $requiredJobs) {
     Assert-True ($verify.Value.Contains("      - $job")) "aggregate waits for $job"
 }
-$gate = [regex]::Match($verify.Value, '(?s)- name: Require all verification jobs.*?        run: \|\r?\n(.*?)(?=\r?\n      - |\z)')
-Assert-True $gate.Success 'aggregate gate script exists'
-$gateScript = $gate.Groups[1].Value -replace '(?m)^ {10}', ''
-$gateFixture = Join-Path $fixture 'aggregate-gate.ps1'
-$hostExecutable = (Get-Process -Id $PID).Path
-function Invoke-AggregateFixture([hashtable]$Results) {
-    $rendered = $gateScript
-    foreach ($job in $requiredJobs) {
-        $rendered = $rendered.Replace(('${{ needs.' + $job + '.result }}'), $Results[$job])
-    }
-    Assert-True (!$rendered.Contains('${{')) 'all aggregate inputs substituted'
-    [IO.File]::WriteAllText($gateFixture, $rendered, [Text.UTF8Encoding]::new($false))
-    & $hostExecutable -NoProfile -File $gateFixture | Out-Null
-    $childExit = $LASTEXITCODE
-    # The Actions pwsh wrapper ends every step with `exit $LASTEXITCODE`, so an
-    # intentionally failing child must not leak its status into this step.
-    $global:LASTEXITCODE = 0
-    return $childExit
+Assert-True ($verify.Value.Contains('tool/ci/verify_ci_plan.py')) 'aggregate recomputes the plan and reuse evidence'
+Assert-True ($verify.Value.Contains('name: ci-impact-plan')) 'aggregate consumes the uploaded plan'
+foreach ($pair in @(
+    @('impact', 'RESULT_IMPACT'), @('static', 'RESULT_STATIC'), @('windows_native', 'RESULT_WINDOWS_NATIVE'),
+    @('train_c_finalization_parity', 'RESULT_TRAIN_C_FINALIZATION_PARITY'), @('contracts', 'RESULT_CONTRACTS'))) {
+    Assert-True ($verify.Value.Contains(('${{ needs.' + $pair[0] + '.result }}')) -and
+        $verify.Value.Contains($pair[1])) "aggregate receives the $($pair[0]) result"
 }
-$successes = @{}
-foreach ($job in $requiredJobs) { $successes[$job] = 'success' }
-Assert-True ((Invoke-AggregateFixture $successes) -eq 0) 'all required jobs successful'
-foreach ($job in $requiredJobs) {
-    foreach ($result in @('failure', 'cancelled', 'skipped', '')) {
-        $results = $successes.Clone()
-        $results[$job] = $result
-        Assert-True ((Invoke-AggregateFixture $results) -ne 0) "aggregate rejects $job result '$result'"
-    }
+
+$observer = [regex]::Match($workflow, '(?ms)^  impact:\r?\n(.*?)(?=^  [a-z_]+:|\z)')
+Assert-True $observer.Success 'impact job exists'
+foreach ($script in @(
+    'ci_impact_test.py', 'ci_reuse_test.py', 'ci_gate_test.py',
+    'tool/external/check_bootstrap_source.ps1', 'check_l1_windows_source.ps1 -SelfTest',
+    'check_acceptance_readiness.ps1 -SelfTest', 'tool/ci/resolve_ci_impact.py --mode plan')) {
+    Assert-True ($observer.Value.Contains($script)) "impact job executes $script"
 }
-Assert-True ($LASTEXITCODE -eq 0) 'expected child failures leave the step exit status clean'
-Write-Output 'PASS: parallel shard source/vector order; aggregate accepts success and rejects 20 non-success cases'
+Assert-True ($observer.Value.Contains('name: ci-impact-plan')) 'impact uploads the plan artifact'
+foreach ($job in @('static', 'windows_native', 'train_c_finalization_parity', 'contracts')) {
+    $block = [regex]::Match($workflow, "(?ms)^  ${job}:\r?\n(.*?)(?=^  [a-z_]+:|\z)")
+    Assert-True ($block.Success -and $block.Value -match '(?m)^    needs: impact\r?$') "$job consumes the plan"
+    Assert-True ($block.Value -match "(?m)^    if: needs\.impact\.outputs\.\w+ == 'execute'\r?$") "$job is plan-gated"
+}
+Assert-True ($workflow.Contains("cron: '0 20 * * 0'")) 'weekly full regression is scheduled'
+Assert-True ($workflow.Contains("github.event_name == 'schedule' && 'schedule'")) 'schedule owns a concurrency namespace'
+Assert-True ($workflow.Contains('actions: read')) 'plan and evidence reads use read-only Actions permission'
+Assert-True (!$workflow.Contains('paths-ignore')) 'no workflow-level path filter bypasses required checks'
+Write-Output 'PASS: plan-gated units, aggregate recomputation, weekly full regression and separate concurrency'
 
 $block = [regex]::Match($workflow, '(?s)\$tests = @\((.*?)\n\s*\)')
 $paths = @([regex]::Matches($block.Groups[1].Value, "'([^']+_test\.dart)'") | ForEach-Object { $_.Groups[1].Value })
@@ -145,8 +143,8 @@ Assert-True (!($workflow -match "'test/[^']*_(?:support|probe)\.dart'")) 'suppor
 $partitions = @(0..3 | ForEach-Object { $shard=$_; for ($i=$shard; $i -lt $paths.Count; $i+=4) { $paths[$i] } })
 Assert-True ($partitions.Count -eq $paths.Count -and @($partitions | Select-Object -Unique).Count -eq $paths.Count) 'modulo assignment exactly once'
 Assert-True ($workflow.Contains('github.head_ref || github.ref_name')) 'branch identity shared across events'
-Assert-True ($workflow.Contains("github.event_name != 'workflow_dispatch'")) 'manual cannot cancel required PR run'
-Assert-True ($workflow.Contains("github.event_name == 'push' && 'push' || 'review'")) 'push owns a separate concurrency namespace'
+Assert-True ($workflow.Contains("github.event_name == 'pull_request' || github.event_name == 'push'")) 'manual and scheduled runs never cancel required PR work'
+Assert-True ($workflow.Contains("github.event_name == 'push' && 'push'")) 'push owns a separate concurrency namespace'
 $uploadStep = [regex]::Match($workflow, '(?s)- name: Upload test timings.*?(?=\r?\n      - |\r?\n\r?\n  verify:)')
 Assert-True ($uploadStep.Success -and $uploadStep.Value.Contains('continue-on-error: true')) 'timing upload never gates the required result'
 Assert-True ($workflow.Contains('if ($testExit -ne 0) { exit $testExit }')) 'original Flutter failure propagated'
