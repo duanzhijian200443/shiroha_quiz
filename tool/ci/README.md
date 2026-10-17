@@ -161,10 +161,12 @@ refuses reuse with a fixed code (`no_source_run`, `source_not_ancestor`,
 `toolchain_unverified`, `evidence_missing`, `evidence_expired`,
 `evidence_mismatch`, `source_used_reuse`, `source_not_successful`,
 `attempt_mismatch`, `shard_mismatch`, `fork_source`, `ci_inputs_changed`,
-`api_unavailable`) and executes the affected units. A PR that modifies the
-workflow or classifier therefore never reuses, because the new machinery has
-not itself been accepted. `reuse.status` and its source run/attempt, artifact
-and evidence digests are recorded in the plan and re-checked by the aggregate.
+`api_unavailable`) and executes the affected units. Ambiguous evidence (for
+example a re-run that leaves more than one plan artifact) is treated as missing
+evidence. A PR that modifies the workflow or classifier therefore never reuses,
+because the new machinery has not itself been accepted. `reuse.status` and its
+source run/attempt, artifact and evidence digests are recorded in the plan and
+re-checked by the aggregate.
 
 ## Full regression, concurrency and observability
 
@@ -202,6 +204,12 @@ slowest shard improved in every run under that run's own per-suite times
 failure gate are unchanged. The section comments in the list describe coverage
 groups, not contiguous ranges. Windows fixture timing is useful locally but does
 not replace Linux evidence.
+
+Post-change runs measured 315.6/190.5/244.7/224.1 s (run 39028083483); recomputing
+that run's per-suite times under the previous order gives
+318.1/202.8/255.5/198.5 s. The median balance is stable, but a single suite
+deviating from its median (99 s against a 65 s median) dominates that run, so
+end-to-end gains vary and the contracts job remains the critical path.
 
 Prefer one automatic PR run for normal delivery. Manual dispatch is for explicit
 calibration/debugging, not a mandatory run before creating every PR. Required PR
