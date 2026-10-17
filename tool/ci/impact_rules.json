@@ -10,7 +10,7 @@
       ],
       "prefixes": [],
       "suffixes": [],
-      "jobs": ["contracts"]
+      "jobs": ["windows_native"]
     },
     {
       "id": "shared_configuration",

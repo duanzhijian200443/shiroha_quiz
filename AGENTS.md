@@ -160,6 +160,13 @@ proved by current standing CI, including:
 - a required acceptance condition with no deterministic standing-CI coverage;
 - an explicit user or Reviewer request for independent checks.
 
+A selective `PR contract checks` run is authoritative only when its aggregate
+recomputed the binding impact plan and classified every unit as executed,
+not-applicable or reused. Cross-head reuse is an equivalent result only under the
+fixed input/toolchain equivalence rules in `tool/ci/README.md`; it is never a
+cached test PASS. The source run/attempt, job and artifact identities must be
+revalidated, and missing or drifted evidence executes the unit.
+
 When a Verifier is required, verify one fixed target and preserve its PR evidence.
 An Independent Reviewer is mandatory for every non-trivial completion PR.
 Reviewer approval is semantic evidence; green CI never replaces independent review.
@@ -322,6 +329,8 @@ single PR-evidence publication.
 
 A completion PR is merge-ready only when:
 - final-head/current-target `PR contract checks` succeeded;
+- every verification unit is `EXECUTE` with success, `NOT_APPLICABLE` by a
+  recomputed rule, or `REUSE` with revalidated source evidence;
 - the Independent Reviewer recorded `[REVIEW APPROVAL]` matching the final head and current base/merge target,
   with zero open P0/P1/P2;
 - required Verifier `[VERIFICATION APPROVAL]` evidence matches the applicable
