@@ -3628,7 +3628,17 @@ object, publish 1, replace 1, readback 2, 60s ceiling, explicit publication kind
 `1`/`2`, and an approved-root Volume/File-ID binding probed against the injected
 seam before any object opens). PASS requires a nonempty approved-object set and
 successful mandatory DACL/security/identity/parent observations for every pin,
-as well as the complete lock/publish/replace/readback sequence. B1-D supplies
+as well as the complete lock/publish/replace/readback sequence.
+Publication evidence is additionally bound to an explicitly approved object ID,
+fixed kind 1/2 and parent Volume/File ID. The existing native transaction returns
+internal checked identities at Begin and after successful publication; B1-C
+rejects a mismatched parent before payload writes, captures each actual published
+identity, checks the previous identity before replacement and binds both readbacks
+to the current pin. Create and replace supply the target's two observations;
+borrowed handles cannot substitute for them. File ID legitimately changes on
+atomic replacement, with native temporary-to-published validation preserved.
+This internal evidence adds no exported ABI or real execution authority.
+B1-D supplies
 `B1StoreDiagnostic` and `StorePrimitiveLedger` (Protect <=2, Unprotect <=2,
 plaintext <=65,024 B of the 65,536 B ABI buffer, Begin <=3, Commit <=2,
 Abort <=1, 60s ceiling, single `StoreKindSelection` per batch, same root

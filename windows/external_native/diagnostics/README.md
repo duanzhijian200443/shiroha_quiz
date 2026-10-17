@@ -140,7 +140,18 @@ description after passing checks: **R6A-B1 L1 UNIFIED SOURCE READY / OFFLINE TES
   custody retention without deleting unknown objects. DACL checks cannot be
   disabled. PASS requires a nonempty approved-object set, at least one successful
   security/identity/parent observation for every pin, and the complete lock,
-  publication, replacement and readback sequence. Residual: the seam is
+  publication, replacement and readback sequence. Publication requires its own
+  `register_approved_publication` binding (object ID, kind 1/2, parent Volume/File
+  ID), not a borrowed observation of another object. The existing native
+  transaction returns internal identity evidence only after its target/parent
+  checks; B1-C compares the approved parent before writing, observes the actual
+  published target after each successful create/replace, and binds each readback
+  to that captured identity. These two publication observations consume the
+  target's <=2 observation budget. Atomic replacement advances the File ID from
+  the validated previous target to the validated temporary/published object;
+  unrelated handles cannot supply either publication observation. The optional
+  evidence remains internal C++, with no exported C ABI or runtime-gate change.
+  Residual: the seam is
   probed once per trial at `begin`; a differential seam that changes roots
   between calls is out of G0-L0 scope and must be re-pinned at the real trial.
 - **B1-D (`L1-STORE`)**: `B1StoreDiagnostic` and `StorePrimitiveLedger` wrap the

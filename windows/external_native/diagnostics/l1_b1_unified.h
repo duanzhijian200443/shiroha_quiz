@@ -761,6 +761,26 @@ class B1ObjectsDiagnostic {
     return true;
   }
 
+  // Approval of one fixed, initially Missing credential name under its exact
+  // approved parent. File IDs are captured from native publication, never from
+  // an unrelated borrowed observation handle. Replacement advances this pin.
+  bool register_approved_publication(const std::string &object_id, uint32_t kind,
+                                     uint64_t parent_volume,
+                                     uint64_t parent_file) {
+    if (!started_ || stopped_ || !publication_id_.empty() ||
+        !safe_id(object_id) || kind != publish_kind_ ||
+        !valid_app_publish_kind(kind) || !parent_volume || !parent_file)
+      return fail("UNAUTHORIZED_ACCESS", OfflineVerdict::kFail);
+    for (const auto &pin : approved_objects_)
+      if (pin.object_id == object_id)
+        return fail("UNAUTHORIZED_ACCESS", OfflineVerdict::kFail);
+    publication_id_ = object_id;
+    publication_parent_volume_ = parent_volume;
+    publication_parent_file_ = parent_file;
+    approved_objects_.push_back({object_id, parent_volume, 0, false, true, 0});
+    return true;
+  }
+
   // 1. App acquire (runtime.lock owner = role 1): max 1
   bool acquire_app_lock(uint64_t now_ms) noexcept {
     if (!check_gate(now_ms)) return false;
@@ -828,6 +848,9 @@ class B1ObjectsDiagnostic {
       uint64_t expected_parent_file_id) noexcept {
     if (!check_gate(now_ms)) return false;
     ApprovedObjectPin *pin = nullptr;
+    // Publication evidence can only originate in the owning native transaction.
+    if (object_id == publication_id_)
+      return fail("UNAUTHORIZED_ACCESS", OfflineVerdict::kFail);
     for (auto &item : approved_objects_) {
       if (item.object_id == object_id) {
         pin = &item;
@@ -876,27 +899,34 @@ class B1ObjectsDiagnostic {
         readback_attempts_ >= ObjectsBudget::kMaxReadback) {
       return fail("BUDGET_EXCEEDED", OfflineVerdict::kFail);
     }
-    if (!app_token_ || payload.empty()) {
+    if (!app_token_ || payload.empty() || publication_id_.empty()) {
       return fail("ADMISSION_BLOCKED", OfflineVerdict::kFail);
     }
     ++new_publish_attempts_;
     uint8_t scratch[64]{};
     uint64_t needed = 0, ticket = 0;
+    shiroha_native::CredentialObjectObservation observed;
     const int32_t begin_rc = objects_.credential_begin(
         SHIROHA_NATIVE_ABI_VERSION, app_token_, publish_kind_, scratch,
-        sizeof(scratch), &needed, &ticket);
+        sizeof(scratch), &needed, &ticket, &observed);
     if (begin_rc != SHIROHA_NATIVE_MISSING || !ticket) {
       return fail("OWNERSHIP_UNKNOWN", OfflineVerdict::kFail);
     }
+    if (!publication_matches(observed, true)) {
+      objects_.credential_abort(SHIROHA_NATIVE_ABI_VERSION, app_token_, ticket);
+      return fail("OWNERSHIP_UNKNOWN", OfflineVerdict::kFail);
+    }
+    shiroha_native::CommitDiagnostic diagnostic;
     const int32_t commit_rc = objects_.credential_commit(
         SHIROHA_NATIVE_ABI_VERSION, app_token_, ticket, payload.data(),
-        payload.size());
+        payload.size(), &diagnostic);
     if (commit_rc == SHIROHA_NATIVE_COMMIT_UNKNOWN) {
       return fail("SETTLEMENT_UNKNOWN", OfflineVerdict::kUnknown);
     }
     if (commit_rc != SHIROHA_NATIVE_OK) {
       return fail("OWNERSHIP_UNKNOWN", OfflineVerdict::kFail);
     }
+    if (!record_publication(diagnostic)) return false;
     return perform_readback(now_ms, payload, readback_out);
   }
 
@@ -910,32 +940,36 @@ class B1ObjectsDiagnostic {
         readback_attempts_ >= ObjectsBudget::kMaxReadback) {
       return fail("BUDGET_EXCEEDED", OfflineVerdict::kFail);
     }
-    if (!app_token_ || replacement.empty()) {
+    if (!app_token_ || replacement.empty() || publication_id_.empty() ||
+        new_publish_attempts_ != 1 || publication_observations_ != 1) {
       return fail("ADMISSION_BLOCKED", OfflineVerdict::kFail);
     }
     ++replace_attempts_;
     std::vector<uint8_t> current(expected_previous.size() + 64);
     uint64_t written = 0, ticket = 0;
+    shiroha_native::CredentialObjectObservation observed;
     const int32_t begin_rc = objects_.credential_begin(
         SHIROHA_NATIVE_ABI_VERSION, app_token_, publish_kind_, current.data(),
-        current.size(), &written, &ticket);
+        current.size(), &written, &ticket, &observed);
     if (begin_rc != SHIROHA_NATIVE_OK || !ticket) {
       return fail("OWNERSHIP_UNKNOWN", OfflineVerdict::kFail);
     }
     current.resize(static_cast<size_t>(written));
-    if (current != expected_previous) {
+    if (current != expected_previous || !publication_matches(observed, false)) {
       objects_.credential_abort(SHIROHA_NATIVE_ABI_VERSION, app_token_, ticket);
       return fail("OWNERSHIP_UNKNOWN", OfflineVerdict::kFail);
     }
+    shiroha_native::CommitDiagnostic diagnostic;
     const int32_t commit_rc = objects_.credential_commit(
         SHIROHA_NATIVE_ABI_VERSION, app_token_, ticket, replacement.data(),
-        replacement.size());
+        replacement.size(), &diagnostic);
     if (commit_rc == SHIROHA_NATIVE_COMMIT_UNKNOWN) {
       return fail("SETTLEMENT_UNKNOWN", OfflineVerdict::kUnknown);
     }
     if (commit_rc != SHIROHA_NATIVE_OK) {
       return fail("OWNERSHIP_UNKNOWN", OfflineVerdict::kFail);
     }
+    if (!record_publication(diagnostic)) return false;
     return perform_readback(now_ms, replacement, readback_out);
   }
 
@@ -975,7 +1009,8 @@ class B1ObjectsDiagnostic {
     for (const auto &pin : approved_objects_) {
       if (!pin.security_observed) all_objects_observed = false;
     }
-    if (all_objects_observed && app_acquire_attempts_ == 1 &&
+    if (all_objects_observed && publication_observations_ == 2 &&
+        app_acquire_attempts_ == 1 &&
         competing_acquire_attempts_ == 1 && competing_denied_ &&
         bridge_acquire_attempts_ == 1 && new_publish_attempts_ == 1 &&
         replace_attempts_ == 1 && readback_attempts_ == 2) {
@@ -1001,6 +1036,47 @@ class B1ObjectsDiagnostic {
   unsigned readbacks() const noexcept { return readback_attempts_; }
 
  private:
+  ApprovedObjectPin *publication_pin() noexcept {
+    for (auto &pin : approved_objects_)
+      if (pin.object_id == publication_id_) return &pin;
+    return nullptr;
+  }
+
+  bool publication_matches(
+      const shiroha_native::CredentialObjectObservation &observed,
+      bool missing) noexcept {
+    const auto *pin = publication_pin();
+    return pin && observed.kind == publish_kind_ &&
+           observed.parent_volume == publication_parent_volume_ &&
+           observed.parent_file == publication_parent_file_ &&
+           observed.missing == missing &&
+           (missing ? observed.volume == 0 && observed.file == 0
+                    : observed.volume == pin->expected_volume &&
+                          observed.file == pin->expected_file_id);
+  }
+
+  bool record_publication(
+      const shiroha_native::CommitDiagnostic &diagnostic) noexcept {
+    auto *pin = publication_pin();
+    const auto &observed = diagnostic.published;
+    if (!pin || diagnostic.stage != shiroha_native::CommitStage::complete ||
+        diagnostic.exception || diagnostic.finish_failed ||
+        observed.kind != publish_kind_ || observed.missing ||
+        observed.parent_volume != publication_parent_volume_ ||
+        observed.parent_file != publication_parent_file_ ||
+        observed.volume != publication_parent_volume_ || !observed.file ||
+        observed.file == pin->expected_file_id ||
+        pin->observations >= ObjectsBudget::kMaxObservePerObject)
+      return fail("SETTLEMENT_UNKNOWN", OfflineVerdict::kUnknown);
+    pin->expected_volume = observed.volume;
+    pin->expected_file_id = observed.file;
+    pin->security_observed = true;
+    ++pin->observations;
+    ++total_observations_;
+    ++publication_observations_;
+    return true;
+  }
+
   // The injected seam must be rooted at the approved isolated root. Path text
   // alone never proves isolation; the probed identity does. The probe handle is
   // its own Owner and receives exactly one close attempt.
@@ -1039,16 +1115,18 @@ class B1ObjectsDiagnostic {
     ++readback_attempts_;
     out.assign(expected.size() + 64, 0);
     uint64_t written = 0, ticket = 0;
+    shiroha_native::CredentialObjectObservation observed;
     const int32_t begin_rc = objects_.credential_begin(
         SHIROHA_NATIVE_ABI_VERSION, app_token_, publish_kind_, out.data(),
-        out.size(), &written, &ticket);
+        out.size(), &written, &ticket, &observed);
     if (begin_rc != SHIROHA_NATIVE_OK || !ticket) {
       return fail("OWNERSHIP_UNKNOWN", OfflineVerdict::kFail);
     }
     out.resize(static_cast<size_t>(written));
     const int32_t abort_rc =
         objects_.credential_abort(SHIROHA_NATIVE_ABI_VERSION, app_token_, ticket);
-    if (abort_rc != SHIROHA_NATIVE_OK || out != expected) {
+    if (abort_rc != SHIROHA_NATIVE_OK || out != expected ||
+        !publication_matches(observed, false)) {
       return fail("ARTIFACT_INVALID", OfflineVerdict::kFail);
     }
     return true;
@@ -1088,6 +1166,9 @@ class B1ObjectsDiagnostic {
   TrialKind grant_trial_;
   B1ReleaseLedger release_;
   std::vector<ApprovedObjectPin> approved_objects_;
+  std::string publication_id_;
+  uint64_t publication_parent_volume_ = 0, publication_parent_file_ = 0;
+  unsigned publication_observations_ = 0;
   uint64_t start_ms_ = 0, last_ms_ = 0;
   uint64_t app_token_ = 0, bridge_token_ = 0;
   unsigned app_acquire_attempts_ = 0;

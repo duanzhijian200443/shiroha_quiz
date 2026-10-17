@@ -733,6 +733,9 @@ struct FakeProtectedStoreEnv final : shiroha_native::ObjectOperations {
   bool unknown_after_replace = false;
   bool fail_close = false;
   bool fail_inspect = false;
+  unsigned publication_fault = 0;
+  unsigned opens_after_publish = 0;
+  bool published = false;
   size_t leftovers = 0;
 
   // Seed the seam root up front so its identity is deterministic and can be
@@ -746,6 +749,19 @@ struct FakeProtectedStoreEnv final : shiroha_native::ObjectOperations {
         objects.find(std::make_pair(uint64_t{0}, std::wstring{L"LOCAL"}));
     if (it == objects.end()) return z::ApprovedRootPin{directory, 0, 0};
     return z::ApprovedRootPin{directory, it->second.volume, it->second.file};
+  }
+
+  shiroha_native::ObjectInfo publication_parent() const {
+    for (const auto &entry : objects)
+      if (entry.first.second == L"trust") return entry.second;
+    return {};
+  }
+
+  void substitute_target() {
+    const auto key = std::make_pair(handles[state].file, active_name);
+    auto replacement = make_good(false);
+    contents[replacement.file] = contents[objects[key].file];
+    objects[key] = replacement;
   }
 
   shiroha_native::ObjectInfo make_good(bool dir) {
@@ -823,6 +839,8 @@ struct FakeProtectedStoreEnv final : shiroha_native::ObjectOperations {
     active_name = kind == 1   ? L"issuer.bin"
                   : kind == 2 ? L"server.bin"
                               : L"client.bin";
+    if (published && ++opens_after_publish == 2 && publication_fault == 3)
+      substitute_target(); // same bytes, different identity during readback
     return fixed_open(parent, out);
   }
   int32_t credential_replace(HANDLE h, HANDLE parent, uint32_t,
@@ -883,6 +901,11 @@ struct FakeProtectedStoreEnv final : shiroha_native::ObjectOperations {
         ++it;
     }
     objects[key] = identity;
+    published = true;
+    opens_after_publish = 0;
+    if (publication_fault == 1) substitute_target();
+    if (publication_fault == 2) ++handles[parent].file;
+    if (publication_fault == 4) objects[key].dacl_protected = false;
     return unknown_after_replace ? SHIROHA_NATIVE_COMMIT_UNKNOWN
                                  : SHIROHA_NATIVE_OK;
   }
@@ -938,8 +961,8 @@ void test_b1_c_objects_diagnostic() {
   }
 
   // Completing file operations cannot replace security evidence for EVERY pin.
-  // 0: no approved set; 1: zero observations; 2: only one of two pins observed;
-  // 3: each approved pin observed once (the minimum, within the <=2 budget).
+  // 0: no publication approval; 1: zero auxiliary observations;
+  // 2: only one of two auxiliary pins observed; 3: all pins observed.
   for (unsigned mode = 0; mode < 4; ++mode) {
     FakeProtectedStoreEnv env;
     z::B1ObjectsDiagnostic diag(env.approved_root("C:\\SYNTHETIC\\B1_OBJECTS"),
@@ -948,6 +971,12 @@ void test_b1_c_objects_diagnostic() {
               diag.attempt_competing_app_lock(1020) &&
               diag.acquire_bridge_lock(1030),
           "security completion test acquires all required locks");
+    if (mode != 0) {
+      const auto parent = env.publication_parent();
+      check(diag.register_approved_publication("published", 1, parent.volume,
+                                               parent.file),
+            "approve actual publication parent and fixed kind");
+    }
     if (mode != 0) {
       auto parent = env.make_good(true);
       auto info = env.make_good(false);
@@ -970,9 +999,11 @@ void test_b1_c_objects_diagnostic() {
       check(env.close(handle), "release borrowed observation handle");
     }
     std::vector<uint8_t> first{1, 2}, second{3, 4}, readback;
-    check(diag.publish_new_target(1060, first, readback) &&
-              diag.replace_existing_target(1070, first, second, readback),
-          "security completion test performs publish, replace and readbacks");
+    const bool completed = diag.publish_new_target(1060, first, readback) &&
+                           diag.replace_existing_target(1070, first, second,
+                                                        readback);
+    check(completed == (mode != 0),
+          "publication requires its own explicit approval");
     check(diag.release_locks_and_settle(1080) == (mode == 3) &&
               diag.verdict() ==
                   (mode == 3 ? OfflineVerdict::kPass : OfflineVerdict::kFail) &&
@@ -1021,18 +1052,11 @@ void test_b1_c_objects_diagnostic() {
   }
 
   // 3. Full positive L1-OBJECTS flow within exact frozen budget
-  {
+  for (uint32_t kind : {1u, 2u}) {
     FakeProtectedStoreEnv env;
     z::B1ObjectsDiagnostic diag(
-        env.approved_root("C:\\SYNTHETIC\\B1_OBJECTS"), env.sid, env, 1);
+        env.approved_root("C:\\SYNTHETIC\\B1_OBJECTS"), env.sid, env, kind);
     check(diag.begin(1000), "L1-OBJECTS begin");
-
-    auto parent_info = env.make_good(true);
-    auto child_info = env.make_good(false);
-    HANDLE child_h = env.make_handle(child_info, false);
-    check(diag.register_approved_object("target-obj", child_info.volume,
-                                        child_info.file, false, true),
-          "register approved object pin");
 
     // 1 App acquire + 1 competing acquire (expected denial) + 1 Bridge acquire
     check(diag.acquire_app_lock(1010), "App acquire 1");
@@ -1040,25 +1064,28 @@ void test_b1_c_objects_diagnostic() {
           "competing App acquire 1 denied as expected");
     check(diag.acquire_bridge_lock(1030), "Bridge acquire 1");
 
-    // 2 security/identity observations on approved object
-    check(diag.observe_object_security(1040, "target-obj", child_h, parent_info,
-                                       parent_info.volume, parent_info.file),
-          "object observation 1");
-    check(diag.observe_object_security(1050, "target-obj", child_h, parent_info,
-                                       parent_info.volume, parent_info.file),
-          "object observation 2");
+    const auto parent = env.publication_parent();
+    check(diag.register_approved_publication("target-obj", kind, parent.volume,
+                                             parent.file),
+          "approve fixed publication target under its actual parent");
 
     // 1 new-target publication + readback 1
     std::vector<uint8_t> v1 = {0x53, 0x43, 0x52, 0x31, 0x01, 0x02};
     std::vector<uint8_t> rb1;
     check(diag.publish_new_target(1060, v1, rb1) && rb1 == v1,
           "new target publish + readback 1");
+    const auto first_identity = env.objects.at(
+        std::make_pair(parent.file, env.active_name)).file;
 
     // 1 existing-target replacement + readback 2
     std::vector<uint8_t> v2 = {0x53, 0x43, 0x52, 0x31, 0x09, 0x0A, 0x0B};
     std::vector<uint8_t> rb2;
     check(diag.replace_existing_target(1070, v1, v2, rb2) && rb2 == v2,
           "existing target replace + readback 2");
+    check(env.objects.at(std::make_pair(parent.file, env.active_name)).file !=
+              first_identity &&
+              env.active_name == (kind == 1 ? L"issuer.bin" : L"server.bin"),
+          "approved kind stays fixed while atomic replace advances File ID");
 
     check(diag.release_locks_and_settle(1080) &&
               diag.verdict() == OfflineVerdict::kPass &&
@@ -1067,7 +1094,76 @@ void test_b1_c_objects_diagnostic() {
               diag.new_publishes() == 1 && diag.replacements() == 1 &&
               diag.readbacks() == 2,
           "L1-OBJECTS settles PASS with exact frozen counts");
-    env.close(child_h);
+  }
+
+  // The former positive fixture observed A but published an unrelated B.
+  {
+    FakeProtectedStoreEnv env;
+    z::B1ObjectsDiagnostic diag(env.approved_root("C:\\SYNTHETIC\\B1_OBJECTS"),
+                                env.sid, env, 1);
+    check(diag.begin(1000) && diag.acquire_app_lock(1010) &&
+              diag.attempt_competing_app_lock(1020) &&
+              diag.acquire_bridge_lock(1030), "inspect-A fixture locks");
+    auto parent = env.make_good(true);
+    auto a = env.make_good(false);
+    auto handle = env.make_handle(a, false);
+    check(diag.register_approved_object("observed-a", a.volume, a.file, false) &&
+              diag.observe_object_security(1040, "observed-a", handle, parent,
+                                             parent.volume, parent.file),
+          "safe independent object A is observed");
+    env.close(handle);
+    std::vector<uint8_t> bytes{1, 2}, readback;
+    check(!diag.publish_new_target(1050, bytes, readback) &&
+              !diag.release_locks_and_settle(1060) &&
+              diag.verdict() != OfflineVerdict::kPass && env.contents.empty(),
+          "inspect A does not approve publishing B or permit PASS");
+  }
+
+  // Bind kind/parent before writes; native identity/security drift never PASSes.
+  // 0 wrong kind; 1 wrong approved parent; 2 post-publish target substitution;
+  // 3 parent drift; 4 same-byte readback substitution; 5 published DACL drift;
+  // 6 target substitution between publish and replace; 7 borrowed-handle bypass.
+  for (unsigned fault = 0; fault < 8; ++fault) {
+    FakeProtectedStoreEnv env;
+    z::B1ObjectsDiagnostic diag(env.approved_root("C:\\SYNTHETIC\\B1_OBJECTS"),
+                                env.sid, env, 1);
+    check(diag.begin(1000) && diag.acquire_app_lock(1010) &&
+              diag.attempt_competing_app_lock(1020) &&
+              diag.acquire_bridge_lock(1030), "binding negative locks");
+    const auto parent = env.publication_parent();
+    const bool approved = diag.register_approved_publication(
+        "published", fault == 0 ? 2u : 1u, parent.volume,
+        parent.file + (fault == 1 ? 1u : 0u));
+    check(approved == (fault != 0), "mismatched publication kind rejected");
+    if (fault >= 2 && fault <= 5) env.publication_fault = fault - 1;
+    if (fault == 7) {
+      auto a = env.make_good(false);
+      auto handle = env.make_handle(a, false);
+      check(!diag.observe_object_security(1040, "published", handle, parent,
+                                             parent.volume, parent.file),
+            "borrowed handle cannot supply publication observation");
+      env.close(handle);
+    }
+    std::vector<uint8_t> first{1, 2}, second{3, 4}, readback;
+    const bool created = diag.publish_new_target(1050, first, readback);
+    if (fault == 6) {
+      check(created, "identity drift fixture first publication");
+      env.substitute_target();
+      check(!diag.replace_existing_target(1060, first, second, readback),
+            "replacement rejects same-byte target with unapproved File ID");
+    } else {
+      check(!created, "kind, parent, target or readback binding rejects");
+    }
+    check(!diag.release_locks_and_settle(1080) &&
+              diag.verdict() != OfflineVerdict::kPass && env.handles.empty(),
+          "binding mismatch cannot settle PASS and closes owned handles once");
+    if (fault == 0 || fault == 1 || fault == 7)
+      check(env.contents.empty(), "binding rejects before payload writes");
+    if (fault == 2 || fault == 3 || fault == 5)
+      check(diag.verdict() == OfflineVerdict::kUnknown,
+            "uncertain publication retains UNKNOWN verdict");
+    for (const auto &attempt : env.close_attempts)
+      check(attempt.second == 1, "binding failure never retries a close");
   }
 
   // 4. Negative cases: wrong Owner SID, unprotected DACL, parent drift,
@@ -1132,6 +1228,9 @@ void test_b1_c_objects_diagnostic() {
     z::B1ObjectsDiagnostic diag(
         env.approved_root("C:\\SYNTHETIC\\B1_OBJECTS"), env.sid, env, 1);
     check(diag.begin(1000) && diag.acquire_app_lock(1005), "begin");
+    const auto parent = env.publication_parent();
+    check(diag.register_approved_publication("published", 1, parent.volume,
+                                             parent.file), "approve unknown case");
     std::vector<uint8_t> v1 = {1, 2, 3}, rb;
     check(!diag.publish_new_target(1010, v1, rb) &&
               !diag.release_locks_and_settle(1020) &&
