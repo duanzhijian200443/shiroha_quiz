@@ -154,7 +154,6 @@ jobs:
 
   contracts:
     name: Contract shard ${{ matrix.shard }}/4
-    needs: static
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
