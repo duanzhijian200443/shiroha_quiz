@@ -365,6 +365,10 @@ PASS 仅表示结构检查通过；不验证自然语言充分性、人工批准
 `check_acceptance_readiness.ps1 -SelfTest`（40 个计划负例，含 6 个 E4 字段），任一失败即
 throw 使作业红。因此这些确定性检查已有硬失败覆盖，不再触发"另插固定目标 Verifier"的条件；
 独立 Reviewer 仍须审阅 JSON/文档与主契约的语义一致性，未来调整覆盖范围需明确 CI 修改范围。
+CI 的独立 `impact` 影子观察作业另行无条件执行 Bootstrap、上述两个 `-SelfTest` 及
+standing manifest/分类器回归检查；观察建议尚不用于跳过任何现有验证作业。
+其失败、取消或跳过同样阻断最终汇总，Native 中原有调用继续保留。影子报告不构成测试
+PASS 的跨 Head 复用证据，也不改变 WINDOWS_PENDING 或授予实验许可。
 已有 standing manifest 验证独立运行，不声称它自动执行新工具。真实 Windows 验收
 仍另需独立 fixed-target Verifier。
 

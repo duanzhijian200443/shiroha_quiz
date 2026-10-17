@@ -23,6 +23,48 @@ concurrency:
   cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
+  impact:
+    name: Change impact analysis (shadow)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check impact classification regressions
+        run: python3 -B -m unittest discover -s tool/tests -p ci_impact_test.py
+
+      - name: Check standing coverage, timing and aggregate gate
+        shell: pwsh
+        run: ./tool/tests/ci_contract_timings_test.ps1
+
+      - name: Check inactive bootstrap source boundary
+        shell: pwsh
+        run: ./tool/external/check_bootstrap_source.ps1
+
+      - name: Check Windows source isolation and mutation rejections
+        shell: pwsh
+        run: ./tool/external/check_l1_windows_source.ps1 -SelfTest
+
+      - name: Check acceptance readiness and mutation rejections
+        shell: pwsh
+        run: ./tool/external/check_acceptance_readiness.ps1 -SelfTest
+
+      - name: Observe PR impact without skipping validation
+        run: python3 -B tool/ci/resolve_ci_impact.py --mode shadow
+
+      - name: Upload shadow impact observation
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-impact-shadow
+          path: .dart_tool/ci-impact/plan.json
+          retention-days: 7
+          if-no-files-found: warn
+
   windows_native:
     name: Windows native offline contracts
     runs-on: windows-2022
@@ -530,6 +572,7 @@ jobs:
   verify:
     name: Changed Dart and focused contracts
     needs:
+      - impact
       - static
       - train_c_finalization_parity
       - contracts
@@ -542,17 +585,21 @@ jobs:
       - name: Require all verification jobs
         shell: pwsh
         run: |
+          $impactResult = '${{ needs.impact.result }}'
           $staticResult = '${{ needs.static.result }}'
           $parityResult = '${{ needs.train_c_finalization_parity.result }}'
           $contractsResult = '${{ needs.contracts.result }}'
           $nativeResult = '${{ needs.windows_native.result }}'
 
+          Write-Output "Impact observation and safety checks: $impactResult"
+          Write-Output 'CI scope: shadow observation; all verification jobs required'
           Write-Output "Static checks: $staticResult"
           Write-Output "TRAIN C finalization parity: $parityResult"
           Write-Output "Contract shards: $contractsResult"
           Write-Output "Windows native offline contracts: $nativeResult"
 
-          if ($staticResult -ne 'success' -or
+          if ($impactResult -ne 'success' -or
+              $staticResult -ne 'success' -or
               $parityResult -ne 'success' -or
               $contractsResult -ne 'success' -or
               $nativeResult -ne 'success') {

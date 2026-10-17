@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "ordinaryDocuments": ["README.md"],
+  "routes": [
+    {
+      "id": "acceptance_material",
+      "paths": [
+        "docs/product/agent-refactor/windows-host-acceptance-plan.json",
+        "docs/product/agent-refactor/windows-host-acceptance-preparation.md"
+      ],
+      "prefixes": [],
+      "suffixes": [],
+      "jobs": ["contracts"]
+    },
+    {
+      "id": "shared_configuration",
+      "paths": [
+        "pubspec.yaml", "pubspec.lock", "analysis_options.yaml",
+        "tool/verify_changed.ps1",
+        "windows/external_native/CMakeLists.txt",
+        "windows/external_native/check_offline.ps1"
+      ],
+      "prefixes": [".github/", "tool/ci/", "tool/tests/", "tool/external/", "scripts/"],
+      "suffixes": [],
+      "jobs": ["static", "windows_native", "train_c_finalization_parity", "contracts"]
+    },
+    {
+      "id": "native_adapter",
+      "paths": [],
+      "prefixes": ["lib/data/external/native/"],
+      "suffixes": [".dart"],
+      "jobs": ["static", "windows_native", "train_c_finalization_parity", "contracts"]
+    },
+    {
+      "id": "native_code",
+      "paths": [],
+      "prefixes": ["windows/external_native/"],
+      "suffixes": [".cpp", ".h", ".cs"],
+      "jobs": ["windows_native", "contracts"]
+    },
+    {
+      "id": "dart",
+      "paths": [],
+      "prefixes": ["lib/", "test/"],
+      "suffixes": [".dart"],
+      "jobs": ["static", "train_c_finalization_parity", "contracts"]
+    },
+    {
+      "id": "train_c_tools",
+      "paths": [],
+      "prefixes": ["tool/train_c_"],
+      "suffixes": [".dart"],
+      "jobs": ["static", "train_c_finalization_parity", "contracts"]
+    }
+  ]
+}
