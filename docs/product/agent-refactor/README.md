@@ -41,8 +41,9 @@ identity binding, CREATE_NEW durable-request one-use with a locked conditional
 burn, UTC window validation with monotonic 30000ms supervision, six 64-byte
 message types with 24-part settlement and an injected suspended-Worker port.
 Only Fake approval/persistence/deadline/custody paths are tested; the real entry
-and integrated backend still deny, nothing is linked, registered with CTest or
-activated, and no real Windows UI/process/IPC/crypto experiment ran. See
+and integrated backend still deny, the real leaves are not linked, registered
+with CTest or activated, and no real Windows UI/process/IPC/crypto experiment
+ran. See
 [readiness E4](windows-host-security-readiness.md#e4-local-human-single-use-admission-source-candidate-g0-l0)
 and [diagnostic boundaries](../../../windows/external_native/diagnostics/README.md#e4-local-human-admission-candidate-g0-l0-only).
 Highest scope: L1-CRYPTO E4 ADMISSION SOURCE IMPLEMENTED / OFFLINE TESTED.

@@ -359,11 +359,14 @@ Review 与 fixed-target Verifier 重新检查适用目标，PR 必须另过 curr
 Host A 阻断、27 个 ABI header/FFI/既有编译 gate 源符号匹配和引用 suite 的唯一 CI 注册。
 它不加载 DLL、不看设备/测试根、不生成执行器、不运行子进程/网络、不写文件。
 PASS 仅表示结构检查通过；不验证自然语言充分性、人工批准真实性、真实内存/释放或当前 CI 成功。
-新增检查器尚未注册 standing CI；独立 Reviewer 必须审阅 JSON/文档与主契约是否语义一致，
-未来纳入 CI 需要明确 CI 修改范围。已有 standing manifest 验证独立运行，不声称它自动执行新工具。
-若按当前范围交付 PR，由于新增 PS 检查器/负例尚无 standing-CI 硬失败覆盖，
-须插入独立固定目标 Verifier 复跑检查器及负例；若未来获准纳入 standing CI，
-则按实际覆盖重新判断是否还存在此确定性验收缺口。真实 Windows 验收仍另需独立 Verifier。
+两个检查器已由 `windows/external_native/check_offline.ps1` 接入 standing CI：该脚本在
+`pr-contract-checks.yml` 的 `windows_native` 作业内无条件执行
+`check_l1_windows_source.ps1 -SelfTest`（8 个源码隔离负例）与
+`check_acceptance_readiness.ps1 -SelfTest`（40 个计划负例，含 6 个 E4 字段），任一失败即
+throw 使作业红。因此这些确定性检查已有硬失败覆盖，不再触发"另插固定目标 Verifier"的条件；
+独立 Reviewer 仍须审阅 JSON/文档与主契约的语义一致性，未来调整覆盖范围需明确 CI 修改范围。
+已有 standing manifest 验证独立运行，不声称它自动执行新工具。真实 Windows 验收
+仍另需独立 fixed-target Verifier。
 
 Native 编译/导出检查可沿用现有 check_offline gate；只修改准备材料/PS 时无须重编 Native 或
 伪称运行 Flutter/Dart analyze/format。本次是否实际重跑 Package tests/Source Guards/manifest、
