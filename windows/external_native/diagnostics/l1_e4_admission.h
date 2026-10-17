@@ -472,6 +472,12 @@ public:
       stop();
     return true;
   }
+  // E5's idle IPC pump must enforce the SAME Supervisor deadline even when
+  // no Worker frame arrives. This adds no work/launch/settlement authority.
+  bool poll(ClockReading r, bool observer_healthy) {
+    if (terminal()) return false;
+    return supervisor_.poll(r.mono, observer_healthy && grant_.inspect(r));
+  }
   void stop() {
     if (terminal())
       return;

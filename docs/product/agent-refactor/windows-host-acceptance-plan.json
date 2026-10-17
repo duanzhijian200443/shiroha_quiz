@@ -669,6 +669,32 @@
           "windowsPersistenceProven": false,
           "realRecoveryPolicy": "REQUIRES USER DECISION"
         },
+        "e5": {
+          "scope": "G0-L0 SOURCE / COMPILE / FAKE ONLY",
+          "executionAuthorized": false,
+          "realEntry": "ABSENT_RUNTIME_UNCONDITIONALLY_DENIED",
+          "source": [
+            "windows/external_native/diagnostics/l1_e5_controller.h",
+            "windows/external_native/diagnostics/l1_e5_windows.h",
+            "windows/external_native/diagnostics/l1_e5_windows.cpp",
+            "windows/external_native/diagnostics/l1_e5_worker.cpp"
+          ],
+          "offlineTest": "windows/external_native/tests/l1_e5_test.cpp",
+          "scopeBinding": "E4_TARGET_EVIDENCE_SCOPE_SHA256_WITH_EXACT_VISIBLE_FIELDS",
+          "supervisor": "SAME_E2_VIA_E4_IDLE_POLL_30000_MS",
+          "custody": "MANUAL_OPERATOR_HANDOFF_STOP_NO_AUTOMATIC_KILL",
+          "trialOrder": ["L1-ADMISSION", "L1-CRYPTO"],
+          "admissionTrial": {
+            "executionAuthorized": false,
+            "cryptoPrimitives": 0,
+            "maxCreateAttempts": 1,
+            "maxResumeAttempts": 1,
+            "requiresAdmissionOnlyImage": true,
+            "remainingParameters": "REQUIRES USER DECISION"
+          },
+          "cryptoTrialRequires": "INDEPENDENT_TRIAL_1_PASS_AND_NEW_EXPLICIT_USER_GRANT",
+          "windowsPersistenceProven": false
+        },
         "evidenceFields": [
           "batchTrialSourceBase", "exeDependencyToolchainDigests", "pseudonymousDeviceAccount",
           "persistedIssuance", "consumptionRequestStarted", "consumptionConfirmedOrUnknown",

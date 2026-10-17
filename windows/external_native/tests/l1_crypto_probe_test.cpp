@@ -1,5 +1,6 @@
 #define SHIROHA_L1_CRYPTO_FAKE_ONLY
 #include "diagnostics/l1_e4_admission.h"
+#include "diagnostics/l1_e5_controller.h"
 #include "diagnostics/l1_crypto_probe.h"
 
 #include <cstdlib>
@@ -1002,6 +1003,36 @@ int main() {
                 decoded.abi_attempted_total == 106 && decoded.samples == 18,
             "E4 original ledger survives IPC losslessly; native fixture is not "
             "Windows proof");
+    // E5 composes the SAME sequence after a target-bound ADMISSION. This API
+    // Fake has no direct Windows wrapper observation, so Native complete stays
+    // false. The independent wrapper test owns those Native call regressions.
+    shiroha_l1_crypto::e5::FixedTarget fixed;
+    fixed.grant = t;
+    fixed.grant.user_approved = false;
+    fixed.sid = L"FAKE-SID";
+    fixed.scope.directory = "C:\\SYNTHETIC\\E5";
+    fixed.scope.cleanup_owner = "fake";
+    fixed.scope.recovery_record_sha256 = fixed.scope.controller_exe_sha256 = std::string(64, '2');
+    fixed.scope.controller_working = fixed.scope.controller_commit = 67108864;
+    fixed.scope.controller_handles = 128; // synthetic only, never real defaults
+    fixed.scope.recovery_approved = true;
+    fixed.grant.evidence_scope_id = fixed.scope.hash();
+    std::string h;
+    require(compute_target_binding_sha256(fixed.grant, fixed.sid, h) &&
+                decode_hex_bytes(h, link.target.data(), 32), "E5 fixed worker target");
+    link.sent.clear(); link.reads = 0; env.reset(); env.now_ms = 100;
+    require(shiroha_l1_crypto::e5::worker_candidate(link, fixed, 123, fake_clock, fake_symbol_lookup),
+            "E5 worker invokes original 106-attempt Fake sequence after ADMISSION");
+    Channel e5parser(link.target, true);
+    for (const auto &f : link.sent) require(e5parser.accept(f), "E5 original wire parser");
+    require(e5parser.records(decoded, native) && decoded.abi_attempted_total == 106 &&
+                decoded.samples == 18 && !native.complete(),
+            "E5 API Fake cannot invent direct Native proof");
+    link.sent.clear(); link.reads = 0; env.reset(); env.now_ms = 100;
+    ++link.budget.handles;
+    require(!shiroha_l1_crypto::e5::worker_candidate(link, fixed, 123, fake_clock, fake_symbol_lookup) &&
+                env.alloc_calls == 0,
+            "E5 wrong ADMISSION never invokes crypto allocation");
   }
   test_normal_sequence_and_redaction();
   test_first_failure_stops_immediately();
