@@ -128,8 +128,10 @@ public:
   void controller_lost() noexcept override;
   void custodian_lost() noexcept;
   State state() const { return state_; }
-  bool retained() const { return attempted_ && state_ != State::released; }
-  bool sample();
+  // Accepted custody is retained until a legal release, including pre-create
+  // failures where no Worker attempt exists yet.
+  bool retained() const { return accepted_ && state_ != State::released; }
+  bool sample(bool worker_present = true, bool worker_exited = false);
   const std::array<ResourceSample, 3> &peaks() const { return peaks_; }
 private:
   bool persist(State);
@@ -169,6 +171,8 @@ class Endpoint {
 public:
   Endpoint(r1::Frozen, std::string channel, Custodian &);
   bool dispatch(const Packet &, Packet &);
+  // Transport loss outside dispatch: at most one Custodian UNKNOWN transition.
+  void lost() noexcept;
 private:
   const r1::Frozen frozen_;
   const std::string channel_;
@@ -203,6 +207,7 @@ private:
   r1::CustodyPort &local_;
   uint32_t sequence_ = 0;
   bool failed_ = false;
+  bool lost_ = false;
   Packet reply_{};
 };
 struct PollBudget {
@@ -220,6 +225,15 @@ struct UiBudget {
 };
 // Concrete bootstrap has no backend, flag, environment override or Fake UI.
 inline bool allow_live_execution() noexcept { return false; }
+// Pure display policy shared with the Windows approval leaf: every required
+// control must exist and the summary text must actually be present. A read-only
+// multiline edit may expand LF to CRLF, so the observed length may exceed the
+// canonical summary length; a shorter/empty value is never accepted.
+inline bool approval_display_ok(bool summary, bool check, bool edit, bool approve,
+                                size_t text_length, size_t expected_length) {
+  return summary && check && edit && approve && expected_length &&
+         text_length >= expected_length;
+}
 int custodian_process_entry(int argc, wchar_t **argv) noexcept;
 } // namespace shiroha_l1_crypto::r2
 #endif

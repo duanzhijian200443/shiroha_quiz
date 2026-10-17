@@ -146,7 +146,14 @@ bool CustodyJournal::append(State state,const r1::ProcessIdentity &process) {
 }
 Custodian::Custodian(r1::Frozen f,Limits l,OwnerPort &o,ProofPort &p,CustodyJournal &j)
     :frozen_(std::move(f)),limits_(std::move(l)),owner_(o),proof_(p),journal_(j) {}
-bool Custodian::unknown() {state_=State::unknown;stopped_=true;return false;}
+bool Custodian::unknown() {
+  // Record the terminal responsibility state exactly once. A failed journal is
+  // already terminal; a legal release is never rewritten by a later loss.
+  if (state_ != State::unknown && state_ != State::released && !journal_.failed()) {
+    try { journal_.append(State::unknown,identity_); } catch (...) {}
+  }
+  state_=State::unknown;stopped_=true;return false;
+}
 bool Custodian::persist(State s) {
   if (state_==State::unknown || !journal_.append(s,identity_)) return unknown();
   state_=s;return true;
@@ -239,7 +246,10 @@ bool Custodian::token() {return state_==State::identity && ++calls_[0]==1 && own
 bool Custodian::image() {return state_==State::identity && ++calls_[1]==1 && owner_.image();}
 bool Custodian::handles() {return state_==State::identity && ++calls_[2]==1 && owner_.handles();}
 bool Custodian::dependencies() {
-  return !stopped_ && ++deps_<=2 && owner_.dependencies();
+  // Pre-Resume inventory in identity; post-HELLO closure recheck in resumed.
+  if ((state_!=State::identity && state_!=State::resumed) || stopped_ ||
+      ++deps_>2) return false;
+  return owner_.dependencies();
 }
 bool Custodian::resume(bool &known) {
   known=false;
@@ -257,13 +267,26 @@ bool Custodian::resume(bool &known) {
 }
 bool Custodian::hello() {return state_==State::resumed && timely() && ++calls_[3]==1 && owner_.hello();}
 bool Custodian::approve(const e4::ApprovalPromptModel &,e4::ApprovalUiResponse &) {return false;}
-bool Custodian::sample() {
+bool Custodian::sample(bool worker_present, bool worker_exited) {
   if (++samples_>2*limits_.polls+16) return unknown();
   std::array<ResourceSample,3> s{};
   if (!owner_.sample_three(s)) return unknown();
   for (size_t i=0;i<3;++i) {
-    if (!s[i].observed_at_ms || s[i].peak_working_set>limits_.process[i].working ||
-        s[i].peak_commit>limits_.process[i].commit || s[i].handles>limits_.process[i].handles)
+    // Before Worker creation only Controller/Custodian are observable; the
+    // Worker sample is absent by construction, never a zero-cost measurement.
+    if (i==size_t(Role::worker) && !worker_present) continue;
+    // Peaks are mandatory for every live process; only the Worker's sampled
+    // handles may legitimately reach zero after its exit is observed. This
+    // mirrors the existing E5 controller/worker sample rule.
+    const bool zero_handles_allowed =
+        i==size_t(Role::worker) && worker_exited;
+    if (!s[i].observed_at_ms || !s[i].peak_working_set || !s[i].peak_commit ||
+        (!zero_handles_allowed && !s[i].handles) ||
+        (peaks_[i].observed_at_ms &&
+         s[i].observed_at_ms<peaks_[i].observed_at_ms) ||
+        s[i].peak_working_set>limits_.process[i].working ||
+        s[i].peak_commit>limits_.process[i].commit ||
+        s[i].handles>limits_.process[i].handles)
       return unknown();
     peaks_[i].observed_at_ms=s[i].observed_at_ms;
     peaks_[i].peak_working_set=(std::max)(peaks_[i].peak_working_set,s[i].peak_working_set);
@@ -273,20 +296,29 @@ bool Custodian::sample() {
   return true;
 }
 e5::Observation Custodian::observe() {
-  if (++calls_[4]>2*limits_.polls+16 || stopped_) return {};
+  // Pre-create Controller sampling is legal in accepted; post-Resume sampling
+  // covers all three processes. identity/acknowledged are transition windows,
+  // not observation phases.
+  if ((state_!=State::accepted && state_!=State::resumed) ||
+      ++calls_[4]>2*limits_.polls+16 || stopped_)
+    return {};
   auto o=owner_.observe();
-  if (!o.healthy || !sample()) {unknown();return {};}
+  if (!o.healthy || !sample(state_==State::resumed,o.exited)) {
+    unknown();return {};
+  }
   if (o.exited) exit_=true;
   return o;
 }
 bool Custodian::next(e4::Frame &f,bool &available) {
-  return !stopped_ && ++polls_<=limits_.polls && owner_.next(f,available);
+  if (state_!=State::resumed || stopped_ || ++polls_>limits_.polls) return false;
+  return owner_.next(f,available);
 }
 bool Custodian::send(const e4::Frame &f) {
-  return !stopped_ && ++sends_<=3 && owner_.send(f);
+  if (state_!=State::resumed || stopped_ || ++sends_>3) return false;
+  return owner_.send(f);
 }
 bool Custodian::close_observed_exit() {
-  if (closed_ || !exit_) return false;
+  if (state_!=State::resumed || closed_ || !exit_) return false;
   closed_=true;
   // CloseHandle never substitutes for independent OS exit observation.
   if (!owner_.close_observed_exit()) return unknown();
@@ -294,21 +326,27 @@ bool Custodian::close_observed_exit() {
   return persist(State::exited) && persist(State::settled);
 }
 bool Custodian::close_owned_io() {
-  if (io_closed_) return false;
+  // IO may only be released after an observed exit settled the Worker. A
+  // pre-create failure must retain accepted custody and journal UNKNOWN.
+  if (state_!=State::settled || io_closed_) return false;
   io_closed_=true;
   const bool ok=owner_.close_owned_io();
-  if (!ok || (attempted_ && !closed_) || state_==State::unknown) return unknown();
+  if (!ok) return unknown();
   return persist(State::released);
 }
 void Custodian::controller_lost() noexcept {
-  try { if (state_!=State::released && state_!=State::unknown) journal_.append(State::unknown,identity_); }
-  catch (...) {}
-  unknown(); owner_.controller_lost(); // KEEP original ownership, no cleanup
+  if (state_==State::released) {stopped_=true;owner_.controller_lost();return;}
+  try { unknown(); } catch (...) {state_=State::unknown;stopped_=true;}
+  owner_.controller_lost(); // KEEP original ownership, no cleanup
 }
-void Custodian::custodian_lost() noexcept {unknown();}
+void Custodian::custodian_lost() noexcept {
+  stopped_=true;
+  if (state_!=State::released) unknown();
+}
 
 Endpoint::Endpoint(r1::Frozen f,std::string c,Custodian &o)
     :frozen_(std::move(f)),channel_(std::move(c)),custodian_(o) {}
+void Endpoint::lost() noexcept {failed_=true;custodian_.controller_lost();}
 bool Endpoint::dispatch(const Packet &request,Packet &response) {
   if (failed_) return false;
   failed_=true;
@@ -367,7 +405,10 @@ bool Endpoint::dispatch(const Packet &request,Packet &response) {
 Proxy::Proxy(r1::Frozen f,std::string c,ControlPort &p,r1::CustodyPort &l)
     :frozen_(std::move(f)),channel_(std::move(c)),port_(p),local_(l) {}
 bool Proxy::call(Op op,const uint8_t *bytes,size_t n) {
-  if (failed_ || n>256 || ++sequence_>8*kPolls+64) return false;
+  // The single STOP exception is a best-effort controller-loss notification
+  // after a failed exchange. It never reopens ordinary traffic.
+  const bool stopping=op==Op::stop;
+  if ((failed_ && !stopping) || n>256 || ++sequence_>8*kPolls+64) return false;
   failed_=true;
   auto p=packet(op,sequence_,frozen_,channel_);
   if (n) std::copy_n(bytes,n,p.data()+112);
@@ -419,7 +460,12 @@ bool Proxy::next(e4::Frame &f,bool &available){available=false;if(!call(Op::next
 bool Proxy::send(const e4::Frame &f){return call(Op::send,f.data(),f.size());}
 bool Proxy::close_observed_exit(){return call(Op::close_exit);}
 bool Proxy::close_owned_io(){return call(Op::close_io);}
-void Proxy::controller_lost() noexcept {try {call(Op::stop);}catch(...){}failed_=true;}
+void Proxy::controller_lost() noexcept {
+  if (lost_) return;
+  lost_=true;
+  try {call(Op::stop);}catch(...){}
+  failed_=true;
+}
 bool PollBudget::poll(){return !failed && limit && limit<=kPolls && ++polls<=limit ? true:(failed=true,false);}
 bool PollBudget::read(size_t requested,size_t returned,bool eof){
   return !failed && ++reads<=kPolls && requested && requested<=512 &&

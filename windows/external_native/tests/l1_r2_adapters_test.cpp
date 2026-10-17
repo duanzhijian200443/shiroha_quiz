@@ -178,6 +178,11 @@ struct R2Fixture {
     }
   }
 };
+unsigned last_journal_state(const R2Fixture &t) {
+  return t.custody_disk.records.empty()
+             ? 999u
+             : unsigned(x::get(t.custody_disk.records.back().data() + 12, 4));
+}
 
 void test_three_process_closed_loop() {
   R2Fixture t;
@@ -418,12 +423,125 @@ void test_evidence_and_resource_budgets() {
           "custodian entry unconditionally denies live execution and bad args");
   }
 }
+void test_state_gates_and_unknown_evidence() {
+  // Every Owner operation is rejected before its lifecycle state, without
+  // touching the Owner or the journal.
+  {
+    R2Fixture t;
+    x::Frame f{};
+    bool available = false;
+    check(!t.custodian.dependencies() && !t.custodian.next(f, available) &&
+              !t.custodian.send(f) && !t.custodian.observe().healthy &&
+              !t.custodian.close_observed_exit() &&
+              !t.custodian.close_owned_io(),
+          "Custodian rejects owner operations outside their lifecycle state");
+    check(t.custodian.state() == z::State::preapproved &&
+              t.owner.base.io_closes == 0 && t.journal.count() == 0,
+          "out-of-order operations do not touch Owner, journal or state");
+    t.custodian.controller_lost();
+    check(t.custodian.state() == z::State::unknown &&
+              t.journal.count() == 1 &&
+              last_journal_state(t) == unsigned(z::State::unknown),
+          "controller loss records exactly one UNKNOWN journal entry");
+  }
+  // A normal pre-create measurement failure after acceptance must retain
+  // custody and journal UNKNOWN, never a premature released record.
+  {
+    R2Fixture t;
+    t.id.drift_at = 4; // start_suspended::inspect_target, before create attempt
+    check(!t.c.begin() && t.owner.base.creates == 0 &&
+              t.owner.base.io_closes == 0,
+          "pre-create identity drift never reaches create or close_owned_io");
+    check(t.custodian.state() == z::State::unknown && t.custodian.retained() &&
+              last_journal_state(t) == unsigned(z::State::unknown),
+          "pre-create failure journals UNKNOWN and keeps accepted custody");
+    check(t.journal.count() == 3,
+          "accepted pre-create failure records ready/accepted/UNKNOWN only");
+  }
+  // A legal release is terminal: a late controller loss cannot rewrite it.
+  {
+    R2Fixture t;
+    ControllerBoot boot(t.c);
+    wchar_t name[] = L"controller";
+    wchar_t *argv[] = {name};
+    check(r::controller_process_entry(1, argv, boot) == 0,
+          "normal R2 closed loop before terminal-release probe");
+    const auto records = t.journal.count();
+    t.custodian.controller_lost();
+    check(t.custodian.state() == z::State::released &&
+              t.journal.count() == records,
+          "controller loss after legal release does not rewrite terminal state");
+  }
+}
+
+void test_zero_resource_samples_rejected() {
+  // Missing peaks or handles in any of the three processes are unavailable
+  // measurements, not zero-cost observations.
+  for (size_t proc = 0; proc < 3; ++proc) {
+    for (int field = 0; field < 3; ++field) {
+      R2Fixture t;
+      if (field == 0)
+        t.owner.samples[proc].peak_working_set = 0;
+      if (field == 1)
+        t.owner.samples[proc].peak_commit = 0;
+      if (field == 2)
+        t.owner.samples[proc].handles = 0;
+      check(!t.custodian.sample() &&
+                t.custodian.state() == z::State::unknown &&
+                last_journal_state(t) == unsigned(z::State::unknown),
+            "zero/absent three-process resource observation rejects");
+    }
+  }
+}
+
+void test_transport_loss_records_unknown() {
+  R2Fixture t;
+  const auto accepted = t.proxy.accept_intent(t.f);
+  check(accepted.status == r::IoStatus::kOk &&
+            t.custodian.state() == z::State::accepted,
+        "proxy accepts before transport-loss probe");
+  const auto before = t.journal.count();
+  t.wire.drop_on_call = 2;
+  check(!t.proxy.token(), "dropped control exchange fails");
+  const auto calls = t.wire.calls;
+  t.proxy.controller_lost();
+  check(t.wire.calls == calls + 1,
+        "controller loss attempts one STOP after a failed exchange");
+  check(t.custodian.state() == z::State::unknown &&
+            t.journal.count() == before + 1 &&
+            last_journal_state(t) == unsigned(z::State::unknown),
+        "Custodian records UNKNOWN when the controller disappears");
+}
+
+void test_approval_display_policy() {
+  check(z::approval_display_ok(true, true, true, true, 100, 100),
+        "approval accepts all controls with complete summary text");
+  check(!z::approval_display_ok(false, true, true, true, 100, 100),
+        "missing summary control rejects approval");
+  check(!z::approval_display_ok(true, false, true, true, 100, 100),
+        "missing reviewed checkbox rejects approval");
+  check(!z::approval_display_ok(true, true, false, true, 100, 100),
+        "missing suffix input rejects approval");
+  check(!z::approval_display_ok(true, true, true, false, 100, 100),
+        "missing approve button rejects approval");
+  check(!z::approval_display_ok(true, true, true, true, 0, 100),
+        "empty summary display rejects approval");
+  check(!z::approval_display_ok(true, true, true, true, 99, 100),
+        "short summary display rejects approval");
+  check(z::approval_display_ok(true, true, true, true, 110, 100),
+        "CRLF expansion of the summary remains acceptable");
+}
+
 } // namespace
 
 int main() {
   test_three_process_closed_loop();
   test_custody_lifecycle_and_crashes();
   test_evidence_and_resource_budgets();
+  test_state_gates_and_unknown_evidence();
+  test_zero_resource_samples_rejected();
+  test_transport_loss_records_unknown();
+  test_approval_display_policy();
   std::cout << "PASS: " << checks
             << " R2 custodian/identity/evidence/budget assertions; no Windows "
                "security operations\n";

@@ -253,6 +253,15 @@ versioned 512B `CustodyJournal` (`<=16` records), 8192B `PersistentEvidence`
 `<=256` `ReadFile` calls/file with immediate short-read STOP). `shiroha_l1_r2_windows`
 compiles as an unlinked OBJECT; `shiroha_l1_r2_custodian_candidate` links only
 the pure adapter core and unconditionally denies live execution (`exit 10`).
+Custodian applies explicit state allowlists (`dependencies` in
+`identity`/`resumed`; `next`/`send` in `resumed`; `observe` only for pre-create
+Controller/Custodian sampling or `resumed`; `close_owned_io` in `settled`),
+records at most one `unknown` on a terminal failure or transport loss, and never
+rewrites a legal `released`. `bounded_approval` requires all four controls plus
+summary text/visibility before setting `displayed_hash`. Custodian peaks remain
+in memory; the frozen 8192B record persists the Controller peak and Worker
+samples only, so third-process peak persistence is a P3 versioned-format
+decision.
 See [B2-R2 preparation](../../../docs/product/agent-refactor/windows-host-acceptance-preparation.md#b2-r2-batch-custodian-windows-adapters-and-hard-os-ceilings-g0-l0)
 and [readiness B2-R2](../../../docs/product/agent-refactor/windows-host-security-readiness.md#b2-r2-batch-custodian-and-windows-admission-adapters-g0-l0).
 Highest status: **B2 WINDOWS ADMISSION SOURCE REVIEWABLE / OFFLINE TESTED**.

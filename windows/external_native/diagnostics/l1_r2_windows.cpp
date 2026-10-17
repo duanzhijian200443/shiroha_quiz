@@ -355,7 +355,13 @@ bool WindowsControl::put(const Packet &p) {
 }
 bool WindowsControl::exchange(const Packet &in,Packet &out) {return peer_checked()&&put(in)&&take(out);}
 bool WindowsControl::serve_once(Endpoint &e) {
-  Packet in{},out{};return peer_checked()&&take(in)&&e.dispatch(in,out)&&put(out);
+  // A transport failure is not a negative reply. Report it to the Custodian
+  // exactly once and let the caller stop serving; never retry.
+  Packet in{},out{};
+  if(!peer_checked()||!take(in)){e.lost();return false;}
+  if(!e.dispatch(in,out))return false;
+  if(!put(out)){e.lost();return false;}
+  return true;
 }
 WindowsWorkerLink::WindowsWorkerLink(HANDLE r,HANDLE w,uint32_t p,uint32_t ms,uint64_t origin)
     :read_(r),write_(w),poll_ms_(ms),origin_(origin) {budget_.limit=p;}
@@ -388,41 +394,59 @@ bool WindowsWorkerLink::checkpoint(L1CryptoLedger &l) {
 bool bounded_approval(const e4::ApprovalPromptModel &p,e4::ApprovalUiResponse &r,const Limits &l) noexcept try {
   r={};if(!l.valid()||p.summary.size()>16384)return false;
   // One modeless dialog. All dispatched messages share one event/time budget;
-  // no unbounded first MessageBox or modal hidden message pump.
+  // no unbounded first MessageBox or modal hidden message pump. The summary is
+  // a scrollable read-only edit so the full target text is reviewable.
   struct Data {const e4::ApprovalPromptModel *p;e4::ApprovalUiResponse *r;UiBudget budget;
-    bool done=false,reviewed=false;};
+    bool done=false,reviewed=false;HWND summary=nullptr;bool controls_ok=false;};
   const auto origin=GetTickCount64();
   Data data{&p,&r,{origin,l.approval_ms,origin,l.ui_events,0,false},false,false};
   alignas(DWORD) uint8_t raw[128]{};auto dialog=reinterpret_cast<DLGTEMPLATE *>(raw);
-  dialog->style=WS_POPUP|WS_CAPTION|WS_SYSMENU;dialog->cx=400;dialog->cy=260;
+  dialog->style=WS_POPUP|WS_CAPTION|WS_SYSMENU;dialog->cx=420;dialog->cy=360;
   auto proc=+[](HWND window,UINT msg,WPARAM wp,LPARAM lp)->INT_PTR {
     if(msg==WM_INITDIALOG) {
       SetWindowLongPtrW(window,DWLP_USER,lp);
       auto d=reinterpret_cast<Data *>(lp);
       std::wstring summary(d->p->summary.begin(),d->p->summary.end());
-      CreateWindowExW(0,L"STATIC",summary.c_str(),WS_CHILD|WS_VISIBLE,4,4,780,350,window,nullptr,nullptr,nullptr);
-      CreateWindowExW(0,L"BUTTON",L"I reviewed this target",WS_CHILD|WS_VISIBLE|BS_AUTOCHECKBOX,
-          4,360,300,24,window,reinterpret_cast<HMENU>(102),nullptr,nullptr);
-      auto edit=CreateWindowExW(0,L"EDIT",L"",WS_CHILD|WS_VISIBLE|WS_BORDER,4,390,180,24,
+      d->summary=CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",summary.c_str(),
+          WS_CHILD|WS_VISIBLE|WS_VSCROLL|ES_MULTILINE|ES_READONLY,
+          4,4,410,250,window,reinterpret_cast<HMENU>(100),nullptr,nullptr);
+      auto check=CreateWindowExW(0,L"BUTTON",L"I reviewed this target",WS_CHILD|WS_VISIBLE|BS_AUTOCHECKBOX,
+          4,260,300,24,window,reinterpret_cast<HMENU>(102),nullptr,nullptr);
+      auto edit=CreateWindowExW(0,L"EDIT",L"",WS_CHILD|WS_VISIBLE|WS_BORDER,4,290,180,24,
           window,reinterpret_cast<HMENU>(101),nullptr,nullptr);
-      SendMessageW(edit,EM_SETLIMITTEXT,6,0);
-      CreateWindowExW(0,L"BUTTON",L"Approve once",WS_CHILD|WS_VISIBLE,210,390,150,24,
-          window,reinterpret_cast<HMENU>(IDOK),nullptr,nullptr);return TRUE;
+      auto approve=CreateWindowExW(0,L"BUTTON",L"Approve once",WS_CHILD|WS_VISIBLE,210,290,150,24,
+          window,reinterpret_cast<HMENU>(IDOK),nullptr,nullptr);
+      const int length=d->summary?GetWindowTextLengthW(d->summary):0;
+      // The summary edit may expand LF to CRLF; shorter/empty text is a failure.
+      d->controls_ok=approval_display_ok(
+          d->summary!=nullptr,check!=nullptr,edit!=nullptr,approve!=nullptr,
+          length>0?size_t(length):0,summary.size());
+      if(!d->controls_ok){d->r->cancelled=true;d->done=true;return TRUE;}
+      SendMessageW(edit,EM_SETLIMITTEXT,6,0);return TRUE;
     }
     auto d=reinterpret_cast<Data *>(GetWindowLongPtrW(window,DWLP_USER));if(!d)return FALSE;
     if(!d->budget.event(GetTickCount64())){d->r->timed_out=true;d->done=true;return TRUE;}
     if(msg==WM_CLOSE){d->r->cancelled=true;d->done=true;return TRUE;}
     if(msg==WM_COMMAND&&LOWORD(wp)==IDOK) {
+      if(!d->controls_ok){d->r->cancelled=true;d->done=true;return TRUE;}
       wchar_t input[8]{};GetDlgItemTextW(window,101,input,8);
       std::string typed;for(wchar_t c:input){if(!c)break;if(c>127){d->done=true;return TRUE;}typed.push_back(char(c));}
       bool checked=SendDlgItemMessageW(window,102,BM_GETCHECK,0,0)==BST_CHECKED;
       d->r->completed=d->r->checked=checked&&typed==d->p->suffix;
-      d->r->suffix=typed;d->r->displayed_hash=d->p->target_hash;d->done=true;return TRUE;
+      d->r->suffix=typed;
+      // The hash is evidence only after every required control exists, the
+      // summary text is present, and the dialog is visible.
+      if(d->r->completed)d->r->displayed_hash=d->p->target_hash;
+      d->done=true;return TRUE;
     }
     return FALSE;
   };
   HWND window=CreateDialogIndirectParamW(GetModuleHandleW(nullptr),dialog,nullptr,proc,reinterpret_cast<LPARAM>(&data));
   if(!window)return false;ShowWindow(window,SW_SHOW);
+  // A created control that is not actually visible cannot evidence a display.
+  if(!data.controls_ok||!data.summary||!IsWindowVisible(data.summary)) {
+    DestroyWindow(window);return false;
+  }
   uint32_t polls=0;
   while(!data.done&&++polls<=kPolls) {
     if(!data.budget.event(GetTickCount64()))break;

@@ -3769,7 +3769,16 @@ events, `<=60s`), bounded polls (`<=512`, `<=50ms`), and 8192B hash-chained
 
 Resource accounting now enforces nine separate ceilings across Controller,
 Custodian and Worker (`Limits::process[0..2]`), bound into `Manifest::r2_sha256`
-and the E4 Target Hash. All three candidate executables keep live execution
+and the E4 Target Hash. Custodian enforces explicit state allowlists
+(`dependencies` in `identity`/`resumed`, `next`/`send` in `resumed`, `observe`
+only for pre-create Controller/Custodian sampling or `resumed`, and
+`close_owned_io` only in `settled`), records at most one `unknown` on a terminal
+failure, preserves a legal `released` against late loss, and reports transport
+loss from `serve_once`; the approval leaf verifies all four controls plus summary
+text/visibility before setting `displayed_hash`. Custodian peaks remain in
+memory; the frozen 8192B record persists Controller peak plus Worker samples only,
+so third-process peak persistence is a P3 versioned-format decision. All three
+candidate executables keep live execution
 unconditionally disabled (`allow_live_execution() == false`, exit 10) and are
 excluded from CTest. Highest eligible status after passing offline checks is
 **B2 WINDOWS ADMISSION SOURCE REVIEWABLE / OFFLINE TESTED**. Actual device,
