@@ -472,6 +472,17 @@ public:
       stop();
     return true;
   }
+  // E5's idle IPC pump must enforce the SAME Supervisor deadline even when
+  // no Worker frame arrives. This adds no work/launch/settlement authority.
+  bool poll(ClockReading r, bool observer_healthy, bool *monitor_ok = nullptr) {
+    if (terminal()) return false;
+    // Preserve the monitoring result separately: after a Worker STOP the
+    // Supervisor returns false even when cleanup is still safely bounded.
+    // A failed Grant/clock observation must NOT be mistaken for that STOP.
+    const bool healthy = observer_healthy && r.valid && grant_.inspect(r);
+    if (monitor_ok) *monitor_ok = healthy;
+    return supervisor_.poll(r.mono, healthy);
+  }
   void stop() {
     if (terminal())
       return;

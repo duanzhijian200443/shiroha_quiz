@@ -3564,6 +3564,42 @@ conferred by this source preparation.
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
 REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
 
+### E5 controlled diagnostic admission composition (G0-L0)
+
+E5 adds the diagnostic-only `l1_e5_controller.h`, `l1_e5_windows.h/.cpp` and
+`l1_e5_worker.cpp` composition, governed by
+[diagnostics E5](../../../windows/external_native/diagnostics/README.md#e5-controlled-diagnostic-composition-g0-l0-only).
+It owns the fixed target and local-human approval, then connects the SAME E4
+issuance/write-ahead consume/start, suspended Worker leaves, six-message IPC,
+E2 Supervisor/ledger and original NativeObservation/crypto sequence through
+owning exit/close and Evidence. E5 adds no replacement Grant, ledger, Supervisor,
+protocol, production Host/Bridge/Store/TLS or ABI. E4's added idle poll uses the
+same inclusive 30000ms deadline; late inspection cannot forward ADMISSION.
+
+Exact directory/inventory, Controller/UI ceilings/measurement, cleanup owner
+and approved manual recovery record are bound through a scope digest in E4's
+existing target hash and shown in the human prompt. Cancellation, missing review,
+unknown parameters or drift rejects. The original entry, integrated backend AND
+concrete E5 runtime gate still unconditionally deny. New Controller/Worker source
+is OBJECT-only/unlinked; no runnable entry or real CTest is added. Unknown
+Native/IPC/process/handle settlement stays UNKNOWN, with explicit manual custody
+handoff and STOP; there is no automatic termination or launch retry. No claim of
+same-SID adversary defense, multi-file atomicity or true NTFS persistence is made.
+
+Highest eligible description after passing source/Fake checks is **E5 CONTROLLED
+ADMISSION SOURCE READY / OFFLINE TESTED**. Exact OS identity/root/entry composition,
+artifact closure, resource ceilings, operator recovery/cleanup and independent
+approval remain prerequisites to any real launch; supplied device/OS labels are
+not OS attestation. The two independent applications are frozen in
+[acceptance preparation E5](windows-host-acceptance-preparation.md#e5-two-independent-single-trial-applications).
+Trial 1 L1-ADMISSION uses a separately frozen admission-only image with no
+CNG/crypt32 primitives; its successful independent assessment and a new explicit
+grant are prerequisites to Trial 2 L1-CRYPTO (106 ABI, 5 buffers, 47 resources,
+18 points, 30 seconds). Neither draft permits any real action now.
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
+REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
+
 ### E4 local-human single-use admission source candidate (G0-L0)
 
 E4 supplements, and does not retroactively change, the E2/E3 source boundary.

@@ -84,6 +84,8 @@ public:
   e4::IoResult request_new(const e4::Journal &) override;
   e4::IoResult burn_issued() override;
   e4::IoResult update_request(const e4::Journal &) override;
+  // E5 explicit one-attempt owned record closure; never closes borrowed pins.
+  bool close_owned_records() noexcept;
   // Deliberately no destructor/cleanup. Once invoked (separate L1 permission),
   // explicit owned close accounting is required, never a silent retry or
   // delete.
@@ -91,6 +93,7 @@ private:
   WindowsObjectPin parent_, receipt_, grant_, journal_;
   std::vector<WindowsObjectPin> chain_;
   bool issue_attempted_ = false, request_attempted_ = false;
+  bool close_attempted_ = false, close_complete_ = false;
 };
 } // namespace shiroha_l1_crypto
 #endif

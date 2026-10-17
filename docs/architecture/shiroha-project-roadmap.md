@@ -449,6 +449,13 @@ writer exists. G0-L1/L2/I require their separate grants. HOST_STABILITY_HALT =
 ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED; REAL WINDOWS = PENDING;
 FORMAL ACCEPTANCE = PENDING. AR-R6B and production activation remain inactive.
 
+The E5 diagnostic composition under
+[readiness E5](../product/agent-refactor/windows-host-security-readiness.md#e5-controlled-diagnostic-admission-composition-g0-l0)
+connects E4 admission/IPC with the same Supervisor and crypto owners, remaining
+unlinked source with default-denied runtime. Source/Fake readiness does not
+advance real AR-R6A acceptance. L1-ADMISSION and later L1-CRYPTO require separate
+fixed-target trials, independent evidence and user grants; no general stage is added.
+
 Use namespaced AR-R identifiers to distinguish this route from historical
 R1-R8 typed-core stages:
 

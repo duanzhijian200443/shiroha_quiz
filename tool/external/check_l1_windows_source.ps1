@@ -8,7 +8,9 @@ $sources = @{}
 foreach ($path in @('CMakeLists.txt', 'diagnostics/l1_crypto_probe.h',
     'diagnostics/l1_crypto_admission.h', 'diagnostics/l1_windows_admission.h',
     'diagnostics/l1_windows_operations.cpp', 'diagnostics/l1_e4_admission.h',
-    'diagnostics/l1_e4_protocol.h', 'diagnostics/l1_windows_operations.h')) {
+    'diagnostics/l1_e4_protocol.h', 'diagnostics/l1_windows_operations.h',
+    'diagnostics/l1_e5_controller.h', 'diagnostics/l1_e5_windows.h',
+    'diagnostics/l1_e5_windows.cpp', 'diagnostics/l1_e5_worker.cpp')) {
     $sources[$path] = [IO.File]::ReadAllText((Join-Path $native $path))
 }
 function Assert-Isolation([hashtable]$Text) {
@@ -55,6 +57,22 @@ function Assert-Isolation([hashtable]$Text) {
         $protocol -notmatch 'std::array<uint8_t,\s*768>' -or $protocol -notmatch 'l.handle_limit = handles') {
         throw 'E4 wire/budget contract missing'
     }
+    $e5 = $Text['diagnostics/l1_e5_windows.cpp']
+    if ($cmake -notmatch 'add_library\(shiroha_l1_e5_windows OBJECT diagnostics/l1_e5_windows.cpp\)' -or
+        $cmake -notmatch 'add_library\(shiroha_l1_e5_worker OBJECT diagnostics/l1_e5_worker.cpp\)' -or
+        [regex]::Matches($cmake, 'diagnostics/l1_e5_(?:windows|worker)\.cpp').Count -ne 2 -or
+        $cmake -match '(?s)target_link_libraries\([^)]*shiroha_l1_e5_windows|TARGET_OBJECTS:shiroha_l1_e5_windows' -or
+        $cmake -match '(?s)target_link_libraries\([^)]*shiroha_l1_e5_worker|TARGET_OBJECTS:shiroha_l1_e5_worker' -or
+        $cmake -match '(?s)add_test\([^)]*shiroha_l1_e5_windows\b' -or
+        $cmake -match '(?s)add_test\([^)]*shiroha_l1_e5_worker\b' -or
+        $cmake -notmatch 'add_test\(NAME shiroha_l1_e5_offline COMMAND shiroha_l1_e5_test\)' -or
+        $cmake -match '(?s)target_link_libraries\(shiroha_l1_e5_test' -or
+        $e5 -notmatch '(?s)WindowsPlatform::runtime_allowed\(\) const noexcept\s*\{\s*return false;' -or
+        ($e5 + $Text['diagnostics/l1_e5_worker.cpp']) -match '\b(?:TerminateProcess|CreateJobObject[AW]|BCrypt\w+|CertOpenStore)\s*\(' -or
+        $Text['diagnostics/l1_e5_controller.h'] -notmatch 'display.summary != fresh_display.summary' -or
+        $Text['diagnostics/l1_e5_controller.h'] -notmatch 'core_.poll\(reading\(\), true\)') {
+        throw 'E5 closed runtime, human binding, original deadline or OBJECT/Fake isolation missing'
+    }
 }
 Assert-Isolation $sources
 if ($SelfTest) {
@@ -66,7 +84,11 @@ if ($SelfTest) {
         @{ path='diagnostics/l1_windows_operations.cpp'; before='result.unknown = true;'; after='result.confirmed = true;' },
         @{ path='diagnostics/l1_windows_operations.cpp'; before='CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT'; after='CREATE_UNICODE_ENVIRONMENT' },
         @{ path='diagnostics/l1_windows_operations.cpp'; before='!c.token_checked'; after='false' },
-        @{ path='diagnostics/l1_e4_protocol.h'; before='l.handle_limit = handles'; after='l.handle_limit = 128' }
+        @{ path='diagnostics/l1_e4_protocol.h'; before='l.handle_limit = handles'; after='l.handle_limit = 128' },
+        @{ path='diagnostics/l1_e5_windows.cpp'; before='return false; // Fixed runtime'; after='return true; // Fixed runtime' },
+        @{ path='CMakeLists.txt'; before='add_library(shiroha_l1_e5_windows OBJECT'; after='add_library(shiroha_l1_e5_windows SHARED' },
+        @{ path='diagnostics/l1_e5_controller.h'; before='display.summary != fresh_display.summary'; after='false' },
+        @{ path='diagnostics/l1_e5_controller.h'; before='core_.poll(reading(), true)'; after='true' }
     )
     foreach ($case in $cases) {
         $copy = $sources.Clone()
