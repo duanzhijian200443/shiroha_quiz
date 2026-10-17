@@ -69,10 +69,19 @@ bool object_valid(const ObjectInfo& info, const Sid& sid, bool directory,
 // Internal, caller-owned diagnostic output. No OS codes, paths or C ABI export.
 // The stage identifies where failure occurred, not whether publication happened.
 enum class CommitStage { admission, prepare, target_close, rename, published_close, published_validate, complete };
+// Internal evidence captured only after the owning transaction's native checks.
+// kind selects the fixed relative credential name; no caller HANDLE is evidence.
+struct CredentialObjectObservation {
+  uint32_t kind = 0;
+  uint64_t parent_volume = 0, parent_file = 0;
+  uint64_t volume = 0, file = 0;
+  bool missing = false;
+};
 struct CommitDiagnostic {
   CommitStage stage = CommitStage::admission;
   bool exception = false;
   bool finish_failed = false;
+  CredentialObjectObservation published;
 };
 
 class ProtectedObjects final {
@@ -89,8 +98,10 @@ class ProtectedObjects final {
   int32_t association_commit(uint32_t, uint64_t, uint64_t, const uint8_t*, uint64_t,
                              CommitDiagnostic* = nullptr) noexcept;
   int32_t association_abort(uint32_t, uint64_t, uint64_t) noexcept;
-  int32_t credential_begin(uint32_t, uint64_t, uint32_t, uint8_t*, uint64_t, uint64_t*, uint64_t*) noexcept;
-  int32_t credential_commit(uint32_t, uint64_t, uint64_t, const uint8_t*, uint64_t) noexcept;
+  int32_t credential_begin(uint32_t, uint64_t, uint32_t, uint8_t*, uint64_t, uint64_t*, uint64_t*,
+                           CredentialObjectObservation* = nullptr) noexcept;
+  int32_t credential_commit(uint32_t, uint64_t, uint64_t, const uint8_t*, uint64_t,
+                            CommitDiagnostic* = nullptr) noexcept;
   int32_t credential_abort(uint32_t, uint64_t, uint64_t) noexcept;
   int32_t exchange_create(uint32_t, uint64_t, uint32_t, const uint8_t*, const uint8_t*, uint64_t, uint64_t*) noexcept;
   int32_t exchange_read(uint32_t, uint64_t, uint32_t, const uint8_t*, uint8_t*, uint64_t, uint64_t*) noexcept;
@@ -101,7 +112,8 @@ class ProtectedObjects final {
   int32_t discovery_read(uint32_t, uint64_t, uint32_t, uint8_t*, uint64_t, uint64_t*) noexcept;
   int32_t discovery_publish(uint32_t, uint64_t, uint32_t, const uint8_t*, uint64_t) noexcept;
  private:
-  int32_t begin(uint32_t, uint64_t, uint32_t, uint8_t*, uint64_t, uint64_t*, uint64_t*) noexcept;
+  int32_t begin(uint32_t, uint64_t, uint32_t, uint8_t*, uint64_t, uint64_t*, uint64_t*,
+                CredentialObjectObservation* = nullptr) noexcept;
   int32_t commit(uint32_t, uint64_t, uint64_t, bool, const uint8_t*, uint64_t, CommitDiagnostic*) noexcept;
   int32_t abort(uint32_t, uint64_t, uint64_t, bool) noexcept;
   struct Pin { HANDLE handle = nullptr; ObjectInfo identity; bool owner, dacl; };
@@ -138,6 +150,12 @@ class ProtectedObjects final {
   bool release(Lease& lease) noexcept;
   Lease* find(uint64_t token) noexcept;
   static size_t directory(const Lease& lease) noexcept { return lease.kind == 3 ? 6u : lease.kind == 4 ? 3u : 5u; }
+  static CredentialObjectObservation observation(const Lease& lease) noexcept {
+    const auto& parent = lease.pins[directory(lease)].identity;
+    return {lease.kind, parent.volume, parent.file,
+            lease.missing ? 0 : lease.target_identity.volume,
+            lease.missing ? 0 : lease.target_identity.file, lease.missing};
+  }
   int32_t open_target(Lease&, const Sid&, HANDLE&);
   int32_t check(Lease&, Sid&);
   int32_t target_current(Lease&, const Sid&);

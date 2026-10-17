@@ -3600,6 +3600,64 @@ grant are prerequisites to Trial 2 L1-CRYPTO (106 ABI, 5 buffers, 47 resources,
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
 REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
 
+### R6A-B1 unified G0-L1 diagnostic infrastructure (G0-L0)
+
+R6A-B1 (`l1_b1_unified.h`, `l1_b1_admission_worker.cpp`,
+`tests/l1_b1_unified_test.cpp`) completes the unified G0-L0 offline execution
+infrastructure across all five G0-L1 trials (`L1-ADMISSION`, `L1-CRYPTO`,
+`L1-OBJECTS`, `L1-STORE`, `L1-RELEASE`), governed by
+[diagnostics R6A-B1](../../../windows/external_native/diagnostics/README.md#r6a-b1-unified-g0-l1-diagnostic-infrastructure-g0-l0-only).
+It reuses the SAME E2 `GrantTarget`/`OfflineSupervisor`/`L1CryptoLedger`/
+`NativeObservation`, E3 `WindowsOperations`, E4 `GrantFlow`/64-byte IPC, E5
+`Controller` and Package 1 Protected Object/Store/Association codecs without
+introducing a second Grant, Supervisor, Ledger, Store or permission service.
+All three default runtime denials (E0 `l1_crypto_candidate_entry`, E3
+`Win32AdmissionOperations`, E5 `WindowsPlatform::runtime_allowed()`) remain
+unconditionally closed, and no real Windows experiment is registered with CTest.
+
+B1-A supplies the dedicated `admission_only_worker_candidate` and unlinked
+`shiroha_l1_b1_admission_worker` OBJECT target (`user_scope == "L1-ADMISSION"`,
+zero ABI budgets `{0,0,0,0,0,0,0}`, zero crypto symbol references or imports,
+five-phase `consume`/`create`/`resume`/`ipc`/`close` ledger and six-state process
+lifecycle). B1-B locks joint `L1-ADMISSION` and `L1-CRYPTO` invariants (7 ABI-3
+symbols, 106 ABI attempts, 5 live buffers, 47 Native resources, 18 checkpoints,
+30s inclusive deadline, dual-clock isolation, pre-ADMISSION zero crypto, ACK !=
+PASS, exit != Native settlement, unreturned syscall `UNKNOWN`). B1-C supplies
+`B1ObjectsDiagnostic` (App/competing/Bridge acquire 1/1/1, observations <=2 per
+object, publish 1, replace 1, readback 2, 60s ceiling, explicit publication kind
+`1`/`2`, and an approved-root Volume/File-ID binding probed against the injected
+seam before any object opens). PASS requires a nonempty approved-object set and
+successful mandatory DACL/security/identity/parent observations for every pin,
+as well as the complete lock/publish/replace/readback sequence.
+Publication evidence is additionally bound to an explicitly approved object ID,
+fixed kind 1/2 and parent Volume/File ID. The existing native transaction returns
+internal checked identities at Begin and after successful publication; B1-C
+rejects a mismatched parent before payload writes, captures each actual published
+identity, checks the previous identity before replacement and binds both readbacks
+to the current pin. Create and replace supply the target's two observations;
+borrowed handles cannot substitute for them. File ID legitimately changes on
+atomic replacement, with native temporary-to-published validation preserved.
+This internal evidence adds no exported ABI or real execution authority.
+B1-D supplies
+`B1StoreDiagnostic` and `StorePrimitiveLedger` (Protect <=2, Unprotect <=2,
+plaintext <=65,024 B of the 65,536 B ABI buffer, Begin <=3, Commit <=2,
+Abort <=1, 60s ceiling, single `StoreKindSelection` per batch, same root
+binding). PASS requires successful settlement of two Protect, two Unprotect,
+three Begin, two Commit and one Abort operations plus Owner release; ceilings
+alone and zero/partial work do not establish completion. Both diagnostics
+register and close a successfully probed root handle exactly once even when its
+identity mismatches; failed closure retains quarantined custody and `UNKNOWN`.
+B1-E supplies `B1ReleaseLedger` (unique owner,
+at most one release attempt, independent owner release after STOP, no delete
+without ownership proof, 30s non-forcing ceiling) and strict per-Trial operation
+allowlists (`operation_allowed_for_trial`). Highest eligible description after
+passing checks: **R6A-B1 L1 UNIFIED SOURCE READY / OFFLINE TESTED**. Five
+independent trial application templates remain `DRAFT_NOT_AUTHORIZED`
+(`executionAuthorized = false`) in `windows-host-acceptance-plan.json`.
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
+REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
+
 ### E4 local-human single-use admission source candidate (G0-L0)
 
 E4 supplements, and does not retroactively change, the E2/E3 source boundary.

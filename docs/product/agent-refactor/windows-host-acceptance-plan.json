@@ -582,6 +582,56 @@
   ],
   "requests": [
     {
+      "id": "L1-ADMISSION",
+      "tier": "G0-L1",
+      "state": "DRAFT_NOT_AUTHORIZED",
+      "executionAuthorized": false,
+      "environmentRef": "environment",
+      "ownersRef": "ownership",
+      "failurePolicyRef": "failurePolicy",
+      "dependsOn": [
+        "AR-R6A-B1-L1-UNIFIED source and independent review approval"
+      ],
+      "allowedObjects": [
+        "One NEW approved C: NTFS batch directory",
+        "approval.receipt (256B), grant.bin (1B), request.journal (128B)",
+        "2 anonymous pipes, 1 suspended admission-only Worker process and 1 main thread"
+      ],
+      "operations": [
+        "Zero CNG/crypt32 or ABI-3 crypto primitive calls (abiAttemptTotal=0, nativeResources=0)",
+        "Two-step local human confirmation, write-ahead consume and start journal before sole CREATE_SUSPENDED",
+        "Token/image/dependency/handle inspection before sole ResumeThread",
+        "64-byte SHL1 IPC: HELLO -> ADMISSION -> 18 process-resource samples -> 24 zero-crypto settlement frames -> ACK",
+        "Independent process exit observation and single handle release; retain custody on any crash/residue/unknown"
+      ],
+      "maxSecondsCandidate": 30,
+      "memoryLimitBytes": "REQUIRES USER DECISION",
+      "handleLimit": "REQUIRES USER DECISION",
+      "backupAndRecovery": "Named operators and approved image/procedure required before admission; no implicit force termination.",
+      "cleanup": "Single handle close after observed exit only; retain inert batch files and process custody on any uncertainty.",
+      "grantAndTimeWindow": "REQUIRES USER DECISION",
+      "resultFormat": "evidenceFields + evidence class + row/trial/case IDs; UNKNOWN never PASS",
+      "b1Unified": {
+        "scope": "G0-L0 SOURCE / COMPILE / FAKE ONLY",
+        "executionAuthorized": false,
+        "source": [
+          "windows/external_native/diagnostics/l1_b1_unified.h",
+          "windows/external_native/diagnostics/l1_b1_admission_worker.cpp"
+        ],
+        "offlineTest": "windows/external_native/tests/l1_b1_unified_test.cpp",
+        "crossTrialIsolation": "STRICT_PER_TRIAL_OPERATION_ALLOWLIST",
+        "cryptoPrimitives": 0,
+        "abiAttemptTotal": 0,
+        "nativeResources": 0,
+        "samples": 18,
+        "phases": ["consume", "create", "resume", "ipc", "close"],
+        "lifecycleStates": [
+          "UNCREATED", "CREATED_SUSPENDED", "RESUMED", "EXITED",
+          "HANDLES_RELEASED", "CUSTODY_RETAINED_UNKNOWN"
+        ]
+      }
+    },
+    {
       "id": "L1-CRYPTO",
       "tier": "G0-L1",
       "state": "DRAFT_NOT_AUTHORIZED",
@@ -590,6 +640,7 @@
       "ownersRef": "ownership",
       "failurePolicyRef": "failurePolicy",
       "dependsOn": [
+        "L1-ADMISSION real Windows trial PASS",
         "Independent review of exact helper and isolated entry"
       ],
       "isolatedHarness": [
@@ -750,6 +801,7 @@
       "ownersRef": "ownership",
       "failurePolicyRef": "failurePolicy",
       "dependsOn": [
+        "L1-ADMISSION real Windows trial PASS",
         "L1-CRYPTO when credential fixtures are used",
         "Separately reviewed isolated-root object harness"
       ],
@@ -772,7 +824,22 @@
       "cleanup": "No directory sweep, historical-root access or ACL repair. Explicit per-object owned-identity cleanup list required; absent grant retain inert objects.",
       "grantAndTimeWindow": "REQUIRES USER DECISION",
       "resultFormat": "evidenceFields + evidence class + row/trial/case IDs; UNKNOWN never PASS",
-      "exactDirectoryListAndCount": "REQUIRES USER DECISION"
+      "exactDirectoryListAndCount": "REQUIRES USER DECISION",
+      "b1Objects": {
+        "scope": "G0-L0 SOURCE / COMPILE / FAKE ONLY",
+        "executionAuthorized": false,
+        "source": "windows/external_native/diagnostics/l1_b1_unified.h",
+        "offlineTest": "windows/external_native/tests/l1_b1_unified_test.cpp",
+        "appAcquire": 1,
+        "competingAcquire": 1,
+        "bridgeAcquire": 1,
+        "maxObservationsPerObject": 2,
+        "newTargetPublish": 1,
+        "existingTargetReplace": 1,
+        "readbacks": 2,
+        "publishKind": "REQUIRES USER DECISION",
+        "rootBinding": "APPROVED_ROOT_VOLUME_AND_FILE_ID_MUST_EQUAL_INJECTED_SEAM"
+      }
     },
     {
       "id": "L1-STORE",
@@ -792,8 +859,8 @@
         "At most 2 Store publication temporaries total, sequential"
       ],
       "operations": [
-        "DPAPI protect: 2; unprotect: 2, <=65536 bytes each",
-        "association_begin: 3 maximum; association_commit: 2 maximum; association_abort: 1 maximum",
+        "DPAPI protect: 2; unprotect: 2, plaintext <=65024 bytes each (65536-byte ABI buffer)",
+        "credential_begin (kinds 1/2/4) or association_begin (kind 3): 3 maximum; matching commit: 2 maximum; matching abort: 1 maximum",
         "Choose ONE Store object kind per batch; other kinds require new object/call grant",
         "No automatic recovery, rekey, live Pairing, Socket or business route"
       ],
@@ -804,7 +871,22 @@
       "cleanup": "At most the explicitly approved current-batch objects after settled release; unknown commit retains residue for separate decision.",
       "grantAndTimeWindow": "REQUIRES USER DECISION",
       "resultFormat": "evidenceFields + evidence class + row/trial/case IDs; UNKNOWN never PASS",
-      "selectedStoreKind": "REQUIRES USER DECISION"
+      "selectedStoreKind": "REQUIRES USER DECISION",
+      "b1Store": {
+        "scope": "G0-L0 SOURCE / COMPILE / FAKE ONLY",
+        "executionAuthorized": false,
+        "source": "windows/external_native/diagnostics/l1_b1_unified.h",
+        "offlineTest": "windows/external_native/tests/l1_b1_unified_test.cpp",
+        "dpapiProtect": 2,
+        "dpapiUnprotect": 2,
+        "maxPayloadBytes": 65536,
+        "maxPlaintextBytes": 65024,
+        "rootBinding": "APPROVED_ROOT_VOLUME_AND_FILE_ID_MUST_EQUAL_INJECTED_SEAM",
+        "storeBegin": 3,
+        "storeCommit": 2,
+        "storeAbort": 1,
+        "singleKindPerBatch": true
+      }
     },
     {
       "id": "L1-RELEASE",
@@ -832,7 +914,17 @@
       "backupAndRecovery": "Named operators and approved image/procedure required before admission; no implicit force termination.",
       "cleanup": "Only positively owned listed test objects; delete counts and immutable identities REQUIRES USER DECISION; no cleanup follows uncertainty.",
       "grantAndTimeWindow": "REQUIRES USER DECISION",
-      "resultFormat": "evidenceFields + evidence class + row/trial/case IDs; UNKNOWN never PASS"
+      "resultFormat": "evidenceFields + evidence class + row/trial/case IDs; UNKNOWN never PASS",
+      "b1Release": {
+        "scope": "G0-L0 SOURCE / COMPILE / FAKE ONLY",
+        "executionAuthorized": false,
+        "source": "windows/external_native/diagnostics/l1_b1_unified.h",
+        "offlineTest": "windows/external_native/tests/l1_b1_unified_test.cpp",
+        "maxReleaseAttemptsPerOwnedResource": 1,
+        "stopAllowsIndependentOwnerRelease": true,
+        "closeHandleProvesProcessExit": false,
+        "timeoutProvesSyncCallTerminated": false
+      }
     },
     {
       "id": "L2-AUTH",

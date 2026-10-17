@@ -74,7 +74,9 @@ int32_t ProtectedObjects::target_current(Lease& lease, const Sid& sid) {
 }
 
 int32_t ProtectedObjects::begin(uint32_t version, uint64_t owner, uint32_t kind,
-    uint8_t* output, uint64_t capacity, uint64_t* written, uint64_t* ticket) noexcept try {
+    uint8_t* output, uint64_t capacity, uint64_t* written, uint64_t* ticket,
+    CredentialObjectObservation* observed) noexcept try {
+  if (observed) *observed = {};
   if (!span(output, capacity) || !count(written) || !count(ticket) ||
       overlap(output, capacity, written, 8) || overlap(output, capacity, ticket, 8) ||
       overlap(written, 8, ticket, 8)) return SHIROHA_NATIVE_INVALID_INPUT;
@@ -119,6 +121,7 @@ int32_t ProtectedObjects::begin(uint32_t version, uint64_t owner, uint32_t kind,
         status = check(*lease, sid);
         if (status == SHIROHA_NATIVE_OK) status = target_current(*lease, sid);
         if (status == SHIROHA_NATIVE_OK) {
+          if (observed) *observed = observation(*lease);
           lease->ticket = next_ticket_++; *ticket = lease->ticket; return original;
         }
       }
@@ -219,7 +222,10 @@ int32_t ProtectedObjects::commit(uint32_t version, uint64_t owner,
     detail.finish_failed = true;
     status = replacing ? SHIROHA_NATIVE_COMMIT_UNKNOWN : SHIROHA_NATIVE_UNAVAILABLE;
   }
-  if (status == SHIROHA_NATIVE_OK) detail.stage = CommitStage::complete;
+  if (status == SHIROHA_NATIVE_OK) {
+    detail.stage = CommitStage::complete;
+    if (credential) detail.published = observation(*lease);
+  }
   return status;
 } catch (...) {
   if (diagnostic) diagnostic->exception = true;
@@ -243,12 +249,14 @@ int32_t ProtectedObjects::association_commit(uint32_t v, uint64_t o, uint64_t t,
   return commit(v, o, t, false, b, n, d);
 }
 int32_t ProtectedObjects::association_abort(uint32_t v, uint64_t o, uint64_t t) noexcept { return abort(v, o, t, false); }
-int32_t ProtectedObjects::credential_begin(uint32_t v, uint64_t o, uint32_t k, uint8_t* b, uint64_t n, uint64_t* w, uint64_t* t) noexcept {
+int32_t ProtectedObjects::credential_begin(uint32_t v, uint64_t o, uint32_t k, uint8_t* b, uint64_t n, uint64_t* w, uint64_t* t,
+    CredentialObjectObservation* observed) noexcept {
   // Invalid kinds still pass through begin's output-clearing and version checks.
-  return begin(v, o, k == 3 ? 0u : k, b, n, w, t);
+  return begin(v, o, k == 3 ? 0u : k, b, n, w, t, observed);
 }
-int32_t ProtectedObjects::credential_commit(uint32_t v, uint64_t o, uint64_t t, const uint8_t* b, uint64_t n) noexcept {
-  return commit(v, o, t, true, b, n, nullptr);
+int32_t ProtectedObjects::credential_commit(uint32_t v, uint64_t o, uint64_t t, const uint8_t* b, uint64_t n,
+    CommitDiagnostic* diagnostic) noexcept {
+  return commit(v, o, t, true, b, n, diagnostic);
 }
 int32_t ProtectedObjects::credential_abort(uint32_t v, uint64_t o, uint64_t t) noexcept { return abort(v, o, t, true); }
 }  // namespace shiroha_native

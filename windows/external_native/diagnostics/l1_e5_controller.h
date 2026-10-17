@@ -83,7 +83,7 @@ template <class Resolver>
 bool worker_candidate(e4::WorkerLink &link, const FixedTarget &frozen,
                       uint32_t pid, bool (*clock)(uint64_t &) noexcept,
                       Resolver &&resolver) {
-  if (!frozen.valid()) return false;
+  if (!frozen.valid() || frozen.grant.is_admission_only()) return false;
   e4::Digest d{};
   std::string hash;
   if (!compute_target_binding_sha256(frozen.grant, frozen.sid, hash) ||

@@ -86,6 +86,104 @@ hardening, DLL dependents and import tables without running the candidate, and
 runs `shiroha_l1_crypto_probe_test` (`shiroha_l1_crypto_probe_offline`) in CTest
 using pure Fakes only.
 
+## R6A-B1 unified G0-L1 diagnostic infrastructure (G0-L0 only)
+
+`l1_b1_unified.h` and `l1_b1_admission_worker.cpp` supply the unified G0-L0
+offline diagnostic infrastructure for the five G0-L1 trials (`L1-ADMISSION`,
+`L1-CRYPTO`, `L1-OBJECTS`, `L1-STORE`, `L1-RELEASE`), reusing the existing E2
+`GrantTarget`/`OfflineSupervisor`/`L1CryptoLedger`/`NativeObservation`, E3
+`WindowsOperations`, E4 `GrantFlow`/64-byte IPC and E5 `Controller` without
+introducing a second Grant, Supervisor, Ledger, Store or permission service.
+All three default runtime denials remain unconditionally closed: E0's
+`l1_crypto_candidate_entry` refuses execution (exit 10), E3's integrated
+`Win32AdmissionOperations` refuses approval/inspect/start and returns
+`GrantState::kUnknown`, and E5's `WindowsPlatform::runtime_allowed()` returns
+`false`. No real Windows experiment is registered with CTest. Highest eligible
+description after passing checks: **R6A-B1 L1 UNIFIED SOURCE READY / OFFLINE TESTED**.
+
+- **B1-A (`L1-ADMISSION`)**: `GrantTarget::is_admission_only()` admits
+  `user_scope == "L1-ADMISSION"` with zero ABI budgets (`{0,0,0,0,0,0,0}`)
+  through the SAME E4/E5 confirmation, write-ahead receipt/grant/journal,
+  single suspended create, identity inspection, 64-byte IPC (HELLO -> ADMISSION
+  -> 18 SAMPLEs -> 24-part zero-crypto SETTLEMENT -> ACK) and independent
+  exit/handle-close sequence (`UnifiedAdmissionController` +
+  `admission_only_worker_candidate`). `shiroha_l1_b1_admission_worker` compiles
+  `l1_b1_admission_worker.cpp` as an unlinked `OBJECT` target under
+  `SHIROHA_L1_WINDOWS_ADMISSION_SOURCE` with zero CNG/crypt32 or crypto ABI
+  references; the Crypto Worker is never relabeled as the Admission-only Worker.
+  `AdmissionPhaseLedger` records `started`/`succeeded`/`failed`/`unknown` per
+  phase (`consume`, `create`, `resume`, `ipc`, `close`) and explicitly
+  distinguishes `kUncreated`, `kCreatedSuspended`, `kResumed`, `kExited`,
+  `kHandlesReleased` and `kCustodyRetainedUnknown`.
+- **B1-B (`L1-CRYPTO` & E5 joint closure)**: Both Workers share the same target
+  hash, dual-clock rules, 30,000 ms inclusive deadline, 64-byte IPC, pre-ADMISSION
+  zero-work barrier, ACK-is-not-PASS rule, exit-does-not-settle-resources rule
+  and unreturned-syscall `UNKNOWN` retention, while `L1-CRYPTO` retains its exact
+  7 ABI-3 symbols, 106 ABI attempts, 5 live buffers, 47 direct Native owners and
+  18 checkpoints.
+- **B1-C (`L1-OBJECTS`)**: `B1ObjectsDiagnostic` requires an explicit
+  `ApprovedRootPin` (approved absolute path + NTFS volume + File ID) and, before
+  any protected object opens, probes the injected `ObjectOperations` seam with
+  one `local_directory`/`inspect`/`close` sequence and rejects it unless the
+  probed root identity equals the approved pin (`ISOLATION_ROOT_MISMATCH`). The
+  probe handle is registered and closed exactly once even on identity mismatch;
+  a failed close retains quarantined custody and an `UNKNOWN` verdict. The
+  path blacklist is therefore only supplementary: a production or Host A seam is
+  rejected even when the path text looks approved. Its publication/readback
+  object kind is an explicit required parameter (`1` or `2`), never a silent
+  default; association/Bridge objects belong to `L1-STORE`. Frozen candidate
+  budgets (App acquire <=1, competing acquire <=1 expected rejected, Bridge
+  acquire <=1, security/identity observations <=2 per object, new-target publish
+  <=1, existing-target replace <=1, readbacks <=2, 60,000 ms ceiling) bound
+  C: NTFS volume/File ID, Owner SID, protected single-ACE DACL, parent identity,
+  no reparse, link count, `runtime.lock`/`client.lock` ownership and unknown
+  custody retention without deleting unknown objects. DACL checks cannot be
+  disabled. PASS requires a nonempty approved-object set, at least one successful
+  security/identity/parent observation for every pin, and the complete lock,
+  publication, replacement and readback sequence. Publication requires its own
+  `register_approved_publication` binding (object ID, kind 1/2, parent Volume/File
+  ID), not a borrowed observation of another object. The existing native
+  transaction returns internal identity evidence only after its target/parent
+  checks; B1-C compares the approved parent before writing, observes the actual
+  published target after each successful create/replace, and binds each readback
+  to that captured identity. These two publication observations consume the
+  target's <=2 observation budget. Atomic replacement advances the File ID from
+  the validated previous target to the validated temporary/published object;
+  unrelated handles cannot supply either publication observation. The optional
+  evidence remains internal C++, with no exported C ABI or runtime-gate change.
+  Residual: the seam is
+  probed once per trial at `begin`; a differential seam that changes roots
+  between calls is out of G0-L0 scope and must be re-pinned at the real trial.
+- **B1-D (`L1-STORE`)**: `B1StoreDiagnostic` and `StorePrimitiveLedger` wrap the
+  existing P18/P20/P21/P23 DPAPI and Store/Association transactions under frozen
+  single-kind candidate budgets (DPAPI Protect <=2, Unprotect <=2, plaintext
+  <=65,024 B of the 65,536 B ABI buffer, Begin <=3, Commit <=2, Abort <=1,
+  60,000 ms ceiling), requiring exactly one `StoreKindSelection` per batch (`1`,
+  `2`, `3` or `4`, never bundling App 1/2/3 with Bridge 4), binding the same
+  approved isolated-root identity, reusing the existing native CAS/
+  create-if-missing transaction, and expanding upper Store operations into an
+  auditable primitive ledger while zeroing transient buffers. `SHREXOBJ` v1
+  object framing is NOT enforced here: it stays in the existing codec layer
+  above the native store. Because the ABI-3 buffer ceiling is exactly 65,536 B,
+  a maximum-size plaintext can never be protected; the realizable plaintext
+  ceiling reserves DPAPI framing room instead of relying on the Fake transform.
+  Budget ceilings alone never establish PASS: the candidate must successfully
+  settle two Protect, two Unprotect, three Begin, two Commit and one Abort
+  operations plus Owner release. Zero work or a partial sequence is non-PASS;
+  unsettled custody remains `UNKNOWN`. Root-probe mismatch uses the same
+  single-close/custody rule as B1-C.
+- **B1-E (`L1-RELEASE`) & cross-Trial isolation**: `B1ReleaseLedger` enforces
+  unique owner registration, at most one release attempt per owned resource,
+  independent owner release after STOP, no retry on failed release, void-return
+  non-equivalence to underlying cleanup, `CloseHandle` non-equivalence to process
+  exit, timeout non-equivalence to synchronous call termination, and no deletion
+  without proven ownership within a 30,000 ms non-forcing ceiling.
+  `operation_allowed_for_trial` enforces strict per-Trial operation allowlists so
+  `L1-CRYPTO` never authorizes `L1-OBJECTS` or `L1-STORE` operations.
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
+REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
+
 ## E5 controlled diagnostic composition (G0-L0 only)
 
 `l1_e5_controller.h`, `l1_e5_windows.h/.cpp` and `l1_e5_worker.cpp` compose the
