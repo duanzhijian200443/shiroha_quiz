@@ -1,6 +1,7 @@
 // Windows-only leaf candidates. COMPILE ONLY: never linked to a runnable
 // target.
 #include "diagnostics/l1_windows_operations.h"
+#include "diagnostics/l1_temporary_handle.h"
 
 #include <aclapi.h>
 #include <psapi.h>
@@ -18,12 +19,9 @@ struct LocalOwner {
     if (value) LocalFree(value);
   }
 };
-struct TokenOwner {
-  HANDLE value = nullptr;
-  ~TokenOwner() {
-    if (value) CloseHandle(value);
-  }
-};
+bool close_token(uintptr_t value) noexcept {
+  return CloseHandle(reinterpret_cast<HANDLE>(value))!=FALSE;
+}
 bool token_field(HANDLE token, TOKEN_INFORMATION_CLASS field,
                  std::vector<unsigned char> &bytes) noexcept {
   DWORD size = 0;
@@ -41,41 +39,52 @@ bool token_field(HANDLE token, TOKEN_INFORMATION_CLASS field,
 
 bool inspect_exact_token(HANDLE process, const std::wstring &sid) noexcept {
   LocalOwner expected;
-  if (!ConvertStringSidToSidW(sid.c_str(), &expected.value)) return false;
-  TokenOwner token;
-  if (!OpenProcessToken(process, TOKEN_QUERY, &token.value)) return false;
-  std::vector<unsigned char> bytes;
-  if (!token_field(token.value, TokenUser, bytes) ||
-      !EqualSid(reinterpret_cast<TOKEN_USER *>(bytes.data())->User.Sid,
-                expected.value))
+  if (!ConvertStringSidToSidW(sid.c_str(), &expected.value))
     return false;
-  if (!token_field(token.value, TokenElevation, bytes) ||
-      reinterpret_cast<TOKEN_ELEVATION *>(bytes.data())->TokenIsElevated)
+  HANDLE token_value = nullptr;
+  if (!OpenProcessToken(process, TOKEN_QUERY, &token_value))
     return false;
-  if (!token_field(token.value, TokenType, bytes) ||
-      *reinterpret_cast<TOKEN_TYPE *>(bytes.data()) != TokenPrimary)
-    return false;
-  if (!token_field(token.value, TokenIntegrityLevel, bytes)) return false;
-  auto label =
-      reinterpret_cast<TOKEN_MANDATORY_LABEL *>(bytes.data())->Label.Sid;
-  if (!IsValidSid(label) || *GetSidSubAuthorityCount(label) == 0 ||
-      *GetSidSubAuthority(label, *GetSidSubAuthorityCount(label) - 1) !=
-          SECURITY_MANDATORY_MEDIUM_RID)
-    return false;
-  if (IsTokenRestricted(token.value)) return false;
-  if (!token_field(token.value, TokenPrivileges, bytes)) return false;
-  const auto privileges = reinterpret_cast<TOKEN_PRIVILEGES *>(bytes.data());
-  LUID traverse{};
-  if (!LookupPrivilegeValueW(nullptr, SE_CHANGE_NOTIFY_NAME, &traverse))
-    return false;
-  for (DWORD i = 0; i < privileges->PrivilegeCount; ++i) {
-    const auto &p = privileges->Privileges[i];
-    if ((p.Attributes & SE_PRIVILEGE_ENABLED) &&
-        (p.Luid.LowPart != traverse.LowPart ||
-         p.Luid.HighPart != traverse.HighPart))
+  TemporaryHandle token(TemporaryOwner::token_validator,
+                        reinterpret_cast<uintptr_t>(token_value), close_token);
+  const bool checked = [&]() {
+    std::vector<unsigned char> bytes;
+    if (!token_field(token_value, TokenUser, bytes) ||
+        !EqualSid(reinterpret_cast<TOKEN_USER *>(bytes.data())->User.Sid,
+                  expected.value))
       return false;
-  }
-  return true;
+    if (!token_field(token_value, TokenElevation, bytes) ||
+        reinterpret_cast<TOKEN_ELEVATION *>(bytes.data())->TokenIsElevated)
+      return false;
+    if (!token_field(token_value, TokenType, bytes) ||
+        *reinterpret_cast<TOKEN_TYPE *>(bytes.data()) != TokenPrimary)
+      return false;
+    if (!token_field(token_value, TokenIntegrityLevel, bytes))
+      return false;
+    auto label =
+        reinterpret_cast<TOKEN_MANDATORY_LABEL *>(bytes.data())->Label.Sid;
+    if (!IsValidSid(label) || *GetSidSubAuthorityCount(label) == 0 ||
+        *GetSidSubAuthority(label, *GetSidSubAuthorityCount(label) - 1) !=
+            SECURITY_MANDATORY_MEDIUM_RID)
+      return false;
+    if (IsTokenRestricted(token_value))
+      return false;
+    if (!token_field(token_value, TokenPrivileges, bytes))
+      return false;
+    const auto privileges = reinterpret_cast<TOKEN_PRIVILEGES *>(bytes.data());
+    LUID traverse{};
+    if (!LookupPrivilegeValueW(nullptr, SE_CHANGE_NOTIFY_NAME, &traverse))
+      return false;
+    for (DWORD i = 0; i < privileges->PrivilegeCount; ++i) {
+      const auto &p = privileges->Privileges[i];
+      if ((p.Attributes & SE_PRIVILEGE_ENABLED) &&
+          (p.Luid.LowPart != traverse.LowPart ||
+           p.Luid.HighPart != traverse.HighPart))
+        return false;
+    }
+    return true;
+  }();
+  const bool closed = token.close_as(TemporaryOwner::token_validator);
+  return checked && closed;
 }
 
 bool inspect_pinned_object(const WindowsObjectPin &pin) noexcept {
