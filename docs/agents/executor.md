@@ -79,10 +79,14 @@ without task/repository authority.
 ## Delivery
 
 When a delegated handoff is used, follow the optional template in `docs/agents/README.md`.
-Only while `角色：执行` is explicitly active, the following user-established
-standing delivery permissions apply to the authorized assignment, unless the user
-explicitly narrows or revokes them. These permissions do not apply to other roles
-or default read-only investigation. After required checks pass:
+The [Executor standing delivery policy](../../AGENTS.md#executor-standing-delivery-policy)
+is a new policy introduced by PR #305 and explicitly approved by the user on
+2026-10-18. `AGENTS.md` section 3 records the direct approval request, user reply
+and source chat/message identity; this role file implements that approval and
+does not establish it by itself. Only while `角色：执行` is explicitly active,
+these permissions apply to the authorized assignment unless the user narrows or
+revokes them. Other roles and default read-only investigation gain no permission.
+After required checks pass:
 
 - Independent task, including its pre-PR continuation: stage exact task paths,
   commit, push the verified task branch
@@ -91,9 +95,10 @@ or default read-only investigation. After required checks pass:
 - Repair/supplement: recheck the existing OPEN target PR and its source branch,
   stage exact task paths, commit and automatically push to that PR.
 
-Do not request separate confirmation for these already-authorized delivery
-actions. This role file records the user's standing authorization; a handoff does
-not create it. Verify the repository, branch, PR target and staged scope before
+Do not request separate confirmation for delivery covered by that explicit
+approval. Neither this role file nor a handoff creates further authority.
+Updating an existing PR means pushing its source branch, not changing metadata.
+Verify the repository, branch, PR target and staged scope before
 delivery, then STOP for independent gates. Missing required checks, target drift
 or an explicit delivery restriction blocks the affected action. Fetch/alignment
 and branch/worktree creation retain

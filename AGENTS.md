@@ -68,11 +68,32 @@ read-only investigation; a pasted handoff alone does not grant write authority.
 
 An Executor instruction authorizes implementation within the requested
 responsibility. Git/PR authority remains action-specific. User-established
-role-specific permissions are defined in the applicable role file and apply only
-while that role is active; a handoff never creates authority. All other actions
+role-specific permissions implement an explicitly approved policy with a recorded
+user source, including the Executor policy below, and apply only while that role
+is active; a role file or handoff never creates authority. All other actions
 retain their existing authorization requirements. Preserve already-granted
 authority for the same task; do not ask for it again. Missing authority for one
 action does not prevent independent authorized work.
+
+### Executor standing delivery policy
+
+This is a new user-approved policy introduced by PR #305, effective from the
+direct user confirmation on 2026-10-18; it does not claim earlier blanket authority.
+The source is the direct exchange in [Codex chat](codex://threads/01a14ee2-6ead-7b30-a7f9-bc8a83dba6d2),
+user message `01a14ef2-36ea-76d1-a6d5-1f4c1b6af482`. The approval request stated:
+
+> 是否批准今后显式激活 `角色：执行` 时，在任务范围内且检查通过后，自动暂存、提交、推送并创建或更新任务 PR；并授权我修订本条款、提交推送到 #305？分支创建、fetch、merge 等其他权限仍按原规则处理。
+
+The user replied: **授权**.
+
+For future explicitly activated Executor assignments, this approves exact-path
+staging, commit, push and task PR creation after required checks, within the
+authorized responsibility. Updating an existing task PR means pushing its source
+branch, not changing PR metadata. Explicit user limits or revocation take
+precedence. Other roles and default read-only investigation gain no permission.
+Fetch, local-default alignment, branch/worktree creation, merge, tag/release and
+other PR mutations retain their separate authority requirements. The Executor
+Delivery section implements this policy; the direct user approval is its source.
 
 ### Explicit automation mode
 
@@ -282,7 +303,8 @@ authority explicit. Direct user instructions may provide the same facts without 
 formal handoff. A handoff records authority; it never creates authority.
 Implementation or staging never implies commit, push, PR creation, merge, tag or
 release. Only perform actions actually authorized by the user/current task or
-expressly covered by user-established permissions in the active role file.
+expressly covered by the user-approved policy and source recorded in section 3,
+as implemented by the active role file.
 
 `PR-create` authorizes PR creation only. PR title/body updates, close/reopen and
 other PR mutations remain separate actions requiring explicit task/user authority.

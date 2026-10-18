@@ -6,8 +6,9 @@ Read this rule only when the task concerns Git status, diffs, staging, commit
 preparation, branches, history, tags, or pushing, as routed by `AGENTS.md`.
 
 This file never grants Git write authority. Authority comes from explicit user
-instructions, including user-established permissions recorded in the active role
-file. A task package records traceable existing authority and never creates it.
+instructions, including the user-approved Executor policy and direct approval
+source recorded in `AGENTS.md` section 3 and implemented by the active role file.
+A role file or task package never creates authority by its own declaration.
 A request that mentions `commit`, `push`, `backup`, or a similar word
 authorizes only the exact action explicitly requested; it does not authorize
 later Git actions, unrelated file changes, or broader staging.
