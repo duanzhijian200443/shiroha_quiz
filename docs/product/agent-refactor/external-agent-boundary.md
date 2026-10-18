@@ -962,6 +962,20 @@ P3-P9, architecture and Built-in/MCP v0 regressions remain required. Real Host
 security/stability stays UNVERIFIED: HOST_STABILITY_HALT ACTIVE, Transport
 BLOCKED, AR-R6A NOT_ACCEPTED; production Host and MCP vNext remain inactive.
 
+### Bounded vNext source composition amendment
+
+MCP contract §7 owns the independent stdio source projection and explicitly
+supplied App composition. It reuses this exact P10 schema without adding wire
+fields or target-approval authority. Before P10 invocation, trusted composition
+resolves the existing READ handle and selects only a previously App-approved
+StageContext matching exact Session, target and revision. It pins P10's
+authentication result to that same Session; no request supplies identity and no
+READ selection invokes `approveTarget`. P8/P7/P3 remain final authority. The
+original statement that P10 itself registers no MCP tool remains true; the
+separate server is inactive in production. Its standalone default refuses every
+business call. The synthetic test link is test-only, not an admitted transport.
+HOST_STABILITY_HALT ACTIVE, Transport BLOCKED and AR-R6A NOT_ACCEPTED remain.
+
 ## 9. P11 trusted local authorization management (accepted local scope)
 
 This freezes a first-party settings flow for non-secret Profile/Grant policy

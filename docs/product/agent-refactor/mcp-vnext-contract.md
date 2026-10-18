@@ -186,3 +186,85 @@ authorized outcome lookup. v0 exactly-six and SDK-confinement regressions stay.
 AR-R9 separately proves optional projections and installed reference package.
 Disable vNext entrypoint/Host routes without changing v0, Proposal data or typed
 Question compatibility. Runtime/Provider/UI rewrites are not MCP prerequisites.
+
+## 7. Bounded STAGE stdio source composition
+
+`MCP-vNext-STAGE-END-TO-END` supplies an independent stdio server and an explicit
+inactive App composition. This is a synthetic functional/source slice of the
+target above, not full AR-R6B acceptance or production activation. The pinned
+`mcp_dart` 2.4.0 SDK owns modern `2026-07-28` discovery and legacy `2025-11-25`
+initialization; actual SDK clients exercise both over subprocess stdio. No SDK
+or dependency upgrade is introduced. The v0 entrypoint and six tools are unchanged.
+
+The seven tool names above remain deterministic. This bounded projection uses
+camelCase P4/P10 references and a separate candidate `profileVersion: 1` result
+envelope, exactly `{profileVersion, data, error}`. A success has operation data
+and null error; a failure has null data and a fixed safe code. Text content is
+the JSON serialization of the same object as `structuredContent`. Every tool
+declares input/output schemas; P10 additionally validates deep result whitelists.
+Request metadata, protocol request IDs and clientInfo never enter authentication,
+Profile selection, target approval or Submission identity.
+
+| Tool | Bounded projection input / behavior |
+|---|---|
+| open_generation_context | No target: optional pageSize/cursor -> P10 target page. targetRef alone -> P10 contextRef. contextRef alone -> authorized File choices. contextRef + fileRefs -> separate File contextRef; no implicit upgrade or evidence approval. Mixed selector modes reject. |
+| search_questions | contextRef, query, optional pageSize/cursor -> P10 search page. |
+| get_question_detail | contextRef, questionRef -> P10 safe structural detail. |
+| retrieve_file_content | contextRef, query, optional limit -> P10 verified retrieval page. |
+| get_file_passage | contextRef, passageRef, optional cursor -> P10 passage page. |
+| propose_generated_questions | contextRef and content-only `submission` object in unchanged GeneratedQuestion Submission v1. P3 alone admits items/content/provenance/key/fingerprint. |
+| get_question_proposal | Original submissionKey, with fresh authentication and no old handle -> P3/P10 narrow durable reconciliation. |
+
+Optional fields have documented bounded projection defaults (pageSize 20, limit
+8, cursor null); required/nullable P10 fields are still explicitly materialized.
+P10 business schema v1 and P9 envelope v1 are unchanged. No raw bank/Profile/
+permission/Grant field is accepted from a client. There is no external COMMIT.
+
+App composition receives existing services, an authentication port and a fixed
+list of already App-approved StageContexts. It never calls `approveTarget`.
+For STAGE, the READ handle resolves through the owning registry; its target bank,
+nullable Project/Folder and revision must match a supplied approval bound to the
+identical authenticated Session. P8/P3 validate the original approval, expiry,
+current durable policy and final release. No second handle registry, completion
+journal, writer, schema or transaction is created. Authentication is pinned to
+that exact Session for the existing P10 invocation, preventing a fresh Session
+from inheriting old approval. Missing approval fails closed; READ alone grants no
+STAGE. File selection never approves GeneratedEvidence.
+
+STAGE/query data remains exactly P10's proposalId/submissionKey/publication
+`STAGED`/formalCommit `NOT_REPORTED`. This confirms historical publication only;
+it does not claim pending/committed Review status, counts or a COMMIT Receipt.
+Those remain available to the existing local Inbox/Review UI. The fuller target
+status projection above remains deferred to an authorized owning-service change.
+An uncertain/lost response is reconciled by original key, never automatically
+restaged. Cancellation is forwarded to existing owning control; close/EOF stops
+new work and drains the supplied composition. Encoding/connection failure cannot
+claim rollback or erase the original durable Proposal.
+
+Run the isolated functional fixture with:
+
+```text
+flutter test --concurrency=1 test/mcp/vnext_mcp_end_to_end_test.dart
+```
+
+Only the test App owns a temporary synthetic SQLite file and synthetic credential
+port. The stdio subprocess has no persistence dependency. Its test-only reverse
+RPC link shares those same stdio pipes; it opens no socket/listener and is not a
+production transport, Windows proof or alternative trusted credential adapter.
+Tests cover mixed valid question kinds, existing Review UI
+and explicit UI COMMIT, unchanged formal bank before approval, same-key
+reuse/conflict, lost-response reconciliation across real database close/reopen,
+unauthorized/expired/revoked/unavailable rejection and exact-Session isolation.
+
+The standalone `lib/mcp/vnext_mcp_entrypoint.dart` defaults to `unavailable` for
+every business call. No startup installs the App composition, and no flag/CLI
+argument enables synthetic credentials or the test link in production.
+HOST_STABILITY_HALT remains ACTIVE, TRANSPORT BLOCKED and AR-R6A NOT_ACCEPTED.
+Actual STAGE use is blocked by admitted production authenticated App/Bridge
+transport and first-party pairing/finite enablement/target-approval composition,
+followed by AR-R6B production exposure acceptance. The minimal future scope is to
+provide the admitted transport's `VnextMcpPort` binding and trusted approved
+Session/target inputs, preserving P3/P7/P8/P10 and UI COMMIT. If choosing a less
+restrictive production transport instead, the governing external boundary and
+Windows readiness/AR-R6A activation contracts must first be explicitly amended;
+this slice grants no such exception and adds no Windows security experiment.

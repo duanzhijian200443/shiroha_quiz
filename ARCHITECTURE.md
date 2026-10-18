@@ -470,6 +470,14 @@ DESTRUCTIVE -> additional approval; may remain unavailable in early versions
 
 No Agent or MCP tool may directly execute SQL or bypass the typed persistence/review boundary.
 
+The bounded vNext STAGE stdio source slice is described in
+`docs/product/agent-refactor/mcp-vnext-contract.md` §7. Its separate seven-tool
+server and explicit inactive App composition reuse P3/P7/P8/P9/P10 and the local
+Proposal Review UI. Trusted App-approved exact-Session targets remain mandatory;
+client READ references never grant STAGE. The standalone entrypoint refuses
+business calls until production transport/admission is accepted. Synthetic stdio
+evidence grants no AR-R6A/AR-R6B production activation or external COMMIT.
+
 See `docs/architecture/adr-003-agent-mcp-and-write-boundary.md`.
 
 The frozen Agent Runtime v1 / external capability / source-module / MCP vNext

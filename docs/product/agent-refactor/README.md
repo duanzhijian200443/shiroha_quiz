@@ -1,5 +1,11 @@
 # Agent Runtime v1 / External Agent / MCP vNext Contract Index
 
+The bounded [STAGE stdio source composition](mcp-vnext-contract.md#7-bounded-stage-stdio-source-composition)
+adds an independent seven-tool server and explicit P3/P7–P10 App wiring, exercised
+only with synthetic credentials/data and real SDK stdio clients. The standalone
+default refuses business calls. This source slice does not activate full AR-R6B,
+the production Host/Transport or any Windows experiment.
+
 Status: **FROZEN target architecture; AR-R1/AR-R2/AR-R3 COMPLETE / CLOSED;
 AR-R4 module contribution kernel COMPLETE / CLOSED; AR-R5A COMPLETE / CLOSED;
 AR-R5B generated Review UI COMPLETE / CLOSED;
