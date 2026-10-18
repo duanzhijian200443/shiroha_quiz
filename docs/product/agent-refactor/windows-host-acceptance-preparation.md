@@ -1007,6 +1007,132 @@ startup, 1B, S2/S3/F2/F3 or production authority is added by this amendment.
 separate runtime authority exist. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
 AR-R6A = NOT_ACCEPTED; REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
 
+### B2 Trial 1A Pin acquisition amendment (G0-L0)
+
+This amendment supersedes the earlier entry's missing upstream-acquisition
+source/ledger boundary. `l1_trial1a_pins.h/.cpp` adds one diagnostic `PinPlan`
+and single-use `Acquisition` around the SAME Entry/S1/R2 composition.
+`l1_trial1a_pins_windows.h/.cpp` supplies its dormant Windows adapter in the
+unlinked `shiroha_l1_trial1a_pins_windows` OBJECT. The refusal EXE is unchanged;
+both Acquisition's Windows boundary and the concrete Windows adapter reject
+before acquisition or attachment. No parser, runtime opt-in, Grant, approval
+framework, production ABI or persisted evidence format is added.
+
+#### Frozen inventory and actual measurements
+
+The existing `l1Preparation.trial1aEntry.pinAcquisition` application fields now
+include ALL existing C:-to-root-parent, artifact ancestor/file, Evidence-parent
+and entry-image objects. Each unique object supplies its alias, exact private
+path/kind, parent index, previously approved actual Volume/File ID, metadata-only
+directory digest or artifact SHA-256, private actual filesystem Owner SID,
+Owner/DACL digest, and sole HANDLE owner. The filesystem Owner and HANDLE owner
+are distinct. System-owned artifact/ancestor SIDs must be individually frozen;
+they are never replaced by the operator's SID or re-ACLed.
+
+One topologically ordered inventory owns each identity/path/logical ID once.
+Root-parent, Evidence-parent, artifact-chain and entry-image mappings borrow
+indices into it. Shared ancestors and the entry image's artifact Pin are NOT
+opened again. Duplicate identities/paths (including case aliases), conflicting
+owners, forward parents, missing mappings, unused objects or paths inside the
+not-yet-created root reject before I/O. Existing callers with retained inputs
+continue to use Entry without invoking this acquisition route. No directory
+discovery or fallback from one route to the other is supplied.
+
+C:\ opens once, existing-only, read metadata/control with no write/delete
+sharing. Every later object uses one immediate-parent-relative
+`NtCreateFile(FILE_OPEN)`, `OBJ_DONT_REPARSE`, `FILE_OPEN_REPARSE_POINT`, the exact
+directory/file kind and read-only rights; security writes and inheritance are
+zero. The actual File ID is read from the returned HANDLE, then R2 checks C:
+NTFS, directory/file/non-reparse/non-delete-pending status, file link count,
+exact final path and actual Owner/DACL. The returned identity/security must
+match the frozen object and the already retained parent before another object
+opens. A returned or ambiguous HANDLE stays with the acquisition Owner.
+No ID is copied from the expected object as an observation.
+
+Upstream performs ZERO artifact byte reads. S1 retains its one exact bounded
+hash scan per artifact before root creation, using the SAME acquired file and
+ancestor HANDLEs; Hash mismatch denies creation. Directory digests derive only
+from their measured identities. Entry's three process checks reuse the acquired
+image Pin and retain their separately budgeted temporary image checks. The
+process itself is the current-entry pseudo-handle, borrowed under the frozen
+process Owner: one `GetCurrentProcess` call, no OpenProcess, DuplicateHandle,
+process creation or process-HANDLE close. Expected PID/time and image ownership
+still pass the original independent Entry/R2 checks.
+
+PinPlan's domain-separated digest binds the full inventory, actual-owner SIDs,
+borrow mappings, original Entry target and aggregate budget. Entry includes it
+in the S1 action digest committed by the existing redacted R2 records. Only
+digests/allowlisted fields enter evidence; raw paths/SIDs/HANDLEs stay private.
+The root remains absent from the existing-object inventory: its approved name,
+parent and security recipe are bound before create, its actual File ID is read
+and bound only AFTER S1's sole successful FILE_CREATE. No pre-create root ID,
+E4 record change or F2 numeric persistence schema is introduced.
+
+#### One operation budget and owner settlement
+
+Let N be the number of UNIQUE existing objects, D directories and F artifacts,
+N=D+F, N<=1120 (`2*16+64*(16+1)`, a conservative unshared source ceiling).
+The application selects one complete 14-counter `PinPlan.budget`:
+
+| Stage | Added conservative reservation before the call |
+|---|---|
+| Each existing-object open/measurement, <=N attempts | 64 OS calls; one directory OR file observation; one security read; one retained HANDLE acquired |
+| Borrow binding, <=1 | One OS call for current-process pseudo-handle; no kernel HANDLE or byte reads |
+| Entry/S1 | Entire unchanged Entry ceiling/sub-budget: eight temporary HANDLEs, root/evidence HANDLEs, all measurements/Hash scans, create/security/evidence and both retained closes |
+| Upstream final close, <=N | One OS call and one close per unique acquired HANDLE, reverse dependency order |
+| Borrow ACK/release ACK | Bounded in-memory exact plan/inventory/Owner receipts; zero I/O |
+
+The total MUST equal `Entry ceiling + sum(acquisition_cost(kind)+close) +
+binding_cost`; below/above/missing values reject before ANY I/O. OS calls are
+bounded by `Entry ceiling + 65N + 1` (loose maximum 147203); directory/file
+observations add D/F, security reads add N, kernel acquisitions/closes add N
+to the Entry maximum of ten (<=1130 each). Hash/evidence/create/security-set
+counts are unchanged. These are reservations, not claims that all APIs ran.
+`Acquisition.reserved()` combines upstream attempts and Entry/S1 reservations
+without counting borrowed copies again. Actual opens and retained observations,
+S1/Hash/evidence attempts and explicit settlement outcomes remain in memory;
+the existing records bind the plan, not a new F2 counter table.
+
+Before S1 runs, the concrete adapter assembles the existing WindowsPreparation,
+PinReceiver and shared Entry process measurement from these exact retained
+HANDLEs and ACKs plan/borrow digest/sole pin Owner.
+S1 remains sole root-close owner; its PinReceiver retains only a bounded borrow.
+Evidence has its existing separate close Owner. A successful S1 final evidence
+ACK permits an explicit matching-owner `settle_once`: close root once, close
+evidence once, receive exact upstream-borrow-release ACK, then acquisition Owner
+closes unique inventory HANDLEs once in reverse order. Wrong owners do not
+consume legitimate settlement. Attempt flags latch before external calls.
+No destructor closes a HANDLE, deletes a file or retries. Any acquisition,
+identity/ACL/Hash, receipt, Flush, handoff or close failure/exception is terminal;
+UNKNOWN retains original ownership and prohibits later creates/closes/replays.
+A successful S1 preparation snapshot is not aggregate settled PASS; that requires
+`Acquisition.settled()`. No unknown-ownership object is ever deleted.
+
+#### Same 1A application: pending real selections and authority
+
+The existing 1A request remains `DRAFT_NOT_AUTHORIZED`. Its operation scope must
+now explicitly include the N existing-only opens, complete ancestor/Owner/DACL/
+identity reads, shared-index borrows and N final closes, the pseudo-handle call,
+Entry temporary Token/image handles and the existing S1 create/security/evidence
+and settlement operations. No operation is implied by a generic Pin approval.
+
+Still required: selected real device/OS/account and separately authorized
+read-only observation; exact new root and approved existing-object inventory,
+forbidden-root exclusions, Evidence destination/retention; final Source/Base,
+tools/build/PE/dependencies and actual matching artifacts; approved N/H/A/E and
+all 14 numbers plus entry launch/observation/resource budgets; named operator,
+approver, sole pin/process/evidence owners, STOP/recovery/cleanup responsibility,
+Batch/Case/window and independent fixed-target CI/Verifier/Reviewer evidence.
+These must be frozen outside this unapproved public template before a separate
+one-time real grant. No current account, directory or device is selected here.
+
+The eligible mechanical label is **TRIAL1A PIN ACQUISITION SOURCE READY /
+OFFLINE TESTED**, conditional on actual compile/Fake checks. It is independent
+of review approval, `TRIAL1A READY FOR USER AUTHORIZATION` and execution authority.
+**B2-TRIAL1A BLOCKED** remains. 1B, three-process startup, S2/S3, F2/F3 and all
+other L1 trials are unchanged. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
+AR-R6A = NOT_ACCEPTED; REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
+
 ### E4 local-human single-use admission source candidate (G0-L0)
 
 E4 supplements, and does not retroactively change, the E2/E3 source boundary.

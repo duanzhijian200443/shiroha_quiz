@@ -3864,6 +3864,29 @@ of fixed-target readiness and runtime permission. All five L1 trials remain
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
 REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
 
+### B2 Trial 1A Pin acquisition source (G0-L0)
+
+The [Pin acquisition amendment](windows-host-acceptance-preparation.md#b2-trial-1a-pin-acquisition-amendment-g0-l0)
+supersedes the missing upstream ledger/source boundary above. A single typed
+PinPlan binds deduplicated existing parents, artifact ancestors/files, Evidence
+parents and entry image, actual approved identities/Owner/DACL, sole close owners,
+borrow mappings and ONE complete 1A budget. Existing-only parent-relative opens
+measure actual identities before comparison; S1 alone hashes retained artifacts
+once and creates the new root without a pre-existing root ID. Exact in-memory
+borrow ACKs precede S1 and final upstream closes; UNKNOWN stops without retry,
+delete or settled PASS. The original root/evidence owners and eight temporary
+HANDLE owners retain their responsibilities. No E4/ABI/F2 format changes.
+
+`l1_trial1a_pins_windows` is compile-only/unlinked; its actual entry denies before
+any acquisition or measurement. OFFLINE/FAKE and source checks can establish
+**TRIAL1A PIN ACQUISITION SOURCE READY / OFFLINE TESTED**, never real-target
+readiness, independent semantic approval or Windows permission. The SAME 1A
+application still needs selected device/account/inventory/artifacts, numeric
+budgets, owners/retention/window, independent target evidence and a separate
+explicit one-time grant. **B2-TRIAL1A BLOCKED**; all trials DRAFT_NOT_AUTHORIZED;
+1B/S2/S3/F2/F3 unchanged. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
+AR-R6A = NOT_ACCEPTED; REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
+
 ### E4 local-human single-use admission source candidate (G0-L0)
 
 E4 supplements, and does not retroactively change, the E2/E3 source boundary.

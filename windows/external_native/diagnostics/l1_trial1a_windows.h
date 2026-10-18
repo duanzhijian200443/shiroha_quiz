@@ -3,6 +3,8 @@
 #include "diagnostics/l1_s1_windows.h"
 #include "diagnostics/l1_trial1a_entry.h"
 namespace shiroha_l1_crypto::trial1a {
+ProcessObservation measure_entry_process(const Target &,
+                                         const r2::WindowsProcessPin &);
 // OBJECT only. All incoming handles already retained by named external owners.
 // No acquisition/discovery, destructor close, production adapter or Worker.
 class WindowsEntry final : private ProcessPort {

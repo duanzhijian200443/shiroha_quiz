@@ -32,7 +32,8 @@ s1::Counts ceiling(const s1::Request &q) {
 }
 bool Target::valid() const {
   if (!preparation.entry_binding.empty() || !preparation.valid() || !pid ||
-      !creation || !safe_id(process_owner) || !safe_id(image_id))
+      !creation || !safe_id(process_owner) || !safe_id(image_id) ||
+      (!acquisition_binding.empty() && !hex_digest(acquisition_binding, 64)))
     return false;
   const auto p = image(*this);
   if (!p || p->bytes_sha256 != preparation.frozen.manifest.build.controller ||
@@ -54,6 +55,10 @@ std::string Target::hash() const {
   h.put_str(image_id);
   for (auto n : total_budget)
     h.put_u64_le(n);
+  if (!acquisition_binding.empty()) {
+    h.put_str("SHIROHA_L1_TRIAL1A_ACQUISITION_BINDING_V1");
+    h.put_str(acquisition_binding);
+  }
   return h.finalize_hex();
 }
 Entry::Entry(Target t, s1::Operations &o, r1::EvidenceSink &s, ProcessPort &p)

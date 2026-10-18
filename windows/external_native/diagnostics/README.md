@@ -1350,3 +1350,24 @@ upstream borrowed-pin acquisition boundary and minimum pending user parameters.
 The plan's `l1Preparation.trial1aEntry` remains unapproved. Compile/Fake readiness
 does not establish `TRIAL1A READY FOR USER AUTHORIZATION`, independent fixed-target
 evidence or a real-experiment grant. **B2-TRIAL1A BLOCKED** remains.
+
+### B2 Trial 1A Pin acquisition (G0-L0)
+
+`l1_trial1a_pins.h/.cpp` and the unlinked `l1_trial1a_pins_windows.h/.cpp`
+close the earlier missing upstream source/ledger. One PinPlan deduplicates
+existing root/artifact/Evidence chains and image by identity/path/ID; its
+single-use Acquisition opens each retained object once, validates actual frozen
+identity/security, binds exact borrows into Entry/S1 and explicitly settles
+unique owners once. S1 alone hashes files; new root identity is measured after
+create. One 14-counter total includes all acquisition, temporary handles,
+Entry/S1 and final closes. Unknown acquisition/handoff/close never retries,
+deletes or reports settled PASS; no destructor closes retained handles.
+
+The concrete Windows adapter remains an unlinked OBJECT; run denies before ANY
+leaf, Fake port or parameter can activate it. CTest exercises the pure
+Acquisition -> Entry -> S1 -> R2 encoder chain only. See the
+[canonical amendment](../../../docs/product/agent-refactor/windows-host-acceptance-preparation.md#b2-trial-1a-pin-acquisition-amendment-g0-l0)
+for exact API envelopes, owner/borrow responsibilities and pending real-target
+fields in the SAME 1A application. Highest mechanical status:
+**TRIAL1A PIN ACQUISITION SOURCE READY / OFFLINE TESTED**.
+**B2-TRIAL1A BLOCKED** and the real denials remain; 1B/S2/S3/F2/F3 are unchanged.

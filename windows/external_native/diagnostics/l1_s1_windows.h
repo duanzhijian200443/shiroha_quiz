@@ -5,6 +5,7 @@
 
 namespace shiroha_l1_crypto::trial1a {
 class WindowsEntry;
+class WindowsPinAcquisition;
 }
 
 namespace shiroha_l1_crypto::s1 {
@@ -46,6 +47,7 @@ public:
   // No destructor CloseHandle, cleanup, delete, reopen or retry.
 private:
   friend class trial1a::WindowsEntry;
+  friend class trial1a::WindowsPinAcquisition;
   r1::Origin origin() const noexcept override {
     return r1::Origin::kWindowsApi;
   }

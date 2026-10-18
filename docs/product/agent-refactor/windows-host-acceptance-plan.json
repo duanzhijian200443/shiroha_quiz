@@ -211,12 +211,48 @@
       "totalOsCallCeiling": "S1_CEILING_PLUS_384_MAX_74402",
       "budgetAdmission": "COMPLETE_S1_AND_THREE_PROCESS_ENVELOPES_PLUS_BOTH_CLOSES_REQUIRED_BEFORE_ANY_IO",
       "artifactIdentity": "ENTRY_IMAGE_IS_FROZEN_CONTROLLER_PIN_HASHED_ONCE_BY_S1_NO_SELF_EMBEDDED_DIGEST",
-      "upstreamPinAcquisition": "SEPARATE_EXACT_APPROVED_LEDGER_REQUIRED_NOT_PERFORMED_BY_ENTRY",
+      "upstreamPinAcquisition": "SAME_TRIAL1A_PLAN_DEDUPLICATED_ACQUISITION_BORROW_AND_SETTLEMENT_DEFAULT_DENIED",
       "sourceReadiness": "REVIEWABLE_COMPILE_AND_FAKE_CANDIDATE_NOT_INDEPENDENT_APPROVAL",
       "trial1A": "BLOCKED_FIXED_TARGET_INDEPENDENT_EVIDENCE_AND_USER_AUTHORIZATION_REQUIRED",
       "fixedProcessPidCreationOwnerAndImagePin": "REQUIRES USER DECISION",
       "completeOperationBudgetAndBorrowedPinAcquisitionLedger": "REQUIRES USER DECISION",
-      "finalEntryArtifactAndDependencyFreeze": "REQUIRES USER DECISION"
+      "finalEntryArtifactAndDependencyFreeze": "REQUIRES USER DECISION",
+      "pinAcquisition": {
+        "scope": "G0-L0 SOURCE / COMPILE / FAKE ONLY",
+        "executionAuthorized": false,
+        "source": [
+          "windows/external_native/diagnostics/l1_trial1a_pins.h",
+          "windows/external_native/diagnostics/l1_trial1a_pins.cpp",
+          "windows/external_native/diagnostics/l1_trial1a_pins_windows.h",
+          "windows/external_native/diagnostics/l1_trial1a_pins_windows.cpp"
+        ],
+        "offlineTest": "windows/external_native/tests/l1_trial1a_pins_test.cpp",
+        "windowsObjectTarget": "shiroha_l1_trial1a_pins_windows",
+        "realEntry": "UNCONDITIONAL_DENIAL_BEFORE_ACQUISITION_OR_BIND",
+        "binding": "PIN_PLAN_HASH_IN_ENTRY_ACTION_AND_EXISTING_R2_EVIDENCE_NO_NEW_GRANT_OR_RECORD_FORMAT",
+        "inventory": "UNIQUE_VOLUME_FILE_ID_PATH_AND_LOGICAL_ID_TOPOLOGICAL_C_ROOT_EXISTING_ONLY_SHARED_INDICES_NO_UNUSED_OBJECTS",
+        "maxUniquePins": 1120,
+        "budget": "ONE_14_COUNTER_TOTAL_EQUALS_ENTRY_SUB_BUDGET_PLUS_SUM_ACQUISITION_AND_CLOSE_PLUS_ONE_PSEUDO_HANDLE_CALL_BEFORE_ANY_IO",
+        "osCallCeiling": "ENTRY_CEILING+65*N+1; N<=1120; MAX_147203",
+        "additionalMetadata": "ONE_DIRECTORY_OR_FILE_AND_ONE_SECURITY_READ_PER_UNIQUE_PIN",
+        "additionalKernelHandlesAcquiredAndClosedEach": "N; PLUS_ENTRY_10; MAX_1130",
+        "artifactReads": "ZERO_UPSTREAM_READFILE_S1_HASHES_EACH_ARTIFACT_ONCE_MAX_256_CALLS_16_MIB",
+        "processHandle": "CURRENT_ENTRY_PSEUDO_HANDLE_BORROW_NO_OPENPROCESS_DUPLICATE_OR_CLOSE",
+        "ownership": "ACQUISITION_SOLE_INVENTORY_CLOSE_OWNER_S1_BORROWS_ROOT_OWNER_UNCHANGED_EVIDENCE_SEPARATE",
+        "settlement": "ROOT_CLOSE_THEN_EVIDENCE_CLOSE_THEN_EXACT_BORROW_RELEASE_ACK_THEN_REVERSE_UNIQUE_PIN_CLOSES_ONCE",
+        "unknown": "STOP_RETAIN_NO_RETRY_REOPEN_DELETE_OR_SETTLED_PASS",
+        "requiredFrozenFields": [
+          "uniqueObjectAliasExactPathKindParentIndex",
+          "actualApprovedVolumeFileIdAndMetadataDigest",
+          "privateActualOwnerSidAndOwnerDaclDigest",
+          "artifactSha256AndCompleteApprovedAncestorChain",
+          "soleHandleOwnerBorrowerAndFinalCloseResponsibility",
+          "rootArtifactEvidenceAndEntryImageSharedIndices",
+          "entryPidCreationTimeAndPseudoHandleOwner",
+          "complete14CounterBudgetIncludingAcquisitionTemporaryHandlesAndFinalCloses"
+        ],
+        "approvedInventoryBudgetOwnersAndReadOnlyAcquisitionScope": "REQUIRES USER DECISION"
+      }
     },
     "parameters": {
       "selectedDevice": "REQUIRES USER DECISION",
