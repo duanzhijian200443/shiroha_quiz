@@ -68,7 +68,8 @@ function Assert-Isolation([hashtable]$Text) {
         !$real.Contains('!receipt(control_.finish(final),final)') -or
         !$real.Contains('!control_.entry_module(request_.entry_module_id)||!checkpoint()') -or
         !$real.Contains('add(c,entry_module_cost());') -or
-        !$realw.Contains('GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT') -or
+        !$realw.Contains('GetMappedFileNameW(GetCurrentProcess(),&module_anchor') -or
+        !$realw.Contains('L"\\\\?\\GLOBALROOT"') -or
         !$realw.Contains('measured.artifact_security_sha256=at->expected.security_sha256;') -or
         !$realw.Contains('security==at->expected.security_sha256') -or
         !$realw.Contains('owner.close_as(TemporaryOwner::image_reader)') -or
@@ -328,6 +329,7 @@ if ($SelfTest) {
         @{ path='diagnostics/l1_trial1a_real.cpp'; before='reviewed_binding == hash()'; after='true' },
         @{ path='diagnostics/l1_trial1a_real.cpp'; before='!control_.entry_module(request_.entry_module_id)'; after='false' },
         @{ path='diagnostics/l1_trial1a_real.cpp'; before='add(c, entry_module_cost());'; after=';' },
+        @{ path='diagnostics/l1_trial1a_real_windows.cpp'; before='GetMappedFileNameW(GetCurrentProcess(), &module_anchor'; after='GetModuleFileNameW(GetCurrentProcess(), &module_anchor' },
         @{ path='diagnostics/l1_trial1a_real_windows.cpp'; before='security == at->expected.security_sha256'; after='true' },
         @{ path='diagnostics/l1_trial1a_real_windows.cpp'; before='measured.artifact_security_sha256 = at->expected.security_sha256;'; after=';' },
         @{ path='diagnostics/l1_trial1a_real.cpp'; before='budget == invocation_ceiling(*this)'; after='true' },

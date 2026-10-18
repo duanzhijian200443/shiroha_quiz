@@ -29,7 +29,7 @@ s1::Counts entry_module_cost() {
   c[s1::files] = 2;
   c[s1::security_reads] = 1;
   c[s1::handles_acquired] = c[s1::handles_closed] = 1;
-  return c; // actual loaded diagnostic module identity, metadata and temp close
+  return c; // mapped image backing-file identity, metadata and temp close
 }
 s1::Counts invocation_ceiling(const Invocation &q) {
   auto c = q.plan.budget;

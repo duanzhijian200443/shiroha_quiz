@@ -10,7 +10,12 @@
 // The output borrows process-lifetime custody; never delete it. UNKNOWN retains
 // the owning composition, its pins and ledger for the approved manual handoff.
 // No CLI, environment, JSON, ordinary configuration or DllMain activation.
-extern "C" int shiroha_trial1a_entry(
+#if defined(SHIROHA_L1_TRIAL1A_ENTRY_BUILD)
+#define SHIROHA_L1_TRIAL1A_ENTRY_API __declspec(dllexport)
+#else
+#define SHIROHA_L1_TRIAL1A_ENTRY_API
+#endif
+extern "C" SHIROHA_L1_TRIAL1A_ENTRY_API int shiroha_trial1a_entry(
     const shiroha_l1_crypto::trial1a::Invocation *fixed_packet,
     const shiroha_l1_crypto::trial1a::InvocationResult **result) noexcept;
 #endif

@@ -3911,9 +3911,14 @@ also links into the isolated diagnostic `shiroha_l1_trial1a_real_entry.dll`,
 absent from CTest/default startup. Its `shiroha_trial1a_entry` accepts only the
 reviewed typed private packet from the independently approved launcher, with a
 single atomic process start, retained ownership and borrowed final result.
-The running EXE and loaded DLL are distinct required artifact pins; actual DLL
-File ID/Owner/DACL measurement and temporary close precede consumption and are
-budgeted. S1 hashes the retained DLL once. Independent build plus external
+The running EXE and loaded DLL are distinct required artifact pins. Before
+consumption the memory manager's name for the mapped entry-image section is
+opened existing-only and its actual Volume/File ID and Owner/DACL are measured
+against the retained pin; successful temporary close precedes consumption and
+is budgeted. This is a check-time binding, not an atomic loader HANDLE: the
+launcher must pin the artifact before load, and the post-load rename/replacement
+negative case remains a required real-acceptance item. S1 hashes the retained
+DLL once. Independent build plus external
 packet construction avoids self-embedded EXE hashes. The packet ABI requires the
 same reviewed compiler/CRT/headers, and the module/result custody must remain
 retained until approved handoff/process exit. No unload/retry or auto-cleanup is

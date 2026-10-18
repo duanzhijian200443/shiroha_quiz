@@ -1390,10 +1390,16 @@ The legacy/public denials stay closed. CMake also fully links the isolated
 `shiroha_l1_trial1a_real_entry.dll`. Its sole `shiroha_trial1a_entry` export
 accepts the independently reviewed typed private packet from the authorized
 launcher, using the same reviewed headers/compiler/CRT. The launcher EXE and
-loaded entry DLL are distinct artifact pins; the actual DLL File ID/Owner/DACL
-and temporary close are checked before consumption, within an added envelope
-of 128 OS calls, two file observations, one security read and one HANDLE open/
-close. S1 hashes the retained DLL once. The packet supplies post-build hashes;
+loaded entry DLL are distinct artifact pins. Before consumption the memory
+manager's name for the mapped entry-image section (not the loader's cached load
+path) is opened existing-only and measured against its retained Volume/File ID
+and Owner/DACL, with a successful temporary close, within an added envelope of
+128 OS calls, two file observations, one security read and one HANDLE open/
+close. This rejects a post-load rename/replacement that redirects the original
+path to a different file, but it is a check-time binding, not an atomic loader
+HANDLE: the launcher must pin the artifact before loading it, and real
+acceptance must include the post-load rename/replacement negative case. S1
+hashes the retained DLL once. The packet supplies post-build hashes;
 no self-embedded EXE hash or config/CLI/environment loader is required.
 `ProcessLatch` admits one call, retains ownership and returns a borrowed final
 ledger for process lifetime. Preserve the loaded module and copy the result to

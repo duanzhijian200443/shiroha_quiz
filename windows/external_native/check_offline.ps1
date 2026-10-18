@@ -104,7 +104,7 @@ if ($trialUnits.Count -ne $trialExpectedUnits.Count -or @(Compare-Object $trialE
 $trialImports = (& $dumpbin /imports $trialDll | Out-String)
 if ($LASTEXITCODE -ne 0) { throw 'Trial 1A real entry import inspection failed' }
 foreach ($api in @('OpenProcessToken', 'GetTokenInformation', 'GetFileInformationByHandleEx',
-    'GetSecurityInfo', 'WriteFile', 'FlushFileBuffers', 'GetProcessHandleCount', 'CreateWindowExW')) {
+    'GetSecurityInfo', 'K32GetMappedFileNameW', 'WriteFile', 'FlushFileBuffers', 'GetProcessHandleCount', 'CreateWindowExW')) {
     if ($trialImports -notmatch "\b$api\b") { throw 'Trial 1A Windows link closure incomplete' }
 }
 # MSVC's CRT fast-fail imports TerminateProcess, also present in pure Fake

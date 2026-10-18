@@ -280,6 +280,8 @@ if(SHIROHA_L1_WINDOWS_ADMISSION_SOURCE)
     diagnostics/l1_r2_adapters.cpp diagnostics/l1_r2_windows.cpp
     diagnostics/l1_windows_operations.cpp)
   shiroha_native_settings(shiroha_l1_trial1a_real_entry)
+  target_compile_definitions(shiroha_l1_trial1a_real_entry PRIVATE
+    SHIROHA_L1_TRIAL1A_ENTRY_BUILD)
   target_include_directories(shiroha_l1_trial1a_real_entry PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
   target_link_libraries(shiroha_l1_trial1a_real_entry PRIVATE advapi32 user32 psapi)
   # Shared files also contain dormant 1B leaves. Function-level elimination is

@@ -1162,11 +1162,17 @@ after independent artifact build, using the exact same reviewed C++ headers,
 compiler and CRT. This diagnostic packet ABI is not the production Native FFI
 ABI. Its current process EXE pin/hash and the separate required entry DLL pin
 are external inputs, avoiding a self-embedded EXE hash. `entry_module_id` must
-name a distinct retained file artifact. Before consumption the actual loaded
-module path is obtained from an address in the composition, opened existing-only,
-and measured against its retained Volume/File ID and Owner/DACL. Its temporary
-HANDLE must close successfully. S1 hashes the retained module once with the
-rest of the artifacts. An omitted/mismatched module fails closed.
+name a distinct retained file artifact. Before consumption the memory manager's
+name for the mapped entry-image section (obtained from an address in the
+composition, not the loader's cached load path) is opened existing-only and
+measured against its retained Volume/File ID and Owner/DACL. Its temporary
+HANDLE must close successfully. This rejects a post-load rename/replacement
+that redirects the original path to a different file, but it is a check-time
+binding, not an atomic HANDLE from the loader. The launcher must pin the
+artifact before loading it (or retain equivalent atomic verification); real
+acceptance must include the post-load rename/replacement negative case. S1
+hashes the retained module once with the rest of the artifacts. An
+omitted/mismatched module fails closed.
 
 The entry's shared `ProcessLatch` atomically admits at most one call per loaded
 process image, including null/invalid packets, denial, failure and exceptions.
@@ -1201,8 +1207,9 @@ device/OS/account, clock and resource peaks. RealEntry binds those measurements
 and the invocation digest into the runtime PinPlan/S1 action. It observes before
 and after each adapter action and through final closes; drift, expired UTC,
 clock inconsistency, duration/resource/observation-budget excess or UNKNOWN
-latches STOP. The running image and loaded diagnostic DLL are checked before permit
-consumption, in addition to Entry's original three gates. No source has to
+latches STOP. The running image and the file currently backing the loaded
+diagnostic image are checked before permit consumption, in addition to Entry's
+original three gates. No source has to
 invent a pre-launch PID. Approval time is separately bounded by the existing
 UI limits; the <=30000ms work deadline starts at the first post-approval
 observation. Sampled handle counts are not an exact transient high-water mark.

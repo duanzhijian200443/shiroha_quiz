@@ -1,8 +1,9 @@
 #include "diagnostics/l1_trial1a_real_windows.h"
 #include "diagnostics/l1_temporary_handle.h"
+#include <psapi.h>
 namespace shiroha_l1_crypto::trial1a {
 namespace {
-void module_anchor() {}
+int module_anchor = 0;
 } // namespace
 WindowsRealEntry::WindowsRealEntry(Invocation q)
     : request_(std::move(q)),
@@ -65,21 +66,24 @@ bool WindowsRealEntry::entry_module(const std::string &id) {
   const auto index = size_t(at - objects.begin());
   if (index >= windows_->owned_.size())
     return false;
-  HMODULE module = nullptr;
-  wchar_t path[1024]{};
-  if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                              GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                          reinterpret_cast<LPCWSTR>(&module_anchor), &module))
+  // The memory manager names the file object backing this mapped image, not the
+  // loader's cached load path. A post-load rename/replacement cannot redirect
+  // the measurement to a different file at the old path. This binds the mapped
+  // section at check time; it is not an atomic loader HANDLE, so the launcher
+  // must pin the artifact before loading it for image-level atomicity.
+  wchar_t mapped[1024]{};
+  const DWORD n =
+      GetMappedFileNameW(GetCurrentProcess(), &module_anchor, mapped, 1024);
+  if (!n || n >= 1024 || std::wcsncmp(mapped, L"\\Device\\", 8))
     return false;
-  const DWORD n = GetModuleFileNameW(module, path, 1024);
-  if (!n || n >= 1024)
-    return false;
+  const std::wstring path = std::wstring(L"\\\\?\\GLOBALROOT") + mapped;
   WindowsObjectPin measured;
   measured.owner_sid = at->owner_sid;
   measured.artifact_security_sha256 = at->expected.security_sha256;
-  measured.handle = CreateFileW(path, FILE_READ_ATTRIBUTES | READ_CONTROL,
-                                FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                                FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+  measured.handle =
+      CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES | READ_CONTROL,
+                  FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                  FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
   if (!measured.handle || measured.handle == INVALID_HANDLE_VALUE)
     return false;
   TemporaryHandle owner(

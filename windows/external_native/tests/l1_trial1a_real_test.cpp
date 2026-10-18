@@ -298,8 +298,8 @@ void preflight() {
     check(!f.entry.run_offline() && f.control.module_checks == 1 &&
               f.control.consumes == 0 && f.process.calls == 0 &&
               f.ops.creates == 0,
-          "loaded DLL identity/ACL mismatch denies before permit consumption "
-          "or S1");
+          "entry-module mapped-file identity/ACL mismatch denies before permit "
+          "consumption or S1");
   }
 }
 void failures() {
