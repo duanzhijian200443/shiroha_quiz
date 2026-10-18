@@ -795,8 +795,14 @@ Four bounded full-parent passes run before artifact inspection, immediately
 before create (after the intent evidence ACK), after create and before Pin
 handoff. Each parent observation uses actual R2 metadata: C: NTFS, exact path,
 File ID/Volume, directory/non-reparse/non-delete-pending status, Owner and frozen
-DACL digest. No parent security is changed. R2 hashes each already-owned frozen
-artifact once with <=256 ReadFile calls, <=16 MiB/file and 64 KiB blocks; the
+DACL digest. No parent security is changed. Every directory Pin carries the
+existing `SHIROHA_L1_R2_METADATA_ONLY_V1` digest of its own Volume/File ID: the
+request is rejected before any OS call when an approved parent or evidence Pin's
+digest does not derive from that identity, each observation recomputes it, and the
+new root Pin is derived the same way after the actual File ID read. A merely
+well-formed but unrelated digest can therefore never reach the Pin handoff or the
+evidence ledger. R2 hashes each already-owned frozen artifact once with <=256
+ReadFile calls, <=16 MiB/file and 64 KiB blocks; the
 Custodian hash remains solely `Limits::custodian_sha256`, bound by the existing
 R2 manifest. No Worker is needed or started to inspect artifacts or prepare root.
 

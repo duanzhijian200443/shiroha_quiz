@@ -1310,8 +1310,11 @@ the shared non-copyable temporary token close accounting.
 No pre-create root File ID is accepted. Complete approved parent pins and the
 create action are bound first; the root is created once relative to its pinned
 parent with its approved Owner/DACL supplied atomically, then actually measured
-and passed as a borrowed WindowsPinSpec. Any post-create uncertainty retains
-UNKNOWN without deletion, repair or retry. Root/evidence handles have separate
+and passed as a borrowed WindowsPinSpec whose metadata-only digest (`l1_s1_root`
+`metadata_digest`, shared with the adapter) is derived from the observed
+Volume/File ID. Approved directory Pins whose digest does not derive from their
+own identity reject the request before any OS call. Any post-create uncertainty
+retains UNKNOWN without deletion, repair or retry. Root/evidence handles have separate
 named owners; parent/artifact/process pins are borrowed and never closed here.
 Both real entry boundaries deny unconditionally; no new EXE or operational CTest
 exists and CLI/environment/JSON/Fake approval cannot activate the OBJECT.

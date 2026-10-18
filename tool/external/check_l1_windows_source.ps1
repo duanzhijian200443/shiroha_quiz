@@ -34,6 +34,10 @@ function Assert-Isolation([hashtable]$Text) {
         $s1w -notmatch 'if \(!windows_runtime_allowed\(\)\)' -or
         $s1w -notmatch 'return preparation_\.run_offline\(\);' -or
         !$s1c.Contains('ops_.origin()!=origin') -or
+        !$s1c.Contains('p.bytes_sha256!=metadata_digest(p.object)') -or
+        !$s1c.Contains('o.pin.bytes_sha256!=metadata_digest(o.pin.object)') -or
+        !$s1wc.Contains('p.bytes_sha256=metadata_digest(p.object);') -or
+        $s1w -match 'SHIROHA_L1_R2_METADATA_ONLY_V1' -or
         $s1 -notmatch 'save\(r1::Stage::kCreateIntent\) \|\| !parents\(\) \|\| !reserve\(Step::create\)' -or
         !$s1wc.Contains('a.RootDirectory=parents_.back().handle') -or
         !$s1wc.Contains('FILE_SHARE_READ,FILE_CREATE,') -or
@@ -50,7 +54,7 @@ function Assert-Isolation([hashtable]$Text) {
         $cmake -match '(?s)target_link_libraries\([^)]*shiroha_l1_s1_|TARGET_OBJECTS:shiroha_l1_s1_windows|add_test\([^)]*shiroha_l1_s1_windows' -or
         ($s1 + $s1h) -match '\b(?:CreateProcess[AW]|ResumeThread|CreateFile[AW]|ReadFile|WriteFile|GetSecurityInfo|FlushFileBuffers|NtCreateFile)\s*\(' -or
         $s1w -match '\b(?:CreateProcess[AW]|ResumeThread|TerminateProcess|SetSecurityInfo|SetNamedSecurityInfo[AW]|DeleteFile[AW]|RemoveDirectory[AW]|CreateDirectory[AW]|Crypt\w+|BCrypt\w+)\s*\(') {
-        throw 'S1 closed entry, parent-bound exclusive creation, owned close or Fake/OBJECT isolation missing'
+        throw 'S1 closed entry, parent-bound exclusive creation, identity-digest binding, owned close or Fake/OBJECT isolation missing'
     }
     $ops = $Text['diagnostics/l1_windows_operations.cpp']
     if ($cmake -notmatch 'add_library\(shiroha_l1_windows_operations OBJECT diagnostics/l1_windows_operations\.cpp\)' -or
@@ -201,6 +205,9 @@ if ($SelfTest) {
     $cases = @(
         @{ path='diagnostics/l1_s1_root.h'; before='windows_runtime_allowed() noexcept { return false; }'; after='windows_runtime_allowed() noexcept { return true; }' },
         @{ path='diagnostics/l1_s1_root.cpp'; before='ops_.origin() != origin'; after='false' },
+        @{ path='diagnostics/l1_s1_root.cpp'; before='o.pin.bytes_sha256 != metadata_digest(o.pin.object)'; after='hex_digest(o.pin.bytes_sha256, 64)' },
+        @{ path='diagnostics/l1_s1_root.cpp'; before='p.bytes_sha256 != metadata_digest(p.object)'; after='false' },
+        @{ path='diagnostics/l1_s1_windows.cpp'; before='p.bytes_sha256 = metadata_digest(p.object);'; after='p.bytes_sha256 = expected.bytes_sha256;' },
         @{ path='diagnostics/l1_s1_root.cpp'; before='!parents() || !reserve(Step::create)'; after='!reserve(Step::create)' },
         @{ path='diagnostics/l1_s1_windows.cpp'; before='FILE_SHARE_READ, FILE_CREATE,'; after='FILE_SHARE_READ, FILE_OPEN_IF,' },
         @{ path='diagnostics/l1_s1_windows.cpp'; before='a.RootDirectory = parents_.back().handle'; after='a.RootDirectory = nullptr' },

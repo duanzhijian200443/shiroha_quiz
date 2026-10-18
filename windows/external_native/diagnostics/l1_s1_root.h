@@ -45,6 +45,9 @@ struct Request {
   std::string hash() const;
 };
 std::string pin_hash(const r1::Pin &);
+// Directory Pins carry no file bytes. Their digest must be the existing R2
+// metadata-only derivation of the same Volume/File ID, never a caller label.
+std::string metadata_digest(const ObjectIdentityPin &);
 std::vector<std::string> parent_paths(const std::string &);
 struct Runtime {
   r2::RuntimeFacts facts;

@@ -148,6 +148,12 @@ std::string pin_hash(const r1::Pin &p) {
   object_hash(h, p.parent);
   return h.finalize_hex();
 }
+std::string metadata_digest(const ObjectIdentityPin &o) {
+  CanonicalHashBuilder h;
+  h.put_str("SHIROHA_L1_R2_METADATA_ONLY_V1");
+  object_hash(h, o);
+  return h.finalize_hex();
+}
 bool Request::valid() const {
   auto output_scope = frozen.target.scope;
   output_scope.directory = evidence_directory;
@@ -163,10 +169,12 @@ bool Request::valid() const {
       !hex_digest(root_security_sha256, 64))
     return false;
   for (const auto &p : parents)
-    if (p.owner != frozen.manifest.pin_owner)
+    if (p.owner != frozen.manifest.pin_owner ||
+        p.bytes_sha256 != metadata_digest(p.object))
       return false;
   for (const auto &p : evidence_parents)
-    if (p.owner != frozen.manifest.pin_owner)
+    if (p.owner != frozen.manifest.pin_owner ||
+        p.bytes_sha256 != metadata_digest(p.object))
       return false;
   for (const auto *chain : {&parents, &evidence_parents})
     for (const auto &p : *chain)
@@ -234,7 +242,9 @@ bool Preparation::parents() {
     if (!reserve(Step::parent))
       return false;
     auto o = ops_.parent(i);
-    if (!directory_ok(o) || !(o.pin == request_.parents[i]))
+    if (!directory_ok(o) ||
+        o.pin.bytes_sha256 != metadata_digest(o.pin.object) ||
+        !(o.pin == request_.parents[i]))
       return fail(Failure::parent);
   }
   return true;
@@ -248,7 +258,7 @@ bool Preparation::root() {
       o.pin.parent != request_.parents.back().object ||
       o.pin.object.volume_serial != o.pin.parent.volume_serial ||
       o.pin.security_sha256 != request_.root_security_sha256 ||
-      !hex_digest(o.pin.bytes_sha256, 64))
+      o.pin.bytes_sha256 != metadata_digest(o.pin.object))
     return fail(Failure::root);
   for (const auto &p : request_.parents)
     if (p.object == o.pin.object)

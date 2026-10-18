@@ -11,20 +11,15 @@ ObjectIdentityPin id(const FILE_ID_INFO &p) {
   std::copy_n(p.FileId.Identifier, 16, out.file_id.begin());
   return out;
 }
-std::string metadata_hash(const ObjectIdentityPin &p) {
-  CanonicalHashBuilder h;
-  h.put_str("SHIROHA_L1_R2_METADATA_ONLY_V1");
-  h.put_u64_le(p.volume_serial);
-  h.put_bytes(p.file_id.data(), 16);
-  return h.finalize_hex();
-}
 std::wstring wide(const std::string &s) { return {s.begin(), s.end()}; }
 bool measure(const WindowsObjectPin &p, const r1::Pin &expected,
              const std::string &path, Observation &out) {
   std::wstring actual;
   std::string sd;
   if (!r2::measure_metadata(p, true, sd, actual) ||
-      actual != L"\\\\?\\" + wide(path) || id(p.identity) != expected.object ||
+      actual != L"\\\\?\\" + wide(path) ||
+      id(p.identity) != expected.object ||
+      expected.bytes_sha256 != metadata_digest(expected.object) ||
       sd != expected.security_sha256)
     return false;
   out.pin = expected;
@@ -57,7 +52,7 @@ Handoff PinReceiver::retain(const r2::WindowsPinSpec &spec,
   p.object = id(spec.object.identity);
   p.parent = id(spec.parent.identity);
   p.security_sha256 = spec.object.artifact_security_sha256;
-  p.bytes_sha256 = metadata_hash(p.object);
+  p.bytes_sha256 = metadata_digest(p.object);
   return {r1::IoStatus::kOk, owner_, request_, pin_hash(p)};
 }
 WindowsPreparation::WindowsPreparation(
@@ -250,7 +245,7 @@ Observation WindowsPreparation::root() {
   p.object = id(root_.identity);
   p.parent = request_.parents.back().object;
   p.security_sha256 = request_.root_security_sha256;
-  p.bytes_sha256 = metadata_hash(p.object);
+  p.bytes_sha256 = metadata_digest(p.object);
   measure(root_, p, request_.frozen.target.scope.directory, out);
   return out;
 }

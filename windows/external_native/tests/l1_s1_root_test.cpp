@@ -32,7 +32,8 @@ s::Request request() {
     p.object.volume_serial = 9;
     p.object.file_id[0] = uint8_t(40 + i);
     p.parent = i ? q.evidence_parents.back().object : p.object;
-    p.security_sha256 = p.bytes_sha256 = std::string(64, '9');
+    p.security_sha256 = std::string(64, '9');
+    p.bytes_sha256 = s::metadata_digest(p.object);
     q.evidence_parents.push_back(p);
     if (i < 2)
       q.parents.push_back(p);
@@ -92,7 +93,7 @@ struct Ops final : s::Operations {
   uint32_t forced_reads = 256;
   bool bad_identity = false, bad_artifact = false, bad_handoff = false,
        throw_handoff = false, close_failure = false, open_failure = false,
-       root_identity_drift = false;
+       root_identity_drift = false, wrong_root_digest = false;
   s::Creation creation = s::Creation::created;
   r::Pin actual;
   explicit Ops(s::Request r) : q(std::move(r)) {
@@ -102,7 +103,7 @@ struct Ops final : s::Operations {
     actual.object.file_id[0] = 80;
     actual.parent = q.parents.back().object;
     actual.security_sha256 = q.root_security_sha256;
-    actual.bytes_sha256 = std::string(64, '8');
+    actual.bytes_sha256 = s::metadata_digest(actual.object);
   }
   r::Origin origin() const noexcept override { return source; }
   s::Runtime identity() override {
@@ -126,9 +127,11 @@ struct Ops final : s::Operations {
       switch (drift_kind) {
       case 0:
         ++o.pin.object.volume_serial;
+        o.pin.bytes_sha256 = s::metadata_digest(o.pin.object);
         break;
       case 1:
         ++o.pin.object.file_id[0];
+        o.pin.bytes_sha256 = s::metadata_digest(o.pin.object);
         break;
       case 2:
         o.pin.owner = "OTHER-OWNER";
@@ -173,9 +176,14 @@ struct Ops final : s::Operations {
     ++roots;
     if (roots == root_fail)
       return {};
-    if (roots == 2 && root_identity_drift)
+    if (roots == 2 && root_identity_drift) {
       ++actual.object.file_id[0];
-    return {actual, true, true, false, false, true};
+      actual.bytes_sha256 = s::metadata_digest(actual.object);
+    }
+    r::Pin p = actual;
+    if (wrong_root_digest)
+      p.bytes_sha256 = std::string(64, '0');
+    return {p, true, true, false, false, true};
   }
   bool open_evidence() override {
     ++opens;
@@ -340,6 +348,33 @@ void rejection_and_drift() {
   check(!i.preparation.run_offline() && i.ops.creates == 0,
         "Token identity failure prevents create");
 }
+void metadata_digest_binding() {
+  auto q = request();
+  check(s::metadata_digest(q.parents[0].object) == q.parents[0].bytes_sha256,
+        "approved parent Pin carries the digest of its own Volume/File ID");
+  auto other = q.parents[0].object;
+  ++other.file_id[0];
+  check(s::metadata_digest(other) != q.parents[0].bytes_sha256,
+        "metadata-only digest binds the actual File ID bytes");
+  auto wrong_parent = q;
+  wrong_parent.parents[1].bytes_sha256 = std::string(64, '0');
+  check(!wrong_parent.valid(),
+        "formatted but unrelated parent digest rejects the request");
+  auto wrong_evidence = q;
+  wrong_evidence.evidence_parents[2].bytes_sha256 =
+      s::metadata_digest(wrong_evidence.parents[0].object);
+  check(!wrong_evidence.valid(),
+        "a digest copied from another approved object rejects the request");
+  S1Fixture d;
+  d.ops.wrong_root_digest = true;
+  check(!d.preparation.run_offline() &&
+            d.preparation.result().failure == s::Failure::root &&
+            d.preparation.result().state == s::State::unknown &&
+            d.ops.handoffs == 0 && d.ops.root_closes == 0 &&
+            !d.preparation.result().root.object.valid(),
+        "unchanged root File ID with a non-derivable digest never reaches "
+        "handoff");
+}
 void evidence_budget_and_gate() {
   for (unsigned fail = 1; fail <= 2; ++fail)
     for (unsigned kind = 0; kind < 4; ++kind) {
@@ -477,6 +512,7 @@ void temporary_ownership() {
 int main() {
   success_and_ownership();
   rejection_and_drift();
+  metadata_digest_binding();
   evidence_budget_and_gate();
   temporary_ownership();
   std::cout << "PASS: " << checks
