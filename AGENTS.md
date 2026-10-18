@@ -66,11 +66,34 @@ messages for the same task until the user explicitly changes it or starts a new
 task. Do not silently switch roles. Without an active explicit role, default to
 read-only investigation; a pasted handoff alone does not grant write authority.
 
-An Executor instruction authorizes implementation only within the requested
-responsibility. Branch/worktree, staging, commit, push, PR, merge, tag and release
-authority remain action-specific. Preserve already-granted authority for the same
-task; do not ask for it again. Missing authority for one action does not prevent
-independent authorized work.
+An Executor instruction authorizes implementation within the requested
+responsibility. Git/PR authority remains action-specific. User-established
+role-specific permissions implement an explicitly approved policy with a recorded
+user source, including the Executor policy below, and apply only while that role
+is active; a role file or handoff never creates authority. All other actions
+retain their existing authorization requirements. Preserve already-granted
+authority for the same task; do not ask for it again. Missing authority for one
+action does not prevent independent authorized work.
+
+### Executor standing delivery policy
+
+This is a new user-approved policy introduced by PR #305, effective from the
+direct user confirmation on 2026-10-18; it does not claim earlier blanket authority.
+The source is the direct exchange in [Codex chat](codex://threads/01a14ee2-6ead-7b30-a7f9-bc8a83dba6d2),
+user message `01a14ef2-36ea-76d1-a6d5-1f4c1b6af482`. The approval request stated:
+
+> 是否批准今后显式激活 `角色：执行` 时，在任务范围内且检查通过后，自动暂存、提交、推送并创建或更新任务 PR；并授权我修订本条款、提交推送到 #305？分支创建、fetch、merge 等其他权限仍按原规则处理。
+
+The user replied: **授权**.
+
+For future explicitly activated Executor assignments, this approves exact-path
+staging, commit, push and task PR creation after required checks, within the
+authorized responsibility. Updating an existing task PR means pushing its source
+branch, not changing PR metadata. Explicit user limits or revocation take
+precedence. Other roles and default read-only investigation gain no permission.
+Fetch, local-default alignment, branch/worktree creation, merge, tag/release and
+other PR mutations retain their separate authority requirements. The Executor
+Delivery section implements this policy; the direct user approval is its source.
 
 ### Explicit automation mode
 
@@ -140,7 +163,8 @@ cross-layer semantics are unresolved, or when explicitly requested.
 Executor owns implementation, minimum meaningful regressions, focused tests and
 architecture gates, analyze, format, diff-check and final scope inspection.
 Green Executor checks are mechanical evidence, not independent semantic approval.
-Stop at the authorized delivery boundary, even when no PR is authorized.
+Follow the active role's delivery instructions and stop at the authorized
+delivery boundary. An explicit user restriction on delivery takes precedence.
 
 For every non-trivial completion PR, the automatic `PR contract checks` run is
 the default independent verification authority. It must succeed for the current
@@ -181,13 +205,19 @@ removed, skipped or bypassed.
 
 Default budgets:
 
-- At most two semantic/implementation self-repair cycles per Executor assignment.
-- At most two review-driven repair rounds for the same delivery target/task.
+- At most four semantic/implementation self-repair cycles per Executor assignment.
+  A genuinely new authorized bounded assignment starts its own count at zero;
+  continuation or replacement of a worker for the same assignment inherits its
+  existing count.
+- At most four review-driven repair rounds for the same delivery target/task.
   A round batches compatible findings, repairs them and receives fresh review.
+  This count remains cumulative across Executor assignments for that target/task.
 - Mechanical format/import/lint/trivial compile cleanup does not consume a
   semantic cycle.
-- Changing agents, rewriting handoff notes or advancing the PR head does not reset
-  the review-round budget. Track both counts in handoffs.
+- Changing agents, resuming work, rewriting handoff notes or advancing the PR head
+  does not create a new assignment or reset either applicable count. Track the
+  current assignment's self-repair count and the target/task's cumulative
+  review-repair count separately in handoffs.
 - Different limits require explicit task/user authority.
 
 Rerun the failed check and directly affected regressions after repair.
@@ -216,17 +246,49 @@ destructive checkout/restore, clean, force push, amend, rebase or squash.
 Any current-user exception must be explicit and must comply with platform rules;
 a task template or role cannot grant that exception.
 
-Each write task uses a dedicated non-default branch:
-initial implementation creates the assigned branch from the authorized base;
-follow-ups and review repair reuse that task's branch/PR.
-Never implement directly on the default branch.
+Each new independent write task uses a new dedicated non-default branch created
+from the verified latest remote default-branch commit. Complete baseline
+verification and any authorized alignment at task start, before branch creation
+or implementation; never defer this check to PR delivery.
+
+Verify the repository's remote default branch from current remote facts, fetch it
+with the required authority, and compare the local default branch with that
+fetched commit. If the local default is behind, safely fast-forward it before
+creating the task branch. If absent, establish the local default from the verified
+remote commit with the required authority. If ahead, diverged, dirty/occupied in a
+way that prevents safe alignment, or unverifiable, stop affected writes and obtain
+the smallest necessary resolution; never reset, rebase, overwrite user work or
+push local default-branch commits to force alignment. Record the verified remote,
+default branch, baseline commit and local alignment result at task start.
+
+Do not reuse a merged PR's development branch or its PR-only commit history as
+the starting point for a new task. After Squash Merge, use the actual merged
+default-branch commit as included in the latest verified remote default tip,
+never the original PR head. Alignment concerns the local default branch, not
+merging an old task branch into the default branch.
+
+Continuation of the same authorized unfinished task before PR creation reuses its
+existing non-default branch/worktree and original verified task-start baseline.
+Before resuming, verify task identity, scope, authority, baseline evidence, current
+HEAD/dirty state and writer ownership; preserve both applicable repair counts.
+Do not restart the new-task baseline/alignment/branch-creation gate solely because
+execution was interrupted or PR creation was deferred by the user. Missing PR
+authority blocks PR creation, not otherwise authorized implementation. Missing
+original baseline evidence or target drift still blocks affected writes; this
+continuation path grants no new Git/PR authority.
+
+Repairs and supplements to an existing OPEN PR reuse the same task branch and PR
+after verifying its current source/base/head. A merged or closed PR is not an
+automatic reuse target; subsequent independent work follows the new-task baseline
+rule. Never implement directly on the default branch.
 Assigned branch creation requires explicit user authority or authority inherited from the current user-approved task; a delegated handoff may record that authority but never create it.
 Worktrees are optional for a single writer; use them only for parallel writers,
 needed dirty-checkout isolation or an explicit Coordinator requirement, with
 applicable authorization.
 
 Expected ownership paths are not an exhaustive whitelist unless
-`Strict path whitelist: yes`. Directly necessary coupled paths may be added when
+`Strict path whitelist: yes`; an omitted flag defaults to `no`. Only with `no`
+may directly necessary coupled paths be added when
 they remain in the same responsibility, do not overlap another writer, and add
 no unauthorized feature, dependency, migration, public contract or refactor.
 Report added paths and reasons. With a strict whitelist, stop before crossing it.
@@ -240,7 +302,9 @@ template in `docs/agents/README.md` to make scope, acceptance and already-grante
 authority explicit. Direct user instructions may provide the same facts without a
 formal handoff. A handoff records authority; it never creates authority.
 Implementation or staging never implies commit, push, PR creation, merge, tag or
-release. Only perform actions actually authorized by the user/current task.
+release. Only perform actions actually authorized by the user/current task or
+expressly covered by the user-approved policy and source recorded in section 3,
+as implemented by the active role file.
 
 `PR-create` authorizes PR creation only. PR title/body updates, close/reopen and
 other PR mutations remain separate actions requiring explicit task/user authority.
@@ -304,7 +368,15 @@ evidence; do not silently extend timeouts or retry indefinitely.
 | P0 | Secret exposure, destructive corruption or catastrophic security/privacy failure |
 | P1 | Data loss, crash, broken core behavior, violated frozen invariant or serious compatibility/concurrency failure |
 | P2 | Meaningful correctness/compatibility/concurrency/required-acceptance gap blocking merge |
-| P3 | Non-blocking maintenance, documentation drift, optional coverage or cleanup |
+| P3 | Non-blocking maintenance, editorial documentation drift, optional coverage or cleanup |
+
+Documentation severity follows the concrete consequence. Editorial or maintenance
+drift that does not affect required behavior, architecture or acceptance is P3.
+A demonstrable omission or mismatch in required governing documents is P2 when it
+materially contradicts the candidate implementation or leaves a required behavior,
+architecture boundary or acceptance condition ambiguous. Cite the specific
+contradiction/gap and its consequence; do not promote cosmetic drift to a blocker.
+Apply P0/P1 instead when the documented defect meets those higher-impact criteria.
 
 P3 is deferred by default. Completed reviews return all non-duplicate blocking
 findings together. Incomplete/unstable targets return `INCONCLUSIVE`, never approval.
@@ -322,8 +394,9 @@ may report missing or stale durable documentation as a blocking finding.
 
 There is no mandatory post-approval Documentation Closure. Durable docs required
 for the delivery belong in the implementation/repair head before CI and review.
-If review finds a missing/stale durable document, route it through the same-PR
-repair flow. Any tracked documentation repair advances the head and therefore
+If review finds a blocking missing/stale required durable document, route it
+through the same-PR repair flow; non-blocking P3 drift remains deferred. Any
+tracked documentation repair advances the head and therefore
 requires standing CI and fresh review. Reviewer remains read-only apart from its
 single PR-evidence publication.
 

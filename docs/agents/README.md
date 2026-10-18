@@ -20,6 +20,19 @@ Human / Coordinator
 Normal review identity is the Git target: final PR head + current base/merge
 target. PR-body notes are not part of review identity or merge readiness.
 
+Before implementing a new independent task, verify the latest remote default
+branch, safely align the local default with existing authority and create the
+authorized task branch from that verified commit. Never inherit a merged PR's
+branch/head as the new baseline, including after Squash Merge. Perform this check
+at task start; `AGENTS.md` section 7 and `.agents/rules/git_work.md` own the gate.
+Continuation of the same unfinished authorized task before PR creation reuses
+its verified non-default branch/worktree and original baseline under `AGENTS.md`
+section 7. Recheck task identity, scope, authority, baseline evidence, current
+HEAD/dirty state and writer ownership, and retain repair counts; do not require
+an OPEN PR or restart new-task alignment solely to resume. Explicit delivery
+restrictions still apply. Repairs/supplements to an existing PR reuse its verified
+OPEN target instead.
+
 ## Roles
 
 | Role | Responsibility | Tracked edits |
@@ -41,7 +54,9 @@ need a formal handoff and nothing here must be copied into the PR body.
 角色：执行
 任务：<bounded objective>
 
-Base: <authorized base>
+Task kind: independent | continuation-before-PR | repair/supplement
+Base: <verified latest remote default commit for new work; original baseline for continuation; existing PR base for repair>
+Baseline evidence: <task-start remote/default/tip/local alignment; revalidated original task/branch/baseline for continuation; or OPEN target PR identity>
 Branch: <assigned branch>
 Branch mode: create | reuse
 Canonical contract: <governing paths or none>
@@ -51,17 +66,26 @@ Strict path whitelist: no | yes
 Frozen task semantics: <current-stage invariants>
 Acceptance: <focused criteria>
 Validation: <focused checks>
-Authorized Git/PR actions: <only actions already granted by the user/current task>
+Authorized Git/PR actions: <user/task authority and applicable active-role permissions; explicit restrictions>
 Authority source: <trusted user instruction or inherited user-approved task>
-Review repair rounds used: <inherited count>
+Self-repair cycles used: <current Executor assignment count; zero only for a genuinely new assignment>
+Review repair rounds used: <cumulative count for the same delivery target/task across assignments>
 Stop conditions: <task-specific blockers beyond AGENTS.md>
 ```
 
 The handoff is disposable context. It records authority but never creates it.
-With `Strict path whitelist: yes`, list exact repository-relative paths. Directly
-necessary coupled paths may be added only under the shared ownership/authority
-rules. Do not persist handoffs as sibling task Markdown, completion markers or a
-second queue.
+With `Strict path whitelist: yes`, list exact repository-relative paths and stop
+before any unlisted path; do not add coupled paths without explicit authorization
+to expand the whitelist. Only with `Strict path whitelist: no` may directly
+necessary coupled paths be added under the shared ownership/authority rules and
+reported in handoff. Do not persist handoffs as sibling task Markdown, completion
+markers or a second queue.
+
+Keep the two repair counters separate under `AGENTS.md` section 6: self-repair
+belongs to the current bounded Executor assignment; review-repair rounds belong
+to the same delivery target/task across assignments. A genuinely new authorized
+assignment starts only its own self-repair count at zero. Worker replacement,
+resumption, handoff rewrites and PR-head changes do not reset applicable counts.
 
 ## Durable documentation
 
