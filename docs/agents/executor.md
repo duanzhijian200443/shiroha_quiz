@@ -86,7 +86,18 @@ and source chat/message identity; this role file implements that approval and
 does not establish it by itself. Only while `角色：执行` is explicitly active,
 these permissions apply to the authorized assignment unless the user narrows or
 revokes them. Other roles and default read-only investigation gain no permission.
-After required checks pass:
+Before automatic delivery, confirm that the assigned core outcome and all
+task-specific acceptance criteria are met, not merely that the executed checks
+are green. If the assigned outcome is incomplete or the result is BLOCKED/FAILED,
+preserve partial work and report the blocker; do not automatically stage,
+commit, push or open a completion PR. A blocker report or docs-only update does
+not complete an assigned implementation task. An explicitly user-authorized,
+independently reviewable partial deliverable may be delivered against its own
+bounded acceptance criteria, without claiming the parent task is complete.
+Source-only work may be complete even when later real-device acceptance is
+separately pending.
+
+Only after this completion gate and the required checks pass:
 
 - Independent task, including its pre-PR continuation: stage exact task paths,
   commit, push the verified task branch
