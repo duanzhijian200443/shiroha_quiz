@@ -555,13 +555,15 @@ bool inspect_e4_image(HANDLE process, const WindowsObjectPin &image) noexcept {
                   OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
   if (actual_file == INVALID_HANDLE_VALUE)
     return false;
+  TemporaryHandle image_owner(TemporaryOwner::image_reader,
+      reinterpret_cast<uintptr_t>(actual_file), close_token);
   FILE_ID_INFO actual_id{};
   bool same =
       GetFileInformationByHandleEx(actual_file, FileIdInfo, &actual_id,
                                    sizeof(actual_id)) &&
       actual_id.VolumeSerialNumber == image.identity.VolumeSerialNumber &&
       std::memcmp(&actual_id.FileId, &image.identity.FileId, 16) == 0;
-  bool closed = CloseHandle(actual_file) != FALSE;
+  bool closed = image_owner.close_as(TemporaryOwner::image_reader);
   return same && closed;
 }
 bool verify_e4_artifact(const WindowsObjectPin &pin,

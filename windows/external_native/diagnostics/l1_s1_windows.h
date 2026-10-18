@@ -3,6 +3,10 @@
 #include "diagnostics/l1_r2_windows.h"
 #include "diagnostics/l1_s1_root.h"
 
+namespace shiroha_l1_crypto::trial1a {
+class WindowsEntry;
+}
+
 namespace shiroha_l1_crypto::s1 {
 // Compile-only, no executable links these leaves. No discovery of paths/SID.
 // Receiver borrows the pinned HANDLE; the Preparation's named pin Owner keeps
@@ -41,6 +45,7 @@ public:
   const Result &result() const { return preparation_.result(); }
   // No destructor CloseHandle, cleanup, delete, reopen or retry.
 private:
+  friend class trial1a::WindowsEntry;
   r1::Origin origin() const noexcept override {
     return r1::Origin::kWindowsApi;
   }

@@ -3846,6 +3846,24 @@ are not closed and no production ABI/E4 persisted format changes.
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
 REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
 
+### B2 Trial 1A fixed-target diagnostic entry (G0-L0)
+
+The [fixed-entry amendment](windows-host-acceptance-preparation.md#b2-trial-1a-fixed-target-diagnostic-entry-g0-l0)
+owns the typed entry, additional three process identity/permission checks,
+complete combined operation ledger and remaining user-selected parameters.
+`l1_trial1a_entry` reuses S1; `l1_trial1a_windows` composes the retained Windows
+process/image/parent/artifact/evidence pins, concrete PinReceiver and R2 evidence
+as an unlinked OBJECT. The separate pure refusal EXE always returns 10. It is
+not a runnable Windows composition; Fake receipts, CLI/environment/JSON cannot
+enable it. Incoming pin acquisition needs a separate approved upstream ledger.
+The eight temporary handles have explicit single-close owners; root and evidence
+retain their existing owners. No new production authorization or persisted
+format is introduced. Source/compile/Fake evidence is reviewable independently
+of fixed-target readiness and runtime permission. All five L1 trials remain
+`DRAFT_NOT_AUTHORIZED`; **B2-TRIAL1A BLOCKED**; 1B/S2/S3/F2/F3 are unchanged.
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
+REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
+
 ### E4 local-human single-use admission source candidate (G0-L0)
 
 E4 supplements, and does not retroactively change, the E2/E3 source boundary.

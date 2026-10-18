@@ -186,6 +186,38 @@
       "workerPrerequisite": false,
       "trial1A": "BLOCKED_FIXED_TARGET_INDEPENDENT_EVIDENCE_AND_USER_AUTHORIZATION_REQUIRED"
     },
+    "trial1aEntry": {
+      "scope": "G0-L0 SOURCE / COMPILE / FAKE ONLY",
+      "executionAuthorized": false,
+      "source": [
+        "windows/external_native/diagnostics/l1_trial1a_entry.h",
+        "windows/external_native/diagnostics/l1_trial1a_entry.cpp",
+        "windows/external_native/diagnostics/l1_trial1a_windows.h",
+        "windows/external_native/diagnostics/l1_trial1a_windows.cpp",
+        "windows/external_native/diagnostics/l1_trial1a_main.cpp"
+      ],
+      "offlineTest": "windows/external_native/tests/l1_trial1a_entry_test.cpp",
+      "denialExecutable": "shiroha_l1_trial1a_candidate",
+      "windowsObjectTarget": "shiroha_l1_trial1a_windows",
+      "realEntry": "UNCONDITIONAL_DENIAL_NO_CONFIGURABLE_AUTHORIZATION",
+      "input": "TYPED_FIXED_TARGET_AND_ALREADY_RETAINED_NAMED_OWNER_HANDLES_NO_PARSER_OR_DISCOVERY",
+      "binding": "S1_ACTION_DIGEST_COMMITS_ENTRY_PROCESS_PID_CREATION_OWNER_IMAGE_PIN_AND_COMPLETE_BUDGET",
+      "processMeasurements": 3,
+      "additionalOsCalls": 384,
+      "additionalFileObservations": 6,
+      "additionalSecurityReads": 3,
+      "additionalTemporaryTokenHandles": 3,
+      "additionalTemporaryImageHandles": 3,
+      "totalOsCallCeiling": "S1_CEILING_PLUS_384_MAX_74402",
+      "budgetAdmission": "COMPLETE_S1_AND_THREE_PROCESS_ENVELOPES_PLUS_BOTH_CLOSES_REQUIRED_BEFORE_ANY_IO",
+      "artifactIdentity": "ENTRY_IMAGE_IS_FROZEN_CONTROLLER_PIN_HASHED_ONCE_BY_S1_NO_SELF_EMBEDDED_DIGEST",
+      "upstreamPinAcquisition": "SEPARATE_EXACT_APPROVED_LEDGER_REQUIRED_NOT_PERFORMED_BY_ENTRY",
+      "sourceReadiness": "REVIEWABLE_COMPILE_AND_FAKE_CANDIDATE_NOT_INDEPENDENT_APPROVAL",
+      "trial1A": "BLOCKED_FIXED_TARGET_INDEPENDENT_EVIDENCE_AND_USER_AUTHORIZATION_REQUIRED",
+      "fixedProcessPidCreationOwnerAndImagePin": "REQUIRES USER DECISION",
+      "completeOperationBudgetAndBorrowedPinAcquisitionLedger": "REQUIRES USER DECISION",
+      "finalEntryArtifactAndDependencyFreeze": "REQUIRES USER DECISION"
+    },
     "parameters": {
       "selectedDevice": "REQUIRES USER DECISION",
       "osEditionBuildPatchX64": "REQUIRES USER DECISION",

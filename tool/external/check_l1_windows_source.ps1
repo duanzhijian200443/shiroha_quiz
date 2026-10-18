@@ -18,11 +18,40 @@ foreach ($path in @('CMakeLists.txt', 'diagnostics/l1_crypto_probe.h',
     'diagnostics/l1_r2_custodian_entry.cpp', 'diagnostics/l1_r2_windows.h',
     'diagnostics/l1_r2_windows.cpp', 'diagnostics/l1_s1_root.h',
     'diagnostics/l1_s1_root.cpp', 'diagnostics/l1_s1_windows.h',
-    'diagnostics/l1_s1_windows.cpp', 'diagnostics/l1_temporary_handle.h')) {
+    'diagnostics/l1_s1_windows.cpp', 'diagnostics/l1_temporary_handle.h',
+    'diagnostics/l1_trial1a_entry.h', 'diagnostics/l1_trial1a_entry.cpp',
+    'diagnostics/l1_trial1a_windows.h', 'diagnostics/l1_trial1a_windows.cpp',
+    'diagnostics/l1_trial1a_main.cpp')) {
     $sources[$path] = [IO.File]::ReadAllText((Join-Path $native $path))
 }
 function Assert-Isolation([hashtable]$Text) {
     $cmake = $Text['CMakeLists.txt']
+    $entry = $Text['diagnostics/l1_trial1a_entry.cpp'] -replace '\s',''
+    $entryh = $Text['diagnostics/l1_trial1a_entry.h'] -replace '\s',''
+    $entryw = $Text['diagnostics/l1_trial1a_windows.cpp'] -replace '\s',''
+    $entrywh = $Text['diagnostics/l1_trial1a_windows.h'] -replace '\s',''
+    $entrymain = $Text['diagnostics/l1_trial1a_main.cpp'] -replace '\s',''
+    if (!$entry.Contains('intprocess_entry(int,wchar_t**)noexcept{return10;}') -or
+        !$entrymain.Contains('returnshiroha_l1_crypto::trial1a::process_entry(argc,argv);') -or
+        !$entry.Contains('boolEntry::run_windows()noexcept{if(attempted_)returnfalse;attempted_=true;returnreject(s1::Failure::gate,s1::State::rejected);}') -or
+        !$entry.Contains('operations_.origin()!=r1::Origin::kFake') -or
+        !$entry.Contains('process_.origin()!=r1::Origin::kFake') -or
+        !$entry.Contains('total_budget==ceiling(preparation)') -or
+        !$entry.Contains('preparation.budget==base') -or
+        !$entry.Contains('q.entry_binding=t.hash();') -or
+        !$entryh.Contains('inspect_process()?operations_.create_root():s1::Creation::unknown') -or
+        !$entryh.Contains('inspect_process()?operations_.handoff(p,h):s1::Handoff{}') -or
+        !$entrywh.Contains('returnentry_.run_windows();') -or
+        !$entryw.Contains('!r2::inspect_process_pin(process_,target_.preparation.frozen.target.sid)') -or
+        !$entryw.Contains('!r2::measure_metadata(process_.image,false,m.security_sha256,path)') -or
+        ($Text['diagnostics/l1_windows_operations.cpp'] -replace '\s','') -notmatch 'image_owner.close_as\(TemporaryOwner::image_reader\)' -or
+        $cmake -notmatch 'add_library\(shiroha_l1_trial1a_windows OBJECT diagnostics/l1_trial1a_windows\.cpp\)' -or
+        [regex]::Matches($cmake,'diagnostics/l1_trial1a_windows\.cpp').Count -ne 1 -or
+        $cmake -notmatch 'add_test\(NAME shiroha_l1_trial1a_entry_offline COMMAND shiroha_l1_trial1a_entry_test\)' -or
+        $cmake -match '(?s)target_link_libraries\([^)]*shiroha_l1_trial1a_|TARGET_OBJECTS:shiroha_l1_trial1a_windows|add_test\([^)]*(?:shiroha_l1_trial1a_candidate|shiroha_l1_trial1a_windows)' -or
+        ($Text['diagnostics/l1_trial1a_entry.cpp'] + $Text['diagnostics/l1_trial1a_windows.cpp'] + $Text['diagnostics/l1_trial1a_main.cpp']) -match '\b(?:getenv|GetEnvironmentVariable[AW]|CreateProcess[AW]|ResumeThread|TerminateProcess|DeleteFile[AW]|RemoveDirectory[AW])\s*\(') {
+        throw 'Trial 1A fixed entry, closed real gate, complete budget, image/Owner or Fake isolation missing'
+    }
     $s1 = $Text['diagnostics/l1_s1_root.cpp']
     $s1h = $Text['diagnostics/l1_s1_root.h']
     $s1w = $Text['diagnostics/l1_s1_windows.cpp']
@@ -203,6 +232,13 @@ function Assert-Isolation([hashtable]$Text) {
 Assert-Isolation $sources
 if ($SelfTest) {
     $cases = @(
+        @{ path='diagnostics/l1_trial1a_entry.cpp'; before='int process_entry(int, wchar_t **) noexcept { return 10; }'; after='int process_entry(int, wchar_t **) noexcept { return 0; }' },
+        @{ path='diagnostics/l1_trial1a_entry.cpp'; before='total_budget == ceiling(preparation)'; after='true' },
+        @{ path='diagnostics/l1_trial1a_entry.cpp'; before='process_.origin() != r1::Origin::kFake'; after='false' },
+        @{ path='diagnostics/l1_trial1a_entry.h'; before='inspect_process() ? operations_.create_root()'; after='true ? operations_.create_root()' },
+        @{ path='diagnostics/l1_trial1a_windows.h'; before='return entry_.run_windows();'; after='return entry_.run_offline();' },
+        @{ path='diagnostics/l1_trial1a_windows.cpp'; before='!r2::inspect_process_pin(process_, target_.preparation.frozen.target.sid)'; after='false' },
+        @{ path='CMakeLists.txt'; before='add_library(shiroha_l1_trial1a_windows OBJECT'; after='add_library(shiroha_l1_trial1a_windows SHARED' },
         @{ path='diagnostics/l1_s1_root.h'; before='windows_runtime_allowed() noexcept { return false; }'; after='windows_runtime_allowed() noexcept { return true; }' },
         @{ path='diagnostics/l1_s1_root.cpp'; before='ops_.origin() != origin'; after='false' },
         @{ path='diagnostics/l1_s1_root.cpp'; before='o.pin.bytes_sha256 != metadata_digest(o.pin.object)'; after='hex_digest(o.pin.bytes_sha256, 64)' },
@@ -264,6 +300,6 @@ if ($SelfTest) {
         try { Assert-Isolation $copy } catch { $rejected = $true }
         if (!$rejected) { throw 'Source guard mutation escaped rejection' }
     }
-    Write-Output "PASS: E3/B1/R1/R2/S1 source guard; $($cases.Count) in-memory mutation rejections"
+    Write-Output "PASS: E3/B1/R1/R2/S1/Trial1A source guard; $($cases.Count) in-memory mutation rejections"
 }
-Write-Output 'PASS: E3/B1/R1/R2/S1 compile-only Windows leaves, Fake-only registration, unconditional real STOP (STATIC)'
+Write-Output 'PASS: E3/B1/R1/R2/S1/Trial1A compile-only Windows leaves, Fake-only registration, unconditional real STOP (STATIC)'

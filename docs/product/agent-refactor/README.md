@@ -87,6 +87,15 @@ stays unconditionally denied. The approved device/account/paths/operators and
 operation budget remain `REQUIRES USER DECISION`, so **B2-TRIAL1A BLOCKED**
 remains and the highest status is unchanged.
 
+The [Trial 1A entry amendment](windows-host-acceptance-preparation.md#b2-trial-1a-fixed-target-diagnostic-entry-g0-l0)
+composes S1/R2 behind one typed fixed-target entry, an unlinked Windows OBJECT
+and a separately buildable pure refusal EXE (exit 10). Three process/permission
+checks and the complete combined budget precede create/Pin handoff; the existing
+R2 evidence commits the entry binding. Fake coverage exercises the same injected
+composition. Actual device/account/path/artifact/Owner/budget selection, upstream
+pin acquisition, independent fixed-target evidence and separate real authority
+remain required; source readiness does not make Trial 1A authorization-ready.
+
 The E5 controlled diagnostic composition connects the same E4 issuance,
 write-ahead consumption, suspended Worker, six-message IPC and E2 Supervisor/
 Native settlement under one fixed-target local-human Controller. Extra directory,

@@ -136,6 +136,31 @@ function Assert-Plan([System.Collections.IDictionary]$Value) {
         $s1.counterMeaning -ceq 'RESERVED_CONSERVATIVE_UPPER_BOUNDS_BEFORE_CALL_NOT_MEASURED_OS_TOTALS; ACTUAL_ARTIFACT_READ_CALLS_SEPARATE' -and
         $s1.evidence -ceq 'EXISTING_R2_8192B_RECORDS_BIND_REDACTED_S1_RESULT_LEDGER_DIGEST; NUMERIC_LEDGER_IN_MEMORY_NO_F2_FORMAT_CHANGE' -and
         $s1.unknown -ceq 'RETAIN_OWNED_ROOT_AND_EVIDENCE_NO_DELETE_REPAIR_RETRY_OR_CLOSE_ON_UNCERTAIN_HANDOFF') 's1_ledger'
+    Has-Fields $l1 @('trial1aEntry')
+    $entry = $l1.trial1aEntry
+    Require ($entry.scope -ceq 'G0-L0 SOURCE / COMPILE / FAKE ONLY' -and
+        $entry.executionAuthorized -ceq $false -and
+        $entry.realEntry -ceq 'UNCONDITIONAL_DENIAL_NO_CONFIGURABLE_AUTHORIZATION' -and
+        $entry.source.Count -eq 5 -and
+        $entry.denialExecutable -ceq 'shiroha_l1_trial1a_candidate' -and
+        $entry.windowsObjectTarget -ceq 'shiroha_l1_trial1a_windows' -and
+        $entry.input -ceq 'TYPED_FIXED_TARGET_AND_ALREADY_RETAINED_NAMED_OWNER_HANDLES_NO_PARSER_OR_DISCOVERY' -and
+        $entry.binding -ceq 'S1_ACTION_DIGEST_COMMITS_ENTRY_PROCESS_PID_CREATION_OWNER_IMAGE_PIN_AND_COMPLETE_BUDGET' -and
+        $entry.trial1A -ceq $s1.trial1A -and
+        $entry.processMeasurements -ceq 3 -and $entry.additionalOsCalls -ceq 384 -and
+        $entry.additionalFileObservations -ceq 6 -and $entry.additionalSecurityReads -ceq 3 -and
+        $entry.additionalTemporaryTokenHandles -ceq 3 -and
+        $entry.additionalTemporaryImageHandles -ceq 3 -and
+        $entry.totalOsCallCeiling -ceq 'S1_CEILING_PLUS_384_MAX_74402' -and
+        $entry.budgetAdmission -ceq 'COMPLETE_S1_AND_THREE_PROCESS_ENVELOPES_PLUS_BOTH_CLOSES_REQUIRED_BEFORE_ANY_IO' -and
+        $entry.artifactIdentity -ceq 'ENTRY_IMAGE_IS_FROZEN_CONTROLLER_PIN_HASHED_ONCE_BY_S1_NO_SELF_EMBEDDED_DIGEST' -and
+        $entry.upstreamPinAcquisition -ceq 'SEPARATE_EXACT_APPROVED_LEDGER_REQUIRED_NOT_PERFORMED_BY_ENTRY' -and
+        $entry.sourceReadiness -ceq 'REVIEWABLE_COMPILE_AND_FAKE_CANDIDATE_NOT_INDEPENDENT_APPROVAL' -and
+        $entry.fixedProcessPidCreationOwnerAndImagePin -ceq 'REQUIRES USER DECISION' -and
+        $entry.completeOperationBudgetAndBorrowedPinAcquisitionLedger -ceq 'REQUIRES USER DECISION' -and
+        $entry.finalEntryArtifactAndDependencyFreeze -ceq 'REQUIRES USER DECISION') 'trial1a_entry'
+    foreach ($path in $entry.source) { Assert-RepoPath $path 'windows/external_native/diagnostics/' }
+    Assert-RepoPath $entry.offlineTest 'windows/external_native/tests/'
     $pending = @('selectedDevice','osEditionBuildPatchX64','privateExactSidAndPublicAccountDigest',
         'operatorAndApprover','newRootAndExactParentObjectInventory','forbiddenProductionAndHostARootAliases',
         'ownerDaclVolumeFileIdPinAcquisition','batchCaseIdsAndUtcWindow','controllerWorkingSetBytes',
@@ -512,6 +537,10 @@ if ($SelfTest) {
         { param($p) $p.l1Preparation.r2Adapters.hardCeilings.maxArtifactReadCallsPerFile = 67108864 },
         { param($p) $p.l1Preparation.r2Adapters.hardCeilings.threeProcessResourceLimits = 6 },
         { param($p) $p.l1Preparation.parameters.custodianWorkingSetBytes = 67108864 },
+        { param($p) $p.l1Preparation.trial1aEntry.executionAuthorized = $true },
+        { param($p) $p.l1Preparation.trial1aEntry.processMeasurements = 1 },
+        { param($p) $p.l1Preparation.trial1aEntry.additionalTemporaryImageHandles = 0 },
+        { param($p) $p.l1Preparation.trial1aEntry.completeOperationBudgetAndBorrowedPinAcquisitionLedger = 1 },
         { param($p) $p.l1Preparation.s1RootPreparation.executionAuthorized = $true },
         { param($p) $p.l1Preparation.s1RootPreparation.approvedOperationBudget = 1 },
         { param($p) $p.l1Preparation.s1RootPreparation.hardCeilings.rootCreateAttempts = 2 },
