@@ -125,13 +125,14 @@ function Assert-Plan([System.Collections.IDictionary]$Value) {
     }
     $freezeFields = @('sourceCommitSha','baseSha','cleanTrackedAndUntrackedWorktree',
         'sourceInventorySha256','msvcVersionAndToolHashes','windowsSdkVersion','cmakeVersionAndHash',
-        'configurationGeneratorArchitectureAndFlags','controllerExeSha256','workerExeSha256',
+        'configurationGeneratorArchitectureAndFlags','controllerExeSha256','custodianExeSha256','workerExeSha256',
         'nativeDllSha256OrReviewedNotLinked','directDependencyNamesAndHashes','actualLoadedModuleClosure',
         'dependencyVolumeFileIdsAndOwnerDaclDigests','actualOsEditionBuildPatchX64',
         'exactCommandArgumentsEnvironmentAndInheritedHandles','peX64HardeningImportsExportsAndForbiddenModules',
         'targetBindingSha256','artifactManifestSha256','finalHeadCurrentBaseCiReviewAndVerification')
     $freeze = $l1.artifactFreeze
     Require ($freeze.status -ceq 'CANDIDATE_NOT_FROZEN' -and
+        $freeze.custodianIdentityBinding -ceq 'Limits.custodian_sha256 via Manifest.r2_sha256 and target; actual process HANDLE plus Volume/File ID and pinned image SHA256 must match approved artifact inventory before Batch custody; missing drift read failure UNKNOWN deny without retry' -and
         ($freeze.requiredFields -join ',') -ceq ($freezeFields -join ',') -and
         $freeze.admissionNativeDll -ceq 'NOT_LINKED_REQUIRED_ZERO_CRYPTO_DPAPI' -and
         $freeze.cryptoNativeDll -ceq 'STATICALLY_LINKED_SEVEN_SYMBOL_CORE_CANDIDATE_NOT_PRODUCTION_DLL' -and
@@ -452,6 +453,8 @@ if ($SelfTest) {
         { param($p) $p.requests[0].preparationRef = 'environment' },
         { param($p) $p.l1Preparation.parameters.workerWorkingSetBytes = 67108864 },
         { param($p) $p.l1Preparation.parameters.Remove('controllerSampledHandles') },
+        { param($p) $p.l1Preparation.artifactFreeze.custodianIdentityBinding = 'PATH_ONLY' },
+        { param($p) $p.l1Preparation.artifactFreeze.requiredFields = @($p.l1Preparation.artifactFreeze.requiredFields | Where-Object { $_ -ne 'custodianExeSha256' }) },
         { param($p) $p.l1Preparation.artifactFreeze.status = 'FROZEN' },
         { param($p) $p.l1Preparation.artifactFreeze.requiredFields = @('sourceCommitSha') },
         { param($p) $p.l1Preparation.artifactFreeze.admissionNativeDll = 'PRODUCTION_DLL' },

@@ -26,8 +26,8 @@ bool bounded_dependencies(HANDLE, const std::vector<WindowsObjectPin> &,
 
 class WindowsIdentity final : public r1::IdentityPort {
 public:
-  WindowsIdentity(std::vector<WindowsPinSpec>, std::array<WindowsProcessPin,3>,
-                  std::vector<HANDLE> inherited, r1::BuildEvidence);
+  WindowsIdentity(std::vector<WindowsPinSpec>, std::array<WindowsProcessPin, 3>,
+                  std::vector<HANDLE> inherited, r1::Frozen, Limits);
   r1::Measurement measure() override;
   // These are BORROWED pins: the named pin owner must acknowledge the close.
   bool close_borrowed_pins_once() override { return false; }
@@ -35,7 +35,8 @@ private:
   std::vector<WindowsPinSpec> pins_;
   std::array<WindowsProcessPin,3> processes_;
   std::vector<HANDLE> inherited_;
-  const r1::BuildEvidence build_;
+  const r1::Frozen frozen_;
+  const Limits limits_;
   uint32_t measurements_ = 0;
 };
 enum class Output { custody, controller_evidence, custodian_evidence };
@@ -124,9 +125,12 @@ public:
   bool next(e4::Frame &,bool &) override; bool send(const e4::Frame &) override;
   bool close_observed_exit() override; bool close_owned_io() override;
   void controller_lost() noexcept override {stopped_=true;}
+  std::array<ImageObservation, 3> measure_hosts() override;
   bool sample_three(std::array<ResourceSample,3> &) override;
 private:
   bool create_suspended();
+  // Metadata-only recheck after the once-per-Batch full image measurement.
+  bool revalidate_hosts_no_read(const std::array<ImageObservation, 3> &) const;
   bool take(e4::Frame &,bool &);
   bool close_pipe(size_t);
   const r1::Frozen frozen_;
@@ -141,6 +145,8 @@ private:
   bool pipe_closed_[4]{};
   bool accepted_=false,attempted_=false,stopped_=false,exit_=false,io_closed_=false;
   bool ack_=false;
+  bool hosts_measurement_attempted_=false;
+  std::array<ImageObservation,3> host_images_{};
   uint32_t polls_=0,reads_=0,sends_=0;
   e4::Frame partial_{},hello_{};
   size_t used_=0;

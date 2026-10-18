@@ -22,6 +22,22 @@ struct Limits {
   bool valid() const;
   std::string hash() const;
 };
+// Process order is fixed: Controller=0, Custodian=1, admission-only Worker=2.
+// Only observations from actual process handles and pinned image bytes belong
+// here.
+struct ImageObservation {
+  r1::Origin origin = r1::Origin::kUnavailable;
+  r1::IoStatus status = r1::IoStatus::kUnknown;
+  bool process_verified = false;
+  ObjectIdentityPin object;
+  std::string sha256;
+  // Digest of the independently inspected Owner/DACL, not a caller label.
+  std::string security_sha256;
+};
+// Two hosts before custody; all three only after Worker creation. Limits owns
+// the sole frozen Custodian hash, bound through Manifest::r2_sha256.
+bool match_images(const r1::Frozen &, const Limits &,
+                  const std::array<ImageObservation, 3> &, size_t count);
 // Independent physical observations; caller assertions never become OS proof.
 struct RuntimeFacts {
   r1::Origin origin = r1::Origin::kUnavailable;
@@ -103,6 +119,7 @@ private:
 // The injected OS owner lives in the Custodian process. Its HANDLEs NEVER
 // cross the control wire, and it has no automatic destruction/termination.
 struct OwnerPort : r1::CustodyPort {
+  virtual std::array<ImageObservation, 3> measure_hosts() = 0;
   virtual bool sample_three(std::array<ResourceSample, 3> &) = 0;
 };
 class Custodian final : public r1::CustodyPort {
