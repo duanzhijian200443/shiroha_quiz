@@ -1,4 +1,4 @@
-// COMPILE ONLY. No real entry, Fake test or production target links this file.
+// Diagnostic Trial 1A link only. No Fake test or production target links this file.
 #include "diagnostics/l1_s1_windows.h"
 #include <sddl.h>
 #include <winternl.h>

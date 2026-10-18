@@ -207,6 +207,7 @@ if(SHIROHA_NATIVE_OFFLINE_TESTS)
   add_test(NAME shiroha_l1_trial1a_pins_offline COMMAND shiroha_l1_trial1a_pins_test)
   set_tests_properties(shiroha_l1_trial1a_pins_offline PROPERTIES TIMEOUT 30)
   add_executable(shiroha_l1_trial1a_real_test diagnostics/l1_trial1a_real.cpp
+    diagnostics/l1_trial1a_bootstrap.cpp
     diagnostics/l1_trial1a_pins.cpp diagnostics/l1_trial1a_entry.cpp
     diagnostics/l1_s1_root.cpp diagnostics/l1_r1_wiring.cpp
     diagnostics/l1_r2_adapters.cpp tests/l1_trial1a_real_test.cpp)
@@ -266,6 +267,25 @@ if(SHIROHA_L1_WINDOWS_ADMISSION_SOURCE)
     diagnostics/l1_r1_wiring.cpp diagnostics/l1_r2_adapters.cpp)
   shiroha_native_settings(shiroha_l1_trial1a_candidate)
   target_include_directories(shiroha_l1_trial1a_candidate PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+  # Fully linked diagnostic entry; never loaded/executed by L0 or CTest.
+  # The reviewed launcher supplies a typed fixed packet after artifact build.
+  # It is deliberately separate from the production Native DLL and legacy EXE.
+  add_library(shiroha_l1_trial1a_real_entry SHARED
+    diagnostics/l1_trial1a_diagnostic_entry.cpp
+    diagnostics/l1_trial1a_bootstrap.cpp diagnostics/l1_trial1a_real.cpp
+    diagnostics/l1_trial1a_real_windows.cpp diagnostics/l1_trial1a_pins.cpp
+    diagnostics/l1_trial1a_pins_windows.cpp diagnostics/l1_trial1a_entry.cpp
+    diagnostics/l1_trial1a_windows.cpp diagnostics/l1_s1_root.cpp
+    diagnostics/l1_s1_windows.cpp diagnostics/l1_r1_wiring.cpp
+    diagnostics/l1_r2_adapters.cpp diagnostics/l1_r2_windows.cpp
+    diagnostics/l1_windows_operations.cpp)
+  shiroha_native_settings(shiroha_l1_trial1a_real_entry)
+  target_include_directories(shiroha_l1_trial1a_real_entry PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+  target_link_libraries(shiroha_l1_trial1a_real_entry PRIVATE advapi32 user32 psapi)
+  # Shared files also contain dormant 1B leaves. Function-level elimination is
+  # required in Debug too; static import checks reject their operational APIs.
+  target_compile_options(shiroha_l1_trial1a_real_entry PRIVATE /Gy /Gw)
+  target_link_options(shiroha_l1_trial1a_real_entry PRIVATE /OPT:REF /INCREMENTAL:NO)
   add_executable(shiroha_l1_r2_custodian_candidate diagnostics/l1_r2_adapters.cpp
     diagnostics/l1_r1_wiring.cpp diagnostics/l1_r2_custodian_entry.cpp)
   shiroha_native_settings(shiroha_l1_r2_custodian_candidate)

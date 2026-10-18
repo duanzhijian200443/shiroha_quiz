@@ -9,7 +9,8 @@ class WindowsPinAcquisition;
 }
 
 namespace shiroha_l1_crypto::s1 {
-// Compile-only, no executable links these leaves. No discovery of paths/SID.
+// Linked only by the diagnostic Trial 1A DLL; never invoked by L0/CTest.
+// No discovery of paths/SID.
 // Receiver borrows the pinned HANDLE; the Preparation's named pin Owner keeps
 // sole close responsibility. Receipt is a retention ACK, never approval.
 class PinReceiver final {

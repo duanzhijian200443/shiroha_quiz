@@ -1151,11 +1151,40 @@ actual bounded UI, R2 identity/clock/resource and persistence calls around the
 SAME `WindowsPinAcquisition` -> `Acquisition` -> `Entry` -> S1 -> R2 chain.
 The shared Acquisition/Entry/S1 dispatch is private; only this composition can
 reach its Windows route. Existing public `run_windows`, S1/E0/E3/E5 gates and
-the default refusal EXE remain closed. The Windows source compiles as an OBJECT
-and is never invoked by L0 or CTest. This is implemented callable source, not
-an enabled default process entry or a new CLI/environment/JSON/config loader.
+the legacy refusal EXE remain closed. The Windows source also links into the
+isolated `shiroha_l1_trial1a_real_entry.dll`; neither this DLL nor its entry is
+loaded or invoked by L0/CTest. `shiroha_trial1a_entry` is the real diagnostic
+typed entry, separate from the legacy always-denied executable. No CLI/environment/
+JSON/ordinary configuration loader is supplied.
 
-`Invocation` binds the complete PinPlan, Batch/account/artifacts/operation
+The independently reviewed launcher passes ONE immutable private `Invocation`
+after independent artifact build, using the exact same reviewed C++ headers,
+compiler and CRT. This diagnostic packet ABI is not the production Native FFI
+ABI. Its current process EXE pin/hash and the separate required entry DLL pin
+are external inputs, avoiding a self-embedded EXE hash. `entry_module_id` must
+name a distinct retained file artifact. Before consumption the actual loaded
+module path is obtained from an address in the composition, opened existing-only,
+and measured against its retained Volume/File ID and Owner/DACL. Its temporary
+HANDLE must close successfully. S1 hashes the retained module once with the
+rest of the artifacts. An omitted/mismatched module fails closed.
+
+The entry's shared `ProcessLatch` atomically admits at most one call per loaded
+process image, including null/invalid packets, denial, failure and exceptions.
+It retains the owning Windows composition and exposes a borrowed, process-lifetime
+`InvocationResult`, including final close/resource accounting. The launcher must
+retain the diagnostic module (no unload/reload), copy/retain the returned redacted
+ledger under the approved evidence responsibility before external process exit,
+and preserve UNKNOWN custody for manual handoff. Exit values are 0 only for full
+settlement, 10 for denial and 20 for UNKNOWN. They are source outcomes, never
+independent acceptance or authority. There is no automatic close/delete/retry.
+The existing spent-directory tombstone remains the cross-process replay barrier.
+Loading the DLL, supplying a digest or possessing an exported symbol grants no
+runtime authority; the exact reviewed launcher, packet and one-time user permit
+remain separate prerequisites. This is a callable diagnostic entry artifact;
+the external launch operation is performed only by the separately authorized
+operator/launcher, never by this library.
+
+`Invocation` binds the complete PinPlan, entry-module role, Batch/account/artifacts/operation
 scope/window and existing review/verification records, Case, sole permit owner,
 resource/time/observation limits and aggregate budget. Its reviewed commitment
 must match; no PID/creation time may be prefilled. The existing R2 bounded
@@ -1172,7 +1201,7 @@ device/OS/account, clock and resource peaks. RealEntry binds those measurements
 and the invocation digest into the runtime PinPlan/S1 action. It observes before
 and after each adapter action and through final closes; drift, expired UTC,
 clock inconsistency, duration/resource/observation-budget excess or UNKNOWN
-latches STOP. The running image is independently checked once before permit
+latches STOP. The running image and loaded diagnostic DLL are checked before permit
 consumption, in addition to Entry's original three gates. No source has to
 invent a pre-launch PID. Approval time is separately bounded by the existing
 UI limits; the <=30000ms work deadline starts at the first post-approval
@@ -1261,11 +1290,13 @@ budget O (1..8192) and existing UI event limit U (1..128), add: one entry start,
 one bounded UI call (<=5 HWNDs, <=U events, <=approved 60000ms ceiling), O
 observation envelopes of 128 OS calls and two temporary Token HANDLE opens/
 closes each; one pre-consume `process_cost()` (128 OS calls, two file
-observations, one security read, two temporary HANDLE opens/closes); one permit
+observations, one security read, two temporary HANDLE opens/closes); one loaded
+entry-module check (128 OS calls, two file observations, one security read, one
+temporary HANDLE open/close); one permit
 `evidence_open(E)`, two permit `evidence(E)` and its sole explicit close.
 The aggregate `invocation_ceiling` adds these to the unchanged PinPlan budget.
-Thus file observations add 9, directory observations add `6E+8`, security reads
-add `6E+17`, OS calls add `6785+64U+128O`, acquisitions/closes each add `3+2O`,
+Thus file observations add 11, directory observations add `6E+8`, security reads
+add `6E+18`, OS calls add `6913+64U+128O`, acquisitions/closes each add `4+2O`,
 security assignments/file creates add 1 each, and writes/Flushes/bytes add
 2/2/16384. Hash/root-create counts are unchanged. These conservative envelopes
 include failure paths, not measured API totals. Every actual boundary sample,

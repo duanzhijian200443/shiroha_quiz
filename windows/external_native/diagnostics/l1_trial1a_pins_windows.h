@@ -4,7 +4,7 @@
 #include "diagnostics/l1_trial1a_windows.h"
 #include <memory>
 namespace shiroha_l1_crypto::trial1a {
-// Dormant OBJECT, never linked by an EXE/CTest. Owns each opened inventory
+// Linked only by the diagnostic entry DLL, never invoked by L0/CTest. Owns each opened inventory
 // HANDLE exactly once; Entry/S1 borrow it. No destructor close/delete.
 // S1 borrows the current-entry process pseudo-handle, under process_owner.
 // It acquires/closes no process HANDLE (no OpenProcess or duplication).

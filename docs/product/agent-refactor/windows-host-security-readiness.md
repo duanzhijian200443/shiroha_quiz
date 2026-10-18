@@ -3907,8 +3907,20 @@ retained ownership and the approved manual handoff.
 
 The current development computer is user-selected; actual account/OS/paths/pins/
 artifacts/budgets remain unmeasured and undecided. The real Windows composition
-is a compile-only OBJECT absent from CTest/default startup, and the original
-public/default denials remain unchanged. Its callable source reaches actual
+also links into the isolated diagnostic `shiroha_l1_trial1a_real_entry.dll`,
+absent from CTest/default startup. Its `shiroha_trial1a_entry` accepts only the
+reviewed typed private packet from the independently approved launcher, with a
+single atomic process start, retained ownership and borrowed final result.
+The running EXE and loaded DLL are distinct required artifact pins; actual DLL
+File ID/Owner/DACL measurement and temporary close precede consumption and are
+budgeted. S1 hashes the retained DLL once. Independent build plus external
+packet construction avoids self-embedded EXE hashes. The packet ABI requires the
+same reviewed compiler/CRT/headers, and the module/result custody must remain
+retained until approved handoff/process exit. No unload/retry or auto-cleanup is
+provided. Static imports/dependencies/exports and Fake bootstrap are checked
+without loading the DLL. Original public/legacy EXE denials remain unchanged.
+The callable entry returns 0 only after full settlement, 10 for denial and 20
+for UNKNOWN. Its source reaches actual
 Windows leaves only through the concrete confirmation/consumption/measurement
 lifecycle; no config boolean, CLI or environment can enable a default entry.
 Highest eligible result after actual checks is **TRIAL1A REAL ENTRY SOURCE

@@ -83,9 +83,45 @@ foreach ($name in @('shiroha_discovery_offline_test', 'shiroha_native_offline_te
         throw 'Offline executable includes a real security/file operation'
     }
 }
-# The real P20 driver is compile-only; inspect registration before execution.
+# Inspect the linked Trial 1A artifact statically; NEVER load or call it.
+$trialDll = Join-Path $build "$Configuration/shiroha_l1_trial1a_real_entry.dll"
+$trialExports = (& $dumpbin /exports $trialDll | Out-String)
+if ($LASTEXITCODE -ne 0) { throw 'Trial 1A entry export inspection failed' }
+$trialExportNames = @([regex]::Matches($trialExports, '(?m)^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(\w+)(?:\s+=.*)?\s*$') | ForEach-Object { $_.Groups[1].Value })
+if ($trialExportNames.Count -ne 1 -or $trialExportNames[0] -cne 'shiroha_trial1a_entry') { throw 'Trial 1A diagnostic export drift' }
+[xml]$trialProject = Get-Content (Join-Path $build 'shiroha_l1_trial1a_real_entry.vcxproj') -Raw
+$trialUnits = @($trialProject.SelectNodes("//*[local-name()='ClCompile'][@Include]") | ForEach-Object {
+    [IO.Path]::GetFileName($_.GetAttribute('Include'))
+})
+$trialExpectedUnits = @('l1_trial1a_diagnostic_entry.cpp', 'l1_trial1a_bootstrap.cpp',
+    'l1_trial1a_real.cpp', 'l1_trial1a_real_windows.cpp', 'l1_trial1a_pins.cpp',
+    'l1_trial1a_pins_windows.cpp', 'l1_trial1a_entry.cpp', 'l1_trial1a_windows.cpp',
+    'l1_s1_root.cpp', 'l1_s1_windows.cpp', 'l1_r1_wiring.cpp', 'l1_r2_adapters.cpp',
+    'l1_r2_windows.cpp', 'l1_windows_operations.cpp')
+if ($trialUnits.Count -ne $trialExpectedUnits.Count -or @(Compare-Object $trialExpectedUnits $trialUnits).Count) {
+    throw 'Trial 1A diagnostic source/link closure drift'
+}
+$trialImports = (& $dumpbin /imports $trialDll | Out-String)
+if ($LASTEXITCODE -ne 0) { throw 'Trial 1A real entry import inspection failed' }
+foreach ($api in @('OpenProcessToken', 'GetTokenInformation', 'GetFileInformationByHandleEx',
+    'GetSecurityInfo', 'WriteFile', 'FlushFileBuffers', 'GetProcessHandleCount', 'CreateWindowExW')) {
+    if ($trialImports -notmatch "\b$api\b") { throw 'Trial 1A Windows link closure incomplete' }
+}
+# MSVC's CRT fast-fail imports TerminateProcess, also present in pure Fake
+# executables. Direct diagnostic kill calls are forbidden by the source guard.
+if ($trialImports -match 'CreateProcess[AW]|ResumeThread|DeleteFile[AW]|RemoveDirectory[AW]|CryptProtectData|CryptUnprotectData|BCrypt\w+|Cert\w+|SHGetKnownFolderPath|CreateNamedPipe[AW]|CreatePipe|WSAStartup|\b(?:socket|connect|listen)\b|shiroha_external_native\.dll') {
+    throw 'Trial 1A entry contains out-of-scope runtime imports'
+}
+$trialDependencies = (& $dumpbin /dependents $trialDll | Out-String)
+if ($LASTEXITCODE -ne 0) { throw 'Trial 1A dependency inspection failed' }
+foreach ($match in [regex]::Matches($trialDependencies, '(?im)^\s+([a-z0-9_.-]+\.dll)\s*$')) {
+    if ($match.Groups[1].Value -notmatch '^(kernel32|advapi32|user32|psapi|msvcp140d?|vcruntime140(?:_1)?d?|ucrtbased|api-ms-win-crt-[a-z0-9-]+)\.dll$') {
+        throw 'Trial 1A unexpected dependency'
+    }
+}
+# The real P20 driver and Trial 1A entry are compile-only; inspect registration before execution.
 $testList = (& $ctest --test-dir $build -C $Configuration -N | Out-String)
-if ($LASTEXITCODE -ne 0 -or $testList -match '\b(?:shiroha_p20_minimal_test|shiroha_l1_crypto_candidate|shiroha_assoc_candidate|shiroha_l1_b1_admission_worker|shiroha_l1_r1_controller_candidate|shiroha_l1_r1_worker_candidate|shiroha_l1_r2_custodian_candidate|shiroha_l1_r2_windows|shiroha_l1_s1_windows|shiroha_l1_trial1a_windows|shiroha_l1_trial1a_pins_windows|shiroha_l1_trial1a_real_windows|shiroha_l1_trial1a_candidate)\b') { throw 'Real L1 candidate registered with CTest' }
+if ($LASTEXITCODE -ne 0 -or $testList -match '\b(?:shiroha_p20_minimal_test|shiroha_l1_crypto_candidate|shiroha_assoc_candidate|shiroha_l1_b1_admission_worker|shiroha_l1_r1_controller_candidate|shiroha_l1_r1_worker_candidate|shiroha_l1_r2_custodian_candidate|shiroha_l1_r2_windows|shiroha_l1_s1_windows|shiroha_l1_trial1a_windows|shiroha_l1_trial1a_pins_windows|shiroha_l1_trial1a_real_windows|shiroha_l1_trial1a_real_entry|shiroha_l1_trial1a_candidate)\b') { throw 'Real L1 candidate registered with CTest' }
 if ($testList -notmatch '\bshiroha_p20_root_production_offline\b' -or
     $testList -notmatch '\bshiroha_p20_root_diagnostic_offline\b' -or
     $testList -notmatch '\bshiroha_l1_crypto_probe_offline\b' -or
@@ -113,7 +149,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Fake pin-owner compile failed' }
 $readerTest = Join-Path $build "$Configuration/host_a_reader_test.exe"
 & $csc /nologo /target:exe /platform:x64 /warnaserror /define:SHIROHA_METADATA_FAKE_ONLY "/out:$readerTest" (Join-Path $PSScriptRoot 'diagnostics/host_a_metadata.cs') (Join-Path $PSScriptRoot 'diagnostics/metadata_contract.cs') (Join-Path $PSScriptRoot 'tests/host_a_reader_test.cs')
 if ($LASTEXITCODE -ne 0) { throw 'Fake reader compile failed' }
-foreach ($name in @('shiroha_batch3_existing_only.dll', 'shiroha_assoc_candidate.exe', 'shiroha_p20_minimal_test.exe', 'shiroha_l1_crypto_candidate.exe', 'shiroha_l1_r1_controller_candidate.exe', 'shiroha_l1_r1_worker_candidate.exe', 'shiroha_l1_r2_custodian_candidate.exe')) {
+foreach ($name in @('shiroha_l1_trial1a_real_entry.dll', 'shiroha_batch3_existing_only.dll', 'shiroha_assoc_candidate.exe', 'shiroha_p20_minimal_test.exe', 'shiroha_l1_crypto_candidate.exe', 'shiroha_l1_r1_controller_candidate.exe', 'shiroha_l1_r1_worker_candidate.exe', 'shiroha_l1_r2_custodian_candidate.exe')) {
     $file = Join-Path $build "$Configuration/$name"
     $candidateHeaders = (& $dumpbin /headers $file | Out-String)
     if ($LASTEXITCODE -ne 0 -or $candidateHeaders -notmatch '8664 machine \(x64\)') { throw 'Candidate is not x64' }
@@ -229,6 +265,8 @@ $l1SourceInputs = @('CMakeLists.txt', 'check_offline.ps1', 'shiroha_external_nat
     'diagnostics/l1_trial1a_pins_windows.h', 'diagnostics/l1_trial1a_pins_windows.cpp',
     'diagnostics/l1_trial1a_real.h', 'diagnostics/l1_trial1a_real.cpp',
     'diagnostics/l1_trial1a_real_windows.h', 'diagnostics/l1_trial1a_real_windows.cpp',
+    'diagnostics/l1_trial1a_bootstrap.h', 'diagnostics/l1_trial1a_bootstrap.cpp',
+    'diagnostics/l1_trial1a_diagnostic_entry.h', 'diagnostics/l1_trial1a_diagnostic_entry.cpp',
     'tests/l1_trial1a_fixture.h', 'tests/l1_trial1a_pins_test.cpp',
     'tests/l1_trial1a_real_test.cpp',
     'tests/l1_r1_wiring_test.cpp',

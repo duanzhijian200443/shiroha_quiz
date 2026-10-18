@@ -224,10 +224,18 @@
           "windows/external_native/diagnostics/l1_trial1a_real.h",
           "windows/external_native/diagnostics/l1_trial1a_real.cpp",
           "windows/external_native/diagnostics/l1_trial1a_real_windows.h",
-          "windows/external_native/diagnostics/l1_trial1a_real_windows.cpp"
+          "windows/external_native/diagnostics/l1_trial1a_real_windows.cpp",
+          "windows/external_native/diagnostics/l1_trial1a_bootstrap.h",
+          "windows/external_native/diagnostics/l1_trial1a_bootstrap.cpp",
+          "windows/external_native/diagnostics/l1_trial1a_diagnostic_entry.h",
+          "windows/external_native/diagnostics/l1_trial1a_diagnostic_entry.cpp"
         ],
         "offlineTest": "windows/external_native/tests/l1_trial1a_real_test.cpp",
         "windowsObjectTarget": "shiroha_l1_trial1a_real_windows",
+        "linkedDiagnosticTarget": "shiroha_l1_trial1a_real_entry",
+        "typedEntry": "shiroha_trial1a_entry",
+        "processLifecycle": "ONE_ATOMIC_START_RETAIN_CUSTODY_AND_BORROWED_RESULT_FOR_PROCESS_LIFETIME_NO_UNLOAD_OR_RETRY",
+        "entryModule": "DISTINCT_REQUIRED_PIN_LOADED_MODULE_FILE_ID_OWNER_DACL_CHECK_BEFORE_CONSUMPTION_S1_HASHES_ONCE",
         "defaultEntry": "UNCHANGED_UNCONDITIONAL_DENIAL_NO_CONFIG_LOADER",
         "reviewedInput": "IMMUTABLE_TYPED_INVOCATION_DIGEST_EXISTING_REVIEW_RECORDS_AND_BOUNDED_LOCAL_HUMAN_CONFIRMATION",
         "processBinding": "NO_PREFILLED_PID_OR_CREATION_MEASURE_CURRENT_LAUNCHED_ENTRY_THEN_BIND_RUNTIME_PLAN",
@@ -236,7 +244,7 @@
         "observations": "R2_RUNTIME_TOKEN_DEVICE_OS_CLOCK_AND_OS_PEAKS_BEFORE_AFTER_ADAPTER_CALLS_FAIL_CLOSED",
         "maxObservations": 8192,
         "maxRunMillisecondsAfterApprovalObservation": 30000,
-        "budget": "PIN_PLAN_PLUS_PROCESS_COST_PLUS_OBSERVATION_COST_TIMES_APPROVED_COUNT_PLUS_BOUNDED_UI_PERMIT_OPEN_TWO_RECORDS_AND_CLOSE",
+        "budget": "PIN_PLAN_PLUS_PROCESS_COST_PLUS_ENTRY_MODULE_COST_PLUS_OBSERVATION_COST_TIMES_APPROVED_COUNT_PLUS_BOUNDED_UI_PERMIT_OPEN_TWO_RECORDS_AND_CLOSE",
         "evidence": "EXISTING_R2_8192_BYTE_RECORDS_BIND_PACKET_RUNTIME_PID_TIME_RESOURCE_PEAK_AND_LEDGER_NO_F2_FORMAT_CHANGE_FINAL_CLOSE_RESULTS_IN_MEMORY",
         "approvedPrivatePacketBudgetWindowOwnersAndLaunch": "REQUIRES USER DECISION"
       },

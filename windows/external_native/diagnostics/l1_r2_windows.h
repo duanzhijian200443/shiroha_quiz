@@ -4,7 +4,7 @@
 #include "diagnostics/l1_windows_operations.h"
 
 namespace shiroha_l1_crypto::r2 {
-// COMPILE ONLY, unlinked. No function in this file may be invoked by L0.
+// Diagnostic Trial 1A link only. No function in this file may be invoked by L0.
 // All paths/handles are future approved inventory, never discovered defaults.
 struct WindowsPinSpec {
   std::string id, owner;

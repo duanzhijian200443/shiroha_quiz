@@ -8,7 +8,7 @@ namespace shiroha_l1_crypto::trial1a {
 // process identity must be absent until the launched entry observes itself.
 struct Invocation {
   PinPlan plan;
-  std::string case_id, permit_owner, reviewed_binding;
+  std::string case_id, permit_owner, reviewed_binding, entry_module_id;
   r2::ResourceLimit resources;
   uint32_t observations = 0;
   uint64_t duration_ms = 0;
@@ -17,6 +17,7 @@ struct Invocation {
   std::string hash() const;
 };
 s1::Counts observation_cost();
+s1::Counts entry_module_cost();
 s1::Counts invocation_ceiling(const Invocation &);
 e4::ApprovalPromptModel invocation_prompt(const Invocation &);
 struct Observation {
@@ -33,6 +34,7 @@ struct InvocationPort {
                        e4::ApprovalUiResponse &) = 0;
   virtual Observation observe() = 0;
   virtual bool attach(const PinPlan &) = 0; // in-memory; zero I/O
+  virtual bool entry_module(const std::string &id) = 0;
   virtual r1::SinkReceipt consume(const r1::Record &) = 0;
   virtual r1::SinkReceipt finish(const r1::Record &) = 0;
   virtual bool close_permit(const std::string &owner) = 0;
@@ -44,6 +46,7 @@ struct InvocationResult {
            consume_attempts = 0, finish_attempts = 0, permit_closes = 0;
   uint32_t pid = 0;
   uint32_t preconsume_process_checks = 0;
+  uint32_t entry_module_checks = 0;
   uint64_t creation = 0;
   uint64_t utc_ms = 0, mono_ms = 0;
   ResourceSample peak{};
@@ -67,6 +70,7 @@ public:
 
 private:
   friend class WindowsRealEntry;
+  friend class Bootstrap;
   bool run(r1::Origin);
   bool stop();
   bool reserve(const s1::Counts &);
