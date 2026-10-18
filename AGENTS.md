@@ -87,8 +87,14 @@ user message `01a14ef2-36ea-76d1-a6d5-1f4c1b6af482`. The approval request stated
 The user replied: **授权**.
 
 For future explicitly activated Executor assignments, this approves exact-path
-staging, commit, push and task PR creation after required checks, within the
-authorized responsibility. Updating an existing task PR means pushing its source
+staging, commit, push and task PR creation only after the assignment's core
+acceptance criteria and required checks pass, within the authorized responsibility.
+A BLOCKED or FAILED assignment must preserve its partial work and report the
+blocker, not automatically publish an incomplete completion PR. A bounded partial
+deliverable may be published only when the user explicitly authorized that scope
+and its own acceptance criteria pass. Source-only acceptance can complete a
+source-only assignment even when separately scoped real-device acceptance remains
+pending. Updating an existing task PR means pushing its source
 branch, not changing PR metadata. Explicit user limits or revocation take
 precedence. Other roles and default read-only investigation gain no permission.
 Fetch, local-default alignment, branch/worktree creation, merge, tag/release and
