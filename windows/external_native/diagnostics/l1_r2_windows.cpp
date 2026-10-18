@@ -1,4 +1,4 @@
-// COMPILE ONLY. Not linked by any candidate entry or Fake CTest executable.
+// Diagnostic Trial 1A link only. Never invoked by an offline CTest executable.
 #include "diagnostics/l1_r2_windows.h"
 #include "diagnostics/l1_temporary_handle.h"
 #include <aclapi.h>

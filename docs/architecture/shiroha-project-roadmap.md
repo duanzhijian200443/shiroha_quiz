@@ -486,8 +486,10 @@ now supplies the typed real Windows invocation, existing bounded human UI,
 post-launch identity binding, R2 exclusive spent-permit anti-replay and complete
 observation/operation/settlement budgets over the same S1/Entry/Pin source.
 Its source/offline ceiling is **TRIAL1A REAL ENTRY SOURCE IMPLEMENTED / OFFLINE
-VERIFIED** after passing checks; the Windows OBJECT is not invoked, default
-denials and all real/formal acceptance gates remain unchanged. The current
+VERIFIED** after passing checks; the fully linked diagnostic entry DLL is never
+loaded/invoked by L0. It adds an atomic process bootstrap, distinct mapped-image
+file pin check and retained final-result custody; original legacy/public denials and
+all real/formal acceptance gates remain unchanged. The current
 development computer is selected only as the proposed 1A device; exact private
 target selections, independent evidence and a one-time user grant remain pending.
 No new general infrastructure stage or Trial 1B/other L1 scope is added.

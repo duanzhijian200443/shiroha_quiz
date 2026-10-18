@@ -1,11 +1,11 @@
 #ifndef SHIROHA_L1_TRIAL1A_REAL_WINDOWS_H_
 #define SHIROHA_L1_TRIAL1A_REAL_WINDOWS_H_
+#include "diagnostics/l1_trial1a_bootstrap.h"
 #include "diagnostics/l1_trial1a_pins_windows.h"
-#include "diagnostics/l1_trial1a_real.h"
 
 namespace shiroha_l1_crypto::trial1a {
-// Actual typed Windows composition, compiled but NEVER called by L0/CTest or
-// the default refusal EXE. No CLI/env/JSON/config activation. Construction is
+// Actual typed Windows composition, linked by the diagnostic entry DLL but
+// NEVER called by L0/CTest or the legacy refusal EXE. Construction is
 // pure. A reviewed launcher may call run only under a separate real grant.
 class WindowsRealEntry final : private InvocationPort,
                                private PinPort,
@@ -15,6 +15,7 @@ class WindowsRealEntry final : private InvocationPort,
 public:
   explicit WindowsRealEntry(Invocation);
   bool run() noexcept;
+  EntryExit run_entry() noexcept;
   const InvocationResult &result() const { return entry_.result(); }
   const s1::Result *preparation_result() const {
     const auto *a = entry_.acquisition();
@@ -29,6 +30,7 @@ private:
                e4::ApprovalUiResponse &) override;
   Observation observe() override;
   bool attach(const PinPlan &) override;
+  bool entry_module(const std::string &) override;
   r1::SinkReceipt consume(const r1::Record &) override;
   r1::SinkReceipt finish(const r1::Record &) override;
   bool close_permit(const std::string &) override;
@@ -67,7 +69,7 @@ private:
   std::unique_ptr<WindowsPinAcquisition> windows_;
   std::unique_ptr<r2::WindowsPersistence> permit_file_;
   std::unique_ptr<r2::PersistentEvidence> permit_;
-  RealEntry entry_;
+  Bootstrap entry_;
   bool attached_ = false, consumed_ = false, finished_ = false, closed_ = false;
 };
 } // namespace shiroha_l1_crypto::trial1a

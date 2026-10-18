@@ -1386,10 +1386,32 @@ observation and resource budgets. The permit stream settles before releasing
 its borrowed ancestor HANDLEs. Final ancestor-close evidence remains in memory,
 never a persisted aggregate PASS; UNKNOWN retains the named owning composition.
 
-The default/public denials stay closed. CMake compiles the actual Windows OBJECT
-without registering or invoking it; the new `shiroha_l1_trial1a_real_offline`
+The legacy/public denials stay closed. CMake also fully links the isolated
+`shiroha_l1_trial1a_real_entry.dll`. Its sole `shiroha_trial1a_entry` export
+accepts the independently reviewed typed private packet from the authorized
+launcher, using the same reviewed headers/compiler/CRT. The launcher EXE and
+loaded entry DLL are distinct artifact pins. Before consumption the memory
+manager's name for the mapped entry-image section (not the loader's cached load
+path) is opened existing-only and measured against its retained Volume/File ID
+and Owner/DACL, with a successful temporary close, within an added envelope of
+128 OS calls, two file observations, one security read and one HANDLE open/
+close. This rejects a post-load rename/replacement that redirects the original
+path to a different file, but it is a check-time binding, not an atomic loader
+HANDLE: the launcher must pin the artifact before loading it, and real
+acceptance must include the post-load rename/replacement negative case. S1
+hashes the retained DLL once. The packet supplies post-build hashes;
+no self-embedded EXE hash or config/CLI/environment loader is required.
+`ProcessLatch` admits one call, retains ownership and returns a borrowed final
+ledger for process lifetime. Preserve the loaded module and copy the result to
+the approved evidence handoff before external process exit; never unload/reload
+or discard UNKNOWN custody. Exit 0 requires full settled success; 10 is denial
+and 20 is UNKNOWN. This diagnostic C++ packet ABI does not alter Native FFI.
+Static PE/import/export/dependency checks inspect but never load/invoke it;
+unused 1B functions in shared sources are eliminated and their imports rejected.
+The `shiroha_l1_trial1a_real_offline`
 test uses Fake ports with the same core, including shared persistent tombstones
-across fresh process-owner instances, crash/short-write/Flush/ACK failure,
+across fresh process-owner instances, the same process bootstrap/latch,
+missing/mismatched entry module, crash/short-write/Flush/ACK failure,
 identity/resource/time drift and failed settlement. A valid typed packet and
 review commitment are not standalone permission: actual launch needs independent
 target evidence and the exact one-time user grant. See the

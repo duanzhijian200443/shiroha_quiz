@@ -112,8 +112,11 @@ artifact/budget/owner decisions and the complete existing-chain operation ledger
 chain, existing local-human UI, post-launch measured PID/time binding, exclusive
 R2 spent-permit consumption and bounded time/resource/ownership accounting.
 Empty/partial/existing tombstones deny restart replay. Fake exercises the same
-chain; Windows source is compile-only, with original default/public denials
-unchanged. The eligible ceiling is **TRIAL1A REAL ENTRY SOURCE IMPLEMENTED /
+chain and process latch; the actual diagnostic entry DLL now links all required
+Windows adapters, checks its own distinct loaded artifact pin before consumption,
+and retains custody/final ledger for process lifetime. It is inspected statically
+and never loaded/invoked by L0. Original legacy/public denials remain unchanged.
+The eligible ceiling is **TRIAL1A REAL ENTRY SOURCE IMPLEMENTED /
 OFFLINE VERIFIED**, not authorization-ready or real acceptance. Trial 1A issues
 no Grant and launches no Custodian/Worker.
 Read-only preflight and the eventual exact one-time invocation have distinct

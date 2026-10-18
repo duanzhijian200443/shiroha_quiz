@@ -25,11 +25,28 @@ foreach ($path in @('CMakeLists.txt', 'diagnostics/l1_crypto_probe.h',
     'diagnostics/l1_trial1a_pins.cpp', 'diagnostics/l1_trial1a_pins_windows.h',
     'diagnostics/l1_trial1a_pins_windows.cpp', 'diagnostics/l1_trial1a_real.h',
     'diagnostics/l1_trial1a_real.cpp', 'diagnostics/l1_trial1a_real_windows.h',
-    'diagnostics/l1_trial1a_real_windows.cpp')) {
+    'diagnostics/l1_trial1a_real_windows.cpp', 'diagnostics/l1_trial1a_bootstrap.h',
+    'diagnostics/l1_trial1a_bootstrap.cpp', 'diagnostics/l1_trial1a_diagnostic_entry.h',
+    'diagnostics/l1_trial1a_diagnostic_entry.cpp')) {
     $sources[$path] = [IO.File]::ReadAllText((Join-Path $native $path))
 }
 function Assert-Isolation([hashtable]$Text) {
     $cmake = $Text['CMakeLists.txt']
+    $bootstrap = $Text['diagnostics/l1_trial1a_bootstrap.h'] -replace '\s',''
+    $bootstrapCpp = $Text['diagnostics/l1_trial1a_bootstrap.cpp'] -replace '\s',''
+    $diagnostic = $Text['diagnostics/l1_trial1a_diagnostic_entry.cpp'] -replace '\s',''
+    if (!$bootstrap.Contains('if(started_.test_and_set()||!packet||!result)') -or
+        !$bootstrap.Contains('if(!packet->valid())returnEntryExit::denied;') -or
+        !$bootstrap.Contains('custody_=owner;') -or
+        !$bootstrap.Contains('*result=&owner->result();returnowner->run_entry();') -or
+        !$bootstrapCpp.Contains('completed&&r.settled&&r.consumed&&r.prepared&&!r.unknown') -or
+        !$diagnostic.Contains('process.start<t::WindowsRealEntry>(fixed_packet,result)') -or
+        $cmake -notmatch 'add_library\(shiroha_l1_trial1a_real_entry SHARED' -or
+        $cmake -notmatch 'target_link_libraries\(shiroha_l1_trial1a_real_entry PRIVATE advapi32 user32 psapi\)' -or
+        $cmake -match 'add_test\([^)]*shiroha_l1_trial1a_real_entry' -or
+        ($Text['diagnostics/l1_trial1a_diagnostic_entry.cpp'] + $Text['diagnostics/l1_trial1a_bootstrap.h']) -match '\b(?:getenv|GetEnvironmentVariable[AW]|DllMain|LoadLibrary[AW]|CreateProcess[AW]|DeleteFile[AW]|TerminateProcess)\s*\(') {
+        throw 'Trial 1A linked entry/process latch/custody or Fake isolation missing'
+    }
     $real = $Text['diagnostics/l1_trial1a_real.cpp'] -replace '\s',''
     $realh = $Text['diagnostics/l1_trial1a_real.h'] -replace '\s',''
     $realw = $Text['diagnostics/l1_trial1a_real_windows.cpp'] -replace '\s',''
@@ -49,7 +66,14 @@ function Assert-Isolation([hashtable]$Text) {
         !$real.Contains('r.sid!=f.target.sid') -or
         !$real.Contains('result_.observations==request_.observations') -or
         !$real.Contains('!receipt(control_.finish(final),final)') -or
-        !$realh.Contains('private:friendclassWindowsRealEntry;boolrun(r1::Origin);') -or
+        !$real.Contains('!control_.entry_module(request_.entry_module_id)||!checkpoint()') -or
+        !$real.Contains('add(c,entry_module_cost());') -or
+        !$realw.Contains('GetMappedFileNameW(GetCurrentProcess(),&module_anchor') -or
+        !$realw.Contains('L"\\\\?\\GLOBALROOT"') -or
+        !$realw.Contains('measured.artifact_security_sha256=at->expected.security_sha256;') -or
+        !$realw.Contains('security==at->expected.security_sha256') -or
+        !$realw.Contains('owner.close_as(TemporaryOwner::image_reader)') -or
+        !$realh.Contains('private:friendclassWindowsRealEntry;friendclassBootstrap;boolrun(r1::Origin);') -or
         !$realw.Contains('returnentry_.run(r1::Origin::kWindowsApi);') -or
         !$realw.Contains('r2::bounded_approval(p,r,request_.plan.entry.preparation.limits)') -or
         !$realw.Contains('r2::measure_runtime(process,o.runtime.facts)') -or
@@ -84,7 +108,7 @@ function Assert-Isolation([hashtable]$Text) {
         !$pinsw.Contains('!r2::measure_metadata(pin,input.directory,security,path)') -or
         !$pinsw.Contains('close_attempted_[i]=true;returnCloseHandle') -or
         $cmake -notmatch 'add_library\(shiroha_l1_trial1a_pins_windows OBJECT diagnostics/l1_trial1a_pins_windows\.cpp\)' -or
-        [regex]::Matches($cmake,'diagnostics/l1_trial1a_pins_windows\.cpp').Count -ne 1 -or
+        [regex]::Matches($cmake,'diagnostics/l1_trial1a_pins_windows\.cpp').Count -ne 2 -or
         $cmake -notmatch 'add_test\(NAME shiroha_l1_trial1a_pins_offline COMMAND shiroha_l1_trial1a_pins_test\)' -or
         $cmake -match '(?s)target_link_libraries\([^)]*shiroha_l1_trial1a_pins_|TARGET_OBJECTS:shiroha_l1_trial1a_pins_windows|add_test\([^)]*shiroha_l1_trial1a_pins_windows' -or
         $Text['diagnostics/l1_trial1a_pins.cpp'] -match '\b(?:CreateFile[AW]|GetCurrentProcess|OpenProcess|ReadFile|CloseHandle)\s*\(' -or
@@ -111,9 +135,9 @@ function Assert-Isolation([hashtable]$Text) {
         !$entryw.Contains('!r2::measure_metadata(process_.image,false,m.security_sha256,path)') -or
         ($Text['diagnostics/l1_windows_operations.cpp'] -replace '\s','') -notmatch 'image_owner.close_as\(TemporaryOwner::image_reader\)' -or
         $cmake -notmatch 'add_library\(shiroha_l1_trial1a_windows OBJECT diagnostics/l1_trial1a_windows\.cpp\)' -or
-        [regex]::Matches($cmake,'diagnostics/l1_trial1a_windows\.cpp').Count -ne 1 -or
+        [regex]::Matches($cmake,'diagnostics/l1_trial1a_windows\.cpp').Count -ne 2 -or
         $cmake -notmatch 'add_test\(NAME shiroha_l1_trial1a_entry_offline COMMAND shiroha_l1_trial1a_entry_test\)' -or
-        $cmake -match '(?s)target_link_libraries\([^)]*shiroha_l1_trial1a_|TARGET_OBJECTS:shiroha_l1_trial1a_windows|add_test\([^)]*(?:shiroha_l1_trial1a_candidate|shiroha_l1_trial1a_windows)' -or
+        $cmake -match '(?s)target_link_libraries\(shiroha_l1_trial1a_(?:candidate|windows|pins_windows|real_windows)\b|TARGET_OBJECTS:shiroha_l1_trial1a_windows|add_test\([^)]*(?:shiroha_l1_trial1a_candidate|shiroha_l1_trial1a_windows)' -or
         ($Text['diagnostics/l1_trial1a_entry.cpp'] + $Text['diagnostics/l1_trial1a_windows.cpp'] + $Text['diagnostics/l1_trial1a_main.cpp']) -match '\b(?:getenv|GetEnvironmentVariable[AW]|CreateProcess[AW]|ResumeThread|TerminateProcess|DeleteFile[AW]|RemoveDirectory[AW])\s*\(') {
         throw 'Trial 1A fixed entry, closed real gate, complete budget, image/Owner or Fake isolation missing'
     }
@@ -143,7 +167,7 @@ function Assert-Isolation([hashtable]$Text) {
         $Text['diagnostics/l1_windows_operations.cpp'] -notmatch 'token.close_as\(TemporaryOwner::token_validator\)' -or
         $Text['diagnostics/l1_r2_windows.cpp'] -notmatch 'owner.close_as\(TemporaryOwner::token_reader\)' -or
         $cmake -notmatch 'add_library\(shiroha_l1_s1_windows OBJECT diagnostics/l1_s1_windows\.cpp\)' -or
-        [regex]::Matches($cmake,'diagnostics/l1_s1_windows\.cpp').Count -ne 1 -or
+        [regex]::Matches($cmake,'diagnostics/l1_s1_windows\.cpp').Count -ne 2 -or
         $cmake -notmatch 'add_test\(NAME shiroha_l1_s1_root_offline COMMAND shiroha_l1_s1_root_test\)' -or
         $cmake -match '(?s)target_link_libraries\([^)]*shiroha_l1_s1_|TARGET_OBJECTS:shiroha_l1_s1_windows|add_test\([^)]*shiroha_l1_s1_windows' -or
         ($s1 + $s1h) -match '\b(?:CreateProcess[AW]|ResumeThread|CreateFile[AW]|ReadFile|WriteFile|GetSecurityInfo|FlushFileBuffers|NtCreateFile)\s*\(' -or
@@ -297,7 +321,17 @@ function Assert-Isolation([hashtable]$Text) {
 Assert-Isolation $sources
 if ($SelfTest) {
     $cases = @(
+        @{ path='diagnostics/l1_trial1a_bootstrap.h'; before='started_.test_and_set()'; after='false' },
+        @{ path='diagnostics/l1_trial1a_bootstrap.h'; before='!packet->valid()'; after='false' },
+        @{ path='diagnostics/l1_trial1a_bootstrap.cpp'; before='completed && r.settled && r.consumed && r.prepared && !r.unknown'; after='completed' },
+        @{ path='diagnostics/l1_trial1a_diagnostic_entry.cpp'; before='process.start<t::WindowsRealEntry>(fixed_packet, result)'; after='10' },
+        @{ path='CMakeLists.txt'; before='add_library(shiroha_l1_trial1a_real_entry SHARED'; after='add_library(shiroha_l1_trial1a_real_entry OBJECT' },
         @{ path='diagnostics/l1_trial1a_real.cpp'; before='reviewed_binding == hash()'; after='true' },
+        @{ path='diagnostics/l1_trial1a_real.cpp'; before='!control_.entry_module(request_.entry_module_id)'; after='false' },
+        @{ path='diagnostics/l1_trial1a_real.cpp'; before='add(c, entry_module_cost());'; after=';' },
+        @{ path='diagnostics/l1_trial1a_real_windows.cpp'; before='GetMappedFileNameW(GetCurrentProcess(), &module_anchor'; after='GetModuleFileNameW(GetCurrentProcess(), &module_anchor' },
+        @{ path='diagnostics/l1_trial1a_real_windows.cpp'; before='security == at->expected.security_sha256'; after='true' },
+        @{ path='diagnostics/l1_trial1a_real_windows.cpp'; before='measured.artifact_security_sha256 = at->expected.security_sha256;'; after=';' },
         @{ path='diagnostics/l1_trial1a_real.cpp'; before='budget == invocation_ceiling(*this)'; after='true' },
         @{ path='diagnostics/l1_trial1a_real.cpp'; before='control_.origin() != origin'; after='false' },
         @{ path='diagnostics/l1_trial1a_real.cpp'; before='!receipt(control_.consume(r), r)'; after='false' },
@@ -377,7 +411,7 @@ if ($SelfTest) {
     )
     foreach ($case in $cases) {
         $copy = $sources.Clone()
-        if ($case.path -like 'diagnostics/l1_trial1a_pins*' -or $case.path -like 'diagnostics/l1_trial1a_real*') {
+        if ($case.path -like 'diagnostics/l1_trial1a_*' -and $case.path -ne 'diagnostics/l1_trial1a_entry.cpp' -and $case.path -ne 'diagnostics/l1_trial1a_entry.h' -and $case.path -ne 'diagnostics/l1_trial1a_windows.h' -and $case.path -ne 'diagnostics/l1_trial1a_windows.cpp') {
             # New C++ is clang-formatted; match the same tokens across whitespace.
             $tokens = ($case.before -replace '\s','').ToCharArray()
             $pattern = ($tokens | ForEach-Object { [regex]::Escape([string]$_) }) -join '\s*'
@@ -392,4 +426,4 @@ if ($SelfTest) {
     }
     Write-Output "PASS: E3/B1/R1/R2/S1/Trial1A source guard; $($cases.Count) in-memory mutation rejections"
 }
-Write-Output 'PASS: E3/B1/R1/R2/S1/Trial1A compile-only Windows leaves, Fake-only registration, unconditional real STOP (STATIC)'
+Write-Output 'PASS: E3/B1/R1/R2/S1 legacy denials; Trial1A linked typed entry with one-use admission; Fake-only registration (STATIC)'

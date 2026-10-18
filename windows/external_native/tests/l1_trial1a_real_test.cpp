@@ -1,4 +1,4 @@
-#include "diagnostics/l1_trial1a_real.h"
+#include "diagnostics/l1_trial1a_bootstrap.h"
 #include "tests/l1_trial1a_fixture.h"
 #include <set>
 namespace c = shiroha_l1_crypto;
@@ -8,6 +8,24 @@ t::Invocation invocation() {
   q.plan = plan();
   q.plan.entry.pid = 0;
   q.plan.entry.creation = 0;
+  q.entry_module_id = "TRIAL1A-ENTRY-DLL";
+  auto &prep = q.plan.entry.preparation;
+  auto &frozen = prep.frozen;
+  auto module = frozen.manifest.pins[0];
+  module.id = q.entry_module_id;
+  module.object.file_id[0] = 77;
+  module.bytes_sha256 = std::string(64, 'd');
+  frozen.manifest.pins.push_back(module);
+  frozen.target.scope.wiring_manifest_sha256 = frozen.manifest.hash();
+  frozen.target.grant.evidence_scope_id = frozen.target.scope.hash();
+  const auto parent = q.plan.objects[q.plan.artifacts[0]].parent;
+  q.plan.artifacts.push_back(q.plan.objects.size());
+  q.plan.objects.push_back(
+      {module, "C:\\ARTIFACTS\\entry.dll", L"FAKE-OWNER", parent, false});
+  prep.budget = s::ceiling(prep.parents.size(), frozen.manifest.pins.size(),
+                           prep.evidence_parents.size());
+  q.plan.entry.total_budget = t::ceiling(prep);
+  q.plan.budget = t::acquisition_ceiling(q.plan);
   q.case_id = "CASE-1A";
   q.permit_owner = "PERMIT-OWNER";
   q.resources = {100000, 200000, 256};
@@ -31,7 +49,8 @@ struct Control final : t::InvocationPort {
   unsigned approvals = 0, observes = 0, attaches = 0, consumes = 0,
            finishes = 0, closes = 0, fail_observation = 0, drift = 0;
   bool approved = true, bad_reply = false, crash = false, lost_ack = false,
-       failed_close = false;
+       failed_close = false, module_matches = true;
+  unsigned module_checks = 0;
   Control(t::Invocation v, Ops &o, Store &s)
       : q(std::move(v)), ops(o), store(s) {}
   r::Origin origin() const noexcept override { return source; }
@@ -118,6 +137,12 @@ struct Control final : t::InvocationPort {
     ops.q = p.entry.preparation;
     return true;
   }
+  bool entry_module(const std::string &id) override {
+    ++module_checks;
+    check(id == q.entry_module_id,
+          "loaded module check binds exact reviewed artifact role");
+    return module_matches;
+  }
   r::SinkReceipt consume(const r::Record &r) override {
     ++consumes;
     auto key = s::pin_hash(q.plan.entry.preparation.evidence_parents.back());
@@ -200,7 +225,7 @@ void success() {
         "new process cannot replay spent directory permit");
 }
 void preflight() {
-  for (unsigned kind = 0; kind < 10 + s::counter_count; ++kind) {
+  for (unsigned kind = 0; kind < 12 + s::counter_count; ++kind) {
     Store store;
     auto q = invocation();
     switch (kind) {
@@ -234,8 +259,14 @@ void preflight() {
     case 9:
       q.plan.entry.preparation.frozen.target.grant.review_sha256.clear();
       break;
+    case 10:
+      q.entry_module_id.clear();
+      break;
+    case 11:
+      q.entry_module_id = q.plan.entry.image_id;
+      break;
     default:
-      --q.budget[kind - 10];
+      --q.budget[kind - 12];
       break;
     }
     RealFixture f(store, q);
@@ -259,6 +290,16 @@ void preflight() {
               f.ops.creates == 0,
           "refused/counterfeit confirmation or mixed Windows port never "
           "reaches primitives");
+  }
+  {
+    Store store;
+    RealFixture f(store);
+    f.control.module_matches = false;
+    check(!f.entry.run_offline() && f.control.module_checks == 1 &&
+              f.control.consumes == 0 && f.process.calls == 0 &&
+              f.ops.creates == 0,
+          "entry-module mapped-file identity/ACL mismatch denies before permit "
+          "consumption or S1");
   }
 }
 void failures() {
@@ -343,11 +384,123 @@ void failures() {
   check(!f.entry.run_offline() && f.control.observes == 2 && f.ops.creates == 0,
         "small approved sampling budget is enforced, never auto-increased");
 }
+struct Launch {
+  Store store;
+  unsigned scenario = 0, constructions = 0;
+  RealFixture *active = nullptr;
+};
+struct FakeEntryOwner {
+  RealFixture f;
+  t::Bootstrap bootstrap;
+  FakeEntryOwner(t::Invocation q, Launch &launch)
+      : f(launch.store, std::move(q)),
+        bootstrap(f.q, f.control, f.pins, f.ops, f.process, f.sink) {
+    ++launch.constructions;
+    launch.active = &f;
+    switch (launch.scenario) {
+    case 1:
+      f.control.approved = false;
+      break;
+    case 2:
+      f.control.crash = true;
+      break;
+    case 3:
+      f.sink.lost_ack = 2;
+      break;
+    case 4:
+      f.process.fail_at = 2;
+      break;
+    case 5:
+      f.control.fail_observation = 1;
+      f.control.drift = 8;
+      break;
+    case 6:
+      f.control.lost_ack = true;
+      break;
+    case 7:
+      f.control.failed_close = true;
+      break;
+    case 8:
+      f.control.disk.fail_flush = 1;
+      break;
+    default:
+      break;
+    }
+  }
+  const t::InvocationResult &result() const { return bootstrap.result(); }
+  t::EntryExit run_entry() { return bootstrap.run_offline(); }
+};
+void process_bootstrap() {
+  for (unsigned scenario = 0; scenario <= 8; ++scenario) {
+    Launch launch;
+    launch.scenario = scenario;
+    const auto q = invocation();
+    t::ProcessLatch process;
+    const t::InvocationResult *result = nullptr;
+    const auto code = process.start<FakeEntryOwner>(&q, &result, launch);
+    check(result && code == (scenario == 0   ? t::EntryExit::settled
+                             : scenario == 1 ? t::EntryExit::denied
+                                             : t::EntryExit::unknown),
+          "real exported bootstrap's shared gate distinguishes "
+          "settled/denied/UNKNOWN");
+    check(
+        launch.constructions == 1 && result->attempted &&
+            result->entry_starts == 1 && result->settled == (scenario == 0),
+        "one retained owner; result refers to the complete invocation ledger");
+    const auto calls = launch.active->control.observes;
+    check(process.start<FakeEntryOwner>(&q, &result, launch) ==
+                  t::EntryExit::denied &&
+              launch.constructions == 1 &&
+              launch.active->control.observes == calls,
+          "process latch never constructs/reobserves/retries a second "
+          "invocation");
+    if (scenario == 1 || scenario == 5)
+      check(launch.active->pins.opens == 0 && launch.active->ops.creates == 0 &&
+                launch.store.tombstones.empty(),
+            "missing approval/resource admission never reaches protected "
+            "operations");
+    if (scenario == 2 || scenario == 6 || scenario == 8)
+      check(launch.active->ops.creates == 0,
+            "crash/UNKNOWN/Flush failure never crosses consumption boundary");
+    if (!launch.store.tombstones.empty()) {
+      t::ProcessLatch restarted;
+      Launch next;
+      next.store = launch.store; // persistent fake disk, fresh process owners
+      check(restarted.start<FakeEntryOwner>(&q, &result, next) ==
+                    t::EntryExit::unknown &&
+                next.active->ops.creates == 0 &&
+                next.active->control.disk.writes == 0,
+            "fresh process bootstrap cannot replay success, crash or UNKNOWN "
+            "tombstone");
+    }
+  }
+  for (unsigned kind = 0; kind < 3; ++kind) {
+    Launch launch;
+    auto q = invocation();
+    t::ProcessLatch process;
+    const t::InvocationResult *result = nullptr;
+    if (kind == 2)
+      --q.budget[s::os_calls];
+    check(process.start<FakeEntryOwner>(kind == 0 ? nullptr : &q,
+                                        kind == 1 ? nullptr : &result,
+                                        launch) == t::EntryExit::denied &&
+              launch.constructions == 0,
+          "null/malformed/underbudget fixed packet rejects before construction "
+          "or I/O");
+    q = invocation();
+    check(process.start<FakeEntryOwner>(&q, &result, launch) ==
+                  t::EntryExit::denied &&
+              launch.constructions == 0,
+          "invalid initial start cannot be repaired into a second process "
+          "attempt");
+  }
+}
 } // namespace
 int main() {
   success();
   preflight();
   failures();
+  process_bootstrap();
   std::cout << "PASS: " << checks
             << " Trial 1A real-entry assertions; OFFLINE/FAKE only\n";
 }

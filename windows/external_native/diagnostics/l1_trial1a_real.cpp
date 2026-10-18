@@ -23,11 +23,20 @@ s1::Counts observation_cost() {
   c[s1::handles_acquired] = c[s1::handles_closed] = 2;
   return c; // R2 runtime Token pair, device/clock/OS memory/handle queries
 }
+s1::Counts entry_module_cost() {
+  s1::Counts c{};
+  c[s1::os_calls] = 128;
+  c[s1::files] = 2;
+  c[s1::security_reads] = 1;
+  c[s1::handles_acquired] = c[s1::handles_closed] = 1;
+  return c; // mapped image backing-file identity, metadata and temp close
+}
 s1::Counts invocation_ceiling(const Invocation &q) {
   auto c = q.plan.budget;
   add(c, observation_cost(), q.observations);
   add(c, ui_cost(q));
   add(c, process_cost()); // actual running image/Token gate BEFORE consumption
+  add(c, entry_module_cost());
   const auto e = q.plan.entry.preparation.evidence_parents.size();
   add(c, s1::cost(s1::Step::evidence_open, e)); // one spent-permit file
   add(c, s1::cost(s1::Step::evidence, e), 2);
@@ -35,12 +44,18 @@ s1::Counts invocation_ceiling(const Invocation &q) {
   return c;
 }
 bool Invocation::valid() const {
+  const auto module = std::find_if(
+      plan.objects.begin(), plan.objects.end(), [&](const PinInput &p) {
+        return p.expected.id == entry_module_id && !p.directory &&
+               p.expected.id != plan.entry.image_id;
+      });
   return !plan.entry.pid && !plan.entry.creation &&
          plan.entry.invocation_binding.empty() && structural(plan).valid() &&
-         safe_id(case_id) && safe_id(permit_owner) && resources.valid() &&
-         observations && observations <= 8192 && duration_ms &&
-         duration_ms <= 30000 && budget == invocation_ceiling(*this) &&
-         reviewed_binding == hash();
+         safe_id(case_id) && safe_id(permit_owner) &&
+         safe_id(entry_module_id) && module != plan.objects.end() &&
+         resources.valid() && observations && observations <= 8192 &&
+         duration_ms && duration_ms <= 30000 &&
+         budget == invocation_ceiling(*this) && reviewed_binding == hash();
 }
 std::string Invocation::hash() const {
   CanonicalHashBuilder h;
@@ -49,6 +64,7 @@ std::string Invocation::hash() const {
       plan.hash()); // zero PID/time; actual identity is bound after launch
   h.put_str(case_id);
   h.put_str(permit_owner);
+  h.put_str(entry_module_id);
   h.put_u64_le(resources.working);
   h.put_u64_le(resources.commit);
   h.put_u32_le(resources.handles);
@@ -72,6 +88,7 @@ e4::ApprovalPromptModel invocation_prompt(const Invocation &q) {
       "\nSource=" + p.target.source_sha + "\nBase=" + p.target.base_sha +
       "\nEXE=" + q.plan.entry.preparation.frozen.manifest.build.controller +
       "\nInventory=" + q.plan.hash() + "\nPermit owner=" + q.permit_owner +
+      "\nEntry module=" + q.entry_module_id +
       "\nReviewer=" + p.target.reviewer_id +
       "\nReview=" + p.target.review_sha256 +
       "\nVerifier=" + p.target.verifier_id +
@@ -210,6 +227,7 @@ r1::Record RealEntry::record(r1::Stage stage) {
   h.put_u64_le(
       start_); // post-approval observation origin, NOT invented launch time
   h.put_u32_le(result_.preconsume_process_checks);
+  h.put_u32_le(result_.entry_module_checks);
   for (auto n : result_.reserved)
     h.put_u64_le(n);
   for (auto n : {result_.entry_starts, result_.approvals, result_.observations,
@@ -295,6 +313,13 @@ s1::Handoff RealEntry::bind(const PinPlan &p,
       a.pin != borrow_hash(p, v) || !checkpoint())
     return {};
   const auto e = p.entry.preparation.evidence_parents.size();
+  if (!reserve(entry_module_cost()))
+    return {};
+  ++result_.entry_module_checks;
+  if (!control_.entry_module(request_.entry_module_id) || !checkpoint()) {
+    stop();
+    return {};
+  }
   if (!reserve(process_cost()))
     return {};
   ++result_.preconsume_process_checks;
