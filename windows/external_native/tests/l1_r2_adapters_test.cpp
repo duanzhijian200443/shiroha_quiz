@@ -106,7 +106,8 @@ struct Owner final : z::OwnerPort {
   Owner(const r::Frozen &v, Io &i) : base(v, i) {
     for (size_t n = 0; n < 3; ++n) {
       images[n] = {r::Origin::kFake, r::IoStatus::kOk, true,
-                   v.manifest.pins[n].object, v.manifest.pins[n].bytes_sha256};
+                   v.manifest.pins[n].object, v.manifest.pins[n].bytes_sha256,
+                   v.manifest.pins[n].security_sha256};
     }
   }
   std::array<z::ImageObservation, 3> measure_hosts() override {
@@ -217,6 +218,8 @@ void test_three_process_closed_loop() {
         "R2 security PASS remains distinct from unrun OS stability");
   check(t.custodian.state() == z::State::released && !t.custodian.retained(),
         "Custodian reaches released state after observed exit and IO close");
+  check(t.owner.measurements == 1,
+        "Batch acceptance uses one Owner host snapshot in the Fake flow");
   check(t.owner.base.creates == 1 && t.owner.base.resumes == 1 &&
             t.owner.base.close_calls == 1 && t.proof.calls == 1,
         "exactly one consumption proof, create, Resume and observed close");
@@ -566,7 +569,7 @@ void test_image_binding() {
             !z::match_images(good.f, good.lim, hosts, 3),
         "pre-create hosts need no Worker; post-create requires Worker "
         "measurement");
-  for (unsigned fault = 0; fault < 14; ++fault) {
+  for (unsigned fault = 0; fault < 16; ++fault) {
     R2Fixture t;
     auto &image = t.owner.images[1];
     switch (fault) {
@@ -613,6 +616,13 @@ void test_image_binding() {
       image = {};
       t.owner.measure_throw = true;
       break;
+    case 14:
+      image.security_sha256.clear();
+      break; // missing independent Owner/DACL observation
+    case 15:
+      image.security_sha256[0] =
+          image.security_sha256[0] == 'a' ? 'b' : 'a';
+      break; // same bytes and File ID, drifted security digest
     }
     check(!z::match_images(t.f, t.lim, t.owner.images, 3),
           "bad process/hash/read/origin/object fails shared three-image gate");
@@ -639,6 +649,21 @@ void test_image_binding() {
     images[process].sha256 = std::string(64, '9');
     check(!z::match_images(good.f, good.lim, images, 3),
           "no process index can skip its approved SHA comparison");
+    images = good.owner.images;
+    images[process].security_sha256[0] =
+        images[process].security_sha256[0] == 'a' ? 'b' : 'a';
+    check(!z::match_images(good.f, good.lim, images, 3),
+          "no process index can skip frozen Owner/DACL comparison");
+  }
+  {
+    auto changed = good.f;
+    auto &dacl = changed.manifest.pins[1].security_sha256;
+    dacl[0] = dacl[0] == 'a' ? 'b' : 'a';
+    changed.target.scope.wiring_manifest_sha256 = changed.manifest.hash();
+    changed.target.grant.evidence_scope_id = changed.target.scope.hash();
+    check(changed.valid() &&
+              !z::match_images(changed, good.lim, good.owner.images, 2),
+          "re-frozen target with drifted Custodian DACL cannot reuse measured bytes");
   }
   for (unsigned fault = 0; fault < 2; ++fault) {
     R2Fixture t;

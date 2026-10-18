@@ -31,6 +31,8 @@ struct ImageObservation {
   bool process_verified = false;
   ObjectIdentityPin object;
   std::string sha256;
+  // Digest of the independently inspected Owner/DACL, not a caller label.
+  std::string security_sha256;
 };
 // Two hosts before custody; all three only after Worker creation. Limits owns
 // the sole frozen Custodian hash, bound through Manifest::r2_sha256.

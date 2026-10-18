@@ -213,6 +213,9 @@ ImageObservation measure_image(const WindowsProcessPin &p,
   out.process_verified = true;
   out.object = identity(p.image.identity);
   out.sha256 = hash;
+  // measure_artifact has already compared the actual Owner/DACL digest
+  // both before and after the byte read against this pinned digest.
+  out.security_sha256 = p.image.artifact_security_sha256;
   return out;
 }
 } // namespace
@@ -486,18 +489,48 @@ WindowsOwner::WindowsOwner(r1::Frozen f,Limits l,WindowsObjectPin d,WindowsObjec
     std::array<WindowsProcessPin,2> hosts,uint64_t session)
     :frozen_(std::move(f)),limits_(std::move(l)),directory_(std::move(d)),image_(std::move(i)),
       dependencies_(std::move(deps)),hashes_(std::move(hashes)),hosts_(std::move(hosts)),session_(session) {}
-std::array<ImageObservation, 3> WindowsOwner::measure_hosts() {
-  std::array<ImageObservation, 3> images;
+std::array<ImageObservation, 3> WindowsOwner::measure_hosts() try {
+  // Only one complete byte measurement of each host EXE per Batch. Never
+  // refresh a failed or already captured snapshot: doing so would reset the
+  // per-artifact 256 ReadFile budget and allow a second admission attempt.
+  if (hosts_measurement_attempted_) return host_images_;
+  hosts_measurement_attempted_ = true;
+  if (accepted_ || stopped_) return {};
   for (size_t i = 0; i < 2; ++i)
-    images[i] = measure_image(hosts_[i], frozen_.target.sid);
-  return images;
+    host_images_[i] = measure_image(hosts_[i], frozen_.target.sid);
+  if (!match_images(frozen_, limits_, host_images_, 2)) {
+    host_images_ = {};
+    stopped_ = true;
+  }
+  return host_images_;
+} catch (...) {
+  host_images_ = {};
+  stopped_ = true;
+  return {};
+}
+bool WindowsOwner::revalidate_hosts_no_read(
+    const std::array<ImageObservation, 3> &images) const {
+  // Recheck live process + File ID + security descriptor without reading
+  // executable bytes again. Borrowed image pins continue to deny writes
+  // and deletion between the original measurement and custody acceptance.
+  for (size_t i = 0; i < 2; ++i) {
+    std::string actual_security;
+    if (!inspect_process_pin(hosts_[i], frozen_.target.sid) ||
+        !pin_metadata(hosts_[i].image, false) ||
+        !security(hosts_[i].image, actual_security) ||
+        actual_security != images[i].security_sha256)
+      return false;
+  }
+  return true;
 }
 r1::CustodyReceipt WindowsOwner::accept_intent(const r1::Frozen &f) try {
   if (accepted_ || stopped_)
     return {};
+  const auto images = measure_hosts(); // cached after Custodian precheck
   stopped_ = true; // failed identity never retries or accepts a later Batch
   if (f.hash() != frozen_.hash() ||
-      !match_images(frozen_, limits_, measure_hosts(), 2))
+      !match_images(frozen_, limits_, images, 2) ||
+      !revalidate_hosts_no_read(images))
     return {};
   accepted_ = true;
   stopped_ = false;

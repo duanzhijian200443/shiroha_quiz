@@ -149,9 +149,16 @@ function Assert-Isolation([hashtable]$Text) {
         ($r2 + $r2w) -match 'i\s*!=\s*1|i\s*==\s*1' -or
         $r2 -notmatch 'f\.manifest\.r2_sha256 != l\.hash\(\)' -or
         $r2 -notmatch 'pin\.object == image\.object && pin\.bytes_sha256 == image\.sha256' -or
+        $r2 -notmatch 'pin\.security_sha256 == image\.security_sha256' -or
+        $r2 -notmatch '!hex_digest\(image\.security_sha256, 64\)' -or
+        $r2w -notmatch 'out\.security_sha256 = p\.image\.artifact_security_sha256' -or
+        $r2w -notmatch 'if \(hosts_measurement_attempted_\) return host_images_;' -or
+        $r2w -notmatch 'actual_security != images\[i\]\.security_sha256' -or
+        $r2wh -notmatch 'hosts_measurement_attempted_=false' -or
         $r2 -notmatch '!match_images\(frozen_, limits_, owner_\.measure_hosts\(\), 2\)' -or
         $r2w -notmatch '!match_images\(frozen_, limits_, images, 3\)' -or
-        $r2w -notmatch '!match_images\(frozen_, limits_, measure_hosts\(\), 2\)' -or
+        $r2w -notmatch '!match_images\(frozen_, limits_, images, 2\)' -or
+        $r2w -notmatch '!revalidate_hosts_no_read\(images\)' -or
         $r2w -notmatch '!inspect_process_pin\(p, sid\) \|\| !measure_artifact\(p\.image, hash, reads\)' -or
         $r2w -notmatch 'stopped_ = true; // failed identity' -or
         $r2h -notmatch 'measure_hosts\(\) = 0;') {
@@ -161,11 +168,16 @@ function Assert-Isolation([hashtable]$Text) {
 Assert-Isolation $sources
 if ($SelfTest) {
     $cases = @(
+        @{ path='diagnostics/l1_r2_adapters.cpp'; before='pin.security_sha256 == image.security_sha256'; after='true' },
+        @{ path='diagnostics/l1_r2_adapters.cpp'; before='!hex_digest(image.security_sha256, 64)'; after='false' },
+        @{ path='diagnostics/l1_r2_windows.cpp'; before='if (hosts_measurement_attempted_) return host_images_;'; after='if (false) return host_images_;' },
+        @{ path='diagnostics/l1_r2_windows.cpp'; before='!revalidate_hosts_no_read(images)'; after='false' },
+        @{ path='diagnostics/l1_r2_windows.cpp'; before='actual_security != images[i].security_sha256'; after='false' },
         @{ path='diagnostics/l1_r2_adapters.cpp'; before='image.sha256 != expected[i]'; after='false' },
         @{ path='diagnostics/l1_r2_adapters.cpp'; before='image.sha256 != expected[i]'; after='(i != 1 && image.sha256 != expected[i])' },
         @{ path='diagnostics/l1_r2_adapters.cpp'; before='l.custodian_sha256,'; after='std::string{},' },
         @{ path='diagnostics/l1_r2_adapters.cpp'; before='!match_images(frozen_, limits_, owner_.measure_hosts(), 2)'; after='false' },
-        @{ path='diagnostics/l1_r2_windows.cpp'; before='!match_images(frozen_, limits_, measure_hosts(), 2)'; after='false' },
+        @{ path='diagnostics/l1_r2_windows.cpp'; before='!match_images(frozen_, limits_, images, 2)'; after='false' },
         @{ path='diagnostics/l1_r2_windows.cpp'; before='!match_images(frozen_, limits_, images, 3)'; after='false' },
         @{ path='CMakeLists.txt'; before='add_library(shiroha_l1_windows_operations OBJECT diagnostics/l1_windows_operations.cpp)'; after='add_executable(shiroha_l1_windows_operations diagnostics/l1_windows_operations.cpp)' },
         @{ path='CMakeLists.txt'; before='COMMAND shiroha_l1_windows_admission_test)'; after='COMMAND shiroha_l1_windows_operations)' },

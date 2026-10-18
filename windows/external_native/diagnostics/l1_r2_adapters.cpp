@@ -85,11 +85,13 @@ bool match_images(const r1::Frozen &f, const Limits &l,
     const auto &image = images[i];
     if (image.origin != origin || image.status != r1::IoStatus::kOk ||
         !image.process_verified || !hex_digest(image.sha256, 64) ||
+        !hex_digest(image.security_sha256, 64) ||
         image.sha256 != expected[i])
       return false;
     bool listed = false;
     for (const auto &pin : f.manifest.pins)
-      if (pin.object == image.object && pin.bytes_sha256 == image.sha256)
+      if (pin.object == image.object && pin.bytes_sha256 == image.sha256 &&
+          pin.security_sha256 == image.security_sha256)
         listed = true;
     if (!listed)
       return false;

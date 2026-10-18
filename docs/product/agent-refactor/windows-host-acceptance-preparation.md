@@ -754,8 +754,15 @@ before acceptance, latching rejection against retry. These checks need only the
 already existing Controller/Custodian. After Worker creation, the three-process
 `WindowsIdentity::measure` requires all three executable comparisons without a
 Custodian exception. No Worker is started to obtain pre-custody evidence.
+The pre-custody Controller/Custodian images are each byte-hashed once per
+WindowsOwner Batch: the second acceptance check reuses the captured image
+identity, digest and frozen Owner/DACL proof, while rechecking process/File ID
+and actual Owner/DACL without a second ReadFile. A failed first measurement
+burns the snapshot and cannot be retried. Thus the two-host pre-custody phase
+has at most 256 ReadFile calls per host artifact, not two full 256-call scans.
 The existing R1 three-process measurement API is not a complete phased startup
-composition: S3's full staged Pin handoff remains a separate blocker.
+composition: S3's staged Pin handoff and cross-phase aggregate file-read
+accounting remain separate blockers before any real trial.
 
 This source amendment does not close S1/S2/S3/F2/F3/D1 or claim independent F1
 review approval. E4 Receipt/Grant/Journal and IPC bytes are unchanged. No real
