@@ -10,6 +10,8 @@ struct Target {
   uint32_t pid = 0;
   uint64_t creation = 0;
   std::string process_owner, image_id;
+  // Optional upstream inventory/owner/aggregate-budget binding. Not authority.
+  std::string acquisition_binding;
   s1::Counts total_budget{}; // includes preflight and both retained closes
   bool valid() const;
   std::string hash() const;

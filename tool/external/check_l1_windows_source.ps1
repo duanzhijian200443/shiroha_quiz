@@ -21,11 +21,38 @@ foreach ($path in @('CMakeLists.txt', 'diagnostics/l1_crypto_probe.h',
     'diagnostics/l1_s1_windows.cpp', 'diagnostics/l1_temporary_handle.h',
     'diagnostics/l1_trial1a_entry.h', 'diagnostics/l1_trial1a_entry.cpp',
     'diagnostics/l1_trial1a_windows.h', 'diagnostics/l1_trial1a_windows.cpp',
-    'diagnostics/l1_trial1a_main.cpp')) {
+    'diagnostics/l1_trial1a_main.cpp', 'diagnostics/l1_trial1a_pins.h',
+    'diagnostics/l1_trial1a_pins.cpp', 'diagnostics/l1_trial1a_pins_windows.h',
+    'diagnostics/l1_trial1a_pins_windows.cpp')) {
     $sources[$path] = [IO.File]::ReadAllText((Join-Path $native $path))
 }
 function Assert-Isolation([hashtable]$Text) {
     $cmake = $Text['CMakeLists.txt']
+    $pins = $Text['diagnostics/l1_trial1a_pins.cpp'] -replace '\s',''
+    $pinsw = $Text['diagnostics/l1_trial1a_pins_windows.cpp'] -replace '\s',''
+    $pinswh = $Text['diagnostics/l1_trial1a_pins_windows.h'] -replace '\s',''
+    if (!$pins.Contains('boolAcquisition::run_windows()noexcept{if(attempted_)returnfalse;attempted_=true;returnfail(s1::State::rejected);') -or
+        !$pinswh.Contains('returnacquisition_.run_windows();') -or
+        !$pins.Contains('port_.origin()!=r1::Origin::kFake') -or
+        !$pins.Contains('operations_.origin()!=r1::Origin::kFake') -or
+        !$pins.Contains('process_.origin()!=r1::Origin::kFake') -or
+        !$pins.Contains('budget!=acquisition_ceiling(*this)') -or
+        !$pins.Contains('if(!matches(o,pin))returnfail();') -or
+        !$pins.Contains('!ack(port_.bind(plan_,acquired_),plan_,borrowed_)') -or
+        !$pins.Contains('!ack(port_.release_borrow(plan_.hash(),borrowed_),plan_,borrowed_)') -or
+        !$pinsw.Contains('FILE_SHARE_READ,FILE_OPEN,') -or
+        !$pinsw.Contains('OBJ_CASE_INSENSITIVE|OBJ_DONT_REPARSE') -or
+        !$pinsw.Contains('result.measured.object=object_identity(pin.identity);') -or
+        !$pinsw.Contains('!r2::measure_metadata(pin,input.directory,security,path)') -or
+        !$pinsw.Contains('close_attempted_[i]=true;returnCloseHandle') -or
+        $cmake -notmatch 'add_library\(shiroha_l1_trial1a_pins_windows OBJECT diagnostics/l1_trial1a_pins_windows\.cpp\)' -or
+        [regex]::Matches($cmake,'diagnostics/l1_trial1a_pins_windows\.cpp').Count -ne 1 -or
+        $cmake -notmatch 'add_test\(NAME shiroha_l1_trial1a_pins_offline COMMAND shiroha_l1_trial1a_pins_test\)' -or
+        $cmake -match '(?s)target_link_libraries\([^)]*shiroha_l1_trial1a_pins_|TARGET_OBJECTS:shiroha_l1_trial1a_pins_windows|add_test\([^)]*shiroha_l1_trial1a_pins_windows' -or
+        $Text['diagnostics/l1_trial1a_pins.cpp'] -match '\b(?:CreateFile[AW]|GetCurrentProcess|OpenProcess|ReadFile|CloseHandle)\s*\(' -or
+        ($Text['diagnostics/l1_trial1a_pins_windows.cpp'] + $Text['diagnostics/l1_trial1a_pins_windows.h']) -match '\b(?:OpenProcess|DuplicateHandle|CreateProcess[AW]|ResumeThread|TerminateProcess|DeleteFile[AW]|RemoveDirectory[AW]|SetSecurityInfo|SetFileSecurity[AW]|WriteFile|ReadFile|getenv|GetEnvironmentVariable[AW])\s*\(') {
+        throw 'Trial 1A acquisition fixed identity/budget/ownership or compile-only closed boundary missing'
+    }
     $entry = $Text['diagnostics/l1_trial1a_entry.cpp'] -replace '\s',''
     $entryh = $Text['diagnostics/l1_trial1a_entry.h'] -replace '\s',''
     $entryw = $Text['diagnostics/l1_trial1a_windows.cpp'] -replace '\s',''
@@ -232,6 +259,15 @@ function Assert-Isolation([hashtable]$Text) {
 Assert-Isolation $sources
 if ($SelfTest) {
     $cases = @(
+        @{ path='diagnostics/l1_trial1a_pins_windows.h'; before='return acquisition_.run_windows();'; after='return acquisition_.run_offline();' },
+        @{ path='diagnostics/l1_trial1a_pins.cpp'; before='budget != acquisition_ceiling(*this)'; after='false' },
+        @{ path='diagnostics/l1_trial1a_pins.cpp'; before='port_.origin() != r1::Origin::kFake'; after='false' },
+        @{ path='diagnostics/l1_trial1a_pins.cpp'; before='if (!matches(o,pin)) return fail();'; after='if (false) return fail();' },
+        @{ path='diagnostics/l1_trial1a_pins.cpp'; before='!ack(port_.bind(plan_,acquired_),plan_,borrowed_)'; after='false' },
+        @{ path='diagnostics/l1_trial1a_pins.cpp'; before='!ack(port_.release_borrow(plan_.hash(),borrowed_),plan_,borrowed_)'; after='false' },
+        @{ path='diagnostics/l1_trial1a_pins_windows.cpp'; before='FILE_SHARE_READ,FILE_OPEN,'; after='FILE_SHARE_READ,FILE_OPEN_IF,' },
+        @{ path='diagnostics/l1_trial1a_pins_windows.cpp'; before='result.measured.object = object_identity(pin.identity);'; after='result.measured.object = input.expected.object;' },
+        @{ path='CMakeLists.txt'; before='add_library(shiroha_l1_trial1a_pins_windows OBJECT'; after='add_library(shiroha_l1_trial1a_pins_windows SHARED' },
         @{ path='diagnostics/l1_trial1a_entry.cpp'; before='int process_entry(int, wchar_t **) noexcept { return 10; }'; after='int process_entry(int, wchar_t **) noexcept { return 0; }' },
         @{ path='diagnostics/l1_trial1a_entry.cpp'; before='total_budget == ceiling(preparation)'; after='true' },
         @{ path='diagnostics/l1_trial1a_entry.cpp'; before='process_.origin() != r1::Origin::kFake'; after='false' },
@@ -294,8 +330,15 @@ if ($SelfTest) {
     )
     foreach ($case in $cases) {
         $copy = $sources.Clone()
-        $copy[$case.path] = $copy[$case.path].Replace($case.before, $case.after)
-        if ($copy[$case.path] -ceq $sources[$case.path]) { throw 'Source guard mutation did not apply' }
+        if ($case.path -like 'diagnostics/l1_trial1a_pins*') {
+            # New C++ is clang-formatted; match the same tokens across whitespace.
+            $tokens = ($case.before -replace '\s','').ToCharArray()
+            $pattern = ($tokens | ForEach-Object { [regex]::Escape([string]$_) }) -join '\s*'
+            $copy[$case.path] = [regex]::Replace($copy[$case.path], $pattern, $case.after)
+        } else {
+            $copy[$case.path] = $copy[$case.path].Replace($case.before, $case.after)
+        }
+        if ($copy[$case.path] -ceq $sources[$case.path]) { throw "Source guard mutation did not apply: $($case.path)" }
         $rejected = $false
         try { Assert-Isolation $copy } catch { $rejected = $true }
         if (!$rejected) { throw 'Source guard mutation escaped rejection' }

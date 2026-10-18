@@ -75,7 +75,7 @@ $wrapper = Get-Content (Join-Path $PSScriptRoot 'protected_windows.cpp') -Raw
 if ($wrapper -notmatch 'GetProcAddress\(module, "NtSetInformationFile"\)') { throw 'Missing user-mode publication entry' }
 # Inspect before executing. These executables link only production pure cores +
 # fakes. The production DLL is neither loaded nor called by this check helper.
-foreach ($name in @('shiroha_discovery_offline_test', 'shiroha_native_offline_test', 'shiroha_objects_offline_test', 'shiroha_exchange_offline_test', 'shiroha_probe_offline_test', 'shiroha_rename_layout_test', 'shiroha_crypto_offline_test', 'shiroha_p20_root_production_test', 'shiroha_p20_root_diagnostic_test', 'shiroha_peer_policy_offline_test', 'shiroha_l1_crypto_probe_test', 'shiroha_l1_crypto_observation_test', 'shiroha_l1_crypto_admission_test', 'shiroha_l1_windows_admission_test', 'shiroha_l1_e4_test', 'shiroha_l1_e5_test', 'shiroha_l1_b1_unified_test', 'shiroha_l1_r1_wiring_test', 'shiroha_l1_r2_adapters_test', 'shiroha_l1_s1_root_test', 'shiroha_l1_trial1a_entry_test', 'shiroha_l1_trial1a_candidate', 'shiroha_l1_r1_controller_candidate', 'shiroha_l1_r1_worker_candidate', 'shiroha_l1_r2_custodian_candidate')) {
+foreach ($name in @('shiroha_discovery_offline_test', 'shiroha_native_offline_test', 'shiroha_objects_offline_test', 'shiroha_exchange_offline_test', 'shiroha_probe_offline_test', 'shiroha_rename_layout_test', 'shiroha_crypto_offline_test', 'shiroha_p20_root_production_test', 'shiroha_p20_root_diagnostic_test', 'shiroha_peer_policy_offline_test', 'shiroha_l1_crypto_probe_test', 'shiroha_l1_crypto_observation_test', 'shiroha_l1_crypto_admission_test', 'shiroha_l1_windows_admission_test', 'shiroha_l1_e4_test', 'shiroha_l1_e5_test', 'shiroha_l1_b1_unified_test', 'shiroha_l1_r1_wiring_test', 'shiroha_l1_r2_adapters_test', 'shiroha_l1_s1_root_test', 'shiroha_l1_trial1a_entry_test', 'shiroha_l1_trial1a_pins_test', 'shiroha_l1_trial1a_candidate', 'shiroha_l1_r1_controller_candidate', 'shiroha_l1_r1_worker_candidate', 'shiroha_l1_r2_custodian_candidate')) {
     $imports = (& $dumpbin /imports (Join-Path $build "$Configuration/$name.exe") | Out-String)
     # GetProcAddress alone is used by the MSVC CRT even in the layout-only
     # executable. Reject direct loaders/security operations, not CRT machinery.
@@ -85,7 +85,7 @@ foreach ($name in @('shiroha_discovery_offline_test', 'shiroha_native_offline_te
 }
 # The real P20 driver is compile-only; inspect registration before execution.
 $testList = (& $ctest --test-dir $build -C $Configuration -N | Out-String)
-if ($LASTEXITCODE -ne 0 -or $testList -match '\b(?:shiroha_p20_minimal_test|shiroha_l1_crypto_candidate|shiroha_assoc_candidate|shiroha_l1_b1_admission_worker|shiroha_l1_r1_controller_candidate|shiroha_l1_r1_worker_candidate|shiroha_l1_r2_custodian_candidate|shiroha_l1_r2_windows|shiroha_l1_s1_windows|shiroha_l1_trial1a_windows|shiroha_l1_trial1a_candidate)\b') { throw 'Real L1 candidate registered with CTest' }
+if ($LASTEXITCODE -ne 0 -or $testList -match '\b(?:shiroha_p20_minimal_test|shiroha_l1_crypto_candidate|shiroha_assoc_candidate|shiroha_l1_b1_admission_worker|shiroha_l1_r1_controller_candidate|shiroha_l1_r1_worker_candidate|shiroha_l1_r2_custodian_candidate|shiroha_l1_r2_windows|shiroha_l1_s1_windows|shiroha_l1_trial1a_windows|shiroha_l1_trial1a_pins_windows|shiroha_l1_trial1a_candidate)\b') { throw 'Real L1 candidate registered with CTest' }
 if ($testList -notmatch '\bshiroha_p20_root_production_offline\b' -or
     $testList -notmatch '\bshiroha_p20_root_diagnostic_offline\b' -or
     $testList -notmatch '\bshiroha_l1_crypto_probe_offline\b' -or
@@ -98,6 +98,7 @@ if ($testList -notmatch '\bshiroha_p20_root_production_offline\b' -or
     $testList -notmatch '\bshiroha_l1_r2_adapters_offline\b' -or
     $testList -notmatch '\bshiroha_l1_s1_root_offline\b' -or
     $testList -notmatch '\bshiroha_l1_trial1a_entry_offline\b' -or
+    $testList -notmatch '\bshiroha_l1_trial1a_pins_offline\b' -or
     $testList -notmatch '\bshiroha_l1_crypto_admission_offline\b') { throw 'Offline Fake coverage missing' }
 # Compile metadata reader without loading it or invoking any P/Invoke method.
 $csc = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'

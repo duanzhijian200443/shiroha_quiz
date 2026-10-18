@@ -24,6 +24,11 @@ WindowsEntry::WindowsEntry(Target t, r2::WindowsProcessPin p,
                    std::move(artifacts), std::move(evidence), receiver_),
       entry_(target_, preparation_, preparation_.sink_, *this) {}
 ProcessObservation WindowsEntry::measure() {
+  return measure_entry_process(target_, process_);
+}
+ProcessObservation
+measure_entry_process(const Target &target_,
+                      const r2::WindowsProcessPin &process_) {
   ProcessObservation m;
   // inspect_process_pin checks actual PID/time, exact token permissions, and
   // process image opened read-only against retained File ID; both temp owners

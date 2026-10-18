@@ -198,6 +198,14 @@ if(SHIROHA_NATIVE_OFFLINE_TESTS)
   target_include_directories(shiroha_l1_trial1a_entry_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
   add_test(NAME shiroha_l1_trial1a_entry_offline COMMAND shiroha_l1_trial1a_entry_test)
   set_tests_properties(shiroha_l1_trial1a_entry_offline PROPERTIES TIMEOUT 30)
+  add_executable(shiroha_l1_trial1a_pins_test diagnostics/l1_trial1a_pins.cpp
+    diagnostics/l1_trial1a_entry.cpp diagnostics/l1_s1_root.cpp
+    diagnostics/l1_r1_wiring.cpp diagnostics/l1_r2_adapters.cpp
+    tests/l1_trial1a_pins_test.cpp)
+  shiroha_native_settings(shiroha_l1_trial1a_pins_test)
+  target_include_directories(shiroha_l1_trial1a_pins_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+  add_test(NAME shiroha_l1_trial1a_pins_offline COMMAND shiroha_l1_trial1a_pins_test)
+  set_tests_properties(shiroha_l1_trial1a_pins_offline PROPERTIES TIMEOUT 30)
 endif()
 
 # E3 SOURCE/COMPILE ONLY: no executable, export, runtime dependency or CTest.
@@ -236,6 +244,9 @@ if(SHIROHA_L1_WINDOWS_ADMISSION_SOURCE)
   add_library(shiroha_l1_trial1a_windows OBJECT diagnostics/l1_trial1a_windows.cpp)
   shiroha_native_settings(shiroha_l1_trial1a_windows)
   target_include_directories(shiroha_l1_trial1a_windows PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+  add_library(shiroha_l1_trial1a_pins_windows OBJECT diagnostics/l1_trial1a_pins_windows.cpp)
+  shiroha_native_settings(shiroha_l1_trial1a_pins_windows)
+  target_include_directories(shiroha_l1_trial1a_pins_windows PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
   # Pure refusal EXE, never run by CTest; no Windows OBJECTs or API libraries.
   add_executable(shiroha_l1_trial1a_candidate diagnostics/l1_trial1a_main.cpp
     diagnostics/l1_trial1a_entry.cpp diagnostics/l1_s1_root.cpp

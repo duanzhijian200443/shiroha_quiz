@@ -96,6 +96,15 @@ composition. Actual device/account/path/artifact/Owner/budget selection, upstrea
 pin acquisition, independent fixed-target evidence and separate real authority
 remain required; source readiness does not make Trial 1A authorization-ready.
 
+The [Trial 1A Pin acquisition amendment](windows-host-acceptance-preparation.md#b2-trial-1a-pin-acquisition-amendment-g0-l0)
+adds the missing upstream source to that SAME application: one deduplicated
+existing-object inventory, parent-relative opens with actual identity/Owner/DACL
+checks, exact Entry/S1 borrows and one complete budget including final closes.
+The Windows adapter is unlinked and unconditionally denied. Eligible mechanical
+status is **TRIAL1A PIN ACQUISITION SOURCE READY / OFFLINE TESTED**; actual fixed
+device/account/objects/artifacts/budgets/owners and independent evidence still
+require selection and a separate real grant. **B2-TRIAL1A BLOCKED** remains.
+
 The E5 controlled diagnostic composition connects the same E4 issuance,
 write-ahead consumption, suspended Worker, six-message IPC and E2 Supervisor/
 Native settlement under one fixed-target local-human Controller. Extra directory,

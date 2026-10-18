@@ -154,13 +154,39 @@ function Assert-Plan([System.Collections.IDictionary]$Value) {
         $entry.totalOsCallCeiling -ceq 'S1_CEILING_PLUS_384_MAX_74402' -and
         $entry.budgetAdmission -ceq 'COMPLETE_S1_AND_THREE_PROCESS_ENVELOPES_PLUS_BOTH_CLOSES_REQUIRED_BEFORE_ANY_IO' -and
         $entry.artifactIdentity -ceq 'ENTRY_IMAGE_IS_FROZEN_CONTROLLER_PIN_HASHED_ONCE_BY_S1_NO_SELF_EMBEDDED_DIGEST' -and
-        $entry.upstreamPinAcquisition -ceq 'SEPARATE_EXACT_APPROVED_LEDGER_REQUIRED_NOT_PERFORMED_BY_ENTRY' -and
+        $entry.upstreamPinAcquisition -ceq 'SAME_TRIAL1A_PLAN_DEDUPLICATED_ACQUISITION_BORROW_AND_SETTLEMENT_DEFAULT_DENIED' -and
         $entry.sourceReadiness -ceq 'REVIEWABLE_COMPILE_AND_FAKE_CANDIDATE_NOT_INDEPENDENT_APPROVAL' -and
         $entry.fixedProcessPidCreationOwnerAndImagePin -ceq 'REQUIRES USER DECISION' -and
         $entry.completeOperationBudgetAndBorrowedPinAcquisitionLedger -ceq 'REQUIRES USER DECISION' -and
         $entry.finalEntryArtifactAndDependencyFreeze -ceq 'REQUIRES USER DECISION') 'trial1a_entry'
     foreach ($path in $entry.source) { Assert-RepoPath $path 'windows/external_native/diagnostics/' }
     Assert-RepoPath $entry.offlineTest 'windows/external_native/tests/'
+    $pins = $entry.pinAcquisition
+    Require ($pins.scope -ceq 'G0-L0 SOURCE / COMPILE / FAKE ONLY' -and
+        $pins.executionAuthorized -ceq $false -and $pins.source.Count -eq 4 -and
+        $pins.windowsObjectTarget -ceq 'shiroha_l1_trial1a_pins_windows' -and
+        $pins.realEntry -ceq 'UNCONDITIONAL_DENIAL_BEFORE_ACQUISITION_OR_BIND' -and
+        $pins.binding -ceq 'PIN_PLAN_HASH_IN_ENTRY_ACTION_AND_EXISTING_R2_EVIDENCE_NO_NEW_GRANT_OR_RECORD_FORMAT' -and
+        $pins.inventory -ceq 'UNIQUE_VOLUME_FILE_ID_PATH_AND_LOGICAL_ID_TOPOLOGICAL_C_ROOT_EXISTING_ONLY_SHARED_INDICES_NO_UNUSED_OBJECTS' -and
+        $pins.maxUniquePins -ceq 1120 -and
+        $pins.budget -ceq 'ONE_14_COUNTER_TOTAL_EQUALS_ENTRY_SUB_BUDGET_PLUS_SUM_ACQUISITION_AND_CLOSE_PLUS_ONE_PSEUDO_HANDLE_CALL_BEFORE_ANY_IO' -and
+        $pins.osCallCeiling -ceq 'ENTRY_CEILING+65*N+1; N<=1120; MAX_147203' -and
+        $pins.additionalMetadata -ceq 'ONE_DIRECTORY_OR_FILE_AND_ONE_SECURITY_READ_PER_UNIQUE_PIN' -and
+        $pins.additionalKernelHandlesAcquiredAndClosedEach -ceq 'N; PLUS_ENTRY_10; MAX_1130' -and
+        $pins.artifactReads -ceq 'ZERO_UPSTREAM_READFILE_S1_HASHES_EACH_ARTIFACT_ONCE_MAX_256_CALLS_16_MIB' -and
+        $pins.processHandle -ceq 'CURRENT_ENTRY_PSEUDO_HANDLE_BORROW_NO_OPENPROCESS_DUPLICATE_OR_CLOSE' -and
+        $pins.ownership -ceq 'ACQUISITION_SOLE_INVENTORY_CLOSE_OWNER_S1_BORROWS_ROOT_OWNER_UNCHANGED_EVIDENCE_SEPARATE' -and
+        $pins.settlement -ceq 'ROOT_CLOSE_THEN_EVIDENCE_CLOSE_THEN_EXACT_BORROW_RELEASE_ACK_THEN_REVERSE_UNIQUE_PIN_CLOSES_ONCE' -and
+        $pins.unknown -ceq 'STOP_RETAIN_NO_RETRY_REOPEN_DELETE_OR_SETTLED_PASS' -and
+        $pins.approvedInventoryBudgetOwnersAndReadOnlyAcquisitionScope -ceq 'REQUIRES USER DECISION') 'trial1a_pin_acquisition'
+    $pinFreeze = @('uniqueObjectAliasExactPathKindParentIndex',
+        'actualApprovedVolumeFileIdAndMetadataDigest','privateActualOwnerSidAndOwnerDaclDigest',
+        'artifactSha256AndCompleteApprovedAncestorChain','soleHandleOwnerBorrowerAndFinalCloseResponsibility',
+        'rootArtifactEvidenceAndEntryImageSharedIndices','entryPidCreationTimeAndPseudoHandleOwner',
+        'complete14CounterBudgetIncludingAcquisitionTemporaryHandlesAndFinalCloses')
+    Require (($pins.requiredFrozenFields -join ',') -ceq ($pinFreeze -join ',')) 'trial1a_pin_freeze'
+    foreach ($path in $pins.source) { Assert-RepoPath $path 'windows/external_native/diagnostics/' }
+    Assert-RepoPath $pins.offlineTest 'windows/external_native/tests/'
     $pending = @('selectedDevice','osEditionBuildPatchX64','privateExactSidAndPublicAccountDigest',
         'operatorAndApprover','newRootAndExactParentObjectInventory','forbiddenProductionAndHostARootAliases',
         'ownerDaclVolumeFileIdPinAcquisition','batchCaseIdsAndUtcWindow','controllerWorkingSetBytes',
@@ -540,6 +566,11 @@ if ($SelfTest) {
         { param($p) $p.l1Preparation.trial1aEntry.executionAuthorized = $true },
         { param($p) $p.l1Preparation.trial1aEntry.processMeasurements = 1 },
         { param($p) $p.l1Preparation.trial1aEntry.additionalTemporaryImageHandles = 0 },
+        { param($p) $p.l1Preparation.trial1aEntry.pinAcquisition.executionAuthorized = $true },
+        { param($p) $p.l1Preparation.trial1aEntry.pinAcquisition.maxUniquePins = 1121 },
+        { param($p) $p.l1Preparation.trial1aEntry.pinAcquisition.requiredFrozenFields = @('path') },
+        { param($p) $p.l1Preparation.trial1aEntry.pinAcquisition.artifactReads = 'HASH_TWICE' },
+        { param($p) $p.l1Preparation.trial1aEntry.pinAcquisition.approvedInventoryBudgetOwnersAndReadOnlyAcquisitionScope = 'APPROVED' },
         { param($p) $p.l1Preparation.trial1aEntry.completeOperationBudgetAndBorrowedPinAcquisitionLedger = 1 },
         { param($p) $p.l1Preparation.s1RootPreparation.executionAuthorized = $true },
         { param($p) $p.l1Preparation.s1RootPreparation.approvedOperationBudget = 1 },
