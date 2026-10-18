@@ -41,6 +41,7 @@ struct Request {
       evidence_parents; // C:\ through immediate parent
   std::string root_id, root_security_sha256, evidence_directory;
   Counts budget{}; // independently selected; no defaults from ceiling()
+  std::string entry_binding; // optional diagnostic composition digest, not authority
   bool valid() const;
   std::string hash() const;
 };

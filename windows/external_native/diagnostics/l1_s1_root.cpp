@@ -166,7 +166,8 @@ bool Request::valid() const {
               .size() ||
       parents.size() != parent_paths(frozen.target.scope.directory).size() ||
       frozen.manifest.pins.size() > r2::kPins || !safe_id(root_id) ||
-      !hex_digest(root_security_sha256, 64))
+      !hex_digest(root_security_sha256, 64) ||
+      (!entry_binding.empty() && !hex_digest(entry_binding, 64)))
     return false;
   for (const auto &p : parents)
     if (p.owner != frozen.manifest.pin_owner ||
@@ -215,6 +216,10 @@ std::string Request::hash() const {
   }
   for (auto n : budget)
     h.put_u64_le(n);
+  if (!entry_binding.empty()) {
+    h.put_str("SHIROHA_L1_TRIAL1A_ENTRY_BINDING_V1");
+    h.put_str(entry_binding);
+  }
   return h.finalize_hex(); // no pre-create root identity exists in this request
 }
 Preparation::Preparation(Request r, Operations &o, r1::EvidenceSink &s)

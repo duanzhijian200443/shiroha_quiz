@@ -2,7 +2,7 @@
 #define SHIROHA_L1_TEMPORARY_HANDLE_H_
 #include <cstdint>
 namespace shiroha_l1_crypto {
-enum class TemporaryOwner { token_reader, token_validator };
+enum class TemporaryOwner { token_reader, token_validator, image_reader };
 // Sole-owner close accounting shared by the real token leaves and Fake tests.
 // Exception unwinding attempts the same owner's close once; the exception still
 // rejects measurement. Normal callers MUST check close_as() before success.

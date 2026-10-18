@@ -897,6 +897,116 @@ unchanged. No Trial 1A/1B automatically follows this source work.
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
 REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
 
+### B2 Trial 1A fixed-target diagnostic entry (G0-L0)
+
+`l1_trial1a_entry.h/.cpp` composes the existing S1 algorithm and R2 evidence
+encoder through one typed `Target` and one single-use `Entry`. The separate
+`l1_trial1a_windows.h/.cpp` OBJECT constructs that same Entry with the S1 Windows
+leaves, R2 process identity/metadata and concrete PinReceiver/PersistentEvidence.
+`shiroha_l1_trial1a_candidate` is a separately buildable **refusal EXE**: its
+`wmain` calls only `process_entry`, which always returns 10. It links the pure
+composition, not Windows OBJECTs. Neither the EXE nor the Windows OBJECT is a
+CTest entry. This supersedes S1's historical “no new EXE” description only for
+this pure refusal artifact. No runnable Windows composition is enabled.
+
+Inputs are supplied explicitly in memory: the existing S1 Request (unbound on
+input), complete retained parent/artifact/evidence chains, the already-retained
+entry process HANDLE with approved PID/creation time/named Owner, and the
+process image pin. There is no CLI/environment/JSON loader, directory discovery,
+approval boolean or Fake-to-Windows authorization bridge. `WindowsEntry::run`
+and `Entry::run_windows` unconditionally deny before measurement or I/O; the S1
+denials remain intact. Selecting an origin is not a grant. Enabling a future
+real route requires separately scoped source review and explicit runtime
+authority; changing this source does not change production authorization.
+
+Before any measurement, evidence open or create, Target validation requires a
+valid S1/Frozen/R2 target, nonzero PID/time, safe Owner/image IDs, the image pin
+from the existing frozen Controller inventory, and a complete operation budget.
+The Controller digest represents this final diagnostic entry image for 1A; it
+is supplied with the external frozen inventory, never embedded into its own EXE.
+Custodian/Worker artifacts remain pinned/hash-checked S1 inventory inputs; no
+process is launched for either. F1's sole Custodian digest remains unchanged.
+
+The process is independently checked three times: initial preflight, immediately
+before the sole root create, and immediately before Pin retention. R2 checks
+actual PID/creation time, exact SID, Primary/Medium/non-elevated token and allowed
+privileges, process-image File ID against its retained image, and Owner/DACL
+metadata. The Windows leaf also requires the measured PID to be the current
+entry process. The existing S1 runtime measurement must report the same PID/time
+and frozen device/OS/account; each retained artifact is byte-hashed once by S1.
+No repeated image byte scan is introduced. Unknown proof, failed temporary close
+or drift stops the batch without retry; a pre-create failure cannot reach root
+creation, and a pre-handoff failure cannot produce a Pin ACK.
+
+The entry binds its PID/time/process Owner/image ID/total budget and original S1
+Request hash into a domain-separated digest. S1 commits that digest in its action
+hash and existing redacted R2 evidence ledger, including the actual resulting
+root Pin. This adds no Grant, authorization token, E4 bytes or F2 record schema.
+The numeric Entry ledger remains in memory; the persisted manifest commits the
+entry budget/binding and S1 snapshots, not a new persisted API-counter table.
+
+#### Complete entry ledger and ownership
+
+For each of the three process checks reserve **128 OS calls, two file metadata
+observations, one security read, two temporary HANDLE acquisitions and two
+closes**, before the first call. The temporary owners are `token_validator`
+and `image_reader`; each verifies its owner and latches its sole close attempt.
+The initial S1 runtime keeps its existing `token_reader`/`token_validator` pair.
+An exception or failed close rejects; unwind cannot retry a failed close.
+
+The total budget must equal the complete conservative S1 ceiling for the selected
+H/A/E plus all three process envelopes; the S1 sub-budget must include both final
+retained closes. An incomplete or above-ceiling budget rejects before **any I/O**.
+At source maxima the combined limits are OS calls <=74402, directory observations
+<=1196, file observations <=205, security reads <=1463, kernel HANDLE acquisitions
+and closes <=10 each (eight temporary, root, evidence). Root create <=1, initial
+security assignments <=2, parent security writes 0, artifact reads <=256/file,
+and evidence create/write/Flush/bytes <=1/2/2/16384 remain unchanged. These are
+reserved conservative envelopes, not measured OS totals. Result separately
+reports actual S1 attempts; Entry includes all process reservations in `reserved`.
+`process_attempts` separately reports actual process-check attempts, including a
+throwing or UNKNOWN observation, with a hard ceiling of three.
+
+All incoming process/parent/artifact/evidence-parent handles are borrowed from
+named owners. Their acquisition is **not performed by this entry** and requires
+a separately frozen, approved upstream acquisition/close ledger. It cannot be
+silently included in these ten handles. S1 remains the only root close owner;
+its concrete PinReceiver retains a bounded borrow with the exact action/root Pin
+ACK. WindowsEntry exposes that borrow only after final evidence ACK and before a
+root close attempt. Evidence has its separate named close owner. Successful
+preparation permits each explicit owner close once; failed/UNKNOWN settlement
+blocks subsequent closes. No destructor closes retained handles, and no failed
+evidence, collision, partial write/Flush or lost ACK is retried or cleaned up.
+
+#### Trial 1A application fields still requiring selection
+
+The existing application remains `DRAFT_NOT_AUTHORIZED`; its
+`l1Preparation.trial1aEntry` fields describe this source interface only.
+**Source/compile/Fake readiness is not `TRIAL1A READY FOR USER AUTHORIZATION`.**
+The smallest remaining real-target parameter groups are:
+
+1. Selected device and separately authorized read-only measurement of exact
+   Windows Edition/Build/Patch/x64, private SID/Token and public account digest.
+2. Exact new root name/path, existing full C:-to-parent pins/Owner/DACL, approved
+   root security digest, and exclusion of production/Host A objects; existing
+   external evidence directory/pins, output retention and evidence Owner.
+3. Final Source/Base, clean delivery, build/tools/configuration and actual entry,
+   existing artifact/dependency hashes and Volume/File IDs; entry PID/creation
+   time, process Owner and retained image pin must be separately observed under
+   the approved launch/measurement plan. This source-only build is not that freeze.
+4. Selected H/A/E and all 14 operation-budget numbers, exact upstream retained-pin
+   acquisition/close ledger, entry launch/read-only observation counts and
+   single-process WS/Commit/Handle limits/method. No three-process run is implied.
+5. Unique Batch/Case IDs and UTC window; operator/approver, STOP/recovery/cleanup/
+   Pin/evidence owners and recovery record; independent fixed-target
+   Verifier/Reviewer and their matching evidence. Then a separate one-time grant.
+
+No real target measurement, Windows directory/evidence creation, three-process
+startup, 1B, S2/S3/F2/F3 or production authority is added by this amendment.
+**B2-TRIAL1A BLOCKED** remains until the selected target, independent evidence and
+separate runtime authority exist. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
+AR-R6A = NOT_ACCEPTED; REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
+
 ### E4 local-human single-use admission source candidate (G0-L0)
 
 E4 supplements, and does not retroactively change, the E2/E3 source boundary.

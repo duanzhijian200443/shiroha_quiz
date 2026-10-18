@@ -1326,3 +1326,27 @@ Worker is required or launched for 1A; no Grant/DPAPI/Crypto/Host A/production
 root is touched. F1 remains intact; S2/S3/F2/F3 are outside this source slice.
 **B2-TRIAL1A BLOCKED** until fixed user inputs, independent evidence and separate
 explicit runtime permission exist. Source/Fake success never runs 1A or 1B.
+
+### B2 Trial 1A fixed-target diagnostic entry (G0-L0)
+
+`l1_trial1a_entry.h/.cpp` provides the single-use typed composition above S1.
+`l1_trial1a_windows.h/.cpp` combines that entry with the S1 Windows leaves, R2
+identity/Pin measurement and PersistentEvidence in an unlinked OBJECT. It never
+starts Custodian/Worker. `shiroha_l1_trial1a_candidate` is a pure refusal EXE
+whose `wmain` always returns 10 through `process_entry`; it is not in CTest and
+does not link the Windows OBJECTs. The S1 “no new EXE” statement describes the
+earlier S1 slice. Real Windows paths remain unconditionally denied.
+
+The Fake entry test reuses the S1 fixture and actual R2 evidence encoder. It
+checks input/budget rejection before I/O, initial/pre-create/pre-handoff process
+proofs, independent S1 identity and once-only artifact hashes, actual root Pin
+rechecks, two record/Flush ACKs, failure retention, no retry and named Owner
+settlement. The image-open temporary now uses the same single-close Owner helper
+as token validation. No retained HANDLE destructor close or cleanup is added.
+
+The [canonical entry amendment](../../../docs/product/agent-refactor/windows-host-acceptance-preparation.md#b2-trial-1a-fixed-target-diagnostic-entry-g0-l0)
+defines typed inputs, binding, the combined <=74402-call source envelope,
+upstream borrowed-pin acquisition boundary and minimum pending user parameters.
+The plan's `l1Preparation.trial1aEntry` remains unapproved. Compile/Fake readiness
+does not establish `TRIAL1A READY FOR USER AUTHORIZATION`, independent fixed-target
+evidence or a real-experiment grant. **B2-TRIAL1A BLOCKED** remains.
