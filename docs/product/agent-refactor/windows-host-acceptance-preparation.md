@@ -1133,6 +1133,151 @@ of review approval, `TRIAL1A READY FOR USER AUTHORIZATION` and execution authori
 other L1 trials are unchanged. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
 AR-R6A = NOT_ACCEPTED; REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
 
+### Trial 1A final readiness and one consolidated authorization application
+
+This section consolidates the SAME Trial 1A application above. It creates no
+additional G0-L0 stage, Grant, configuration interface or experiment permission.
+For this application the user has selected the current Windows development
+computer. The device choice does not select its logged-in account, prove its
+Windows/NTFS identity, approve a path, or permit a real observation. The shared
+machine plan remains an unapproved template for all five trials; it is not a
+loader for this application or evidence that this device was measured.
+
+#### The remaining technical boundary
+
+The complete source chain is `WindowsPinAcquisition` -> `Acquisition` -> `Entry`
+-> S1 operations and R2 process/metadata/persistent-evidence leaves. Existing
+acquisition, shared borrows, three process checks, artifact hashing, exclusive
+root creation, root Pin ACK, evidence and explicit settlement are reusable.
+The public `Acquisition::run_windows` and `Entry::run_windows` reject
+unconditionally; the EXE calls only the refusal `process_entry`. CMake does not
+link the Windows OBJECTs into that EXE. Thus there is no reviewed, usable real
+1A invocation, even with a syntactically complete `PinPlan`.
+
+The one remaining technical problem is the **fixed-target, single-use real 1A
+invocation boundary**, including its launch, time/resource observation and
+ownership lifetime. It must admit only the independently reviewed target and
+the user's exact one-time permission before the first real call, carry the
+existing plan through the SAME source chain, and prohibit replay after a
+failed/UNKNOWN attempt or process restart. A per-instance `attempted_` flag alone
+does not prove restart-resistant one-time permission. An R2 output created
+later by S1 cannot retroactively authorize upstream acquisition. A source/EXE
+hash, origin enum, valid target or checked approval field alone is not a grant.
+
+Trial 1A explicitly issues **no Grant** and starts **no Custodian/Worker**.
+Reusing E4's 1B receipt/Grant/journal issuance or three-process Controller as a
+1A admission shortcut would change the approved operation set. Do not do so.
+Likewise, removing unconditional denials or adding CLI/environment/JSON/build
+opt-ins is not the missing boundary. There is currently no concrete selected
+target/launch permission to connect safely: leave the real entry closed until
+the actual target, one-use invocation mechanism and its full operation ledger
+can be reviewed together. That is a bounded continuation of this same 1A
+responsibility, not another general infrastructure task. Source completion and
+`TRIAL1A READY FOR USER AUTHORIZATION` must not be claimed in the meantime.
+
+#### One fixed-target packet; no inferred selections
+
+Keep private values in the user-approved private packet. Commit only aliases,
+digests and this contract. All rows below belong to ONE packet and ONE request;
+collect outstanding decisions together, not through separate component tasks.
+
+| Packet part | Exact selection/evidence needed |
+|---|---|
+| Device/account | The selected current Windows computer; separately observed Edition/Build/Patch/x64 and device digest; user-selected account, private exact SID, public account digest, Primary/Medium/non-elevated Token and allowed privileges. No second account creation is implied. |
+| New root and parents | Exact private new C: NTFS path/name, root alias, full existing C:-to-parent chain; each actual Volume/File ID, kind, filesystem Owner SID and Owner/DACL digest; approved initial root Owner/DACL recipe/digest. No pre-create root File ID exists. Freeze production/Host A exclusions. |
+| Existing inventory | One topological, deduplicated `PinPlan` inventory with sole HANDLE owners and root/artifact/evidence/image index mappings. Existing object identity/ACL observations require their own exact read-only permission; parent/system-owned ACLs are never repaired. |
+| Evidence | Exact separately approved EXISTING evidence directory and complete pins, absent `evidence-controller.r2` output, initial file security recipe, evidence owner, redacted output destination, retention period and later deletion responsibility. This application does not create the evidence directory. |
+| Source/build/artifacts | Final Source/Base and source inventory; independently built entry, required retained Custodian/Worker inventory files (not launched), tool/SDK/configuration and dependency closure with SHA-256/Volume/File ID/Owner/DACL; PE review and exact launch command/environment/inherited handles. No self-embedded entry-EXE hash. |
+| Invocation and observation | Exact permitted launcher/operator, one entry-process start, account, PID/creation-time observation and process/image owner; the reviewed single-use permission mechanism; UTC Batch/Case window, maximum duration, explicit WS/Commit/Handle ceilings, method, sample count/interval and blind spots. PID/time must be observed and bound under the approved launch procedure, not invented before launch. |
+| Ledger | Selected H/A/E/N/D/F and the complete 14-counter budget below, plus a SEPARATE exact ledger for launch, permit consumption, independent preflight and resource/time observations. Those operations are not hidden inside Entry's reservations. |
+| Responsibility | Named operator/approver, sole pin/process/evidence owners, STOP and recovery/backup/cleanup operators, recovery procedure digest, custody/borrow ACK and final-close responsibilities. UNKNOWN never grants kill, retry, delete, ACL repair or elevation. |
+| Independent evidence | Current-head/current-base `PR contract checks`; independent source/target Reviewer approval and fixed-target Verifier with the real OS/manual acceptance gap explicitly identified. Exact source/artifacts/environment/budget bindings must agree; drift invalidates affected evidence. Executor/Fake evidence cannot approve itself. |
+
+#### The complete existing-chain operation ledger
+
+Let H and E be the root-parent and evidence-parent chain lengths, A the number
+of retained artifacts, and N=D+F the UNIQUE acquired directory/file inventory.
+Use the actual deduplicated selected counts, never the source maxima as a user
+budget. The existing functions compute the following required conservative
+reservations; they are not observed totals or permission to perform the calls.
+
+| `s1::Counter` | Complete PinPlan/Entry/S1 reservation |
+|---|---|
+| `directories` | `4H + 16A + 6E + 12 + D` |
+| `files` | `3A + 13 + F` |
+| `security_reads` | `4H + 20A + 6E + 23 + N` |
+| `os_calls` | `128H + 1024A + 6819 + 65N` |
+| `root_creates` | `1` |
+| `security_sets` | `2`: initial root and evidence-file security only; parent writes `0` |
+| `evidence_creates` | `1` |
+| `handles_acquired` | `N + 10`: N inventory, eight temporary, root and evidence |
+| `handles_closed` | `N + 10`, with explicit successful-owner settlement required |
+| `hash_reads` | `256A`, at most 256 reads/artifact; upstream reads `0` |
+| `hash_bytes` | `16777216A`, at most 16 MiB/artifact |
+| `evidence_writes` | `2` |
+| `evidence_flushes` | `2` |
+| `evidence_bytes` | `16384`: two existing 8192-byte R2 records |
+
+H/E<=16, A<=64 and N<=1120 remain source ceilings. The sole process
+pseudo-handle call is already in `os_calls` and acquires no kernel HANDLE.
+The three Entry process checks and their temporary closes are included; entry
+START, external observations and the missing permission mechanism are not.
+The final combined ledger cannot be approved until those additional operations
+and their exact limits are specified. No value is silently inherited from a
+different trial or a sample test fixture.
+
+Root create/security assignment are attempted at most once. S1 hashes each
+retained artifact once, writes intent/final-or-recovery evidence at most twice,
+and binds the actual created root Pin. Successful preparation is not settled
+PASS: root close, evidence close, exact borrow-release ACK and reverse-order
+unique inventory closes must all succeed. On the first unexpected or UNKNOWN
+result stop, retain the named ownership, and never retry a close or clean up an
+unknown object. In-memory counts/final closes are not an F2 persisted crash
+ledger. Synchronous Win32 calls have no claimed hard cancellation deadline;
+preapproved human recovery remains necessary for a stalled call.
+
+#### One authorization request with explicit phase limits
+
+The request must contain the following complete statement with every bracket
+resolved, plus the private packet and its public digest. Unresolved brackets
+make it a **draft**, not a request for executable approval:
+
+> On the already selected current Windows computer, select [account], [exact
+> new root and existing parent inventory], [existing evidence destination],
+> [final source/build/artifact inventory], [all operation/resource/time limits],
+> [Batch/Case/window], and [operator/approver/owners/recovery/cleanup/independent
+> Verifier/Reviewer]. Authorize only the named read-only preflight operations
+> [objects/APIs/counts/output/retention], including their temporary HANDLE opens
+> and closes; no root/evidence creation, ACL modification or experiment launch
+> follows from that preflight permission. After its measurements match the
+> exact packet and independent evidence, separately approve within this SAME
+> application the reviewed one-time invocation [packet/permit digest and entry
+> artifact], at most one entry start, the explicitly listed acquisition and
+> observation operations, one exclusive root create with its initial security,
+> one evidence-file create with its initial security, at most two record
+> writes/Flushes, and successful-owner settlement at the frozen limits. An
+> absent/drifting prerequisite forbids invocation. No 1B, Grant issuance,
+> Custodian/Worker launch, production/Host A access, Crypto/Objects/Store/Release,
+> network, retry, kill, deletion or parent ACL change is authorized.
+
+Read-only preflight permission and real invocation permission are distinct
+scopes in the same application; neither implies the other. A conditional phrase
+cannot authorize an as-yet-unmeasured inventory, unspecified budget, future EXE
+or future mechanism. If the exact packet is unavailable now, request only the
+explicitly bounded preflight/selection scope now; the final one-time invocation
+approval remains pending until it refers to concrete reviewed values. Do not
+ask for blanket conditional execution to avoid this boundary.
+
+For this preparation assignment, repository source/Git inspection and normal
+offline checks are authorized. Real Windows identity/Token/ACL/File ID reads,
+path existence probes, process launch/sampling, object/HANDLE acquisition and
+all experimental writes remain unauthorized. The account, private paths,
+actual pins/artifacts, numeric budgets, window and named responsibilities above
+are unresolved together; no current account, path or number was selected by the
+Executor. The result is **TRIAL1A BLOCKED**, with the single technical boundary
+described above and the complete target decisions in this packet. Existing
+HOST_STABILITY_HALT/Transport/AR-R6A/Windows/formal gates remain unchanged.
+
 ### E4 local-human single-use admission source candidate (G0-L0)
 
 E4 supplements, and does not retroactively change, the E2/E3 source boundary.

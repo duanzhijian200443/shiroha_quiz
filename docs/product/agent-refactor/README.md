@@ -105,6 +105,15 @@ status is **TRIAL1A PIN ACQUISITION SOURCE READY / OFFLINE TESTED**; actual fixe
 device/account/objects/artifacts/budgets/owners and independent evidence still
 require selection and a separate real grant. **B2-TRIAL1A BLOCKED** remains.
 
+The [consolidated Trial 1A application](windows-host-acceptance-preparation.md#trial-1a-final-readiness-and-one-consolidated-authorization-application)
+collects the selected current Windows computer's remaining account/path/Pin/
+artifact/budget/owner decisions and the complete existing-chain operation ledger.
+The single technical blocker is its reviewed fixed-target, single-use real
+invocation with launch/time/resource/ownership accounting; the existing Windows
+entry remains closed. Trial 1A issues no Grant and launches no Custodian/Worker.
+Read-only preflight and the eventual exact one-time invocation have distinct
+permission scopes in that same application; no new general G0-L0 stage is added.
+
 The E5 controlled diagnostic composition connects the same E4 issuance,
 write-ahead consumption, suspended Worker, six-message IPC and E2 Supervisor/
 Native settlement under one fixed-target local-human Controller. Extra directory,

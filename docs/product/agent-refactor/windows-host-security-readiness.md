@@ -3887,6 +3887,24 @@ explicit one-time grant. **B2-TRIAL1A BLOCKED**; all trials DRAFT_NOT_AUTHORIZED
 1B/S2/S3/F2/F3 unchanged. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
 AR-R6A = NOT_ACCEPTED; REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
 
+### Trial 1A final readiness boundary
+
+The [consolidated Trial 1A application](windows-host-acceptance-preparation.md#trial-1a-final-readiness-and-one-consolidated-authorization-application)
+owns the remaining target decisions, complete existing-chain 14-counter ledger,
+separate preflight/launch/permission/observation accounting and the single real
+invocation gap. The current development computer is user-selected for this
+application; its account/OS/paths/pins/budgets are neither inferred nor measured.
+Acquisition -> Entry -> S1/R2 source remains reusable and default-denied. There
+is no reviewed fixed-target, restart-resistant single-use real 1A invocation,
+including its time/resource observation and ownership lifetime. Syntactic target
+validation, a per-instance latch or source/Fake success cannot supply it.
+Trial 1A issues no Grant and launches no Custodian/Worker; E4's 1B Grant flow
+cannot silently expand its operation set. Do not remove denials or add a config
+opt-in to substitute for that boundary. Source completion/authorization readiness
+remain blocked until the exact target and that same bounded invocation are
+independently reviewable. This adds no new general infrastructure stage or real
+permission; all existing gates and the other trials remain unchanged.
+
 ### E4 local-human single-use admission source candidate (G0-L0)
 
 E4 supplements, and does not retroactively change, the E2/E3 source boundary.
