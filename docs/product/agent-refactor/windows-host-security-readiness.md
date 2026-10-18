@@ -3890,20 +3890,31 @@ AR-R6A = NOT_ACCEPTED; REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
 ### Trial 1A final readiness boundary
 
 The [consolidated Trial 1A application](windows-host-acceptance-preparation.md#trial-1a-final-readiness-and-one-consolidated-authorization-application)
-owns the remaining target decisions, complete existing-chain 14-counter ledger,
-separate preflight/launch/permission/observation accounting and the single real
-invocation gap. The current development computer is user-selected for this
-application; its account/OS/paths/pins/budgets are neither inferred nor measured.
-Acquisition -> Entry -> S1/R2 source remains reusable and default-denied. There
-is no reviewed fixed-target, restart-resistant single-use real 1A invocation,
-including its time/resource observation and ownership lifetime. Syntactic target
-validation, a per-instance latch or source/Fake success cannot supply it.
-Trial 1A issues no Grant and launches no Custodian/Worker; E4's 1B Grant flow
-cannot silently expand its operation set. Do not remove denials or add a config
-opt-in to substitute for that boundary. Source completion/authorization readiness
-remain blocked until the exact target and that same bounded invocation are
-independently reviewable. This adds no new general infrastructure stage or real
-permission; all existing gates and the other trials remain unchanged.
+owns the remaining target decisions and complete PinPlan plus invocation ledger.
+`RealEntry` and its concrete `WindowsRealEntry` now implement the SAME controlled
+chain in C++: immutable reviewed target, existing bounded local-human UI,
+post-launch R2 PID/time/Token/device/OS/peak observations, actual acquired pins,
+one running-image check, exclusive `trial1a-consumed.r2` Write/Flush consumption,
+then private Acquisition -> Entry -> S1/R2 and explicit settlement. The original
+three Entry process checks remain. Existing/empty/partial tombstones reject even
+after a new process starts; no E4 Grant, reopen/delete/reissue or retry is used.
+The marker namespace must be retained unchanged across process restart; no
+power-loss or hostile same-SID guarantee is claimed. All observation/permit/UI
+operations have explicit aggregate reservations. The second permit record/close
+precedes releasing its borrowed ancestors; final-close observations/results are
+returned in memory and no persisted aggregate PASS is claimed. UNKNOWN requires
+retained ownership and the approved manual handoff.
+
+The current development computer is user-selected; actual account/OS/paths/pins/
+artifacts/budgets remain unmeasured and undecided. The real Windows composition
+is a compile-only OBJECT absent from CTest/default startup, and the original
+public/default denials remain unchanged. Its callable source reaches actual
+Windows leaves only through the concrete confirmation/consumption/measurement
+lifecycle; no config boolean, CLI or environment can enable a default entry.
+Highest eligible result after actual checks is **TRIAL1A REAL ENTRY SOURCE
+IMPLEMENTED / OFFLINE VERIFIED**. Source success is not independent approval,
+authorization readiness or a real trial PASS. No Grant/Custodian/Worker, other
+trial or general infrastructure stage is added; all existing gates remain.
 
 ### E4 local-human single-use admission source candidate (G0-L0)
 

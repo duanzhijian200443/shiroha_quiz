@@ -59,6 +59,12 @@ void success() {
   check(!f.entry.close_root_once("OTHER") &&
             !f.entry.close_evidence_once("OTHER"),
         "foreign owner cannot settle");
+  f.process.source = r::Origin::kWindowsApi;
+  check(!f.entry.run_offline() && f.entry.state() == s::State::pinned &&
+            f.process.calls == 3,
+        "rejected replay cannot overwrite the completed owner's settlement "
+        "state");
+  f.process.source = r::Origin::kFake;
   check(f.entry.close_root_once(f.v.preparation.frozen.manifest.pin_owner) &&
             f.entry.close_evidence_once(
                 f.v.preparation.frozen.manifest.evidence_owner),

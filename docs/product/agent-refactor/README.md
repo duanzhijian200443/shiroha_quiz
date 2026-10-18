@@ -108,9 +108,14 @@ require selection and a separate real grant. **B2-TRIAL1A BLOCKED** remains.
 The [consolidated Trial 1A application](windows-host-acceptance-preparation.md#trial-1a-final-readiness-and-one-consolidated-authorization-application)
 collects the selected current Windows computer's remaining account/path/Pin/
 artifact/budget/owner decisions and the complete existing-chain operation ledger.
-The single technical blocker is its reviewed fixed-target, single-use real
-invocation with launch/time/resource/ownership accounting; the existing Windows
-entry remains closed. Trial 1A issues no Grant and launches no Custodian/Worker.
+`RealEntry`/`WindowsRealEntry` now implement the actual typed controlled source
+chain, existing local-human UI, post-launch measured PID/time binding, exclusive
+R2 spent-permit consumption and bounded time/resource/ownership accounting.
+Empty/partial/existing tombstones deny restart replay. Fake exercises the same
+chain; Windows source is compile-only, with original default/public denials
+unchanged. The eligible ceiling is **TRIAL1A REAL ENTRY SOURCE IMPLEMENTED /
+OFFLINE VERIFIED**, not authorization-ready or real acceptance. Trial 1A issues
+no Grant and launches no Custodian/Worker.
 Read-only preflight and the eventual exact one-time invocation have distinct
 permission scopes in that same application; no new general G0-L0 stage is added.
 

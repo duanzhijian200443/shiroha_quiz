@@ -481,6 +481,17 @@ SOURCE REVIEWABLE / OFFLINE TESTED**). All runtime gates remain closed and all
 five L1 trials remain `DRAFT_NOT_AUTHORIZED` pending user target selection and
 per-batch authorization.
 
+The [Trial 1A controlled-entry candidate](../product/agent-refactor/windows-host-acceptance-preparation.md#trial-1a-final-readiness-and-one-consolidated-authorization-application)
+now supplies the typed real Windows invocation, existing bounded human UI,
+post-launch identity binding, R2 exclusive spent-permit anti-replay and complete
+observation/operation/settlement budgets over the same S1/Entry/Pin source.
+Its source/offline ceiling is **TRIAL1A REAL ENTRY SOURCE IMPLEMENTED / OFFLINE
+VERIFIED** after passing checks; the Windows OBJECT is not invoked, default
+denials and all real/formal acceptance gates remain unchanged. The current
+development computer is selected only as the proposed 1A device; exact private
+target selections, independent evidence and a one-time user grant remain pending.
+No new general infrastructure stage or Trial 1B/other L1 scope is added.
+
 Use namespaced AR-R identifiers to distinguish this route from historical
 R1-R8 typed-core stages:
 

@@ -12,7 +12,8 @@ struct Target {
   std::string process_owner, image_id;
   // Optional upstream inventory/owner/aggregate-budget binding. Not authority.
   std::string acquisition_binding;
-  s1::Counts total_budget{}; // includes preflight and both retained closes
+  std::string invocation_binding; // reviewed invocation/ledger, never authority
+  s1::Counts total_budget{};      // includes preflight and both retained closes
   bool valid() const;
   std::string hash() const;
 };
@@ -32,7 +33,8 @@ struct ProcessPort {
   virtual r1::Origin origin() const noexcept = 0;
   virtual ProcessObservation measure() = 0;
 };
-// Common injected composition. Fake is executable; Windows is always denied.
+// Common injected composition. Public Windows entry denies; only the reviewed
+// RealEntry -> Acquisition friend chain can reach the private Windows dispatch.
 class Entry final : private s1::Operations {
 public:
   Entry(Target, s1::Operations &, r1::EvidenceSink &, ProcessPort &);
@@ -51,6 +53,8 @@ public:
   uint32_t process_attempts() const { return process_attempts_; }
 
 private:
+  friend class Acquisition;
+  bool run_controlled(r1::Origin);
   bool reject(s1::Failure, s1::State);
   bool inspect_process();
   r1::Origin origin() const noexcept override { return operations_.origin(); }
@@ -76,6 +80,7 @@ private:
   s1::Preparation preparation_;
   s1::Counts preflight_{};
   uint32_t process_attempts_ = 0;
+  r1::Origin expected_origin_ = r1::Origin::kUnavailable;
   bool attempted_ = false, rejected_ = false;
   s1::State state_ = s1::State::rejected;
   s1::Failure failure_ = s1::Failure::none;

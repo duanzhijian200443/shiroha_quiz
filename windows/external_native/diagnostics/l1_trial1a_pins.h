@@ -65,6 +65,8 @@ public:
   size_t acquisition_attempts() const { return acquisition_attempts_; }
 
 private:
+  friend class RealEntry;
+  bool run_controlled(r1::Origin);
   bool fail(s1::State = s1::State::unknown);
   bool reserve(const s1::Counts &);
   const PinPlan plan_;

@@ -88,6 +88,8 @@ struct S1Sink final : r::EvidenceSink {
 struct Ops final : s::Operations {
   s::Request q;
   r::Origin source = r::Origin::kFake;
+  uint32_t observed_pid = 5;
+  uint64_t observed_creation = 55;
   unsigned identities = 0, parent_calls = 0, artifacts = 0, creates = 0,
            roots = 0, opens = 0, handoffs = 0, root_closes = 0,
            evidence_closes = 0;
@@ -117,8 +119,8 @@ struct Ops final : s::Operations {
     f.os = q.frozen.manifest.os_sha256;
     f.account = q.frozen.target.grant.account_identity_sha256;
     f.primary_medium = f.non_elevated = !bad_identity;
-    f.pid = 5;
-    f.creation_time = 55;
+    f.pid = observed_pid;
+    f.creation_time = observed_creation;
     m.device_sha256 = q.frozen.manifest.device_sha256;
     return m;
   }

@@ -33,7 +33,8 @@ s1::Counts ceiling(const s1::Request &q) {
 bool Target::valid() const {
   if (!preparation.entry_binding.empty() || !preparation.valid() || !pid ||
       !creation || !safe_id(process_owner) || !safe_id(image_id) ||
-      (!acquisition_binding.empty() && !hex_digest(acquisition_binding, 64)))
+      (!acquisition_binding.empty() && !hex_digest(acquisition_binding, 64)) ||
+      (!invocation_binding.empty() && !hex_digest(invocation_binding, 64)))
     return false;
   const auto p = image(*this);
   if (!p || p->bytes_sha256 != preparation.frozen.manifest.build.controller ||
@@ -59,6 +60,10 @@ std::string Target::hash() const {
     h.put_str("SHIROHA_L1_TRIAL1A_ACQUISITION_BINDING_V1");
     h.put_str(acquisition_binding);
   }
+  if (!invocation_binding.empty()) {
+    h.put_str("SHIROHA_L1_TRIAL1A_INVOCATION_BINDING_V1");
+    h.put_str(invocation_binding);
+  }
   return h.finalize_hex();
 }
 Entry::Entry(Target t, s1::Operations &o, r1::EvidenceSink &s, ProcessPort &p)
@@ -70,12 +75,23 @@ bool Entry::reject(s1::Failure f, s1::State s) {
   state_ = s;
   return false;
 }
-bool Entry::run_offline() try {
+bool Entry::run_offline() {
+  if (attempted_)
+    return false;
+  if (operations_.origin() != r1::Origin::kFake ||
+      process_.origin() != r1::Origin::kFake) {
+    attempted_ = true;
+    return reject(s1::Failure::gate, s1::State::rejected);
+  }
+  return run_controlled(r1::Origin::kFake);
+}
+bool Entry::run_controlled(r1::Origin origin) try {
   if (attempted_)
     return false;
   attempted_ = true;
-  if (operations_.origin() != r1::Origin::kFake ||
-      process_.origin() != r1::Origin::kFake)
+  expected_origin_ = origin;
+  if ((origin != r1::Origin::kFake && origin != r1::Origin::kWindowsApi) ||
+      operations_.origin() != origin || process_.origin() != origin)
     return reject(s1::Failure::gate, s1::State::rejected);
   if (!target_.valid())
     return reject(s1::Failure::target, s1::State::rejected);
@@ -84,7 +100,7 @@ bool Entry::run_offline() try {
     n *= 3;
   if (!inspect_process())
     return reject(s1::Failure::identity, s1::State::unknown);
-  return preparation_.run_offline();
+  return preparation_.run(origin);
 } catch (...) {
   return reject(s1::Failure::identity, s1::State::unknown);
 }
@@ -94,7 +110,7 @@ bool Entry::inspect_process() {
   ++process_attempts_; // attempts, including a throwing/unknown measurement
   const auto m = process_.measure();
   const auto p = image(target_);
-  return m.origin == r1::Origin::kFake && m.checked && m.pid == target_.pid &&
+  return m.origin == expected_origin_ && m.checked && m.pid == target_.pid &&
          m.creation == target_.creation && m.image == p->object &&
          m.security_sha256 == p->security_sha256;
 }

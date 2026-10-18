@@ -43,7 +43,7 @@ private:
   const Limits limits_;
   uint32_t measurements_ = 0;
 };
-enum class Output { custody, controller_evidence, custodian_evidence };
+enum class Output { custody, controller_evidence, custodian_evidence, trial1a_consumption };
 class WindowsPersistence final : public PersistencePort {
 public:
   WindowsPersistence(WindowsObjectPin parent,std::vector<WindowsObjectPin> chain,Output);

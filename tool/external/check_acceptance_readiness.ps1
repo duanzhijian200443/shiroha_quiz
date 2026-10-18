@@ -187,6 +187,29 @@ function Assert-Plan([System.Collections.IDictionary]$Value) {
     Require (($pins.requiredFrozenFields -join ',') -ceq ($pinFreeze -join ',')) 'trial1a_pin_freeze'
     foreach ($path in $pins.source) { Assert-RepoPath $path 'windows/external_native/diagnostics/' }
     Assert-RepoPath $pins.offlineTest 'windows/external_native/tests/'
+    Has-Fields $entry @('controlledInvocation')
+    $real = $entry.controlledInvocation
+    $realContract = @{
+        scope='G0-L0 SOURCE / COMPILE / FAKE ONLY'; executionAuthorized=$false;
+        offlineTest='windows/external_native/tests/l1_trial1a_real_test.cpp';
+        windowsObjectTarget='shiroha_l1_trial1a_real_windows';
+        defaultEntry='UNCHANGED_UNCONDITIONAL_DENIAL_NO_CONFIG_LOADER';
+        reviewedInput='IMMUTABLE_TYPED_INVOCATION_DIGEST_EXISTING_REVIEW_RECORDS_AND_BOUNDED_LOCAL_HUMAN_CONFIRMATION';
+        processBinding='NO_PREFILLED_PID_OR_CREATION_MEASURE_CURRENT_LAUNCHED_ENTRY_THEN_BIND_RUNTIME_PLAN';
+        consumption='FIXED_EXISTING_EVIDENCE_DIRECTORY_TRIAL1A_CONSUMED_R2_FILE_CREATE_WRITE_FLUSH_BEFORE_ENTRY_NO_E4_GRANT';
+        replay='EXISTING_EMPTY_PARTIAL_OR_COMPLETE_TOMBSTONE_DENIES_AFTER_PROCESS_RESTART_NO_REOPEN_DELETE_OR_REISSUE';
+        observations='R2_RUNTIME_TOKEN_DEVICE_OS_CLOCK_AND_OS_PEAKS_BEFORE_AFTER_ADAPTER_CALLS_FAIL_CLOSED';
+        maxObservations=8192; maxRunMillisecondsAfterApprovalObservation=30000;
+        budget='PIN_PLAN_PLUS_PROCESS_COST_PLUS_OBSERVATION_COST_TIMES_APPROVED_COUNT_PLUS_BOUNDED_UI_PERMIT_OPEN_TWO_RECORDS_AND_CLOSE';
+        evidence='EXISTING_R2_8192_BYTE_RECORDS_BIND_PACKET_RUNTIME_PID_TIME_RESOURCE_PEAK_AND_LEDGER_NO_F2_FORMAT_CHANGE_FINAL_CLOSE_RESULTS_IN_MEMORY';
+        approvedPrivatePacketBudgetWindowOwnersAndLaunch='REQUIRES USER DECISION'
+    }
+    foreach ($name in $realContract.Keys) {
+        Require ($real[$name] -ceq $realContract[$name]) 'trial1a_controlled_invocation'
+    }
+    Require ($real.source.Count -eq 4) 'trial1a_controlled_sources'
+    foreach ($path in $real.source) { Assert-RepoPath $path 'windows/external_native/diagnostics/' }
+    Assert-RepoPath $real.offlineTest 'windows/external_native/tests/'
     $pending = @('selectedDevice','osEditionBuildPatchX64','privateExactSidAndPublicAccountDigest',
         'operatorAndApprover','newRootAndExactParentObjectInventory','forbiddenProductionAndHostARootAliases',
         'ownerDaclVolumeFileIdPinAcquisition','batchCaseIdsAndUtcWindow','controllerWorkingSetBytes',
@@ -563,6 +586,9 @@ if ($SelfTest) {
         { param($p) $p.l1Preparation.r2Adapters.hardCeilings.maxArtifactReadCallsPerFile = 67108864 },
         { param($p) $p.l1Preparation.r2Adapters.hardCeilings.threeProcessResourceLimits = 6 },
         { param($p) $p.l1Preparation.parameters.custodianWorkingSetBytes = 67108864 },
+        { param($p) $p.l1Preparation.trial1aEntry.controlledInvocation.executionAuthorized = $true },
+        { param($p) $p.l1Preparation.trial1aEntry.controlledInvocation.replay = 'ALLOW_RESTART' },
+        { param($p) $p.l1Preparation.trial1aEntry.controlledInvocation.maxObservations = 8193 },
         { param($p) $p.l1Preparation.trial1aEntry.executionAuthorized = $true },
         { param($p) $p.l1Preparation.trial1aEntry.processMeasurements = 1 },
         { param($p) $p.l1Preparation.trial1aEntry.additionalTemporaryImageHandles = 0 },

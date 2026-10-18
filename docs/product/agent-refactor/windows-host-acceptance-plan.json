@@ -217,6 +217,29 @@
       "fixedProcessPidCreationOwnerAndImagePin": "REQUIRES USER DECISION",
       "completeOperationBudgetAndBorrowedPinAcquisitionLedger": "REQUIRES USER DECISION",
       "finalEntryArtifactAndDependencyFreeze": "REQUIRES USER DECISION",
+      "controlledInvocation": {
+        "scope": "G0-L0 SOURCE / COMPILE / FAKE ONLY",
+        "executionAuthorized": false,
+        "source": [
+          "windows/external_native/diagnostics/l1_trial1a_real.h",
+          "windows/external_native/diagnostics/l1_trial1a_real.cpp",
+          "windows/external_native/diagnostics/l1_trial1a_real_windows.h",
+          "windows/external_native/diagnostics/l1_trial1a_real_windows.cpp"
+        ],
+        "offlineTest": "windows/external_native/tests/l1_trial1a_real_test.cpp",
+        "windowsObjectTarget": "shiroha_l1_trial1a_real_windows",
+        "defaultEntry": "UNCHANGED_UNCONDITIONAL_DENIAL_NO_CONFIG_LOADER",
+        "reviewedInput": "IMMUTABLE_TYPED_INVOCATION_DIGEST_EXISTING_REVIEW_RECORDS_AND_BOUNDED_LOCAL_HUMAN_CONFIRMATION",
+        "processBinding": "NO_PREFILLED_PID_OR_CREATION_MEASURE_CURRENT_LAUNCHED_ENTRY_THEN_BIND_RUNTIME_PLAN",
+        "consumption": "FIXED_EXISTING_EVIDENCE_DIRECTORY_TRIAL1A_CONSUMED_R2_FILE_CREATE_WRITE_FLUSH_BEFORE_ENTRY_NO_E4_GRANT",
+        "replay": "EXISTING_EMPTY_PARTIAL_OR_COMPLETE_TOMBSTONE_DENIES_AFTER_PROCESS_RESTART_NO_REOPEN_DELETE_OR_REISSUE",
+        "observations": "R2_RUNTIME_TOKEN_DEVICE_OS_CLOCK_AND_OS_PEAKS_BEFORE_AFTER_ADAPTER_CALLS_FAIL_CLOSED",
+        "maxObservations": 8192,
+        "maxRunMillisecondsAfterApprovalObservation": 30000,
+        "budget": "PIN_PLAN_PLUS_PROCESS_COST_PLUS_OBSERVATION_COST_TIMES_APPROVED_COUNT_PLUS_BOUNDED_UI_PERMIT_OPEN_TWO_RECORDS_AND_CLOSE",
+        "evidence": "EXISTING_R2_8192_BYTE_RECORDS_BIND_PACKET_RUNTIME_PID_TIME_RESOURCE_PEAK_AND_LEDGER_NO_F2_FORMAT_CHANGE_FINAL_CLOSE_RESULTS_IN_MEMORY",
+        "approvedPrivatePacketBudgetWindowOwnersAndLaunch": "REQUIRES USER DECISION"
+      },
       "pinAcquisition": {
         "scope": "G0-L0 SOURCE / COMPILE / FAKE ONLY",
         "executionAuthorized": false,
