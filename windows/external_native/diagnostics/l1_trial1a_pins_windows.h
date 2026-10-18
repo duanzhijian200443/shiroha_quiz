@@ -28,6 +28,7 @@ public:
   }
 
 private:
+  friend class WindowsRealEntry;
   r1::Origin origin() const noexcept override {
     return r1::Origin::kWindowsApi;
   }

@@ -293,8 +293,8 @@ bool WindowsPersistence::open_new() noexcept try {
   if(attempted_)return false;attempted_=true;
   if(chain_.empty()||chain_.size()>kParents||!same(chain_.back(),parent_)||
      !inspect_e4_parent_chain(chain_)||!inspect_e4_pin(parent_,true,0))return false;
-  const wchar_t *names[]={L"custody.r2",L"evidence-controller.r2",L"evidence-custodian.r2"};
-  auto index=unsigned(output_);if(index>2)return false;
+  const wchar_t *names[]={L"custody.r2",L"evidence-controller.r2",L"evidence-custodian.r2",L"trial1a-consumed.r2"};
+  auto index=unsigned(output_);if(index>3)return false;
   auto module=GetModuleHandleW(L"ntdll.dll");auto raw=module?GetProcAddress(module,"NtCreateFile"):nullptr;
   decltype(&NtCreateFile) create=nullptr;static_assert(sizeof(create)==sizeof(raw));
   std::memcpy(&create,&raw,sizeof(raw));if(!create)return false;

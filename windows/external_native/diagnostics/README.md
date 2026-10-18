@@ -1371,3 +1371,28 @@ for exact API envelopes, owner/borrow responsibilities and pending real-target
 fields in the SAME 1A application. Highest mechanical status:
 **TRIAL1A PIN ACQUISITION SOURCE READY / OFFLINE TESTED**.
 **B2-TRIAL1A BLOCKED** and the real denials remain; 1B/S2/S3/F2/F3 are unchanged.
+
+### Trial 1A controlled real-entry source candidate
+
+`l1_trial1a_real` and `l1_trial1a_real_windows` implement the actual typed
+Windows composition around the same Pin Acquisition/Entry/S1/R2 chain. The
+existing bounded UI confirms the immutable reviewed packet; current-process
+PID/time/Token/device/OS and OS memory/handle peaks are measured after launch.
+A running-image gate precedes the sole exclusive `trial1a-consumed.r2` creation
+and its existing R2 record Write/Flush. Empty/partial/existing tombstones deny
+after process restart; no E4 Grant or replay/reopen/delete path is present.
+Every adapter action and final close is monitored against the approved clock,
+observation and resource budgets. The permit stream settles before releasing
+its borrowed ancestor HANDLEs. Final ancestor-close evidence remains in memory,
+never a persisted aggregate PASS; UNKNOWN retains the named owning composition.
+
+The default/public denials stay closed. CMake compiles the actual Windows OBJECT
+without registering or invoking it; the new `shiroha_l1_trial1a_real_offline`
+test uses Fake ports with the same core, including shared persistent tombstones
+across fresh process-owner instances, crash/short-write/Flush/ACK failure,
+identity/resource/time drift and failed settlement. A valid typed packet and
+review commitment are not standalone permission: actual launch needs independent
+target evidence and the exact one-time user grant. See the
+[same consolidated application](../../../docs/product/agent-refactor/windows-host-acceptance-preparation.md#trial-1a-final-readiness-and-one-consolidated-authorization-application)
+for the aggregate 14-counter additions, scope, owner lifecycle and remaining
+user selections. No L0 call touches these Windows leaves or a real test object.

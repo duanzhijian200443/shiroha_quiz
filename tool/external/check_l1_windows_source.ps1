@@ -23,19 +23,57 @@ foreach ($path in @('CMakeLists.txt', 'diagnostics/l1_crypto_probe.h',
     'diagnostics/l1_trial1a_windows.h', 'diagnostics/l1_trial1a_windows.cpp',
     'diagnostics/l1_trial1a_main.cpp', 'diagnostics/l1_trial1a_pins.h',
     'diagnostics/l1_trial1a_pins.cpp', 'diagnostics/l1_trial1a_pins_windows.h',
-    'diagnostics/l1_trial1a_pins_windows.cpp')) {
+    'diagnostics/l1_trial1a_pins_windows.cpp', 'diagnostics/l1_trial1a_real.h',
+    'diagnostics/l1_trial1a_real.cpp', 'diagnostics/l1_trial1a_real_windows.h',
+    'diagnostics/l1_trial1a_real_windows.cpp')) {
     $sources[$path] = [IO.File]::ReadAllText((Join-Path $native $path))
 }
 function Assert-Isolation([hashtable]$Text) {
     $cmake = $Text['CMakeLists.txt']
+    $real = $Text['diagnostics/l1_trial1a_real.cpp'] -replace '\s',''
+    $realh = $Text['diagnostics/l1_trial1a_real.h'] -replace '\s',''
+    $realw = $Text['diagnostics/l1_trial1a_real_windows.cpp'] -replace '\s',''
+    if (!$real.Contains('boolRealEntry::run_offline(){returnrun(r1::Origin::kFake);}') -or
+        !$real.Contains('control_.origin()!=origin') -or
+        !$real.Contains('pins_.origin()!=origin') -or
+        !$real.Contains('operations_.origin()!=origin') -or
+        !$real.Contains('process_.origin()!=origin') -or
+        !$real.Contains('!request_.valid()') -or
+        !$real.Contains('!plan.entry.pid&&!plan.entry.creation') -or
+        !$real.Contains('reviewed_binding==hash()') -or
+        !$real.Contains('budget==invocation_ceiling(*this)') -or
+        !$real.Contains('!a.checked||a.suffix!=p.suffix||a.displayed_hash!=p.target_hash') -or
+        !$real.Contains('if(!receipt(control_.consume(r),r)||!checkpoint())') -or
+        !$real.Contains('if(!result_.consumed||!checkpoint())') -or
+        !$real.Contains('r.pid!=result_.pid||r.creation_time!=result_.creation') -or
+        !$real.Contains('r.sid!=f.target.sid') -or
+        !$real.Contains('result_.observations==request_.observations') -or
+        !$real.Contains('!receipt(control_.finish(final),final)') -or
+        !$realh.Contains('private:friendclassWindowsRealEntry;boolrun(r1::Origin);') -or
+        !$realw.Contains('returnentry_.run(r1::Origin::kWindowsApi);') -or
+        !$realw.Contains('r2::bounded_approval(p,r,request_.plan.entry.preparation.limits)') -or
+        !$realw.Contains('r2::measure_runtime(process,o.runtime.facts)') -or
+        !$realw.Contains('r2::Output::trial1a_consumption') -or
+        !$realw.Contains('if(!permit_file_->open_new())return{};') -or
+        !$realw.Contains('returnpermit_->preserve(r);') -or
+        $Text['diagnostics/l1_r2_windows.cpp'] -notmatch 'L"trial1a-consumed.r2"' -or
+        !($Text['diagnostics/l1_r2_windows.cpp'] -replace '\s','').Contains('FILE_ATTRIBUTE_NORMAL,FILE_SHARE_READ,FILE_CREATE,') -or
+        $cmake -notmatch 'add_library\(shiroha_l1_trial1a_real_windows OBJECT diagnostics/l1_trial1a_real_windows\.cpp\s+diagnostics/l1_trial1a_real\.cpp\)' -or
+        $cmake -notmatch 'add_test\(NAME shiroha_l1_trial1a_real_offline COMMAND shiroha_l1_trial1a_real_test\)' -or
+        $cmake -match '(?s)(?:target_link_libraries\([^)]*shiroha_l1_trial1a_real_windows|TARGET_OBJECTS:shiroha_l1_trial1a_real_windows|add_test\([^)]*shiroha_l1_trial1a_real_windows)' -or
+        ($Text['diagnostics/l1_trial1a_real.cpp'] + $Text['diagnostics/l1_trial1a_real_windows.cpp']) -match '\b(?:getenv|GetEnvironmentVariable[AW]|CreateProcess[AW]|ResumeThread|TerminateProcess|DeleteFile[AW]|RemoveDirectory[AW]|GrantFlow|E4WindowsGrantIo)\b') {
+        throw 'Trial 1A controlled invocation/review/one-use/measurement/evidence or L0 isolation missing'
+    }
     $pins = $Text['diagnostics/l1_trial1a_pins.cpp'] -replace '\s',''
     $pinsw = $Text['diagnostics/l1_trial1a_pins_windows.cpp'] -replace '\s',''
     $pinswh = $Text['diagnostics/l1_trial1a_pins_windows.h'] -replace '\s',''
     if (!$pins.Contains('boolAcquisition::run_windows()noexcept{if(attempted_)returnfalse;attempted_=true;returnfail(s1::State::rejected);') -or
         !$pinswh.Contains('returnacquisition_.run_windows();') -or
-        !$pins.Contains('port_.origin()!=r1::Origin::kFake') -or
-        !$pins.Contains('operations_.origin()!=r1::Origin::kFake') -or
-        !$pins.Contains('process_.origin()!=r1::Origin::kFake') -or
+        !$pins.Contains('boolAcquisition::run_offline(){returnrun_controlled(r1::Origin::kFake);}') -or
+        !$pins.Contains('port_.origin()!=origin') -or
+        !$pins.Contains('operations_.origin()!=origin') -or
+        !$pins.Contains('process_.origin()!=origin') -or
+        !$pins.Contains('entry_.run_controlled(origin)') -or
         !$pins.Contains('budget!=acquisition_ceiling(*this)') -or
         !$pins.Contains('if(!matches(o,pin))returnfail();') -or
         !$pins.Contains('!ack(port_.bind(plan_,acquired_),plan_,borrowed_)') -or
@@ -259,9 +297,18 @@ function Assert-Isolation([hashtable]$Text) {
 Assert-Isolation $sources
 if ($SelfTest) {
     $cases = @(
+        @{ path='diagnostics/l1_trial1a_real.cpp'; before='reviewed_binding == hash()'; after='true' },
+        @{ path='diagnostics/l1_trial1a_real.cpp'; before='budget == invocation_ceiling(*this)'; after='true' },
+        @{ path='diagnostics/l1_trial1a_real.cpp'; before='control_.origin() != origin'; after='false' },
+        @{ path='diagnostics/l1_trial1a_real.cpp'; before='!receipt(control_.consume(r), r)'; after='false' },
+        @{ path='diagnostics/l1_trial1a_real.cpp'; before='!result_.consumed || !checkpoint()'; after='!checkpoint()' },
+        @{ path='diagnostics/l1_trial1a_real.cpp'; before='result_.observations == request_.observations'; after='false' },
+        @{ path='diagnostics/l1_trial1a_real_windows.cpp'; before='if (!permit_file_->open_new())'; after='if (false)' },
+        @{ path='diagnostics/l1_r2_windows.cpp'; before='L"trial1a-consumed.r2"'; after='L"reusable.r2"' },
+        @{ path='diagnostics/l1_r2_windows.cpp'; before='FILE_ATTRIBUTE_NORMAL,FILE_SHARE_READ,FILE_CREATE,'; after='FILE_ATTRIBUTE_NORMAL,FILE_SHARE_READ,FILE_OPEN_IF,' },
         @{ path='diagnostics/l1_trial1a_pins_windows.h'; before='return acquisition_.run_windows();'; after='return acquisition_.run_offline();' },
         @{ path='diagnostics/l1_trial1a_pins.cpp'; before='budget != acquisition_ceiling(*this)'; after='false' },
-        @{ path='diagnostics/l1_trial1a_pins.cpp'; before='port_.origin() != r1::Origin::kFake'; after='false' },
+        @{ path='diagnostics/l1_trial1a_pins.cpp'; before='port_.origin() != origin'; after='false' },
         @{ path='diagnostics/l1_trial1a_pins.cpp'; before='if (!matches(o,pin)) return fail();'; after='if (false) return fail();' },
         @{ path='diagnostics/l1_trial1a_pins.cpp'; before='!ack(port_.bind(plan_,acquired_),plan_,borrowed_)'; after='false' },
         @{ path='diagnostics/l1_trial1a_pins.cpp'; before='!ack(port_.release_borrow(plan_.hash(),borrowed_),plan_,borrowed_)'; after='false' },
@@ -330,7 +377,7 @@ if ($SelfTest) {
     )
     foreach ($case in $cases) {
         $copy = $sources.Clone()
-        if ($case.path -like 'diagnostics/l1_trial1a_pins*') {
+        if ($case.path -like 'diagnostics/l1_trial1a_pins*' -or $case.path -like 'diagnostics/l1_trial1a_real*') {
             # New C++ is clang-formatted; match the same tokens across whitespace.
             $tokens = ($case.before -replace '\s','').ToCharArray()
             $pattern = ($tokens | ForEach-Object { [regex]::Escape([string]$_) }) -join '\s*'

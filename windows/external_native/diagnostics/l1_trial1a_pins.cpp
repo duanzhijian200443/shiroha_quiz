@@ -221,13 +221,14 @@ s1::Counts Acquisition::reserved() const {
   add(c, entry_.reserved());
   return c;
 }
-bool Acquisition::run_offline() try {
+bool Acquisition::run_offline() { return run_controlled(r1::Origin::kFake); }
+bool Acquisition::run_controlled(r1::Origin origin) try {
   if (attempted_)
     return false;
   attempted_ = true;
-  if (port_.origin() != r1::Origin::kFake ||
-      operations_.origin() != r1::Origin::kFake ||
-      process_.origin() != r1::Origin::kFake || !plan_.valid())
+  if ((origin != r1::Origin::kFake && origin != r1::Origin::kWindowsApi) ||
+      port_.origin() != origin || operations_.origin() != origin ||
+      process_.origin() != origin || !plan_.valid())
     return fail(s1::State::rejected);
   acquired_.reserve(plan_.objects.size());
   for (size_t i = 0; i < plan_.objects.size(); ++i) {
@@ -248,7 +249,7 @@ bool Acquisition::run_offline() try {
     return false;
   if (!ack(port_.bind(plan_, acquired_), plan_, borrowed_))
     return fail();
-  if (!entry_.run_offline())
+  if (!entry_.run_controlled(origin))
     return fail(entry_.state());
   return true;
 } catch (...) {

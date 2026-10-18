@@ -85,7 +85,7 @@ foreach ($name in @('shiroha_discovery_offline_test', 'shiroha_native_offline_te
 }
 # The real P20 driver is compile-only; inspect registration before execution.
 $testList = (& $ctest --test-dir $build -C $Configuration -N | Out-String)
-if ($LASTEXITCODE -ne 0 -or $testList -match '\b(?:shiroha_p20_minimal_test|shiroha_l1_crypto_candidate|shiroha_assoc_candidate|shiroha_l1_b1_admission_worker|shiroha_l1_r1_controller_candidate|shiroha_l1_r1_worker_candidate|shiroha_l1_r2_custodian_candidate|shiroha_l1_r2_windows|shiroha_l1_s1_windows|shiroha_l1_trial1a_windows|shiroha_l1_trial1a_pins_windows|shiroha_l1_trial1a_candidate)\b') { throw 'Real L1 candidate registered with CTest' }
+if ($LASTEXITCODE -ne 0 -or $testList -match '\b(?:shiroha_p20_minimal_test|shiroha_l1_crypto_candidate|shiroha_assoc_candidate|shiroha_l1_b1_admission_worker|shiroha_l1_r1_controller_candidate|shiroha_l1_r1_worker_candidate|shiroha_l1_r2_custodian_candidate|shiroha_l1_r2_windows|shiroha_l1_s1_windows|shiroha_l1_trial1a_windows|shiroha_l1_trial1a_pins_windows|shiroha_l1_trial1a_real_windows|shiroha_l1_trial1a_candidate)\b') { throw 'Real L1 candidate registered with CTest' }
 if ($testList -notmatch '\bshiroha_p20_root_production_offline\b' -or
     $testList -notmatch '\bshiroha_p20_root_diagnostic_offline\b' -or
     $testList -notmatch '\bshiroha_l1_crypto_probe_offline\b' -or
@@ -99,6 +99,7 @@ if ($testList -notmatch '\bshiroha_p20_root_production_offline\b' -or
     $testList -notmatch '\bshiroha_l1_s1_root_offline\b' -or
     $testList -notmatch '\bshiroha_l1_trial1a_entry_offline\b' -or
     $testList -notmatch '\bshiroha_l1_trial1a_pins_offline\b' -or
+    $testList -notmatch '\bshiroha_l1_trial1a_real_offline\b' -or
     $testList -notmatch '\bshiroha_l1_crypto_admission_offline\b') { throw 'Offline Fake coverage missing' }
 # Compile metadata reader without loading it or invoking any P/Invoke method.
 $csc = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
@@ -224,6 +225,12 @@ $l1SourceInputs = @('CMakeLists.txt', 'check_offline.ps1', 'shiroha_external_nat
     'diagnostics/l1_trial1a_windows.h', 'diagnostics/l1_trial1a_windows.cpp',
     'diagnostics/l1_trial1a_main.cpp', 'tests/l1_s1_fixture.h',
     'tests/l1_trial1a_entry_test.cpp',
+    'diagnostics/l1_trial1a_pins.h', 'diagnostics/l1_trial1a_pins.cpp',
+    'diagnostics/l1_trial1a_pins_windows.h', 'diagnostics/l1_trial1a_pins_windows.cpp',
+    'diagnostics/l1_trial1a_real.h', 'diagnostics/l1_trial1a_real.cpp',
+    'diagnostics/l1_trial1a_real_windows.h', 'diagnostics/l1_trial1a_real_windows.cpp',
+    'tests/l1_trial1a_fixture.h', 'tests/l1_trial1a_pins_test.cpp',
+    'tests/l1_trial1a_real_test.cpp',
     'tests/l1_r1_wiring_test.cpp',
     'tests/l1_b1_unified_test.cpp',
     'tests/l1_e5_test.cpp', 'tests/l1_e4_test.cpp', 'tests/l1_windows_admission_test.cpp',

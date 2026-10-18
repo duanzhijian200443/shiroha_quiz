@@ -2,6 +2,9 @@
 #define SHIROHA_L1_S1_ROOT_H_
 #include "diagnostics/l1_r2_adapters.h"
 
+namespace shiroha_l1_crypto::trial1a {
+class Entry;
+}
 namespace shiroha_l1_crypto::s1 {
 // Diagnostic accounting only; no approval parser or new execution authority.
 enum Counter : size_t {
@@ -41,7 +44,8 @@ struct Request {
       evidence_parents; // C:\ through immediate parent
   std::string root_id, root_security_sha256, evidence_directory;
   Counts budget{}; // independently selected; no defaults from ceiling()
-  std::string entry_binding; // optional diagnostic composition digest, not authority
+  std::string
+      entry_binding; // optional diagnostic composition digest, not authority
   bool valid() const;
   std::string hash() const;
 };
@@ -119,6 +123,7 @@ public:
 
 private:
   friend class WindowsPreparation;
+  friend class ::shiroha_l1_crypto::trial1a::Entry;
   bool run(r1::Origin);
   bool reserve(Step);
   bool parents();
