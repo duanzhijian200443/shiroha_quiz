@@ -54,7 +54,7 @@ final class VnextMcpServer {
           annotations: ToolAnnotations(
               readOnlyHint: entry.key != 'propose_generated_questions',
               destructiveHint: false,
-              idempotentHint: true,
+              idempotentHint: entry.key != 'open_generation_context',
               openWorldHint: false), callback: (arguments, extra) async {
         Map<String, Object?> result;
         try {

@@ -162,6 +162,11 @@ void main() {
               .where((t) => t.annotations?.readOnlyHint == false)
               .map((t) => t.name),
           ['propose_generated_questions']);
+      final byName = {for (final tool in tools.tools) tool.name: tool};
+      expect(byName['open_generation_context']!.annotations?.idempotentHint,
+          isFalse);
+      expect(byName['propose_generated_questions']!.annotations?.idempotentHint,
+          isTrue);
       final ref = await context(client);
       final before = await h.app.h.s.h.count('questions');
       final staged = await call(
