@@ -674,7 +674,8 @@ OpenProcess 按 PID 恢复、句柄转移、崩溃注入或真实保全文件；
 | 退出/关闭 | 独立退出观察后 process/thread 各一次关闭；记录/管道各已取得 Owner 一次关闭；pin 集合最终 close 请求≤1。正在同步调用/未退出不结算；Evidence 失败仍允许已拥有 Owner 的单次释放。 |
 | `EvidenceSink::preserve` | ≤`P+32` 次尝试，关键副作用前后及每次 pump 保存；序号/目标/前 Hash 和 receipt 完整性校验。Record 字段固定白名单、最长安全 ID 80、Hash 64、样本18/ABI7/Native14，不接收任意字节正文。真实每条编码/Write/Flush 次数及字节上限须由实际输出 adapter 展开后批准。 |
 
-**1A 未新增真实根 adapter**：根 CREATE_NEW≤1、批准 Owner/DACL 设置≤1，精确祖先/
+**1A 根 adapter 仍为 compile-only 源码候选（以本节后的 B2 S1 节为准，尚未运行）**：
+根 CREATE_NEW≤1、批准 Owner/DACL 设置≤1，精确祖先/
 根/文件清单、读/临时句柄次数及 acquisition 方案仍待用户固定；没有这些参数不得执行。
 **1B 当前真实 OS API 调用预算为零**：R1 新源码仅调用注入端口，不链接实际 Windows
 叶子、Native DLL、Crypto/DPAPI/Store。以下是既有叶子的完整 API 类别/位置与逐次上界，
@@ -768,6 +769,124 @@ This source amendment does not close S1/S2/S3/F2/F3/D1 or claim independent F1
 review approval. E4 Receipt/Grant/Journal and IPC bytes are unchanged. No real
 Controller/Custodian/Worker entry is enabled or added to CTest; all five trials
 remain `DRAFT_NOT_AUTHORIZED`. B2-TRIAL1A BLOCKED.
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
+REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
+
+### B2 S1 Trial 1A root preparation source (G0-L0)
+
+`l1_s1_root.h/.cpp` owns the one-shot preparation algorithm; the separate
+`l1_s1_windows.h/.cpp` OBJECT supplies dormant Win32 leaves. It reuses the E5/R1
+`Frozen`, R2 `Limits`, metadata/Token/artifact measurements, `WindowsPinSpec`,
+`WindowsPersistence` and `PersistentEvidence`. There is no second approval
+system. The existing machine plan's `l1Preparation.s1RootPreparation` describes
+source ceilings only; selected device/account/paths/operators/resources and the
+approved operation budget remain `REQUIRES USER DECISION`.
+
+The preparation request binds the existing target, complete C:\-to-parent
+Volume/File ID and Owner/DACL pins, an exact new root name and approved security
+digest, an existing approved external evidence parent, and numeric operation
+budgets. It contains **no expected root File ID**. Its domain-separated action
+digest is a preparation/evidence binding, not a Grant or user authorization.
+The later 1B manifest must separately bind the newly observed root; S1 never
+silently mutates the pre-create target or grants 1B authority.
+
+Four bounded full-parent passes run before artifact inspection, immediately
+before create (after the intent evidence ACK), after create and before Pin
+handoff. Each parent observation uses actual R2 metadata: C: NTFS, exact path,
+File ID/Volume, directory/non-reparse/non-delete-pending status, Owner and frozen
+DACL digest. No parent security is changed. R2 hashes each already-owned frozen
+artifact once with <=256 ReadFile calls, <=16 MiB/file and 64 KiB blocks; the
+Custodian hash remains solely `Limits::custodian_sha256`, bound by the existing
+R2 manifest. No Worker is needed or started to inspect artifacts or prepare root.
+
+Creation uses one `NtCreateFile(FILE_CREATE)` relative to the retained immediate
+parent HANDLE, with `OBJ_DONT_REPARSE`, `FILE_DIRECTORY_FILE` and
+`FILE_OPEN_REPARSE_POINT`. Approved Owner/protected single-owner DACL are supplied
+**in that atomic create**, counted as one root security assignment; there is no
+later SetSecurityInfo, parent ACL repair, path reopen, delete or retry. Existing
+target/collision rejects. Ambiguous status/returned HANDLE remains UNKNOWN.
+Only after successful creation does the adapter read the actual File ID, then
+validate the E4 controlled-directory ACL and R2 security digest twice. Any
+post-create validation, parent drift, budget, evidence or Pin-ACK failure retains
+UNKNOWN and the original owned HANDLE, without deletion or repair.
+
+The concrete in-memory `PinReceiver` retains the resulting `WindowsPinSpec` and
+ACKs the exact preparation/root Pin digests and named pin Owner. This is a
+bounded borrow, not a cross-process custody or independent-durability claim.
+The preparation remains sole root-HANDLE close owner; parent/artifact/process
+pins are borrowed and never closed here. A later explicit close by that named
+Owner is allowed once only after successful preparation/evidence acknowledgment.
+The evidence HANDLE has its own named evidence Owner and one close attempt.
+UNKNOWN prohibits both closes. Neither destructor closes these retained objects.
+
+#### S1 source operation ledger
+
+Let H be approved root-parent depth, A artifact count and E evidence-parent
+depth: H/E <=16, A <=64. Each adapter operation reserves its entire conservative
+envelope **before** the call, including failure paths. A reservation is an upper
+bound, never a claim that all those APIs returned or ran. `Result` separately
+reports actual artifact ReadFile attempts, create/close/evidence attempts,
+first STOP, UNKNOWN, observed root Pin and handoff/retention status. Short read,
+short write, missing/incorrect ACK and failed Flush cannot produce success.
+
+| Operation (single-batch attempts) | Directory/file metadata observation bounds; security reads | OS API call upper bound |
+|---|---|---|
+| R2 runtime/Token identity <=1 | No file reads; two temporary token HANDLEs acquired/closed <=2 | 128, including version/edition/UBR/architecture/device/SID/privilege queries and closes |
+| Parent observation <=4H | One directory observation, one GetSecurityInfo per observation | 32 each, including three GetFileInformationByHandleEx queries, final path, volume, descriptor/SID conversion/validation and LocalFree |
+| Artifact measurement <=A | <=16 ancestor observations, three file metadata observations, <=20 security reads each | 1024 each, including all ancestor/path/security calls, <=256 ReadFile, two size reads and one rewind |
+| Root exclusive create <=1 | Root Owner/DACL assignment <=1 at create; parent security writes 0 | 32, including symbol resolution, SD/SID construction/comparison/LocalFree and sole NtCreateFile |
+| Root observation <=2 | Two directory observations, two security reads each | 64 each, including first actual File ID read and E4/R2 revalidation |
+| Evidence open <=1 | <=2E+2 directory / one file observations, <=2E+4 security reads; output file initial Owner/DACL assignment <=1 | 2048, including validation, sole evidence FILE_CREATE and resulting pin |
+| Evidence preserve <=2 | <=2E+3 directory / three file observations, <=2E+6 security reads each | 2048 each, including outer parent-chain checks, R2 pre/write/post destination checks, one WriteFile and one FlushFileBuffers |
+| Retained root/evidence close <=1 each | Only the matching named Owner; no borrowed pin close | 1 each |
+| Pin retention ACK <=1 | Bounded in-memory copy/hash only, no additional I/O or process | 0 |
+
+The above metadata observation counts are helper invocations, not a hidden
+ReadFile count; each contains the individually bounded FileId/attribute/standard
+information queries listed above. Total OS API calls are bounded by
+`4H*32 + A*1024 + 128 + 32 + 2*64 + 2048 + 2*2048 + 2` (<=74018 at source
+ceilings). Aggregate metadata observations: directory <=`4H+16A+6E+12`, file
+<=`3A+7`, security reads <=`4H+20A+6E+20`. Kernel HANDLE acquisition <=4 (two
+temporary Tokens, root, evidence); closes <=4, of which the two retained-object
+closes require successful final ACK and an explicit matching-Owner call. Total
+initial security assignments <=2 (root 1, evidence file 1), never a parent ACL
+write. SID/SD
+HLOCAL buffers are not kernel HANDLEs; their bounded LocalFree calls are included
+in API envelopes. No parent/artifact handle acquisition is hidden here: they are
+already approved retained inputs, and any upstream acquisition needs its own
+approved ledger. S1 counts do not authorize or replace S3's later cross-phase
+aggregate artifact/read accounting.
+
+Evidence uses the unchanged R1 allowlist and R2 8192B encoding: create <=1,
+intent plus final/recovery records <=2, Write/Flush <=2 each, <=16384 B total.
+Each record's manifest field commits to the redacted S1 action/result/counter
+snapshot digest; full numeric counters and subsequent explicit close results
+remain in the in-memory Result. The persisted `first_failure` maps each S1
+failure to the closest existing R1 category (gate/target/measurement/budget/
+evidence/custody/process); no new enum value or record byte is introduced and
+the exact S1 failure stays committed by the manifest digest. A rejected STOP
+writes the terminal `kFinal` record; only UNKNOWN writes `kRecoveryRequired`.
+This adds no F2
+persisted counter schema or crash-recovery claim and changes no E4 record bytes.
+Only OFFLINE/FAKE evidence is implemented by the runnable test. Runtime/Token
+measurement failure conservatively preserves UNKNOWN, including ambiguous token
+closure. `TemporaryHandle` is non-copyable, verifies its exact Owner, latches
+before CloseHandle, propagates normal close failure and never retries on unwind.
+
+Both `windows_process_entry` and `WindowsPreparation::run` retain the concrete
+unconditional denial. The offline entry rejects WindowsApi/IndependentBuild/
+unavailable origins before any I/O. CLI, environment, JSON, an approval boolean
+or a Fake receipt cannot activate Win32 leaves. No new EXE is linked or run;
+the source-only Windows OBJECT is never a CTest entry. No Grant, Controller,
+Custodian, Worker, DPAPI/Crypto, Host A or production directory is invoked.
+
+S1 source/offline readiness is distinct from `TRIAL1A READY FOR USER
+AUTHORIZATION`: that label additionally requires complete selected/fixed inputs,
+final artifacts and independent target evidence. Without those and a separate
+explicit real-experiment user grant, **B2-TRIAL1A BLOCKED** remains. S2/S3 three-
+process startup, F2 persistent resource evidence and F3 historical UI paths are
+unchanged. No Trial 1A/1B automatically follows this source work.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
 REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.

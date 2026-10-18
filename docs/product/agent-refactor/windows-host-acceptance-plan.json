@@ -147,6 +147,45 @@
         "threeProcessResourceLimits": 9
       }
     },
+    "s1RootPreparation": {
+      "scope": "G0-L0 SOURCE / COMPILE / FAKE ONLY",
+      "executionAuthorized": false,
+      "realEntry": "UNCONDITIONAL_DENIAL_NO_CONFIGURABLE_AUTHORIZATION",
+      "source": [
+        "windows/external_native/diagnostics/l1_s1_root.h",
+        "windows/external_native/diagnostics/l1_s1_root.cpp",
+        "windows/external_native/diagnostics/l1_s1_windows.h",
+        "windows/external_native/diagnostics/l1_s1_windows.cpp",
+        "windows/external_native/diagnostics/l1_temporary_handle.h"
+      ],
+      "offlineTest": "windows/external_native/tests/l1_s1_root_test.cpp",
+      "windowsObjectTarget": "shiroha_l1_s1_windows",
+      "binding": "EXISTING_FROZEN_TARGET_PLUS_PARENT_PINS_CREATE_ACTION_AND_BUDGET_NO_PRECREATE_ROOT_FILE_ID",
+      "rootIdentity": "READ_ACTUAL_ID_AFTER_FILE_CREATE_THEN_REVALIDATE_AND_RETAIN_WINDOWS_PIN_SPEC",
+      "approvedOperationBudget": "REQUIRES USER DECISION",
+      "hardCeilings": {
+        "parents": 16,
+        "artifacts": 64,
+        "artifactBytesEach": 16777216,
+        "artifactReadCallsEach": 256,
+        "rootCreateAttempts": 1,
+        "rootSecurityAssignmentsAtCreate": 1,
+        "parentSecurityWrites": 0,
+        "evidenceCreateAttempts": 1,
+        "evidenceSecurityAssignmentsAtCreate": 1,
+        "evidenceWrites": 2,
+        "evidenceFlushes": 2,
+        "evidenceRecordBytes": 8192,
+        "ownedRootAndEvidenceCloseAttemptsEach": 1,
+        "temporaryTokenHandlesAcquiredAndClosedEach": 2
+      },
+      "osCallCeiling": "4*H*32+A*1024+128+32+2*64+2048+2*2048+2; H<=16,A<=64",
+      "counterMeaning": "RESERVED_CONSERVATIVE_UPPER_BOUNDS_BEFORE_CALL_NOT_MEASURED_OS_TOTALS; ACTUAL_ARTIFACT_READ_CALLS_SEPARATE",
+      "evidence": "EXISTING_R2_8192B_RECORDS_BIND_REDACTED_S1_RESULT_LEDGER_DIGEST; NUMERIC_LEDGER_IN_MEMORY_NO_F2_FORMAT_CHANGE",
+      "unknown": "RETAIN_OWNED_ROOT_AND_EVIDENCE_NO_DELETE_REPAIR_RETRY_OR_CLOSE_ON_UNCERTAIN_HANDOFF",
+      "workerPrerequisite": false,
+      "trial1A": "BLOCKED_FIXED_TARGET_INDEPENDENT_EVIDENCE_AND_USER_AUTHORIZATION_REQUIRED"
+    },
     "parameters": {
       "selectedDevice": "REQUIRES USER DECISION",
       "osEditionBuildPatchX64": "REQUIRES USER DECISION",

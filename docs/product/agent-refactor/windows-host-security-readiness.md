@@ -3819,6 +3819,33 @@ remain `DRAFT_NOT_AUTHORIZED`. B2-TRIAL1A BLOCKED.
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
 REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
 
+### B2 S1 Trial 1A root preparation source (G0-L0)
+
+The diagnostic-only S1 preparation algorithm and unlinked Windows OBJECT reuse
+E3/E4/R1/R2 identity, artifact, Pin/Owner and allowlisted evidence interfaces.
+The request binds approved complete parent identities and the create action;
+it never invents the nonexistent root's File ID. One parent-relative exclusive
+directory FILE_CREATE supplies approved root-only Owner/DACL atomically, followed
+by actual File ID/security measurement, parent revalidation and a bounded
+in-memory WindowsPinSpec borrow ACK. Existing targets deny without retry;
+post-create failure retains UNKNOWN, original ownership and inert objects.
+
+The authoritative source-operation table, individual API envelopes, one-shot
+temporary/retained HANDLE ownership, unchanged 8192B evidence encoding and
+remaining authorization requirements are in
+[acceptance preparation S1](windows-host-acceptance-preparation.md#b2-s1-trial-1a-root-preparation-source-g0-l0).
+The same machine plan owns `l1Preparation.s1RootPreparation`; no device/account/
+path/operator/resource or approved operation budget is selected by this source.
+F1's sole Custodian digest and measured DACL binding remain unchanged. No Worker
+is required before 1A. The concrete Windows denial has no runtime opt-in, and
+offline tests cannot enter the WindowsApi adapter. S1 source/offline readiness
+does not establish complete independent fixed-target evidence or real permission.
+All five trials remain DRAFT_NOT_AUTHORIZED; **B2-TRIAL1A BLOCKED**. S2/S3/F2/F3
+are not closed and no production ABI/E4 persisted format changes.
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
+REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
+
 ### E4 local-human single-use admission source candidate (G0-L0)
 
 E4 supplements, and does not retroactively change, the E2/E3 source boundary.

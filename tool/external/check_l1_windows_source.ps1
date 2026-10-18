@@ -16,11 +16,42 @@ foreach ($path in @('CMakeLists.txt', 'diagnostics/l1_crypto_probe.h',
     'diagnostics/l1_r1_controller_entry.cpp', 'diagnostics/l1_r1_worker_entry.cpp',
     'diagnostics/l1_r2_adapters.h', 'diagnostics/l1_r2_adapters.cpp',
     'diagnostics/l1_r2_custodian_entry.cpp', 'diagnostics/l1_r2_windows.h',
-    'diagnostics/l1_r2_windows.cpp')) {
+    'diagnostics/l1_r2_windows.cpp', 'diagnostics/l1_s1_root.h',
+    'diagnostics/l1_s1_root.cpp', 'diagnostics/l1_s1_windows.h',
+    'diagnostics/l1_s1_windows.cpp', 'diagnostics/l1_temporary_handle.h')) {
     $sources[$path] = [IO.File]::ReadAllText((Join-Path $native $path))
 }
 function Assert-Isolation([hashtable]$Text) {
     $cmake = $Text['CMakeLists.txt']
+    $s1 = $Text['diagnostics/l1_s1_root.cpp']
+    $s1h = $Text['diagnostics/l1_s1_root.h']
+    $s1w = $Text['diagnostics/l1_s1_windows.cpp']
+    # Formatting-independent checks of these fixed call sites.
+    $s1c = $s1 -replace '\s',''
+    $s1wc = $s1w -replace '\s',''
+    if ($s1h -notmatch 'windows_runtime_allowed\(\) noexcept\s*\{\s*return false;' -or
+        !$s1c.Contains('if(!windows_runtime_allowed())return10;') -or
+        $s1w -notmatch 'if \(!windows_runtime_allowed\(\)\)' -or
+        $s1w -notmatch 'return preparation_\.run_offline\(\);' -or
+        !$s1c.Contains('ops_.origin()!=origin') -or
+        $s1 -notmatch 'save\(r1::Stage::kCreateIntent\) \|\| !parents\(\) \|\| !reserve\(Step::create\)' -or
+        !$s1wc.Contains('a.RootDirectory=parents_.back().handle') -or
+        !$s1wc.Contains('FILE_SHARE_READ,FILE_CREATE,') -or
+        !$s1wc.Contains('FILE_DIRECTORY_FILE|FILE_OPEN_REPARSE_POINT') -or
+        !$s1wc.Contains('io.Information==FILE_CREATED') -or
+        $s1w -notmatch '!id\(root_\.identity\).valid\(\)' -or
+        !$s1wc.Contains('inspect_e4_pin(root_,true,0)') -or
+        ($Text['diagnostics/l1_temporary_handle.h'] -replace '\s','') -notmatch 'caller!=owner_\|\|attempted_' -or
+        $Text['diagnostics/l1_windows_operations.cpp'] -notmatch 'token.close_as\(TemporaryOwner::token_validator\)' -or
+        $Text['diagnostics/l1_r2_windows.cpp'] -notmatch 'owner.close_as\(TemporaryOwner::token_reader\)' -or
+        $cmake -notmatch 'add_library\(shiroha_l1_s1_windows OBJECT diagnostics/l1_s1_windows\.cpp\)' -or
+        [regex]::Matches($cmake,'diagnostics/l1_s1_windows\.cpp').Count -ne 1 -or
+        $cmake -notmatch 'add_test\(NAME shiroha_l1_s1_root_offline COMMAND shiroha_l1_s1_root_test\)' -or
+        $cmake -match '(?s)target_link_libraries\([^)]*shiroha_l1_s1_|TARGET_OBJECTS:shiroha_l1_s1_windows|add_test\([^)]*shiroha_l1_s1_windows' -or
+        ($s1 + $s1h) -match '\b(?:CreateProcess[AW]|ResumeThread|CreateFile[AW]|ReadFile|WriteFile|GetSecurityInfo|FlushFileBuffers|NtCreateFile)\s*\(' -or
+        $s1w -match '\b(?:CreateProcess[AW]|ResumeThread|TerminateProcess|SetSecurityInfo|SetNamedSecurityInfo[AW]|DeleteFile[AW]|RemoveDirectory[AW]|CreateDirectory[AW]|Crypt\w+|BCrypt\w+)\s*\(') {
+        throw 'S1 closed entry, parent-bound exclusive creation, owned close or Fake/OBJECT isolation missing'
+    }
     $ops = $Text['diagnostics/l1_windows_operations.cpp']
     if ($cmake -notmatch 'add_library\(shiroha_l1_windows_operations OBJECT diagnostics/l1_windows_operations\.cpp\)' -or
         $cmake -match '(?s)add_executable\([^)]*l1_windows_operations' -or
@@ -168,6 +199,14 @@ function Assert-Isolation([hashtable]$Text) {
 Assert-Isolation $sources
 if ($SelfTest) {
     $cases = @(
+        @{ path='diagnostics/l1_s1_root.h'; before='windows_runtime_allowed() noexcept { return false; }'; after='windows_runtime_allowed() noexcept { return true; }' },
+        @{ path='diagnostics/l1_s1_root.cpp'; before='ops_.origin() != origin'; after='false' },
+        @{ path='diagnostics/l1_s1_root.cpp'; before='!parents() || !reserve(Step::create)'; after='!reserve(Step::create)' },
+        @{ path='diagnostics/l1_s1_windows.cpp'; before='FILE_SHARE_READ, FILE_CREATE,'; after='FILE_SHARE_READ, FILE_OPEN_IF,' },
+        @{ path='diagnostics/l1_s1_windows.cpp'; before='a.RootDirectory = parents_.back().handle'; after='a.RootDirectory = nullptr' },
+        @{ path='diagnostics/l1_temporary_handle.h'; before='caller != owner_ || attempted_'; after='false' },
+        @{ path='CMakeLists.txt'; before='add_library(shiroha_l1_s1_windows OBJECT'; after='add_library(shiroha_l1_s1_windows SHARED' },
+        @{ path='CMakeLists.txt'; before='COMMAND shiroha_l1_s1_root_test)'; after='COMMAND shiroha_l1_s1_windows)' },
         @{ path='diagnostics/l1_r2_adapters.cpp'; before='pin.security_sha256 == image.security_sha256'; after='true' },
         @{ path='diagnostics/l1_r2_adapters.cpp'; before='!hex_digest(image.security_sha256, 64)'; after='false' },
         @{ path='diagnostics/l1_r2_windows.cpp'; before='if (hosts_measurement_attempted_) return host_images_;'; after='if (false) return host_images_;' },
@@ -218,6 +257,6 @@ if ($SelfTest) {
         try { Assert-Isolation $copy } catch { $rejected = $true }
         if (!$rejected) { throw 'Source guard mutation escaped rejection' }
     }
-    Write-Output "PASS: E3/B1/R1 source guard; $($cases.Count) in-memory mutation rejections"
+    Write-Output "PASS: E3/B1/R1/R2/S1 source guard; $($cases.Count) in-memory mutation rejections"
 }
-Write-Output 'PASS: E3/B1/R1 compile-only Windows leaves, Fake-only registration, unconditional real STOP (STATIC)'
+Write-Output 'PASS: E3/B1/R1/R2/S1 compile-only Windows leaves, Fake-only registration, unconditional real STOP (STATIC)'

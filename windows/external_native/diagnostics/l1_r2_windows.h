@@ -20,6 +20,10 @@ struct WindowsProcessPin {
 };
 bool measure_runtime(HANDLE, RuntimeFacts &) noexcept;
 bool measure_artifact(const WindowsObjectPin &, std::string &, uint32_t &) noexcept;
+// S1 reuses the same R2 File ID/type/security measurement, without a Worker.
+// One object observation, <=32 OS API calls, no HANDLE acquisition/closure.
+bool measure_metadata(const WindowsObjectPin &, bool directory,
+                      std::string &security_sha256, std::wstring &path) noexcept;
 bool inspect_process_pin(const WindowsProcessPin &, const std::wstring &) noexcept;
 bool bounded_dependencies(HANDLE, const std::vector<WindowsObjectPin> &,
                           const std::vector<std::string> &) noexcept;

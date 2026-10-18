@@ -1296,3 +1296,30 @@ remain `DRAFT_NOT_AUTHORIZED`. B2-TRIAL1A BLOCKED.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
 REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
+
+### B2 S1 Trial 1A root preparation (G0-L0)
+
+`l1_s1_root.h/.cpp` implements the one-shot injected preparation algorithm and
+`l1_s1_windows.h/.cpp` is an unlinked `shiroha_l1_s1_windows` OBJECT. The Fake-only
+`shiroha_l1_s1_root_offline` test exercises new-root identity capture, collisions,
+parent/identity/security/type drift, failed evidence/budgets/Pin handoff and
+exact-owner single-close behavior. R2 metadata/Token/artifact measurement and
+the existing R1/R2 evidence encoding are reused; `l1_temporary_handle.h` supplies
+the shared non-copyable temporary token close accounting.
+
+No pre-create root File ID is accepted. Complete approved parent pins and the
+create action are bound first; the root is created once relative to its pinned
+parent with its approved Owner/DACL supplied atomically, then actually measured
+and passed as a borrowed WindowsPinSpec. Any post-create uncertainty retains
+UNKNOWN without deletion, repair or retry. Root/evidence handles have separate
+named owners; parent/artifact/process pins are borrowed and never closed here.
+Both real entry boundaries deny unconditionally; no new EXE or operational CTest
+exists and CLI/environment/JSON/Fake approval cannot activate the OBJECT.
+
+The operation/API envelopes and precise status/authorization distinctions live
+in [canonical preparation S1](../../../docs/product/agent-refactor/windows-host-acceptance-preparation.md#b2-s1-trial-1a-root-preparation-source-g0-l0).
+The existing machine plan's `s1RootPreparation` is an unapproved template. No
+Worker is required or launched for 1A; no Grant/DPAPI/Crypto/Host A/production
+root is touched. F1 remains intact; S2/S3/F2/F3 are outside this source slice.
+**B2-TRIAL1A BLOCKED** until fixed user inputs, independent evidence and separate
+explicit runtime permission exist. Source/Fake success never runs 1A or 1B.

@@ -1,5 +1,6 @@
 // COMPILE ONLY. Not linked by any candidate entry or Fake CTest executable.
 #include "diagnostics/l1_r2_windows.h"
+#include "diagnostics/l1_temporary_handle.h"
 #include <aclapi.h>
 #include <psapi.h>
 #include <sddl.h>
@@ -22,6 +23,8 @@ std::string sid_digest(const std::wstring &s) {
 bool token_user(HANDLE process,std::wstring &sid) {
   HANDLE token=nullptr;
   if(!OpenProcessToken(process,TOKEN_QUERY,&token))return false;
+  TemporaryHandle owner(TemporaryOwner::token_reader,reinterpret_cast<uintptr_t>(token),
+      [](uintptr_t h) noexcept { return CloseHandle(reinterpret_cast<HANDLE>(h))!=FALSE; });
   DWORD n=0;
   GetTokenInformation(token,TokenUser,nullptr,0,&n);
   bool ok=false;
@@ -34,7 +37,7 @@ bool token_user(HANDLE process,std::wstring &sid) {
       }
     }
   }
-  const bool closed=CloseHandle(token)!=FALSE;return ok&&closed;
+  const bool closed=owner.close_as(TemporaryOwner::token_reader);return ok&&closed;
 }
 bool security(const WindowsObjectPin &pin,std::string &out) {
   PSECURITY_DESCRIPTOR sd=nullptr;LPWSTR sddl=nullptr;ULONG n=0;
@@ -134,6 +137,17 @@ bool bounded_create(const GrantTarget &t,const WindowsObjectPin &image,
   DeleteProcThreadAttributeList(attributes);return ok;
 }
 } // namespace
+bool measure_metadata(const WindowsObjectPin &p, bool directory,
+                      std::string &sd, std::wstring &path) noexcept try {
+  wchar_t name[1024]{}, fs[16]{};
+  if (!pin_metadata(p,directory) || !security(p,sd) ||
+      sd!=p.artifact_security_sha256) return false;
+  const auto n=GetFinalPathNameByHandleW(p.handle,name,1024,FILE_NAME_NORMALIZED|VOLUME_NAME_DOS);
+  if (!n || n>=1024 || std::wcsncmp(name,L"\\\\?\\C:\\",7) ||
+      !GetVolumeInformationByHandleW(p.handle,nullptr,0,nullptr,nullptr,nullptr,fs,16) ||
+      std::wcscmp(fs,L"NTFS")) return false;
+  path.assign(name,n); return true;
+} catch (...) { return false; }
 bool measure_runtime(HANDLE process,RuntimeFacts &out) noexcept try {
   RuntimeFacts r;
   using Version=LONG(WINAPI *)(PRTL_OSVERSIONINFOW);

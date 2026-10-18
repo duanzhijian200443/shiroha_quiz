@@ -76,6 +76,17 @@ three-process and crash-window tests. Live execution stays unconditionally
 denied (`exit 10`), and all five L1 requests remain `DRAFT_NOT_AUTHORIZED`.
 Highest status is **B2 WINDOWS ADMISSION SOURCE REVIEWABLE / OFFLINE TESTED**.
 
+The [B2-S1 amendment](windows-host-acceptance-preparation.md#b2-s1-trial-1a-root-preparation-source-g0-l0)
+adds the one-shot Trial 1A root-preparation source (`l1_s1_root`) and an unlinked
+`shiroha_l1_s1_windows` OBJECT: complete approved parent pins, one parent-relative
+exclusive `NtCreateFile` carrying the approved Owner/DACL in the create, actual
+File ID/security revalidation, a bounded in-memory Pin borrow and one-shot
+named-Owner closes. Fake-only tests cover drift, budget, evidence, handoff and
+close; no Worker, Grant or production directory is involved and live execution
+stays unconditionally denied. The approved device/account/paths/operators and
+operation budget remain `REQUIRES USER DECISION`, so **B2-TRIAL1A BLOCKED**
+remains and the highest status is unchanged.
+
 The E5 controlled diagnostic composition connects the same E4 issuance,
 write-ahead consumption, suspended Worker, six-message IPC and E2 Supervisor/
 Native settlement under one fixed-target local-human Controller. Extra directory,

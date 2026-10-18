@@ -109,6 +109,33 @@ function Assert-Plan([System.Collections.IDictionary]$Value) {
     foreach ($name in $r2Ceilings.Keys) {
         Require ($r2.hardCeilings[$name] -ceq $r2Ceilings[$name]) 'r2_ceilings'
     }
+    Has-Fields $l1 @('s1RootPreparation')
+    $s1 = $l1.s1RootPreparation
+    Require ($s1.scope -ceq 'G0-L0 SOURCE / COMPILE / FAKE ONLY' -and
+        $s1.executionAuthorized -ceq $false -and
+        $s1.realEntry -ceq 'UNCONDITIONAL_DENIAL_NO_CONFIGURABLE_AUTHORIZATION' -and
+        $s1.source.Count -eq 5 -and $s1.windowsObjectTarget -ceq 'shiroha_l1_s1_windows' -and
+        $s1.binding -ceq 'EXISTING_FROZEN_TARGET_PLUS_PARENT_PINS_CREATE_ACTION_AND_BUDGET_NO_PRECREATE_ROOT_FILE_ID' -and
+        $s1.rootIdentity -ceq 'READ_ACTUAL_ID_AFTER_FILE_CREATE_THEN_REVALIDATE_AND_RETAIN_WINDOWS_PIN_SPEC' -and
+        $s1.approvedOperationBudget -ceq 'REQUIRES USER DECISION' -and
+        $s1.workerPrerequisite -ceq $false -and
+        $s1.trial1A -ceq 'BLOCKED_FIXED_TARGET_INDEPENDENT_EVIDENCE_AND_USER_AUTHORIZATION_REQUIRED') 's1_authority'
+    foreach ($path in $s1.source) { Assert-RepoPath $path 'windows/external_native/diagnostics/' }
+    Assert-RepoPath $s1.offlineTest 'windows/external_native/tests/'
+    $s1Ceilings = @{ parents=16; artifacts=64; artifactBytesEach=16777216;
+        artifactReadCallsEach=256; rootCreateAttempts=1; rootSecurityAssignmentsAtCreate=1;
+        parentSecurityWrites=0; evidenceCreateAttempts=1; evidenceSecurityAssignmentsAtCreate=1;
+        evidenceWrites=2; evidenceFlushes=2;
+        evidenceRecordBytes=8192; ownedRootAndEvidenceCloseAttemptsEach=1;
+        temporaryTokenHandlesAcquiredAndClosedEach=2 }
+    Require ($s1.hardCeilings.Count -eq $s1Ceilings.Count) 's1_ceilings'
+    foreach ($name in $s1Ceilings.Keys) {
+        Require ($s1.hardCeilings[$name] -ceq $s1Ceilings[$name]) 's1_ceilings'
+    }
+    Require ($s1.osCallCeiling -ceq '4*H*32+A*1024+128+32+2*64+2048+2*2048+2; H<=16,A<=64' -and
+        $s1.counterMeaning -ceq 'RESERVED_CONSERVATIVE_UPPER_BOUNDS_BEFORE_CALL_NOT_MEASURED_OS_TOTALS; ACTUAL_ARTIFACT_READ_CALLS_SEPARATE' -and
+        $s1.evidence -ceq 'EXISTING_R2_8192B_RECORDS_BIND_REDACTED_S1_RESULT_LEDGER_DIGEST; NUMERIC_LEDGER_IN_MEMORY_NO_F2_FORMAT_CHANGE' -and
+        $s1.unknown -ceq 'RETAIN_OWNED_ROOT_AND_EVIDENCE_NO_DELETE_REPAIR_RETRY_OR_CLOSE_ON_UNCERTAIN_HANDOFF') 's1_ledger'
     $pending = @('selectedDevice','osEditionBuildPatchX64','privateExactSidAndPublicAccountDigest',
         'operatorAndApprover','newRootAndExactParentObjectInventory','forbiddenProductionAndHostARootAliases',
         'ownerDaclVolumeFileIdPinAcquisition','batchCaseIdsAndUtcWindow','controllerWorkingSetBytes',
@@ -484,7 +511,12 @@ if ($SelfTest) {
         { param($p) $p.l1Preparation.r2Adapters.hardCeilings.maxPolls = 30000 },
         { param($p) $p.l1Preparation.r2Adapters.hardCeilings.maxArtifactReadCallsPerFile = 67108864 },
         { param($p) $p.l1Preparation.r2Adapters.hardCeilings.threeProcessResourceLimits = 6 },
-        { param($p) $p.l1Preparation.parameters.custodianWorkingSetBytes = 67108864 }
+        { param($p) $p.l1Preparation.parameters.custodianWorkingSetBytes = 67108864 },
+        { param($p) $p.l1Preparation.s1RootPreparation.executionAuthorized = $true },
+        { param($p) $p.l1Preparation.s1RootPreparation.approvedOperationBudget = 1 },
+        { param($p) $p.l1Preparation.s1RootPreparation.hardCeilings.rootCreateAttempts = 2 },
+        { param($p) $p.l1Preparation.s1RootPreparation.hardCeilings.parentSecurityWrites = 1 },
+        { param($p) $p.l1Preparation.s1RootPreparation.workerPrerequisite = $true }
     )
     $count = 0
     foreach ($mutate in $mutations) {
