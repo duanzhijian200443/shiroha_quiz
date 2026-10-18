@@ -69,6 +69,33 @@ std::string Limits::hash() const {
   h.put_u64_le(approval_ms); h.put_u64_le(handoff_ms);
   return h.finalize_hex();
 }
+bool match_images(const r1::Frozen &f, const Limits &l,
+                  const std::array<ImageObservation, 3> &images, size_t count) {
+  if ((count != 2 && count != 3) || !f.valid() || !l.valid() ||
+      f.manifest.r2_sha256 != l.hash() ||
+      (f.manifest.build.origin != r1::Origin::kFake &&
+       f.manifest.build.origin != r1::Origin::kIndependentBuild))
+    return false;
+  const std::string expected[] = {f.manifest.build.controller,
+                                  l.custodian_sha256, f.manifest.build.worker};
+  const auto origin = f.manifest.build.origin == r1::Origin::kIndependentBuild
+                          ? r1::Origin::kWindowsApi
+                          : r1::Origin::kFake;
+  for (size_t i = 0; i < count; ++i) {
+    const auto &image = images[i];
+    if (image.origin != origin || image.status != r1::IoStatus::kOk ||
+        !image.process_verified || !hex_digest(image.sha256, 64) ||
+        image.sha256 != expected[i])
+      return false;
+    bool listed = false;
+    for (const auto &pin : f.manifest.pins)
+      if (pin.object == image.object && pin.bytes_sha256 == image.sha256)
+        listed = true;
+    if (!listed)
+      return false;
+  }
+  return true;
+}
 bool bounded_hash(ReadPort &p, std::string &out, uint32_t &reads) {
   out.clear(); reads = 0;
   uint64_t n = 0;
@@ -168,7 +195,7 @@ r1::CustodyReceipt Custodian::receipt(bool handles) {
   return {r1::Origin::kFake,r1::IoStatus::kOk,frozen_.manifest.custody_owner,
     frozen_.hash(),journal_.last(),true,handles,handles?identity_.hash():std::string{}};
 }
-r1::CustodyReceipt Custodian::accept_intent(const r1::Frozen &f) {
+r1::CustodyReceipt Custodian::accept_intent(const r1::Frozen &f) try {
   if (state_!=State::preapproved || accepted_ || !f.valid() ||
       f.hash()!=frozen_.hash() || !limits_.valid() ||
       f.manifest.r2_sha256!=limits_.hash() || f.manifest.max_pumps!=limits_.polls ||
@@ -178,12 +205,20 @@ r1::CustodyReceipt Custodian::accept_intent(const r1::Frozen &f) {
       limits_.process[2].working!=f.target.grant.working_set_bytes ||
       limits_.process[2].commit!=f.target.grant.commit_bytes ||
       limits_.process[2].handles!=f.target.grant.handles) {unknown();return {};}
+  // Mandatory pre-custody check. No Worker exists or is needed here.
+  if (!match_images(frozen_, limits_, owner_.measure_hosts(), 2)) {
+    unknown();
+    return {};
+  }
   accepted_=true;
   const auto a=owner_.accept_intent(f);
   if (a.status!=r1::IoStatus::kOk || !a.creator_is_independent ||
       a.target_sha256!=f.hash() || a.owner!=f.manifest.custody_owner ||
       !persist(State::ready) || !persist(State::accepted)) {unknown();return {};}
   return receipt(false);
+} catch (...) {
+  unknown();
+  return {};
 }
 e4::ClockReading Custodian::read_clock() {
   if (++clocks_>4*limits_.polls+32) {unknown();return {};}

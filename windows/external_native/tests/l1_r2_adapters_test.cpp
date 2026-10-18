@@ -24,6 +24,9 @@ z::Limits limits(const r::Frozen &f) {
 r::Frozen r2_frozen() {
   auto f = frozen();
   auto l = limits(f);
+  f.manifest.pins[0].bytes_sha256 = f.manifest.build.controller;
+  f.manifest.pins[1].bytes_sha256 = l.custodian_sha256;
+  f.manifest.pins[2].bytes_sha256 = f.manifest.build.worker;
   f.manifest.r2_sha256 = l.hash();
   f.target.scope.wiring_manifest_sha256 = f.manifest.hash();
   f.target.grant.evidence_scope_id = f.target.scope.hash();
@@ -97,9 +100,25 @@ struct Owner final : z::OwnerPort {
       {500, 1024, 2048, 4, 0},
       {500, 1536, 3072, 6, 0},
       {500, 2048, 4096, 8, 0}}};
-  bool sample_fail = false;
-  Owner(const r::Frozen &v, Io &i) : base(v, i) {}
+  bool sample_fail = false, measure_throw = false;
+  std::array<z::ImageObservation, 3> images{};
+  unsigned measurements = 0, accepts = 0;
+  Owner(const r::Frozen &v, Io &i) : base(v, i) {
+    for (size_t n = 0; n < 3; ++n) {
+      images[n] = {r::Origin::kFake, r::IoStatus::kOk, true,
+                   v.manifest.pins[n].object, v.manifest.pins[n].bytes_sha256};
+    }
+  }
+  std::array<z::ImageObservation, 3> measure_hosts() override {
+    ++measurements;
+    if (measure_throw)
+      throw 1; // injected I/O failure; no OS operations
+    auto hosts = images;
+    hosts[2] = {}; // Worker does not exist before accept/create
+    return hosts;
+  }
   r::CustodyReceipt accept_intent(const r::Frozen &v) override {
+    ++accepts;
     return base.accept_intent(v);
   }
   x::WorkerStart create() override { return base.create(); }
@@ -538,6 +557,131 @@ void test_transport_loss_records_unknown() {
         "Custodian records UNKNOWN when the controller disappears");
 }
 
+void test_image_binding() {
+  R2Fixture good;
+  check(z::match_images(good.f, good.lim, good.owner.images, 3),
+        "all three measured executable hashes and object IDs match");
+  auto hosts = good.owner.measure_hosts();
+  check(z::match_images(good.f, good.lim, hosts, 2) &&
+            !z::match_images(good.f, good.lim, hosts, 3),
+        "pre-create hosts need no Worker; post-create requires Worker "
+        "measurement");
+  for (unsigned fault = 0; fault < 14; ++fault) {
+    R2Fixture t;
+    auto &image = t.owner.images[1];
+    switch (fault) {
+    case 0:
+      image.sha256 = std::string(64, '9');
+      break; // same object, different bytes
+    case 1:
+      image.sha256.clear();
+      break;
+    case 2:
+      image.status = r::IoStatus::kDenied;
+      break; // read failure
+    case 3:
+      image.status = r::IoStatus::kUnknown;
+      break;
+    case 4:
+      image.object.volume_serial++;
+      break;
+    case 5:
+      image.object.file_id[0]++;
+      break;
+    case 6:
+      image.process_verified = false;
+      break;
+    case 7:
+      image.origin = r::Origin::kUnavailable;
+      break;
+    case 8:
+      image.sha256 = "UNKNOWN";
+      break;
+    case 9:
+      t.owner.images[0].sha256 = std::string(64, '9');
+      break;
+    case 10:
+      image.object = {};
+      break;
+    case 11:
+      image = {};
+      break;
+    case 12:
+      image.origin = r::Origin::kWindowsApi;
+      break; // origin mismatch
+    case 13:
+      image = {};
+      t.owner.measure_throw = true;
+      break;
+    }
+    check(!z::match_images(t.f, t.lim, t.owner.images, 3),
+          "bad process/hash/read/origin/object fails shared three-image gate");
+    check(!t.c.begin(), "identity rejection stops begin before approval");
+    t.finish();
+    check(t.owner.accepts == 0 && t.owner.base.creates == 0 &&
+              t.owner.base.resumes == 0 && t.proof.calls == 0 &&
+              t.io.issues == 0 && t.io.burns == 0 && !t.custodian.retained(),
+          "identity failure precedes Batch acceptance, Grant and Worker side "
+          "effects");
+    const auto attempts = t.owner.measurements;
+    check(t.custodian.accept_intent(t.f).status != r::IoStatus::kOk,
+          "failed identity cannot retry accept");
+    t.custodian.create();
+    bool known = false;
+    check(!t.custodian.resume(known) && t.owner.measurements == attempts &&
+              t.owner.accepts == 0 && t.owner.base.creates == 0 &&
+              t.owner.base.resumes == 0 && t.io.burns == 0,
+          "rejection is terminal: no remeasurement, retry, Grant consumption "
+          "or Resume");
+  }
+  for (unsigned process = 0; process < 3; ++process) {
+    auto images = good.owner.images;
+    images[process].sha256 = std::string(64, '9');
+    check(!z::match_images(good.f, good.lim, images, 3),
+          "no process index can skip its approved SHA comparison");
+  }
+  for (unsigned fault = 0; fault < 2; ++fault) {
+    R2Fixture t;
+    auto policy = t.lim;
+    policy.custodian_sha256 = fault ? std::string(64, '9') : std::string{};
+    z::Custodian candidate(t.f, policy, t.owner, t.proof, t.journal);
+    check(candidate.accept_intent(t.f).status != r::IoStatus::kOk &&
+              t.owner.accepts == 0 && !candidate.retained(),
+          "missing or Limits-only frozen hash change denies before custody");
+    candidate.create();
+    bool known = false;
+    check(!candidate.resume(known) && t.owner.base.creates == 0 &&
+              t.owner.base.resumes == 0 && t.io.burns == 0 &&
+              t.proof.calls == 0,
+          "invalid frozen policy never reaches Grant/create/Resume");
+  }
+  auto missing = good.f;
+  missing.manifest.pins.erase(missing.manifest.pins.begin() + 1);
+  missing.target.scope.wiring_manifest_sha256 = missing.manifest.hash();
+  missing.target.grant.evidence_scope_id = missing.target.scope.hash();
+  check(missing.valid() &&
+            !z::match_images(missing, good.lim, good.owner.images, 2),
+        "Custodian image absent from approved artifact inventory denies");
+  auto l = good.lim;
+  l.custodian_sha256.clear();
+  check(!z::match_images(good.f, l, good.owner.images, 2),
+        "missing frozen Custodian hash rejects");
+  l = good.lim;
+  l.custodian_sha256 = std::string(64, '9');
+  check(!z::match_images(good.f, l, good.owner.images, 2),
+        "Limits-only change cannot bypass R2 manifest binding");
+  auto f = good.f;
+  f.manifest.r2_sha256 = l.hash();
+  f.target.scope.wiring_manifest_sha256 = f.manifest.hash();
+  f.target.grant.evidence_scope_id = f.target.scope.hash();
+  check(f.valid() && !z::match_images(f, l, good.owner.images, 2),
+        "even rebound target cannot substitute frozen hash for measured bytes");
+  auto images = good.owner.images;
+  images[1].sha256 = l.custodian_sha256;
+  check(!z::match_images(f, l, images, 2),
+        "new hash and measurement still require matching artifact inventory");
+}
+
 void test_approval_display_policy() {
   check(z::approval_display_ok(true, true, true, true, 100, 100),
         "approval accepts all controls with complete summary text");
@@ -566,6 +710,7 @@ int main() {
   test_state_gates_and_unknown_evidence();
   test_zero_resource_samples_rejected();
   test_transport_loss_records_unknown();
+  test_image_binding();
   test_approval_display_policy();
   std::cout << "PASS: " << checks
             << " R2 custodian/identity/evidence/budget assertions; no Windows "

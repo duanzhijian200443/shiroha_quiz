@@ -199,13 +199,36 @@ bool bounded_dependencies(HANDLE process,const std::vector<WindowsObjectPin> &pi
   }
   return true;
 } catch(...) {return false;}
+namespace {
+ImageObservation measure_image(const WindowsProcessPin &p,
+                               const std::wstring &sid) {
+  ImageObservation out;
+  std::string hash;
+  uint32_t reads = 0;
+  if (!inspect_process_pin(p, sid) || !measure_artifact(p.image, hash, reads) ||
+      !inspect_process_pin(p, sid))
+    return out;
+  out.origin = r1::Origin::kWindowsApi;
+  out.status = r1::IoStatus::kOk;
+  out.process_verified = true;
+  out.object = identity(p.image.identity);
+  out.sha256 = hash;
+  return out;
+}
+} // namespace
 WindowsIdentity::WindowsIdentity(std::vector<WindowsPinSpec> p,
-    std::array<WindowsProcessPin,3> processes,std::vector<HANDLE> inherited,r1::BuildEvidence b)
-    :pins_(std::move(p)),processes_(std::move(processes)),inherited_(std::move(inherited)),build_(std::move(b)) {}
+                                 std::array<WindowsProcessPin, 3> processes,
+                                 std::vector<HANDLE> inherited, r1::Frozen f,
+                                 Limits l)
+    : pins_(std::move(p)), processes_(std::move(processes)),
+      inherited_(std::move(inherited)), frozen_(std::move(f)),
+      limits_(std::move(l)) {}
 r1::Measurement WindowsIdentity::measure() {
   r1::Measurement m;
-  if(++measurements_>5 || pins_.empty()||pins_.size()>kPins||inherited_.size()>8 ||
-      build_.origin!=r1::Origin::kIndependentBuild)return m;
+  if (++measurements_ > 5 || pins_.empty() || pins_.size() > kPins ||
+      inherited_.size() > 8 ||
+      frozen_.manifest.build.origin != r1::Origin::kIndependentBuild)
+    return m;
   RuntimeFacts actual;
   if(!measure_runtime(GetCurrentProcess(),actual))return m;
   wchar_t name[256]{};DWORD n=256;
@@ -230,23 +253,22 @@ r1::Measurement WindowsIdentity::measure() {
   }
   // Artifact hashes are measured from pins independently from BuildEvidence.
   // This inventory must contain the three exact executable pins.
-  const std::string expected[]={build_.controller,{},build_.worker};
-  for(size_t i=0;i<3;++i) {
-    if(!inspect_process_pin(processes_[i],actual.sid))return {};
-    std::string h;uint32_t reads=0;
-    if(!measure_artifact(processes_[i].image,h,reads))return {};
-    if(i!=1 && h!=expected[i])return {};
-    bool listed=false;
-    for(const auto &p:m.pins)if(p.object==identity(processes_[i].image.identity)&&p.bytes_sha256==h)listed=true;
-    if(!listed)return {};
-  }
+  if (m.pins != frozen_.manifest.pins)
+    return {};
+  std::array<ImageObservation, 3> images;
+  for (size_t i = 0; i < 3; ++i)
+    images[i] = measure_image(processes_[i], actual.sid);
+  if (!match_images(frozen_, limits_, images, 3))
+    return {};
   for(size_t i=0;i<inherited_.size();++i) {
     DWORD flags=0;
     if(!GetHandleInformation(inherited_[i],&flags)||!(flags&HANDLE_FLAG_INHERIT)||
        GetFileType(inherited_[i])!=FILE_TYPE_PIPE)return {};
     for(size_t j=0;j<i;++j)if(inherited_[i]==inherited_[j])return {};
   }
-  m.origin=r1::Origin::kWindowsApi;m.build=build_;return m;
+  m.origin = r1::Origin::kWindowsApi;
+  m.build = frozen_.manifest.build;
+  return m;
 }
 WindowsPersistence::WindowsPersistence(WindowsObjectPin p,std::vector<WindowsObjectPin> c,Output o)
     :parent_(std::move(p)),chain_(std::move(c)),output_(o) {}
@@ -464,14 +486,27 @@ WindowsOwner::WindowsOwner(r1::Frozen f,Limits l,WindowsObjectPin d,WindowsObjec
     std::array<WindowsProcessPin,2> hosts,uint64_t session)
     :frozen_(std::move(f)),limits_(std::move(l)),directory_(std::move(d)),image_(std::move(i)),
       dependencies_(std::move(deps)),hashes_(std::move(hashes)),hosts_(std::move(hosts)),session_(session) {}
-r1::CustodyReceipt WindowsOwner::accept_intent(const r1::Frozen &f) {
-  if(accepted_||f.hash()!=frozen_.hash()||!limits_.valid()||
-     !inspect_process_pin(hosts_[0],f.target.sid)||!inspect_process_pin(hosts_[1],f.target.sid))return {};
-  accepted_=true;
-  // This leaf's ACK is NOT a persistence receipt. Custodian supplies its own
-  // separately flushed CustodyJournal before reporting acceptance.
+std::array<ImageObservation, 3> WindowsOwner::measure_hosts() {
+  std::array<ImageObservation, 3> images;
+  for (size_t i = 0; i < 2; ++i)
+    images[i] = measure_image(hosts_[i], frozen_.target.sid);
+  return images;
+}
+r1::CustodyReceipt WindowsOwner::accept_intent(const r1::Frozen &f) try {
+  if (accepted_ || stopped_)
+    return {};
+  stopped_ = true; // failed identity never retries or accepts a later Batch
+  if (f.hash() != frozen_.hash() ||
+      !match_images(frozen_, limits_, measure_hosts(), 2))
+    return {};
+  accepted_ = true;
+  stopped_ = false;
+  // Persistence is still owned by the Custodian's separately flushed journal.
   return {r1::Origin::kWindowsApi,r1::IoStatus::kOk,f.manifest.custody_owner,
       f.hash(),{},true,false,{}};
+} catch (...) {
+  stopped_ = true;
+  return {};
 }
 bool WindowsOwner::create_suspended() {
   std::string h;uint32_t reads=0;

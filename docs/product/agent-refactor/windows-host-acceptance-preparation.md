@@ -735,6 +735,36 @@ L1 实验保持 `DRAFT_NOT_AUTHORIZED`；最高状态为
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
 REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
 
+
+### B2 F1 Custodian executable identity binding (G0-L0)
+
+`Limits::custodian_sha256` is the sole approved Custodian digest. Its existing
+`Limits::hash()` -> `Manifest::r2_sha256` -> manifest/Target binding is retained;
+`custodianExeSha256` in Artifact Freeze must supply that same value, never a
+second independently editable expected hash or a self-embedded executable hash.
+Process indices remain Controller 0, Custodian 1, admission-only Worker 2.
+The shared `match_images` gate requires independent process/HANDLE identity,
+actual pinned image byte SHA-256, and matching approved Volume/File ID and
+artifact inventory under the frozen source/build/Target manifest. Missing,
+drifted, failed-read or UNKNOWN observations deny.
+
+Before Batch custody, `Custodian::accept_intent` requires the Owner's two-host
+measurement; `WindowsOwner::accept_intent` independently enforces the same gate
+before acceptance, latching rejection against retry. These checks need only the
+already existing Controller/Custodian. After Worker creation, the three-process
+`WindowsIdentity::measure` requires all three executable comparisons without a
+Custodian exception. No Worker is started to obtain pre-custody evidence.
+The existing R1 three-process measurement API is not a complete phased startup
+composition: S3's full staged Pin handoff remains a separate blocker.
+
+This source amendment does not close S1/S2/S3/F2/F3/D1 or claim independent F1
+review approval. E4 Receipt/Grant/Journal and IPC bytes are unchanged. No real
+Controller/Custodian/Worker entry is enabled or added to CTest; all five trials
+remain `DRAFT_NOT_AUTHORIZED`. B2-TRIAL1A BLOCKED.
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
+REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
+
 ### E4 local-human single-use admission source candidate (G0-L0)
 
 E4 supplements, and does not retroactively change, the E2/E3 source boundary.

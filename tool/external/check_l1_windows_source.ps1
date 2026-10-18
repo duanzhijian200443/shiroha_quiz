@@ -142,10 +142,31 @@ function Assert-Isolation([hashtable]$Text) {
         ($r2w + $r2wh) -match '\b(?:TerminateProcess|CreateJobObject[AW]|BCrypt\w+|Crypt\w+|Cert\w+|getenv|GetEnvironmentVariable[AW])\s*\(') {
         throw 'R2 custodian/adapter/Windows-OBJECT isolation or hard ceiling missing'
     }
+    # F1 guards the shared executable comparison AND both pre-custody callers.
+    # Reject the original skipped index even if the general hash check survives.
+    if ($r2 -notmatch 'l\.custodian_sha256,\s*f\.manifest\.build\.worker' -or
+        $r2 -notmatch 'image\.sha256 != expected\[i\]' -or
+        ($r2 + $r2w) -match 'i\s*!=\s*1|i\s*==\s*1' -or
+        $r2 -notmatch 'f\.manifest\.r2_sha256 != l\.hash\(\)' -or
+        $r2 -notmatch 'pin\.object == image\.object && pin\.bytes_sha256 == image\.sha256' -or
+        $r2 -notmatch '!match_images\(frozen_, limits_, owner_\.measure_hosts\(\), 2\)' -or
+        $r2w -notmatch '!match_images\(frozen_, limits_, images, 3\)' -or
+        $r2w -notmatch '!match_images\(frozen_, limits_, measure_hosts\(\), 2\)' -or
+        $r2w -notmatch '!inspect_process_pin\(p, sid\) \|\| !measure_artifact\(p\.image, hash, reads\)' -or
+        $r2w -notmatch 'stopped_ = true; // failed identity' -or
+        $r2h -notmatch 'measure_hosts\(\) = 0;') {
+        throw 'F1 mandatory measured executable/custody binding missing'
+    }
 }
 Assert-Isolation $sources
 if ($SelfTest) {
     $cases = @(
+        @{ path='diagnostics/l1_r2_adapters.cpp'; before='image.sha256 != expected[i]'; after='false' },
+        @{ path='diagnostics/l1_r2_adapters.cpp'; before='image.sha256 != expected[i]'; after='(i != 1 && image.sha256 != expected[i])' },
+        @{ path='diagnostics/l1_r2_adapters.cpp'; before='l.custodian_sha256,'; after='std::string{},' },
+        @{ path='diagnostics/l1_r2_adapters.cpp'; before='!match_images(frozen_, limits_, owner_.measure_hosts(), 2)'; after='false' },
+        @{ path='diagnostics/l1_r2_windows.cpp'; before='!match_images(frozen_, limits_, measure_hosts(), 2)'; after='false' },
+        @{ path='diagnostics/l1_r2_windows.cpp'; before='!match_images(frozen_, limits_, images, 3)'; after='false' },
         @{ path='CMakeLists.txt'; before='add_library(shiroha_l1_windows_operations OBJECT diagnostics/l1_windows_operations.cpp)'; after='add_executable(shiroha_l1_windows_operations diagnostics/l1_windows_operations.cpp)' },
         @{ path='CMakeLists.txt'; before='COMMAND shiroha_l1_windows_admission_test)'; after='COMMAND shiroha_l1_windows_operations)' },
         @{ path='diagnostics/l1_crypto_admission.h'; before='kRealExecutionAuthorized = false;'; after='kRealExecutionAuthorized = true;' },
@@ -180,6 +201,7 @@ if ($SelfTest) {
     foreach ($case in $cases) {
         $copy = $sources.Clone()
         $copy[$case.path] = $copy[$case.path].Replace($case.before, $case.after)
+        if ($copy[$case.path] -ceq $sources[$case.path]) { throw 'Source guard mutation did not apply' }
         $rejected = $false
         try { Assert-Isolation $copy } catch { $rejected = $true }
         if (!$rejected) { throw 'Source guard mutation escaped rejection' }
