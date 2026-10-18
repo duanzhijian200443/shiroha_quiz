@@ -713,6 +713,7 @@ void main() {
       'lib/application/external/external_trust_coordinator.dart',
       'lib/data/external/ipc_command_projection.dart',
       'lib/data/external/windows_tls_host.dart',
+      'lib/mcp/vnext_mcp_composition_root.dart',
     ]);
     final coordinator = File(consumers.first).readAsStringSync();
     expect(
