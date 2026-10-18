@@ -57,7 +57,10 @@ before final semantic approval.
 
 - For each path marked `UPDATE`, verify the candidate diff records the new durable truth.
 - For each `CHECK_ONLY` path, verify existing text does not materially contradict the candidate.
-- Missing/stale required docs are review findings and route to the same-PR Repair Executor.
+- Classify missing/stale docs by the concrete consequence under `AGENTS.md`:
+  editorial drift is P3 and deferred; a material governing-contract contradiction
+  or required-semantics gap is P2 (or P0/P1 for a higher-impact defect) and routes
+  to the same-PR Repair Executor. Cite the specific contradiction/gap and effect.
 - Reviewer does not perform a post-approval tracked documentation commit.
 
 Any tracked repair advances the head, so refreeze it and require current-target

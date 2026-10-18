@@ -5,9 +5,10 @@
 Read this rule only when the task concerns Git status, diffs, staging, commit
 preparation, branches, history, tags, or pushing, as routed by `AGENTS.md`.
 
-This file never grants Git write authority. Authority comes only from the
-current user request, `AGENTS.md`, the active role, and an applicable task
-package. A request that mentions `commit`, `push`, `backup`, or a similar word
+This file never grants Git write authority. Authority comes from explicit user
+instructions, including user-established permissions recorded in the active role
+file. A task package records traceable existing authority and never creates it.
+A request that mentions `commit`, `push`, `backup`, or a similar word
 authorizes only the exact action explicitly requested; it does not authorize
 later Git actions, unrelated file changes, or broader staging.
 
@@ -30,6 +31,43 @@ performing any authorized write. Preserve unrelated user changes.
 
 ## Git write requirements
 
+### Task-start baseline
+
+Before creating a branch or editing for a new independent task:
+
+1. Inspect status and worktree ownership; preserve unrelated changes and old task
+   branches. Verify the intended repository/remote and query its current default
+   branch; a cached `origin/HEAD`, local branch name or old PR head is insufficient.
+2. With existing fetch authority, fetch the remote default branch and verify its
+   tip against current remote facts. If it advanced during verification, refresh
+   the evidence before proceeding; if it cannot be verified, stop.
+3. Compare the local default branch with that verified tip. Safely fast-forward a
+   behind local default, or establish a missing local default with the required
+   authority, before task-branch creation. Ahead/diverged branches or an unsafe
+   checkout require bounded diagnosis and user direction; no reset, rebase,
+   destructive restore, automatic stash or push-to-default alignment.
+4. Record the remote/default branch, verified commit and alignment result, then
+   create the authorized task branch from that exact default-branch commit.
+   Recheck its initial HEAD. A merged PR branch and its PR-only commits are never
+   a new-task baseline; after Squash Merge, the actual remote default-branch
+   history owns the baseline, not the original PR head.
+
+This preflight happens at task start, not at PR delivery. Fetch, alignment,
+branch/worktree creation and checkout still need their applicable authority;
+missing authority blocks dependent writes, not independent read-only work.
+For continuation of the same unfinished authorized task before PR creation,
+verify and reuse its existing non-default branch/worktree and original verified
+baseline under `AGENTS.md` section 7. Check task identity, scope, authority,
+baseline evidence, current HEAD/dirty state and writer ownership; inherit repair
+counts. Do not rerun new-task alignment or create a new branch solely for
+resumption. An OPEN PR is not a prerequisite for otherwise authorized work;
+missing baseline evidence, target drift and explicit delivery limits still apply.
+
+Repairs/supplements to an existing PR instead verify and reuse its OPEN source
+branch. If it is merged/closed or the identity drifts, stop before writing/pushing.
+
+### Action checks
+
 Before a Git write, verify all of the following:
 
 1. the exact action is explicitly authorized;
@@ -37,20 +75,26 @@ Before a Git write, verify all of the following:
 3. every affected path is inside the authorized task responsibility; if `Strict path whitelist: yes` is set, every affected path is also explicitly listed;
 4. staged content contains no unrelated user changes;
 5. the action is not destructive or history-rewriting;
-6. task/user authority is known; omitted actions remain unauthorized. Use the
-   template in `docs/agents/README.md` when preparing a package.
+6. task/user authority, including applicable permissions recorded in the active
+   role file, is known; other omitted actions remain unauthorized. A delegated
+   package may record it using the optional `docs/agents/README.md` template.
 
 Authorization is action-specific:
 
 - staging does not authorize a commit;
 - a commit does not authorize a push;
 - a push does not authorize PR creation, merge, tag, or release;
-- initial work creates an authorized dedicated non-default branch; follow-ups
-  and same-PR repair reuse the task branch. Assigned creation may be authorized
-  by the writable package;
+- initial work creates an authorized dedicated non-default branch; pre-PR
+  continuation reuses its verified task branch and original baseline; same-PR
+  repair reuses the verified OPEN PR branch. A writable package may
+  record existing branch-creation authority but cannot grant it;
 - worktree creation is separate and only needed for parallel writers or explicit checkout isolation.
 
-Task packages normally provide expected ownership paths, not an exhaustive file list. Directly necessary coupled paths may be added under the repository rules and must be reported in handoff. Staging remains exact-path scoped.
+Task packages normally provide expected ownership paths, not an exhaustive file
+list. Only with `Strict path whitelist: no` may directly necessary coupled paths
+be added under the repository rules and reported in handoff. With
+`Strict path whitelist: yes`, stop before any unlisted path until explicit
+authorization expands the whitelist. Staging remains exact-path scoped.
 
 Use path-scoped commands such as:
 

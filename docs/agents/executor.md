@@ -11,6 +11,21 @@ the current delegated handoff when one exists; a parent summary does not replace
 Reuse credible inherited evidence, but confirm status and the current
 branch/HEAD against the authorized target before writing.
 
+At task start, classify the assignment as a new independent task, continuation
+of the same unfinished task before PR creation, or repair/supplement to an
+existing OPEN PR. For a new task, complete the baseline
+verification and safe local-default alignment in `AGENTS.md` section 7 and
+`.agents/rules/git_work.md` before creating the task branch or implementing.
+Use the verified latest remote default tip, including the actual post-Squash-Merge
+history; never start from a merged PR branch/head. For pre-PR continuation,
+verify task identity, scope, authority, original baseline evidence, current
+HEAD/dirty state and writer ownership under `AGENTS.md` section 7; reuse the
+existing non-default branch/worktree and original baseline, and inherit repair
+counts. Do not require an OPEN PR or recreate the branch merely to resume.
+For repair/supplement to an existing OPEN PR, verify
+the existing PR/source/base/head and reuse that branch. Missing baseline authority
+or unsafe alignment blocks dependent writes immediately, not at delivery.
+
 For OCR, `import_pipeline`, `import_review`, `QuestionDraft`, content auditing,
 answer fusion or Import Acceptance, also read:
 
@@ -34,8 +49,10 @@ Never edit generated files manually.
    candidate head, perform only authorized Git delivery, then STOP for independent
    review.
 
-A failed check follows `AGENTS.md` self-repair conditions and budgets. Report
-self-repair cycle and inherited review-repair round counts. Never weaken a check.
+A failed check follows `AGENTS.md` self-repair conditions and budgets. Report the
+current assignment's self-repair count and the target/task's cumulative
+review-repair count separately; continuing the same assignment with a new worker
+does not reset its count. Never weaken a check.
 
 Prefer the focused commands in `AGENTS.md`. When a task explicitly assigns the
 tracked-change helper, use:
@@ -62,11 +79,26 @@ without task/repository authority.
 ## Delivery
 
 When a delegated handoff is used, follow the optional template in `docs/agents/README.md`.
-Initial work creates the authorized dedicated branch; follow-up/repair reuses
-the existing task branch and PR. Executor role alone grants no Git action.
-Commit only when commit authority is yes; push and PR creation need their own
-authority. `PR-create` does not authorize title/body updates, comments, review submission,
-close/reopen or other PR mutation.
+Only while `角色：执行` is explicitly active, the following user-established
+standing delivery permissions apply to the authorized assignment, unless the user
+explicitly narrows or revokes them. These permissions do not apply to other roles
+or default read-only investigation. After required checks pass:
+
+- Independent task, including its pre-PR continuation: stage exact task paths,
+  commit, push the verified task branch
+  and automatically create its PR against the verified default branch. If that
+  task already has its intended OPEN PR, update it by push rather than duplicate it.
+- Repair/supplement: recheck the existing OPEN target PR and its source branch,
+  stage exact task paths, commit and automatically push to that PR.
+
+Do not request separate confirmation for these already-authorized delivery
+actions. This role file records the user's standing authorization; a handoff does
+not create it. Verify the repository, branch, PR target and staged scope before
+delivery, then STOP for independent gates. Missing required checks, target drift
+or an explicit delivery restriction blocks the affected action. Fetch/alignment
+and branch/worktree creation retain
+their existing authorization requirements. `PR-create` does not authorize later
+title/body updates, comments, review submission, close/reopen or other PR mutation.
 Do not self-review, self-approve, merge or begin a later stage.
 
 For migrations retain required compatibility bridges until their deletion
@@ -77,10 +109,13 @@ formulas or diagnostics.
 
 Return `COMPLETE`, `BLOCKED` or `FAILED` with:
 
-- target/branch/base and final status;
+- task classification, task-start baseline/alignment evidence (retained and
+  revalidated for pre-PR continuation) or existing target PR identity,
+  target/branch/base and final status;
 - changed behavior/paths, including added coupled paths and reasons;
 - commands actually run, results, skipped checks and remaining risks;
-- self-repair cycles and review-repair rounds used;
+- current-assignment self-repair cycles and cumulative target/task review-repair
+  rounds used;
 - actual authorized Git actions and resulting SHA/PR when created;
 - next role: Reviewer, or Verifier only when required acceptance has a credible standing-CI coverage gap or an explicit user/Reviewer request requires independent verification.
 

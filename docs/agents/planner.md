@@ -120,7 +120,10 @@ separately authorized runtime package.
 ### Task size and routing
 
 - List the expected ownership paths/modules for the current package. They are not an exhaustive whitelist unless the package explicitly says `Strict path whitelist: yes`.
-- Allow directly necessary coupled files to be added by the Executor under the repository path-ownership rule; require those additions to be reported in handoff.
+- Only with `Strict path whitelist: no`, allow directly necessary coupled files
+  under the shared path-ownership rule and require additions to be reported.
+  With `yes`, require a stop before an unlisted path until explicitly authorized
+  whitelist expansion.
 - Make each package specific enough that the Executor need not repeat a repository-wide design pass.
 - Use the current handoff's risk label when it defines one (for example T1/T2/T3). Do not invent a repository-wide risk taxonomy that `AGENTS.md` does not define.
 - Route default deterministic validation to Executor/local scripts/CI;
@@ -161,10 +164,21 @@ Return one compact execution handoff or bounded handoff set when delegation is r
 wide safety/Git/verification rules already defined in `AGENTS.md`.
 
 Use the optional delegated-handoff template in `docs/agents/README.md` when a structured handoff is useful.
-Choose `Branch mode: create` for initial execution and `reuse` for task
-follow-ups or same-PR repair. Inherit review-repair round counts instead of
-resetting them for a new package/agent. State actual authority, never inferred
-commit/push/PR/merge permission.
+Choose `Branch mode: create` for a new independent task, with task-start
+verification/alignment to the latest remote default commit required before branch
+creation or implementation; a merged PR branch/head is never its baseline,
+including after Squash Merge. Choose `reuse` for continuation of the same
+unfinished task before PR creation, retaining its verified task branch/worktree
+and original baseline under `AGENTS.md` section 7; do not require an OPEN PR or
+restart new-task alignment solely to resume. Also choose `reuse` for
+repairs/supplements to a verified existing OPEN target PR.
+Record both repair counters under `AGENTS.md` section 6:
+the current assignment's self-repair count and the target/task's cumulative
+review-repair count. A genuinely new authorized assignment starts only its own
+self-repair count at zero; a new worker/package for the same assignment does not
+reset it. Record actual user/task authority, applicable
+active-role permissions and explicit user restrictions; a handoff never creates
+authority. Planner remains read-only.
 
 Worktree is optional and should appear only for parallel writers, dirty checkout
 isolation, or an explicit Coordinator requirement.

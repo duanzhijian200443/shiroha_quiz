@@ -52,9 +52,16 @@ worker 只接收当前 bounded execution handoff、必须打开的 governing con
 
 每次运行：
 
-1. 核对 master/base、已有 branch/PR、HEAD、dirty state 和 writer。
+1. 核对远端默认分支/base、已有 branch/PR、HEAD、dirty state 和 writer。新独立
+   任务在创建分支/实现前按 `AGENTS.md` §7 核实最新远端默认提交并在已有权限内
+   安全对齐本地默认分支，再从该提交创建任务分支；不得沿用已合并 PR 的分支或
+   PR-only 历史。Squash Merge 后以实际合并后的最新默认分支为起点，不能使用原
+   PR Head。无法核实/安全对齐或缺少权限时立即停止相关写入，不推迟到 PR 交付。
 2. OPEN PR 优先恢复：先读 canonical contract、真实 diff、CI/review、当前 Git
-   target，再把 `## Automation state` 作为提示。
+   target，再把 `## Automation state` 作为提示。若同一已授权未完成任务尚未创建
+   PR，按 `AGENTS.md` §7 核对任务身份、范围、权限、原基线证据、当前 HEAD/dirty
+   state 和 writer，复用原非默认分支/worktree、基线并继承修复计数；不因中断或
+   用户暂缓创建 PR 而要求 OPEN PR、重建分支或重新执行新任务对齐。
 3. state 与 Git/contract/user authority 冲突时，以 Git/contract/user authority 为准，
    丢弃或修正 state；绝不根据 state 推导新权限。
 4. GitHub 已报告 `MERGED` 的历史 PR 默认视为 review gate 已满足，不因缺旧 marker
@@ -78,7 +85,7 @@ worker 只接收当前 bounded execution handoff、必须打开的 governing con
 
 ## 选择下一任务
 
-没有待恢复 OPEN PR 时：
+没有待恢复 OPEN PR、也没有同一已授权任务待续做时：
 
 1. 读 roadmap 确定当前用户范围内的 active capability；
 2. 打开 capability canonical contract；
@@ -133,8 +140,11 @@ Executor 的 STOP 结束 worker assignment，controller 可以在 Automation con
 - schema literal、enum expected-list、fixture 不天然是机械修复。涉及冻结兼容性、
   持久化、并发、安全或验收定义时不适用该例外。
 
-两类 repair budget 继承 `AGENTS.md`，worker/head/重启不会重置。必需测试或 CI
-失败始终阻止交付/merge；不得跳过、过滤或降低 required gate。
+两类 repair budget 按 `AGENTS.md` §6 分别归属：self-repair count 属于当前 bounded
+Executor assignment，review-repair rounds 属于同一 delivery target/task 并跨
+assignment 累计。真正新授权的 assignment 仅将自己的 self-repair count 从零开始；
+同一 assignment 的 worker 替换、交接重写、head 变化或重启不会重置适用计数。
+必需测试或 CI 失败始终阻止交付/merge；不得跳过、过滤或降低 required gate。
 
 ### 无法在现有授权内解除时
 

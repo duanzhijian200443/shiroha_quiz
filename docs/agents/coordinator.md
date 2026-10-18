@@ -18,7 +18,19 @@ No branch/worktree or Git delivery action is implied by the role.
 
 ## Orchestration
 
-1. Freeze target/topology, expected ownership, authority and current stage.
+1. Classify new independent work, pre-PR continuation of the same unfinished task,
+   or an existing-PR repair/supplement. For new
+   independent work, require task-start verification of the latest remote default
+   tip and safe local-default alignment before authorized branch creation or
+   implementation; never reuse a merged PR branch/head, including after Squash
+   Merge. Freeze that baseline/alignment evidence, target/topology, expected
+   ownership, authority and current stage. For pre-PR continuation, verify the
+   existing task identity, scope, authority, original baseline evidence, current
+   HEAD/dirty state and writer ownership under `AGENTS.md` section 7; retain that
+   branch/worktree, baseline and repair counts without requiring an OPEN PR or
+   restarting new-task alignment. Reuse a verified existing OPEN PR for repairs
+   or supplements to that PR. Missing authority or unsafe alignment blocks dependent
+   writes at this checkpoint, not at PR delivery.
 2. Use Planner/Diagnostician only for unresolved design/root cause.
 3. Freeze shared contracts, rollback points and credible parent evidence.
 4. Identify exact Documentation responsibility paths before dispatch.
@@ -28,7 +40,9 @@ No branch/worktree or Git delivery action is implied by the role.
 7. Dispatch a compact execution handoff only when useful, using `docs/agents/README.md`.
    Keep it in the active orchestration context; normal flow does not persist it in
    the PR body. Default global active-child budget is two.
-8. Executor implements, checks and performs authorized PR delivery, then stops.
+8. Executor implements, checks and performs authorized PR delivery under its role
+   and task instructions, then stops. This grants no additional Coordinator Git
+   authority.
 9. Wait for standing `PR contract checks` on the current merge target. Insert a
    Verifier only when required acceptance is not credibly covered by standing CI.
 10. Always dispatch an Independent Reviewer after required verification evidence.
