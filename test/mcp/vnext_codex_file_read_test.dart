@@ -30,6 +30,26 @@ final class _FileApp {
     await compose();
   }
 
+  /// Warm the shared App read path before Codex assertions. File retrieval stays
+  /// cold, keeping index-build and F1-read evidence attributable to each case.
+  Future<void> warmRead() async {
+    Future<Map<String, dynamic>> direct(String tool,
+            [Map<String, dynamic> arguments = const {}]) async =>
+        _data(await composition.call(tool, arguments,
+            cancelled: const Stream<void>.empty(), available: () => true));
+    final targets = await direct('open_generation_context');
+    final target = (targets['items'] as List).single as Map;
+    final opened = await direct(
+        'open_generation_context', {'targetRef': target['targetRef']});
+    final context = opened['contextRef'] as String;
+    final search = await direct(
+        'search_questions', {'contextRef': context, 'query': 'needle'});
+    final hit = (search['items'] as List).single as Map;
+    await direct('get_question_detail',
+        {'contextRef': context, 'questionRef': hit['questionRef']});
+    await direct('open_generation_context', {'contextRef': context});
+  }
+
   Future<void> compose() async {
     final host = LocalHostDispatchCore(
         gateway: ExternalCapabilityGateway(
@@ -104,6 +124,7 @@ void main() {
     home = await root.createTemp('Codex File READ 合成 ');
     app = _FileApp();
     await app.open();
+    await app.warmRead();
     final mailbox = await Directory(p.join(home.path, 'app-link')).create();
     link = CodexSyntheticAppLink(mailbox, () => app.composition)..start();
     client = CodexSyntheticClient(executable!, home, mailbox);
@@ -341,6 +362,8 @@ void main() {
         _data(await client.call('search_questions',
             {'contextRef': context, 'query': 'needle'}))['items'],
         hasLength(1));
+    // The composition supplies no App target approval, so the unchanged approval
+    // gate denies staging before the separate STAGE-permission path.
     _denied(await client.call(
         'propose_generated_questions', batch(context, 'file-only')));
     // File READ never creates the independent parent Question READ authority.

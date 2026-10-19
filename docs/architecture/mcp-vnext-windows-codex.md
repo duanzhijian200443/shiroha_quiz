@@ -118,7 +118,8 @@ exact-Session isolation, missing App approval/STAGE permission, invalid content,
 expired Context, revoked grants and unavailable App. The response-loss case drops
 the real App reply after publication, disconnects the actual Codex/MCP processes,
 reopens SQLite and queries the original key without another STAGE call. Every
-recorded MCP PID must exit on EOF and the child home must be removable.
+recorded MCP process identity must be gone after EOF and the child home must be
+removable.
 
 The installed client may omit `isError: false` on success, as allowed by MCP;
 tests require its default false meaning AND identical profile-v2 structured/text
@@ -150,8 +151,9 @@ retrieves lexical hits and reads server-returned PassageRefs through cursor
 exhaustion. The original parent remains file-empty. P4 parent-target discovery
 still requires READ/questionContent/exact bank-Project authority; that existing
 prerequisite never substitutes for independent READ/fileContent/exact File-Project
-checks. File selection grants no STAGE approval, and READ-only grants can read
-files without STAGE permission. No client supplies paths, raw File IDs or grants.
+checks. File selection itself supplies no STAGE approval; the unchanged App target
+approval and STAGE permission gates still apply. READ-only grants can read files
+without STAGE permission. No client supplies paths, raw File IDs or grants.
 
 The suite rejects forged/cross-Context File/Passage/cursor references, absent
 fileContent or File scope, foreign Project scopes, expiry, revoke, narrowing,
@@ -159,7 +161,10 @@ Project detach, changed file digest, reparse and corrupt F1 payloads, including
 old references against a warm index. Revocation after real FTS results suppresses
 final release. Real SQLite reopen and fresh authentication require new selections;
 old Contexts/PassageRefs/cursors remain unusable. Codex and recorded MCP processes
-must exit on EOF, and the isolated home and synthetic database/files are removed.
+must exit on EOF; cleanup records each MCP server's creation time at connect,
+confirms that identity is gone (or the PID was reused) and fails closed when the
+query cannot confirm exit. The isolated home and synthetic database/files are
+removed.
 
 Assertions retain the existing 6,000-byte content/24,000-byte page bounds, at most
 eight complete passage chunks, structural exclusions and coverage flags. Ranked
@@ -190,6 +195,14 @@ normal process/home cleanup. These are Executor results for this candidate,
 not independent Verifier/Reviewer approval or a supported-version floor.
 Model-selected calls, Desktop UI interaction, reference-plugin distribution and
 production App/Bridge activation remain **UNVERIFIED** by these tests.
+
+The process-identity cleanup and read warm-up repair was re-run with the
+documented per-suite commands: CLI and Desktop File READ 13/13 and STAGE 4/4
+each, with every cleanup verifying the recorded server identity. Compatibility is
+unchanged and was not rerun for the repair. Two transient `outcome_unknown`
+results were observed (one combined two-file invocation and one separate Desktop
+File READ run) and did not reproduce in the documented per-suite reruns;
+independent verification must repeat each suite separately.
 
 The eight-suite offline regression run passed 81 cases: the five business/v0
 suites listed above plus `test/application/external/external_file_read_test.dart`,

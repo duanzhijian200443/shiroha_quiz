@@ -1,6 +1,5 @@
 // Real installed Codex MCP calls against the SAME synthetic App as SDK checks.
 // No model turn, production Host, private bank or global configuration access.
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,11 +13,8 @@ import 'package:shiroha_quiz/ui/generated_question/generated_proposal_review_scr
 import '../application/generated_question/generated_test_support.dart';
 import '../ui/generated_question/generated_ui_test_support.dart'
     show settleGenerated, tapGenerated;
-import 'fixtures/codex_app_server_support.dart';
 import 'fixtures/codex_synthetic_app_support.dart';
 import 'fixtures/vnext_mcp_test_support.dart' show EndToEndHarness, batch;
-
-const _fixtureName = 'vnext_codex_synthetic_stdio_fixture.dart';
 
 void main() {
   initializeGeneratedTests();
@@ -30,7 +26,7 @@ void main() {
   late Directory home;
   late EndToEndHarness h;
   late CodexSyntheticAppLink link;
-  InstalledCodex? client;
+  CodexSyntheticClient? client;
 
   setUp(() async {
     final root = Directory(p.join(repo, '.dart_tool', 'codex-client-tests'));
@@ -42,43 +38,13 @@ void main() {
     // real App read path before the asserted Codex calls.
     await h.warmRead();
     final mailbox = await Directory(p.join(home.path, 'app-link')).create();
+    client = CodexSyntheticClient(executable!, home, mailbox);
     link = CodexSyntheticAppLink(mailbox, () => h.composition)..start();
   });
 
   Future<void> disconnect() async {
     final current = client;
-    if (current == null) return;
-    expect(await current.rpc.close(), 0);
-    expect(current.rpc.forcedClose, isFalse);
-    expect(current.rpc.protocolClean, isTrue);
-    client = null;
-    // Each actual MCP process records its own PID, including reconnects. Check
-    // the recorded process identity, not just the PID, because Windows can
-    // immediately reuse a PID for an unrelated process such as conhost.exe.
-    final pidFiles = await link.directory
-        .list()
-        .where((entry) =>
-            entry is File &&
-            RegExp(r'^server-[0-9]+\.pid$').hasMatch(p.basename(entry.path)))
-        .cast<File>()
-        .toList();
-    expect(pidFiles, isNotEmpty, reason: 'Expected a recorded MCP server PID.');
-    for (final entry in pidFiles) {
-      final serverPid = int.parse(await entry.readAsString());
-      final status = await Process.run('powershell.exe', [
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        "(Get-CimInstance Win32_Process -Filter 'ProcessId=$serverPid')"
-            '.CommandLine',
-      ]);
-      expect(status.exitCode, 0);
-      expect((status.stderr as String).trim(), isEmpty);
-      final commandLine = (status.stdout as String).trim();
-      expect(commandLine.contains(_fixtureName), isFalse,
-          reason: 'Synthetic MCP process $serverPid must close on Codex EOF.');
-      await entry.delete();
-    }
+    if (current != null) await current.disconnect();
   }
 
   tearDown(() async {
@@ -92,38 +58,13 @@ void main() {
     }
   });
 
-  Future<InstalledCodex> connect() async {
-    if (executable == null ||
-        !File(executable).existsSync() ||
-        p.extension(executable).toLowerCase() != '.exe') {
-      fail('SHIROHA_CODEX_EXE must name an installed codex.exe.');
-    }
-    final current = InstalledCodex(executable, repo, home);
-    client = current;
-    await current.configure(
-        entrypoint: 'test/mcp/fixtures/$_fixtureName',
-        entrypointArguments: [link.directory.path]);
-    await current.start();
-    final inventory = await current.inventory();
-    expect(inventory.containsKey('error'), isFalse);
-    expect(inventory['result']['data'].single['tools'], hasLength(7));
-    return current;
+  Future<void> connect() async {
+    await client!.connect();
   }
 
   Future<Map<String, dynamic>> call(String tool,
-      [Map<String, dynamic> arguments = const {}]) async {
-    final response = await client!.call(tool, arguments);
-    expect(response.containsKey('error'), isFalse);
-    final result = response['result'] as Map;
-    final envelope =
-        (result['structuredContent'] as Map).cast<String, dynamic>();
-    expect(envelope.keys.toSet(), {'profileVersion', 'data', 'error'});
-    expect(envelope['profileVersion'], 2);
-    expect(jsonDecode(result['content'].single['text'] as String), envelope);
-    // MCP defaults an omitted isError to false; Codex omits it on success.
-    expect(result['isError'] ?? false, envelope['error'] != null);
-    return envelope;
-  }
+          [Map<String, dynamic> arguments = const {}]) =>
+      client!.call(tool, arguments);
 
   Future<String> openContext() async {
     final targets = await call('open_generation_context');

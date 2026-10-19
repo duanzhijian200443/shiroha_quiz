@@ -15,6 +15,7 @@ final class CodexSyntheticClient {
   final String executable;
   final Directory home, mailbox;
   InstalledCodex? _client;
+  final _processCreation = <int, String?>{};
   static const fixture = 'vnext_codex_synthetic_stdio_fixture.dart';
 
   Future<void> connect() async {
@@ -22,6 +23,7 @@ final class CodexSyntheticClient {
         p.extension(executable).toLowerCase() != '.exe') {
       fail('SHIROHA_CODEX_EXE must name an installed codex.exe.');
     }
+    _processCreation.clear();
     final client = InstalledCodex(executable, Directory.current.path, home);
     _client = client;
     await client.configure(
@@ -31,6 +33,7 @@ final class CodexSyntheticClient {
     final inventory = await client.inventory();
     expect(inventory.containsKey('error'), isFalse);
     expect(inventory['result']['data'].single['tools'], hasLength(7));
+    await _captureProcessIdentities();
   }
 
   Future<Map<String, dynamic>> call(String tool,
@@ -47,6 +50,131 @@ final class CodexSyntheticClient {
     return envelope;
   }
 
+  Future<List<File>> _pidRecords() async => (await mailbox
+      .list()
+      .where((entry) =>
+          entry is File &&
+          RegExp(r'^server-[0-9]+\.pid$').hasMatch(p.basename(entry.path)))
+      .cast<File>()
+      .toList());
+
+  /// Separates process identity from liveness: the creation time captured while
+  /// the server is reachable identifies the original process, so EOF cleanup can
+  /// fail closed on a surviving process even when its command line is unreadable.
+  /// A record already absent at connect is a previous server that exited before
+  /// the test began; it cannot be the process that survives EOF.
+  Future<void> _captureProcessIdentities() async {
+    for (var attempt = 0; attempt < 10; attempt++) {
+      final records = await _pidRecords();
+      if (records.isEmpty) {
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+        continue;
+      }
+      var live = 0;
+      for (final record in records) {
+        final serverPid = int.parse((await record.readAsString()).trim());
+        final identity = await _queryProcess(serverPid);
+        if (!identity.present) {
+          _processCreation.putIfAbsent(serverPid, () => null);
+          continue;
+        }
+        expect(identity.createdAt, isNotNull,
+            reason: 'MCP server PID $serverPid creation time is unreadable.');
+        if (identity.hasFixture) {
+          _processCreation[serverPid] = identity.createdAt!;
+          live++;
+        } else if (identity.hasCommandLine) {
+          // A readable command line without the fixture is an unrelated process
+          // that reused the PID; the recorded server has already exited.
+          _processCreation[serverPid] = null;
+        } else {
+          fail(
+              'MCP server PID $serverPid command line is unreadable at connect.');
+        }
+      }
+      if (live > 0) return;
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
+    fail('No live synthetic MCP server identity observed at connect.');
+  }
+
+  Future<
+      ({
+        bool present,
+        String? createdAt,
+        bool hasFixture,
+        bool hasCommandLine
+      })> _queryProcess(int serverPid) async {
+    final status = await Process.run('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      "\$p = Get-CimInstance Win32_Process -Filter 'ProcessId=$serverPid'; "
+          "if (\$null -eq \$p) { '{\"state\":\"absent\"}' } else { "
+          "\$created = if (\$null -eq \$p.CreationDate) { \$null } else { "
+          "\$p.CreationDate.ToUniversalTime().ToString('o') }; "
+          "\$hasLine = \$null -ne \$p.CommandLine; "
+          "\$has = \$hasLine -and \$p.CommandLine.Contains('$fixture'); "
+          "@{ state='present'; createdAt=\$created; hasFixture=\$has; "
+          'hasCommandLine=\$hasLine } | ConvertTo-Json -Compress }',
+    ]);
+    expect(status.exitCode, 0,
+        reason: 'Process identity query failed for PID $serverPid.');
+    expect((status.stderr as String).trim(), isEmpty,
+        reason: 'Process identity query wrote diagnostics for PID $serverPid.');
+    final decoded = jsonDecode((status.stdout as String).trim());
+    if (decoded is! Map) {
+      fail('Unreadable process identity for PID $serverPid.');
+    }
+    final state = decoded['state'];
+    if (state == 'absent') {
+      return (
+        present: false,
+        createdAt: null,
+        hasFixture: false,
+        hasCommandLine: false
+      );
+    }
+    if (state != 'present') {
+      fail('Unreadable process identity state for PID $serverPid.');
+    }
+    final createdAt = decoded['createdAt'];
+    return (
+      present: true,
+      createdAt: createdAt is String && createdAt.isNotEmpty ? createdAt : null,
+      hasFixture: decoded['hasFixture'] == true,
+      hasCommandLine: decoded['hasCommandLine'] == true,
+    );
+  }
+
+  Future<void> _awaitCapturedExit(int serverPid, String captured) async {
+    for (var attempt = 0; attempt < 25; attempt++) {
+      final identity = await _queryProcess(serverPid);
+      if (!identity.present) return;
+      expect(identity.createdAt, isNotNull,
+          reason: 'Cannot confirm whether MCP server PID $serverPid exited.');
+      if (identity.createdAt != captured) return;
+      if (attempt == 24) {
+        fail('Owned MCP process $serverPid must close on Codex EOF.');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
+  }
+
+  Future<void> _awaitUncapturedExit(int serverPid) async {
+    for (var attempt = 0; attempt < 25; attempt++) {
+      final identity = await _queryProcess(serverPid);
+      if (!identity.present) return;
+      if (identity.hasCommandLine && !identity.hasFixture) return;
+      expect(identity.hasCommandLine, isTrue,
+          reason: 'MCP server PID $serverPid command line is unreadable.');
+      if (attempt == 24) {
+        fail('MCP server PID $serverPid is still running after Codex EOF.');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
+  }
+
   Future<void> disconnect() async {
     final client = _client;
     if (client == null) return;
@@ -54,29 +182,19 @@ final class CodexSyntheticClient {
     expect(await client.rpc.close(), 0);
     expect(client.rpc.forcedClose, isFalse);
     expect(client.rpc.protocolClean, isTrue);
-    final records = await mailbox
-        .list()
-        .where((entry) =>
-            entry is File &&
-            RegExp(r'^server-[0-9]+\.pid$').hasMatch(p.basename(entry.path)))
-        .cast<File>()
-        .toList();
-    expect(records, isNotEmpty);
+    final records = await _pidRecords();
+    expect(records, isNotEmpty, reason: 'Expected a recorded MCP server PID.');
     for (final record in records) {
-      final serverPid = int.parse(await record.readAsString());
-      final status = await Process.run('powershell.exe', [
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        "(Get-CimInstance Win32_Process -Filter 'ProcessId=$serverPid')"
-            '.CommandLine',
-      ]);
-      expect(status.exitCode, 0);
-      expect((status.stderr as String).trim(), isEmpty);
-      expect((status.stdout as String).contains(fixture), isFalse,
-          reason: 'Owned MCP process must close on Codex EOF.');
+      final serverPid = int.parse((await record.readAsString()).trim());
+      final captured = _processCreation[serverPid];
+      if (captured == null) {
+        await _awaitUncapturedExit(serverPid);
+      } else {
+        await _awaitCapturedExit(serverPid, captured);
+      }
       await record.delete();
     }
+    _processCreation.clear();
   }
 }
 

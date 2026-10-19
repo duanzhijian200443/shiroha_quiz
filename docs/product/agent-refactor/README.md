@@ -17,8 +17,9 @@ there is no automatic restart or production-enablement inference.
 
 The bounded [STAGE stdio source composition](mcp-vnext-contract.md#7-bounded-stage-stdio-source-composition)
 adds an independent seven-tool server and explicit P3/P7–P10 App wiring, exercised
-only with synthetic credentials/data and real SDK stdio clients. The standalone
-default refuses business calls. This source slice does not activate full AR-R6B,
+only with synthetic credentials/data through real SDK stdio clients and the
+separate opt-in installed-Codex STAGE/File READ suites. The standalone default
+refuses business calls. This source slice does not activate full AR-R6B,
 the production Host/Transport or any Windows experiment.
 
 The bounded lifecycle source extension uses MCP profile v2 and an independent
