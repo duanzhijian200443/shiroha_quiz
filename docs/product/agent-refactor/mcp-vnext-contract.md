@@ -315,9 +315,15 @@ this path; SDK success and skipped opt-in cases are separate evidence.
 The mailbox is neither an authorization source, durable key journal nor alternate
 writer. It forwards cancellation/availability, dispatches each request once,
 never retries a STAGE and is removed with the isolated home. It opens no socket.
-Recorded MCP processes must exit on Codex EOF. This fixture's successful READ
-scope covers questions, not authorized File READ success. Product App/Bridge
-binding and first-party pairing/finite-enablement/target-approval composition
+Recorded MCP processes must exit on Codex EOF. A separate opt-in installed-client
+File READ suite reuses the same mailbox with `FileReadHarness`, current exact
+File/Project grants and real P6/F1/RAG/FTS5 services. Actual Codex calls list file
+choices, create a separate File Context, retrieve and read PassageRefs/cursors;
+source/policy invalidation and bounded coverage/exclusion semantics are checked.
+P4 parent-target prerequisites, independent fileContent/File scope and separate
+STAGE approval remain unchanged. Only executed cases prove client acceptance;
+the Windows guide records repeatable commands and evidence limits. Product
+App/Bridge binding and first-party pairing/finite-enablement/target-approval composition
 remain absent; their implementation and the independent production security
 admission gates must not be conflated. The broader Windows functional checklist,
 AR-R6B and production Host/Transport admission are not closed by this bounded
