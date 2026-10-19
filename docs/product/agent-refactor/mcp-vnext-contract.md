@@ -289,3 +289,20 @@ Session/target inputs, preserving P3/P7/P8/P10 and UI COMMIT. If choosing a less
 restrictive production transport instead, the governing external boundary and
 Windows readiness/AR-R6A activation contracts must first be explicitly amended;
 this slice grants no such exception and adds no Windows security experiment.
+
+## 8. Isolated installed Windows Codex compatibility
+
+The separate [Windows Codex guide](../../architecture/mcp-vnext-windows-codex.md)
+owns launch instructions and evidence classification. Opt-in tests use the actual
+installed CLI/Desktop `codex.exe` app-server MCP client with a child-only isolated
+home, Flutter SDK VM, explicit repository cwd and no model turn or credentials.
+They check seven-tool discovery, schemas/annotations, profile-v2 production refusal,
+repeated sessions, EOF/reconnect and bad launch paths. A test-only PID wrapper
+delegates to the unchanged production entry; it supplies no App/authentication.
+
+Codex discovery and actual tool refusal are distinct from the existing SDK-driven
+synthetic STAGE/Review/lifecycle success. Codex has no adapter for the fixture's
+private App-call/result notifications, so Codex-to-synthetic-App STAGE remains
+unverified. These compatibility checks do not complete the broader Windows MCP
+functional checklist, AR-R6B, or production Host/Transport admission. The v0
+six-tool entrypoint and existing real-bank registration remain unchanged.

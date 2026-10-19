@@ -26,7 +26,11 @@ READ/Proposal-metadata path over that same Proposal owner. It supplies persisted
 pending/rejected/committed status and safe counts by original key, including
 post-review and restart queries; [GeneratedQuestion §12](generated-question-proposals.md#12-external-proposal-lifecycle-metadata-query)
 and MCP contract §7 own its scope. P3 STAGE-only reconciliation remains unchanged.
-This does not complete Windows Codex integration or enable production transport.
+The isolated [Windows Codex compatibility checks](../../architecture/mcp-vnext-windows-codex.md)
+cover installed-client discovery, actual production refusal, EOF/reconnect and
+launch errors. The existing synthetic STAGE/Review/lifecycle fixture remains
+SDK-driven; Codex has no private test App-link adapter. The broader functional
+checklist and production transport admission remain open.
 
 Status: **FROZEN target architecture; AR-R1/AR-R2/AR-R3 COMPLETE / CLOSED;
 AR-R4 module contribution kernel COMPLETE / CLOSED; AR-R5A COMPLETE / CLOSED;
