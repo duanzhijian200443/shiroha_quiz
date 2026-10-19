@@ -205,10 +205,23 @@ authorize a subsequent task or experiment.
 The bounded [Windows Codex compatibility slice](mcp-vnext-windows-codex.md)
 adds isolated installed-client discovery, actual profile-v2 production refusal,
 Windows launch/error handling, repeated sessions and EOF/reconnect checks.
-It leaves Codex-to-synthetic-App STAGE unverified because the existing SDK fixture's
-private App notification link is not wired into Codex. SDK-driven STAGE/Review/
-lifecycle evidence stays separate; the full functional exit checklist above is
-not closed by discovery/refusal and these checks grant no production activation.
+Its original private-notification gap is addressed by an opt-in installed-client
+synthetic STAGE fixture: a test-only disposable mailbox reaches the SAME App-owned
+Session/approved target/Application composition, without modifying production.
+Actual Codex calls exercise durable pending Proposal, duplicate/conflict, existing
+local Review UI approval/rejection and original-key lifecycle after response loss,
+disconnect and real database reopen. SDK evidence remains separate; skipped
+installed-client cases prove nothing about that client.
+
+The remaining functional scope includes successful authorized File READ through
+installed Codex and product App/Bridge binding with first-party pairing, finite
+enablement and target-approval composition. The fixture does not establish
+reference-plugin distribution or model-directed/Desktop-interactive usage.
+Independent Windows verification remains necessary for the exact candidate.
+These functional/integration gaps are distinct from frozen production
+credential/storage/isolation/transport acceptance, AR-R6A/AR-R6B admission and
+HOST_STABILITY_HALT. The full exit checklist is not closed by this bounded slice;
+no security experiment or production activation is authorized.
 
 The [Agent refactor contract index](../product/agent-refactor/README.md) owns the
 focused frozen target contracts. This roadmap owns their stage order; existing

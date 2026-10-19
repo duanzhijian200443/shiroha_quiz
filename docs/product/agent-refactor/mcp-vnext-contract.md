@@ -295,14 +295,30 @@ this slice grants no such exception and adds no Windows security experiment.
 The separate [Windows Codex guide](../../architecture/mcp-vnext-windows-codex.md)
 owns launch instructions and evidence classification. Opt-in tests use the actual
 installed CLI/Desktop `codex.exe` app-server MCP client with a child-only isolated
-home, Flutter SDK VM, explicit repository cwd and no model turn or credentials.
+home, Flutter SDK VM, explicit repository cwd and no model turn or user credentials.
 They check seven-tool discovery, schemas/annotations, profile-v2 production refusal,
 repeated sessions, EOF/reconnect and bad launch paths. A test-only PID wrapper
 delegates to the unchanged production entry; it supplies no App/authentication.
 
-Codex discovery and actual tool refusal are distinct from the existing SDK-driven
-synthetic STAGE/Review/lifecycle success. Codex has no adapter for the fixture's
-private App-call/result notifications, so Codex-to-synthetic-App STAGE remains
-unverified. These compatibility checks do not complete the broader Windows MCP
-functional checklist, AR-R6B, or production Host/Transport admission. The v0
-six-tool entrypoint and existing real-bank registration remain unchanged.
+Codex discovery and production refusal remain distinct from synthetic business
+success. The opt-in installed-client STAGE suite now connects the unchanged
+seven-tool server to the SAME SDK synthetic App through a test-only disposable
+file mailbox, avoiding Codex's unsupported private App notifications. The App
+alone supplies existing credential-proven Sessions, current grants, explicit
+target approval and `VnextMcpAppComposition`; no test credential/transport option
+enters production. Actual `mcpServer/tool/call` exercises STAGE, durable pending
+Proposal, existing local Review UI approval/rejection, original-key lifecycle,
+duplicate/conflict, authority/expiry failures and lost-reply recovery after
+Codex disconnect plus SQLite reopen. Only executed installed-client tests prove
+this path; SDK success and skipped opt-in cases are separate evidence.
+
+The mailbox is neither an authorization source, durable key journal nor alternate
+writer. It forwards cancellation/availability, dispatches each request once,
+never retries a STAGE and is removed with the isolated home. It opens no socket.
+Recorded MCP processes must exit on Codex EOF. This fixture's successful READ
+scope covers questions, not authorized File READ success. Product App/Bridge
+binding and first-party pairing/finite-enablement/target-approval composition
+remain absent; their implementation and the independent production security
+admission gates must not be conflated. The broader Windows functional checklist,
+AR-R6B and production Host/Transport admission are not closed by this bounded
+slice. The v0 six-tool entry and existing real-bank registration are unchanged.
