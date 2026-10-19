@@ -445,7 +445,8 @@ ACTIVE; passing offline tests proves neither transport nor OS identity security.
 
 Construction defaults to disabled. Explicit `startOffline` checks database
 readiness, completed B0 recovery and module/route readiness in order, then
-validates the exact ten P7 typed bindings and their READ/STAGE-only permissions.
+validates the original ten P7 typed bindings plus the independent lifecycle READ
+binding, and their READ/STAGE-only permissions.
 The readiness port belongs to trusted composition, never request parameters;
 its synchronous current-generation check remains mandatory at admission and
 release. No default application path constructs or starts this core. Startup
@@ -463,10 +464,11 @@ and Contexts. A new entry requires current authentication and authorization;
 it never renews an old P7 execution Context or P3 StageContext.
 
 Dispatch accepts `CapabilityId<I,O>` with its typed input, the minted entry and
-the original P7 execution Context. Its only routes are P7's ten definitions:
-target list/READ Context, Question search/detail, File choices/File Context/
-retrieval/passage, generated STAGE and original SubmissionKey reconciliation.
-Unknown identities and mismatched type bindings fail before handler entry.
+the original P7 execution Context. Its routes are the original ten P7 definitions
+(target list/READ Context, Question search/detail, File choices/File Context/
+retrieval/passage, generated STAGE and original SubmissionKey reconciliation)
+plus the independent lifecycle READ route. Unknown identities and mismatched
+type bindings fail before handler entry.
 Built-in capabilities, COMMIT and DESTRUCTIVE are not routes. There is no
 `execute(String, Map)` or request-supplied authority. The Host has no SQLite,
 Repository, file path or Provider dependency and does not implement business
@@ -495,7 +497,8 @@ restart; replacement uses fresh composition with disabled external access.
 
 Offline acceptance uses synthetic CredentialPort, deterministic clock,
 temporary real SQLite/F1/FTS and owning-service barriers: pre-admission and
-cross-Principal/exact-Session denial, all ten routes, both Grant/revoke orderings,
+cross-Principal/exact-Session denial, all eleven routes (the original ten plus
+the lifecycle READ route), both Grant/revoke orderings,
 final release changes, cancellation/deadline, committed-but-lost STAGE/key
 reconciliation, shutdown during real work/startup/admission and B0 Restore/raw
 rollback. Built-in and MCP v0 regressions remain required. Real credentials,
@@ -959,7 +962,8 @@ call log is added. Adapter shutdown rejects new work, starts P8 shutdown and
 waits both its pending authentication/admission calls and P8 owning settlement.
 Restore/restart require that drain and fresh composition/authentication.
 
-Offline deterministic acceptance covers all ten routes, every other name,
+Offline deterministic acceptance covers all ten original P10 v1 routes, every
+other name,
 authentication-before-parsing, stale/cross-Profile/cross-generation/exact-Session
 denial, strict malformed/duplicate/unknown/type/version/numeric boundaries,
 P9 roundtrips, unchanged Question/File scopes, final egress revocation, lost
@@ -985,6 +989,17 @@ command parsing also use v2; pre-command parsing/authentication errors retain
 the original null-capability v1 error envelope. The response codec accepts only
 the exact version/command pairing. No v1 STAGE/reconciliation field is extended.
 This is a bounded source capability, not production P10/Host activation.
+
+P8's internal route allowlist is consequently eleven routes: the original ten P7
+typed bindings plus the independent lifecycle READ binding. P10's original ten
+schema-v1 commands remain unchanged. The frozen Windows A10/X10 criterion remains
+the original ten-route baseline for the not-yet-activated real-device experiment;
+the additional route is a bounded source extension that neither changes that
+experiment target nor authorizes it. Any future Windows acceptance that covers the
+additional route must explicitly revise X10 under the existing security rules and
+must not treat this source amendment as an experiment-scope expansion. P8 offline
+acceptance additionally covers the lifecycle READ route; the original ten P10 v1
+command acceptance remains unchanged.
 
 MCP contract §7 owns the independent stdio source projection and explicitly
 supplied App composition. Profile v2 uses the independent lifecycle command
