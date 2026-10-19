@@ -31,10 +31,12 @@ cover installed-client discovery, actual production refusal, EOF/reconnect and
 launch errors. A separate opt-in installed-client STAGE suite reuses the same
 synthetic App through a test-only disposable mailbox, exercising real Codex
 calls, durable Proposal, existing local Review UI and original-key lifecycle
-recovery. SDK and actual installed-client results remain separate. Successful
-File READ through Codex and product App/Bridge/first-party approval composition
-remain functional integration/acceptance gaps; production security admission
-is an independent gate. No production entry or Windows experiment is activated.
+recovery. A separate opt-in File READ suite uses the same mailbox and existing
+P6/F1/RAG/FTS5 services for explicit file selection, retrieval, bounded passages
+and safe policy/source invalidation. SDK and actual installed-client results
+remain separate; skipped cases are unverified. Product App/Bridge/first-party
+approval composition remains a functional integration gap; production security
+admission is an independent gate. No production entry or Windows experiment is activated.
 
 Status: **FROZEN target architecture; AR-R1/AR-R2/AR-R3 COMPLETE / CLOSED;
 AR-R4 module contribution kernel COMPLETE / CLOSED; AR-R5A COMPLETE / CLOSED;

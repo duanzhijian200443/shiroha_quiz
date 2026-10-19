@@ -213,10 +213,14 @@ local Review UI approval/rejection and original-key lifecycle after response los
 disconnect and real database reopen. SDK evidence remains separate; skipped
 installed-client cases prove nothing about that client.
 
-The remaining functional scope includes successful authorized File READ through
-installed Codex and product App/Bridge binding with first-party pairing, finite
-enablement and target-approval composition. The fixture does not establish
-reference-plugin distribution or model-directed/Desktop-interactive usage.
+The separate opt-in installed-client File READ fixture now reuses that mailbox
+and existing P6/F1/RAG/FTS5 for authorized selection, independent File Contexts,
+retrieval/passages, coverage/exclusions, policy/source invalidation and cleanup.
+Only actual executed Windows client cases count; skipped/SDK results do not.
+The remaining functional scope includes product App/Bridge binding with
+first-party pairing, finite enablement and target-approval composition. These
+fixtures do not establish reference-plugin distribution or
+model-directed/Desktop-interactive usage.
 Independent Windows verification remains necessary for the exact candidate.
 These functional/integration gaps are distinct from frozen production
 credential/storage/isolation/transport acceptance, AR-R6A/AR-R6B admission and

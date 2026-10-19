@@ -4,7 +4,81 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:path/path.dart' as p;
+import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/mcp/vnext_mcp_composition_root.dart';
+import 'codex_app_server_support.dart';
+
+/// Installed-client driver shared by synthetic App compositions. The client
+/// receives only the existing disposable mailbox, never App authority or SQLite.
+final class CodexSyntheticClient {
+  CodexSyntheticClient(this.executable, this.home, this.mailbox);
+  final String executable;
+  final Directory home, mailbox;
+  InstalledCodex? _client;
+  static const fixture = 'vnext_codex_synthetic_stdio_fixture.dart';
+
+  Future<void> connect() async {
+    if (!File(executable).existsSync() ||
+        p.extension(executable).toLowerCase() != '.exe') {
+      fail('SHIROHA_CODEX_EXE must name an installed codex.exe.');
+    }
+    final client = InstalledCodex(executable, Directory.current.path, home);
+    _client = client;
+    await client.configure(
+        entrypoint: 'test/mcp/fixtures/$fixture',
+        entrypointArguments: [mailbox.path]);
+    await client.start();
+    final inventory = await client.inventory();
+    expect(inventory.containsKey('error'), isFalse);
+    expect(inventory['result']['data'].single['tools'], hasLength(7));
+  }
+
+  Future<Map<String, dynamic>> call(String tool,
+      [Map<String, dynamic> arguments = const {}]) async {
+    final response = await _client!.call(tool, arguments);
+    expect(response.containsKey('error'), isFalse);
+    final result = response['result'] as Map;
+    final envelope =
+        (result['structuredContent'] as Map).cast<String, dynamic>();
+    expect(envelope.keys.toSet(), {'profileVersion', 'data', 'error'});
+    expect(envelope['profileVersion'], 2);
+    expect(jsonDecode(result['content'].single['text'] as String), envelope);
+    expect(result['isError'] ?? false, envelope['error'] != null);
+    return envelope;
+  }
+
+  Future<void> disconnect() async {
+    final client = _client;
+    if (client == null) return;
+    _client = null;
+    expect(await client.rpc.close(), 0);
+    expect(client.rpc.forcedClose, isFalse);
+    expect(client.rpc.protocolClean, isTrue);
+    final records = await mailbox
+        .list()
+        .where((entry) =>
+            entry is File &&
+            RegExp(r'^server-[0-9]+\.pid$').hasMatch(p.basename(entry.path)))
+        .cast<File>()
+        .toList();
+    expect(records, isNotEmpty);
+    for (final record in records) {
+      final serverPid = int.parse(await record.readAsString());
+      final status = await Process.run('powershell.exe', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        "(Get-CimInstance Win32_Process -Filter 'ProcessId=$serverPid')"
+            '.CommandLine',
+      ]);
+      expect(status.exitCode, 0);
+      expect((status.stderr as String).trim(), isEmpty);
+      expect((status.stdout as String).contains(fixture), isFalse,
+          reason: 'Owned MCP process must close on Codex EOF.');
+      await record.delete();
+    }
+  }
+}
 
 final class CodexSyntheticAppLink {
   CodexSyntheticAppLink(this.directory, this.composition);

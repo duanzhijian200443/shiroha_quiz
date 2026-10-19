@@ -1,7 +1,7 @@
 # Windows Codex integration for MCP vNext
 
-This guide covers isolated stdio compatibility and synthetic STAGE with an
-installed Windows Codex client. [MCP contract §7](../product/agent-refactor/mcp-vnext-contract.md#7-bounded-stage-stdio-source-composition)
+This guide covers isolated stdio compatibility, synthetic File READ and STAGE
+with an installed Windows Codex client. [MCP contract §7](../product/agent-refactor/mcp-vnext-contract.md#7-bounded-stage-stdio-source-composition)
 owns profile v2, seven tools and the closed production admission boundary.
 
 ## Launch and configuration
@@ -128,6 +128,76 @@ installed binary to be accepted. No model turn or Desktop UI click is exercised.
 Standing CI still requires a separate fixed-target Windows Verifier for this
 installed-client acceptance.
 
+## Installed-client synthetic File READ
+
+With the same explicit executable setting, run:
+
+```powershell
+flutter test --concurrency=1 test/mcp/vnext_codex_file_read_test.dart
+```
+
+This suite composes the existing `FileReadHarness` and P6 read service with the
+same App gateway/dispatch/composition and test-only mailbox as the STAGE suite.
+Only the App/test process owns its synthetic files, SQLite, Profile/Grant and
+credential proof. F1 publishes and verifies real managed sidecars from the
+existing synthetic generator; P6 uses the production deterministic chunker,
+RAG service and SQLite FTS5. No retrieval or passage result is substituted.
+The test checks actual index generation/revision/payload-digest bindings.
+
+Actual Codex `mcpServer/tool/call` discovers the authorized parent target,
+lists opaque file choices, selects a subset into a separate File Context,
+retrieves lexical hits and reads server-returned PassageRefs through cursor
+exhaustion. The original parent remains file-empty. P4 parent-target discovery
+still requires READ/questionContent/exact bank-Project authority; that existing
+prerequisite never substitutes for independent READ/fileContent/exact File-Project
+checks. File selection grants no STAGE approval, and READ-only grants can read
+files without STAGE permission. No client supplies paths, raw File IDs or grants.
+
+The suite rejects forged/cross-Context File/Passage/cursor references, absent
+fileContent or File scope, foreign Project scopes, expiry, revoke, narrowing,
+Project detach, changed file digest, reparse and corrupt F1 payloads, including
+old references against a warm index. Revocation after real FTS results suppresses
+final release. Real SQLite reopen and fresh authentication require new selections;
+old Contexts/PassageRefs/cursors remain unusable. Codex and recorded MCP processes
+must exit on EOF, and the isolated home and synthetic database/files are removed.
+
+Assertions retain the existing 6,000-byte content/24,000-byte page bounds, at most
+eight complete passage chunks, structural exclusions and coverage flags. Ranked
+hits, middle-document passages and cursor exhaustion do not assert whole-document
+coverage. Existing P6 offline regressions additionally exercise reduced budgets,
+formula boundaries, source/policy races and cache-settlement semantics.
+
+All 13 cases are opt-in. Without Windows and explicit `SHIROHA_CODEX_EXE`, they
+are **SKIPPED / UNVERIFIED**, never SDK substitutes for client acceptance.
+Standing CI cannot prove these installed-Windows-client calls; independent
+fixed-target Windows verification remains required before merge.
+
+### Executed evidence, 2026-10-19
+
+For `MCP-VNEXT-CODEX-FILE-READ-E2E`, the Executor ran the three suites above
+serially for each explicitly selected installed executable:
+
+| Installed executable | `--version` | File READ | STAGE/Review/lifecycle | Compatibility |
+|---|---|---|---|---|
+| npm CLI vendor `bin/codex.exe` | `codex-cli 0.144.1` | 13 PASS | 4 PASS | 4 PASS |
+| Desktop package `26.1013.4894.0`, `app/resources/codex.exe` | `codex-cli 0.163.0-alpha.10.2` | 13 PASS | 4 PASS | 4 PASS |
+
+No installed-client case was skipped. Compatibility's four cases include the
+direct Dart production-stdio check plus three installed-client cases; that raw
+Dart case is not counted as a Codex business call. Each File READ run includes
+actual authorized selection/retrieval/passage, all specified safe refusals and
+normal process/home cleanup. These are Executor results for this candidate,
+not independent Verifier/Reviewer approval or a supported-version floor.
+Model-selected calls, Desktop UI interaction, reference-plugin distribution and
+production App/Bridge activation remain **UNVERIFIED** by these tests.
+
+The eight-suite offline regression run passed 81 cases: the five business/v0
+suites listed above plus `test/application/external/external_file_read_test.dart`,
+`test/application/external/external_file_read_backup_test.dart` and
+`test/core/database/rag1_fts5_capability_test.dart`. Focused analysis of the new
+test and both changed support files, the read-only format gate and
+`git diff --check` passed. Repository/global acceptance remains NOT_EVALUATED.
+
 ## Evidence levels and remaining functional scope
 
 | Evidence | What it proves |
@@ -136,6 +206,7 @@ installed-client acceptance.
 | Codex actual call | Codex sends `tools/call`; the production entry returns `isError: true` and exactly `{profileVersion: 2, data: null, error: unavailable}` in both structured and JSON text content. This is successful protocol handling of a business refusal. |
 | SDK synthetic App workflow | SDK clients use the shared synthetic App to prove modern/legacy stdio STAGE, idempotency, Review, lifecycle and authorization semantics. This evidence alone does not prove installed Codex behavior. |
 | Codex synthetic STAGE | The opt-in installed-client suite uses actual `mcpServer/tool/call` plus the test-only mailbox to reach that same App composition and persisted Proposal/Review lifecycle. Results count only when run against an explicit installed executable; SDK success or skipped cases cannot substitute. |
+| Codex synthetic File READ | The separate opt-in suite reaches existing P6/F1/RAG/FTS5 through actual Codex calls, explicit file selection and bounded passages, including authorization/source invalidation and cleanup. Only executed cases against the named installed binary establish client evidence. |
 | Production business access | **Not enabled.** The standalone entry has no admitted authenticated App/Bridge transport or trusted pairing/finite enablement/approved Session-target composition. SDK success and Codex discovery/refusal do not satisfy production activation. |
 
 The original private-notification connection gap is addressed only by this
@@ -144,9 +215,9 @@ unimplemented product composition from security admission. The production entry
 has no authenticated App/Bridge binding or first-party pairing/finite-enablement/
 target-approval composition. These are remaining product integration work, even
 when their eventual activation also depends on security acceptance. Successful
-authorized file selection/retrieval/passage through installed Codex is outside
-this fixture's question-only grant/composition; this remains a functional
-acceptance gap, not proof that the existing File READ services are absent.
+authorized file selection/retrieval/passage through installed Codex is covered
+by the separate synthetic File READ fixture above. This closes that isolated
+client-fixture gap only; it supplies no production App/Bridge or approval UI.
 Reference-plugin distribution and model-directed/Desktop-interactive usage are
 separate integration scopes, not established by these app-server calls.
 

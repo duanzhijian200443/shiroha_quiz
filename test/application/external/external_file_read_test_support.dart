@@ -9,6 +9,7 @@ import 'package:shiroha_quiz/application/parsed_artifacts/parsed_artifact_lifecy
 import 'package:shiroha_quiz/application/retrieval/retrieval.dart';
 import 'package:shiroha_quiz/application/retrieval/retrieval_ports.dart';
 import 'package:shiroha_quiz/data/repositories/external_file_read_repository.dart';
+import 'package:shiroha_quiz/data/repositories/external_question_read_repository.dart';
 import 'package:shiroha_quiz/data/repositories/content_asset_reclamation_observation_repository.dart';
 import 'package:shiroha_quiz/data/repositories/external_target_read_repository.dart';
 import 'package:shiroha_quiz/data/repositories/library_file_repository.dart';
@@ -278,6 +279,8 @@ final class FileReadHarness {
     read = ExternalReadContextService(
         admission: admission ?? s.service.runtimeAdmission,
         targets: SqliteExternalTargetReadRepository(databaseHelper: s.h.helper),
+        questions:
+            SqliteExternalQuestionReadRepository(databaseHelper: s.h.helper),
         files: ExternalFileReader(
             authorization:
                 SqliteExternalFileReadRepository(databaseHelper: s.h.helper),
