@@ -1,5 +1,20 @@
 # Agent Runtime v1 / External Agent / MCP vNext Contract Index
 
+Current scheduling: **Windows desktop MCP functional development first; Windows
+high-assurance real security experiments DEFERRED**. The
+[roadmap amendment](../../architecture/shiroha-project-roadmap.md#windows-mcp-first-scheduling-amendment-2026-10-19)
+owns the complete functional exit conditions: full seven-tool READ/STAGE and
+Proposal queries, controlled App/user Review, durable/idempotent recovery,
+isolated real-client end-to-end proof and Windows Codex launch/lifecycle/errors.
+Reuse existing Application/Proposal/Review/Gateway/IPC/permission mechanisms.
+MCP v0 retains its six READ_ONLY tools and completed local actual-use validation.
+Trial 1A follow-up real experiments and G0-L1/L2/I batches are deferred, including
+new high-assurance experiment infrastructure, repeated preflights and separate
+preparation tasks. Existing Native Helper/DLL/Pin/Custodian/authentication/transport
+candidates, security criteria and historical evidence are retained. Only after
+functional completion may the user separately decide whether and how to resume;
+there is no automatic restart or production-enablement inference.
+
 The bounded [STAGE stdio source composition](mcp-vnext-contract.md#7-bounded-stage-stdio-source-composition)
 adds an independent seven-tool server and explicit P3/P7–P10 App wiring, exercised
 only with synthetic credentials/data and real SDK stdio clients. The standalone
@@ -480,8 +495,10 @@ ceiling, new root, SID/device/window, STOP/recovery/evidence owner and recovery
 operation stays REQUIRES USER DECISION.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
-Production Host/IPC, MCP vNext and READ fallback continuation remain unimplemented
-targets. Current product behavior
+Production Host/IPC and full MCP vNext production exposure remain inactive;
+READ fallback continuation remains an unimplemented target. Authentication,
+authorized Context/bank Scope, STAGE Review and App-only writes are unchanged;
+the vNext production entry stays disabled. Current product behavior
 continues under the existing capability contracts.
 
 ## 1. Authority and ownership
@@ -583,6 +600,11 @@ the historical R1-R8 typed-core stages. The project
 [roadmap](../../architecture/shiroha-project-roadmap.md) owns stage order and
 implementation status; this table defines the contract checkpoints and bridges.
 It is not an execution handoff or a delivery-status database.
+The Windows-first amendment prioritizes remaining MCP functionality and necessary
+Windows Codex integration ahead of real security experiments. The AR-R6A/AR-R6B
+production prerequisites below still apply; functional/source progress does not
+close them. A frozen gate blocking real-client validation remains an explicit
+open condition under the roadmap checklist, not an admission waiver.
 
 | Stage | Primary responsibility / prerequisite | Required acceptance / bridge | Estimate |
 |---|---|---|---|
@@ -610,8 +632,10 @@ exposure, minimal Review with Assistant-wide cleanup, or generic MCP with Codex
 packaging. Do not combine schema work with a repository directory migration.
 
 External Agent MVP is reached after AR-R6B. Module registration MVP is reached
-after AR-R4 and exercised by the AR-R5/AR-R6 feature additions. AR-R7/AR-R8/AR-R9
-do not block external generation. Minimal Review is part of AR-R5.
+after AR-R4 and exercised by the AR-R5/AR-R6 feature additions. AR-R7/AR-R8 and
+optional AR-R9 projections do not block generic external generation; the necessary
+Windows Codex functional integration is included in the Windows-first exit
+conditions. Minimal Review is part of AR-R5.
 
 ## 5. Deferred decisions and evidence
 

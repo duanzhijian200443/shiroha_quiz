@@ -135,6 +135,58 @@ W0 proposal, approval, scope, replay and typed-write contract.
 
 ## Agent refactor frozen target route
 
+### Windows MCP first scheduling amendment (2026-10-19)
+
+**Prioritize Windows desktop MCP functional development; defer Windows
+high-assurance real security experiments as a whole.** This supersedes scheduling
+in the retained route/history below, without relaxing production prerequisites.
+MCP v0 retains its exactly six READ_ONLY tools and completed local actual-use
+validation. MCP vNext prioritizes the seven-tool protocol, READ/STAGE, Proposal
+queries, controlled App composition, user Review and Windows Codex integration.
+Reuse existing Application, Proposal, Review, Gateway, IPC and permission owners;
+do not rebuild the business layer or create another writer.
+
+Before asking the user whether to resume security experiments, Windows MCP
+functional development must satisfy all of the following:
+
+- Implement the complete vNext target tools and protocol behavior, including the
+  target Proposal lifecycle/status query, not only historical STAGED publication.
+- Complete isolated end-to-end validation with a real MCP client.
+- Validate STAGE, durable Proposal persistence, explicit user Review/approval,
+  idempotency and original-key recovery across disconnect/restart.
+- Complete necessary Windows Codex client integration, launch, connection,
+  disconnection and error-handling functional validation.
+- Attribute every remaining blocker specifically to production authentication,
+  transport admission or formal security acceptance, with no unfinished MCP
+  business functionality described as a security-only blocker.
+
+These are **functional completion** conditions, not production enablement or
+formal security acceptance. PR #309's bounded source/synthetic stdio evidence
+below is retained and does not alone satisfy this checklist. Functional runtime
+validation needs its own authorized isolated scope; this amendment starts none.
+If a frozen admission contract blocks a required real-client check, record that
+exact blocker and leave the condition open rather than inventing an exemption.
+
+Defer follow-up Trial 1A real experiments and all G0-L1, G0-L2 and G0-I batches.
+Do not schedule new Windows high-assurance experiment infrastructure, repeated
+preflights or separate experiment-preparation tasks during this priority.
+Retain existing Native Helper, DLL, Pin, Custodian, authentication and transport
+candidates, security specifications and historical acceptance records; no deletion
+or rollback. After the functional conditions above are met, the user separately
+decides whether to resume experiments and their exact scope; nothing restarts
+automatically and no earlier batch grant is inherited.
+
+**HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
+MCP vNext production entry remains disabled.** Authentication, authorized Context,
+bank Scope, STAGE Review and App-only writes remain mandatory. Production access
+still requires admitted authenticated App/Bridge transport, trusted pairing,
+finite enablement and target approval, followed by production exposure acceptance
+under [MCP contract §7](../product/agent-refactor/mcp-vnext-contract.md#7-bounded-stage-stdio-source-composition).
+Deferral or functional/synthetic success changes none of these gates or the
+existing formal security acceptance criteria.
+
+### Retained implementation history and production dependencies
+
 The bounded MCP-vNext STAGE source slice under
 [MCP contract §7](../product/agent-refactor/mcp-vnext-contract.md#7-bounded-stage-stdio-source-composition)
 provides independent stdio projection and explicit App-side composition for
@@ -269,8 +321,8 @@ permanent primary-host AF_UNIX halt. Security and stability close separately.
 Design completion is not
 production security or system-stability acceptance and does not start AR-R6B.
 No business authorization/writer,
-schema, B0 format or Host authority is expanded. MCP vNext and formal Host
-integration remain unimplemented;
+schema, B0 format or Host authority is expanded. Full MCP vNext production
+exposure and formal Host integration remain inactive;
 real TCP/mTLS is unverified, Transport
 is BLOCKED and AR-R6A is NOT_ACCEPTED. HOST_STABILITY_HALT remains active.
 AR-R6B, AR-R7 and later implementation stages remain inactive.
