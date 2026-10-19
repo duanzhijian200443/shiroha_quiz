@@ -550,6 +550,13 @@ validation and complete module/route validation.
 
 ## 5. Local IPC decision checkpoint
 
+The independent lifecycle metadata READ extension is governed by
+[GeneratedQuestion §12](generated-question-proposals.md#12-external-proposal-lifecycle-metadata-query).
+It requires current READ + proposalMetadata + both original/current bank/Project
+Scope and releases only persisted lifecycle and bounded aggregate counts. It
+does not enlarge the STAGE-only reconciliation acknowledgement above or grant
+external Review/COMMIT. P7/P8 retain authentication, budgets and final egress.
+
 Architecture freezes authenticated local-only transport, protected endpoint
 discovery, App/bridge peer validation, bounded framing/payload/concurrency,
 deadline/cancellation, versioning, reconciliation, restart/revoke behavior and
@@ -964,9 +971,25 @@ BLOCKED, AR-R6A NOT_ACCEPTED; production Host and MCP vNext remain inactive.
 
 ### Bounded vNext source composition amendment
 
+Lifecycle version extension: the original ten business schema-v1 commands and
+responses above remain unchanged. The single additional command
+`external_get_proposal_lifecycle` requires integer `schemaVersion: 2`, type
+`command`, and exact empty `input`. The original key is bound only by trusted
+P8 `openProposalLifecycle`, never Envelope Request ID. v1 rejects this command;
+v2 rejects all original v1 commands. There is no coercion or implicit fallback.
+Unknown versions reject explicitly. A successfully parsed lifecycle command's
+response uses schemaVersion 2, the same exact result-root keys, and exactly the
+six data fields defined in GeneratedQuestion §12. Count/status consistency and
+the 32 KiB metadata/P9 response budgets are hard validated. Errors after valid
+command parsing also use v2; pre-command parsing/authentication errors retain
+the original null-capability v1 error envelope. The response codec accepts only
+the exact version/command pairing. No v1 STAGE/reconciliation field is extended.
+This is a bounded source capability, not production P10/Host activation.
+
 MCP contract §7 owns the independent stdio source projection and explicitly
-supplied App composition. It reuses this exact P10 schema without adding wire
-fields or target-approval authority. Before P10 invocation, trusted composition
+supplied App composition. Profile v2 uses the independent lifecycle command
+above; all other tools reuse the exact P10 v1 schema without adding wire fields
+or target-approval authority. Before P10 invocation, trusted composition
 resolves the existing READ handle and selects only a previously App-approved
 StageContext matching exact Session, target and revision. It pins P10's
 authentication result to that same Session; no request supplies identity and no

@@ -77,6 +77,7 @@ final class LocalHostDispatchCore {
     ExternalCapabilities.getFilePassage,
     ExternalCapabilities.stage,
     ExternalCapabilities.reconcile,
+    ExternalCapabilities.proposalLifecycle,
   ];
   static final _denied = CapabilityContext(
       principal: CapabilityPrincipal.denied,
@@ -229,6 +230,14 @@ final class LocalHostDispatchCore {
       _open(
           entry,
           () => _gateway.openReconciliation(
+              session: entry._session, submissionKey: submissionKey));
+
+  /// Independent READ metadata opening; never reuses STAGE reconciliation.
+  Future<ExternalExecutionContext> openProposalLifecycle(
+          LocalHostSessionEntry entry, String submissionKey) =>
+      _open(
+          entry,
+          () => _gateway.openProposalLifecycle(
               session: entry._session, submissionKey: submissionKey));
 
   /// The typed allowlist is not a string/Map executor. P7 alone owns handler

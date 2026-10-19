@@ -8,6 +8,7 @@ import 'package:shiroha_quiz/application/external/external_generated_stage.dart'
 import 'package:shiroha_quiz/application/external/external_invocation_core.dart';
 import 'package:shiroha_quiz/application/external/external_read_context.dart';
 import 'package:shiroha_quiz/application/external/external_trust_core.dart';
+import 'package:shiroha_quiz/application/generated_question/generated_question_service.dart';
 import 'package:shiroha_quiz/data/repositories/generated_proposal_repository.dart';
 import 'package:shiroha_quiz/domain/conversations/conversation.dart';
 import 'package:shiroha_quiz/domain/generated_question/generated_question_contract.dart';
@@ -47,7 +48,7 @@ void main() {
     test('explicit typed allowlist excludes Built-in and formal mutations',
         () async {
       final definitions = gateway.executor.registry.definitions;
-      expect(definitions, hasLength(10));
+      expect(definitions, hasLength(11));
       expect(
           definitions.every((d) => d.id.value.startsWith('external_')), isTrue);
       expect(
@@ -778,6 +779,151 @@ void main() {
       expect(result.output, isNull);
       expect(result.failure, CapabilityFailure.externalReadDataCorrupt);
     });
+  });
+
+  group('Proposal lifecycle READ', () {
+    late QuestionReadHarness h;
+    late ExternalCapabilityGateway gateway;
+    setUp(() async {
+      h = QuestionReadHarness();
+      await h.open();
+      gateway = ExternalCapabilityGateway(stages: h.s.service, reads: h.read);
+      await h.s.stage();
+    });
+    tearDown(() async {
+      gateway.close();
+      await gateway.whenIdle;
+      await h.close();
+    });
+    Future<CapabilityResult> query(
+        {String key = 'external-key', ExternalCallControl? control}) async {
+      final context = await gateway.openProposalLifecycle(
+          session: h.s.session, submissionKey: key);
+      return gateway.execute(
+          ExternalCapabilities.proposalLifecycle, const ExternalNoInput(),
+          session: h.s.session, context: context, control: control);
+    }
+
+    test(
+        'READ metadata route excludes STAGE and COMMIT and has no mutation effect',
+        () async {
+      final context = await gateway.openProposalLifecycle(
+          session: h.s.session, submissionKey: 'external-key');
+      expect(context.capabilities, {ExternalCapabilities.proposalLifecycle});
+      final denied = await gateway.execute(
+          ExternalCapabilities.reconcile, const ExternalNoInput(),
+          session: h.s.session, context: context);
+      expect(denied.output, isNull);
+      final result = await query();
+      expect(result.receipt.knownEffect, CapabilityEffect.none);
+      expect(result.receipt.durableReconciliation, isNull);
+      expect(await h.s.h.count('questions'), 0);
+    });
+    test(
+        'scope denial precedes corrupt child decode and is identical to absence',
+        () async {
+      await h.s.h.db.insert(
+          'bank_folders', {'bank_name': 'other', 'folder_name': 'other'});
+      await h.s.management.replaceGrant(
+          h.s.profile,
+          2,
+          h.s.policy(permissions: [
+            CapabilityPermission.read
+          ], scopes: [
+            ExternalGrantScope(kind: ExternalTargetKind.bank, targetId: 'other')
+          ]));
+      await h.s.h.db
+          .update('generated_question_review_state', {'working_json': '{}'});
+      final hidden = await query(), missing = await query(key: 'missing');
+      expect(hidden.output, isNull);
+      expect(hidden.failure, missing.failure);
+      expect(hidden.failure, CapabilityFailure.generatedProposalUnavailable);
+      await h.s.management.replaceGrant(
+          h.s.profile, 3, h.s.policy(permissions: [CapabilityPermission.read]));
+      expect((await query()).failure, CapabilityFailure.generatedCorruptState);
+    });
+    test('revocation between query and final release suppresses all metadata',
+        () async {
+      h.s.lifecycleCheckpoint = (point) async {
+        if (point == ExternalProposalLifecycleCheckpoint.beforeRelease) {
+          await h.s.management.revokeGrant(h.s.profile, 2);
+        }
+      };
+      final result = await query();
+      expect(result.output, isNull);
+      expect(result.receipt.knownEffect, CapabilityEffect.none);
+      expect(await h.s.h.count('generated_question_proposals'), 1);
+    });
+    test(
+        'a local terminal transition before release cannot emit an obsolete pending summary',
+        () async {
+      h.s.lifecycleCheckpoint = (point) async {
+        if (point != ExternalProposalLifecycleCheckpoint.beforeRelease) return;
+        h.s.lifecycleCheckpoint = null;
+        final p = (await h.s.localSession.pending()).single;
+        final local = h.s.localSession.confirmDisplayedTarget(p.target);
+        final reviewed = await h.s.h.service.flush(
+            GeneratedReviewFlush.fromJson({
+              'proposalId': p.proposalId,
+              'expectedReviewRevision': p.reviewRevision,
+              'operations': [
+                for (final item in p.items)
+                  {
+                    'type': 'decide',
+                    'itemId': item.itemId,
+                    'decision': 'rejected'
+                  }
+              ],
+            }),
+            local);
+        await h.s.h.service.reject(
+            RejectGeneratedProposalCommand.fromJson({
+              'proposalId': p.proposalId,
+              'expectedReviewRevision': reviewed.reviewRevision,
+            }),
+            local);
+      };
+      final result = await query();
+      expect(result.output, isNull);
+      expect(result.failure, CapabilityFailure.generatedStaleRevision);
+      expect((await query()).output!.toJson()['lifecycleStatus'], 'rejected');
+    });
+    for (final cancel in [true, false]) {
+      test(
+          '${cancel ? 'cancel' : 'deadline'} retains bounded query slot through actual settlement',
+          () async {
+        final entered = Completer<void>(), finish = Completer<void>();
+        h.s.lifecycleCheckpoint = (point) async {
+          if (point == ExternalProposalLifecycleCheckpoint.afterRead) {
+            entered.complete();
+            await finish.future;
+          }
+        };
+        final control = h.s.control();
+        final pending = query(control: control);
+        await entered.future;
+        if (cancel) {
+          control.cancel();
+        } else {
+          control.expireDeadline();
+        }
+        final result = await pending;
+        expect(result.output, isNull);
+        expect(
+            result.failure,
+            cancel
+                ? CapabilityFailure.cancelled
+                : CapabilityFailure.deadlineExceeded);
+        expect(gateway.pendingCount, 1);
+        var idle = false;
+        final drain = gateway.whenIdle.then((_) => idle = true);
+        await Future<void>.value();
+        expect(idle, isFalse);
+        finish.complete();
+        await drain;
+        expect(gateway.pendingCount, 0);
+      });
+    }
   });
 
   test(

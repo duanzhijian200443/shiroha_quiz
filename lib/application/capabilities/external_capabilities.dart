@@ -134,6 +134,9 @@ abstract final class ExternalCapabilities {
           'external_stage_generated_questions');
   static const reconcile = CapabilityId<ExternalNoInput, ExternalStageSummary>(
       'external_reconcile_generated_stage');
+  static const proposalLifecycle =
+      CapabilityId<ExternalNoInput, ExternalProposalLifecycle>(
+          'external_get_proposal_lifecycle');
 }
 
 /// Unpublished App composition seam. Uses the existing registry/executor and
@@ -230,6 +233,16 @@ final class ExternalCapabilityGateway {
     return grant;
   }
 
+  Future<ExternalExecutionContext> openProposalLifecycle(
+      {required ExternalSession session, required String submissionKey}) async {
+    generatedToken(submissionKey);
+    final runtime = await admission.admit(session);
+    final grant = _grant(runtime, CapabilityPermission.read,
+        ExternalContentCategory.proposalMetadata);
+    return _mint(runtime, grant, {ExternalCapabilities.proposalLifecycle},
+        submissionKey: submissionKey);
+  }
+
   ExternalExecutionContext _mint(ExternalRuntimeAccess runtime,
       ExternalGrant grant, Set<CapabilityId> capabilities,
       {String? context,
@@ -293,7 +306,9 @@ final class ExternalCapabilityGateway {
     DateTime? deadline = control?.deadline;
     if (context.capabilities.contains(id) &&
         context.stageContext == null &&
-        context.submissionKey == null) {
+        (context.submissionKey == null ||
+            context.capabilities
+                .contains(ExternalCapabilities.proposalLifecycle))) {
       final readDeadline = clock.now().add(reads.maxQueryDuration);
       if (deadline == null || readDeadline.isBefore(deadline)) {
         deadline = readDeadline;
@@ -322,7 +337,10 @@ final class ExternalCapabilityGateway {
       timer?.cancel();
       return executor.reject(id, kernelContext, CapabilityFailure.accessDenied);
     }
-    final read = context.stageContext == null && context.submissionKey == null;
+    final read = context.stageContext == null &&
+        (context.submissionKey == null ||
+            context.capabilities
+                .contains(ExternalCapabilities.proposalLifecycle));
     final key = read ? session.principal : session as Object;
     final maxCalls = read ? reads.maxInFlight : stages.maxInFlight;
     final maxOwned =
@@ -426,6 +444,42 @@ final class ExternalCapabilityGateway {
           release: (_, context) => context._externalCall!.releaseOutput());
 
   Iterable<CapabilityDefinition> _definitions() => [
+        CapabilityDefinition<ExternalNoInput, ExternalProposalLifecycle>(
+            id: ExternalCapabilities.proposalLifecycle,
+            permission: CapabilityPermission.read,
+            permittedEffects: {CapabilityEffect.none},
+            semantics: CapabilityExecutionSemantics.repeatableRead,
+            authorize: (_, context) async =>
+                context._externalCall?.belongsTo(this) ?? false,
+            handler: CapabilityHandler((_, context, confirmed) async {
+              final call = context._externalCall!;
+              confirmed.confirm(CapabilityEffect.none);
+              try {
+                final output = await Future.any([
+                  call._track(() => stages.proposalLifecycle.query(
+                      call.context.authorization._runtime,
+                      call.context.submissionKey!)),
+                  call.control.interrupted.then<ExternalProposalLifecycle>(
+                      (failure) => throw _CapabilityInterrupted(
+                          _externalInterruption(failure)!)),
+                ]);
+                call.release = () => stages.proposalLifecycle
+                    .release(call.context.authorization._runtime, output);
+                return CapabilityEvidence.completed(
+                    output, CapabilityEffect.none);
+              } on _CapabilityInterrupted catch (error) {
+                return CapabilityEvidence(
+                    failure: error.failure,
+                    status: CapabilityExecutionStatus.outcomeUnknown,
+                    effect: CapabilityEffect.none);
+              } on GeneratedQuestionException catch (error) {
+                return CapabilityEvidence(
+                    failure: _generatedFailure(error.failure),
+                    status: CapabilityExecutionStatus.failedWithoutEffect,
+                    effect: CapabilityEffect.none);
+              }
+            }),
+            release: (_, context) => context._externalCall!.releaseOutput()),
         _read<ExternalTargetQuery, ExternalTargetPage>(
             ExternalCapabilities.listTargets,
             (input, call, _) => reads.listTargets(

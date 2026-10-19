@@ -197,13 +197,21 @@ initialization; actual SDK clients exercise both over subprocess stdio. No SDK
 or dependency upgrade is introduced. The v0 entrypoint and six tools are unchanged.
 
 The seven tool names above remain deterministic. This bounded projection uses
-camelCase P4/P10 references and a separate candidate `profileVersion: 1` result
+camelCase P4/P10 references and a separate candidate `profileVersion: 2` result
 envelope, exactly `{profileVersion, data, error}`. A success has operation data
 and null error; a failure has null data and a fixed safe code. Text content is
 the JSON serialization of the same object as `structuredContent`. Every tool
 declares input/output schemas; P10 additionally validates deep result whitelists.
 Request metadata, protocol request IDs and clientInfo never enter authentication,
 Profile selection, target approval or Submission identity.
+
+Profile v2 supersedes the bounded v1 candidate, with server implementation version
+0.2.0 and declared result profileVersion fixed to 2 for every tool/error. Clients
+must validate that version/output schema; no profile-v1 response is silently
+reinterpreted or negotiated. MCP modern/legacy protocol support is unchanged.
+Only get_question_proposal's operation data changes; other tool data retains its
+original P10 v1 semantics. This profile version is independent of IPC business,
+P9 framing, Submission and persisted Proposal versions.
 
 | Tool | Bounded projection input / behavior |
 |---|---|
@@ -213,11 +221,13 @@ Profile selection, target approval or Submission identity.
 | retrieve_file_content | contextRef, query, optional limit -> P10 verified retrieval page. |
 | get_file_passage | contextRef, passageRef, optional cursor -> P10 passage page. |
 | propose_generated_questions | contextRef and content-only `submission` object in unchanged GeneratedQuestion Submission v1. P3 alone admits items/content/provenance/key/fingerprint. |
-| get_question_proposal | Original submissionKey, with fresh authentication and no old handle -> P3/P10 narrow durable reconciliation. |
+| get_question_proposal | Original submissionKey, fresh authentication, no old handle -> independent READ lifecycle query through P7/P8 and IPC schema v2; current READ/proposalMetadata and both original/current target Scope are mandatory. |
 
 Optional fields have documented bounded projection defaults (pageSize 20, limit
 8, cursor null); required/nullable P10 fields are still explicitly materialized.
-P10 business schema v1 and P9 envelope v1 are unchanged. No raw bank/Profile/
+P10's original business schema-v1 commands and P9 envelope v1 are unchanged;
+external boundary §8 owns the separate lifecycle-only schema-v2 command.
+No raw bank/Profile/
 permission/Grant field is accepted from a client. There is no external COMMIT.
 
 App composition receives existing services, an authentication port and a fixed
@@ -231,11 +241,17 @@ that exact Session for the existing P10 invocation, preventing a fresh Session
 from inheriting old approval. Missing approval fails closed; READ alone grants no
 STAGE. File selection never approves GeneratedEvidence.
 
-STAGE/query data remains exactly P10's proposalId/submissionKey/publication
+STAGE data remains exactly P10's proposalId/submissionKey/publication
 `STAGED`/formalCommit `NOT_REPORTED`. This confirms historical publication only;
 it does not claim pending/committed Review status, counts or a COMMIT Receipt.
-Those remain available to the existing local Inbox/Review UI. The fuller target
-status projection above remains deferred to an authorized owning-service change.
+get_question_proposal instead returns exactly submissionKey, lifecycleStatus,
+requestedCount, actualCount, committedCount, rejectedCount. GeneratedQuestion §12
+owns persisted-state validation, non-enumeration, counts and final release;
+IPC v2 deeply validates this whitelist and the declared MCP result schema exposes
+these six fields only. Pending review withholds intermediate decisions. No
+content, internal IDs, edited data or formal Question mappings leave this path.
+P3/P10 v1 reconciliation remains available to trusted composition under its
+original STAGE-only authority; READ lifecycle never inherits it.
 An uncertain/lost response is reconciled by original key, never automatically
 restaged. Cancellation is forwarded to existing owning control; close/EOF stops
 new work and drains the supplied composition. Encoding/connection failure cannot
@@ -255,6 +271,11 @@ Tests cover mixed valid question kinds, existing Review UI
 and explicit UI COMMIT, unchanged formal bank before approval, same-key
 reuse/conflict, lost-response reconciliation across real database close/reopen,
 unauthorized/expired/revoked/unavailable rejection and exact-Session isolation.
+The lifecycle extension additionally covers independent READ/metadata/scope
+authority, local UI approval and rejection, mixed terminal counts, withheld
+intermediate decisions and exact original-key status after database/stdio reopen
+and fresh authentication. The existing standing PR contract shard includes this
+real stdio fixture; no test enables production transport.
 
 The standalone `lib/mcp/vnext_mcp_entrypoint.dart` defaults to `unavailable` for
 every business call. No startup installs the App composition, and no flag/CLI

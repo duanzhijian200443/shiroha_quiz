@@ -5,6 +5,7 @@ import '../../application/capabilities/capability.dart';
 import '../../application/external/external_authorization.dart';
 import '../../application/external/external_generated_stage.dart';
 import '../../application/external/external_invocation_core.dart';
+import '../../application/external/external_proposal_lifecycle.dart';
 import '../../core/database/external_authorization_schema.dart';
 import 'external_authorization_repository.dart';
 import 'generated_local_authority_repository.dart';
@@ -35,6 +36,8 @@ enum ExternalStageCheckpoint {
   beforeRelease
 }
 
+enum ExternalProposalLifecycleCheckpoint { afterRead, beforeRelease }
+
 /// Sole generated Proposal transaction owner. No public independently
 /// transactional QuestionRepository API or fabricated ImportTask is used.
 final class GeneratedProposalRepository
@@ -43,11 +46,14 @@ final class GeneratedProposalRepository
       {DatabaseHelper? databaseHelper,
       String Function()? idFactory,
       int Function()? clock,
-      this.externalStageCheckpoint})
+      this.externalStageCheckpoint,
+      this.externalProposalLifecycleCheckpoint})
       : _helper = databaseHelper ?? DatabaseHelper.instance,
         _id = idFactory ?? const Uuid().v4,
         _clock = clock ?? (() => DateTime.now().toUtc().millisecondsSinceEpoch);
   final Future<void> Function(ExternalStageCheckpoint)? externalStageCheckpoint;
+  final Future<void> Function(ExternalProposalLifecycleCheckpoint)?
+      externalProposalLifecycleCheckpoint;
   Future<void> _externalCheckpoint(ExternalStageCheckpoint point) async {
     await externalStageCheckpoint?.call(point);
   }
@@ -676,6 +682,108 @@ final class GeneratedProposalRepository
           await _lookupExternalStage(db, access, result.submissionKey);
       if (current == null || current.proposalId != result.proposalId) {
         generatedFail(GeneratedFailure.unauthorized);
+      }
+      access.validate();
+    });
+  }
+
+  Future<ExternalProposalLifecycle> _proposalLifecycle(DatabaseExecutor db,
+      ExternalProposalLifecycleAccess access, String key) async {
+    access.validate();
+    await validateExternalAuthorizationSchema(db);
+    final record = await readExternalAuthorization(db, access.profileId);
+    final grant = record.grant;
+    if (record.profile.revokedAtUtcMs != null ||
+        grant == null ||
+        grant.revokedAtUtcMs != null ||
+        grant.revision != access.revision ||
+        !grant.policy.permissions.contains(CapabilityPermission.read) ||
+        !grant.policy.categories
+            .contains(ExternalContentCategory.proposalMetadata)) {
+      generatedFail(GeneratedFailure.unauthorized);
+    }
+    final rows = await db.query('generated_question_proposals',
+        columns: [
+          'proposal_id',
+          'original_target_json',
+          'target_json',
+          'origin_kind',
+          'local_owner'
+        ],
+        where: 'client_profile_id=? AND submission_key=?',
+        whereArgs: [access.profileId, key]);
+    if (rows.length != 1 ||
+        rows.single['origin_kind'] != 'external' ||
+        rows.single['local_owner'] != access.localOwner) {
+      generatedFail(GeneratedFailure.proposalUnavailable);
+    }
+    final owner = await db.query('app_settings',
+        columns: ['value'],
+        where: 'key=?',
+        whereArgs: [GeneratedLocalAuthorityRepository.ownerSettingKey]);
+    if (owner.length != 1 || owner.single['value'] != access.localOwner) {
+      generatedFail(GeneratedFailure.unauthorized);
+    }
+    // Both immutable routing and any locally changed target require current
+    // exact Scope, BEFORE reading original, edited or receipt child data.
+    for (final column in ['original_target_json', 'target_json']) {
+      final target = GeneratedTarget.fromJson(
+          generatedDecode(rows.single[column] as String));
+      try {
+        await requireExternalGrant(
+            db,
+            access.profileId,
+            access.revision,
+            CapabilityPermission.read,
+            ExternalGrantScope(
+                kind: ExternalTargetKind.bank,
+                targetId: target.bankName,
+                projectId: target.projectId),
+            ExternalContentCategory.proposalMetadata,
+            access.profileId);
+      } on ExternalAuthException catch (error) {
+        if (error.failure != ExternalAuthFailure.unauthorized) rethrow;
+        generatedFail(GeneratedFailure.proposalUnavailable);
+      }
+    }
+    final p =
+        await readGeneratedProposal(db, rows.single['proposal_id'] as String);
+    access.validate();
+    return ExternalProposalLifecycle(
+        submissionKey: p.submissionKey,
+        status: p.lifecycleStatus,
+        requestedCount: p.requestedCount,
+        actualCount: p.items.length,
+        committedCount: p.commitReceipt?.itemMappings.length ?? 0,
+        rejectedCount: p.lifecycleStatus == GeneratedStatus.pendingReview
+            ? 0
+            : p.items
+                .where((i) => i.decision == GeneratedDecision.rejected)
+                .length);
+  }
+
+  @override
+  Future<ExternalProposalLifecycle> queryExternalProposalLifecycle(
+      ExternalProposalLifecycleAccess access, String submissionKey) async {
+    final result = await _externalQuery(
+        (db) => _proposalLifecycle(db, access, generatedToken(submissionKey)));
+    await externalProposalLifecycleCheckpoint
+        ?.call(ExternalProposalLifecycleCheckpoint.afterRead);
+    return result;
+  }
+
+  @override
+  Future<void> releaseExternalProposalLifecycle(
+      ExternalProposalLifecycleAccess access,
+      ExternalProposalLifecycle summary) async {
+    await externalProposalLifecycleCheckpoint
+        ?.call(ExternalProposalLifecycleCheckpoint.beforeRelease);
+    await _externalQuery((db) async {
+      final current =
+          await _proposalLifecycle(db, access, summary.submissionKey);
+      if (generatedCanonical(current.toJson()) !=
+          generatedCanonical(summary.toJson())) {
+        generatedFail(GeneratedFailure.staleRevision);
       }
       access.validate();
     });

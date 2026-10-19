@@ -481,6 +481,7 @@ jobs:
             'test/mcp/mcp_architecture_boundary_test.dart',
             'test/mcp/study_mcp_server_test.dart',
             'test/mcp/study_mcp_production_composition_test.dart',
+            'test/mcp/vnext_mcp_end_to_end_test.dart',
             'test/application/modules/module_composition_test.dart',
             'test/application/modules/production_module_parity_test.dart',
             'test/application/modules/module_storage_compatibility_test.dart',

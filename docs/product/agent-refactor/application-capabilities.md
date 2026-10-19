@@ -357,6 +357,16 @@ the corresponding check. Runtime/Provider/MCP/storage hashes stay unchanged.
 
 ## 8. P8 offline Host dispatch (accepted unpublished scope)
 
+Lifecycle extension: P7/P8 additionally register the independent typed
+`external_get_proposal_lifecycle` READ route (eleven routes including the original
+ten). It accepts no client authority or content input; trusted opening binds the
+original key, exact Session, current Grant revision, READ and proposalMetadata.
+GeneratedQuestion §12 owns Data admission, original/current target scopes and
+safe count/status release. It uses repeatableRead/none, the READ timeout and
+per-Profile pending budgets, retaining interrupted work through actual settlement.
+Its transient execution receipt has no durable STAGE reconciliation reference.
+P3 reconciliation remains STAGE-only and P10's ten schema-v1 routes remain frozen.
+
 External boundary §3 owns the trusted startup/entry/shutdown contract of
 `LocalHostDispatchCore`. It reuses exactly the ten P7 typed definitions, original
 results and Receipts and owning P3-P6 services. No Kernel source amendment,

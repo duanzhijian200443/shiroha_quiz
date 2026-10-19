@@ -14,14 +14,14 @@ abstract interface class VnextMcpPort {
 
 /// Safe business failure, distinct from an MCP JSON-RPC protocol error.
 Map<String, Object?> vnextFailure(String code) =>
-    {'profileVersion': 1, 'data': null, 'error': code};
+    {'profileVersion': 2, 'data': null, 'error': code};
 
 /// Separate entrypoint; construction never enables an App or authenticates it.
 final class VnextMcpServer {
   VnextMcpServer(this.port, {McpServer? protocolServer}) {
     _server = protocolServer ??
         McpServer(
-          const Implementation(name: 'shiroha_mcp_vnext', version: '0.1.0'),
+          const Implementation(name: 'shiroha_mcp_vnext', version: '0.2.0'),
           options: const McpServerOptions(
             instructions: 'Stage generated candidates for review in Shiroha. '
                 'STAGED is not formally saved. Reconcile uncertain submissions by '
@@ -38,13 +38,18 @@ final class VnextMcpServer {
           description: entry.key == 'propose_generated_questions'
               ? 'Stage a content-only Submission v1 for local user review.'
               : entry.key == 'get_question_proposal'
-                  ? 'Reconcile historical STAGED publication by original key; '
-                      'does not report formal commit or review state.'
+                  ? 'Query currently authorized pending_review, committed or rejected '
+                      'status and safe counts by original submissionKey.'
                   : 'Read currently authorized generation context or content.',
           inputSchema: JsonObject.fromJson(entry.value),
-          outputSchema: const JsonObject(properties: {
-            'profileVersion': JsonInteger(minimum: 1, maximum: 1),
-            'data': JsonUnion([JsonObject(), JsonNull()]),
+          outputSchema: JsonObject(properties: {
+            'profileVersion': JsonInteger(minimum: 2, maximum: 2),
+            'data': JsonUnion([
+              entry.key == 'get_question_proposal'
+                  ? JsonObject.fromJson(_lifecycleSchema)
+                  : const JsonObject(),
+              const JsonNull()
+            ]),
             'error': JsonUnion([JsonString(), JsonNull()]),
           }, required: [
             'profileVersion',
@@ -102,6 +107,24 @@ final class VnextMcpServer {
   };
   static const _page = {'type': 'integer', 'minimum': 1, 'maximum': 50};
   static const _query = {'type': 'string', 'minLength': 1, 'maxLength': 200};
+  static final _lifecycleSchema = _object({
+    'submissionKey': {'type': 'string', 'minLength': 1, 'maxLength': 64},
+    'lifecycleStatus': {
+      'type': 'string',
+      'enum': ['pending_review', 'committed', 'rejected']
+    },
+    'requestedCount': {'type': 'integer', 'minimum': 1, 'maximum': 50},
+    'actualCount': {'type': 'integer', 'minimum': 1, 'maximum': 50},
+    'committedCount': {'type': 'integer', 'minimum': 0, 'maximum': 50},
+    'rejectedCount': {'type': 'integer', 'minimum': 0, 'maximum': 50},
+  }, [
+    'submissionKey',
+    'lifecycleStatus',
+    'requestedCount',
+    'actualCount',
+    'committedCount',
+    'rejectedCount'
+  ]);
   static final Map<String, Map<String, dynamic>> inputSchemas = {
     'open_generation_context': _object({
       'targetRef': _ref,

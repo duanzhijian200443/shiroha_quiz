@@ -60,7 +60,7 @@ final class FixtureAppLink implements VnextMcpPort {
 
 Future<void> main() async {
   final protocol = McpServer(
-      const Implementation(name: 'shiroha_mcp_vnext', version: '0.1.0'),
+      const Implementation(name: 'shiroha_mcp_vnext', version: '0.2.0'),
       options: const McpServerOptions(
           capabilities: ServerCapabilities(tools: ServerCapabilitiesTools())));
   await VnextMcpServer(FixtureAppLink(protocol), protocolServer: protocol)

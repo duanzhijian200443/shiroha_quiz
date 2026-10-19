@@ -67,7 +67,8 @@ final class VnextMcpAppComposition implements VnextMcpPort {
         final request = _decode(IpcEnvelopeCodec.encodeRequest(
             id,
             jsonEncode({
-              'schemaVersion': 1,
+              'schemaVersion':
+                  capability == 'external_get_proposal_lifecycle' ? 2 : 1,
               'type': 'command',
               'capability': capability,
               'input': input,
@@ -79,7 +80,7 @@ final class VnextMcpAppComposition implements VnextMcpPort {
         if (result.frame == null) return vnextFailure('outcome_unknown');
         final response = IpcCommandResponseCodec.decode(_decode(result.frame!));
         return {
-          'profileVersion': 1,
+          'profileVersion': 2,
           'data': response['data'],
           'error': response['error']
         };
@@ -88,9 +89,9 @@ final class VnextMcpAppComposition implements VnextMcpPort {
       final contextRef = arguments['contextRef'] as String?;
       if (tool == 'get_question_proposal') {
         return await invoke(
-            'external_reconcile_generated_stage',
+            'external_get_proposal_lifecycle',
             {},
-            await host.openReconciliation(
+            await host.openProposalLifecycle(
                 entry, arguments['submissionKey'] as String));
       }
       if (tool == 'propose_generated_questions') {

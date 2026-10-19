@@ -51,6 +51,8 @@ final class DurableStageHarness {
   late GeneratedProposalRepository repository;
   late ExternalGeneratedStageService service;
   Future<void> Function(ExternalStageCheckpoint)? checkpoint;
+  Future<void> Function(ExternalProposalLifecycleCheckpoint)?
+      lifecycleCheckpoint;
   int maxInFlight = 16;
   String nextProfile = '';
   ExternalGrantScope get bank => ExternalGrantScope(
@@ -100,7 +102,9 @@ final class DurableStageHarness {
         mintProfileId: () => nextProfile);
     repository = GeneratedProposalRepository(
         databaseHelper: h.helper,
-        externalStageCheckpoint: (point) async => checkpoint?.call(point));
+        externalStageCheckpoint: (point) async => checkpoint?.call(point),
+        externalProposalLifecycleCheckpoint: (point) async =>
+            lifecycleCheckpoint?.call(point));
     service = ExternalGeneratedStageService(
         trust: trust,
         management: management,

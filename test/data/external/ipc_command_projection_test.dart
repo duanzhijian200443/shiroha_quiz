@@ -134,6 +134,50 @@ void main() {
       expect(auth.calls, 4);
     });
 
+    test(
+        'lifecycle v2 is READ only; v1 STAGE reconciliation stays a narrow acknowledgement',
+        () async {
+      await f.h.s.stage();
+      final context =
+          await f.host.openProposalLifecycle(f.entry, 'external-key');
+      UntrustedIpcEnvelope lifecycle(
+              {int version = 2, Map<String, Object?> input = const {}}) =>
+          raw(jsonEncode({
+            'schemaVersion': version,
+            'type': 'command',
+            'capability': 'external_get_proposal_lifecycle',
+            'input': input,
+          }));
+      final queried = await adapter.invoke(lifecycle(), context: context);
+      expect(response(queried)['schemaVersion'], 2);
+      expect(data(queried)['lifecycleStatus'], 'pending_review');
+      expect(queried.execution!.receipt.knownEffect, CapabilityEffect.none);
+      expect(
+          response(await adapter.invoke(lifecycle(version: 1),
+              context: context))['error'],
+          'unsupportedVersion');
+      expect(
+          response(await adapter.invoke(
+              lifecycle(input: {'submissionKey': 'untrusted'}),
+              context: context))['error'],
+          'invalidRequest');
+      final stageContext =
+          await f.host.openReconciliation(f.entry, 'external-key');
+      final historical = await adapter.invoke(command(reconcileName, const {}),
+          context: stageContext);
+      expect(response(historical)['schemaVersion'], 1);
+      expect(data(historical).keys.toSet(),
+          {'proposalId', 'submissionKey', 'publication', 'formalCommit'});
+      expect(data(historical)['formalCommit'], 'NOT_REPORTED');
+      final crossed = await adapter.invoke(lifecycle(), context: stageContext);
+      expect(crossed.execution!.output, isNull);
+      encoder.fail = true;
+      final lost = await adapter.invoke(lifecycle(), context: context);
+      expect(lost.frame, isNull);
+      expect(lost.execution!.receipt.knownEffect, CapabilityEffect.none);
+      expect(await f.h.s.h.count('generated_question_proposals'), 1);
+    });
+
     test('authentication and current P8 binding precede even malformed JSON',
         () async {
       final context = await f.host.openRead(f.entry);

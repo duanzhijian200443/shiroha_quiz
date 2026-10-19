@@ -691,3 +691,52 @@ to these same P7 routes. It adds trusted startup, private Session entries and
 close/drain, without changing this publication/revoke transaction, historical
 Origin, SubmissionKey authority, local Review/COMMIT or Proposal storage.
 It supplies no production Host/IPC authentication or published protocol.
+
+## 12. External Proposal lifecycle metadata query
+
+The bounded lifecycle extension adds an independent READ path over the existing
+Proposal persistence owner. `ExternalProposalLifecycleService` uses P4 runtime
+admission and a private access proof; neither P3 StageAccess nor historical
+Origin establishes READ authority. P7/P8 expose the typed
+`external_get_proposal_lifecycle` route with repeatableRead semantics and only
+effect `none`. Original P3 STAGE/reconciliation and P10 schema v1 retain their
+narrow acknowledgement and STAGE-only permission rules.
+
+Every query and final release requires fresh authenticated/App-bound Session,
+live local-owner composition, current Profile/Grant revision, READ and
+`proposalMetadata`. The Data owner selects by authenticated Profile plus original
+submissionKey. It checks the retained local owner and exact bank/nullable Project
+Scope for BOTH immutable original Target and current local-review Target before
+decoding child content/receipts. Current policy and scope relationships are
+checked through the existing transaction-local authorization helper. No old
+generation handle, STAGE permission, questionContent or historical file access
+is needed. A foreign Profile, out-of-scope key and missing key disclose the same
+`proposalUnavailable` result under otherwise valid query admission; this is no
+proof that an uncertain STAGE cannot still publish. Missing/revoked READ or
+metadata authority denies output for every key. Authorized corrupt history fails
+closed through the existing strict Proposal reader.
+
+The result has exactly `submissionKey`, `lifecycleStatus`, `requestedCount`,
+`actualCount`, `committedCount`, `rejectedCount`. Status is persisted
+`pending_review`, `committed` or `rejected`, never inferred from a STAGE result.
+Requested/actual counts are 1..50. Pending reports zero committed/rejected counts,
+withholding intermediate review decisions. Committed reports the validated
+Receipt's mapping cardinality and terminal rejected-item count, summing to actual;
+rejected reports zero committed and actual rejected. No Proposal/internal item/
+Question/Receipt IDs, target details, originals, edited content, evidence,
+review revision, timestamp or formal submission mapping is emitted. This count
+summary is not a COMMIT Receipt or evidence of an external mutation.
+
+The final Data release transaction repeats current admission/scope checks and
+compares the safe summary to the current persisted summary. Changed status/counts
+fail stale rather than releasing an obsolete snapshot. P7 rechecks Session,
+revision, cancellation/deadline and response availability. READ's existing
+two-second maximum and 16-global/4-per-Profile pending limits apply; interrupted
+queries retain their owning slot until actual read/release settlement. No
+completed-call journal, new table, migration or persistence lifecycle is added.
+Reopen/restart requires fresh authentication and queries the original key directly.
+
+MCP profile v2 and the isolated IPC v2 command are owned by MCP contract §7 and
+external boundary §8. Local Shiroha Review/approval/rejection and the sole COMMIT
+transaction remain unchanged. Production Host/Transport remain inactive and all
+Windows security/activation gates remain in force.
