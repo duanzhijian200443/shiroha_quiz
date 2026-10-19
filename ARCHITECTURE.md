@@ -478,6 +478,17 @@ client READ references never grant STAGE. The standalone entrypoint refuses
 business calls until production transport/admission is accepted. Synthetic stdio
 evidence grants no AR-R6A/AR-R6B production activation or external COMMIT.
 
+The first-party App integration in `composition/mcp_vnext_app_integration.dart`
+captures the existing production authorization, Proposal, local Review and
+F1/RAG owners. Startup installs only its dormant local controls, not P0/P8,
+credentials, an MCP server or transport. An explicitly supplied, admitted trusted
+composition may attach the existing P0 authority through the retained App Port.
+Application owns Profile selection, fresh authentication, finite enablement and
+explicit P3 target confirmation; UI supplies no credential or READ-to-STAGE
+upgrade. Database close drains the owner before B0 swap/rollback or rebuild;
+replacement starts disabled. MCP contract §9 owns this bounded App slice and
+the remaining production pairing/authentication/transport admission gap.
+
 The bounded lifecycle extension adds independent READ Proposal metadata over
 the same persistence owner, through P7/P8 and a lifecycle-only IPC schema v2.
 MCP profile v2 returns persisted pending_review/committed/rejected and safe counts

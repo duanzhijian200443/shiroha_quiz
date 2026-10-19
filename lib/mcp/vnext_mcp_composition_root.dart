@@ -21,6 +21,15 @@ final class _PinnedAuthentication implements OfflineIpcAuthenticationPort {
   Future<ExternalSession?> authenticate() async => session;
 }
 
+/// Trusted App session supplier; protocol requests never select its identity.
+final class VnextMcpSessionAuthentication
+    implements OfflineIpcAuthenticationPort {
+  const VnextMcpSessionAuthentication(this.session);
+  final Future<ExternalSession?> Function() session;
+  @override
+  Future<ExternalSession?> authenticate() => session();
+}
+
 /// App owns authentication and prior target approvals. This composition selects
 /// existing authority; a READ handle never mints approval. No startup installs it.
 final class VnextMcpAppComposition implements VnextMcpPort {
@@ -39,7 +48,16 @@ final class VnextMcpAppComposition implements VnextMcpPort {
   final ExternalReadContextService reads;
   final ExternalGeneratedStageService stages;
   final OfflineIpcAuthenticationPort authentication;
-  final List<ExternalStageContext> _approved;
+  List<ExternalStageContext> _approved;
+
+  /// Trusted local control supplies P3 approvals; no MCP tool invokes this.
+  void replaceApprovedTargets(Iterable<ExternalStageContext> targets) {
+    if (_closed) return;
+    final snapshot = List<ExternalStageContext>.unmodifiable(targets);
+    if (snapshot.length > 128) throw ArgumentError('Too many approved targets');
+    _approved = snapshot;
+  }
+
   final _pending = <Future<void>>{};
   bool _closed = false;
   int _id = 0;

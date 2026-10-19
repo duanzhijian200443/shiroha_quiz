@@ -1149,6 +1149,17 @@ are unchanged. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
 AR-R6A = NOT_ACCEPTED. Real Windows credential/TCP/mTLS and stability work
 requires separate authorization and independent safety-environment assessment.
 
+The bounded first-party App integration under [MCP contract §9](mcp-vnext-contract.md#9-first-party-app-composition-and-controls)
+adds a dormant production owner and local control panel beside the P11 editor.
+It does not change those startup prohibitions or P0/P12 authority: only an
+explicit trusted composition can attach the existing P0 and P12/P8 services.
+First-party controls reauthenticate before finite enablement/target approval,
+then use P3 `approveTarget`; no READ-to-STAGE upgrade exists. The existing
+database close authority awaits this owner before Restore/rollback/rebuild,
+and replacement is disabled. Real pairing/credential/transport integration
+remains inactive; synthetic tests are not a production binding. The original
+P11 notice describes policy editing and proves no current connection status.
+
 ## 11. P13 Windows security readiness (accepted static readiness)
 
 [Windows Host security readiness](windows-host-security-readiness.md) owns the
