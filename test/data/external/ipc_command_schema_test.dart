@@ -16,6 +16,64 @@ Map<String, Object?> result(String capability, Object? data) => {
     };
 
 void main() {
+  test(
+      'lifecycle v2 exact whitelist and terminal count consistency; v1 unchanged',
+      () {
+    final valid = {
+      'schemaVersion': 2,
+      'type': 'result',
+      'capability': 'external_get_proposal_lifecycle',
+      'data': {
+        'submissionKey': 'key',
+        'lifecycleStatus': 'committed',
+        'requestedCount': 3,
+        'actualCount': 3,
+        'committedCount': 2,
+        'rejectedCount': 1
+      },
+      'error': null,
+    };
+    Map<String, Object?> parse(Map<String, Object?> value) =>
+        IpcCommandResponseCodec.decode(resultEnvelope(jsonEncode(value)));
+    expect(parse(valid), valid);
+    final data = valid['data'] as Map;
+    for (final bad in [
+      {...valid, 'schemaVersion': 1},
+      {
+        ...valid,
+        'data': {...data, 'proposalId': 'internal'}
+      },
+      {
+        ...valid,
+        'data': {
+          ...data,
+          'itemMappings': {'item': 'question'}
+        }
+      },
+      {
+        ...valid,
+        'data': {...data, 'lifecycleStatus': 'pending_review'}
+      },
+      {
+        ...valid,
+        'data': {...data, 'lifecycleStatus': 'rejected'}
+      },
+      {
+        ...valid,
+        'data': {...data, 'committedCount': 3}
+      },
+      {
+        ...valid,
+        'data': {...data, 'requestedCount': 51}
+      },
+      {
+        ...valid,
+        'data': {...data, 'actualCount': 3.0}
+      },
+    ]) {
+      expect(() => parse(bad), throwsA(isA<IpcCommandSchemaException>()));
+    }
+  });
   final ref = 'a' * 43;
   final chunk = <String, Object?>{
     'content': 'Allowed snippet',

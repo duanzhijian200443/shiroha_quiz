@@ -10,10 +10,12 @@ enum _Command {
   retrieveFileContent('external_retrieve_file_content'),
   getFilePassage('external_get_file_passage'),
   stage('external_stage_generated_questions'),
-  reconcile('external_reconcile_generated_stage');
+  reconcile('external_reconcile_generated_stage'),
+  proposalLifecycle('external_get_proposal_lifecycle');
 
   const _Command(this.wireName);
   final String wireName;
+  int get version => this == proposalLifecycle ? 2 : 1;
   static _Command parse(Object? value) =>
       values.firstWhere((command) => command.wireName == value,
           orElse: () => _bad(IpcCommandFailure.unsupportedCapability));
@@ -95,11 +97,15 @@ final class _CommandRequest {
     final root = _object(
         _decodeJson(envelope.payload, IpcEnvelopeLimits.requestBytes),
         ['schemaVersion', 'type', 'capability', 'input']);
-    if (root['schemaVersion'] is! int || root['schemaVersion'] != 1) {
+    if (root['schemaVersion'] is! int ||
+        ![1, 2].contains(root['schemaVersion'])) {
       _bad(IpcCommandFailure.unsupportedVersion);
     }
     if (root['type'] != 'command') _bad();
     final command = _Command.parse(root['capability']);
+    if (root['schemaVersion'] != command.version) {
+      _bad(IpcCommandFailure.unsupportedVersion);
+    }
     Object input;
     switch (command) {
       case _Command.listTargets:
@@ -118,7 +124,9 @@ final class _CommandRequest {
       case _Command.getQuestionDetail:
         final m = _object(root['input'], ['questionRef']);
         input = ExternalQuestionSelection(_ref(m['questionRef']));
-      case _Command.listFileSelections || _Command.reconcile:
+      case _Command.listFileSelections ||
+            _Command.reconcile ||
+            _Command.proposalLifecycle:
         _object(root['input'], []);
         input = const ExternalNoInput();
       case _Command.createFileContext:
@@ -167,12 +175,16 @@ abstract final class IpcCommandResponseCodec {
     final root = _object(
         _decodeJson(envelope.payload, IpcEnvelopeLimits.responseBytes),
         ['schemaVersion', 'type', 'capability', 'data', 'error']);
-    if (root['schemaVersion'] is! int || root['schemaVersion'] != version) {
+    if (root['schemaVersion'] is! int ||
+        ![1, 2].contains(root['schemaVersion'])) {
       _bad(IpcCommandFailure.unsupportedVersion);
     }
     if (root['type'] != 'result') _bad();
     final command =
         root['capability'] == null ? null : _Command.parse(root['capability']);
+    if (root['schemaVersion'] != (command?.version ?? version)) {
+      _bad(IpcCommandFailure.unsupportedVersion);
+    }
     if (root['error'] == null) {
       if (command == null || root['data'] == null) _bad();
       _validateData(command, root['data']);
@@ -217,6 +229,29 @@ int _nodes(Object? value, {bool nullable = false}) {
 
 void _validateData(_Command command, Object? value) {
   switch (command) {
+    case _Command.proposalLifecycle:
+      final m = _object(value, [
+        'submissionKey',
+        'lifecycleStatus',
+        'requestedCount',
+        'actualCount',
+        'committedCount',
+        'rejectedCount'
+      ]);
+      generatedToken(m['submissionKey']);
+      final status = _enum(
+          m['lifecycleStatus'], ['pending_review', 'committed', 'rejected']);
+      _integer(m['requestedCount'], 1, 50);
+      final actual = _integer(m['actualCount'], 1, 50);
+      final committed = _integer(m['committedCount'], 0, actual);
+      final rejected = _integer(m['rejectedCount'], 0, actual);
+      if (status == 'pending_review'
+          ? committed != 0 || rejected != 0
+          : status == 'rejected'
+              ? committed != 0 || rejected != actual
+              : committed == 0 || committed + rejected != actual) {
+        _bad();
+      }
     case _Command.listTargets:
       final page = _object(value, ['items', 'nextCursor']);
       _cursor(page['nextCursor']);

@@ -6,8 +6,11 @@ import '../generated_question/generated_local_authority.dart';
 import '../generated_question/generated_question_service.dart';
 import 'external_authorization.dart';
 import 'external_invocation_core.dart';
+import 'external_proposal_lifecycle.dart';
 import 'external_runtime_admission.dart';
 import 'external_trust_core.dart';
+
+export 'external_proposal_lifecycle.dart' show ExternalProposalLifecycle;
 
 /// Narrow acknowledgement, never candidate content, Review or COMMIT authority.
 final class ExternalStageSummary {
@@ -55,7 +58,8 @@ final class ExternalStageContext {
 
 /// SQL/transactions remain in the existing Proposal Data owner. These objects
 /// prove runtime admission only; they cannot replace current SQLite checks.
-abstract interface class ExternalGeneratedStagePort {
+abstract interface class ExternalGeneratedStagePort
+    implements ExternalProposalLifecyclePort {
   Future<int> authorizeStage(ExternalStageAccess access, GeneratedTarget target,
       List<GeneratedEvidence> evidence);
   Future<ExternalStageSummary> publishExternalStage(
@@ -99,6 +103,10 @@ final class ExternalGeneratedStageService {
   late final ExternalRuntimeAdmission runtimeAdmission;
   final GeneratedLocalAuthoritySession _localOwner;
   final ExternalGeneratedStagePort _persistence;
+  late final proposalLifecycle = ExternalProposalLifecycleService(
+      admission: runtimeAdmission,
+      localOwner: _localOwner,
+      persistence: _persistence);
   final GeneratedQuestionAdmission _admission;
   final int maxInFlight, maxInFlightPerSession;
   final _active = <ExternalSession, int>{};

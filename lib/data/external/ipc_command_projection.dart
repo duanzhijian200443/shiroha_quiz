@@ -139,6 +139,8 @@ final class OfflineIpcCommandProjection {
             request.input as ExternalStageSubmission),
         _Command.reconcile =>
           call(ExternalCapabilities.reconcile, const ExternalNoInput()),
+        _Command.proposalLifecycle =>
+          call(ExternalCapabilities.proposalLifecycle, const ExternalNoInput()),
       };
       if (result.failure != null || result.output == null) {
         return _encode(envelope, request.command,
@@ -148,6 +150,8 @@ final class OfflineIpcCommandProjection {
       }
       try {
         final data = switch (request.command) {
+          _Command.proposalLifecycle =>
+            (result.output as ExternalProposalLifecycle).toJson(),
           _Command.listTargets =>
             (result.output as ExternalTargetPage).toJson(),
           _Command.createReadContext ||
@@ -201,7 +205,7 @@ final class OfflineIpcCommandProjection {
     }
     try {
       final payload = jsonEncode({
-        'schemaVersion': IpcCommandResponseCodec.version,
+        'schemaVersion': command?.version ?? IpcCommandResponseCodec.version,
         'type': 'result',
         'capability': command?.wireName,
         'data': data,

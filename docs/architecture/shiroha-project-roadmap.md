@@ -194,6 +194,14 @@ synthetic end-to-end Proposal/Review acceptance. It preserves the original
 production Host/Transport/AR-R6A gates and does not complete or activate full
 AR-R6B; the standalone production entry defaults to unavailable.
 
+The bounded Proposal lifecycle source extension supplies get_question_proposal
+through a separately authorized READ/Proposal-metadata path, with persisted
+pending_review/committed/rejected status and safe counts after local Review or
+reopen. GeneratedQuestion §12 and MCP contract §7 own its profile-v2/IPC-v2
+compatibility and isolated actual-client acceptance. The full functional checklist
+above, Windows Codex integration and all production/security gates remain open;
+this extension does not authorize a subsequent task or experiment.
+
 The [Agent refactor contract index](../product/agent-refactor/README.md) owns the
 focused frozen target contracts. This roadmap owns their stage order; existing
 runtime contracts stay active until each scoped implementation is accepted.

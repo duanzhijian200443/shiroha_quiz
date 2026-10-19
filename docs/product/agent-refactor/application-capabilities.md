@@ -357,9 +357,20 @@ the corresponding check. Runtime/Provider/MCP/storage hashes stay unchanged.
 
 ## 8. P8 offline Host dispatch (accepted unpublished scope)
 
+Lifecycle extension: P7/P8 additionally register the independent typed
+`external_get_proposal_lifecycle` READ route (eleven routes including the original
+ten). It accepts no client authority or content input; trusted opening binds the
+original key, exact Session, current Grant revision, READ and proposalMetadata.
+GeneratedQuestion §12 owns Data admission, original/current target scopes and
+safe count/status release. It uses repeatableRead/none, the READ timeout and
+per-Profile pending budgets, retaining interrupted work through actual settlement.
+Its transient execution receipt has no durable STAGE reconciliation reference.
+P3 reconciliation remains STAGE-only and P10's ten schema-v1 routes remain frozen.
+
 External boundary §3 owns the trusted startup/entry/shutdown contract of
-`LocalHostDispatchCore`. It reuses exactly the ten P7 typed definitions, original
-results and Receipts and owning P3-P6 services. No Kernel source amendment,
+`LocalHostDispatchCore`. It reuses the original ten P7 typed definitions plus the
+independent lifecycle READ definition (eleven routes total), original results and
+Receipts and owning P3-P6 services. No Kernel source amendment,
 business permission, string/Map execution path, new persistence, encoder,
 transport or default composition is added. Host pre-admission denials use the
 existing Kernel `reject` with a denied Principal and no authorization metadata;
@@ -374,7 +385,8 @@ the local transient Receipt/authorization objects.
 
 P10's accepted offline infrastructure projection (merged PR #261) is owned by external boundary
 §8. It authenticates and obtains a current P8 binding before decoding its fixed
-business schema, then maps only these ten typed inputs. Execution Contexts remain
+business schema, then maps the original ten schema-v1 typed inputs; the separate
+lifecycle command remains schema version 2. Execution Contexts remain
 trusted P8 composition parameters, never JSON authority. P7 final release still
 owns all READ/STAGE egress. Only the declared operation whitelist is encoded;
 Receipt/authorization objects remain local. Projection or encoding failure

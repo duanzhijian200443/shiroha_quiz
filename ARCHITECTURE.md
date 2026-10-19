@@ -478,6 +478,14 @@ client READ references never grant STAGE. The standalone entrypoint refuses
 business calls until production transport/admission is accepted. Synthetic stdio
 evidence grants no AR-R6A/AR-R6B production activation or external COMMIT.
 
+The bounded lifecycle extension adds independent READ Proposal metadata over
+the same persistence owner, through P7/P8 and a lifecycle-only IPC schema v2.
+MCP profile v2 returns persisted pending_review/committed/rejected and safe counts
+by original key under current Profile, READ/metadata and original/current target
+Scope. GeneratedQuestion §12 owns this release; original P3 reconciliation and
+P10 v1 retain their STAGE-only acknowledgement. No schema, writer or production
+Host/Transport activation is added.
+
 See `docs/architecture/adr-003-agent-mcp-and-write-boundary.md`.
 
 The frozen Agent Runtime v1 / external capability / source-module / MCP vNext

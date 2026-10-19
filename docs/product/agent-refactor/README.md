@@ -21,6 +21,13 @@ only with synthetic credentials/data and real SDK stdio clients. The standalone
 default refuses business calls. This source slice does not activate full AR-R6B,
 the production Host/Transport or any Windows experiment.
 
+The bounded lifecycle source extension uses MCP profile v2 and an independent
+READ/Proposal-metadata path over that same Proposal owner. It supplies persisted
+pending/rejected/committed status and safe counts by original key, including
+post-review and restart queries; [GeneratedQuestion §12](generated-question-proposals.md#12-external-proposal-lifecycle-metadata-query)
+and MCP contract §7 own its scope. P3 STAGE-only reconciliation remains unchanged.
+This does not complete Windows Codex integration or enable production transport.
+
 Status: **FROZEN target architecture; AR-R1/AR-R2/AR-R3 COMPLETE / CLOSED;
 AR-R4 module contribution kernel COMPLETE / CLOSED; AR-R5A COMPLETE / CLOSED;
 AR-R5B generated Review UI COMPLETE / CLOSED;
