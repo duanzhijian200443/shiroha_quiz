@@ -28,9 +28,13 @@ post-review and restart queries; [GeneratedQuestion §12](generated-question-pro
 and MCP contract §7 own its scope. P3 STAGE-only reconciliation remains unchanged.
 The isolated [Windows Codex compatibility checks](../../architecture/mcp-vnext-windows-codex.md)
 cover installed-client discovery, actual production refusal, EOF/reconnect and
-launch errors. The existing synthetic STAGE/Review/lifecycle fixture remains
-SDK-driven; Codex has no private test App-link adapter. The broader functional
-checklist and production transport admission remain open.
+launch errors. A separate opt-in installed-client STAGE suite reuses the same
+synthetic App through a test-only disposable mailbox, exercising real Codex
+calls, durable Proposal, existing local Review UI and original-key lifecycle
+recovery. SDK and actual installed-client results remain separate. Successful
+File READ through Codex and product App/Bridge/first-party approval composition
+remain functional integration/acceptance gaps; production security admission
+is an independent gate. No production entry or Windows experiment is activated.
 
 Status: **FROZEN target architecture; AR-R1/AR-R2/AR-R3 COMPLETE / CLOSED;
 AR-R4 module contribution kernel COMPLETE / CLOSED; AR-R5A COMPLETE / CLOSED;

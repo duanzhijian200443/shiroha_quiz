@@ -1,7 +1,7 @@
 # Windows Codex integration for MCP vNext
 
-This guide covers isolated stdio compatibility with an installed Windows Codex
-client. [MCP contract §7](../product/agent-refactor/mcp-vnext-contract.md#7-bounded-stage-stdio-source-composition)
+This guide covers isolated stdio compatibility and synthetic STAGE with an
+installed Windows Codex client. [MCP contract §7](../product/agent-refactor/mcp-vnext-contract.md#7-bounded-stage-stdio-source-composition)
 owns profile v2, seven tools and the closed production admission boundary.
 
 ## Launch and configuration
@@ -84,20 +84,75 @@ Run the existing independent business and v0 regressions serially:
 flutter test --concurrency=1 test/mcp/vnext_mcp_end_to_end_test.dart test/mcp/mcp_contract_test.dart test/mcp/mcp_architecture_boundary_test.dart test/mcp/study_mcp_server_test.dart test/mcp/study_mcp_production_composition_test.dart
 ```
 
-## Evidence levels and remaining connection gap
+## Installed-client synthetic STAGE and local Review
+
+With the same explicit executable setting, run:
+
+```powershell
+flutter test --concurrency=1 test/mcp/vnext_codex_synthetic_stage_test.dart
+```
+
+This suite reuses the SDK suite's `EndToEndHarness` from
+`test/mcp/fixtures/vnext_mcp_test_support.dart`. The Flutter test App alone owns
+the temporary synthetic database, credential proof, paired/finite-enabled Session,
+current READ/STAGE grants, explicit target approval and local Review services.
+The installed Codex app-server sends `mcpServer/tool/call` to the unchanged
+seven-tool `VnextMcpServer`. Its test-only subprocess fixture passes each request
+through a disposable file mailbox to the existing `VnextMcpAppComposition`.
+Codex need not implement the SDK fixture's private notifications.
+
+The mailbox is a test link under the isolated child home, not a production
+transport or business journal. Complete request/reply files are published by
+rename; each request is dispatched once, cancellation/availability is forwarded,
+and waiting is bounded. The bridge holds no database, credentials, approval or
+writer. Only the existing Application STAGE/Review services determine results.
+No production option, listener, dependency, schema or external COMMIT is added.
+Synthetic payload files are removed with the test home, never retained as logs.
+
+Actual Codex calls cover target discovery/context opening, mixed-kind STAGE,
+same-key identity reuse/conflict, unchanged formal questions before approval,
+existing Inbox/Review UI approval and rejection, and original-key pending/terminal
+lifecycle queries after real database close/reopen and fresh authentication.
+They also cover authorized question search/detail, missing authentication,
+exact-Session isolation, missing App approval/STAGE permission, invalid content,
+expired Context, revoked grants and unavailable App. The response-loss case drops
+the real App reply after publication, disconnects the actual Codex/MCP processes,
+reopens SQLite and queries the original key without another STAGE call. Every
+recorded MCP PID must exit on EOF and the child home must be removable.
+
+The installed client may omit `isError: false` on success, as allowed by MCP;
+tests require its default false meaning AND identical profile-v2 structured/text
+envelopes. Error responses must still report true. All four cases are opt-in;
+a skipped case is never installed-client or business acceptance. Run for each
+installed binary to be accepted. No model turn or Desktop UI click is exercised.
+Standing CI still requires a separate fixed-target Windows Verifier for this
+installed-client acceptance.
+
+## Evidence levels and remaining functional scope
 
 | Evidence | What it proves |
 |---|---|
 | Codex discovery | The installed client initializes the seven-tool server and preserves schemas/annotations. Definitions grant no business authority. |
 | Codex actual call | Codex sends `tools/call`; the production entry returns `isError: true` and exactly `{profileVersion: 2, data: null, error: unavailable}` in both structured and JSON text content. This is successful protocol handling of a business refusal. |
-| SDK synthetic App workflow | The existing fixture alone supplies synthetic credentials, approved targets and an isolated App-owned database. SDK clients prove STAGE, idempotency, lost-response recovery, local Review UI approval/rejection, lifecycle counts/reopen and authorization failures. |
-| Codex synthetic STAGE | **Not covered.** The existing parent SDK harness handles `test/shiroha_app_call` and returns `test/shiroha_app_result` notifications. Codex does not implement that private test link, and these app-server APIs expose no notification-response forwarding into its MCP connection. Registering that fixture alone cannot connect its App port. |
+| SDK synthetic App workflow | SDK clients use the shared synthetic App to prove modern/legacy stdio STAGE, idempotency, Review, lifecycle and authorization semantics. This evidence alone does not prove installed Codex behavior. |
+| Codex synthetic STAGE | The opt-in installed-client suite uses actual `mcpServer/tool/call` plus the test-only mailbox to reach that same App composition and persisted Proposal/Review lifecycle. Results count only when run against an explicit installed executable; SDK success or skipped cases cannot substitute. |
 | Production business access | **Not enabled.** The standalone entry has no admitted authenticated App/Bridge transport or trusted pairing/finite enablement/approved Session-target composition. SDK success and Codex discovery/refusal do not satisfy production activation. |
 
-Codex-to-synthetic-App STAGE would require a separately bounded test-only App-link
-adapter; it is not a missing Proposal, Review or lifecycle business implementation.
-This integration adds no alternative transport, identity, business writer or
-synthetic-credential flag to the production entry. It does not complete the wider
-Windows MCP functional checklist or AR-R6B. `HOST_STABILITY_HALT = ACTIVE`,
-`TRANSPORT = BLOCKED`, `AR-R6A = NOT_ACCEPTED` remain unchanged. No personal bank,
-high-assurance Windows experiment, provider, DLL, Pin or Custodian is involved.
+The original private-notification connection gap is addressed only by this
+bounded test fixture. The wider Windows functional checklist must still separate
+unimplemented product composition from security admission. The production entry
+has no authenticated App/Bridge binding or first-party pairing/finite-enablement/
+target-approval composition. These are remaining product integration work, even
+when their eventual activation also depends on security acceptance. Successful
+authorized file selection/retrieval/passage through installed Codex is outside
+this fixture's question-only grant/composition; this remains a functional
+acceptance gap, not proof that the existing File READ services are absent.
+Reference-plugin distribution and model-directed/Desktop-interactive usage are
+separate integration scopes, not established by these app-server calls.
+
+Production security admission independently requires the frozen Windows
+credential/storage/isolation/transport/lifecycle evidence and AR-R6A/AR-R6B
+exposure acceptance. `HOST_STABILITY_HALT = ACTIVE`, `TRANSPORT = BLOCKED`,
+`AR-R6A = NOT_ACCEPTED` remain unchanged. No personal bank, high-assurance Windows
+experiment, real provider, DLL, Pin or Custodian is involved. Synthetic functional
+success never authorizes a security batch, production Host or transport activation.

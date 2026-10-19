@@ -134,7 +134,10 @@ final class InstalledCodex {
   late JsonLineProcess rpc;
   String? threadId;
 
-  Future<void> configure({String? command, String? entrypoint}) async {
+  Future<void> configure(
+      {String? command,
+      String? entrypoint,
+      List<String>? entrypointArguments}) async {
     // TOML basic strings share JSON escaping for these absolute Windows paths.
     final config = '''
 model = "offline-probe"
@@ -153,7 +156,11 @@ enabled = false
 enabled = false
 [mcp_servers.shiroha_vnext]
 command = ${jsonEncode(command ?? flutterDartExecutable())}
-args = [${jsonEncode(entrypoint ?? 'test/mcp/fixtures/vnext_codex_stdio_fixture.dart')}${entrypoint == null ? ', ${jsonEncode(home.path)}' : ''}]
+args = ${jsonEncode([
+          entrypoint ?? 'test/mcp/fixtures/vnext_codex_stdio_fixture.dart',
+          ...?entrypointArguments,
+          if (entrypoint == null) home.path
+        ])}
 cwd = ${jsonEncode(repo)}
 startup_timeout_sec = 10
 tool_timeout_sec = 10
