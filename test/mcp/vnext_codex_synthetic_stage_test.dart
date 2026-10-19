@@ -18,6 +18,8 @@ import 'fixtures/codex_app_server_support.dart';
 import 'fixtures/codex_synthetic_app_support.dart';
 import 'fixtures/vnext_mcp_test_support.dart' show EndToEndHarness, batch;
 
+const _fixtureName = 'vnext_codex_synthetic_stdio_fixture.dart';
+
 void main() {
   initializeGeneratedTests();
   final executable = Platform.environment['SHIROHA_CODEX_EXE'];
@@ -36,6 +38,9 @@ void main() {
     home = await root.createTemp('Codex STAGE 合成 ');
     h = EndToEndHarness();
     await h.open();
+    // The installed client can time out a cold first content read; warm the
+    // real App read path before the asserted Codex calls.
+    await h.warmRead();
     final mailbox = await Directory(p.join(home.path, 'app-link')).create();
     link = CodexSyntheticAppLink(mailbox, () => h.composition)..start();
   });
@@ -47,18 +52,32 @@ void main() {
     expect(current.rpc.forcedClose, isFalse);
     expect(current.rpc.protocolClean, isTrue);
     client = null;
-    // Each actual MCP process records its own PID, including reconnects.
-    await for (final entry in link.directory.list()) {
-      if (entry is! File ||
-          !RegExp(r'^server-[0-9]+\.pid$').hasMatch(p.basename(entry.path))) {
-        continue;
-      }
+    // Each actual MCP process records its own PID, including reconnects. Check
+    // the recorded process identity, not just the PID, because Windows can
+    // immediately reuse a PID for an unrelated process such as conhost.exe.
+    final pidFiles = await link.directory
+        .list()
+        .where((entry) =>
+            entry is File &&
+            RegExp(r'^server-[0-9]+\.pid$').hasMatch(p.basename(entry.path)))
+        .cast<File>()
+        .toList();
+    expect(pidFiles, isNotEmpty, reason: 'Expected a recorded MCP server PID.');
+    for (final entry in pidFiles) {
       final serverPid = int.parse(await entry.readAsString());
-      final status = await Process.run(
-          'tasklist.exe', ['/FI', 'PID eq $serverPid', '/FO', 'CSV', '/NH']);
+      final status = await Process.run('powershell.exe', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        "(Get-CimInstance Win32_Process -Filter 'ProcessId=$serverPid')"
+            '.CommandLine',
+      ]);
       expect(status.exitCode, 0);
-      expect(status.stdout as String, isNot(contains('"$serverPid"')),
-          reason: 'Synthetic MCP process must close on Codex EOF.');
+      expect((status.stderr as String).trim(), isEmpty);
+      final commandLine = (status.stdout as String).trim();
+      expect(commandLine.contains(_fixtureName), isFalse,
+          reason: 'Synthetic MCP process $serverPid must close on Codex EOF.');
+      await entry.delete();
     }
   }
 
@@ -82,8 +101,7 @@ void main() {
     final current = InstalledCodex(executable, repo, home);
     client = current;
     await current.configure(
-        entrypoint:
-            'test/mcp/fixtures/vnext_codex_synthetic_stdio_fixture.dart',
+        entrypoint: 'test/mcp/fixtures/$_fixtureName',
         entrypointArguments: [link.directory.path]);
     await current.start();
     final inventory = await current.inventory();

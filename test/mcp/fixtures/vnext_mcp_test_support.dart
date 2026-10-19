@@ -40,6 +40,42 @@ final class EndToEndHarness {
         approvedTargets: [if (approve) await app.h.s.context()]);
   }
 
+  /// Warm the real App read path before installed-client assertions so a cold
+  /// first content read does not race the client's tool timeout.
+  Future<void> warmRead() async {
+    Future<Map<String, Object?>> direct(
+            String tool, Map<String, dynamic> arguments) =>
+        composition.call(tool, arguments,
+            cancelled: const Stream.empty(), available: () => true);
+    Map<String, Object?> data(Map<String, Object?> envelope, String step) {
+      final value = envelope['data'];
+      if (envelope['error'] != null || value is! Map) {
+        throw StateError('Synthetic read warm-up $step failed.');
+      }
+      return value.cast<String, Object?>();
+    }
+
+    final targets =
+        data(await direct('open_generation_context', const {}), 'targets');
+    final target = (targets['items'] as List).single as Map;
+    final opened = data(
+        await direct('open_generation_context',
+            {'targetRef': target['targetRef'] as String}),
+        'context');
+    final contextRef = opened['contextRef'] as String;
+    final search = data(
+        await direct(
+            'search_questions', {'contextRef': contextRef, 'query': 'needle'}),
+        'search');
+    final hit = (search['items'] as List).single as Map;
+    data(
+        await direct('get_question_detail', {
+          'contextRef': contextRef,
+          'questionRef': hit['questionRef'] as String,
+        }),
+        'detail');
+  }
+
   Future<McpClient> connect(
       [McpProtocol protocol = McpProtocol.require2026,
       String? entrypoint]) async {
