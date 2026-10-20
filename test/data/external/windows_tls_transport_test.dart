@@ -15,6 +15,7 @@ import 'bootstrap_test_support.dart';
 import 'windows_credential_initialization_test.dart' as init;
 import 'windows_pairing_test.dart' as pair;
 import 'windows_peer_certificate_policy_test.dart' show OfflinePeerCalls;
+import 'fixtures/windows_tls_bridge_cases.dart';
 
 final class ManualDeadlines {
   Duration now = Duration.zero;
@@ -53,6 +54,11 @@ class MemoryTlsChannel implements TlsChannel {
   bool get isOpen => open;
   void feed(Uint8List bytes) {
     chunks.add(bytes);
+    _wake();
+  }
+
+  void endInput() {
+    eof = true;
     _wake();
   }
 
@@ -294,6 +300,7 @@ void main() {
     await h.open();
   });
   tearDown(() => h.close());
+  bridgeCases(() => h);
 
   test(
       'B1 pure plans enforce TLS13, isolated trust and leaf-first chain without OS calls',

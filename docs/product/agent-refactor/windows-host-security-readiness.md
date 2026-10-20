@@ -3145,7 +3145,9 @@ Owner as its P26 Reader. It validates stored Client material against independent
 trusted P27 anchor inputs and invokes P26 signed Discovery/high-water validation
 before connecting ONLY to the descriptor's numeric IPv4 loopback port. The
 Server peer's Native role policy, signature/validity and exact DER SHA-256 must
-then match that verified descriptor. It supplies no READ/STAGE route.
+then match that verified descriptor. MCP contract §13 adds a single opaque P9
+request/response on that same verified connection. It supplies no business
+authority or trusted Context; App P10/P8 still own every READ/STAGE route.
 
 ### B2: three layers and existing authority
 
