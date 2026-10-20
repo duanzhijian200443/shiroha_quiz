@@ -217,6 +217,49 @@ void main() {
   tearDown(() => h.close());
   final rejected = throwsA(anything);
 
+  test(
+      'first-party adapter delegates full P27 comparison/approval/proof and fresh confirmation',
+      () async {
+    h.begin();
+    PairingTrustDisplay? exported;
+    var exports = 0;
+    final adapter = WindowsFirstPartyPairing(
+        owner: h.app,
+        submissionId: () async => h.enrollment.submissionId,
+        exportPublicTrust: (display) async {
+          exported = display;
+          exports++;
+        });
+    final request = await adapter.request(h.local.reference);
+    final initial = await request.display();
+    final bridgeDisplay = h.bridge.inspectChallenge(h.enrollment,
+        importedIssuerDer: exported!.issuerDer,
+        independentlyObtainedServerDigest: exported!.serverLeafDigest);
+    expect(initial.digest, bridgeDisplay.digest);
+    expect((await request.display()).digest, initial.digest);
+    expect(exports, 1);
+    h.bridge.confirmIndependentlyComparedInitial(
+        h.enrollment, bridgeDisplay.digest);
+    expect(h.local.trust.snapshot(h.local.profile.principal).state,
+        PairingState.requestPending);
+    await request.approve();
+    h.bridge.publishProof(h.enrollment);
+    await request.complete();
+    final completion = await request.display();
+    final bridgeCompletion =
+        h.bridge.completionDisplay(h.enrollment, completion.revision!);
+    expect(completion.digest, bridgeCompletion.digest);
+    h.bridge.confirmIndependentlyComparedCompletionAndSave(h.enrollment,
+        committedRevision: completion.revision!,
+        comparedDigest: completion.digest!);
+    expect(h.local.trust.snapshot(h.local.profile.principal).state,
+        PairingState.pairedDisabled);
+    await expectLater(
+        h.boundary.openSession(h.local.reference, Object()), rejected);
+    h.current = false;
+    await expectLater(request.display(), rejected);
+  });
+
   test('A1-A4 real math, E0, P20 CAS, P0 disabled and Missing-only kind 4',
       () async {
     await h.challenge();

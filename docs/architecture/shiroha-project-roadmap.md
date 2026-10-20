@@ -214,7 +214,7 @@ acceptance is preserved without manufacturing missing older approval markers.
 | Real-client isolated E2E | Installed-Codex synthetic workflows have executed evidence in #312-#314 and #315's independent Windows verification. |
 | STAGE/persistence/local Review/idempotency/disconnect-restart recovery | Covered through the same App owners in #309/#311/#313 and subsequent regressions. |
 | Windows launch/connection/disconnection/errors and App controls | Installed-client fixture accepted in #312-#314; #315 supplies dormant controls. This smoke adds desktop display/refusal and user-attested restart/bank behavior; authenticated production App/Bridge use remains unproved. |
-| Remaining blockers are exclusively production admission/security | **Not satisfied.** Real first-party pairing/credential onboarding and production App/Bridge binding still need product integration. Their inactive source candidates and admission prerequisites do not establish usable integration. |
+| Remaining blockers are exclusively production admission/security | **Not satisfied.** MCP §10 adds inactive first-party pairing lifecycle source wiring and isolated evidence. Actual credential/export/Submission/channel bindings, Bridge onboarding and Windows App/Bridge acceptance remain product integration work as well as requiring admission. |
 | Separate reference-client scope | MCP §5/AR-R9 reference-package distribution, Windows executable discovery/supported-version acceptance remain unfinished; model-directed/Codex Desktop-interactive use remains unverified. |
 | Admission-only remainder | Formal Windows credential/storage/isolation/transport/lifecycle and AR-R6A/AR-R6B production exposure acceptance remain pending independently of implementation. |
 
@@ -254,8 +254,12 @@ Only actual executed Windows client cases count; skipped/SDK results do not.
 The bounded [first-party App composition](../product/agent-refactor/mcp-vnext-contract.md#9-first-party-app-composition-and-controls)
 adds dormant product controls over the existing App owners, with offline-proven
 Profile selection, finite enablement and explicit STAGE target confirmation.
-It leaves real pairing/credential integration and admitted App/Bridge transport
-inactive. These fixtures and the App slice do not establish reference-plugin distribution or
+Its source-only [pairing extension](../product/agent-refactor/mcp-vnext-contract.md#10-inactive-first-party-pairing-integration)
+adds request/confirmation/proof/status controls, the existing P27 adapter and
+separate P15-authenticated Session custody. Synthetic/offline checks cover those
+local boundaries. Actual credential acquisition, public export/Submission/channel
+bindings, Bridge onboarding and admitted App/Bridge transport remain inactive and
+require further integration/acceptance. These fixtures and the App slice do not establish reference-plugin distribution or
 model-directed/Desktop-interactive usage.
 Independent Windows verification remains necessary for the exact candidate.
 These functional/integration gaps are distinct from frozen production

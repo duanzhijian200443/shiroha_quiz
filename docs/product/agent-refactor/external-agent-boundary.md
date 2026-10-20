@@ -1160,6 +1160,21 @@ and replacement is disabled. Real pairing/credential/transport integration
 remains inactive; synthetic tests are not a production binding. The original
 P11 notice describes policy editing and proves no current connection status.
 
+The source-only extension in MCP contract §10 adds an explicit P15-backed branch
+to that dormant owner. It creates the same P0/P12 graph against its management
+owner, retains only existing request/Session custody, and delegates independent
+pairing and Authentication verification to P15. The original §9 branch still
+authenticates before enablement; the credential branch requires P0 paired state,
+then finite enablement and independent P15-authenticated connection admission,
+disabling on any failure before exposing business access. The original channel
+must revalidate and return the identical Session on every control/Port use.
+Profile/Grant selection cannot pair; missing Grant does not prevent pairing but
+denies business admission. UI request/confirmation/proof controls remain
+unavailable without explicitly supplied admitted services. P27's inactive
+first-party adapter keeps all cryptographic/E0/CAS/comparison and Bridge Pin
+rules below unchanged. Normal startup supplies none of these services, and real
+Windows/Bridge/channel acceptance remains pending. No security exception follows.
+
 ## 11. P13 Windows security readiness (accepted static readiness)
 
 [Windows Host security readiness](windows-host-security-readiness.md) owns the

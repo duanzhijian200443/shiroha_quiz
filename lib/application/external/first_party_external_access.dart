@@ -6,6 +6,7 @@ import 'external_authorization.dart';
 import 'external_generated_stage.dart';
 import 'external_trust_coordinator.dart';
 import 'external_trust_core.dart';
+import 'first_party_external_credentials.dart';
 import 'local_authorization_service.dart';
 
 /// Safe local UI state. Policy selection is never evidence of a connection.
@@ -13,12 +14,17 @@ final class FirstPartyExternalStatus {
   const FirstPartyExternalStatus(
       {this.profileId,
       this.pairing,
+      this.pairingAvailable = false,
+      this.pairingDisplay,
+      this.pairingFailed = false,
       this.connected = false,
       this.enabled = false,
       this.expiresAt,
       this.approvedTargets = 0});
   final String? profileId;
   final PairingState? pairing;
+  final bool pairingAvailable, pairingFailed;
+  final FirstPartyPairingDisplay? pairingDisplay;
   final bool connected, enabled;
   final DateTime? expiresAt;
   final int approvedTargets;
@@ -35,6 +41,7 @@ final class FirstPartyExternalBinding {
       required this.stages,
       required this.localOwner,
       required this.authenticationAttempt,
+      this.credentials,
       required this.publishApprovals,
       required this.shutdown});
   final ExternalAuthorizationManagement management;
@@ -43,6 +50,7 @@ final class FirstPartyExternalBinding {
   final ExternalGeneratedStageService stages;
   final GeneratedLocalAuthoritySession localOwner;
   final Object? Function() authenticationAttempt;
+  final FirstPartyCredentialServices? credentials;
   final void Function(List<ExternalStageContext>) publishApprovals;
   final Future<void> Function() shutdown;
 }
@@ -58,6 +66,9 @@ final class FirstPartyExternalAccess {
   ExternalTrustProfile? _profile;
   String? _selectedId;
   ExternalSession? _session;
+  FirstPartyCredentialConnection? _connection;
+  FirstPartyPairingRequest? _pairingRequest;
+  bool _pairingFailed = false;
   int? _sessionRevision;
   final _approvals = <ExternalStageContext>[];
   List<GeneratedReviewTargetChoice> _choices = const [];
@@ -78,6 +89,10 @@ final class FirstPartyExternalAccess {
   void installTrusted(FirstPartyExternalBinding binding) {
     _validate();
     if (_binding != null || _busy) {
+      externalAuthFail(ExternalAuthFailure.unauthorized);
+    }
+    if (binding.credentials != null &&
+        !identical(binding.trust.credentials, binding.credentials!.boundary)) {
       externalAuthFail(ExternalAuthFailure.unauthorized);
     }
     _selectedId = null;
@@ -118,6 +133,7 @@ final class FirstPartyExternalAccess {
       b.trust.disable(_profile!.principal);
     }
     _session = null;
+    _connection = null;
     _sessionRevision = null;
     _choices = const [];
     _approvals.clear();
@@ -129,6 +145,7 @@ final class FirstPartyExternalAccess {
         _forgetAccess();
         _profile = null;
         _selectedId = null;
+        _pairingRequest = null;
         if (b == null) {
           final view = policy.openView();
           try {
@@ -145,6 +162,65 @@ final class FirstPartyExternalAccess {
         _validate();
         _selectedId = profileId;
       });
+
+  FirstPartyCredentialServices _credentials() {
+    final services = _binding?.credentials;
+    if (services == null || _profile == null || !services.boundary.isCurrent) {
+      externalAuthFail(ExternalAuthFailure.unauthorized);
+    }
+    return services;
+  }
+
+  /// Requests pairing through the trusted credential owner.
+  ///
+  /// Request inputs and proofs come only from that owner.
+  /// Selecting/editing a Profile never invokes this action.
+  Future<void> requestPairing() => _run(() async {
+        final services = _credentials();
+        final b = _binding!;
+        if (_pairingFailed ||
+            b.trust.snapshot(_profile!.principal).state !=
+                PairingState.unpaired) {
+          externalAuthFail(ExternalAuthFailure.unauthorized);
+        }
+        try {
+          final ref = await b.management.selectProfile(_selectedId!);
+          _pairingRequest = await services.pairing.request(ref);
+          _validate();
+        } catch (_) {
+          _pairingFailed = true;
+          rethrow;
+        }
+      });
+
+  Future<void> _pairingAction(bool complete) => _run(() async {
+        _credentials();
+        final request = _pairingRequest;
+        final expected = complete
+            ? PairingState.approvedPendingProof
+            : PairingState.requestPending;
+        if (request == null ||
+            _pairingFailed ||
+            _binding!.trust.snapshot(_profile!.principal).state != expected) {
+          externalAuthFail(ExternalAuthFailure.unauthorized);
+        }
+        try {
+          if (complete) {
+            await request.complete();
+          } else {
+            await request.approve();
+          }
+        } catch (_) {
+          // Preserve P0's actual pending state. Failed/unknown completion has no
+          // automatic retry, reset, success projection or enablement.
+          _pairingFailed = true;
+          _forgetAccess();
+          rethrow;
+        }
+      });
+
+  Future<void> approvePairing() => _pairingAction(false);
+  Future<void> completePairing() => _pairingAction(true);
 
   Object _authenticate(FirstPartyExternalBinding b) {
     _validate();
@@ -174,9 +250,38 @@ final class FirstPartyExternalAccess {
               (_session != null &&
                   record.grant!.revision != _sessionRevision)) {
             _forgetAccess();
+            if (record.profile.revokedAtUtcMs != null ||
+                b.credentials == null) {
+              return FirstPartyExternalStatus(
+                  profileId: _selectedId,
+                  pairing: b.trust.snapshot(_profile!.principal).state);
+            }
+          }
+          if (b.credentials != null) {
+            final services = _credentials();
+            var snapshot = b.trust.snapshot(_profile!.principal);
+            FirstPartyPairingDisplay? display;
+            if (_pairingRequest != null &&
+                !_pairingFailed &&
+                snapshot.state != PairingState.enabledForCurrentRuntime) {
+              try {
+                display = await _pairingRequest!.display();
+              } catch (_) {
+                _pairingFailed = true;
+              }
+            }
+            final session = await authenticatedSession();
+            snapshot = b.trust.snapshot(_profile!.principal);
             return FirstPartyExternalStatus(
                 profileId: _selectedId,
-                pairing: b.trust.snapshot(_profile!.principal).state);
+                pairing: snapshot.state,
+                pairingAvailable: services.boundary.isCurrent,
+                pairingDisplay: _pairingFailed ? null : display,
+                pairingFailed: _pairingFailed,
+                connected: session != null,
+                enabled: session != null,
+                expiresAt: snapshot.expiresAt,
+                approvedTargets: _approvals.length);
           }
           _authenticate(b);
           final snapshot = b.trust.snapshot(_profile!.principal);
@@ -197,18 +302,41 @@ final class FirstPartyExternalAccess {
   Future<void> enable(Duration duration) => _run(() async {
         final b = _binding;
         if (b == null) externalAuthFail(ExternalAuthFailure.unauthorized);
-        final attempt = _authenticate(b);
+        final services = b.credentials;
+        if (services != null) _credentials();
+        if (_pairingFailed) externalAuthFail(ExternalAuthFailure.unauthorized);
+        final attempt = services == null ? _authenticate(b) : null;
         _forgetAccess();
         await b.coordinator.enable(_profile!, duration);
         try {
-          final session = await b.coordinator.openSession(_profile!, attempt);
+          final connection = services == null
+              ? null
+              : await services.openConnection(
+                  await b.management.selectProfile(_selectedId!));
+          final session = connection?.session ??
+              await b.coordinator.openSession(_profile!, attempt!);
+          if (!identical(session.principal, _profile!.principal) ||
+              session.generation != b.trust.generation ||
+              (connection != null &&
+                  !identical(await connection.authenticate(), session))) {
+            externalAuthFail(ExternalAuthFailure.unauthorized);
+          }
           final access = await b.stages.runtimeAdmission.admit(session);
-          _authenticate(b);
+          if (access.grantSnapshot == null ||
+              access.grantSnapshot!.revokedAtUtcMs != null) {
+            externalAuthFail(ExternalAuthFailure.unauthorized);
+          }
+          if (services == null) _authenticate(b);
+          if (connection != null &&
+              !identical(await connection.authenticate(), session)) {
+            externalAuthFail(ExternalAuthFailure.unauthorized);
+          }
           _validate();
           if (session.failure != null) {
             externalAuthFail(ExternalAuthFailure.unauthorized);
           }
           _session = session;
+          _connection = connection;
           _sessionRevision = access.grantSnapshot?.revision;
         } catch (_) {
           // Failed authentication/admission must never leave a hidden enablement.
@@ -230,7 +358,17 @@ final class FirstPartyExternalAccess {
     try {
       _validate();
       final b = _binding!;
-      _authenticate(b);
+      if (b.credentials == null) {
+        _authenticate(b);
+      } else {
+        _credentials();
+        final connection = _connection;
+        if (connection == null ||
+            !identical(await connection.authenticate(), _session)) {
+          _forgetAccess();
+          return null;
+        }
+      }
       final session = _session;
       if (session == null || session.failure != null) return null;
       final access = await b.stages.runtimeAdmission.admit(session);
@@ -242,7 +380,14 @@ final class FirstPartyExternalAccess {
       }
       _validate();
       if (!identical(session, _session)) return null;
-      _authenticate(b);
+      if (b.credentials == null) {
+        _authenticate(b);
+      } else if (!identical(await _connection?.authenticate(), session)) {
+        _forgetAccess();
+        return null;
+      }
+      _validate();
+      if (!identical(session, _session) || session.failure != null) return null;
       return session;
     } catch (_) {
       _forgetAccess();

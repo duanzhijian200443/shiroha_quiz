@@ -405,9 +405,94 @@ installs no synthetic MCP authentication. The
 records observed dormant controls, user-confirmed page reconstruction/cold
 restart and ordinary bank use, plus separate deterministic Session/approval
 invalidation evidence. That smoke establishes no formerly authenticated real
-Session, production connectivity or independent Verifier approval. Real
-first-party pairing/credential integration and App/Bridge binding remain
-implementation/integration gaps as well as subject to production admission.
+Session, production connectivity or independent Verifier approval. The source-only
+pairing extension in §10 supplies local lifecycle wiring; admitted credential
+services and actual App/Bridge binding remain unavailable.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 Production MCP vNext remains disabled. Trial 1A and G0-L1/L2/I do not resume.
+
+## 10. Inactive first-party pairing integration
+
+`MCP-VNEXT-FIRST-PARTY-PAIRING-INTEGRATION` extends §9 with source-only local
+request, separate user confirmation, proof completion and current display/failure
+handling. Profile/Grant editing and selection never start pairing. P0 alone owns
+Principal/PairingState/Session, P15 owns evidence and Association CAS, and P1
+remains the policy owner. No format, schema, permission database or external
+management/COMMIT route is added.
+
+The explicit `McpVnextAppIntegration.attachCredentials` entry composes ONE P15
+boundary and its P0/P12/P8 graph against the same management owner. Its required
+verifier factory receives that exact management owner, so the existing Windows
+channel verifier can bind its protected lookup to the same Profile references.
+Stores/verifier and local pairing/channel services are trusted composition
+inputs, never UI/request fields. `FirstPartyExternalAccess` retains only a local
+request handle and the original authenticated Session/connection. The original
+§9 `attachTrusted` entry remains compatible; it does not acquire pairing actions.
+Neither entry is called by normal startup. No synthetic credential, accepting
+verifier, native operation, listener or transport is installed by construction.
+
+The UI can request pairing, separately confirm approval, and explicitly request
+proof verification. It accepts no credential identity, proof, revision or claimed
+Profile from an external client. Without an admitted service it shows pairing
+unavailable and disables those actions. Available source compositions display
+P0's actual pending/paired states and freshly queried public comparison data.
+Failed/expired/unknown processing withdraws comparison data and requires explicit
+runtime close/drain/reconstruction; selection cannot reset a failed attempt.
+There is no automatic pairing retry, credential replacement or success fallback.
+
+`WindowsFirstPartyPairing`, inside the existing inactive `windows_pairing.dart`,
+adapts the same `WindowsAppPairing` P27 owner. It obtains an independently received
+Submission ID from trusted composition, delegates Challenge/E0 consumption,
+approval and proof completion, exports the existing public trust display once
+through a trusted local export callback, and refreshes initial/completion displays
+from P27/P15. The export does not confirm comparison or save a Bridge Pin. P27's
+independent Bridge comparison, proof publication and separate Missing-only kind 4
+save remain mandatory. No copied digest is authentication or continuous completion
+evidence. Failed public export is not automatically retried. P27's verifier still
+rejects Authentication; it cannot implement the separate connection opener.
+
+Only P0 `pairedDisabled` may begin explicit finite enablement. The credential
+branch then obtains a connection whose Session was created through P15's
+independent Authentication event. Wrong Principal/generation, failed connection
+validation or P4 policy admission immediately disables that enablement. Pairing
+alone never yields a business Session. The connection callback must revalidate
+its original owning channel and return the identical P0 Session or null (the
+existing `WindowsTlsSession.authenticate` contract); no fresh Session inherits
+target approvals. Current P4/P7/P8 policy and final-release checks remain in force.
+The inactive Windows binding exposes `firstPartyConnection` as a direct
+projection of that same Session/authenticate pair, without another evidence
+event, connection attempt or Session owner.
+Missing/revoked Grant denies business access, independently of pairing. READ
+never grants STAGE, and only separate local confirmation of an App-selected
+target invokes P3 approval. Formal COMMIT remains exclusively local Review UI.
+
+Shutdown closes P15 evidence and P27 requests, drains the same P12/P8 and local
+operations before releasing owners/database, and invalidates old Session and
+approval custody. Replacement starts unpaired/disabled even with a surviving
+Association. Existing revoke/CAS, expiry, B0 and reconstruction owners are reused.
+
+Standing offline acceptance is registered in
+`local_authorization_architecture_test.dart` through
+`first_party_pairing_cases.dart`: actual App composition + P15 + temporary SQLite,
+using the existing explicitly synthetic event/association facilities. It covers
+request/approval/proof, independent authentication, finite enable/disable,
+invalid/foreign/repeated inputs, missing/READ-only policy, expiry/revoke/restart,
+local Widget confirmation and pending-verification/database-close settlement.
+The same fixture also composes the actual App root with P27, the existing P20
+fake-Native store, public mathematical proofs and the original Windows channel
+verifier through `firstPartyConnection`, covering the complete local
+pair/confirm/prove/authenticate/enable/target-approve/STAGE/disable sequence.
+It separately withholds an old Session when shutdown races the final async
+channel validation. No listener or actual Windows primitive participates.
+`windows_pairing_test.dart` separately exercises the first-party P27 adapter with
+the existing public mathematical fixtures and fake Native boundary. Neither
+fixture is real Windows/security or installed App/Bridge pairing acceptance.
+
+This closes the bounded lifecycle source-wiring scope only. Actual protected
+credential acquisition, production export/Submission/channel bindings, Bridge
+onboarding experience and real Windows/App/Bridge acceptance remain pending;
+they are not represented by synthetic success or an admission-only remainder.
+There is no production startup flag for these services. HOST_STABILITY_HALT =
+ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED. No DPAPI, real certificate
+generation, ACL, TCP/mTLS, Trial 1A or G0-L1/L2/I experiment is authorized.

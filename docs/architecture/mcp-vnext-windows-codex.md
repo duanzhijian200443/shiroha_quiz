@@ -313,9 +313,14 @@ separate integration scopes, not established by these app-server calls.
 
 The current completion assessment is bounded: the seven-tool business workflow,
 isolated installed-client protocol/READ/STAGE/Review/recovery and dormant App
-controls have evidence. Real first-party pairing/credential onboarding and wiring
-an admitted transport into `attachTrusted`/the production Bridge remain **product
-implementation/integration work**, even though inactive source candidates exist.
+controls have evidence. [MCP contract §10](../product/agent-refactor/mcp-vnext-contract.md#10-inactive-first-party-pairing-integration)
+adds inactive first-party request/confirmation/proof/status wiring through the
+existing P15/P12/P0 owners, with an adapter over the same P27 candidate and
+independent authenticated Session custody. Its tests use synthetic credentials
+and public mathematical/fake-Native fixtures only; they are not actual Windows
+or installed App/Bridge pairing acceptance. Production credential acquisition,
+public export/Submission/channel bindings, Bridge onboarding and admitted
+transport remain **product implementation/integration work**.
 They must not be reported as security-approval-only blockers. Reference-package
 distribution/Windows executable discovery and supported-version acceptance in
 MCP contract §5/AR-R9 are separate unfinished client-integration scope; model-led
