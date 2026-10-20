@@ -63,6 +63,20 @@ profiles retain their existing isolation semantics. Path-authority tests use
 injected absolute temporary support roots and never write the real user data
 directory.
 
+The Windows MCP App smoke entrypoint in
+`tool/mcp_vnext_windows_app_smoke.dart` calls the existing `runShirohaQuiz`
+composition with an explicit `AppDataPaths` and a credential store that rejects
+every operation. Only that entrypoint consumes `SHIROHA_MCP_APP_SMOKE_ROOT`;
+normal `main()` supplies no overrides. The smoke requires an existing immediate
+child of the canonical OS temporary directory, the dedicated name prefix and a
+regular task ownership marker; missing/relative/unowned roots fail before App
+startup, with no fallback. The preparation test seeds synthetic Questions and
+non-secret Profile/Grant policies only, refuses an existing database and retains
+the prepared root only when explicitly selected for a manual run. Smoke HTTP
+connections are rejected; no trusted MCP binding or credentials are installed.
+This is a bounded test entrypoint, not an OS sandbox or a production data-path
+selection option. The Windows MCP guide owns its repeatable commands and limits.
+
 This stage does not migrate, scan, merge, delete, or automatically discover
 legacy worktree-local databases. Recovery or migration of legacy data is a
 separate authorized stage.

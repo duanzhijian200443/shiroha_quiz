@@ -187,6 +187,40 @@ existing formal security acceptance criteria.
 
 ### Retained implementation history and production dependencies
 
+The 2026-10-20 Windows App functional smoke adds actual dormant desktop controls
+and user-attested cold restart/ordinary synthetic bank evidence, recorded with
+its isolation procedure and limits in the
+[Windows MCP guide](mcp-vnext-windows-codex.md#isolated-windows-flutter-app-smoke).
+The following assessment supplements the scheduling amendment and retained
+history; it does not mark full AR-R6B or Windows functional completion accepted.
+
+| Existing evidence | Delivered bounded capability |
+|---|---|
+| Merged [#309](https://github.com/duanzhijian200443/shiroha_quiz/pull/309) | Seven-tool stdio projection, App-owned READ/STAGE and synthetic Proposal/Review/idempotency/recovery; no production transport. |
+| Merged [#310](https://github.com/duanzhijian200443/shiroha_quiz/pull/310) | Windows functionality-first scheduling and deferred security experiments; no runtime acceptance. |
+| Merged [#311](https://github.com/duanzhijian200443/shiroha_quiz/pull/311) | Independent authorized READ Proposal lifecycle/status/counts by original key, including after Review/reopen. |
+| Merged [#312](https://github.com/duanzhijian200443/shiroha_quiz/pull/312) | Installed Windows Codex launch/discovery/schemas, actual production refusal, EOF/reconnect and launch failures. |
+| Merged [#313](https://github.com/duanzhijian200443/shiroha_quiz/pull/313) | Actual installed-Codex synthetic STAGE, durable Proposal, local Review, idempotency and lost-reply/original-key recovery. |
+| Merged [#314](https://github.com/duanzhijian200443/shiroha_quiz/pull/314) | Installed-Codex synthetic File selection/READ/passages with real F1/FTS5, scope/source invalidation and process cleanup. |
+| Merged [#315](https://github.com/duanzhijian200443/shiroha_quiz/pull/315) | Dormant product App composition, first-party controls, exact-Session target approval and close/B0/rebuild barriers, with deterministic synthetic acceptance. |
+
+Current remote facts and PR CI/evidence were checked for all seven merged PRs;
+#312-#315 include fixed-target Windows Verifier evidence. Historical merged-stage
+acceptance is preserved without manufacturing missing older approval markers.
+
+| Windows completion condition / remaining scope | Current assessment |
+|---|---|
+| Complete seven-tool business surface including lifecycle query | Implemented with bounded source/protocol evidence in #309/#311; no business rewrite needed. |
+| Real-client isolated E2E | Installed-Codex synthetic workflows have executed evidence in #312-#314 and #315's independent Windows verification. |
+| STAGE/persistence/local Review/idempotency/disconnect-restart recovery | Covered through the same App owners in #309/#311/#313 and subsequent regressions. |
+| Windows launch/connection/disconnection/errors and App controls | Installed-client fixture accepted in #312-#314; #315 supplies dormant controls. This smoke adds desktop display/refusal and user-attested restart/bank behavior; authenticated production App/Bridge use remains unproved. |
+| Remaining blockers are exclusively production admission/security | **Not satisfied.** Real first-party pairing/credential onboarding and production App/Bridge binding still need product integration. Their inactive source candidates and admission prerequisites do not establish usable integration. |
+| Separate reference-client scope | MCP §5/AR-R9 reference-package distribution, Windows executable discovery/supported-version acceptance remain unfinished; model-directed/Codex Desktop-interactive use remains unverified. |
+| Admission-only remainder | Formal Windows credential/storage/isolation/transport/lifecycle and AR-R6A/AR-R6B production exposure acceptance remain pending independently of implementation. |
+
+The overall Windows completion condition therefore remains open. No Trial 1A or
+G0-L1/L2/I work resumes, and all production/security gates above remain unchanged.
+
 The bounded MCP-vNext STAGE source slice under
 [MCP contract §7](../product/agent-refactor/mcp-vnext-contract.md#7-bounded-stage-stdio-source-composition)
 provides independent stdio projection and explicit App-side composition for

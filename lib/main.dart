@@ -82,6 +82,7 @@ import 'application/u1_workspace/u1_workspace_dtos.dart';
 import 'application/u1_workspace/u1_workspace_facade.dart';
 import 'data/repositories/ai_engine_repository.dart';
 import 'data/credentials/secure_engine_credential_store.dart';
+import 'data/persistence/engine_credential_store.dart';
 import 'data/repositories/ai_config_store.dart';
 import 'data/credentials/ai_engine_credential_activation.dart';
 import 'data/repositories/agent_config_repository.dart';
@@ -194,17 +195,25 @@ class DevHttpOverrides extends HttpOverrides {
   }
 }
 
-void main() {
+void main() => runShirohaQuiz();
+
+/// Runs the existing App composition with explicit isolated-smoke dependencies.
+///
+/// Normal startup supplies neither override and retains its OS data authority.
+void runShirohaQuiz({
+  AppDataPaths? dataPaths,
+  EngineCredentialStore Function()? createCredentialStore,
+}) {
   runZonedGuarded<Future<void>>(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
-      final supportDirectory = await getApplicationSupportDirectory();
-      final appDataPaths = AppDataPaths.fromApplicationSupportDirectory(
-        supportDirectory,
-        environment: kReleaseMode
-            ? AppDataEnvironment.production
-            : AppDataEnvironment.development,
-      );
+      final appDataPaths = dataPaths ??
+          AppDataPaths.fromApplicationSupportDirectory(
+            await getApplicationSupportDirectory(),
+            environment: kReleaseMode
+                ? AppDataEnvironment.production
+                : AppDataEnvironment.development,
+          );
       await AppLogger.initialize(
         directory: Directory(appDataPaths.runtimeRoot),
       );
@@ -390,7 +399,8 @@ void main() {
           },
           store: databaseHelper,
           migrationStore: databaseHelper,
-          createCredentialStore: SecureEngineCredentialStore.new,
+          createCredentialStore:
+              createCredentialStore ?? SecureEngineCredentialStore.new,
           configStore: aiConfigStore,
           agentReferences: agentConfigStore,
         );

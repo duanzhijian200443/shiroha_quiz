@@ -211,6 +211,81 @@ suites listed above plus `test/application/external/external_file_read_test.dart
 test and both changed support files, the read-only format gate and
 `git diff --check` passed. Repository/global acceptance remains NOT_EVALUATED.
 
+## Isolated Windows Flutter App smoke
+
+The smoke entrypoint reuses the actual Windows runner and `main.dart` App
+composition, including `McpVnextAppIntegration`, the authorization page and
+existing Proposal/Review owners. It injects explicit temporary `AppDataPaths`
+before any normal application-support lookup and a rejecting engine credential
+store; HTTP connection creation is denied. It installs no MCP authentication,
+TrustCore, App/Bridge binding or production listener. Flutter's Debug VM service
+is development tooling, not an MCP listener. No normal Debug/Release data root,
+personal bank, saved key or private document is needed.
+
+Prepare a fresh task-owned temporary root, then run the preparation/isolation
+tests before launching. Use a task shell in the repository root:
+
+```powershell
+$taskSmokeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('shiroha_mcp_app_smoke_' + [Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $taskSmokeRoot | Out-Null
+[System.IO.File]::WriteAllText((Join-Path $taskSmokeRoot '.smoke-owner'), 'MCP-VNEXT-WINDOWS-APP-FUNCTIONAL-SMOKE')
+flutter test --concurrency=1 "--dart-define=SHIROHA_MCP_APP_SMOKE_ROOT=$taskSmokeRoot" test/tool/mcp_vnext_windows_app_smoke_test.dart
+if ($LASTEXITCODE -ne 0) { throw 'Smoke preparation failed; do not launch' }
+flutter run --no-pub -d windows --target tool/mcp_vnext_windows_app_smoke.dart "--dart-define=SHIROHA_MCP_APP_SMOKE_ROOT=$taskSmokeRoot"
+```
+
+The preparation uses the existing repository/authorization owners to create one
+synthetic question in `MCP Smoke Folder` / `MCP Smoke Bank` and two non-secret,
+unpaired Profiles (`Smoke READ`, `Smoke READ + STAGE`). It refuses to reseed an
+existing database. Without a supplied root, the same test creates and removes
+its own temporary fixture. The App entrypoint refuses a missing, relative,
+unowned or non-temporary root before calling the App, with no default fallback.
+The marker identifies a test fixture, not a security credential or authorization
+proof. This is not an OS sandbox; do not open personal files, import documents
+or use provider/native/network features during this bounded smoke.
+
+For a cold restart, close the window and confirm process exit, then launch the
+SAME `build/windows/x64/runner/Debug/shiroha_quiz.exe` bundle. Its compiled define
+retains this isolated root. Do not rebuild another entrypoint or use normal
+`flutter run`/Release as a substitute. Preserve the fixture until manual evidence
+is recorded; do not delete a live runtime's files.
+
+### Executed App evidence, 2026-10-20
+
+The Executor built and launched this isolated desktop App on the merged #315
+baseline. It observed the existing `我的 -> 外部 Agent 授权` page, both synthetic
+Profiles, READ/STAGE/exact-bank/Egress policy display, the 5/10/30-minute menu,
+and the selected Profile remaining unconnected with access disabled. Clicking
+the disabled finite-enable and STAGE-target controls did not enable access or
+open an approval. Returning to the page reconstructed its controls and retained
+the disabled state. The fixture's database and runtime log were under the
+explicit temporary root; no real credential backend was used.
+
+The user then took over the window and reported all supplied checks normal:
+page/Profile/policy display, unavailable controls, page reconstruction, window
+close/process exit and cold restart with the same bundle, retained synthetic
+Profiles and ordinary synthetic bank browsing/answer/save behavior. Exit/cold
+restart and ordinary App bank behavior are **user-attested manual evidence**;
+they were not independently observed or recorded by a Verifier. No authenticated
+real Session or target approval was created. Invalidation of previously active
+Sessions/approvals remains separately proved by the synthetic product-root tests,
+not by this dormant desktop run.
+
+Executor regression evidence for the unchanged executable implementation:
+
+| Run | Result |
+|---|---|
+| Smoke root/credential/HTTP/preparation and existing AppDataPaths tests | 8 PASS |
+| Product control/authorization architecture and UI, SDK vNext E2E, four v0 suites and Proposal approval/edit/preview | 96 PASS |
+| Question repository v2, typed/legacy question list and bank detail | 109 PASS |
+| Installed Codex CLI 0.144.1: compatibility, synthetic STAGE/Review, File READ (separate serial commands) | 4 + 4 + 13 PASS; no skips |
+
+The Desktop backend was not rerun in this smoke assignment. Its prior fixed-head
+Windows acceptance is recorded on #314/#315, not counted as a new run here.
+The smoke adds no production pairing, transport, external COMMIT or security
+experiment evidence. Fixed-candidate standing CI and independent review remain
+delivery gates; manual user confirmation is not `[VERIFICATION APPROVAL]`.
+
 ## Evidence levels and remaining functional scope
 
 | Evidence | What it proves |
@@ -220,7 +295,7 @@ test and both changed support files, the read-only format gate and
 | SDK synthetic App workflow | SDK clients use the shared synthetic App to prove modern/legacy stdio STAGE, idempotency, Review, lifecycle and authorization semantics. This evidence alone does not prove installed Codex behavior. |
 | Codex synthetic STAGE | The opt-in installed-client suite uses actual `mcpServer/tool/call` plus the test-only mailbox to reach that same App composition and persisted Proposal/Review lifecycle. Results count only when run against an explicit installed executable; SDK success or skipped cases cannot substitute. |
 | Codex synthetic File READ | The separate opt-in suite reaches existing P6/F1/RAG/FTS5 through actual Codex calls, explicit file selection and bounded passages, including authorization/source invalidation and cleanup. Only executed cases against the named installed binary establish client evidence. |
-| First-party App controls | The product root and local Profile/finite-enable/target-confirm/disable controls are proved with synthetic credentials and temporary SQLite under MCP contract §9. Production startup installs only a dormant owner and reports unavailable. |
+| First-party App controls | The product root and local Profile/finite-enable/target-confirm/disable controls are proved with synthetic credentials and temporary SQLite under MCP contract §9. The real desktop smoke above additionally checks dormant display/refusal and records user-confirmed restart/bank behavior. It supplies no real authentication. |
 | Production business access | **Not enabled.** The standalone entry has no admitted authenticated App/Bridge transport or real pairing/credential binding. SDK success and Codex discovery/refusal do not satisfy production activation. |
 
 The original private-notification connection gap is addressed only by this
@@ -235,6 +310,17 @@ by the separate synthetic File READ fixture above. This closes that isolated
 client-fixture gap only; it supplies no production App/Bridge or approval UI.
 Reference-plugin distribution and model-directed/Desktop-interactive usage are
 separate integration scopes, not established by these app-server calls.
+
+The current completion assessment is bounded: the seven-tool business workflow,
+isolated installed-client protocol/READ/STAGE/Review/recovery and dormant App
+controls have evidence. Real first-party pairing/credential onboarding and wiring
+an admitted transport into `attachTrusted`/the production Bridge remain **product
+implementation/integration work**, even though inactive source candidates exist.
+They must not be reported as security-approval-only blockers. Reference-package
+distribution/Windows executable discovery and supported-version acceptance in
+MCP contract §5/AR-R9 are separate unfinished client-integration scope; model-led
+and Codex Desktop-interactive use remain unverified. No business reimplementation
+or experiment resumption follows from this assessment.
 
 Production security admission independently requires the frozen Windows
 credential/storage/isolation/transport/lifecycle evidence and AR-R6A/AR-R6B
