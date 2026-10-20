@@ -30,23 +30,40 @@ final class SyntheticMailboxPort implements VnextMcpPort {
     var aborted = false;
     final subscription = cancelled.listen((_) => aborted = true);
     final deadline = Stopwatch()..start();
+    bool stopped() => _closed || aborted || !available();
+    bool expired() => deadline.elapsed >= const Duration(seconds: 8);
+    Future<void> poll() =>
+        Future<void>.delayed(const Duration(milliseconds: 10));
     try {
       // Rename publishes only complete JSON; all payloads are synthetic and
       // task-owned. Files are never a durable business journal or retry queue.
+      // A transient local lock is not an App outcome: retry only this
+      // disposable exchange within the same deadline, never the App call.
       final temp = File('$base.writing');
-      await temp
-          .writeAsString(jsonEncode({'tool': tool, 'arguments': arguments}));
-      await temp.rename(request.path);
-      while (!_closed &&
-          !aborted &&
-          available() &&
-          deadline.elapsed < const Duration(seconds: 8)) {
-        if (await response.exists()) {
-          return (jsonDecode(await response.readAsString()) as Map)
-              .cast<String, Object?>();
+      final payload = jsonEncode({'tool': tool, 'arguments': arguments});
+      while (true) {
+        try {
+          await temp.writeAsString(payload);
+          await temp.rename(request.path);
+          break;
+        } on FileSystemException {
+          if (stopped() || expired()) return vnextFailure('outcome_unknown');
+          await poll();
+        }
+      }
+      while (!stopped() && !expired()) {
+        try {
+          if (await response.exists()) {
+            return (jsonDecode(await response.readAsString()) as Map)
+                .cast<String, Object?>();
+          }
+        } on FileSystemException {
+          // Locked while another process finishes writing; keep polling.
+        } on FormatException {
+          // A transient incomplete local read is not an App outcome.
         }
         // Poll only the disposable test link, never retry the owning App call.
-        await Future<void>.delayed(const Duration(milliseconds: 10));
+        await poll();
       }
       return vnextFailure('outcome_unknown');
     } catch (_) {

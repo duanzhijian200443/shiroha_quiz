@@ -214,7 +214,7 @@ acceptance is preserved without manufacturing missing older approval markers.
 | Real-client isolated E2E | Installed-Codex synthetic workflows have executed evidence in #312-#314 and #315's independent Windows verification. |
 | STAGE/persistence/local Review/idempotency/disconnect-restart recovery | Covered through the same App owners in #309/#311/#313 and subsequent regressions. |
 | Windows launch/connection/disconnection/errors and App controls | Installed-client fixture accepted in #312-#314; #315 supplies dormant controls. This smoke adds desktop display/refusal and user-attested restart/bank behavior; authenticated production App/Bridge use remains unproved. |
-| Remaining blockers are exclusively production admission/security | **Not satisfied.** MCP §10 adds inactive first-party pairing lifecycle source wiring and isolated evidence. Actual credential/export/Submission/channel bindings, Bridge onboarding and Windows App/Bridge acceptance remain product integration work as well as requiring admission. |
+| Remaining blockers are exclusively production admission/security | **Not satisfied.** MCP §§10–11 add inactive App pairing and Bridge local onboarding controls with isolated evidence. Actual credential/export/Submission/completion/channel bindings and Windows App/Bridge acceptance remain product integration work as well as requiring admission. |
 | Separate reference-client scope | MCP §5/AR-R9 reference-package distribution, Windows executable discovery/supported-version acceptance remain unfinished; model-directed/Codex Desktop-interactive use remains unverified. |
 | Admission-only remainder | Formal Windows credential/storage/isolation/transport/lifecycle and AR-R6A/AR-R6B production exposure acceptance remain pending independently of implementation. |
 
@@ -257,9 +257,14 @@ Profile selection, finite enablement and explicit STAGE target confirmation.
 Its source-only [pairing extension](../product/agent-refactor/mcp-vnext-contract.md#10-inactive-first-party-pairing-integration)
 adds request/confirmation/proof/status controls, the existing P27 adapter and
 separate P15-authenticated Session custody. Synthetic/offline checks cover those
-local boundaries. Actual credential acquisition, public export/Submission/channel
-bindings, Bridge onboarding and admitted App/Bridge transport remain inactive and
-require further integration/acceptance. These fixtures and the App slice do not establish reference-plugin distribution or
+local boundaries. The [Bridge local onboarding controls](../product/agent-refactor/mcp-vnext-contract.md#11-inactive-first-party-bridge-onboarding-controls)
+now connect the same Enrollment, two explicit full-digest/Revision comparisons,
+Proof and Missing-only Pin save, with cancel/expiry/close and late-input isolation.
+This is inactive product source wiring with public mathematical/Fake Native
+evidence. Actual credential acquisition, independent public export/Submission/
+completion transfer bindings and admitted App/Bridge channels remain inactive and
+require further integration/acceptance. These fixtures and the App/Bridge source
+slices do not establish reference-plugin distribution or
 model-directed/Desktop-interactive usage.
 Independent Windows verification remains necessary for the exact candidate.
 These functional/integration gaps are distinct from frozen production
