@@ -47,7 +47,7 @@ final class _FailSwap extends BackupFaultInjector {
 
 /// The exact product root, with existing isolated DB/F1/RAG owners. Only this
 /// fixture supplies synthetic P0 credentials; product startup supplies none.
-final class FirstPartyAppHarness {
+class FirstPartyAppHarness {
   final files = FileReadHarness();
   late LocalAuthorizationService policy;
   late McpVnextAppIntegration integration;
@@ -487,6 +487,12 @@ void registerFirstPartyAppIntegrationTests() {
             .widget<FilledButton>(find.widgetWithText(FilledButton, '限时启用'))
             .onPressed,
         isNull);
+    expect(find.text('配对不可用：尚无已准入的凭据服务'), findsOneWidget);
+    expect(
+        tester
+            .widget<OutlinedButton>(find.widgetWithText(OutlinedButton, '请求配对'))
+            .onPressed,
+        isNull);
     expect((await tester.runAsync(f.controls.status))!.enabled, isFalse);
     await tester.pumpWidget(const SizedBox());
   });
@@ -497,10 +503,10 @@ void registerFirstPartyAppIntegrationTests() {
     final main = File('lib/main.dart').readAsStringSync();
     expect(main, contains('McpVnextAppIntegration('));
     expect(main, isNot(contains('.attachTrusted(')));
+    expect(main, isNot(contains('.attachCredentials(')));
     final root = File('lib/composition/mcp_vnext_app_integration.dart')
         .readAsStringSync();
     for (final forbidden in [
-      'ExternalTrustCore(',
       'implements ExternalCredentialPort',
       'windows_tls',
       'windows_pairing',

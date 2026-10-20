@@ -1,6 +1,9 @@
 import 'dart:async';
 import '../application/capabilities/capability.dart';
 import '../application/external/external_authorization.dart';
+import '../application/external/external_credential_association.dart';
+import '../application/external/external_credential_boundary.dart';
+import '../application/external/first_party_external_credentials.dart';
 import '../application/external/external_file_read.dart';
 import '../application/external/external_generated_stage.dart';
 import '../application/external/external_read_context.dart';
@@ -79,18 +82,81 @@ final class McpVnextAppIntegration {
     if (_attaching != null || !controls.isCurrent) {
       throw StateError('External composition unavailable');
     }
-    return _attaching = _attach(trust, readiness, authenticationAttempt);
+    return _attaching = _attach((_) => trust, readiness, authenticationAttempt);
   }
 
-  Future<VnextMcpPort> _attach(ExternalTrustCore trust,
-      LocalHostReadinessPort readiness, Object? Function() attempt) async {
+  /// Composes an inactive credential boundary against this App's management.
+  ///
+  /// Startup never calls this entry. All
+  /// protected stores, verification and channel ownership require independent
+  /// admission; this method opens no Windows object, listener or credential.
+  Future<VnextMcpPort> attachCredentials({
+    required ExternalCredentialAssociationStore associations,
+    required ExternalCredentialVerificationPort Function(
+            ExternalAuthorizationManagement management)
+        verification,
+    required ExternalClock clock,
+    required String installationId,
+    required LocalHostReadinessPort readiness,
+    required FirstPartyCredentialServices Function(
+            ExternalCredentialBoundary boundary)
+        services,
+    Duration Function()? monotonicNow,
+    Duration pairingRequestLifetime =
+        ExternalCredentialBoundary.evidenceLifetime,
+  }) {
+    if (_attaching != null || !controls.isCurrent) {
+      throw StateError('External composition unavailable');
+    }
+    late ExternalCredentialBoundary boundary;
+    return _attaching = _attach(
+        (management) {
+          boundary = ExternalCredentialBoundary.offline(
+              associations: associations,
+              verification: verification(management),
+              management: management,
+              clock: clock,
+              installationId: installationId,
+              compositionIsCurrent: () => controls.isCurrent && _isCurrent(),
+              monotonicNow: monotonicNow,
+              pairingRequestLifetime: pairingRequestLifetime);
+          return ExternalTrustCore(
+              credentials: boundary, clock: clock, mintProfileId: mintId);
+        },
+        readiness,
+        () => null,
+        credentials: (coordinator, trust) {
+          boundary.attach(coordinator, trust);
+          final result = services(boundary);
+          if (!identical(result.boundary, boundary)) {
+            throw StateError('External composition unavailable');
+          }
+          return result;
+        });
+  }
+
+  Future<VnextMcpPort> _attach(
+      ExternalTrustCore Function(ExternalAuthorizationManagement) createTrust,
+      LocalHostReadinessPort readiness,
+      Object? Function() attempt,
+      {FirstPartyCredentialServices Function(
+              ExternalTrustCoordinator, ExternalTrustCore)?
+          credentials}) async {
     final owner = await localAuthority.openSession();
+    late ExternalTrustCore trust;
     final management = ExternalAuthorizationManagement(
         repository: authorization,
         compositionIsCurrent: () =>
             controls.isCurrent && owner.isCurrent && _isCurrent(),
         mintProfileId: mintId,
-        clock: trust.clock.now);
+        clock: () => trust.clock.now());
+    try {
+      trust = createTrust(management);
+    } catch (_) {
+      management.invalidate();
+      owner.close();
+      rethrow;
+    }
     final stages = ExternalGeneratedStageService(
         trust: trust,
         management: management,
@@ -120,8 +186,21 @@ final class McpVnextAppIntegration {
         authentication:
             VnextMcpSessionAuthentication(controls.authenticatedSession),
         approvedTargets: const []);
+    FirstPartyCredentialServices? credentialServices;
     Future<void> shutdown() async {
-      await Future.wait([coordinator.shutdown(), port.close()]);
+      // Close evidence first; P15/P27 drain the same P12/P8 owners before
+      // advancing generation. No Windows owner may be released before drain.
+      if (trust.credentials case final ExternalCredentialBoundary boundary) {
+        final closing = boundary.shutdown();
+        await Future.wait([
+          closing,
+          if (credentialServices != null) credentialServices.pairing.close(),
+        ]);
+        await credentialServices?.close();
+      } else {
+        await coordinator.shutdown();
+      }
+      await port.close();
       reads.close();
       stages.close();
       management.invalidate();
@@ -129,6 +208,7 @@ final class McpVnextAppIntegration {
     }
 
     try {
+      credentialServices = credentials?.call(coordinator, trust);
       controls.installTrusted(FirstPartyExternalBinding(
           management: management,
           coordinator: coordinator,
@@ -136,6 +216,7 @@ final class McpVnextAppIntegration {
           stages: stages,
           localOwner: owner,
           authenticationAttempt: attempt,
+          credentials: credentialServices,
           publishApprovals: port.replaceApprovedTargets,
           shutdown: shutdown));
       await coordinator.startOffline();

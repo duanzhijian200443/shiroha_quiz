@@ -4,7 +4,7 @@ import '../../application/external/first_party_external_access.dart';
 import '../../application/external/external_trust_core.dart';
 import '../../application/generated_question/generated_local_authority.dart';
 
-/// Local control has no pairing simulation, credential input or external route.
+/// Local control delegates pairing to the admitted owner; no credential input.
 final class FirstPartyExternalControl extends StatefulWidget {
   const FirstPartyExternalControl({super.key, required this.access});
   final FirstPartyExternalAccess access;
@@ -57,9 +57,13 @@ final class _ControlState extends State<FirstPartyExternalControl> {
         setState(() => _status = status);
       }
     } catch (_) {
+      FirstPartyExternalStatus status = const FirstPartyExternalStatus();
+      try {
+        status = await access.status();
+      } catch (_) {/* Closed/replaced owners expose no stale display. */}
       if (_current) {
         setState(() {
-          _status = const FirstPartyExternalStatus();
+          _status = status;
           _error = '操作不可用，请重新选择并检查当前连接与授权。';
         });
       }
@@ -98,6 +102,26 @@ final class _ControlState extends State<FirstPartyExternalControl> {
           }
           after = page.nextId;
         } while (after != null);
+      });
+
+  Future<void> _approvePairing() => _action(() async {
+        final confirmed = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+                    title: const Text('确认客户端配对'),
+                    content:
+                        const Text('请先在客户端独立核对完整配对摘要。批准仍需通过凭据证明，且不会授予访问权限。'),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.pop(context, false),
+                          child: const Text('取消')),
+                      FilledButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          child: const Text('批准配对'))
+                    ]));
+        if (_current && confirmed == true) {
+          await widget.access.approvePairing();
+        }
       });
 
   Future<void> _approve() => _action(() async {
@@ -143,7 +167,10 @@ final class _ControlState extends State<FirstPartyExternalControl> {
               const Text('MCP vNext 访问控制'),
               Text(_status.connected && _current
                   ? '可信连接已认证'
-                  : '未连接 / 不可用：生产认证与传输尚未准入'),
+                  : _status.pairingAvailable && _current
+                      ? '尚未认证业务连接；配对完成后需单独验证连接凭据'
+                      : '未连接 / 不可用：生产认证与传输尚未准入'),
+              if (!_status.pairingAvailable) const Text('配对不可用：尚无已准入的凭据服务'),
               if (_status.profileId != null)
                 Text('已选 Profile：${_status.profileId}'),
               if (_status.pairing != null)
@@ -156,6 +183,12 @@ final class _ControlState extends State<FirstPartyExternalControl> {
                   PairingState.revoked => '已撤销',
                   PairingState.recoveryRequired => '需要重新恢复配对',
                 }}'),
+              if (_status.pairingDisplay?.digest != null)
+                SelectableText('配对核对摘要：${_status.pairingDisplay!.digest}'),
+              if (_status.pairingDisplay?.revision != null)
+                Text('已确认凭据版本：${_status.pairingDisplay!.revision}'),
+              if (_status.pairingFailed)
+                const Text('配对未确认或已失效。请关闭并重新建立可信配对环境；不会自动重试。'),
               Text(enabled
                   ? '本次运行已启用 · 已批准目标 ${_status.approvedTargets}'
                   : '访问已禁用'),
@@ -167,6 +200,33 @@ final class _ControlState extends State<FirstPartyExternalControl> {
                 OutlinedButton(
                     onPressed: !_current || _busy ? null : _select,
                     child: const Text('选择连接 Profile')),
+                OutlinedButton(
+                    onPressed: !_current ||
+                            _busy ||
+                            !_status.pairingAvailable ||
+                            _status.pairingFailed ||
+                            _status.pairing != PairingState.unpaired
+                        ? null
+                        : () => _action(widget.access.requestPairing),
+                    child: const Text('请求配对')),
+                OutlinedButton(
+                    onPressed: !_current ||
+                            _busy ||
+                            !_status.pairingAvailable ||
+                            _status.pairingFailed ||
+                            _status.pairing != PairingState.requestPending
+                        ? null
+                        : _approvePairing,
+                    child: const Text('确认配对')),
+                OutlinedButton(
+                    onPressed: !_current ||
+                            _busy ||
+                            !_status.pairingAvailable ||
+                            _status.pairingFailed ||
+                            _status.pairing != PairingState.approvedPendingProof
+                        ? null
+                        : () => _action(widget.access.completePairing),
+                    child: const Text('验证配对证明')),
                 DropdownButton<int>(
                     value: _minutes,
                     items: [
@@ -180,7 +240,8 @@ final class _ControlState extends State<FirstPartyExternalControl> {
                     onPressed: !_current ||
                             _busy ||
                             enabled ||
-                            !_status.connected ||
+                            (!_status.connected && !_status.pairingAvailable) ||
+                            _status.pairingFailed ||
                             _status.pairing != PairingState.pairedDisabled
                         ? null
                         : () => _action(() =>

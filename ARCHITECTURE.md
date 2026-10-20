@@ -488,6 +488,15 @@ explicit P3 target confirmation; UI supplies no credential or READ-to-STAGE
 upgrade. Database close drains the owner before B0 swap/rollback or rebuild;
 replacement starts disabled. MCP contract §9 owns this bounded App slice and
 the remaining production pairing/authentication/transport admission gap.
+MCP contract §10 extends that owner with an explicit inactive P15 credential
+composition, local request/approval/proof actions and original-channel Session
+custody. The same P27 Data candidate exposes a first-party adapter; no startup
+imports it. P0 remains the sole pairing/identity authority, P15 verifies evidence,
+and a separate authenticated connection is required before business Session use.
+Missing Grant never prevents independent pairing, nor does pairing grant access.
+No synthetic service, protected-store/native operation or listener enters normal
+startup; actual credential/Bridge/channel bindings and Windows acceptance remain
+pending. This is source integration, not production admission or activation.
 
 The bounded lifecycle extension adds independent READ Proposal metadata over
 the same persistence owner, through P7/P8 and a lifecycle-only IPC schema v2.

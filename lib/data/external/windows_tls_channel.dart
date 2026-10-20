@@ -199,6 +199,12 @@ final class WindowsTlsSession implements OfflineIpcAuthenticationPort {
   final WindowsChannelVerification _owner;
   final _ChannelAttempt _event;
   final ExternalSession session;
+
+  /// Inactive first-party custody of this SAME P15-authenticated connection.
+  ///
+  /// No new authentication event or Session is minted by this projection.
+  FirstPartyCredentialConnection get firstPartyConnection =>
+      FirstPartyCredentialConnection(session, authenticate);
   bool get isLive => _owner.isLive(_event);
   @override
   Future<ExternalSession?> authenticate() async {

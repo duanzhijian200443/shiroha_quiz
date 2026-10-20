@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import '../../application/external/external_authorization.dart';
 import '../../application/external/external_credential_association.dart';
 import '../../application/external/external_credential_boundary.dart';
+import '../../application/external/first_party_external_credentials.dart';
 import 'exchange_message_codec.dart';
 import 'external_bootstrap_bytes.dart';
 import 'external_certificate_der.dart';
@@ -34,6 +35,65 @@ final class PairingCompletionDisplay {
   final String digest;
   @override
   String toString() => 'PairingCompletionDisplay(REDACTED)';
+}
+
+/// An inactive first-party adapter over the same P27 owner.
+///
+/// Construction starts no
+/// Windows operations. Trusted composition supplies the Submission ID and a
+/// public-material export sink for independent Bridge comparison.
+final class WindowsFirstPartyPairing implements FirstPartyPairingPort {
+  const WindowsFirstPartyPairing({
+    required this.owner,
+    required this.submissionId,
+    required this.exportPublicTrust,
+  });
+  final WindowsAppPairing owner;
+  final Future<Uint8List> Function() submissionId;
+
+  /// The local public-material export without comparison or Pin authority.
+  final Future<void> Function(PairingTrustDisplay) exportPublicTrust;
+
+  @override
+  Future<FirstPartyPairingRequest> request(
+      ExternalProfileReference profile) async {
+    final request = await owner.createChallenge(profile, await submissionId());
+    await exportPublicTrust(await owner.initialDisplay(request));
+    // Export may await local IO/user work; recheck before releasing custody.
+    await owner.initialDisplay(request);
+    return _FirstPartyWindowsRequest(owner, request);
+  }
+
+  @override
+  Future<void> close() => owner.close();
+}
+
+final class _FirstPartyWindowsRequest implements FirstPartyPairingRequest {
+  _FirstPartyWindowsRequest(this.owner, this.request);
+  final WindowsAppPairing owner;
+  final AppPairingRequest request;
+  bool _completed = false;
+
+  @override
+  Future<FirstPartyPairingDisplay> display() async {
+    if (_completed) {
+      final display = await owner.completionDisplay(request);
+      return FirstPartyPairingDisplay(
+          digest: display.digest, revision: display.revision);
+    }
+    final display = await owner.initialDisplay(request);
+    return FirstPartyPairingDisplay(digest: display.digest);
+  }
+
+  @override
+  Future<void> approve() => owner.approve(request);
+
+  @override
+  Future<void> complete() async {
+    await owner.complete(request);
+    await owner.completionDisplay(request);
+    _completed = true;
+  }
 }
 
 /// Local opaque workflow handle; P0 alone owns PairingState.

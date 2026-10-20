@@ -3027,6 +3027,18 @@ auto-compensation or alternate Credential Store is introduced.
 
 ### Package 1 standing offline coverage index
 
+The inactive first-party integration under MCP contract §10 adds
+`WindowsFirstPartyPairing` in this SAME P27 library. It adapts the original local
+request/display/approval/completion operations to an Application port, exports
+public trust material through an explicitly supplied local sink, and rechecks
+the current display after export. It adds no production import, Windows operation
+at construction, second PairingState or evidence producer. Independent Bridge
+comparison, proof and separate Missing-only Pin save remain mandatory. P27 still
+rejects Authentication. Its adapter test uses the existing public mathematical
+and fake-Native fixtures; it establishes no real Windows or process acceptance.
+Production export/Submission/channel bindings and all A/X admission gates remain
+pending; HOST_STABILITY_HALT stays ACTIVE and no L1/L2/I work resumes.
+
 The new `test/data/external/windows_pairing_test.dart` is registered exactly
 once in standing PR contract checks, alongside the directly affected suites:
 
@@ -3142,6 +3154,13 @@ unknown or reused events open nothing. Close, runtime replacement, certificate/
 Enablement expiry, Disable, Association invalidation and observed policy revision
 changes permanently invalidate the channel binding. P8/P7 still revalidate the
 Session/current Grant/Scope/Context and final Egress for every operation.
+
+The inactive MCP §10 first-party integration may retain
+`WindowsTlsSession.firstPartyConnection`, a direct projection of that SAME
+P15-created Session and its original `authenticate` revalidation callback. The
+projection opens no channel and mints no evidence or Session. Disconnect and
+other original invalidations still latch; no copied pairing display, stored
+Association or UI enablement can implement channel Authentication.
 
 ### B3: reservations, bounded input and existing P9/P10
 

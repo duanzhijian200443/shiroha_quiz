@@ -370,6 +370,9 @@ void main() {
     await h.enable();
     final channel = MemoryTlsChannel(vectorBytes('clientDer'));
     final binding = await h.verifier.authenticate(channel, h.plan);
+    final firstParty = binding.firstPartyConnection;
+    expect(firstParty.session, same(binding.session));
+    expect(await firstParty.authenticate(), same(binding.session));
     expect(binding.session.principal.profileId,
         h.pairing.local.reference.profileId);
     expect(binding.isLive, isTrue);
@@ -381,6 +384,7 @@ void main() {
     channel.open = true;
     expect(binding.isLive, isFalse);
     expect(await binding.authenticate(), isNull);
+    expect(await firstParty.authenticate(), isNull);
   });
   test(
       'B2 pairing alone, disabled Profile, unregistered leaf and Native rejection deny',
