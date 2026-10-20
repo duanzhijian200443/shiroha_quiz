@@ -66,6 +66,17 @@ class FakeApi:
         return self.blobs[artifact_id]
 
 
+class SequenceApi(FakeApi):
+    def __init__(self, responses):
+        super().__init__()
+        self.responses = list(responses)
+        self.job_calls = 0
+
+    def list_jobs(self, run_id, attempt):
+        self.job_calls += 1
+        return self.responses[min(self.job_calls - 1, len(self.responses) - 1)]
+
+
 def jobs_for(names, conclusion="success", head="a" * 40, attempt=1):
     return [{"name": name, "conclusion": conclusion, "head_sha": head,
              "run_attempt": attempt, "started_at": "2026-10-17T10:00:00Z",
@@ -134,7 +145,7 @@ class GateFixture(unittest.TestCase):
 
     def validate(self, plan, event, results, api=None, run_id=2000, attempt=1):
         return gate.validate(plan, self.repo, results, api, "pull_request", event,
-                             run_id, attempt)
+                             run_id, attempt, pause=lambda _seconds: None)
 
 
 class GateTest(GateFixture):
@@ -235,6 +246,18 @@ class GateTest(GateFixture):
             self.validate(plan, event, self.results(plan), failed)
         with self.assertRaisesRegex(gate.GateError, "matrix_unverifiable"):
             self.validate(plan, event, self.results(plan), None)
+
+    def test_pending_matrix_observation_is_polled_until_settled(self):
+        head = self.commit({"lib/app.dart": "code\n"})
+        plan, event = self.build(head)
+        names = ["Static changed-Dart checks", "TRAIN C finalization parity"] + SHARDS
+        pending = jobs_for(names)
+        pending[-1]["conclusion"] = None
+        api = SequenceApi([pending, jobs_for(names)])
+        report = self.validate(plan, event, self.results(plan), api)
+        self.assertEqual(report["verdict"], "PASS")
+        self.assertEqual(report["shards"], SHARDS)
+        self.assertEqual(api.job_calls, 2)
 
     def test_applied_reuse_is_revalidated_by_the_gate(self):
         code = self.commit({"lib/app.dart": "code\n"})
