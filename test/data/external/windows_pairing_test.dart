@@ -218,6 +218,291 @@ void main() {
   tearDown(() => h.close());
   final rejected = throwsA(anything);
 
+  group('inactive App-Bridge public handoff adapter', () {
+    late WindowsPairingHandoff handoff;
+    late FirstPartyPairingRequest request;
+    late Uint8List id;
+
+    setUp(() {
+      handoff = WindowsPairingHandoff(appOwner: h.app, bridgeOwner: h.bridge);
+    });
+    tearDown(() => handoff.close());
+
+    void begin() {
+      handoff.bridge.beginEnrollment(
+          displayLabel: 'PUBLIC FIXTURE', clientBuild: 'offline');
+      id = handoff.bridge.display().submissionId!;
+    }
+
+    Future<void> challenge() async {
+      begin();
+      request = await handoff.request(h.local.reference);
+    }
+
+    Future<void> proof() async {
+      await challenge();
+      await handoff.bridge.inspectAppTrust();
+      await request.approve();
+      handoff.bridge.confirmInitialAndPublishProof(
+          comparedDigest: (await request.display()).digest!);
+    }
+
+    Future<void> complete() async {
+      await proof();
+      await request.complete();
+      await handoff.bridge.inspectAppCompletion();
+    }
+
+    test('original E0 Submission, independent digests and two manual actions',
+        () async {
+      expect(
+          h.keys, isEmpty); // Construction did not publish or generate a key.
+      begin();
+      final original = h.appExchange.readSubmission(id)!;
+      expect(original.submissionId, id);
+      final files = h.native.calls.exchangeFiles;
+      expect(files.keys.where((key) => key.$1 == 1), hasLength(1));
+      request = await handoff.request(h.local.reference);
+      expect(h.appExchange.readSubmission(id), isNull);
+      expect(files.keys.where((key) => key.$1 == 1), isEmpty);
+      expect(h.bridgeExchange.readChallenge(id)!.submissionId, id);
+      final material = await handoff.readAppPublicTrust(id);
+      expect(material.issuerDer, vectorBytes('issuerDer'));
+      // Public exports retain the existing immutable-copy contract.
+      expect(() => material.issuerDer[0] = 0, throwsUnsupportedError);
+      await handoff.bridge.inspectAppTrust();
+      final appInitial = await request.display();
+      expect(handoff.bridge.display().initialDigest, appInitial.digest);
+      expect(appInitial.digest, matches(RegExp(r'^[0-9a-f]{64}$')));
+      expect(h.appExchange.readProof(id), isNull);
+      await request.approve();
+      expect(h.appExchange.readProof(id), isNull);
+      handoff.bridge
+          .confirmInitialAndPublishProof(comparedDigest: appInitial.digest!);
+      await request.complete();
+      final actual =
+          (await h.associations.read(h.local.reference.profileId)).record!;
+      final imported = await handoff.readAppCompletion(id);
+      expect(imported.revision, actual.revision);
+      expect(imported.digest, (await request.display()).digest);
+      await handoff.bridge.inspectAppCompletion();
+      final displayed = handoff.bridge.display();
+      expect(displayed.completionDigest, imported.digest);
+      expect(h.native.calls.credentialFiles[4], isNull);
+      handoff.bridge.confirmCompletionAndSave(
+          comparedDigest: displayed.completionDigest!,
+          comparedRevision: displayed.revision!);
+      expect(handoff.bridge.display().pinSaved, isTrue);
+      // Successful Bridge closure does not replace or invalidate the App owner.
+      expect((await request.display()).revision, actual.revision);
+      expect(h.local.trust.snapshot(h.local.profile.principal).state,
+          PairingState.pairedDisabled);
+    });
+
+    test('exact-revision idempotency exports 1, never predicts revision 2',
+        () async {
+      final leaf = h.native.service.issueClientLeaf(vectorBytes('point'));
+      await h.associations.register(
+          profileId: h.local.reference.profileId,
+          installationId: bootstrapVector['installationId'] as String,
+          credentialIdentity: leaf.credentialIdentity,
+          expectedRevision: 0,
+          validateManagement: () async {});
+      await proof();
+      expect(h.appExchange.readProof(id), isNotNull);
+      await request.complete();
+      await handoff.bridge.inspectAppCompletion();
+      expect(handoff.bridge.display().revision, 1);
+      expect((await handoff.readAppCompletion(id)).revision, 1);
+    });
+
+    for (final reader in ['trust', 'completion']) {
+      for (final foreign in [false, true]) {
+        test('$reader rejects ${foreign ? 'cross Enrollment' : 'wrong ID'}',
+            () async {
+          await complete();
+          final wrong = foreign
+              ? h.bridge
+                  .beginEnrollment(
+                      displayLabel: 'OTHER', clientBuild: 'offline')
+                  .submissionId
+              : (Uint8List.fromList(id)..[0] ^= 255);
+          await expectLater(
+              reader == 'trust'
+                  ? handoff.readAppPublicTrust(wrong)
+                  : handoff.readAppCompletion(wrong),
+              rejected);
+          expect(handoff.bridge.display().completionDigest, isNull);
+          expect(h.native.calls.credentialFiles[4], isNull);
+          await expectLater(request.display(), rejected);
+        });
+      }
+    }
+
+    test('missing original Submission is not replaced or retried', () async {
+      begin();
+      h.native.calls.exchangeFiles.clear();
+      await expectLater(handoff.request(h.local.reference), rejected);
+      expect(handoff.bridge.display().closed, isTrue);
+      await expectLater(handoff.request(h.local.reference), rejected);
+      expect(h.keys, hasLength(1));
+    });
+
+    test('missing public export fails closed without starting an App request',
+        () async {
+      begin();
+      await expectLater(handoff.bridge.inspectAppTrust(), rejected);
+      await expectLater(handoff.request(h.local.reference), rejected);
+      expect(h.native.calls.associationFile, isNull);
+      expect(h.native.calls.exchangeFiles.keys.where((key) => key.$1 == 2),
+          isEmpty);
+    });
+
+    test('missing Challenge cannot use exported public bytes as success',
+        () async {
+      await challenge();
+      h.native.calls.exchangeFiles.clear();
+      await expectLater(handoff.bridge.inspectAppTrust(), rejected);
+      expect(handoff.bridge.display().initialDigest, isNull);
+      await expectLater(request.approve(), rejected);
+    });
+
+    test('completion before App completion fails without predicted success',
+        () async {
+      await proof();
+      await expectLater(handoff.bridge.inspectAppCompletion(), rejected);
+      expect(h.native.calls.associationFile, isNull);
+      expect(h.native.calls.credentialFiles[4], isNull);
+    });
+
+    for (final failure in ['missing Proof', 'CAS failed', 'CAS unknown']) {
+      test('$failure never releases completion or saves a Pin', () async {
+        await proof();
+        if (failure == 'missing Proof') {
+          h.native.calls.exchangeFiles.clear();
+        } else {
+          h.native.calls.associationCommitStatus =
+              failure == 'CAS failed' ? 4 : 7;
+        }
+        await expectLater(request.complete(), rejected);
+        await expectLater(handoff.bridge.inspectAppCompletion(), rejected);
+        expect(handoff.bridge.display().completionDigest, isNull);
+        expect(h.native.calls.credentialFiles[4], isNull);
+      });
+    }
+
+    test('wrong compared Revision spends save without storing a Pin', () async {
+      await complete();
+      final display = handoff.bridge.display();
+      expect(
+          () => handoff.bridge.confirmCompletionAndSave(
+              comparedDigest: display.completionDigest!,
+              comparedRevision: display.revision! + 1),
+          rejected);
+      expect(h.native.calls.credentialFiles[4], isNull);
+      expect(handoff.bridge.display().completionDigest, isNull);
+    });
+
+    for (final stage in ['trust', 'completion']) {
+      test('$stage expired input stays rejected after clock restoration',
+          () async {
+        if (stage == 'trust') {
+          await challenge();
+          h.advance(const Duration(seconds: 300));
+        } else {
+          await proof();
+          await request.complete();
+          h.advance(const Duration(seconds: 120));
+        }
+        await expectLater(
+            stage == 'trust'
+                ? handoff.bridge.inspectAppTrust()
+                : handoff.bridge.inspectAppCompletion(),
+            rejected);
+        h.advance(const Duration(seconds: -300));
+        await expectLater(request.display(), rejected);
+        expect(handoff.bridge.display().closed, isTrue);
+        expect(h.native.calls.credentialFiles[4], isNull);
+      });
+    }
+
+    for (final invalidation in ['cancel', 'close', 'revoke', 'rebuild']) {
+      test('$invalidation withdraws old completion and cannot revive request',
+          () async {
+        await proof();
+        await request.complete();
+        final old = await request.display();
+        if (invalidation == 'cancel') await handoff.bridge.close();
+        if (invalidation == 'close') await handoff.close();
+        if (invalidation == 'revoke') {
+          await h.boundary.revoke(h.local.reference, 1);
+        }
+        if (invalidation == 'rebuild') {
+          await handoff.close();
+          final replacement =
+              WindowsPairingHandoff(appOwner: h.app, bridgeOwner: h.bridge);
+          addTearDown(replacement.close);
+          expect(replacement.bridge.display().initialDigest, isNull);
+          await expectLater(replacement.readAppCompletion(id), rejected);
+        }
+        await expectLater(handoff.bridge.inspectAppCompletion(), rejected);
+        await expectLater(request.display(), rejected);
+        expect(
+            () => handoff.bridge.confirmCompletionAndSave(
+                comparedDigest: old.digest!, comparedRevision: old.revision!),
+            rejected);
+        expect(h.native.calls.credentialFiles[4], isNull);
+      });
+    }
+
+    for (final stage in ['trust', 'completion']) {
+      for (final action in ['close', 'expire']) {
+        test('$action settles delayed $stage read and denies its late result',
+            () async {
+          if (stage == 'trust') {
+            await challenge();
+          } else {
+            await proof();
+            await request.complete();
+          }
+          h.local.barrier.reached = Completer<void>();
+          h.local.barrier.resume = Completer<void>();
+          final reading = expectLater(
+              stage == 'trust'
+                  ? handoff.bridge.inspectAppTrust()
+                  : handoff.bridge.inspectAppCompletion(),
+              rejected);
+          await h.local.barrier.reached!.future;
+          var settled = false;
+          Future<void>? closing;
+          if (action == 'close') {
+            closing = handoff.close().then((_) => settled = true);
+            await Future<void>.value();
+            expect(settled, isFalse);
+            expect(handoff.bridge.display().initialDigest, isNull);
+          } else {
+            h.advance(const Duration(seconds: 300));
+          }
+          h.local.barrier.resume!.complete();
+          await reading;
+          await closing;
+          expect(handoff.bridge.display().closed, isTrue);
+          expect(h.native.calls.exchangeReadTickets, isEmpty);
+          await expectLater(request.approve(), rejected);
+        });
+      }
+    }
+
+    test('duplicate request never publishes a second Submission or Challenge',
+        () async {
+      await challenge();
+      final files = h.native.calls.exchangeFiles.keys.toSet();
+      await expectLater(handoff.request(h.local.reference), rejected);
+      expect(h.native.calls.exchangeFiles.keys.toSet(), files);
+      await expectLater(request.approve(), rejected);
+    });
+  });
+
   group('first-party Bridge onboarding local controls', () {
     late WindowsBridgeOnboarding controls;
     PairingTrustDisplay? exported;

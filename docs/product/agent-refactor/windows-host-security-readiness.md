@@ -3036,7 +3036,8 @@ at construction, second PairingState or evidence producer. Independent Bridge
 comparison, proof and separate Missing-only Pin save remain mandatory. P27 still
 rejects Authentication. Its adapter test uses the existing public mathematical
 and fake-Native fixtures; it establishes no real Windows or process acceptance.
-Production export/Submission/channel bindings and all A/X admission gates remain
+Section 12 of the MCP contract supplies the inactive public handoff seam;
+Windows process/channel bindings and all A/X admission gates remain
 pending; HOST_STABILITY_HALT stays ACTIVE and no L1/L2/I work resumes.
 
 MCP contract §11 adds `WindowsBridgeOnboarding` in the SAME P27 library and
@@ -3048,8 +3049,15 @@ display never triggers either human confirmation. Failure/duplicate/expiry/close
 withdraws the controls projection and wipes the original key; close drains
 pending local readers and rejects late results without renewing the Enrollment.
 Caller-owned Pairing/Store/Owner custody remains unchanged. Standing P27 and
-actual App-root Fake integration tests cover this source path. The independent
-public-material/Submission/completion transfer adapters, actual protected
+actual App-root Fake integration tests cover this source path. MCP contract §12
+adds `WindowsPairingHandoff` over these SAME owners and callbacks: original
+Submission ID to the existing App adapter, public export copies to the Bridge
+reader and fresh P27/P15 actual Revision/completion display. No new Exchange
+payload, request record or credential owner is introduced. Both explicit human
+comparisons remain mandatory. Missing/foreign/expired inputs withdraw custody;
+close invalidates immediately and drains the same readers/App owners. Standing
+P27 and actual App-root tests exercise this adapter with public math/Fake Native,
+including exact-revision idempotency and late-result rejection. Actual protected
 credential acquisition, App/Bridge process flow and authenticated business
 channel bindings remain unimplemented/unaccepted; these local controls do not
 close real Windows gates or activate the standalone entry.

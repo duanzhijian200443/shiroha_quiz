@@ -501,8 +501,12 @@ full initial comparison before Proof and a second full digest/actual-Revision
 comparison before the existing Missing-only Pin save. Close/failure/expiry
 withdraws displays, wipes the original key and drains local input without another
 PairingState, Session or persistent authority. The disabled standalone Bridge
-exports that interface but starts nothing. Actual credential acquisition,
-independent App/Bridge public transfer, completion/channel bindings and Windows
+exports that interface but starts nothing. MCP contract §12 connects the same
+owners through `WindowsPairingHandoff`: original Submission ID, copied public
+export and freshly queried P15 actual completion. Both manual comparisons and
+existing close/drain remain mandatory; no request record or credential owner is
+added. Actual credential acquisition, Windows App/Bridge process transfer,
+authenticated channel bindings and Windows
 acceptance remain pending. This is source integration, not production admission
 or activation.
 
