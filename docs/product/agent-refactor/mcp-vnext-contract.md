@@ -397,5 +397,17 @@ database close, reconstruction/original-key lookup and real B0 Restore/rollback.
 Existing stdio/MCP v0/local Review and isolated installed-Codex File READ/STAGE
 regressions remain distinct required evidence. No real application data is used.
 
+The authorized Windows App smoke also executes the actual desktop runner through
+`tool/mcp_vnext_windows_app_smoke.dart`, reusing `main.dart`'s composition with
+explicit temporary data paths and a rejecting engine credential store. It
+installs no synthetic MCP authentication. The
+[Windows guide](../../architecture/mcp-vnext-windows-codex.md#isolated-windows-flutter-app-smoke)
+records observed dormant controls, user-confirmed page reconstruction/cold
+restart and ordinary bank use, plus separate deterministic Session/approval
+invalidation evidence. That smoke establishes no formerly authenticated real
+Session, production connectivity or independent Verifier approval. Real
+first-party pairing/credential integration and App/Bridge binding remain
+implementation/integration gaps as well as subject to production admission.
+
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 Production MCP vNext remains disabled. Trial 1A and G0-L1/L2/I do not resume.
