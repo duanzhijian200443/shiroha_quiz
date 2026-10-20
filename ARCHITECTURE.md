@@ -495,8 +495,16 @@ imports it. P0 remains the sole pairing/identity authority, P15 verifies evidenc
 and a separate authenticated connection is required before business Session use.
 Missing Grant never prevents independent pairing, nor does pairing grant access.
 No synthetic service, protected-store/native operation or listener enters normal
-startup; actual credential/Bridge/channel bindings and Windows acceptance remain
-pending. This is source integration, not production admission or activation.
+startup. MCP contract §11 adds the inactive `WindowsBridgeOnboarding` local
+control interface over the SAME P27 Enrollment: independent App public inputs,
+full initial comparison before Proof and a second full digest/actual-Revision
+comparison before the existing Missing-only Pin save. Close/failure/expiry
+withdraws displays, wipes the original key and drains local input without another
+PairingState, Session or persistent authority. The disabled standalone Bridge
+exports that interface but starts nothing. Actual credential acquisition,
+independent App/Bridge public transfer, completion/channel bindings and Windows
+acceptance remain pending. This is source integration, not production admission
+or activation.
 
 The bounded lifecycle extension adds independent READ Proposal metadata over
 the same persistence owner, through P7/P8 and a lifecycle-only IPC schema v2.

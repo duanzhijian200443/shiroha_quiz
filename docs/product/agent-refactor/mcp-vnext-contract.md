@@ -490,9 +490,83 @@ the existing public mathematical fixtures and fake Native boundary. Neither
 fixture is real Windows/security or installed App/Bridge pairing acceptance.
 
 This closes the bounded lifecycle source-wiring scope only. Actual protected
-credential acquisition, production export/Submission/channel bindings, Bridge
-onboarding experience and real Windows/App/Bridge acceptance remain pending;
-they are not represented by synthetic success or an admission-only remainder.
+credential acquisition, production export/Submission/channel bindings and real
+Windows/App/Bridge acceptance remain pending; the bounded Bridge local controls
+source slice below supplies the previously missing onboarding interface. Those
+remaining gaps are not represented by synthetic success or an admission-only
+remainder.
 There is no production startup flag for these services. HOST_STABILITY_HALT =
 ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED. No DPAPI, real certificate
 generation, ACL, TCP/mTLS, Trial 1A or G0-L1/L2/I experiment is authorized.
+
+## 11. Inactive first-party Bridge onboarding controls
+
+`MCP-VNEXT-BRIDGE-FIRST-PARTY-ONBOARDING` supplies
+`WindowsBridgeOnboarding` in the existing P27 library, exported by the existing
+default-disabled `tool/external/bridge_candidate.dart`. There was no active Bridge
+local surface to extend. This is the minimal independent local control interface;
+it creates no Agent, business Host, UI framework or second PairingState/Session.
+The standalone main still rejects activation. Construction performs no Windows
+operation and installs no default App/MCP consumer.
+
+Trusted composition supplies the existing `WindowsBridgePairing` owner and two
+independent local App readers correlated by the original Submission ID. The
+public-material reader returns only copied, untrusted `BridgeAppPublicMaterial`
+bytes, adapting §10's explicit `exportPublicTrust` output or an independent local
+import. It does not obtain anchors from Discovery. The completion reader adapts
+the App's current `FirstPartyPairingRequest.display` or first-party control status
+after confirmed App completion. These callbacks carry public comparison data only, never verified
+identity, proof or authorization. There is no fourth Exchange payload, receipt,
+credential database or additional persisted flag.
+
+The local host binds these separate actions to explicit user operations:
+
+1. `beginEnrollment` delegates P27 key generation and original Submission
+   publication; `display` exposes its public Submission ID for the App handoff.
+2. `inspectAppTrust` reads independent App Issuer DER/Server digest, delegates
+   original Challenge consumption custody and P27 verification, then exposes all
+   64 lowercase digest characters. Import does not confirm first trust.
+3. Only after the user compares both full local initial digests,
+   `confirmInitialAndPublishProof` delegates the original P27 confirmation and
+   Proof publication. The App still requires its separate local Approval and
+   explicit Proof completion; this Bridge method cannot perform either action.
+4. `inspectAppCompletion` reads the App's actual committed Revision and full
+   completion digest, delegates P27's CAS/idempotency consistency check and
+   displays the complete local digest and actual Revision. A malformed, missing
+   or inconsistent completion closes the local attempt; importing a matching
+   display never saves a credential.
+5. Only after the user independently compares both completion digests AND both
+   Revisions, `confirmCompletionAndSave` delegates the existing one-use,
+   Missing-only kind 4 save. A caller's Revision must also match the displayed
+   imported actual Revision. Acknowledged `pinSaved` is historical storage
+   success only; it creates no Session, Grant or Enablement.
+
+`BridgeOnboardingDisplay` is a transient public controls projection. It holds no
+Enrollment/key and grants no authority. The host refreshes `display` while visible
+and withdraws comparison data on failure; retained screenshots/copies are not
+freshness evidence. The same P27 monotonic/UTC checks apply without renewed
+deadlines: at most 600 seconds before Proof and 120 seconds after it, with the
+original live Challenge deadline and separate P15 Evidence Window unchanged.
+The frozen manual protocol cannot observe App invalidation after a valid display.
+
+Cancellation and surface closure call `close`: invalidate the SAME Enrollment,
+wipe its private memory, withdraw all comparison fields and release its retained
+E0 read without deleting public files. Pending local input drains before close
+returns; late input, restored clocks/context, duplicate actions and failures
+cannot reopen that controller. Failures expose fixed categories, never arbitrary
+reader error text. Recovery is explicit fresh local controls/Enrollment and the
+existing App runtime/revoke-first recovery rules, with no automatic retry.
+The caller retains Pairing adapter/Store/Owner/writer-lock custody through drain.
+
+Standing `windows_pairing_test.dart` covers both confirmations, the complete App
+adapter/P27/P15/Fake Native path, incorrect summaries/Revisions, malformed
+Challenge/Proof, duplicate actions, expiry/invalidation, late local input, key wiping,
+E0 release and existing/corrupt/unknown Pin outcomes. The existing actual App-root
+fixture also uses these Bridge controls. Public mathematical fixtures and Fake
+Native prove source wiring only. Actual independent public-material/Submission
+transfer, protected credential acquisition, production completion-reader binding,
+App/Bridge process integration and authenticated channel wiring still require
+implementation/acceptance. No real DPAPI, ACL, certificate generation, listener,
+formal Bridge service or production MCP is activated. HOST_STABILITY_HALT =
+ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED. Trial 1A and G0-L1/L2/I remain
+unresumed; independent Windows security/process acceptance remains pending.

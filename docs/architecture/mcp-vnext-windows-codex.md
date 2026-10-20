@@ -318,9 +318,11 @@ adds inactive first-party request/confirmation/proof/status wiring through the
 existing P15/P12/P0 owners, with an adapter over the same P27 candidate and
 independent authenticated Session custody. Its tests use synthetic credentials
 and public mathematical/fake-Native fixtures only; they are not actual Windows
-or installed App/Bridge pairing acceptance. Production credential acquisition,
-public export/Submission/channel bindings, Bridge onboarding and admitted
-transport remain **product implementation/integration work**.
+or installed App/Bridge pairing acceptance. [MCP contract §11](../product/agent-refactor/mcp-vnext-contract.md#11-inactive-first-party-bridge-onboarding-controls)
+adds inactive Bridge local controls over the original Enrollment and two explicit
+human comparisons, with isolated public-math/Fake Native evidence. Production
+credential acquisition, independent public export/Submission/completion transfer
+bindings and admitted channels remain **product implementation/integration work**.
 They must not be reported as security-approval-only blockers. Reference-package
 distribution/Windows executable discovery and supported-version acceptance in
 MCP contract §5/AR-R9 are separate unfinished client-integration scope; model-led

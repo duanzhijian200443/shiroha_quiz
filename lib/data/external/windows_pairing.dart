@@ -545,6 +545,218 @@ final class WindowsAppPairing {
   String toString() => 'WindowsAppPairing(REDACTED)';
 }
 
+/// Independently imported public bytes, never verified trust or identity.
+final class BridgeAppPublicMaterial {
+  BridgeAppPublicMaterial(
+      {required Uint8List issuerDer, required Uint8List serverLeafDigest})
+      : issuerDer = bootstrapCopy(issuerDer),
+        serverLeafDigest = bootstrapCopy(serverLeafDigest);
+  final Uint8List issuerDer, serverLeafDigest;
+  @override
+  String toString() => 'BridgeAppPublicMaterial(REDACTED)';
+}
+
+/// Public local controls projection, never Pairing or authorization evidence.
+final class BridgeOnboardingDisplay {
+  BridgeOnboardingDisplay._({
+    Uint8List? submissionId,
+    this.initialDigest,
+    this.completionDigest,
+    this.revision,
+    required this.proofPublished,
+    required this.closed,
+    required this.pinSaved,
+  }) : submissionId = submissionId == null ? null : bootstrapCopy(submissionId);
+  final Uint8List? submissionId;
+  final String? initialDigest, completionDigest;
+  final int? revision;
+  final bool proofPublished, closed, pinSaved;
+  @override
+  String toString() => 'BridgeOnboardingDisplay(REDACTED)';
+}
+
+/// Inactive first-party local controls over one original Bridge Enrollment.
+///
+/// Trusted composition supplies independent local App public-material and
+/// completion readers, bound to the supplied Submission ID. They may adapt the
+/// App export and [FirstPartyPairingRequest.display], but never Discovery or a
+/// new Exchange message. Only explicit human actions may call the two comparison
+/// methods after checking both complete local displays. Construction performs
+/// no I/O. The caller retains the Pairing adapter and protected Owner custody.
+final class WindowsBridgeOnboarding {
+  WindowsBridgeOnboarding({
+    required WindowsBridgePairing owner,
+    required Future<BridgeAppPublicMaterial> Function(Uint8List)
+        readAppPublicTrust,
+    required Future<FirstPartyPairingDisplay> Function(Uint8List)
+        readAppCompletion,
+  })  : _owner = owner,
+        _readTrust = readAppPublicTrust,
+        _readCompletion = readAppCompletion;
+
+  final WindowsBridgePairing _owner;
+  final Future<BridgeAppPublicMaterial> Function(Uint8List) _readTrust;
+  final Future<FirstPartyPairingDisplay> Function(Uint8List) _readCompletion;
+  BridgeEnrollment? _enrollment;
+  PairingTrustDisplay? _initial;
+  PairingCompletionDisplay? _completion;
+  Completer<void>? _pending;
+  bool _closed = false, _saved = false;
+
+  /// Publishes one Submission only after the user starts this local attempt.
+  void beginEnrollment(
+          {required String displayLabel, required String clientBuild}) =>
+      _action(() {
+        if (_enrollment != null) _reject();
+        _enrollment = _owner.beginEnrollment(
+            displayLabel: displayLabel, clientBuild: clientBuild);
+      });
+
+  /// Reads independent public inputs and displays P27's full initial digest.
+  Future<void> inspectAppTrust() => _read(() {
+        final enrollment = _liveEnrollment();
+        if (_initial != null) _reject();
+        return _readTrust(bootstrapCopy(enrollment.submissionId));
+      }, (material) {
+        _initial = _owner.inspectChallenge(_liveEnrollment(),
+            importedIssuerDer: material.issuerDer,
+            independentlyObtainedServerDigest: material.serverLeafDigest);
+      });
+
+  /// Confirms the user's full initial comparison and publishes P27's Proof.
+  void confirmInitialAndPublishProof({required String comparedDigest}) =>
+      _action(() {
+        final enrollment = _liveEnrollment();
+        if (_initial == null) _reject();
+        _owner.confirmIndependentlyComparedInitial(enrollment, comparedDigest);
+        _owner.publishProof(enrollment);
+      });
+
+  /// Reads the actual App completion Revision and displays P27's full digest.
+  ///
+  /// A matching imported display still requires the separate human save action.
+  Future<void> inspectAppCompletion() => _read(() {
+        final enrollment = _liveEnrollment();
+        if (enrollment._published == null || _completion != null) _reject();
+        return _readCompletion(bootstrapCopy(enrollment.submissionId));
+      }, (material) {
+        final revision = material.revision, digest = material.digest;
+        if (revision == null || digest == null) _reject();
+        final local = _owner.completionDisplay(_liveEnrollment(), revision);
+        if (digest != local.digest) _reject();
+        _completion = local;
+      });
+
+  /// Confirms the user's second digest and Revision comparison, then saves once.
+  void confirmCompletionAndSave({
+    required String comparedDigest,
+    required int comparedRevision,
+  }) =>
+      _action(() {
+        final completion = _completion;
+        if (completion == null || comparedRevision != completion.revision) {
+          _reject();
+        }
+        _owner.confirmIndependentlyComparedCompletionAndSave(_liveEnrollment(),
+            committedRevision: comparedRevision,
+            comparedDigest: comparedDigest);
+        _invalidate();
+        _saved = true; // Acknowledged storage result only, never authorization.
+      });
+
+  /// Refreshes visible data against the original Enrollment's current lifetime.
+  ///
+  /// Hosts call this while presenting a display and withdraw it on failure.
+  /// Closed projections expose no old comparison data; pinSaved is historical.
+  BridgeOnboardingDisplay display() {
+    if (!_closed) {
+      try {
+        _owner._check(_enrollment);
+      } catch (error) {
+        _fail(error);
+      }
+    }
+    return BridgeOnboardingDisplay._(
+        submissionId: _enrollment?.submissionId,
+        initialDigest: _initial?.digest,
+        completionDigest: _completion?.digest,
+        revision: _completion?.revision,
+        proofPublished: _enrollment?._published != null,
+        closed: _closed,
+        pinSaved: _saved);
+  }
+
+  BridgeEnrollment _liveEnrollment() {
+    if (_closed || _enrollment == null) _reject();
+    _owner._check(_enrollment);
+    return _enrollment!;
+  }
+
+  void _action(void Function() work) {
+    try {
+      if (_closed || _pending != null) _reject();
+      _owner._check(_enrollment);
+      work();
+    } catch (error) {
+      _fail(error);
+    }
+  }
+
+  Future<void> _read<T>(
+      Future<T> Function() read, void Function(T) apply) async {
+    Completer<void>? pending;
+    try {
+      if (_closed || _pending != null) _reject();
+      _liveEnrollment();
+      pending = Completer<void>();
+      _pending = pending;
+      final material = await read();
+      _liveEnrollment(); // Close/expiry during input can never revive custody.
+      apply(material);
+    } catch (error) {
+      _fail(error);
+    } finally {
+      if (pending != null) {
+        _pending = null;
+        pending.complete();
+      }
+    }
+  }
+
+  Never _fail(Object error) {
+    _invalidate();
+    if (error is ExternalCredentialException ||
+        error is ExternalExchangeException) {
+      throw error;
+    }
+    credentialFail(ExternalCredentialFailure.temporarilyUnavailable);
+  }
+
+  void _invalidate() {
+    _closed = true;
+    final enrollment = _enrollment;
+    _enrollment = null;
+    _initial = null;
+    _completion = null;
+    if (enrollment != null) _owner.closeEnrollment(enrollment);
+  }
+
+  /// Cancels this attempt immediately and drains any pending local input.
+  ///
+  /// This also handles surface closure. It never deletes public Exchange files
+  /// or closes the caller's Pairing adapter, Store, writer lock or Owner.
+  Future<void> close() async {
+    try {
+      _invalidate();
+    } finally {
+      await _pending?.future;
+    }
+  }
+
+  @override
+  String toString() => 'WindowsBridgeOnboarding(REDACTED)';
+}
+
 /// Opaque memory-only Enrollment resource, NOT a second PairingState.
 final class BridgeEnrollment {
   BridgeEnrollment._(this._owner, this._key, Uint8List id, this._created)

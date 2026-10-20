@@ -9,6 +9,7 @@ import 'package:shiroha_quiz/application/external/external_credential_associatio
 import 'package:shiroha_quiz/application/external/external_authorization.dart';
 import 'package:shiroha_quiz/application/external/external_credential_boundary.dart';
 import 'package:shiroha_quiz/application/external/external_trust_core.dart';
+import 'package:shiroha_quiz/application/external/first_party_external_credentials.dart';
 import 'package:shiroha_quiz/data/external/exchange_message_codec.dart';
 import 'package:shiroha_quiz/data/external/discovery_descriptor_codec.dart';
 import 'package:shiroha_quiz/data/external/external_bootstrap_bytes.dart';
@@ -216,6 +217,426 @@ void main() {
   });
   tearDown(() => h.close());
   final rejected = throwsA(anything);
+
+  group('first-party Bridge onboarding local controls', () {
+    late WindowsBridgeOnboarding controls;
+    PairingTrustDisplay? exported;
+    FirstPartyPairingRequest? appRequest;
+    Future<BridgeAppPublicMaterial> Function()? trustReader;
+    Future<FirstPartyPairingDisplay> Function()? completionReader;
+    late Uint8List id;
+
+    BridgeAppPublicMaterial publicMaterial() => BridgeAppPublicMaterial(
+        issuerDer: exported!.issuerDer,
+        serverLeafDigest: exported!.serverLeafDigest);
+
+    setUp(() {
+      exported = null;
+      appRequest = null;
+      trustReader = null;
+      completionReader = null;
+      controls = WindowsBridgeOnboarding(
+          owner: h.bridge,
+          readAppPublicTrust: (submission) async {
+            expect(submission, id);
+            return trustReader == null
+                ? publicMaterial()
+                : await trustReader!();
+          },
+          readAppCompletion: (submission) async {
+            expect(submission, id);
+            return completionReader == null
+                ? await appRequest!.display()
+                : await completionReader!();
+          });
+    });
+    tearDown(() => controls.close());
+
+    Future<void> challenge() async {
+      controls.beginEnrollment(
+          displayLabel: 'PUBLIC FIXTURE', clientBuild: 'offline');
+      id = controls.display().submissionId!;
+      final app = WindowsFirstPartyPairing(
+          owner: h.app,
+          submissionId: () async => id,
+          exportPublicTrust: (display) async => exported = display);
+      appRequest = await app.request(h.local.reference);
+    }
+
+    Future<void> proof() async {
+      await challenge();
+      await controls.inspectAppTrust();
+      controls.confirmInitialAndPublishProof(comparedDigest: exported!.digest);
+      await appRequest!.approve();
+    }
+
+    Future<void> complete() async {
+      await proof();
+      await appRequest!.complete();
+      await controls.inspectAppCompletion();
+    }
+
+    void expectClosed({bool pinAbsent = true}) {
+      final display = controls.display();
+      expect(display.closed, isTrue);
+      expect(display.submissionId, isNull);
+      expect(display.initialDigest, isNull);
+      expect(display.completionDigest, isNull);
+      expect(display.revision, isNull);
+      expect(display.pinSaved, isFalse);
+      for (final key in h.keys) {
+        expect(key, everyElement(0));
+      }
+      if (pinAbsent) expect(h.native.calls.credentialFiles[4], isNull);
+    }
+
+    test(
+        'App adapter to two manual actions to Missing-only Pin, never auto-confirm',
+        () async {
+      expect(controls.display().submissionId, isNull);
+      expect(h.keys, isEmpty);
+      await challenge();
+      await controls.inspectAppTrust();
+      final initial = controls.display();
+      expect(initial.initialDigest, exported!.digest);
+      expect(initial.initialDigest, matches(RegExp(r'^[0-9a-f]{64}$')));
+      expect(initial.proofPublished, isFalse);
+      expect(h.appExchange.readProof(id), isNull);
+      expect(h.native.calls.credentialFiles[4], isNull);
+      await appRequest!.approve();
+      controls.confirmInitialAndPublishProof(
+          comparedDigest: initial.initialDigest!);
+      expect(controls.display().proofPublished, isTrue);
+      await appRequest!.complete();
+      await controls.inspectAppCompletion();
+      final completion = controls.display();
+      final actual =
+          (await h.associations.read(h.local.reference.profileId)).record!;
+      expect(completion.revision, actual.revision);
+      expect(completion.completionDigest, (await appRequest!.display()).digest);
+      expect(completion.completionDigest, matches(RegExp(r'^[0-9a-f]{64}$')));
+      expect(h.native.calls.credentialFiles[4], isNull);
+      expect(h.local.trust.snapshot(h.local.profile.principal).state,
+          PairingState.pairedDisabled);
+      controls.confirmCompletionAndSave(
+          comparedDigest: completion.completionDigest!,
+          comparedRevision: completion.revision!);
+      expect(controls.display().pinSaved, isTrue);
+      expect(controls.display().closed, isTrue);
+      expect(controls.display().initialDigest, isNull);
+      final pin = h.bridgeStore.read(4)! as ExternalBridgeClient;
+      expect(pin.clientPkcs8Der, initialization.publicFixtureKey());
+      pin.clientPkcs8Der.fillRange(0, pin.clientPkcs8Der.length, 0);
+      final commits = h.native.calls.commits;
+      expect(
+          () => controls.confirmCompletionAndSave(
+              comparedDigest: completion.completionDigest!,
+              comparedRevision: completion.revision!),
+          rejected);
+      expect(h.native.calls.commits, commits);
+      expect(h.native.calls.exchangeReadTickets, isEmpty);
+      expect(h.keys.single, everyElement(0));
+    });
+
+    for (final variant in ['wrong', 'short', 'uppercase']) {
+      test('initial $variant digest rejects Proof and wipes Enrollment',
+          () async {
+        await challenge();
+        await controls.inspectAppTrust();
+        final digest = exported!.digest;
+        expect(
+            () => controls.confirmInitialAndPublishProof(
+                    comparedDigest: switch (variant) {
+                  'wrong' => '0' * 64,
+                  'short' => digest.substring(0, 63),
+                  _ => digest.toUpperCase(),
+                }),
+            rejected);
+        expect(h.appExchange.readProof(id), isNull);
+        expect(h.native.calls.exchangeReadTickets, isEmpty);
+        expectClosed();
+      });
+    }
+
+    for (final phase in ['before initial', 'before completion read']) {
+      test('save $phase cannot bypass either human confirmation', () async {
+        if (phase == 'before initial') {
+          await challenge();
+          await controls.inspectAppTrust();
+        } else {
+          await proof();
+          await appRequest!.complete();
+        }
+        expect(
+            () => controls.confirmCompletionAndSave(
+                comparedDigest: '0' * 64, comparedRevision: 1),
+            rejected);
+        expectClosed();
+      });
+    }
+
+    for (final variant in ['digest', 'revision', 'missing', 'initial only']) {
+      test('incorrect App completion $variant fails closed', () async {
+        await proof();
+        if (variant != 'initial only') await appRequest!.complete();
+        final actual = await appRequest!.display();
+        completionReader = () async => switch (variant) {
+              'digest' => FirstPartyPairingDisplay(
+                  digest: '0' * 64, revision: actual.revision),
+              'revision' =>
+                FirstPartyPairingDisplay(digest: actual.digest, revision: 5),
+              'missing' => const FirstPartyPairingDisplay(),
+              _ => actual,
+            };
+        await expectLater(controls.inspectAppCompletion(), rejected);
+        expectClosed();
+      });
+    }
+
+    for (final field in ['digest', 'revision']) {
+      test('second human comparison wrong $field spends save without write',
+          () async {
+        await complete();
+        final display = controls.display();
+        expect(
+            () => controls.confirmCompletionAndSave(
+                comparedDigest:
+                    field == 'digest' ? '0' * 64 : display.completionDigest!,
+                comparedRevision: field == 'revision'
+                    ? display.revision! + 1
+                    : display.revision!),
+            rejected);
+        expectClosed();
+      });
+    }
+
+    for (final operation in ['begin', 'inspect', 'proof', 'completion']) {
+      test('duplicate $operation terminates original attempt', () async {
+        await challenge();
+        if (operation != 'begin') await controls.inspectAppTrust();
+        if (operation == 'proof' || operation == 'completion') {
+          controls.confirmInitialAndPublishProof(
+              comparedDigest: exported!.digest);
+        }
+        if (operation == 'completion') {
+          await appRequest!.approve();
+          await appRequest!.complete();
+          await controls.inspectAppCompletion();
+        }
+        switch (operation) {
+          case 'begin':
+            expect(
+                () =>
+                    controls.beginEnrollment(displayLabel: '', clientBuild: ''),
+                rejected);
+          case 'inspect':
+            await expectLater(controls.inspectAppTrust(), rejected);
+          case 'proof':
+            expect(
+                () => controls.confirmInitialAndPublishProof(
+                    comparedDigest: exported!.digest),
+                rejected);
+          case 'completion':
+            await expectLater(controls.inspectAppCompletion(), rejected);
+        }
+        expectClosed();
+      });
+    }
+
+    for (final phase in ['challenge', 'completion', 'context']) {
+      test('$phase expiry/invalidation clears display and never revives',
+          () async {
+        if (phase == 'completion') {
+          await complete();
+          h.advance(const Duration(seconds: 120), wall: false);
+        } else {
+          await challenge();
+          await controls.inspectAppTrust();
+          if (phase == 'context') {
+            h.current = false;
+          } else {
+            h.advance(const Duration(seconds: 300));
+          }
+        }
+        expect(controls.display, rejected);
+        h.current = true;
+        h.elapsed = Duration.zero;
+        h.native.now = h.native.now.subtract(const Duration(seconds: 300));
+        expect(
+            () => controls.confirmInitialAndPublishProof(
+                comparedDigest: exported!.digest),
+            rejected);
+        expectClosed();
+      });
+    }
+
+    test(
+        '600-second pre-Challenge expiry cannot be refreshed into a new Enrollment',
+        () {
+      controls.beginEnrollment(displayLabel: '', clientBuild: '');
+      h.advance(const Duration(seconds: 600));
+      expect(controls.display, rejected);
+      h.elapsed = Duration.zero;
+      expect(() => controls.beginEnrollment(displayLabel: '', clientBuild: ''),
+          rejected);
+      expectClosed();
+    });
+
+    test('malformed Challenge is retained inert with no Proof or live key',
+        () async {
+      await challenge();
+      final file =
+          h.native.calls.exchangeFiles.keys.singleWhere((k) => k.$1 == 2);
+      h.native.calls.exchangeFiles[file] = Uint8List.fromList([1, 2, 3]);
+      await expectLater(controls.inspectAppTrust(), rejected);
+      expect(h.native.calls.exchangeFiles[file], [1, 2, 3]);
+      expect(h.native.calls.exchangeReadTickets, isEmpty);
+      expect(h.appExchange.readProof(id), isNull);
+      expectClosed();
+    });
+
+    test('malformed Proof cannot supply an App completion for Bridge saving',
+        () async {
+      await proof();
+      final file =
+          h.native.calls.exchangeFiles.keys.singleWhere((k) => k.$1 == 3);
+      h.native.calls.exchangeFiles[file] = Uint8List.fromList([1, 2, 3]);
+      await expectLater(appRequest!.complete(), rejected);
+      await expectLater(controls.inspectAppCompletion(), rejected);
+      expect(h.native.calls.associationFile, isNull);
+      expect(h.native.calls.exchangeReadTickets, isEmpty);
+      expectClosed();
+    });
+
+    test('invalid independently imported public inputs never become trust',
+        () async {
+      await challenge();
+      trustReader = () async => BridgeAppPublicMaterial(
+          issuerDer: Uint8List.fromList([1, 2, 3]),
+          serverLeafDigest: Uint8List(32));
+      await expectLater(controls.inspectAppTrust(), rejected);
+      expect(h.appExchange.readProof(id), isNull);
+      expect(h.native.calls.exchangeReadTickets, isEmpty);
+      expectClosed();
+    });
+
+    test('concurrent local input is rejected without a second read or revival',
+        () async {
+      await challenge();
+      final reached = Completer<void>(), release = Completer<void>();
+      var reads = 0;
+      trustReader = () async {
+        reads++;
+        reached.complete();
+        await release.future;
+        return publicMaterial();
+      };
+      final pending = controls.inspectAppTrust();
+      final rejection = expectLater(pending, rejected);
+      await reached.future;
+      await expectLater(controls.inspectAppTrust(), rejected);
+      expectClosed();
+      release.complete();
+      await rejection;
+      expect(reads, 1);
+      expectClosed();
+    });
+
+    for (final stage in ['initial', 'completion']) {
+      test(
+          'close during $stage input wipes now, drains and rejects late result',
+          () async {
+        final reached = Completer<void>(), release = Completer<void>();
+        if (stage == 'initial') {
+          await challenge();
+          trustReader = () async {
+            reached.complete();
+            await release.future;
+            return publicMaterial();
+          };
+        } else {
+          await proof();
+          await appRequest!.complete();
+          completionReader = () async {
+            reached.complete();
+            await release.future;
+            return appRequest!.display();
+          };
+        }
+        final pending = stage == 'initial'
+            ? controls.inspectAppTrust()
+            : controls.inspectAppCompletion();
+        final rejection = expectLater(pending, rejected);
+        await reached.future;
+        var drained = false;
+        final closing = controls.close().then((_) => drained = true);
+        await Future<void>.value();
+        expect(drained, isFalse);
+        expectClosed();
+        release.complete();
+        await rejection;
+        await closing;
+        expect(drained, isTrue);
+        expectClosed();
+      });
+    }
+
+    test('cancel releases inspected E0 read without deleting Challenge',
+        () async {
+      await challenge();
+      await controls.inspectAppTrust();
+      expect(h.native.calls.exchangeReadTickets, isNotEmpty);
+      await controls.close();
+      expect(h.native.calls.exchangeReadTickets, isEmpty);
+      expect(h.bridgeExchange.readChallenge(id), isNotNull);
+      expectClosed();
+    });
+
+    test('local input failure is redacted, terminal and never retried',
+        () async {
+      await challenge();
+      var reads = 0;
+      trustReader = () async {
+        reads++;
+        throw StateError('untrusted input details');
+      };
+      await expectLater(controls.inspectAppTrust(),
+          throwsA(isA<ExternalCredentialException>()));
+      await expectLater(controls.inspectAppTrust(), rejected);
+      expect(reads, 1);
+      expectClosed();
+    });
+
+    for (final variant in ['existing', 'corrupt', 'unknown']) {
+      test('Pin $variant never overwrites or retries or reports success',
+          () async {
+        await complete();
+        final display = controls.display();
+        if (variant == 'existing') h.bridgeStore.write(objects.fixture(4));
+        if (variant == 'corrupt') {
+          h.native.calls.credentialFiles[4] = Uint8List.fromList([1, 2, 3]);
+        }
+        final before = h.native.calls.credentialFiles[4]?.toList();
+        if (variant == 'unknown') h.native.calls.unknownAfterCommit = true;
+        expect(
+            () => controls.confirmCompletionAndSave(
+                comparedDigest: display.completionDigest!,
+                comparedRevision: display.revision!),
+            rejected);
+        final commits = h.native.calls.commits;
+        expect(
+            () => controls.confirmCompletionAndSave(
+                comparedDigest: display.completionDigest!,
+                comparedRevision: display.revision!),
+            rejected);
+        expect(h.native.calls.commits, commits);
+        if (variant != 'unknown') {
+          expect(h.native.calls.credentialFiles[4], before);
+        }
+        expectClosed(pinAbsent: false);
+      });
+    }
+  });
 
   test(
       'first-party adapter delegates full P27 comparison/approval/proof and fresh confirmation',

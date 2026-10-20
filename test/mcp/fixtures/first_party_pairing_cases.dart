@@ -428,7 +428,16 @@ void registerFirstPartyPairingTests() {
     await h.open();
     final f = FirstPartyAppHarness();
     await f.open(attach: false);
+    late PairingTrustDisplay public;
+    final bridgeControls = WindowsBridgeOnboarding(
+        owner: h.bridge,
+        readAppPublicTrust: (_) async => BridgeAppPublicMaterial(
+            issuerDer: public.issuerDer,
+            serverLeafDigest: public.serverLeafDigest),
+        readAppCompletion: (_) async =>
+            (await f.controls.status()).pairingDisplay!);
     addTearDown(() async {
+      await bridgeControls.close();
       await f.close();
       await h.close();
     });
@@ -439,9 +448,10 @@ void registerFirstPartyPairingTests() {
         monotonicNow: () => h.elapsed,
         compositionIsCurrent: () => h.current && f.controls.isCurrent);
     late WindowsChannelVerification channels;
-    late PairingTrustDisplay public;
     late tls.MemoryTlsChannel channel;
-    h.begin();
+    bridgeControls.beginEnrollment(
+        displayLabel: 'PUBLIC FIXTURE', clientBuild: 'offline');
+    final submissionId = bridgeControls.display().submissionId!;
     f.port = await f.integration.attachCredentials(
         associations: h.associations,
         verification: (management) => channels = WindowsChannelVerification(
@@ -476,7 +486,7 @@ void registerFirstPartyPairingTests() {
               boundary: boundary,
               pairing: WindowsFirstPartyPairing(
                   owner: owner,
-                  submissionId: () async => h.enrollment.submissionId,
+                  submissionId: () async => submissionId,
                   exportPublicTrust: (display) async => public = display),
               openConnection: (_) async {
                 final material = h.native.service.validatedPublicMaterial();
@@ -500,21 +510,24 @@ void registerFirstPartyPairingTests() {
         });
     await f.controls.select(f.files.s.profile.profileId);
     await f.controls.requestPairing();
-    final compared = h.bridge.inspectChallenge(h.enrollment,
-        importedIssuerDer: public.issuerDer,
-        independentlyObtainedServerDigest: public.serverLeafDigest);
-    expect((await f.controls.status()).pairingDisplay!.digest, compared.digest);
-    channel = tls.MemoryTlsChannel(h.wire.clientLeafDer);
-    h.bridge.confirmIndependentlyComparedInitial(h.enrollment, compared.digest);
+    await bridgeControls.inspectAppTrust();
+    final compared = bridgeControls.display();
+    expect((await f.controls.status()).pairingDisplay!.digest,
+        compared.initialDigest);
+    channel = tls.MemoryTlsChannel(
+        h.bridgeExchange.readChallenge(submissionId)!.clientLeafDer);
     await f.controls.approvePairing();
-    h.bridge.publishProof(h.enrollment);
+    bridgeControls.confirmInitialAndPublishProof(
+        comparedDigest: compared.initialDigest!);
     await f.controls.completePairing();
     final completed = (await f.controls.status()).pairingDisplay!;
-    expect(completed.digest,
-        h.bridge.completionDisplay(h.enrollment, completed.revision!).digest);
-    h.bridge.confirmIndependentlyComparedCompletionAndSave(h.enrollment,
-        committedRevision: completed.revision!,
+    await bridgeControls.inspectAppCompletion();
+    expect(completed.digest, bridgeControls.display().completionDigest);
+    expect(h.native.calls.credentialFiles[4], isNull);
+    bridgeControls.confirmCompletionAndSave(
+        comparedRevision: completed.revision!,
         comparedDigest: completed.digest!);
+    expect(bridgeControls.display().pinSaved, isTrue);
     expect(await f.controls.authenticatedSession(), isNull);
     await f.controls.enable(const Duration(minutes: 5));
     final session = await f.controls.authenticatedSession();

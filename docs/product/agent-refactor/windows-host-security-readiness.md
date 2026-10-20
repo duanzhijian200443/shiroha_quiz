@@ -3039,6 +3039,21 @@ and fake-Native fixtures; it establishes no real Windows or process acceptance.
 Production export/Submission/channel bindings and all A/X admission gates remain
 pending; HOST_STABILITY_HALT stays ACTIVE and no L1/L2/I work resumes.
 
+MCP contract §11 adds `WindowsBridgeOnboarding` in the SAME P27 library and
+exports its explicit local controls through the existing disabled Bridge source
+entry. It retains one original Enrollment, reads independently supplied App
+public inputs and the App's actual completion Revision, and delegates both full
+digest comparisons, Proof and Missing-only Pin save unchanged. Reading either
+display never triggers either human confirmation. Failure/duplicate/expiry/close
+withdraws the controls projection and wipes the original key; close drains
+pending local readers and rejects late results without renewing the Enrollment.
+Caller-owned Pairing/Store/Owner custody remains unchanged. Standing P27 and
+actual App-root Fake integration tests cover this source path. The independent
+public-material/Submission/completion transfer adapters, actual protected
+credential acquisition, App/Bridge process flow and authenticated business
+channel bindings remain unimplemented/unaccepted; these local controls do not
+close real Windows gates or activate the standalone entry.
+
 The new `test/data/external/windows_pairing_test.dart` is registered exactly
 once in standing PR contract checks, alongside the directly affected suites:
 
