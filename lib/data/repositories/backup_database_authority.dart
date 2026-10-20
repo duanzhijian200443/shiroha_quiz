@@ -8,19 +8,25 @@ final class SqliteBackupDatabaseAuthority implements BackupDatabaseAuthority {
   SqliteBackupDatabaseAuthority({
     DatabaseHelper? databaseHelper,
     BackupSnapshotRepository? snapshotRepository,
+    Future<void> Function()? beforeClose,
   })  : _databaseHelper = databaseHelper ?? DatabaseHelper.instance,
+        _beforeClose = beforeClose,
         _snapshots = snapshotRepository ??
             BackupSnapshotRepository(databaseHelper: databaseHelper);
 
   final DatabaseHelper _databaseHelper;
   final BackupSnapshotRepository _snapshots;
+  final Future<void> Function()? _beforeClose;
 
   @override
   Future<String> productionDatabasePath() =>
       _databaseHelper.getProductionDatabasePath();
 
   @override
-  Future<void> closeProduction() => _databaseHelper.close();
+  Future<void> closeProduction() async {
+    await _beforeClose?.call();
+    await _databaseHelper.close();
+  }
 
   @override
   Future<void> reopenProduction() async {

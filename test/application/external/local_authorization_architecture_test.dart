@@ -1,7 +1,12 @@
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
+import '../../mcp/fixtures/first_party_app_integration_cases.dart';
+import '../generated_question/generated_test_support.dart'
+    show initializeGeneratedTests;
 
 void main() {
+  initializeGeneratedTests();
+  registerFirstPartyAppIntegrationTests();
   test('new local UI depends on Application and never Data/SQLite', () {
     for (final path in [
       'lib/ui/pages/external_authorization_screen.dart',

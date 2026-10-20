@@ -119,9 +119,12 @@ commit and event, recomputes classification from Git, requires every required
 unit to be `EXECUTE` or recorded `REUSE` (never silently `NOT_APPLICABLE`),
 revalidates every reuse claim, compares each GitHub `needs.<job>.result` with the
 planned status, and, when contracts execute, requires exactly the four
-`Contract shard N/4` jobs with `success`. Missing or malformed evidence fails the
-aggregate. GitHub `skipped` is accepted only for `NOT_APPLICABLE` or verified
-`REUSE` units.
+`Contract shard N/4` jobs with `success`. When the workflow result for contracts
+is already `success`, a shard observation that still reads back pending is
+re-read for up to about one minute before the aggregate fails closed; membership
+mismatches and a persistently unsettled matrix still fail. Missing or malformed
+evidence fails the aggregate. GitHub `skipped` is accepted only for
+`NOT_APPLICABLE` or verified `REUSE` units.
 
 ## Verified cross-head reuse
 

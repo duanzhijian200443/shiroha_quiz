@@ -220,14 +220,16 @@ test and both changed support files, the read-only format gate and
 | SDK synthetic App workflow | SDK clients use the shared synthetic App to prove modern/legacy stdio STAGE, idempotency, Review, lifecycle and authorization semantics. This evidence alone does not prove installed Codex behavior. |
 | Codex synthetic STAGE | The opt-in installed-client suite uses actual `mcpServer/tool/call` plus the test-only mailbox to reach that same App composition and persisted Proposal/Review lifecycle. Results count only when run against an explicit installed executable; SDK success or skipped cases cannot substitute. |
 | Codex synthetic File READ | The separate opt-in suite reaches existing P6/F1/RAG/FTS5 through actual Codex calls, explicit file selection and bounded passages, including authorization/source invalidation and cleanup. Only executed cases against the named installed binary establish client evidence. |
-| Production business access | **Not enabled.** The standalone entry has no admitted authenticated App/Bridge transport or trusted pairing/finite enablement/approved Session-target composition. SDK success and Codex discovery/refusal do not satisfy production activation. |
+| First-party App controls | The product root and local Profile/finite-enable/target-confirm/disable controls are proved with synthetic credentials and temporary SQLite under MCP contract §9. Production startup installs only a dormant owner and reports unavailable. |
+| Production business access | **Not enabled.** The standalone entry has no admitted authenticated App/Bridge transport or real pairing/credential binding. SDK success and Codex discovery/refusal do not satisfy production activation. |
 
 The original private-notification connection gap is addressed only by this
 bounded test fixture. The wider Windows functional checklist must still separate
-unimplemented product composition from security admission. The production entry
-has no authenticated App/Bridge binding or first-party pairing/finite-enablement/
-target-approval composition. These are remaining product integration work, even
-when their eventual activation also depends on security acceptance. Successful
+the dormant product App controls from security admission. The production entry
+has no authenticated App/Bridge transport or real first-party pairing/credential
+binding. [MCP contract §9](../product/agent-refactor/mcp-vnext-contract.md#9-first-party-app-composition-and-controls)
+owns the supplied finite-enablement/target-confirmation composition and its
+offline evidence; it does not activate that remaining integration. Successful
 authorized file selection/retrieval/passage through installed Codex is covered
 by the separate synthetic File READ fixture above. This closes that isolated
 client-fixture gap only; it supplies no production App/Bridge or approval UI.

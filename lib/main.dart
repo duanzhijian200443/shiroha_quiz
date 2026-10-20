@@ -102,6 +102,11 @@ import 'data/persistence/question_v2_persistence_mapper.dart';
 import 'data/repositories/review_repository.dart';
 import 'data/repositories/settings_repository.dart';
 import 'application/external/local_authorization_service.dart';
+import 'composition/mcp_vnext_app_integration.dart';
+import 'data/repositories/external_target_read_repository.dart';
+import 'data/repositories/external_question_read_repository.dart';
+import 'data/repositories/external_file_read_repository.dart';
+import 'ui/dependencies/first_party_external_scope.dart';
 import 'data/repositories/external_authorization_repository.dart';
 import 'ui/dependencies/local_authorization_scope.dart';
 import 'data/repositories/ai_answer_commit_repository.dart';
@@ -246,10 +251,14 @@ void main() {
         databaseHelper: databaseHelper,
       );
       late Future<void> Function() relaunchApp;
+      McpVnextAppIntegration? externalIntegration;
       final backupRestore = BackupRestoreCoordinator(
         compositionReload: () => relaunchApp(),
         operations: BackupRestoreRuntime(
           databaseAuthority: SqliteBackupDatabaseAuthority(
+            beforeClose: () async {
+              await externalIntegration?.close();
+            },
             databaseHelper: databaseHelper,
             snapshotRepository: backupSnapshotRepository,
           ),
@@ -284,6 +293,7 @@ void main() {
       LocalAuthorizationService? localAuthorization;
 
       Future<void> composeAndRun() async {
+        await externalIntegration?.close();
         // B0 holds maintenance through recomposition. Old read sessions and
         // target confirmations must stay invalid after that window closes.
         generatedLocalAuthority?.invalidate();
@@ -585,8 +595,10 @@ void main() {
           index: retrievalIndex,
           chunker: const DeterministicSourceChunker(),
         );
+        final generatedProposalRepository =
+            GeneratedProposalRepository(databaseHelper: databaseHelper);
         final generatedQuestionService = GeneratedQuestionService(
-            GeneratedProposalRepository(databaseHelper: databaseHelper),
+            generatedProposalRepository,
             admission: GeneratedQuestionAdmission(idFactory: uuid.v4));
         final localAuthorityRepository =
             GeneratedLocalAuthorityRepository(databaseHelper: databaseHelper);
@@ -796,62 +808,90 @@ void main() {
         }
 
         AppLogger.info('Application started', module: 'Application');
+        final integration = Platform.isWindows
+            ? McpVnextAppIntegration(
+                targets: SqliteExternalTargetReadRepository(
+                    databaseHelper: databaseHelper),
+                questions: SqliteExternalQuestionReadRepository(
+                    databaseHelper: databaseHelper),
+                files: SqliteExternalFileReadRepository(
+                    databaseHelper: databaseHelper),
+                policy: authorizationService,
+                authorization: authorizationRepository,
+                proposals: generatedProposalRepository,
+                localAuthority: localAuthority,
+                artifacts: parsedArtifactLifecycle,
+                artifactMetadata: parsedArtifactRepository,
+                index: retrievalIndex,
+                chunker: const DeterministicSourceChunker(),
+                mintId: uuid.v4,
+                compositionIsCurrent: () => authorizationDatabase.isOpen)
+            : null;
+        externalIntegration = integration;
+        final app = ShirohaQuizApp(
+          localAuthorization: authorizationService,
+          generatedLocalAuthority: localAuthority,
+          generatedQuestionService: generatedQuestionService,
+          generatedUiContributions: moduleComposition.uiContributions,
+          taskCenter: createTaskCenterDependencies(
+              manager: taskManager,
+              coordinator: importTaskCoordinator,
+              folderQuery: questionRepository,
+              commitService: importCommitService),
+          studyActivity: studyActivity,
+          engineRepository: engineRepository,
+          aiConfigService: aiConfigService,
+          aiService: aiService,
+          importPipelineService: importPipelineService,
+          importTaskCoordinator: importTaskCoordinator,
+          importPreferencesLoader: importPreferencesLoader,
+          importPreferencesSaver: saveImportPreferences,
+          importTargetCatalogService: importTargetCatalog,
+          importCommitService: importCommitService,
+          answerGenerationService: answerGenerationService,
+          answerCommitCommand: answerCommitCommand,
+          answerEntryGuard: answerEntryGuard,
+          examMutationCommand: examMutationCommand,
+          practiceCommands: practiceCommands,
+          photoAnswerJudgement: photoAnswerJudgement,
+          photoAnswerSubmission: photoAnswerSubmission,
+          photoAnswerHistory: photoAnswerHistory,
+          questionListQuery: questionRepository,
+          questionMutationPersistence: questionRepository,
+          typedAnswerPersistence: questionRepository,
+          questionBankMutationPersistence: questionRepository,
+          folderQuery: questionRepository,
+          u1WorkspaceFacade: u1WorkspaceFacade,
+          conversationService: conversationService,
+          agentSettingsService: agentSettingsService,
+          startAgentTurn: agentRuntime.startTurn,
+          startRetrievalTurn: agentRuntime.startTurnWithRetrieval,
+          proposalService: agentWriteProposalService,
+          studyPlanDraftService: studyPlanDraftService,
+          studyPlanCommandService: studyPlanCommandService,
+          studyPlanSelectionService: studyPlanSelectionService,
+          studyPlanSessionLauncher: studyPlanSessionLauncher,
+          backupRestore: backupRestore,
+          contentAssetResolver: contentAssetStore,
+          contentAssetMaintenance: contentAssetMaintenance,
+          answerCompletionQuery: answerCompletionQuery,
+          answerCompletionSupplemental: answerCompletionSupplemental,
+          supplementalAnswerActivationService: supplementalAnswerActivation,
+          supplementalAnswerSourceAcquisitionService:
+              supplementalAnswerSourceAcquisition,
+          supplementalAnswerConfirmCommand: supplementalAnswerConfirmCommand,
+          supplementalSourceInspectionService: supplementalSourceInspection,
+          onRestoreCompleted: () {},
+        );
         runApp(
-          ShirohaQuizApp(
-            localAuthorization: authorizationService,
-            generatedLocalAuthority: localAuthority,
-            generatedQuestionService: generatedQuestionService,
-            generatedUiContributions: moduleComposition.uiContributions,
-            taskCenter: createTaskCenterDependencies(
-                manager: taskManager,
-                coordinator: importTaskCoordinator,
-                folderQuery: questionRepository,
-                commitService: importCommitService),
-            studyActivity: studyActivity,
-            engineRepository: engineRepository,
-            aiConfigService: aiConfigService,
-            aiService: aiService,
-            importPipelineService: importPipelineService,
-            importTaskCoordinator: importTaskCoordinator,
-            importPreferencesLoader: importPreferencesLoader,
-            importPreferencesSaver: saveImportPreferences,
-            importTargetCatalogService: importTargetCatalog,
-            importCommitService: importCommitService,
-            answerGenerationService: answerGenerationService,
-            answerCommitCommand: answerCommitCommand,
-            answerEntryGuard: answerEntryGuard,
-            examMutationCommand: examMutationCommand,
-            practiceCommands: practiceCommands,
-            photoAnswerJudgement: photoAnswerJudgement,
-            photoAnswerSubmission: photoAnswerSubmission,
-            photoAnswerHistory: photoAnswerHistory,
-            questionListQuery: questionRepository,
-            questionMutationPersistence: questionRepository,
-            typedAnswerPersistence: questionRepository,
-            questionBankMutationPersistence: questionRepository,
-            folderQuery: questionRepository,
-            u1WorkspaceFacade: u1WorkspaceFacade,
-            conversationService: conversationService,
-            agentSettingsService: agentSettingsService,
-            startAgentTurn: agentRuntime.startTurn,
-            startRetrievalTurn: agentRuntime.startTurnWithRetrieval,
-            proposalService: agentWriteProposalService,
-            studyPlanDraftService: studyPlanDraftService,
-            studyPlanCommandService: studyPlanCommandService,
-            studyPlanSelectionService: studyPlanSelectionService,
-            studyPlanSessionLauncher: studyPlanSessionLauncher,
-            backupRestore: backupRestore,
-            contentAssetResolver: contentAssetStore,
-            contentAssetMaintenance: contentAssetMaintenance,
-            answerCompletionQuery: answerCompletionQuery,
-            answerCompletionSupplemental: answerCompletionSupplemental,
-            supplementalAnswerActivationService: supplementalAnswerActivation,
-            supplementalAnswerSourceAcquisitionService:
-                supplementalAnswerSourceAcquisition,
-            supplementalAnswerConfirmCommand: supplementalAnswerConfirmCommand,
-            supplementalSourceInspectionService: supplementalSourceInspection,
-            onRestoreCompleted: () {},
-          ),
+          integration == null
+              ? app
+              : FirstPartyExternalLifetime(
+                  key: ObjectKey(integration),
+                  access: integration.controls,
+                  close: integration.close,
+                  child: app,
+                ),
         );
       }
 

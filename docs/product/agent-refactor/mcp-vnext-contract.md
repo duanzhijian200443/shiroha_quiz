@@ -230,8 +230,10 @@ external boundary §8 owns the separate lifecycle-only schema-v2 command.
 No raw bank/Profile/
 permission/Grant field is accepted from a client. There is no external COMMIT.
 
-App composition receives existing services, an authentication port and a fixed
-list of already App-approved StageContexts. It never calls `approveTarget`.
+App composition receives existing services, an authentication port and a
+snapshot of already App-approved StageContexts. Trusted first-party control may
+explicitly replace that bounded snapshot; no MCP tool can do so. The protocol
+composition never calls `approveTarget`.
 For STAGE, the READ handle resolves through the owning registry; its target bank,
 nullable Project/Folder and revision must match a supplied approval bound to the
 identical authenticated Session. P8/P3 validate the original approval, expiry,
@@ -278,11 +280,12 @@ and fresh authentication. The existing standing PR contract shard includes this
 real stdio fixture; no test enables production transport.
 
 The standalone `lib/mcp/vnext_mcp_entrypoint.dart` defaults to `unavailable` for
-every business call. No startup installs the App composition, and no flag/CLI
+every business call. Startup installs only the dormant App owner in §9, and no flag/CLI
 argument enables synthetic credentials or the test link in production.
 HOST_STABILITY_HALT remains ACTIVE, TRANSPORT BLOCKED and AR-R6A NOT_ACCEPTED.
 Actual STAGE use is blocked by admitted production authenticated App/Bridge
-transport and first-party pairing/finite enablement/target-approval composition,
+transport and admitted first-party pairing/credential integration; §9 supplies
+the dormant first-party finite-enablement/target-approval composition,
 followed by AR-R6B production exposure acceptance. The minimal future scope is to
 provide the admitted transport's `VnextMcpPort` binding and trusted approved
 Session/target inputs, preserving P3/P7/P8/P10 and UI COMMIT. If choosing a less
@@ -323,8 +326,76 @@ source/policy invalidation and bounded coverage/exclusion semantics are checked.
 P4 parent-target prerequisites, independent fileContent/File scope and separate
 STAGE approval remain unchanged. Only executed cases prove client acceptance;
 the Windows guide records repeatable commands and evidence limits. Product
-App/Bridge binding and first-party pairing/finite-enablement/target-approval composition
-remain absent; their implementation and the independent production security
+App/Bridge transport and real pairing/authentication remain absent; §9 adds
+the dormant App control composition. Its implementation and independent security
 admission gates must not be conflated. The broader Windows functional checklist,
 AR-R6B and production Host/Transport admission are not closed by this bounded
 slice. The v0 six-tool entry and existing real-bank registration are unchanged.
+
+## 9. First-party App composition and controls
+
+`MCP-VNEXT-APP-FIRST-PARTY-INTEGRATION` supplies the product App composition and
+local controls independently of production transport activation. `main.dart`
+passes the SAME authorization and GeneratedProposal repositories, existing
+GeneratedLocalAuthority factory and verified F1/RAG services to one
+`McpVnextAppIntegration`. It captures explicit READ repository ports over that
+same DatabaseHelper; there is no separate database, writer or schema. Existing
+GeneratedQuestionService/Inbox/Review/explicit local COMMIT remain the only
+formal proposal approval path. MCP has no COMMIT route.
+
+Windows startup is dormant: no TrustCore, CredentialPort, coordinator, P8 Host, listener,
+IPC or MCP server is created or started. The existing P11 settings page includes
+first-party Profile selection, connection/PairingState, 5/10/30-minute local
+enablement, explicit STAGE target confirmation and disable controls. Without an
+admitted authenticated binding it shows unconnected/unavailable and cannot
+enable access. Saving a policy or selecting its ID proves no authentication.
+Other platform startup does not install this Windows control composition.
+The policy-only notice remains applicable to the original P11 editor.
+
+The explicit `attachTrusted` composition entry requires an existing P0 authority,
+readiness owner and opaque authentication-attempt supplier from an admitted
+App/Bridge integration. It implements no credential adapter or pairing state
+machine. Only isolated tests currently supply that binding; no startup/UI option,
+test mailbox, synthetic credential or production TLS candidate installs it.
+Real first-party pairing/credential/transport wiring remains inactive under
+the frozen external and Windows readiness contracts. This slice does not claim
+production connectivity or independently admit that future caller.
+
+FirstPartyExternalAccess delegates Profile registration and finite enablement to
+P12, authenticates the current selected Principal through P0 before enablement,
+and opens the Session through P12 only after enablement. The pre-enable
+authenticated peer is distinct from a business-enabled Session. It reauthenticates
+and checks current policy/Session for target approval and each App Port call.
+P0/P12 and P1/P3/P4/P7/P8 remain the owning authorities. Switching Profiles,
+disconnect, policy revision/revoke, expiry and disable discard local approvals
+and Session custody; regrant/reconnect does not automatically resume access.
+
+STAGE target choices come from the existing local Review target query, including
+exact nullable Folder and Project snapshots. Only confirmation of the displayed
+App-minted choice calls the existing P3 `approveTarget`, with empty evidence in
+this bounded UI. P3 checks current STAGE/Scope/Egress. READ handles and File
+selection cannot trigger approval, and confirmation grants no missing permission.
+The MCP composition receives only the resulting bounded approval snapshots and
+matches the exact authenticated Session/target/revision as before.
+
+Shutdown blocks new controls/Port work synchronously, discards approvals and
+awaits P12/P8/Port plus local-operation settlement before releasing local owners.
+The existing `SqliteBackupDatabaseAuthority` receives this before-close barrier
+from main and awaits it before production database close, including B0 swap and
+raw rollback; failure preserves the open database. DatabaseHelper is unchanged.
+App exit awaits this same close, and recomposition awaits it before invalidating
+the old local authority. Fresh composition is dormant and never restores Session,
+Context or approvals. The original durable Proposal/SubmissionKey remains the
+sole recovery authority, accessible only after fresh trusted authorization.
+
+Deterministic acceptance is registered in the existing standing P11 architecture
+shard (`local_authorization_architecture_test.dart`) via its synthetic fixture.
+It exercises the actual product root with temporary SQLite and existing F1/RAG,
+local control Widgets, denied unpaired/unauthenticated/non-STAGE/unapproved
+submissions, finite expiry, revoke/regrant/disconnect, owning STAGE drain before
+database close, reconstruction/original-key lookup and real B0 Restore/rollback.
+Existing stdio/MCP v0/local Review and isolated installed-Codex File READ/STAGE
+regressions remain distinct required evidence. No real application data is used.
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
+Production MCP vNext remains disabled. Trial 1A and G0-L1/L2/I do not resume.

@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -26,6 +27,8 @@ RESULT_ENV = {
     "train_c_finalization_parity": "RESULT_TRAIN_C_FINALIZATION_PARITY",
     "contracts": "RESULT_CONTRACTS",
 }
+SHARD_POLL_ATTEMPTS = 12
+SHARD_POLL_INTERVAL_SECONDS = 5
 
 
 class GateError(Exception):
@@ -59,7 +62,33 @@ def _jobs(api, run_id, attempt):
         return None
 
 
-def validate(plan, repo, results, api, event_name, event, run_id, attempt, now=None):
+def _shard_jobs(jobs):
+    matching = [job for job in jobs if job.get("name", "").startswith("Contract shard ")]
+    names = sorted(job.get("name") for job in matching)
+    _require(names == [f"Contract shard {index}/4" for index in range(1, 5)], "shard_mismatch")
+    return matching
+
+
+def _settled_jobs(api, run_id, attempt, contracts_execute, pause):
+    jobs = _jobs(api, run_id, attempt)
+    if not contracts_execute:
+        return jobs
+    # needs.contracts.result is already success here. A newer matrix job can still
+    # briefly read back with a pending conclusion, so poll the observation rather
+    # than failing on a transient inconsistency; an unsettled matrix still fails.
+    for remaining in range(SHARD_POLL_ATTEMPTS):
+        _require(jobs is not None, "matrix_unverifiable")
+        shard_jobs = _shard_jobs(jobs)
+        if all(job.get("conclusion") == "success" for job in shard_jobs):
+            return jobs
+        if remaining + 1 == SHARD_POLL_ATTEMPTS:
+            break
+        pause(SHARD_POLL_INTERVAL_SECONDS)
+        jobs = _jobs(api, run_id, attempt)
+    raise GateError("shard_not_success")
+
+
+def validate(plan, repo, results, api, event_name, event, run_id, attempt, now=None, pause=None):
     now = now or datetime.now(timezone.utc)
     _require(plan.get("version") == 2, "invalid_plan")
     _require(plan.get("planSha256") == impact.canonical(plan), "plan_digest_mismatch")
@@ -113,14 +142,11 @@ def validate(plan, repo, results, api, event_name, event, run_id, attempt, now=N
         actual = results.get(job)
         _require(actual == expected, f"unit_{job}_{status.lower()}_not_{expected}")
 
-    jobs = _jobs(api, run_id, attempt)
+    contracts_execute = plan["units"]["contracts"]["status"] == impact.EXECUTE
+    jobs = _settled_jobs(api, run_id, attempt, contracts_execute, pause or time.sleep)
     shards = None
-    if plan["units"]["contracts"]["status"] == impact.EXECUTE:
-        _require(jobs is not None, "matrix_unverifiable")
-        shard_jobs = [job for job in jobs if job.get("name", "").startswith("Contract shard ")]
-        shards = sorted(job.get("name") for job in shard_jobs)
-        _require(shards == [f"Contract shard {index}/4" for index in range(1, 5)], "shard_mismatch")
-        _require(all(job.get("conclusion") == "success" for job in shard_jobs), "shard_not_success")
+    if contracts_execute:
+        shards = sorted(job.get("name") for job in _shard_jobs(jobs))
 
     durations = {}
     if jobs is not None:

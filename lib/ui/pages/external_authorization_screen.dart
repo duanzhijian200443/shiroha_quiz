@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../../application/capabilities/capability.dart';
 import '../../application/external/external_authorization.dart';
 import '../../application/external/local_authorization_service.dart';
+import '../dependencies/first_party_external_scope.dart';
+import 'first_party_external_control.dart';
 
 const externalPolicyNotice = '当前仅配置访问规则。外部客户端尚未配对，真实连接功能未启用。';
 
@@ -233,6 +235,8 @@ final class _ExternalAuthorizationScreenState
     return Scaffold(
       appBar: AppBar(title: const Text('外部 Agent 授权')),
       body: ListView(padding: const EdgeInsets.all(16), children: [
+        if (FirstPartyExternalScope.maybeOf(context) case final access?)
+          FirstPartyExternalControl(key: ObjectKey(access), access: access),
         const Card(
             child: Padding(
                 padding: EdgeInsets.all(16),

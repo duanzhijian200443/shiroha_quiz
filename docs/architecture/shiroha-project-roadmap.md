@@ -217,9 +217,11 @@ The separate opt-in installed-client File READ fixture now reuses that mailbox
 and existing P6/F1/RAG/FTS5 for authorized selection, independent File Contexts,
 retrieval/passages, coverage/exclusions, policy/source invalidation and cleanup.
 Only actual executed Windows client cases count; skipped/SDK results do not.
-The remaining functional scope includes product App/Bridge binding with
-first-party pairing, finite enablement and target-approval composition. These
-fixtures do not establish reference-plugin distribution or
+The bounded [first-party App composition](../product/agent-refactor/mcp-vnext-contract.md#9-first-party-app-composition-and-controls)
+adds dormant product controls over the existing App owners, with offline-proven
+Profile selection, finite enablement and explicit STAGE target confirmation.
+It leaves real pairing/credential integration and admitted App/Bridge transport
+inactive. These fixtures and the App slice do not establish reference-plugin distribution or
 model-directed/Desktop-interactive usage.
 Independent Windows verification remains necessary for the exact candidate.
 These functional/integration gaps are distinct from frozen production
