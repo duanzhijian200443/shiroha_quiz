@@ -96,6 +96,169 @@ final class _FirstPartyWindowsRequest implements FirstPartyPairingRequest {
   }
 }
 
+/// Connects one inactive App request and Bridge Enrollment's public handoff.
+///
+/// Trusted composition supplies the existing owners. Only the original
+/// Submission ID, exported public trust bytes and freshly queried completion
+/// display cross this adapter. Both Bridge confirmations remain user actions.
+/// This in-process binding supplies no Windows process or authenticated channel.
+final class WindowsPairingHandoff implements FirstPartyPairingPort {
+  WindowsPairingHandoff({
+    required WindowsAppPairing appOwner,
+    required WindowsBridgePairing bridgeOwner,
+  }) {
+    bridge = WindowsBridgeOnboarding(
+        owner: bridgeOwner,
+        readAppPublicTrust: readAppPublicTrust,
+        readAppCompletion: readAppCompletion);
+    _app = WindowsFirstPartyPairing(
+        owner: appOwner,
+        submissionId: () async {
+          _check();
+          return bootstrapCopy(_submission!);
+        },
+        exportPublicTrust: (display) async {
+          _check();
+          _public = BridgeAppPublicMaterial(
+              issuerDer: display.issuerDer,
+              serverLeafDigest: display.serverLeafDigest);
+        });
+  }
+
+  /// The original Bridge controls with two separate manual confirmations.
+  late final WindowsBridgeOnboarding bridge;
+  late final WindowsFirstPartyPairing _app;
+  Uint8List? _submission;
+  BridgeAppPublicMaterial? _public;
+  FirstPartyPairingRequest? _request;
+  bool _requested = false, _closed = false;
+  int _pending = 0;
+  Completer<void>? _idle;
+  Future<void>? _closing;
+
+  @override
+  Future<FirstPartyPairingRequest> request(ExternalProfileReference profile) =>
+      _run(() async {
+        if (_requested) _reject();
+        _requested = true;
+        _submission = bootstrapCopy(bridge._liveEnrollment().submissionId);
+        _request = await _app.request(profile);
+        _check();
+        return _HandoffRequest(this);
+      });
+
+  /// Reads copied public export bytes for this exact live Submission.
+  ///
+  /// Reading revalidates the original App display; it never confirms trust.
+  Future<BridgeAppPublicMaterial> readAppPublicTrust(Uint8List submissionId) =>
+      _run(() async {
+        _match(submissionId);
+        final request = _request, material = _public;
+        if (request == null || material == null) _reject();
+        await request.display();
+        _match(submissionId);
+        return BridgeAppPublicMaterial(
+            issuerDer: material.issuerDer,
+            serverLeafDigest: material.serverLeafDigest);
+      });
+
+  /// Queries P27/P15's actual confirmed completion without caching a Revision.
+  Future<FirstPartyPairingDisplay> readAppCompletion(Uint8List submissionId) =>
+      _run(() async {
+        _match(submissionId);
+        final request = _request;
+        if (request == null) _reject();
+        final display = await request.display();
+        _match(submissionId);
+        if (display.revision == null || display.digest == null) _reject();
+        return display;
+      });
+
+  void _check() {
+    if (_closed) _reject();
+    // Acknowledged Pin storage ends Bridge custody, not the App's pairing or
+    // later independent Authentication. App projections still query P15.
+    if (bridge._saved) return;
+    final enrollment = bridge._liveEnrollment();
+    if (_submission != null &&
+        !bootstrapEqual(_submission!, enrollment.submissionId)) {
+      _reject();
+    }
+  }
+
+  void _match(Uint8List id) {
+    _check();
+    bridge._liveEnrollment();
+    if (_submission == null || !bootstrapEqual(id, _submission!)) _reject();
+  }
+
+  Future<T> _run<T>(Future<T> Function() work) async {
+    bool tracked = false;
+    try {
+      _check();
+      if (_pending >= ExternalCredentialBoundary.maxPending) _reject();
+      if (_pending++ == 0) _idle = Completer<void>();
+      tracked = true;
+      final result = await work();
+      _check();
+      return result;
+    } catch (error) {
+      _invalidate();
+      if (error is ExternalCredentialException ||
+          error is ExternalExchangeException) {
+        rethrow;
+      }
+      credentialFail(ExternalCredentialFailure.temporarilyUnavailable);
+    } finally {
+      if (tracked && --_pending == 0) {
+        _idle!.complete();
+        _idle = null;
+      }
+    }
+  }
+
+  void _invalidate() {
+    _closed = true;
+    _request = null;
+    _public = null;
+    _submission = null;
+    // Synchronous withdrawal avoids waiting on the Bridge reader that may be
+    // calling us. Explicit close below drains both existing owners and readers.
+    bridge._invalidate();
+  }
+
+  @override
+  Future<void> close() => _closing ??= _close();
+
+  Future<void> _close() async {
+    try {
+      _invalidate();
+    } finally {
+      await Future.wait([
+        bridge.close(),
+        _app.close(),
+        _idle?.future ?? Future<void>.value(),
+      ]);
+    }
+  }
+
+  @override
+  String toString() => 'WindowsPairingHandoff(REDACTED)';
+}
+
+final class _HandoffRequest implements FirstPartyPairingRequest {
+  _HandoffRequest(this.owner);
+  final WindowsPairingHandoff owner;
+
+  @override
+  Future<FirstPartyPairingDisplay> display() =>
+      owner._run(() => owner._request!.display());
+  @override
+  Future<void> approve() => owner._run(() => owner._request!.approve());
+  @override
+  Future<void> complete() => owner._run(() => owner._request!.complete());
+}
+
 /// Local opaque workflow handle; P0 alone owns PairingState.
 final class AppPairingRequest {
   AppPairingRequest._(this._owner, this._registration, this._challenge,

@@ -15,6 +15,7 @@ export 'package:shiroha_quiz/data/external/windows_tls_transport.dart'
 export 'package:shiroha_quiz/data/external/windows_pairing.dart'
     show
         WindowsBridgeOnboarding,
+        WindowsPairingHandoff,
         BridgeOnboardingDisplay,
         BridgeAppPublicMaterial;
 

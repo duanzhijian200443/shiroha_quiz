@@ -489,8 +489,9 @@ channel validation. No listener or actual Windows primitive participates.
 the existing public mathematical fixtures and fake Native boundary. Neither
 fixture is real Windows/security or installed App/Bridge pairing acceptance.
 
-This closes the bounded lifecycle source-wiring scope only. Actual protected
-credential acquisition, production export/Submission/channel bindings and real
+This closes the bounded lifecycle source-wiring scope only. Section 12 supplies
+the inactive public export/Submission/completion adapter. Actual protected
+credential acquisition, Windows process/channel bindings and real
 Windows/App/Bridge acceptance remain pending; the bounded Bridge local controls
 source slice below supplies the previously missing onboarding interface. Those
 remaining gaps are not represented by synthetic success or an admission-only
@@ -563,10 +564,74 @@ adapter/P27/P15/Fake Native path, incorrect summaries/Revisions, malformed
 Challenge/Proof, duplicate actions, expiry/invalidation, late local input, key wiping,
 E0 release and existing/corrupt/unknown Pin outcomes. The existing actual App-root
 fixture also uses these Bridge controls. Public mathematical fixtures and Fake
-Native prove source wiring only. Actual independent public-material/Submission
-transfer, protected credential acquisition, production completion-reader binding,
-App/Bridge process integration and authenticated channel wiring still require
+Native prove source wiring only. Section 12 supplies the inactive public-material,
+Submission and fresh completion-reader adapter. Actual protected credential
+acquisition, Windows App/Bridge process integration and authenticated channel wiring still require
 implementation/acceptance. No real DPAPI, ACL, certificate generation, listener,
 formal Bridge service or production MCP is activated. HOST_STABILITY_HALT =
 ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED. Trial 1A and G0-L1/L2/I remain
 unresumed; independent Windows security/process acceptance remains pending.
+
+## 12. Inactive App-Bridge pairing handoff
+
+`MCP-VNEXT-APP-BRIDGE-PAIRING-HANDOFF` supplies `WindowsPairingHandoff` in the
+same P27 library, also exported by the default-disabled Bridge source entry.
+Explicit trusted composition passes the existing App and Bridge Pairing owners,
+uses the adapter as its `FirstPartyPairingPort`, and binds its `bridge` controls
+to separate local user actions. Construction performs no I/O or activation.
+This is an in-process source composition seam, not a Windows process transport.
+
+The adapter passes the Bridge Enrollment's ORIGINAL Submission ID into
+`WindowsFirstPartyPairing`. P27/E0 still publish, read and consume that one
+Submission and its exact Challenge/Proof bytes. No request record, Exchange
+payload, persistent journal, protocol or credential owner is added. The existing
+request handle and a bounded transient copy of the public export are retained
+only for the lifetime of this composition.
+
+`exportPublicTrust` feeds `readAppPublicTrust` with immutable copies of Issuer DER
+and Server Leaf digest only. Each read matches the original live Submission and
+revalidates the original App display before returning. Bridge independently
+checks the Challenge and calculates its full initial digest. Import never
+confirms trust: both surfaces still display all 64 digest characters, and only
+the first explicit human comparison action permits Proof publication. App
+Approval and P15 completion remain separate explicit actions.
+
+`readAppCompletion` queries that SAME request's current `display`, which obtains
+P27/P15's actual confirmed Association Revision and full completion digest.
+No expected-Revision arithmetic or cached success supplies the result. Bridge
+checks the returned actual Revision/digest against its original Enrollment;
+only the second explicit full-digest AND Revision comparison may invoke its
+existing one-use Missing-only Pin save. Saving the Pin ends Bridge Enrollment
+custody without closing the App's existing pairing owner. The App still queries
+P15, and subsequent business use requires independent Authentication and policy.
+
+Missing, foreign, expired, duplicate or invalidated inputs latch the handoff
+closed and withdraw its retained data and Bridge display. App request calls
+also guard the original Enrollment while it is live. Close through the existing
+App credential-service lifecycle immediately invalidates the handoff/Enrollment,
+then drains outstanding handoff reads, Bridge controls and the existing App
+P27/P15/P12 owners. Caller-owned protected Store/Owner/writer-lock release remains
+outside this adapter. Late results and old handles cannot restore custody;
+recovery requires explicit close/drain/fresh composition. Deadlines are never
+renewed and no automatic retry/approval or unknown-result success is added.
+The frozen manual protocol still cannot guarantee observation of App invalidation
+after an earlier valid completion display; copied displays grant no authority.
+
+Standing `windows_pairing_test.dart` covers the actual adapter with existing
+public mathematical fixtures, Fake Native and business owners: original E0
+consumption, both confirmations, exact-revision idempotency, wrong/cross Enrollment
+IDs, missing Submission/export/Challenge/Proof, failed/unknown CAS, wrong Revision,
+expiry, delayed reads, cancel/close/revoke and stale/rebuilt handles. The existing
+`first_party_pairing_cases.dart` actual App-root integration now uses this
+adapter instead of fixture-defined handoff callbacks, through P15 completion,
+separate channel authentication, target approval and isolated STAGE.
+
+Delivery is limited to inactive public handoff source wiring and isolated
+functional acceptance. Actual protected credential acquisition, admitted native
+public-material/process transfer, Windows App/Bridge process composition and
+authenticated business-channel wiring remain implementation AND acceptance
+work. This seam makes no real Windows credential, process or security claim.
+Normal startup, production App/Bridge and MCP vNext STAGE remain disabled.
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
+No real DPAPI, certificate generation, ACL, listener/TCP/mTLS, Trial 1A or
+G0-L1/L2/I experiment is activated or authorized.

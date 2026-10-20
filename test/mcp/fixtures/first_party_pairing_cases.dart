@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/capabilities/capability.dart';
@@ -8,6 +9,7 @@ import 'package:shiroha_quiz/application/external/external_trust_core.dart';
 import 'package:shiroha_quiz/application/external/first_party_external_credentials.dart';
 import 'package:shiroha_quiz/ui/pages/first_party_external_control.dart';
 import 'package:shiroha_quiz/data/external/windows_pairing.dart';
+import 'package:shiroha_quiz/data/external/external_credential_object_codec.dart';
 import 'package:shiroha_quiz/data/external/windows_tls_transport.dart';
 import 'package:shiroha_quiz/data/external/native/windows_peer_certificate_policy.dart';
 import '../../application/external/external_credential_test_support.dart';
@@ -428,17 +430,10 @@ void registerFirstPartyPairingTests() {
     await h.open();
     final f = FirstPartyAppHarness();
     await f.open(attach: false);
-    late PairingTrustDisplay public;
-    final bridgeControls = WindowsBridgeOnboarding(
-        owner: h.bridge,
-        readAppPublicTrust: (_) async => BridgeAppPublicMaterial(
-            issuerDer: public.issuerDer,
-            serverLeafDigest: public.serverLeafDigest),
-        readAppCompletion: (_) async =>
-            (await f.controls.status()).pairingDisplay!);
+    late WindowsPairingHandoff handoff;
     addTearDown(() async {
-      await bridgeControls.close();
       await f.close();
+      await handoff.close();
       await h.close();
     });
     f.files.s.clock.current = h.native.now;
@@ -449,9 +444,6 @@ void registerFirstPartyPairingTests() {
         compositionIsCurrent: () => h.current && f.controls.isCurrent);
     late WindowsChannelVerification channels;
     late tls.MemoryTlsChannel channel;
-    bridgeControls.beginEnrollment(
-        displayLabel: 'PUBLIC FIXTURE', clientBuild: 'offline');
-    final submissionId = bridgeControls.display().submissionId!;
     f.port = await f.integration.attachCredentials(
         associations: h.associations,
         verification: (management) => channels = WindowsChannelVerification(
@@ -482,20 +474,22 @@ void registerFirstPartyPairingTests() {
               monotonicNow: () => h.elapsed,
               compositionIsCurrent: () => h.current && f.controls.isCurrent,
               randomBytes: h.random);
+          handoff =
+              WindowsPairingHandoff(appOwner: owner, bridgeOwner: h.bridge);
           return FirstPartyCredentialServices(
               boundary: boundary,
-              pairing: WindowsFirstPartyPairing(
-                  owner: owner,
-                  submissionId: () async => submissionId,
-                  exportPublicTrust: (display) async => public = display),
+              pairing: handoff,
               openConnection: (_) async {
                 final material = h.native.service.validatedPublicMaterial();
+                final pin = h.bridgeStore.read(4)! as ExternalBridgeClient;
+                final issuer = Uint8List.fromList(pin.issuerCertificateDer);
+                pin.clientPkcs8Der.fillRange(0, pin.clientPkcs8Der.length, 0);
                 final plan = TlsContextPlan.validate(
                     role: TlsPeerRole.server,
                     leafDer: material.serverLeafDer!,
                     issuerDer: material.issuerCertificateDer,
                     privateKeyDer: init.publicFixtureKey(),
-                    independentlyPinnedIssuer: public.issuerDer,
+                    independentlyPinnedIssuer: issuer,
                     signDigest: h.native.sign,
                     verifyDigest: h.native.verify,
                     utcNow: () => h.native.now);
@@ -508,6 +502,10 @@ void registerFirstPartyPairingTests() {
               },
               close: () async => channels.close());
         });
+    final bridgeControls = handoff.bridge;
+    bridgeControls.beginEnrollment(
+        displayLabel: 'PUBLIC FIXTURE', clientBuild: 'offline');
+    final submissionId = bridgeControls.display().submissionId!;
     await f.controls.select(f.files.s.profile.profileId);
     await f.controls.requestPairing();
     await bridgeControls.inspectAppTrust();
