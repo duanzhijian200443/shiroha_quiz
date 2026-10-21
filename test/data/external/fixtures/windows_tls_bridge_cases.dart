@@ -19,6 +19,25 @@ final class LinkedChannel extends tls.MemoryTlsChannel {
   LinkedChannel? peer;
   Uint8List Function(Uint8List)? transform;
   bool abortPeer = false;
+  bool _peerEnded = false;
+  void Function(int)? beforeRead;
+  @override
+  void endInput() {
+    _peerEnded = true;
+    super.endInput();
+    if (chunks.isEmpty) open = false;
+  }
+
+  @override
+  Future<Uint8List?> read(int maximum) async {
+    beforeRead?.call(maximum);
+    final bytes = await super.read(maximum);
+    // RawSecureSocket emits readClosed only after its plaintext is drained.
+    // The close event can precede the Bridge's final EOF read/continuation.
+    if (_peerEnded && chunks.isEmpty) open = false;
+    return bytes;
+  }
+
   @override
   Future<void> write(Uint8List bytes) async {
     await super.write(bytes);
@@ -173,6 +192,78 @@ void bridgeCases(tls.TlsHarness Function() harness) {
       expect((jsonDecode((await f.read()).payload) as Map)['error'], isNull);
       f.released();
     });
+
+    test('normal peer close before final EOF read accepts the matched response',
+        () async {
+      await f.open(attachHost: false);
+      f.client.feed(IpcEnvelopeCodec.encodeResponse('bridge-id', '{}'));
+      f.client.endInput();
+      var checkedEof = false;
+      f.client.beforeRead = (maximum) {
+        if (maximum != 1) return;
+        checkedEof = true;
+        expect(f.client.isOpen, isFalse);
+        expect(f.bridge.isLive, isFalse);
+      };
+      final result = await f.read();
+      expect(result.payload, '{}');
+      expect(checkedEof, isTrue);
+      expect(f.client.writes, hasLength(1));
+      f.released();
+    });
+
+    test('peer EOF before request admission sends nothing', () async {
+      await f.open(attachHost: false);
+      f.client.endInput();
+      expect(() => f.read(),
+          transportFailure(TlsBridgeFailure.unavailable, unknown: false));
+      expect(f.client.writes, isEmpty);
+      await f.bridge.close();
+      f.released();
+    });
+
+    for (final mode in [
+      'clean',
+      'cancel',
+      'replacement',
+      'expiry',
+      'timeout'
+    ]) {
+      test('$mode while awaiting final EOF preserves result and drain rules',
+          () async {
+        await f.open(attachHost: false);
+        f.client.feed(IpcEnvelopeCodec.encodeResponse('bridge-id', '{}'));
+        final reachedEof = Completer<void>();
+        f.client.beforeRead = (maximum) {
+          if (maximum == 1) reachedEof.complete();
+        };
+        final pending = f.read();
+        final assertion = mode == 'clean'
+            ? expectLater(pending, completion(isA<UntrustedIpcEnvelope>()))
+            : expectLater(
+                pending,
+                transportFailure(switch (mode) {
+                  'cancel' => TlsBridgeFailure.cancelled,
+                  'timeout' => TlsBridgeFailure.timedOut,
+                  _ => TlsBridgeFailure.responseLost,
+                }));
+        await reachedEof.future;
+        expect(f.client.reading, isNotNull);
+        expect(f.bridge.budget.used(TlsResource.pipeline), 1);
+        if (mode == 'cancel') unawaited(f.bridge.close());
+        if (mode == 'replacement') h.pairing.current = false;
+        if (mode == 'expiry') h.pairing.native.now = DateTime.utc(9999);
+        if (mode == 'timeout') {
+          h.deadlines.advance(const Duration(seconds: 2));
+        }
+        f.client.endInput();
+        expect(f.client.isOpen, isFalse);
+        await assertion;
+        await f.bridge.close();
+        expect(f.client.writes, hasLength(1));
+        f.released();
+      });
+    }
 
     test('trusted STAGE Context publishes once with original business key',
         () async {

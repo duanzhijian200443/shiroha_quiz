@@ -65,16 +65,17 @@ final class WindowsTlsBridge {
   Future<void>? _requesting;
   Completer<UntrustedIpcEnvelope>? _reply;
   bool _sent = false;
-  bool get isLive {
+  bool get _connectionIsCurrent {
     if (!_started) return false;
-    if (_closed ||
-        !_current() ||
-        (_channel != null && !_channel!.isOpen) ||
-        (_plan != null && !_plan!.isCurrent)) {
+    if (_closed || !_current() || (_plan != null && !_plan!.isCurrent)) {
       _invalid = true;
     }
     return !_invalid && _verified && _channel != null;
   }
+
+  // Peer EOF stops new writes, but does not invalidate an already received
+  // response. Its final EOF read still checks local lifetime and credentials.
+  bool get isLive => _connectionIsCurrent && _channel!.isOpen;
 
   Future<void> connect() {
     if (_started || _closed || !_current()) _tlsReject();
@@ -174,25 +175,25 @@ final class WindowsTlsBridge {
         const Duration(seconds: 10), () => _fail(TlsBridgeFailure.timedOut));
     var cancelProgress = schedule(
         const Duration(seconds: 2), () => _fail(TlsBridgeFailure.timedOut));
-    void progressed() {
+    void progressed({bool receiving = false}) {
       if (_now - started >= const Duration(seconds: 10)) {
         _fail(TlsBridgeFailure.timedOut);
       }
-      if (!isLive) _tlsReject();
+      if (!(receiving ? _connectionIsCurrent : isLive)) _tlsReject();
       cancelProgress();
       cancelProgress = schedule(
           const Duration(seconds: 2), () => _fail(TlsBridgeFailure.timedOut));
     }
 
     Future<Uint8List?> read(int maximum) async {
-      if (!isLive) _tlsReject();
+      if (!_connectionIsCurrent) _tlsReject();
       final bytes = await _channel!.read(maximum);
       // EOF is required after the sole response. A closed peer is expected
       // there, but local cancellation/currentness must still fail closed.
-      if (_closed || _invalid || !_current() || !_plan!.isCurrent) _tlsReject();
+      if (!_connectionIsCurrent) _tlsReject();
       if (bytes != null) {
         if (bytes.isEmpty || bytes.length > maximum) _tlsReject();
-        progressed();
+        progressed(receiving: true);
       }
       return bytes;
     }

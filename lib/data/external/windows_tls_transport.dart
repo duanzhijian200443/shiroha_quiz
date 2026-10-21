@@ -53,6 +53,10 @@ String _tlsIdentity(Uint8List der) =>
 /// Trusted injected I/O seam, never an authorization or wire surface.
 abstract interface class TlsChannel {
   Uint8List get peerDer;
+
+  /// Whether the channel remains open for admission/writes. Peer EOF may make
+  /// this false before a caller's final [read]; that read still returns null
+  /// to confirm end of input.
   bool get isOpen;
   Future<Uint8List?> read(int maximum);
   Future<void> write(Uint8List response);

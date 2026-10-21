@@ -652,8 +652,12 @@ the P9 header before body allocation, refuses request-kind replies, checks exact
 ID/type/length/UTF-8 and requires EOF after the sole complete response. Protocol
 errors, wrong IDs, malformed/truncated frames, duplicate replies or trailing
 bytes fail closed. A valid response remains an `UntrustedIpcEnvelope`; business
-schema/result interpretation stays outside this transport. One connection can
-make only one attempt, including concurrent/late calls and failed requests.
+schema/result interpretation stays outside this transport.
+Clean peer EOF may make the channel unavailable before the final EOF read;
+it does not discard an already complete matched response. Local cancellation,
+deadline and composition/certificate invalidation still reject its release.
+One connection can make only one attempt, including concurrent/late calls and
+failed requests.
 No reconnect, batch, automatic STAGE retry or startup binding is supplied.
 
 The existing 2-second no-progress and 10-second total frame deadlines cover the
@@ -675,9 +679,10 @@ Nothing changes P9/P10 wire formats, resource ceilings or Session/Context custod
 Standing `windows_tls_transport_test.dart` includes the Bridge cases with the
 existing Fake TLS, public cryptographic fixtures, isolated SQLite and original
 Host: authorized READ, trusted STAGE, absent enablement/approval, malformed and
-lost responses, strict IDs, fragmentation/maximum sizes, deadlines, disconnect,
-duplicate requests, delayed/failed close and committed-STAGE settlement with
-original-key recovery. These are deterministic source checks only.
+lost responses, strict IDs, fragmentation/maximum sizes, normal peer closure
+before/during final EOF validation, EOF cancellation/invalidation, deadlines,
+disconnect, duplicate requests, delayed/failed close and committed-STAGE settlement
+with original-key recovery. These are deterministic source checks only.
 
 The three completion boundaries remain distinct:
 
