@@ -3237,6 +3237,30 @@ sizes/SHIP/v1 and P10 Schema v1/ten routes stay unchanged. Context creation is
 trusted P8 composition only. Envelope IDs never become STAGE SubmissionKeys.
 Committed-but-lost STAGE waits its original owner and never automatically retries.
 
+The explicit P10 business-schema-v3 mode (external boundary §8 / MCP §14) adds
+untrusted READ/context and original-key selectors on the unchanged `SHIP/v1`
+frame. The Host requires exactly one trusted composition mode: legacy Context
+supplier, or App `IpcTrustedContextBinding` for the SAME P8 Host. The latter uses
+the original TLS/P15/P0 Session S, calls `bindSession(S)` for entry E before
+strict v3 parsing, and passes typed selection/S/E to compiled App composition.
+Only original P8 openings create a fresh execution Context; the same E then
+dispatches through P8/P7. Revalidation returns identical S or null. No Bridge
+identity/Context/approval authority or version fallback is added. Legacy v1/v2
+semantics, all TLS resource limits, one-request-per-connection and deadlines
+remain unchanged; READ binding shares the original two-second execution budget.
+Pending binding and original owning work are both retained through settlement.
+
+Same-Principal/current-generation READ references may be revalidated by a fresh
+Session; execution Contexts and approvals are exact-Session. Proposal lifecycle
+query binds the original submissionKey with fresh independent READ/metadata and
+original/current scopes. Windows Bridge STAGE remains a pre-send, pre-Submission-
+serialization refusal: independent connection authentication cannot inherit an
+old Session's approval. Synthetic same-Session binding success does not establish
+real Windows human approval. No X10 experiment/acceptance expansion, real
+Listener/credentials/DPAPI/ACL or production wiring is authorized by v3 source
+READ/query implementation. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
+AR-R6A = NOT_ACCEPTED; Fake TLS is not real Windows security acceptance.
+
 ### B4: standing offline coverage and remaining gates
 
 Standing CI registers `windows_tls_transport_test`,

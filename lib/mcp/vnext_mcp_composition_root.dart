@@ -13,10 +13,12 @@ import 'vnext_mcp_protocol_projection.dart';
 import 'vnext_mcp_server.dart';
 
 final class _PinnedAuthentication implements OfflineIpcAuthenticationPort {
-  const _PinnedAuthentication(this.session);
+  const _PinnedAuthentication(this.owner, this.session);
+  final OfflineIpcAuthenticationPort owner;
   final ExternalSession session;
   @override
-  Future<ExternalSession?> authenticate() async => session;
+  Future<ExternalSession?> authenticate() async =>
+      identical(await owner.authenticate(), session) ? session : null;
 }
 
 /// Trusted App session supplier; protocol requests never select its identity.
@@ -30,7 +32,8 @@ final class VnextMcpSessionAuthentication
 
 /// App owns authentication and prior target approvals. This composition selects
 /// existing authority; a READ handle never mints approval. No startup installs it.
-final class VnextMcpAppComposition implements VnextMcpPort {
+final class VnextMcpAppComposition
+    implements VnextMcpPort, IpcTrustedContextBinding {
   VnextMcpAppComposition(
       {required this.host,
       required this.reads,
@@ -42,11 +45,76 @@ final class VnextMcpAppComposition implements VnextMcpPort {
       throw ArgumentError('Mismatched runtime admission');
     }
   }
+  @override
   final LocalHostDispatchCore host;
   final ExternalReadContextService reads;
   final ExternalGeneratedStageService stages;
   final OfflineIpcAuthenticationPort authentication;
   List<ExternalStageContext> _approved;
+
+  @override
+  ExternalClock get clock => reads.admission.trust.clock;
+  @override
+  Duration get readTimeout => reads.maxQueryDuration;
+
+  /// The P10 decoder supplies selections only after authenticating S and
+  /// binding E. Only these original P8 openings can mint execution Contexts.
+  @override
+  Future<ExternalExecutionContext> bind({
+    required ExternalSession session,
+    required LocalHostSessionEntry entry,
+    required IpcContextSelection selection,
+    required ExternalCallControl control,
+  }) async {
+    void check() {
+      if (_closed || !host.isReady || control.failure != null) {
+        throw const LocalHostAdmissionException(CapabilityFailure.accessDenied);
+      }
+    }
+
+    check();
+    final ExternalExecutionContext context;
+    switch (selection.kind) {
+      case IpcContextSelectionKind.rootRead:
+        context = await host.openRead(entry);
+      case IpcContextSelectionKind.read:
+        context = await host.openRead(entry, context: selection.contextRef!);
+      case IpcContextSelectionKind.proposalLifecycle:
+        context =
+            await host.openProposalLifecycle(entry, selection.submissionKey!);
+      case IpcContextSelectionKind.reconciliation:
+        context =
+            await host.openReconciliation(entry, selection.submissionKey!);
+      case IpcContextSelectionKind.stage:
+        context =
+            await _stageContext(session, entry, selection.contextRef!, control);
+    }
+    check();
+    return context;
+  }
+
+  Future<ExternalExecutionContext> _stageContext(
+      ExternalSession session,
+      LocalHostSessionEntry entry,
+      String contextRef,
+      ExternalCallControl control) async {
+    final access =
+        await reads.capabilityAccess(session: session, context: contextRef);
+    if (_closed || control.failure != null) {
+      throw const LocalHostAdmissionException(CapabilityFailure.accessDenied);
+    }
+    for (final candidate in _approved) {
+      final target = candidate.target;
+      if (identical(candidate.access.session, session) &&
+          target.bankName == access.target.bankName &&
+          target.projectId == access.target.projectId &&
+          target.folderName == access.target.folderName &&
+          candidate.grantRevision == access.revision) {
+        return host.openStage(entry, candidate);
+      }
+    }
+    throw const LocalHostAdmissionException(CapabilityFailure.accessDenied);
+  }
 
   /// Trusted local control supplies P3 approvals; no MCP tool invokes this.
   void replaceApprovedTargets(Iterable<ExternalStageContext> targets) {
@@ -71,55 +139,31 @@ final class VnextMcpAppComposition implements VnextMcpPort {
     final control = ExternalCallControl(clock: reads.admission.trust.clock);
     final cancellation = cancelled.listen((_) => control.cancel());
     try {
-      final session = await authentication.authenticate();
-      if (session == null) return vnextFailure('unauthenticated');
-      final entry = await host.bindSession(session);
       final command = VnextMcpCommand.parse(tool, arguments);
-      final projection = OfflineIpcCommandProjection(
-          host: host, authentication: _PinnedAuthentication(session));
-      Future<Map<String, Object?>> invoke(
-          ExternalExecutionContext context) async {
-        if (_closed || !available()) control.cancel();
-        final id = 'mcp_${++_id}';
-        final request = command.request(id);
-        final result = await projection.invoke(request,
-            context: context,
-            control: control,
-            responseAvailable: () => !_closed && available());
-        if (result.frame == null) return vnextFailure('outcome_unknown');
-        try {
-          return command.response(
-              VnextMcpCommand.decodeFrame(result.frame!), id);
-        } catch (_) {
-          return vnextFailure('invalidResult');
-        }
-      }
-
-      final contextRef = command.contextRef;
-      if (command.contextKind == VnextMcpContextKind.proposalLifecycle) {
-        return await invoke(
-            await host.openProposalLifecycle(entry, command.submissionKey!));
-      }
+      OfflineIpcAuthenticationPort invocationAuthentication = authentication;
       if (command.contextKind == VnextMcpContextKind.stage) {
-        final access = await reads.capabilityAccess(
-            session: session, context: contextRef!);
-        ExternalStageContext? approved;
-        for (final candidate in _approved) {
-          final target = candidate.target;
-          if (identical(candidate.access.session, session) &&
-              target.bankName == access.target.bankName &&
-              target.projectId == access.target.projectId &&
-              target.folderName == access.target.folderName &&
-              candidate.grantRevision == access.revision) {
-            approved = candidate;
-            break;
-          }
-        }
-        if (approved == null) return vnextFailure('capability.accessDenied');
-        return await invoke(await host.openStage(entry, approved));
+        final session = await authentication.authenticate();
+        if (session == null) return vnextFailure('unauthenticated');
+        // Preserve cheap refusal before serializing the App's STAGE payload.
+        await _stageContext(session, await host.bindSession(session),
+            command.contextRef!, control);
+        invocationAuthentication =
+            _PinnedAuthentication(authentication, session);
       }
-      final read = await host.openRead(entry, context: contextRef);
-      return await invoke(read);
+      final projection = OfflineIpcCommandProjection(
+          host: host, authentication: invocationAuthentication);
+      if (_closed || !available()) control.cancel();
+      final id = 'mcp_${++_id}';
+      final result = await projection.invokeV3(command.request(id),
+          binding: this,
+          control: control,
+          responseAvailable: () => !_closed && available());
+      if (result.frame == null) return vnextFailure('outcome_unknown');
+      try {
+        return command.response(VnextMcpCommand.decodeFrame(result.frame!), id);
+      } catch (_) {
+        return vnextFailure('invalidResult');
+      }
     } on FormatException {
       return vnextFailure('invalidRequest');
     } catch (_) {

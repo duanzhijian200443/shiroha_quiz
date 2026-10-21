@@ -736,7 +736,15 @@ queries retain their owning slot until actual read/release settlement. No
 completed-call journal, new table, migration or persistence lifecycle is added.
 Reopen/restart requires fresh authentication and queries the original key directly.
 
-MCP profile v2 and the isolated IPC v2 command are owned by MCP contract §7 and
-external boundary §8. Local Shiroha Review/approval/rejection and the sole COMMIT
+MCP profile v2, the retained lifecycle-only IPC v2 command and explicit IPC v3
+original-key selection are owned by MCP §§7/14 and external boundary §8. v3 binds
+the untrusted key only after original authentication/P8 entry admission, through
+`openProposalLifecycle`; it never uses P9 Request ID or an old READ Context as
+submission identity. The separate v3 internal reconciliation opening preserves
+P3's STAGE-only historical acknowledgement. Original-key idempotency/conflict,
+response-loss recovery and refusal to repeat unknown STAGE remain unchanged.
+Windows Bridge STAGE remains blocked by exact-Session approval and independent
+single-request connections; synthetic same-Session tests prove no human Windows
+approval path. Local Shiroha Review/approval/rejection and the sole COMMIT
 transaction remain unchanged. Production Host/Transport remain inactive and all
 Windows security/activation gates remain in force.

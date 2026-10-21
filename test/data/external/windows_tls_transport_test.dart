@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/data/external/ipc_envelope_codec.dart';
+import 'package:shiroha_quiz/data/external/ipc_command_projection.dart';
 import 'package:shiroha_quiz/data/external/external_certificate_der.dart';
 import 'package:shiroha_quiz/data/external/external_credential_object_codec.dart';
 import 'package:shiroha_quiz/data/external/discovery_descriptor_codec.dart';
@@ -234,6 +235,7 @@ class TlsHarness {
   Future<void> start(
       {TlsStartup? startup,
       TlsBudgets? limits,
+      IpcTrustedContextBinding? binding,
       TlsTrustedContext? context}) async {
     final credentials = WindowsCredentialInitialization.withPrimitives(
         owner: pairing.native.owner,
@@ -263,9 +265,12 @@ class TlsHarness {
         monotonicNow: () => deadlines.now,
         schedule: deadlines.schedule,
         limits: limits,
-        context: context ??
-            (session) async => pairing.local.coordinator.host.openRead(
-                await pairing.local.coordinator.host.bindSession(session)));
+        binding: binding,
+        context: binding != null
+            ? null
+            : context ??
+                (session) async => pairing.local.coordinator.host.openRead(
+                    await pairing.local.coordinator.host.bindSession(session)));
     await candidate!.start();
   }
 

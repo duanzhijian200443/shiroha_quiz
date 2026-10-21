@@ -214,7 +214,7 @@ acceptance is preserved without manufacturing missing older approval markers.
 | Real-client isolated E2E | Installed-Codex synthetic workflows have executed evidence in #312-#314 and #315's independent Windows verification. |
 | STAGE/persistence/local Review/idempotency/disconnect-restart recovery | Covered through the same App owners in #309/#311/#313 and subsequent regressions. |
 | Windows launch/connection/disconnection/errors and App controls | Installed-client fixture accepted in #312-#314; #315 supplies dormant controls. This smoke adds desktop display/refusal and user-attested restart/bank behavior; authenticated production App/Bridge use remains unproved. |
-| Remaining blockers are exclusively production admission/security | **Not satisfied.** MCP §§10–14 add inactive pairing/handoff, a bounded Bridge P9 client and a partial seven-tool protocol projection. App-owned Context/approval/original-key binding for the remaining tools, actual credential acquisition and Windows process composition remain product integration work as well as requiring admission. |
+| Remaining blockers are exclusively production admission/security | **Not satisfied.** MCP §§10–14 supply inactive pairing/handoff, a bounded P9 client and v3 App-owned READ/File/original-key binding. Windows Bridge STAGE remains blocked by exact-Session approval across independently authenticated single-request connections. Actual credential acquisition, process composition and a usable Windows approval flow remain product integration work as well as requiring admission. |
 | Separate reference-client scope | MCP §5/AR-R9 reference-package distribution, Windows executable discovery/supported-version acceptance remain unfinished; model-directed/Codex Desktop-interactive use remains unverified. |
 | Admission-only remainder | Formal Windows credential/storage/isolation/transport/lifecycle and AR-R6A/AR-R6B production exposure acceptance remain pending independently of implementation. |
 
@@ -231,8 +231,9 @@ AR-R6B; the standalone production entry defaults to unavailable.
 The bounded Proposal lifecycle source extension supplies get_question_proposal
 through a separately authorized READ/Proposal-metadata path, with persisted
 pending_review/committed/rejected status and safe counts after local Review or
-reopen. GeneratedQuestion §12 and MCP contract §7 own its profile-v2/IPC-v2
-compatibility and isolated actual-client acceptance. The full functional checklist
+reopen. GeneratedQuestion §12 and MCP §§7/14 own its profile-v2, retained IPC-v2
+and explicit IPC-v3 original-key selection compatibility. Actual-client acceptance
+remains the separately executed isolated evidence. The full functional checklist
 above and all production/security gates remain open; this extension does not
 authorize a subsequent task or experiment.
 
@@ -268,10 +269,14 @@ and original close/drain. The [bounded Bridge IPC client](../product/agent-refac
 adds single-request P9 communication to the same verified transport, with
 Fake TLS/SQLite checks through real P10/P8 READ/STAGE. This completes only that
 inactive communication source boundary. The [Bridge protocol projection](../product/agent-refactor/mcp-vnext-contract.md#14-inactive-bridge-seven-tool-protocol-projection)
-reuses one App/Bridge mapping and strict P10 decoding; only target-list/selection
-READ can currently cross that connection. Context-selected reads, STAGE and
-original-key lifecycle lookup explicitly refuse pending a separately decided
-trusted binding contract. Complete seven-tool process wiring, actual credential
+reuses one App/Bridge mapping and strict P10 decoding. Explicit P10 v3 carries
+READ Context and original-key selections to App, which reuses P8/P7 authentication,
+Context creation, policy and final release. The six READ/File/lifecycle tools have
+inactive source integration; Windows Bridge STAGE remains explicitly blocked
+before serialization/send because a different connection's Session cannot inherit
+approval. Synthetic same-Session approval proves only conditional App binding.
+P9/v1, legacy P10 v1/v2 and all identity/resource limits remain frozen. Complete
+seven-tool process wiring, actual credential
 acquisition, Windows process-transfer/
 composition bindings and admitted App/Bridge channels remain inactive and
 require further integration/acceptance. These fixtures and the App/Bridge source

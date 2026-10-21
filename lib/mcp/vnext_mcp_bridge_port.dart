@@ -31,9 +31,11 @@ final class VnextMcpBridgePort implements VnextMcpPort {
     } catch (_) {
       return vnextFailure('invalidRequest');
     }
-    // Never discard a client's selector and execute under an unrelated trusted
-    // Context. P9/P10 cannot carry these bindings; no Bridge registry replaces it.
-    if (command.needsAppBinding) return vnextFailure('capability.accessDenied');
+    // v3 carries untrusted READ/key selectors to the original App authority.
+    // No cross-connection precise-Session STAGE approval workflow exists.
+    if (command.bridgeStageBlocked) {
+      return vnextFailure('capability.accessDenied');
+    }
     _attempted = true;
     var interrupted = false;
     final subscription = cancelled.listen((_) {

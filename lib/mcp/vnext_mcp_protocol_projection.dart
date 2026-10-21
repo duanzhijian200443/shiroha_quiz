@@ -79,10 +79,12 @@ final class VnextMcpCommand {
     return budget[0] < 0;
   }
 
-  /// P10 has no wire field for these App-owned bindings. The current TLS Host
-  /// accepts only a compiled, per-Session Context supplier, without selectors.
+  /// Selectors are carried by v3 and resolved only by trusted App composition.
   bool get needsAppBinding =>
       contextRef != null || contextKind != VnextMcpContextKind.read;
+
+  /// Precise-Session App approval has no cross-connection Windows workflow.
+  bool get bridgeStageBlocked => contextKind == VnextMcpContextKind.stage;
 
   static VnextMcpCommand parse(String tool, Map<String, dynamic> arguments) {
     final schema = VnextMcpServer.inputSchemas[tool];
@@ -168,11 +170,15 @@ final class VnextMcpCommand {
   }
 
   String get payload => jsonEncode({
-        'schemaVersion':
-            contextKind == VnextMcpContextKind.proposalLifecycle ? 2 : 1,
+        'schemaVersion': 3,
         'type': 'command',
         'capability': capability,
-        'input': input,
+        'input': {
+          ...input,
+          if (contextRef != null) 'contextRef': contextRef,
+          if (contextKind == VnextMcpContextKind.proposalLifecycle)
+            'submissionKey': submissionKey,
+        },
       });
 
   UntrustedIpcEnvelope request(String id) =>
@@ -182,9 +188,13 @@ final class VnextMcpCommand {
   /// for some other operation or original key must never become this success.
   Map<String, Object?> response(UntrustedIpcEnvelope envelope, String id) {
     final decoded = IpcCommandResponseCodec.decode(envelope);
+    final preCommandFailure = decoded['capability'] == null &&
+        decoded['schemaVersion'] == 1 &&
+        decoded['error'] != null;
     if (envelope.requestId != id ||
-        (decoded['capability'] != capability &&
-            !(decoded['capability'] == null && decoded['error'] != null))) {
+        (!preCommandFailure &&
+            (decoded['schemaVersion'] != 3 ||
+                decoded['capability'] != capability))) {
       throw const FormatException('invalidResult');
     }
     final data = decoded['data'];

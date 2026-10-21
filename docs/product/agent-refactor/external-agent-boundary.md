@@ -852,7 +852,7 @@ or public Tool Schema. Business schema v1, P9 envelope v1, MCP protocol version
 and GeneratedQuestion Submission v1 are independent; mismatches reject without
 negotiation or coercion.
 
-### Authentication and trusted composition
+### Legacy v1/v2 authentication and trusted composition
 
 The infrastructure adapter receives a P9 envelope, a trusted authentication port
 and an existing P8-minted execution Context supplied by compiled composition.
@@ -986,8 +986,9 @@ response uses schemaVersion 2, the same exact result-root keys, and exactly the
 six data fields defined in GeneratedQuestion §12. Count/status consistency and
 the 32 KiB metadata/P9 response budgets are hard validated. Errors after valid
 command parsing also use v2; pre-command parsing/authentication errors retain
-the original null-capability v1 error envelope. The response codec accepts only
-the exact version/command pairing. No v1 STAGE/reconciliation field is extended.
+the original null-capability v1 error envelope. The legacy response pairing
+remains exact; the explicit v3 extension below adds its own pairing.
+No v1 STAGE/reconciliation field is extended.
 This is a bounded source capability, not production P10/Host activation.
 
 P8's internal route allowlist is consequently eleven routes: the original ten P7
@@ -1001,18 +1002,121 @@ must not treat this source amendment as an experiment-scope expansion. P8 offlin
 acceptance additionally covers the lifecycle READ route; the original ten P10 v1
 command acceptance remains unchanged.
 
-MCP contract §7 owns the independent stdio source projection and explicitly
-supplied App composition. Profile v2 uses the independent lifecycle command
-above; all other tools reuse the exact P10 v1 schema without adding wire fields
-or target-approval authority. Before P10 invocation, trusted composition
-resolves the existing READ handle and selects only a previously App-approved
-StageContext matching exact Session, target and revision. It pins P10's
-authentication result to that same Session; no request supplies identity and no
-READ selection invokes `approveTarget`. P8/P7/P3 remain final authority. The
-original statement that P10 itself registers no MCP tool remains true; the
-separate server is inactive in production. Its standalone default refuses every
-business call. The synthetic test link is test-only, not an admitted transport.
-HOST_STABILITY_HALT ACTIVE, Transport BLOCKED and AR-R6A NOT_ACCEPTED remain.
+The original MCP §7 source composition used these legacy versions. Its current
+App/Bridge mapping uses the explicit v3 selection binding below, preserving MCP
+profile v2, Submission v1 and all existing operation/result semantics. P10 itself
+registers no MCP tool. The separate server remains inactive in production; its
+standalone default refuses every business call. Synthetic links are test-only.
+
+### P10 v3 trusted Context selection binding
+
+The minimal extension is business schema v3 on the unchanged P9 `SHIP/v1`
+frame. A separate App routing wire contract is unnecessary: it would duplicate
+strict decoding, version and correlation rules while still needing the same P8
+openings. There is no new Session, approval, permission or Proposal authority.
+Only compiled App composition implements `IpcTrustedContextBinding`;
+Bridge code passes opaque selections and never creates trusted Contexts.
+
+The root remains exactly `schemaVersion` (integer 3), `type` (`command`),
+`capability` and `input`. All listed input keys are required, including explicit
+nullable fields. The v1 limits, duplicate/unknown-key rejection, lexical rules,
+opaque-ref syntax and deep result whitelists above apply without enlargement.
+The complete v3 command matrix is:
+
+| Fixed capability | Exact input | Trusted App opening after admission |
+|---|---|---|
+| `external_list_targets` | `pageSize`, nullable `cursor` | `openRead(E)` |
+| `external_create_read_context` | `targetRef` | `openRead(E)`; original P4 target lookup |
+| `external_search_questions` | `contextRef`, `query`, `pageSize`, nullable `cursor` | `openRead(E, contextRef)` |
+| `external_get_question_detail` | `contextRef`, `questionRef` | `openRead(E, contextRef)` |
+| `external_list_file_selections` | `contextRef` | `openRead(E, contextRef)` |
+| `external_create_file_context` | `contextRef`, `fileRefs` | `openRead(E, contextRef)` |
+| `external_retrieve_file_content` | `contextRef`, `query`, `limit` | `openRead(E, contextRef)` |
+| `external_get_file_passage` | `contextRef`, `passageRef`, nullable `cursor` | `openRead(E, contextRef)` |
+| `external_stage_generated_questions` | `contextRef`, `submissionJson`, nullable `externalRequestId` | Conditional `openStage(E, existingApproval)` only |
+| `external_reconcile_generated_stage` | `submissionKey` only | `openReconciliation(E, originalKey)`; internal, STAGE-only |
+| `external_get_proposal_lifecycle` | `submissionKey` only | `openProposalLifecycle(E, originalKey)`; independent READ/metadata |
+
+`contextRef` is a non-null 43-character opaque reference. `submissionKey` is a
+non-null original key matching `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`. Other fields
+retain the exact v1 bounds above. A key is selection input, not authentication,
+approval or execution Context. P9 Request ID remains correlation only.
+
+TLS/P15/P0 authenticates Session S. P10 calls original P8 `bindSession(S)` to
+create entry E BEFORE strict business parsing. Only then does it pass the decoded
+typed selection, S, E and owning control to the compiled App binder. The binder
+uses the openings in the table; the resulting fresh execution Context and the
+SAME E enter original P8/P7 dispatch. Authentication is revalidated after binding
+and may return only identical S or null. A different Session is rejected, even
+for the same Principal. P8/P7 retain exact Session/revision/Scope, lifecycle and
+final egress checks; a supplied string never becomes an execution Context.
+
+P4 READ handles retain their original Principal, runtime-generation, revision,
+expiry and reference-kind checks. A fresh valid Session B of the same Principal
+and effective running generation can revalidate a handle made under Session A.
+Every call still creates a new execution Context bound to its own Session.
+Wrong kind, different Principal, old generation, changed/revoked Grant or expired
+handle rejects. QuestionRef, FileRef, PassageRef and cursor ownership, F1 source
+verification and current scopes remain the original P4/P5/P6 responsibilities.
+
+STAGE selection first resolves the original READ target, then selects an existing
+App approval matching identical S, current authorization revision and exact
+bank/nullable Project/Folder. P8/P3 validate the original StageContext and current
+STAGE/Scope/Egress. No binding path calls `approveTarget`; READ and File selection
+never become approval or evidence consent. Synthetic same-Session tests establish
+only this conditional binding. Windows TLS independently authenticates each
+connection and permits at most ONE request; another connection cannot reuse that
+approval. The Windows Bridge therefore refuses `propose_generated_questions`
+before Submission serialization and before sending, even with an App approval.
+No Session inheritance, approval ticket, automatic approval, queue or retry is
+introduced. Real Windows human-approved STAGE remains BLOCKED.
+
+Proposal lifecycle opening needs no old READ handle or STAGE authority. The
+original key reaches P8 and the existing GeneratedQuestion §12 Data owner under
+fresh READ/proposalMetadata and BOTH original/current target scopes. Internal
+reconciliation remains a distinct STAGE-only historical acknowledgement. P3's
+original-key idempotency/conflict and durable recovery are unchanged; unknown
+STAGE is never automatically repeated.
+
+Version selection is explicit, without negotiation or fallback. The legacy
+supplied-Context entry accepts exactly v1's ten commands and v2's lifecycle
+command; it rejects v3. `invokeV3` accepts only v3 and rejects v1/v2. The TLS Host
+requires exactly one of the legacy Context supplier or the App v3 binder, for
+the same Host. Normal startup installs neither new route nor transport. A client
+must explicitly choose v3 and rejects any old-version success; it never resends
+under v1/v2. Unknown versions reject. Valid v3 command responses, including
+binding/dispatch errors, use version 3 and the unchanged exact result root/data.
+Pre-command/authentication errors retain the null-capability v1 failure envelope;
+that is accepted only as failure. Bridge checks P9 ID, command, exact v3 version,
+deep result shape and applicable original key. Mismatches withhold all data.
+MCP v0's six tools, vNext's seven schemas/profileVersion 2 and Submission v1 are
+unchanged and independently versioned.
+
+READ binding and dispatch share the original at-most-two-second deadline (or a
+shorter caller deadline); binding never renews it. Cancellation, timeout,
+disconnect or caller withdrawal prevents release. Projection drain includes
+pending authentication/binding and then original P8/P7 owning settlement, even
+if caller completion came first. TLS keeps its existing single-request, socket,
+handshake, pipeline, buffer and deadline limits; uncertain cleanup retains its
+resources. App close/Restore invalidates old Session/Context/approval custody and
+waits owners before database replacement. Reconnect authenticates independently;
+regrant/re-enable never revives old handles/approvals. Restart/Restore requires
+fresh composition and original-key query for durable Proposal recovery. Response
+or encoding loss never changes committed effects, invents rollback or permits
+automatic STAGE retry; missing lifecycle data is not proof that pending work
+cannot still publish.
+
+The bounded implementation uses the existing P10 parser/projection, App
+composition, TLS Host injection and shared seven-tool mapping. No P0/P15 model,
+P9 frame, writer or database schema changes. Standing P10, TLS and MCP tests
+cover the strict version matrix, fresh Session READ revalidation, independent
+metadata lookup, synthetic same-Session approval/isolation, real F1/FTS/SQLite
+through Fake TLS, zero-send/zero-serialization Bridge STAGE, interruption/drain
+and original-key recovery. Existing P3/P7/P8/P9, stdio modern/legacy, MCP v0 and
+isolated Windows Codex regressions remain required; Fake TLS proves source
+integration only. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
+AR-R6A = NOT_ACCEPTED. No production Listener/credentials/DPAPI/ACL/App/Bridge,
+Trial 1A or G0-L1/L2/I activation follows from v3 READ/query implementation.
 
 ## 9. P11 trusted local authorization management (accepted local scope)
 

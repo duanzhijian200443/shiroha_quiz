@@ -18,6 +18,7 @@ import '../../application/external/external_file_read_test_support.dart'
     show FileReadHarness;
 import '../../application/external/external_question_read_test_support.dart';
 import '../../application/external/local_host_test_support.dart';
+import 'fixtures/ipc_command_v3_cases.dart';
 
 final class SyntheticAuthentication implements OfflineIpcAuthenticationPort {
   SyntheticAuthentication(this.session);
@@ -86,6 +87,7 @@ const reconcileName = 'external_reconcile_generated_stage';
 
 void main() {
   initializeGeneratedTests();
+  ipcCommandV3Cases();
   group('P10 trusted offline projection over real SQLite', () {
     late OfflineHostHarness f;
     late SyntheticAuthentication auth;
