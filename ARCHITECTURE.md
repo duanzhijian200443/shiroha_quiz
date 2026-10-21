@@ -510,8 +510,13 @@ authenticated process bindings and Windows acceptance remain pending. MCP
 contract §13 adds one bounded opaque P9 request/response to the same verified
 `WindowsTlsBridge`, with fixed deadlines, chunking, response correlation and
 close/drain. Fake TLS reaches the existing P10/P8 READ/STAGE owners; no Bridge
-business authority is added. Seven-tool `VnextMcpPort` cross-process wiring and
-real Windows security admission remain separate pending work.
+business authority is added. MCP contract §14 adds an inactive
+`VnextMcpBridgePort` over that same already verified, single-use connection.
+App and Bridge share one seven-tool/P10 mapping and strict response projection.
+Only root READ target listing/selection is expressible without another trusted
+binding. Context-selected reads, STAGE and original-key lifecycle lookup refuse
+before sending; no wire-selected Context, approval or Session registry is added.
+Full seven-tool process wiring and real Windows security admission remain pending.
 This is source integration, not production admission
 or activation.
 

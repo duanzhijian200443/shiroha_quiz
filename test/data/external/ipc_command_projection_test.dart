@@ -852,8 +852,10 @@ void main() {
             path.readAsStringSync(), contains("part 'windows_tls_host.dart'"));
         continue; // exact inactive consumer, guarded by windows_tls_source_guard
       }
-      if (path.path.replaceAll('\\', '/') ==
-          'lib/mcp/vnext_mcp_composition_root.dart') {
+      if (const {
+        'lib/mcp/vnext_mcp_composition_root.dart',
+        'lib/mcp/vnext_mcp_protocol_projection.dart',
+      }.contains(path.path.replaceAll('\\', '/'))) {
         final composition = path.readAsStringSync();
         for (final forbidden in [
           '.startOffline(',
@@ -868,6 +870,7 @@ void main() {
         final startup = File('lib/main.dart').readAsStringSync();
         expect(startup, isNot(contains('vnext_mcp_composition_root')));
         expect(startup, isNot(contains('VnextMcpAppComposition')));
+        expect(startup, isNot(contains('vnext_mcp_protocol_projection')));
         continue; // exact supplied-source seam, never default activation
       }
       expect(path.readAsStringSync(),

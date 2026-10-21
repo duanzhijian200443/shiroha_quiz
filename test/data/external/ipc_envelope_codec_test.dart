@@ -656,13 +656,13 @@ void main() {
         consumers.add(file.path.replaceAll('\\', '/'));
       }
     }
-    // Exactly P10, the inactive vNext App composition seam and the separately
+    // Exactly P10, the shared inactive vNext projection and the separately
     // guarded inactive Package 2 library.
     consumers.sort();
     expect(consumers, [
       'lib/data/external/ipc_command_projection.dart',
       'lib/data/external/windows_tls_transport.dart',
-      'lib/mcp/vnext_mcp_composition_root.dart'
+      'lib/mcp/vnext_mcp_protocol_projection.dart'
     ]);
     for (final consumer in consumers) {
       final body = File(consumer).readAsStringSync();
