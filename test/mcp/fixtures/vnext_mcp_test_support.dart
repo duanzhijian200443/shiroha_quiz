@@ -19,6 +19,16 @@ final class AppAuthentication implements OfflineIpcAuthenticationPort {
   Future<ExternalSession?> authenticate() async => session;
 }
 
+/// Deterministic observer for eager STAGE payload serialization. `jsonEncode`
+/// invokes [toJson]; a refused request must never reach it.
+final class SubmissionEncodingProbe {
+  bool encoded = false;
+  Object toJson() {
+    encoded = true;
+    return <String, Object?>{};
+  }
+}
+
 /// The App/test process alone owns SQLite, approval and all original services.
 /// The subprocess is an actual SDK stdio server with a test-only App link.
 final class EndToEndHarness {

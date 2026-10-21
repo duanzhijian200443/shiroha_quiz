@@ -16,7 +16,7 @@ import '../../data/external/windows_tls_transport_test.dart' as tls;
 import 'codex_app_server_support.dart' show flutterDartExecutable;
 import 'vnext_mcp_stdio_fixture.dart'
     show fixtureAppMethod, fixtureAppResultMethod;
-import 'vnext_mcp_test_support.dart' show call, batch;
+import 'vnext_mcp_test_support.dart' show SubmissionEncodingProbe, batch, call;
 
 const _ref = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
@@ -145,6 +145,54 @@ void vnextBridgeCases(tls.TlsHarness Function() harness) {
         expect(() => VnextMcpCommand.parse('open_generation_context', invalid),
             throwsA(anything));
       }
+    });
+
+    test(
+        'STAGE classification materializes no payload for oversized or deep submissions',
+        () async {
+      await attach();
+      final oversizedProbe = SubmissionEncodingProbe();
+      final oversized = <String, dynamic>{
+        'contextRef': _ref,
+        'submission': {
+          'schemaVersion': 1,
+          'submissionKey': 'oversized',
+          'requestedCount': 1,
+          'items': [oversizedProbe],
+          'padding': 'x' * (1024 * 1024 + 1),
+        },
+      };
+      final command =
+          VnextMcpCommand.parse('propose_generated_questions', oversized);
+      expect(() => command.input, throwsA(isA<FormatException>()));
+      expect(oversizedProbe.encoded, isFalse);
+      expect(await invoke('propose_generated_questions', oversized),
+          vnextFailure('capability.accessDenied'));
+      expect(oversizedProbe.encoded, isFalse);
+
+      final deepProbe = SubmissionEncodingProbe();
+      Object nested = deepProbe;
+      for (var i = 0; i < 20; i++) {
+        nested = [nested];
+      }
+      final deep = <String, dynamic>{
+        'contextRef': _ref,
+        'submission': {
+          'schemaVersion': 1,
+          'submissionKey': 'deep',
+          'requestedCount': 1,
+          'items': [nested],
+        },
+      };
+      expect(
+          () =>
+              VnextMcpCommand.parse('propose_generated_questions', deep).input,
+          throwsA(isA<FormatException>()));
+      expect(deepProbe.encoded, isFalse);
+      expect(await invoke('propose_generated_questions', deep),
+          vnextFailure('capability.accessDenied'));
+      expect(deepProbe.encoded, isFalse);
+      expect(f.client.writes, isEmpty);
     });
 
     for (final protocol in [McpProtocol.require2026, McpProtocol.legacy]) {

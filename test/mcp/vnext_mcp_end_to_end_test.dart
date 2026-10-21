@@ -189,6 +189,65 @@ void main() {
     expect(await h.app.h.s.h.count('generated_question_proposals'), 0);
   });
 
+  test('STAGE bounds refuse before approval or payload serialization',
+      () async {
+    final client = await h.connect();
+    final ref = await context(client);
+    final unapproved = VnextMcpAppComposition(
+        host: h.app.host,
+        reads: h.app.h.read,
+        stages: h.app.h.s.service,
+        authentication: h.auth,
+        approvedTargets: []);
+    Future<Map<String, Object?>> direct(
+            VnextMcpAppComposition composition, Map<String, dynamic> args) =>
+        composition.call('propose_generated_questions', args,
+            cancelled: const Stream.empty(), available: () => true);
+
+    final oversizedProbe = SubmissionEncodingProbe();
+    final oversized = <String, dynamic>{
+      'contextRef': ref,
+      'submission': {
+        'schemaVersion': 1,
+        'submissionKey': 'oversized',
+        'requestedCount': 1,
+        'items': [oversizedProbe],
+        'padding': 'x' * (1024 * 1024 + 1),
+      },
+    };
+    // Exact-Session approval precedes any serialization attempt.
+    expect((await direct(unapproved, oversized))['error'],
+        'capability.accessDenied');
+    expect(oversizedProbe.encoded, isFalse);
+    // With approval the frozen bounds reject before a STAGE frame exists.
+    expect((await direct(h.composition, oversized))['error'], 'invalidRequest');
+    expect(oversizedProbe.encoded, isFalse);
+
+    final deepProbe = SubmissionEncodingProbe();
+    Object nested = deepProbe;
+    for (var i = 0; i < 20; i++) {
+      nested = [nested];
+    }
+    expect(
+        (await direct(h.composition, {
+          'contextRef': ref,
+          'submission': {
+            'schemaVersion': 1,
+            'submissionKey': 'deep',
+            'requestedCount': 1,
+            'items': [nested],
+          },
+        }))['error'],
+        'invalidRequest');
+    expect(deepProbe.encoded, isFalse);
+    expect(await h.app.h.s.h.count('generated_question_proposals'), 0);
+    // A bounded, approved submission still stages through the same owner.
+    final staged = await call(
+        client, 'propose_generated_questions', batch(ref, 'bounded'));
+    expect(staged['error'], isNull);
+    expect(staged['data']['publication'], 'STAGED');
+  });
+
   test('READ metadata only is independent of STAGE and does not enumerate keys',
       () async {
     final client = await h.connect();

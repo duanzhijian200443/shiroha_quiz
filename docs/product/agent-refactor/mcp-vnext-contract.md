@@ -717,6 +717,14 @@ codec, match the request ID and expected capability, and, for STAGE/lifecycle,
 match the original submissionKey. A null-capability pre-command error remains
 accepted only as a validated business failure. No unsafe body/exception escapes.
 
+Classification stays cheap: a STAGE payload is serialized only when a frame is
+actually built, i.e. after the App's exact-Session approval, and never on the
+Bridge refusal path. Before `jsonEncode` the frozen GeneratedQuestion admission
+bounds apply (1 MiB encoded submission, 16 nesting levels, 50 items), so an
+oversized or too deep submission returns `invalidRequest` without allocating the
+encoded payload and without sending a frame. This preserves the frozen P9/P10
+and seven MCP tool schemas.
+
 The current TLS Host's trusted Context supplier takes only its freshly
 authenticated Session. It receives no tool, READ handle or original key.
 P10 §8 has no `contextRef` input, STAGE target binding or lifecycle-key input.

@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import '../data/external/ipc_command_projection.dart';
 import '../data/external/ipc_envelope_codec.dart';
+import '../domain/generated_question/generated_question_contract.dart';
 import 'vnext_mcp_server.dart';
 
 enum VnextMcpContextKind { read, stage, proposalLifecycle }
@@ -12,15 +13,71 @@ enum VnextMcpContextKind { read, stage, proposalLifecycle }
 /// Selectors must be resolved by the original App owners, under the exact
 /// authenticated Session. None of these fields is an execution Context.
 final class VnextMcpCommand {
-  const VnextMcpCommand._(this.capability, this.input,
+  VnextMcpCommand._(this.capability, Map<String, Object?> input,
       {this.contextKind = VnextMcpContextKind.read,
       this.contextRef,
-      this.submissionKey});
+      this.submissionKey})
+      : _input = input,
+        _submission = null;
+
+  VnextMcpCommand._stage(this.capability, Map<String, Object?> submission,
+      {required this.contextRef, required this.submissionKey})
+      : contextKind = VnextMcpContextKind.stage,
+        _input = null,
+        _submission = submission;
 
   final String capability;
-  final Map<String, Object?> input;
   final VnextMcpContextKind contextKind;
   final String? contextRef, submissionKey;
+  Map<String, Object?>? _input;
+  final Map<String, Object?>? _submission;
+
+  /// Classification is cheap; a STAGE payload is serialized only when a frame
+  /// is actually built, i.e. after the App's exact-Session approval. The
+  /// Bridge never materializes it because every STAGE call refuses first.
+  Map<String, Object?> get input => _input ??= _boundedStageInput(_submission!);
+
+  /// Frozen GeneratedQuestion admission bounds, applied before `jsonEncode`
+  /// so an oversized or too deep submission allocates no encoded payload.
+  static const _maxItems = 50, _maxDepth = 16;
+
+  static Map<String, Object?> _boundedStageInput(
+      Map<String, Object?> submission) {
+    final items = submission['items'];
+    if (items is List && items.length > _maxItems) {
+      throw const FormatException('invalidRequest');
+    }
+    final budget = <int>[GeneratedLimits.submissionBytes];
+    if (_exceedsBudget(submission, 1, budget)) {
+      throw const FormatException('invalidRequest');
+    }
+    final encoded = jsonEncode(submission);
+    if (utf8.encode(encoded).length > GeneratedLimits.submissionBytes) {
+      throw const FormatException('invalidRequest');
+    }
+    return {'submissionJson': encoded, 'externalRequestId': null};
+  }
+
+  static bool _exceedsBudget(Object? value, int depth, List<int> budget) {
+    if (depth > _maxDepth) return true;
+    if (value is String) {
+      budget[0] -= value.length;
+    } else if (value is List) {
+      budget[0] -= value.length;
+      for (final item in value) {
+        if (_exceedsBudget(item, depth + 1, budget)) return true;
+      }
+    } else if (value is Map) {
+      for (final entry in value.entries) {
+        final key = entry.key;
+        budget[0] -= (key is String ? key.length : 0) + 4;
+        if (_exceedsBudget(entry.value, depth + 1, budget)) return true;
+      }
+    } else {
+      budget[0] -= 8;
+    }
+    return budget[0] < 0;
+  }
 
   /// P10 has no wire field for these App-owned bindings. The current TLS Host
   /// accepts only a compiled, per-Session Context supplier, without selectors.
@@ -49,13 +106,8 @@ final class VnextMcpCommand {
     }
     if (tool == 'propose_generated_questions') {
       final submission = arguments['submission'] as Map;
-      return VnextMcpCommand._(
-          'external_stage_generated_questions',
-          {
-            'submissionJson': jsonEncode(submission),
-            'externalRequestId': null,
-          },
-          contextKind: VnextMcpContextKind.stage,
+      return VnextMcpCommand._stage('external_stage_generated_questions',
+          Map<String, Object?>.from(submission),
           contextRef: context,
           submissionKey: submission['submissionKey'] as String);
     }
