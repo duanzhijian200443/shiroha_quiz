@@ -20,9 +20,17 @@ foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.
         if ($file.Name -ne 'windows_tls_io.dart' -and $code -match 'RawServerSocket\.bind|RawSecureSocket\.(connect|secureServer)') {
             throw 'TLS I/O escaped explicit adapter'
         }
+    } elseif ($file.FullName -eq (Join-Path $root 'lib/mcp/vnext_mcp_bridge_port.dart')) {
+        foreach ($token in @('.connect(', 'WindowsTlsBridge(', 'ExternalTrustCore', '.openSession(',
+            '.openRead(', '.openStage(', '.approveTarget(', 'DatabaseHelper', 'dart:io', 'dart:ffi')) {
+            if ($code.Contains($token)) { throw "Inactive Bridge projection gained authority: $token" }
+        }
+        if (!$code.Contains('if (command.needsAppBinding)')) { throw 'Bridge Context refusal missing' }
     } elseif ($code -match 'windows_tls_|WindowsTlsHost|WindowsChannelVerification|DartLoopbackTlsIo|DartLoopbackBridgeIo|P26TlsStartup') {
         throw 'TLS production wiring is active'
     }
+    if ($file.FullName -ne (Join-Path $root 'lib/mcp/vnext_mcp_bridge_port.dart') -and
+        $code -match 'vnext_mcp_bridge_port|VnextMcpBridgePort') { throw 'Bridge projection startup consumer is active' }
 }
 $config = [IO.File]::ReadAllText((Join-Path $external 'windows_tls_credentials.dart'))
 foreach ($required in @('SecurityContext(withTrustedRoots: false)', 'TlsProtocolVersion.tls1_3',

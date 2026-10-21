@@ -689,10 +689,83 @@ The three completion boundaries remain distinct:
 | Boundary | Bounded capability / remaining work |
 |---|---|
 | Bridge business communication source | Single P9 request/response and close/drain implemented in the inactive authenticated transport candidate; Fake TLS exercises real App P10/P8. |
-| Seven-tool cross-process projection | Still pending: bind the existing `VnextMcpPort` to this client with trusted App-owned Session/Context routing and real process composition; existing stdio synthetic links remain test-only. |
+| Seven-tool cross-process projection | Section 14 supplies an inactive partial Port: root target READ only; Context/approval/original-key routing for the other operations and real process composition remain pending. Existing stdio synthetic links remain test-only. |
 | Real Windows security admission | Still pending: protected credentials, actual TLS/OS resource/close behavior and independent frozen Windows acceptance; offline success proves none of these. |
 
 Normal App/Bridge startup and production MCP remain unchanged and disabled for
 this candidate. No DPAPI, ACL, certificate issuance, TCP/mTLS Listener, Trial 1A
 or G0-L1/L2/I run is activated. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
 AR-R6A = NOT_ACCEPTED. Fake TLS success is never real Windows channel acceptance.
+
+## 14. Inactive Bridge seven-tool protocol projection
+
+`MCP-VNEXT-BRIDGE-PROTOCOL-PROJECTION` adds an explicitly constructed
+`VnextMcpBridgePort` over ONE already connected, server-verified
+`WindowsTlsBridge`. Construction does no I/O. Neither normal startup nor the
+standalone entries install it. It never connects/reconnects, supplies an App
+Session/Context, approves a target or adds a writer/authorization registry.
+The seven tool schemas, implementation version 0.2.0, modern/legacy MCP support
+and result `profileVersion: 2` remain unchanged.
+
+`VnextMcpCommand` is the shared App/Bridge mapping: selector modes, defaults,
+exact P10 command/version/input and strict P9/P10 response projection are defined
+once. It describes untrusted selectors, not execution authority. The original
+App composition still resolves READ handles through its existing registry and
+selects only exact-Session App-approved STAGE targets. Lifecycle opening still
+uses the original key through P8. Responses must pass the existing deep P10
+codec, match the request ID and expected capability, and, for STAGE/lifecycle,
+match the original submissionKey. A null-capability pre-command error remains
+accepted only as a validated business failure. No unsafe body/exception escapes.
+
+The current TLS Host's trusted Context supplier takes only its freshly
+authenticated Session. It receives no tool, READ handle or original key.
+P10 §8 has no `contextRef` input, STAGE target binding or lifecycle-key input.
+Consequently the Bridge refuses operations requiring those selections with
+`capability.accessDenied` BEFORE sending any bytes, even if some unrelated
+App Context was preconfigured. Client references cannot silently be discarded
+or upgraded to App authority.
+
+| Tool | Actual Bridge mapping | Required App authority / remaining binding |
+|---|---|---|
+| open_generation_context | No selectors: `external_list_targets`; targetRef alone: `external_create_read_context`. Other selector modes refuse. | Current exact-Session P8 root READ Context, current Grant/Scope and original P4 target/cursor reference validation. Target references remain App-minted selection only. File-choice/File-Context modes need the client's parent READ handle bound by App. The returned READ handle alone does not enable subsequent Bridge content calls. |
+| search_questions | Refuses; shared mapping remains `external_search_questions`. | App must bind contextRef to this connection's exact Session/current READ Context; query/cursor stay operation input. |
+| get_question_detail | Refuses; shared mapping remains `external_get_question_detail`. | Same trusted READ binding plus a QuestionRef owned by that Context. |
+| retrieve_file_content | Refuses; shared mapping remains `external_retrieve_file_content`. | App-selected verified File Context bound to the client's contextRef/current Session, current fileContent/Scope and final release checks. |
+| get_file_passage | Refuses; shared mapping remains `external_get_file_passage`. | Same File Context binding plus its original PassageRef/cursor. |
+| propose_generated_questions | Refuses; shared mapping remains `external_stage_generated_questions`. | App must correlate contextRef/target with an existing approval for the exact connection Session/revision. Submission JSON preserves the ORIGINAL submissionKey; externalRequestId stays null. READ selection cannot create approval, and another connection cannot inherit it. |
+| get_question_proposal | Refuses; shared mapping remains lifecycle-only `external_get_proposal_lifecycle`, schemaVersion 2. | App must open P8 lifecycle READ using the ORIGINAL submissionKey under current READ/proposalMetadata and original/current target Scope. Frozen empty input cannot express the key; neither P9 Request ID nor a cached key may select it. |
+
+Each Port makes at most one transport attempt. Concurrent/late calls cannot send
+again; a fresh Port cannot revive the consumed/closed Bridge. Cancellation or
+caller withdrawal closes that same owner, and close waits its actual pending
+I/O and acknowledged cleanup. Transport deadlines, failed-close reservations
+and Host business settlement retain §13's original rules. Fixed pre-send failures
+remain failures; a transport failure after attempted writing remains
+`outcome_unknown`. Malformed or mismatched P10 data is withheld as `invalidResult`.
+No STAGE retry or success fallback is introduced. Original-key recovery remains
+an explicit App-owned query; this limited Bridge cannot yet perform that query.
+
+The smallest remaining decision concerns external boundary §8's exact request
+schema/empty lifecycle input and trusted P8 opening, §3's Context/approval
+ownership, and Windows readiness §20 B3's per-connection Context supplier. Full
+tool support needs a separately reviewed, versioned trusted binding design
+(a new business protocol version or a separately admitted App routing contract).
+It must preserve exact-Session approval and fresh current authorization, and
+carry original submission identity independently of P9 correlation. This task
+does not choose or implement that mechanism and changes no P9/P10 schema.
+
+Standing `windows_tls_transport_test.dart` includes
+`vnext_mcp_bridge_cases.dart`: the real modern/legacy stdio SDK/server, existing
+test-only reverse link, actual Bridge Fake TLS and isolated App P10/P8/SQLite
+produce authorized target READ and opaque target-selection results. Tests also
+cover all refused tool/selector modes, missing/wrong/currently revoked authority,
+foreign execution Session, strict response whitelists/correlation/version,
+original-key preservation, concurrent requests, cancellation/deadline/disconnect,
+late caller withdrawal and retained settlement. Existing §13 lost committed
+STAGE/original-key recovery and §7 synthetic complete workflow remain required
+regressions. No real Windows process/credential/security acceptance is claimed.
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
+Production App/Bridge, listener, DPAPI, certificate issuance, ACL, personal data,
+Trial 1A and G0-L1/L2/I remain unactivated. Fake TLS and the stdio reverse link
+prove source integration only; admitted cross-process security remains pending.

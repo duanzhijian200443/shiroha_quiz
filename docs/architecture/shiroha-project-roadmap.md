@@ -214,7 +214,7 @@ acceptance is preserved without manufacturing missing older approval markers.
 | Real-client isolated E2E | Installed-Codex synthetic workflows have executed evidence in #312-#314 and #315's independent Windows verification. |
 | STAGE/persistence/local Review/idempotency/disconnect-restart recovery | Covered through the same App owners in #309/#311/#313 and subsequent regressions. |
 | Windows launch/connection/disconnection/errors and App controls | Installed-client fixture accepted in #312-#314; #315 supplies dormant controls. This smoke adds desktop display/refusal and user-attested restart/bank behavior; authenticated production App/Bridge use remains unproved. |
-| Remaining blockers are exclusively production admission/security | **Not satisfied.** MCP §§10–13 add inactive pairing/handoff and a bounded Bridge P9 client. Seven-tool cross-process projection, actual credential acquisition and Windows process composition remain product integration work as well as requiring admission. |
+| Remaining blockers are exclusively production admission/security | **Not satisfied.** MCP §§10–14 add inactive pairing/handoff, a bounded Bridge P9 client and a partial seven-tool protocol projection. App-owned Context/approval/original-key binding for the remaining tools, actual credential acquisition and Windows process composition remain product integration work as well as requiring admission. |
 | Separate reference-client scope | MCP §5/AR-R9 reference-package distribution, Windows executable discovery/supported-version acceptance remain unfinished; model-directed/Codex Desktop-interactive use remains unverified. |
 | Admission-only remainder | Formal Windows credential/storage/isolation/transport/lifecycle and AR-R6A/AR-R6B production exposure acceptance remain pending independently of implementation. |
 
@@ -267,8 +267,12 @@ actual completion between those controls, retaining both human confirmations
 and original close/drain. The [bounded Bridge IPC client](../product/agent-refactor/mcp-vnext-contract.md#13-inactive-bounded-bridge-ipc-client)
 adds single-request P9 communication to the same verified transport, with
 Fake TLS/SQLite checks through real P10/P8 READ/STAGE. This completes only that
-inactive communication source boundary. Seven-tool cross-process projection,
-actual credential acquisition, Windows process-transfer/
+inactive communication source boundary. The [Bridge protocol projection](../product/agent-refactor/mcp-vnext-contract.md#14-inactive-bridge-seven-tool-protocol-projection)
+reuses one App/Bridge mapping and strict P10 decoding; only target-list/selection
+READ can currently cross that connection. Context-selected reads, STAGE and
+original-key lifecycle lookup explicitly refuse pending a separately decided
+trusted binding contract. Complete seven-tool process wiring, actual credential
+acquisition, Windows process-transfer/
 composition bindings and admitted App/Bridge channels remain inactive and
 require further integration/acceptance. These fixtures and the App/Bridge source
 slices do not establish reference-plugin distribution or
