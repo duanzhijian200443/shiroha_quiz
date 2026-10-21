@@ -506,8 +506,13 @@ owners through `WindowsPairingHandoff`: original Submission ID, copied public
 export and freshly queried P15 actual completion. Both manual comparisons and
 existing close/drain remain mandatory; no request record or credential owner is
 added. Actual credential acquisition, Windows App/Bridge process transfer,
-authenticated channel bindings and Windows
-acceptance remain pending. This is source integration, not production admission
+authenticated process bindings and Windows acceptance remain pending. MCP
+contract §13 adds one bounded opaque P9 request/response to the same verified
+`WindowsTlsBridge`, with fixed deadlines, chunking, response correlation and
+close/drain. Fake TLS reaches the existing P10/P8 READ/STAGE owners; no Bridge
+business authority is added. Seven-tool `VnextMcpPort` cross-process wiring and
+real Windows security admission remain separate pending work.
+This is source integration, not production admission
 or activation.
 
 The bounded lifecycle extension adds independent READ Proposal metadata over

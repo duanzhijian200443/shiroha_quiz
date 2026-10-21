@@ -322,7 +322,11 @@ or installed App/Bridge pairing acceptance. [MCP contract §11](../product/agent
 adds inactive Bridge local controls over the original Enrollment and two explicit
 human comparisons, with isolated public-math/Fake Native evidence. [MCP contract §12](../product/agent-refactor/mcp-vnext-contract.md#12-inactive-app-bridge-pairing-handoff)
 adds the inactive public Submission/export/actual-completion handoff using the
-same owners and two explicit comparisons. Actual protected credential acquisition,
+same owners and two explicit comparisons. [MCP contract §13](../product/agent-refactor/mcp-vnext-contract.md#13-inactive-bounded-bridge-ipc-client)
+adds bounded single-request Bridge P9 communication through the existing verified
+channel; Fake TLS exercises real App P10/P8 READ/STAGE. That communication source
+is implemented, while seven-tool cross-process projection, actual protected
+credential acquisition,
 Windows process-transfer/composition bindings and admitted channels remain
 **product implementation/integration work**.
 They must not be reported as security-approval-only blockers. Reference-package

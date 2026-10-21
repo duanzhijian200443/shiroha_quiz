@@ -629,9 +629,70 @@ separate channel authentication, target approval and isolated STAGE.
 Delivery is limited to inactive public handoff source wiring and isolated
 functional acceptance. Actual protected credential acquisition, admitted native
 public-material/process transfer, Windows App/Bridge process composition and
-authenticated business-channel wiring remain implementation AND acceptance
-work. This seam makes no real Windows credential, process or security claim.
+seven-tool authenticated cross-process wiring remain implementation AND
+acceptance work. Section 13 supplies the bounded Bridge IPC client source only.
+This seam makes no real Windows credential, process or security claim.
 Normal startup, production App/Bridge and MCP vNext STAGE remain disabled.
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 No real DPAPI, certificate generation, ACL, listener/TCP/mTLS, Trial 1A or
 G0-L1/L2/I experiment is activated or authorized.
+
+## 13. Inactive bounded Bridge IPC client
+
+`WindowsTlsBridge.request(requestId, payload)` sends exactly one opaque P10
+request through its existing, fully server-verified `TlsChannel`. The same P26
+Discovery/kind-4/anchor/Server-DER checks must finish before use. P9's existing
+codec enforces the unchanged strict request ID, SHIP/v1, UTF-8 and size limits.
+The Bridge neither parses business permissions nor selects a Profile/Session,
+creates a trusted Context or adds any business writer. App channel Authentication,
+`OfflineIpcCommandProjection`, P8/P7 and the original owners remain authoritative.
+
+Sending and reading use chunks of at most 64 KiB. Response admission validates
+the P9 header before body allocation, refuses request-kind replies, checks exact
+ID/type/length/UTF-8 and requires EOF after the sole complete response. Protocol
+errors, wrong IDs, malformed/truncated frames, duplicate replies or trailing
+bytes fail closed. A valid response remains an `UntrustedIpcEnvelope`; business
+schema/result interpretation stays outside this transport.
+Clean peer EOF may make the channel unavailable before the final EOF read;
+it does not discard an already complete matched response. Local cancellation,
+deadline and composition/certificate invalidation still reject its release.
+One connection can make only one attempt, including concurrent/late calls and
+failed requests.
+No reconnect, batch, automatic STAGE retry or startup binding is supplied.
+
+The existing 2-second no-progress and 10-second total frame deadlines cover the
+exchange, including writes and response/EOF waiting. They cannot be renewed by
+slow progress. Existing `TlsResourceBudget` ceilings account for the pipeline,
+TLS rings, bounded frame/scratch and decoded text before allocation/I/O. Close
+immediately cancels result availability and makes old requests unusable, then
+waits the original read/write and acknowledged close. Deadline/cancel alone
+never releases resources; failed close poisons admission and retains uncertain
+reservations while still waiting pending I/O. The same Host separately retains
+its existing P8/P10 settlement barrier through in-flight App writes.
+
+`TlsBridgeException` exposes fixed transport/protocol classifications only.
+Once a write is attempted, transport failure reports `executionUnknown`, never
+business failure, rollback or safe retry. STAGE recovery remains an explicit App
+query using the ORIGINAL `submissionKey`; Envelope IDs do not replace it.
+Nothing changes P9/P10 wire formats, resource ceilings or Session/Context custody.
+
+Standing `windows_tls_transport_test.dart` includes the Bridge cases with the
+existing Fake TLS, public cryptographic fixtures, isolated SQLite and original
+Host: authorized READ, trusted STAGE, absent enablement/approval, malformed and
+lost responses, strict IDs, fragmentation/maximum sizes, normal peer closure
+before/during final EOF validation, EOF cancellation/invalidation, deadlines,
+disconnect, duplicate requests, delayed/failed close and committed-STAGE settlement
+with original-key recovery. These are deterministic source checks only.
+
+The three completion boundaries remain distinct:
+
+| Boundary | Bounded capability / remaining work |
+|---|---|
+| Bridge business communication source | Single P9 request/response and close/drain implemented in the inactive authenticated transport candidate; Fake TLS exercises real App P10/P8. |
+| Seven-tool cross-process projection | Still pending: bind the existing `VnextMcpPort` to this client with trusted App-owned Session/Context routing and real process composition; existing stdio synthetic links remain test-only. |
+| Real Windows security admission | Still pending: protected credentials, actual TLS/OS resource/close behavior and independent frozen Windows acceptance; offline success proves none of these. |
+
+Normal App/Bridge startup and production MCP remain unchanged and disabled for
+this candidate. No DPAPI, ACL, certificate issuance, TCP/mTLS Listener, Trial 1A
+or G0-L1/L2/I run is activated. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
+AR-R6A = NOT_ACCEPTED. Fake TLS success is never real Windows channel acceptance.
