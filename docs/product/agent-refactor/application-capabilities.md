@@ -385,9 +385,20 @@ the local transient Receipt/authorization objects.
 
 P10's accepted offline infrastructure projection (merged PR #261) is owned by external boundary
 §8. It authenticates and obtains a current P8 binding before decoding its fixed
-business schema, then maps the original ten schema-v1 typed inputs; the separate
-lifecycle command remains schema version 2. Execution Contexts remain
-trusted P8 composition parameters, never JSON authority. P7 final release still
+business schema. The legacy entry retains the original ten schema-v1 inputs and
+separate lifecycle schema-v2 command. The explicit v3 entry passes decoded
+untrusted selectors to compiled App composition after `bindSession(S)` creates E.
+Only original `openRead`, `openProposalLifecycle`, `openReconciliation` or
+conditional `openStage` create a fresh execution Context, then the same E enters
+original typed P8/P7 dispatch. READ references may be revalidated by another
+current Session of the same Principal/running generation; execution Contexts
+still belong to exact S. Original key lookup needs independent READ/metadata and
+original/current target scopes, not STAGE or an old READ handle. StageContext
+selection requires existing App approval for identical S/revision/exact target;
+Windows Bridge STAGE remains blocked before serialization/send. No new typed
+definition, identity/approval authority or P9 framing is added. READ binding and
+dispatch share the original two-second deadline and owning drain. Execution
+Contexts remain trusted P8 composition results, never JSON authority. P7 final release still
 owns all READ/STAGE egress. Only the declared operation whitelist is encoded;
 Receipt/authorization objects remain local. Projection or encoding failure
 retains the original result/effect evidence and never repeats STAGE. P3-P9

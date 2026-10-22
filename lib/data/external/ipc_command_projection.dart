@@ -22,6 +22,39 @@ abstract interface class OfflineIpcAuthenticationPort {
   Future<ExternalSession?> authenticate();
 }
 
+/// Untrusted selectors decoded only after current P8 Session admission.
+enum IpcContextSelectionKind {
+  rootRead,
+  read,
+  stage,
+  reconciliation,
+  proposalLifecycle
+}
+
+final class IpcContextSelection {
+  const IpcContextSelection._(this.kind, {this.contextRef, this.submissionKey});
+  final IpcContextSelectionKind kind;
+  final String? contextRef, submissionKey;
+  bool get isRead =>
+      kind == IpcContextSelectionKind.rootRead ||
+      kind == IpcContextSelectionKind.read ||
+      kind == IpcContextSelectionKind.proposalLifecycle;
+}
+
+/// Compiled App composition only. Selectors supply no identity or authority;
+/// implementations must use the original P8 openings and approval owners.
+abstract interface class IpcTrustedContextBinding {
+  LocalHostDispatchCore get host;
+  ExternalClock get clock;
+  Duration get readTimeout;
+  Future<ExternalExecutionContext> bind({
+    required ExternalSession session,
+    required LocalHostSessionEntry entry,
+    required IpcContextSelection selection,
+    required ExternalCallControl control,
+  });
+}
+
 /// Trusted encoding seam for offline failure injection, after fixed validation.
 abstract interface class IpcCommandFrameEncoder {
   Uint8List encodeResponse(String requestId, String payload);
@@ -79,38 +112,132 @@ final class OfflineIpcCommandProjection {
   Future<void>? _shutdown;
 
   /// Owning P8/P7 settlement, independent of caller/result availability.
-  Future<void> get whenSettled => _host.whenSettled;
+  Future<void> get whenSettled => () async {
+        await (_idle?.future ?? Future<void>.value());
+        await _host.whenSettled;
+      }();
 
   Future<OfflineIpcCommandResult> invoke(UntrustedIpcEnvelope envelope,
-      {required ExternalExecutionContext context,
+          {required ExternalExecutionContext context,
+          ExternalCallControl? control,
+          bool Function()? responseAvailable}) =>
+      _invoke(envelope,
+          context: context,
+          control: control,
+          responseAvailable: responseAvailable);
+
+  /// v3 never falls back to a supplied legacy execution Context or wire version.
+  Future<OfflineIpcCommandResult> invokeV3(UntrustedIpcEnvelope envelope,
+          {required IpcTrustedContextBinding binding,
+          ExternalCallControl? control,
+          bool Function()? responseAvailable}) =>
+      _invoke(envelope,
+          binding: binding,
+          control: control,
+          responseAvailable: responseAvailable);
+
+  Future<OfflineIpcCommandResult> _invoke(UntrustedIpcEnvelope envelope,
+      {ExternalExecutionContext? context,
+      IpcTrustedContextBinding? binding,
       ExternalCallControl? control,
       bool Function()? responseAvailable}) async {
     if (_closed) return _failure(envelope, IpcCommandFailure.unavailable);
     if (_pending++ == 0) _idle = Completer<void>();
+    Timer? bindingTimer;
     try {
+      final ExternalSession session;
       final LocalHostSessionEntry entry;
       try {
-        final session = await _authentication.authenticate();
-        if (session == null) {
+        final authenticated = await _authentication.authenticate();
+        if (authenticated == null) {
           return _failure(envelope, IpcCommandFailure.unauthenticated);
         }
+        session = authenticated;
         // P8's current runtime/Grant admission precedes ALL business parsing.
         entry = await _host.bindSession(session);
       } catch (_) {
         return _failure(envelope, IpcCommandFailure.unauthenticated);
       }
       if (_closed) return _failure(envelope, IpcCommandFailure.unavailable);
+      final bindingStarted = binding?.clock.now();
       final _CommandRequest request;
       try {
-        request = _CommandRequest.decode(envelope);
+        request = _CommandRequest.decode(envelope, selected: binding != null);
       } on IpcCommandSchemaException catch (error) {
         return _failure(envelope, error.failure);
+      }
+      final ExternalExecutionContext executionContext;
+      var operationControl = control;
+      if (binding != null) {
+        try {
+          if (!identical(binding.host, _host) ||
+              binding.readTimeout <= Duration.zero ||
+              binding.readTimeout > const Duration(seconds: 2)) {
+            throw const LocalHostAdmissionException(
+                CapabilityFailure.accessDenied);
+          }
+          DateTime? deadline = control?.deadline;
+          if (request.selection!.isRead) {
+            final readDeadline = bindingStarted!.add(binding.readTimeout);
+            if (deadline == null || readDeadline.isBefore(deadline)) {
+              deadline = readDeadline;
+            }
+          }
+          final boundControl = operationControl =
+              ExternalCallControl(clock: binding.clock, deadline: deadline);
+          void forward(ExternalFailure failure) {
+            if (failure == ExternalFailure.cancelled) {
+              boundControl.cancel();
+            } else {
+              boundControl.expireDeadline();
+            }
+          }
+
+          if (control?.failure != null) forward(control!.failure!);
+          control?.interrupted.then(forward);
+          if (deadline != null) {
+            bindingTimer = Timer(deadline.difference(binding.clock.now()),
+                boundControl.expireDeadline);
+          }
+          void check() {
+            final failure = _bindingInterruption(boundControl);
+            if (failure != null ||
+                _closed ||
+                !(responseAvailable?.call() ?? true)) {
+              throw LocalHostAdmissionException(
+                  failure ?? CapabilityFailure.accessDenied);
+            }
+          }
+
+          check();
+          executionContext = await binding.bind(
+              session: session,
+              entry: entry,
+              selection: request.selection!,
+              control: boundControl);
+          check();
+          // Revalidation may withhold S, but must never replace it with S2.
+          if (!identical(await _authentication.authenticate(), session)) {
+            throw const LocalHostAdmissionException(
+                CapabilityFailure.accessDenied);
+          }
+          check();
+        } catch (error) {
+          final failure = _bindingInterruption(operationControl) ??
+              (error is LocalHostAdmissionException
+                  ? error.failure
+                  : CapabilityFailure.accessDenied);
+          return _encode(envelope, request.command,
+              version: request.version, error: 'capability.${failure.name}');
+        }
+      } else {
+        executionContext = context!;
       }
       Future<CapabilityResult<O>> call<I, O>(CapabilityId<I, O> id, I input) =>
           _host.dispatch(id, input,
               entry: entry,
-              context: context,
-              control: control,
+              context: executionContext,
+              control: operationControl,
               responseAvailable: () =>
                   !_closed && (responseAvailable?.call() ?? true));
       // Never manufacture CapabilityId from a request string or use an executor.
@@ -144,6 +271,7 @@ final class OfflineIpcCommandProjection {
       };
       if (result.failure != null || result.output == null) {
         return _encode(envelope, request.command,
+            version: request.version,
             error:
                 'capability.${(result.failure ?? CapabilityFailure.internalError).name}',
             execution: result);
@@ -176,12 +304,15 @@ final class OfflineIpcCommandProjection {
         // Explicit deep whitelist rejects unknown nested DTO fields as well.
         _validateData(request.command, data);
         return _encode(envelope, request.command,
-            data: data, execution: result);
+            version: request.version, data: data, execution: result);
       } catch (_) {
         return _encode(envelope, request.command,
-            error: IpcCommandFailure.invalidResult.name, execution: result);
+            version: request.version,
+            error: IpcCommandFailure.invalidResult.name,
+            execution: result);
       }
     } finally {
+      bindingTimer?.cancel();
       if (--_pending == 0) {
         _idle?.complete();
         _idle = null;
@@ -195,7 +326,8 @@ final class OfflineIpcCommandProjection {
 
   OfflineIpcCommandResult _encode(
       UntrustedIpcEnvelope envelope, _Command? command,
-      {Map<String, Object?>? data,
+      {int? version,
+      Map<String, Object?>? data,
       String? error,
       CapabilityResult? execution}) {
     // A response/protocol-error frame cannot be repurposed into a command.
@@ -205,7 +337,8 @@ final class OfflineIpcCommandProjection {
     }
     try {
       final payload = jsonEncode({
-        'schemaVersion': command?.version ?? IpcCommandResponseCodec.version,
+        'schemaVersion':
+            version ?? command?.version ?? IpcCommandResponseCodec.version,
         'type': 'result',
         'capability': command?.wireName,
         'data': data,
@@ -235,3 +368,10 @@ final class OfflineIpcCommandProjection {
     ]).then((_) {});
   }
 }
+
+CapabilityFailure? _bindingInterruption(ExternalCallControl? control) =>
+    switch (control?.failure) {
+      null => null,
+      ExternalFailure.cancelled => CapabilityFailure.cancelled,
+      _ => CapabilityFailure.deadlineExceeded,
+    };

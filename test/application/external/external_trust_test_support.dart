@@ -3,6 +3,7 @@ import 'package:uuid/uuid.dart';
 import 'package:shiroha_quiz/application/capabilities/capability.dart';
 import 'package:shiroha_quiz/application/external/external_authorization.dart';
 import 'package:shiroha_quiz/application/external/external_generated_stage.dart';
+import 'package:shiroha_quiz/application/external/external_file_read.dart';
 import 'package:shiroha_quiz/application/external/external_read_context.dart';
 import 'package:shiroha_quiz/application/external/external_trust_core.dart';
 import 'package:shiroha_quiz/application/external/external_trust_coordinator.dart';
@@ -101,6 +102,7 @@ final class OfflineTrustHarness {
   bool current = true;
   bool coordinatorCurrent = true;
   Future<void> Function(ExternalStageCheckpoint)? checkpoint;
+  Future<ExternalFileReader?> Function()? fileReader;
   Future<void> open() async {
     await local.open();
     view = local.service.openView();
@@ -144,6 +146,7 @@ final class OfflineTrustHarness {
         admission: GeneratedQuestionAdmission(idFactory: const Uuid().v4));
     reads = ExternalReadContextService(
         admission: stages.runtimeAdmission,
+        files: await fileReader?.call(),
         targets:
             SqliteExternalTargetReadRepository(databaseHelper: local.h.helper),
         questions: SqliteExternalQuestionReadRepository(

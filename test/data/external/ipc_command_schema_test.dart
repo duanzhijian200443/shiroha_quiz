@@ -36,6 +36,8 @@ void main() {
     Map<String, Object?> parse(Map<String, Object?> value) =>
         IpcCommandResponseCodec.decode(resultEnvelope(jsonEncode(value)));
     expect(parse(valid), valid);
+    expect(
+        parse({...valid, 'schemaVersion': 3}), {...valid, 'schemaVersion': 3});
     final data = valid['data'] as Map;
     for (final bad in [
       {...valid, 'schemaVersion': 1},
@@ -153,6 +155,9 @@ void main() {
       final envelope = IpcEnvelopeDecoder().consume(frame).envelope!;
       expect(IpcCommandResponseCodec.decode(envelope), message);
       expect(IpcEnvelopeCodec.encode(envelope), frame);
+      final v3 = {...message, 'schemaVersion': 3};
+      expect(
+          IpcCommandResponseCodec.decode(resultEnvelope(jsonEncode(v3))), v3);
     });
     test('${entry.key} rejects unknown response data field', () {
       final message = result(entry.key, {

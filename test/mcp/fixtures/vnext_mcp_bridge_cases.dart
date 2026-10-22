@@ -6,9 +6,16 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mcp_dart/mcp_dart.dart';
+import 'package:shiroha_quiz/application/capabilities/capability.dart';
+import 'package:shiroha_quiz/application/external/external_authorization.dart';
+import 'package:shiroha_quiz/application/external/external_invocation_core.dart';
+import 'package:shiroha_quiz/application/external/external_trust_core.dart';
+import 'package:shiroha_quiz/application/external/local_host_dispatch.dart';
+import 'package:shiroha_quiz/data/external/ipc_command_projection.dart';
 import 'package:shiroha_quiz/data/external/ipc_envelope_codec.dart';
 import 'package:shiroha_quiz/data/external/windows_tls_transport.dart';
 import 'package:shiroha_quiz/mcp/vnext_mcp_bridge_port.dart';
+import 'package:shiroha_quiz/mcp/vnext_mcp_composition_root.dart';
 import 'package:shiroha_quiz/mcp/vnext_mcp_protocol_projection.dart';
 import 'package:shiroha_quiz/mcp/vnext_mcp_server.dart';
 import '../../data/external/fixtures/windows_tls_bridge_cases.dart';
@@ -17,8 +24,117 @@ import 'codex_app_server_support.dart' show flutterDartExecutable;
 import 'vnext_mcp_stdio_fixture.dart'
     show fixtureAppMethod, fixtureAppResultMethod;
 import 'vnext_mcp_test_support.dart' show SubmissionEncodingProbe, batch, call;
+import 'vnext_tls_file_fixture.dart';
+import '../../application/external/external_question_read_test_support.dart'
+    show submission;
+import '../../application/study_query/study_query_test_support.dart'
+    show insertLegacyQuestion;
 
 const _ref = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+
+/// Test-only connection supplier. Every independent call gets a fresh verified
+/// connection; an attempted call is never retried or moved to another channel.
+final class _V3AppLink implements VnextMcpPort, IpcTrustedContextBinding {
+  _V3AppLink(this.h) {
+    final local = h.pairing.local;
+    app = VnextMcpAppComposition(
+        host: local.coordinator.host,
+        reads: local.reads,
+        stages: local.stages,
+        authentication: VnextMcpSessionAuthentication(() async => null),
+        approvedTargets: const []);
+  }
+  final tls.TlsHarness h;
+  late final VnextMcpAppComposition app;
+  final attempts = <BridgeFixture>[];
+  final sessions = <ExternalSession>[];
+  final contexts = <ExternalExecutionContext>[];
+  Future<void> Function()? configureGrant, afterBinding;
+  bool prepared = false, foreignExecution = false;
+  @override
+  LocalHostDispatchCore get host => app.host;
+  @override
+  ExternalClock get clock => app.clock;
+  @override
+  Duration get readTimeout => app.readTimeout;
+  @override
+  Future<ExternalExecutionContext> bind(
+      {required ExternalSession session,
+      required LocalHostSessionEntry entry,
+      required IpcContextSelection selection,
+      required ExternalCallControl control}) async {
+    sessions.add(session);
+    final ExternalExecutionContext context;
+    if (foreignExecution) {
+      final foreign =
+          await h.verifier.authenticate(tls.MemoryTlsChannel(), h.plan);
+      context = await host.openRead(await host.bindSession(foreign.session),
+          context: selection.contextRef);
+    } else {
+      context = await app.bind(
+          session: session,
+          entry: entry,
+          selection: selection,
+          control: control);
+    }
+    contexts.add(context);
+    await afterBinding?.call();
+    return context;
+  }
+
+  Future<BridgeFixture> connect({bool attachHost = true}) async {
+    final fixture = BridgeFixture(h);
+    attempts.add(fixture);
+    await fixture.open(
+        binding: this,
+        prepare: !prepared,
+        configureGrant: configureGrant,
+        attachHost: attachHost);
+    prepared = true;
+    return fixture;
+  }
+
+  @override
+  Future<Map<String, Object?>> call(String tool, Map<String, dynamic> arguments,
+      {required Stream<void> cancelled,
+      required bool Function() available}) async {
+    final fixture = await connect();
+    final port = VnextMcpBridgePort(fixture.bridge);
+    try {
+      return await port.call(tool, arguments,
+          cancelled: cancelled, available: available);
+    } finally {
+      await port.close();
+      await h.candidate!.whenConnectionsSettled;
+      fixture.released();
+    }
+  }
+
+  Future<Map<String, Object?>> invoke(String tool,
+          [Map<String, dynamic> arguments = const {}]) =>
+      call(tool, arguments,
+          cancelled: const Stream.empty(), available: () => true);
+  @override
+  Future<void> close() async {
+    for (final fixture in attempts) {
+      await fixture.bridge.close();
+    }
+    await app.close();
+  }
+}
+
+Map<String, dynamic> _v3Data(Map<String, Object?> value) {
+  expect(value['profileVersion'], 2);
+  expect(value['error'], isNull);
+  return (value['data'] as Map).cast<String, dynamic>();
+}
+
+Future<String> _v3Context(_V3AppLink link) async {
+  final targets = _v3Data(await link.invoke('open_generation_context'));
+  final selected = (targets['items'] as List).single as Map;
+  return _v3Data(await link.invoke('open_generation_context',
+      {'targetRef': selected['targetRef']}))['contextRef'] as String;
+}
 
 Future<McpClient> _stdio(VnextMcpPort port, McpProtocol protocol) async {
   final client = McpClient(
@@ -46,10 +162,220 @@ Future<McpClient> _stdio(VnextMcpPort port, McpProtocol protocol) async {
 }
 
 void vnextBridgeCases(tls.TlsHarness Function() harness) {
+  group('v3 Bridge selectors through real P10/P8/P7', () {
+    late tls.TlsHarness h;
+    late _V3AppLink link;
+    setUp(() {
+      h = harness();
+      link = _V3AppLink(h);
+    });
+
+    for (final protocol in [McpProtocol.require2026, McpProtocol.legacy]) {
+      test(
+          'real stdio ${protocol.name}: fresh-connection target/search/detail and STAGE refusal',
+          () async {
+        await insertLegacyQuestion(h.pairing.local.local.h.db,
+            id: 'v3-question',
+            bankName: 'bank',
+            createdAt: 1,
+            content: 'Synthetic needle');
+        final client = await _stdio(link, protocol);
+        final targets = (await call(client, 'open_generation_context'))['data'];
+        final target = (targets['items'] as List).single as Map;
+        final opened = await call(client, 'open_generation_context',
+            {'targetRef': target['targetRef']});
+        final ref = opened['data']['contextRef'];
+        final search = await call(
+            client, 'search_questions', {'contextRef': ref, 'query': 'needle'});
+        final hit = (search['data']['items'] as List).single as Map;
+        final detail = await call(client, 'get_question_detail',
+            {'contextRef': ref, 'questionRef': hit['questionRef']});
+        expect(detail['data']['sourceKind'], 'legacy');
+        expect(link.sessions.toSet(), hasLength(4));
+        expect(link.contexts.toSet(), hasLength(4));
+        for (final attempt in link.attempts) {
+          final wire = jsonDecode(
+              VnextMcpCommand.decodeFrame(attempt.client.writes.single)
+                  .payload) as Map;
+          expect(wire['schemaVersion'], 3);
+        }
+        expect(
+            await call(client, 'propose_generated_questions',
+                batch(ref as String, 'never-stage')),
+            vnextFailure('capability.accessDenied'));
+        expect(link.attempts.last.client.writes, isEmpty);
+        expect(
+            await h.pairing.local.local.h.count('generated_question_proposals'),
+            0);
+      });
+    }
+
+    test(
+        'explicit File selections/context, retrieval and Passage use the same SQLite/F1/FTS',
+        () async {
+      final isolated = tls.TlsHarness();
+      final files = VnextTlsFileFixture(isolated.pairing.local);
+      isolated.pairing.local.fileReader = files.reader;
+      await isolated.open();
+      addTearDown(isolated.close);
+      final fileLink = _V3AppLink(isolated);
+      fileLink.configureGrant = () async {
+        final local = isolated.pairing.local;
+        final reference = await local.view.select(local.reference.profileId);
+        final revision =
+            (await local.view.read(reference)).profile.grantRevision;
+        await local.view.save(reference, revision,
+            permissions: [CapabilityPermission.read],
+            targets: (await local.view.targets()).where((t) =>
+                t.scope.projectId == null &&
+                {'bank', VnextTlsFileFixture.fileId}
+                    .contains(t.scope.targetId)),
+            categories: [
+              ExternalContentCategory.questionContent,
+              ExternalContentCategory.fileContent
+            ]);
+      };
+      final parent = await _v3Context(fileLink);
+      final choices = _v3Data(await fileLink
+          .invoke('open_generation_context', {'contextRef': parent}));
+      final selected = (choices['items'] as List).single as Map;
+      final ref = _v3Data(await fileLink.invoke('open_generation_context', {
+        'contextRef': parent,
+        'fileRefs': [selected['fileRef']]
+      }))['contextRef'];
+      expect(ref, isNot(parent));
+      final search = _v3Data(await fileLink.invoke(
+          'retrieve_file_content', {'contextRef': ref, 'query': 'needle'}));
+      final hit = (search['items'] as List).single as Map;
+      expect(hit['content'], contains('needle'));
+      expect(search['startsAtDocumentBeginning'], isFalse);
+      final passage = _v3Data(await fileLink.invoke('get_file_passage',
+          {'contextRef': ref, 'passageRef': hit['passageRef']}));
+      expect(passage['items'], isNotEmpty);
+      expect(passage['hasMore'], isTrue);
+      expect(passage['unsupportedExcluded'], isTrue);
+      expect(files.index.searched.toSet(), {VnextTlsFileFixture.fileId});
+      expect(files.source.reads, greaterThan(0));
+      expect(
+          (await fileLink.invoke('retrieve_file_content',
+              {'contextRef': parent, 'query': 'needle'}))['data'],
+          isNull);
+      expect(
+          await isolated.pairing.local.local.h
+              .count('generated_question_proposals'),
+          0);
+    });
+
+    test(
+        'original-key lifecycle uses independent READ/metadata after all old READ handles are stale',
+        () async {
+      await _v3Context(link);
+      final local = h.pairing.local;
+      final channel = tls.MemoryTlsChannel();
+      final authenticated = await h.verifier.authenticate(channel, h.plan);
+      // Explicit synthetic App seed, never a Bridge approval or STAGE request.
+      final approved = await local.stages
+          .approveTarget(authenticated.session, local.local.h.target, []);
+      await local.stages.stage(
+          session: authenticated.session,
+          context: approved,
+          submissionJson: submission(key: 'original-tls-key'),
+          control: ExternalCallControl(clock: local.clock),
+          responseAvailable: () => true);
+      h.verifier.invalidateChannel(channel);
+      await channel.close();
+      final reference = await local.view.select(local.reference.profileId);
+      final revision = (await local.view.read(reference)).profile.grantRevision;
+      await local.view.save(reference, revision,
+          permissions: [CapabilityPermission.read],
+          targets: (await local.view.targets()).where(
+              (t) => t.scope.targetId == 'bank' && t.scope.projectId == null),
+          categories: [ExternalContentCategory.proposalMetadata]);
+      final status = _v3Data(await link.invoke(
+          'get_question_proposal', {'submissionKey': 'original-tls-key'}));
+      expect(status['submissionKey'], 'original-tls-key');
+      expect(status['lifecycleStatus'], 'pending_review');
+      final request =
+          VnextMcpCommand.decodeFrame(link.attempts.last.client.writes.single);
+      expect(request.requestId, isNot('original-tls-key'));
+      expect((jsonDecode(request.payload) as Map)['input'],
+          {'submissionKey': 'original-tls-key'});
+      expect(
+          (await link.invoke('get_question_proposal',
+              {'submissionKey': request.requestId!}))['error'],
+          'capability.generatedProposalUnavailable');
+      expect(await local.local.h.count('generated_question_proposals'), 1);
+    });
+
+    for (final mode in [
+      'wrong-kind',
+      'foreign-execution',
+      'revoked',
+      'expired',
+      'after-binding-disable'
+    ]) {
+      test('$mode cannot release data on a fresh TLS connection', () async {
+        final ref = await _v3Context(link);
+        String selected = ref;
+        if (mode == 'wrong-kind') {
+          selected = ((jsonDecode(
+              VnextMcpCommand.decodeFrame(link.attempts[1].client.writes.single)
+                  .payload) as Map)['input'] as Map)['targetRef'] as String;
+        }
+        if (mode == 'foreign-execution') link.foreignExecution = true;
+        if (mode == 'revoked') {
+          final local = h.pairing.local;
+          final reference = await local.view.select(local.reference.profileId);
+          final revision =
+              (await local.view.read(reference)).profile.grantRevision;
+          await local.view.revokeGrant(reference, revision);
+        }
+        if (mode == 'expired') {
+          h.pairing.local.clock.current =
+              h.pairing.local.clock.current.add(const Duration(minutes: 16));
+        }
+        if (mode == 'after-binding-disable') {
+          link.afterBinding = () async =>
+              h.pairing.local.trust.disable(link.sessions.last.principal);
+        }
+        final result = await link.invoke(
+            'search_questions', {'contextRef': selected, 'query': 'needle'});
+        expect(result['data'], isNull);
+        expect(result['error'], isNotNull);
+        expect(
+            await h.pairing.local.local.h.count('generated_question_proposals'),
+            0);
+      });
+    }
+
+    test(
+        'Bridge STAGE remains zero-write, zero-serialization and zero-publication under v3',
+        () async {
+      final ref = await _v3Context(link);
+      final probe = SubmissionEncodingProbe();
+      expect(
+          await link.invoke('propose_generated_questions', {
+            'contextRef': ref,
+            'submission': {
+              'schemaVersion': 1,
+              'submissionKey': 'no-stage',
+              'requestedCount': 1,
+              'items': [probe]
+            }
+          }),
+          vnextFailure('capability.accessDenied'));
+      expect(probe.encoded, isFalse);
+      expect(link.attempts.last.client.writes, isEmpty);
+      expect(
+          await h.pairing.local.local.h.count('generated_question_proposals'),
+          0);
+    });
+  });
   group('inactive vNext Bridge projection', () {
     late tls.TlsHarness h;
     late BridgeFixture f;
     late VnextMcpBridgePort port;
+    late VnextMcpAppComposition app;
     Future<Map<String, Object?>> invoke(String tool,
             [Map<String, dynamic> arguments = const {}]) =>
         port.call(tool, arguments,
@@ -57,9 +383,16 @@ void vnextBridgeCases(tls.TlsHarness Function() harness) {
     setUp(() {
       h = harness();
       f = BridgeFixture(h);
+      final local = h.pairing.local;
+      app = VnextMcpAppComposition(
+          host: local.coordinator.host,
+          reads: local.reads,
+          stages: local.stages,
+          authentication: VnextMcpSessionAuthentication(() async => null),
+          approvedTargets: const []);
     });
     Future<void> attach({bool host = true}) async {
-      await f.open(attachHost: host);
+      await f.open(attachHost: host, binding: app);
       port = VnextMcpBridgePort(f.bridge);
       addTearDown(port.close);
     }
@@ -93,9 +426,8 @@ void vnextBridgeCases(tls.TlsHarness Function() harness) {
             jsonDecode(command.request('correlation-only').payload) as Map;
         expect(wire.keys.toSet(),
             {'schemaVersion', 'type', 'capability', 'input'});
-        expect(wire['schemaVersion'],
-            entry.key == 'get_question_proposal' ? 2 : 1);
-        expect((wire['input'] as Map).containsKey('contextRef'), isFalse);
+        expect(wire['schemaVersion'], 3);
+        expect((wire['input'] as Map)['contextRef'], entry.value['contextRef']);
         if (command.contextKind == VnextMcpContextKind.stage) {
           expect(command.input['externalRequestId'], isNull);
           expect(
@@ -106,6 +438,7 @@ void vnextBridgeCases(tls.TlsHarness Function() harness) {
         if (command.contextKind == VnextMcpContextKind.proposalLifecycle) {
           expect(command.input, isEmpty);
           expect(command.submissionKey, 'original-key');
+          expect(wire['input'], {'submissionKey': 'original-key'});
         }
       }
       expect(VnextMcpCommand.parse('open_generation_context', {}).input,
@@ -210,28 +543,10 @@ void vnextBridgeCases(tls.TlsHarness Function() harness) {
               JsonObject.fromJson(VnextMcpServer.inputSchemas[tool.name]!)
                   .toJson());
         }
-        final denied = <String, Map<String, dynamic>>{
-          'search_questions': {'contextRef': _ref, 'query': 'needle'},
-          'get_question_detail': {'contextRef': _ref, 'questionRef': _ref},
-          'retrieve_file_content': {'contextRef': _ref, 'query': 'needle'},
-          'get_file_passage': {'contextRef': _ref, 'passageRef': _ref},
-          'propose_generated_questions': batch(_ref, 'never-sent'),
-          'get_question_proposal': {'submissionKey': 'never-sent'},
-        };
-        for (final entry in denied.entries) {
-          expect(await call(client, entry.key, entry.value),
-              vnextFailure('capability.accessDenied'));
-        }
-        for (final args in [
-          {'contextRef': _ref},
-          {
-            'contextRef': _ref,
-            'fileRefs': [_ref]
-          },
-        ]) {
-          expect(await call(client, 'open_generation_context', args),
-              vnextFailure('capability.accessDenied'));
-        }
+        expect(
+            await call(client, 'propose_generated_questions',
+                batch(_ref, 'never-sent')),
+            vnextFailure('capability.accessDenied'));
         expect(f.client.writes, isEmpty);
         final result = await call(client, 'open_generation_context');
         expect(result['error'], isNull);
@@ -271,7 +586,7 @@ void vnextBridgeCases(tls.TlsHarness Function() harness) {
         port = VnextMcpBridgePort(f.bridge);
         pending = invoke('open_generation_context');
       };
-      await f.open();
+      await f.open(binding: app);
       addTearDown(port.close);
       expect(await pending, vnextFailure('unavailable'));
       expect(
@@ -342,10 +657,6 @@ void vnextBridgeCases(tls.TlsHarness Function() harness) {
           await invoke(
               'propose_generated_questions', batch(_ref, 'original-key')),
           vnextFailure('capability.accessDenied'));
-      expect(
-          await invoke(
-              'get_question_proposal', {'submissionKey': 'original-key'}),
-          vnextFailure('capability.accessDenied'));
       expect(openings, 0);
       expect(f.client.writes, isEmpty);
       expect(
@@ -391,7 +702,7 @@ void vnextBridgeCases(tls.TlsHarness Function() harness) {
               body['capability'] = 'external_create_read_context';
               body['data'] = {'contextRef': _ref};
             case 'wrong-version':
-              body['schemaVersion'] = 2;
+              body['schemaVersion'] = 1;
             case 'failure':
               body['data'] = null;
               body['error'] = 'capability.accessDenied';
@@ -416,7 +727,7 @@ void vnextBridgeCases(tls.TlsHarness Function() harness) {
       final frame = IpcEnvelopeCodec.encodeResponse(
           'id',
           jsonEncode({
-            'schemaVersion': 2,
+            'schemaVersion': 3,
             'type': 'result',
             'capability': command.capability,
             'data': {

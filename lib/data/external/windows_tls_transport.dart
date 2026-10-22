@@ -88,8 +88,8 @@ abstract interface class TlsStartup {
   void invalidate();
 }
 
-/// No wire-selected Context factory. Each admitted offline connection receives
-/// a P8 Context from trusted local composition, under the exact Session.
+/// Legacy v1/v2 composition only. v3 instead uses [IpcTrustedContextBinding]
+/// after authenticated P8 admission and strict selector decoding.
 typedef TlsTrustedContext = Future<ExternalExecutionContext> Function(
     ExternalSession session);
 

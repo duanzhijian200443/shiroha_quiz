@@ -22,10 +22,19 @@ foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.
         }
     } elseif ($file.FullName -eq (Join-Path $root 'lib/mcp/vnext_mcp_bridge_port.dart')) {
         foreach ($token in @('.connect(', 'WindowsTlsBridge(', 'ExternalTrustCore', '.openSession(',
-            '.openRead(', '.openStage(', '.approveTarget(', 'DatabaseHelper', 'dart:io', 'dart:ffi')) {
+            '.bindSession(', '.openRead(', '.openStage(', '.openReconciliation(',
+            '.openProposalLifecycle(', '.approveTarget(', 'IpcTrustedContextBinding',
+            'ExternalPrincipal', 'ExternalSession(', 'ExternalExecutionContext',
+            'AuthenticatedPeerEvidence(', 'PairingProof(', 'DatabaseHelper', 'dart:io', 'dart:ffi')) {
             if ($code.Contains($token)) { throw "Inactive Bridge projection gained authority: $token" }
         }
-        if (!$code.Contains('if (command.needsAppBinding)')) { throw 'Bridge Context refusal missing' }
+        if (!$code.Contains('if (command.bridgeStageBlocked)')) { throw 'Bridge STAGE refusal missing' }
+        $projection = [IO.File]::ReadAllText((Join-Path $root 'lib/mcp/vnext_mcp_protocol_projection.dart'))
+        if (!$projection.Contains("'schemaVersion': 3") -or
+            !$projection.Contains('bridgeStageBlocked => contextKind == VnextMcpContextKind.stage') -or
+            !$projection.Contains("decoded['schemaVersion'] != 3")) {
+            throw 'Bridge v3 selection/response or unconditional STAGE boundary missing'
+        }
     } elseif ($code -match 'windows_tls_|WindowsTlsHost|WindowsChannelVerification|DartLoopbackTlsIo|DartLoopbackBridgeIo|P26TlsStartup') {
         throw 'TLS production wiring is active'
     }

@@ -45,15 +45,32 @@ void main() {
       } else if (path == 'lib/mcp/vnext_mcp_bridge_port.dart') {
         expect(source,
             contains("import '../data/external/windows_tls_transport.dart'"));
-        expect(source, contains('if (command.needsAppBinding)'));
+        expect(source, contains('if (command.bridgeStageBlocked)'));
+        final projection = File('lib/mcp/vnext_mcp_protocol_projection.dart')
+            .readAsStringSync();
+        expect(projection, contains("'schemaVersion': 3"));
+        expect(
+            projection,
+            contains(
+                'bridgeStageBlocked => contextKind == VnextMcpContextKind.stage'));
+        expect(projection, contains("decoded['schemaVersion'] != 3"));
         for (final token in [
           '.connect(',
           'WindowsTlsBridge(',
           'ExternalTrustCore',
           '.openSession(',
+          '.bindSession(',
           '.openRead(',
           '.openStage(',
+          '.openReconciliation(',
+          '.openProposalLifecycle(',
           '.approveTarget(',
+          'IpcTrustedContextBinding',
+          'ExternalPrincipal',
+          'ExternalSession(',
+          'ExternalExecutionContext',
+          'AuthenticatedPeerEvidence(',
+          'PairingProof(',
           'DatabaseHelper',
           'dart:io',
           'dart:ffi',

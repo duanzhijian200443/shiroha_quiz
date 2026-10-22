@@ -89,63 +89,98 @@ Object? _decodeJson(String text, int maxBytes) {
 }
 
 final class _CommandRequest {
-  const _CommandRequest(this.command, this.input);
+  const _CommandRequest(this.command, this.input, this.version, this.selection);
   final _Command command;
   final Object input;
-  static _CommandRequest decode(UntrustedIpcEnvelope envelope) {
+  final int version;
+  final IpcContextSelection? selection;
+  static _CommandRequest decode(UntrustedIpcEnvelope envelope,
+      {required bool selected}) {
     if (envelope.kind != IpcMessageKind.request) _bad();
     final root = _object(
         _decodeJson(envelope.payload, IpcEnvelopeLimits.requestBytes),
         ['schemaVersion', 'type', 'capability', 'input']);
     if (root['schemaVersion'] is! int ||
-        ![1, 2].contains(root['schemaVersion'])) {
+        ![1, 2, 3].contains(root['schemaVersion'])) {
       _bad(IpcCommandFailure.unsupportedVersion);
     }
     if (root['type'] != 'command') _bad();
     final command = _Command.parse(root['capability']);
-    if (root['schemaVersion'] != command.version) {
+    final version = root['schemaVersion']! as int;
+    if (selected ? version != 3 : version != command.version) {
       _bad(IpcCommandFailure.unsupportedVersion);
+    }
+    var rawInput = root['input'];
+    IpcContextSelection? selection;
+    if (version == 3) {
+      final kind = switch (command) {
+        _Command.listTargets ||
+        _Command.createReadContext =>
+          IpcContextSelectionKind.rootRead,
+        _Command.stage => IpcContextSelectionKind.stage,
+        _Command.reconcile => IpcContextSelectionKind.reconciliation,
+        _Command.proposalLifecycle => IpcContextSelectionKind.proposalLifecycle,
+        _ => IpcContextSelectionKind.read,
+      };
+      if (kind == IpcContextSelectionKind.rootRead) {
+        selection = IpcContextSelection._(kind);
+      } else {
+        if (rawInput is! Map) _bad();
+        final values = Map<String, Object?>.from(rawInput);
+        if (kind == IpcContextSelectionKind.read ||
+            kind == IpcContextSelectionKind.stage) {
+          // Missing and explicit null both reject; never substitute a Context.
+          selection = IpcContextSelection._(kind,
+              contextRef: _ref(values.remove('contextRef')));
+        } else {
+          final key = _text(values.remove('submissionKey'), 64, nonblank: true);
+          if (!RegExp(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$').hasMatch(key)) {
+            _bad();
+          }
+          selection = IpcContextSelection._(kind, submissionKey: key);
+        }
+        rawInput = values;
+      }
     }
     Object input;
     switch (command) {
       case _Command.listTargets:
-        final m = _object(root['input'], ['pageSize', 'cursor']);
+        final m = _object(rawInput, ['pageSize', 'cursor']);
         input = ExternalTargetQuery(
             pageSize: _integer(m['pageSize'], 1, 50),
             cursor: _cursor(m['cursor']));
       case _Command.createReadContext:
-        final m = _object(root['input'], ['targetRef']);
+        final m = _object(rawInput, ['targetRef']);
         input = ExternalTargetSelection(_ref(m['targetRef']));
       case _Command.searchQuestions:
-        final m = _object(root['input'], ['query', 'pageSize', 'cursor']);
+        final m = _object(rawInput, ['query', 'pageSize', 'cursor']);
         input = ExternalQuestionQuery(_text(m['query'], 200, nonblank: true),
             pageSize: _integer(m['pageSize'], 1, 50),
             cursor: _cursor(m['cursor']));
       case _Command.getQuestionDetail:
-        final m = _object(root['input'], ['questionRef']);
+        final m = _object(rawInput, ['questionRef']);
         input = ExternalQuestionSelection(_ref(m['questionRef']));
       case _Command.listFileSelections ||
             _Command.reconcile ||
             _Command.proposalLifecycle:
-        _object(root['input'], []);
+        _object(rawInput, []);
         input = const ExternalNoInput();
       case _Command.createFileContext:
-        final m = _object(root['input'], ['fileRefs']);
+        final m = _object(rawInput, ['fileRefs']);
         final refs = _list(m['fileRefs'], 64, min: 1).map(_ref).toList();
         if (refs.toSet().length != refs.length) _bad();
         input = ExternalFileSelections(refs);
       case _Command.retrieveFileContent:
-        final m = _object(root['input'], ['query', 'limit']);
+        final m = _object(rawInput, ['query', 'limit']);
         final query = _text(m['query'], 400, nonblank: true);
         if (query.runes.length > 200) _bad();
         input = ExternalFileQuery(query, limit: _integer(m['limit'], 1, 20));
       case _Command.getFilePassage:
-        final m = _object(root['input'], ['passageRef', 'cursor']);
+        final m = _object(rawInput, ['passageRef', 'cursor']);
         input = ExternalPassageSelection(_ref(m['passageRef']),
             cursor: _cursor(m['cursor']));
       case _Command.stage:
-        final m =
-            _object(root['input'], ['submissionJson', 'externalRequestId']);
+        final m = _object(rawInput, ['submissionJson', 'externalRequestId']);
         final submission =
             _text(m['submissionJson'], GeneratedLimits.submissionBytes);
         if (submission.isEmpty ||
@@ -163,7 +198,7 @@ final class _CommandRequest {
         input =
             ExternalStageSubmission(submission, externalRequestId: correlation);
     }
-    return _CommandRequest(command, input);
+    return _CommandRequest(command, input, version, selection);
   }
 }
 
@@ -176,13 +211,16 @@ abstract final class IpcCommandResponseCodec {
         _decodeJson(envelope.payload, IpcEnvelopeLimits.responseBytes),
         ['schemaVersion', 'type', 'capability', 'data', 'error']);
     if (root['schemaVersion'] is! int ||
-        ![1, 2].contains(root['schemaVersion'])) {
+        ![1, 2, 3].contains(root['schemaVersion'])) {
       _bad(IpcCommandFailure.unsupportedVersion);
     }
     if (root['type'] != 'result') _bad();
     final command =
         root['capability'] == null ? null : _Command.parse(root['capability']);
-    if (root['schemaVersion'] != (command?.version ?? version)) {
+    if (command == null
+        ? root['schemaVersion'] != version
+        : root['schemaVersion'] != 3 &&
+            root['schemaVersion'] != command.version) {
       _bad(IpcCommandFailure.unsupportedVersion);
     }
     if (root['error'] == null) {

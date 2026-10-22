@@ -11,7 +11,8 @@ final class WindowsTlsHost {
       required this.startup,
       required this.verification,
       required this.host,
-      required this.context,
+      this.context,
+      this.binding,
       required this.port,
       required this.monotonicNow,
       TlsBudgets? limits,
@@ -19,6 +20,10 @@ final class WindowsTlsHost {
       : schedule = schedule ?? _tlsSchedule,
         budget = TlsResourceBudget(limits ?? TlsBudgets()) {
     if (port < 1 || port > 65535) _tlsReject();
+    if ((context == null) == (binding == null) ||
+        (binding != null && !identical(binding!.host, host))) {
+      _tlsReject();
+    }
     if (startup is P26TlsStartup) {
       (startup as P26TlsStartup)._owner.claimRuntime();
     }
@@ -36,7 +41,8 @@ final class WindowsTlsHost {
     required P26TlsStartup startup,
     required WindowsChannelVerification verification,
     required TlsListenerIo io,
-    required TlsTrustedContext context,
+    TlsTrustedContext? context,
+    IpcTrustedContextBinding? binding,
     required int port,
     required Duration Function() monotonicNow,
     TlsBudgets? limits,
@@ -59,6 +65,7 @@ final class WindowsTlsHost {
         verification: verification,
         host: coordinator.host,
         context: context,
+        binding: binding,
         port: port,
         monotonicNow: monotonicNow,
         limits: limits,
@@ -73,7 +80,8 @@ final class WindowsTlsHost {
   final TlsStartup startup;
   final WindowsChannelVerification verification;
   final LocalHostDispatchCore host;
-  final TlsTrustedContext context;
+  final TlsTrustedContext? context;
+  final IpcTrustedContextBinding? binding;
   final int port;
   final Duration Function() monotonicNow;
   final TlsSchedule schedule;
@@ -423,10 +431,18 @@ final class _TlsConnection {
       cancelTotal();
       cancelProgress();
       _boundJsonAllocation(envelope.payload);
-      final trustedContext = await owner.context(session!.session);
-      if (!live) _tlsReject();
-      final result = await projection.invoke(envelope,
-          context: trustedContext, responseAvailable: () => live);
+      final OfflineIpcCommandResult result;
+      if (owner.binding != null) {
+        // v3 parsing and selector resolution happen only after the original
+        // P15/P0 Session has been admitted by P8. No legacy Context fallback.
+        result = await projection.invokeV3(envelope,
+            binding: owner.binding!, responseAvailable: () => live);
+      } else {
+        final trustedContext = await owner.context!(session!.session);
+        if (!live) _tlsReject();
+        result = await projection.invoke(envelope,
+            context: trustedContext, responseAvailable: () => live);
+      }
       // The result may precede STAGE settlement. Never release the owning slot
       // until P8/P7/Registry/Stage report true settlement, even after close.
       await projection.whenSettled;

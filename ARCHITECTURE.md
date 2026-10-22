@@ -513,15 +513,23 @@ close/drain. Fake TLS reaches the existing P10/P8 READ/STAGE owners; no Bridge
 business authority is added. MCP contract §14 adds an inactive
 `VnextMcpBridgePort` over that same already verified, single-use connection.
 App and Bridge share one seven-tool/P10 mapping and strict response projection.
-Only root READ target listing/selection is expressible without another trusted
-binding. Context-selected reads, STAGE and original-key lifecycle lookup refuse
-before sending; no wire-selected Context, approval or Session registry is added.
-Full seven-tool process wiring and real Windows security admission remain pending.
+P10 business schema v3 carries untrusted Context/original-key selectors; App
+composition authenticates S, obtains P8 entry E before parsing, then uses original
+P8 openings to create a fresh execution Context for the same E/S. The six READ/
+File/lifecycle tools are expressible through that inactive source binding.
+READ handles may be revalidated by a fresh current Session of the same Principal/
+running generation; execution Contexts and approvals remain exact-Session.
+Windows Bridge STAGE still refuses before serialization/send: a new independently
+authenticated, single-request connection cannot inherit another Session's
+approval. No Context/approval/Session registry or authority is added. P9 SHIP/v1,
+P10 v1/v2 and MCP schemas stay unchanged. Real process wiring, Windows STAGE and
+real Windows security admission remain pending as distinct conclusions.
 This is source integration, not production admission
 or activation.
 
 The bounded lifecycle extension adds independent READ Proposal metadata over
-the same persistence owner, through P7/P8 and a lifecycle-only IPC schema v2.
+the same persistence owner, through P7/P8, retained lifecycle-only IPC schema v2
+and explicit v3 original-key selection.
 MCP profile v2 returns persisted pending_review/committed/rejected and safe counts
 by original key under current Profile, READ/metadata and original/current target
 Scope. GeneratedQuestion §12 owns this release; original P3 reconciliation and

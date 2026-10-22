@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/capabilities/capability.dart';
 import 'package:shiroha_quiz/data/external/discovery_descriptor_codec.dart';
 import 'package:shiroha_quiz/data/external/ipc_envelope_codec.dart';
+import 'package:shiroha_quiz/data/external/ipc_command_projection.dart';
 import 'package:shiroha_quiz/data/external/native/windows_peer_certificate_policy.dart';
 import 'package:shiroha_quiz/data/external/windows_discovery.dart';
 import 'package:shiroha_quiz/data/external/windows_tls_transport.dart';
@@ -64,21 +65,27 @@ final class BridgeFixture {
   void Function()? beforePeerPolicy;
   Future<void> open(
       {TlsTrustedContext? context,
+      IpcTrustedContextBinding? binding,
+      bool prepare = true,
+      Future<void> Function()? configureGrant,
       bool enabled = true,
       TlsBudgets? limits,
       bool attachHost = true}) async {
-    final completion = await h.pairing.complete();
-    h.pairing.bridge.confirmIndependentlyComparedCompletionAndSave(
-        h.pairing.enrollment,
-        committedRevision: completion.revision,
-        comparedDigest: completion.digest);
-    if (enabled) {
-      await h.pairing.local.save();
-      await h.pairing.local.coordinator
-          .enable(h.pairing.local.profile, const Duration(minutes: 5));
-      await h.pairing.local.coordinator.startOffline();
+    if (prepare) {
+      final completion = await h.pairing.complete();
+      h.pairing.bridge.confirmIndependentlyComparedCompletionAndSave(
+          h.pairing.enrollment,
+          committedRevision: completion.revision,
+          comparedDigest: completion.digest);
+      if (enabled) {
+        await h.pairing.local.save();
+        await configureGrant?.call();
+        await h.pairing.local.coordinator
+            .enable(h.pairing.local.profile, const Duration(minutes: 5));
+        await h.pairing.local.coordinator.startOffline();
+      }
+      await h.start(context: context, binding: binding);
     }
-    await h.start(context: context);
     client.peer = server;
     client.abortPeer = true;
     server.peer = client;
