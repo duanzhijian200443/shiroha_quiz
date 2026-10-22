@@ -242,8 +242,18 @@ Bridge STAGE and provides no approval to a Bridge connection.
 
 Safe refusals cover forged/wrong-kind/cross-Context references, an independently
 authenticated foreign Principal, substitution of another Session's execution
-Context, expired handles after fresh enablement, revoked grants, disable after
-binding, forged File/Passage/cursor selections and file-empty parent access.
+Context, expired handles after fresh enablement, revoked grants, forged
+File/Passage/cursor selections and file-empty parent access. Each refusal must
+return an authorization result (`capability.accessDenied`,
+`capability.externalReadDenied`, `capability.externalReadStale` or
+`capability.externalReadDataCorrupt`), with `unauthenticated` only where P8
+admission rejects the Session, and must prove it crossed the Bridge as exactly one
+v3 frame on one fresh connection. `outcome_unknown`, `unavailable`, `cancelled`,
+`invalidRequest` and `invalidResult` never count as a refusal. Trust disable after
+binding is the one case that closes the owning connection before any business
+frame: it releases no data and publishes nothing, but its caller outcome is
+`outcome_unknown`, so it is recorded as withheld data and not as an authorization
+refusal.
 Actual Codex STAGE refusal asserts no Bridge frame, no App binding and no Proposal
 publication. A separate object probe at the SAME Bridge port additionally proves
 zero Submission encoding; JSON-RPC/mailbox input serialization is a distinct
@@ -312,6 +322,34 @@ requires the exact profile-v2 authentication failure for retrieval, Passage and
 cursor calls, plus unchanged F1-read and FTS-search observations. Other refusal
 allowlists and production behavior remain unchanged; this does not turn an
 unknown transport outcome into an authorization PASS.
+
+### Review-driven refusal-attribution correction, 2026-10-22
+
+The first review of this candidate rejected the shared refusal helper: it accepted
+`data: null` with any non-null error, so `outcome_unknown`, `unavailable`,
+`cancelled`, `invalidRequest` and `invalidResult` all counted as a safe refusal.
+That could not distinguish the P4/P8 boundary each case claims from an unrelated
+transport or local failure. The corrected suite requires an explicit authorization
+result per case, and additionally asserts that each refused call used exactly one
+fresh Bridge connection with exactly one v3 frame, so a locally short-circuited or
+pre-transport failure cannot satisfy it.
+
+Attribution observed with the corrected assertions on the CLI binary
+(`codex-cli 0.144.1`): forged, wrong-kind, foreign-Principal, foreign-execution and
+expired handles return `capability.accessDenied`; cross-Context detail and every
+forged File/Passage/cursor or file-empty parent call return
+`capability.externalReadDenied`; a revoked grant returns `unauthenticated`. Trust
+disable after binding produced `outcome_unknown` under the previous permissive
+helper, which is exactly the mis-attribution this correction removes; that case is
+now labelled as withheld data without a business result and is not counted as an
+authorization refusal.
+
+Re-ran `flutter test --no-pub --concurrency=1 test/mcp/vnext_codex_bridge_v3_test.dart`
+with `SHIROHA_CODEX_EXE` bound to the npm CLI vendor binary: 13/13 PASS, no skip.
+Only the CLI binary was re-run against the corrected assertions; the Desktop
+package result in the table above was recorded before this correction and must be
+repeated by the fixed-target Verifier. Production code, the wiring and the
+business services are unchanged by this correction.
 
 ## Isolated Windows Flutter App smoke
 

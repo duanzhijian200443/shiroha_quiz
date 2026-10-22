@@ -27,9 +27,21 @@ Map<String, dynamic> _data(Map<String, dynamic> result) {
   return (result['data'] as Map).cast<String, dynamic>();
 }
 
-void _denied(Map<String, dynamic> result) {
+/// Authorization results only. Transport/local outcomes (`outcome_unknown`,
+/// `unavailable`, `cancelled`, `invalidRequest`, `invalidResult`) are never a
+/// refusal: counting one would turn an unknown outcome into an authorization
+/// PASS.
+const _capabilityRefused = {
+  'capability.accessDenied',
+  'capability.externalReadDenied',
+  'capability.externalReadStale',
+  'capability.externalReadDataCorrupt',
+};
+
+void _denied(Map<String, dynamic> result,
+    {Set<String> codes = _capabilityRefused}) {
   expect(result['data'], isNull);
-  expect(result['error'], isNotNull);
+  expect(codes, contains(result['error']), reason: '${result['error']}');
 }
 
 void main() {
@@ -207,7 +219,28 @@ void main() {
     'revoked',
     'after-binding-disable'
   ]) {
-    test('$mode safely withholds data through actual Codex call', () async {
+    test(
+        mode == 'after-binding-disable'
+            ? 'after-binding-disable releases no data but no business result'
+            : '$mode safely withholds data through actual Codex call',
+        () async {
+      void expectBridgeRefusal(int attemptsBefore) {
+        // A refusal only counts once the request actually crossed the Bridge.
+        expect(bridge.attempts, hasLength(attemptsBefore + 1),
+            reason: 'refusal must use one fresh Bridge connection');
+        final frame = VnextMcpCommand.decodeFrame(
+            bridge.attempts.last.client.writes.single);
+        expect((jsonDecode(frame.payload) as Map)['schemaVersion'], 3);
+      }
+
+      final codes = switch (mode) {
+        'revoked' => const {'unauthenticated'},
+        // Trust withdrawal closes the owning connection before any business
+        // frame is produced. The caller outcome is unknown, NOT an
+        // authorization refusal; no data or publication is released.
+        'after-binding-disable' => const {'outcome_unknown'},
+        _ => _capabilityRefused,
+      };
       final context = await parent();
       var selectedContext = context;
       if (mode == 'forged') selectedContext = _unknownRef;
@@ -226,8 +259,12 @@ void main() {
         final original = bridge;
         bridge = foreign;
         try {
-          _denied(await client.call(
-              'search_questions', {'contextRef': context, 'query': 'needle'}));
+          final attempts = foreign.attempts.length;
+          _denied(
+              await client.call('search_questions',
+                  {'contextRef': context, 'query': 'needle'}),
+              codes: codes);
+          expectBridgeRefusal(attempts);
           expect(foreign.sessions.single.principal,
               isNot(same(original.sessions.first.principal)));
           expect(
@@ -263,13 +300,21 @@ void main() {
         final first = _data(await client.call(
             'search_questions', {'contextRef': context, 'query': 'needle'}));
         final second = await parent();
-        _denied(await client.call('get_question_detail', {
-          'contextRef': second,
-          'questionRef': (first['items'] as List).single['questionRef']
-        }));
+        final attempts = bridge.attempts.length;
+        _denied(
+            await client.call('get_question_detail', {
+              'contextRef': second,
+              'questionRef': (first['items'] as List).single['questionRef']
+            }),
+            codes: codes);
+        expectBridgeRefusal(attempts);
       } else {
-        _denied(await client.call('search_questions',
-            {'contextRef': selectedContext, 'query': 'needle'}));
+        final attempts = bridge.attempts.length;
+        _denied(
+            await client.call('search_questions',
+                {'contextRef': selectedContext, 'query': 'needle'}),
+            codes: codes);
+        expectBridgeRefusal(attempts);
       }
       expect(
           await h.pairing.local.local.h.count('generated_question_proposals'),
@@ -278,20 +323,29 @@ void main() {
   }
 
   test('forged File/Passage/cursor and parent File access reject', () async {
+    Future<void> refused(Future<Map<String, dynamic>> request) async {
+      final attempts = bridge.attempts.length;
+      _denied(await request);
+      expect(bridge.attempts, hasLength(attempts + 1));
+      final frame = VnextMcpCommand.decodeFrame(
+          bridge.attempts.last.client.writes.single);
+      expect((jsonDecode(frame.payload) as Map)['schemaVersion'], 3);
+    }
+
     final context = await parent();
-    _denied(await client.call('open_generation_context', {
+    await refused(client.call('open_generation_context', {
       'contextRef': context,
       'fileRefs': [_unknownRef]
     }));
     final fileContext = await selected(context);
-    _denied(await client.call(
+    await refused(client.call(
         'retrieve_file_content', {'contextRef': context, 'query': 'needle'}));
-    _denied(await client.call('get_file_passage',
+    await refused(client.call('get_file_passage',
         {'contextRef': fileContext, 'passageRef': _unknownRef}));
     final found = _data(await client.call('retrieve_file_content',
         {'contextRef': fileContext, 'query': 'needle'}));
     final ref = (found['items'] as List).single['passageRef'];
-    _denied(await client.call('get_file_passage',
+    await refused(client.call('get_file_passage',
         {'contextRef': fileContext, 'passageRef': ref, 'cursor': _unknownRef}));
   }, skip: skip);
 
