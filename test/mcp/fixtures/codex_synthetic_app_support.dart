@@ -7,13 +7,17 @@ import 'package:path/path.dart' as p;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/mcp/vnext_mcp_server.dart';
 import 'codex_app_server_support.dart';
+import 'stage_cancellation_evidence.dart';
 
 /// Installed-client driver shared by synthetic App compositions. The client
 /// receives only the existing disposable mailbox, never App authority or SQLite.
 final class CodexSyntheticClient {
-  CodexSyntheticClient(this.executable, this.home, this.mailbox);
+  CodexSyntheticClient(this.executable, this.home, this.mailbox,
+      {this.toolTimeoutSeconds = 10, this.stageWait = false});
   final String executable;
   final Directory home, mailbox;
+  final int toolTimeoutSeconds;
+  final bool stageWait;
   InstalledCodex? _client;
   final _processCreation = <int, String?>{};
   static const fixture = 'vnext_codex_synthetic_stdio_fixture.dart';
@@ -28,7 +32,8 @@ final class CodexSyntheticClient {
     _client = client;
     await client.configure(
         entrypoint: 'test/mcp/fixtures/$fixture',
-        entrypointArguments: [mailbox.path]);
+        entrypointArguments: [mailbox.path, if (stageWait) 'stage-wait'],
+        toolTimeoutSeconds: toolTimeoutSeconds);
     await client.start();
     final inventory = await client.inventory();
     expect(inventory.containsKey('error'), isFalse);
@@ -38,7 +43,7 @@ final class CodexSyntheticClient {
 
   Future<Map<String, dynamic>> call(String tool,
       [Map<String, dynamic> arguments = const {}]) async {
-    final response = await _client!.call(tool, arguments);
+    final response = await rawCall(tool, arguments);
     expect(response.containsKey('error'), isFalse);
     final result = response['result'] as Map;
     final envelope =
@@ -48,6 +53,23 @@ final class CodexSyntheticClient {
     expect(jsonDecode(result['content'].single['text'] as String), envelope);
     expect(result['isError'] ?? false, envelope['error'] != null);
     return envelope;
+  }
+
+  Future<Map<String, dynamic>> rawCall(String tool,
+          [Map<String, dynamic> arguments = const {}]) =>
+      _client!.call(tool, arguments,
+          timeout: stageWait
+              ? const Duration(seconds: 160)
+              : const Duration(seconds: 40));
+
+  /// Read the actual isolated backend's effective setting, not just our TOML.
+  Future<num> effectiveToolTimeout() async {
+    final response = await _client!.rpc.request('config/read', {
+      'includeLayers': false,
+    });
+    expect(response.containsKey('error'), isFalse);
+    return response['result']['config']['mcp_servers']['shiroha_vnext']
+        ['tool_timeout_sec'] as num;
   }
 
   Future<List<File>> _pidRecords() async => (await mailbox
@@ -199,9 +221,12 @@ final class CodexSyntheticClient {
 }
 
 final class CodexSyntheticAppLink {
-  CodexSyntheticAppLink(this.directory, this.composition);
+  CodexSyntheticAppLink(this.directory, this.composition, {this.evidence});
   final Directory directory;
   final VnextMcpPort Function() composition;
+  final StageCancellationEvidence? evidence;
+  File? _stageCancel;
+  bool get stageCancellationPresent => _stageCancel?.existsSync() ?? false;
   final _seen = <String>{};
   final _pending = <Future<void>>{};
   bool _closed = false;
@@ -236,13 +261,19 @@ final class CodexSyntheticAppLink {
     final cancel = File('$base.cancel');
     final poll = Timer.periodic(const Duration(milliseconds: 10), (_) {
       if (_closed || cancel.existsSync()) {
+        if (identical(cancel, _stageCancel)) {
+          evidence?.mark(StageCancellationPhase.parentCancel);
+        }
         if (!cancelled.isClosed) cancelled.add(null);
       }
     });
     try {
       final input = (jsonDecode(await request.readAsString()) as Map);
       final tool = input['tool'] as String;
-      if (tool == 'propose_generated_questions') stageCalls++;
+      if (tool == 'propose_generated_questions') {
+        stageCalls++;
+        _stageCancel = cancel;
+      }
       final result = await composition().call(
           tool, (input['arguments'] as Map).cast<String, dynamic>(),
           cancelled: cancelled.stream,
@@ -267,6 +298,9 @@ final class CodexSyntheticAppLink {
 
   Future<void> close() async {
     _closed = true;
+    // Test-link peer EOF: make withdrawal visible to the existing child port,
+    // without manufacturing a business response or repeating an App call.
+    await File(p.join(directory.path, 'closed')).writeAsString('closed');
     await _loop;
     await Future.wait(_pending.toList());
   }
