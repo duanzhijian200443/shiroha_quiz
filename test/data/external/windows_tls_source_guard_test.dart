@@ -45,7 +45,14 @@ void main() {
       } else if (path == 'lib/mcp/vnext_mcp_bridge_port.dart') {
         expect(source,
             contains("import '../data/external/windows_tls_transport.dart'"));
-        expect(source, contains('if (command.bridgeStageBlocked)'));
+        expect(source, contains('!bridge.enableStageApprovalWait'));
+        expect(source, contains('requestStageApproval('));
+        final bridge = File('lib/data/external/windows_tls_bridge.dart')
+            .readAsStringSync();
+        expect(bridge, contains('this.enableStageApprovalWait = false'));
+        expect(bridge, contains('if (!enableStageApprovalWait)'));
+        expect(bridge, contains('FirstPartyStageLimits.bridgeResponse'));
+        expect(bridge, contains('FirstPartyStageLimits.bridgeExchange'));
         final projection = File('lib/mcp/vnext_mcp_protocol_projection.dart')
             .readAsStringSync();
         expect(projection, contains("'schemaVersion': 3"));

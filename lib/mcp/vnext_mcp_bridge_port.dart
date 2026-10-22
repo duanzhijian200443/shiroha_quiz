@@ -32,8 +32,8 @@ final class VnextMcpBridgePort implements VnextMcpPort {
       return vnextFailure('invalidRequest');
     }
     // v3 carries untrusted READ/key selectors to the original App authority.
-    // No cross-connection precise-Session STAGE approval workflow exists.
-    if (command.bridgeStageBlocked) {
+    // STAGE needs the explicit same-connection first-party waiting profile.
+    if (command.bridgeStageBlocked && !bridge.enableStageApprovalWait) {
       return vnextFailure('capability.accessDenied');
     }
     _attempted = true;
@@ -48,8 +48,10 @@ final class VnextMcpBridgePort implements VnextMcpPort {
         return vnextFailure('cancelled');
       }
       const id = 'mcp_bridge_1'; // Correlation only; never a submission key.
-      final response =
-          await bridge.request(requestId: id, payload: command.payload);
+      final response = command.bridgeStageBlocked
+          ? await bridge.requestStageApproval(
+              requestId: id, buildPayload: () => command.payload)
+          : await bridge.request(requestId: id, payload: command.payload);
       if (_closed || interrupted || !available()) {
         return vnextFailure('cancelled');
       }

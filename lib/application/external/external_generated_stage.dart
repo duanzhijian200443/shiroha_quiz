@@ -146,6 +146,16 @@ final class ExternalGeneratedStageService {
     return ExternalStageAccess._(this, session);
   }
 
+  /// Read-only preparation for a first-party prompt; creates no approval.
+  Future<int> checkTargetForApproval(
+      ExternalSession session, GeneratedTarget target) async {
+    final access = _access(session);
+    final revision =
+        await _persistence.authorizeStage(access, target, const []);
+    access.validate();
+    return revision;
+  }
+
   /// App approval of the original Target/evidence only. No request permission,
   /// raw Profile id or client JSON enters this method. Fifteen minutes is an
   /// unpublished bounded candidate limit, independent of current Grant checks.

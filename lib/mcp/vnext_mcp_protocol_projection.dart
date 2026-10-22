@@ -33,8 +33,8 @@ final class VnextMcpCommand {
   final Map<String, Object?>? _submission;
 
   /// Classification is cheap; a STAGE payload is serialized only when a frame
-  /// is actually built, i.e. after the App's exact-Session approval. The
-  /// Bridge never materializes it because every STAGE call refuses first.
+  /// is actually built. The default Bridge refuses first; its explicit human
+  /// wait profile permits bounded text encoding before App approval.
   Map<String, Object?> get input => _input ??= _boundedStageInput(_submission!);
 
   /// Frozen GeneratedQuestion admission bounds, applied before `jsonEncode`
@@ -47,10 +47,7 @@ final class VnextMcpCommand {
     if (items is List && items.length > _maxItems) {
       throw const FormatException('invalidRequest');
     }
-    final budget = <int>[GeneratedLimits.submissionBytes];
-    if (_exceedsBudget(submission, 1, budget)) {
-      throw const FormatException('invalidRequest');
-    }
+    _encodedBudget(submission, 1, <int>[GeneratedLimits.submissionBytes]);
     final encoded = jsonEncode(submission);
     if (utf8.encode(encoded).length > GeneratedLimits.submissionBytes) {
       throw const FormatException('invalidRequest');
@@ -58,32 +55,66 @@ final class VnextMcpCommand {
     return {'submissionJson': encoded, 'externalRequestId': null};
   }
 
-  static bool _exceedsBudget(Object? value, int depth, List<int> budget) {
-    if (depth > _maxDepth) return true;
+  static void _encodedBudget(Object? value, int depth, List<int> budget) {
+    void take(int count) {
+      budget[0] -= count;
+      if (budget[0] < 0) throw const FormatException('invalidRequest');
+    }
+
+    if (depth > _maxDepth) throw const FormatException('invalidRequest');
     if (value is String) {
-      budget[0] -= value.length;
+      take(2);
+      for (var i = 0; i < value.length; i++) {
+        final c = value.codeUnitAt(i);
+        if (c >= 0xd800 && c <= 0xdbff) {
+          if (++i >= value.length ||
+              value.codeUnitAt(i) < 0xdc00 ||
+              value.codeUnitAt(i) > 0xdfff) {
+            throw const FormatException('invalidRequest');
+          }
+          take(4);
+        } else if (c >= 0xdc00 && c <= 0xdfff) {
+          throw const FormatException('invalidRequest');
+        } else if (c == 34 || c == 92 || const [8, 9, 10, 12, 13].contains(c)) {
+          take(2);
+        } else {
+          take(c < 32
+              ? 6
+              : c < 128
+                  ? 1
+                  : c < 2048
+                      ? 2
+                      : 3);
+        }
+      }
     } else if (value is List) {
-      budget[0] -= value.length;
+      take(2 + (value.isEmpty ? 0 : value.length - 1));
       for (final item in value) {
-        if (_exceedsBudget(item, depth + 1, budget)) return true;
+        _encodedBudget(item, depth + 1, budget);
       }
     } else if (value is Map) {
+      take(2 + (value.isEmpty ? 0 : value.length - 1));
       for (final entry in value.entries) {
         final key = entry.key;
-        budget[0] -= (key is String ? key.length : 0) + 4;
-        if (_exceedsBudget(entry.value, depth + 1, budget)) return true;
+        if (key is! String) throw const FormatException('invalidRequest');
+        _encodedBudget(key, depth + 1, budget);
+        take(1);
+        _encodedBudget(entry.value, depth + 1, budget);
       }
+    } else if (value == null ||
+        value is bool ||
+        value is num && value.isFinite) {
+      take(value.toString().length);
     } else {
-      budget[0] -= 8;
+      throw const FormatException('invalidRequest');
     }
-    return budget[0] < 0;
   }
 
   /// Selectors are carried by v3 and resolved only by trusted App composition.
   bool get needsAppBinding =>
       contextRef != null || contextKind != VnextMcpContextKind.read;
 
-  /// Precise-Session App approval has no cross-connection Windows workflow.
+  /// STAGE classification; the default Bridge refuses before payload encoding.
   bool get bridgeStageBlocked => contextKind == VnextMcpContextKind.stage;
 
   static VnextMcpCommand parse(String tool, Map<String, dynamic> arguments) {
@@ -109,7 +140,7 @@ final class VnextMcpCommand {
     if (tool == 'propose_generated_questions') {
       final submission = arguments['submission'] as Map;
       return VnextMcpCommand._stage('external_stage_generated_questions',
-          Map<String, Object?>.from(submission),
+          submission.cast<String, Object?>(),
           contextRef: context,
           submissionKey: submission['submissionKey'] as String);
     }

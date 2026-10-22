@@ -11,6 +11,7 @@ import '../application/external/external_question_read.dart';
 import '../application/external/external_trust_coordinator.dart';
 import '../application/external/external_trust_core.dart';
 import '../application/external/first_party_external_access.dart';
+import '../application/external/first_party_stage_approval.dart';
 import '../application/external/local_authorization_service.dart';
 import '../application/external/local_host_dispatch.dart';
 import '../application/generated_question/generated_local_authority.dart';
@@ -78,11 +79,13 @@ final class McpVnextAppIntegration {
   Future<VnextMcpPort> attachTrusted(
       {required ExternalTrustCore trust,
       required LocalHostReadinessPort readiness,
+      bool enableStageApprovalWait = false,
       required Object? Function() authenticationAttempt}) {
     if (_attaching != null || !controls.isCurrent) {
       throw StateError('External composition unavailable');
     }
-    return _attaching = _attach((_) => trust, readiness, authenticationAttempt);
+    return _attaching = _attach((_) => trust, readiness, authenticationAttempt,
+        enableStageApprovalWait: enableStageApprovalWait);
   }
 
   /// Composes an inactive credential boundary against this App's management.
@@ -102,6 +105,7 @@ final class McpVnextAppIntegration {
             ExternalCredentialBoundary boundary)
         services,
     Duration Function()? monotonicNow,
+    bool enableStageApprovalWait = false,
     Duration pairingRequestLifetime =
         ExternalCredentialBoundary.evidenceLifetime,
   }) {
@@ -125,6 +129,7 @@ final class McpVnextAppIntegration {
         },
         readiness,
         () => null,
+        enableStageApprovalWait: enableStageApprovalWait,
         credentials: (coordinator, trust) {
           boundary.attach(coordinator, trust);
           final result = services(boundary);
@@ -141,7 +146,8 @@ final class McpVnextAppIntegration {
       Object? Function() attempt,
       {FirstPartyCredentialServices Function(
               ExternalTrustCoordinator, ExternalTrustCore)?
-          credentials}) async {
+          credentials,
+      bool enableStageApprovalWait = false}) async {
     final owner = await localAuthority.openSession();
     late ExternalTrustCore trust;
     final management = ExternalAuthorizationManagement(
@@ -179,15 +185,25 @@ final class McpVnextAppIntegration {
         readiness: readiness,
         compositionIsCurrent: () =>
             controls.isCurrent && owner.isCurrent && _isCurrent());
+    final stageApproval = enableStageApprovalWait
+        ? FirstPartyStageApproval(
+            host: coordinator.host,
+            stages: stages,
+            localOwner: owner,
+            compositionIsCurrent: () => controls.isCurrent && _isCurrent())
+        : null;
     final port = VnextMcpAppComposition(
         host: coordinator.host,
         reads: reads,
         stages: stages,
+        stageApproval: stageApproval,
         authentication:
             VnextMcpSessionAuthentication(controls.authenticatedSession),
         approvedTargets: const []);
     FirstPartyCredentialServices? credentialServices;
     Future<void> shutdown() async {
+      // Cancels human input synchronously before any owning drain can wait on it.
+      final approvalClosing = stageApproval?.close();
       // Close evidence first; P15/P27 drain the same P12/P8 owners before
       // advancing generation. No Windows owner may be released before drain.
       if (trust.credentials case final ExternalCredentialBoundary boundary) {
@@ -201,6 +217,7 @@ final class McpVnextAppIntegration {
         await coordinator.shutdown();
       }
       await port.close();
+      await approvalClosing;
       reads.close();
       stages.close();
       management.invalidate();
@@ -217,6 +234,7 @@ final class McpVnextAppIntegration {
           localOwner: owner,
           authenticationAttempt: attempt,
           credentials: credentialServices,
+          stageApproval: stageApproval,
           publishApprovals: port.replaceApprovedTargets,
           shutdown: shutdown));
       await coordinator.startOffline();

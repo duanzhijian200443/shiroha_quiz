@@ -13,6 +13,7 @@ final class WindowsTlsHost {
       required this.host,
       this.context,
       this.binding,
+      this.enableStageApprovalWait = false,
       required this.port,
       required this.monotonicNow,
       TlsBudgets? limits,
@@ -22,6 +23,12 @@ final class WindowsTlsHost {
     if (port < 1 || port > 65535) _tlsReject();
     if ((context == null) == (binding == null) ||
         (binding != null && !identical(binding!.host, host))) {
+      _tlsReject();
+    }
+    if (enableStageApprovalWait &&
+        (binding is! IpcTrustedStageApprovalBinding ||
+            !(binding as IpcTrustedStageApprovalBinding)
+                .stageApprovalEnabled)) {
       _tlsReject();
     }
     if (startup is P26TlsStartup) {
@@ -43,6 +50,7 @@ final class WindowsTlsHost {
     required TlsListenerIo io,
     TlsTrustedContext? context,
     IpcTrustedContextBinding? binding,
+    bool enableStageApprovalWait = false,
     required int port,
     required Duration Function() monotonicNow,
     TlsBudgets? limits,
@@ -66,6 +74,7 @@ final class WindowsTlsHost {
         host: coordinator.host,
         context: context,
         binding: binding,
+        enableStageApprovalWait: enableStageApprovalWait,
         port: port,
         monotonicNow: monotonicNow,
         limits: limits,
@@ -82,6 +91,7 @@ final class WindowsTlsHost {
   final LocalHostDispatchCore host;
   final TlsTrustedContext? context;
   final IpcTrustedContextBinding? binding;
+  final bool enableStageApprovalWait;
   final int port;
   final Duration Function() monotonicNow;
   final TlsSchedule schedule;
@@ -277,6 +287,7 @@ final class _TlsConnection {
   TlsChannel? channel;
   WindowsTlsSession? session;
   bool _closing = false;
+  ExternalCallControl? _control;
   Future<void>? _closeFuture, done;
   bool get live =>
       !_closing &&
@@ -286,6 +297,7 @@ final class _TlsConnection {
 
   Future<void> close() => _closeFuture ??= () async {
         _closing = true;
+        _control?.cancel();
         if (channel != null) owner.verification.invalidateChannel(channel!);
         try {
           await channel?.close();
@@ -360,7 +372,8 @@ final class _TlsConnection {
     var headerUsed = 0;
     final started = owner.monotonicNow();
     var progress = started;
-    var failed = false;
+    Future<void>? observing;
+    void Function()? cancelPreparation, cancelStageTotal;
     void expire() {
       unawaited(close().catchError((Object _) {}));
     }
@@ -430,19 +443,49 @@ final class _TlsConnection {
       }
       cancelTotal();
       cancelProgress();
+      final control = owner.enableStageApprovalWait
+          ? _control = ExternalCallControl(clock: owner.binding!.clock)
+          : null;
+      if (control != null) {
+        control.interrupted.then((_) => expire());
+        cancelPreparation = owner.schedule(
+            FirstPartyStageLimits.preparation, control.expireDeadline);
+        cancelStageTotal = owner.schedule(
+            FirstPartyStageLimits.bridgeResponse, control.expireDeadline);
+        // Exactly one bounded read observes EOF or forbidden trailing input.
+        // It is joined only AFTER our own close below, never before the reply.
+        observing = () async {
+          try {
+            await channel!.read(1);
+          } catch (_) {/* Failure withdraws this same request. */}
+          if (!_closing) {
+            control.cancel();
+            try {
+              await close();
+            } catch (_) {
+              owner.budget.invalidate();
+            }
+          }
+        }();
+      }
       _boundJsonAllocation(envelope.payload);
       final OfflineIpcCommandResult result;
       if (owner.binding != null) {
         // v3 parsing and selector resolution happen only after the original
         // P15/P0 Session has been admitted by P8. No legacy Context fallback.
         result = await projection.invokeV3(envelope,
-            binding: owner.binding!, responseAvailable: () => live);
+            binding: owner.binding!,
+            control: control,
+            stageApprovalWait: owner.enableStageApprovalWait,
+            onStageWaiting: () => cancelPreparation?.call(),
+            responseAvailable: () => live);
       } else {
         final trustedContext = await owner.context!(session!.session);
         if (!live) _tlsReject();
         result = await projection.invoke(envelope,
             context: trustedContext, responseAvailable: () => live);
       }
+      cancelPreparation?.call();
       // The result may precede STAGE settlement. Never release the owning slot
       // until P8/P7/Registry/Stage report true settlement, even after close.
       await projection.whenSettled;
@@ -454,20 +497,21 @@ final class _TlsConnection {
       await channel!.write(result.frame!);
       if (!live) _tlsReject();
     } catch (_) {
-      failed = true;
       rethrow;
     } finally {
       cancelTotal();
       cancelProgress();
       decoder.close();
       await projection.whenSettled;
-      if (failed) {
-        try {
-          await close();
-        } catch (_) {
-          owner.budget.invalidate();
-        }
+      try {
+        await close();
+      } catch (_) {
+        owner.budget.invalidate();
       }
+      await observing;
+      cancelPreparation?.call();
+      cancelStageTotal?.call();
+      projection.finishStageApproval(clean: owner.budget.isUsable);
       if (owner.budget.isUsable) {
         for (final token in reservations.reversed) {
           token.release();

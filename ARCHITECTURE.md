@@ -519,11 +519,17 @@ P8 openings to create a fresh execution Context for the same E/S. The six READ/
 File/lifecycle tools are expressible through that inactive source binding.
 READ handles may be revalidated by a fresh current Session of the same Principal/
 running generation; execution Contexts and approvals remain exact-Session.
-Windows Bridge STAGE still refuses before serialization/send: a new independently
-authenticated, single-request connection cannot inherit another Session's
-approval. No Context/approval/Session registry or authority is added. P9 SHIP/v1,
-P10 v1/v2 and MCP schemas stay unchanged. Real process wiring, Windows STAGE and
-real Windows security admission remain pending as distinct conclusions.
+Windows Bridge STAGE defaults to refusal before serialization/send. The explicitly
+enabled source-only profile in external boundary §8 retains one bounded raw
+Submission and original S/E/revision/generation/exact App target for the current
+first-party UI's explicit confirmation. One request per generation waits at most
+120 seconds without a SQLite transaction/B0 lease; original P3 `approveTarget`
+and P8 `openStage` remain the only approval/dispatch path. STAGE-only finite
+transport windows preserve one P9 request/final response/EOF; READ retains its
+2/10-second bounds. Approval never transfers between Sessions; real drain/close
+precedes resource release. P9 SHIP/v1, P10 v1/v2/v3 and MCP schemas stay unchanged.
+No durable approval registry/schema is added. Real process wiring and real
+Windows security admission remain pending as distinct conclusions.
 This is source integration, not production admission
 or activation.
 

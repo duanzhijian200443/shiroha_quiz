@@ -18,6 +18,7 @@ import 'windows_pairing_test.dart' as pair;
 import 'windows_peer_certificate_policy_test.dart' show OfflinePeerCalls;
 import 'fixtures/windows_tls_bridge_cases.dart';
 import '../../mcp/fixtures/vnext_mcp_bridge_cases.dart';
+import '../../mcp/fixtures/first_party_stage_approval_cases.dart';
 
 final class ManualDeadlines {
   Duration now = Duration.zero;
@@ -236,6 +237,7 @@ class TlsHarness {
       {TlsStartup? startup,
       TlsBudgets? limits,
       IpcTrustedContextBinding? binding,
+      bool enableStageApprovalWait = false,
       TlsTrustedContext? context}) async {
     final credentials = WindowsCredentialInitialization.withPrimitives(
         owner: pairing.native.owner,
@@ -266,6 +268,7 @@ class TlsHarness {
         schedule: deadlines.schedule,
         limits: limits,
         binding: binding,
+        enableStageApprovalWait: enableStageApprovalWait,
         context: binding != null
             ? null
             : context ??
@@ -308,6 +311,7 @@ void main() {
   tearDown(() => h.close());
   bridgeCases(() => h);
   vnextBridgeCases(() => h);
+  firstPartyStageApprovalCases(() => h);
 
   test(
       'B1 pure plans enforce TLS13, isolated trust and leaf-first chain without OS calls',

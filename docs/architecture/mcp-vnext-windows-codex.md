@@ -30,6 +30,15 @@ startup_timeout_sec = 10
 tool_timeout_sec = 10
 ```
 
+The `tool_timeout_sec = 10` setting above is intentionally sized for the isolated
+synthetic/refusal checks below. Codex's official default `tool_timeout_sec` is
+`60` seconds. When an explicitly enabled first-party STAGE human-approval wait
+window (up to 120 seconds human wait, 132 seconds post-upload response/EOF, 142
+seconds total Bridge exchange; see external boundary §8) is exercised by an MCP
+caller, configure `tool_timeout_sec` above `142` (for example `150` seconds);
+a shorter caller timeout (such as `10` or default `60` seconds) will cancel the
+pending request early and fail closed before STAGE handler entry.
+
 Use absolute paths for the Flutter SDK's **VM executable** and repository `cwd`.
 Keep each argument separate; do not invoke `dart.bat`, a shell command string,
 `pub get` or Flutter on the MCP stdout channel. The relative script argument

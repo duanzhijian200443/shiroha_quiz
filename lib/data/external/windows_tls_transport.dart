@@ -12,6 +12,8 @@ import '../../application/capabilities/capability.dart';
 import '../../application/external/external_credential_association.dart';
 import '../../application/external/external_credential_boundary.dart';
 import '../../application/external/first_party_external_credentials.dart';
+import '../../application/external/first_party_stage_approval.dart';
+import '../../application/external/external_invocation_core.dart';
 import '../../application/external/external_trust_core.dart';
 import '../../application/external/external_trust_coordinator.dart';
 import '../../application/external/local_host_dispatch.dart';

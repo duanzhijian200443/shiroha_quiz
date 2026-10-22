@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../application/external/first_party_external_access.dart';
 import '../../application/external/external_trust_core.dart';
+import '../../application/external/first_party_stage_approval.dart';
 import '../../application/generated_question/generated_local_authority.dart';
 
 /// Local control delegates pairing to the admitted owner; no credential input.
@@ -18,6 +19,8 @@ final class _ControlState extends State<FirstPartyExternalControl> {
   String? _error;
   int _minutes = 10;
   Timer? _timer;
+  FirstPartyStageApprovalView? _stageView;
+  StreamSubscription<void>? _stageChanges;
   bool get _current => mounted && widget.access.isCurrent;
 
   @override
@@ -27,13 +30,38 @@ final class _ControlState extends State<FirstPartyExternalControl> {
     _timer = Timer.periodic(const Duration(seconds: 1), (_) => _refresh());
   }
 
+  void _watchStageApproval() {
+    if (!_current || _stageView != null) return;
+    final view = widget.access.openStageApprovalView();
+    if (view == null) return;
+    _stageView = view;
+    _stageChanges = view.changes.listen((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void didUpdateWidget(FirstPartyExternalControl oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.access, widget.access)) {
+      _stageView?.close();
+      unawaited(_stageChanges?.cancel());
+      _stageView = null;
+      _stageChanges = null;
+      _watchStageApproval();
+    }
+  }
+
   @override
   void dispose() {
     _timer?.cancel();
+    _stageView?.close();
+    unawaited(_stageChanges?.cancel());
     super.dispose();
   }
 
   Future<void> _refresh() async {
+    _watchStageApproval();
     if (mounted &&
         !_current &&
         (_status.profileId != null || _status.enabled || _status.connected)) {
@@ -156,9 +184,19 @@ final class _ControlState extends State<FirstPartyExternalControl> {
         }
       });
 
+  Future<void> _approveRequest(
+      FirstPartyStageApprovalView view, FirstPartyStageRequest request) async {
+    try {
+      await view.confirm(request);
+    } catch (_) {
+      if (mounted) setState(() => _error = '本次暂存审批已失效。');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final enabled = _current && _status.enabled;
+    final pending = _current ? _stageView?.pending : null;
     return Card(
         child: Padding(
             padding: const EdgeInsets.all(16),
@@ -196,6 +234,26 @@ final class _ControlState extends State<FirstPartyExternalControl> {
                 Text('到期时间：${_status.expiresAt!.toLocal()}'),
               const Text('仅允许按授权读取和暂存草稿。内容将交给外部客户端；已释放内容无法撤回。'),
               if (_error != null) Text(_error!),
+              if (pending != null)
+                Column(
+                    key: const Key('external-stage-approval'),
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('待批准的 STAGE 请求'),
+                      Text('Profile：${pending.profileId}'),
+                      Text(pending.targetLabel),
+                      Text(
+                          '剩余 ${pending.remainingSeconds} 秒；仅暂存待审核草稿，正式保存仍需 Review 确认。'),
+                      Wrap(spacing: 12, children: [
+                        TextButton(
+                            onPressed: () => _stageView!.reject(pending),
+                            child: const Text('拒绝本次暂存')),
+                        FilledButton(
+                            onPressed: () =>
+                                _approveRequest(_stageView!, pending),
+                            child: const Text('批准本次暂存')),
+                      ]),
+                    ]),
               Wrap(spacing: 12, runSpacing: 8, children: [
                 OutlinedButton(
                     onPressed: !_current || _busy ? null : _select,
