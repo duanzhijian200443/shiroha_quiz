@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../application/agent/agent_config_service.dart';
 import '../../application/agent/agent_turn.dart';
 import '../../application/conversations/conversation_service.dart';
+import '../../application/modules/module_composition.dart';
 import '../../application/safe_write/agent_write_proposal_service.dart';
 import '../../application/study_plan/study_plan_command_service.dart';
 import '../../application/study_plan/study_plan_draft_service.dart';
@@ -32,6 +33,7 @@ class AssistantWorkspaceShell extends StatefulWidget {
     required this.startAgentTurn,
     this.startRetrievalTurn,
     this.proposalService,
+    this.artifactContributions,
     this.studyPlanDraftService,
     this.studyPlanCommandService,
     this.practiceCommands,
@@ -44,6 +46,7 @@ class AssistantWorkspaceShell extends StatefulWidget {
   final AgentTurnStarter startAgentTurn;
   final AgentRetrievalTurnStarter? startRetrievalTurn;
   final AgentWriteProposalService? proposalService;
+  final List<ModuleUiContribution>? artifactContributions;
   final StudyPlanDraftService? studyPlanDraftService;
   final StudyPlanCommandService? studyPlanCommandService;
   final PracticeCommandDependencies? practiceCommands;
@@ -70,6 +73,7 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
       startAgentTurn: widget.startAgentTurn,
       startRetrievalTurn: widget.startRetrievalTurn,
       proposalService: widget.proposalService,
+      artifactContributions: widget.artifactContributions,
       studyPlanDraftService: widget.studyPlanDraftService,
       studyPlanCommandService: widget.studyPlanCommandService,
     )..load();

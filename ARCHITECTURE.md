@@ -421,6 +421,16 @@ the existing workspace facade. The service owns safe application failures and
 uses a `ConversationRepositoryPort`; SQLite wiring remains in the composition
 root.
 
+Assistant source presentation separates conversation/Turn coordination in
+`ConversationController` from its single owned `AssistantArtifactController`.
+The latter owns only transient artifact display, source bindings, action wait
+state and recovery coordination; existing public artifact entrypoints forward
+to it. Typed Proposal/draft lifecycles and formal writes remain in their owning
+Application services. Dedicated card presenters consume the existing finite
+Module UI Contribution slot. The focused boundary is
+`docs/product/agent-refactor/assistant-artifacts.md`; this source decomposition
+does not waive AR-R6B production admission or Windows/runtime acceptance.
+
 - A new conversation is a transient draft until its first valid User Message.
 - First persistence atomically creates the Conversation, sequence-1 Message,
   and selected `conversation_files` relations.

@@ -843,6 +843,7 @@ void runShirohaQuiz({
           generatedLocalAuthority: localAuthority,
           generatedQuestionService: generatedQuestionService,
           generatedUiContributions: moduleComposition.uiContributions,
+          assistantUiContributions: moduleComposition.uiContributions,
           taskCenter: createTaskCenterDependencies(
               manager: taskManager,
               coordinator: importTaskCoordinator,
@@ -945,6 +946,7 @@ class ShirohaQuizApp extends StatelessWidget {
     this.generatedLocalAuthority,
     this.generatedQuestionService,
     this.generatedUiContributions = const [],
+    this.assistantUiContributions,
     required this.engineRepository,
     required this.aiConfigService,
     required this.aiService,
@@ -997,6 +999,7 @@ class ShirohaQuizApp extends StatelessWidget {
   final GeneratedLocalAuthorityFactory? generatedLocalAuthority;
   final GeneratedQuestionService? generatedQuestionService;
   final List<ModuleUiContribution> generatedUiContributions;
+  final List<ModuleUiContribution>? assistantUiContributions;
   final AiConfigPresentationService aiConfigService;
   final AiService aiService;
   final ImportPipelineService importPipelineService;
@@ -1092,6 +1095,7 @@ class ShirohaQuizApp extends StatelessWidget {
             importCommitService: importCommitService,
             startRetrievalTurn: startRetrievalTurn,
             proposalService: proposalService,
+            artifactContributions: assistantUiContributions,
             studyPlanDraftService: studyPlanDraftService,
             studyPlanCommandService: studyPlanCommandService,
             studyPlanSelectionService: studyPlanSelectionService,

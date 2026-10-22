@@ -145,8 +145,9 @@ exclusive to explicit formal-approval contexts. Adding a synthetic read changes
 only its contribution/list, and
 the same generic loop executes it with typed receipts and one final Assistant
 append. Existing W0/SPL presentation events remain the retained bridge; their
-lifecycle, approval commands and fallback barriers do not change. AR-R8 owns
-any later artifact/controller decomposition.
+lifecycle, approval commands and fallback barriers do not change. AR-R8's
+separately authorized source decomposition is owned by
+[Assistant artifact presentation](assistant-artifacts.md).
 
 AR-R7 separately adds the default-disabled READ continuation policy under
 Agent Runtime v1 §4. Source registration remains unchanged; Study projections
@@ -168,6 +169,14 @@ descriptors with explicit unique keys. AR-R4 contributed no production UI
 descriptors and kept existing hardened IA/presenters. Synthetic fixtures
 exercise registration/removal and duplicate-key failure; this stage introduces
 no Widget registry, route DSL or navigation rewrite.
+
+AR-R8 reuses that slot for the retained `missing_answer_artifact` and
+`study_plan_artifact` presenters. Each production module contributes its own key;
+the frozen root list reaches the one workspace-owned artifact coordinator.
+Removing a contribution hides its card and disables its Presentation actions,
+without changing Application permissions or the typed owner's business state.
+Legacy Assistant constructors without a contribution argument retain both
+presenters. No generic renderer/action registry is introduced.
 
 Global storage and B0 recovery initialize before module publication. No module
 has a migration callback. StudyPlan's published durable data is the storage

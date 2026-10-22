@@ -666,6 +666,11 @@ AR-R0 contract -> AR-R1 Provider -> AR-R2 capability -> AR-R3 Runtime/transcript
 
 AR-R7 requires AR-R3. Its separately authorized, default-disabled source opt-in
 can be delivered independently of external MVP; it grants no external activation.
+AR-R8's separately authorized Assistant controller/artifact source decomposition
+likewise has a bounded [source contract](../product/agent-refactor/assistant-artifacts.md).
+It preserves existing UI/actions and single state ownership; source delivery
+does not close AR-R6B production admission, installed-client/runtime acceptance,
+or any Windows Host/security experiment prerequisite.
 AR-R9B requires AR-R6B, not AR-R9A. Execution is serial by default. The baseline estimate
 is 13 PRs, not a hard cap; independently reviewable boundaries may require more.
 Provider normalization must preserve current fallback policy. New durable

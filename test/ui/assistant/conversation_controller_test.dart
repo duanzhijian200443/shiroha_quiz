@@ -1620,6 +1620,69 @@ void main() {
       expect(repository.moveCalls, 0);
     });
   });
+  test(
+      'AR-R8 compatibility facade forwards one artifact owner and notifications',
+      () async {
+    final repository = _MemoryRepository();
+    final turns = <_TurnHarness>[];
+    final persistence = _FakeProposalPersistence();
+    final proposals = AgentWriteProposalService(persistence);
+    final controller = _controller(repository,
+        start: ({required conversationId, required userMessageId}) {
+      final turn = _TurnHarness();
+      turns.add(turn);
+      return turn.session;
+    }, proposalService: proposals);
+    addTearDown(controller.dispose);
+    final owner = controller.artifacts;
+    await controller.send('question');
+    final proposal = await _stagePendingProposal(turns, persistence, proposals);
+    await _completeTurn(turns, controller);
+    expect(controller.artifacts, same(owner));
+    expect(owner.proposalId, proposal.id);
+    controller.proposalActionMessage = 'safe message';
+    expect(owner.proposalActionMessage, 'safe message');
+    owner.proposalActionMessage = null;
+    expect(controller.proposalActionMessage, isNull);
+    final seen = <AgentWriteProposalOutcome?>[];
+    controller.addListener(() => seen.add(controller.proposalOutcome));
+    await controller.approveProposal();
+    expect(seen, contains(AgentWriteProposalOutcome.committed));
+    expect(persistence.commitCalls, hasLength(1));
+    controller.startNew();
+    expect(owner.hasProposalCard, isFalse);
+    await controller.openConversation('conversation-1');
+    expect(controller.artifacts, same(owner));
+    expect(controller.proposalId, proposal.id);
+    expect(controller.proposalOutcome, AgentWriteProposalOutcome.committed);
+  });
+
+  test('AR-R8 dispose ignores late turn events and completion', () async {
+    final repository = _MemoryRepository();
+    final turn = _TurnHarness();
+    final persistence = _FakeProposalPersistence();
+    final proposals = AgentWriteProposalService(persistence);
+    final controller =
+        _controller(repository, start: turn.start, proposalService: proposals);
+    await controller.send('question');
+    final proposal = await _primeProposal(persistence, proposals);
+    var notifications = 0;
+    controller.addListener(() => notifications++);
+    controller.dispose();
+    turn.emit(AgentTurnProposalStaged(
+        proposalId: proposal.id,
+        outcome: 'pending',
+        preview: _proposalPreviewMap()));
+    turn.complete(const AgentTurnFailed(AgentTurnFailure.cancelled));
+    await _flush();
+    expect(turn.cancelled, isTrue);
+    expect(controller.hasActiveTurn, isFalse);
+    expect(controller.hasProposalCard, isFalse);
+    expect(notifications, 0);
+    expect(persistence.commitCalls, isEmpty);
+    expect(proposals.proposalById(proposal.id).outcome,
+        AgentWriteProposalOutcome.pending);
+  });
 }
 
 ConversationController _controller(
