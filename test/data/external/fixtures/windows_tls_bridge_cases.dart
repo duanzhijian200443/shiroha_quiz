@@ -66,6 +66,7 @@ final class BridgeFixture {
   Future<void> open(
       {TlsTrustedContext? context,
       IpcTrustedContextBinding? binding,
+      bool enableStageApprovalWait = false,
       bool prepare = true,
       Future<void> Function()? configureGrant,
       bool enabled = true,
@@ -84,13 +85,17 @@ final class BridgeFixture {
             .enable(h.pairing.local.profile, const Duration(minutes: 5));
         await h.pairing.local.coordinator.startOffline();
       }
-      await h.start(context: context, binding: binding);
+      await h.start(
+          context: context,
+          binding: binding,
+          enableStageApprovalWait: enableStageApprovalWait && binding != null);
     }
     client.peer = server;
     client.abortPeer = true;
     server.peer = client;
     io = tls.MemoryBridgeIo(client);
     bridge = WindowsTlsBridge(
+        enableStageApprovalWait: enableStageApprovalWait,
         io: io,
         reader: WindowsDiscoveryReader(h.pairing.bridgeOwner, verifier: (
             {required publicPoint, required digest, required rawSignature}) {
@@ -184,6 +189,58 @@ void bridgeCases(tls.TlsHarness Function() harness) {
           transportFailure(TlsBridgeFailure.unavailable, unknown: false));
       expect(() => f.bridge.connect(), throwsA(anything));
     });
+
+    for (final mode in [
+      'silence',
+      'response-progress',
+      'response-total',
+      'upload'
+    ]) {
+      test(
+          'explicit STAGE wait bounds $mode without renewing ordinary requests',
+          () async {
+        await f.open(attachHost: false, enableStageApprovalWait: true);
+        if (mode == 'upload') f.client.writing = Completer<void>();
+        final pending = f.bridge.requestStageApproval(
+            requestId: 'stage-window', buildPayload: () => '{}');
+        final failure =
+            expectLater(pending, transportFailure(TlsBridgeFailure.timedOut));
+        await f.client.written.future;
+        await pumpEventQueue(times: 4);
+        if (mode == 'upload') {
+          h.deadlines.advance(const Duration(seconds: 2));
+        } else {
+          h.deadlines.advance(const Duration(seconds: 11));
+          expect(f.bridge.isLive, isTrue);
+          if (mode == 'silence') {
+            h.deadlines.advance(const Duration(seconds: 121));
+          } else {
+            final header =
+                IpcEnvelopeCodec.encodeResponse('stage-window', '{}');
+            f.client.feed(Uint8List.fromList([header[0]]));
+            await pumpEventQueue(times: 4);
+            if (mode == 'response-progress') {
+              h.deadlines.advance(const Duration(seconds: 2));
+            } else {
+              for (var i = 1; i < 10; i++) {
+                h.deadlines.advance(const Duration(seconds: 1));
+                f.client.feed(Uint8List.fromList([header[i]]));
+                await pumpEventQueue(times: 2);
+              }
+              h.deadlines.advance(const Duration(seconds: 1));
+            }
+          }
+        }
+        await failure;
+        if (mode == 'upload') {
+          expect(f.bridge.budget.used(TlsResource.pipeline), 1);
+          f.client.writing!.complete();
+          f.client.writing = null;
+        }
+        await f.bridge.close();
+        f.released();
+      });
+    }
 
     test('server verification must finish before request admission', () async {
       var checked = false;

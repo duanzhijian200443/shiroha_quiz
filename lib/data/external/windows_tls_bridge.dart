@@ -36,6 +36,7 @@ final class WindowsTlsBridge {
       required bool Function() compositionIsCurrent,
       Duration Function()? monotonicNow,
       this.schedule = _tlsSchedule,
+      this.enableStageApprovalWait = false,
       TlsBudgets? limits})
       : _owner = owner,
         _current = compositionIsCurrent,
@@ -55,6 +56,7 @@ final class WindowsTlsBridge {
   final Duration Function()? _monotonicNow;
   final _clock = Stopwatch()..start();
   final TlsSchedule schedule;
+  final bool enableStageApprovalWait;
   Duration get _now => _monotonicNow?.call() ?? _clock.elapsed;
   final TlsResourceBudget budget;
   TlsContextPlan? _plan;
@@ -143,13 +145,28 @@ final class WindowsTlsBridge {
   /// P9 validates IDs/bytes; App P10/P8 alone own business schema and authority.
   /// Caller close cancels availability, while [close] waits actual I/O drain.
   Future<UntrustedIpcEnvelope> request(
-      {required String requestId, required String payload}) {
+          {required String requestId, required String payload}) =>
+      _request(requestId, payload: payload);
+
+  /// Explicit source-only profile. The bounded builder runs after reservations;
+  /// it carries text only and supplies no App approval or business authority.
+  Future<UntrustedIpcEnvelope> requestStageApproval(
+      {required String requestId, required String Function() buildPayload}) {
+    if (!enableStageApprovalWait) {
+      throw const TlsBridgeException(TlsBridgeFailure.unavailable,
+          executionUnknown: false);
+    }
+    return _request(requestId, stagePayload: buildPayload);
+  }
+
+  Future<UntrustedIpcEnvelope> _request(String requestId,
+      {String? payload, String Function()? stagePayload}) {
     if (!isLive || _reply != null) {
       throw const TlsBridgeException(TlsBridgeFailure.unavailable,
           executionUnknown: false);
     }
     final reply = _reply = Completer<UntrustedIpcEnvelope>();
-    _requesting = _exchange(requestId, payload);
+    _requesting = _exchange(requestId, payload, stagePayload);
     return reply.future;
   }
 
@@ -164,20 +181,35 @@ final class WindowsTlsBridge {
     unawaited(_dispose().catchError((Object _) {}));
   }
 
-  Future<void> _exchange(String requestId, String payload) async {
+  Future<void> _exchange(String requestId, String? payload,
+      String Function()? stagePayload) async {
     final reservations = <TlsReservation>[];
     final decoder = IpcEnvelopeDecoder();
     UntrustedIpcEnvelope? response;
     void reserve(TlsResource resource, int count) =>
         reservations.add(budget.reserve(resource, count));
     final started = _now;
-    final cancelTotal = schedule(
-        const Duration(seconds: 10), () => _fail(TlsBridgeFailure.timedOut));
+    final stageWait = stagePayload != null;
+    final total = stageWait
+        ? FirstPartyStageLimits.bridgeExchange
+        : const Duration(seconds: 10);
+    final cancelTotal = schedule(total, () => _fail(TlsBridgeFailure.timedOut));
+    final cancelUpload = stageWait
+        ? schedule(
+            const Duration(seconds: 10), () => _fail(TlsBridgeFailure.timedOut))
+        : null;
+    void Function()? cancelResponse, cancelResponseFrame;
+    var awaitingResponse = false, responseStarted = false;
     var cancelProgress = schedule(
         const Duration(seconds: 2), () => _fail(TlsBridgeFailure.timedOut));
     void progressed({bool receiving = false}) {
-      if (_now - started >= const Duration(seconds: 10)) {
+      if (_now - started >= total) {
         _fail(TlsBridgeFailure.timedOut);
+      }
+      if (stageWait && receiving && awaitingResponse && !responseStarted) {
+        responseStarted = true;
+        cancelResponseFrame = schedule(const Duration(seconds: 10),
+            () => _fail(TlsBridgeFailure.timedOut));
       }
       if (!(receiving ? _connectionIsCurrent : isLive)) _tlsReject();
       cancelProgress();
@@ -203,15 +235,21 @@ final class WindowsTlsBridge {
       reserve(TlsResource.protocolBytes, 65536 + 80); // input ring + scratch
       reserve(TlsResource.writeBytes, 65536); // retained TLS output ring
       // Reserve a conservative UTF-8 bound BEFORE P9 allocates its sole frame.
-      final upper = payload.length * 3;
+      final upper =
+          stageWait ? IpcEnvelopeLimits.requestBytes : payload!.length * 3;
       reserve(
           TlsResource.protocolBytes,
           (upper < IpcEnvelopeLimits.requestBytes
                   ? upper
                   : IpcEnvelopeLimits.requestBytes) +
               80);
-      reserve(TlsResource.stringBytes,
-          2 * payload.length + 2 * IpcEnvelopeLimits.responseBytes);
+      reserve(
+          TlsResource.stringBytes,
+          (stageWait
+                  ? 2 * IpcEnvelopeLimits.requestBytes + 4 * 1024 * 1024
+                  : 2 * payload!.length) +
+              2 * IpcEnvelopeLimits.responseBytes);
+      payload ??= stagePayload!();
       final Uint8List frame;
       try {
         frame = IpcEnvelopeCodec.encodeRequest(requestId, payload);
@@ -220,6 +258,9 @@ final class WindowsTlsBridge {
         return;
       }
       for (var offset = 0; offset < frame.length;) {
+        if (_now - started >= const Duration(seconds: 10)) {
+          _fail(TlsBridgeFailure.timedOut);
+        }
         if (!isLive) _tlsReject();
         final end =
             offset + 65536 < frame.length ? offset + 65536 : frame.length;
@@ -228,6 +269,16 @@ final class WindowsTlsBridge {
         await _channel!.write(Uint8List.sublistView(frame, offset, end));
         offset = end;
         progressed();
+      }
+      if (stageWait) {
+        // No intermediate frame identifies the App's actual thinking interval.
+        // This is an explicit bounded final-response window, not a renewed
+        // ordinary no-progress deadline. Short caller cancellation still wins.
+        awaitingResponse = true;
+        cancelUpload?.call();
+        cancelProgress();
+        cancelResponse = schedule(FirstPartyStageLimits.bridgeResponse,
+            () => _fail(TlsBridgeFailure.timedOut));
       }
       final header = Uint8List(IpcEnvelopeLimits.headerBytes);
       var used = 0;
@@ -275,12 +326,17 @@ final class WindowsTlsBridge {
       decoder.finish();
     } on IpcProtocolException catch (error) {
       _fail(TlsBridgeFailure.protocol, error.failure);
+    } on FormatException {
+      _fail(TlsBridgeFailure.invalidRequest);
     } catch (_) {
       _fail(
           _sent ? TlsBridgeFailure.responseLost : TlsBridgeFailure.unavailable);
     } finally {
       cancelTotal();
       cancelProgress();
+      cancelResponse?.call();
+      cancelResponseFrame?.call();
+      cancelUpload?.call();
       decoder.close();
       _closed = true;
       _invalid = true;

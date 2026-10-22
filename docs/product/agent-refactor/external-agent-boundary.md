@@ -1033,7 +1033,7 @@ The complete v3 command matrix is:
 | `external_create_file_context` | `contextRef`, `fileRefs` | `openRead(E, contextRef)` |
 | `external_retrieve_file_content` | `contextRef`, `query`, `limit` | `openRead(E, contextRef)` |
 | `external_get_file_passage` | `contextRef`, `passageRef`, nullable `cursor` | `openRead(E, contextRef)` |
-| `external_stage_generated_questions` | `contextRef`, `submissionJson`, nullable `externalRequestId` | Conditional `openStage(E, existingApproval)` only |
+| `external_stage_generated_questions` | `contextRef`, `submissionJson`, nullable `externalRequestId` | Conditional existing approval, or explicit first-party wait below; original `openStage(E, approval)` |
 | `external_reconcile_generated_stage` | `submissionKey` only | `openReconciliation(E, originalKey)`; internal, STAGE-only |
 | `external_get_proposal_lifecycle` | `submissionKey` only | `openProposalLifecycle(E, originalKey)`; independent READ/metadata |
 
@@ -1062,14 +1062,13 @@ verification and current scopes remain the original P4/P5/P6 responsibilities.
 STAGE selection first resolves the original READ target, then selects an existing
 App approval matching identical S, current authorization revision and exact
 bank/nullable Project/Folder. P8/P3 validate the original StageContext and current
-STAGE/Scope/Egress. No binding path calls `approveTarget`; READ and File selection
-never become approval or evidence consent. Synthetic same-Session tests establish
-only this conditional binding. Windows TLS independently authenticates each
-connection and permits at most ONE request; another connection cannot reuse that
-approval. The Windows Bridge therefore refuses `propose_generated_questions`
-before Submission serialization and before sending, even with an App approval.
-No Session inheritance, approval ticket, automatic approval, queue or retry is
-introduced. Real Windows human-approved STAGE remains BLOCKED.
+STAGE/Scope/Egress. The ordinary binder never calls `approveTarget`; READ and File
+selection never become approval or evidence consent. Windows TLS independently
+authenticates each connection and permits at most ONE request; another connection
+cannot reuse approval. The default Bridge still refuses `propose_generated_questions`
+before Submission serialization and sending, even with an App approval. Only the
+explicit source-only waiting profile below permits a new same-Session UI approval.
+Real Windows transport/security admission remains BLOCKED.
 
 Proposal lifecycle opening needs no old READ handle or STAGE authority. The
 original key reaches P8 and the existing GeneratedQuestion §12 Data owner under
@@ -1097,7 +1096,8 @@ shorter caller deadline); binding never renews it. Cancellation, timeout,
 disconnect or caller withdrawal prevents release. Projection drain includes
 pending authentication/binding and then original P8/P7 owning settlement, even
 if caller completion came first. TLS keeps its existing single-request, socket,
-handshake, pipeline, buffer and deadline limits; uncertain cleanup retains its
+handshake, pipeline and buffer limits; the explicit STAGE-only timing exception
+below does not renew READ deadlines. Uncertain cleanup retains its
 resources. App close/Restore invalidates old Session/Context/approval custody and
 waits owners before database replacement. Reconnect authenticates independently;
 regrant/re-enable never revives old handles/approvals. Restart/Restore requires
@@ -1116,7 +1116,76 @@ and original-key recovery. Existing P3/P7/P8/P9, stdio modern/legacy, MCP v0 and
 isolated Windows Codex regressions remain required; Fake TLS proves source
 integration only. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
 AR-R6A = NOT_ACCEPTED. No production Listener/credentials/DPAPI/ACL/App/Bridge,
-Trial 1A or G0-L1/L2/I activation follows from v3 READ/query implementation.
+Trial 1A or G0-L1/L2/I activation follows from this source implementation.
+
+### P10 opt-in first-party STAGE wait
+
+Issue #324's two explicitly user-approved contract exceptions are limited to
+(1) an independent bounded human waiting phase in the ORIGINAL authenticated
+Session, and (2) one bounded pre-approval Submission encoding/send/retention when
+explicitly enabled. `enableStageApprovalWait` defaults false independently in
+App composition, TLS Host and Bridge. No normal startup installs or enables it.
+The Host requires the same App/P8 owner and its trusted approval binding.
+No wire field, tool argument, READ handle or existing approval enables this mode.
+
+After P15/P0 authentication and P8 entry E, P10 strictly parses the bounded v3
+envelope and retains the immutable `submissionJson`. It does not parse candidate
+content or enter the STAGE handler. One Application-owned request binds identical
+Session S, E, effective runtime generation, original current Grant revision R,
+exact bank/nullable Project/Folder (including Project bank snapshot), and this
+Submission. Preparation revalidates the original READ selection AND independently
+checks P3 STAGE/Scope/Egress against an App-minted local Review target. That READ
+selection supplies no STAGE permission or evidence consent. The current
+FirstPartyExternalAccess UI view displays this target and accepts one explicit
+user approve/reject action. A local view object is never a wire approval ticket.
+Confirmation revalidates authentication, identical S/E, R, generation, enablement,
+current target and caller availability before and after calling original P3
+`approveTarget(S, target, [])` and P8 `openStage(E, approved)`. P8/P7/P3 and the
+owning publication transaction keep every existing check; no COMMIT is granted.
+
+| Phase | Fixed bound / accounting |
+|---|---|
+| Request upload/assembly | Existing 2-second no-progress and 10-second total, unchanged. |
+| App preparation after complete frame | At most 2 seconds; no human deadline renewal by slow policy queries. |
+| Human wait after successful preparation | Default AND maximum 120 seconds, monotonic; no extension/queue. At most one request per App generation across all connections. |
+| Confirmation/rejection through completion | At most 10 seconds after the UI claims approval; rejection ends waiting immediately. Expiry requests cancellation/close, not fictitious resource release. |
+| Opt-in Bridge final response + EOF | At most 132 seconds from complete upload (2 + 120 + 10); at most 142 seconds for the entire exchange. After the first response byte, 2-second no-progress/10-second response-frame limits also apply within that outer bound. |
+
+P9 remains one `SHIP/v1` request, ONE final response and EOF; there is no approval
+frame, heartbeat, second request or version negotiation. Therefore the Bridge
+cannot observe the exact App phase boundary: only this explicit STAGE profile
+allows bounded response silence beyond ordinary 2/10 seconds. Ordinary READ and
+legacy request deadlines remain unchanged. A shorter caller/MCP timeout always
+wins; compatible callers need an explicit tool timeout above 142 seconds.
+
+Before encoding, the Bridge checks the existing 1 MiB UTF-8 JSON Submission,
+depth 16 and 50-item bounds (including escaping and JSON-only values), then
+reserves the existing pipeline/protocol/string budgets before its single lazy
+encoding/frame send. P9/P10 sizes and the Host's lexical/container admission
+remain unchanged. App retains only bounded raw text before approval, not a
+candidate graph, publication or upgraded authorization. Global ceilings remain
+8 sockets / 2 handshakes / 2 pipelines / 16 MiB protocol / 32 MiB strings /
+512 KiB output. The approval slot and reservations survive caller completion
+until actual validation/business/I/O settlement AND acknowledged close. Failed
+cleanup poisons admission and keeps uncertain resources; it never admits a new
+waiter. Waiting holds no SQLite transaction or B0 mutation lease across user input.
+
+Cancel, reject, expiry, caller withdrawal, disconnect/extra request bytes,
+revocation, ANY Grant revision change, target drift, finite-enable expiry,
+view replacement/close, App close or Restore invalidate the request. Pending
+policy/confirmation work is drained; late input cannot resurrect it. While
+waiting, bounded serialized revalidation observes policy/target changes at most
+once per second with one in-flight check; confirmation always rechecks directly.
+The Host observes EOF/trailing input with one bounded read, writes its final
+response without awaiting that read, closes its own channel, THEN joins the
+observer. It never waits for peer EOF before sending the response. Before handler
+entry these paths execute no STAGE. After entry, existing unknown-effect and
+publication/revoke ordering rules apply unchanged: reconcile only the original
+submissionKey with fresh authorization; never repeat STAGE or infer rollback.
+Close/Restore drains this owner before database replacement. No persistent
+approval table, restart recovery, cross-Session inheritance or automatic approval
+is introduced. Fake TLS + Widget + SQLite tests in the existing standing TLS suite
+cover this source-only profile; production security gates remain unchanged.
 
 ## 9. P11 trusted local authorization management (accepted local scope)
 

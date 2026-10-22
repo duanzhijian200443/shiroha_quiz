@@ -609,6 +609,20 @@ JSON retains the strict v1 content-only keys. The shared admission parser is
 content validation, not authentication. Neither a public legacy Context,
 `isCurrent`, `trusted`, Profile string nor `mcpStudyV0` proves external authority.
 
+The explicit source-only Windows waiting profile (external boundary §8, “P10
+opt-in first-party STAGE wait”) adds a read-only `checkTargetForApproval` using
+this same P3 persistence authorization. It returns only the current revision and
+creates no StageContext, candidate, publication or permission. One Application
+owner retains S/E/generation/revision/exact App target and bounded raw Submission
+while the current first-party UI awaits an explicit decision (default/max 120
+seconds). It holds no publication transaction/B0 mutation lease across that wait.
+After confirmation and revalidation it calls original `approveTarget`, then P8
+`openStage`; content admission and handler entry remain after approval. The
+15-minute StageContext lifetime is unchanged and does not extend the human or
+10-second completion deadline. Cancellation/close/Restore drains outstanding
+validation and original owning work. No durable approval or recovery table is
+added; existing unknown-effect/original-key recovery and local COMMIT are unchanged.
+
 STAGE invocation checks runtime admission and current durable policy before
 publication. `GeneratedProposalRepository` owns one B0 mutation lease and one
 SQLite transaction for current Profile/Grant/revision, exact bank/Project and

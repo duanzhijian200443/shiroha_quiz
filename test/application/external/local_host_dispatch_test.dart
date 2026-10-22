@@ -708,9 +708,12 @@ void main() {
     }
     // Exact inactive consumers only. Package 2 receives the existing P8 core;
     // windows_tls_source_guard_test independently forbids production wiring.
+    // The opt-in first-party STAGE wait is an Application owner that receives the
+    // same P8 core; it adds no transport/data dependency or default activation.
     consumers.sort();
     expect(consumers, [
       'lib/application/external/external_trust_coordinator.dart',
+      'lib/application/external/first_party_stage_approval.dart',
       'lib/data/external/ipc_command_projection.dart',
       'lib/data/external/windows_tls_host.dart',
       'lib/mcp/vnext_mcp_composition_root.dart',

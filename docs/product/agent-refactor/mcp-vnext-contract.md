@@ -380,6 +380,16 @@ selection cannot trigger approval, and confirmation grants no missing permission
 The MCP composition receives only the resulting bounded approval snapshots and
 matches the exact authenticated Session/target/revision as before.
 
+An explicit `enableStageApprovalWait: true` attachment may instead install the
+single Application-owned request lifecycle in external boundary §8, “P10 opt-in
+first-party STAGE wait”. FirstPartyExternalAccess gives only its current local
+control view the request's App-generated target and confirm/reject actions.
+The original TLS request retains its own independently authenticated Session;
+the UI's auxiliary authentication connection never substitutes for it. Closing
+or replacing the view cancels an unfinished decision. App close/Restore cancels
+input synchronously, then drains validation, P8/STAGE, I/O and real close before
+releasing local owners. Nothing restores this approval after reconnect/rebuild.
+
 Shutdown blocks new controls/Port work synchronously, discards approvals and
 awaits P12/P8/Port plus local-operation settlement before releasing local owners.
 The existing `SqliteBackupDatabaseAuthority` receives this before-close barrier
@@ -662,9 +672,10 @@ One connection can make only one attempt, including concurrent/late calls and
 failed requests.
 No reconnect, batch, automatic STAGE retry or startup binding is supplied.
 
-The existing 2-second no-progress and 10-second total frame deadlines cover the
+The default 2-second no-progress and 10-second total frame deadlines cover the
 exchange, including writes and response/EOF waiting. They cannot be renewed by
-slow progress. Existing `TlsResourceBudget` ceilings account for the pipeline,
+slow progress. Section 14's explicit STAGE waiting profile is the sole bounded
+exception; it does not alter ordinary READ deadlines. Existing `TlsResourceBudget` ceilings account for the pipeline,
 TLS rings, bounded frame/scratch and decoded text before allocation/I/O. Close
 immediately cancels result availability and makes old requests unusable, then
 waits the original read/write and acknowledged close. Deadline/cancel alone
@@ -691,7 +702,7 @@ The three completion boundaries remain distinct:
 | Boundary | Bounded capability / remaining work |
 |---|---|
 | Bridge business communication source | Single P9 request/response and close/drain implemented in the inactive authenticated transport candidate; Fake TLS exercises real App P10/P8. |
-| Seven-tool cross-process projection | Section 14 supplies inactive v3 READ/File/lifecycle binding through App P8/P7. Windows Bridge STAGE remains blocked by exact-Session approval and single-request connections. Real process composition remains pending; stdio synthetic links remain test-only. |
+| Seven-tool cross-process projection | Section 14 supplies inactive v3 READ/File/lifecycle binding and explicit same-connection first-party STAGE waiting through App P8/P7. Defaults still refuse STAGE before encoding/send. Real process composition remains pending; synthetic links remain test-only. |
 | Real Windows security admission | Still pending: protected credentials, actual TLS/OS resource/close behavior and independent frozen Windows acceptance; offline success proves none of these. |
 
 Normal App/Bridge startup and production MCP remain unchanged and disabled for
@@ -735,18 +746,23 @@ query instead needs only its original key and fresh independent
 READ/proposalMetadata plus original/current target scopes; no prior READ Context
 or STAGE authority is required. Bridge never performs those trusted openings.
 
-Classification stays cheap: a STAGE payload is serialized only when a frame is
-actually built, i.e. after the App's exact-Session approval, and never on the
-Bridge refusal path. Before `jsonEncode` the frozen GeneratedQuestion admission
+Classification stays cheap: the default Bridge refuses STAGE before payload
+serialization/send. Explicit waiting permits one pre-approval bounded encoding,
+send and App raw-text retention. Before `jsonEncode` the frozen GeneratedQuestion admission
 bounds apply (1 MiB encoded submission, 16 nesting levels, 50 items), so an
 oversized or too deep submission returns `invalidRequest` without allocating the
-encoded payload and without sending a frame. This preserves the frozen P9/P10
+encoded payload and without sending a frame. Escaped UTF-8 JSON size is bounded
+without calling arbitrary `toJson`; non-JSON objects reject. Transport resource
+reservations precede the lazy payload builder. P10 parses only the bounded outer
+command/raw string before approval; P3 candidate admission and STAGE handler
+entry occur only after fresh human confirmation. This preserves the frozen P9/P10
 and seven MCP tool schemas.
 
 The TLS Host explicitly selects exactly one composition mode: retained legacy
 supplied Context for v1/v2, or App v3 binding for this same Host. v3 refuses old
 request versions rather than supplying a legacy Context. This changes no
-authentication, Session custody or TLS resource/deadline policy.
+authentication, Session custody or TLS resource ceilings. The only deadline
+exception is the explicit STAGE phase below.
 
 | Tool | Actual Bridge mapping (v3) | App authorization and Context path |
 |---|---|---|
@@ -755,22 +771,33 @@ authentication, Session custody or TLS resource/deadline policy.
 | get_question_detail | `external_get_question_detail {contextRef,questionRef}` | Same READ binding; original P5 verifies QuestionRef ownership and safe structural output. |
 | retrieve_file_content | `external_retrieve_file_content {contextRef,query,limit}` | Fresh `openRead(E, contextRef)` for original File Context; P6 current fileContent/Scope, F1 verification, FTS and final release. |
 | get_file_passage | `external_get_file_passage {contextRef,passageRef,cursor}` | Same File Context binding plus original PassageRef/cursor ownership and source validation. |
-| propose_generated_questions | Always refuses before Submission serialization or sending. Shared App mapping is v3 `external_stage_generated_questions {contextRef,submissionJson,externalRequestId:null}`. | App conditionally binds an existing approval for identical S, revision and exact bank/nullable Project/Folder via `openStage`. A fresh connection's Session cannot inherit it. Synthetic same-Session App success is not Windows human-approved STAGE availability. |
+| propose_generated_questions | Default refuses before Submission serialization/send. Explicit waiting sends one bounded v3 `external_stage_generated_questions {contextRef,submissionJson,externalRequestId:null}`. | Same-Session first-party confirmation creates original P3 approval, then original P8 `openStage`; ordinary synthetic App binding retains its existing-approval path. No other Session inherits approval. |
 | get_question_proposal | `external_get_proposal_lifecycle {submissionKey}` | Fresh `openProposalLifecycle(E, originalKey)` with independent READ/proposalMetadata and BOTH original/current target scopes. No STAGE permission/old READ reference. P9 Request ID never selects a Proposal. |
 
-The Windows STAGE block is an independent outcome from implemented v3 READ/query
-routing. Each TLS connection authenticates independently and allows one request;
-existing human approval is bound to its exact Session. There is no admitted
-workflow to approve this new connection's Session between READ and STAGE under
-those rules. Bridge refusal is unconditional even if a trusted test composition
-supplies an approved Context. No cross-connection ticket, Session inheritance,
-READ-to-STAGE upgrade, automatic approval, retry or waiting queue is added.
+Issue #324's explicitly approved source-only exception uses the ORIGINAL
+authenticated connection/Session and P8 entry for one Application-owned human
+decision. App composition, Host and Bridge each default `enableStageApprovalWait`
+to false. External boundary §8 owns the exact lifecycle and timing: 2-second
+preparation, default/max 120-second human wait, 10-second completion, 132-second
+Bridge final-response/EOF window after upload and 142-second whole exchange.
+Upload and response-frame progress retain 2/10-second limits. With P9's single
+final response, the Bridge cannot observe intermediate phase transitions; this
+explicit bounded silence allowance is required. No protocol frame/schema changes.
+The current UI must explicitly confirm the App target for this Submission;
+S/E/generation/R/target, enablement, current policy and availability are rechecked
+before and after original P3 approval. Only one pending request per generation,
+no queue, no held SQLite transaction/B0 lease while waiting; real settlement and
+acknowledged close precede slot release. Reject/cancel/timeout/revoke/revision/
+target drift/disconnect/close/Restore invalidate late input. EOF observation is
+joined after own close, never before replying. No cross-connection ticket,
+Session inheritance, READ-to-STAGE upgrade, automatic approval or retry is added.
 
 Each Port makes at most one transport attempt. Concurrent/late calls cannot send
 again; a fresh Port cannot revive the consumed/closed Bridge. Cancellation or
 caller withdrawal closes that same owner, and close waits its actual pending
-I/O and acknowledged cleanup. Transport deadlines, failed-close reservations
-and Host business settlement retain §13's original rules. Fixed pre-send failures
+I/O and acknowledged cleanup. Ordinary deadlines, failed-close reservations
+and Host business settlement retain §13's rules; explicit waiting uses the
+bounded exception above. Fixed pre-send failures
 remain failures; a transport failure after attempted writing remains
 `outcome_unknown`. Malformed or mismatched P10 data is withheld as `invalidResult`.
 No STAGE retry or success fallback is introduced. Original-key recovery is an
@@ -791,12 +818,16 @@ File selection/Context, actual F1/FTS retrieval/Passage and independent original
 metadata against isolated SQLite. P10's v3 suite covers same-Principal A/B READ,
 foreign/wrong-kind/old-generation/revoked/expired rejection, exact-Session STAGE
 isolation, strict version/input/response matrices and binding interruption/drain.
-Bridge regressions retain zero serialization/send/publication for STAGE, strict
+Bridge regressions retain default zero serialization/send/publication for STAGE, strict
 IDs/keys/response versions, concurrent calls, cancel/deadline/disconnect and
 retained settlement. Existing §13 lost committed STAGE/original-key recovery,
 §7 synthetic Review/reopen, modern/legacy stdio, MCP v0 and Windows Codex remain
-required regressions. No real Windows process/credential/security acceptance is
-claimed. Real process/credential wiring and Windows STAGE remain incomplete.
+required regressions. `first_party_stage_approval_cases.dart` in that same TLS
+suite adds actual Widget click after 10 seconds, bounded negative/close races,
+resource retention, real B0 Restore and committed response loss/original-key
+lookup. The Windows guide records explicit Codex timeout compatibility; installed
+client execution is separate evidence. No real Windows process/credential/security
+acceptance is claimed. Real process/credential wiring remains incomplete.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 Production App/Bridge, listener, DPAPI, certificate issuance, ACL, personal data,

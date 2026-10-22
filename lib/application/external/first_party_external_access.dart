@@ -7,6 +7,7 @@ import 'external_generated_stage.dart';
 import 'external_trust_coordinator.dart';
 import 'external_trust_core.dart';
 import 'first_party_external_credentials.dart';
+import 'first_party_stage_approval.dart';
 import 'local_authorization_service.dart';
 
 /// Safe local UI state. Policy selection is never evidence of a connection.
@@ -42,6 +43,7 @@ final class FirstPartyExternalBinding {
       required this.localOwner,
       required this.authenticationAttempt,
       this.credentials,
+      this.stageApproval,
       required this.publishApprovals,
       required this.shutdown});
   final ExternalAuthorizationManagement management;
@@ -51,6 +53,7 @@ final class FirstPartyExternalBinding {
   final GeneratedLocalAuthoritySession localOwner;
   final Object? Function() authenticationAttempt;
   final FirstPartyCredentialServices? credentials;
+  final FirstPartyStageApproval? stageApproval;
   final void Function(List<ExternalStageContext>) publishApprovals;
   final Future<void> Function() shutdown;
 }
@@ -125,6 +128,7 @@ final class FirstPartyExternalAccess {
       });
 
   void _forgetAccess() {
+    _binding?.stageApproval?.cancel();
     final b = _binding;
     if (b != null &&
         _profile != null &&
@@ -270,7 +274,13 @@ final class FirstPartyExternalAccess {
                 _pairingFailed = true;
               }
             }
-            final session = await authenticatedSession();
+            // A request owns its own independently authenticated S. Do not
+            // substitute the UI's auxiliary connection or disable that live
+            // request because the auxiliary connection has already closed.
+            final requestConnected =
+                b.stageApproval?.hasLiveRequestFor(_selectedId) == true;
+            final session =
+                requestConnected ? null : await authenticatedSession();
             snapshot = b.trust.snapshot(_profile!.principal);
             return FirstPartyExternalStatus(
                 profileId: _selectedId,
@@ -278,8 +288,8 @@ final class FirstPartyExternalAccess {
                 pairingAvailable: services.boundary.isCurrent,
                 pairingDisplay: _pairingFailed ? null : display,
                 pairingFailed: _pairingFailed,
-                connected: session != null,
-                enabled: session != null,
+                connected: requestConnected || session != null,
+                enabled: requestConnected || session != null,
                 expiresAt: snapshot.expiresAt,
                 approvedTargets: _approvals.length);
           }
@@ -403,6 +413,12 @@ final class FirstPartyExternalAccess {
         _choices = List.unmodifiable(choices);
         return _choices;
       });
+
+  FirstPartyStageApprovalView? openStageApprovalView() {
+    _validate();
+    final approval = _binding?.stageApproval;
+    return approval?.host.isReady == true ? approval!.openView() : null;
+  }
 
   /// Only the local confirmation of a displayed App choice invokes P3 approval.
   /// READ Contexts and client-supplied target names never enter this method.

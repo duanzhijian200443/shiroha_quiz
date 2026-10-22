@@ -7,6 +7,7 @@ import '../application/external/external_generated_stage.dart';
 import '../application/external/external_invocation_core.dart';
 import '../application/external/external_read_context.dart';
 import '../application/external/external_trust_core.dart';
+import '../application/external/first_party_stage_approval.dart';
 import '../application/external/local_host_dispatch.dart';
 import '../data/external/ipc_command_projection.dart';
 import 'vnext_mcp_protocol_projection.dart';
@@ -33,12 +34,13 @@ final class VnextMcpSessionAuthentication
 /// App owns authentication and prior target approvals. This composition selects
 /// existing authority; a READ handle never mints approval. No startup installs it.
 final class VnextMcpAppComposition
-    implements VnextMcpPort, IpcTrustedContextBinding {
+    implements VnextMcpPort, IpcTrustedStageApprovalBinding {
   VnextMcpAppComposition(
       {required this.host,
       required this.reads,
       required this.stages,
       required this.authentication,
+      this.stageApproval,
       required Iterable<ExternalStageContext> approvedTargets})
       : _approved = List.unmodifiable(approvedTargets) {
     if (!identical(reads.admission, stages.runtimeAdmission)) {
@@ -50,12 +52,52 @@ final class VnextMcpAppComposition
   final ExternalReadContextService reads;
   final ExternalGeneratedStageService stages;
   final OfflineIpcAuthenticationPort authentication;
+  final FirstPartyStageApproval? stageApproval;
   List<ExternalStageContext> _approved;
 
   @override
   ExternalClock get clock => reads.admission.trust.clock;
   @override
   Duration get readTimeout => reads.maxQueryDuration;
+
+  @override
+  bool get stageApprovalEnabled => stageApproval != null;
+  @override
+  Future<void> get whenStageApprovalSettled =>
+      stageApproval?.whenSettled ?? Future<void>.value();
+  @override
+  void finishStageApproval(ExternalCallControl control,
+          {required bool clean}) =>
+      stageApproval?.finish(control, clean: clean);
+
+  @override
+  Future<ExternalExecutionContext> bindStageForApproval({
+    required ExternalSession session,
+    required LocalHostSessionEntry entry,
+    required String contextRef,
+    required ExternalStageSubmission submission,
+    required ExternalCallControl control,
+    required Future<ExternalSession?> Function() authenticate,
+    required bool Function() available,
+    void Function()? onWaiting,
+  }) {
+    final approval = stageApproval;
+    if (_closed ||
+        approval == null ||
+        !identical(approval.host, host) ||
+        !identical(approval.stages, stages)) {
+      throw const LocalHostAdmissionException(CapabilityFailure.accessDenied);
+    }
+    return approval.waitForApproval(
+        session: session,
+        entry: entry,
+        contextRef: contextRef,
+        submissionJson: submission.submissionJson,
+        control: control,
+        authenticate: authenticate,
+        available: available,
+        onWaiting: onWaiting);
+  }
 
   /// The P10 decoder supplies selections only after authenticating S and
   /// binding E. Only these original P8 openings can mint execution Contexts.
@@ -179,6 +221,7 @@ final class VnextMcpAppComposition
   @override
   Future<void> close() async {
     _closed = true;
+    stageApproval?.cancel();
     await host.shutdown();
     await Future.wait(_pending.toList());
   }

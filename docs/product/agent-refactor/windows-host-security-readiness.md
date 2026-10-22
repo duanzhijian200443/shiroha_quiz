@@ -3253,12 +3253,17 @@ Pending binding and original owning work are both retained through settlement.
 Same-Principal/current-generation READ references may be revalidated by a fresh
 Session; execution Contexts and approvals are exact-Session. Proposal lifecycle
 query binds the original submissionKey with fresh independent READ/metadata and
-original/current scopes. Windows Bridge STAGE remains a pre-send, pre-Submission-
-serialization refusal: independent connection authentication cannot inherit an
-old Session's approval. Synthetic same-Session binding success does not establish
-real Windows human approval. No X10 experiment/acceptance expansion, real
-Listener/credentials/DPAPI/ACL or production wiring is authorized by v3 source
-READ/query implementation. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
+original/current scopes. Windows Bridge STAGE defaults to a pre-send, pre-Submission-
+serialization refusal because independent connection authentication cannot inherit an
+old Session's approval. Issue #324's explicit source-only waiting profile
+(external boundary §8) permits one bounded pre-approval Submission encoding/send
+and up to 120 seconds of first-party UI waiting inside the original authenticated
+Session/connection, with 2-second preparation, 10-second completion, 132-second
+Bridge final-response/EOF and 142-second exchange bounds while preserving all
+resource ceilings, P9 single-request/single-response/EOF semantics and READ
+2/10-second deadlines. No X10 experiment/acceptance expansion, real
+Listener/credentials/DPAPI/ACL or production wiring is authorized by this source
+implementation. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
 AR-R6A = NOT_ACCEPTED; Fake TLS is not real Windows security acceptance.
 
 ### B4: standing offline coverage and remaining gates

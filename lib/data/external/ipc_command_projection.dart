@@ -55,6 +55,25 @@ abstract interface class IpcTrustedContextBinding {
   });
 }
 
+/// Optional compiled App binding for the explicit single-request human wait.
+/// No approval action or decision is accepted from the wire.
+abstract interface class IpcTrustedStageApprovalBinding
+    implements IpcTrustedContextBinding {
+  bool get stageApprovalEnabled;
+  Future<ExternalExecutionContext> bindStageForApproval({
+    required ExternalSession session,
+    required LocalHostSessionEntry entry,
+    required String contextRef,
+    required ExternalStageSubmission submission,
+    required ExternalCallControl control,
+    required Future<ExternalSession?> Function() authenticate,
+    required bool Function() available,
+    void Function()? onWaiting,
+  });
+  Future<void> get whenStageApprovalSettled;
+  void finishStageApproval(ExternalCallControl control, {required bool clean});
+}
+
 /// Trusted encoding seam for offline failure injection, after fixed validation.
 abstract interface class IpcCommandFrameEncoder {
   Uint8List encodeResponse(String requestId, String payload);
@@ -108,14 +127,26 @@ final class OfflineIpcCommandProjection {
   final IpcCommandFrameEncoder _encoder;
   bool _closed = false;
   int _pending = 0;
+  IpcTrustedStageApprovalBinding? _stageBinding;
+  ExternalCallControl? _stageControl;
   Completer<void>? _idle;
   Future<void>? _shutdown;
 
   /// Owning P8/P7 settlement, independent of caller/result availability.
   Future<void> get whenSettled => () async {
         await (_idle?.future ?? Future<void>.value());
+        await _stageBinding?.whenStageApprovalSettled;
         await _host.whenSettled;
       }();
+
+  /// Called after the same connection's I/O and acknowledged close, never from
+  /// whenSettled (which must remain usable before writing the final response).
+  void finishStageApproval({required bool clean}) {
+    final control = _stageControl;
+    if (control != null) {
+      _stageBinding?.finishStageApproval(control, clean: clean);
+    }
+  }
 
   Future<OfflineIpcCommandResult> invoke(UntrustedIpcEnvelope envelope,
           {required ExternalExecutionContext context,
@@ -129,16 +160,22 @@ final class OfflineIpcCommandProjection {
   /// v3 never falls back to a supplied legacy execution Context or wire version.
   Future<OfflineIpcCommandResult> invokeV3(UntrustedIpcEnvelope envelope,
           {required IpcTrustedContextBinding binding,
+          bool stageApprovalWait = false,
+          void Function()? onStageWaiting,
           ExternalCallControl? control,
           bool Function()? responseAvailable}) =>
       _invoke(envelope,
           binding: binding,
+          stageApprovalWait: stageApprovalWait,
+          onStageWaiting: onStageWaiting,
           control: control,
           responseAvailable: responseAvailable);
 
   Future<OfflineIpcCommandResult> _invoke(UntrustedIpcEnvelope envelope,
       {ExternalExecutionContext? context,
       IpcTrustedContextBinding? binding,
+      bool stageApprovalWait = false,
+      void Function()? onStageWaiting,
       ExternalCallControl? control,
       bool Function()? responseAvailable}) async {
     if (_closed) return _failure(envelope, IpcCommandFailure.unavailable);
@@ -183,8 +220,11 @@ final class OfflineIpcCommandProjection {
               deadline = readDeadline;
             }
           }
-          final boundControl = operationControl =
-              ExternalCallControl(clock: binding.clock, deadline: deadline);
+          final boundControl = operationControl = stageApprovalWait &&
+                  request.selection!.kind == IpcContextSelectionKind.stage &&
+                  control != null
+              ? control
+              : ExternalCallControl(clock: binding.clock, deadline: deadline);
           void forward(ExternalFailure failure) {
             if (failure == ExternalFailure.cancelled) {
               boundControl.cancel();
@@ -210,11 +250,32 @@ final class OfflineIpcCommandProjection {
           }
 
           check();
-          executionContext = await binding.bind(
-              session: session,
-              entry: entry,
-              selection: request.selection!,
-              control: boundControl);
+          if (stageApprovalWait &&
+              request.selection!.kind == IpcContextSelectionKind.stage) {
+            if (binding is! IpcTrustedStageApprovalBinding ||
+                !binding.stageApprovalEnabled) {
+              throw const LocalHostAdmissionException(
+                  CapabilityFailure.accessDenied);
+            }
+            _stageBinding = binding;
+            _stageControl = boundControl;
+            executionContext = await binding.bindStageForApproval(
+                session: session,
+                entry: entry,
+                contextRef: request.selection!.contextRef!,
+                submission: request.input as ExternalStageSubmission,
+                control: boundControl,
+                authenticate: _authentication.authenticate,
+                onWaiting: onStageWaiting,
+                available: () =>
+                    !_closed && (responseAvailable?.call() ?? true));
+          } else {
+            executionContext = await binding.bind(
+                session: session,
+                entry: entry,
+                selection: request.selection!,
+                control: boundControl);
+          }
           check();
           // Revalidation may withhold S, but must never replace it with S2.
           if (!identical(await _authentication.authenticate(), session)) {
@@ -361,6 +422,7 @@ final class OfflineIpcCommandProjection {
   Future<void> shutdown() {
     if (_shutdown != null) return _shutdown!;
     _closed = true;
+    _stageControl?.cancel();
     final owning = _host.shutdown();
     return _shutdown = Future.wait([
       owning,
