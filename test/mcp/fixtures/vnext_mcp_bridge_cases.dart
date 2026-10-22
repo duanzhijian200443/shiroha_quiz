@@ -9,9 +9,6 @@ import 'package:mcp_dart/mcp_dart.dart';
 import 'package:shiroha_quiz/application/capabilities/capability.dart';
 import 'package:shiroha_quiz/application/external/external_authorization.dart';
 import 'package:shiroha_quiz/application/external/external_invocation_core.dart';
-import 'package:shiroha_quiz/application/external/external_trust_core.dart';
-import 'package:shiroha_quiz/application/external/local_host_dispatch.dart';
-import 'package:shiroha_quiz/data/external/ipc_command_projection.dart';
 import 'package:shiroha_quiz/data/external/ipc_envelope_codec.dart';
 import 'package:shiroha_quiz/data/external/windows_tls_transport.dart';
 import 'package:shiroha_quiz/mcp/vnext_mcp_bridge_port.dart';
@@ -25,6 +22,7 @@ import 'vnext_mcp_stdio_fixture.dart'
     show fixtureAppMethod, fixtureAppResultMethod;
 import 'vnext_mcp_test_support.dart' show SubmissionEncodingProbe, batch, call;
 import 'vnext_tls_file_fixture.dart';
+import 'vnext_v3_app_link.dart';
 import '../../application/external/external_question_read_test_support.dart'
     show submission;
 import '../../application/study_query/study_query_test_support.dart'
@@ -32,104 +30,13 @@ import '../../application/study_query/study_query_test_support.dart'
 
 const _ref = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
-/// Test-only connection supplier. Every independent call gets a fresh verified
-/// connection; an attempted call is never retried or moved to another channel.
-final class _V3AppLink implements VnextMcpPort, IpcTrustedContextBinding {
-  _V3AppLink(this.h) {
-    final local = h.pairing.local;
-    app = VnextMcpAppComposition(
-        host: local.coordinator.host,
-        reads: local.reads,
-        stages: local.stages,
-        authentication: VnextMcpSessionAuthentication(() async => null),
-        approvedTargets: const []);
-  }
-  final tls.TlsHarness h;
-  late final VnextMcpAppComposition app;
-  final attempts = <BridgeFixture>[];
-  final sessions = <ExternalSession>[];
-  final contexts = <ExternalExecutionContext>[];
-  Future<void> Function()? configureGrant, afterBinding;
-  bool prepared = false, foreignExecution = false;
-  @override
-  LocalHostDispatchCore get host => app.host;
-  @override
-  ExternalClock get clock => app.clock;
-  @override
-  Duration get readTimeout => app.readTimeout;
-  @override
-  Future<ExternalExecutionContext> bind(
-      {required ExternalSession session,
-      required LocalHostSessionEntry entry,
-      required IpcContextSelection selection,
-      required ExternalCallControl control}) async {
-    sessions.add(session);
-    final ExternalExecutionContext context;
-    if (foreignExecution) {
-      final foreign =
-          await h.verifier.authenticate(tls.MemoryTlsChannel(), h.plan);
-      context = await host.openRead(await host.bindSession(foreign.session),
-          context: selection.contextRef);
-    } else {
-      context = await app.bind(
-          session: session,
-          entry: entry,
-          selection: selection,
-          control: control);
-    }
-    contexts.add(context);
-    await afterBinding?.call();
-    return context;
-  }
-
-  Future<BridgeFixture> connect({bool attachHost = true}) async {
-    final fixture = BridgeFixture(h);
-    attempts.add(fixture);
-    await fixture.open(
-        binding: this,
-        prepare: !prepared,
-        configureGrant: configureGrant,
-        attachHost: attachHost);
-    prepared = true;
-    return fixture;
-  }
-
-  @override
-  Future<Map<String, Object?>> call(String tool, Map<String, dynamic> arguments,
-      {required Stream<void> cancelled,
-      required bool Function() available}) async {
-    final fixture = await connect();
-    final port = VnextMcpBridgePort(fixture.bridge);
-    try {
-      return await port.call(tool, arguments,
-          cancelled: cancelled, available: available);
-    } finally {
-      await port.close();
-      await h.candidate!.whenConnectionsSettled;
-      fixture.released();
-    }
-  }
-
-  Future<Map<String, Object?>> invoke(String tool,
-          [Map<String, dynamic> arguments = const {}]) =>
-      call(tool, arguments,
-          cancelled: const Stream.empty(), available: () => true);
-  @override
-  Future<void> close() async {
-    for (final fixture in attempts) {
-      await fixture.bridge.close();
-    }
-    await app.close();
-  }
-}
-
 Map<String, dynamic> _v3Data(Map<String, Object?> value) {
   expect(value['profileVersion'], 2);
   expect(value['error'], isNull);
   return (value['data'] as Map).cast<String, dynamic>();
 }
 
-Future<String> _v3Context(_V3AppLink link) async {
+Future<String> _v3Context(VnextV3AppLink link) async {
   final targets = _v3Data(await link.invoke('open_generation_context'));
   final selected = (targets['items'] as List).single as Map;
   return _v3Data(await link.invoke('open_generation_context',
@@ -164,10 +71,10 @@ Future<McpClient> _stdio(VnextMcpPort port, McpProtocol protocol) async {
 void vnextBridgeCases(tls.TlsHarness Function() harness) {
   group('v3 Bridge selectors through real P10/P8/P7', () {
     late tls.TlsHarness h;
-    late _V3AppLink link;
+    late VnextV3AppLink link;
     setUp(() {
       h = harness();
-      link = _V3AppLink(h);
+      link = VnextV3AppLink(h);
     });
 
     for (final protocol in [McpProtocol.require2026, McpProtocol.legacy]) {
@@ -218,7 +125,7 @@ void vnextBridgeCases(tls.TlsHarness Function() harness) {
       isolated.pairing.local.fileReader = files.reader;
       await isolated.open();
       addTearDown(isolated.close);
-      final fileLink = _V3AppLink(isolated);
+      final fileLink = VnextV3AppLink(isolated);
       fileLink.configureGrant = () async {
         final local = isolated.pairing.local;
         final reference = await local.view.select(local.reference.profileId);

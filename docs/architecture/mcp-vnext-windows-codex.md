@@ -211,6 +211,146 @@ suites listed above plus `test/application/external/external_file_read_test.dart
 test and both changed support files, the read-only format gate and
 `git diff --check` passed. Repository/global acceptance remains NOT_EVALUATED.
 
+## Installed-client Bridge v3 READ/File/Proposal acceptance
+
+Run this additional suite separately for each installed binary, with the same
+explicit child-only configuration described above:
+
+```powershell
+$env:SHIROHA_CODEX_EXE = 'C:\path\to\installed\codex.exe'
+flutter test --no-pub --concurrency=1 test/mcp/vnext_codex_bridge_v3_test.dart
+```
+
+The existing `CodexSyntheticClient` drives actual `mcpServer/tool/call`. The
+existing disposable mailbox now accepts the existing `VnextMcpPort` interface;
+this suite selects the shared `VnextV3AppLink`, extracted from the standing SDK
+Bridge cases. Each call constructs a fresh test-only connection around the
+existing `VnextMcpBridgePort` and `WindowsTlsBridge`. Public mathematical/Fake
+Native fixtures and Fake TLS reach the same App P9/P10 v3 binder, P8/P7 and
+isolated SQLite owners. No response is replaced with an SDK result. Production
+files, startup, authentication, TLS policy and business services are unchanged.
+
+The 13 opt-in cases cover all six non-STAGE tools: target/READ Context creation,
+question search/detail, explicit File choices/separate Context, real F1/FTS
+retrieval/Passage with cursor exhaustion, and independent original-SubmissionKey
+lifecycle metadata. The success path asserts v3 frames and distinct authenticated
+Sessions and execution Contexts for every connection. Lifecycle uses a Proposal
+seeded through the original synthetic App STAGE service, then changes policy to
+READ/proposalMetadata only, invalidating old READ handles. Its original key
+succeeds; the P9 correlation ID cannot select it. That seed never travels through
+Bridge STAGE and provides no approval to a Bridge connection.
+
+Safe refusals cover forged/wrong-kind/cross-Context references, an independently
+authenticated foreign Principal, substitution of another Session's execution
+Context, expired handles after fresh enablement, revoked grants, forged
+File/Passage/cursor selections and file-empty parent access. Each refusal must
+return an authorization result (`capability.accessDenied`,
+`capability.externalReadDenied`, `capability.externalReadStale` or
+`capability.externalReadDataCorrupt`), with `unauthenticated` only where P8
+admission rejects the Session, and must prove it crossed the Bridge as exactly one
+v3 frame on one fresh connection. `outcome_unknown`, `unavailable`, `cancelled`,
+`invalidRequest` and `invalidResult` never count as a refusal. Trust disable after
+binding is the one case that closes the owning connection before any business
+frame: it releases no data and publishes nothing, but its caller outcome is
+`outcome_unknown`, so it is recorded as withheld data and not as an authorization
+refusal.
+Actual Codex STAGE refusal asserts no Bridge frame, no App binding and no Proposal
+publication. A separate object probe at the SAME Bridge port additionally proves
+zero Submission encoding; JSON-RPC/mailbox input serialization is a distinct
+operation and necessarily occurs for actual client calls. No test identity or
+preapproved target removes the unconditional Windows Bridge STAGE block.
+
+Dropping a real App reply on the Fake TLS response path produces
+`outcome_unknown`; it never retries that request. Actual Codex EOF/reconnect then
+uses a new authenticated connection to revalidate a same-Principal READ handle.
+Mailbox withdrawal during pending binding forwards cancellation, closes the
+original connection and waits for binding/Host settlement. Reconnect uses a fresh
+mailbox directory, so old request files cannot be replayed. Existing PID-creation
+identity checks, clean EOF exit, zero transport reservations and removable child
+homes remain mandatory. All 13 cases are SKIPPED / UNVERIFIED without Windows and
+an explicit executable; unavailable versions never count as PASS.
+
+These calls prove installed-client source integration through a test-only link.
+They do not prove model-selected tools, Desktop UI interaction, real TLS/Windows
+security acceptance or production App/Bridge process composition. Fixed-candidate
+independent Windows verification remains necessary because standing CI cannot
+establish installed Windows client behavior.
+
+### Executed Bridge v3 evidence, 2026-10-22
+
+For `MCP-VNEXT-CODEX-BRIDGE-V3-E2E`, the Executor started from merged #322's
+verified remote-default commit `4ef10a627fa0248c39eca45bbd83df9454243c36` on a new
+dedicated branch. Each explicitly resolved installed executable ran the suite
+above separately and serially:
+
+| Installed executable | `--version` | Bridge v3 | Compatibility | STAGE/Review | File READ |
+|---|---|---|---|---|---|
+| npm CLI vendor `bin/codex.exe` | `codex-cli 0.144.1` | 13 PASS | 4 PASS | 4 PASS | 13 PASS |
+| Desktop package `26.1016.6573.0`, `app/resources/codex.exe` | `codex-cli 0.163.0-alpha.11` | 13 PASS | 4 PASS | 4 PASS | 13 PASS |
+
+The table counts full runs with the final test source; no client case was skipped.
+No production compatibility repair was necessary. These are Executor results,
+not independent Verifier/Reviewer approval or acceptance of other client versions.
+Repository/global acceptance remains NOT_EVALUATED.
+
+Each of the three original installed-client suites was also run separately with
+`flutter test --no-pub --concurrency=1`; File READ's results are the full final
+runs after the bounded assertion correction below. Compatibility's four cases
+include one direct Dart production-stdio check and three installed-client cases;
+that raw-Dart check is not a Codex business call. Focused analysis of all five
+changed/new Dart files, their read-only format gate, `git diff --check` and
+`powershell -NoProfile -ExecutionPolicy Bypass -File tool/external/check_tls_source.ps1`
+passed. The execution-policy option applies only to that check process and does
+not modify machine/user policy or enable a security experiment.
+
+The serial ten-suite offline regression passed 291 cases: the five business/v0
+suites under Repeatable checks, plus
+`test/data/external/ipc_command_projection_test.dart`,
+`test/data/external/ipc_command_schema_test.dart`,
+`test/data/external/ipc_envelope_codec_test.dart`,
+`test/data/external/windows_tls_transport_test.dart` and
+`test/data/external/windows_tls_source_guard_test.dart`, using
+`flutter test --no-pub --concurrency=1` with those explicit targets. This retains
+P10 v1/v2/v3, modern/legacy vNext, MCP v0, synthetic STAGE/Review, response-loss
+recovery and the standing Bridge resource/EOF/deadline regressions.
+
+The original CLI File READ regression initially reported 12 PASS / 1 FAIL: its
+revoke case expected only later capability-layer errors, whereas #322's v3
+authentication/P8 admission rejects the revoked Session as `unauthenticated`.
+The user explicitly authorized a bounded test correction. Only that case now
+requires the exact profile-v2 authentication failure for retrieval, Passage and
+cursor calls, plus unchanged F1-read and FTS-search observations. Other refusal
+allowlists and production behavior remain unchanged; this does not turn an
+unknown transport outcome into an authorization PASS.
+
+### Review-driven refusal-attribution correction, 2026-10-22
+
+The first review of this candidate rejected the shared refusal helper: it accepted
+`data: null` with any non-null error, so `outcome_unknown`, `unavailable`,
+`cancelled`, `invalidRequest` and `invalidResult` all counted as a safe refusal.
+That could not distinguish the P4/P8 boundary each case claims from an unrelated
+transport or local failure. The corrected suite requires an explicit authorization
+result per case, and additionally asserts that each refused call used exactly one
+fresh Bridge connection with exactly one v3 frame, so a locally short-circuited or
+pre-transport failure cannot satisfy it.
+
+Attribution observed with the corrected assertions on the CLI binary
+(`codex-cli 0.144.1`): forged, wrong-kind, foreign-Principal, foreign-execution and
+expired handles return `capability.accessDenied`; cross-Context detail and every
+forged File/Passage/cursor or file-empty parent call return
+`capability.externalReadDenied`; a revoked grant returns `unauthenticated`. Trust
+disable after binding produced `outcome_unknown` under the previous permissive
+helper, which is exactly the mis-attribution this correction removes; that case is
+now labelled as withheld data without a business result and is not counted as an
+authorization refusal.
+
+Re-ran `flutter test --no-pub --concurrency=1 test/mcp/vnext_codex_bridge_v3_test.dart`
+with `SHIROHA_CODEX_EXE` bound to the npm CLI vendor binary: 13/13 PASS, no skip.
+Only the CLI binary was re-run against the corrected assertions; the Desktop
+package result in the table above was recorded before this correction and must be
+repeated by the fixed-target Verifier. Production code, the wiring and the
+business services are unchanged by this correction.
+
 ## Isolated Windows Flutter App smoke
 
 The smoke entrypoint reuses the actual Windows runner and `main.dart` App
@@ -295,6 +435,7 @@ delivery gates; manual user confirmation is not `[VERIFICATION APPROVAL]`.
 | SDK synthetic App workflow | SDK clients use the shared synthetic App to prove modern/legacy stdio STAGE, idempotency, Review, lifecycle and authorization semantics. This evidence alone does not prove installed Codex behavior. |
 | Codex synthetic STAGE | The opt-in installed-client suite uses actual `mcpServer/tool/call` plus the test-only mailbox to reach that same App composition and persisted Proposal/Review lifecycle. Results count only when run against an explicit installed executable; SDK success or skipped cases cannot substitute. |
 | Codex synthetic File READ | The separate opt-in suite reaches existing P6/F1/RAG/FTS5 through actual Codex calls, explicit file selection and bounded passages, including authorization/source invalidation and cleanup. Only executed cases against the named installed binary establish client evidence. |
+| Codex Bridge v3 | The separate opt-in Bridge suite sends actual installed-client calls through the existing mailbox, single-request Fake TLS Bridge and App P10 v3/P8/P7. It checks fresh authentication/Context binding, six non-STAGE tools, refusal, response loss and cleanup. Bridge STAGE remains zero-send; this supplies no production process/security binding. |
 | First-party App controls | The product root and local Profile/finite-enable/target-confirm/disable controls are proved with synthetic credentials and temporary SQLite under MCP contract §9. The real desktop smoke above additionally checks dormant display/refusal and records user-confirmed restart/bank behavior. It supplies no real authentication. |
 | Production business access | **Not enabled.** The standalone entry has no admitted authenticated App/Bridge transport or real pairing/credential binding. SDK success and Codex discovery/refusal do not satisfy production activation. |
 
@@ -324,10 +465,12 @@ human comparisons, with isolated public-math/Fake Native evidence. [MCP contract
 adds the inactive public Submission/export/actual-completion handoff using the
 same owners and two explicit comparisons. [MCP contract §13](../product/agent-refactor/mcp-vnext-contract.md#13-inactive-bounded-bridge-ipc-client)
 adds bounded single-request Bridge P9 communication through the existing verified
-channel; Fake TLS exercises real App P10/P8 READ/STAGE. That communication source
-is implemented, while seven-tool cross-process projection, actual protected
-credential acquisition,
-Windows process-transfer/composition bindings and admitted channels remain
+channel; Fake TLS exercises real App P10/P8 READ/STAGE. [MCP contract §14](../product/agent-refactor/mcp-vnext-contract.md#14-inactive-bridge-seven-tool-protocol-projection)
+adds shared seven-tool/P10 v3 projection and trusted App Context binding. The
+installed-client Bridge suite above exercises six non-STAGE tools through that
+source using a test-only process mailbox and Fake TLS. Actual protected
+credential acquisition, Windows process-transfer/composition bindings, admitted
+channels and a human-approved Windows Bridge STAGE workflow remain
 **product implementation/integration work**.
 They must not be reported as security-approval-only blockers. Reference-package
 distribution/Windows executable discovery and supported-version acceptance in

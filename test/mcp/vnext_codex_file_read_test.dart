@@ -446,9 +446,27 @@ void main() {
           await File(p.join(h.managed.path, artifact.storageKey))
               .writeAsString('corrupt');
       }
-      _denied(await retrieve(context));
-      _denied(await passage(context, ref));
-      _denied(await passage(context, ref, cursor: cursor));
+      final readsBefore = h.observed.reads;
+      final searchesBefore = List<String>.of(h.index.searched);
+      final refused = [
+        await retrieve(context),
+        await passage(context, ref),
+        await passage(context, ref, cursor: cursor)
+      ];
+      for (final result in refused) {
+        if (change == 'revoke') {
+          // v3 rejects the revoked Session at authentication/P8 admission,
+          // before selecting any of these otherwise well-formed old handles.
+          expect(result,
+              {'profileVersion': 2, 'data': null, 'error': 'unauthenticated'});
+        } else {
+          _denied(result);
+        }
+      }
+      if (change == 'revoke') {
+        expect(h.observed.reads, readsBefore);
+        expect(h.index.searched, searchesBefore);
+      }
       if (change == 'reparse') {
         final fresh = await selected();
         _denied(await passage(fresh, ref, cursor: cursor));

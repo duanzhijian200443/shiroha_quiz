@@ -5,7 +5,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shiroha_quiz/mcp/vnext_mcp_composition_root.dart';
+import 'package:shiroha_quiz/mcp/vnext_mcp_server.dart';
 import 'codex_app_server_support.dart';
 
 /// Installed-client driver shared by synthetic App compositions. The client
@@ -201,7 +201,7 @@ final class CodexSyntheticClient {
 final class CodexSyntheticAppLink {
   CodexSyntheticAppLink(this.directory, this.composition);
   final Directory directory;
-  final VnextMcpAppComposition Function() composition;
+  final VnextMcpPort Function() composition;
   final _seen = <String>{};
   final _pending = <Future<void>>{};
   bool _closed = false;
