@@ -42,6 +42,7 @@ final class AgentToolExecutor {
             for (final projection in agentSurface.projections)
               projection.definition.name: _AgentProjectionBinding(
                   id: projection.capabilityId,
+                  permission: projection.permission,
                   definition: projection.definition,
                   dispatch: projection.requiresEgress
                       ? _dispatchRetrieval
@@ -59,11 +60,13 @@ final class AgentToolExecutor {
             if (proposalDispatcher != null)
               AgentWriteProposalToolCatalog.toolName: _AgentProjectionBinding(
                   id: proposeMissingAnswer,
+                  permission: CapabilityPermission.stage,
                   definition: AgentWriteProposalToolCatalog.definition,
                   dispatch: _dispatchProposal),
             if (studyPlanDispatcher != null)
               AgentStudyPlanToolCatalog.toolName: _AgentProjectionBinding(
                   id: proposeStudyPlan,
+                  permission: CapabilityPermission.stage,
                   definition: AgentStudyPlanToolCatalog.definition,
                   dispatch: _dispatchStudyPlan),
             if (retrievalDispatcher != null)
@@ -139,6 +142,99 @@ final class AgentToolExecutor {
               .reject(_bindings[call.name]?.id ?? _unknownId,
                   _readContext(turn, trusted), CapabilityFailure.budgetDenied)
               .receipt);
+
+  Future<bool> _readReuseAllowed(_ActiveTurn turn, List<AgentToolGroup> groups,
+      _AgentToolContext original, ResolvedAgentConfig resolved) async {
+    if (turn.remainingBudget() <= Duration.zero) return false;
+    try {
+      return await Future.any([
+        _authorizeReadReuse(turn, groups, original, resolved),
+        turn.cancellation.token.whenCancelled.then((_) => false),
+      ]).timeout(turn.remainingBudget());
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> _authorizeReadReuse(
+      _ActiveTurn turn,
+      List<AgentToolGroup> groups,
+      _AgentToolContext original,
+      ResolvedAgentConfig resolved) async {
+    try {
+      final current = await _loadSlice(turn, original.conversationId);
+      final source = current.messages
+          .where((m) => m.messageId == original.userMessageId)
+          .firstOrNull;
+      if (source == null ||
+          source.role != ConversationMessageRole.user ||
+          current.messages.any((m) => m.sequence > source.sequence) ||
+          current.conversation.scope.kind != original.scope.kind ||
+          current.conversation.scope.projectId != original.scope.projectId) {
+        return false;
+      }
+      final config = await _resolveConfig();
+      if (config.profile.profileId != original.providerProfileId ||
+          !_sameProfile(config.fallbackProfile, resolved.profile) ||
+          config.config.providerKind != resolved.config.providerKind ||
+          config.config.webEnabled != resolved.config.webEnabled ||
+          config.config.temperature != resolved.config.temperature ||
+          config.config.reasoningEffort != resolved.config.reasoningEffort) {
+        return false;
+      }
+      for (final group in groups) {
+        final binding = _bindings[group.call.name];
+        final receipt = group.receipt;
+        final auth = receipt.authorization;
+        if (binding == null ||
+            binding.permission != CapabilityPermission.read ||
+            binding.id != receipt.capabilityId ||
+            binding.requiresEgress ||
+            group.egress != null ||
+            group.readReuse == null ||
+            receipt.principal != CapabilityPrincipal.builtInAgent ||
+            auth.turnRequestId != turn.requestId ||
+            auth.conversationId != original.conversationId ||
+            auth.sourceMessageId != original.userMessageId ||
+            auth.providerProfileId != original.providerProfileId ||
+            receipt.scope.kind != ConversationScopeKind.global ||
+            !await group.readReuse!.permits(
+                receipt,
+                CapabilityContext(
+                    principal: CapabilityPrincipal.builtInAgent,
+                    capabilities: [binding.id],
+                    permissions: const [CapabilityPermission.read],
+                    scope: receipt.scope,
+                    authorizedScope: receipt.scope,
+                    turnRequestId: turn.requestId,
+                    sourceConversationId: original.conversationId,
+                    sourceMessageId: original.userMessageId,
+                    providerProfileId: resolved.profile.profileId,
+                    deadline: turn.policy.deadline,
+                    cancellationSignal: turn.cancellation.token.whenCancelled,
+                    isCancelled: () => turn.cancellation.token.isCancelled,
+                    budgetAllowed: () =>
+                        turn.remainingBudget() > Duration.zero))) {
+          return false;
+        }
+      }
+      return !turn.cancellation.token.isCancelled &&
+          turn.remainingBudget() > Duration.zero;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  bool _sameProfile(AgentProviderProfile? a, AgentProviderProfile b) =>
+      a != null &&
+      a.profileId == b.profileId &&
+      a.baseUrl == b.baseUrl &&
+      a.modelName == b.modelName &&
+      a.apiKey == b.apiKey &&
+      a.modelProviderKind == b.modelProviderKind &&
+      a.capabilities.length == b.capabilities.length &&
+      a.capabilities.entries
+          .every((entry) => b.capabilities[entry.key] == entry.value);
 
   Future<({AgentToolDispatchResult dispatch, AgentToolEgressMetadata? egress})>
       _execute(_ActiveTurn turn, AgentProviderFunctionCall call,
@@ -705,8 +801,10 @@ final class _AgentProjectionBinding {
       {required this.id,
       required this.definition,
       required this.dispatch,
+      this.permission = CapabilityPermission.read,
       this.requiresEgress = false});
   final CapabilityId id;
+  final CapabilityPermission permission;
   final AgentFunctionToolDefinition definition;
   final Future<AgentToolDispatchResult> Function(
       _ActiveTurn, AgentProviderFunctionCall, _AgentToolContext) dispatch;

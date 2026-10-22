@@ -47,6 +47,7 @@ final class AgentToolGroup extends AgentTranscriptEntry {
       {required this.call,
       required this.result,
       required this.receipt,
+      this.readReuse,
       this.egress}) {
     if (call.callId != result.callId ||
         receipt.status == CapabilityExecutionStatus.outcomeUnknown) {
@@ -56,6 +57,7 @@ final class AgentToolGroup extends AgentTranscriptEntry {
   final AgentProviderFunctionCall call;
   final AgentFunctionToolOutput result;
   final ExecutionReceipt receipt;
+  final CapabilityReadReuse? readReuse;
   final AgentToolEgressMetadata? egress;
   @override
   int get utf8Bytes =>
@@ -113,6 +115,8 @@ final class AgentTurnTranscript {
   final List<ExecutionReceipt> _completedEffects = [];
   List<AgentProviderMessage> _providerPersistedHistory = const [];
   AgentTranscriptVisibleMessage? _finalAssistant;
+  bool _toolHistoryPruned = false;
+  bool get hasCompleteToolHistory => !_toolHistoryPruned;
 
   AgentTurnTranscriptSnapshot get snapshot => AgentTurnTranscriptSnapshot(
       entries: _entries,
@@ -231,7 +235,7 @@ final class AgentTurnTranscript {
         throw const AgentTranscriptException(
             AgentTranscriptFailure.minimumContextTooLarge);
       }
-      next.removeAt(index);
+      if (next.removeAt(index) is AgentToolGroup) _toolHistoryPruned = true;
     }
     _entries
       ..clear()
@@ -244,5 +248,6 @@ final class AgentTurnTranscript {
     _completedEffects.clear();
     _providerPersistedHistory = const [];
     _finalAssistant = null;
+    _toolHistoryPruned = false;
   }
 }

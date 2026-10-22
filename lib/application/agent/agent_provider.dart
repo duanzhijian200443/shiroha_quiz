@@ -6,11 +6,13 @@ final class AgentProviderCapabilities {
   const AgentProviderCapabilities({
     required this.functionTools,
     required this.nativeWebSearch,
+    this.canonicalToolHistory = false,
     this.adapterIdentity = AgentProviderAdapterIdentity.unknown,
   });
 
   final bool functionTools;
   final bool nativeWebSearch;
+  final bool canonicalToolHistory;
   final AgentProviderAdapterIdentity adapterIdentity;
 }
 
@@ -85,6 +87,18 @@ final class AgentFunctionToolOutput {
 
 abstract interface class AgentProviderContinuationState {}
 
+/// Complete protocol-neutral call/result pair, with no private Provider state
+/// or Application authorization metadata.
+final class AgentProviderToolExchange {
+  AgentProviderToolExchange({required this.call, required this.result}) {
+    if (call.callId != result.callId) {
+      throw const AgentProviderException(AgentProviderFailure.invalidRequest);
+    }
+  }
+  final AgentProviderFunctionCall call;
+  final AgentFunctionToolOutput result;
+}
+
 final class AgentProviderRequest {
   factory AgentProviderRequest({
     required String systemPrompt,
@@ -94,6 +108,7 @@ final class AgentProviderRequest {
     List<AgentFunctionToolOutput> toolOutputs =
         const <AgentFunctionToolOutput>[],
     AgentProviderContinuationState? continuationState,
+    List<AgentProviderToolExchange> canonicalToolHistory = const [],
     bool enableNativeWebSearch = false,
     int maxOutputTokens = 4096,
     required double temperature,
@@ -105,7 +120,10 @@ final class AgentProviderRequest {
         !temperature.isFinite ||
         temperature < 0.0 ||
         temperature > 2.0 ||
-        (toolOutputs.isNotEmpty) != (continuationState != null)) {
+        (toolOutputs.isNotEmpty) != (continuationState != null) ||
+        (canonicalToolHistory.isNotEmpty && continuationState != null) ||
+        canonicalToolHistory.map((e) => e.call.callId).toSet().length !=
+            canonicalToolHistory.length) {
       throw const AgentProviderException(AgentProviderFailure.invalidRequest);
     }
     return AgentProviderRequest._(
@@ -114,6 +132,7 @@ final class AgentProviderRequest {
       tools: List<AgentFunctionToolDefinition>.unmodifiable(tools),
       toolOutputs: List<AgentFunctionToolOutput>.unmodifiable(toolOutputs),
       continuationState: continuationState,
+      canonicalToolHistory: List.unmodifiable(canonicalToolHistory),
       enableNativeWebSearch: enableNativeWebSearch,
       maxOutputTokens: maxOutputTokens,
       temperature: temperature,
@@ -127,6 +146,7 @@ final class AgentProviderRequest {
     required this.tools,
     required this.toolOutputs,
     required this.continuationState,
+    required this.canonicalToolHistory,
     required this.enableNativeWebSearch,
     required this.maxOutputTokens,
     required this.temperature,
@@ -138,6 +158,7 @@ final class AgentProviderRequest {
   final List<AgentFunctionToolDefinition> tools;
   final List<AgentFunctionToolOutput> toolOutputs;
   final AgentProviderContinuationState? continuationState;
+  final List<AgentProviderToolExchange> canonicalToolHistory;
   final bool enableNativeWebSearch;
   final int maxOutputTokens;
   final double temperature;

@@ -3,8 +3,9 @@
 Status: **FROZEN contract; AR-R1/AR-R2/AR-R3 COMPLETE / CLOSED; AR-R4 projection
 registration integration COMPLETE / CLOSED; AR-R5A storage COMPLETE / CLOSED.**
 
-Authority/activation: [index](README.md). Current A0 and AGENT-FB behavior remains
-active. Provider protocol details, business capabilities and Proposal lifecycle
+Authority/activation: [index](README.md). Current A0 and default AGENT-FB behavior
+remain active; the AR-R7 source opt-in below adds bounded READ continuation.
+Provider protocol details, business capabilities and Proposal lifecycle
 are not owned by the generic loop.
 
 ## 1. Runtime responsibility split
@@ -77,8 +78,8 @@ Provider-port EOF retains `incompleteResponse`. Untyped adapter exceptions retai
 `internalError` turn mapping and remain fallback-ineligible. `content_filtered`
 uses the prior `temporarilyUnavailable` public/fallback mapping while exposing a
 more precise diagnostic code. All existing eligible classes and barriers remain
-unchanged. No READ continuation, usage-object persistence, output-token tuning or
-new Provider is introduced.
+unchanged. AR-R1 introduced no READ continuation, usage-object persistence,
+output-token tuning or new Provider; AR-R7 below adds the bounded source opt-in.
 
 ## 3. Transient canonical transcript
 
@@ -173,7 +174,7 @@ actual current-round outputs with the existing same-Provider continuation
 optimization. Completed current-turn visible text remains canonical evidence
 without duplicating text already held by that same-Provider protocol state. Continuation
 is an Engine-local variable, never a transcript field; fallback clears it and
-current outputs and cannot reuse tool groups. RAG retains pre-query and release
+current outputs and, under the default policy, cannot reuse tool groups. RAG retains pre-query and release
 checks in R2, plus Runtime's live check immediately before sending current
 retrieval outputs. Release denial replaces the entire canonical result while
 preserving the receipt's known cache effect. Transcript metadata never grants
@@ -190,9 +191,10 @@ terminal evidence owned only by that session). Runtime stores no completed turn
 history, and nothing encodes/persists/logs this snapshot. Receipts and W0/SPL
 reconciliation remain tied to their existing process-local service lifecycles;
 restart invalidates them. Only the final visible Assistant is appended to the
-Conversation. No in-flight resume, schema/B0 change, memory, compression, external Host or
-READ continuation is implemented. AR-R4 source registration now supplies a
-frozen Agent surface at the Runtime facade; the legacy Dispatcher constructor
+Conversation. AR-R3 introduced no in-flight resume, schema/B0 change, memory,
+compression, external Host or READ continuation; AR-R7 below adds the source opt-in.
+AR-R4 source registration supplies a frozen Agent surface at the Runtime facade;
+the legacy Dispatcher constructor
 remains a compatibility bridge. Generic lifecycle/round/transcript/fallback
 semantics remain this accepted AR-R3 authority; `module-system.md` owns composition.
 
@@ -217,6 +219,57 @@ Derived cache is not a formal mutation but must be known in receipts. First
 AR-R7 still prohibits file retrieval grant cross-Provider continuation: existing
 RAG grants are recipient-bound. A future recipient change needs separate
 explicit egress authorization. Policy can be disabled independently of MCP.
+
+### AR-R7 bounded source implementation
+
+`ShirohaAgentRuntime(enableBoundedReadContinuation: true)` enables the policy
+through Coordinator/AgentTurnPolicy. Its default is `false`; there is no settings,
+codec, schema, persistence or UI change. Configuring a fallback alone does not
+enable READ continuation. Disabling this argument restores the complete legacy
+AGENT-FB matrix, including the prohibition after one or multiple READ rounds.
+
+The Engine requires every complete current-turn call/result group, with no
+unresolved execution or pruned ToolGroup. Old visible messages may be pruned as
+whole units under the existing limits; a missing READ group is never summarized
+or guessed. An indivisible group/batch beyond the existing transcript budget
+still fails with `historyLimitExceeded` before another Provider request.
+
+Each reusable group carries a `CapabilityReadReuse` proof minted by its owning
+CapabilityExecutor. It is bound by object identity to the exact Receipt, and
+retains the original typed input solely for current admission/authorization and
+release checks. It does not invoke the handler. Only `repeatableRead` / READ
+with resolved completed or authoritative failed-without-effect evidence and
+known `none` / `derivedCache` effects qualifies. STAGE is forbidden even with
+zero effect. Missing proof, a replaced/encoding-failed receipt, authorization
+failure or unknown effect fails closed. Complete safe business-error results
+retain their matching receipt; rejection before handler entry is not reusable.
+
+Before switching and immediately before request release, ToolExecutor checks
+the current Conversation/latest User/scope, current primary identity and exact
+fallback profile/config, registered READ binding, receipt turn/source/recipient
+references, and the owning proof's fresh authorization and release for the target.
+All waits use the original deadline/cancellation token. The current built-in
+READ projection context remains Global, including Study in a Project conversation;
+the conversation's original scope must independently remain current. File
+approval, retrieval grants and file-egress groups remain unconditional barriers.
+
+The target must advertise `AgentProviderCapabilities.canonicalToolHistory` as
+well as existing required capabilities. This capability defaults to false.
+`AgentProviderRequest.canonicalToolHistory` contains immutable complete
+`AgentProviderToolExchange` pairs only; receipts/proofs/grants are not model input.
+The first fallback request uses the transcript's retained visible messages plus
+all pairs. It has no primary private state, raw response or hidden reasoning.
+Canonical history and private continuation are mutually exclusive. The existing
+DeepSeek adapter maps pairs to ordered function-call/function-call-output items.
+
+READ continuation closes the tool phase and only completes an answer from the
+retained results. A Provider requesting further tools fails without handler entry.
+No completed READ is rerun; call/round counters, turn identity and the original
+global timeout are not reset. There is one permanent switch, no third attempt,
+and the existing Finalizer appends at most one final Assistant. Reconstruction,
+authorization or target-representation failure preserves the primary failure;
+an actual fallback Provider failure retains the existing fallback failure mapping.
+No extra persistence, log payload or real-provider runtime authority is added.
 
 ## 5. Observability target
 

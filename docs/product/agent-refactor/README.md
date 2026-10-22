@@ -518,7 +518,9 @@ operation stays REQUIRES USER DECISION.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 Production Host/IPC and full MCP vNext production exposure remain inactive;
-READ fallback continuation remains an unimplemented target. Authentication,
+READ fallback continuation now has the separately scoped AR-R7 source opt-in
+in [Agent Runtime v1 §4](agent-runtime-v1.md#4-fallback-migration-barrier-and-later-policy),
+disabled by default and independent of external runtime activation. Authentication,
 authorized Context/bank Scope, STAGE Review and App-only writes are unchanged;
 the vNext production entry stays disabled. Current product behavior
 continues under the existing capability contracts.
@@ -639,7 +641,7 @@ open condition under the roadmap checklist, not an admission waiver.
 | AR-R5B | Minimal generated Review UI; after AR-R5A | Typed preview/edit/flush/approval parity; not an Assistant-wide rewrite | 1 PR |
 | AR-R6A | External authority/context/Host; after AR-R5A | Transport spike passes; pairing/revoke/egress/restart/restore and Windows boundaries | 1 PR |
 | AR-R6B | Tools-only stdio profile; after AR-R5B and AR-R6A | Generic synthetic stdio end-to-end; modern/legacy protocol; v0 unchanged | 1 PR |
-| AR-R7 | Opt-in READ continuation; after AR-R3, scheduled after MVP | Receipt-based replay authorization; no STAGE/unknown/file-grant replay; legacy-policy rollback | 1 PR |
+| AR-R7 | Independent opt-in READ continuation source; after AR-R3, default disabled | Receipt-based replay authorization; no STAGE/unknown/file-grant replay; legacy-policy rollback | 1 PR |
 | AR-R8 | Assistant controller/artifact decomposition; after AR-R6B | Existing UI lifecycle/action parity; no new permission or IA | 1 PR |
 | AR-R9A | Optional MCP Resources/Prompts; after AR-R6B | Same authorization; Tools-only workflow still sufficient | 1 PR |
 | AR-R9B | Separate Codex reference package; after AR-R6B | Supported-version and clean Windows installation proof; no business authority | 1 PR |

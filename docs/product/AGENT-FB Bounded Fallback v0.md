@@ -3,17 +3,18 @@
 Status: **Canonical AGENT-FB product/application contract.**
 
 The [Agent refactor index](agent-refactor/README.md) freezes a staged successor
-target. All eligibility and barriers in this document remain current authority,
-including through Provider failure normalization. READ continuation is a later,
-separately accepted AR-R7 policy change, not permission granted by this checkpoint.
+target. All eligibility and barriers in this document remain the default policy,
+including through Provider failure normalization. The separately scoped AR-R7
+source opt-in is governed by Agent Runtime v1 §4 below; configuring a fallback
+alone does not enable it.
 
 AR-R1's detailed codes are diagnostic classification, not new fallback authority.
 The explicit legacy failure bridge preserves public turn mapping, eligibility
 and all barriers below. `content_filtered` keeps its prior
 `temporarilyUnavailable` fallback eligibility while gaining a more precise
 diagnostic code. One or two completed READ rounds followed by Provider failure
-still prohibit fallback. No Provider continuation is transferred and no AR-R7
-READ replay is implemented.
+still prohibit fallback when R7 is disabled. No Provider-private continuation
+is transferred in either policy.
 
 ## 1. Authority and scope
 
@@ -82,7 +83,7 @@ Automatic fallback is permitted if and only if **all** of the following conditio
 5. **Within Budget**: The turn has remaining runtime budget (`remainingBudget > 0`);
 6. **No Visible Text**: The Primary provider has emitted zero visible text deltas (`visibleText.isEmpty`);
 7. **No Web Progress**: The Primary provider has emitted zero Web search progress events;
-8. **No Local Tools Dispatched**: Zero local study/read tools have been dispatched (`localCallsUsed == 0` and `toolRoundsUsed == 0`);
+8. **No Local Tools Dispatched (default policy)**: Zero local study/read tools have been dispatched (`localCallsUsed == 0` and `toolRoundsUsed == 0`);
 9. **No W0 Proposal Staged**: No W0 write proposal has been staged (`proposalStaged == false`);
 10. **No StudyPlan Staged**: No StudyPlanDraft has been staged (`studyPlanDraftStaged == false`);
 11. **No Retrieval Egress Approval**: The turn does not have approved file-content retrieval egress (`approvedFileIds.isEmpty` / `retrievalGrant == null`);
@@ -91,6 +92,14 @@ Automatic fallback is permitted if and only if **all** of the following conditio
 If any single condition is violated, automatic fallback is **STRICTLY FORBIDDEN**.
 The turn terminates with the Primary's failure mapping, allowing the user to
 inspect and manually retry.
+
+The opt-in successor in [Agent Runtime v1 §4](agent-refactor/agent-runtime-v1.md#4-fallback-migration-barrier-and-later-policy)
+replaces only condition 8 with complete transcript/Receipt/current READ release
+validation. Every other barrier and the eligible failure matrix remains. It
+requires a compatible target, forbids STAGE/unknown outcomes/file grants and
+finishes from existing READ results without additional tool execution. Missing
+proof, pruned groups or revoked authorization preserves the primary failure.
+Its Runtime constructor flag defaults to false and changes no saved settings.
 
 ## 5. Eligible provider failures
 

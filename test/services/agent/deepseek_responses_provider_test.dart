@@ -12,6 +12,48 @@ import 'package:shiroha_quiz/services/agent/deepseek_responses_sse_parser.dart';
 import 'fixtures/deepseek_responses_sse_fixtures.dart';
 
 void main() {
+  test(
+      'AR-R7 encodes canonical call/result pairs without Provider private items',
+      () async {
+    final client = _FixtureClient(textDeltaAndCompletedSse);
+    final provider = _provider(client: client);
+    final history = [
+      for (var i = 0; i < 2; i++)
+        AgentProviderToolExchange(
+            call: AgentProviderFunctionCall(
+                callId: 'read-$i',
+                name: 'list_question_banks',
+                argumentsJson: '{}'),
+            result: AgentFunctionToolOutput(
+                callId: 'read-$i', output: '{"ok":true,"result":$i}'))
+    ];
+    final request = _request(canonicalToolHistory: history);
+    history.clear();
+    await provider
+        .stream(request, AgentCancellationController().token)
+        .toList();
+    expect(provider.capabilities.canonicalToolHistory, isTrue);
+    final body = jsonDecode(client.requestBody!) as Map;
+    expect(body['input'], [
+      {'role': 'user', 'content': 'user fixture'},
+      for (var i = 0; i < 2; i++) ...[
+        {
+          'type': 'function_call',
+          'call_id': 'read-$i',
+          'name': 'list_question_banks',
+          'arguments': '{}'
+        },
+        {
+          'type': 'function_call_output',
+          'call_id': 'read-$i',
+          'output': '{"ok":true,"result":$i}'
+        },
+      ],
+    ]);
+    expect(body, isNot(contains('previous_response_id')));
+    expect(() => request.canonicalToolHistory.clear(), throwsUnsupportedError);
+  });
+
   group('AR-R1 detailed parser boundary', () {
     final completed = _sse('response.completed', {
       'response': {'id': 'resp-1'}
@@ -952,6 +994,7 @@ AgentProviderRequest _request({
       const <AgentFunctionToolDefinition>[],
   List<AgentFunctionToolOutput> toolOutputs = const <AgentFunctionToolOutput>[],
   AgentProviderContinuationState? continuationState,
+  List<AgentProviderToolExchange> canonicalToolHistory = const [],
   bool enableNativeWebSearch = false,
 }) {
   return AgentProviderRequest(
@@ -965,6 +1008,7 @@ AgentProviderRequest _request({
     tools: tools,
     toolOutputs: toolOutputs,
     continuationState: continuationState,
+    canonicalToolHistory: canonicalToolHistory,
     enableNativeWebSearch: enableNativeWebSearch,
     maxOutputTokens: 321,
     temperature: 1.25,

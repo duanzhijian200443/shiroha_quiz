@@ -44,6 +44,7 @@ class AgentStudyToolProjection {
     AgentToolDispatchResult fail(StudyQueryFailure failure) =>
         AgentToolDispatchResult(
             json: _failure(failure),
+            readReuse: execution.readReuse,
             receipt: execution.receipt ??
                 _executor
                     .reject(
@@ -71,7 +72,9 @@ class AgentStudyToolProjection {
         throw const FormatException();
       }
       return AgentToolDispatchResult(
-          json: encoded, receipt: execution.receipt!);
+          json: encoded,
+          receipt: execution.receipt!,
+          readReuse: execution.readReuse);
     } on StudyQueryException catch (error) {
       return fail(error.failure);
     } on ArgumentError {
@@ -454,9 +457,11 @@ final class _StudyExecution {
   final CapabilityExecutor executor;
   final CapabilityContext context;
   ExecutionReceipt? receipt;
+  CapabilityReadReuse? readReuse;
   Future<O> execute<I, O>(CapabilityId<I, O> id, I input) async {
     final result = await executor.execute(id, input, context);
     receipt = result.receipt;
+    readReuse = result.readReuse;
     if (result.failure case final failure?) {
       throw StudyQueryException(studyQueryFailure(failure));
     }

@@ -11,6 +11,36 @@ import 'package:shiroha_quiz/core/observability/log_record.dart';
 import 'package:shiroha_quiz/core/observability/trace_context.dart';
 
 void main() {
+  test(
+      'AR-R7 request rejects orphan pairs, duplicate calls and mixed private state',
+      () {
+    final call = AgentProviderFunctionCall(
+        callId: 'read', name: 'read', argumentsJson: '{}');
+    final output = AgentFunctionToolOutput(callId: 'read', output: '{}');
+    expect(
+        () => AgentProviderToolExchange(
+            call: call,
+            result: AgentFunctionToolOutput(callId: 'other', output: '{}')),
+        throwsA(isA<AgentProviderException>()));
+    final exchange = AgentProviderToolExchange(call: call, result: output);
+    AgentProviderRequest request(List<AgentProviderToolExchange> history,
+            {bool private = false}) =>
+        AgentProviderRequest(
+            systemPrompt: 'system',
+            messages: [
+              AgentProviderMessage(
+                  role: AgentProviderMessageRole.user, content: 'user')
+            ],
+            temperature: 1,
+            reasoningEffort: AgentReasoningEffort.high,
+            canonicalToolHistory: history,
+            continuationState: private ? _ContractContinuation() : null,
+            toolOutputs: private ? [output] : const []);
+    expect(() => request([exchange, exchange]),
+        throwsA(isA<AgentProviderException>()));
+    expect(() => request([exchange], private: true),
+        throwsA(isA<AgentProviderException>()));
+  });
   group('AR-R1 round settlement', () {
     late _RoundSink sink;
     setUp(() {
@@ -321,6 +351,8 @@ void main() {
     expect(limits.maxOutputTokens, 4096);
   });
 }
+
+final class _ContractContinuation implements AgentProviderContinuationState {}
 
 LogRecord _terminal(_RoundSink sink) {
   expect(sink.records.where((r) => r.data['stage'] == 'provider_round_started'),

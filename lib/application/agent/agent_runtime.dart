@@ -60,6 +60,7 @@ final class ShirohaAgentRuntime {
       AgentWriteProposalToolDispatcher? proposalDispatcher,
       AgentStudyPlanToolDispatcher? studyPlanDispatcher,
       AgentRetrievalToolDispatcher? retrievalDispatcher,
+      bool enableBoundedReadContinuation = false,
       AgentRuntimeLimits limits = const AgentRuntimeLimits()})
       : _coordinator = AgentTurnCoordinator(
             conversationService: conversationService,
@@ -70,6 +71,7 @@ final class ShirohaAgentRuntime {
             proposalDispatcher: proposalDispatcher,
             studyPlanDispatcher: studyPlanDispatcher,
             retrievalDispatcher: retrievalDispatcher,
+            enableBoundedReadContinuation: enableBoundedReadContinuation,
             limits: limits);
   final AgentTurnCoordinator _coordinator;
   AgentTurnSession startTurn(

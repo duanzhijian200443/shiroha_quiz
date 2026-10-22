@@ -148,6 +148,15 @@ append. Existing W0/SPL presentation events remain the retained bridge; their
 lifecycle, approval commands and fallback barriers do not change. AR-R8 owns
 any later artifact/controller decomposition.
 
+AR-R7 separately adds the default-disabled READ continuation policy under
+Agent Runtime v1 §4. Source registration remains unchanged; Study projections
+carry executor-minted transient reuse evidence. The retained-source regression
+removes only the 23 exact R7 amendments in its six-file fixture, then applies
+the prior P7/storage projections and the original R2/R3 SHA-256 expectations.
+Missing, changed or duplicated amendment text fails; mutation tests guard the
+recipient/permission/history checks. No region is ignored and no old baseline
+hash is replaced. Existing module, storage and MCP compatibility gates remain.
+
 MCP contributions are typed capability/key descriptors. The v0 converter under
 `lib/mcp/` accepts exactly the six retained Study bindings or no surface; an
 absent Study MCP contribution produces no server. SDK schemas, annotations,

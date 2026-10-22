@@ -67,6 +67,8 @@ import 'package:shiroha_quiz/services/retrieval/deterministic_source_chunker.dar
 import 'package:shiroha_quiz/services/retrieval/parsed_artifact_retrieval_source.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+part 'agent_read_continuation_cases.dart';
+
 typedef _Script = Stream<AgentProviderEvent> Function(
   AgentProviderRequest request,
   AgentCancellationToken token,
@@ -75,6 +77,7 @@ typedef _Script = Stream<AgentProviderEvent> Function(
 void main() {
   setUp(BackupRestoreMutationGate.resetForTesting);
   tearDown(BackupRestoreMutationGate.resetForTesting);
+  _readContinuationTests();
 
   group('AR-R4 source contribution integration', () {
     for (final enabled in [true, false]) {
@@ -4741,6 +4744,7 @@ final class _Harness {
     RetrievalService? retrievalOverride,
     AgentStudyToolDispatcher? studyOverride,
     AgentSurface? agentSurface,
+    bool enableBoundedReadContinuation = false,
     double temperature = 1.0,
     AgentReasoningEffort reasoningEffort = AgentReasoningEffort.high,
   })  : repository = _FakeConversationRepository(),
@@ -4837,6 +4841,7 @@ final class _Harness {
         return provider;
       },
       agentSurface: agentSurface,
+      enableBoundedReadContinuation: enableBoundedReadContinuation,
       toolDispatcher: agentSurface == null ? studyOverride ?? dispatcher : null,
       proposalDispatcher: agentSurface == null ? proposalDispatcher : null,
       studyPlanDispatcher: agentSurface == null ? studyPlanDispatcher : null,
