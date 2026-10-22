@@ -61,6 +61,81 @@ CapabilityDefinition<int, String> _definition({
                 CapabilityEvidence.completed('$input', CapabilityEffect.none)));
 
 void main() {
+  group('AR-R7 READ reuse authority', () {
+    CapabilityContext bound(
+            {String recipient = 'primary',
+            ConversationScope? scope,
+            Iterable<CapabilityPermission> permissions = const [
+              CapabilityPermission.read
+            ],
+            String turn = 'turn',
+            bool cancelled = false,
+            bool budget = true}) =>
+        CapabilityContext(
+            principal: CapabilityPrincipal.builtInAgent,
+            capabilities: const [_read],
+            permissions: permissions,
+            scope: scope ?? ConversationScope.global(),
+            authorizedScope: scope ?? ConversationScope.global(),
+            turnRequestId: turn,
+            sourceConversationId: 'conversation',
+            sourceMessageId: 'user',
+            providerProfileId: recipient,
+            isCancelled: () => cancelled,
+            budgetAllowed: () => budget);
+
+    test(
+        'one trusted receipt reauthorizes original typed input for recipient, never handler',
+        () async {
+      var entries = 0;
+      var release = true;
+      final recipients = <String?>[];
+      final executor = CapabilityExecutor(ApplicationCapabilityRegistry([
+        _definition(handler: (input, _, __) async {
+          entries++;
+          return CapabilityEvidence.completed(
+              '$input', CapabilityEffect.derivedCache);
+        }, release: (input, context) async {
+          expect(input, 42);
+          recipients.add(context.providerProfileId);
+          return release;
+        }),
+      ]));
+      final result = await executor.execute(_read, 42, bound());
+      final permit = result.readReuse!;
+      expect(await permit.permits(result.receipt, bound(recipient: 'fallback')),
+          isTrue);
+      release = false;
+      expect(await permit.permits(result.receipt, bound(recipient: 'fallback')),
+          isFalse);
+      expect(entries, 1);
+      expect(recipients, ['primary', 'fallback', 'fallback']);
+    });
+
+    test(
+        'proof rejects altered receipt, scope, identity, permission, cancel and budget',
+        () async {
+      final executor =
+          CapabilityExecutor(ApplicationCapabilityRegistry([_definition()]));
+      final result = await executor.execute(_read, 1, bound());
+      final permit = result.readReuse!;
+      expect(
+          await permit.permits(
+              result.receipt.withFailure(CapabilityFailure.notFound),
+              bound(recipient: 'fallback')),
+          isFalse);
+      for (final context in [
+        bound(scope: ConversationScope.learningSpace('other')),
+        bound(turn: 'other'),
+        bound(permissions: []),
+        bound(cancelled: true),
+        bound(budget: false)
+      ]) {
+        expect(await permit.permits(result.receipt, context), isFalse);
+      }
+    });
+  });
+
   test(
       'registry freezes explicit deterministic registration and rejects duplicates',
       () {

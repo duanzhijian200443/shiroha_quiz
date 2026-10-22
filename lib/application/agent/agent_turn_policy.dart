@@ -1,12 +1,16 @@
 part of 'agent_runtime.dart';
 
 final class AgentTurnPolicy {
-  AgentTurnPolicy({required this.limits, required this.cancellation})
+  AgentTurnPolicy(
+      {required this.limits,
+      required this.cancellation,
+      this.enableBoundedReadContinuation = false})
       : deadline = DateTime.now().add(limits.turnTimeout) {
     _stopwatch.start();
   }
   final AgentRuntimeLimits limits;
   final AgentCancellationToken cancellation;
+  final bool enableBoundedReadContinuation;
   final DateTime deadline;
   final Stopwatch _stopwatch = Stopwatch();
   int toolRoundsUsed = 0;
@@ -54,8 +58,9 @@ final class AgentTurnPolicy {
         turn.remainingBudget() <= Duration.zero ||
         turn.visibleText.isNotEmpty ||
         turn.policy.webProgressEmitted ||
-        turn.policy.localCallsUsed > 0 ||
-        turn.policy.toolRoundsUsed > 0 ||
+        (!enableBoundedReadContinuation &&
+            (turn.policy.localCallsUsed > 0 ||
+                turn.policy.toolRoundsUsed > 0)) ||
         turn.policy.proposalStaged ||
         turn.policy.studyPlanDraftStaged ||
         hasRetrievalApproval ||

@@ -30,6 +30,7 @@ final class DeepSeekResponsesProvider implements AgentProviderPort {
   AgentProviderCapabilities get capabilities => const AgentProviderCapabilities(
         functionTools: true,
         nativeWebSearch: true,
+        canonicalToolHistory: true,
         adapterIdentity: AgentProviderAdapterIdentity.deepseekResponses,
       );
 
@@ -104,6 +105,7 @@ final class DeepSeekResponsesProvider implements AgentProviderPort {
       }
 
       final continuationItems = <Map<String, Object?>>[
+        ..._canonicalItems(request),
         if (continuationState is _DeepSeekResponsesContinuationState)
           ...continuationState._outputItems,
         ...request.toolOutputs.map((output) => <String, Object?>{
@@ -185,6 +187,7 @@ final class DeepSeekResponsesProvider implements AgentProviderPort {
           'content': message.content,
         },
       ),
+      ..._canonicalItems(request),
       if (continuationState is _DeepSeekResponsesContinuationState)
         ...continuationState._outputItems,
       ...request.toolOutputs.map(
@@ -232,6 +235,22 @@ final class DeepSeekResponsesProvider implements AgentProviderPort {
       _ => AgentProviderFailure.internalError,
     };
   }
+
+  List<Map<String, Object?>> _canonicalItems(AgentProviderRequest request) => [
+        for (final exchange in request.canonicalToolHistory) ...[
+          {
+            'type': 'function_call',
+            'call_id': exchange.call.callId,
+            'name': exchange.call.name,
+            'arguments': exchange.call.argumentsJson
+          },
+          {
+            'type': 'function_call_output',
+            'call_id': exchange.result.callId,
+            'output': exchange.result.output
+          },
+        ],
+      ];
 }
 
 final class _DeepSeekResponsesContinuationState

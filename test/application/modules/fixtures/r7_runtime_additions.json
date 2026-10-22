@@ -1,0 +1,129 @@
+{
+  "lib/application/agent/agent_round_engine.dart": [
+    {
+      "before": "    AgentProviderContinuationState? continuationState;\n    var toolOutputs = const <AgentFunctionToolOutput>[];\n    var retrievalOutputCallIds = const <String>{};\n    while (true) {\n      if (retrievalOutputCallIds.isNotEmpty) {\n        final remaining = turn.remainingBudget();\n        if (remaining <= Duration.zero) {\n",
+      "after": "    AgentProviderContinuationState? continuationState;\n    var toolOutputs = const <AgentFunctionToolOutput>[];\n    var retrievalOutputCallIds = const <String>{};\n    var readGroups = const <AgentToolGroup>[];\n    Object? primaryFailure;\n    while (true) {\n      if (readGroups.isNotEmpty &&\n          !await _tools._readReuseAllowed(\n              turn, readGroups, trusted, currentResolved)) {\n        throw primaryFailure!;\n      }\n      if (retrievalOutputCallIds.isNotEmpty) {\n        final remaining = turn.remainingBudget();\n        if (remaining <= Duration.zero) {\n",
+      "count": 1
+    },
+    {
+      "before": "          toolPhaseClosed ? const <AgentFunctionToolDefinition>[] : baseTools;\n      final request = AgentProviderRequest(\n        systemPrompt: systemPrompt,\n        messages: turn.transcript!.providerPersistedHistory,\n        tools: currentTools,\n        toolOutputs: toolOutputs,\n        continuationState: continuationState,\n        enableNativeWebSearch: !toolPhaseClosed &&\n            currentResolved.config.webEnabled &&\n            capabilities.nativeWebSearch,\n",
+      "after": "          toolPhaseClosed ? const <AgentFunctionToolDefinition>[] : baseTools;\n      final request = AgentProviderRequest(\n        systemPrompt: systemPrompt,\n        messages: readGroups.isEmpty\n            ? turn.transcript!.providerPersistedHistory\n            : turn.transcript!.providerVisibleHistory,\n        tools: currentTools,\n        toolOutputs: toolOutputs,\n        continuationState: continuationState,\n        canonicalToolHistory: [\n          for (final group in readGroups)\n            AgentProviderToolExchange(call: group.call, result: group.result)\n        ],\n        enableNativeWebSearch: !toolPhaseClosed &&\n            currentResolved.config.webEnabled &&\n            capabilities.nativeWebSearch,\n",
+      "count": 1
+    },
+    {
+      "before": "          retrievalGrant: retrievalGrant,\n          error: error,\n        )) {\n          turn.policy.fallbackAttempted = true;\n          LogWriter.info(\n            'Agent provider fallback attempted',\n",
+      "after": "          retrievalGrant: retrievalGrant,\n          error: error,\n        )) {\n          final continuingReads =\n              turn.policy.localCallsUsed > 0 || turn.policy.toolRoundsUsed > 0;\n          final candidateConfig = ResolvedAgentConfig(\n              config: resolved.config, profile: resolved.fallbackProfile!);\n          AgentProviderPort candidate;\n          if (continuingReads) {\n            final transcript = turn.transcript!;\n            final snapshot = transcript.snapshot;\n            final groups = snapshot.toolGroups;\n            if (!transcript.hasCompleteToolHistory ||\n                snapshot.unresolved.isNotEmpty ||\n                groups.isEmpty ||\n                groups.length != seenCallIds.length ||\n                !groups.every((g) => seenCallIds.contains(g.call.callId))) {\n              rethrow;\n            }\n            try {\n              candidate = _providerFactory(candidateConfig);\n              final caps = candidate.capabilities;\n              if (!caps.canonicalToolHistory ||\n                  !caps.functionTools ||\n                  (candidateConfig.config.webEnabled &&\n                      !caps.nativeWebSearch) ||\n                  !await _tools._readReuseAllowed(\n                      turn, groups, trusted, candidateConfig)) {\n                rethrow;\n              }\n            } catch (_) {\n              // Preserve the original Provider failure when context cannot be\n              // reconstructed, authorized or represented by the recipient.\n              throw error;\n            }\n            readGroups = groups;\n            primaryFailure = error;\n            // The bounded continuation completes an answer from these results.\n            // It never asks either Provider to rerun completed READ handlers.\n            toolPhaseClosed = true;\n          } else {\n            candidate = _providerFactory(candidateConfig);\n          }\n          turn.policy.fallbackAttempted = true;\n          LogWriter.info(\n            'Agent provider fallback attempted',\n",
+      "count": 1
+    },
+    {
+      "before": "              'providerRound': turn.policy.providerAttempts,\n            },\n          );\n          currentResolved = ResolvedAgentConfig(\n            config: resolved.config,\n            profile: resolved.fallbackProfile!,\n          );\n          provider = _providerFactory(currentResolved);\n          capabilities = provider.capabilities;\n          if (currentResolved.config.webEnabled &&\n              !capabilities.nativeWebSearch) {\n",
+      "after": "              'providerRound': turn.policy.providerAttempts,\n            },\n          );\n          currentResolved = candidateConfig;\n          provider = candidate;\n          capabilities = provider.capabilities;\n          if (currentResolved.config.webEnabled &&\n              !capabilities.nativeWebSearch) {\n",
+      "count": 1
+    },
+    {
+      "before": "          result: AgentFunctionToolOutput(\n              callId: call.callId, output: dispatch.json),\n          receipt: dispatch.receipt,\n          egress: egress);\n\n  Future<_ProviderRound> _runProviderRound(\n",
+      "after": "          result: AgentFunctionToolOutput(\n              callId: call.callId, output: dispatch.json),\n          receipt: dispatch.receipt,\n          readReuse: dispatch.readReuse,\n          egress: egress);\n\n  Future<_ProviderRound> _runProviderRound(\n",
+      "count": 1
+    }
+  ],
+  "lib/application/agent/agent_turn_coordinator.dart": [
+    {
+      "before": "      AgentWriteProposalToolDispatcher? proposalDispatcher,\n      AgentStudyPlanToolDispatcher? studyPlanDispatcher,\n      AgentRetrievalToolDispatcher? retrievalDispatcher,\n      AgentRuntimeLimits limits = const AgentRuntimeLimits()})\n      : _limits = limits {\n    _finalizer = AgentTurnFinalizer(conversationService, limits);\n    final tools = AgentToolExecutor(\n        conversationService: conversationService,\n",
+      "after": "      AgentWriteProposalToolDispatcher? proposalDispatcher,\n      AgentStudyPlanToolDispatcher? studyPlanDispatcher,\n      AgentRetrievalToolDispatcher? retrievalDispatcher,\n      bool enableBoundedReadContinuation = false,\n      AgentRuntimeLimits limits = const AgentRuntimeLimits()})\n      : _limits = limits,\n        _enableBoundedReadContinuation = enableBoundedReadContinuation {\n    _finalizer = AgentTurnFinalizer(conversationService, limits);\n    final tools = AgentToolExecutor(\n        conversationService: conversationService,\n",
+      "count": 1
+    },
+    {
+      "before": "        limits: limits);\n  }\n  final AgentRuntimeLimits _limits;\n  late final AgentTurnFinalizer _finalizer;\n  late final AgentRoundEngine _engine;\n  final Set<String> _activeConversations = {};\n",
+      "after": "        limits: limits);\n  }\n  final AgentRuntimeLimits _limits;\n  final bool _enableBoundedReadContinuation;\n  late final AgentTurnFinalizer _finalizer;\n  late final AgentRoundEngine _engine;\n  final Set<String> _activeConversations = {};\n",
+      "count": 1
+    },
+    {
+      "before": "\n    final turn = _ActiveTurn(\n      limits: _limits,\n      requestId: '${conversationId}_${userMessageId}_${_turnRequestSequence++}',\n      correlationId: TraceContext.createCorrelationId(),\n      traceId: TraceContext.createTraceId(),\n",
+      "after": "\n    final turn = _ActiveTurn(\n      limits: _limits,\n      enableBoundedReadContinuation: _enableBoundedReadContinuation,\n      requestId: '${conversationId}_${userMessageId}_${_turnRequestSequence++}',\n      correlationId: TraceContext.createCorrelationId(),\n      traceId: TraceContext.createTraceId(),\n",
+      "count": 1
+    },
+    {
+      "before": "final class _ActiveTurn {\n  _ActiveTurn({\n    required AgentRuntimeLimits limits,\n    required this.requestId,\n    required this.correlationId,\n    required this.traceId,\n    required this.mutationLease,\n  }) {\n    policy = AgentTurnPolicy(limits: limits, cancellation: cancellation.token);\n  }\n\n  late final AgentTurnPolicy policy;\n",
+      "after": "final class _ActiveTurn {\n  _ActiveTurn({\n    required AgentRuntimeLimits limits,\n    required bool enableBoundedReadContinuation,\n    required this.requestId,\n    required this.correlationId,\n    required this.traceId,\n    required this.mutationLease,\n  }) {\n    policy = AgentTurnPolicy(\n        limits: limits,\n        cancellation: cancellation.token,\n        enableBoundedReadContinuation: enableBoundedReadContinuation);\n  }\n\n  late final AgentTurnPolicy policy;\n",
+      "count": 1
+    }
+  ],
+  "lib/application/agent/agent_turn_policy.dart": [
+    {
+      "before": "part of 'agent_runtime.dart';\n\nfinal class AgentTurnPolicy {\n  AgentTurnPolicy({required this.limits, required this.cancellation})\n      : deadline = DateTime.now().add(limits.turnTimeout) {\n    _stopwatch.start();\n  }\n  final AgentRuntimeLimits limits;\n  final AgentCancellationToken cancellation;\n  final DateTime deadline;\n  final Stopwatch _stopwatch = Stopwatch();\n  int toolRoundsUsed = 0;\n",
+      "after": "part of 'agent_runtime.dart';\n\nfinal class AgentTurnPolicy {\n  AgentTurnPolicy(\n      {required this.limits,\n      required this.cancellation,\n      this.enableBoundedReadContinuation = false})\n      : deadline = DateTime.now().add(limits.turnTimeout) {\n    _stopwatch.start();\n  }\n  final AgentRuntimeLimits limits;\n  final AgentCancellationToken cancellation;\n  final bool enableBoundedReadContinuation;\n  final DateTime deadline;\n  final Stopwatch _stopwatch = Stopwatch();\n  int toolRoundsUsed = 0;\n",
+      "count": 1
+    },
+    {
+      "before": "        turn.remainingBudget() <= Duration.zero ||\n        turn.visibleText.isNotEmpty ||\n        turn.policy.webProgressEmitted ||\n        turn.policy.localCallsUsed > 0 ||\n        turn.policy.toolRoundsUsed > 0 ||\n        turn.policy.proposalStaged ||\n        turn.policy.studyPlanDraftStaged ||\n        hasRetrievalApproval ||\n",
+      "after": "        turn.remainingBudget() <= Duration.zero ||\n        turn.visibleText.isNotEmpty ||\n        turn.policy.webProgressEmitted ||\n        (!enableBoundedReadContinuation &&\n            (turn.policy.localCallsUsed > 0 ||\n                turn.policy.toolRoundsUsed > 0)) ||\n        turn.policy.proposalStaged ||\n        turn.policy.studyPlanDraftStaged ||\n        hasRetrievalApproval ||\n",
+      "count": 1
+    }
+  ],
+  "lib/application/agent/agent_turn_transcript.dart": [
+    {
+      "before": "      {required this.call,\n      required this.result,\n      required this.receipt,\n      this.egress}) {\n    if (call.callId != result.callId ||\n        receipt.status == CapabilityExecutionStatus.outcomeUnknown) {\n",
+      "after": "      {required this.call,\n      required this.result,\n      required this.receipt,\n      this.readReuse,\n      this.egress}) {\n    if (call.callId != result.callId ||\n        receipt.status == CapabilityExecutionStatus.outcomeUnknown) {\n",
+      "count": 1
+    },
+    {
+      "before": "  final AgentProviderFunctionCall call;\n  final AgentFunctionToolOutput result;\n  final ExecutionReceipt receipt;\n  final AgentToolEgressMetadata? egress;\n  @override\n  int get utf8Bytes =>\n",
+      "after": "  final AgentProviderFunctionCall call;\n  final AgentFunctionToolOutput result;\n  final ExecutionReceipt receipt;\n  final CapabilityReadReuse? readReuse;\n  final AgentToolEgressMetadata? egress;\n  @override\n  int get utf8Bytes =>\n",
+      "count": 1
+    },
+    {
+      "before": "  final List<ExecutionReceipt> _completedEffects = [];\n  List<AgentProviderMessage> _providerPersistedHistory = const [];\n  AgentTranscriptVisibleMessage? _finalAssistant;\n\n  AgentTurnTranscriptSnapshot get snapshot => AgentTurnTranscriptSnapshot(\n      entries: _entries,\n",
+      "after": "  final List<ExecutionReceipt> _completedEffects = [];\n  List<AgentProviderMessage> _providerPersistedHistory = const [];\n  AgentTranscriptVisibleMessage? _finalAssistant;\n  bool _toolHistoryPruned = false;\n  bool get hasCompleteToolHistory => !_toolHistoryPruned;\n\n  AgentTurnTranscriptSnapshot get snapshot => AgentTurnTranscriptSnapshot(\n      entries: _entries,\n",
+      "count": 1
+    },
+    {
+      "before": "        throw const AgentTranscriptException(\n            AgentTranscriptFailure.minimumContextTooLarge);\n      }\n      next.removeAt(index);\n    }\n    _entries\n      ..clear()\n",
+      "after": "        throw const AgentTranscriptException(\n            AgentTranscriptFailure.minimumContextTooLarge);\n      }\n      if (next.removeAt(index) is AgentToolGroup) _toolHistoryPruned = true;\n    }\n    _entries\n      ..clear()\n",
+      "count": 1
+    },
+    {
+      "before": "    _completedEffects.clear();\n    _providerPersistedHistory = const [];\n    _finalAssistant = null;\n  }\n}\n",
+      "after": "    _completedEffects.clear();\n    _providerPersistedHistory = const [];\n    _finalAssistant = null;\n    _toolHistoryPruned = false;\n  }\n}\n",
+      "count": 1
+    }
+  ],
+  "lib/services/agent/deepseek_responses_provider.dart": [
+    {
+      "before": "  AgentProviderCapabilities get capabilities => const AgentProviderCapabilities(\n        functionTools: true,\n        nativeWebSearch: true,\n        adapterIdentity: AgentProviderAdapterIdentity.deepseekResponses,\n      );\n\n",
+      "after": "  AgentProviderCapabilities get capabilities => const AgentProviderCapabilities(\n        functionTools: true,\n        nativeWebSearch: true,\n        canonicalToolHistory: true,\n        adapterIdentity: AgentProviderAdapterIdentity.deepseekResponses,\n      );\n\n",
+      "count": 1
+    },
+    {
+      "before": "      }\n\n      final continuationItems = <Map<String, Object?>>[\n        if (continuationState is _DeepSeekResponsesContinuationState)\n          ...continuationState._outputItems,\n        ...request.toolOutputs.map((output) => <String, Object?>{\n",
+      "after": "      }\n\n      final continuationItems = <Map<String, Object?>>[\n        ..._canonicalItems(request),\n        if (continuationState is _DeepSeekResponsesContinuationState)\n          ...continuationState._outputItems,\n        ...request.toolOutputs.map((output) => <String, Object?>{\n",
+      "count": 1
+    },
+    {
+      "before": "          'content': message.content,\n        },\n      ),\n      if (continuationState is _DeepSeekResponsesContinuationState)\n        ...continuationState._outputItems,\n      ...request.toolOutputs.map(\n",
+      "after": "          'content': message.content,\n        },\n      ),\n      ..._canonicalItems(request),\n      if (continuationState is _DeepSeekResponsesContinuationState)\n        ...continuationState._outputItems,\n      ...request.toolOutputs.map(\n",
+      "count": 1
+    },
+    {
+      "before": "      _ => AgentProviderFailure.internalError,\n    };\n  }\n}\n\nfinal class _DeepSeekResponsesContinuationState\n",
+      "after": "      _ => AgentProviderFailure.internalError,\n    };\n  }\n\n  List<Map<String, Object?>> _canonicalItems(AgentProviderRequest request) => [\n        for (final exchange in request.canonicalToolHistory) ...[\n          {\n            'type': 'function_call',\n            'call_id': exchange.call.callId,\n            'name': exchange.call.name,\n            'arguments': exchange.call.argumentsJson\n          },\n          {\n            'type': 'function_call_output',\n            'call_id': exchange.result.callId,\n            'output': exchange.result.output\n          },\n        ],\n      ];\n}\n\nfinal class _DeepSeekResponsesContinuationState\n",
+      "count": 1
+    }
+  ],
+  "lib/application/capabilities/capability.dart": [
+    {
+      "before": "}\n\nfinal class CapabilityResult<O> {\n  const CapabilityResult({this.output, this.failure, required this.receipt});\n  final O? output;\n  final CapabilityFailure? failure;\n  final ExecutionReceipt receipt;\n  CapabilityResult<O> withReleaseFailure(CapabilityFailure code) =>\n      CapabilityResult(failure: code, receipt: receipt.withFailure(code));\n}\n\n/// Only owning handlers record confirmed effects. Exceptions/timeouts never\n",
+      "after": "}\n\nfinal class CapabilityResult<O> {\n  const CapabilityResult(\n      {this.output, this.failure, required this.receipt, this.readReuse});\n  final O? output;\n  final CapabilityFailure? failure;\n  final ExecutionReceipt receipt;\n  final CapabilityReadReuse? readReuse;\n  CapabilityResult<O> withReleaseFailure(CapabilityFailure code) =>\n      CapabilityResult(failure: code, receipt: receipt.withFailure(code));\n}\n\n/// Process-local proof minted only by the executor for one resolved READ.\n/// Rechecks admission and release for a new recipient without invoking a handler.\nfinal class CapabilityReadReuse {\n  CapabilityReadReuse._(this._receipt, this._authorize);\n  final ExecutionReceipt _receipt;\n  final Future<bool> Function(CapabilityContext) _authorize;\n\n  Future<bool> permits(\n      ExecutionReceipt receipt, CapabilityContext target) async {\n    if (!identical(receipt, _receipt)) return false;\n    try {\n      return await _authorize(target);\n    } catch (_) {\n      return false;\n    }\n  }\n}\n\n/// Only owning handlers record confirmed effects. Exceptions/timeouts never\n",
+      "count": 1
+    },
+    {
+      "before": "    final receipt = _receipt(id, context, evidence);\n    final result = CapabilityResult<O>(\n        output: evidence.output, failure: evidence.failure, receipt: receipt);\n    if (evidence.output == null || evidence.failure != null) return result;\n    try {\n      final allowed = await _bounded(\n          () async =>\n",
+      "after": "    final receipt = _receipt(id, context, evidence);\n    final result = CapabilityResult<O>(\n        output: evidence.output, failure: evidence.failure, receipt: receipt);\n    if (evidence.output == null || evidence.failure != null) {\n      return _withReadReuse(definition, input, context, result);\n    }\n    try {\n      final allowed = await _bounded(\n          () async =>\n",
+      "count": 1
+    },
+    {
+      "before": "      return result.withReleaseFailure(CapabilityFailure.accessDenied);\n    }\n\n    return result;\n  }\n\n  Future<T> _bounded<T>(Future<T> Function() action, CapabilityContext context,\n",
+      "after": "      return result.withReleaseFailure(CapabilityFailure.accessDenied);\n    }\n\n    return _withReadReuse(definition, input, context, result);\n  }\n\n  CapabilityResult<O> _withReadReuse<I, O>(\n      CapabilityDefinition<I, O> definition,\n      I input,\n      CapabilityContext original,\n      CapabilityResult<O> result) {\n    final receipt = result.receipt;\n    if (original.principal != CapabilityPrincipal.builtInAgent ||\n        definition.permission != CapabilityPermission.read ||\n        definition.semantics != CapabilityExecutionSemantics.repeatableRead ||\n        (receipt.status != CapabilityExecutionStatus.completed &&\n            receipt.status != CapabilityExecutionStatus.failedWithoutEffect) ||\n        (receipt.status == CapabilityExecutionStatus.failedWithoutEffect &&\n            receipt.knownEffect != CapabilityEffect.none) ||\n        (receipt.knownEffect != CapabilityEffect.none &&\n            receipt.knownEffect != CapabilityEffect.derivedCache) ||\n        !definition.permittedEffects.contains(receipt.knownEffect) ||\n        (receipt.failure != null &&\n            receipt.failure != CapabilityFailure.notFound &&\n            receipt.failure != CapabilityFailure.invalidRequest &&\n            receipt.failure != CapabilityFailure.dataCorrupt &&\n            receipt.failure != CapabilityFailure.temporarilyUnavailable)) {\n      return result;\n    }\n    return CapabilityResult(\n        output: result.output,\n        failure: result.failure,\n        receipt: receipt,\n        readReuse: CapabilityReadReuse._(receipt, (target) async {\n          if (target.principal != original.principal ||\n              target.turnRequestId == null ||\n              target.turnRequestId != original.turnRequestId ||\n              target.sourceConversationId == null ||\n              target.sourceConversationId != original.sourceConversationId ||\n              target.sourceMessageId == null ||\n              target.sourceMessageId != original.sourceMessageId ||\n              target.providerProfileId == null ||\n              target.scope.kind != receipt.scope.kind ||\n              target.scope.projectId != receipt.scope.projectId ||\n              !target.scopeMatches ||\n              !target.executionAllowed ||\n              !target.capabilities.contains(definition.id) ||\n              !target.permissions.contains(CapabilityPermission.read)) {\n            return false;\n          }\n          return _bounded(\n              () async =>\n                  definition.admit?.call(input) == null &&\n                  (await original.authorizationCurrent?.call() ?? true) &&\n                  (await target.authorizationCurrent?.call() ?? true) &&\n                  (await definition.authorize?.call(input, target) ?? true) &&\n                  (await definition.release?.call(input, target) ?? true) &&\n                  target.executionAllowed,\n              target);\n        }));\n  }\n\n  Future<T> _bounded<T>(Future<T> Function() action, CapabilityContext context,\n",
+      "count": 1
+    }
+  ]
+}

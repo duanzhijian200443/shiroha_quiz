@@ -4,7 +4,9 @@ library;
 import '../capabilities/capability.dart';
 
 final class AgentToolDispatchResult {
-  const AgentToolDispatchResult({required this.json, required this.receipt});
+  const AgentToolDispatchResult(
+      {required this.json, required this.receipt, this.readReuse});
   final String json;
   final ExecutionReceipt receipt;
+  final CapabilityReadReuse? readReuse;
 }

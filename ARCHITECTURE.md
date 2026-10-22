@@ -578,8 +578,15 @@ W0/SPL business lifecycles, fallback and B0 package v2 stay unchanged. AR-R4
 retained schema v31. Accepted AR-R5A adds schema v32
 durable generated Proposal originals, review CAS, explicit local approval and
 one-transaction typed Question/receipt persistence. It contributes internal
-READ only, with no Agent/MCP/UI surface. External Host/IPC and READ continuation
-remain targets. Accepted AR-R5B (merged PR #245) adds module-controlled first-party Inbox/history,
+READ only, with no Agent/MCP/UI surface. External Host/IPC remains separately
+governed. AR-R7 adds an independent Runtime constructor opt-in (default false)
+for bounded READ answer continuation: complete canonical groups and executor-minted
+Receipt proofs, fresh target release authorization, no STAGE/unknown/file-grant
+replay, no repeated handler and no private Provider state transfer. The fallback
+tool phase is closed, shared budgets/deadline are retained and Finalizer remains
+the sole final Assistant writer. Agent Runtime v1 §4 owns this policy; default
+AGENT-FB, MCP, external authorization and schema are unchanged.
+Accepted AR-R5B (merged PR #245) adds module-controlled first-party Inbox/history,
 structural typed Review/edit/Flush/CAS, explicit approval/rejection and Receipt
 recovery. Its local authority uses one UUID in existing app_settings, separate
 owner-scoped read sessions and target-confirmation Contexts, invalidated on restore

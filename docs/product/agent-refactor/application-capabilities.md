@@ -18,6 +18,7 @@ identity and Proposal lifecycle have their separate owners.
 | CapabilityContext | Trusted principal/scope/grants, cancellation/deadline and safe diagnostic context |
 | CapabilityResult<O> | Typed output/failure, execution receipt, optional semantic artifact reference |
 | ExecutionReceipt | Actual execution status/effect and reconciliation identity |
+| CapabilityReadReuse | Executor-minted transient proof for a resolved READ result; fresh target release checks without handler invocation |
 | ApplicationCapabilityRegistry | Immutable definitions/bindings and duplicate validation |
 | CapabilityExecutor | Admission, authorization, budget, invocation, receipt and safe observability |
 
@@ -181,9 +182,31 @@ are neither persisted nor logged and add no OBS taxonomy or receipt database.
 
 Only READ/STAGE handlers exist. `repeatableRead` requires a fresh invocation of
 admission, principal/capability/permission, current scope/grant and final egress.
-`transientStage` forbids automatic repeats; the executor implements no retry or
-replay mechanism. Manual calls retain the owning services' existing semantic
-deduplication. Neither semantics changes AGENT-FB barriers.
+`transientStage` forbids automatic repeats; the executor implements no handler
+retry mechanism. Manual calls retain the owning services' existing semantic
+deduplication. AR-R2 itself changes no AGENT-FB barrier; the separate AR-R7 opt-in
+is governed by Agent Runtime v1 §4.
+
+For AR-R7, `CapabilityResult.readReuse` may carry a privately constructed
+`CapabilityReadReuse` proof for a built-in READ/repeatableRead execution. It
+binds the exact receipt instance to its typed input and immutable definition;
+ordinary receipt construction cannot manufacture a proof. Completed or
+failed-without-effect results require known permitted none/derivedCache effects.
+Safe business failures are limited to notFound, invalidRequest, dataCorrupt and
+temporarilyUnavailable. Unknown/not-started execution, STAGE, formal mutation,
+interruption and denied/failed release never obtain reusable authority. A later
+encoding failure changes the receipt, invalidating its proof identity.
+
+`permits(receipt, targetContext)` rechecks matching principal/turn/source/scope,
+independent READ permission and capability, current budget/cancellation,
+original and target authorization, typed admission and target-specific authorize/
+release callbacks. It never invokes a handler, mints another execution receipt
+or grants a new recipient itself. The Runtime supplies current trusted target
+configuration and validates transcript/binding/source/egress references separately.
+Study projections carry this proof alongside their encoded result. A projection
+without proof remains usable normally but cannot opt into READ continuation.
+Proofs, inputs and receipts remain process-local, outside Provider DTOs/storage/logs;
+MCP/external execution semantics and permissions are unchanged.
 
 Trusted entrypoints construct `CapabilityContext`; parsed inputs cannot supply
 principal, permission, scope, grant or recipient. The R2 principal enum had

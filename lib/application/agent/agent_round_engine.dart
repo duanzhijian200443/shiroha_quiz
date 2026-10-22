@@ -78,7 +78,14 @@ final class AgentRoundEngine {
     AgentProviderContinuationState? continuationState;
     var toolOutputs = const <AgentFunctionToolOutput>[];
     var retrievalOutputCallIds = const <String>{};
+    var readGroups = const <AgentToolGroup>[];
+    Object? primaryFailure;
     while (true) {
+      if (readGroups.isNotEmpty &&
+          !await _tools._readReuseAllowed(
+              turn, readGroups, trusted, currentResolved)) {
+        throw primaryFailure!;
+      }
       if (retrievalOutputCallIds.isNotEmpty) {
         final remaining = turn.remainingBudget();
         if (remaining <= Duration.zero) {
@@ -120,10 +127,16 @@ final class AgentRoundEngine {
           toolPhaseClosed ? const <AgentFunctionToolDefinition>[] : baseTools;
       final request = AgentProviderRequest(
         systemPrompt: systemPrompt,
-        messages: turn.transcript!.providerPersistedHistory,
+        messages: readGroups.isEmpty
+            ? turn.transcript!.providerPersistedHistory
+            : turn.transcript!.providerVisibleHistory,
         tools: currentTools,
         toolOutputs: toolOutputs,
         continuationState: continuationState,
+        canonicalToolHistory: [
+          for (final group in readGroups)
+            AgentProviderToolExchange(call: group.call, result: group.result)
+        ],
         enableNativeWebSearch: !toolPhaseClosed &&
             currentResolved.config.webEnabled &&
             capabilities.nativeWebSearch,
@@ -142,6 +155,46 @@ final class AgentRoundEngine {
           retrievalGrant: retrievalGrant,
           error: error,
         )) {
+          final continuingReads =
+              turn.policy.localCallsUsed > 0 || turn.policy.toolRoundsUsed > 0;
+          final candidateConfig = ResolvedAgentConfig(
+              config: resolved.config, profile: resolved.fallbackProfile!);
+          AgentProviderPort candidate;
+          if (continuingReads) {
+            final transcript = turn.transcript!;
+            final snapshot = transcript.snapshot;
+            final groups = snapshot.toolGroups;
+            if (!transcript.hasCompleteToolHistory ||
+                snapshot.unresolved.isNotEmpty ||
+                groups.isEmpty ||
+                groups.length != seenCallIds.length ||
+                !groups.every((g) => seenCallIds.contains(g.call.callId))) {
+              rethrow;
+            }
+            try {
+              candidate = _providerFactory(candidateConfig);
+              final caps = candidate.capabilities;
+              if (!caps.canonicalToolHistory ||
+                  !caps.functionTools ||
+                  (candidateConfig.config.webEnabled &&
+                      !caps.nativeWebSearch) ||
+                  !await _tools._readReuseAllowed(
+                      turn, groups, trusted, candidateConfig)) {
+                rethrow;
+              }
+            } catch (_) {
+              // Preserve the original Provider failure when context cannot be
+              // reconstructed, authorized or represented by the recipient.
+              throw error;
+            }
+            readGroups = groups;
+            primaryFailure = error;
+            // The bounded continuation completes an answer from these results.
+            // It never asks either Provider to rerun completed READ handlers.
+            toolPhaseClosed = true;
+          } else {
+            candidate = _providerFactory(candidateConfig);
+          }
           turn.policy.fallbackAttempted = true;
           LogWriter.info(
             'Agent provider fallback attempted',
@@ -152,11 +205,8 @@ final class AgentRoundEngine {
               'providerRound': turn.policy.providerAttempts,
             },
           );
-          currentResolved = ResolvedAgentConfig(
-            config: resolved.config,
-            profile: resolved.fallbackProfile!,
-          );
-          provider = _providerFactory(currentResolved);
+          currentResolved = candidateConfig;
+          provider = candidate;
           capabilities = provider.capabilities;
           if (currentResolved.config.webEnabled &&
               !capabilities.nativeWebSearch) {
@@ -332,6 +382,7 @@ final class AgentRoundEngine {
           result: AgentFunctionToolOutput(
               callId: call.callId, output: dispatch.json),
           receipt: dispatch.receipt,
+          readReuse: dispatch.readReuse,
           egress: egress);
 
   Future<_ProviderRound> _runProviderRound(

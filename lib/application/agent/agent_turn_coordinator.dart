@@ -10,8 +10,10 @@ final class AgentTurnCoordinator {
       AgentWriteProposalToolDispatcher? proposalDispatcher,
       AgentStudyPlanToolDispatcher? studyPlanDispatcher,
       AgentRetrievalToolDispatcher? retrievalDispatcher,
+      bool enableBoundedReadContinuation = false,
       AgentRuntimeLimits limits = const AgentRuntimeLimits()})
-      : _limits = limits {
+      : _limits = limits,
+        _enableBoundedReadContinuation = enableBoundedReadContinuation {
     _finalizer = AgentTurnFinalizer(conversationService, limits);
     final tools = AgentToolExecutor(
         conversationService: conversationService,
@@ -29,6 +31,7 @@ final class AgentTurnCoordinator {
         limits: limits);
   }
   final AgentRuntimeLimits _limits;
+  final bool _enableBoundedReadContinuation;
   late final AgentTurnFinalizer _finalizer;
   late final AgentRoundEngine _engine;
   final Set<String> _activeConversations = {};
@@ -69,6 +72,7 @@ final class AgentTurnCoordinator {
 
     final turn = _ActiveTurn(
       limits: _limits,
+      enableBoundedReadContinuation: _enableBoundedReadContinuation,
       requestId: '${conversationId}_${userMessageId}_${_turnRequestSequence++}',
       correlationId: TraceContext.createCorrelationId(),
       traceId: TraceContext.createTraceId(),
@@ -329,12 +333,16 @@ final class AgentTurnCoordinator {
 final class _ActiveTurn {
   _ActiveTurn({
     required AgentRuntimeLimits limits,
+    required bool enableBoundedReadContinuation,
     required this.requestId,
     required this.correlationId,
     required this.traceId,
     required this.mutationLease,
   }) {
-    policy = AgentTurnPolicy(limits: limits, cancellation: cancellation.token);
+    policy = AgentTurnPolicy(
+        limits: limits,
+        cancellation: cancellation.token,
+        enableBoundedReadContinuation: enableBoundedReadContinuation);
   }
 
   late final AgentTurnPolicy policy;

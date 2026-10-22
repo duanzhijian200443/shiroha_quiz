@@ -419,7 +419,12 @@ schema, B0 format or Host authority is expanded. Full MCP vNext production
 exposure and formal Host integration remain inactive;
 real TCP/mTLS is unverified, Transport
 is BLOCKED and AR-R6A is NOT_ACCEPTED. HOST_STABILITY_HALT remains active.
-AR-R6B, AR-R7 and later implementation stages remain inactive.
+AR-R6B and later external implementation activation remain separately governed.
+AR-R7 has a bounded source implementation: an independent Runtime opt-in, disabled
+by default, reuses complete authorized READ results for one fallback answer under
+[Agent Runtime v1 §4](../product/agent-refactor/agent-runtime-v1.md#4-fallback-migration-barrier-and-later-policy).
+It adds no external runtime, file-grant transfer, schema or settings activation;
+delivery acceptance is owned by its PR/CI/independent review evidence.
 
 **P17's handoff specified Package 1 production-code implementation as the next
 work package, with no new general offline authentication design stage.**
@@ -659,8 +664,9 @@ AR-R0 contract -> AR-R1 Provider -> AR-R2 capability -> AR-R3 Runtime/transcript
 -> AR-R9A optional Resources/Prompts; AR-R9B independent Codex reference package
 ```
 
-AR-R7 technically requires AR-R3 but is scheduled after external MVP. AR-R9B
-requires AR-R6B, not AR-R9A. Execution is serial by default. The baseline estimate
+AR-R7 requires AR-R3. Its separately authorized, default-disabled source opt-in
+can be delivered independently of external MVP; it grants no external activation.
+AR-R9B requires AR-R6B, not AR-R9A. Execution is serial by default. The baseline estimate
 is 13 PRs, not a hard cap; independently reviewable boundaries may require more.
 Provider normalization must preserve current fallback policy. New durable
 Proposal and external authorization storage have separate additive schema/B0

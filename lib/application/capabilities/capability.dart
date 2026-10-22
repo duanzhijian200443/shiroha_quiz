@@ -294,12 +294,32 @@ final class CapabilityEvidence<O> {
 }
 
 final class CapabilityResult<O> {
-  const CapabilityResult({this.output, this.failure, required this.receipt});
+  const CapabilityResult(
+      {this.output, this.failure, required this.receipt, this.readReuse});
   final O? output;
   final CapabilityFailure? failure;
   final ExecutionReceipt receipt;
+  final CapabilityReadReuse? readReuse;
   CapabilityResult<O> withReleaseFailure(CapabilityFailure code) =>
       CapabilityResult(failure: code, receipt: receipt.withFailure(code));
+}
+
+/// Process-local proof minted only by the executor for one resolved READ.
+/// Rechecks admission and release for a new recipient without invoking a handler.
+final class CapabilityReadReuse {
+  CapabilityReadReuse._(this._receipt, this._authorize);
+  final ExecutionReceipt _receipt;
+  final Future<bool> Function(CapabilityContext) _authorize;
+
+  Future<bool> permits(
+      ExecutionReceipt receipt, CapabilityContext target) async {
+    if (!identical(receipt, _receipt)) return false;
+    try {
+      return await _authorize(target);
+    } catch (_) {
+      return false;
+    }
+  }
 }
 
 /// Only owning handlers record confirmed effects. Exceptions/timeouts never
@@ -521,7 +541,9 @@ final class CapabilityExecutor {
     final receipt = _receipt(id, context, evidence);
     final result = CapabilityResult<O>(
         output: evidence.output, failure: evidence.failure, receipt: receipt);
-    if (evidence.output == null || evidence.failure != null) return result;
+    if (evidence.output == null || evidence.failure != null) {
+      return _withReadReuse(definition, input, context, result);
+    }
     try {
       final allowed = await _bounded(
           () async =>
@@ -538,7 +560,63 @@ final class CapabilityExecutor {
       return result.withReleaseFailure(CapabilityFailure.accessDenied);
     }
 
-    return result;
+    return _withReadReuse(definition, input, context, result);
+  }
+
+  CapabilityResult<O> _withReadReuse<I, O>(
+      CapabilityDefinition<I, O> definition,
+      I input,
+      CapabilityContext original,
+      CapabilityResult<O> result) {
+    final receipt = result.receipt;
+    if (original.principal != CapabilityPrincipal.builtInAgent ||
+        definition.permission != CapabilityPermission.read ||
+        definition.semantics != CapabilityExecutionSemantics.repeatableRead ||
+        (receipt.status != CapabilityExecutionStatus.completed &&
+            receipt.status != CapabilityExecutionStatus.failedWithoutEffect) ||
+        (receipt.status == CapabilityExecutionStatus.failedWithoutEffect &&
+            receipt.knownEffect != CapabilityEffect.none) ||
+        (receipt.knownEffect != CapabilityEffect.none &&
+            receipt.knownEffect != CapabilityEffect.derivedCache) ||
+        !definition.permittedEffects.contains(receipt.knownEffect) ||
+        (receipt.failure != null &&
+            receipt.failure != CapabilityFailure.notFound &&
+            receipt.failure != CapabilityFailure.invalidRequest &&
+            receipt.failure != CapabilityFailure.dataCorrupt &&
+            receipt.failure != CapabilityFailure.temporarilyUnavailable)) {
+      return result;
+    }
+    return CapabilityResult(
+        output: result.output,
+        failure: result.failure,
+        receipt: receipt,
+        readReuse: CapabilityReadReuse._(receipt, (target) async {
+          if (target.principal != original.principal ||
+              target.turnRequestId == null ||
+              target.turnRequestId != original.turnRequestId ||
+              target.sourceConversationId == null ||
+              target.sourceConversationId != original.sourceConversationId ||
+              target.sourceMessageId == null ||
+              target.sourceMessageId != original.sourceMessageId ||
+              target.providerProfileId == null ||
+              target.scope.kind != receipt.scope.kind ||
+              target.scope.projectId != receipt.scope.projectId ||
+              !target.scopeMatches ||
+              !target.executionAllowed ||
+              !target.capabilities.contains(definition.id) ||
+              !target.permissions.contains(CapabilityPermission.read)) {
+            return false;
+          }
+          return _bounded(
+              () async =>
+                  definition.admit?.call(input) == null &&
+                  (await original.authorizationCurrent?.call() ?? true) &&
+                  (await target.authorizationCurrent?.call() ?? true) &&
+                  (await definition.authorize?.call(input, target) ?? true) &&
+                  (await definition.release?.call(input, target) ?? true) &&
+                  target.executionAllowed,
+              target);
+        }));
   }
 
   Future<T> _bounded<T>(Future<T> Function() action, CapabilityContext context,
