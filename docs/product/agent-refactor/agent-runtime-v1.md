@@ -78,8 +78,8 @@ Provider-port EOF retains `incompleteResponse`. Untyped adapter exceptions retai
 `internalError` turn mapping and remain fallback-ineligible. `content_filtered`
 uses the prior `temporarilyUnavailable` public/fallback mapping while exposing a
 more precise diagnostic code. All existing eligible classes and barriers remain
-unchanged. No READ continuation, usage-object persistence, output-token tuning or
-new Provider is introduced.
+unchanged. AR-R1 introduced no READ continuation, usage-object persistence,
+output-token tuning or new Provider; AR-R7 below adds the bounded source opt-in.
 
 ## 3. Transient canonical transcript
 

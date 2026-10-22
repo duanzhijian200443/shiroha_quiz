@@ -274,7 +274,8 @@ receipt-bearing Dispatcher methods in a bounded ToolExecutor and retains receipt
 evidence in transient atomic transcript groups; the Kernel, permissions, effects,
 registry, W0/SPL lifecycle and MCP semantics are unchanged. AR-R4 source module
 registration is accepted under `module-system.md`; external
-Host/IPC and AR-R7 READ continuation remain unimplemented. AR-R5A is an
+Host/IPC remain unimplemented. AR-R7 READ continuation is the default-disabled
+source opt-in in Agent Runtime v1 §4. AR-R5A is an
 implementation candidate: GeneratedQuestion contributes an internal typed READ
 with current local authorization and no Agent/MCP/UI projection. Durable stage,
 review flush and formal approve/reject use dedicated trusted Application commands,
