@@ -642,7 +642,7 @@ open condition under the roadmap checklist, not an admission waiver.
 | AR-R6A | External authority/context/Host; after AR-R5A | Transport spike passes; pairing/revoke/egress/restart/restore and Windows boundaries | 1 PR |
 | AR-R6B | Tools-only stdio profile; after AR-R5B and AR-R6A | Generic synthetic stdio end-to-end; modern/legacy protocol; v0 unchanged | 1 PR |
 | AR-R7 | Independent opt-in READ continuation source; after AR-R3, default disabled | Receipt-based replay authorization; no STAGE/unknown/file-grant replay; legacy-policy rollback | 1 PR |
-| AR-R8 | Assistant controller/artifact decomposition; after AR-R6B | Existing UI lifecycle/action parity; no new permission or IA | 1 PR |
+| AR-R8 | Independently authorized Assistant source decomposition; formal AR-R6B prerequisites retained | Existing UI lifecycle/action parity; no new permission or IA; [source boundary](assistant-artifacts.md) | 1 PR |
 | AR-R9A | Optional MCP Resources/Prompts; after AR-R6B | Same authorization; Tools-only workflow still sufficient | 1 PR |
 | AR-R9B | Separate Codex reference package; after AR-R6B | Supported-version and clean Windows installation proof; no business authority | 1 PR |
 

@@ -9,17 +9,16 @@ import '../../core/observability/diagnostic_summary.dart';
 import '../../application/agent/retrieval_egress_grant.dart';
 import '../../application/conversations/conversation_repository.dart';
 import '../../application/conversations/conversation_service.dart';
+import '../../application/modules/module_composition.dart';
 import '../../application/safe_write/agent_write_proposal.dart';
 import '../../application/safe_write/agent_write_proposal_service.dart';
 import '../../application/study_plan/study_plan_command_service.dart';
 import '../../application/study_plan/study_plan_draft_service.dart';
 import '../../domain/study_plan/active_study_plan.dart';
-import '../../domain/study_plan/study_plan_draft.dart';
 import '../../domain/study_plan/study_plan_values.dart';
-import '../../domain/content/content_node.dart';
 import '../../domain/conversations/conversation.dart';
 import '../../domain/conversations/conversation_message.dart';
-import '../../domain/question/question_draft_v2.dart';
+import 'assistant_artifact_controller.dart';
 
 const String conversationReadSafeError = '暂时无法读取对话，请稍后重试';
 const String conversationWriteSafeError = '暂时无法保存对话，请稍后重试';
@@ -44,20 +43,34 @@ final class ConversationController extends ChangeNotifier {
     AgentWriteProposalService? proposalService,
     StudyPlanDraftService? studyPlanDraftService,
     StudyPlanCommandService? studyPlanCommandService,
+    Iterable<ModuleUiContribution>? artifactContributions,
   })  : _agentSettingsService = agentSettingsService,
         _startAgentTurn = startAgentTurn,
-        _startRetrievalTurn = startRetrievalTurn,
-        _proposalService = proposalService,
-        _studyPlanDraftService = studyPlanDraftService,
-        _studyPlanCommandService = studyPlanCommandService;
+        _startRetrievalTurn = startRetrievalTurn {
+    artifacts = AssistantArtifactController(
+      proposalService: proposalService,
+      studyPlanDraftService: studyPlanDraftService,
+      studyPlanCommandService: studyPlanCommandService,
+      conversationId: () => activeThread?.conversation.conversationId,
+      hasActiveTurn: () => hasActiveTurn,
+      isMovingConversation: () => isMovingConversation,
+      contributions: artifactContributions,
+    )..addListener(_handleArtifactsChanged);
+  }
+
+  @override
+  void notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
+
+  void _handleArtifactsChanged() {
+    if (!_disposed) notifyListeners();
+  }
 
   final ConversationService service;
   final AgentSettingsService _agentSettingsService;
   final AgentTurnStarter _startAgentTurn;
   final AgentRetrievalTurnStarter? _startRetrievalTurn;
-  final AgentWriteProposalService? _proposalService;
-  final StudyPlanDraftService? _studyPlanDraftService;
-  final StudyPlanCommandService? _studyPlanCommandService;
 
   List<Conversation> recent = const <Conversation>[];
   List<ConversationFileRef> attachableFiles = const <ConversationFileRef>[];
@@ -81,19 +94,43 @@ final class ConversationController extends ChangeNotifier {
   String transientAssistantText = '';
   AgentTurnFailure? turnFailure;
   String? activeToolName;
-  String? proposalId;
-  AgentWriteProposalOutcome? proposalOutcome;
-  Map<String, Object?> proposalPreview = const <String, Object?>{};
-  bool proposalActionPending = false;
-  String? proposalActionMessage;
+  late final AssistantArtifactController artifacts;
 
-  String? studyPlanDraftId;
-  StudyPlanDraftOutcome? studyPlanOutcome;
-  Map<String, Object?> studyPlanPreview = const <String, Object?>{};
-  bool studyPlanActionPending = false;
-  String? studyPlanActionMessage;
-  ActiveStudyPlan? pendingReplacementActivePlan;
-  bool showReplacementConfirmation = false;
+  String? get proposalId => artifacts.proposalId;
+  set proposalId(String? value) => artifacts.proposalId = value;
+  AgentWriteProposalOutcome? get proposalOutcome => artifacts.proposalOutcome;
+  set proposalOutcome(AgentWriteProposalOutcome? value) =>
+      artifacts.proposalOutcome = value;
+  Map<String, Object?> get proposalPreview => artifacts.proposalPreview;
+  set proposalPreview(Map<String, Object?> value) =>
+      artifacts.proposalPreview = value;
+  bool get proposalActionPending => artifacts.proposalActionPending;
+  set proposalActionPending(bool value) =>
+      artifacts.proposalActionPending = value;
+  String? get proposalActionMessage => artifacts.proposalActionMessage;
+  set proposalActionMessage(String? value) =>
+      artifacts.proposalActionMessage = value;
+  String? get studyPlanDraftId => artifacts.studyPlanDraftId;
+  set studyPlanDraftId(String? value) => artifacts.studyPlanDraftId = value;
+  StudyPlanDraftOutcome? get studyPlanOutcome => artifacts.studyPlanOutcome;
+  set studyPlanOutcome(StudyPlanDraftOutcome? value) =>
+      artifacts.studyPlanOutcome = value;
+  Map<String, Object?> get studyPlanPreview => artifacts.studyPlanPreview;
+  set studyPlanPreview(Map<String, Object?> value) =>
+      artifacts.studyPlanPreview = value;
+  bool get studyPlanActionPending => artifacts.studyPlanActionPending;
+  set studyPlanActionPending(bool value) =>
+      artifacts.studyPlanActionPending = value;
+  String? get studyPlanActionMessage => artifacts.studyPlanActionMessage;
+  set studyPlanActionMessage(String? value) =>
+      artifacts.studyPlanActionMessage = value;
+  ActiveStudyPlan? get pendingReplacementActivePlan =>
+      artifacts.pendingReplacementActivePlan;
+  set pendingReplacementActivePlan(ActiveStudyPlan? value) =>
+      artifacts.pendingReplacementActivePlan = value;
+  bool get showReplacementConfirmation => artifacts.showReplacementConfirmation;
+  set showReplacementConfirmation(bool value) =>
+      artifacts.showReplacementConfirmation = value;
 
   AgentTurnSession? _activeSession;
   StreamSubscription<AgentTurnEvent>? _turnEvents;
@@ -115,15 +152,6 @@ final class ConversationController extends ChangeNotifier {
       ? null
       : DiagnosticSummaryFormatter.format(turnDiagnostic!);
 
-  /// Passive-dismissal Presentation state: one exact proposal identity per
-  /// source User turn, grouped by source Conversation. This remains transient
-  /// and permits proposals from different source turns to coexist without
-  /// hiding an older pending proposal behind a newer turn.
-  final Map<String, Map<String, String>> _proposalIdByTurnByConversation =
-      <String, Map<String, String>>{};
-  final Map<String, Map<String, String>> _studyPlanDraftIdByTurnByConversation =
-      <String, Map<String, String>>{};
-
   ConversationScope get currentScope =>
       activeThread?.conversation.scope ?? draftScope;
 
@@ -139,58 +167,14 @@ final class ConversationController extends ChangeNotifier {
       turnFailure == AgentTurnFailure.agentUnconfigured ||
       turnFailure == AgentTurnFailure.profileUnavailable;
 
-  bool get hasProposalCard => proposalId != null && proposalOutcome != null;
-  bool get canApproveProposal =>
-      proposalOutcome == AgentWriteProposalOutcome.pending &&
-      !hasActiveTurn &&
-      !proposalActionPending &&
-      !isMovingConversation;
-  bool get canRejectProposal =>
-      proposalOutcome == AgentWriteProposalOutcome.pending &&
-      !proposalActionPending &&
-      !isMovingConversation;
-
-  bool get hasStudyPlanCard =>
-      studyPlanDraftId != null && studyPlanOutcome != null;
-
-  bool get canAdoptStudyPlan =>
-      studyPlanOutcome == StudyPlanDraftOutcome.pending &&
-      !hasActiveTurn &&
-      !studyPlanActionPending &&
-      !isMovingConversation;
-
-  bool get canRejectStudyPlan =>
-      studyPlanOutcome == StudyPlanDraftOutcome.pending &&
-      !studyPlanActionPending &&
-      !isMovingConversation;
-
-  String? get studyPlanStatusText => switch (studyPlanOutcome) {
-        null => null,
-        StudyPlanDraftOutcome.pending => null,
-        StudyPlanDraftOutcome.committing => '正在采用计划…',
-        StudyPlanDraftOutcome.committed => '已采用该计划',
-        StudyPlanDraftOutcome.rejected => '已不采用该计划',
-        StudyPlanDraftOutcome.superseded => '该计划草案已被新方案替代',
-      };
-
-  /// Fixed safe user-facing text for the proposal lifecycle outcome.
-  String? get proposalStatusText => switch (proposalOutcome) {
-        null => null,
-        AgentWriteProposalOutcome.pending => null,
-        AgentWriteProposalOutcome.committing =>
-          '\u6b63\u5728\u5199\u5165\u2026',
-        AgentWriteProposalOutcome.committed => '\u5df2\u5199\u5165\u7b54\u6848',
-        AgentWriteProposalOutcome.rejected =>
-          '\u5df2\u62d2\u7edd\u8be5\u63d0\u6848',
-        AgentWriteProposalOutcome.superseded =>
-          '\u8be5\u63d0\u6848\u5df2\u88ab\u65b0\u63d0\u6848\u66ff\u4ee3',
-        AgentWriteProposalOutcome.stale =>
-          '\u9898\u76ee\u5df2\u53d8\u5316\uff0c\u63d0\u6848\u5df2\u5931\u6548',
-        AgentWriteProposalOutcome.invalid => '\u8be5\u63d0\u6848\u65e0\u6548',
-        AgentWriteProposalOutcome.unknownOutcome =>
-          '\u5199\u5165\u7ed3\u679c\u6682\u65e0\u6cd5\u786e\u8ba4\uff0c'
-              '\u8bf7\u5237\u65b0\u540e\u67e5\u770b',
-      };
+  bool get hasProposalCard => artifacts.hasProposalCard;
+  bool get canApproveProposal => artifacts.canApproveProposal;
+  bool get canRejectProposal => artifacts.canRejectProposal;
+  bool get hasStudyPlanCard => artifacts.hasStudyPlanCard;
+  bool get canAdoptStudyPlan => artifacts.canAdoptStudyPlan;
+  bool get canRejectStudyPlan => artifacts.canRejectStudyPlan;
+  String? get studyPlanStatusText => artifacts.studyPlanStatusText;
+  String? get proposalStatusText => artifacts.proposalStatusText;
 
   String? get turnStatusMessage => switch (turnPhase) {
         AssistantTurnPhase.idle => statusMessage,
@@ -400,8 +384,7 @@ final class ConversationController extends ChangeNotifier {
       draftFileIds.clear();
       retrievalApprovedForNextTurn = false;
       _clearTurnPresentation(clearRetry: true);
-      _restoreProposalBinding(conversationId);
-      _restoreStudyPlanDraftBinding(conversationId);
+      artifacts.restoreConversation(conversationId);
       statusMessage = null;
       return true;
     } on ConversationException catch (error) {
@@ -557,8 +540,7 @@ final class ConversationController extends ChangeNotifier {
     final epoch = ++_turnEpoch;
     transientAssistantText = '';
     activeToolName = null;
-    _restoreProposalBinding(conversationId);
-    _restoreStudyPlanDraftBinding(conversationId);
+    artifacts.restoreConversation(conversationId);
     turnFailure = null;
     turnPhase = AssistantTurnPhase.thinking;
     final retrievalStarter = _startRetrievalTurn;
@@ -577,7 +559,8 @@ final class ConversationController extends ChangeNotifier {
     _activeDiagnosticId = session.diagnosticId;
     _activeSession = session;
     _turnEvents = session.events.listen(
-      (event) => _projectTurnEvent(event, session, epoch),
+      (event) => _projectTurnEvent(
+          event, session, epoch, conversationId, userMessageId),
       onError: (_) {},
     );
     unawaited(_awaitTurnResult(session, epoch));
@@ -588,6 +571,8 @@ final class ConversationController extends ChangeNotifier {
     AgentTurnEvent event,
     AgentTurnSession session,
     int epoch,
+    String conversationId,
+    String userMessageId,
   ) {
     if (_activeSession != session || _turnEpoch != epoch || _disposed) return;
     switch (event) {
@@ -603,33 +588,9 @@ final class ConversationController extends ChangeNotifier {
       case AgentTurnToolCall(:final name):
         activeToolName = name;
         turnPhase = AssistantTurnPhase.usingLocalTool;
-      case AgentTurnProposalStaged(
-          :final proposalId,
-          :final outcome,
-          :final preview,
-        ):
-        _projectStagedProposal(
-          proposalId: proposalId,
-          outcome: _proposalOutcomeOf(outcome),
-          preview: preview,
-        );
-        break;
-      case AgentTurnStudyPlanDraftStaged(
-          :final draftId,
-          :final outcome,
-          :final preview,
-        ):
-        // Unknown staged outcomes fail closed: no card is projected and no
-        // actionable adoption state is created.
-        final parsedOutcome = _studyPlanOutcomeOf(outcome);
-        if (parsedOutcome != null) {
-          _projectStagedStudyPlanDraft(
-            draftId: draftId,
-            outcome: parsedOutcome,
-            preview: preview,
-          );
-        }
-        break;
+      case AgentTurnProposalStaged() || AgentTurnStudyPlanDraftStaged():
+        artifacts.projectTurnArtifact(event,
+            conversationId: conversationId, userMessageId: userMessageId);
       case AgentTurnCompleted() || AgentTurnFailedEvent():
         return;
     }
@@ -843,81 +804,12 @@ final class ConversationController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Approves the current proposal. Only the proposal identity leaves the
-  /// Presentation layer; the outcome is projected from the Application
-  /// service result.
-  Future<void> approveProposal() async {
-    final service = _proposalService;
-    final id = proposalId;
-    if (service == null ||
-        id == null ||
-        proposalOutcome != AgentWriteProposalOutcome.pending ||
-        proposalActionPending ||
-        isMovingConversation) {
-      return;
-    }
-    proposalActionPending = true;
-    proposalActionMessage = null;
-    notifyListeners();
-    var shouldNotify = false;
-    try {
-      final updated = await service.approveProposal(id);
-      if (!_disposed && proposalId == id) {
-        _setProposal(
-          proposalId: updated.id,
-          outcome: updated.outcome,
-          preview: _previewMapOf(updated.preview),
-        );
-        _showNextPendingProposalAfter(updated);
-        shouldNotify = true;
-      }
-    } catch (_) {
-      if (!_disposed && proposalId == id) {
-        proposalActionMessage =
-            '\u64cd\u4f5c\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5';
-        shouldNotify = true;
-      }
-    } finally {
-      if (!_disposed && proposalId == id) {
-        proposalActionPending = false;
-        shouldNotify = true;
-      }
-      if (!_disposed && shouldNotify) {
-        notifyListeners();
-      }
-    }
-  }
-
-  /// Rejects the current proposal with zero formal writes.
-  void rejectProposal() {
-    final service = _proposalService;
-    final id = proposalId;
-    if (service == null ||
-        id == null ||
-        proposalOutcome != AgentWriteProposalOutcome.pending ||
-        proposalActionPending ||
-        isMovingConversation) {
-      return;
-    }
-    proposalActionPending = true;
-    proposalActionMessage = null;
-    notifyListeners();
-    try {
-      final updated = service.rejectProposal(id);
-      _setProposal(
-        proposalId: updated.id,
-        outcome: updated.outcome,
-        preview: _previewMapOf(updated.preview),
-      );
-      _showNextPendingProposalAfter(updated);
-    } catch (_) {
-      proposalActionMessage =
-          '\u64cd\u4f5c\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5';
-    } finally {
-      proposalActionPending = false;
-      notifyListeners();
-    }
-  }
+  Future<void> approveProposal() => artifacts.approveProposal();
+  void rejectProposal() => artifacts.rejectProposal();
+  Future<void> initiateAdoptStudyPlan() => artifacts.initiateAdoptStudyPlan();
+  Future<void> confirmReplacement() => artifacts.confirmReplacement();
+  void cancelReplacement() => artifacts.cancelReplacement();
+  void rejectStudyPlan() => artifacts.rejectStudyPlan();
 
   Future<bool> deleteConversation(String conversationId) async {
     if (hasActiveTurn || isSending) {
@@ -943,15 +835,13 @@ final class ConversationController extends ChangeNotifier {
       return false;
     }
 
-    _proposalIdByTurnByConversation.remove(conversationId);
-    _studyPlanDraftIdByTurnByConversation.remove(conversationId);
+    artifacts.forgetConversation(conversationId);
     if (_retryConversationId == conversationId) {
       _retryConversationId = null;
       _retryUserMessageId = null;
     }
     if (activeThread?.conversation.conversationId == conversationId) {
-      _clearProposal();
-      _clearStudyPlanDraft();
+      artifacts.clearPresentation();
       activeThread = null;
       _threadRevision++;
       draftScope = ConversationScope.global();
@@ -1009,8 +899,7 @@ final class ConversationController extends ChangeNotifier {
   void _clearTurnPresentation({required bool clearRetry}) {
     transientAssistantText = '';
     activeToolName = null;
-    _clearProposal();
-    _clearStudyPlanDraft();
+    artifacts.clearPresentation();
     turnFailure = null;
     turnDiagnostic = null;
     _activeDiagnosticId = null;
@@ -1021,478 +910,16 @@ final class ConversationController extends ChangeNotifier {
     }
   }
 
-  void _clearProposal() {
-    proposalId = null;
-    proposalOutcome = null;
-    proposalPreview = const <String, Object?>{};
-    proposalActionPending = false;
-    proposalActionMessage = null;
-  }
-
-  void _clearStudyPlanDraft() {
-    studyPlanDraftId = null;
-    studyPlanOutcome = null;
-    studyPlanPreview = const <String, Object?>{};
-    studyPlanActionPending = false;
-    studyPlanActionMessage = null;
-    pendingReplacementActivePlan = null;
-    showReplacementConfirmation = false;
-  }
-
-  void _setStudyPlanDraft({
-    required String draftId,
-    required StudyPlanDraftOutcome outcome,
-    required Map<String, Object?> preview,
-  }) {
-    studyPlanDraftId = draftId;
-    studyPlanOutcome = outcome;
-    studyPlanPreview = Map<String, Object?>.unmodifiable(preview);
-    studyPlanActionPending = false;
-    studyPlanActionMessage = null;
-    showReplacementConfirmation = false;
-    pendingReplacementActivePlan = null;
-    _bindStudyPlanDraftIdentity(draftId);
-  }
-
-  void _projectStagedStudyPlanDraft({
-    required String draftId,
-    required StudyPlanDraftOutcome outcome,
-    required Map<String, Object?> preview,
-  }) {
-    _bindStudyPlanDraftIdentity(draftId);
-    final currentId = studyPlanDraftId;
-    final service = _studyPlanDraftService;
-    if (currentId != null && service != null) {
-      try {
-        final current = service.draftById(currentId);
-        if (current.sourceConversationId ==
-                activeThread?.conversation.conversationId &&
-            current.outcome == StudyPlanDraftOutcome.pending) {
-          return;
-        }
-      } catch (_) {}
-    }
-    _setStudyPlanDraft(
-      draftId: draftId,
-      outcome: outcome,
-      preview: preview,
-    );
-  }
-
-  void _bindStudyPlanDraftIdentity(String draftId) {
-    final service = _studyPlanDraftService;
-    if (service == null) return;
-    try {
-      final draft = service.draftById(draftId);
-      final byTurn = _studyPlanDraftIdByTurnByConversation.putIfAbsent(
-        draft.sourceConversationId,
-        () => <String, String>{},
-      );
-      final boundId = byTurn[draft.sourceMessageId];
-      if (boundId != null && boundId != draft.draftId) {
-        try {
-          final bound = service.draftById(boundId);
-          if (bound.outcome == StudyPlanDraftOutcome.pending) {
-            return;
-          }
-        } catch (_) {}
-      }
-      byTurn[draft.sourceMessageId] = draft.draftId;
-    } catch (_) {}
-  }
-
-  void _restoreStudyPlanDraftBinding(String conversationId) {
-    final service = _studyPlanDraftService;
-    final byTurn = _studyPlanDraftIdByTurnByConversation[conversationId];
-    if (service == null || byTurn == null || byTurn.isEmpty) {
-      _clearStudyPlanDraft();
-      return;
-    }
-    final available = <StudyPlanDraft>[];
-    for (final entry in byTurn.entries.toList()) {
-      try {
-        available.add(service.draftById(entry.value));
-      } catch (_) {
-        byTurn.remove(entry.key);
-      }
-    }
-    if (available.isEmpty) {
-      _studyPlanDraftIdByTurnByConversation.remove(conversationId);
-      _clearStudyPlanDraft();
-      return;
-    }
-    final draft = available.firstWhere(
-      (candidate) => candidate.outcome == StudyPlanDraftOutcome.pending,
-      orElse: () => available.last,
-    );
-    _setStudyPlanDraft(
-      draftId: draft.draftId,
-      outcome: draft.outcome,
-      preview: _studyPlanPreviewMapOf(draft.preview),
-    );
-  }
-
-  void _showNextPendingStudyPlanAfter(StudyPlanDraft current) {
-    if (current.outcome == StudyPlanDraftOutcome.pending ||
-        current.outcome == StudyPlanDraftOutcome.committing) {
-      return;
-    }
-    final service = _studyPlanDraftService;
-    final byTurn =
-        _studyPlanDraftIdByTurnByConversation[current.sourceConversationId];
-    if (service == null || byTurn == null) return;
-    for (final draftId in byTurn.values) {
-      if (draftId == current.draftId) continue;
-      try {
-        final draft = service.draftById(draftId);
-        if (draft.outcome == StudyPlanDraftOutcome.pending) {
-          _setStudyPlanDraft(
-            draftId: draft.draftId,
-            outcome: draft.outcome,
-            preview: _studyPlanPreviewMapOf(draft.preview),
-          );
-          return;
-        }
-      } catch (_) {}
-    }
-  }
-
-  StudyPlanDraftOutcome? _studyPlanOutcomeOf(String value) {
-    return switch (value) {
-      'pending' => StudyPlanDraftOutcome.pending,
-      'committing' => StudyPlanDraftOutcome.committing,
-      'committed' => StudyPlanDraftOutcome.committed,
-      'rejected' => StudyPlanDraftOutcome.rejected,
-      'superseded' => StudyPlanDraftOutcome.superseded,
-      _ => null,
-    };
-  }
-
-  Map<String, Object?> _studyPlanPreviewMapOf(StudyPlanPreview preview) {
-    return <String, Object?>{
-      'bank_name': preview.bankName,
-      if (preview.goal != null) 'goal': preview.goal,
-      'daily_target': preview.dailyTarget,
-      'priority': preview.priority.canonicalCode,
-      if (preview.horizonDays != null) 'horizon_days': preview.horizonDays,
-      'question_count': preview.questionCount,
-      'mastered_count': preview.masteredCount,
-      'due_count': preview.dueCount,
-      'weak_count': preview.weakCount,
-      'new_count': preview.newCount,
-      'estimated_days': preview.estimatedDays,
-    };
-  }
-
-  /// Initiates adoption of the current StudyPlan proposal.
-  /// If an ActiveStudyPlan already exists, prompts for replacement confirmation.
-  Future<void> initiateAdoptStudyPlan() async {
-    final cmd = _studyPlanCommandService;
-    final id = studyPlanDraftId;
-    if (cmd == null ||
-        id == null ||
-        studyPlanOutcome != StudyPlanDraftOutcome.pending ||
-        studyPlanActionPending ||
-        isMovingConversation) {
-      return;
-    }
-    studyPlanActionPending = true;
-    studyPlanActionMessage = null;
-    notifyListeners();
-    try {
-      final activePlan = await cmd.loadActivePlan();
-      if (!_disposed && studyPlanDraftId == id) {
-        if (activePlan != null) {
-          pendingReplacementActivePlan = activePlan;
-          showReplacementConfirmation = true;
-          studyPlanActionPending = false;
-          notifyListeners();
-        } else {
-          studyPlanActionPending = false;
-          await _performAdoptStudyPlan(
-            expectedActivePlanId: null,
-            replacementConfirmed: false,
-          );
-        }
-      }
-    } catch (_) {
-      if (!_disposed && studyPlanDraftId == id) {
-        studyPlanActionMessage = '操作失败，请稍后重试';
-        studyPlanActionPending = false;
-        notifyListeners();
-      }
-    }
-  }
-
-  /// Confirms replacement of the existing active plan with this proposal draft.
-  Future<void> confirmReplacement() async {
-    final expectedId = pendingReplacementActivePlan?.planId;
-    showReplacementConfirmation = false;
-    pendingReplacementActivePlan = null;
-    await _performAdoptStudyPlan(
-      expectedActivePlanId: expectedId,
-      replacementConfirmed: true,
-    );
-  }
-
-  /// Cancels replacement confirmation dialog/banner.
-  void cancelReplacement() {
-    pendingReplacementActivePlan = null;
-    showReplacementConfirmation = false;
-    notifyListeners();
-  }
-
-  Future<void> _performAdoptStudyPlan({
-    String? expectedActivePlanId,
-    required bool replacementConfirmed,
-  }) async {
-    final cmd = _studyPlanCommandService;
-    final draftService = _studyPlanDraftService;
-    final id = studyPlanDraftId;
-    if (cmd == null ||
-        draftService == null ||
-        id == null ||
-        studyPlanOutcome != StudyPlanDraftOutcome.pending ||
-        studyPlanActionPending ||
-        isMovingConversation) {
-      return;
-    }
-    studyPlanActionPending = true;
-    studyPlanActionMessage = null;
-    notifyListeners();
-    var shouldNotify = false;
-    try {
-      final result = await cmd.adoptDraft(
-        draftId: id,
-        expectedActivePlanId: expectedActivePlanId,
-        replacementConfirmed: replacementConfirmed,
-      );
-      if (!_disposed && studyPlanDraftId == id) {
-        switch (result) {
-          case StudyPlanAdoptResultSuccess():
-            final updated = draftService.draftById(id);
-            _setStudyPlanDraft(
-              draftId: updated.draftId,
-              outcome: updated.outcome,
-              preview: _studyPlanPreviewMapOf(updated.preview),
-            );
-            _showNextPendingStudyPlanAfter(updated);
-            shouldNotify = true;
-          case StudyPlanAdoptResultAlreadyActive():
-            studyPlanActionMessage = '已有生效中的学习计划，请确认是否替换。';
-            shouldNotify = true;
-          case StudyPlanAdoptResultStaleActivePlan():
-            studyPlanActionMessage = '当前计划状态已变化，请重新确认。';
-            shouldNotify = true;
-          case StudyPlanAdoptResultStaleScope() ||
-                StudyPlanAdoptResultTargetUnavailable() ||
-                StudyPlanAdoptResultInvalidPlan() ||
-                StudyPlanAdoptResultSuperseded() ||
-                StudyPlanAdoptResultRejected() ||
-                StudyPlanAdoptResultCommitted() ||
-                StudyPlanAdoptResultBusy() ||
-                StudyPlanAdoptResultFailed():
-            studyPlanActionMessage = '采用计划失败，请稍后重试。';
-            shouldNotify = true;
-        }
-      }
-    } catch (_) {
-      if (!_disposed && studyPlanDraftId == id) {
-        studyPlanActionMessage = '操作失败，请稍后重试。';
-        shouldNotify = true;
-      }
-    } finally {
-      if (!_disposed && studyPlanDraftId == id) {
-        studyPlanActionPending = false;
-        shouldNotify = true;
-      }
-      if (!_disposed && shouldNotify) {
-        notifyListeners();
-      }
-    }
-  }
-
-  /// Rejects the current StudyPlan proposal with zero formal writes.
-  void rejectStudyPlan() {
-    final draftService = _studyPlanDraftService;
-    final id = studyPlanDraftId;
-    if (draftService == null ||
-        id == null ||
-        studyPlanOutcome != StudyPlanDraftOutcome.pending ||
-        studyPlanActionPending ||
-        isMovingConversation) {
-      return;
-    }
-    studyPlanActionPending = true;
-    studyPlanActionMessage = null;
-    notifyListeners();
-    try {
-      final updated = draftService.rejectDraft(id);
-      _setStudyPlanDraft(
-        draftId: updated.draftId,
-        outcome: updated.outcome,
-        preview: _studyPlanPreviewMapOf(updated.preview),
-      );
-      _showNextPendingStudyPlanAfter(updated);
-    } catch (_) {
-      studyPlanActionMessage = '操作失败，请稍后重试。';
-    } finally {
-      studyPlanActionPending = false;
-      notifyListeners();
-    }
-  }
-
-  void _setProposal({
-    required String proposalId,
-    required AgentWriteProposalOutcome outcome,
-    required Map<String, Object?> preview,
-  }) {
-    this.proposalId = proposalId;
-    proposalOutcome = outcome;
-    proposalPreview = Map<String, Object?>.unmodifiable(preview);
-    proposalActionPending = false;
-    proposalActionMessage = null;
-    _bindProposalIdentity(proposalId);
-  }
-
-  void _projectStagedProposal({
-    required String proposalId,
-    required AgentWriteProposalOutcome outcome,
-    required Map<String, Object?> preview,
-  }) {
-    _bindProposalIdentity(proposalId);
-    final currentId = this.proposalId;
-    final service = _proposalService;
-    if (currentId != null && service != null) {
-      try {
-        final current = service.proposalById(currentId);
-        if (current.sourceConversationId ==
-                activeThread?.conversation.conversationId &&
-            current.outcome == AgentWriteProposalOutcome.pending) {
-          return;
-        }
-      } catch (_) {
-        // Fall through and project the newly staged proposal.
-      }
-    }
-    _setProposal(
-      proposalId: proposalId,
-      outcome: outcome,
-      preview: preview,
-    );
-  }
-
-  void _bindProposalIdentity(String proposalId) {
-    final service = _proposalService;
-    if (service == null) return;
-    try {
-      final proposal = service.proposalById(proposalId);
-      final byTurn = _proposalIdByTurnByConversation.putIfAbsent(
-        proposal.sourceConversationId,
-        () => <String, String>{},
-      );
-      final boundId = byTurn[proposal.sourceMessageId];
-      if (boundId != null && boundId != proposal.id) {
-        try {
-          final bound = service.proposalById(boundId);
-          if (bound.outcome == AgentWriteProposalOutcome.pending) {
-            return;
-          }
-        } catch (_) {
-          // A missing transient binding may be replaced by the known proposal.
-        }
-      }
-      byTurn[proposal.sourceMessageId] = proposal.id;
-    } catch (_) {
-      // Unknown transient identities cannot be restored and are not retained.
-    }
-  }
-
-  /// Passive-dismissal restoration: re-reads the current Application
-  /// proposal outcome/preview for the exact identity previously projected
-  /// for [conversationId]. Reject/superseded/stale/committed outcomes restore
-  /// accurately when previously bound; an unknown identity (for example a
-  /// fresh in-memory service after a process restart) restores nothing.
-  /// Switching itself never approves, rejects or commits a proposal.
-  void _restoreProposalBinding(String conversationId) {
-    final service = _proposalService;
-    final byTurn = _proposalIdByTurnByConversation[conversationId];
-    if (service == null || byTurn == null || byTurn.isEmpty) {
-      _clearProposal();
-      return;
-    }
-    final available = <AgentWriteProposal>[];
-    for (final entry in byTurn.entries.toList()) {
-      try {
-        available.add(service.proposalById(entry.value));
-      } catch (_) {
-        byTurn.remove(entry.key);
-      }
-    }
-    if (available.isEmpty) {
-      _proposalIdByTurnByConversation.remove(conversationId);
-      _clearProposal();
-      return;
-    }
-    final proposal = available.firstWhere(
-      (candidate) => candidate.outcome == AgentWriteProposalOutcome.pending,
-      orElse: () => available.last,
-    );
-    _setProposal(
-      proposalId: proposal.id,
-      outcome: proposal.outcome,
-      preview: _previewMapOf(proposal.preview),
-    );
-  }
-
-  void _showNextPendingProposalAfter(AgentWriteProposal current) {
-    if (current.outcome == AgentWriteProposalOutcome.pending ||
-        current.outcome == AgentWriteProposalOutcome.committing) {
-      return;
-    }
-    final service = _proposalService;
-    final byTurn =
-        _proposalIdByTurnByConversation[current.sourceConversationId];
-    if (service == null || byTurn == null) return;
-    for (final proposalId in byTurn.values) {
-      if (proposalId == current.id) continue;
-      try {
-        final proposal = service.proposalById(proposalId);
-        if (proposal.outcome == AgentWriteProposalOutcome.pending) {
-          _setProposal(
-            proposalId: proposal.id,
-            outcome: proposal.outcome,
-            preview: _previewMapOf(proposal.preview),
-          );
-          return;
-        }
-      } catch (_) {
-        // Missing transient identities are pruned on the next restoration.
-      }
-    }
-  }
-
-  /// Maps the stable tool-contract outcome string onto the application
-  /// outcome. Unknown strings fail safe as invalid.
-  AgentWriteProposalOutcome _proposalOutcomeOf(String value) {
-    return switch (value) {
-      'pending' => AgentWriteProposalOutcome.pending,
-      'committing' => AgentWriteProposalOutcome.committing,
-      'committed' => AgentWriteProposalOutcome.committed,
-      'rejected' => AgentWriteProposalOutcome.rejected,
-      'superseded' => AgentWriteProposalOutcome.superseded,
-      'stale' => AgentWriteProposalOutcome.stale,
-      'invalid' => AgentWriteProposalOutcome.invalid,
-      'unknown_outcome' => AgentWriteProposalOutcome.unknownOutcome,
-      _ => AgentWriteProposalOutcome.invalid,
-    };
-  }
-
   @override
   void dispose() {
     _disposed = true;
+    artifacts.removeListener(_handleArtifactsChanged);
+    artifacts.dispose();
+    _turnEpoch++;
     _activeSession?.cancel();
+    _activeSession = null;
     unawaited(_turnEvents?.cancel());
+    _turnEvents = null;
     super.dispose();
   }
 
@@ -1538,74 +965,6 @@ String _agentFailureMessage(AgentTurnFailure failure) {
     AgentTurnFailure.persistenceFailed => '保存回复失败，请重试',
     AgentTurnFailure.internalError => '生成失败，请稍后重试',
   };
-}
-
-/// Projects the Application-owned preview back onto the structured tool
-/// contract shape consumed by the proposal card (`bank_name`/stem/options/
-/// proposed_answer). Used only for passive-dismissal restoration.
-Map<String, Object?> _previewMapOf(AgentWriteProposalPreview preview) {
-  return <String, Object?>{
-    'bank_name': preview.bankName,
-    'stem': <Map<String, Object?>>[
-      for (final node in preview.stem.nodes) _previewNodeOf(node),
-    ],
-    'options': <Map<String, Object?>>[
-      for (final option in preview.options)
-        <String, Object?>{
-          'label': option.label,
-          'content': <Map<String, Object?>>[
-            for (final node in option.content.nodes) _previewNodeOf(node),
-          ],
-        },
-    ],
-    'proposed_answer': _previewAnswerOf(
-      preview.proposedAnswer,
-      preview.options,
-    ),
-  };
-}
-
-Map<String, Object?> _previewNodeOf(ContentNode node) {
-  return switch (node) {
-    TextNode(:final text) => <String, Object?>{'type': 'text', 'text': text},
-    InlineMathNode(:final latex) => <String, Object?>{
-        'type': 'inline_math',
-        'latex': latex,
-      },
-    BlockMathNode(:final latex) => <String, Object?>{
-        'type': 'block_math',
-        'latex': latex,
-      },
-    ImageNode() || TableNode() => <String, Object?>{'type': 'unsupported'},
-    RawFallbackNode() => <String, Object?>{'type': 'unsupported'},
-  };
-}
-
-Map<String, Object?> _previewAnswerOf(
-  QuestionAnswer answer,
-  List<QuestionOption> options,
-) {
-  return switch (answer) {
-    ChoiceAnswer(:final optionIds) => <String, Object?>{
-        'kind': 'choice',
-        'labels': <String>[
-          for (final optionId in optionIds) _previewLabelOf(optionId, options),
-        ],
-      },
-    ContentAnswer(:final content) => <String, Object?>{
-        'kind': 'content',
-        'nodes': <Map<String, Object?>>[
-          for (final node in content.nodes) _previewNodeOf(node),
-        ],
-      },
-  };
-}
-
-String _previewLabelOf(String optionId, List<QuestionOption> options) {
-  for (final option in options) {
-    if (option.optionId == optionId) return option.label;
-  }
-  return optionId;
 }
 
 String _toolStatus(String? toolName) {

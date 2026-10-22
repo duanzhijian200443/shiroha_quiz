@@ -1,3 +1,4 @@
+import 'assistant_artifact_contributions.dart';
 import '../agent/agent_feature_guidance.dart';
 import '../agent/agent_retrieval_tool.dart';
 import '../agent/agent_study_plan_tool_catalog.dart';
@@ -88,6 +89,7 @@ ModuleContribution missingAnswerModule(
         required AgentWriteProposalService proposalService}) =>
     ModuleContribution(
       id: missingAnswerModuleId,
+      registerUi: (r) => r.registerUiContribution(missingAnswerArtifactUi),
       registerCapabilities: (r) => r.registerCapability(missingAnswerCapability(
           persistence: persistence, proposalService: proposalService)),
       registerAgent: (r) => r.registerAgentProjection((executor) {
@@ -117,6 +119,7 @@ ModuleContribution missingAnswerModule(
 ModuleContribution studyPlanModule(StudyPlanDraftService service) =>
     ModuleContribution(
       id: studyPlanModuleId,
+      registerUi: (r) => r.registerUiContribution(studyPlanArtifactUi),
       registerCapabilities: (r) =>
           r.registerCapability(studyPlanCapability(service)),
       registerAgent: (r) => r.registerAgentProjection((executor) {

@@ -10,6 +10,7 @@ import 'package:shiroha_quiz/application/agent/shiroha_system_prompt.dart';
 import 'package:shiroha_quiz/application/capabilities/capability.dart';
 import 'package:shiroha_quiz/application/modules/module_composition.dart';
 import 'package:shiroha_quiz/application/modules/production_modules.dart';
+import 'package:shiroha_quiz/application/modules/assistant_artifact_contributions.dart';
 import 'package:shiroha_quiz/application/retrieval/retrieval_ports.dart';
 import 'package:shiroha_quiz/application/retrieval/retrieval_service.dart';
 import 'package:shiroha_quiz/application/safe_write/agent_write_proposal_service.dart';
@@ -73,7 +74,9 @@ void main() {
     expect(result.agentSurface.projections, hasLength(9));
     expect(result.mcpSurface.map((p) => p.key),
         StudyCapabilities.ids.map((id) => id.value));
-    expect(result.uiContributions, isEmpty);
+    expect(result.uiContributions, retainedAssistantArtifactContributions);
+    expect(result.uiContributions.map((item) => item.slot),
+        everyElement(ModuleUiSlot.assistantArtifact));
     final acceptedList = jsonDecode(
         File('test/application/capabilities/fixtures/agent_tool_contracts.json')
             .readAsStringSync()) as List;
@@ -97,6 +100,13 @@ void main() {
           'propose_study_plan',
           'retrieve_file_content'
         ]);
+  });
+  test('disabling a module removes only its dedicated artifact contribution',
+      () {
+    final withoutAnswers = compose(missingAnswerModuleId);
+    expect(withoutAnswers.uiContributions, [studyPlanArtifactUi]);
+    final withoutPlans = compose(studyPlanModuleId);
+    expect(withoutPlans.uiContributions, [missingAnswerArtifactUi]);
   });
   test('production module permutations preserve all registry orders', () {
     final a = compose();

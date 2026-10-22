@@ -1,3 +1,4 @@
+import '../../application/modules/module_composition.dart';
 import '../../application/practice/study_session_launch.dart';
 import 'package:flutter/material.dart';
 import '../../application/agent/agent_config_service.dart';
@@ -54,6 +55,7 @@ class MainScreen extends StatefulWidget {
     this.practiceCommands,
     this.startRetrievalTurn,
     this.proposalService,
+    this.artifactContributions,
     this.studyPlanDraftService,
     this.studyPlanCommandService,
     this.studyPlanSelectionService,
@@ -80,6 +82,7 @@ class MainScreen extends StatefulWidget {
   final PracticeCommandDependencies? practiceCommands;
   final AgentRetrievalTurnStarter? startRetrievalTurn;
   final AgentWriteProposalService? proposalService;
+  final List<ModuleUiContribution>? artifactContributions;
   final StudyPlanDraftService? studyPlanDraftService;
   final StudyPlanCommandService? studyPlanCommandService;
   final StudyPlanSelectionService? studyPlanSelectionService;
@@ -208,6 +211,7 @@ class _MainScreenState extends State<MainScreen> {
           startAgentTurn: widget.startAgentTurn,
           startRetrievalTurn: widget.startRetrievalTurn,
           proposalService: widget.proposalService,
+          artifactContributions: widget.artifactContributions,
           studyPlanDraftService: widget.studyPlanDraftService,
           studyPlanCommandService: widget.studyPlanCommandService,
           practiceCommands: widget.practiceCommands,

@@ -1852,7 +1852,7 @@ Future<AgentWriteProposal> _primeProposal(
   final staged = await service.stageProposal(
     admissionRequest: AgentWriteAdmissionRequest(
       sourceConversationId: 'conversation-test',
-      sourceMessageId: 'message-1',
+      sourceMessageId: 'message-test',
       scope: ConversationScope.global(),
       targetStorageId: 'a3f9c2e4-5b6d-4e7f-8a9b-0c1d2e3f4a5b',
     ),
