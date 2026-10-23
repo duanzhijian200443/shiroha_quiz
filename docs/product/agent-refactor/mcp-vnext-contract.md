@@ -935,8 +935,9 @@ connecting and authenticated local channels/plans, cancels pending opens and
 awaits their original work. The composition also joins any pending local open/
 authentication operation; neither a returned Session nor cancellation substitutes
 for settlement. `McpVnextWindowsProcessOwner.stopAndWait` owns actual interrupted
-launch/exit settlement, not process identity or permissions. No real process
-adapter/launcher is provided. Both drains join the Host's existing closer before
+launch/exit settlement, not process identity or permissions. The dormant adapter
+in section 17 supplies this custody without replacing the startup graph.
+Both drains join the Host's existing closer before
 Store/runtime.lock release, latched across App/Host shutdown calls.
 
 The Bridge acquirer transfers ONE exclusive existing Bridge credential/Discovery
@@ -969,14 +970,80 @@ pending local authentication, busy/EOF and failed raw/local/process cleanup.
 Section 15's existing end-to-end tests now use the product App startup root and
 retain Disable/revision/revoke/disconnect/Restore/Review/lost-response regressions.
 Source guards allow this exact dormant root and forbid normal consumers and real
-OS acquisition/launch implementations in it.
+OS acquisition/launch implementations in that root. Section 17 adds only exact
+inactive adapters outside it, with no normal startup consumer.
 
 Evidence remains four distinct conclusions: **SOURCE WIRED**, **FAKE VERIFIED**
 only by executed tests, **REAL WINDOWS NOT VERIFIED**, **FORMAL ADMISSION NOT
-PASSED**. Actual protected acquisition, the real OS process adapter/launcher and
-admitted TLS binding remain BLOCKED implementation/integration/acceptance work;
-they cannot be proved by an injected callback. No such experiment is run here.
+PASSED**. Section 17 supplies dormant protected-acquisition/process-custody source;
+actual Windows acquisition/launch/exit, admitted TLS binding and cross-process
+functional integration remain unverified. They cannot be proved by a Fake or
+injected callback. No such experiment is run here.
 Draft #327 short-deadline cancellation compatibility remains BLOCKED with no new
 repair loop. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
 AR-R6A = NOT_ACCEPTED. This source-only delivery neither completes full AR-R6B
 nor accepts AR-R9B prerequisites or activates Trial 1A/G0-L1/L2/I/production vNext.
+
+## 17. Dormant protected acquisition and child process custody
+
+`mcp_vnext_windows_acquisition.dart` adapts the existing Native Loader and
+`ExternalProtectedObjects` into section 16's original dependency bundles.
+Construction only captures trusted callbacks. Explicit App acquisition opens
+the fixed adjacent Native DLL through `WindowsExternalNative.open`, acquires ONE
+App Owner/runtime.lock, constructs P20/P25/P24/P27 adapters over that Owner and
+performs P25 existing-only validation. Missing, partial, corrupt or mismatched
+credentials reject without initialization, recovery, rotation or replacement.
+Primitive injection exercises the same assembly with Fake Native and public
+mathematical credentials. App transport/local readiness/pairing controls remain
+trusted composition inputs; the original startup still creates the sole graph.
+
+Bridge acquisition opens ONE Bridge Owner/client.lock. The original P26 reader
+and TLS Bridge retain existing kind-4, independent trust, high-water and peer
+verification; acquisition neither enrolls nor creates an initial Pin. Both
+acquirers are single-use, including contention/failure. Returned bundles must
+retain the exact acquired resources and supplied process custody. A foreign
+bundle is rejected without closing its resources. The same native Owner holds
+an irreversible role-checked runtime claim for App or Bridge; repeated startup
+cannot borrow or close the original runtime's Owner. Native OS locks continue
+to exclude independently acquired writers. There is no second ownership registry,
+authentication authority, policy store or database Writer.
+
+Before transfer, acquisition joins original local-channel and process settlement,
+then drains its P20 Store and closes its Owner. Unknown cleanup retains those
+original resources with no retry. After transfer, section 16 and the existing
+owned Host remain the sole closers. A malformed assembly that already claimed
+the Owner is quarantined rather than released beneath a live runtime.
+
+`WindowsBridgeProcess` is the minimal inactive process-custody adapter. Its
+default I/O derives exactly the adjacent `shiroha_bridge.exe` and Native DLL from
+`Platform.resolvedExecutable`, performs bounded reads and reuses the existing
+Bridge candidate inventory/x64 PE inspection before creation. It accepts no
+path/arguments/environment/request selectors. SDK creation uses an empty
+argument list, no shell, no inherited environment and the original returned
+Process object; no PID lookup/kill, elevation, restart, watchdog or service is
+added. Existing stdin EOF requests shutdown. Actual original exit plus both
+discarded output drains must settle; a non-cooperating child remains pending.
+Unknown creation, failed input/drain or nonzero exit latches failure and preserves
+upper-layer Owner/database custody. Repeat close joins the same result. Exit
+notification immediately blocks new admission and initiates the original startup
+shutdown, while that shutdown still waits for the original streams/process.
+
+Static PE inspection is not signed-image/loader acceptance or proof that package
+files cannot change between inspection and launch. No new image pin or private
+cross-process credential-transfer protocol is invented. The unchanged standalone
+candidate still refuses activation (64/78); normal App/vNext startup imports
+neither new adapter. A separately admitted functional runtime, Windows loading/
+exit behavior and package identity acceptance remain concrete integration gaps.
+
+The existing P11 fixture exercises actual acquirer → section 16 startup → P27/
+Host/Bridge → all seven tools using Fake Native/process/TLS and isolated SQLite.
+It also covers contention, identity mismatch, duplicate acquisition/runtime,
+partial failure, interrupted creation, abnormal exit, unknown input/stream close,
+Owner retention and the database barrier. Source guards allow only these exact
+dormant consumers. Local subprocess/installed-client stdio tests are outside
+this Fake-only task; existing standing CI registration is unchanged.
+This is **SOURCE WIRED / FAKE VERIFIED** only when the corresponding checks run,
+with **REAL WINDOWS NOT VERIFIED / FORMAL ADMISSION NOT PASSED**.
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
+Full AR-R6B, AR-R9B prerequisites and production vNext remain unaccepted; #327,
+Trial 1A and G0-L1/L2/I are untouched and unactivated.

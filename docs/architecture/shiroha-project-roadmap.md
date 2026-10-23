@@ -284,10 +284,14 @@ and installed-Codex (`0.144.1` / `0.163.0-alpha.11.1`) mailbox/Fake-TLS evidence
 The [dormant startup/credential handoff root](../product/agent-refactor/mcp-vnext-contract.md#16-dormant-windows-startup-and-credential-handoff-composition)
 adds source wiring over the same exclusive Owners/Stores/Runtime, with pending
 local authentication and process settlement interfaces, construction without I/O
-and Fake regressions. It supplies no real acquirer/OS launcher or startup consumer.
+and Fake regressions. The subsequent dormant
+[protected acquisition/process custody adapters](../product/agent-refactor/mcp-vnext-contract.md#17-dormant-protected-acquisition-and-child-process-custody)
+reuse Native Owners and P20/P25/P24/P27, existing-only credentials and the fixed
+Bridge package inspection plus original SDK child/stdio/exit settlement. Their
+constructors perform no OS operations and they have no normal startup consumer.
 SOURCE WIRED/Fake evidence never means REAL WINDOWS VERIFIED or FORMAL ADMISSION
 PASSED, full AR-R6B completion or AR-R9B prerequisite acceptance.
-Actual protected credential acquisition, real OS process bootstrap/transfer,
+Actual Windows execution of protected acquisition, real OS process bootstrap/transfer,
 admitted App/Bridge channels and Draft #327's short-deadline cancellation
 compatibility remain open and require further integration/acceptance. These fixtures and the App/Bridge source
 slices do not establish reference-plugin distribution or

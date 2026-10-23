@@ -440,6 +440,11 @@ The later dormant
 [MCP §16 startup root](mcp-vnext-contract.md#16-dormant-windows-startup-and-credential-handoff-composition)
 only wires existing owners without activating a listener, credential, Host,
 Bridge or process; active production composition remains prohibited.
+The subsequent [MCP §17 adapters](mcp-vnext-contract.md#17-dormant-protected-acquisition-and-child-process-custody)
+add dormant existing-Native resource acquisition and fixed-candidate SDK child
+custody. They retain original Owner/Store/stdio/exit barriers, perform no OS work
+at construction and are exercised only through Fake Native/process/TLS and
+isolated SQLite. Real Windows execution and production admission remain pending.
 Package 3 reaches SOURCE IMPLEMENTED / OFFLINE TESTED only: it is neither
 production activation nor an A-row acceptance, and no real
 shutdown/restart/revoke/crash/release trial or AOT/Release build is performed.

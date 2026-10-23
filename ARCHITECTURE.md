@@ -562,8 +562,15 @@ performs no I/O; explicit trusted acquirers transfer exclusive original Owners.
 App reuses `attachCredentials` and the SAME owned Host/Runtime; Bridge retains
 the original single-connection-per-call owner. Pending local Authentication and
 actual process-exit callbacks join owning settlement before credential/lock
-release, with failure latched and custody retained. No real acquirer/process
-launcher or normal startup consumer is supplied. Source wiring and Fake evidence
+release, with failure latched and custody retained. The dormant trusted
+`mcp_vnext_windows_acquisition.dart` adapter acquires original Native Owners and
+constructs existing P20/P25/P24/P27 resources, with existing-only App credential
+validation and one-shot transfer. `WindowsBridgeProcess` checks the fixed adjacent
+Bridge candidate and retains only its newly created SDK process object; stdin
+EOF, original exit and both output drains precede release. Unknown launch/close/
+exit retains the owning lock and database barrier. App and Bridge share the
+original Owner's one-use runtime guard. Neither adapter has a normal startup
+consumer; constructors perform no OS work. Source wiring and Fake evidence
 do not establish real Windows verification, formal admission, full AR-R6B or
 AR-R9B prerequisite acceptance.
 

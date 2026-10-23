@@ -280,9 +280,16 @@ final class ExternalProtectedObjects {
   bool get isClosed => _closed;
   int get associationEpoch => _associationEpoch;
   bool get isUsable => !_closed && !_denied;
+  bool get isAppOwner => _role == 1;
+  bool get isBridgeOwner => _role == 2;
 
   /// Read-only composition check over the existing one-use Host claim.
   bool get runtimeClaimed => _runtimeClaimed;
+
+  /// Unknown cleanup keeps the existing lock and irreversibly rejects another
+  /// Runtime adopting this Owner. Already admitted work may still settle.
+  /// No OS operation, release, authorization or recovery is performed.
+  void rejectRuntimeReuse() => _runtimeClaimed = true;
 
   /// One Host may claim this already-held App lock. Sharing one Dart Owner
   /// between two candidate Hosts must not bypass OS acquisition exclusion.
@@ -290,6 +297,16 @@ final class ExternalProtectedObjects {
   void claimRuntime() {
     ensureOpen();
     if (_role != 1 || _runtimeClaimed) {
+      WindowsExternalNative._fail(ExternalNativeFailure.temporarilyUnavailable);
+    }
+    _runtimeClaimed = true;
+  }
+
+  /// Same one-use custody guard for the original Bridge client.lock owner.
+  /// It adds no OS lock, registry, authentication or reusable runtime identity.
+  void claimBridgeRuntime() {
+    ensureOpen();
+    if (_role != 2 || _runtimeClaimed) {
       WindowsExternalNative._fail(ExternalNativeFailure.temporarilyUnavailable);
     }
     _runtimeClaimed = true;

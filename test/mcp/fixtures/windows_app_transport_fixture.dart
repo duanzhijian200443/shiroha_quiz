@@ -5,6 +5,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/external/first_party_stage_approval.dart';
 import 'package:shiroha_quiz/composition/mcp_vnext_windows_bridge.dart';
 import 'package:shiroha_quiz/composition/mcp_vnext_windows_startup.dart';
+import 'package:shiroha_quiz/composition/mcp_vnext_windows_acquisition.dart';
+import 'package:shiroha_quiz/data/external/windows_credential_object_store.dart';
+import 'package:shiroha_quiz/data/external/native/windows_external_native.dart';
 import 'package:shiroha_quiz/mcp/vnext_mcp_composition_root.dart';
 import 'package:shiroha_quiz/mcp/vnext_mcp_server.dart';
 import 'package:shiroha_quiz/data/external/discovery_descriptor_codec.dart';
@@ -21,6 +24,8 @@ import '../../data/external/windows_peer_certificate_policy_test.dart'
     show OfflinePeerCalls;
 import '../../data/external/windows_credential_initialization_test.dart'
     as init;
+import '../../data/external/windows_credential_object_store_test.dart'
+    as objects;
 import '../../data/external/fixtures/windows_tls_bridge_cases.dart'
     show LinkedChannel;
 import 'first_party_app_integration_cases.dart';
@@ -46,9 +51,11 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
   late WindowsTlsHost host;
   late McpVnextWindowsAppStartup startup;
   late McpVnextWindowsAppDependencies appDependencies;
+  late McpVnextWindowsBridgeDependencies bridgeDependencies;
   McpVnextWindowsBridgeStartup? bridgeStartup;
   final appProcess = FakeWindowsMcpProcess();
   final bridgeProcess = FakeWindowsMcpProcess();
+  McpVnextWindowsProcessOwner? appProcessOverride;
   TlsListenerIo? listenerOverride;
   Future<void> Function()? beforeAcquire;
   bool failReadiness = false;
@@ -71,10 +78,33 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
   Future<void> open(
       {bool attach = true,
       bool stage = true,
-      bool productBridge = false}) async {
+      bool productBridge = false,
+      bool protectedAcquisition = false}) async {
     await pairing.open();
     await super.open(attach: false);
     final h = pairing;
+    final process = appProcessOverride ?? appProcess;
+    McpVnextWindowsProtectedAcquirer acquirer() =>
+        McpVnextWindowsProtectedAcquirer(
+          openNative: () => objects.adapter(h.native.calls),
+          primitives: McpVnextWindowsCredentialPrimitives(
+              generateKey: h.native.generate,
+              signDigest: p27.signPublicFixture,
+              verifyDigest: h.native.verify),
+          utcNow: () => h.native.now,
+          monotonicNow: () => h.elapsed,
+          compositionIsCurrent: () => h.current && controls.isCurrent,
+          randomBytes: h.random,
+        );
+    Future<void> closeLocal() async {
+      if (localCloseReached?.isCompleted == false) {
+        localCloseReached!.complete();
+      }
+      await controlChannel?.close();
+      if (localPlanCreated) plan.dispose();
+    }
+
+    if (protectedAcquisition) h.native.owner.close();
     files.s.clock.current = h.native.now;
     final verifier = WindowsPairingVerification.withPrimitives(
         verifyDigest: h.native.verify,
@@ -86,47 +116,60 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
       enableStageApprovalWait: stage,
       acquire: () async {
         await beforeAcquire?.call();
-        return appDependencies = McpVnextWindowsAppDependencies(
-          owner: h.native.owner,
-          credentials: WindowsCredentialInitialization.withPrimitives(
-              owner: h.native.owner,
-              generateKey: h.native.generate,
-              signDigest: p27.signPublicFixture,
-              verifyDigest: h.native.verify,
-              utcNow: () => h.native.now,
-              randomBytes: h.random),
-          associations: h.associations,
-          exchange: h.appExchange,
-          pairingVerification: verifier,
-          signDigest: p27.signPublicFixture,
-          verifyDigest: h.native.verify,
-          nativePolicy: WindowsPeerCertificatePolicy(OfflinePeerCalls()).check,
-          clock: files.s.clock,
-          utcNow: () => h.native.now,
-          monotonicNow: () => h.elapsed,
-          randomBytes: h.random,
-          compositionIsCurrent: () => h.current && controls.isCurrent,
-          readiness: OfflineReadiness(() async {
-            if (failReadiness) throw StateError('Fake readiness failure');
-            await files.s.h.db.rawQuery('SELECT 1');
-          }),
-          listener: listenerOverride ?? listener,
-          port: listener.port,
-          pairing: (appPairing) => handoff = WindowsPairingHandoff(
-              appOwner: appPairing, bridgeOwner: h.bridge),
-          openLocalConnection: () async {
-            await beforeLocalOpen?.call();
-            return (channel: controlChannel!, plan: plan);
-          },
-          closeLocalConnections: () async {
-            if (localCloseReached?.isCompleted == false) {
-              localCloseReached!.complete();
-            }
-            await controlChannel?.close();
-            if (localPlanCreated) plan.dispose();
-          },
-          process: appProcess,
-        );
+        McpVnextWindowsAppDependencies assemble(
+            [McpVnextWindowsAppResources? resources]) {
+          if (resources != null) {
+            h.native.owner = resources.owner;
+            h.native.store = WindowsCredentialObjectStore(resources.owner);
+            h.native.service = resources.credentials;
+            h.associations = resources.associations;
+            h.appExchange = resources.exchange;
+          }
+          return appDependencies = McpVnextWindowsAppDependencies(
+            owner: h.native.owner,
+            credentials: resources?.credentials ??
+                WindowsCredentialInitialization.withPrimitives(
+                    owner: h.native.owner,
+                    generateKey: h.native.generate,
+                    signDigest: p27.signPublicFixture,
+                    verifyDigest: h.native.verify,
+                    utcNow: () => h.native.now,
+                    randomBytes: h.random),
+            associations: h.associations,
+            exchange: h.appExchange,
+            pairingVerification: resources?.verification ?? verifier,
+            signDigest: p27.signPublicFixture,
+            verifyDigest: h.native.verify,
+            nativePolicy:
+                WindowsPeerCertificatePolicy(OfflinePeerCalls()).check,
+            clock: files.s.clock,
+            utcNow: () => h.native.now,
+            monotonicNow: () => h.elapsed,
+            randomBytes: h.random,
+            compositionIsCurrent: () => h.current && controls.isCurrent,
+            readiness: OfflineReadiness(() async {
+              if (failReadiness) throw StateError('Fake readiness failure');
+              await files.s.h.db.rawQuery('SELECT 1');
+            }),
+            listener: listenerOverride ?? listener,
+            port: listener.port,
+            pairing: (appPairing) => handoff = WindowsPairingHandoff(
+                appOwner: appPairing, bridgeOwner: h.bridge),
+            openLocalConnection: () async {
+              await beforeLocalOpen?.call();
+              return (channel: controlChannel!, plan: plan);
+            },
+            closeLocalConnections: closeLocal,
+            process: process,
+          );
+        }
+
+        return protectedAcquisition
+            ? acquirer().acquireApp(
+                assemble: assemble,
+                process: process,
+                closeLocalConnections: closeLocal)
+            : assemble();
       },
     );
     port = await startup.start();
@@ -169,10 +212,15 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
     await controls.enable(const Duration(minutes: 5));
     if (stage) approvalView = controls.openStageApprovalView()!;
     if (productBridge) {
-      bridgeStartup = McpVnextWindowsBridgeStartup(
-        enableStageApprovalWait: stage,
-        acquire: () async => McpVnextWindowsBridgeDependencies(
-          owner: h.bridgeOwner,
+      if (protectedAcquisition) {
+        await handoff.bridge.close();
+        h.bridgeOwner.close();
+      }
+      McpVnextWindowsBridgeDependencies assembleBridge(
+          ExternalProtectedObjects owner) {
+        h.bridgeOwner = owner;
+        return bridgeDependencies = McpVnextWindowsBridgeDependencies(
+          owner: owner,
           trusted: DiscoveryExpectations(
               trustedAnchorDer: material.issuerCertificateDer,
               installationId: material.installationId,
@@ -197,7 +245,15 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
           monotonicNow: () => h.elapsed,
           compositionIsCurrent: () => h.current,
           process: bridgeProcess,
-        ),
+        );
+      }
+
+      bridgeStartup = McpVnextWindowsBridgeStartup(
+        enableStageApprovalWait: stage,
+        acquire: () async => protectedAcquisition
+            ? acquirer()
+                .acquireBridge(assemble: assembleBridge, process: bridgeProcess)
+            : assembleBridge(h.bridgeOwner),
       );
       await bridgeStartup!.start();
       bridge = bridgeStartup!;
