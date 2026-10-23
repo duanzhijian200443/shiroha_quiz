@@ -564,7 +564,8 @@ jobs:
             'test/application/generated_question/generated_external_origin_migration_test.dart',
             'test/application/agent/agent_config_service_test.dart',
             'test/application/agent/agent_history_test.dart',
-            'test/data/repositories/agent_config_repository_test.dart'
+            'test/data/repositories/agent_config_repository_test.dart',
+            'test/data/external/windows_public_pairing_worker_test.dart'
           )
 
           $shardCount = 4
