@@ -36,6 +36,14 @@ foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.
             !$projection.Contains("decoded['schemaVersion'] != 3")) {
             throw 'Bridge v3 selection/response or STAGE classification missing'
         }
+    } elseif ($file.FullName -eq (Join-Path $root 'lib/composition/mcp_vnext_windows_acquisition.dart')) {
+        foreach ($token in @('dart:io', 'dart:ffi', 'Process.', 'Platform.environment',
+            'DatabaseHelper', 'ExternalTrustCore(', 'ExternalSession(', 'ExternalPrincipal(',
+            'PairingProof(', 'AuthenticatedPeerEvidence(', '.initialize(', '.recoverServer(',
+            'DartLoopbackTlsIo', 'DartLoopbackBridgeIo', 'jsonDecode', '.start(',
+            'print(', 'debugPrint(', 'DiscoveryDescriptorCodec', 'ExchangeMessageCodec')) {
+            if ($code.Contains($token)) { throw "Protected acquisition escaped custody boundary: $token" }
+        }
     } elseif ($file.FullName -eq (Join-Path $root 'lib/composition/mcp_vnext_windows_startup.dart')) {
         foreach ($token in @('dart:io', 'dart:ffi', 'Process.', 'Platform.environment',
             'DatabaseHelper', 'ExternalTrustCore(', 'ExternalSession(', 'ExternalPrincipal(',
@@ -63,9 +71,26 @@ foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.
     if ($file.FullName -notin @((Join-Path $root 'lib/mcp/vnext_mcp_bridge_port.dart'),
             (Join-Path $root 'lib/composition/mcp_vnext_windows_bridge.dart')) -and
         $code -match 'vnext_mcp_bridge_port|VnextMcpBridgePort') { throw 'Bridge projection startup consumer is active' }
-    if ($file.FullName -ne (Join-Path $root 'lib/composition/mcp_vnext_windows_startup.dart') -and $code -match "(?:import|export).*mcp_vnext_windows_(?:transport|bridge|startup)" ) {
+    if ($file.FullName -notin @((Join-Path $root 'lib/composition/mcp_vnext_windows_startup.dart'),
+            (Join-Path $root 'lib/composition/mcp_vnext_windows_acquisition.dart')) -and $code -match "(?:import|export).*mcp_vnext_windows_(?:transport|bridge|startup|acquisition)" ) {
         throw 'Inactive Windows composition acquired a production consumer'
     }
+    if ($file.FullName -notin @((Join-Path $root 'lib/data/external/windows_bridge_process.dart'),
+            (Join-Path $root 'lib/composition/mcp_vnext_windows_startup.dart')) -and
+        $code -match "(?:import|export).*windows_bridge_process") {
+        throw 'Inactive process adapter acquired a production consumer'
+    }
+}
+$process = [IO.File]::ReadAllText((Join-Path $external 'windows_bridge_process.dart'))
+foreach ($token in @('killPid', '.kill(', '.pid', 'Platform.environment', 'Process.run',
+    'runInShell: true', 'includeParentEnvironment: true', 'Timer(', 'jsonDecode',
+    'dart:ffi', 'OpenProcess', 'DatabaseHelper', 'windows_tls_')) {
+    if ($process.Contains($token)) { throw "Process adapter escaped original child custody: $token" }
+}
+foreach ($required in @('WindowsExternalReleaseCandidate.inspect(', 'Platform.resolvedExecutable',
+    'Process.start(executable, const []', 'runInShell: false', 'includeParentEnvironment: false',
+    '_process.stdin.close()', '_process.exitCode', '_process.stdout.drain', '_process.stderr.drain')) {
+    if (!$process.Contains($required)) { throw "Fixed child process guard missing: $required" }
 }
 $bridgeSource = [IO.File]::ReadAllText((Join-Path $external 'windows_tls_bridge.dart'))
 foreach ($required in @('this.enableStageApprovalWait = false', 'if (!enableStageApprovalWait)',

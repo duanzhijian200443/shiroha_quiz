@@ -1482,7 +1482,10 @@ Principal, PairingProof, Session, Association, Grant or Enablement. No active
 production consumer calls this infrastructure; the sole dormant exception is the
 [MCP §16](mcp-vnext-contract.md#16-dormant-windows-startup-and-credential-handoff-composition)
 startup root, which activates no acquisition, Listener, transport or normal
-startup. P27 enrollment remains separately scoped.
+startup. Its dormant [MCP §17 acquisition adapter](mcp-vnext-contract.md#17-dormant-protected-acquisition-and-child-process-custody)
+reuses existing-only P25 validation and the same P24/P27 owners, without a normal
+startup consumer or a new authentication/Writer authority. P27 enrollment remains
+separately scoped.
 P26's inactive Discovery Publisher/Reader is owned by Windows readiness §18.
 Fixed Native object access and same-ticket epoch/high-water persistence use
 P19/P23/P25; P22 still owns the descriptor and independent trusted inputs.

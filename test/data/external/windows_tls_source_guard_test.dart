@@ -84,6 +84,22 @@ void main() {
         ]) {
           expect(source, isNot(contains(token)), reason: path);
         }
+      } else if (path == 'lib/composition/mcp_vnext_windows_acquisition.dart') {
+        for (final token in [
+          'dart:io',
+          'dart:ffi',
+          'Process.',
+          'DatabaseHelper',
+          'ExternalTrustCore(',
+          'ExternalSession(',
+          '.initialize(',
+          '.recoverServer(',
+          'jsonDecode',
+          'DartLoopbackTlsIo',
+          '.start('
+        ]) {
+          expect(source, isNot(contains(token)), reason: path);
+        }
       } else if (path == 'lib/composition/mcp_vnext_windows_startup.dart') {
         for (final token in [
           'dart:io',
@@ -150,9 +166,18 @@ void main() {
         expect(source, isNot(contains('vnext_mcp_bridge_port')), reason: path);
         expect(source, isNot(contains('VnextMcpBridgePort')), reason: path);
       }
-      if (path != 'lib/composition/mcp_vnext_windows_startup.dart') {
+      if (path != 'lib/composition/mcp_vnext_windows_startup.dart' &&
+          path != 'lib/composition/mcp_vnext_windows_acquisition.dart') {
         expect(
-            RegExp(r'(?:import|export).*mcp_vnext_windows_(?:transport|bridge|startup)')
+            RegExp(r'(?:import|export).*mcp_vnext_windows_(?:transport|bridge|startup|acquisition)')
+                .hasMatch(source),
+            isFalse,
+            reason: path);
+      }
+      if (path != 'lib/data/external/windows_bridge_process.dart' &&
+          path != 'lib/composition/mcp_vnext_windows_startup.dart') {
+        expect(
+            RegExp(r'(?:import|export).*windows_bridge_process')
                 .hasMatch(source),
             isFalse,
             reason: path);
@@ -167,6 +192,37 @@ void main() {
       'CertFreeCertificateContext'
     ]) {
       expect(policy, contains(token));
+    }
+  });
+  test(
+      'fixed child retains original process and streams without PID operations',
+      () {
+    final source = File('lib/data/external/windows_bridge_process.dart')
+        .readAsStringSync();
+    for (final token in [
+      'killPid',
+      '.kill(',
+      '.pid',
+      'Platform.environment',
+      'Process.run',
+      'runInShell: true',
+      'includeParentEnvironment: true',
+      'Timer(',
+      'dart:ffi',
+      'OpenProcess'
+    ]) {
+      expect(source, isNot(contains(token)));
+    }
+    for (final token in [
+      'WindowsExternalReleaseCandidate.inspect(',
+      'Platform.resolvedExecutable',
+      'Process.start(executable, const []',
+      '_process.stdin.close()',
+      '_process.exitCode',
+      '_process.stdout.drain',
+      '_process.stderr.drain'
+    ]) {
+      expect(source, contains(token));
     }
   });
   test(

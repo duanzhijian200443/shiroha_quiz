@@ -487,9 +487,13 @@ ownership across all seven tools and opt-in same-Session STAGE confirmation.
 further lifts trusted Owner/credential/Pairing/Discovery/TLS wiring into a dormant
 product startup root, including pending local authentication and process-exit
 custody interfaces. Construction performs no I/O; there is no normal startup
-consumer, default acquirer or real OS launcher. SOURCE WIRED and Fake verification
+consumer or default activation. The dormant
+[section 17 adapters](../product/agent-refactor/mcp-vnext-contract.md#17-dormant-protected-acquisition-and-child-process-custody)
+now supply existing-Native acquisition and fixed-adjacent Bridge package/SDK
+child custody, with EOF/exit/stream settlement and failure retention.
+SOURCE WIRED and Fake verification
 remain distinct from REAL WINDOWS NOT VERIFIED and FORMAL ADMISSION NOT PASSED.
-Actual protected credential acquisition, real OS process bootstrap/transfer and
+Actual Windows credential acquisition, real OS process bootstrap/transfer and
 admitted runtime channels remain **BLOCKED product implementation/integration
 and acceptance work**; callbacks do not prove those operations.
 Draft #327's installed-client short-deadline cancellation compatibility remains

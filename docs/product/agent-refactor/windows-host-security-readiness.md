@@ -4102,17 +4102,42 @@ through original connection I/O, close and process settlement. Failed cleanup
 locks admission and retains uncertain resources; database close/Restore cannot
 substitute caller completion for owning settlement.
 
-Source guards permit only this exact dormant root, with no normal App/Bridge
-consumer or real acquirer/launcher. The existing standing P11 architecture suite
+Source guards permit this exact dormant root and the bounded section 17
+[protected-acquisition/process adapters](mcp-vnext-contract.md#17-dormant-protected-acquisition-and-child-process-custody),
+with no normal App/Bridge consumer. The existing standing P11 architecture suite
 includes its Fake end-to-end and failure boundaries. Public credentials, Fake
 Native/TLS/process callbacks and temporary SQLite are SOURCE/OFFLINE evidence
 only. **SOURCE WIRED**, executed **FAKE VERIFIED**, **REAL WINDOWS NOT VERIFIED**
-and **FORMAL ADMISSION NOT PASSED** are separate conclusions. Actual protected
-acquisition, OS process launch/exit and real TLS/Listener wiring remain BLOCKED
-pending separately scoped implementation and admission; callbacks cannot prove
+and **FORMAL ADMISSION NOT PASSED** are separate conclusions. Dormant source now
+adapts existing Native acquisition and SDK child custody; actual protected
+acquisition, OS launch/exit and real TLS/Listener integration remain unverified
+pending separately scoped integration and admission; callbacks cannot prove
 OS ownership or security. No Trial 1A/G0-L1/L2/I, real Owner/credential/TLS/
 Listener/process experiment or production activation follows. Draft #327 stays
 untouched and its cancellation compatibility remains BLOCKED. This source-only
 slice does not close full AR-R6B or AR-R9B prerequisites.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
+
+### Protected acquisition and process-custody source boundary
+
+MCP §17 owns the additional G0-L0 source. One Native-acquired App or Bridge Owner
+is transferred once; App existing-only P25 validation and the SAME P20/P24/P27
+resources precede attachment. P26/Bridge still owns independent-trust/kind-4
+validation; no initial pin, credential recovery, second verifier or Writer is
+created. Partial acquisition joins local/process work before Store and Owner
+release. Failed settlement retains custody. Bridge runtime claiming extends the
+same rejection-only Owner marker, never replacing native lock exclusion.
+
+Fixed adjacent Bridge package/x64 PE inspection precedes SDK child creation.
+Only the original returned Process and its stdio/exit Futures are retained.
+EOF requests shutdown, with no PID-based termination or private startup protocol.
+An unknown creation result, abnormal exit or failed stream close cannot clear
+the original Host/Owner/database close barrier. A hung child remains pending;
+there is no timeout that fabricates settlement. Package mutation/loader identity,
+real protected acquisition and cross-process functionality are not proved by
+these static checks. The default Bridge entry remains disabled.
+
+Existing P11 Fake tests and source boundaries cover the adapters; no production
+helper load, DPAPI/security call, real child, Listener or private database is
+executed. No A/X row, G0-L1/L2/I grant, Trial 1A or AR-R6B completion follows.

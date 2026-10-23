@@ -13,6 +13,7 @@ import '../data/external/native/windows_external_native.dart';
 import '../data/external/native/windows_peer_certificate_policy.dart';
 import '../data/external/windows_credential_association_store.dart';
 import '../data/external/windows_credential_initialization.dart';
+import '../data/external/windows_bridge_process.dart';
 import '../data/external/windows_discovery.dart';
 import '../data/external/windows_exchange_file_store.dart';
 import '../data/external/windows_pairing.dart';
@@ -22,13 +23,8 @@ import 'mcp_vnext_app_integration.dart';
 import 'mcp_vnext_windows_bridge.dart';
 import 'mcp_vnext_windows_transport.dart';
 
-/// Custody of an already admitted process, never process identity or authority.
-/// The trusted implementation must stop admission and await actual process exit,
-/// including interrupted launch. Failed/unknown exit must complete with failure.
-/// No OS implementation or process launcher is installed by this source slice.
-abstract interface class McpVnextWindowsProcessOwner {
-  Future<void> stopAndWait();
-}
+export '../data/external/windows_bridge_process.dart'
+    show McpVnextWindowsProcessOwner;
 
 typedef McpVnextWindowsLocalConnection = ({
   TlsChannel channel,
@@ -118,6 +114,7 @@ final class McpVnextWindowsAppStartup {
   bool get _current =>
       !_stopped &&
       integration.controls.isCurrent &&
+      _processCurrent(_dependencies?.process) &&
       _dependencies?.compositionIsCurrent() == true;
 
   Future<VnextMcpPort> start() {
@@ -133,15 +130,17 @@ final class McpVnextWindowsAppStartup {
         throw StateError('Windows MCP startup unavailable');
       }
       final d = await _acquire();
-      if (d.owner.runtimeClaimed) {
+      if (d.owner.runtimeClaimed ||
+          !d.owner.isAppOwner ||
+          !d.credentials.usesOwner(d.owner) ||
+          !d.associations.usesOwner(d.owner) ||
+          !d.exchange.usesOwner(d.owner)) {
         _rejectedDependencies = d;
         throw StateError('Windows MCP startup unavailable');
       }
       _dependencies = d;
-      if (!_current ||
-          !d.credentials.usesOwner(d.owner) ||
-          !d.associations.usesOwner(d.owner) ||
-          !d.exchange.usesOwner(d.owner)) {
+      _observeProcess(d.process, close);
+      if (!_current) {
         throw StateError('Windows MCP startup unavailable');
       }
       // Existing-only validation: never initialize, repair, rekey or recover.
@@ -263,16 +262,23 @@ final class McpVnextWindowsAppStartup {
   Future<void> _settle() => _settling ??= () async {
         if (_rejectedDependencies != null) return;
         final d = _dependencies;
-        await Future.wait([
-          if (_attaching) integration.close(),
-          if (_host != null) _host!.shutdown(),
-          if (_pairing != null) _pairing!.close(),
-          _closeAuxiliary(),
-        ]);
-        // Once transferred, the SAME Host is the sole Store/Owner closer.
-        if (_host == null && d != null) {
-          if (d.associations.usesOwner(d.owner)) await d.associations.close();
-          d.owner.close();
+        try {
+          await Future.wait([
+            if (_attaching) integration.close(),
+            if (_host != null) _host!.shutdown(),
+            if (_pairing != null) _pairing!.close(),
+            _closeAuxiliary(),
+          ]);
+          // Once transferred, the SAME Host is the sole Store/Owner closer.
+          if (_host == null && d != null) {
+            if (d.associations.usesOwner(d.owner)) await d.associations.close();
+            d.owner.close();
+          }
+        } catch (_) {
+          // A pre-Host failure must not let another Runtime adopt the retained
+          // Owner while local/process cleanup remains unknown.
+          d?.owner.rejectRuntimeReuse();
+          rethrow;
         }
       }();
 
@@ -331,6 +337,7 @@ final class McpVnextWindowsBridgeStartup implements VnextMcpPort {
   final Future<McpVnextWindowsBridgeDependencies> Function() _acquire;
   final bool enableStageApprovalWait;
   McpVnextWindowsBridgeDependencies? _dependencies;
+  bool _rejectedDependencies = false;
   McpVnextWindowsBridge? _bridge;
   Future<void>? _starting, _closing, _settling;
   bool _stopped = false;
@@ -344,8 +351,17 @@ final class McpVnextWindowsBridgeStartup implements VnextMcpPort {
 
   Future<void> _start() async {
     try {
-      final d = _dependencies = await _acquire();
-      if (_stopped || !d.compositionIsCurrent()) {
+      final d = await _acquire();
+      if (d.owner.runtimeClaimed || !d.owner.isBridgeOwner) {
+        _rejectedDependencies = true;
+        throw StateError('Windows MCP startup unavailable');
+      }
+      _dependencies = d;
+      d.owner.claimBridgeRuntime();
+      _observeProcess(d.process, close);
+      if (_stopped ||
+          !_processCurrent(d.process) ||
+          !d.compositionIsCurrent()) {
         throw StateError('Windows MCP startup unavailable');
       }
       _bridge = McpVnextWindowsBridge(
@@ -367,7 +383,10 @@ final class McpVnextWindowsBridgeStartup implements VnextMcpPort {
           nativePolicy: d.nativePolicy,
           utcNow: d.utcNow,
           monotonicNow: d.monotonicNow,
-          compositionIsCurrent: () => !_stopped && d.compositionIsCurrent(),
+          compositionIsCurrent: () =>
+              !_stopped &&
+              _processCurrent(d.process) &&
+              d.compositionIsCurrent(),
           enableStageApprovalWait: enableStageApprovalWait,
         ),
       );
@@ -389,6 +408,7 @@ final class McpVnextWindowsBridgeStartup implements VnextMcpPort {
   }
 
   Future<void> _settle() => _settling ??= () async {
+        if (_rejectedDependencies) return;
         await Future.wait([
           if (_bridge != null) _bridge!.close(),
           if (_dependencies != null)
@@ -406,5 +426,19 @@ final class McpVnextWindowsBridgeStartup implements VnextMcpPort {
       } catch (_) {/* Failed startup already settled. */}
       await _settle();
     }();
+  }
+}
+
+bool _processCurrent(McpVnextWindowsProcessOwner? process) =>
+    process is! McpVnextWindowsObservedProcessOwner || process.isCurrent;
+
+void _observeProcess(
+    McpVnextWindowsProcessOwner process, Future<void> Function() close) {
+  if (process is McpVnextWindowsObservedProcessOwner) {
+    // Notification initiates the SAME latched shutdown. stopAndWait still owns
+    // settlement; awaiting close from inside that settlement would deadlock.
+    unawaited(process.exited.then((_) => close()).catchError((Object _) {
+      // The original close Future retains failure for the owning DB barrier.
+    }));
   }
 }

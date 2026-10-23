@@ -72,7 +72,11 @@ void main() {
           p.equals(
               entity.absolute.path,
               p.absolute(
-                  'lib', 'composition', 'mcp_vnext_windows_startup.dart'))) {
+                  'lib', 'composition', 'mcp_vnext_windows_startup.dart')) ||
+          p.equals(
+              entity.absolute.path,
+              p.absolute('lib', 'composition',
+                  'mcp_vnext_windows_acquisition.dart'))) {
         continue;
       }
       if (p.extension(entity.path) != '.dart' ||

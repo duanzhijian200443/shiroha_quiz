@@ -43,9 +43,9 @@ class Harness {
         });
   }
   final FakeExternalNativeCalls calls;
-  late final ExternalProtectedObjects owner;
-  late final WindowsCredentialObjectStore store;
-  late final WindowsCredentialInitialization service;
+  late ExternalProtectedObjects owner;
+  late WindowsCredentialObjectStore store;
+  late WindowsCredentialInitialization service;
   DateTime now = DateTime.utc(2026, 10, 15);
   int generated = 0, randomCalls = 0, signs = 0, verified = 0;
   bool randomError = false, badSign = false;
@@ -489,7 +489,8 @@ void main() {
         'lib/data/external/windows_discovery.dart',
         'lib/data/external/windows_pairing.dart',
         'lib/data/external/windows_tls_credentials.dart',
-        'lib/composition/mcp_vnext_windows_startup.dart'
+        'lib/composition/mcp_vnext_windows_startup.dart',
+        'lib/composition/mcp_vnext_windows_acquisition.dart'
       ].contains(entry.path.replaceAll('\\', '/'))) {
         continue;
       }
