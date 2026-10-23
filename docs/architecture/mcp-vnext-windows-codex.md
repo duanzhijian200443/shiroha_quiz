@@ -445,6 +445,7 @@ delivery gates; manual user confirmation is not `[VERIFICATION APPROVAL]`.
 | Codex synthetic STAGE | The opt-in installed-client suite uses actual `mcpServer/tool/call` plus the test-only mailbox to reach that same App composition and persisted Proposal/Review lifecycle. Results count only when run against an explicit installed executable; SDK success or skipped cases cannot substitute. |
 | Codex synthetic File READ | The separate opt-in suite reaches existing P6/F1/RAG/FTS5 through actual Codex calls, explicit file selection and bounded passages, including authorization/source invalidation and cleanup. Only executed cases against the named installed binary establish client evidence. |
 | Codex Bridge v3 | The separate opt-in Bridge suite sends actual installed-client calls through the existing mailbox, single-request Fake TLS Bridge and App P10 v3/P8/P7. It checks fresh authentication/Context binding, six non-STAGE tools, refusal, response loss and cleanup. Bridge STAGE remains zero-send; this supplies no production process/security binding. |
+| Codex Windows App/Bridge functional composition | `windows_app_transport_codex_test.dart` exercises all seven tools through the product App composition, P27 Handoff, owned Host and `McpVnextWindowsBridge` (executed with `codex-cli 0.144.1` and Desktop `codex-cli 0.163.0-alpha.11.1`), including explicit same-Session first-party STAGE confirmation and original-key lifecycle query. Uses the existing test mailbox, Fake TLS and temporary SQLite; Draft #327's short-deadline cancellation compatibility remains BLOCKED. |
 | First-party App controls | The product root and local Profile/finite-enable/target-confirm/disable controls are proved with synthetic credentials and temporary SQLite under MCP contract §9. The real desktop smoke above additionally checks dormant display/refusal and records user-confirmed restart/bank behavior. It supplies no real authentication. |
 | Production business access | **Not enabled.** The standalone entry has no admitted authenticated App/Bridge transport or real pairing/credential binding. SDK success and Codex discovery/refusal do not satisfy production activation. |
 
@@ -477,11 +478,16 @@ adds bounded single-request Bridge P9 communication through the existing verifie
 channel; Fake TLS exercises real App P10/P8 READ/STAGE. [MCP contract §14](../product/agent-refactor/mcp-vnext-contract.md#14-inactive-bridge-seven-tool-protocol-projection)
 adds shared seven-tool/P10 v3 projection and trusted App Context binding. The
 installed-client Bridge suite above exercises six non-STAGE tools through that
-source using a test-only process mailbox and Fake TLS. Actual protected
-credential acquisition, Windows process-transfer/composition bindings, admitted
-channels and a human-approved Windows Bridge STAGE workflow remain
+source using a test-only process mailbox and Fake TLS. [MCP contract §15](../product/agent-refactor/mcp-vnext-contract.md#15-inactive-windows-process-side-functional-composition)
+completes the inactive App/Bridge process-boundary composition (`McpVnextWindowsTransport`
+and `McpVnextWindowsBridge`), connecting the product App root, P27 Handoff, owned
+TLS Host, auxiliary local-connection drain and single-connection-per-call Bridge
+ownership across all seven tools and opt-in same-Session STAGE confirmation.
+Actual protected credential acquisition, real OS process bootstrap/transfer and
+admitted runtime channels remain
 **product implementation/integration work**.
-They must not be reported as security-approval-only blockers. Reference-package
+Draft #327's installed-client short-deadline cancellation compatibility remains
+separately BLOCKED. They must not be reported as security-approval-only blockers. Reference-package
 distribution/Windows executable discovery and supported-version acceptance in
 MCP contract §5/AR-R9 are separate unfinished client-integration scope; model-led
 and Codex Desktop-interactive use remain unverified. No business reimplementation

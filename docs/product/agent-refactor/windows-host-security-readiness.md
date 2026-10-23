@@ -3336,7 +3336,8 @@ startup validity, channel evidence, P27 Pairing and P15/P8 admission. It waits
 the ORIGINAL startup, closes the Listener once, cancels the accept producer,
 requests accepted Channel/Socket closure and waits every accepted connection's
 original handshake/decode/business/output work. P8/P7/READ/STAGE owning work,
-P27 operations, P15/P12 verification/drain and a started P15 revoke CAS settle
+P27 operations, P15/P12 verification/drain, a started P15 revoke CAS and any
+supplied first-party local authentication closer settle
 before P20 Store close. TLS plans are disposed; only then may the Owner and
 `runtime.lock` close. P15 alone advances P0 generation after its owning drain.
 No timeout, cancelled caller or response result substitutes for settlement.

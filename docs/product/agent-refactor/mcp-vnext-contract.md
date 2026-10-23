@@ -833,3 +833,69 @@ HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 Production App/Bridge, listener, DPAPI, certificate issuance, ACL, personal data,
 Trial 1A and G0-L1/L2/I remain unactivated. Fake TLS and the stdio reverse link
 prove source integration only; admitted cross-process security remains pending.
+
+## 15. Inactive Windows process-side functional composition
+
+The explicit `attachCredentials` transport factory receives the SAME App-owned
+P12 coordinator and `VnextMcpAppComposition` after P8 readiness. It cannot receive
+client identity, Grant or execution Context fields. The returned
+`McpVnextAppTransport` must retain that exact binding; a foreign binding is rejected
+without starting or closing its transport. `McpVnextWindowsTransport` joins the
+existing inactive `WindowsTlsHost` to this attachment and verifies exact P8/P10
+identity and inactive phase. No parallel business graph, writer, Session factory
+or IPC format is introduced. Factories construct only; the existing Host `start`
+owns the explicit prepare/bind/publication pipeline.
+
+App close/Restore cancels local approval immediately and awaits original
+transport, P15/P27 and P8 settlement before releasing App owners/database.
+Shutdown is latched, including failure. `WindowsTlsHost.owned` also accepts the
+trusted `closeLocalConnections` drain for auxiliary first-party authentication
+channels. That original closer must settle before Store/Owner/runtime.lock
+release; failure poisons admission and retains the Owner, without retry. It is
+required when the composition owns such auxiliary channels. It creates no
+Session and cannot replace channel revalidation. Protected credential acquisition
+and correct wiring of this closer remain the trusted factory's responsibility.
+
+`McpVnextWindowsBridge` supplies the inactive Bridge process-side connection
+owner. Its explicit synchronous factory captures existing credential/Discovery
+owners and receives no request input. One independent MCP call constructs and
+connects one `WindowsTlsBridge`, then invokes the original single-use
+`VnextMcpBridgePort`. Concurrent calls return busy; there is no queue or retry.
+The next independently requested call authenticates a fresh connection. EOF/close
+blocks new calls immediately, closes a connecting/active channel and waits its
+original operation. Unknown close permanently blocks admission and propagates
+unconfirmed cleanup to the process owner. Credential owners must outlive this
+barrier. No automatic STAGE retry follows any unknown result.
+
+STAGE defaults off in this owner as well as App, Host and connection. Mismatched
+Bridge profiles fail closed. Explicit isolated enablement reuses §14's original
+Session/submission/revision/exact-target human wait and first-party confirmation.
+The seven schemas, P9/P10 versions, one request/response/EOF, deadlines, original
+key idempotency and App-only Review/COMMIT are unchanged.
+
+The standing P11 architecture suite imports `windows_app_transport_cases.dart`:
+actual product App + P27 Handoff/manual comparisons + owned Host + Bridge,
+using existing public mathematical credentials, Fake TLS and temporary SQLite.
+It covers all seven routes, explicit approval, same-key idempotency, original
+local Review/COMMIT, policy revision/revoke/Disable, channel/Bridge EOF, Listener
+exit, App close, real B0 Restore, lost response/key query and local-channel drain.
+The existing TLS lifecycle suite covers failed local-channel cleanup retaining
+the Owner. Earlier §7/§9/§14 reopen, exact-Session, target, cancellation, modern/
+legacy protocol, v0 and Review regressions remain required. No new test transport
+framework or production test adapter is supplied.
+
+The opt-in installed-client test `windows_app_transport_codex_test.dart` uses the
+existing disposable mailbox to reach this same composition and all seven tools.
+The Windows guide records only executed binaries. The mailbox and Fake TLS prove
+isolated process-boundary functionality, not actual Windows process transfer of
+protected credentials or a production App/Bridge bootstrap. Normal App and
+standalone vNext startup still reject business access; static gates forbid any
+production consumer of these two explicit Windows composition files.
+
+Remaining product work includes actual protected credential acquisition, real
+process bootstrap/handoff and admitted TLS binding. Draft #327's Codex short-tool-
+deadline cancellation compatibility remains BLOCKED; this slice neither changes
+timeouts nor repeats its diagnostic matrix. Formal Windows security admission
+remains separately pending. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
+AR-R6A = NOT_ACCEPTED. This source delivery is not full AR-R6B acceptance and
+does not satisfy AR-R9B prerequisites or authorize Trial 1A/G0-L1/L2/I.

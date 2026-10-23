@@ -214,7 +214,7 @@ acceptance is preserved without manufacturing missing older approval markers.
 | Real-client isolated E2E | Installed-Codex synthetic workflows have executed evidence in #312-#314 and #315's independent Windows verification. |
 | STAGE/persistence/local Review/idempotency/disconnect-restart recovery | Covered through the same App owners in #309/#311/#313 and subsequent regressions. |
 | Windows launch/connection/disconnection/errors and App controls | Installed-client fixture accepted in #312-#314; #315 supplies dormant controls. This smoke adds desktop display/refusal and user-attested restart/bank behavior; authenticated production App/Bridge use remains unproved. |
-| Remaining blockers are exclusively production admission/security | **Not satisfied.** MCP §§10–14 and external boundary §8 supply inactive pairing/handoff, a bounded P9 client, v3 App-owned READ/File/original-key binding and an explicit source-only same-Session first-party STAGE waiting profile (default off). Actual credential acquisition, process composition and admitted runtime wiring remain product integration work as well as requiring admission. |
+| Remaining blockers are exclusively production admission/security | **Not satisfied.** MCP §§10–15 and external boundary §8 supply inactive pairing/handoff, a bounded P9 client, v3 App-owned READ/File/original-key binding, explicit source-only same-Session first-party STAGE waiting (default off) and inactive App/Bridge process-boundary functional composition (`McpVnextWindowsTransport` / `McpVnextWindowsBridge`). Actual protected credential acquisition, real OS process bootstrap/transfer, admitted runtime wiring and Draft #327's short-deadline cancellation compatibility remain product/compatibility blockers alongside formal admission. |
 | Separate reference-client scope | MCP §5/AR-R9 reference-package distribution, Windows executable discovery/supported-version acceptance remain unfinished; model-directed/Codex Desktop-interactive use remains unverified. |
 | Admission-only remainder | Formal Windows credential/storage/isolation/transport/lifecycle and AR-R6A/AR-R6B production exposure acceptance remain pending independently of implementation. |
 
@@ -275,11 +275,15 @@ Context creation, policy and final release. The six READ/File/lifecycle tools ha
 inactive source integration; Windows Bridge STAGE remains explicitly blocked
 before serialization/send because a different connection's Session cannot inherit
 approval. Synthetic same-Session approval proves only conditional App binding.
-P9/v1, legacy P10 v1/v2 and all identity/resource limits remain frozen. Complete
-seven-tool process wiring, actual credential
-acquisition, Windows process-transfer/
-composition bindings and admitted App/Bridge channels remain inactive and
-require further integration/acceptance. These fixtures and the App/Bridge source
+P9/v1, legacy P10 v1/v2 and all identity/resource limits remain frozen. The
+[Windows process-side functional composition](../product/agent-refactor/mcp-vnext-contract.md#15-inactive-windows-process-side-functional-composition)
+wires inactive App/Bridge process-boundary ownership (`McpVnextWindowsTransport`
+and `McpVnextWindowsBridge`) across all seven tools, opt-in same-Session STAGE
+approval, auxiliary local-connection drain and B0 Restore barriers, with offline
+and installed-Codex (`0.144.1` / `0.163.0-alpha.11.1`) mailbox/Fake-TLS evidence.
+Actual protected credential acquisition, real OS process bootstrap/transfer,
+admitted App/Bridge channels and Draft #327's short-deadline cancellation
+compatibility remain open and require further integration/acceptance. These fixtures and the App/Bridge source
 slices do not establish reference-plugin distribution or
 model-directed/Desktop-interactive usage.
 Independent Windows verification remains necessary for the exact candidate.

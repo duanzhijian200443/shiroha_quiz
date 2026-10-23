@@ -51,6 +51,7 @@ final class WindowsTlsHost {
     TlsTrustedContext? context,
     IpcTrustedContextBinding? binding,
     bool enableStageApprovalWait = false,
+    Future<void> Function()? closeLocalConnections,
     required int port,
     required Duration Function() monotonicNow,
     TlsBudgets? limits,
@@ -83,6 +84,7 @@ final class WindowsTlsHost {
     candidate._pairing = pairing;
     candidate._associations = associations;
     candidate._boundary = boundary;
+    candidate._closeLocalConnections = closeLocalConnections;
     return candidate;
   }
   final TlsListenerIo io;
@@ -109,6 +111,7 @@ final class WindowsTlsHost {
   WindowsCredentialAssociationStore? _associations;
   ExternalCredentialBoundary? _boundary;
   Future<void>? _controlWork;
+  Future<void> Function()? _closeLocalConnections;
   WindowsTlsHostPhase _phase = WindowsTlsHostPhase.inactive;
   WindowsTlsHostPhase get phase => _phase;
   bool get isReady =>
@@ -247,6 +250,11 @@ final class WindowsTlsHost {
         // alive through that CAS, even when shutdown races the management call.
         await settle(() async {
           await _controlWork;
+        });
+        // Trusted first-party authentication connections share credential-owner
+        // custody even though they are not accepted business sockets.
+        await settle(() async {
+          await _closeLocalConnections?.call();
         });
         await settle(() async {
           await _associations?.close();
