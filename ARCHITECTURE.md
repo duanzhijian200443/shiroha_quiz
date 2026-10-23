@@ -543,6 +543,18 @@ Windows security admission remain pending as distinct conclusions.
 This is source integration, not production admission
 or activation.
 
+MCP contract §15 joins the same dormant App graph to an explicitly supplied,
+identity-checked TLS transport attachment and its full shutdown barrier. The
+original owned Host additionally drains auxiliary first-party authentication
+connections before releasing its protected Owner. An inactive Bridge composition
+owns one newly authenticated connection per independent call, rejects concurrent
+work and never retries an unknown STAGE. Neither Windows composition has a
+production startup consumer. Existing P27 Handoff, P15/P0/P8/P10, original
+first-party approval and App-only Review/COMMIT remain the authorities; no second
+IPC protocol, writer or authorization framework is added. Fake TLS and installed
+client mailbox evidence do not complete production process/credential bootstrap,
+#327 short-deadline cancellation compatibility or formal Windows admission.
+
 The bounded lifecycle extension adds independent READ Proposal metadata over
 the same persistence owner, through P7/P8, retained lifecycle-only IPC schema v2
 and explicit v3 original-key selection.

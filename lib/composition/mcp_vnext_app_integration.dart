@@ -22,6 +22,14 @@ import '../application/retrieval/retrieval_ports.dart';
 import '../mcp/vnext_mcp_composition_root.dart';
 import '../mcp/vnext_mcp_server.dart';
 
+/// Inactive transport custody for this App's exact P8/P10 composition.
+/// Factories construct only; start performs explicitly supplied transport work.
+abstract interface class McpVnextAppTransport {
+  VnextMcpAppComposition get binding;
+  Future<void> start();
+  Future<void> close();
+}
+
 final class _AppPort implements VnextMcpPort {
   const _AppPort(this.inner, this.owner);
   final VnextMcpPort inner;
@@ -106,6 +114,9 @@ final class McpVnextAppIntegration {
         services,
     Duration Function()? monotonicNow,
     bool enableStageApprovalWait = false,
+    McpVnextAppTransport Function(ExternalTrustCoordinator coordinator,
+            VnextMcpAppComposition binding)?
+        transport,
     Duration pairingRequestLifetime =
         ExternalCredentialBoundary.evidenceLifetime,
   }) {
@@ -130,6 +141,7 @@ final class McpVnextAppIntegration {
         readiness,
         () => null,
         enableStageApprovalWait: enableStageApprovalWait,
+        transport: transport,
         credentials: (coordinator, trust) {
           boundary.attach(coordinator, trust);
           final result = services(boundary);
@@ -147,6 +159,9 @@ final class McpVnextAppIntegration {
       {FirstPartyCredentialServices Function(
               ExternalTrustCoordinator, ExternalTrustCore)?
           credentials,
+      McpVnextAppTransport Function(ExternalTrustCoordinator coordinator,
+              VnextMcpAppComposition binding)?
+          transport,
       bool enableStageApprovalWait = false}) async {
     final owner = await localAuthority.openSession();
     late ExternalTrustCore trust;
@@ -201,28 +216,37 @@ final class McpVnextAppIntegration {
             VnextMcpSessionAuthentication(controls.authenticatedSession),
         approvedTargets: const []);
     FirstPartyCredentialServices? credentialServices;
-    Future<void> shutdown() async {
-      // Cancels human input synchronously before any owning drain can wait on it.
-      final approvalClosing = stageApproval?.close();
-      // Close evidence first; P15/P27 drain the same P12/P8 owners before
-      // advancing generation. No Windows owner may be released before drain.
-      if (trust.credentials case final ExternalCredentialBoundary boundary) {
-        final closing = boundary.shutdown();
-        await Future.wait([
-          closing,
-          if (credentialServices != null) credentialServices.pairing.close(),
-        ]);
-        await credentialServices?.close();
-      } else {
-        await coordinator.shutdown();
-      }
-      await port.close();
-      await approvalClosing;
-      reads.close();
-      stages.close();
-      management.invalidate();
-      owner.close();
-    }
+    McpVnextAppTransport? attachedTransport;
+    Future<void>? closing;
+    Future<void> shutdown() => closing ??= () async {
+          // Cancels human input synchronously before any owning drain can wait on it.
+          final approvalClosing = stageApproval?.close();
+          final transportClosing = attachedTransport?.close();
+          // Close evidence first; P15/P27 drain the same P12/P8 owners before
+          // advancing generation. No Windows owner may be released before drain.
+          if (trust.credentials
+              case final ExternalCredentialBoundary boundary) {
+            final closing = boundary.shutdown();
+            await Future.wait([
+              closing,
+              if (transportClosing != null) transportClosing,
+              if (credentialServices != null)
+                credentialServices.pairing.close(),
+            ]);
+            await credentialServices?.close();
+          } else {
+            await Future.wait([
+              coordinator.shutdown(),
+              if (transportClosing != null) transportClosing,
+            ]);
+          }
+          await port.close();
+          await approvalClosing;
+          reads.close();
+          stages.close();
+          management.invalidate();
+          owner.close();
+        }();
 
     try {
       credentialServices = credentials?.call(coordinator, trust);
@@ -238,6 +262,20 @@ final class McpVnextAppIntegration {
           publishApprovals: port.replaceApprovedTargets,
           shutdown: shutdown));
       await coordinator.startOffline();
+      if (!controls.isCurrent) {
+        throw StateError('External composition unavailable');
+      }
+      final candidate = transport?.call(coordinator, port);
+      if (candidate != null) {
+        if (!identical(candidate.binding, port)) {
+          throw StateError('External composition unavailable');
+        }
+        attachedTransport = candidate;
+        await candidate.start();
+      }
+      if (!controls.isCurrent) {
+        throw StateError('External composition unavailable');
+      }
       return _AppPort(port, this);
     } catch (_) {
       await shutdown();

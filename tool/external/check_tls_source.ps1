@@ -36,11 +36,22 @@ foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.
             !$projection.Contains("decoded['schemaVersion'] != 3")) {
             throw 'Bridge v3 selection/response or STAGE classification missing'
         }
+    } elseif ($file.FullName -in @((Join-Path $root 'lib/composition/mcp_vnext_windows_transport.dart'),
+            (Join-Path $root 'lib/composition/mcp_vnext_windows_bridge.dart'))) {
+        foreach ($token in @('ExternalTrustCore', 'ExternalSession', 'ExternalPrincipal',
+            'DatabaseHelper', 'dart:io', 'dart:ffi', '.approveTarget(', '.openSession(',
+            'DartLoopbackTlsIo', 'DartLoopbackBridgeIo', 'P26TlsStartup', 'RawServerSocket')) {
+            if ($code.Contains($token)) { throw "Inactive transport composition gained authority: $token" }
+        }
     } elseif ($code -match 'windows_tls_|WindowsTlsHost|WindowsChannelVerification|DartLoopbackTlsIo|DartLoopbackBridgeIo|P26TlsStartup') {
         throw 'TLS production wiring is active'
     }
-    if ($file.FullName -ne (Join-Path $root 'lib/mcp/vnext_mcp_bridge_port.dart') -and
+    if ($file.FullName -notin @((Join-Path $root 'lib/mcp/vnext_mcp_bridge_port.dart'),
+            (Join-Path $root 'lib/composition/mcp_vnext_windows_bridge.dart')) -and
         $code -match 'vnext_mcp_bridge_port|VnextMcpBridgePort') { throw 'Bridge projection startup consumer is active' }
+    if ($code -match "(?:import|export).*mcp_vnext_windows_(?:transport|bridge)" ) {
+        throw 'Inactive Windows composition acquired a production consumer'
+    }
 }
 $bridgeSource = [IO.File]::ReadAllText((Join-Path $external 'windows_tls_bridge.dart'))
 foreach ($required in @('this.enableStageApprovalWait = false', 'if (!enableStageApprovalWait)',

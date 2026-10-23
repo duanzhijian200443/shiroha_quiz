@@ -31,6 +31,7 @@ class OwnedHarness extends tls.TlsHarness {
   WindowsTlsHost compose(
       {TlsListenerIo? io,
       TlsTrustedContext? context,
+      Future<void> Function()? closeLocalConnections,
       bool wrongOwner = false,
       bool wrongRuntime = false,
       bool wrongGeneration = false}) {
@@ -63,6 +64,7 @@ class OwnedHarness extends tls.TlsHarness {
         coordinator: p.local.coordinator,
         startup: startup,
         verification: verifier,
+        closeLocalConnections: closeLocalConnections,
         io: io ?? listener,
         context: context ??
             (session) async => p.local.coordinator.host
@@ -404,6 +406,24 @@ void main() {
       }
     });
   }
+
+  test('local connection cleanup failure retains Owner and is never retried',
+      () async {
+    var closes = 0;
+    final runtime = h.compose(closeLocalConnections: () async {
+      closes++;
+      throw StateError('fixed offline cleanup failure');
+    });
+    await runtime.start();
+    await expectLater(runtime.shutdown(), throwsA(anything));
+    expect(runtime.phase, WindowsTlsHostPhase.closing);
+    expect(h.pairing.native.owner.isClosed, isFalse);
+    expect(runtime.budget.isUsable, isFalse);
+    await expectLater(runtime.shutdown(), throwsA(anything));
+    expect(closes, 1);
+    h.candidate =
+        null; // Only fixture teardown releases the retained Fake owner.
+  });
 
   for (final failed in [false, true]) {
     test('C2 P15 revoke CAS failure=$failed never reopens runtime', () async {

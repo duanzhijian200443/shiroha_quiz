@@ -84,13 +84,37 @@ void main() {
         ]) {
           expect(source, isNot(contains(token)), reason: path);
         }
+      } else if (path == 'lib/composition/mcp_vnext_windows_transport.dart' ||
+          path == 'lib/composition/mcp_vnext_windows_bridge.dart') {
+        for (final token in [
+          'ExternalTrustCore',
+          'ExternalSession',
+          'ExternalPrincipal',
+          'DatabaseHelper',
+          'dart:io',
+          'dart:ffi',
+          '.approveTarget(',
+          '.openSession(',
+          'DartLoopbackTlsIo',
+          'DartLoopbackBridgeIo',
+          'P26TlsStartup',
+          'RawServerSocket'
+        ]) {
+          expect(source, isNot(contains(token)), reason: path);
+        }
       } else {
         expect(source, isNot(contains('windows_tls_')), reason: path);
       }
-      if (path != 'lib/mcp/vnext_mcp_bridge_port.dart') {
+      if (path != 'lib/mcp/vnext_mcp_bridge_port.dart' &&
+          path != 'lib/composition/mcp_vnext_windows_bridge.dart') {
         expect(source, isNot(contains('vnext_mcp_bridge_port')), reason: path);
         expect(source, isNot(contains('VnextMcpBridgePort')), reason: path);
       }
+      expect(
+          RegExp(r'(?:import|export).*mcp_vnext_windows_(?:transport|bridge)')
+              .hasMatch(source),
+          isFalse,
+          reason: path);
     }
     final policy = File('windows/external_native/peer_policy_windows.cpp')
         .readAsStringSync();
