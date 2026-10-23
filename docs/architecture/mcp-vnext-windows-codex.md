@@ -679,3 +679,80 @@ authorize production business, or replace final-head CI, independent Windows
 verification and Reviewer approval. Abnormal-child custody is demonstrated by
 the ordinary-Dart-child suite; an authenticated production Bridge crash is not
 claimed by the AOT discovery/refusal suite.
+
+## Independent-process P27 public exports
+
+[MCP §17.4](../product/agent-refactor/mcp-vnext-contract.md#174-independent-process-public-pairing-exportimport)
+supplies `WindowsAppPublicPairingHandoff`, `PairingPublicExport` and
+`WindowsBridgeOnboarding.fromPublicExports`. The App retains its original P27/
+P15 request and exports only exact-Submission public trust or freshly queried
+actual completion. The Bridge consumes independent bytes and retains both
+original explicit comparison actions. No new Exchange message, Pairing/Session,
+business IPC route, credential store or production listener is added.
+
+Run the standing suite, or only the new cases:
+
+```powershell
+flutter test --concurrency=1 test/data/external/windows_pairing_test.dart
+flutter test --concurrency=1 test/data/external/windows_pairing_test.dart --plain-name 'independent public exports'
+```
+
+The parent test process owns the App/P15 request. A separate Windows Flutter
+test process owns its own Bridge Enrollment and key and uses the product public
+import factory. Only bounded public export bytes and original P22 public test
+data cross task-owned files. Existing Fake Native replicates public Submission,
+Challenge and Proof in each process; no credential/private key crosses or enters
+the formal executable. The test worker has no provider/auth configuration,
+performs no security-native acquisition and exits before temporary handoff-file
+cleanup. Its direct test entry skips unless launched by the parent.
+
+The success case checks original Submission correlation, identical independent
+initial digests, no Proof before explicit first-decision input, App-only explicit
+approval/completion, fresh actual Revision/digest export, no Pin before the
+second-decision input and one acknowledged Pin save. The inputs simulate user
+decisions; no real human trust ceremony or real protected Pin write is claimed.
+Other cases cover foreign/duplicate requests, premature completion, expiry,
+close, late input drain and strict malformed/version/type/size/revision refusal.
+
+The initial worker failed before publishing Submission: Flutter required
+`PROGRAMFILES(X86)`, absent from the test environment allowlist. A failed run's
+bounded task-only diagnostic identified that exact error. The launcher now
+allows only the needed Windows/toolchain paths in addition to the existing safe
+OS path set, still excluding keys/provider/configuration. Tests use `--no-pub`;
+no production timeout or #327 assertion was changed. The test-only public
+Exchange copier transfers only the relevant original message kind per phase,
+without resurrecting consumed messages.
+
+This is an independently reviewable public export/import feature with actual
+Windows process evidence over simulated security. Production public delivery
+UI/transport, formal AOT Pairing, App local opener/closer and peer-process startup
+assembly remain BLOCKED, independently of safety admission. In particular the
+local authentication opener must return a SERVER-side client-authenticated
+channel/plan; the existing client connector is not an interchangeable input.
+Real protected credentials, Pin, Discovery/TLS and authenticated business remain
+unexecuted. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
+AR-R6A = NOT_ACCEPTED; #327 remains independently BLOCKED at repair budget 4/4.
+
+Executed Windows evidence for this slice (2026-10-23):
+
+- The Pairing, TLS source guard, release candidate, App transport and vNext
+  end-to-end batch passed **213/213**. After tightening the export Revision bound
+  and original App runtime check, the directly affected new cases passed **8/8**
+  again, including the independent worker process.
+- The original build helper successfully rebuilt the x64 DLL/AOT pair. The final
+  Bridge SHA-256 is `6b440369f868973695722a75c196708d57eb7f92cdad30b09ed1477939eab590`;
+  the formal executable remains the unavailable business profile.
+- CLI `0.144.1` and Desktop backend `0.163.0-alpha.11.2` each passed the product
+  App/P27/Host client case. The rebuilt final AOT is separately checked with
+  `windows_bridge_aot_test.dart`, **7/7 on each backend**; these are refusal/compatibility
+  checks, not a production Pairing run.
+- Six changed/new Dart files passed focused analysis and read-only format;
+  Pairing/TLS source guards and `git diff --check` passed. Successful public
+  handoff worker runs joined original exit and both output drains before deleting
+  their task-owned directories. The failure-only diagnostic is retained in the
+  ignored test-artifact root, containing only isolated test/tool output.
+
+The new cases enter standing CI through the existing P27 suite. Linux CI skips
+the Windows subprocess case, so independent fixed-head Windows verification
+and Reviewer approval remain required before merge. Repository/global status:
+NOT_EVALUATED.

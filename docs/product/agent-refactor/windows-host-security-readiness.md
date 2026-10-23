@@ -3069,6 +3069,16 @@ credential acquisition, App/Bridge process flow and authenticated business
 channel bindings remain unimplemented/unaccepted; these local controls do not
 close real Windows gates or activate the standalone entry.
 
+The later MCP §17.4 public-export slice supplies an App-only original-request
+adapter and strict public byte import into the same Bridge controls. Separate
+Windows test processes exercise actual export/import, Submission correlation,
+two simulated manual decisions and actual P15 completion queries. Their Native
+Owners, Exchange storage and Pin persistence are Fake; the test transfers only
+original public Exchange data and the new bounded local public exports. This
+closes no A/X row and supplies no admitted TLS/credential/process bootstrap.
+Actual local accepted-channel routing and production public delivery surfaces
+remain unimplemented. Normal startup and the formal AOT business entry stay closed.
+
 The new `test/data/external/windows_pairing_test.dart` is registered exactly
 once in standing PR contract checks, alongside the directly affected suites:
 

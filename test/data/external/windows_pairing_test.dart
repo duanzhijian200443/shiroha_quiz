@@ -26,6 +26,7 @@ import '../../application/external/external_trust_test_support.dart';
 import 'bootstrap_test_support.dart';
 import 'windows_credential_initialization_test.dart' as initialization;
 import 'windows_credential_object_store_test.dart' as objects;
+import 'fixtures/public_pairing_cases.dart';
 
 // PUBLIC RFC6979 fixture only. Deliberately fixed k=1 is NOT production crypto.
 // Arbitrary locally reconstructed transcripts are checked by the independent
@@ -216,6 +217,7 @@ void main() {
     await h.open();
   });
   tearDown(() => h.close());
+  publicPairingCases(() => h);
   final rejected = throwsA(anything);
 
   group('inactive App-Bridge public handoff adapter', () {

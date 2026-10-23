@@ -310,6 +310,13 @@ adds the dormant Bridge stdio entry and joins EOF/explicit close to the original
 business/Owner barrier. Actual independent-process public Pairing handoff and
 local-I/O/process dependency assembly remain implementation work; protected
 acquisition, TLS and formal exposure retain their separate admission gates.
+The later [MCP §17.4 public export/import](../product/agent-refactor/mcp-vnext-contract.md#174-independent-process-public-pairing-exportimport)
+removes the requirement that the App public-export adapter retain a Bridge Dart
+object. Original-request trust/completion exports and existing Bridge import
+controls support independent-process delivery with both human actions retained.
+The Windows lab uses separate Enrollment custody and Fake Native/P22 public-data
+replication. Production delivery UI/transport and local accepted-channel/process
+assembly remain incomplete; no production Pairing/security admission follows.
 Actual Windows execution of protected acquisition, production OS process bootstrap/transfer,
 admitted App/Bridge channels and Draft #327's short-deadline cancellation
 compatibility remain open and require further integration/acceptance. These fixtures and the App/Bridge source

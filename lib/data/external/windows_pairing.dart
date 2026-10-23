@@ -68,6 +68,204 @@ final class WindowsFirstPartyPairing implements FirstPartyPairingPort {
   Future<void> close() => owner.close();
 }
 
+/// App-side public handoff for an independently running Bridge. The supplied
+/// reader returns the original public Submission ID, never a Profile or trust.
+/// Exported bytes are local copy/paste data, not Exchange messages or evidence.
+final class WindowsAppPublicPairingHandoff implements FirstPartyPairingPort {
+  WindowsAppPublicPairingHandoff({
+    required WindowsAppPairing owner,
+    required Future<Uint8List> Function() submissionId,
+  }) : _owner = owner {
+    _app = WindowsFirstPartyPairing(
+        owner: owner,
+        submissionId: () async {
+          final id = await submissionId();
+          if (id.length != 16) _reject();
+          _submission = bootstrapCopy(id);
+          return _submission!;
+        },
+        exportPublicTrust: (display) async {
+          _material = BridgeAppPublicMaterial(
+              issuerDer: display.issuerDer,
+              serverLeafDigest: display.serverLeafDigest);
+        });
+  }
+  final WindowsAppPairing _owner;
+  late final WindowsFirstPartyPairing _app;
+  FirstPartyPairingRequest? _request;
+  Uint8List? _submission;
+  BridgeAppPublicMaterial? _material;
+  bool _closed = false, _requested = false;
+  final _pending = <Future<void>>{};
+  Future<void>? _closing;
+
+  void _check([Uint8List? id]) {
+    _owner._check();
+    if (_closed ||
+        (id != null &&
+            (_submission == null || !bootstrapEqual(id, _submission!)))) {
+      _reject();
+    }
+  }
+
+  Future<T> _run<T>(Future<T> Function() work) async {
+    _check();
+    if (_pending.length >= ExternalCredentialBoundary.maxPending) _reject();
+    final done = Completer<void>();
+    _pending.add(done.future);
+    try {
+      final value = await work();
+      _check();
+      return value;
+    } catch (error) {
+      _closed = true;
+      _material = null;
+      if (error is ExternalCredentialException ||
+          error is ExternalExchangeException) {
+        rethrow;
+      }
+      credentialFail(ExternalCredentialFailure.temporarilyUnavailable);
+    } finally {
+      done.complete();
+      _pending.remove(done.future);
+    }
+  }
+
+  @override
+  Future<FirstPartyPairingRequest> request(ExternalProfileReference profile) =>
+      _run(() async {
+        if (_requested) _reject();
+        _requested = true;
+        _request = await _app.request(profile);
+        return _PublicHandoffRequest(this);
+      });
+
+  Future<Uint8List> exportTrust(Uint8List submissionId) => _run(() async {
+        _check(submissionId);
+        if (_request == null || _material == null) _reject();
+        await _request!.display();
+        _check(submissionId);
+        return PairingPublicExport.encodeTrust(submissionId, _material!);
+      });
+
+  /// Always queries the original request/P15; never computes a revision or
+  /// returns cached success. This call does not approve or complete Pairing.
+  Future<Uint8List> exportCompletion(Uint8List submissionId) => _run(() async {
+        _check(submissionId);
+        if (_request == null) _reject();
+        final display = await _request!.display();
+        _check(submissionId);
+        return PairingPublicExport.encodeCompletion(submissionId, display);
+      });
+
+  @override
+  Future<void> close() {
+    _closed = true;
+    _material = null;
+    return _closing ??= () async {
+      await Future.wait([_app.close(), ..._pending]);
+      _submission = null;
+      _request = null;
+    }();
+  }
+
+  @override
+  String toString() => 'WindowsAppPublicPairingHandoff(REDACTED)';
+}
+
+final class _PublicHandoffRequest implements FirstPartyPairingRequest {
+  _PublicHandoffRequest(this.owner);
+  final WindowsAppPublicPairingHandoff owner;
+  @override
+  Future<FirstPartyPairingDisplay> display() =>
+      owner._run(() => owner._request!.display());
+  @override
+  Future<void> approve() => owner._run(() => owner._request!.approve());
+  @override
+  Future<void> complete() => owner._run(() => owner._request!.complete());
+}
+
+/// Bounded public export representation only. Arrays avoid duplicate JSON keys;
+/// exact canonical bytes reject alternate encodings/trailing fields. No command,
+/// approval, private key, Session or persistent authority can be represented.
+abstract final class PairingPublicExport {
+  static const maxBytes = 4096;
+  static Uint8List _encode(List<Object> value) {
+    final bytes = Uint8List.fromList(utf8.encode(jsonEncode(value)));
+    if (bytes.length > maxBytes) bootstrapInvalid();
+    return bootstrapCopy(bytes);
+  }
+
+  static List<dynamic> _decode(Uint8List bytes, Uint8List id, String kind) {
+    if (bytes.length > maxBytes || id.length != 16) bootstrapInvalid();
+    final value = jsonDecode(utf8.decode(bytes));
+    if (value is! List ||
+        value.length != 5 ||
+        value[0] is! int ||
+        value[0] != 1 ||
+        value[1] != kind ||
+        value[2] != base64Encode(id) ||
+        !bootstrapEqual(bytes, utf8.encode(jsonEncode(value)))) {
+      bootstrapInvalid();
+    }
+    return value;
+  }
+
+  static Uint8List encodeTrust(Uint8List id, BridgeAppPublicMaterial material) {
+    if (id.length != 16 ||
+        material.issuerDer.isEmpty ||
+        material.issuerDer.length > 2048 ||
+        material.serverLeafDigest.length != 32) {
+      bootstrapInvalid();
+    }
+    ExternalCertificateDer.inspect(material.issuerDer,
+        role: ExternalCertificateRole.issuer);
+    return _encode([
+      1,
+      'trust',
+      base64Encode(id),
+      base64Encode(material.issuerDer),
+      base64Encode(material.serverLeafDigest)
+    ]);
+  }
+
+  static BridgeAppPublicMaterial decodeTrust(Uint8List bytes, Uint8List id) {
+    final value = _decode(bytes, id, 'trust');
+    if (value[3] is! String || value[4] is! String) bootstrapInvalid();
+    final material = BridgeAppPublicMaterial(
+        issuerDer: base64Decode(value[3] as String),
+        serverLeafDigest: base64Decode(value[4] as String));
+    if (!bootstrapEqual(encodeTrust(id, material), bytes)) bootstrapInvalid();
+    return material;
+  }
+
+  static Uint8List encodeCompletion(
+      Uint8List id, FirstPartyPairingDisplay display) {
+    final revision = display.revision, digest = display.digest;
+    if (id.length != 16 ||
+        revision == null ||
+        revision < 1 ||
+        revision > ExternalAuthLimits.maxRevision ||
+        digest == null ||
+        !RegExp(r'^[0-9a-f]{64}$').hasMatch(digest)) {
+      bootstrapInvalid();
+    }
+    return _encode([1, 'completion', base64Encode(id), revision, digest]);
+  }
+
+  static FirstPartyPairingDisplay decodeCompletion(
+      Uint8List bytes, Uint8List id) {
+    final value = _decode(bytes, id, 'completion');
+    if (value[3] is! int || value[4] is! String) bootstrapInvalid();
+    final display = FirstPartyPairingDisplay(
+        revision: value[3] as int, digest: value[4] as String);
+    if (!bootstrapEqual(encodeCompletion(id, display), bytes)) {
+      bootstrapInvalid();
+    }
+    return display;
+  }
+}
+
 final class _FirstPartyWindowsRequest implements FirstPartyPairingRequest {
   _FirstPartyWindowsRequest(this.owner, this.request);
   final WindowsAppPairing owner;
@@ -747,6 +945,20 @@ final class BridgeOnboardingDisplay {
 /// methods after checking both complete local displays. Construction performs
 /// no I/O. The caller retains the Pairing adapter and protected Owner custody.
 final class WindowsBridgeOnboarding {
+  /// Reads independently delivered App exports. Import only supplies public
+  /// inputs; the original two explicit human confirmation methods remain required.
+  factory WindowsBridgeOnboarding.fromPublicExports({
+    required WindowsBridgePairing owner,
+    required Future<Uint8List> Function(Uint8List) readTrust,
+    required Future<Uint8List> Function(Uint8List) readCompletion,
+  }) =>
+      WindowsBridgeOnboarding(
+          owner: owner,
+          readAppPublicTrust: (id) async =>
+              PairingPublicExport.decodeTrust(await readTrust(id), id),
+          readAppCompletion: (id) async => PairingPublicExport.decodeCompletion(
+              await readCompletion(id), id));
+
   WindowsBridgeOnboarding({
     required WindowsBridgePairing owner,
     required Future<BridgeAppPublicMaterial> Function(Uint8List)
