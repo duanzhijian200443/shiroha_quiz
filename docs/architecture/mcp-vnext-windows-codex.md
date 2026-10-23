@@ -497,7 +497,9 @@ NOT VERIFIED and FORMAL ADMISSION NOT PASSED. The bounded
 [ordinary-child evidence](../product/agent-refactor/mcp-vnext-contract.md#171-windows-ordinary-child-lifecycle-evidence)
 records **Fake Process PASS** and **Windows test subprocess PASS** separately.
 **Formal Bridge AOT/Loader UNVERIFIED** and **real credentials, TLS and production
-cross-process runtime UNVERIFIED** remain unchanged. The injected test I/O does
+cross-process runtime UNVERIFIED** describe that ordinary-child checkpoint.
+The later AOT evidence below supersedes only the bounded AOT/loader portion.
+The injected test I/O does
 not run the private adjacent production launcher/child wrapper. Its fixed empty
 environment-padding value addresses observed SDK error 87 without inheriting
 parent values or adding a startup selector. The Linux standing CI does not run
@@ -518,3 +520,162 @@ exposure acceptance. `HOST_STABILITY_HALT = ACTIVE`, `TRANSPORT = BLOCKED`,
 `AR-R6A = NOT_ACCEPTED` remain unchanged. No personal bank, high-assurance Windows
 experiment, real provider, DLL, Pin or Custodian is involved. Synthetic functional
 success never authorizes a security batch, production Host or transport activation.
+
+## Formal AOT and installed-client integration evidence (2026-10-23)
+
+[MCP §17.2](../product/agent-refactor/mcp-vnext-contract.md#172-fixed-adjacent-aot-protocol-integration-without-business-activation)
+owns the new entry behavior. The local build helper compiles the existing Native
+target and formal Dart AOT source without loading them or running diagnostics:
+
+```powershell
+./tool/external/build_bridge_candidate.ps1 -CMake '<installed cmake.exe>'
+$env:SHIROHA_BRIDGE_PACKAGE = (Resolve-Path .dart_tool/ar-r6b-integration).Path
+$env:SHIROHA_CODEX_EXE = '<installed codex.exe>'
+flutter test --concurrency=1 test/mcp/windows_bridge_aot_test.dart
+flutter test --concurrency=1 test/mcp/windows_app_transport_codex_test.dart test/mcp/vnext_codex_synthetic_stage_test.dart
+```
+
+Use the actual selected x64 tool paths. The package variable is test-only and
+never read by the product. The copied package and compiled test owner live in a
+disposable space/Unicode path, removed after original processes close. The build
+outputs remain under `.dart_tool/ar-r6b-integration`; they are not an installer,
+signed release or an AR-R9B reference plugin.
+
+The Executor used Dart 3.11.5, MSVC 19.44.35207 and Windows SDK 10.0.26100.0.
+Both actual installed backends were queried for their versions: npm CLI
+`0.144.1` and Desktop backend `0.163.0-alpha.11.2`. No Desktop UI/model turn was
+executed; no real-user auth/config, provider request or production bank was used.
+
+| Executed boundary | Result and limit |
+|---|---|
+| Formal x64 AOT + original Native DLL build | PASS; no Flutter engine or database in the Bridge. |
+| Native fixed-adjacent loader in AOT test owner | PASS: actual original DLL loaded and ABI checked. No protected-object acquisition, credentials, crypto/security operation or TLS. The formal Bridge itself does not load this DLL while business admission is disabled. |
+| Private fixed-adjacent launcher and child wrapper | PASS: actual formal Bridge created under the original restricted environment, EOF, original exit notification/stream settlement, repeated close and inspection interruption. Late OS-create interruption and active-business crashes are not claimed by this probe. |
+| Actual AOT stdio | PASS: initialize, exactly seven tools, unavailable business response, invalid arguments exit 64, EOF exit 0 and restart. |
+| CLI and Desktop backend directly launching formal AOT | PASS on both: discovery, unavailable response, disconnect and reconnect. No business authorization is implied. |
+| Missing adjacent DLL | PASS on both: real loader and fixed-adjacent launcher refuse without a fallback. Final AOT suite: 7/7 on each backend. |
+| Installed-client product App/P27/Host suite | PASS 1/1 on each backend after extension: all seven tools, explicit first-party STAGE confirmation, App-only Review/Approve, actual client/MCP restart and original-key `committed` query; exactly one STAGE and one receipt. App runtime remains in the test process with Fake Native/TLS and temporary SQLite. |
+| Installed-client synthetic STAGE suite | PASS 4/4 on each backend: duplicate/conflict, explicit first-party Widget approval/rejection, denied/stale/unavailable cases, physically lost reply and original-key recovery after database reopen. Uses test Mailbox and isolated SQLite. |
+
+The AOT suite initially failed only because its loader-marker assertion expected
+CRLF while Dart emitted LF. The exact assertion was corrected; all six cases
+then passed on each backend. The added missing-DLL case subsequently encountered
+Windows error 32 during immediate inner-directory deletion; the same run's
+mandatory final teardown succeeded with no leftovers. All copied packages now
+have one cleanup owner in that existing teardown. Final 7/7 runs passed with
+zero remaining package directories; no deletion retry or forced process stop
+was introduced. No product deadline or safety assertion was relaxed.
+Build helper Windows detection also uses the runtime platform rather than an
+optional environment variable. Neither issue was a credential/transport failure.
+
+Focused regression execution passed **501/501** across Windows release/source
+guards, ordinary process lifecycle, App transport/startup, TLS transport/lifecycle,
+P9 envelope/P10 schema/projection, vNext end-to-end, MCP v0 contract/architecture/
+server/production composition and P11 local-authorization architecture suites.
+The six changed/new Dart files passed focused `flutter analyze` and read-only
+format (0 changes); `check_tls_source.ps1` and `git diff --check` passed.
+These are Executor checks, not independent semantic or Windows acceptance.
+
+The earlier section 17.2 build artifacts had SHA-256 identities (the Bridge is
+rebuilt by the section 17.3 continuation below):
+
+- `shiroha_bridge.exe`: `35e37bfc87d065461695bf8ac72316b8df7dc93fc0dff6ab895e90fb436b0579`
+- `shiroha_external_native.dll`: `fc22c11316efa23130da3416adcdd568dcc152b994326d4e42f4180502156783`
+
+The first unimplemented real business boundary is precise: formal AOT calls
+still enter `UnavailableVnextApp`, not an authenticated App/Bridge binding.
+Original dormant acquirers next require real protected Owners/existing credentials,
+independent trust and admitted channel composition. There is no production
+Mailbox, credential bypass, second Session/Writer or fallback to MCP v0.
+Real Flutter App ↔ Bridge authorized READ/STAGE/Review, protected Pairing, TLS,
+active-business abnormal process exit and real cross-process B0 barriers remain
+UNVERIFIED/BLOCKED. Simulated security-chain PASS cannot fill those rows.
+
+#327 was inspected read-only: OPEN Draft/BLOCKED, inherited self-repair 4/4 and
+review repair 0. It records no matched client cancellation after the short
+timeout on the tested client path. That request may still be approved before
+the original App expiry; caller timeout never establishes zero effects. This
+task does not rerun its exhausted diagnostic matrix, alter deadlines/protocol,
+or infer that a newer Desktop backend has fixed the issue.
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
+Production business entry remains disabled. Formal acceptance, full AR-R6B and
+AR-R9B prerequisites remain unaccepted; independent fixed-target Windows
+verification and review are still required. Repository/global status is
+NOT_EVALUATED.
+
+## Business-entry continuation: stdio settlement and exact blockers
+
+The continuation on the same task branch repairs a concrete entry-lifecycle gap:
+the vNext server previously returned from `serveStdio` when SDK connect finished,
+and EOF called `port.close()` without returning its result to the entry caller.
+The same method now waits for protocol closure and the original port drain;
+explicit/repeated close shares one Future and never retries a failed Owner close.
+`McpVnextWindowsBridgeStartup.serveStdio()` connects its existing acquisition,
+Bridge and server, with original startup close in `finally`. It remains trusted
+and dormant; the formal executable does not select this operation without an
+admitted bootstrap. The three deterministic close regressions are included in
+the existing standing `vnext_mcp_end_to_end_test.dart` suite.
+
+The actual call boundary is still:
+
+```text
+installed Codex -> formal AOT -> seven-tool server -> UnavailableVnextApp
+                                                     -> unavailable
+```
+
+Authorized installed-client READ/File/STAGE/Review/recovery tests continue to
+reach the real Application/SQLite owners through the test Mailbox and Fake TLS.
+They do not pass through the formal executable's authenticated Bridge startup.
+
+[MCP §17.3](../product/agent-refactor/mcp-vnext-contract.md#173-bridge-stdio-settlement-and-remaining-process-bindings)
+records each unresolved interface and its classification. In particular,
+`WindowsPairingHandoff` is an in-process adapter; its public trust/completion
+readers retain both original App/Bridge objects. An independent Bridge cannot
+invoke these Dart callbacks in the App process. Actual public export/completion
+delivery and two local human-comparison actions are missing product integration,
+as are the App root's real local opener/closer and process-custody assembly.
+No serialized callback or second IPC protocol has been invented to fill them.
+These are substantive non-admission implementation gaps, not completed features
+waiting only for an approval stamp.
+
+Separately, real `acquireAppObjects/acquireBridgeObjects`, existing-only P25
+credentials and independent kind-4 trust, P26 Discovery and crypt32/TLS channels
+need an explicitly admitted Windows execution scope. Only after those bindings
+exist may original P15/P0 authenticate a Session, current Enablement/Grant permit
+P8/P10 READ/STAGE, and first-party approval release an exact target. The normal
+App and formal Bridge still supply none of those production bindings.
+
+The continuation rebuilt the formal AOT with SHA-256
+`1f574297731812245ed3a7bd596829c746dbfb147fc52454b0292bfe74ca6657`.
+The Native DLL is unchanged. No #327 diagnostic or deadline repair was attempted;
+HOST_STABILITY_HALT = ACTIVE, TRANSPORT = BLOCKED, AR-R6A = NOT_ACCEPTED.
+
+Continuation execution on Windows passed:
+
+- CLI `0.144.1` and Desktop backend `0.163.0-alpha.11.2`: **12/12 each** across
+  the AOT (7), product App/P27/Host (1) and synthetic STAGE/Review/recovery (4)
+  suites, using the rebuilt executable above.
+- **95/95** across `vnext_mcp_end_to_end_test.dart` (including the three new
+  settlement cases), `windows_app_transport_test.dart`,
+  `windows_bridge_process_lifecycle_test.dart`, `windows_tls_source_guard_test.dart`
+  and `windows_release_candidate_test.dart`.
+- Focused analysis of both changed production files and both changed/new test
+  files, read-only format, `check_tls_source.ps1` and `git diff --check`: PASS.
+  The AOT suite's disposable package directory count after cleanup was zero.
+
+The earlier 501-case run is retained as prior evidence, not claimed as a new
+full rerun for this continuation. The new dormant startup `serveStdio` method is
+SOURCE WIRED; no protected Windows acquisition or authenticated formal-entry
+execution is inferred from the server's deterministic close tests. Independent
+Windows verification/semantic review and full AR-R6B acceptance remain pending.
+
+The independently reviewable delivery covers the existing local build, formal
+AOT seven-tool discovery/refusal, installed CLI/Desktop-backend compatibility,
+EOF/repeated-close/failure settlement and dormant startup-to-server wiring.
+The remaining product/security interfaces listed above are excluded from this
+bounded acceptance. Its Executor completion does not mark full AR-R6B complete,
+authorize production business, or replace final-head CI, independent Windows
+verification and Reviewer approval. Abnormal-child custody is demonstrated by
+the ordinary-Dart-child suite; an authenticated production Bridge crash is not
+claimed by the AOT discovery/refusal suite.

@@ -182,7 +182,12 @@ void main() {
     }
     final entry =
         File('tool/external/bridge_candidate.dart').readAsStringSync();
-    expect(entry, contains('exitCode = 78;'));
+    expect(entry, contains('await unavailable.main();'));
+    expect(entry, contains('exitCode = 64;'));
+    final refusal =
+        File('lib/mcp/vnext_mcp_entrypoint.dart').readAsStringSync();
+    expect(refusal, contains('VnextMcpServer(const UnavailableVnextApp())'));
+    expect(refusal, contains("vnextFailure('unavailable')"));
     for (final forbidden in [
       '.connect(',
       '.acquireAppObjects(',
@@ -227,7 +232,9 @@ void main() {
         } else if (uri.startsWith('package:')) {
           expect([
             'package:path/path.dart',
-            'package:meta/meta.dart'
+            'package:meta/meta.dart',
+            if (relative == 'lib/mcp/vnext_mcp_server.dart')
+              'package:mcp_dart/mcp_dart.dart'
           ], contains(uri), reason: relative);
         } else {
           pending.add(p.normalize(p.join(p.dirname(path), uri)));

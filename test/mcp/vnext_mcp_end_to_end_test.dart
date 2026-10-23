@@ -12,9 +12,11 @@ import '../application/external/external_question_read_test_support.dart';
 import '../ui/generated_question/generated_ui_test_support.dart'
     show settleGenerated, tapGenerated;
 import 'fixtures/vnext_mcp_test_support.dart';
+import 'fixtures/vnext_stdio_settlement_cases.dart';
 
 void main() {
   initializeGeneratedTests();
+  group('stdio lifecycle', stdioSettlementCases);
   late EndToEndHarness h;
   setUp(() async {
     h = EndToEndHarness();

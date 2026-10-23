@@ -342,6 +342,17 @@ final class McpVnextWindowsBridgeStartup implements VnextMcpPort {
   Future<void>? _starting, _closing, _settling;
   bool _stopped = false;
 
+  /// Explicit trusted process entry. Acquisition remains independently gated;
+  /// stdio EOF/failure joins the original connection/process/Owner settlement.
+  Future<void> serveStdio() async {
+    try {
+      await start();
+      await VnextMcpServer(this).serveStdio();
+    } finally {
+      await close();
+    }
+  }
+
   Future<void> start() {
     if (_starting != null || _stopped) {
       throw StateError('Windows MCP startup unavailable');

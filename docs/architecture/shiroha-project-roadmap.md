@@ -297,6 +297,19 @@ proves only temporary Dart subprocess behavior on Windows, including the bounded
 SDK empty-environment repair and App/Bridge shutdown over Fake protected resources.
 It runs no formal Bridge/private adjacent launcher or production security path;
 Linux standing CI cannot replace its independent fixed-target Windows Verifier.
+The subsequent [AOT integration](../product/agent-refactor/mcp-vnext-contract.md#172-fixed-adjacent-aot-protocol-integration-without-business-activation)
+adds a repeatable local build and joins the formal Bridge to the existing
+unavailable seven-tool stdio profile. Windows checks exercise its private
+adjacent launcher/EOF and the real Native ABI loader separately; installed Codex
+discovers/reconnects to that formal AOT but receives no business authority.
+The existing Mailbox/Fake TLS product-root check additionally covers local
+Review/Approve and original-key committed recovery after client restart.
+This does not close the remaining product or admission gaps below.
+[MCP §17.3](../product/agent-refactor/mcp-vnext-contract.md#173-bridge-stdio-settlement-and-remaining-process-bindings)
+adds the dormant Bridge stdio entry and joins EOF/explicit close to the original
+business/Owner barrier. Actual independent-process public Pairing handoff and
+local-I/O/process dependency assembly remain implementation work; protected
+acquisition, TLS and formal exposure retain their separate admission gates.
 Actual Windows execution of protected acquisition, production OS process bootstrap/transfer,
 admitted App/Bridge channels and Draft #327's short-deadline cancellation
 compatibility remain open and require further integration/acceptance. These fixtures and the App/Bridge source
