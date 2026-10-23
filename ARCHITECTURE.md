@@ -592,6 +592,13 @@ Its entry now waits for EOF and the original latched port/Owner drain; explicit
 close first closes protocol admission and then joins that same settlement.
 Independent-process public Pairing handoff and actual local-I/O/process assembly
 remain product integration gaps distinct from protected-resource/TLS admission.
+MCP §17.4 supplies App-only original-request public export and independent Bridge
+byte import over the SAME P27 controls. The bounded public representation carries
+only original Submission/public trust or freshly queried completion data. It
+adds no Exchange message, listener, Session, grant or business IPC route. Both
+human comparisons remain explicit. Windows subprocess tests use separate Bridge
+Enrollment custody and Fake protected storage; production delivery surfaces,
+accepted local-channel selection and startup/custody assembly remain pending.
 
 The bounded lifecycle extension adds independent READ Proposal metadata over
 the same persistence owner, through P7/P8, retained lifecycle-only IPC schema v2

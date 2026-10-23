@@ -18,7 +18,8 @@ export 'package:shiroha_quiz/data/external/windows_pairing.dart'
         WindowsBridgeOnboarding,
         WindowsPairingHandoff,
         BridgeOnboardingDisplay,
-        BridgeAppPublicMaterial;
+        BridgeAppPublicMaterial,
+        PairingPublicExport;
 
 Future<void> main(List<String> arguments) async {
   if (!WindowsExternalReleaseCandidate.acceptsArguments(arguments)) {

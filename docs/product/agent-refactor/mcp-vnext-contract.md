@@ -1167,7 +1167,8 @@ an EOF/explicit-close repair, not a change to client deadlines or #327's missing
 client cancellation. The existing standing vNext end-to-end suite includes the
 deterministic pending-drain/EOF/repeated-close/failure regressions.
 
-Remaining concrete boundaries:
+Remaining concrete boundaries at the section 17.3 checkpoint (section 17.4
+subsequently supplies public export/import, while production surfaces remain pending):
 
 | Interface | Classification and required next condition |
 |---|---|
@@ -1189,3 +1190,76 @@ and stdio/process settlement form a bounded independently reviewable slice.
 Its acceptance concerns the executed isolated build/protocol/lifecycle evidence
 above; the remaining authenticated App/Bridge business and security boundaries
 are excluded from that slice, while still blocking full AR-R6B acceptance.
+
+### 17.4. Independent-process public Pairing export/import
+
+`WindowsAppPublicPairingHandoff` supplies an App-only `FirstPartyPairingPort`
+over the original `WindowsFirstPartyPairing`/P27 request. Trusted local input
+supplies the original 16-byte public Submission ID. It creates one original
+request and retains its handle, not another Pairing/Session/authorization state.
+The independently running Bridge no longer has to be a Dart object in the App.
+The existing in-process `WindowsPairingHandoff` remains compatible.
+
+`exportTrust(id)` revalidates that request's actual display and returns only the
+public Issuer DER and Server Leaf digest associated with the exact ID.
+`exportCompletion(id)` freshly queries the SAME request's display, which uses
+P27/P15 actual completion; it never approves, completes or predicts a Revision.
+Foreign IDs, duplicate request creation, missing completion, expiry and failed
+operations latch the local handoff closed. Close immediately withdraws export
+admission, joins the original App owner and outstanding local input, and cannot
+be revived by a late Submission read. It does not close protected Stores/Owners.
+
+`PairingPublicExport` is a bounded local public export representation, not a
+new Exchange message, authenticated endpoint or business IPC protocol. Canonical
+UTF-8 JSON arrays have exactly five entries:
+
+- Trust: `[1, "trust", base64(Submission ID), base64(Issuer DER), base64(Server Leaf digest)]`.
+- Completion: `[1, "completion", base64(Submission ID), actual Revision, full completion digest]`.
+
+The public encoding is bounded to 4096 bytes, Issuer to 2048 bytes, ID to 16
+bytes and Server digest to 32 bytes. Revision retains `ExternalAuthLimits.maxRevision`;
+comparison digests retain 64 lowercase hex characters. Version/kind/types,
+canonical encoding, exact ID and complete consumption are checked. No private
+key field is added; the original certificate inspector also rejects non-Issuer
+DER structure before export/import. This is structural validation, with original
+Bridge certificate/signature checks still required. No credential object,
+Profile, Session, approval or command field is added.
+The existing P22 Exchange formats/files and P9/P10 versions are unchanged.
+
+`WindowsBridgeOnboarding.fromPublicExports` adapts independently delivered byte
+readers to the original Bridge controls. Importing public material still performs
+the original Challenge/certificate/digest validation. The first independent human
+comparison alone permits Proof publication. Fresh App completion import still
+requires a second independent full-digest AND actual-Revision comparison before
+the original Missing-only kind-4 Pin save. Import never invokes either action.
+Closed, expired or replaced Enrollment rejects late imports through the existing
+onboarding read barrier. Exported copies cannot guarantee remote observation of
+later App invalidation, as already frozen in section 12; they are not live authority.
+
+The host supplies the local public-data delivery surface (for example explicit
+user copy/import). This slice supplies actual export/import operations and byte
+representation, not an automatically listening Pairing service, new production
+file store, public-data UI, installation initializer or production credential
+transfer. Normal App/Bridge startup still has no consumer; formal AOT business
+calls continue to reach `UnavailableVnextApp`.
+
+Standing `windows_pairing_test.dart` includes rejection/close tests and a
+Windows-only independent-process success case. A child Flutter test process
+owns its own Bridge Enrollment/key; the parent owns the original App/P15 request.
+Only product public exports and original P22 public test data cross task-owned
+files. Fake Native replicates those public Exchange bytes separately in each
+process; no secret or protected credential storage is shared. Test commands
+simulate two distinct human decisions and check no Proof/Pin before each one.
+This is real OS process/public-data evidence with simulated security/storage,
+not formal Bridge AOT Pairing or production Windows security acceptance.
+
+App local opener/closer and process/startup assembly remain incomplete. In
+particular `WindowsChannelVerification.authenticate` requires the actual SERVER
+side of a client-authenticated channel and its server plan; substituting
+`DartLoopbackBridgeIo`'s client channel cannot satisfy that interface. The selected
+accepted-channel/local-control connection and peer custody must be composed
+without giving App possession of the Bridge private key or inventing a Session.
+Real protected acquisition, Discovery/Pin/TLS, production public-data surfaces
+and authenticated formal-entry business remain separately blocked. No Trial 1A,
+G0-L1/L2/I or #327 diagnostic is activated. HOST_STABILITY_HALT = ACTIVE;
+TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
