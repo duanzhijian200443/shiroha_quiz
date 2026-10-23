@@ -217,13 +217,19 @@ final class WindowsChannelVerification
     _channels.remove(channel);
   }
 
-  void close() {
-    _closed = true;
+  /// Cancels local waiting only. Host retains accepted-channel/Session custody.
+  /// Completion of the original open still owns its pending-slot release.
+  void cancelLocalConnection() {
     final opening = _localOpening;
     if (opening != null && !opening.isCompleted) {
       opening.completeError(const ExternalCredentialException(
           ExternalCredentialFailure.temporarilyUnavailable));
     }
+  }
+
+  void close() {
+    _closed = true;
+    cancelLocalConnection();
     for (final event in _attempts) {
       event.invalid = true;
     }

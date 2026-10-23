@@ -17,6 +17,7 @@ import '../../application/external/local_host_test_support.dart'
 import '../../application/study_query/study_query_test_support.dart'
     show insertLegacyQuestion;
 import '../../data/external/windows_tls_lifecycle_test.dart' show BindBarrier;
+import '../../data/external/windows_tls_transport_test.dart' as tls;
 import 'first_party_app_integration_cases.dart';
 import 'windows_app_transport_fixture.dart';
 import 'windows_resource_process_cases.dart';
@@ -101,6 +102,84 @@ void windowsStartupCases() {
     expect(f.host.verification.hasPendingLocalConnection, isFalse);
     expect(f.host.phase, WindowsTlsHostPhase.closed);
   });
+
+  test('pending Enable stays observable and Disable cancels only local waiting',
+      () async {
+    final f = WindowsAppTransportFixture()..useAcceptedLocalConnection = true;
+    await f.open();
+    addTearDown(f.close);
+    final original = await f.controls.authenticatedSession();
+    final targets = await f.controls.targets();
+    expect(targets, isNotEmpty);
+    await f.controls.approveTarget(targets.firstWhere((choice) =>
+        choice.target.bankName == 'bank' &&
+        choice.target.projectId == f.files.project));
+    expect((await f.controls.status()).approvedTargets, 1);
+    await f.controls.disable();
+    await f.controlChannel!.close();
+    final opening = f.controls.enable(const Duration(minutes: 5));
+    final rejected = expectLater(opening, throwsA(anything));
+    await pumpEventQueue(times: 20);
+    final pending = await f.controls.status();
+    expect(pending.connectionPending, isTrue);
+    expect(pending.connected, isFalse);
+    expect(pending.enabled, isFalse);
+    final disabling = f.controls.disable();
+    expect(identical(disabling, f.controls.disable()), isTrue);
+    await disabling;
+    await rejected;
+    expect(f.host.verification.hasPendingLocalConnection, isFalse);
+    expect(f.pairing.native.owner.isClosed, isFalse);
+    expect((await f.controls.status()).connectionPending, isFalse);
+    expect((await f.controls.status()).enabled, isFalse);
+    expect((await f.controls.status()).connectionFailed, isFalse);
+
+    // A new explicit Enable can acquire a fresh independently authenticated S.
+    final reconnecting = f.controls.enable(const Duration(minutes: 5));
+    await pumpEventQueue(times: 20);
+    expect((await f.controls.status()).connectionPending, isTrue);
+    f.controlChannel = tls.MemoryTlsChannel(f.clientDer);
+    f.listener.controller.add(tls.MemoryRawPeer(f.controlChannel!));
+    await reconnecting;
+    final current = await f.controls.authenticatedSession();
+    expect(current, isNotNull);
+    expect(identical(current, original), isFalse);
+    final connected = await f.controls.status();
+    expect(connected.connected, isTrue);
+    expect(connected.connectionPending, isFalse);
+    expect(connected.approvedTargets, 0);
+  });
+
+  for (final expired in [false, true]) {
+    test(
+        'failed accepted-channel acquisition is observable without hidden Enable expired=$expired',
+        () async {
+      final f = WindowsAppTransportFixture()..useAcceptedLocalConnection = true;
+      await f.open();
+      addTearDown(f.close);
+      await f.controls.disable();
+      await f.controlChannel!.close();
+      final opening = f.controls.enable(const Duration(minutes: 5));
+      final rejected = expectLater(opening, throwsA(anything));
+      await pumpEventQueue(times: 20);
+      if (expired) {
+        f.files.s.clock.current =
+            f.files.s.clock.now().add(const Duration(minutes: 6));
+        expect((await f.controls.status()).connectionPending, isFalse);
+      } else {
+        f.host.verification.cancelLocalConnection();
+      }
+      await rejected;
+      final failed = await f.controls.status();
+      expect(failed.connectionFailed, isTrue);
+      expect(failed.connectionPending, isFalse);
+      expect(failed.enabled, isFalse);
+      expect(failed.connected, isFalse);
+      expect(failed.approvedTargets, 0);
+      expect(f.host.verification.hasPendingLocalConnection, isFalse);
+      expect(f.pairing.native.owner.isClosed, isFalse);
+    });
+  }
 
   test(
       'App close interrupts the default pending local opener without a callback',

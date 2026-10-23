@@ -612,6 +612,17 @@ delivery/confirmation UI, pending Enable/Bridge interaction and trusted AOT
 bootstrap/client-stdio handoff remain product gaps; real protected/TLS/native
 security and formal Windows acceptance remain unexecuted. Production startup
 stays disabled.
+MCP §17.6 adds an explicit single-consumer stdio transfer over that SAME adjacent
+child: client input/output forwarding replaces stdout discard, stderr stays
+separate, and EOF/failed streams/exit join original settlement with no second
+protocol or Bridge. Direct client-owned and App-child custody are alternative
+choices, never concurrent owners of one stream. First-party pending Enable is
+observable and cancellable through the default accepted-channel acquisition;
+finite expiry/failure withdraws access, and fresh explicit Enable cannot inherit
+old Session approvals. Windows AOT/installed-client refusal and separate Fake
+security business tests execute these paths. Normal App/client registration,
+trusted formal-AOT business bootstrap and public comparison UI remain product
+work. All production security/admission blocks remain unchanged.
 
 The bounded lifecycle extension adds independent READ Proposal metadata over
 the same persistence owner, through P7/P8, retained lifecycle-only IPC schema v2

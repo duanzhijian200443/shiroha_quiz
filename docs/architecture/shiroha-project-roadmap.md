@@ -325,7 +325,15 @@ READ/reconnect/shutdown over Fake Native/TLS/storage. Formal AOT child custody a
 its refusal profile are separate evidence. This closes that bounded functional
 assembly scope, not full AR-R6B: user-facing public delivery/comparison controls,
 pending Enable/Bridge interaction and trusted formal-entry bootstrap/client-stdio
-handoff remain product work; real protected/TLS/native/Windows admission remains pending.
+handoff remain product work at that checkpoint; real protected/TLS/native/Windows
+admission remains pending. The bounded [MCP §17.6 integration](../product/agent-refactor/mcp-vnext-contract.md#176-single-consumer-child-stdio-and-interruptible-pending-enable)
+supplies actual single-consumer forwarding for the SAME App-owned adjacent child,
+plus observable/cancellable/expiring pending Enable and fresh-Session acquisition.
+Direct and hosted formal-AOT refusal/reconnect execute with installed Codex; separate
+Windows App/Bridge processes exercise cancellation/READ/reconnect with simulated
+security. No second Bridge or protocol is added. Normal App/client registration,
+trusted authenticated AOT bootstrap and public Pairing/comparison UI still remain
+non-security product work; this is not full AR-R6B completion or activation.
 Actual Windows execution of protected acquisition, production OS process bootstrap/transfer,
 admitted App/Bridge channels and Draft #327's short-deadline cancellation
 compatibility remain open and require further integration/acceptance. These fixtures and the App/Bridge source

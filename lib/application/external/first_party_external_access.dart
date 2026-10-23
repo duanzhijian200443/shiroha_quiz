@@ -20,6 +20,8 @@ final class FirstPartyExternalStatus {
       this.pairingFailed = false,
       this.connected = false,
       this.enabled = false,
+      this.connectionPending = false,
+      this.connectionFailed = false,
       this.expiresAt,
       this.approvedTargets = 0});
   final String? profileId;
@@ -27,6 +29,7 @@ final class FirstPartyExternalStatus {
   final bool pairingAvailable, pairingFailed;
   final FirstPartyPairingDisplay? pairingDisplay;
   final bool connected, enabled;
+  final bool connectionPending, connectionFailed;
   final DateTime? expiresAt;
   final int approvedTargets;
 }
@@ -76,8 +79,10 @@ final class FirstPartyExternalAccess {
   final _approvals = <ExternalStageContext>[];
   List<GeneratedReviewTargetChoice> _choices = const [];
   bool _closed = false, _busy = false;
+  bool _enabling = false, _enableCancelled = false, _connectionFailed = false;
+  DateTime? _enableExpiresAt;
   Completer<void>? _idle;
-  Future<void>? _shutdown;
+  Future<void>? _shutdown, _disabling;
   bool get isCurrent =>
       !_closed &&
       _isCurrent() &&
@@ -149,6 +154,7 @@ final class FirstPartyExternalAccess {
         _forgetAccess();
         _profile = null;
         _selectedId = null;
+        _connectionFailed = false;
         _pairingRequest = null;
         if (b == null) {
           final view = policy.openView();
@@ -240,7 +246,24 @@ final class FirstPartyExternalAccess {
     return attempt;
   }
 
-  Future<FirstPartyExternalStatus> status() => _run(() async {
+  Future<FirstPartyExternalStatus> status() {
+    if (_enabling) {
+      _validate();
+      final expiry = _enableExpiresAt;
+      if (expiry != null && !_binding!.trust.clock.now().isBefore(expiry)) {
+        _expireEnable();
+      }
+      // Observation never reauthenticates or disrupts a still-live Enable.
+      // No Session/permission is projected until the original operation settles.
+      return Future.value(FirstPartyExternalStatus(
+          profileId: _selectedId,
+          connectionPending: !_enableCancelled,
+          connectionFailed: _connectionFailed));
+    }
+    return _readStatus();
+  }
+
+  Future<FirstPartyExternalStatus> _readStatus() => _run(() async {
         final b = _binding;
         if (b == null || _profile == null) {
           return FirstPartyExternalStatus(profileId: _selectedId);
@@ -288,6 +311,7 @@ final class FirstPartyExternalAccess {
                 pairingAvailable: services.boundary.isCurrent,
                 pairingDisplay: _pairingFailed ? null : display,
                 pairingFailed: _pairingFailed,
+                connectionFailed: _connectionFailed,
                 connected: requestConnected || session != null,
                 enabled: requestConnected || session != null,
                 expiresAt: snapshot.expiresAt,
@@ -317,12 +341,25 @@ final class FirstPartyExternalAccess {
         if (_pairingFailed) externalAuthFail(ExternalAuthFailure.unauthorized);
         final attempt = services == null ? _authenticate(b) : null;
         _forgetAccess();
-        await b.coordinator.enable(_profile!, duration);
+        _enabling = true;
+        _enableCancelled = false;
+        _connectionFailed = false;
+        Timer? deadline;
         try {
-          final connection = services == null
-              ? null
-              : await services.openConnection(
-                  await b.management.selectProfile(_selectedId!));
+          await b.coordinator.enable(_profile!, duration);
+          _validateEnable();
+          _enableExpiresAt = b.trust.snapshot(_profile!.principal).expiresAt;
+          if (_enableExpiresAt case final expiry?) {
+            deadline =
+                Timer(expiry.difference(b.trust.clock.now()), _expireEnable);
+          }
+          FirstPartyCredentialConnection? connection;
+          if (services != null) {
+            final reference = await b.management.selectProfile(_selectedId!);
+            _validateEnable();
+            connection = await services.openConnection(reference);
+            _validateEnable();
+          }
           final session = connection?.session ??
               await b.coordinator.openSession(_profile!, attempt!);
           if (!identical(session.principal, _profile!.principal) ||
@@ -341,7 +378,7 @@ final class FirstPartyExternalAccess {
               !identical(await connection.authenticate(), session)) {
             externalAuthFail(ExternalAuthFailure.unauthorized);
           }
-          _validate();
+          _validateEnable();
           if (session.failure != null) {
             externalAuthFail(ExternalAuthFailure.unauthorized);
           }
@@ -350,18 +387,47 @@ final class FirstPartyExternalAccess {
           _sessionRevision = access.grantSnapshot?.revision;
         } catch (_) {
           // Failed authentication/admission must never leave a hidden enablement.
+          _connectionFailed = _connectionFailed || !_enableCancelled;
           _forgetAccess();
           rethrow;
+        } finally {
+          deadline?.cancel();
+          _enableExpiresAt = null;
+          _enabling = false;
         }
       });
 
-  Future<void> disable() => _run(() async {
-        _forgetAccess();
-        final b = _binding;
-        if (b != null && _profile != null) {
-          await b.coordinator.disable(_profile!);
-        }
-      });
+  void _expireEnable() {
+    if (!_enabling || _enableCancelled || _closed) return;
+    _enableCancelled = true;
+    _connectionFailed = true;
+    _forgetAccess();
+    _binding?.credentials?.cancelPendingConnection?.call();
+  }
+
+  void _validateEnable() {
+    _validate();
+    if (_enableCancelled) externalAuthFail(ExternalAuthFailure.unauthorized);
+  }
+
+  Future<void> disable() {
+    if (_enabling && _binding?.credentials?.cancelPendingConnection != null) {
+      _validate();
+      if (_disabling != null) return _disabling!;
+      _enableCancelled = true;
+      _forgetAccess(); // deny immediately; cancellation alone is not settlement
+      _binding!.credentials!.cancelPendingConnection!();
+      final idle = _idle!.future;
+      return _disabling = idle.whenComplete(() => _disabling = null);
+    }
+    return _run(() async {
+      _forgetAccess();
+      final b = _binding;
+      if (b != null && _profile != null) {
+        await b.coordinator.disable(_profile!);
+      }
+    });
+  }
 
   /// Trusted port rechecks the current Session and owning policy at every call.
   Future<ExternalSession?> authenticatedSession() async {

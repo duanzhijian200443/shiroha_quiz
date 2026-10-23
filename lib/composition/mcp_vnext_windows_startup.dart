@@ -203,6 +203,9 @@ final class McpVnextWindowsAppStartup {
             boundary: boundary,
             pairing: localPairing,
             openConnection: _authenticateLocal,
+            cancelPendingConnection: d.openLocalConnection == null
+                ? _channels!.cancelLocalConnection
+                : null,
             close: _closeAuxiliary,
           );
         },

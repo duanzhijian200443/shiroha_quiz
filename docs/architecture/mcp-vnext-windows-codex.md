@@ -805,8 +805,9 @@ have not been executed or admitted.
 
 The independently reviewable completion scope is explicit dependency assembly,
 accepted-channel acquisition and child custody/public-handoff integration over
-simulated security. Non-security product gaps remain: user-facing public delivery
-and comparison controls, pending Enable/independent Bridge-connection interaction,
+simulated security. At that checkpoint (partly superseded below), non-security
+product gaps remained: user-facing public delivery and comparison controls,
+pending Enable/independent Bridge-connection interaction,
 and trusted formal-entry bootstrap/client-stdio custody. App-launched child
 stdout remains owned/drained by the original process adapter, without a production
 handoff to an installed MCP client. Full AR-R6B additionally requires
@@ -838,3 +839,70 @@ Standing P11 covers deterministic assembly/failure/authorization checks, but Lin
 CI skips the actual Windows process case. Final-head/current-target standing CI,
 independent Windows Verifier evidence and Independent Reviewer approval remain
 required before merge. Repository/global status: NOT_EVALUATED.
+
+## Single-consumer stdio and pending Enable execution (2026-10-24)
+
+[MCP §17.6](../product/agent-refactor/mcp-vnext-contract.md#176-single-consumer-child-stdio-and-interruptible-pending-enable)
+owns this bounded product integration. `WindowsBridgeProcess.stdio` forwards the
+SAME adjacent child's input/output without parsing MCP or starting another Bridge.
+The explicit host owns process launch/EOF/exit settlement; the child alone owns
+MCP protocol handling, stderr is separate, and the caller retains its output sink.
+The direct Codex-owned Bridge path remains an alternative, not a second child to
+combine with App custody. Both currently reach only the unavailable business port.
+The AOT custody probe is test-only and not a shipped App registration/bootstrap.
+
+Pending local Enable can now be observed and cancelled without closing the Host.
+Finite expiry and failed acquisition clear access; a subsequent explicit Enable
+obtains a fresh original Session without old target approvals. The existing
+independent Windows process test now cancels an initial Enable while its Bridge
+child is alive, re-enables, then performs accepted-channel READ/reconnect/shutdown.
+This actual OS process execution uses Fake Native/TLS/protected storage. The
+normal first-party UI has not yet bound the new pending-state/cancel controls.
+
+Repeat the original build helper and the AOT/client suites from §Formal AOT above,
+using `powershell -NoProfile -ExecutionPolicy Bypass -File` if the task shell's
+script policy requires it. That option is process-local; no user/machine policy
+is changed. No credential acquisition or Native security diagnostic is run.
+Then run the focused connection and retained regressions:
+
+```powershell
+flutter test --no-pub --concurrency=1 test/mcp/windows_app_transport_test.dart
+flutter test --no-pub --concurrency=1 test/data/external/windows_tls_source_guard_test.dart test/data/external/windows_tls_transport_test.dart test/mcp/windows_bridge_process_lifecycle_test.dart
+flutter test --no-pub --concurrency=1 test/application/external/local_authorization_architecture_test.dart test/mcp/vnext_mcp_end_to_end_test.dart test/mcp/mcp_contract_test.dart test/mcp/mcp_architecture_boundary_test.dart test/mcp/study_mcp_server_test.dart test/mcp/study_mcp_production_composition_test.dart
+```
+
+Executed Executor evidence (overlapping batches, not unique-test totals):
+
+| Boundary | Result and limits |
+|---|---|
+| Original x64 AOT/DLL build | PASS; fixed filenames and original loader unchanged. Bridge SHA-256 `6b440369f868973695722a75c196708d57eb7f92cdad30b09ed1477939eab590`; DLL `569f61e1e472702832e539b5d62e9e4cdf3bf69aa895e0a48536a874fbe373da`. |
+| Formal AOT suite, CLI `0.144.1` | 14/14 PASS, no skip: direct/hosted seven-tool discovery/refusal/reconnect, actual adjacent launcher, ABI-only loader, EOF, repeated close, open-client-input cancellation, injected input/output failure and already-closed client output. |
+| Same suite, Desktop backend `0.163.0-alpha.11.2` | 14/14 PASS, no skip; actual bundled app-server, not Desktop UI interaction or a model turn. |
+| App/P27/Host plus synthetic STAGE client suites | 5/5 PASS per backend: seven-tool business over isolated Fake security, explicit first-party approval/rejection, durable Proposal, local Review/Approve, original-key recovery after lost reply and client/database restart. Not authenticated formal-AOT business. |
+| App transport/startup suite | 54/54 PASS, including pending observation/cancel/expiry/failure, fresh Session with discarded prior target approval, real separate Windows process READ/reconnect/close, failure retention and B0 barriers. |
+| TLS/source/ordinary-child batch | 158/158 PASS; simulated security plus original ordinary Windows process lifecycle. |
+| Standing P11/vNext/four v0 suites | 137/137 PASS; includes current connection changes, permission/Session/Proposal/Review and retained v0 behavior. |
+| Final focused mechanical gates | All nine changed Dart files: analysis PASS and read-only format 0 changes; TLS source script and `git diff --check` PASS. |
+
+The strengthened old-approval test first selected the first displayed target,
+which was outside its synthetic exact Scope and correctly failed authorization.
+It now selects the existing fixture's explicit `bank`/Project target, as the
+original first-party helper does; the grant and production assertion were not
+weakened. This is one bounded test-repair cycle, not a #327 repair attempt.
+The initial build-script invocation was refused by PowerShell execution policy;
+the process-local invocation above then built successfully. No environment-based
+test isolation failure was converted into PASS. Test-owned process packages and
+public-handoff directories were removed after original exit/stream settlement;
+pre-existing diagnostic artifacts were preserved.
+
+Formal Codex → Bridge AOT does **not** reach App/Application business. Trusted
+authenticated bootstrap, normal App/client registration, public Pairing delivery/
+comparison UI and UI binding of pending controls remain non-security product gaps.
+Real protected credentials/Pin, TLS/native peer-policy and authenticated formal
+process crash/Restore remain separately unexecuted/admission-blocked. No safety
+admission is inferred from forwarding bytes or Fake business tests. Production
+vNext remains default-refusing; HOST_STABILITY_HALT = ACTIVE, TRANSPORT = BLOCKED,
+AR-R6A = NOT_ACCEPTED. Trial 1A/G0-L1/L2/I are not run; #327 remains independently
+BLOCKED at its inherited 4/4 budget. This bounded slice does not complete AR-R6B.
+Independent fixed-target Windows verification, standing CI and Reviewer approval
+remain required before merge; repository/global status remains NOT_EVALUATED.

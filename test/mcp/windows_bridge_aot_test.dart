@@ -131,6 +131,27 @@ void main() {
       // The suite's single teardown owns every copied package, including this
       // negative case. Keep cleanup mandatory after all original process joins.
     });
+    for (final mode in [
+      'stdio-close',
+      'stdio-input-error',
+      'stdio-output-error',
+      'stdio-output-closed'
+    ]) {
+      test('forwarding $mode settles while client stdin remains open',
+          () async {
+        final rpc = await JsonLineProcess.start(probe, [mode],
+            cwd: sandbox.path, home: sandbox.path);
+        try {
+          expect(
+              await rpc.process.exitCode.timeout(const Duration(seconds: 15)),
+              mode == 'stdio-close' ? 0 : 1);
+        } finally {
+          await rpc.close();
+          expect(rpc.forcedClose, isFalse);
+          expect(rpc.protocolClean, isTrue);
+        }
+      });
+    }
     test('invalid activation arguments fail with 64 and no protocol output',
         () async {
       final result = await Process.run(bridge, ['--activate']);
@@ -138,61 +159,70 @@ void main() {
       expect(result.stdout, isEmpty);
       expect((result.stderr as String).trim(), 'invalidBridgeArguments');
     });
-    test('actual AOT protocol discovery, refusal, EOF and restart', () async {
-      for (var run = 0; run < 2; run++) {
-        final rpc = await JsonLineProcess.start(bridge, [],
-            cwd: sandbox.path, home: sandbox.path);
-        try {
-          final init = await rpc.request(
-              'initialize',
+    for (final hosted in [false, true]) {
+      test(
+          'actual AOT protocol discovery, refusal, EOF and restart hosted=$hosted',
+          () async {
+        for (var run = 0; run < 2; run++) {
+          final rpc = await JsonLineProcess.start(
+              hosted ? probe : bridge, hosted ? ['stdio'] : [],
+              cwd: sandbox.path, home: sandbox.path);
+          try {
+            final init = await rpc.request(
+                'initialize',
+                {
+                  'protocolVersion': '2025-11-25',
+                  'capabilities': {},
+                  'clientInfo': {'name': 'aot_probe', 'version': '1'}
+                },
+                mcp: true);
+            expect(init['result']['serverInfo']['version'], '0.2.0');
+            rpc.send({'jsonrpc': '2.0', 'method': 'notifications/initialized'});
+            final tools = await rpc.request('tools/list', {}, mcp: true);
+            expect(tools['result']['tools'], hasLength(7));
+            for (final call in [
+              {'name': 'open_generation_context', 'arguments': {}},
               {
-                'protocolVersion': '2025-11-25',
-                'capabilities': {},
-                'clientInfo': {'name': 'aot_probe', 'version': '1'}
-              },
-              mcp: true);
-          expect(init['result']['serverInfo']['version'], '0.2.0');
-          rpc.send({'jsonrpc': '2.0', 'method': 'notifications/initialized'});
-          final tools = await rpc.request('tools/list', {}, mcp: true);
-          expect(tools['result']['tools'], hasLength(7));
-          for (final call in [
-            {'name': 'open_generation_context', 'arguments': {}},
-            {
-              'name': 'get_question_proposal',
-              'arguments': {'submissionKey': 'original-key'}
+                'name': 'get_question_proposal',
+                'arguments': {'submissionKey': 'original-key'}
+              }
+            ]) {
+              final result = await rpc.request('tools/call', call, mcp: true);
+              expect(result['result']['structuredContent']['error'],
+                  'unavailable');
             }
-          ]) {
-            final result = await rpc.request('tools/call', call, mcp: true);
+          } finally {
+            expect(await rpc.close(), 0);
+            expect(rpc.forcedClose, isFalse);
+            expect(rpc.protocolClean, isTrue);
+          }
+        }
+      });
+      test(
+          'installed Codex discovers actual AOT and reconnects with refusal hosted=$hosted',
+          () async {
+        for (var run = 0; run < 2; run++) {
+          final home = await sandbox.createTemp('codex-home-');
+          final client = InstalledCodex(codex!, Directory.current.path, home);
+          await client.configure(
+              command: hosted ? probe : bridge,
+              commandArguments: hosted ? ['stdio'] : []);
+          try {
+            await client.start();
+            final inventory = await client.inventory();
+            expect(inventory['result']['data'].single['tools'], hasLength(7));
+            final result = await client.call('open_generation_context', {});
             expect(
                 result['result']['structuredContent']['error'], 'unavailable');
+          } finally {
+            expect(await client.rpc.close(), 0);
+            expect(client.rpc.forcedClose, isFalse);
+            expect(client.rpc.protocolClean, isTrue);
+            await home.delete(recursive: true);
           }
-        } finally {
-          expect(await rpc.close(), 0);
-          expect(rpc.forcedClose, isFalse);
-          expect(rpc.protocolClean, isTrue);
         }
-      }
-    });
-    test('installed Codex discovers actual AOT and reconnects with refusal',
-        () async {
-      for (var run = 0; run < 2; run++) {
-        final home = await sandbox.createTemp('codex-home-');
-        final client = InstalledCodex(codex!, Directory.current.path, home);
-        await client.configure(command: bridge, commandArguments: []);
-        try {
-          await client.start();
-          final inventory = await client.inventory();
-          expect(inventory['result']['data'].single['tools'], hasLength(7));
-          final result = await client.call('open_generation_context', {});
-          expect(result['result']['structuredContent']['error'], 'unavailable');
-        } finally {
-          expect(await client.rpc.close(), 0);
-          expect(client.rpc.forcedClose, isFalse);
-          expect(client.rpc.protocolClean, isTrue);
-          await home.delete(recursive: true);
-        }
-      }
-    }, skip: codex == null ? 'Installed Codex not selected' : false);
+      }, skip: codex == null ? 'Installed Codex not selected' : false);
+    }
   },
       skip: !Platform.isWindows || package == null
           ? 'UNVERIFIED: Windows and explicit SHIROHA_BRIDGE_PACKAGE required'
