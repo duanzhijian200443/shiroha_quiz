@@ -483,9 +483,15 @@ completes the inactive App/Bridge process-boundary composition (`McpVnextWindows
 and `McpVnextWindowsBridge`), connecting the product App root, P27 Handoff, owned
 TLS Host, auxiliary local-connection drain and single-connection-per-call Bridge
 ownership across all seven tools and opt-in same-Session STAGE confirmation.
+[MCP contract section 16](../product/agent-refactor/mcp-vnext-contract.md#16-dormant-windows-startup-and-credential-handoff-composition)
+further lifts trusted Owner/credential/Pairing/Discovery/TLS wiring into a dormant
+product startup root, including pending local authentication and process-exit
+custody interfaces. Construction performs no I/O; there is no normal startup
+consumer, default acquirer or real OS launcher. SOURCE WIRED and Fake verification
+remain distinct from REAL WINDOWS NOT VERIFIED and FORMAL ADMISSION NOT PASSED.
 Actual protected credential acquisition, real OS process bootstrap/transfer and
-admitted runtime channels remain
-**product implementation/integration work**.
+admitted runtime channels remain **BLOCKED product implementation/integration
+and acceptance work**; callbacks do not prove those operations.
 Draft #327's installed-client short-deadline cancellation compatibility remains
 separately BLOCKED. They must not be reported as security-approval-only blockers. Reference-package
 distribution/Windows executable discovery and supported-version acceptance in

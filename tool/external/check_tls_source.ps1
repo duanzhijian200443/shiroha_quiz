@@ -36,6 +36,20 @@ foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.
             !$projection.Contains("decoded['schemaVersion'] != 3")) {
             throw 'Bridge v3 selection/response or STAGE classification missing'
         }
+    } elseif ($file.FullName -eq (Join-Path $root 'lib/composition/mcp_vnext_windows_startup.dart')) {
+        foreach ($token in @('dart:io', 'dart:ffi', 'Process.', 'Platform.environment',
+            'DatabaseHelper', 'ExternalTrustCore(', 'ExternalSession(', 'ExternalPrincipal(',
+            'PairingProof(', 'AuthenticatedPeerEvidence(', '.initialize(', '.recoverServer(',
+            '.acquireAppObjects(', '.acquireBridgeObjects(', 'DartLoopbackTlsIo',
+            'DartLoopbackBridgeIo', 'jsonDecode', 'print(', 'debugPrint(',
+            'DiscoveryDescriptorCodec', 'PairingTranscriptCodec',
+            'ExchangeMessageCodec', 'ExternalBootstrapBytes',
+            'readSubmission', 'readChallenge', 'readProof', 'ExchangeFileRead',
+            'ExchangePublication', 'createCaptured', '.consume(', '.release(',
+            'AppPairingRequest', 'createChallenge', 'initialDisplay',
+            'completionDisplay')) {
+            if ($code.Contains($token)) { throw "Dormant startup escaped trusted handoff: $token" }
+        }
     } elseif ($file.FullName -in @((Join-Path $root 'lib/composition/mcp_vnext_windows_transport.dart'),
             (Join-Path $root 'lib/composition/mcp_vnext_windows_bridge.dart'))) {
         foreach ($token in @('ExternalTrustCore', 'ExternalSession', 'ExternalPrincipal',
@@ -49,7 +63,7 @@ foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.
     if ($file.FullName -notin @((Join-Path $root 'lib/mcp/vnext_mcp_bridge_port.dart'),
             (Join-Path $root 'lib/composition/mcp_vnext_windows_bridge.dart')) -and
         $code -match 'vnext_mcp_bridge_port|VnextMcpBridgePort') { throw 'Bridge projection startup consumer is active' }
-    if ($code -match "(?:import|export).*mcp_vnext_windows_(?:transport|bridge)" ) {
+    if ($file.FullName -ne (Join-Path $root 'lib/composition/mcp_vnext_windows_startup.dart') -and $code -match "(?:import|export).*mcp_vnext_windows_(?:transport|bridge|startup)" ) {
         throw 'Inactive Windows composition acquired a production consumer'
     }
 }

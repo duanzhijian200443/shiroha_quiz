@@ -13,6 +13,7 @@ import 'package:shiroha_quiz/services/file_library/managed_file_storage_adapter.
 import '../../application/study_query/study_query_test_support.dart'
     show insertLegacyQuestion;
 import 'windows_app_transport_fixture.dart';
+import 'windows_startup_cases.dart';
 
 final class _Disk implements BackupDiskSpaceProbe {
   @override
@@ -20,6 +21,7 @@ final class _Disk implements BackupDiskSpaceProbe {
 }
 
 void windowsAppTransportCases() {
+  windowsStartupCases();
   test(
       'default inactive Bridge composition refuses STAGE before connection creation',
       () async {

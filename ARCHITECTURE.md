@@ -114,7 +114,8 @@ Bridge OS-exclusive writer locks and fixed App association-file transactions.
 The P20 Data adapter `WindowsCredentialAssociationStore` implements the existing
 P15 association port using strict kind 3 plaintext, user-scope DPAPI and the
 parent-bound Native file transaction. It adds no verifier or Application authority
-and stays absent from startup, Agent/MCP and P12/P15 runtime composition.
+and stays absent from normal startup and Agent/MCP. MCP contract section 16
+adds only an explicitly invoked dormant composition over this same Store.
 The inactive P21 Infrastructure candidate adds P-256/PKCS#8 primitives, strict
 credential/certificate codecs and an explicit crypto adapter in the same helper;
 no Application/Domain certificate or Windows dependency is introduced.
@@ -554,6 +555,17 @@ first-party approval and App-only Review/COMMIT remain the authorities; no secon
 IPC protocol, writer or authorization framework is added. Fake TLS and installed
 client mailbox evidence do not complete production process/credential bootstrap,
 #327 short-deadline cancellation compatibility or formal Windows admission.
+
+MCP contract §16 lifts trusted credential/Pairing/Discovery/TLS wiring into
+`McpVnextWindowsAppStartup` and `McpVnextWindowsBridgeStartup`. Construction
+performs no I/O; explicit trusted acquirers transfer exclusive original Owners.
+App reuses `attachCredentials` and the SAME owned Host/Runtime; Bridge retains
+the original single-connection-per-call owner. Pending local Authentication and
+actual process-exit callbacks join owning settlement before credential/lock
+release, with failure latched and custody retained. No real acquirer/process
+launcher or normal startup consumer is supplied. Source wiring and Fake evidence
+do not establish real Windows verification, formal admission, full AR-R6B or
+AR-R9B prerequisite acceptance.
 
 The bounded lifecycle extension adds independent READ Proposal metadata over
 the same persistence owner, through P7/P8, retained lifecycle-only IPC schema v2

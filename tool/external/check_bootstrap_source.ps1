@@ -31,12 +31,15 @@ foreach ($name in $files) {
     }
 }
 # New parsing/signature entry points must stay absent from every production
-# consumer outside these four files, including startup and Application/P15.
+# consumer outside these four files. The exact dormant startup root is separately
+# token-checked by check_tls_source.ps1; Application/P15 remain prohibited.
 foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.dart' -File -Recurse) {
     if ($file.DirectoryName -eq [IO.Path]::GetFullPath((Join-Path $root 'lib/data/external')) -and $files -contains $file.Name) { continue }
+    if ($file.FullName -eq (Join-Path $root 'lib/composition/mcp_vnext_windows_startup.dart')) { continue }
     $code = [IO.File]::ReadAllText($file.FullName)
-    # P24 is the one inactive file-I/O consumer of the P22 Exchange codec.
-    # It is guarded separately below; no other consumer becomes permitted.
+    # P24 is the inactive file-I/O consumer of the P22 Exchange codec.
+    # The exact dormant startup root above is separately token-checked by
+    # check_tls_source.ps1 for P22 codec and direct P24/P27 operation use.
     if ($file.FullName -eq [IO.Path]::GetFullPath((Join-Path $root 'lib/data/external/windows_exchange_file_store.dart'))) { continue }
     if ($file.Name -in @('windows_discovery.dart', 'windows_credential_initialization.dart', 'windows_pairing.dart', 'windows_tls_transport.dart', 'windows_tls_credentials.dart', 'windows_tls_channel.dart') -and $file.DirectoryName -eq [IO.Path]::GetFullPath((Join-Path $root 'lib/data/external'))) { continue }
     if ($code -match 'pairing_transcript_codec|exchange_message_codec|discovery_descriptor_codec|external_bootstrap_bytes') {
@@ -50,6 +53,7 @@ foreach ($token in @('dart:io', 'dart:ffi', 'PairingProof(', 'AuthenticatedPeerE
     if ($exchange.Contains($token)) { throw 'P24 file adapter escaped its bounded responsibility' }
 }
 foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.dart' -File -Recurse) {
+    if ($file.FullName -eq (Join-Path $root 'lib/composition/mcp_vnext_windows_startup.dart')) { continue }
     if ($file.FullName -eq [IO.Path]::GetFullPath((Join-Path $root 'lib/data/external/windows_exchange_file_store.dart'))) { continue }
     if ($file.FullName -eq [IO.Path]::GetFullPath((Join-Path $root 'lib/data/external/windows_pairing.dart'))) { continue }
     if ([IO.File]::ReadAllText($file.FullName) -match 'windows_exchange_file_store|WindowsExchangeFileStore') {

@@ -2645,7 +2645,8 @@ production access/share policy, lock ordering, pin identities, exact content
 recheck on the deletion handle and one-shot deletion/release failures. Dart fake
 FFI/Data tests cover strict decoding, opaque lifecycle, old optional ABI absence,
 bounded resources, malformed results and unknown outcomes; source guards keep
-production composition absent; §19 permits one inactive coordination consumer.
+active production composition absent; §19 permits one inactive coordination
+consumer, and §22 permits one dormant startup root.
 These and P22/P24 regressions are
 registered in standing PR contract checks. Real cross-process NTFS sharing,
 delete-pending/pin lifetime, DACL/volume/reparse enforcement, named-mutex behavior,
@@ -2786,7 +2787,11 @@ or security acceptance. SOURCE IMPLEMENTED / OFFLINE TESTED applies to the
 fixed public-object I/O, signing/validation coordination and conditional epoch
 persistence below. P25 is merged in PR #283. Its credential validation remains
 the only App certificate/key validation implementation; P22 remains the only
-Discovery codec. No production composition root references these adapters.
+Discovery codec. No normal or active production composition root references
+these adapters; the sole exception is the explicitly dormant
+[§22](#22-ar-r6b-dormant-startup-and-credential-handoff-source-g0-l0-only)
+startup root, which references them without activating acquisition, Listener,
+transport, process launch or a normal startup.
 
 ### Fixed capability and roles
 
@@ -2902,7 +2907,9 @@ REAL WINDOWS PENDING / FORMAL ACCEPTANCE PENDING: actual Discovery NTFS/DACL,
 parent/reparse/object identity enforcement, Flush/rename durability and crash
 recovery, cross-process/cross-SID access, CNG/DPAPI, independent G0-I acceptance
 and real TLS peer binding. No L1/L2/I experiment, Listener/Host/Bridge process,
-TCP/mTLS, production wiring, enrollment or AR-R6B activation is supplied.
+TCP/mTLS, production wiring, enrollment or AR-R6B activation is supplied by this
+P26 slice; the dormant §22 root only wires existing owners without activating
+them.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 
@@ -3077,8 +3084,10 @@ once in standing PR contract checks, alongside the directly affected suites:
 | No activation / alternate authority | `bootstrap_source_guard_test`, `exchange_file_source_guard_test`, `discovery_source_guard_test`, `external_native_source_guard_test`, P27 source/CI guards and `architecture_boundary_test` |
 
 `check_pairing_source.ps1` is chained from the existing standing bootstrap gate.
-It admits only this one inactive consumer and rejects all production wiring,
-network/channel evidence, business writers and alternate persistence. Native
+It admits only the exact inactive P27/TLS consumers and the dormant
+[§22](#22-ar-r6b-dormant-startup-and-credential-handoff-source-g0-l0-only)
+startup root, and rejects active production wiring, network/channel evidence,
+business writers and alternate persistence. Native
 ABI, kind 1–4 binary formats, P9/P10 and schema/B0 stay unchanged. Native
 `check_offline.ps1` compiles/inspects production imports and runs only the
 existing synthetic core executables, never the production DLL. Public RFC6979/
@@ -3456,9 +3465,12 @@ compilation alone, including a disabled-entry executable, passes no A row.
 `windows_tls_lifecycle_test` and `windows_release_candidate_test` are each
 registered once in hard-failing PR contract checks. Existing TLS, P27, P26,
 P20/P23, P0/P12/P15, P3/P7/P8/P9/P10, B0, architecture and MCP v0 suites remain
-required. Source guards admit only the exact inactive P27 consumer in the TLS
-group, retaining the prohibition on production composition. No gate is skipped
-or weakened, and no vNext/COMMIT/DESTRUCTIVE/SQL RPC is added.
+required. Source guards admit only the exact inactive P27/TLS consumers and the
+dormant [§22](#22-ar-r6b-dormant-startup-and-credential-handoff-source-g0-l0-only)
+startup root; active production composition remains prohibited. The dormant root
+is covered by the exact token checks in `check_tls_source.ps1`; no
+active-production gate is skipped or weakened, and no
+vNext/COMMIT/DESTRUCTIVE/SQL RPC is added.
 
 Every row below is **SOURCE IMPLEMENTED / OFFLINE TESTED** only for its named
 source/Fake/static subset. EVERY row is still **REAL WINDOWS PENDING / FORMAL
@@ -4067,3 +4079,40 @@ separate batch scope.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED;
 REAL WINDOWS = PENDING; FORMAL ACCEPTANCE = PENDING.
+
+
+## 22. AR-R6B dormant startup and credential handoff source (G0-L0 only)
+
+[MCP contract section 16](mcp-vnext-contract.md#16-dormant-windows-startup-and-credential-handoff-composition)
+owns the minimal inactive product root over the same P20/P25/P26/P27, App
+`attachCredentials`, `WindowsTlsHost.owned`, transport and Bridge. Constructors
+perform no I/O. Trusted explicit acquisition supplies the original exclusive
+App/Bridge Owners and existing protected Stores; the root adds no protected
+registry, business identity or writer, and performs no implicit credential
+initialization/repair. P27 Pairing and P26 publication share one Runtime ID;
+P15/P0/P8 and original policy/approval remain the sole authority.
+
+Auxiliary local Authentication uses the same channel verifier. Its mandatory
+closer and pending opener/authentication settlement, plus the trusted process
+owner's real exit settlement, precede protected Owner/runtime.lock release.
+App pre-Host failure cleanup joins original App/P27/local/process work;
+after transfer only the existing Host closes the Store/Owner. Bridge reuses one
+connection per independent call and retains its credential/Discovery Owner
+through original connection I/O, close and process settlement. Failed cleanup
+locks admission and retains uncertain resources; database close/Restore cannot
+substitute caller completion for owning settlement.
+
+Source guards permit only this exact dormant root, with no normal App/Bridge
+consumer or real acquirer/launcher. The existing standing P11 architecture suite
+includes its Fake end-to-end and failure boundaries. Public credentials, Fake
+Native/TLS/process callbacks and temporary SQLite are SOURCE/OFFLINE evidence
+only. **SOURCE WIRED**, executed **FAKE VERIFIED**, **REAL WINDOWS NOT VERIFIED**
+and **FORMAL ADMISSION NOT PASSED** are separate conclusions. Actual protected
+acquisition, OS process launch/exit and real TLS/Listener wiring remain BLOCKED
+pending separately scoped implementation and admission; callbacks cannot prove
+OS ownership or security. No Trial 1A/G0-L1/L2/I, real Owner/credential/TLS/
+Listener/process experiment or production activation follows. Draft #327 stays
+untouched and its cancellation compatibility remains BLOCKED. This source-only
+slice does not close full AR-R6B or AR-R9B prerequisites.
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.

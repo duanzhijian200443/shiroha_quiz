@@ -2,16 +2,16 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shiroha_quiz/application/external/first_party_external_credentials.dart';
-import 'package:shiroha_quiz/application/external/external_credential_boundary.dart';
 import 'package:shiroha_quiz/application/external/first_party_stage_approval.dart';
 import 'package:shiroha_quiz/composition/mcp_vnext_windows_bridge.dart';
-import 'package:shiroha_quiz/composition/mcp_vnext_windows_transport.dart';
+import 'package:shiroha_quiz/composition/mcp_vnext_windows_startup.dart';
+import 'package:shiroha_quiz/mcp/vnext_mcp_composition_root.dart';
+import 'package:shiroha_quiz/mcp/vnext_mcp_server.dart';
 import 'package:shiroha_quiz/data/external/discovery_descriptor_codec.dart';
 import 'package:shiroha_quiz/data/external/native/windows_peer_certificate_policy.dart';
 import 'package:shiroha_quiz/data/external/windows_discovery.dart';
-import 'package:shiroha_quiz/data/external/windows_credential_initialization.dart';
 import 'package:shiroha_quiz/data/external/windows_pairing.dart';
+import 'package:shiroha_quiz/data/external/windows_credential_initialization.dart';
 import 'package:shiroha_quiz/data/external/windows_tls_transport.dart';
 import '../../application/external/local_host_test_support.dart'
     show OfflineReadiness;
@@ -25,15 +25,38 @@ import '../../data/external/fixtures/windows_tls_bridge_cases.dart'
     show LinkedChannel;
 import 'first_party_app_integration_cases.dart';
 
+class FakeWindowsMcpProcess implements McpVnextWindowsProcessOwner {
+  int stops = 0;
+  bool fail = false;
+  Completer<void>? stopping;
+  final reached = Completer<void>();
+  @override
+  Future<void> stopAndWait() async {
+    stops++;
+    if (!reached.isCompleted) reached.complete();
+    await stopping?.future;
+    if (fail) throw StateError('Fake process exit unconfirmed');
+  }
+}
+
 class WindowsAppTransportFixture extends FirstPartyAppHarness {
   final pairing = p27.PairingHarness();
   final listener = tls.MemoryListener();
   late WindowsPairingHandoff handoff;
   late WindowsTlsHost host;
-  late WindowsChannelVerification channels;
+  late McpVnextWindowsAppStartup startup;
+  late McpVnextWindowsAppDependencies appDependencies;
+  McpVnextWindowsBridgeStartup? bridgeStartup;
+  final appProcess = FakeWindowsMcpProcess();
+  final bridgeProcess = FakeWindowsMcpProcess();
+  TlsListenerIo? listenerOverride;
+  Future<void> Function()? beforeAcquire;
+  bool failReadiness = false;
+  Future<void> Function()? beforeLocalOpen;
+  bool localPlanCreated = false;
   late TlsContextPlan plan;
   tls.MemoryTlsChannel? controlChannel;
-  late McpVnextWindowsBridge bridge;
+  late VnextMcpPort bridge;
   late FirstPartyStageApproval approval;
   late FirstPartyStageApprovalView approvalView;
   final clients = <LinkedChannel>[];
@@ -45,7 +68,10 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
   Completer<void>? localCloseReached;
 
   @override
-  Future<void> open({bool attach = true, bool stage = true}) async {
+  Future<void> open(
+      {bool attach = true,
+      bool stage = true,
+      bool productBridge = false}) async {
     await pairing.open();
     await super.open(attach: false);
     final h = pairing;
@@ -55,92 +81,59 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
         utcNow: () => h.native.now,
         monotonicNow: () => h.elapsed,
         compositionIsCurrent: () => h.current && controls.isCurrent);
-    late WindowsAppPairing appPairing;
-    port = await integration.attachCredentials(
-        associations: h.associations,
-        verification: (management) => channels = WindowsChannelVerification(
-            pairing: verifier,
-            associations: h.associations,
-            management: management,
-            nativePolicy:
-                WindowsPeerCertificatePolicy(OfflinePeerCalls()).check,
-            verifyDigest: h.native.verify,
-            utcNow: () => h.native.now,
-            monotonicNow: () => h.elapsed,
-            compositionIsCurrent: () => h.current && controls.isCurrent),
-        clock: files.s.clock,
-        installationId:
-            h.native.service.validatedPublicMaterial().installationId,
-        monotonicNow: () => h.elapsed,
-        readiness:
-            OfflineReadiness(() async => files.s.h.db.rawQuery('SELECT 1')),
-        enableStageApprovalWait: stage,
-        services: (boundary) {
-          channels.attach(boundary);
-          appPairing = WindowsAppPairing.withPrimitives(
-              exchange: h.appExchange,
-              credentials: h.native.service,
-              boundary: boundary,
-              associations: h.associations,
-              verification: verifier,
-              utcNow: () => h.native.now,
-              monotonicNow: () => h.elapsed,
-              compositionIsCurrent: () => h.current && controls.isCurrent,
-              randomBytes: h.random);
-          handoff = WindowsPairingHandoff(
-              appOwner: appPairing, bridgeOwner: h.bridge);
-          return FirstPartyCredentialServices(
-              boundary: boundary,
-              pairing: handoff,
-              openConnection: (_) async =>
-                  (await channels.authenticate(controlChannel!, plan))
-                      .firstPartyConnection,
-              close: () async {
-                await controlChannel?.close();
-                channels.close();
-              });
-        },
-        transport: (coordinator, binding) {
-          if (stage) approval = binding.stageApproval!;
-          final credentials = WindowsCredentialInitialization.withPrimitives(
+    startup = McpVnextWindowsAppStartup(
+      integration: integration,
+      enableStageApprovalWait: stage,
+      acquire: () async {
+        await beforeAcquire?.call();
+        return appDependencies = McpVnextWindowsAppDependencies(
+          owner: h.native.owner,
+          credentials: WindowsCredentialInitialization.withPrimitives(
               owner: h.native.owner,
               generateKey: h.native.generate,
               signDigest: p27.signPublicFixture,
               verifyDigest: h.native.verify,
               utcNow: () => h.native.now,
-              randomBytes: h.random);
-          final startup = P26TlsStartup(
-              owner: h.native.owner,
-              credentials: credentials,
-              publisher: WindowsDiscoveryPublisher(
-                  owner: h.native.owner, credentials: credentials),
-              runtimeInstanceId: appPairing.runtimeInstanceId,
-              generation:
-                  BigInt.from(binding.stages.runtimeAdmission.trust.generation),
-              signDigest: p27.signPublicFixture,
-              verifyDigest: h.native.verify,
-              utcNow: () => h.native.now,
-              compositionIsCurrent: () => h.current && controls.isCurrent);
-          host = WindowsTlsHost.owned(
-              owner: h.native.owner,
-              pairing: appPairing,
-              associations: h.associations,
-              boundary: binding.stages.runtimeAdmission.trust.credentials
-                  as ExternalCredentialBoundary,
-              coordinator: coordinator,
-              startup: startup,
-              verification: channels,
-              closeLocalConnections: () async {
-                localCloseReached?.complete();
-                await controlChannel?.close();
-              },
-              io: listener,
-              binding: binding,
-              enableStageApprovalWait: stage,
-              port: listener.port,
-              monotonicNow: () => h.elapsed);
-          return McpVnextWindowsTransport(binding: binding, transport: host);
-        });
+              randomBytes: h.random),
+          associations: h.associations,
+          exchange: h.appExchange,
+          pairingVerification: verifier,
+          signDigest: p27.signPublicFixture,
+          verifyDigest: h.native.verify,
+          nativePolicy: WindowsPeerCertificatePolicy(OfflinePeerCalls()).check,
+          clock: files.s.clock,
+          utcNow: () => h.native.now,
+          monotonicNow: () => h.elapsed,
+          randomBytes: h.random,
+          compositionIsCurrent: () => h.current && controls.isCurrent,
+          readiness: OfflineReadiness(() async {
+            if (failReadiness) throw StateError('Fake readiness failure');
+            await files.s.h.db.rawQuery('SELECT 1');
+          }),
+          listener: listenerOverride ?? listener,
+          port: listener.port,
+          pairing: (appPairing) => handoff = WindowsPairingHandoff(
+              appOwner: appPairing, bridgeOwner: h.bridge),
+          openLocalConnection: () async {
+            await beforeLocalOpen?.call();
+            return (channel: controlChannel!, plan: plan);
+          },
+          closeLocalConnections: () async {
+            if (localCloseReached?.isCompleted == false) {
+              localCloseReached!.complete();
+            }
+            await controlChannel?.close();
+            if (localPlanCreated) plan.dispose();
+          },
+          process: appProcess,
+        );
+      },
+    );
+    port = await startup.start();
+    host = startup.host!;
+    if (stage) {
+      approval = (host.binding as VnextMcpAppComposition).stageApproval!;
+    }
     final material = h.native.service.validatedPublicMaterial();
     plan = TlsContextPlan.validate(
         role: TlsPeerRole.server,
@@ -148,9 +141,10 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
         issuerDer: material.issuerCertificateDer,
         privateKeyDer: init.publicFixtureKey(),
         independentlyPinnedIssuer: material.issuerCertificateDer,
-        signDigest: h.native.sign,
+        signDigest: p27.signPublicFixture,
         verifyDigest: h.native.verify,
         utcNow: () => h.native.now);
+    localPlanCreated = true;
     final local = handoff.bridge;
     local.beginEnrollment(
         displayLabel: 'PUBLIC FIXTURE', clientBuild: 'offline');
@@ -174,46 +168,81 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
         comparedDigest: completed.digest!);
     await controls.enable(const Duration(minutes: 5));
     if (stage) approvalView = controls.openStageApprovalView()!;
-    bridge = McpVnextWindowsBridge(
+    if (productBridge) {
+      bridgeStartup = McpVnextWindowsBridgeStartup(
         enableStageApprovalWait: stage,
-        createConnection: () {
-          final client = LinkedChannel(material.serverLeafDer!);
-          final server = LinkedChannel(clientDer!);
-          client.peer = server;
-          client.abortPeer = true;
-          server.peer = client;
-          clients.add(client);
-          servers.add(server);
-          configureConnection?.call(client, server);
-          final connection = WindowsTlsBridge(
-              io: tls.MemoryBridgeIo(client),
-              reader: WindowsDiscoveryReader(h.bridgeOwner, verifier: (
-                  {required publicPoint,
-                  required digest,
-                  required rawSignature}) {
-                h.native.verify(
-                    publicPoint: publicPoint,
-                    digest: digest,
-                    rawSignature: rawSignature);
-                return true;
-              }),
-              trusted: DiscoveryExpectations(
-                  trustedAnchorDer: material.issuerCertificateDer,
-                  installationId: material.installationId,
-                  serverLeafDigest: plan.leafDigest,
-                  verifiedEpochHighWater: BigInt.one),
-              owner: h.bridgeOwner,
-              signDigest: h.native.sign,
-              verifyDigest: h.native.verify,
-              nativePolicy:
-                  WindowsPeerCertificatePolicy(OfflinePeerCalls()).check,
-              utcNow: () => h.native.now,
-              compositionIsCurrent: () => h.current,
-              enableStageApprovalWait: stage);
-          connections.add(connection);
-          listener.controller.add(tls.MemoryRawPeer(server));
-          return connection;
-        });
+        acquire: () async => McpVnextWindowsBridgeDependencies(
+          owner: h.bridgeOwner,
+          trusted: DiscoveryExpectations(
+              trustedAnchorDer: material.issuerCertificateDer,
+              installationId: material.installationId,
+              serverLeafDigest: plan.leafDigest,
+              verifiedEpochHighWater: BigInt.one),
+          createIo: () {
+            final client = LinkedChannel(material.serverLeafDer!);
+            final server = LinkedChannel(clientDer!);
+            client.peer = server;
+            client.abortPeer = true;
+            server.peer = client;
+            clients.add(client);
+            servers.add(server);
+            configureConnection?.call(client, server);
+            listener.controller.add(tls.MemoryRawPeer(server));
+            return tls.MemoryBridgeIo(client);
+          },
+          signDigest: p27.signPublicFixture,
+          verifyDigest: h.native.verify,
+          nativePolicy: WindowsPeerCertificatePolicy(OfflinePeerCalls()).check,
+          utcNow: () => h.native.now,
+          monotonicNow: () => h.elapsed,
+          compositionIsCurrent: () => h.current,
+          process: bridgeProcess,
+        ),
+      );
+      await bridgeStartup!.start();
+      bridge = bridgeStartup!;
+    } else {
+      bridge = McpVnextWindowsBridge(
+          enableStageApprovalWait: stage,
+          createConnection: () {
+            final client = LinkedChannel(material.serverLeafDer!);
+            final server = LinkedChannel(clientDer!);
+            client.peer = server;
+            client.abortPeer = true;
+            server.peer = client;
+            clients.add(client);
+            servers.add(server);
+            configureConnection?.call(client, server);
+            final connection = WindowsTlsBridge(
+                io: tls.MemoryBridgeIo(client),
+                reader: WindowsDiscoveryReader(h.bridgeOwner, verifier: (
+                    {required publicPoint,
+                    required digest,
+                    required rawSignature}) {
+                  h.native.verify(
+                      publicPoint: publicPoint,
+                      digest: digest,
+                      rawSignature: rawSignature);
+                  return true;
+                }),
+                trusted: DiscoveryExpectations(
+                    trustedAnchorDer: material.issuerCertificateDer,
+                    installationId: material.installationId,
+                    serverLeafDigest: plan.leafDigest,
+                    verifiedEpochHighWater: BigInt.one),
+                owner: h.bridgeOwner,
+                signDigest: p27.signPublicFixture,
+                verifyDigest: h.native.verify,
+                nativePolicy:
+                    WindowsPeerCertificatePolicy(OfflinePeerCalls()).check,
+                utcNow: () => h.native.now,
+                compositionIsCurrent: () => h.current,
+                enableStageApprovalWait: stage);
+            connections.add(connection);
+            listener.controller.add(tls.MemoryRawPeer(server));
+            return connection;
+          });
+    }
   }
 
   @override
@@ -238,6 +267,7 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
   @override
   Future<void> close() async {
     await bridge.close();
+    await startup.close();
     await super.close();
     plan.dispose();
     await pairing.close();
