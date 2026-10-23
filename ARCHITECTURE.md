@@ -570,9 +570,13 @@ Bridge candidate and retains only its newly created SDK process object; stdin
 EOF, original exit and both output drains precede release. Unknown launch/close/
 exit retains the owning lock and database barrier. App and Bridge share the
 original Owner's one-use runtime guard. Neither adapter has a normal startup
-consumer; constructors perform no OS work. Source wiring and Fake evidence
-do not establish real Windows verification, formal admission, full AR-R6B or
-AR-R9B prerequisite acceptance.
+consumer; constructors perform no OS work. The independent Windows-only ordinary
+Dart child suite in MCP §17.1 exercises this custody/startup ordering over Fake
+protected Owners/TLS. Its observed SDK error-87 repair uses one fixed inert empty
+environment value without inheriting parent values or adding startup selectors.
+Ordinary-child evidence does not exercise the private adjacent launcher/child
+wrapper, formal Bridge AOT/Loader, real credentials/TLS or production cross-process
+runtime, and does not establish formal admission, full AR-R6B or AR-R9B acceptance.
 
 The bounded lifecycle extension adds independent READ Proposal metadata over
 the same persistence owner, through P7/P8, retained lifecycle-only IPC schema v2

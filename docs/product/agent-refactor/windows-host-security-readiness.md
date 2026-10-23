@@ -4110,7 +4110,7 @@ Native/TLS/process callbacks and temporary SQLite are SOURCE/OFFLINE evidence
 only. **SOURCE WIRED**, executed **FAKE VERIFIED**, **REAL WINDOWS NOT VERIFIED**
 and **FORMAL ADMISSION NOT PASSED** are separate conclusions. Dormant source now
 adapts existing Native acquisition and SDK child custody; actual protected
-acquisition, OS launch/exit and real TLS/Listener integration remain unverified
+acquisition, formal Bridge OS launch/exit and real TLS/Listener integration remain unverified
 pending separately scoped integration and admission; callbacks cannot prove
 OS ownership or security. No Trial 1A/G0-L1/L2/I, real Owner/credential/TLS/
 Listener/process experiment or production activation follows. Draft #327 stays
@@ -4138,6 +4138,21 @@ there is no timeout that fabricates settlement. Package mutation/loader identity
 real protected acquisition and cross-process functionality are not proved by
 these static checks. The default Bridge entry remains disabled.
 
-Existing P11 Fake tests and source boundaries cover the adapters; no production
-helper load, DPAPI/security call, real child, Listener or private database is
-executed. No A/X row, G0-L1/L2/I grant, Trial 1A or AR-R6B completion follows.
+Existing P11 Fake tests and source boundaries cover the adapters. Their original
+source-only checkpoint executed no real child. The separately scoped
+[MCP §17.1 ordinary-child suite](mcp-vnext-contract.md#171-windows-ordinary-child-lifecycle-evidence)
+subsequently executed 12/12 Executor cases on Windows using only the existing
+Dart executable and temporary test scripts. It proves ordinary-child creation,
+EOF/exit/dual raw-stream settlement and fail-closed App/Bridge integration over
+Fake protected Owners/TLS, with test-controlled normal exit and cleanup. The
+fixed inert empty-value environment entry repairs observed SDK error 87 while
+preserving no parent inheritance; it conveys no credential or startup authority.
+Fake Process PASS and Windows test subprocess PASS are separate from formal
+Bridge AOT/Loader UNVERIFIED and real credentials/TLS/production cross-process
+runtime UNVERIFIED. No private adjacent production child wrapper, production
+helper load, DPAPI/security call, Listener or private database was exercised.
+Independent Windows verification remains required because Linux standing CI
+does not run this Windows-only suite. No A/X row, X12, G0-L1/L2/I grant, Trial 1A,
+formal Windows security admission or full AR-R6B completion follows.
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.

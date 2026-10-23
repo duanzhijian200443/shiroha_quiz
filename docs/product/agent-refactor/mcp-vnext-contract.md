@@ -976,9 +976,10 @@ inactive adapters outside it, with no normal startup consumer.
 Evidence remains four distinct conclusions: **SOURCE WIRED**, **FAKE VERIFIED**
 only by executed tests, **REAL WINDOWS NOT VERIFIED**, **FORMAL ADMISSION NOT
 PASSED**. Section 17 supplies dormant protected-acquisition/process-custody source;
-actual Windows acquisition/launch/exit, admitted TLS binding and cross-process
-functional integration remain unverified. They cannot be proved by a Fake or
-injected callback. No such experiment is run here.
+actual protected Windows acquisition, formal Bridge launch/exit, admitted TLS
+binding and production cross-process integration remain unverified. They cannot
+be proved by a Fake or injected callback. Section 17.1 separately records bounded
+ordinary Dart child evidence; it does not execute those production paths.
 Draft #327 short-deadline cancellation compatibility remains BLOCKED with no new
 repair loop. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
 AR-R6A = NOT_ACCEPTED. This source-only delivery neither completes full AR-R6B
@@ -1020,7 +1021,10 @@ default I/O derives exactly the adjacent `shiroha_bridge.exe` and Native DLL fro
 Bridge candidate inventory/x64 PE inspection before creation. It accepts no
 path/arguments/environment/request selectors. SDK creation uses an empty
 argument list, no shell, no inherited environment and the original returned
-Process object; no PID lookup/kill, elevation, restart, watchdog or service is
+Process object. The fixed environment has only `SHIROHA_PROCESS_ENV_PAD=`:
+one inert empty value avoids Windows Dart SDK rejection of a zero-entry block.
+No product code reads this entry; it selects no behavior and transfers no data.
+No PID lookup/kill, elevation, restart, watchdog or service is
 added. Existing stdin EOF requests shutdown. Actual original exit plus both
 discarded output drains must settle; a non-cooperating child remains pending.
 Unknown creation, failed input/drain or nonzero exit latches failure and preserves
@@ -1040,10 +1044,55 @@ Host/Bridge → all seven tools using Fake Native/process/TLS and isolated SQLit
 It also covers contention, identity mismatch, duplicate acquisition/runtime,
 partial failure, interrupted creation, abnormal exit, unknown input/stream close,
 Owner retention and the database barrier. Source guards allow only these exact
-dormant consumers. Local subprocess/installed-client stdio tests are outside
-this Fake-only task; existing standing CI registration is unchanged.
-This is **SOURCE WIRED / FAKE VERIFIED** only when the corresponding checks run,
-with **REAL WINDOWS NOT VERIFIED / FORMAL ADMISSION NOT PASSED**.
+dormant consumers. This original Fake-only evidence and installed-client stdio
+evidence remain separate from section 17.1; standing CI registration is unchanged.
+Fake success is **SOURCE WIRED / FAKE VERIFIED**, with production **REAL WINDOWS
+NOT VERIFIED / FORMAL ADMISSION NOT PASSED**.
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 Full AR-R6B, AR-R9B prerequisites and production vNext remain unaccepted; #327,
 Trial 1A and G0-L1/L2/I are untouched and unactivated.
+
+### 17.1. Windows ordinary-child lifecycle evidence
+
+`test/mcp/windows_bridge_process_lifecycle_test.dart` is an independent
+Windows-only suite. Its test `WindowsBridgeProcessIo` reuses synthetic PE
+inspection and launches the existing Flutter SDK Dart executable with a temporary
+script, no shell and no inherited environment. A test implementation of
+`WindowsCreatedBridgeProcess` supplies original SDK exit and raw stream Futures
+to the production `WindowsBridgeProcess`. It does not execute the private
+fixed-adjacent launcher/child wrapper or `shiroha_bridge.exe`.
+
+On 2026-10-23 the Executor actually ran all 12 cases on Windows with Dart 3.11.5:
+ready output, stdin EOF, exit 0, independent byte-for-byte stdout/stderr checks
+(256 KiB per stream plus markers), nonzero exit 23, interrupted creation/late
+transfer, repeated close identity and original-exit retention passed. Separately
+gated drain receipts prove that exit alone cannot release custody; these gates
+and injected unknown-exit/input/drain failures are test controls, not OS failures.
+The original App/Bridge startup and protected-acquisition fixtures use Fake
+Owners/Native/TLS and isolated SQLite with the real ordinary-child results.
+Confirmed settlement permits Fake Owner release; unknown/failed settlement
+keeps admission closed and retains the Owner and App database/Restore close
+barrier. A second ordinary child remains untouched. There is no launch retry,
+PID lookup or termination. Test-side exit gates, a failure-only child deadman,
+original exit/stream joins and temporary-directory removal bound cleanup;
+the product has no deadman or forced-settlement timeout.
+
+The first real run exposed SDK creation error 87 with a zero-entry environment.
+An isolated `dart --version` control produced error 87 in four zero-entry starts
+and exit 0 in four starts with the fixed empty-value padding entry. The bounded
+process-layer repair supplies that entry while retaining no parent inheritance.
+Every lifecycle child independently checks that its actual environment contains
+exactly this one empty value. Source guards require the same fixed map.
+
+| Evidence | Bounded conclusion |
+|---|---|
+| Fake Process | PASS: Executor reran the original P11 suite, including its Fake process/Startup cases; no Windows OS inference. |
+| Windows test subprocess | PASS: 12/12 Executor cases actually executed; original Dart children exited and streams/temporary files settled. |
+| Formal Bridge AOT/Loader | UNVERIFIED, including the fixed-adjacent production launcher/child wrapper. |
+| Real credentials, TLS and production cross-process runtime | UNVERIFIED; Fake protected Owners and TLS are not real lock/security evidence. |
+
+Standing contract CI runs on Linux and does not execute this Windows-only suite.
+Final-head/current-target CI, independent Windows Verifier evidence and independent
+Reviewer approval remain separate delivery/merge gates. Ordinary-child PASS
+closes no A/X row, X12, formal Windows admission or full AR-R6B/AR-R9B prerequisite.
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
