@@ -20,6 +20,7 @@ import '../../data/external/windows_tls_lifecycle_test.dart' show BindBarrier;
 import 'first_party_app_integration_cases.dart';
 import 'windows_app_transport_fixture.dart';
 import 'windows_resource_process_cases.dart';
+import 'windows_process_integration_cases.dart';
 
 final class _ForeignTransport implements McpVnextAppTransport {
   _ForeignTransport(this.binding);
@@ -84,6 +85,55 @@ Future<void> _disposeFake(WindowsAppTransportFixture f) async {
 /// Registered through the existing standing P11 architecture test entry.
 void windowsStartupCases() {
   windowsResourceProcessCases();
+  windowsProcessIntegrationCases();
+  test('App default local opener uses an accepted Host channel and drains it',
+      () async {
+    final f = WindowsAppTransportFixture()..useAcceptedLocalConnection = true;
+    await f.open(productBridge: true);
+    addTearDown(f.close);
+    expect(f.appDependencies.openLocalConnection, isNull);
+    expect(f.appDependencies.closeLocalConnections, isNull);
+    expect((await f.controls.status()).connected, isTrue);
+    final context = await f.context();
+    expect(context, isNotEmpty);
+    await f.startup.close();
+    expect(f.controlChannel!.isOpen, isFalse);
+    expect(f.host.verification.hasPendingLocalConnection, isFalse);
+    expect(f.host.phase, WindowsTlsHostPhase.closed);
+  });
+
+  test(
+      'App close interrupts the default pending local opener without a callback',
+      () async {
+    final f = WindowsAppTransportFixture()..useAcceptedLocalConnection = true;
+    await f.open();
+    addTearDown(f.close);
+    await f.controls.disable();
+    await f.controlChannel!.close();
+    final opening = f.controls.enable(const Duration(minutes: 5));
+    final result = expectLater(opening, throwsA(anything));
+    await pumpEventQueue(times: 20);
+    expect(f.host.verification.hasPendingLocalConnection, isTrue);
+    await f.startup.close();
+    await result;
+    expect(f.host.phase, WindowsTlsHostPhase.closed);
+  });
+  test(
+      'default accepted-channel close failure retains the App Owner and failed latch',
+      () async {
+    final f = WindowsAppTransportFixture()..useAcceptedLocalConnection = true;
+    await f.open();
+    addTearDown(() => _disposeFake(f));
+    f.controlChannel!.failClose = true;
+    final closing = f.startup.close();
+    await expectLater(closing, throwsA(anything));
+    expect(identical(closing, f.startup.close()), isTrue);
+    await expectLater(f.startup.close(), throwsA(anything));
+    expect(f.host.phase, WindowsTlsHostPhase.closing);
+    expect(f.pairing.native.owner.isClosed, isFalse);
+    expect(f.pairing.native.owner.runtimeClaimed, isTrue);
+    expect(f.host.budget.isUsable, isFalse);
+  });
   test('dormant startup constructors and close-before-start acquire nothing',
       () async {
     final f = FirstPartyAppHarness();

@@ -1,10 +1,53 @@
 // Opt-in real Windows candidate checks. No protected Owner or TLS is acquired.
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:shiroha_quiz/data/external/windows_bridge_process.dart';
+import 'package:shiroha_quiz/data/external/windows_release_candidate.dart';
+import 'package:shiroha_quiz/data/external/windows_tls_transport.dart';
+import '../application/generated_question/generated_test_support.dart'
+    show initializeGeneratedTests;
 import 'fixtures/codex_app_server_support.dart';
+import 'fixtures/windows_app_transport_fixture.dart';
+
+// Actual formal package, with a test-selected disposable installation.
+// Private adjacent-path discovery is separately tested by the AOT probe.
+final class _AotIo implements WindowsBridgeProcessIo {
+  _AotIo(this.directory);
+  final String directory;
+  _AotChild? child;
+  @override
+  Future<Map<String, Uint8List>> inspect() async => {
+        for (final name in WindowsExternalReleaseCandidate.bridgeFiles)
+          name: await File(p.join(directory, name)).readAsBytes()
+      };
+  @override
+  Future<WindowsCreatedBridgeProcess> create() async => child = _AotChild(
+      await Process.start(p.join(directory, 'shiroha_bridge.exe'), const [],
+          includeParentEnvironment: false,
+          environment: const {'SHIROHA_PROCESS_ENV_PAD': ''}));
+}
+
+final class _AotChild implements WindowsCreatedBridgeProcess {
+  _AotChild(this.original) {
+    settlement = Future.wait<int>([
+      original.exitCode,
+      original.stdout.drain<void>().then((_) => 0),
+      original.stderr.drain<void>().then((_) => 0),
+    ]).then((values) => values.first);
+  }
+  final Process original;
+  @override
+  late final Future<int> settlement;
+  @override
+  Future<int> get exitCode => original.exitCode;
+  @override
+  Future<void> closeInput() => original.stdin.close();
+}
 
 void main() {
+  initializeGeneratedTests();
   final package = Platform.environment['SHIROHA_BRIDGE_PACKAGE'];
   final codex = Platform.environment['SHIROHA_CODEX_EXE'];
   group('formal Bridge AOT', () {
@@ -33,6 +76,25 @@ void main() {
       expect(build.exitCode, 0, reason: 'Compile adjacent test owner');
     });
     tearDownAll(() async => sandbox.delete(recursive: true));
+
+    test('isolated App startup launches formal child and owns its shutdown',
+        () async {
+      final io = _AotIo(sandbox.path);
+      final process = WindowsBridgeProcess(io: io);
+      final app = WindowsAppTransportFixture()
+        ..appProcessOverride = process
+        ..useAcceptedLocalConnection = true;
+      await app.open(stage: false, productBridge: true);
+      addTearDown(app.close);
+      expect(process.isCurrent, isTrue);
+      expect((await app.call('open_generation_context'))['error'], isNull);
+      await app.startup.close();
+      expect(await io.child!.exitCode, 0);
+      expect(await io.child!.settlement, 0);
+      expect(app.host.phase, WindowsTlsHostPhase.closed);
+      expect(app.pairing.native.owner.isClosed, isTrue);
+      expect(process.isCurrent, isFalse);
+    });
 
     test('fixed Native loader binds original DLL and ABI only', () async {
       final result = await Process.run(probe, ['loader'],

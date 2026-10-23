@@ -95,11 +95,21 @@ void main() {
           '.initialize(',
           '.recoverServer(',
           'jsonDecode',
-          'DartLoopbackTlsIo',
-          '.start('
+          '.start(',
+          '.bind(',
+          '.connect(',
+          'createSecurityContext('
         ]) {
           expect(source, isNot(contains(token)), reason: path);
         }
+        expect(source,
+            contains('listener: listener ?? const DartLoopbackTlsIo()'));
+        expect(
+            source,
+            contains(
+                'createIo: createIo ?? () => const DartLoopbackBridgeIo()'));
+        expect(source, contains('native.peerCertificatePolicy.check'));
+        expect(source, contains('WindowsAppPublicPairingHandoff('));
       } else if (path == 'lib/composition/mcp_vnext_windows_startup.dart') {
         for (final token in [
           'dart:io',
@@ -175,7 +185,8 @@ void main() {
             reason: path);
       }
       if (path != 'lib/data/external/windows_bridge_process.dart' &&
-          path != 'lib/composition/mcp_vnext_windows_startup.dart') {
+          path != 'lib/composition/mcp_vnext_windows_startup.dart' &&
+          path != 'lib/composition/mcp_vnext_windows_acquisition.dart') {
         expect(
             RegExp(r'(?:import|export).*windows_bridge_process')
                 .hasMatch(source),

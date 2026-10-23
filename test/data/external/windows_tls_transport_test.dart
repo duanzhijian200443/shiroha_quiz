@@ -314,6 +314,52 @@ void main() {
   firstPartyStageApprovalCases(() => h);
 
   test(
+      'local opener acquires the same accepted server Session without reauthentication',
+      () async {
+    await h.enable();
+    final opening = h.verifier.openLocalConnection(h.pairing.local.reference);
+    expect(h.verifier.hasPendingLocalConnection, isTrue);
+    final channel = MemoryTlsChannel();
+    final accepted = await h.verifier.authenticate(channel, h.plan);
+    final local = await opening;
+    expect(identical(local.session, accepted.session), isTrue);
+    expect(identical(await local.authenticate(), accepted.session), isTrue);
+    expect(h.verifier.hasPendingLocalConnection, isFalse);
+    await expectLater(
+        h.verifier.authenticate(channel, h.plan), throwsA(anything));
+    h.verifier.invalidateChannel(channel);
+    expect(await local.authenticate(), isNull);
+    await channel.close();
+  });
+
+  test(
+      'local opener rejects concurrent requests and close interrupts pending acquisition',
+      () async {
+    await h.enable();
+    final opening = h.verifier.openLocalConnection(h.pairing.local.reference);
+    await expectLater(h.verifier.openLocalConnection(h.pairing.local.reference),
+        throwsA(anything));
+    final rejected = expectLater(opening, throwsA(anything));
+    h.verifier.close();
+    await rejected;
+    expect(h.verifier.hasPendingLocalConnection, isFalse);
+  });
+
+  test('rejected client certificate cannot satisfy local acquisition',
+      () async {
+    await h.enable();
+    final opening = h.verifier.openLocalConnection(h.pairing.local.reference);
+    final wrong = MemoryTlsChannel(vectorBytes('serverDer'));
+    await expectLater(
+        h.verifier.authenticate(wrong, h.plan), throwsA(anything));
+    expect(h.verifier.hasPendingLocalConnection, isTrue);
+    final rejected = expectLater(opening, throwsA(anything));
+    h.verifier.close();
+    await rejected;
+    await wrong.close();
+  });
+
+  test(
       'B1 pure plans enforce TLS13, isolated trust and leaf-first chain without OS calls',
       () {
     final sink = RecordingContext();

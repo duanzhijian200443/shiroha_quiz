@@ -40,9 +40,14 @@ foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.
         foreach ($token in @('dart:io', 'dart:ffi', 'Process.', 'Platform.environment',
             'DatabaseHelper', 'ExternalTrustCore(', 'ExternalSession(', 'ExternalPrincipal(',
             'PairingProof(', 'AuthenticatedPeerEvidence(', '.initialize(', '.recoverServer(',
-            'DartLoopbackTlsIo', 'DartLoopbackBridgeIo', 'jsonDecode', '.start(',
+            'jsonDecode', '.start(', '.bind(', '.connect(', 'createSecurityContext(',
             'print(', 'debugPrint(', 'DiscoveryDescriptorCodec', 'ExchangeMessageCodec')) {
             if ($code.Contains($token)) { throw "Protected acquisition escaped custody boundary: $token" }
+        }
+        foreach ($required in @('listener: listener ?? const DartLoopbackTlsIo()',
+            'createIo: createIo ?? () => const DartLoopbackBridgeIo()',
+            'native.peerCertificatePolicy.check', 'WindowsAppPublicPairingHandoff(')) {
+            if (!$code.Contains($required)) { throw "Concrete dormant dependency assembly missing: $required" }
         }
     } elseif ($file.FullName -eq (Join-Path $root 'lib/composition/mcp_vnext_windows_startup.dart')) {
         foreach ($token in @('dart:io', 'dart:ffi', 'Process.', 'Platform.environment',
@@ -76,7 +81,8 @@ foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.
         throw 'Inactive Windows composition acquired a production consumer'
     }
     if ($file.FullName -notin @((Join-Path $root 'lib/data/external/windows_bridge_process.dart'),
-            (Join-Path $root 'lib/composition/mcp_vnext_windows_startup.dart')) -and
+            (Join-Path $root 'lib/composition/mcp_vnext_windows_startup.dart'),
+            (Join-Path $root 'lib/composition/mcp_vnext_windows_acquisition.dart')) -and
         $code -match "(?:import|export).*windows_bridge_process") {
         throw 'Inactive process adapter acquired a production consumer'
     }

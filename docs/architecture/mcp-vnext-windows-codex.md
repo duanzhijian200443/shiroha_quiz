@@ -723,7 +723,7 @@ no production timeout or #327 assertion was changed. The test-only public
 Exchange copier transfers only the relevant original message kind per phase,
 without resurrecting consumed messages.
 
-This is an independently reviewable public export/import feature with actual
+This checkpoint delivered an independently reviewable public export/import feature with actual
 Windows process evidence over simulated security. Production public delivery
 UI/transport, formal AOT Pairing, App local opener/closer and peer-process startup
 assembly remain BLOCKED, independently of safety admission. In particular the
@@ -756,3 +756,85 @@ The new cases enter standing CI through the existing P27 suite. Linux CI skips
 the Windows subprocess case, so independent fixed-head Windows verification
 and Reviewer approval remain required before merge. Repository/global status:
 NOT_EVALUATED.
+
+## Explicit runtime assembly and accepted-channel process integration
+
+[MCP §17.5](../product/agent-refactor/mcp-vnext-contract.md#175-explicit-runtime-assembly-and-accepted-server-channel-acquisition)
+supersedes the earlier local acquisition/startup source gaps. The original
+protected acquirer now offers `acquireAppRuntime` and `acquireBridgeRuntime` with
+the existing concrete TLS adapters and same-loaded-Native peer policy. App
+assembly also supplies the original public P27 handoff and fixed child custody.
+App startup launches the original child and exposes its App-only public handoff;
+the default local opener acquires only the original selected Profile's live
+server-authenticated P15 Session. Default close needs no raw-opener callback and
+joins accepted channels, pending acquisition, original child and Store/Owner drain.
+
+Repeat the bounded process/functional checks with:
+
+```powershell
+flutter test --concurrency=1 test/application/external/local_authorization_architecture_test.dart
+flutter test --concurrency=1 test/mcp/windows_bridge_process_lifecycle_test.dart
+flutter test --concurrency=1 test/mcp/windows_app_transport_test.dart --plain-name 'actual Windows child joins'
+```
+
+The new independent-process case uses both product runtime assemblers and startup
+roots, isolated App SQLite and a real Windows Flutter child with its own P27
+Enrollment/key. Exact public Exchange/Discovery copies and original P9/P10 bytes
+cross test-owned files behind the existing Fake TLS seams. The App requests and
+exports its own P27 request, the child independently imports it, and two distinct
+test inputs simulate the independent human comparisons before Proof and Pin.
+The child then performs target READ, disconnects and reconnects. Each connection
+provides its server-authenticated Session to a fresh App local Enable acquisition;
+old connection/target approvals are not carried over. App close joins zero exit,
+both original streams and zero Host reservations before temporary files are deleted.
+
+Flutter tools owns the worker's stdin, so the test's worker exit gate is separate
+from the SDK child's actual stdin EOF. Both are joined; that test gate is not a
+product startup/control protocol or proof of authenticated AOT EOF. The first
+test-development failures were an incorrect target-list/context assertion and
+assuming tool EOF reached worker stdin. Only the new fixture was corrected;
+no product deadline, required failure assertion or #327 budget was changed.
+
+`windows_bridge_aot_test.dart` separately adds isolated App startup custody of the
+actual formal AOT child. Its business call still uses the isolated App/Fake TLS
+binding; the formal child remains the unchanged unavailable profile. The private
+adjacent launcher/loader and installed-client discovery/refusal tests remain
+separate checks. Actual security-Native acquisition, protected credentials/Pin,
+real TLS/client-certificate authentication and authenticated formal-AOT business
+have not been executed or admitted.
+
+The independently reviewable completion scope is explicit dependency assembly,
+accepted-channel acquisition and child custody/public-handoff integration over
+simulated security. Non-security product gaps remain: user-facing public delivery
+and comparison controls, pending Enable/independent Bridge-connection interaction,
+and trusted formal-entry bootstrap/client-stdio custody. App-launched child
+stdout remains owned/drained by the original process adapter, without a production
+handoff to an installed MCP client. Full AR-R6B additionally requires
+separately authorized real protected/TLS/native behavior, authenticated process
+failure/Restore evidence and independent frozen Windows acceptance. Normal
+production business stays denied. HOST_STABILITY_HALT = ACTIVE;
+TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED; #327 stays independently BLOCKED.
+
+Executed Executor evidence, 2026-10-24:
+
+- Initial related regression batch: **410/410 PASS** across P11 App/startup,
+  Pairing, TLS transport/lifecycle, source boundaries, ordinary Windows children
+  and vNext end-to-end. After concrete runtime assembly, the directly affected
+  P11/Native/peer-policy/source/process batch passed **144/144**, including the
+  independent-process case using BOTH runtime assemblers. These overlapping
+  batches are not a count of unique tests or a global repository verdict.
+- CLI **0.144.1** and installed Desktop backend **0.163.0-alpha.11.2** each
+  passed **43/43**, with no skip, across formal AOT, installed Windows client,
+  App/P27/Host, synthetic STAGE/Review, File READ and Bridge-v3 suites. Each
+  includes all eight formal-AOT cases. Final TLS source-boundary rerun: **3/3**.
+- Original build helper rebuilt the DLL/AOT pair. The unchanged refusal entry's
+  Bridge SHA-256 remains `6b440369f868973695722a75c196708d57eb7f92cdad30b09ed1477939eab590`.
+  No real protected acquisition, credential/Pin or TLS security operation was run.
+- All **15 changed/new Dart files** passed focused analysis and read-only format
+  with zero changes. Bootstrap/P26/P27/TLS source checks and `git diff --check`
+  passed. Successful process cases joined original exit/streams before cleanup.
+
+Standing P11 covers deterministic assembly/failure/authorization checks, but Linux
+CI skips the actual Windows process case. Final-head/current-target standing CI,
+independent Windows Verifier evidence and Independent Reviewer approval remain
+required before merge. Repository/global status: NOT_EVALUATED.

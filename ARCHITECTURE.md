@@ -600,6 +600,19 @@ human comparisons remain explicit. Windows subprocess tests use separate Bridge
 Enrollment custody and Fake protected storage; production delivery surfaces,
 accepted local-channel selection and startup/custody assembly remain pending.
 
+MCP §17.5 supersedes those bounded assembly gaps with explicit App/Bridge runtime
+assemblers over the same protected acquirer, Native peer-policy adapter, TLS I/O
+and P27 public handoff. App startup owns original child launch and can acquire
+only the existing server-authenticated Profile Session, with pending-open close
+and actual Host/process settlement preceding Store/Owner/database release. There
+is no second authentication, Owner, Session registry or business protocol. Separate
+Windows processes exercise public handoff and original business framing over Fake
+security; formal AOT remains a separately tested refusal endpoint. Normal public
+delivery/confirmation UI, pending Enable/Bridge interaction and trusted AOT
+bootstrap/client-stdio handoff remain product gaps; real protected/TLS/native
+security and formal Windows acceptance remain unexecuted. Production startup
+stays disabled.
+
 The bounded lifecycle extension adds independent READ Proposal metadata over
 the same persistence owner, through P7/P8, retained lifecycle-only IPC schema v2
 and explicit v3 original-key selection.

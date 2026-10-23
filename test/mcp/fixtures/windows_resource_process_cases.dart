@@ -9,6 +9,9 @@ import 'package:shiroha_quiz/composition/mcp_vnext_windows_startup.dart'
     show McpVnextWindowsBridgeStartup;
 import 'package:shiroha_quiz/data/external/windows_bridge_process.dart';
 import 'package:shiroha_quiz/data/external/windows_release_candidate.dart';
+import 'package:shiroha_quiz/data/external/windows_tls_transport.dart';
+import '../../application/external/local_host_test_support.dart'
+    show OfflineReadiness;
 
 import '../../data/external/windows_credential_initialization_test.dart'
     as init;
@@ -77,6 +80,37 @@ McpVnextWindowsProtectedAcquirer _acquirer(init.Harness h) =>
     );
 
 void windowsResourceProcessCases() {
+  test(
+      'runtime App assembly supplies original resources, public handoff and inert concrete defaults',
+      () async {
+    final f = WindowsAppTransportFixture();
+    await f.open();
+    addTearDown(f.close);
+    final h = init.Harness();
+    h.seed(1);
+    h.seed(2);
+    h.owner.close();
+    final d = await _acquirer(h).acquireAppRuntime(
+        clock: f.files.s.clock,
+        readiness: OfflineReadiness(() async {}),
+        port: 43123,
+        submissionId: () async => throw StateError('No local input requested'));
+    try {
+      expect(d.listener, isA<DartLoopbackTlsIo>());
+      expect(d.process, isA<WindowsBridgeProcess>());
+      expect((d.process as WindowsBridgeProcess).isCurrent, isFalse);
+      expect(d.openLocalConnection, isNull);
+      expect(d.closeLocalConnections, isNull);
+      expect(d.owner.runtimeClaimed, isFalse);
+      expect(h.generated, 0);
+      expect(h.randomCalls, 0);
+    } finally {
+      await d.process.stopAndWait();
+      await d.associations.close();
+      d.owner.close();
+      h.dispose();
+    }
+  });
   test('native acquirer construction and process construction do nothing', () {
     var loads = 0;
     McpVnextWindowsProtectedAcquirer(

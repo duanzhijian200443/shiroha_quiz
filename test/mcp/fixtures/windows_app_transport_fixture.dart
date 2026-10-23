@@ -3,9 +3,12 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/external/first_party_stage_approval.dart';
+import 'package:shiroha_quiz/application/external/first_party_external_credentials.dart';
 import 'package:shiroha_quiz/composition/mcp_vnext_windows_bridge.dart';
 import 'package:shiroha_quiz/composition/mcp_vnext_windows_startup.dart';
 import 'package:shiroha_quiz/composition/mcp_vnext_windows_acquisition.dart';
+import 'package:shiroha_quiz/data/external/windows_bridge_process.dart'
+    show WindowsBridgeProcess;
 import 'package:shiroha_quiz/data/external/windows_credential_object_store.dart';
 import 'package:shiroha_quiz/data/external/native/windows_external_native.dart';
 import 'package:shiroha_quiz/mcp/vnext_mcp_composition_root.dart';
@@ -74,13 +77,17 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
       configureConnection;
   Uint8List? clientDer;
   Completer<void>? localCloseReached;
+  bool useAcceptedLocalConnection = false;
+  FirstPartyPairingPort Function(WindowsAppPairing)? pairingOverride;
+  Future<Uint8List> Function()? publicSubmissionId;
 
   @override
   Future<void> open(
       {bool attach = true,
       bool stage = true,
       bool productBridge = false,
-      bool protectedAcquisition = false}) async {
+      bool protectedAcquisition = false,
+      bool enroll = true}) async {
     await pairing.open();
     await super.open(attach: false);
     final h = pairing;
@@ -91,7 +98,9 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
           primitives: McpVnextWindowsCredentialPrimitives(
               generateKey: h.native.generate,
               signDigest: p27.signPublicFixture,
-              verifyDigest: h.native.verify),
+              verifyDigest: h.native.verify,
+              nativePolicy:
+                  WindowsPeerCertificatePolicy(OfflinePeerCalls()).check),
           utcNow: () => h.native.now,
           monotonicNow: () => h.elapsed,
           compositionIsCurrent: () => h.current && controls.isCurrent,
@@ -117,6 +126,24 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
       enableStageApprovalWait: stage,
       acquire: () async {
         await beforeAcquire?.call();
+        if (publicSubmissionId case final input?) {
+          final d = appDependencies = await acquirer().acquireAppRuntime(
+              clock: files.s.clock,
+              readiness: OfflineReadiness(() async {
+                if (failReadiness) throw StateError('Fake readiness failure');
+                await files.s.h.db.rawQuery('SELECT 1');
+              }),
+              port: listener.port,
+              listener: listenerOverride ?? listener,
+              process: process as WindowsBridgeProcess,
+              submissionId: input);
+          h.native.owner = d.owner;
+          h.native.store = WindowsCredentialObjectStore(d.owner);
+          h.native.service = d.credentials;
+          h.associations = d.associations;
+          h.appExchange = d.exchange;
+          return d;
+        }
         McpVnextWindowsAppDependencies assemble(
             [McpVnextWindowsAppResources? resources]) {
           if (resources != null) {
@@ -154,13 +181,17 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
             }),
             listener: listenerOverride ?? listener,
             port: listener.port,
-            pairing: (appPairing) => handoff = WindowsPairingHandoff(
-                appOwner: appPairing, bridgeOwner: h.bridge),
-            openLocalConnection: () async {
-              await beforeLocalOpen?.call();
-              return (channel: controlChannel!, plan: plan);
-            },
-            closeLocalConnections: closeLocal,
+            pairing: pairingOverride ??
+                (appPairing) => handoff = WindowsPairingHandoff(
+                    appOwner: appPairing, bridgeOwner: h.bridge),
+            openLocalConnection: useAcceptedLocalConnection
+                ? null
+                : () async {
+                    await beforeLocalOpen?.call();
+                    return (channel: controlChannel!, plan: plan);
+                  },
+            closeLocalConnections:
+                useAcceptedLocalConnection ? null : closeLocal,
             process: process,
           );
         }
@@ -169,7 +200,8 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
             ? acquirer().acquireApp(
                 assemble: assemble,
                 process: process,
-                closeLocalConnections: closeLocal)
+                closeLocalConnections:
+                    useAcceptedLocalConnection ? null : closeLocal)
             : assemble();
       },
     );
@@ -189,6 +221,10 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
         verifyDigest: h.native.verify,
         utcNow: () => h.native.now);
     localPlanCreated = true;
+    if (!enroll) {
+      bridge = port!;
+      return;
+    }
     final local = handoff.bridge;
     local.beginEnrollment(
         displayLabel: 'PUBLIC FIXTURE', clientBuild: 'offline');
@@ -210,7 +246,13 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
     local.confirmCompletionAndSave(
         comparedRevision: completed.revision!,
         comparedDigest: completed.digest!);
-    await controls.enable(const Duration(minutes: 5));
+    final enabling = controls.enable(const Duration(minutes: 5));
+    if (useAcceptedLocalConnection) {
+      await pumpEventQueue(times: 20);
+      expect(host.verification.hasPendingLocalConnection, isTrue);
+      listener.controller.add(tls.MemoryRawPeer(controlChannel!));
+    }
+    await enabling;
     if (stage) approvalView = controls.openStageApprovalView()!;
     if (productBridge) {
       final process = bridgeProcessOverride ?? bridgeProcess;

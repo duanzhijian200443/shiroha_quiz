@@ -4173,3 +4173,20 @@ does not run this Windows-only suite. No A/X row, X12, G0-L1/L2/I grant, Trial 1
 formal Windows security admission or full AR-R6B completion follows.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
+
+### Explicit runtime assembly and accepted-channel integration
+
+The bounded [MCP §17.5 runtime assembly](mcp-vnext-contract.md#175-explicit-runtime-assembly-and-accepted-server-channel-acquisition)
+adds concrete explicit App/Bridge dependency assemblers and access to the SAME
+loaded Native certificate-policy adapter. Default App local acquisition uses the
+original server-authenticated Profile Session; original Host close cancels pending
+acquisition and retains custody through channel/process settlement. App startup
+launches the original fixed Bridge child under that same barrier. No normal
+startup consumer, new security protocol or automatic human confirmation is added.
+Separate Windows processes exercise public P27 handoff and original business
+framing only with Fake Native/TLS/storage and public test data. Actual formal AOT
+launch/refusal/EOF remains distinct from authenticated formal-entry business.
+These source/functional results close no A/X row and do not authorize G0-L1/L2/I
+or Trial 1A. Normal public-data/comparison UI, pending Enable/Bridge interaction,
+trusted AOT bootstrap/client-stdio handoff and formal protected/TLS/Windows
+acceptance remain open.

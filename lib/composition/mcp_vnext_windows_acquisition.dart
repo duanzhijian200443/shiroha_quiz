@@ -4,12 +4,19 @@ library;
 import 'dart:async';
 import 'dart:typed_data';
 
+import '../application/external/external_trust_core.dart';
+import '../application/external/local_host_dispatch.dart';
+
 import '../data/external/native/windows_external_crypto.dart';
 import '../data/external/native/windows_external_native.dart';
+import '../data/external/native/windows_peer_certificate_policy.dart';
+import '../data/external/windows_bridge_process.dart';
+import '../data/external/discovery_descriptor_codec.dart';
 import '../data/external/windows_credential_association_store.dart';
 import '../data/external/windows_credential_initialization.dart';
 import '../data/external/windows_exchange_file_store.dart';
 import '../data/external/windows_pairing.dart';
+import '../data/external/windows_tls_transport.dart';
 import 'mcp_vnext_windows_startup.dart';
 
 /// Trusted primitive injection only; the default uses the existing native crypto.
@@ -18,10 +25,12 @@ final class McpVnextWindowsCredentialPrimitives {
     required this.generateKey,
     required this.signDigest,
     required this.verifyDigest,
+    this.nativePolicy,
   });
   final ExternalP256KeyPair Function() generateKey;
   final CredentialDigestSigner signDigest;
   final CredentialDigestVerifier verifyDigest;
+  final void Function(Uint8List, TlsPeerRole)? nativePolicy;
 }
 
 /// The sole newly acquired App Owner and its original P20/P25/P24/P27 adapters.
@@ -29,13 +38,14 @@ final class McpVnextWindowsCredentialPrimitives {
 /// bundle; it must not start a Host or transfer these resources elsewhere.
 final class McpVnextWindowsAppResources {
   McpVnextWindowsAppResources._(this.owner, this.credentials, this.associations,
-      this.exchange, this.verification, this.primitives);
+      this.exchange, this.verification, this.primitives, this.nativePolicy);
   final ExternalProtectedObjects owner;
   final WindowsCredentialInitialization credentials;
   final WindowsCredentialAssociationStore associations;
   final WindowsExchangeFileStore exchange;
   final WindowsPairingVerification verification;
   final McpVnextWindowsCredentialPrimitives primitives;
+  final void Function(Uint8List, TlsPeerRole) nativePolicy;
 }
 
 /// One-shot ownership transfer, not an admission grant. Construction captures
@@ -63,6 +73,81 @@ final class McpVnextWindowsProtectedAcquirer {
   // Retain original ownership on uncertain cleanup; never expose a retry API.
   ExternalProtectedObjects? _owner;
   WindowsCredentialAssociationStore? _associations;
+  WindowsExternalNative? _native;
+
+  McpVnextWindowsCredentialPrimitives _primitivesFor(
+      WindowsExternalNative native) {
+    if (_primitives case final supplied?) return supplied;
+    final crypto = native.crypto;
+    return McpVnextWindowsCredentialPrimitives(
+        generateKey: crypto.generateKey,
+        signDigest: crypto.signDigest,
+        verifyDigest: crypto.verifyDigest);
+  }
+
+  /// Complete explicit App dependency assembly. Real acquisition/listening is
+  /// still separately admitted; defaults never load saved App configuration.
+  /// The only public input is independently delivered P27 Submission identity.
+  Future<McpVnextWindowsAppDependencies> acquireAppRuntime({
+    required ExternalClock clock,
+    required LocalHostReadinessPort readiness,
+    required int port,
+    required Future<Uint8List> Function() submissionId,
+    WindowsBridgeProcess? process,
+    TlsListenerIo? listener,
+  }) {
+    final child = process ?? WindowsBridgeProcess();
+    return acquireApp(
+        process: child,
+        assemble: (r) => McpVnextWindowsAppDependencies(
+              owner: r.owner,
+              credentials: r.credentials,
+              associations: r.associations,
+              exchange: r.exchange,
+              pairingVerification: r.verification,
+              signDigest: r.primitives.signDigest,
+              verifyDigest: r.primitives.verifyDigest,
+              nativePolicy: r.nativePolicy,
+              clock: clock,
+              utcNow: utcNow,
+              monotonicNow: monotonicNow,
+              randomBytes: randomBytes,
+              compositionIsCurrent: compositionIsCurrent,
+              readiness: readiness,
+              listener: listener ?? const DartLoopbackTlsIo(),
+              port: port,
+              pairing: (owner) => WindowsAppPublicPairingHandoff(
+                  owner: owner, submissionId: submissionId),
+              process: child,
+            ));
+  }
+
+  /// Same original Bridge Owner/P26/Pin path, with concrete existing TLS I/O
+  /// and Native peer policy. Trust inputs and process custody remain mandatory.
+  Future<McpVnextWindowsBridgeDependencies> acquireBridgeRuntime({
+    required DiscoveryExpectations trusted,
+    required McpVnextWindowsProcessOwner process,
+    TlsBridgeIo Function()? createIo,
+  }) =>
+      acquireBridge(
+          process: process,
+          assemble: (owner) {
+            final native = _native!;
+            final primitives = _primitivesFor(native);
+            return McpVnextWindowsBridgeDependencies(
+              owner: owner,
+              trusted: trusted,
+              createIo: createIo ?? () => const DartLoopbackBridgeIo(),
+              signDigest: primitives.signDigest,
+              verifyDigest: primitives.verifyDigest,
+              nativePolicy:
+                  primitives.nativePolicy ?? native.peerCertificatePolicy.check,
+              utcNow: utcNow,
+              monotonicNow: monotonicNow,
+              compositionIsCurrent: compositionIsCurrent,
+              process: process,
+            );
+          });
 
   void _admit() {
     if (_used) throw _unavailable();
@@ -74,22 +159,14 @@ final class McpVnextWindowsProtectedAcquirer {
             McpVnextWindowsAppResources)
         assemble,
     required McpVnextWindowsProcessOwner process,
-    required Future<void> Function() closeLocalConnections,
+    Future<void> Function()? closeLocalConnections,
   }) async {
     _admit();
     try {
       if (!compositionIsCurrent()) throw _unavailable();
-      final native = _openNative();
+      final native = _native = _openNative();
       final owner = _owner = native.acquireAppObjects();
-      final primitives = _primitives ??
-          () {
-            final crypto = native.crypto;
-            return McpVnextWindowsCredentialPrimitives(
-              generateKey: crypto.generateKey,
-              signDigest: crypto.signDigest,
-              verifyDigest: crypto.verifyDigest,
-            );
-          }();
+      final primitives = _primitivesFor(native);
       final associations = _associations = WindowsCredentialAssociationStore(
           owner,
           nowUtcMs: () => utcNow().millisecondsSinceEpoch);
@@ -108,8 +185,14 @@ final class McpVnextWindowsProtectedAcquirer {
           utcNow: utcNow,
           monotonicNow: monotonicNow,
           compositionIsCurrent: compositionIsCurrent);
-      final d = await assemble(McpVnextWindowsAppResources._(owner, credentials,
-          associations, exchange, verification, primitives));
+      final d = await assemble(McpVnextWindowsAppResources._(
+          owner,
+          credentials,
+          associations,
+          exchange,
+          verification,
+          primitives,
+          primitives.nativePolicy ?? native.peerCertificatePolicy.check));
       if (!identical(d.owner, owner) ||
           !identical(d.credentials, credentials) ||
           !identical(d.associations, associations) ||
@@ -126,7 +209,7 @@ final class McpVnextWindowsProtectedAcquirer {
       _associations = null;
       return d;
     } catch (_) {
-      await _abort(process, closeLocalConnections);
+      await _abort(process, closeLocalConnections ?? () async {});
       throw _unavailable();
     }
   }
@@ -140,7 +223,8 @@ final class McpVnextWindowsProtectedAcquirer {
     _admit();
     try {
       if (!compositionIsCurrent()) throw _unavailable();
-      final owner = _owner = _openNative().acquireBridgeObjects();
+      final native = _native = _openNative();
+      final owner = _owner = native.acquireBridgeObjects();
       final d = await assemble(owner);
       if (!identical(d.owner, owner) ||
           !identical(d.process, process) ||

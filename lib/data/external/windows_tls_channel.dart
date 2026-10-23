@@ -28,6 +28,54 @@ final class WindowsChannelVerification
   final _channels = Set<TlsChannel>.identity();
   final _seenChannels = Set<TlsChannel>.identity();
   bool _closed = false;
+  Completer<FirstPartyCredentialConnection>? _localOpening;
+  ExternalProfileReference? _localProfile;
+  bool get hasPendingLocalConnection => _localOpening != null;
+
+  /// Acquires the server's original authenticated Session. The Bridge opens
+  /// the socket; this local action neither borrows its client key nor invents
+  /// another channel. Normal P9 deadlines and per-call policy remain in force.
+  Future<FirstPartyCredentialConnection> openLocalConnection(
+      ExternalProfileReference profile) async {
+    if (!_available || _localOpening != null) _tlsReject();
+    final opening = _localOpening = Completer<FirstPartyCredentialConnection>();
+    // Close can interrupt the independent management read before it settles.
+    unawaited(
+        opening.future.then((_) {}, onError: (Object _, StackTrace __) {}));
+    _localProfile = profile;
+    try {
+      await management.read(profile); // reject foreign/stale local references
+      if (!_available) _tlsReject();
+      for (final attempt in _attempts) {
+        _offerLocal(attempt);
+        if (opening.isCompleted) break;
+      }
+      final connection = await opening.future;
+      if (!_available ||
+          !identical(await connection.authenticate(), connection.session)) {
+        _tlsReject();
+      }
+      return connection;
+    } finally {
+      if (identical(_localOpening, opening)) {
+        _localOpening = null;
+        _localProfile = null;
+      }
+    }
+  }
+
+  void _offerLocal(_ChannelAttempt attempt) {
+    final opening = _localOpening;
+    final session = attempt.session;
+    if (opening != null &&
+        !opening.isCompleted &&
+        session != null &&
+        attempt.reference.profileId == _localProfile?.profileId &&
+        isLive(attempt)) {
+      opening.complete(
+          WindowsTlsSession._(this, attempt, session).firstPartyConnection);
+    }
+  }
 
   void attach(ExternalCredentialBoundary boundary) {
     if (_boundary != null || _closed) _tlsReject();
@@ -77,6 +125,7 @@ final class WindowsChannelVerification
       final session = await _boundary!.openSession(reference, attempt);
       attempt.session = session;
       if (!isLive(attempt)) _tlsReject();
+      _offerLocal(attempt);
       return WindowsTlsSession._(this, attempt, session);
     } catch (_) {
       if (attempt != null) {
@@ -170,6 +219,11 @@ final class WindowsChannelVerification
 
   void close() {
     _closed = true;
+    final opening = _localOpening;
+    if (opening != null && !opening.isCompleted) {
+      opening.completeError(const ExternalCredentialException(
+          ExternalCredentialFailure.temporarilyUnavailable));
+    }
     for (final event in _attempts) {
       event.invalid = true;
     }
