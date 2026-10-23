@@ -85,7 +85,8 @@ final class JsonLineProcess {
 
   Future<Map<String, dynamic>> request(
       String method, Map<String, dynamic> params,
-      {bool mcp = false}) async {
+      {bool mcp = false,
+      Duration timeout = const Duration(seconds: 40)}) async {
     final id = ++_id;
     final response = Completer<Map<String, dynamic>>();
     _pending[id] = response;
@@ -96,7 +97,7 @@ final class JsonLineProcess {
       'params': params
     });
     try {
-      return await response.future.timeout(const Duration(seconds: 40));
+      return await response.future.timeout(timeout);
     } finally {
       _pending.remove(id);
     }
@@ -137,7 +138,8 @@ final class InstalledCodex {
   Future<void> configure(
       {String? command,
       String? entrypoint,
-      List<String>? entrypointArguments}) async {
+      List<String>? entrypointArguments,
+      int toolTimeoutSeconds = 10}) async {
     // TOML basic strings share JSON escaping for these absolute Windows paths.
     final config = '''
 model = "offline-probe"
@@ -163,7 +165,7 @@ args = ${jsonEncode([
         ])}
 cwd = ${jsonEncode(repo)}
 startup_timeout_sec = 10
-tool_timeout_sec = 10
+tool_timeout_sec = $toolTimeoutSeconds
 ''';
     await File(p.join(home.path, 'config.toml')).writeAsString(config);
   }
@@ -200,12 +202,15 @@ tool_timeout_sec = 10
   Future<Map<String, dynamic>> inventory() =>
       rpc.request('mcpServerStatus/list', {'threadId': threadId});
 
-  Future<Map<String, dynamic>> call(
-          String tool, Map<String, dynamic> arguments) =>
-      rpc.request('mcpServer/tool/call', {
-        'threadId': threadId,
-        'server': 'shiroha_vnext',
-        'tool': tool,
-        'arguments': arguments,
-      });
+  Future<Map<String, dynamic>> call(String tool, Map<String, dynamic> arguments,
+          {Duration timeout = const Duration(seconds: 40)}) =>
+      rpc.request(
+          'mcpServer/tool/call',
+          {
+            'threadId': threadId,
+            'server': 'shiroha_vnext',
+            'tool': tool,
+            'arguments': arguments,
+          },
+          timeout: timeout);
 }

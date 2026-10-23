@@ -499,3 +499,53 @@ exposure acceptance. `HOST_STABILITY_HALT = ACTIVE`, `TRANSPORT = BLOCKED`,
 `AR-R6A = NOT_ACCEPTED` remain unchanged. No personal bank, high-assurance Windows
 experiment, real provider, DLL, Pin or Custodian is involved. Synthetic functional
 success never authorizes a security batch, production Host or transport activation.
+
+## Installed STAGE short-timeout limitation (2026-10-22)
+
+The isolated `app-server --stdio` / `mcpServer/tool/call` path of installed npm
+CLI `0.144.1` and Desktop backend `0.163.0-alpha.11.1` does **not satisfy the
+short-deadline cancellation acceptance**. With an effective `tool_timeout_sec`
+of 2, both returned a tool-timeout RPC error after approximately 2 seconds.
+During the following 8-second observation, the original STAGE request received
+neither a matching MCP `notifications/cancelled` nor stdio close. A subsequent
+MCP tool request reached the same observed SDK transport, establishing that its
+input observer remained active. No SDK `extra.signal.onAbort`, mailbox `.cancel`,
+Bridge/Host channel close or owning settlement followed from the client timeout.
+The pending approval and one pipeline reservation remained; the handler had not
+entered. This is a missing client cancellation/close signal, not evidence that
+an initiated Bridge close failed to settle.
+
+The ordinary test mailbox still has its independent **8-second** deadline.
+Only its explicit STAGE-wait profile uses **150 seconds**, so the ordinary
+mailbox expiry cannot stand in for the Codex 2-second timeout. Advancing the
+existing fake App clock to the original 120-second human bound then invalidated
+the approval and completed real Fake-TLS close and owning settlement with no
+handler entry or Proposal. This is synthetic deadline evidence, not 120 seconds
+of real client waiting. The later `.cancel` file was written by the child
+mailbox's response/finally cleanup; it was **not** a client cancellation. The
+132/142-second Bridge bounds remain unchanged.
+
+Reproduce each installed binary separately using the child-only setup above:
+
+```powershell
+flutter test --no-pub --concurrency=1 test/mcp/vnext_codex_stage_approval_test.dart --plain-name 'installed Codex STAGE short-client-timeout-evidence'
+```
+
+The bounded observer records only fixed phase names, monotonic timings and
+counts. It forwards every SDK transport message/close callback unchanged, and
+does not inject cancellation. The diagnostic deliberately remains a FAIL with
+`CLIENT_NO_CANCEL`; it does not replace the original `short-client-timeout`
+acceptance. Cleanup is separately initiated and never counted as client input.
+The original approval-decision Future and the Bridge response wait remain pending
+until actual invalidation; reservations must not be released merely because
+Codex returned an error. Entered/published STAGE still requires original-key
+reconciliation and must never be automatically retried.
+
+Resolving this limitation requires actual upstream cancellation/connection
+withdrawal, or separately authorized deadline coordination. Do not invent an
+MCP cancellation, shorten the frozen App/Bridge limits, or add wire/authorization
+semantics to make the test pass. These findings apply only to the named installed
+backends and direct MCP-call path; SDK, model-led and Desktop-interactive paths
+are distinct evidence. The default STAGE refusal and all production security
+admission blocks remain in force. This diagnostic is Executor evidence, not
+independent approval or complete installed-client STAGE acceptance.
