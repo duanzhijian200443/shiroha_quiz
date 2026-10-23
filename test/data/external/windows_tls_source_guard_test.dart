@@ -104,7 +104,23 @@ void main() {
           'DartLoopbackBridgeIo',
           'jsonDecode',
           'print(',
-          'debugPrint('
+          'debugPrint(',
+          'DiscoveryDescriptorCodec',
+          'PairingTranscriptCodec',
+          'ExchangeMessageCodec',
+          'ExternalBootstrapBytes',
+          'readSubmission',
+          'readChallenge',
+          'readProof',
+          'ExchangeFileRead',
+          'ExchangePublication',
+          'createCaptured',
+          '.consume(',
+          '.release(',
+          'AppPairingRequest',
+          'createChallenge',
+          'initialDisplay',
+          'completionDisplay'
         ]) {
           expect(source, isNot(contains(token)), reason: path);
         }

@@ -359,6 +359,18 @@ void windowsStartupCases() {
     expect((await f.call('open_generation_context'))['error'], 'unavailable');
   });
 
+  test('Bridge unknown process exit locks admission and retains Owner',
+      () async {
+    final f = WindowsAppTransportFixture();
+    await f.open(productBridge: true);
+    addTearDown(() => _disposeFake(f));
+    f.bridgeProcess.fail = true;
+    await expectLater(f.bridge.close(), throwsStateError);
+    expect(f.pairing.bridgeOwner.isClosed, isFalse);
+    expect(f.bridgeProcess.stops, 1);
+    expect((await f.call('open_generation_context'))['error'], 'unavailable');
+  });
+
   for (final mode in ['local-close', 'process-exit']) {
     test('App $mode failure blocks database close and retains runtime.lock',
         () async {

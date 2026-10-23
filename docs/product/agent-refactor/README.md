@@ -402,8 +402,8 @@ The trusted Request deadline is bounded by 600 seconds, defaulting to the
 unchanged 30 seconds; the private Evidence Window remains 30 seconds and the
 single-use Bridge completion window is at most 120 seconds. Package 1 reaches
 SOURCE IMPLEMENTED / OFFLINE TESTED only. No real UI/process Pairing, Windows
-security acceptance, listener, TLS, new authorization or production wiring is
-claimed. Section 19's table is the Package 1 integration coverage index.
+security acceptance, listener, TLS, new authorization or active production
+wiring is claimed. Section 19's table is the Package 1 integration coverage index.
 
 Package 2 under [readiness §20](windows-host-security-readiness.md#20-package-2-tls-and-bounded-host-adapter-g0-l0-only)
 adds an inactive SOURCE IMPLEMENTED / OFFLINE TESTED TCP/mTLS transport
@@ -412,7 +412,7 @@ TLS 1.3 contexts, an optional certificate-only ABI-3
 `shiroha_native_peer_certificate_policy` export, P20 read-only inverse
 association lookup, private one-use P15 channel evidence, P26-acknowledged
 publication and the unchanged P9/P10/P8/P7 pipeline under fixed first-candidate
-ceilings (one request per connection). Source guards keep the group unwired; no
+ceilings (one request per connection). Source guards keep the group inactive; no
 listener, TLS context, credential object, Host or Bridge production composition
 is activated. REAL WINDOWS PENDING / FORMAL ACCEPTANCE PENDING remain explicit;
 G0-L1, G0-L2 and G0-I keep their separate grants. Package 3's now-delivered
@@ -435,7 +435,11 @@ offline fixture cuts a Fake Channel after the actual P3 commit and reconciles
 the original SubmissionKey through a fresh P15 Session without restage.
 `WindowsExternalReleaseCandidate` performs pure package/PE inventory checks
 without loading, and the default-disabled `tool/external/bridge_candidate.dart`
-AOT entry refuses activation (64/78); source guards keep the group unwired.
+AOT entry refuses activation (64/78); source guards keep the group inactive.
+The later dormant
+[MCP §16 startup root](mcp-vnext-contract.md#16-dormant-windows-startup-and-credential-handoff-composition)
+only wires existing owners without activating a listener, credential, Host,
+Bridge or process; active production composition remains prohibited.
 Package 3 reaches SOURCE IMPLEMENTED / OFFLINE TESTED only: it is neither
 production activation nor an A-row acceptance, and no real
 shutdown/restart/revoke/crash/release trial or AOT/Release build is performed.

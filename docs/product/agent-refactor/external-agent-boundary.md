@@ -438,10 +438,13 @@ Future protocol adapter -> trusted authenticated Session
 ```
 
 P8 is accepted through merged PR #258 within its offline scope. It is callable
-only by trusted compiled composition in offline
-fixtures. It has no production composition, public transport, listener, JSON
-decoder, credential adapter or MCP projection. HOST_STABILITY_HALT remains
-ACTIVE; passing offline tests proves neither transport nor OS identity security.
+only by trusted compiled composition. It has no active production composition,
+public transport, listener, JSON decoder, credential adapter or MCP projection;
+the dormant
+[MCP §16](mcp-vnext-contract.md#16-dormant-windows-startup-and-credential-handoff-composition)
+startup root is the only non-fixture composition that calls this seam, and
+normal startup never activates it. HOST_STABILITY_HALT remains ACTIVE; passing
+offline tests proves neither transport nor OS identity security.
 
 Construction defaults to disabled. Explicit `startOffline` checks database
 readiness, completed B0 recovery and module/route readiness in order, then
@@ -1475,13 +1478,20 @@ commit or Pairing completion. E0 implements no D0 sequencing or P27-I0 workflow.
 P25's inactive credential initialization and restricted Client leaf issuer are
 owned by Windows readiness §17. An issued leaf and its exact-DER digest remain
 public correlation material: neither proves Client possession nor creates a
-Principal, PairingProof, Session, Association, Grant or Enablement. No production
-consumer calls this infrastructure; P27 enrollment remains separately scoped.
+Principal, PairingProof, Session, Association, Grant or Enablement. No active
+production consumer calls this infrastructure; the sole dormant exception is the
+[MCP §16](mcp-vnext-contract.md#16-dormant-windows-startup-and-credential-handoff-composition)
+startup root, which activates no acquisition, Listener, transport or normal
+startup. P27 enrollment remains separately scoped.
 P26's inactive Discovery Publisher/Reader is owned by Windows readiness §18.
 Fixed Native object access and same-ticket epoch/high-water persistence use
 P19/P23/P25; P22 still owns the descriptor and independent trusted inputs.
 Discovery data supplies no P15 evidence, Pairing, Session or connection
-authority. No initial Pin or production consumer is introduced.
+authority. P26 itself introduces no initial Pin or production consumer; the sole
+later consumer is the dormant
+[MCP §16](mcp-vnext-contract.md#16-dormant-windows-startup-and-credential-handoff-composition)
+startup root, which does not activate acquisition, publication or a normal
+startup.
 
 P27-D0 freezes only the bounded bootstrap decisions in Windows readiness
 §9.C.5/§9.C.8/§9.D; it does not implement or activate P27. First trust requires

@@ -41,7 +41,13 @@ foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.
             'DatabaseHelper', 'ExternalTrustCore(', 'ExternalSession(', 'ExternalPrincipal(',
             'PairingProof(', 'AuthenticatedPeerEvidence(', '.initialize(', '.recoverServer(',
             '.acquireAppObjects(', '.acquireBridgeObjects(', 'DartLoopbackTlsIo',
-            'DartLoopbackBridgeIo', 'jsonDecode', 'print(', 'debugPrint(')) {
+            'DartLoopbackBridgeIo', 'jsonDecode', 'print(', 'debugPrint(',
+            'DiscoveryDescriptorCodec', 'PairingTranscriptCodec',
+            'ExchangeMessageCodec', 'ExternalBootstrapBytes',
+            'readSubmission', 'readChallenge', 'readProof', 'ExchangeFileRead',
+            'ExchangePublication', 'createCaptured', '.consume(', '.release(',
+            'AppPairingRequest', 'createChallenge', 'initialDisplay',
+            'completionDisplay')) {
             if ($code.Contains($token)) { throw "Dormant startup escaped trusted handoff: $token" }
         }
     } elseif ($file.FullName -in @((Join-Path $root 'lib/composition/mcp_vnext_windows_transport.dart'),
