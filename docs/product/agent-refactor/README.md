@@ -435,7 +435,13 @@ offline fixture cuts a Fake Channel after the actual P3 commit and reconciles
 the original SubmissionKey through a fresh P15 Session without restage.
 `WindowsExternalReleaseCandidate` performs pure package/PE inventory checks
 without loading, and the default-disabled `tool/external/bridge_candidate.dart`
-AOT entry refuses activation (64/78); source guards keep the group inactive.
+AOT entry originally refused activation (64/78). The later
+[MCP §17.2](mcp-vnext-contract.md#172-fixed-adjacent-aot-protocol-integration-without-business-activation)
+connects it to the existing unavailable seven-tool stdio profile, retaining
+invalid-argument exit 64 and disabled business/credential/transport admission.
+The Windows guide distinguishes real AOT/adjacent-loader checks from Fake
+security-chain tests and still-unverified production App/Bridge behavior.
+Source guards keep authenticated production composition inactive.
 The later dormant
 [MCP §16 startup root](mcp-vnext-contract.md#16-dormant-windows-startup-and-credential-handoff-composition)
 only wires existing owners without activating a listener, credential, Host,

@@ -578,6 +578,21 @@ Ordinary-child evidence does not exercise the private adjacent launcher/child
 wrapper, formal Bridge AOT/Loader, real credentials/TLS or production cross-process
 runtime, and does not establish formal admission, full AR-R6B or AR-R9B acceptance.
 
+MCP §17.2 now joins the formal `shiroha_bridge.exe` AOT entry to the existing
+seven-tool unavailable endpoint. It accepts no activation/configuration arguments,
+creates no credential/Session/Host and returns no authorized business data.
+Fixed-adjacent process and Native ABI-loader checks are separately executable
+in a disposable Windows package; the loader probe never acquires protected objects.
+Installed-client AOT discovery/refusal/EOF evidence is distinct from authorized
+App/P27/Host tests using Mailbox/Fake TLS and isolated SQLite. Real production
+App/Bridge credentials, transport, active-business crash/Restore and #327
+cancellation remain unresolved; normal production startup is unchanged.
+MCP §17.3 connects the same dormant Bridge startup to the original stdio server.
+Its entry now waits for EOF and the original latched port/Owner drain; explicit
+close first closes protocol admission and then joins that same settlement.
+Independent-process public Pairing handoff and actual local-I/O/process assembly
+remain product integration gaps distinct from protected-resource/TLS admission.
+
 The bounded lifecycle extension adds independent READ Proposal metadata over
 the same persistence owner, through P7/P8, retained lifecycle-only IPC schema v2
 and explicit v3 original-key selection.

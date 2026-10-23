@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/data/external/windows_tls_transport.dart';
+import 'package:shiroha_quiz/application/generated_question/generated_question_service.dart';
 import '../application/generated_question/generated_test_support.dart'
     show initializeGeneratedTests, submission;
 import '../application/study_query/study_query_test_support.dart'
@@ -84,14 +85,53 @@ void main() {
     expect(f.approval.waitingForUser, isTrue);
     expect(await f.files.s.h.count('generated_question_proposals'), 0);
     await f.approvalView.confirm(f.approvalView.pending!);
-    expect(_data(await staged)['publication'], 'STAGED');
+    final stagedData = _data(await staged);
+    expect(stagedData['publication'], 'STAGED');
     expect(
         _data(await client.call('get_question_proposal',
             {'submissionKey': 'installed-owned'}))['lifecycleStatus'],
         'pending_review');
     expect(await f.files.s.h.count('generated_question_commit_receipts'), 0);
-    // EOF closes this process composition. Reconnect gets a new owner and no
-    // replay; existing independent-client regression owns its broader matrix.
+    // App-only explicit Review/Approve; the installed client cannot COMMIT.
+    final local = await f.files.s.localFactory.openSession();
+    try {
+      var proposal = await local.read(stagedData['proposalId'] as String);
+      final approval = local.confirmDisplayedTarget(proposal.target);
+      proposal = await f.files.s.h.service.flush(
+          GeneratedReviewFlush.fromJson({
+            'proposalId': proposal.proposalId,
+            'expectedReviewRevision': proposal.reviewRevision,
+            'operations': [
+              for (final item in proposal.items)
+                {
+                  'type': 'decide',
+                  'itemId': item.itemId,
+                  'decision': 'accepted'
+                }
+            ]
+          }),
+          approval);
+      await f.files.s.h.service.approve(
+          ApproveGeneratedProposalCommand.fromJson({
+            'proposalId': proposal.proposalId,
+            'expectedReviewRevision': proposal.reviewRevision,
+            'approvedItemIds': proposal.items.map((i) => i.itemId).toList()
+          }),
+          approval);
+    } finally {
+      local.close();
+    }
+    // Restart the actual client/MCP processes; the isolated App stays open.
+    // Recover by the original key, without replaying STAGE or old Context.
+    await client.disconnect();
+    await client.connect();
+    expect(
+        _data(await client.call('get_question_proposal',
+            {'submissionKey': 'installed-owned'}))['lifecycleStatus'],
+        'committed');
+    expect(mailbox.stageCalls, 1);
+    expect(await f.files.s.h.count('generated_question_proposals'), 1);
+    expect(await f.files.s.h.count('generated_question_commit_receipts'), 1);
     await client.disconnect();
     await mailbox.close();
     await f.host.whenConnectionsSettled;

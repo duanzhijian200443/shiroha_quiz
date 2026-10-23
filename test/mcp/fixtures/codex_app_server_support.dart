@@ -136,6 +136,7 @@ final class InstalledCodex {
 
   Future<void> configure(
       {String? command,
+      List<String>? commandArguments,
       String? entrypoint,
       List<String>? entrypointArguments}) async {
     // TOML basic strings share JSON escaping for these absolute Windows paths.
@@ -156,11 +157,11 @@ enabled = false
 enabled = false
 [mcp_servers.shiroha_vnext]
 command = ${jsonEncode(command ?? flutterDartExecutable())}
-args = ${jsonEncode([
-          entrypoint ?? 'test/mcp/fixtures/vnext_codex_stdio_fixture.dart',
-          ...?entrypointArguments,
-          if (entrypoint == null) home.path
-        ])}
+args = ${jsonEncode(commandArguments ?? [
+              entrypoint ?? 'test/mcp/fixtures/vnext_codex_stdio_fixture.dart',
+              ...?entrypointArguments,
+              if (entrypoint == null) home.path
+            ])}
 cwd = ${jsonEncode(repo)}
 startup_timeout_sec = 10
 tool_timeout_sec = 10

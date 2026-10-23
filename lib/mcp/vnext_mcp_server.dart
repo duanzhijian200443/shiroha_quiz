@@ -31,8 +31,17 @@ final class VnextMcpServer {
         );
     _server.server.onclose = () {
       _closed = true;
-      unawaited(port.close());
+      // EOF closes admission immediately; entry completion still belongs to the
+      // original port's drain/Owner barrier. Observe errors even for SDK users
+      // that never call serveStdio, while preserving them for the owning caller.
+      unawaited(_closePort().then((_) {
+        if (!_settled.isCompleted) _settled.complete();
+      }, onError: (Object error, StackTrace stack) {
+        if (!_settled.isCompleted) _settled.completeError(error, stack);
+      }));
     };
+    unawaited(
+        _settled.future.then((_) {}, onError: (Object _, StackTrace __) {}));
     for (final entry in inputSchemas.entries) {
       _server.registerTool(entry.key,
           description: entry.key == 'propose_generated_questions'
@@ -85,11 +94,30 @@ final class VnextMcpServer {
   final VnextMcpPort port;
   late final McpServer _server;
   bool _closed = false;
-  Future<void> serveStdio() => _server.connect(StdioServerTransport());
-  Future<void> close() async {
+  final _settled = Completer<void>();
+  Future<void>? _portClosing, _closing;
+  Future<void> _closePort() => _portClosing ??= Future<void>.sync(port.close);
+
+  Future<void> serveStdio() async {
+    try {
+      await _server.connect(StdioServerTransport());
+      await _settled.future;
+    } finally {
+      await close();
+    }
+  }
+
+  Future<void> close() {
     _closed = true;
-    await port.close();
-    await _server.close();
+    return _closing ??= () async {
+      // Closing the protocol first cancels protocol work. This is not evidence
+      // that business work settled: join the SAME original port close below.
+      try {
+        await _server.close();
+      } finally {
+        await _closePort();
+      }
+    }();
   }
 
   static Map<String, dynamic> _object(Map<String, dynamic> fields,

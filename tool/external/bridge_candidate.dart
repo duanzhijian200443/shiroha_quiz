@@ -3,6 +3,7 @@
 // Owner, issuer, Store, listener, migration or business writer is created here.
 import 'dart:io';
 import 'package:shiroha_quiz/data/external/windows_release_candidate.dart';
+import 'package:shiroha_quiz/mcp/vnext_mcp_entrypoint.dart' as unavailable;
 
 // Pins the candidate transport dependency for transitive source auditing.
 // Exporting a type neither constructs a Bridge nor starts a connection.
@@ -19,12 +20,13 @@ export 'package:shiroha_quiz/data/external/windows_pairing.dart'
         BridgeOnboardingDisplay,
         BridgeAppPublicMaterial;
 
-void main(List<String> arguments) {
+Future<void> main(List<String> arguments) async {
   if (!WindowsExternalReleaseCandidate.acceptsArguments(arguments)) {
     stderr.writeln('invalidBridgeArguments');
     exitCode = 64;
     return;
   }
-  stderr.writeln('externalHostActivationPending');
-  exitCode = 78;
+  // The existing seven-tool refusal endpoint creates no authenticated runtime.
+  // Codex can discover the profile and close on EOF without enabling business.
+  await unavailable.main();
 }

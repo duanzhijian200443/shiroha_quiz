@@ -1034,8 +1034,9 @@ shutdown, while that shutdown still waits for the original streams/process.
 
 Static PE inspection is not signed-image/loader acceptance or proof that package
 files cannot change between inspection and launch. No new image pin or private
-cross-process credential-transfer protocol is invented. The unchanged standalone
-candidate still refuses activation (64/78); normal App/vNext startup imports
+cross-process credential-transfer protocol is invented. The standalone
+candidate rejects arguments with 64 and, under section 17.2, otherwise serves
+the existing unavailable seven-tool endpoint; normal App/vNext startup imports
 neither new adapter. A separately admitted functional runtime, Windows loading/
 exit behavior and package identity acceptance remain concrete integration gaps.
 
@@ -1096,3 +1097,95 @@ Final-head/current-target CI, independent Windows Verifier evidence and independ
 Reviewer approval remain separate delivery/merge gates. Ordinary-child PASS
 closes no A/X row, X12, formal Windows admission or full AR-R6B/AR-R9B prerequisite.
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
+
+### 17.2. Fixed-adjacent AOT protocol integration, without business activation
+
+`tool/external/build_bridge_candidate.ps1` builds the original x64 Native DLL
+and compiles `bridge_candidate.dart` to the fixed `shiroha_bridge.exe` name in
+the task-local `.dart_tool/ar-r6b-integration` directory. It runs no Native
+diagnostic, credential acquisition, security experiment or installer. This is
+a local build path, not AR-R9B distribution or signed-package acceptance.
+
+The formal entry now delegates to the SAME `vnext_mcp_entrypoint.dart` used by
+the existing unavailable stdio profile. Valid empty arguments allow initialize,
+seven-tool discovery, fail-closed `unavailable` business results and EOF exit;
+nonempty arguments still exit 64 without protocol output. No environment/path
+selector, Fake production mode, authentication, App transport, credentials,
+Session or Writer is introduced. The earlier unconditional exit-78 behavior is
+superseded; production business admission stays disabled.
+
+The opt-in `windows_bridge_aot_test.dart` copies the built pair into a disposable
+space/Unicode directory and compiles a test owner beside it. That owner calls the
+original private fixed-adjacent `WindowsBridgeProcess` I/O without injection.
+Checks cover SDK creation, EOF, exit notification, dual-stream settlement,
+repeated close and interruption during inspection. This last case is NOT proof
+of interruption after OS creation; section 17.1 retains the late-transfer case.
+A separate invocation calls only `WindowsExternalNative.open()` and the ABI
+check against the actual DLL. It acquires no protected Owner, credential, Pin,
+ACL or TLS context. This proves the real loader adapter in an AOT process, not
+credential loading by the formal Bridge entry, which intentionally never opens it.
+
+Installed Codex connects directly to the formal AOT with no arguments and verifies
+discovery, refusal, disconnect and reconnect. Authorized seven-tool App/P27/Host
+behavior remains a separate installed-client Mailbox/Fake Native/TLS test. That
+existing test additionally performs local Review/Approve and restarts Codex/MCP
+before querying `committed` by the original SubmissionKey, without replaying STAGE.
+It is not a separately running production Flutter App or real TLS evidence.
+
+The first remaining product boundary is still the absence of an admitted
+credential/transport composition in the formal entry: every business call reaches
+`UnavailableVnextApp`. The dormant acquisition path would next require actual
+protected Owners/existing credentials, independent trust and admitted TLS binding.
+No private plaintext transfer, test mailbox in production or alternate authority
+may bypass this boundary. Production App startup, real credential/Pairing/TLS,
+unexpected formal Bridge crash with active business, B0 across real App/Bridge
+processes and formal admission remain unverified. Existing Fake shutdown/B0 and
+ordinary-child abnormal-exit evidence do not substitute for those cases.
+
+The Windows guide records executed results separately from these source facts.
+#327 remains BLOCKED with its inherited 4/4 repair budget; this slice changes no
+deadline/cancellation protocol and does not claim timeout implies zero effect.
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
+Full AR-R6B and AR-R9B prerequisites remain unaccepted.
+
+### 17.3. Bridge stdio settlement and remaining process bindings
+
+`McpVnextWindowsBridgeStartup.serveStdio()` now joins its original `start`, the
+existing seven-tool server and `close` in one trusted process-entry operation.
+It accepts no new configuration or credential inputs. No normal/standalone
+consumer invokes this admitted-only operation. Failed acquisition still closes
+through the original startup barrier; EOF/stdio failure joins the same Bridge
+connection, process and protected Owner settlement.
+
+`VnextMcpServer.serveStdio()` waits for actual protocol close and original port
+settlement rather than returning on connect. EOF closes admission and starts one
+latched `port.close`; explicit/repeated close joins that same result. Protocol
+close is requested before waiting for port drain, allowing protocol cancellation
+to reach existing business owners; it never substitutes for their settlement.
+Unknown/failed port cleanup propagates failure without retrying release. This is
+an EOF/explicit-close repair, not a change to client deadlines or #327's missing
+client cancellation. The existing standing vNext end-to-end suite includes the
+deterministic pending-drain/EOF/repeated-close/failure regressions.
+
+Remaining concrete boundaries:
+
+| Interface | Classification and required next condition |
+|---|---|
+| Formal entry → `UnavailableVnextApp` | Actual business refusal remains. Selecting an authenticated Bridge startup requires a trusted bootstrap composition; no request/argument/Fake may select it. |
+| `WindowsPairingHandoff.readAppPublicTrust/readAppCompletion` | Product integration gap: current adapter retains both App/Bridge objects in one process. Independent processes still need the existing public export/completion inputs bound to actual local human actions, preserving exact Submission correlation and both comparisons. No cross-process public-handoff implementation is supplied by this adapter. |
+| App dependency `openLocalConnection/closeLocalConnections`, `pairing`, `process` | Product integration gap: real composition must supply actual owners and local I/O, including pending-open interruption and process custody direction. Existing callbacks and fixed child launcher do not implement these bindings. |
+| Protected acquirer → `acquireAppObjects/acquireBridgeObjects` → existing-only credentials/kind-4 trust | Source exists; real resource acquisition and existing credentials/Pin need separately authorized Windows security execution. Loading the ABI alone does not satisfy this condition. Missing state must refuse; no initialization/rekey fallback. |
+| P26/TLS → P15/P0 Session → P8/P10 | Source is connected in the dormant root. Actual protected Discovery, peer-policy/TLS, enablement and original first-party approval require admitted Windows execution; Fake TLS proves no production security property. |
+
+Thus non-admission product gaps remain as well as security gates. Cross-process
+public handoff and real local-I/O/process assembly are not closed by the new stdio
+entry. Defining a second transport/protocol or assuming serialized callbacks
+would violate the existing frozen boundary. No production activation or formal
+AR-R6B acceptance follows. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
+AR-R6A = NOT_ACCEPTED. #327 retains its exhausted 4/4 budget independently.
+
+The build, unavailable seven-tool AOT profile, installed-client compatibility
+and stdio/process settlement form a bounded independently reviewable slice.
+Its acceptance concerns the executed isolated build/protocol/lifecycle evidence
+above; the remaining authenticated App/Bridge business and security boundaries
+are excluded from that slice, while still blocking full AR-R6B acceptance.

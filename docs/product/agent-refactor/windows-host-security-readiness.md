@@ -3416,7 +3416,7 @@ of a complete signed installer or the Windows loader's acceptance.
 | Candidate | Minimum required package inputs / dependency rule |
 |---|---|
 | Flutter App | `shiroha_quiz.exe`, `flutter_windows.dll`, `shiroha_external_native.dll`, `data/app.so`, `data/icudtl.dat`, `data/flutter_assets/AssetManifest.bin`, actual build-declared plugin DLLs/assets. Existing Windows CMake installs the helper beside the executable and AOT library for Profile/Release; Runner does not load or initialize External Host. |
-| Standalone Bridge | `shiroha_bridge.exe` and the same Native DLL; no Flutter engine or App business database. `tool/external/bridge_candidate.dart` is an unactivated AOT SOURCE entry: invalid arguments refuse with 64; otherwise it refuses activation with 78. No process is compiled/launched by its tests and no connector is started. |
+| Standalone Bridge | `shiroha_bridge.exe` and the same Native DLL; no Flutter engine or App business database. The original exit-78 source checkpoint is superseded by MCP §17.2: invalid arguments still refuse with 64; empty arguments serve the existing unavailable seven-tool stdio profile. The opt-in AOT suite executes discovery/refusal/EOF and the adjacent launcher. Its separate loader probe checks the original DLL ABI only, without acquiring protected objects or credentials. No authenticated connector/Host is started. |
 | Loader | Existing `WindowsExternalNative.open` resolves ONLY `Platform.resolvedExecutable`'s directory plus the fixed DLL name, by absolute Windows path. No PATH/CWD/environment/native-location override, download, elevation or fallback. Missing/invalid image or ABI mismatch rejects before Owner acquisition. |
 | Native | ABI 3, x64, exactly 27 current FFI/export names. `check_offline.ps1` compares the compiled DLL exports with the ACTUAL Dart bindings, checks hardening, imports and a fixed system/CRT dependency family. Production DLL is never loaded by offline checks. |
 
@@ -4120,6 +4120,13 @@ slice does not close full AR-R6B or AR-R9B prerequisites.
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 
 ### Protected acquisition and process-custody source boundary
+
+The later [MCP §17.2 AOT integration](mcp-vnext-contract.md#172-fixed-adjacent-aot-protocol-integration-without-business-activation)
+supersedes only the earlier formal-AOT/adjacent-launcher/ABI-loader absence below.
+Executed Windows evidence is recorded in the Windows Codex guide. It runs no
+credential/Pin/ACL/DPAPI/TLS security experiment, closes no A/X row and does not
+activate production acquisition or transport. The formal entry remains a business
+refusal endpoint. Real authenticated App/Bridge integration is still blocked.
 
 MCP §17 owns the additional G0-L0 source. One Native-acquired App or Bridge Owner
 is transferred once; App existing-only P25 validation and the SAME P20/P24/P27
