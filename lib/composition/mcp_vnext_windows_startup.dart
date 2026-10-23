@@ -5,6 +5,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import '../application/external/external_credential_boundary.dart';
+import '../application/external/external_authorization.dart';
 import '../application/external/external_trust_core.dart';
 import '../application/external/first_party_external_credentials.dart';
 import '../application/external/local_host_dispatch.dart';
@@ -54,8 +55,8 @@ final class McpVnextWindowsAppDependencies {
     required this.listener,
     required this.port,
     required this.pairing,
-    required this.openLocalConnection,
-    required this.closeLocalConnections,
+    this.openLocalConnection,
+    this.closeLocalConnections,
     required this.process,
   });
   final ExternalProtectedObjects owner;
@@ -75,11 +76,16 @@ final class McpVnextWindowsAppDependencies {
   final TlsListenerIo listener;
   final int port;
   final FirstPartyPairingPort Function(WindowsAppPairing) pairing;
-  final Future<McpVnextWindowsLocalConnection> Function() openLocalConnection;
+
+  /// Optional legacy trusted raw opener. Without it, startup acquires the SAME
+  /// Session authenticated on the Host's accepted server channel. A supplied
+  /// raw opener requires the original interrupting closer below.
+  final Future<McpVnextWindowsLocalConnection> Function()? openLocalConnection;
 
   /// Close ALL original raw/connecting/authentication channels and plans. This
   /// callback must also interrupt pending opens and await their real settlement.
-  final Future<void> Function() closeLocalConnections;
+  /// The default accepted-channel path is already closed by the owning Host.
+  final Future<void> Function()? closeLocalConnections;
   final McpVnextWindowsProcessOwner process;
 }
 
@@ -101,6 +107,7 @@ final class McpVnextWindowsAppStartup {
   McpVnextWindowsAppDependencies? _rejectedDependencies;
   WindowsChannelVerification? _channels;
   WindowsAppPairing? _pairing;
+  WindowsAppPublicPairingHandoff? _publicPairing;
   WindowsTlsHost? _host;
   Future<VnextMcpPort>? _starting;
   Future<void>? _closing, _settling, _auxiliaryClosing;
@@ -111,6 +118,7 @@ final class McpVnextWindowsAppStartup {
 
   /// Read-only lifecycle observation; never an identity/approval capability.
   WindowsTlsHost? get host => _host;
+  WindowsAppPublicPairingHandoff? get publicPairing => _publicPairing;
   bool get _current =>
       !_stopped &&
       integration.controls.isCurrent &&
@@ -139,7 +147,15 @@ final class McpVnextWindowsAppStartup {
         throw StateError('Windows MCP startup unavailable');
       }
       _dependencies = d;
+      if (d.openLocalConnection != null && d.closeLocalConnections == null) {
+        throw StateError('Windows MCP local custody unavailable');
+      }
       _observeProcess(d.process, close);
+      // The product child is launched here, under the SAME startup/close latch.
+      // Already running custody may be transferred by an admitted caller.
+      if (d.process case final WindowsBridgeProcess child) {
+        if (!child.isCurrent) await child.start();
+      }
       if (!_current) {
         throw StateError('Windows MCP startup unavailable');
       }
@@ -179,10 +195,14 @@ final class McpVnextWindowsAppStartup {
             compositionIsCurrent: () => _current,
             randomBytes: d.randomBytes,
           );
+          final localPairing = d.pairing(pairing);
+          if (localPairing is WindowsAppPublicPairingHandoff) {
+            _publicPairing = localPairing;
+          }
           return FirstPartyCredentialServices(
             boundary: boundary,
-            pairing: d.pairing(pairing),
-            openConnection: (_) => _authenticateLocal(),
+            pairing: localPairing,
+            openConnection: _authenticateLocal,
             close: _closeAuxiliary,
           );
         },
@@ -228,13 +248,18 @@ final class McpVnextWindowsAppStartup {
     }
   }
 
-  Future<FirstPartyCredentialConnection> _authenticateLocal() async {
+  Future<FirstPartyCredentialConnection> _authenticateLocal(
+      ExternalProfileReference profile) async {
     if (!_current || _auxiliaryClosing != null) {
       throw StateError('Windows MCP authentication unavailable');
     }
     if (_localPending++ == 0) _localIdle = Completer<void>();
     try {
-      final connection = await _dependencies!.openLocalConnection();
+      final open = _dependencies!.openLocalConnection;
+      if (open == null) {
+        return await _channels!.openLocalConnection(profile);
+      }
+      final connection = await open();
       if (!_current || _auxiliaryClosing != null) {
         throw StateError('Windows MCP authentication unavailable');
       }
@@ -253,7 +278,8 @@ final class McpVnextWindowsAppStartup {
         // Invoke cancellation before waiting for an open/authentication operation.
         // Future.wait joins every original operation even when another one fails.
         await Future.wait([
-          Future<void>.sync(d.closeLocalConnections),
+          if (d.closeLocalConnections != null)
+            Future<void>.sync(d.closeLocalConnections!),
           if (_localPending != 0) _localIdle!.future,
           Future<void>.sync(d.process.stopAndWait),
         ]);

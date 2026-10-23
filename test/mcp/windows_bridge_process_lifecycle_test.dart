@@ -244,10 +244,11 @@ void main() {
       test('App/Restore database close barrier joins actual child exit $code',
           () async {
         final child = await WindowsProcessLifecycleFixture.open(code: code);
-        await child.start();
         final f = WindowsAppTransportFixture()
           ..appProcessOverride = child.custody;
         await f.open(productBridge: true, protectedAcquisition: true);
+        await child.child!.ready.future;
+        expect(child.creates, 1); // Startup owns launch and later settlement.
         addTearDown(() async {
           await child.releaseForCleanup();
           await _disposeFake(f);

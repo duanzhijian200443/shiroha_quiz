@@ -39,6 +39,25 @@ class OfflinePeerCalls
 }
 
 void main() {
+  test(
+      'loaded Native supplies peer policy over the same calls without eager security execution',
+      () {
+    final calls = OfflinePeerCalls();
+    final native = WindowsExternalNative.openForTesting(
+        windows: true,
+        executable: r'C:\offline\app.exe',
+        exists: (_) => true,
+        load: (_) => calls);
+    final policy = native.peerCertificatePolicy;
+    expect(calls.calls, 0);
+    policy.check(Uint8List.fromList([1]), TlsPeerRole.client);
+    expect(calls.calls, 1);
+    expect(calls.roles, [2]);
+    calls.missing = true;
+    expect(() => policy.check(Uint8List.fromList([1]), TlsPeerRole.server),
+        throwsA(isA<ExternalNativeException>()));
+    expect(calls.memory.allocations, isEmpty);
+  });
   test('certificate-only ABI, bounded public copies, roles and reverse release',
       () {
     final calls = OfflinePeerCalls();

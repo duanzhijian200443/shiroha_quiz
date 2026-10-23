@@ -1253,7 +1253,8 @@ simulate two distinct human decisions and check no Proof/Pin before each one.
 This is real OS process/public-data evidence with simulated security/storage,
 not formal Bridge AOT Pairing or production Windows security acceptance.
 
-App local opener/closer and process/startup assembly remain incomplete. In
+At this public-export checkpoint, App local opener/closer and process/startup
+assembly were incomplete; section 17.5 supersedes that source gap. In
 particular `WindowsChannelVerification.authenticate` requires the actual SERVER
 side of a client-authenticated channel and its server plan; substituting
 `DartLoopbackBridgeIo`'s client channel cannot satisfy that interface. The selected
@@ -1263,3 +1264,79 @@ Real protected acquisition, Discovery/Pin/TLS, production public-data surfaces
 and authenticated formal-entry business remain separately blocked. No Trial 1A,
 G0-L1/L2/I or #327 diagnostic is activated. HOST_STABILITY_HALT = ACTIVE;
 TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
+
+### 17.5. Explicit runtime assembly and accepted server-channel acquisition
+
+`McpVnextWindowsProtectedAcquirer.acquireAppRuntime` now constructs the original
+App dependency bundle over its ONE acquired Owner, P20/P25/P24/P27 objects and
+existing-only credentials. It supplies the existing `DartLoopbackTlsIo`, fixed
+`WindowsBridgeProcess`, same-native peer-role policy, clocks/readiness and
+`WindowsAppPublicPairingHandoff`. Trusted composition supplies the selected port,
+original Application clock/readiness and independently received public Submission
+input. No normal startup or argument/environment selector consumes this entry.
+`WindowsExternalNative.peerCertificatePolicy` exposes the existing certificate-only
+adapter over the SAME loaded calls; constructing it executes no security operation.
+Trusted test primitive injection remains explicit and is never a production fallback.
+
+`acquireBridgeRuntime` similarly composes the existing Bridge dependency bundle,
+original Bridge Owner, P26/Pin validation, cryptographic primitives and peer-role
+policy with `DartLoopbackBridgeIo`. Independently established trust and original
+process custody are still mandatory inputs. It does not initialize or recover a
+Pin, connect during construction, create a second Owner or retry a tool call.
+
+App startup launches a transferred, not-yet-running `WindowsBridgeProcess` under
+its existing start/close latch; an already running original process is retained.
+Launch failure/interruption, exit notification and original stdin/exit/dual-stream
+settlement feed the SAME Host/Owner/database barrier. It creates no replacement
+process and never treats abnormal/unknown settlement as clean release.
+
+The default local opener now acquires `WindowsChannelVerification`'s original
+server-authenticated Session. It validates the locally selected opaque Management
+reference, permits at most one pending local acquisition, and offers only a live
+Session for that Profile after the existing server plan, client certificate,
+P20 inverse lookup and P15 authentication succeeded. It revalidates that exact
+Session before returning. No client-side channel is presented as server evidence,
+Bridge private key is not transferred, and authentication is not run twice on one
+channel. An explicitly injected raw opener remains compatible and requires its
+original interrupting closer. No callback is required by the default path.
+
+Verifier close rejects pending acquisition synchronously. The Host continues to
+own accepted raw/TLS channels, reservations and actual close; pending local work
+settles before Store/Owner release. Close failure latches denial and retains the
+Owner/database barrier. The new projection neither holds a socket open nor changes
+P9 deadlines, one-request/response/EOF, P0 Session lifetime, Enablement, Grant,
+Scope, STAGE confirmation or Review. Disconnect invalidates the local connection;
+new connections cannot inherit its target approvals or user decisions.
+
+`McpVnextWindowsAppStartup.publicPairing` exposes the original App-only public
+handoff installed by runtime assembly, so a trusted local surface can export
+trust/completion for that original request without holding a Bridge Dart object.
+Import still invokes neither of the two independent human comparison actions.
+There is no extra Exchange message, Pairing state, Session registry or business IPC.
+
+The standing P11 fixture exercises both concrete runtime assemblers in separate
+Windows Flutter processes: independent P27 Enrollment/key custody, public exports,
+two separately supplied decision inputs, original P26/P15/P8/P9/P10 target READ,
+disconnect/reconnect with fresh local Enable acquisition, then App shutdown and
+zero-exit/stream/resource settlement. Test files carry public Exchange/Discovery
+copies and original framed bytes behind Fake TLS. Fake Native, protected storage,
+peer policy and test channels are simulated security. Flutter worker termination
+uses a separate test-only exit gate because tool stdin is not worker stdin; actual
+SDK stdin close, exit and both drains are still joined. No file test transport is
+shipped. Formal AOT is separately exercised as the existing refusal endpoint and
+as a real child owned by an isolated App root; that is not AOT authenticated business.
+
+This independently reviewable delivery completes explicit dependency assembly,
+accepted-channel local acquisition, App child launch/custody and their executable
+public-handoff integration over simulated security. Non-security product work
+remains: normal user-facing public copy/import and comparison controls, pending
+Enable/independent Bridge-connection interaction, and the trusted formal-AOT
+bootstrap plus client/stdio custody handoff. App-launched child stdout is still
+drained by the original process owner; it is not forwarded to an installed MCP
+client. The formal entry still selects `UnavailableVnextApp`; there
+is no activation flag. Real protected credentials/Pin/Discovery, actual TLS/native
+peer policy and authenticated formal-AOT crash/Restore require separately admitted
+Windows execution and independent acceptance. Full AR-R6B/AR-R9B prerequisites
+remain unaccepted. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
+AR-R6A = NOT_ACCEPTED. Trial 1A/G0-L1/L2/I are not executed; #327 stays independently
+BLOCKED at its existing 4/4 repair budget and original assertions.

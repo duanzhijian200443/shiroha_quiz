@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 
 import 'external_native_bindings.dart';
 import 'windows_external_crypto.dart';
+import 'windows_peer_certificate_policy.dart';
 
 enum ExternalNativeFailure {
   unsupportedPlatform,
@@ -47,6 +48,8 @@ final class WindowsExternalNative {
   final ExternalNativeCalls _calls;
 
   WindowsExternalCrypto get crypto => WindowsExternalCrypto.fromCalls(_calls);
+  WindowsPeerCertificatePolicy get peerCertificatePolicy =>
+      WindowsPeerCertificatePolicy(_calls);
 
   /// Explicit acquisition only. The returned owner retains the real OS lock
   /// across asynchronous work until its caller explicitly closes it.
