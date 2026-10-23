@@ -53,7 +53,8 @@ final class ExternalClientLeaf {
   String toString() => 'ExternalClientLeaf(REDACTED)';
 }
 
-/// Explicit inactive App infrastructure. Never called by a composition root.
+/// Explicit inactive App infrastructure. Normal startup never calls it; the
+/// dormant trusted Windows root uses existing-only validation/issuance.
 /// The caller owns/drains/closes the protected App Owner. Operations are bounded
 /// and synchronous, with no background retries or cross-file atomicity claim.
 final class WindowsCredentialInitialization {

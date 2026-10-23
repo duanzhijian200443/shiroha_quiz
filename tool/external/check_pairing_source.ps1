@@ -5,6 +5,7 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $candidate = [IO.Path]::GetFullPath((Join-Path $root 'lib/data/external/windows_pairing.dart'))
 foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.dart' -File -Recurse) {
+    if ($file.FullName -eq (Join-Path $root 'lib/composition/mcp_vnext_windows_startup.dart')) { continue }
     $code = [IO.File]::ReadAllText($file.FullName)
     if ($file.FullName -eq $candidate) {
         foreach ($token in @('dart:io', 'dart:ffi', 'PairingProof(', 'AuthenticatedPeerEvidence(',

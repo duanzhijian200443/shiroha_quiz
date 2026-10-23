@@ -1635,7 +1635,9 @@ void main() {
       if (!file.path.endsWith('.dart') ||
           file.path.replaceAll('\\', '/').endsWith('/windows_pairing.dart') ||
           file.path.replaceAll('\\', '/') ==
-              'lib/data/external/windows_tls_transport.dart') {
+              'lib/data/external/windows_tls_transport.dart' ||
+          file.path.replaceAll('\\', '/') ==
+              'lib/composition/mcp_vnext_windows_startup.dart') {
         continue;
       }
       expect(file.readAsStringSync(), isNot(contains('windows_pairing.dart')),

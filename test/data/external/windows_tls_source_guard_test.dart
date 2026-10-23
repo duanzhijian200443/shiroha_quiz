@@ -84,6 +84,30 @@ void main() {
         ]) {
           expect(source, isNot(contains(token)), reason: path);
         }
+      } else if (path == 'lib/composition/mcp_vnext_windows_startup.dart') {
+        for (final token in [
+          'dart:io',
+          'dart:ffi',
+          'Process.',
+          'Platform.environment',
+          'DatabaseHelper',
+          'ExternalTrustCore(',
+          'ExternalSession(',
+          'ExternalPrincipal(',
+          'PairingProof(',
+          'AuthenticatedPeerEvidence(',
+          '.initialize(',
+          '.recoverServer(',
+          '.acquireAppObjects(',
+          '.acquireBridgeObjects(',
+          'DartLoopbackTlsIo',
+          'DartLoopbackBridgeIo',
+          'jsonDecode',
+          'print(',
+          'debugPrint('
+        ]) {
+          expect(source, isNot(contains(token)), reason: path);
+        }
       } else if (path == 'lib/composition/mcp_vnext_windows_transport.dart' ||
           path == 'lib/composition/mcp_vnext_windows_bridge.dart') {
         for (final token in [
@@ -110,11 +134,13 @@ void main() {
         expect(source, isNot(contains('vnext_mcp_bridge_port')), reason: path);
         expect(source, isNot(contains('VnextMcpBridgePort')), reason: path);
       }
-      expect(
-          RegExp(r'(?:import|export).*mcp_vnext_windows_(?:transport|bridge)')
-              .hasMatch(source),
-          isFalse,
-          reason: path);
+      if (path != 'lib/composition/mcp_vnext_windows_startup.dart') {
+        expect(
+            RegExp(r'(?:import|export).*mcp_vnext_windows_(?:transport|bridge|startup)')
+                .hasMatch(source),
+            isFalse,
+            reason: path);
+      }
     }
     final policy = File('windows/external_native/peer_policy_windows.cpp')
         .readAsStringSync();

@@ -281,6 +281,9 @@ final class ExternalProtectedObjects {
   int get associationEpoch => _associationEpoch;
   bool get isUsable => !_closed && !_denied;
 
+  /// Read-only composition check over the existing one-use Host claim.
+  bool get runtimeClaimed => _runtimeClaimed;
+
   /// One Host may claim this already-held App lock. Sharing one Dart Owner
   /// between two candidate Hosts must not bypass OS acquisition exclusion.
   /// This creates no lock or authorization and can never be reset/reused.

@@ -1,5 +1,6 @@
 /// Inactive G0-L0 source candidate. Every OS operation has an explicit method
-/// boundary. No production composition imports or starts this library.
+/// boundary. Only dormant trusted composition imports it; normal startup does
+/// not import or start this library.
 library;
 
 import 'dart:async';

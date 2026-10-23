@@ -889,8 +889,9 @@ existing disposable mailbox to reach this same composition and all seven tools.
 The Windows guide records only executed binaries. The mailbox and Fake TLS prove
 isolated process-boundary functionality, not actual Windows process transfer of
 protected credentials or a production App/Bridge bootstrap. Normal App and
-standalone vNext startup still reject business access; static gates forbid any
-production consumer of these two explicit Windows composition files.
+standalone vNext startup still reject business access; static gates permit only
+the dormant trusted root in section 16 to consume these Windows composition
+files. Ordinary App/standalone consumers remain forbidden.
 
 Remaining product work includes actual protected credential acquisition, real
 process bootstrap/handoff and admitted TLS binding. Draft #327's Codex short-tool-
@@ -899,3 +900,83 @@ timeouts nor repeats its diagnostic matrix. Formal Windows security admission
 remains separately pending. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
 AR-R6A = NOT_ACCEPTED. This source delivery is not full AR-R6B acceptance and
 does not satisfy AR-R9B prerequisites or authorize Trial 1A/G0-L1/L2/I.
+
+## 16. Dormant Windows startup and credential handoff composition
+
+`lib/composition/mcp_vnext_windows_startup.dart` lifts reusable section 15
+fixture wiring into a minimal trusted product root. Constructors only retain
+objects/callbacks: no Owner acquisition, protected read, process launch, TLS
+context, Discovery publication or Listener activation occurs at construction.
+There is no default acquirer or normal-startup/standalone consumer. Explicit
+`start` is a seam for separately admitted composition, not a safety admission
+grant or an alternate startup protocol.
+
+The trusted App acquirer transfers exclusive custody of ONE existing acquired
+App Owner/runtime.lock, original P20 Store, P25 credentials/P24 Exchange and P27
+verifier, plus existing App readiness, injected primitives, local authentication
+I/O and process custody. It must never return another live runtime's resources.
+Read-only checks of the existing App attachment and Owner's one-use runtime
+claim reject borrowed active resources without closing or invalidating them.
+It owns partial acquisition/launch cleanup if it fails before transferring a
+bundle; unknown cleanup must retain those resources and report failure.
+No MCP arguments, environment variables or client JSON construct these inputs.
+Existing-only P25 validation precedes `attachCredentials`; there is no implicit
+initialization/recovery/rekey. The original App method creates the sole P15/P0/
+P12/P8 graph. Its services bind P27 Pairing to the same verifier/boundary/Store;
+P26 uses that Pairing Runtime ID and the original P0 generation. The exact App
+P8/P10 binding enters `WindowsTlsHost.owned` and `McpVnextWindowsTransport`.
+Only that Host performs prepare/bind/publication and closes its protected Owner.
+No second Principal, Session, Grant, Context registry or database Writer exists.
+
+The trusted local opener returns its actual TLS channel and validated server
+plan. The SAME `WindowsChannelVerification` authenticates it and returns the
+original P15 Session/revalidation callback. The required closer closes all raw,
+connecting and authenticated local channels/plans, cancels pending opens and
+awaits their original work. The composition also joins any pending local open/
+authentication operation; neither a returned Session nor cancellation substitutes
+for settlement. `McpVnextWindowsProcessOwner.stopAndWait` owns actual interrupted
+launch/exit settlement, not process identity or permissions. No real process
+adapter/launcher is provided. Both drains join the Host's existing closer before
+Store/runtime.lock release, latched across App/Host shutdown calls.
+
+The Bridge acquirer transfers ONE exclusive existing Bridge credential/Discovery
+Owner, independently established P27 trust inputs and trusted TLS I/O/primitives.
+`McpVnextWindowsBridgeStartup` wires its P26 Reader and original
+`McpVnextWindowsBridge`. `start` opens no network connection. Each independently
+requested tool call uses the original fresh single-use connection; concurrent
+calls return busy with no pool, queue, retry or substitute authentication. Close
+blocks admission and joins original connection/business I/O and process exit
+before credential Owner release. Failed raw cleanup or unknown process exit
+retains the Owner; latched failure cannot reopen admission or report success.
+
+App close/Disable/revoke/Pairing failure/Restore/runtime-currentness retain all
+original P15/P0/P8 and first-party approval rules. Startup interruption, readiness/
+bind failure and partial attachment join the same cleanup. Before Host custody,
+successful App/P27/local/process/Store settlement is required for Owner release;
+after transfer the Host alone releases it. Database close/B0 swap continues to
+await the App integration barrier; failed settlement prevents database close.
+Foreign App bindings are rejected without starting or closing their transport.
+STAGE waiting remains an explicit default-false opt-in and requires the same
+Session's manual App approval. P3 publication, seven schemas, P9/P10, COMMIT and
+all identity/persistence formats are unchanged.
+
+`windows_startup_cases.dart` is reached by the existing standing P11 architecture
+suite through `windows_app_transport_cases.dart`; no separate CI list is added.
+Public mathematical credentials, Fake Native/TLS/process custody and temporary
+SQLite cover all seven tools, explicit STAGE approval/original-key query,
+constructor inactivity, foreign binding/borrowed Owner, readiness/bind/acquire interruption,
+pending local authentication, busy/EOF and failed raw/local/process cleanup.
+Section 15's existing end-to-end tests now use the product App startup root and
+retain Disable/revision/revoke/disconnect/Restore/Review/lost-response regressions.
+Source guards allow this exact dormant root and forbid normal consumers and real
+OS acquisition/launch implementations in it.
+
+Evidence remains four distinct conclusions: **SOURCE WIRED**, **FAKE VERIFIED**
+only by executed tests, **REAL WINDOWS NOT VERIFIED**, **FORMAL ADMISSION NOT
+PASSED**. Actual protected acquisition, the real OS process adapter/launcher and
+admitted TLS binding remain BLOCKED implementation/integration/acceptance work;
+they cannot be proved by an injected callback. No such experiment is run here.
+Draft #327 short-deadline cancellation compatibility remains BLOCKED with no new
+repair loop. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
+AR-R6A = NOT_ACCEPTED. This source-only delivery neither completes full AR-R6B
+nor accepts AR-R9B prerequisites or activates Trial 1A/G0-L1/L2/I/production vNext.

@@ -47,7 +47,8 @@ void main() {
       'lib/data/external/windows_credential_initialization.dart',
       'lib/data/external/windows_tls_transport.dart',
       'lib/data/external/windows_tls_credentials.dart',
-      'lib/data/external/windows_tls_bridge.dart'
+      'lib/data/external/windows_tls_bridge.dart',
+      'lib/composition/mcp_vnext_windows_startup.dart'
     ];
     for (final file in Directory('lib')
         .listSync(recursive: true)

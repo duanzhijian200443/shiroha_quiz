@@ -81,6 +81,9 @@ final class McpVnextAppIntegration {
   late final FirstPartyExternalAccess controls;
   Future<VnextMcpPort>? _attaching;
 
+  /// Read-only custody check; an existing attachment cannot be transferred.
+  bool get hasAttachment => _attaching != null;
+
   /// Explicit trusted entry for an already admitted App/Bridge composition.
   /// No startup/UI calls it while production transport admission is blocked.
   /// The caller supplies the SAME P0 authority used for pairing/credentials.

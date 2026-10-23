@@ -68,7 +68,11 @@ void main() {
       // P27 is an explicitly inactive composition-side consumer. Its own gate
       // rejects every production consumer and keeps P24 itself authority-free.
       if (p.equals(entity.absolute.path,
-          p.absolute('lib', 'data', 'external', 'windows_pairing.dart'))) {
+              p.absolute('lib', 'data', 'external', 'windows_pairing.dart')) ||
+          p.equals(
+              entity.absolute.path,
+              p.absolute(
+                  'lib', 'composition', 'mcp_vnext_windows_startup.dart'))) {
         continue;
       }
       if (p.extension(entity.path) != '.dart' ||
