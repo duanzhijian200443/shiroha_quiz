@@ -447,6 +447,7 @@ delivery gates; manual user confirmation is not `[VERIFICATION APPROVAL]`.
 | Codex Bridge v3 | The separate opt-in Bridge suite sends actual installed-client calls through the existing mailbox, single-request Fake TLS Bridge and App P10 v3/P8/P7. It checks fresh authentication/Context binding, six non-STAGE tools, refusal, response loss and cleanup. Bridge STAGE remains zero-send; this supplies no production process/security binding. |
 | Codex Windows App/Bridge functional composition | `windows_app_transport_codex_test.dart` exercises all seven tools through the product App composition, P27 Handoff, owned Host and `McpVnextWindowsBridge` (executed with `codex-cli 0.144.1` and Desktop `codex-cli 0.163.0-alpha.11.1`), including explicit same-Session first-party STAGE confirmation and original-key lifecycle query. Uses the existing test mailbox, Fake TLS and temporary SQLite; Draft #327's short-deadline cancellation compatibility remains BLOCKED. |
 | First-party App controls | The product root and local Profile/finite-enable/target-confirm/disable controls are proved with synthetic credentials and temporary SQLite under MCP contract §9. The real desktop smoke above additionally checks dormant display/refusal and records user-confirmed restart/bank behavior. It supplies no real authentication. |
+| Windows ordinary Dart subprocess lifecycle | Executor Windows run on 2026-10-23: 12/12 cases PASS in `test/mcp/windows_bridge_process_lifecycle_test.dart`, including actual creation/EOF/zero and nonzero exit, raw stdout/stderr, interrupted creation, repeated close and original App/Bridge settlement over Fake Owners/TLS. This is separate from installed Codex, formal Bridge AOT/Loader and production credential/process transfer. See MCP §17.1 below. |
 | Production business access | **Not enabled.** The standalone entry has no admitted authenticated App/Bridge transport or real pairing/credential binding. SDK success and Codex discovery/refusal do not satisfy production activation. |
 
 The original private-notification connection gap is addressed only by this
@@ -491,9 +492,17 @@ consumer or default activation. The dormant
 [section 17 adapters](../product/agent-refactor/mcp-vnext-contract.md#17-dormant-protected-acquisition-and-child-process-custody)
 now supply existing-Native acquisition and fixed-adjacent Bridge package/SDK
 child custody, with EOF/exit/stream settlement and failure retention.
-SOURCE WIRED and Fake verification
-remain distinct from REAL WINDOWS NOT VERIFIED and FORMAL ADMISSION NOT PASSED.
-Actual Windows credential acquisition, real OS process bootstrap/transfer and
+SOURCE WIRED and Fake verification remain distinct from production REAL WINDOWS
+NOT VERIFIED and FORMAL ADMISSION NOT PASSED. The bounded
+[ordinary-child evidence](../product/agent-refactor/mcp-vnext-contract.md#171-windows-ordinary-child-lifecycle-evidence)
+records **Fake Process PASS** and **Windows test subprocess PASS** separately.
+**Formal Bridge AOT/Loader UNVERIFIED** and **real credentials, TLS and production
+cross-process runtime UNVERIFIED** remain unchanged. The injected test I/O does
+not run the private adjacent production launcher/child wrapper. Its fixed empty
+environment-padding value addresses observed SDK error 87 without inheriting
+parent values or adding a startup selector. The Linux standing CI does not run
+the Windows-only suite; a fixed-target independent Windows Verifier is required.
+Actual Windows credential acquisition, production OS process bootstrap/transfer and
 admitted runtime channels remain **BLOCKED product implementation/integration
 and acceptance work**; callbacks do not prove those operations.
 Draft #327's installed-client short-deadline cancellation compatibility remains

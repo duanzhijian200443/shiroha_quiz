@@ -217,6 +217,7 @@ void main() {
       'WindowsExternalReleaseCandidate.inspect(',
       'Platform.resolvedExecutable',
       'Process.start(executable, const []',
+      "environment: const {'SHIROHA_PROCESS_ENV_PAD': ''}",
       '_process.stdin.close()',
       '_process.exitCode',
       '_process.stdout.drain',

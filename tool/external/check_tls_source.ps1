@@ -89,6 +89,7 @@ foreach ($token in @('killPid', '.kill(', '.pid', 'Platform.environment', 'Proce
 }
 foreach ($required in @('WindowsExternalReleaseCandidate.inspect(', 'Platform.resolvedExecutable',
     'Process.start(executable, const []', 'runInShell: false', 'includeParentEnvironment: false',
+    "environment: const {'SHIROHA_PROCESS_ENV_PAD': ''}",
     '_process.stdin.close()', '_process.exitCode', '_process.stdout.drain', '_process.stderr.drain')) {
     if (!$process.Contains($required)) { throw "Fixed child process guard missing: $required" }
 }

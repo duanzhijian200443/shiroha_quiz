@@ -56,6 +56,7 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
   final appProcess = FakeWindowsMcpProcess();
   final bridgeProcess = FakeWindowsMcpProcess();
   McpVnextWindowsProcessOwner? appProcessOverride;
+  McpVnextWindowsProcessOwner? bridgeProcessOverride;
   TlsListenerIo? listenerOverride;
   Future<void> Function()? beforeAcquire;
   bool failReadiness = false;
@@ -212,6 +213,7 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
     await controls.enable(const Duration(minutes: 5));
     if (stage) approvalView = controls.openStageApprovalView()!;
     if (productBridge) {
+      final process = bridgeProcessOverride ?? bridgeProcess;
       if (protectedAcquisition) {
         await handoff.bridge.close();
         h.bridgeOwner.close();
@@ -244,7 +246,7 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
           utcNow: () => h.native.now,
           monotonicNow: () => h.elapsed,
           compositionIsCurrent: () => h.current,
-          process: bridgeProcess,
+          process: process,
         );
       }
 
@@ -252,7 +254,7 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
         enableStageApprovalWait: stage,
         acquire: () async => protectedAcquisition
             ? acquirer()
-                .acquireBridge(assemble: assembleBridge, process: bridgeProcess)
+                .acquireBridge(assemble: assembleBridge, process: process)
             : assembleBridge(h.bridgeOwner),
       );
       await bridgeStartup!.start();

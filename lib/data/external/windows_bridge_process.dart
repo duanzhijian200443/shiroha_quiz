@@ -172,7 +172,10 @@ final class _AdjacentBridgeProcessIo implements WindowsBridgeProcessIo {
     _created = await Process.start(executable, const [],
         runInShell: false,
         includeParentEnvironment: false,
-        environment: const {});
+        // Dart 3.11.5 on Windows can reject a zero-entry environment with
+        // ERROR_INVALID_PARAMETER (87). One inert empty value avoids that SDK
+        // boundary without inheriting any parent values or adding a selector.
+        environment: const {'SHIROHA_PROCESS_ENV_PAD': ''});
     final result = _DartCreatedBridgeProcess(_created!);
     _created = null;
     return result;
