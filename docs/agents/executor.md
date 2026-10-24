@@ -45,7 +45,12 @@ Never edit generated files manually.
 3. Run focused tests, relevant architecture gates, analyze, the read-only format
    gate and `git diff --check`.
 4. Inspect final paths/diff for scope drift and record actual results.
-5. Ensure every affected durable canonical document is current in the same
+5. Decide whether a separate Verifier is needed under `AGENTS.md` section 5;
+   document `REQUIRED / NOT_REQUIRED / PENDING_DECISION`, the evidence-based
+   rationale, trigger and any bounded acceptance targets. Reconcile this decision
+   with the actual results before delivery. Verifier is optional, not a mandatory
+   successor or a substitute for these Executor-owned checks.
+6. Ensure every affected durable canonical document is current in the same
    candidate head, perform only authorized Git delivery, then STOP for independent
    review.
 
@@ -75,6 +80,21 @@ Check mode never changes source. Run necessary `dart format <exact-paths>`
 separately within write authority, then rerun the gate.
 Do not run broad suites, Release builds, real-provider/OCR smokes or applications
 without task/repository authority.
+
+Use `NOT_REQUIRED` when credible checks/CI cover assigned acceptance and no
+applicable explicit independent-check requirement remains. Risk level alone is
+not a reason to repeat CI. Record `CI_COVERAGE_GAP` for a specific unproved
+acceptance condition, or `EXPLICIT_REQUEST` for a bounded user/Reviewer request;
+the latter needs no invented CI gap. Do not waive contractual acceptance or an
+explicit requirement. Reserve `PENDING_DECISION` for actual uncertainty or an
+unresolved dispute; it blocks merge, not otherwise complete source-only delivery.
+An unfinished core assignment still cannot be delivered as complete. Independent
+review/verification scheduled after delivery is not an unfinished Executor check.
+
+For workflow-rule-only work, use the acceptance boundary in `AGENTS.md` section 9:
+consistency checks, scenario walkthroughs and applicable existing checks are required;
+live PR-write exercises are optional unless explicitly required. Keep `NOT_RUN`
+runtime evidence separate from successful rule validation.
 
 ## Delivery
 
@@ -117,6 +137,14 @@ their existing authorization requirements. `PR-create` does not authorize later
 title/body updates, comments, review submission, close/reopen or other PR mutation.
 Do not self-review, self-approve, merge or begin a later stage.
 
+When creating a new completion PR, retain its Summary/Scope, limits and actual
+check results and include the compact Acceptance Checklist from
+`docs/agents/README.md`. Set the Verifier requirement from your assessment, not a
+mandatory Verifier default; show `N/A` with a basis for `NOT_REQUIRED`. Leave role
+approvals pending until their independent formal evidence exists. Do not add CI or
+merge-verdict checkboxes. Initial PR creation does not authorize later edits of
+shared Checklist fields; body synchronization permissions belong to the named roles.
+
 For migrations retain required compatibility bridges until their deletion
 condition. Do not discard fallback, provenance, source order, images, tables,
 formulas or diagnostics.
@@ -130,9 +158,13 @@ Return `COMPLETE`, `BLOCKED` or `FAILED` with:
   target/branch/base and final status;
 - changed behavior/paths, including added coupled paths and reasons;
 - commands actually run, results, skipped checks and remaining risks;
+- Verifier-need decision, rationale, trigger (`CI_COVERAGE_GAP / EXPLICIT_REQUEST`
+  or `N/A`) and bounded targets, including any unresolved decision;
 - current-assignment self-repair cycles and cumulative target/task review-repair
   rounds used;
 - actual authorized Git actions and resulting SHA/PR when created;
-- next role: Reviewer, or Verifier only when required acceptance has a credible standing-CI coverage gap or an explicit user/Reviewer request requires independent verification.
+- next gates: current-target standing CI and Independent Reviewer; a separate
+  Verifier only when required by the documented assessment. Reviewer and Verifier
+  may complete in either order; do not dispatch mandatory duplicate verification.
 
 Mechanical success is not independent semantic approval.

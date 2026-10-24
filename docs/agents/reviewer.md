@@ -8,7 +8,8 @@ conditions live in `AGENTS.md`.
 
 During semantic review, do not modify, format, install, repair, commit, push,
 modify PR metadata or merge, except for the single review-evidence publication
-that is part of an assignment explicitly targeting an existing PR. Do not review moving targets, expand into unrelated
+and safe synchronization of your own Checklist record under `AGENTS.md` sections
+3 and 10 for an assignment explicitly targeting an existing PR. Do not review moving targets, expand into unrelated
 areas or start later stages. Executor reports and green tests are evidence, not
 semantic proof.
 
@@ -30,6 +31,14 @@ Read, in order:
 4. Documentation responsibility and PR evidence rules.
 5. Changed paths/stat and focused diff.
 6. Full files, callers/callees only to resolve concrete semantic questions.
+
+Check Executor's Verifier-need assessment against the task, contract and actual
+coverage within this review. It is Executor's delivery decision, not a compulsory
+Verifier stage or a separate approval ceremony for every `NOT_REQUIRED` result.
+Identify omitted acceptance or make a bounded explicit verification request when
+needed; record the reason without rewriting shared targets. Unresolved requirement
+disputes block merge. A stale Body suggestion is not authoritative decision evidence.
+Review focus in a Checklist is a starting point, never a ceiling on required review.
 
 If identity drifts, stop and return `BLOCKED / INCONCLUSIVE`.
 Missing essential evidence produces `INCONCLUSIVE`, not a speculative bug finding.
@@ -85,16 +94,32 @@ concise PR evidence record without requiring a separate permission field:
 - `REQUEST_CHANGES` -> `[REVIEW REQUEST_CHANGES]`;
 - `INCONCLUSIVE` -> `[REVIEW INCONCLUSIVE]`.
 
-Include the reviewed head, base/merge target, verdict, P0/P1/P2/P3 counts, review
-round, and a bounded summary of blockers or durable-document status. This standing
-evidence permission authorizes no other PR mutation.
+Include the reviewed head, base/merge target, status/verdict, P0/P1/P2/P3 counts,
+review round, actual scope, key evidence/findings, durable-document status and
+remaining risks. State any verification-need disagreement or corroborated
+`NOT_REQUIRED` basis without implying the entire PR is ready to merge.
+Recheck target stability before publication. After publication, synchronize only
+your own verdict/approval, Head/Base, covered-scope summary and comment link under
+the shared safe-write rules. Leave Verifier's historical record and shared fields
+untouched. UI failure preserves evidence and never requires repeating valid review.
 
 Final `APPROVE` for a completion PR requires final-head standing CI success,
-closed Documentation responsibility, zero open P0/P1/P2 and any required Verifier
-evidence. For historical recovery, a PR already reported by GitHub as `MERGED`
+closed Documentation responsibility, sufficient semantic/contract evidence and
+zero open P0/P1/P2. It does not require Verifier to finish first. Verifier not yet
+running or a pending verification-need decision alone is not `INCONCLUSIVE`;
+missing evidence necessary for your own judgment, unclear governing semantics,
+target drift or evidence that overturns your conclusion still prevents approval.
+The independent verdict does not resolve a verification dispute by itself.
+Later applicable Verifier success does not require a new review marker merely
+because it came later; contradictory evidence requires targeted closure under
+`AGENTS.md` section 10.
+
+For historical recovery, a PR already reported by GitHub as `MERGED`
 is treated as review-approved by default even if an older workflow left no review
 marker; do not retroactively review it solely to manufacture a comment. This does
 not relax review requirements for an open PR.
 
-State `Patch is acceptable to merge.` only when those final conditions hold.
+Semantic approval alone is not a statement that the PR is merge-ready. State
+`Patch is acceptable to merge.` only when all shared merge conditions are known
+to hold, including any required verification and absence of unresolved disputes.
 Merge remains separately user-authorized; the Reviewer never merges.

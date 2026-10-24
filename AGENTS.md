@@ -101,6 +101,25 @@ Fetch, local-default alignment, branch/worktree creation, merge, tag/release and
 other PR mutations retain their separate authority requirements. The Executor
 Delivery section implements this policy; the direct user approval is its source.
 
+### Reviewer / Verifier checklist permission
+
+On 2026-10-24, the user approved implementation of the PR Acceptance Checklist
+and independent-approval task in [Codex chat](codex://threads/01a16ce9-439e-70e2-a1d9-61cad616290b):
+
+> 角色：执行 补清验收边界，再执行任务包    。另外验证是由执行角色判断的是否需要的，不是每次任务必备的。顺便优化一下规则
+
+That direct instruction is the source of this task's narrow standing permission,
+not a delegated handoff or the role files. For an assignment explicitly targeting
+an existing PR, Reviewer / Verifier may publish one formal evidence record per
+completed pass and synchronize only their own approval status, checked Head/Base,
+covered-scope summary and evidence link in an existing Acceptance Checklist.
+Publish evidence first; section 10 governs safe synchronization. This adds no
+authority to edit shared requirements/targets, another role's record, title, base,
+labels, code or merge state. Other PR Body edits still require explicit authority.
+The same user instruction assigns the need for a separate Verifier to the
+Executor's evidence-based assessment in section 5; it does not waive required
+Executor checks, standing CI, independent review or contractual acceptance.
+
 ### Explicit automation mode
 
 Only an explicit current-user `角色：自动化` activates the isolated protocol.
@@ -153,13 +172,12 @@ Default route:
 
 ```text
 Planner/Diagnostician only when needed
--> Executor + required durable-document updates + mechanical checks
+-> Executor + required durable-document updates + mechanical checks + Verifier-need decision
 -> authorized PR delivery -> STOP
 -> standing PR CI verification gate
--> Verifier only when required acceptance is not credibly covered by CI
--> Independent Reviewer
+-> Independent Reviewer; separate Verifier only when required (either order)
 -> bounded same-PR repair when needed
--> final Reviewer approval
+-> final-target evidence aggregation
 -> user-authorized merge
 ```
 
@@ -181,14 +199,38 @@ do not satisfy the gate.
 Standing CI may fully satisfy deterministic acceptance, including high-risk
 schema/migration, transaction/concurrency or security/authorization behavior,
 when the required acceptance matrix is explicitly covered by hard-failing CI.
-Insert an independent Verifier only when required acceptance cannot be credibly
-proved by current standing CI, including:
+Executor decides and records whether a separate Verifier is needed for the
+assignment. It is not a mandatory step for every task and does not replace
+Executor's own checks. Assess the task/contract, actual check results, standing-CI
+coverage and any explicit bounded user/Reviewer request. Record the decision and
+basis in delivery evidence, with bounded targets when needed:
+
+- `REQUIRED`: identify the acceptance gap (`CI_COVERAGE_GAP`) or the explicit
+  independent-check request (`EXPLICIT_REQUEST`). The latter needs no invented
+  CI gap and grants no new runtime, privacy, scope or Git permission.
+- `NOT_REQUIRED`: explain why the assigned acceptance is credibly covered and no
+  applicable explicit independent-check requirement remains. Do not dispatch a
+  Verifier or manufacture verification approval merely to complete the workflow.
+- `PENDING_DECISION`: use only for a genuinely unresolved assessment, not as the
+  default for every delivery. It blocks merge until resolved from authoritative
+  requirements and evidence.
+
+Typical reasons for `CI_COVERAGE_GAP` are:
 
 - real-provider/device/release/runtime or manual-observation acceptance;
 - OS/platform behavior not exercised by standing CI;
 - flaky, timing-dependent or inconsistent Executor/CI evidence;
-- a required acceptance condition with no deterministic standing-CI coverage;
-- an explicit user or Reviewer request for independent checks.
+- a required acceptance condition with no deterministic standing-CI coverage.
+
+High risk alone does not require duplicate verification. Executor cannot waive
+contractual acceptance or an applicable explicit independent-check request.
+Reviewer checks the assessment within semantic review and may identify an omitted
+requirement or make a bounded explicit request; this is not a separate mandatory
+approval of every `NOT_REQUIRED` decision. Executor reconciles new evidence with
+the assessment. Unresolved requirement/scope disputes block merge and go to the
+user or an already-authorized decision owner; neither role rewrites the contract.
+An old Checklist suggestion is not the current decision: re-evaluate its basis
+against the task, contract and formal evidence, including explicit requests.
 
 A selective `PR contract checks` run is authoritative only when its aggregate
 recomputed the binding impact plan and classified every unit as executed,
@@ -200,6 +242,8 @@ revalidated, and missing or drifted evidence executes the unit.
 When a Verifier is required, verify one fixed target and preserve its PR evidence.
 An Independent Reviewer is mandatory for every non-trivial completion PR.
 Reviewer approval is semantic evidence; green CI never replaces independent review.
+Reviewer and Verifier may complete in either order. Pending independent verification
+alone does not prevent semantic approval when Reviewer's own evidence is sufficient.
 
 ## 6. Failure handling and budgets
 
@@ -314,11 +358,12 @@ as implemented by the active role file.
 
 `PR-create` authorizes PR creation only. PR title/body updates, close/reopen and
 other PR mutations remain separate actions requiring explicit task/user authority.
-Reviewer and Verifier assignments that explicitly target an existing PR have one
-narrow standing exception: each completed pass may publish exactly one role evidence
+Reviewer and Verifier assignments that explicitly target an existing PR have the
+narrow section 3 exceptions: each completed pass may publish exactly one role evidence
 comment/submission on that PR. Reviewer evidence may report `APPROVE`,
 `REQUEST_CHANGES` or `INCONCLUSIVE`; Verifier evidence may report PASS or a bounded
-non-PASS result. This evidence mutation does not authorize title/body changes,
+non-PASS result. Safe synchronization of that role's own Checklist record is also
+permitted under section 10. Neither exception authorizes other Body edits, title,
 labels, close/reopen, merge, code edits or any other PR mutation. A generic `PR yes`
 is not blanket authority.
 
@@ -367,6 +412,13 @@ Never claim an unrun check passed; report skipped/failed checks.
 A command with no meaningful progress for three minutes is stalled. Preserve
 evidence; do not silently extend timeouts or retry indefinitely.
 
+For workflow-rule-only assignments, required acceptance consists of cross-document
+consistency, scenario walkthroughs and applicable existing checks. Report these
+separately from any live PR-write exercise. Unless the user/task explicitly makes
+that exercise required, it is optional: report `NOT_RUN` and the reason when no
+authorized safe target exists, without blocking completed rule-only delivery or
+claiming runtime proof. This does not waive required live acceptance in other tasks.
+
 ## 10. Review, documentation responsibility and merge evidence
 
 | Severity | Meaning |
@@ -388,9 +440,9 @@ P3 is deferred by default. Completed reviews return all non-duplicate blocking
 findings together. Incomplete/unstable targets return `INCONCLUSIVE`, never approval.
 
 P0/P1/P2 -> bounded Repair Executor on the same branch/PR -> mechanical checks
--> authorized push -> STOP -> standing CI -> required Verifier when CI is
-insufficient -> fresh targeted Reviewer closure. Targeted review expands only if
-the repair invalidated the original scope.
+-> authorized push -> STOP -> standing CI -> fresh targeted Reviewer closure and
+any required Verifier pass, in either order -> merge gate. Targeted review expands
+only if the repair invalidated the original scope.
 
 When a change alters durable product/architecture truth, the Executor must update
 the governing canonical documents in the same candidate head. Planner/Coordinator
@@ -404,7 +456,60 @@ If review finds a blocking missing/stale required durable document, route it
 through the same-PR repair flow; non-blocking P3 drift remains deferred. Any
 tracked documentation repair advances the head and therefore
 requires standing CI and fresh review. Reviewer remains read-only apart from its
-single PR-evidence publication.
+single PR-evidence publication and the bounded Checklist synchronization in section 3.
+
+### Approval identity and coverage
+
+Formal role evidence records the actual role/verdict, full Head and Base/merge-target
+SHAs, scope, findings and evidence. Each role's Checklist snapshot carries its own
+target and comment URL; there is no shared target that relabels both approvals.
+Keep historical comments. A Head/Base change requires a fresh applicable pass and
+current-target evidence; do not relabel old approvals. A new required acceptance
+item is not covered automatically even when Git is unchanged. Ordinary Body edits
+and the other role finishing later do not invalidate otherwise applicable approval.
+
+Reviewer can approve with Verifier pending, including an unresolved verification
+need, only when its own CI/semantic/contract/documentation evidence is sufficient
+and no blocking finding is open. Missing essential evidence or contradictory new
+evidence still prevents approval. Approval alone is not a merge-ready declaration.
+
+Verification evidence identifies covered and uncovered items by meaning, not only
+mutable Checklist IDs. Partial passes close only their covered scope. To supersede
+a failure, cite the earlier record and explain why the failure is resolved or no
+longer applicable, with sufficient evidence. A later PASS or one successful retry
+does not erase an unexplained failure or flaky/concurrency risk. Unresolved material
+conflicts block merge. Subsequent valid verification need not refresh an unaffected
+Reviewer marker; evidence that overturns its conclusion requires targeted closure.
+
+### Checklist synchronization
+
+The Checklist summarizes authorized requirements and progress; it is not approval
+authority. Reviewer focus is not a scope ceiling. Executor supplies the initial
+assessment; only an explicitly authorized Body maintainer may change shared text
+after creation. PR authorship alone does not grant that authority. Reviewer/Verifier
+may only synchronize their own role record, never another role's historical check
+or shared requirements. `NOT_REQUIRED` displays as `N/A` with its basis, not a fake
+PASS. If there is no authorized maintainer, formal evidence remains usable while
+the display is stale. Missing/ambiguous Checklist sections are deferred, not rebuilt
+under the role-only permission.
+
+After a pass, recheck the target and publish its one formal evidence record first.
+All Body writers, including Automation, must use the same safe write discipline:
+verify PR identity/authority; obtain confirmed exclusive Body access for the whole
+read/write interval or use a supported atomic conditional update; read current Body;
+change only authorized fields; read back and check both changed and preserved areas.
+Ordinary read/write/read is not concurrency protection. Manual handoffs serialize
+writers; worktree isolation does not isolate a remote PR Body.
+
+Without safe write conditions, leave Body untouched and report
+`CHECKLIST_SYNC_DEFERRED`. On a failed update, competition, drift or unexplained
+change, stop writes and report `CHECKLIST_SYNC_FAILED`; do not overwrite/retry blindly.
+Keep successfully published evidence and do not repeat valid review/verification
+just to synchronize UI. Recovery is a bounded display update by an authorized owner,
+not another evidence publication or authority to edit shared content. Stale display
+alone is normally P3 when the authoritative merge gate remains reliable.
+
+### Merge readiness
 
 A completion PR is merge-ready only when:
 - final-head/current-target `PR contract checks` succeeded;
@@ -413,9 +518,19 @@ A completion PR is merge-ready only when:
 - the Independent Reviewer recorded `[REVIEW APPROVAL]` matching the final head and current base/merge target,
   with zero open P0/P1/P2;
 - required Verifier `[VERIFICATION APPROVAL]` evidence matches the applicable
-  verified head/base target when required;
+  verified head/base target and collectively covers every required independent
+  acceptance item; an evidenced `NOT_REQUIRED` needs no such marker;
+- no verification-need decision or scope dispute remains pending, and every
+  required acceptance item has credible evidence with no unresolved material
+  PASS/FAIL contradiction;
 - every declared Documentation responsibility is closed on that candidate head;
+- the PR is currently mergeable;
 - explicit user merge authority exists.
+
+This is evidence aggregation by the authorized merge actor, not a new role,
+approval marker, service or automatic merge permission. Checklist presence, age,
+ticks and role completion order do not establish readiness. A later successful
+pass does not override unrelated unresolved failures.
 
 Reviewer/Verifier assignments explicitly targeting an existing PR may publish one
 role-evidence record per completed pass without a separate evidence flag. Reviewer
@@ -452,7 +567,12 @@ For staged product work, prefer one focused canonical contract per capability,
 normally `docs/product/<capability>.md`. Do not persist implementation task
 packages beside a contract merely to track order, NEXT, status or completion.
 
-Normal roles do not require PR-body task packages. Planner/Coordinator may create a
+Normal roles do not require PR-body execution handoff packages. Executor includes
+the `docs/agents/README.md` Acceptance Checklist in new completion PRs after this
+policy takes effect. It is a non-authoritative summary, not a resumable execution
+database. Existing OPEN PRs need not retrofit it and still satisfy the current
+applicable merge gates; adding it requires separate Body-edit authority.
+Planner/Coordinator may create a
 bounded temporary handoff in the active conversation when delegation benefits from
 explicit scope, ownership, acceptance or authority. That handoff is disposable,
 does not become merge identity, and never overrides the user, canonical contracts
