@@ -420,6 +420,95 @@ real Session or target approval was created. Invalidation of previously active
 Sessions/approvals remains separately proved by the synthetic product-root tests,
 not by this dormant desktop run.
 
+### Controls-candidate smoke, 2026-10-24 — isolated functional PASS
+
+`tool/mcp_vnext_windows_controls_smoke.dart` is a separate test-only Windows
+entrypoint. It reuses the same task-owned temporary-root marker check and rejecting
+HTTP override, then runs the existing product controls through
+`LiveTestWidgetsFlutterBinding`. Application/P27/Host operations use the existing
+public mathematical fixtures, Fake Native/Pin/TLS and temporary SQLite, not saved
+credentials or normal application data. It is neither a production Bridge host
+nor a new Pairing IPC. The P27 test puts separate App and Bridge controls in one
+window; independent-process custody remains covered by the separate Windows
+public-handoff and process suites, not by that layout.
+
+Create a fresh task-owned marked root using the preparation above for EACH run,
+then use the bounded controller from the repository root (Node.js is a local
+tool prerequisite, not an App dependency):
+
+```powershell
+$smokeRootArgument = $taskSmokeRoot.Replace('\', '/')
+flutter build windows --debug --no-pub --target tool/mcp_vnext_windows_controls_smoke.dart "--dart-define=SHIROHA_MCP_APP_SMOKE_ROOT=$smokeRootArgument"
+if ($LASTEXITCODE -ne 0) { throw 'Smoke build failed; do not launch' }
+node tool/run_mcp_vnext_windows_controls_smoke.mjs "$smokeRootArgument"
+```
+
+The controller checks the exact smoke build target/root, preserves repository CWD
+for the existing public fixture files, and retains the original child process.
+Each root gets separate bounded/redacted `stdout.log`, `stderr.log`, sequential
+`events.jsonl` and `process-result.json`. Existing evidence is never overwritten.
+PASS requires all seven case/cleanup/post-test records, no failure record, the
+framework's completed report, normal closure of the identity-checked original
+window, zero process exit, both output drains, and no timeout/truncation/capture
+failure. Process identity checks compare UTC with UTC. The 90-second deadline
+reports failure without a forced kill, retry, fabricated drain or Owner release.
+A directly invoked `flutter run` can display these test Widgets but is not the
+complete process-exit acceptance command.
+
+The fixture exercises pending Enable/cancel/fresh connection, expiry/failure/
+revoke, page disposal/reopening, owner replacement and actual public handoff with
+both independent UI confirmations. It captures only synthetic control screenshots
+under the supplied temporary root. Headless Widget execution uses a bounded
+fake-clock/real-I/O driver; the Live binding instead awaits original Futures
+without concurrent guarded Widget pumps during cleanup. No assertion is skipped.
+
+Observed environment: Windows x64 build 26200.9711, Flutter 3.41.9, Dart 3.11.5.
+The focused P11/P27 command completed 257 tests, including original independent
+Windows public handoff. The initial serial run including P11/P27, application/MCP
+architecture, vNext end-to-end and v0 contract checks completed 327 tests; focused
+analysis and the read-only format/diff gates passed. An initial actual-runner smoke completed the P27 UI and
+page-reopen cases but failed five case teardowns with a Live Widget guard conflict.
+After the driver correction, a native run completed the first three cases, then
+lost its device connection during the revoke case without a complete test verdict.
+A direct restart of that isolated bundle did not exit within its 90-second bound.
+No matching recent Application crash event was found by the bounded check; that
+does not establish why the window/VM disconnected. Screenshots establish rendered
+pending/cancellable controls and separate full Completion/Revision comparison,
+not a complete successful native lifecycle run. Those initial attempts remain
+**INCONCLUSIVE** and are not retroactively counted as successful runs.
+
+The authorized bounded repair then recorded each boundary separately. An initial
+controller attempt used the bundle directory instead of repository CWD and failed
+to load the public fixture before controls existed. After correcting CWD and
+awaiting initialization rather than proceeding after `runAsync` captured an error,
+all seven live tests and cleanup passed. Exit still returned `cancel`: the installed
+`TestWidgetsFlutterBinding.exitApplication` deliberately refuses native exit,
+including in the Live subclass. The final design preserves that protection,
+records readiness only AFTER owning cleanup, lets the framework finish reporting,
+and requests normal window closure from the external original-process controller.
+A controller UTC/Local comparison error was corrected without relaxing its identity
+check or deadline. No Host/P27 business behavior or original assertion was changed
+by this repair.
+
+The final run completed at 2026-10-24 06:31 UTC: **7/7 native Widget cases PASS**,
+all seven owning cleanups and post-test checks completed, framework report
+finished, normal original-window close accepted, natural process exit code **0**,
+stdout/stderr drained, no timeout/truncation/capture failure. The reporter also
+counts its suite-level teardown, so its final console counter is eight; this is
+seven UI cases, not eight independent scenarios. Captured pending/connected/
+completion-comparison images were read by the Executor. Six deterministic evidence
+regressions separately reject missing cleanup/post-test records, body/cleanup
+failures and an extra case, alongside the retained isolation tests. The final
+serial candidate run passed **337 tests**, including those ten smoke evidence/
+isolation cases; focused analysis, read-only format, JavaScript syntax and P27
+source-boundary checks passed.
+
+This closes the isolated functional Smoke blocker only. There is no independent
+Verifier approval, production Pairing/authentication, security admission or full
+AR-R6B completion claim. Formal AOT bootstrap, independent Bridge UI-host and
+App/client registration, real protected/TLS/native behavior and authenticated
+crash/Restore acceptance remain open.
+
 Executor regression evidence for the unchanged executable implementation:
 
 | Run | Result |

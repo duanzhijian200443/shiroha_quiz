@@ -333,7 +333,16 @@ Direct and hosted formal-AOT refusal/reconnect execute with installed Codex; sep
 Windows App/Bridge processes exercise cancellation/READ/reconnect with simulated
 security. No second Bridge or protocol is added. Normal App/client registration,
 trusted authenticated AOT bootstrap and public Pairing/comparison UI still remain
-non-security product work; this is not full AR-R6B completion or activation.
+non-security product work at that checkpoint; this is not full AR-R6B completion
+or activation. The [MCP §17.7 interaction candidate](../product/agent-refactor/mcp-vnext-contract.md#177-first-party-public-handoff-and-pending-connection-controls-candidate)
+adds actual App public copy/export and pending Enable/cancel controls plus a
+separate injectable Bridge local comparison Widget over the original P27 owners.
+Both human decisions remain explicit; no normal startup is activated. Its
+Widget/port regressions and successful isolated Windows desktop smoke retain Fake
+security and require independent fixed-target Windows verification and review.
+This closes only the bounded UI/isolated-functional slice, not full AR-R6B. Independent Bridge
+local-host registration, formal AOT business bootstrap and App/client registration
+remain non-security product work, separately from all security admission gates.
 Actual Windows execution of protected acquisition, production OS process bootstrap/transfer,
 admitted App/Bridge channels and Draft #327's short-deadline cancellation
 compatibility remain open and require further integration/acceptance. These fixtures and the App/Bridge source

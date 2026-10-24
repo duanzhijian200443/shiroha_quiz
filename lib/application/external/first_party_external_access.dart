@@ -16,21 +16,29 @@ final class FirstPartyExternalStatus {
       {this.profileId,
       this.pairing,
       this.pairingAvailable = false,
+      this.publicPairingAvailable = false,
       this.pairingDisplay,
       this.pairingFailed = false,
       this.connected = false,
       this.enabled = false,
       this.connectionPending = false,
+      this.connectionSettling = false,
+      this.connectionCancellationAvailable = false,
       this.connectionFailed = false,
       this.expiresAt,
+      this.remainingSeconds,
       this.approvedTargets = 0});
   final String? profileId;
   final PairingState? pairing;
-  final bool pairingAvailable, pairingFailed;
+  final bool pairingAvailable, publicPairingAvailable, pairingFailed;
   final FirstPartyPairingDisplay? pairingDisplay;
   final bool connected, enabled;
-  final bool connectionPending, connectionFailed;
+  final bool connectionPending,
+      connectionSettling,
+      connectionCancellationAvailable;
+  final bool connectionFailed;
   final DateTime? expiresAt;
+  final int? remainingSeconds;
   final int approvedTargets;
 }
 
@@ -74,7 +82,8 @@ final class FirstPartyExternalAccess {
   ExternalSession? _session;
   FirstPartyCredentialConnection? _connection;
   FirstPartyPairingRequest? _pairingRequest;
-  bool _pairingFailed = false;
+  bool _pairingFailed = false, _requestingPairing = false;
+  Future<void>? _cancellingPairing;
   int? _sessionRevision;
   final _approvals = <ExternalStageContext>[];
   List<GeneratedReviewTargetChoice> _choices = const [];
@@ -181,11 +190,7 @@ final class FirstPartyExternalAccess {
     return services;
   }
 
-  /// Requests pairing through the trusted credential owner.
-  ///
-  /// Request inputs and proofs come only from that owner.
-  /// Selecting/editing a Profile never invokes this action.
-  Future<void> requestPairing() => _run(() async {
+  Future<void> requestPairing({String? submissionId}) => _run(() async {
         final services = _credentials();
         final b = _binding!;
         if (_pairingFailed ||
@@ -193,15 +198,82 @@ final class FirstPartyExternalAccess {
                 PairingState.unpaired) {
           externalAuthFail(ExternalAuthFailure.unauthorized);
         }
+        _requestingPairing = true;
         try {
           final ref = await b.management.selectProfile(_selectedId!);
-          _pairingRequest = await services.pairing.request(ref);
+          final port = services.pairing;
+          if (submissionId != null) {
+            if (port is! FirstPartyPublicPairingPort) {
+              externalAuthFail(ExternalAuthFailure.unauthorized);
+            }
+            _pairingRequest = await port.requestSubmission(ref, submissionId);
+          } else {
+            _pairingRequest = await port.request(ref);
+          }
           _validate();
+          if (_pairingFailed) {
+            externalAuthFail(ExternalAuthFailure.unauthorized);
+          }
+        } catch (_) {
+          _pairingFailed = true;
+          rethrow;
+        } finally {
+          _requestingPairing = false;
+        }
+      });
+
+  Future<String> exportPairingTrust() => _exportPairing(false);
+  Future<String> exportPairingCompletion() => _exportPairing(true);
+
+  Future<String> _exportPairing(bool completion) => _run(() async {
+        final port = _credentials().pairing;
+        if (port is! FirstPartyPublicPairingPort ||
+            _pairingRequest == null ||
+            _pairingFailed) {
+          externalAuthFail(ExternalAuthFailure.unauthorized);
+        }
+        try {
+          return completion
+              ? await port.exportPublicCompletion()
+              : await port.exportPublicTrust();
         } catch (_) {
           _pairingFailed = true;
           rethrow;
         }
       });
+
+  Future<void> cancelPairing() {
+    if (_cancellingPairing != null) return _cancellingPairing!;
+    _validate();
+    final pairing = _credentials().pairing;
+    _pairingFailed = true;
+    _forgetAccess();
+    // P27 close drains the original runtime; it is not a P0 cancel/reset.
+    return _cancellingPairing = Future.wait([
+      pairing.close(),
+      _idle?.future ?? Future<void>.value(),
+    ]);
+  }
+
+  Future<void> cancelPendingControls() async {
+    if (!isCurrent) return;
+    if (_enabling) {
+      if (_binding?.credentials?.cancelPendingConnection != null) {
+        await disable();
+      } else {
+        await shutdown();
+      }
+      return;
+    }
+    final state = _profile == null
+        ? null
+        : _binding?.trust.snapshot(_profile!.principal).state;
+    if (_requestingPairing ||
+        state == PairingState.requestPending ||
+        state == PairingState.approvedPendingProof) {
+      await cancelPairing();
+    }
+  }
 
   Future<void> _pairingAction(bool complete) => _run(() async {
         _credentials();
@@ -246,21 +318,47 @@ final class FirstPartyExternalAccess {
     return attempt;
   }
 
-  Future<FirstPartyExternalStatus> status() {
-    if (_enabling) {
+  Future<FirstPartyExternalStatus> status() async {
+    if (!_enabling) return _readStatus();
+    _validate();
+    final b = _binding!;
+    try {
+      final record = await b.management
+          .read(await b.management.selectProfile(_selectedId!));
       _validate();
-      final expiry = _enableExpiresAt;
-      if (expiry != null && !_binding!.trust.clock.now().isBefore(expiry)) {
+      if (record.profile.revokedAtUtcMs != null ||
+          record.grant == null ||
+          record.grant!.revokedAtUtcMs != null) {
         _expireEnable();
       }
-      // Observation never reauthenticates or disrupts a still-live Enable.
-      // No Session/permission is projected until the original operation settles.
-      return Future.value(FirstPartyExternalStatus(
-          profileId: _selectedId,
-          connectionPending: !_enableCancelled,
-          connectionFailed: _connectionFailed));
+    } catch (_) {
+      _expireEnable();
     }
-    return _readStatus();
+    _validate();
+    if (!_enabling) return _readStatus();
+    final expiry = _enableExpiresAt;
+    if (expiry != null && !b.trust.clock.now().isBefore(expiry)) {
+      _expireEnable();
+    }
+    // Observation neither authenticates nor publishes an unsettled Session.
+    return FirstPartyExternalStatus(
+        profileId: _selectedId,
+        pairing: b.trust.snapshot(_profile!.principal).state,
+        pairingAvailable: b.credentials?.boundary.isCurrent == true,
+        connectionPending: !_enableCancelled,
+        connectionSettling: _enableCancelled,
+        connectionCancellationAvailable:
+            b.credentials?.cancelPendingConnection != null,
+        connectionFailed: _connectionFailed,
+        expiresAt: expiry,
+        remainingSeconds: _remaining(expiry));
+  }
+
+  int? _remaining(DateTime? expiry) {
+    if (expiry == null) return null;
+    final milliseconds =
+        expiry.difference(_binding!.trust.clock.now()).inMilliseconds;
+    return milliseconds <= 0 ? 0 : (milliseconds + 999) ~/ 1000;
   }
 
   Future<FirstPartyExternalStatus> _readStatus() => _run(() async {
@@ -309,12 +407,15 @@ final class FirstPartyExternalAccess {
                 profileId: _selectedId,
                 pairing: snapshot.state,
                 pairingAvailable: services.boundary.isCurrent,
+                publicPairingAvailable:
+                    services.pairing is FirstPartyPublicPairingPort,
                 pairingDisplay: _pairingFailed ? null : display,
                 pairingFailed: _pairingFailed,
                 connectionFailed: _connectionFailed,
                 connected: requestConnected || session != null,
                 enabled: requestConnected || session != null,
                 expiresAt: snapshot.expiresAt,
+                remainingSeconds: _remaining(snapshot.expiresAt),
                 approvedTargets: _approvals.length);
           }
           _authenticate(b);
@@ -326,10 +427,14 @@ final class FirstPartyExternalAccess {
               connected: true,
               enabled: _session != null,
               expiresAt: snapshot.expiresAt,
+              remainingSeconds: _remaining(snapshot.expiresAt),
               approvedTargets: _approvals.length);
         } catch (_) {
           _forgetAccess();
-          return FirstPartyExternalStatus(profileId: _selectedId);
+          return FirstPartyExternalStatus(
+              profileId: _selectedId,
+              pairingFailed: _pairingFailed,
+              connectionFailed: _connectionFailed);
         }
       });
 

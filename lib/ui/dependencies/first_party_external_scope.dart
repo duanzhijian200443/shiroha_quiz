@@ -31,13 +31,25 @@ final class _LifetimeState extends State<FirstPartyExternalLifetime> {
             return AppExitResponse.cancel;
           }
         },
-        onDetach: () => unawaited(widget.close()));
+        onDetach: () => _closeDetached(widget.close));
+  }
+
+  void _closeDetached(Future<void> Function() close) {
+    unawaited(Future<void>.sync(close).catchError((Object _) {}));
+  }
+
+  @override
+  void didUpdateWidget(FirstPartyExternalLifetime oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.access, widget.access)) {
+      _closeDetached(oldWidget.close);
+    }
   }
 
   @override
   void dispose() {
     _listener.dispose();
-    unawaited(widget.close());
+    _closeDetached(widget.close);
     super.dispose();
   }
 

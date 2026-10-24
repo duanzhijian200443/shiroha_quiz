@@ -6,8 +6,9 @@ import 'external_trust_core.dart';
 ///
 /// It is neither proof nor a connection token.
 final class FirstPartyPairingDisplay {
-  const FirstPartyPairingDisplay({this.digest, this.revision});
-  final String? digest;
+  const FirstPartyPairingDisplay(
+      {this.digest, this.revision, this.submissionId});
+  final String? digest, submissionId;
   final int? revision;
 }
 
@@ -19,11 +20,43 @@ abstract interface class FirstPartyPairingRequest {
 }
 
 /// A local pairing port supplied only by trusted composition.
-///
-/// UI supplies no credential,
-/// request id, verification result, association revision or decoded proof.
 abstract interface class FirstPartyPairingPort {
   Future<FirstPartyPairingRequest> request(ExternalProfileReference profile);
+  Future<void> close();
+}
+
+abstract interface class FirstPartyPublicPairingPort
+    implements FirstPartyPairingPort {
+  Future<FirstPartyPairingRequest> requestSubmission(
+      ExternalProfileReference profile, String submissionId);
+  Future<String> exportPublicTrust();
+  Future<String> exportPublicCompletion();
+}
+
+final class FirstPartyBridgePairingDisplay {
+  const FirstPartyBridgePairingDisplay({
+    this.submissionId,
+    this.initialDigest,
+    this.completionDigest,
+    this.revision,
+    this.proofPublished = false,
+    this.closed = false,
+    this.pinSaved = false,
+  });
+  final String? submissionId, initialDigest, completionDigest;
+  final int? revision;
+  final bool proofPublished, closed, pinSaved;
+}
+
+/// Supplied to the independent Bridge local surface, never to App or MCP.
+abstract interface class FirstPartyBridgePairingPort {
+  FirstPartyBridgePairingDisplay display();
+  void beginEnrollment(
+      {required String displayLabel, required String clientBuild});
+  Future<void> importTrust(String publicData);
+  void confirmInitial(String comparedDigest);
+  Future<void> importCompletion(String publicData);
+  void confirmCompletion(String comparedDigest, int comparedRevision);
   Future<void> close();
 }
 
