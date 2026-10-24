@@ -24,6 +24,14 @@ Discovery directory, pairing or transport. The Python helper only reads
 repository fixtures and verifies public signatures; it never signs or creates
 keys. This is offline evidence, not runtime trust or G0-I acceptance.
 
+The chained P27 source guard admits only the exact dormant
+`lib/composition/bridge_ui_host.dart` from MCP section 17.8. It checks that host's
+imports and rejects native acquisition, a second Pairing owner and business
+authority. Every other `lib/` source, including the existing dormant startup and
+acquisition roots, still rejects a Bridge UI host consumer. The Bootstrap gate
+always runs the P27 guard's in-memory mutation self-tests; it never edits source
+inputs or starts a host to check these boundaries.
+
 Package 2 adds `windows_tls_transport_test`, `windows_peer_certificate_policy_test`
 and `windows_tls_source_guard_test` once in those same shards. The existing
 bootstrap gate chains `check_tls_source.ps1`; the Native job compiles/inspects
