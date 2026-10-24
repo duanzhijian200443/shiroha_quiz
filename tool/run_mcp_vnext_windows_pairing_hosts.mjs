@@ -129,7 +129,7 @@ const failures = [...appEvents, ...bridgeEvents]
 const bridgeBase = ['host_ready', 'enrollment_started', 'trust_imported', 'proof_published', 'resources_closed', 'script_complete'];
 const bridgeOk = bridgeBase.every(value => count(bridgeEvents, value) === 1) &&
   (scenario === 'paired'
-    ? ['completion_imported', 'pin_saved'].every(value => count(bridgeEvents, value) === 1)
+    ? ['completion_imported', 'pin_saved', 'business_handoff_settled'].every(value => count(bridgeEvents, value) === 1)
     : count(bridgeEvents, 'completion_imported') === 0 && count(bridgeEvents, 'pin_saved') === 0);
 const appOk = scenario === 'paired'
   ? ['host_ready', 'profile_selected', 'request_created', 'trust_exported', 'initial_compared', 'pairing_approved', 'completion_verified', 'completion_exported', 'no_access_after_pairing', 'resources_closed', 'script_complete']

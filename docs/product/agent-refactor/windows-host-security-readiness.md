@@ -4213,3 +4213,13 @@ bypassing the test binding's exit guard. This is not independent Windows securit
 verification, a production local-host registration or an accepted formal bootstrap. No protected acquisition, real Pin,
 TLS/native-policy experiment, new Pairing IPC, A/X closure or admission change
 follows; normal App and formal Bridge startup continue to refuse business access.
+
+The later [MCP §17.9 slice](mcp-vnext-contract.md#179-trusted-bootstrap-and-lifetime-registration-non-activating)
+adds executable trusted Bootstrap and unavailable-by-default App registration,
+with original resource settlement and fresh Owner acquisition after Pairing.
+Its separate compiled business evidence uses Fake Native/TLS and an isolated
+EOF-first Codex client patch; installed 0.144.1 remains unchanged and incompatible
+with graceful business shutdown. Neither the patched-client proof nor default
+AOT refusal executes a protected credential/Pin/Discovery/TLS experiment or
+supplies independent Windows security acceptance. Production roots remain
+unavailable, and every existing halt/transport/admission block remains unchanged.

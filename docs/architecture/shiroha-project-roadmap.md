@@ -348,8 +348,15 @@ Windows interaction: App request/export, Bridge import/first confirmation/Proof,
 App approval/completion, Bridge import/second confirmation/Pin, and a peer-abort
 case that still cannot save a Pin. It retains Fake Native/P22/P23/TLS and executes
 no real protected credential, TLS or AOT business bootstrap. Formal AOT business
-bootstrap and App/client registration remain non-security product work, separately
-from all security admission gates.
+bootstrap and App/client registration remained non-security product work at that
+checkpoint. [MCP §17.9](../product/agent-refactor/mcp-vnext-contract.md#179-trusted-bootstrap-and-lifetime-registration-non-activating)
+now supplies executable trusted Bootstrap and non-activating App registration,
+plus compiled seven-tool/Review/original-key/Restore evidence with an isolated
+EOF-first Codex client patch. The original installed-client failure is retained;
+installed 0.144.1 is not replaced or accepted for business shutdown. Discovery is
+serialized before business ownership, and contention still rejects. This closes
+the bounded non-activation composition slice. Supported client delivery/selection,
+explicit admitted production-root consumption and security admission remain open.
 Actual Windows execution of protected acquisition, production OS process bootstrap/transfer,
 admitted App/Bridge channels and Draft #327's short-deadline cancellation
 compatibility remain open and require further integration/acceptance. These fixtures and the App/Bridge source

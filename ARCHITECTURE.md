@@ -637,8 +637,17 @@ startup remains unavailable. MCP §17.8 supplies the explicit independent Bridge
 UI host over the same P27 controller, with one process/OS-lock instance and a
 shared cancellation/window/resource drain. Separate Windows test-only App/Bridge
 entrypoints exercise public pairing through actual windows with Fake security.
-Formal AOT bootstrap, normal App/client registration and real security admission
-remain open.
+MCP §17.9 supplies a non-activating trusted Bootstrap over the original protected
+acquirer, independent trust/P26 validation, Bridge startup and stdio server. App
+lifetime registration defaults unavailable; explicit direct-client and App-hosted
+registrations reuse the original integration/Host barrier. Completed UI pairing
+can drain its controller/Owner/lock before fresh business acquisition. Formal AOT
+still supplies no admitted Bootstrap. An isolated Windows client patch proves
+EOF-first business settlement and serialized discovery with the compiled test
+composition. Installed Codex 0.144.1 remains incompatible with graceful business
+shutdown. Supported client delivery, explicit admitted production registration
+and real security admission remain open; process disappearance never substitutes
+for the original drain.
 
 The bounded lifecycle extension adds independent READ Proposal metadata over
 the same persistence owner, through P7/P8, retained lifecycle-only IPC schema v2

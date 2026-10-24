@@ -5,9 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/composition/bridge_ui_host.dart';
+import 'package:shiroha_quiz/data/external/windows_pairing.dart';
 
 import '../application/generated_question/generated_test_support.dart';
 import '../data/external/windows_pairing_test.dart' show PairingHarness;
+import '../data/external/windows_credential_object_store_test.dart' as objects;
 import 'fixtures/codex_app_server_support.dart' show flutterDartExecutable;
 
 int _submissions(PairingHarness h) =>
@@ -234,6 +236,46 @@ Future<void> main(List<String> args) async {
     } finally {
       if (!releaseResources.isCompleted) releaseResources.complete();
       await host.close();
+      await w.close();
+    }
+  });
+
+  test(
+      'completed pairing hands off only after controller, Owner and lock close',
+      () async {
+    final w = await _World.create();
+    final host = await w.open();
+    final app = WindowsAppPublicPairingHandoff(owner: w.h.app);
+    try {
+      expect(host.closeForBusiness, throwsStateError);
+      host.port.beginEnrollment(displayLabel: 'Bridge', clientBuild: 'handoff');
+      final request = await app.requestSubmission(
+          w.h.local.reference, host.port.display().submissionId!);
+      await host.port.importTrust(await app.exportPublicTrust());
+      host.port.confirmInitial((await request.display()).digest!);
+      await request.approve();
+      await request.complete();
+      await host.port.importCompletion(await app.exportPublicCompletion());
+      final completed = await request.display();
+      host.port.confirmCompletion(completed.digest!, completed.revision!);
+      expect(host.port.display().pinSaved, isTrue);
+      expect(() => objects.adapter(w.h.native.calls).acquireBridgeObjects(),
+          throwsA(anything));
+      final closing = host.closeForBusiness();
+      expect(identical(closing, host.close()), isTrue);
+      await closing;
+      expect(w.resources, 1);
+      expect(w.h.bridgeOwner.isClosed, isTrue);
+      final fresh = objects.adapter(w.h.native.calls).acquireBridgeObjects();
+      expect(fresh.runtimeClaimed, isFalse);
+      fresh.close();
+      final lock = await File(p.join(w.root.path, BridgeUiHost.lockFileName))
+          .open(mode: FileMode.append);
+      await lock.lock(FileLock.exclusive);
+      await lock.close();
+    } finally {
+      await host.close();
+      await app.close();
       await w.close();
     }
   });

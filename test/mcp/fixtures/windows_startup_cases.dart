@@ -22,6 +22,7 @@ import 'first_party_app_integration_cases.dart';
 import 'windows_app_transport_fixture.dart';
 import 'windows_resource_process_cases.dart';
 import 'windows_process_integration_cases.dart';
+import 'windows_bootstrap_cases.dart';
 
 final class _ForeignTransport implements McpVnextAppTransport {
   _ForeignTransport(this.binding);
@@ -85,6 +86,7 @@ Future<void> _disposeFake(WindowsAppTransportFixture f) async {
 
 /// Registered through the existing standing P11 architecture test entry.
 void windowsStartupCases() {
+  windowsBootstrapCases();
   windowsResourceProcessCases();
   windowsProcessIntegrationCases();
   test('App default local opener uses an accepted Host channel and drains it',

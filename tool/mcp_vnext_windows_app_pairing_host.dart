@@ -219,7 +219,12 @@ Future<void> _selectProfile(
     PairingUiDriver driver, FirstPartyAppHarness app) async {
   for (var attempt = 0; attempt < 3; attempt++) {
     if ((await _status(app))?.profileId != null) return;
-    await driver.tapButton('选择连接 Profile');
+    // A missed option tap leaves the original modal open and its opener busy.
+    // Retry that same visible choice; never wait for the covered opener or
+    // bypass the product dialog by selecting directly through Application.
+    if (!driver.hasText('选择授权 Profile')) {
+      await driver.tapButton('选择连接 Profile');
+    }
     try {
       await driver.tapText('Synthetic client',
           timeout: const Duration(seconds: 10));

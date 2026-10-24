@@ -24,35 +24,41 @@ final class JsonLineProcess {
     _stdout = process.stdout
         .transform(utf8.decoder)
         .transform(const LineSplitter())
-        .listen(
-            (line) {
-              try {
-                final message =
-                    (jsonDecode(line) as Map).cast<String, dynamic>();
-                final pending = _pending.remove(message['id']);
-                if (pending != null) pending.complete(message);
-              } catch (_) {
-                protocolClean = false;
-                _failPending('Non-protocol stdout.');
-              }
-            },
-            onDone: () => _failPending('Protocol closed.'),
-            onError: (_) {
-              protocolClean = false;
-              _failPending('Protocol stream failed.');
-            });
+        .listen((line) {
+      try {
+        final message = (jsonDecode(line) as Map).cast<String, dynamic>();
+        final pending = _pending.remove(message['id']);
+        if (pending != null) pending.complete(message);
+      } catch (_) {
+        protocolClean = false;
+        _failPending('Non-protocol stdout.');
+      }
+    }, onDone: () {
+      _failPending('Protocol closed.');
+      if (!_stdoutDone.isCompleted) _stdoutDone.complete();
+    }, onError: (_) {
+      protocolClean = false;
+      _failPending('Protocol stream failed.');
+    });
     // Drain diagnostics, but never retain or print raw errors/configuration.
-    _stderr = process.stderr.listen((_) {});
+    _stderr = process.stderr.listen((_) {}, onDone: () {
+      if (!_stderrDone.isCompleted) _stderrDone.complete();
+    }, onError: (Object error, StackTrace stack) {
+      if (!_stderrDone.isCompleted) _stderrDone.completeError(error, stack);
+    });
+    unawaited(
+        _stderrDone.future.then((_) {}, onError: (Object _, StackTrace __) {}));
   }
 
   final Process process;
   late final StreamSubscription<String> _stdout;
   late final StreamSubscription<List<int>> _stderr;
   final _pending = <int, Completer<Map<String, dynamic>>>{};
+  final _stdoutDone = Completer<void>(), _stderrDone = Completer<void>();
+  Future<int>? _closing;
   int _id = 0;
   bool protocolClean = true;
   bool forcedClose = false;
-  bool _closed = false;
 
   static Future<JsonLineProcess> start(String executable, List<String> args,
       {required String cwd, required String home}) async {
@@ -109,16 +115,21 @@ final class JsonLineProcess {
     _pending.clear();
   }
 
-  Future<int> close() async {
-    if (_closed) return process.exitCode;
-    _closed = true;
+  Future<int> close() => _closing ??= _close();
+
+  Future<int> _close() async {
     await process.stdin.close();
+    final settlement = Future.wait<int>([
+      process.exitCode,
+      _stdoutDone.future.then((_) => 0),
+      _stderrDone.future.then((_) => 0),
+    ]).then((values) => values.first);
     try {
-      return await process.exitCode.timeout(const Duration(seconds: 15));
+      return await settlement.timeout(const Duration(seconds: 15));
     } on TimeoutException {
       forcedClose = true;
       process.kill();
-      return await process.exitCode.timeout(const Duration(seconds: 5));
+      return await settlement.timeout(const Duration(seconds: 5));
     } finally {
       await _stdout.cancel();
       await _stderr.cancel();
@@ -169,7 +180,7 @@ tool_timeout_sec = 10
     await File(p.join(home.path, 'config.toml')).writeAsString(config);
   }
 
-  Future<void> start() async {
+  Future<void> start({bool createThread = true}) async {
     rpc = await JsonLineProcess.start(executable, ['app-server', '--stdio'],
         cwd: home.path, home: home.path);
     final init = await rpc.request('initialize', {
@@ -182,7 +193,7 @@ tool_timeout_sec = 10
       throw StateError('Codex did not confirm the isolated home.');
     }
     rpc.send({'method': 'initialized'});
-    await newThread();
+    if (createThread) await newThread();
   }
 
   Future<String> newThread() async {

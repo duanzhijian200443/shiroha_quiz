@@ -28,6 +28,7 @@ final class FakeExternalNativeCalls
   final allocations = <int, int>{};
   final freed = <int>[];
   final events = <String>[];
+  void Function()? onSuccessfulOwnerClose;
   final discoveryFiles = <int, Uint8List>{};
   int discoveryStatus = 0, discoveryPublishes = 0;
   bool throwDiscovery = false;
@@ -392,6 +393,7 @@ final class FakeExternalNativeCalls
     exchangeReceipts.removeWhere((_, entry) => entry.$1 == token);
     exchangeReadTickets.removeWhere((_, entry) => entry.$1 == token);
     if (throwClose) throw StateError('synthetic private close detail');
+    if (closeStatus == 0) onSuccessfulOwnerClose?.call();
     return closeStatus;
   }
 

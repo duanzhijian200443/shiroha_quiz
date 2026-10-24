@@ -105,7 +105,7 @@ void windowsResourceProcessCases() {
       expect(h.generated, 0);
       expect(h.randomCalls, 0);
     } finally {
-      await d.process.stopAndWait();
+      await d.process!.stopAndWait();
       await d.associations.close();
       d.owner.close();
       h.dispose();

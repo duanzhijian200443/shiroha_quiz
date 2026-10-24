@@ -3,7 +3,7 @@
 // Owner, issuer, Store, listener, migration or business writer is created here.
 import 'dart:io';
 import 'package:shiroha_quiz/data/external/windows_release_candidate.dart';
-import 'package:shiroha_quiz/mcp/vnext_mcp_entrypoint.dart' as unavailable;
+import 'package:shiroha_quiz/composition/mcp_vnext_windows_bootstrap.dart';
 
 // Pins the candidate transport dependency for transitive source auditing.
 // Exporting a type neither constructs a Bridge nor starts a connection.
@@ -29,5 +29,5 @@ Future<void> main(List<String> arguments) async {
   }
   // The existing seven-tool refusal endpoint creates no authenticated runtime.
   // Codex can discover the profile and close on EOF without enabling business.
-  await unavailable.main();
+  await serveWindowsBridgeStdio();
 }

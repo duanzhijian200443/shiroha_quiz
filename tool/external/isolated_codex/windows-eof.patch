@@ -1,0 +1,483 @@
+diff --git a/codex-rs/rmcp-client/src/lib.rs b/codex-rs/rmcp-client/src/lib.rs
+--- a/codex-rs/rmcp-client/src/lib.rs
++++ b/codex-rs/rmcp-client/src/lib.rs
+@@ -3,0 +4,2 @@
++#[cfg(windows)]
++mod graceful_stdio;
+diff --git a/codex-rs/rmcp-client/src/stdio_server_launcher.rs b/codex-rs/rmcp-client/src/stdio_server_launcher.rs
+--- a/codex-rs/rmcp-client/src/stdio_server_launcher.rs
++++ b/codex-rs/rmcp-client/src/stdio_server_launcher.rs
+@@ -30,0 +31,2 @@
++#[cfg(windows)]
++use crate::graceful_stdio::{CloseControl, GracefulStdio};
+@@ -50,0 +53 @@
++#[cfg(not(windows))]
+@@ -51,0 +55 @@
++#[cfg(not(windows))]
+@@ -52,0 +57 @@
++#[cfg(not(windows))]
+@@ -54,0 +60 @@
++#[cfg(not(windows))]
+@@ -100,0 +107 @@
++    #[cfg(not(windows))]
+@@ -101,0 +109,2 @@
++    #[cfg(windows)]
++    Local(GracefulStdio),
+@@ -132 +140,0 @@
+-        self.process.terminate().await?;
+@@ -134,2 +142,9 @@
+-            StdioServerTransportInner::Local(transport) => transport.close().await,
+-            StdioServerTransportInner::Executor(transport) => transport.close().await,
++            StdioServerTransportInner::Local(transport) => {
++                #[cfg(not(windows))]
++                self.process.terminate().await?;
++                transport.close().await
++            }
++            StdioServerTransportInner::Executor(transport) => {
++                self.process.terminate().await?;
++                transport.close().await
++            }
+@@ -208,5 +222,0 @@
+-#[cfg(windows)]
+-struct LocalProcessTerminator {
+-    pid: u32,
+-}
+-
+@@ -227,0 +238 @@
++    #[cfg(not(windows))]
+@@ -228,0 +240,2 @@
++    #[cfg(windows)]
++    Graceful(Arc<CloseControl>),
+@@ -268,20 +281,32 @@
+-        let (transport, stderr) = TokioChildProcess::builder(command)
+-            .stderr(Stdio::piped())
+-            .spawn()?;
+-        let process = StdioServerProcessHandle::local(
+-            program_name.clone(),
+-            transport.id().map(LocalProcessTerminator::new),
+-        );
+-
+-        if let Some(stderr) = stderr {
+-            tokio::spawn(async move {
+-                let mut reader = BufReader::new(stderr).lines();
+-                loop {
+-                    match reader.next_line().await {
+-                        Ok(Some(line)) => {
+-                            info!("MCP server stderr ({program_name}): {line}");
+-                        }
+-                        Ok(None) => break,
+-                        Err(error) => {
+-                            warn!("Failed to read MCP server stderr ({program_name}): {error}");
+-                            break;
++        #[cfg(windows)]
++        {
++            let transport = GracefulStdio::spawn(command)?;
++            let process = StdioServerProcessHandle::graceful(program_name, transport.control());
++            Ok(StdioServerTransport {
++                inner: StdioServerTransportInner::Local(transport),
++                process,
++            })
++        }
++        #[cfg(not(windows))]
++        {
++            let (transport, stderr) = TokioChildProcess::builder(command)
++                .stderr(Stdio::piped())
++                .spawn()?;
++            let process = StdioServerProcessHandle::local(
++                program_name.clone(),
++                transport.id().map(LocalProcessTerminator::new),
++            );
++
++            if let Some(stderr) = stderr {
++                tokio::spawn(async move {
++                    let mut reader = BufReader::new(stderr).lines();
++                    loop {
++                        match reader.next_line().await {
++                            Ok(Some(line)) => {
++                                info!("MCP server stderr ({program_name}): {line}");
++                            }
++                            Ok(None) => break,
++                            Err(error) => {
++                                warn!("Failed to read MCP server stderr ({program_name}): {error}");
++                                break;
++                            }
+@@ -290,11 +315,12 @@
+-                }
+-            });
+-        }
+-
+-        Ok(StdioServerTransport {
+-            inner: StdioServerTransportInner::Local(transport),
+-            process,
+-        })
+-    }
+-}
+-
++                });
++            }
++
++            Ok(StdioServerTransport {
++                inner: StdioServerTransportInner::Local(transport),
++                process,
++            })
++        }
++    }
++}
++
++#[cfg(not(windows))]
+@@ -306,6 +331,0 @@
+-        }
+-        #[cfg(windows)]
+-        {
+-            Self {
+-                pid: process_group_id,
+-            }
+@@ -340,13 +359,0 @@
+-    #[cfg(windows)]
+-    fn terminate(&self) {
+-        let _ = std::process::Command::new("taskkill")
+-            .arg("/PID")
+-            .arg(self.pid.to_string())
+-            .arg("/T")
+-            .arg("/F")
+-            .stdin(Stdio::null())
+-            .stdout(Stdio::null())
+-            .stderr(Stdio::null())
+-            .status();
+-    }
+-
+@@ -357,0 +365 @@
++    #[cfg(not(windows))]
+@@ -367,0 +376,11 @@
++    #[cfg(windows)]
++    fn graceful(program_name: String, control: Arc<CloseControl>) -> Self {
++        Self {
++            inner: Arc::new(StdioServerProcessHandleInner {
++                program_name,
++                kind: StdioServerProcessKind::Graceful(control),
++                terminated: AtomicBool::new(false),
++            }),
++        }
++    }
++
+@@ -378,0 +398,4 @@
++        #[cfg(windows)]
++        if let StdioServerProcessKind::Graceful(control) = &self.inner.kind {
++            return control.shutdown().await;
++        }
+@@ -383,0 +407 @@
++            #[cfg(not(windows))]
+@@ -387,0 +412 @@
++            #[cfg(not(windows))]
+@@ -388,0 +414,2 @@
++            #[cfg(windows)]
++            StdioServerProcessKind::Graceful(control) => control.shutdown().await,
+@@ -406,0 +434 @@
++            #[cfg(not(windows))]
+@@ -409,0 +438 @@
++            #[cfg(not(windows))]
+@@ -410,0 +440,2 @@
++            #[cfg(windows)]
++            StdioServerProcessKind::Graceful(control) => control.request(),
+diff --git a/codex-rs/rmcp-client/src/graceful_stdio.rs b/codex-rs/rmcp-client/src/graceful_stdio.rs
+new file mode 100644
+--- /dev/null
++++ b/codex-rs/rmcp-client/src/graceful_stdio.rs
+@@ -0,0 +1,220 @@
++//! Original-child EOF and settlement for the isolated local MCP client.
++use std::io;
++use std::pin::Pin;
++use std::sync::Arc;
++use std::sync::atomic::{AtomicBool, Ordering};
++use std::task::{Context, Poll};
++use std::time::Duration;
++
++use rmcp::service::{RoleClient, RxJsonRpcMessage, TxJsonRpcMessage};
++use rmcp::transport::Transport;
++use rmcp::transport::async_rw::AsyncRwTransport;
++use tokio::io::{AsyncRead, ReadBuf};
++use tokio::process::{Child, ChildStdin, ChildStdout, Command};
++use tokio::sync::watch;
++use tokio::task::JoinHandle;
++
++type Outcome = Result<(), io::ErrorKind>;
++
++pub(crate) struct CloseControl {
++    requested: watch::Sender<bool>,
++    settled: watch::Sender<Option<Outcome>>,
++}
++
++impl CloseControl {
++    pub(crate) fn request(&self) {
++        self.requested.send_replace(true);
++    }
++
++    pub(crate) async fn shutdown(&self) -> io::Result<()> {
++        self.request();
++        let mut result = self.settled.subscribe();
++        loop {
++            if let Some(outcome) = *result.borrow_and_update() {
++                return as_io(outcome);
++            }
++            result
++                .changed()
++                .await
++                .map_err(|_| io::Error::other("MCP close owner lost"))?;
++        }
++    }
++}
++
++fn as_io(outcome: Outcome) -> io::Result<()> {
++    outcome.map_err(|kind| io::Error::new(kind, "MCP original child did not settle cleanly"))
++}
++
++struct ObservedStdout {
++    pipe: ChildStdout,
++    eof: Arc<AtomicBool>,
++    failed: Arc<AtomicBool>,
++}
++impl AsyncRead for ObservedStdout {
++    fn poll_read(
++        mut self: Pin<&mut Self>,
++        cx: &mut Context<'_>,
++        buf: &mut ReadBuf<'_>,
++    ) -> Poll<io::Result<()>> {
++        let before = buf.filled().len();
++        let capacity = buf.remaining();
++        let result = Pin::new(&mut self.pipe).poll_read(cx, buf);
++        match &result {
++            Poll::Ready(Ok(())) if capacity != 0 && buf.filled().len() == before => {
++                self.eof.store(true, Ordering::Release);
++            }
++            Poll::Ready(Err(_)) => {
++                self.failed.store(true, Ordering::Release);
++            }
++            _ => {}
++        }
++        result
++    }
++}
++
++pub(crate) struct GracefulStdio {
++    transport: AsyncRwTransport<RoleClient, ObservedStdout, ChildStdin>,
++    child: Child,
++    stderr: Option<JoinHandle<io::Result<u64>>>,
++    control: Arc<CloseControl>,
++    requests: watch::Receiver<bool>,
++    eof: Arc<AtomicBool>,
++    failed: Arc<AtomicBool>,
++}
++
++impl GracefulStdio {
++    pub(crate) fn spawn(mut command: Command) -> io::Result<Self> {
++        command.stderr(std::process::Stdio::piped());
++        let mut child = command.spawn()?;
++        let input = child
++            .stdin
++            .take()
++            .ok_or_else(|| io::Error::other("MCP stdin missing"))?;
++        let output = child
++            .stdout
++            .take()
++            .ok_or_else(|| io::Error::other("MCP stdout missing"))?;
++        let mut errors = child
++            .stderr
++            .take()
++            .ok_or_else(|| io::Error::other("MCP stderr missing"))?;
++        let stderr =
++            tokio::spawn(async move { tokio::io::copy(&mut errors, &mut tokio::io::sink()).await });
++        let (requested, requests) = watch::channel(false);
++        let (settled, _) = watch::channel(None);
++        let control = Arc::new(CloseControl { requested, settled });
++        let eof = Arc::new(AtomicBool::new(false));
++        let failed = Arc::new(AtomicBool::new(false));
++        let transport = AsyncRwTransport::new(
++            ObservedStdout {
++                pipe: output,
++                eof: Arc::clone(&eof),
++                failed: Arc::clone(&failed),
++            },
++            input,
++        );
++        Ok(Self {
++            transport,
++            child,
++            stderr: Some(stderr),
++            control,
++            requests,
++            eof,
++            failed,
++        })
++    }
++
++    pub(crate) fn control(&self) -> Arc<CloseControl> {
++        Arc::clone(&self.control)
++    }
++
++    async fn finish(&mut self) -> io::Result<()> {
++        if let Some(outcome) = *self.control.settled.borrow() {
++            return as_io(outcome);
++        }
++        // Same writer is withdrawn first. The same reader drains, without a
++        // parallel stdout consumer. All three original resources must settle.
++        let result = tokio::time::timeout(Duration::from_secs(5), async {
++            self.transport.close().await?;
++            while self.transport.receive().await.is_some() {}
++            let status = self.child.wait().await?;
++            if let Some(errors) = self.stderr.as_mut() {
++                errors.await.map_err(io::Error::other)??;
++            }
++            if !status.success()
++                || !self.eof.load(Ordering::Acquire)
++                || self.failed.load(Ordering::Acquire)
++            {
++                return Err(io::Error::other("MCP exit or stream failed"));
++            }
++            Ok(())
++        })
++        .await;
++        let outcome = match result {
++            Ok(Ok(())) => Ok(()),
++            Ok(Err(error)) => Err(error.kind()),
++            Err(_) => Err(io::ErrorKind::TimedOut),
++        };
++        if outcome.is_err() {
++            // Original Child handle only. Forced cleanup never becomes Ok,
++            // and the result remains latched for every explicit closer.
++            if self.child.try_wait().ok().flatten().is_none() {
++                let _ = tokio::time::timeout(Duration::from_secs(2), self.child.kill()).await;
++            }
++            if let Some(errors) = self.stderr.as_mut()
++                && !errors.is_finished()
++            {
++                errors.abort();
++                let _ = errors.await;
++            }
++        }
++        self.control.settled.send_replace(Some(outcome));
++        as_io(outcome)
++    }
++}
++
++impl Transport<RoleClient> for GracefulStdio {
++    type Error = io::Error;
++    fn send(
++        &mut self,
++        item: TxJsonRpcMessage<RoleClient>,
++    ) -> impl Future<Output = io::Result<()>> + Send + 'static {
++        self.transport.send(item)
++    }
++    async fn receive(&mut self) -> Option<RxJsonRpcMessage<RoleClient>> {
++        if *self.requests.borrow_and_update() {
++            let _ = self.finish().await;
++            return None;
++        }
++        tokio::select! {
++            _ = self.requests.changed() => {
++                let _ = self.finish().await;
++                None
++            }
++            message = self.transport.receive() => message,
++        }
++    }
++    async fn close(&mut self) -> io::Result<()> {
++        self.finish().await
++    }
++}
++
++impl Drop for GracefulStdio {
++    fn drop(&mut self) {
++        // Initialization/cancellation can drop the transport before close.
++        // Child::kill_on_drop remains a failure fallback, never a clean drain.
++        // Wake every retained process handle instead of leaving shutdown hung.
++        if self.control.settled.borrow().is_none() {
++            self.control
++                .settled
++                .send_replace(Some(Err(io::ErrorKind::BrokenPipe)));
++        }
++        if let Some(errors) = &self.stderr {
++            errors.abort();
++        }
++    }
++}
++
++#[cfg(test)]
++#[path = "graceful_stdio_tests.rs"]
++mod tests;
+diff --git a/codex-rs/rmcp-client/src/graceful_stdio_tests.rs b/codex-rs/rmcp-client/src/graceful_stdio_tests.rs
+new file mode 100644
+--- /dev/null
++++ b/codex-rs/rmcp-client/src/graceful_stdio_tests.rs
+@@ -0,0 +1,72 @@
++use super::*;
++
++#[cfg(windows)]
++fn server(exit_code: i32, hang: bool) -> GracefulStdio {
++    let body = if hang {
++        "[Threading.Thread]::Sleep(30000)".to_string()
++    } else {
++        format!(
++            "[Console]::In.ReadToEnd() | Out-Null; [Console]::Out.WriteLine(''); [Console]::Error.Write('drain'); exit {exit_code}"
++        )
++    };
++    let mut command = Command::new("powershell.exe");
++    command.args(["-NoProfile", "-NonInteractive", "-Command", &body]);
++    command
++        .kill_on_drop(true)
++        .stdin(std::process::Stdio::piped())
++        .stdout(std::process::Stdio::piped());
++    GracefulStdio::spawn(command).unwrap()
++}
++
++#[cfg(windows)]
++#[tokio::test]
++async fn eof_and_original_exit_settle_before_success() {
++    let mut transport = server(/*exit_code*/ 0, /*hang*/ false);
++    let control = transport.control();
++    let (closed, message) = tokio::join!(control.shutdown(), transport.receive());
++    closed.unwrap();
++    assert!(message.is_none());
++    assert!(transport.child.try_wait().unwrap().unwrap().success());
++    transport.close().await.unwrap();
++    transport.control().shutdown().await.unwrap();
++}
++
++#[cfg(windows)]
++#[tokio::test]
++async fn lost_transport_wakes_retained_closer_with_failure() {
++    let transport = server(/*exit_code*/ 0, /*hang*/ true);
++    let control = transport.control();
++    drop(transport);
++    let result = tokio::time::timeout(Duration::from_secs(1), control.shutdown())
++        .await
++        .unwrap();
++    assert_eq!(result.unwrap_err().kind(), io::ErrorKind::BrokenPipe);
++    assert!(control.shutdown().await.is_err());
++}
++
++#[cfg(windows)]
++#[tokio::test]
++async fn abnormal_exit_remains_failed_for_every_closer() {
++    let mut transport = server(/*exit_code*/ 23, /*hang*/ false);
++    assert!(transport.close().await.is_err());
++    assert_eq!(
++        transport.child.try_wait().unwrap().unwrap().code(),
++        Some(23)
++    );
++    assert!(transport.control().shutdown().await.is_err());
++}
++
++#[cfg(windows)]
++#[tokio::test]
++async fn forced_fallback_is_latched_failure_not_success() {
++    let mut transport = server(/*exit_code*/ 0, /*hang*/ true);
++    assert_eq!(
++        transport.close().await.unwrap_err().kind(),
++        io::ErrorKind::TimedOut
++    );
++    assert_eq!(
++        transport.control().shutdown().await.unwrap_err().kind(),
++        io::ErrorKind::TimedOut
++    );
++    assert!(transport.child.try_wait().unwrap().is_some());
++}

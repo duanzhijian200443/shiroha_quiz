@@ -42,6 +42,8 @@ void main() {
   test(
       'only inactive infrastructure consumes discovery, CI registers acceptance',
       () {
+    // The dormant startup root publishes by design. The trusted Bootstrap root
+    // is not exempt: it keeps the P26 scan with one exact Reader allowance.
     const owned = [
       'lib/data/external/windows_discovery.dart',
       'lib/data/external/windows_credential_initialization.dart',
@@ -50,6 +52,24 @@ void main() {
       'lib/data/external/windows_tls_bridge.dart',
       'lib/composition/mcp_vnext_windows_startup.dart'
     ];
+    const trusted = 'lib/composition/mcp_vnext_windows_bootstrap.dart';
+    void expectReaderOnly(String path, String code) {
+      final body = code.replaceFirst(
+          "import '../data/external/windows_discovery.dart';", '');
+      expect(
+          RegExp(r'windows_discovery|WindowsDiscoveryPublisher|publishDiscovery|readDiscovery')
+              .hasMatch(body),
+          isFalse,
+          reason: path);
+      expect(RegExp('WindowsDiscoveryReader').allMatches(body).length, 1,
+          reason: path);
+      expect(
+          RegExp(r'WindowsDiscoveryReader\([\s\S]*?\)\s*\.\s*readAndAdvanceExistingPin\(')
+              .hasMatch(body),
+          isTrue,
+          reason: path);
+    }
+
     for (final file in Directory('lib')
         .listSync(recursive: true)
         .whereType<File>()
@@ -57,8 +77,22 @@ void main() {
       final path = file.path.replaceAll('\\', '/');
       if (owned.contains(path)) continue;
       final code = file.readAsStringSync();
+      if (path == trusted) {
+        expectReaderOnly(path, code);
+        continue;
+      }
       expect(code, isNot(contains('WindowsDiscoveryPublisher')), reason: path);
       expect(code, isNot(contains('WindowsDiscoveryReader')), reason: path);
+    }
+    // Negative control: publication or a second/non-advancing Reader in the
+    // privileged Bootstrap root must fail the same in-memory assertions.
+    final source = File(trusted).readAsStringSync();
+    for (final mutation in [
+      '$source\nWindowsDiscoveryPublisher(owner: owner, credentials: credentials);',
+      '$source\nfinal reader = WindowsDiscoveryReader(owner);',
+      source.replaceFirst('readAndAdvanceExistingPin(', 'read('),
+    ]) {
+      expect(() => expectReaderOnly(trusted, mutation), throwsA(anything));
     }
     final workflow =
         File('.github/workflows/pr-contract-checks.yml').readAsStringSync();
