@@ -220,6 +220,269 @@ void main() {
   publicPairingCases(() => h);
   final rejected = throwsA(anything);
 
+  group('first-party public pairing ports', () {
+    late FirstPartyPublicPairingPort app;
+    late FirstPartyBridgePairingPort bridge;
+    late FirstPartyPairingRequest request;
+    late String id;
+
+    setUp(() {
+      app = WindowsAppPublicPairingHandoff(owner: h.app);
+      bridge = WindowsBridgePublicPairing(owner: h.bridge);
+    });
+    tearDown(() async {
+      await bridge.close();
+      await app.close();
+    });
+
+    void begin() {
+      bridge.beginEnrollment(
+          displayLabel: 'PUBLIC FIXTURE', clientBuild: 'offline');
+      id = bridge.display().submissionId!;
+    }
+
+    Future<void> challenge() async {
+      begin();
+      request = await app.requestSubmission(h.local.reference, id);
+    }
+
+    Future<void> proof() async {
+      await challenge();
+      await bridge.importTrust(await app.exportPublicTrust());
+      bridge.confirmInitial(bridge.display().initialDigest!);
+      await request.approve();
+    }
+
+    Future<void> complete() async {
+      await proof();
+      await request.complete();
+    }
+
+    test(
+        'public strings preserve original ID, two decisions and actual revision',
+        () async {
+      expect(h.keys, isEmpty);
+      await challenge();
+      expect(id, matches(RegExp(r'^[0-9a-f]{32}$')));
+      final initial = await request.display();
+      expect(initial.submissionId, id);
+      expect(h.appExchange.readSubmission(unhex(id)), isNull);
+      expect(h.local.trust.snapshot(h.local.profile.principal).state,
+          PairingState.requestPending);
+      final trust = await app.exportPublicTrust();
+      expect(utf8.encode(trust),
+          await (app as WindowsAppPublicPairingHandoff).exportTrust(unhex(id)));
+      await bridge.importTrust(trust);
+      expect(bridge.display().initialDigest, initial.digest);
+      expect(initial.digest, matches(RegExp(r'^[0-9a-f]{64}$')));
+      expect(h.appExchange.readProof(unhex(id)), isNull);
+      expect(h.native.calls.credentialFiles[4], isNull);
+      bridge.confirmInitial(initial.digest!);
+      expect(h.appExchange.readProof(unhex(id)), isNotNull);
+      await request.approve();
+      await request.complete();
+      final actual =
+          (await h.associations.read(h.local.reference.profileId)).record!;
+      final exported = await app.exportPublicCompletion();
+      expect(
+          utf8.encode(exported),
+          await (app as WindowsAppPublicPairingHandoff)
+              .exportCompletion(unhex(id)));
+      await bridge.importCompletion(exported);
+      final display = bridge.display();
+      expect(display.revision, actual.revision);
+      expect(display.completionDigest, (await request.display()).digest);
+      expect(display.completionDigest, matches(RegExp(r'^[0-9a-f]{64}$')));
+      expect(h.native.calls.credentialFiles[4], isNull);
+      bridge.confirmCompletion(display.completionDigest!, display.revision!);
+      expect(bridge.display().pinSaved, isTrue);
+      expect(bridge.display().submissionId, isNull);
+      expect(h.local.trust.snapshot(h.local.profile.principal).state,
+          PairingState.pairedDisabled);
+    });
+
+    test('optional callback request remains compatible and reports original ID',
+        () async {
+      begin();
+      final callbackApp = WindowsAppPublicPairingHandoff(
+          owner: h.app, submissionId: () async => unhex(id));
+      addTearDown(callbackApp.close);
+      final callbackRequest = await callbackApp.request(h.local.reference);
+      expect((await callbackRequest.display()).submissionId, id);
+      expect(await callbackApp.exportPublicTrust(), isNotEmpty);
+    });
+
+    for (final invalid in {
+      'empty': '',
+      'short': 'a' * 31,
+      'uppercase': 'A' * 32,
+      'leading-space': ' ${'a' * 32}',
+      'trailing-newline': '${'a' * 32}\n',
+      'non-hex': 'g' * 32,
+      'missing-submission': '0' * 32,
+    }.entries) {
+      test('strict public ID rejects ${invalid.key} and latches', () async {
+        begin();
+        await expectLater(
+            app.requestSubmission(h.local.reference, invalid.value), rejected);
+        await expectLater(
+            app.requestSubmission(h.local.reference, id), rejected);
+        await expectLater(app.exportPublicTrust(), rejected);
+        expect(h.appExchange.readSubmission(unhex(id)), isNotNull);
+        expect(h.native.calls.associationFile, isNull);
+      });
+    }
+
+    test('duplicate explicit request cannot reset P0 or reuse old handle',
+        () async {
+      await challenge();
+      await expectLater(app.requestSubmission(h.local.reference, id), rejected);
+      await expectLater(request.approve(), rejected);
+      expect(h.local.trust.snapshot(h.local.profile.principal).state,
+          PairingState.requestPending);
+    });
+
+    test('public completion never predicts or caches success', () async {
+      await complete();
+      expect(await app.exportPublicCompletion(), isNotEmpty);
+      await h.boundary.revoke(h.local.reference, 1);
+      await expectLater(app.exportPublicCompletion(), rejected);
+      await expectLater(request.display(), rejected);
+    });
+
+    test('premature completion export locks the original request', () async {
+      await challenge();
+      await expectLater(app.exportPublicCompletion(), rejected);
+      await expectLater(request.approve(), rejected);
+      expect(h.native.calls.associationFile, isNull);
+    });
+
+    for (final mode in [
+      'noncanonical',
+      'foreign',
+      'oversize',
+      'utf8-size',
+      'malformed'
+    ]) {
+      test('Bridge rejects $mode public Trust without replacing Enrollment',
+          () async {
+        await challenge();
+        var input = await app.exportPublicTrust();
+        if (mode == 'noncanonical') input = '$input ';
+        if (mode == 'foreign') {
+          final fields = jsonDecode(input) as List<dynamic>;
+          fields[2] = base64Encode(Uint8List(16));
+          input = jsonEncode(fields);
+        }
+        if (mode == 'oversize') input = 'x' * 4097;
+        if (mode == 'utf8-size') input = '界' * 1366;
+        if (mode == 'malformed') input = '\uD800';
+        await expectLater(bridge.importTrust(input), rejected);
+        expect(bridge.display().closed, isTrue);
+        expect(bridge.display().initialDigest, isNull);
+        expect(() => bridge.beginEnrollment(displayLabel: '', clientBuild: ''),
+            rejected);
+        expect(h.keys, hasLength(1));
+        expect(h.keys.single, everyElement(0));
+        expect(h.appExchange.readProof(unhex(id)), isNull);
+      });
+    }
+
+    test('duplicate import fails closed and cannot reuse retained public input',
+        () async {
+      await challenge();
+      final input = await app.exportPublicTrust();
+      await bridge.importTrust(input);
+      await expectLater(bridge.importTrust(input), rejected);
+      expect(bridge.display().closed, isTrue);
+      expect(h.native.calls.exchangeReadTickets, isEmpty);
+      expect(h.native.calls.credentialFiles[4], isNull);
+    });
+
+    for (final stage in ['trust', 'completion']) {
+      for (final action in ['close', 'duplicate', 'expire']) {
+        test('$action during $stage import drains and denies late data',
+            () async {
+          if (stage == 'trust') {
+            await challenge();
+          } else {
+            await complete();
+          }
+          final input = stage == 'trust'
+              ? await app.exportPublicTrust()
+              : await app.exportPublicCompletion();
+          Future<void> importCurrent() => stage == 'trust'
+              ? bridge.importTrust(input)
+              : bridge.importCompletion(input);
+          final reading = expectLater(importCurrent(), rejected);
+          Future<void>? closing;
+          if (action == 'close') closing = bridge.close();
+          if (action == 'duplicate') {
+            await expectLater(importCurrent(), rejected);
+          }
+          if (action == 'expire') h.advance(const Duration(seconds: 600));
+          await reading;
+          await closing;
+          expect(bridge.display().closed, isTrue);
+          expect(bridge.display().submissionId, isNull);
+          expect(h.native.calls.exchangeReadTickets, isEmpty);
+          expect(h.native.calls.credentialFiles[4], isNull);
+        });
+      }
+    }
+
+    test('refresh withdraws expired Bridge digest permanently', () async {
+      await challenge();
+      await bridge.importTrust(await app.exportPublicTrust());
+      h.advance(const Duration(seconds: 300));
+      expect(bridge.display, rejected);
+      h.advance(const Duration(seconds: -300));
+      expect(bridge.display().closed, isTrue);
+      expect(bridge.display().initialDigest, isNull);
+      expect(h.keys.single, everyElement(0));
+    });
+
+    for (final wrong in [
+      'initial',
+      'completion',
+      'revision',
+      'foreign-completion'
+    ]) {
+      test('$wrong comparison cannot publish or save through the UI port',
+          () async {
+        if (wrong == 'initial') {
+          await challenge();
+          await bridge.importTrust(await app.exportPublicTrust());
+          expect(() => bridge.confirmInitial('0' * 64), rejected);
+          expect(h.appExchange.readProof(unhex(id)), isNull);
+        } else {
+          await complete();
+          var input = await app.exportPublicCompletion();
+          if (wrong == 'foreign-completion') {
+            final fields = jsonDecode(input) as List<dynamic>;
+            fields[2] = base64Encode(Uint8List(16));
+            input = jsonEncode(fields);
+            await expectLater(bridge.importCompletion(input), rejected);
+          } else {
+            await bridge.importCompletion(input);
+            final display = bridge.display();
+            expect(
+                () => bridge.confirmCompletion(
+                    wrong == 'completion'
+                        ? '0' * 64
+                        : display.completionDigest!,
+                    wrong == 'revision'
+                        ? display.revision! + 1
+                        : display.revision!),
+                rejected);
+          }
+        }
+        expect(bridge.display().closed, isTrue);
+        expect(h.native.calls.credentialFiles[4], isNull);
+      });
+    }
+  });
+
   group('inactive App-Bridge public handoff adapter', () {
     late WindowsPairingHandoff handoff;
     late FirstPartyPairingRequest request;

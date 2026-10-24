@@ -13,11 +13,40 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../tool/mcp_vnext_windows_app_smoke.dart';
+import '../../tool/mcp_vnext_windows_controls_smoke.dart'
+    show ControlsSmokeEvidence;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
   databaseFactory = databaseFactoryFfiNoIsolate;
+
+  for (final mode in [
+    'complete',
+    'body-failed',
+    'cleanup-failed',
+    'missing-cleanup',
+    'missing-post',
+    'extra-case'
+  ]) {
+    test('controls smoke requires complete owning evidence: $mode', () async {
+      final root = await Directory.systemTemp.createTemp(smokePrefix);
+      addTearDown(() => root.delete(recursive: true));
+      final file = File(p.join(root.path, 'events.jsonl'));
+      final evidence = ControlsSmokeEvidence(file);
+      expect(evidence.passed, isFalse);
+      for (var i = 0; i < (mode == 'extra-case' ? 8 : 7); i++) {
+        evidence.record('case_start');
+        if (mode == 'body-failed') evidence.record('case_failed');
+        evidence.record('case_complete');
+        if (mode == 'cleanup-failed') evidence.record('cleanup_failed');
+        if (mode != 'missing-cleanup') evidence.record('cleanup_complete');
+        if (mode != 'missing-post') evidence.record('post_test_complete');
+      }
+      expect(evidence.passed, mode == 'complete');
+      expect(file.readAsStringSync(), isNot(contains(root.path)));
+    });
+  }
 
   test('isolation refuses missing, relative and unowned roots', () async {
     expect(() => smokeDataPaths(''), throwsStateError);

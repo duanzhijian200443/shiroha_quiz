@@ -71,15 +71,23 @@ final class WindowsFirstPartyPairing implements FirstPartyPairingPort {
 /// App-side public handoff for an independently running Bridge. The supplied
 /// reader returns the original public Submission ID, never a Profile or trust.
 /// Exported bytes are local copy/paste data, not Exchange messages or evidence.
-final class WindowsAppPublicPairingHandoff implements FirstPartyPairingPort {
+final class WindowsAppPublicPairingHandoff
+    implements FirstPartyPublicPairingPort {
   WindowsAppPublicPairingHandoff({
     required WindowsAppPairing owner,
-    required Future<Uint8List> Function() submissionId,
+    Future<Uint8List> Function()? submissionId,
   }) : _owner = owner {
     _app = WindowsFirstPartyPairing(
         owner: owner,
         submissionId: () async {
-          final id = await submissionId();
+          final Uint8List id;
+          if (_submission != null) {
+            id = _submission!;
+          } else {
+            if (submissionId == null) _reject();
+            id = await submissionId();
+          }
+          _check();
           if (id.length != 16) _reject();
           _submission = bootstrapCopy(id);
           return _submission!;
@@ -133,12 +141,37 @@ final class WindowsAppPublicPairingHandoff implements FirstPartyPairingPort {
 
   @override
   Future<FirstPartyPairingRequest> request(ExternalProfileReference profile) =>
+      _createRequest(profile);
+
+  @override
+  Future<FirstPartyPairingRequest> requestSubmission(
+          ExternalProfileReference profile, String submissionId) =>
+      _createRequest(profile, submissionId: submissionId);
+
+  Future<FirstPartyPairingRequest> _createRequest(
+          ExternalProfileReference profile,
+          {String? submissionId}) =>
       _run(() async {
         if (_requested) _reject();
         _requested = true;
+        if (submissionId != null) {
+          if (submissionId.length != 32 ||
+              !RegExp(r'^[0-9a-f]{32}$').hasMatch(submissionId)) {
+            _reject();
+          }
+          _submission = _unhex(submissionId);
+        }
         _request = await _app.request(profile);
         return _PublicHandoffRequest(this);
       });
+
+  @override
+  Future<String> exportPublicTrust() async =>
+      utf8.decode(await exportTrust(_submission ?? Uint8List(0)));
+
+  @override
+  Future<String> exportPublicCompletion() async =>
+      utf8.decode(await exportCompletion(_submission ?? Uint8List(0)));
 
   Future<Uint8List> exportTrust(Uint8List submissionId) => _run(() async {
         _check(submissionId);
@@ -177,12 +210,104 @@ final class _PublicHandoffRequest implements FirstPartyPairingRequest {
   _PublicHandoffRequest(this.owner);
   final WindowsAppPublicPairingHandoff owner;
   @override
-  Future<FirstPartyPairingDisplay> display() =>
-      owner._run(() => owner._request!.display());
+  Future<FirstPartyPairingDisplay> display() => owner._run(() async {
+        final display = await owner._request!.display();
+        return FirstPartyPairingDisplay(
+            submissionId: _hex(owner._submission!),
+            digest: display.digest,
+            revision: display.revision);
+      });
   @override
   Future<void> approve() => owner._run(() => owner._request!.approve());
   @override
   Future<void> complete() => owner._run(() => owner._request!.complete());
+}
+
+/// Independent Bridge UI adaptation over the original onboarding controller.
+/// Construction performs no I/O; imported public bytes live for one read only.
+final class WindowsBridgePublicPairing implements FirstPartyBridgePairingPort {
+  WindowsBridgePublicPairing({required WindowsBridgePairing owner}) {
+    _onboarding = WindowsBridgeOnboarding.fromPublicExports(
+        owner: owner,
+        readTrust: _readPublicInput,
+        readCompletion: _readPublicInput);
+  }
+
+  late final WindowsBridgeOnboarding _onboarding;
+  Uint8List? _input;
+
+  Future<Uint8List> _readPublicInput(Uint8List id) async {
+    final input = _input;
+    if (input == null) _reject();
+    // fromPublicExports checks the exact original ID and canonical encoding.
+    return input;
+  }
+
+  @override
+  FirstPartyBridgePairingDisplay display() {
+    final value = _onboarding.display();
+    return FirstPartyBridgePairingDisplay(
+        submissionId:
+            value.submissionId == null ? null : _hex(value.submissionId!),
+        initialDigest: value.initialDigest,
+        completionDigest: value.completionDigest,
+        revision: value.revision,
+        proofPublished: value.proofPublished,
+        closed: value.closed,
+        pinSaved: value.pinSaved);
+  }
+
+  @override
+  void beginEnrollment(
+          {required String displayLabel, required String clientBuild}) =>
+      _onboarding.beginEnrollment(
+          displayLabel: displayLabel, clientBuild: clientBuild);
+
+  Future<void> _import(String publicData, Future<void> Function() read) async {
+    try {
+      if (_input != null || publicData.length > PairingPublicExport.maxBytes) {
+        _reject();
+      }
+      final bytes = Uint8List.fromList(utf8.encode(publicData));
+      if (bytes.length > PairingPublicExport.maxBytes ||
+          utf8.decode(bytes) != publicData) {
+        _reject();
+      }
+      _input = bytes;
+      await read();
+    } catch (error) {
+      // Adapter failures spend that SAME controller; never rebuild Enrollment.
+      _onboarding._fail(error);
+    } finally {
+      _input = null;
+    }
+  }
+
+  @override
+  Future<void> importTrust(String publicData) =>
+      _import(publicData, _onboarding.inspectAppTrust);
+
+  @override
+  void confirmInitial(String comparedDigest) =>
+      _onboarding.confirmInitialAndPublishProof(comparedDigest: comparedDigest);
+
+  @override
+  Future<void> importCompletion(String publicData) =>
+      _import(publicData, _onboarding.inspectAppCompletion);
+
+  @override
+  void confirmCompletion(String comparedDigest, int comparedRevision) =>
+      _onboarding.confirmCompletionAndSave(
+          comparedDigest: comparedDigest, comparedRevision: comparedRevision);
+
+  @override
+  Future<void> close() {
+    _input = null;
+    return _onboarding.close();
+  }
+
+  @override
+  String toString() => 'WindowsBridgePublicPairing(REDACTED)';
 }
 
 /// Bounded public export representation only. Arrays avoid duplicate JSON keys;

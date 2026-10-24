@@ -1425,3 +1425,66 @@ credentials/Pin/Discovery, real TLS/native peer policy and authenticated formal-
 crash/Restore are not executed. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
 AR-R6A = NOT_ACCEPTED. Production vNext remains default-refusing. No Trial 1A or
 G0-L1/L2/I is run; #327 remains independently BLOCKED at its original 4/4 budget.
+
+### 17.7. First-party public handoff and pending-connection controls candidate
+
+The existing App authorization control now accepts the original 32-lowercase-hex
+Submission ID through `FirstPartyPublicPairingPort`. The SAME
+`WindowsAppPublicPairingHandoff` creates the request, exports P27 Trust and freshly
+queries P15 actual Completion. Public copy/export is explicit and bounded; it
+adds no credential input, proof decoder, Session, Pin or approval authority.
+The optional trusted Submission callback remains available to existing compositions;
+its absence permits manual input, not automatic enrollment or production startup.
+App approval and explicit proof verification remain separate local actions.
+
+`FirstPartyBridgePairingControl` is a reusable independent trusted-local surface,
+not a page in the App or a consumer of MCP stdio. Its Application port is adapted
+by `WindowsBridgePublicPairing` over `WindowsBridgeOnboarding.fromPublicExports`.
+Users begin Enrollment, copy its original ID, paste/import Trust, independently
+compare all 64 digest characters, and explicitly publish Proof. After separate
+App approval/completion, users import Completion, independently compare its full
+digest AND actual Revision, and explicitly permit the original Missing-only save.
+Each import clears UI comparison choices and invokes neither confirmation.
+The UI retains no key or Enrollment; all lifetime/one-use checks remain with P27.
+
+App Enable is no longer hidden behind the presentation mutation lock. Pending
+observation projects the original finite deadline and remaining seconds without
+reauthentication or claiming an enabled business Session. Explicit cancellation
+uses the existing `disable`/`cancelPendingConnection` path and keeps controls
+locked until the original operation settles. Pending observation also denies a
+missing/revoked Grant or Profile. Failure, expiry, owner replacement and shutdown
+withdraw access; a later Enable is a new user action with no inherited targets.
+Visible refreshes are serialized and old-view completions cannot update a new view.
+
+Closing a pending App pairing surface calls the original pairing close/drain,
+not a P0 reset. Closing a page with pending Enable cancels its original wait;
+legacy openers without a cancellation callback require owning shutdown. App exit
+and scope replacement retain the original close barrier. Bridge cancellation,
+expiry, rejected/duplicate/foreign/old input and surface disposal withdraw public
+comparison data and close the original controller. Failure feedback uses safe
+categories, never exception bodies or private material. Public copies still cannot
+signal later remote App invalidation, as frozen in sections 11–12.
+
+This completes the **bounded source and isolated functional interaction slice**,
+not full AR-R6B completion or production admission.
+Standing P11 and P27 tests cover the ports, actual Widget operations, both
+confirmations, cancellation, failure/revoke/expiry and owning lifecycle. The
+Windows controls smoke uses the actual desktop runner and these Widgets with
+explicit temporary SQLite and Fake protected resources/TLS. Its bounded external
+controller records each test/cleanup/post-test result, waits for the framework
+report, requests normal closure of the original identity-checked window, and
+requires the original process's zero exit plus both output drains. It does not
+override the test binding's deliberate refusal of application exit, force-kill,
+retry or convert timeout into settlement. The Windows guide owns the successful
+isolated native run and the retained earlier failures; independent Windows
+verification and production admission remain distinct. The two controls share a window only in
+that test fixture; it is not a production App-to-Bridge control channel.
+
+Normal App startup remains honestly unavailable and supplies no accepted
+credential/transport binding. A registered independent Bridge local UI host,
+trusted formal-AOT business bootstrap and normal App/client registration remain
+production integration work. Formal security acquisition/Pin/Discovery/TLS/native
+peer-policy and authenticated crash/Restore acceptance remain separate gaps.
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
+No production configuration switch, new Pairing IPC, real protected operation,
+Trial 1A/G0-L1/L2/I or #327 assertion/budget change is introduced.

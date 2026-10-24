@@ -92,7 +92,7 @@ final class McpVnextWindowsProtectedAcquirer {
     required ExternalClock clock,
     required LocalHostReadinessPort readiness,
     required int port,
-    required Future<Uint8List> Function() submissionId,
+    Future<Uint8List> Function()? submissionId,
     WindowsBridgeProcess? process,
     TlsListenerIo? listener,
   }) {

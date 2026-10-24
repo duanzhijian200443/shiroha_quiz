@@ -4201,3 +4201,15 @@ security. Normal registration, authenticated formal bootstrap and human public
 Pairing surfaces remain unfinished. This functional slice does not load protected
 credentials/Pin or run real TLS/peer-policy experiments, close A/X rows, alter #327,
 resume Trial 1A/G0-L1/L2/I or change the production default denial and halt statuses.
+
+[MCP §17.7](mcp-vnext-contract.md#177-first-party-public-handoff-and-pending-connection-controls-candidate)
+adds a bounded first-party interaction candidate over those same authorities:
+App public export/Submission input and observable cancellable Enable, plus an
+independent injectable Bridge local Widget with two separate human confirmations.
+Widget/port tests and the successful native desktop controls smoke use Fake
+security, as recorded in the Windows guide. The test controller observes actual
+normal window/process exit and output drain without changing Host custody or
+bypassing the test binding's exit guard. This is not independent Windows security
+verification, a production local-host registration or an accepted formal bootstrap. No protected acquisition, real Pin,
+TLS/native-policy experiment, new Pairing IPC, A/X closure or admission change
+follows; normal App and formal Bridge startup continue to refuse business access.

@@ -622,7 +622,19 @@ finite expiry/failure withdraws access, and fresh explicit Enable cannot inherit
 old Session approvals. Windows AOT/installed-client refusal and separate Fake
 security business tests execute these paths. Normal App/client registration,
 trusted formal-AOT business bootstrap and public comparison UI remain product
-work. All production security/admission blocks remain unchanged.
+work at that checkpoint. All production security/admission blocks remain unchanged.
+MCP §17.7 adds a bounded inactive interaction slice: the existing App control
+projects pending Enable/deadline/cancellation and accepts original public
+Submission IDs through its Application port. The same P27 App handoff supplies
+explicit Trust/fresh Completion exports. An independent Bridge local Widget
+consumes an Application port over the original Onboarding, keeping both full
+human comparisons and the separate Missing-only save. Imports never confirm;
+page/scope closure retains the original operation/runtime drain. No UI imports
+Data, holds credentials or adds Pairing/Session/approval authority. Widget/offline
+coverage and a successful isolated native desktop smoke use Fake security; neither
+is independent Windows verification or production admission. Ordinary
+startup remains unavailable; independent Bridge UI-host registration, formal AOT
+bootstrap, App/client registration and real security admission remain open.
 
 The bounded lifecycle extension adds independent READ Proposal metadata over
 the same persistence owner, through P7/P8, retained lifecycle-only IPC schema v2
