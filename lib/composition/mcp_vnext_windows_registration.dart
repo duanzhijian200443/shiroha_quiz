@@ -7,6 +7,7 @@ import 'dart:io';
 import '../application/external/external_trust_core.dart';
 import '../application/external/local_host_dispatch.dart';
 import '../data/external/windows_bridge_process.dart';
+import '../data/external/windows_codex_client.dart';
 import '../data/external/windows_tls_transport.dart';
 import 'mcp_vnext_app_integration.dart';
 import 'mcp_vnext_windows_acquisition.dart';
@@ -26,10 +27,20 @@ final class McpVnextWindowsAppRegistration {
     required LocalHostReadinessPort readiness,
     required int port,
     TlsListenerIo? listener,
+    WindowsCodexClientSelection? clientSelection,
     bool enableStageApprovalWait = false,
   }) {
-    _install(acquirer, requireSecurityAdmission, clock, readiness, port,
-        listener, null, enableStageApprovalWait);
+    _install(
+        acquirer,
+        requireSecurityAdmission,
+        clock,
+        readiness,
+        port,
+        listener,
+        null,
+        enableStageApprovalWait,
+        clientSelection,
+        WindowsCodexConnectionMode.direct);
   }
 
   McpVnextWindowsAppRegistration.hostedClient({
@@ -41,6 +52,7 @@ final class McpVnextWindowsAppRegistration {
     required int port,
     required Stream<List<int>> input,
     required IOSink output,
+    WindowsCodexClientSelection? clientSelection,
     bool enableStageApprovalWait = false,
   }) {
     _install(
@@ -51,7 +63,9 @@ final class McpVnextWindowsAppRegistration {
         port,
         null,
         WindowsBridgeProcess.stdio(input: input, output: output),
-        enableStageApprovalWait);
+        enableStageApprovalWait,
+        clientSelection,
+        WindowsCodexConnectionMode.hosted);
   }
 
   final McpVnextAppIntegration integration;
@@ -72,12 +86,19 @@ final class McpVnextWindowsAppRegistration {
       int port,
       TlsListenerIo? listener,
       WindowsBridgeProcess? child,
-      bool enableStageApprovalWait) {
+      bool enableStageApprovalWait,
+      WindowsCodexClientSelection? clientSelection,
+      WindowsCodexConnectionMode mode) {
     _acquirer = acquirer;
     _startup = McpVnextWindowsAppStartup(
         integration: integration,
         enableStageApprovalWait: enableStageApprovalWait,
         acquire: () async {
+          if (clientSelection == null) {
+            throw StateError('Codex client unsupported');
+          }
+          await clientSelection.claim(mode);
+          if (_closed) throw StateError('Windows registration unavailable');
           await requireSecurityAdmission();
           if (_closed) throw StateError('Windows registration unavailable');
           return acquirer.acquireAppRuntime(

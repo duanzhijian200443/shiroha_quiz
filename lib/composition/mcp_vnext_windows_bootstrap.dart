@@ -6,6 +6,7 @@ import 'dart:io';
 
 import '../data/external/discovery_descriptor_codec.dart';
 import '../data/external/windows_discovery.dart';
+import '../data/external/windows_codex_client.dart';
 import '../data/external/windows_tls_transport.dart';
 import '../mcp/vnext_mcp_entrypoint.dart';
 import '../mcp/vnext_mcp_server.dart';
@@ -33,6 +34,7 @@ final class McpVnextWindowsBridgeBootstrap implements VnextMcpPort {
     required Future<void> Function() requireSecurityAdmission,
     required Future<DiscoveryExpectations> Function() independentTrust,
     required McpVnextWindowsProcessOwner process,
+    WindowsCodexClientSelection? clientSelection,
     Future<void> Function()? settlePairing,
     TlsBridgeIo Function()? createIo,
     bool enableStageApprovalWait = false,
@@ -40,6 +42,11 @@ final class McpVnextWindowsBridgeBootstrap implements VnextMcpPort {
     _startup = McpVnextWindowsBridgeStartup(
       enableStageApprovalWait: enableStageApprovalWait,
       acquire: () async {
+        if (clientSelection == null) {
+          throw StateError('Codex client unsupported');
+        }
+        await clientSelection.claim(clientSelection.mode);
+        _checkCurrent();
         await requireSecurityAdmission();
         _checkCurrent();
         final trusted = await independentTrust();

@@ -649,6 +649,14 @@ shutdown. Supported client delivery, explicit admitted production registration
 and real security admission remain open; process disappearance never substitutes
 for the original drain.
 
+MCP §17.10 adds executable compatibility selection before either registration or
+Bootstrap may acquire resources. Product support is empty; only the exact isolated
+EOF-first patch is eligible in explicit validation composition. Discovery joins
+original settlement before business, and concurrent/live-business discovery and
+Direct/Hosted selection reuse refuse. This selection owns no process or business
+authority; original drain, failure retention and fresh-Session approval still
+apply. Normal App/AOT refusal and all security admission blocks remain unchanged.
+
 The bounded lifecycle extension adds independent READ Proposal metadata over
 the same persistence owner, through P7/P8, retained lifecycle-only IPC schema v2
 and explicit v3 original-key selection.

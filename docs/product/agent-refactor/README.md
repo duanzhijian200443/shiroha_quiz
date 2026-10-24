@@ -31,6 +31,13 @@ still has the recorded force-first incompatibility. Supported client delivery,
 explicit admitted product-root wiring and security acceptance remain open. This
 bounded functional completion does not activate production or close full AR-R6B.
 
+[Client selection/refusal](mcp-vnext-contract.md#1710-windows-client-compatibility-selection-non-activating)
+now guards both registrations and Bootstrap before acquisition. Product support
+is empty; the pinned patch remains isolated-validation-only. Discovery must
+settle before business and cannot create a competing live Owner. This is not a
+fix or supported release of the installed official clients. The Windows guide
+records actual candidate/Direct/Hosted evidence and remaining functional gaps.
+
 The bounded lifecycle source extension uses MCP profile v2 and an independent
 READ/Proposal-metadata path over that same Proposal owner. It supplies persisted
 pending/rejected/committed status and safe counts by original key, including
