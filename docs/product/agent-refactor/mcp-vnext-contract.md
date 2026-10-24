@@ -1381,7 +1381,10 @@ reauthenticating/disabling the live attempt. It conservatively reports no connec
 or enabled Session until the original operation completes. The original finite
 P0 expiry is also the pending-operation deadline; expiry cancels local waiting
 and reports failure, without extending P0 or any P9/client timeout. Status uses
-that same clock to reject an already expired pending operation.
+that same clock to reject an already expired pending operation. Before opening a
+connection, deadline capture requires a still-enabled P0 snapshot with a non-null,
+future expiry. Expiry between coordinator Enable and snapshot capture fails through
+the original cleanup; a cleared deadline is never treated as unlimited waiting.
 
 The default accepted-channel binding supplies `cancelPendingConnection` using
 `WindowsChannelVerification.cancelLocalConnection`. Local Disable withdraws

@@ -348,11 +348,16 @@ final class FirstPartyExternalAccess {
         try {
           await b.coordinator.enable(_profile!, duration);
           _validateEnable();
-          _enableExpiresAt = b.trust.snapshot(_profile!.principal).expiresAt;
-          if (_enableExpiresAt case final expiry?) {
-            deadline =
-                Timer(expiry.difference(b.trust.clock.now()), _expireEnable);
+          final snapshot = b.trust.snapshot(_profile!.principal);
+          final expiry = snapshot.expiresAt;
+          final now = b.trust.clock.now();
+          if (snapshot.state != PairingState.enabledForCurrentRuntime ||
+              expiry == null ||
+              !now.isBefore(expiry)) {
+            externalAuthFail(ExternalAuthFailure.unauthorized);
           }
+          _enableExpiresAt = expiry;
+          deadline = Timer(expiry.difference(now), _expireEnable);
           FirstPartyCredentialConnection? connection;
           if (services != null) {
             final reference = await b.management.selectProfile(_selectedId!);

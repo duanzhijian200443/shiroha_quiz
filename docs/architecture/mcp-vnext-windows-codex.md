@@ -906,3 +906,22 @@ AR-R6A = NOT_ACCEPTED. Trial 1A/G0-L1/L2/I are not run; #327 remains independent
 BLOCKED at its inherited 4/4 budget. This bounded slice does not complete AR-R6B.
 Independent fixed-target Windows verification, standing CI and Reviewer approval
 remain required before merge; repository/global status remains NOT_EVALUATED.
+
+### PR #336 first review repair: deadline capture
+
+The first independent review found a P2 window between P0 Enable and local
+snapshot/deadline capture: snapshot can expire the Profile and clear its deadline,
+previously allowing a connection wait without a Timer. The repaired control
+requires an enabled snapshot and a non-null future deadline before opening.
+Failure uses the original cleanup and observable failure state, not a fallback
+connection or extended timeout. A test-only clock after-read hook advances time
+immediately after P0 obtains its Enable timestamp; the regression verifies failure,
+no pending acquisition, retained Host custody and subsequent explicit Enable.
+
+Executor ran the focused regression (1/1) and the standing P11/vNext batch
+(102/102), including the Windows independent-process case. All three changed Dart
+files passed analysis and read-only format (0 changes); `git diff --check` passed.
+The original stdio/AOT implementation is unchanged; prior Windows evidence is not
+represented as a new run. Required current-target CI and fresh Reviewer closure
+remain pending. Review-repair round: 1/4; this bounded repair self-repair: 0/4.
+#327 remains independently BLOCKED at 4/4; no production activation is added.

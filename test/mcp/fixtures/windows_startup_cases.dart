@@ -150,6 +150,43 @@ void windowsStartupCases() {
     expect(connected.approvedTargets, 0);
   });
 
+  test(
+      'Enable expiring before snapshot fails before opening and permits recovery',
+      () async {
+    final f = WindowsAppTransportFixture()..useAcceptedLocalConnection = true;
+    await f.open();
+    addTearDown(f.close);
+    await f.controls.disable();
+    await f.controlChannel!.close();
+    final clock = f.files.s.clock;
+    var advanced = false;
+    // With the Profile disabled, the next P0 clock read sets Enable's expiry.
+    // Advance immediately after returning that timestamp, before snapshot.
+    clock.afterRead = () {
+      clock.afterRead = null;
+      advanced = true;
+      clock.current = clock.current.add(const Duration(minutes: 6));
+    };
+    await expectLater(
+        f.controls.enable(const Duration(minutes: 5)), throwsA(anything));
+    expect(advanced, isTrue);
+    expect(f.host.verification.hasPendingLocalConnection, isFalse);
+    final failed = await f.controls.status();
+    expect(failed.connectionFailed, isTrue);
+    expect(failed.connectionPending, isFalse);
+    expect(failed.connected, isFalse);
+    expect(failed.enabled, isFalse);
+    expect(f.pairing.native.owner.isClosed, isFalse);
+    final enabling = f.controls.enable(const Duration(minutes: 5));
+    await pumpEventQueue(times: 20);
+    expect(f.host.verification.hasPendingLocalConnection, isTrue);
+    f.controlChannel = tls.MemoryTlsChannel(f.clientDer);
+    f.listener.controller.add(tls.MemoryRawPeer(f.controlChannel!));
+    await enabling;
+    expect((await f.controls.status()).enabled, isTrue);
+    expect((await f.controls.status()).approvedTargets, 0);
+  });
+
   for (final expired in [false, true]) {
     test(
         'failed accepted-channel acquisition is observable without hidden Enable expired=$expired',
