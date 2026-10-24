@@ -61,7 +61,7 @@ foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.
     }
 }
 & (Join-Path $PSScriptRoot 'check_discovery_source.ps1')
-& (Join-Path $PSScriptRoot 'check_pairing_source.ps1')
+& (Join-Path $PSScriptRoot 'check_pairing_source.ps1') -SelfTest
 & (Join-Path $PSScriptRoot 'check_tls_source.ps1')
 Write-Output 'PASS: P22 source/import isolation and inactive production composition'
 exit 0

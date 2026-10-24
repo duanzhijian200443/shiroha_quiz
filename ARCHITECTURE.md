@@ -633,8 +633,12 @@ page/scope closure retains the original operation/runtime drain. No UI imports
 Data, holds credentials or adds Pairing/Session/approval authority. Widget/offline
 coverage and a successful isolated native desktop smoke use Fake security; neither
 is independent Windows verification or production admission. Ordinary
-startup remains unavailable; independent Bridge UI-host registration, formal AOT
-bootstrap, App/client registration and real security admission remain open.
+startup remains unavailable. MCP §17.8 supplies the explicit independent Bridge
+UI host over the same P27 controller, with one process/OS-lock instance and a
+shared cancellation/window/resource drain. Separate Windows test-only App/Bridge
+entrypoints exercise public pairing through actual windows with Fake security.
+Formal AOT bootstrap, normal App/client registration and real security admission
+remain open.
 
 The bounded lifecycle extension adds independent READ Proposal metadata over
 the same persistence owner, through P7/P8, retained lifecycle-only IPC schema v2

@@ -340,9 +340,16 @@ separate injectable Bridge local comparison Widget over the original P27 owners.
 Both human decisions remain explicit; no normal startup is activated. Its
 Widget/port regressions and successful isolated Windows desktop smoke retain Fake
 security and require independent fixed-target Windows verification and review.
-This closes only the bounded UI/isolated-functional slice, not full AR-R6B. Independent Bridge
-local-host registration, formal AOT business bootstrap and App/client registration
-remain non-security product work, separately from all security admission gates.
+This closes only the bounded UI/isolated-functional slice, not full AR-R6B. The
+subsequent [MCP §17.8 host/dual-process slice](../product/agent-refactor/mcp-vnext-contract.md#178-independent-bridge-ui-host-and-dual-process-public-pairing-interaction)
+supplies the explicit Bridge local UI host (`BridgeUiHost`, one controller,
+process/file-lock single instance, one latched drain) plus a real two-window
+Windows interaction: App request/export, Bridge import/first confirmation/Proof,
+App approval/completion, Bridge import/second confirmation/Pin, and a peer-abort
+case that still cannot save a Pin. It retains Fake Native/P22/P23/TLS and executes
+no real protected credential, TLS or AOT business bootstrap. Formal AOT business
+bootstrap and App/client registration remain non-security product work, separately
+from all security admission gates.
 Actual Windows execution of protected acquisition, production OS process bootstrap/transfer,
 admitted App/Bridge channels and Draft #327's short-deadline cancellation
 compatibility remain open and require further integration/acceptance. These fixtures and the App/Bridge source

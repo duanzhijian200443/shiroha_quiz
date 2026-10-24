@@ -505,9 +505,10 @@ source-boundary checks passed.
 
 This closes the isolated functional Smoke blocker only. There is no independent
 Verifier approval, production Pairing/authentication, security admission or full
-AR-R6B completion claim. Formal AOT bootstrap, independent Bridge UI-host and
-App/client registration, real protected/TLS/native behavior and authenticated
-crash/Restore acceptance remain open.
+AR-R6B completion claim. The independent Bridge local UI host is now supplied by
+MCP contract §17.8 and executed with the App in separate Windows processes (below);
+formal AOT business bootstrap, App/client registration, real protected/TLS/native
+behavior and authenticated crash/Restore acceptance remain open.
 
 Executor regression evidence for the unchanged executable implementation:
 
@@ -523,6 +524,144 @@ Windows acceptance is recorded on #314/#315, not counted as a new run here.
 The smoke adds no production pairing, transport, external COMMIT or security
 experiment evidence. Fixed-candidate standing CI and independent review remain
 delivery gates; manual user confirmation is not `[VERIFICATION APPROVAL]`.
+
+### Independent Bridge UI host and dual-process public pairing, 2026-10-24 — isolated functional PASS
+
+`lib/composition/bridge_ui_host.dart` is the explicit Bridge local host over the
+original P27 owner: trusted composition supplies the existing
+`WindowsBridgePairing`, an existing instance root and one resource closer. It
+creates exactly one Bridge port, refuses a second host by a process latch and an
+exclusive OS file lock, reuses the live Enrollment on page rebuild, and awaits one
+latched drain from window exit, disposal, cancel and explicit close. A failed
+P27 drain never enters the caller's resource closer: the original Store/Owner
+and host lock stay retained, admission stays closed, and repeated close joins
+the same failure without retry. The visible
+surface is `lib/ui/pages/bridge_host_surface.dart`; neither it nor the existing
+App control holds a key, Pin, approval or Session.
+The host reserves its process slot before asynchronous file acquisition, so
+concurrent opens with different roots cannot create two live hosts. Its one
+surface port delegates all pairing operations to the original P27 port and routes
+close/cancel through the host drain. Terminal UI completion also settles that
+same resource owner; later window closure joins the already completed drain.
+
+`bridge_ui_host_failed_close_test.dart` injects failure at the original P27
+Exchange read release and checks that resource teardown is not entered, the
+Owner and OS host lock are retained, late operations are rejected and repeated
+close does not retry. It runs as a separate standing-CI suite because its failed
+host remains quarantined until isolate exit. The bundle hashes and UI runs below
+are historical successful-drain evidence; they do not validate this failure
+branch or later source heads.
+
+Two test-only entrypoints reuse the actual Windows runner as normal Flutter
+applications (no test widget binding):
+
+- `tool/mcp_vnext_windows_bridge_ui_host.dart` mounts the real `BridgeUiHost`
+  over the existing public mathematical/Fake Native P27 fixture;
+- `tool/mcp_vnext_windows_app_pairing_host.dart` mounts the actual
+  `ExternalAuthorizationScreen` and `FirstPartyExternalControl` over an explicit
+  pairing-only App composition with `WindowsAppPublicPairingHandoff`.
+
+Both accept only a prepared, marked immediate temporary child root and install the
+existing rejecting HTTP override. The bounded link directory carries only the
+original Submission ID, public P27 export text, public P22 payload replication and
+fixed stage names; it is a test facility, not a production Pairing IPC, and
+carries no private key, Pin, Session or exception body. Production continues to
+use the single native Exchange root; the replication exists only because separate
+in-process Fake Native stores cannot share it.
+
+Repeatable commands in a task shell from the repository root:
+
+```powershell
+$taskPairingRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('shiroha_mcp_app_smoke_' + [Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $taskPairingRoot | Out-Null
+[System.IO.File]::WriteAllText((Join-Path $taskPairingRoot '.smoke-owner'), 'MCP-VNEXT-WINDOWS-APP-FUNCTIONAL-SMOKE')
+$rootArgument = $taskPairingRoot.Replace('\', '/')
+flutter build windows --debug --no-pub --target tool/mcp_vnext_windows_bridge_ui_host.dart "--dart-define=SHIROHA_MCP_APP_SMOKE_ROOT=$rootArgument"
+Copy-Item -Recurse build/windows/x64/runner/Debug $taskPairingRoot/bridge-host
+flutter build windows --debug --no-pub --target tool/mcp_vnext_windows_app_pairing_host.dart "--dart-define=SHIROHA_MCP_APP_SMOKE_ROOT=$rootArgument"
+Copy-Item -Recurse build/windows/x64/runner/Debug $taskPairingRoot/app-host
+node tool/run_mcp_vnext_windows_pairing_hosts.mjs $rootArgument paired
+```
+
+The controller writes the scenario (`paired` or `peer-abort`) into that marked
+root, verifies the two `data/flutter_assets/kernel_blob.bin` digests differ,
+launches both executables with repository CWD, waits for both evidence ledgers,
+closes the two identity-checked windows and requires zero exit plus drained
+streams. Each run needs fresh `app-events.jsonl`, `bridge-events.jsonl`, `link`,
+`scenario` and `process-result.json`; keep the built bundles for reuse and clear
+only those bounded files (or use a new marked root per run).
+
+Observed environment: Windows x64 build 26200.9711, Flutter 3.41.9, Dart 3.11.5.
+`paired` completed in about 11 seconds of UI flow: Enrollment, App request and
+Trust export, Bridge import plus independent full-digest equality, Proof
+publication with no Pin yet, App approval and Proof verification, Completion
+export, Bridge import plus second digest/Revision equality, then the original
+Missing-only Pin save. Evidence recorded `proofPublished=false`,
+`pinPresent=false` before the first confirmation and `pinPresent=false` before the
+second; after success the App was still disabled, exposed no authenticated
+Session and stored no kind-4 object, while only the Bridge store held the Pin.
+Both windows closed normally, both processes recorded `resources_closed` and
+exited **0**; the controller recorded distinct entrypoint digests
+(`5d2a4e…` App / `3075d6…` Bridge kernels over the identical runner executable),
+both PIDs, drained output and no failure stage.
+`peer-abort` exited the App immediately after its Trust export; the Bridge still
+performed its own confirmation and Proof publication, then recorded
+`peer_absent_cancel` with `closed=true`, `pinPresent=false` and exited 0 with
+settled resources. Captured images were read by the Executor: the Bridge window
+shows the original Submission ID, the full 64-character digest, the unchecked
+comparison box and a disabled confirm button; the App window shows
+`配对状态：已配对，访问已禁用`, Revision 1, the exported public JSON and an
+enabled, independent `限时启用`.
+
+Final bundle SHA-256 identities (both scenarios use the same bundle pair):
+
+- App kernel: `5d2a4e266eab95775e80c4ae5dec770c3093ddd5bb683fb2ec678d8906d8f773`.
+- Bridge kernel: `3075d67b36cd805803196d2bb14fa549d1343e9db4d85f01a5eeb7cba5dd3155`.
+- Shared runner executable: `a10da098beddaacd2a08c3542b35a81db55bc96054fa8e7fb653d14545805fe7`.
+
+The final paired and peer-abort runs started at 18:29:54 and 18:31:27 respectively
+(Asia/Shanghai, 2026-10-24). Their separate `process-result.json`, event ledgers
+and screenshots are retained in `evidence-final-paired` and
+`evidence-final-peer-abort` under the task-owned temporary pairing root. Prior
+bundle evidence remains historical, not final-source acceptance. In peer-abort
+the App deliberately uses `exit(0)` without a `resources_closed` receipt; zero
+exit and drained output do not prove its cleanup. The surviving Bridge does
+record cleanup with no Pin. One prelaunch attempt was refused because the root
+marker was absent; no host launched. The known task root and preserved evidence
+were checked before preparing the marker again; admission checks were unchanged.
+
+Executor closeout checks on Flutter 3.41.9/Dart 3.11.5:
+
+- Host/control/evidence/lifecycle focused batch: 28 passed. This includes real
+  cross-process file-lock exclusion, concurrent-open rejection and cancellation
+  waiting for the original resource closer.
+- External/MCP plus targeted Proposal/Review batch: 1,398 passed, 49 skipped,
+  zero failed. It covers P27, P15, P11/pending Enable, STAGE, v0/vNext contracts,
+  source boundaries and local Proposal approval. The skips are existing
+  installed-client/AOT opt-ins and isolated-worker entrypoints, not acceptance
+  of those deployment paths. Some shared fixtures run in more than one suite;
+  these batch counts are not a unique-assertion total or global acceptance.
+- Twelve changed Dart files: focused analysis and read-only format passed;
+  controller syntax and `git diff --check` passed. Both debug bundles built;
+  the existing CMake compatibility deprecation warning remains outside scope.
+
+The inherited ordinary-child failure reported exit 80 before READY, at the
+child's isolated-environment predicate, followed by a 30-second wait. The clean
+task-start source snapshot and current candidate each passed the unchanged
+12-case `windows_bridge_process_lifecycle_test.dart` under the prescribed SDK;
+the child/environment fixture bytes match. A minimal same-SDK environment probe
+reported only the required empty `SHIROHA_PROCESS_ENV_PAD`. The earlier failure
+was not reproduced, its triggering environment is unconfirmed, and no assertion
+or timeout was changed. These results do not claim a repair of that earlier
+failure or of #327. Independent fixed-target Windows verification must assess
+this history alongside final-bundle pairing, peer-abort and lifecycle evidence.
+
+This is an isolated functional result with the existing Fake Native/P22/P23/TLS
+facilities. It executes no real protected credential, Pin security experiment,
+Discovery publication, TLS channel or formal AOT business bootstrap. Normal App
+startup still reports the external composition unavailable; there is no
+environment/CLI production switch and no new Pairing IPC. Independent Windows
+verification, production admission and full AR-R6B completion remain open.
 
 ## Evidence levels and remaining functional scope
 
