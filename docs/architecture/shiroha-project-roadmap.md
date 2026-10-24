@@ -355,7 +355,9 @@ plus compiled seven-tool/Review/original-key/Restore evidence with an isolated
 EOF-first Codex client patch. The original installed-client failure is retained;
 installed 0.144.1 is not replaced or accepted for business shutdown. Discovery is
 serialized before business ownership, and contention still rejects. This closes
-the bounded non-activation composition slice. Supported client delivery/selection,
+the bounded non-activation composition slice. MCP §17.10 now supplies explicit
+client selection/refusal and serialized-discovery gating; its product-supported
+client set remains empty and the patch is validation-only. Supported client delivery,
 explicit admitted production-root consumption and security admission remain open.
 Actual Windows execution of protected acquisition, production OS process bootstrap/transfer,
 admitted App/Bridge channels and Draft #327's short-deadline cancellation

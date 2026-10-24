@@ -19,6 +19,7 @@ import '../../data/external/bootstrap_test_support.dart';
 import '../../data/external/external_native_test_support.dart';
 import '../../data/external/fixtures/public_fixture_crypto.dart';
 import 'windows_process_channel.dart';
+import 'windows_codex_selection_fixture.dart';
 
 final class _ObservedStdioCustody implements McpVnextWindowsProcessOwner {
   _ObservedStdioCustody(this.session);
@@ -36,16 +37,20 @@ Future<void> main(List<String> arguments) async {
   McpVnextWindowsBridgeBootstrap? bootstrap;
   Timer? crash;
   try {
-    if (arguments.length != 1 || !p.isAbsolute(arguments.single)) {
+    if (arguments.length > 1 ||
+        (arguments.isNotEmpty && !p.isAbsolute(arguments.single))) {
       throw StateError('isolated root required');
     }
-    final root = Directory(arguments.single);
+    final root = Directory(arguments.isEmpty
+        ? p.dirname(Platform.resolvedExecutable)
+        : arguments.single);
     if (await File(p.join(root.path, 'isolated-bootstrap')).readAsString() !=
         'public-fake-security-only') {
       throw StateError('isolated marker required');
     }
     // Models cross-process exclusion only in this Fake backend. It proves no
     // production client.lock/DPAPI property and performs no native security I/O.
+    await File(p.join(root.path, 'launch-$pid')).writeAsString('attempt');
     lock = await File(p.join(root.path, 'fake-bridge-owner.lock'))
         .open(mode: FileMode.append);
     await lock.lock(FileLock.exclusive);
@@ -108,6 +113,7 @@ Future<void> main(List<String> arguments) async {
               }
             }));
     bootstrap = McpVnextWindowsBridgeBootstrap(
+        clientSelection: await isolatedClientSelection(),
         acquirer: acquirer,
         requireSecurityAdmission: () async {
           if (material['security'] != 'fake-only') {
@@ -123,6 +129,17 @@ Future<void> main(List<String> arguments) async {
       if (File(p.join(session.path, 'crash')).existsSync()) exit(23);
     });
     await File(p.join(session.path, 'ready')).writeAsString('$pid');
+    // Test-only observation barrier: bind the original OS handle before a
+    // temporary discovery Manager can initialize and immediately close us.
+    if (File(p.join(root.path, 'observe-discovery')).existsSync()) {
+      final observationWait = Stopwatch()..start();
+      while (!File(p.join(session.path, 'observed')).existsSync()) {
+        if (observationWait.elapsed > const Duration(seconds: 15)) {
+          throw StateError('original process observation missing');
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    }
     await serveWindowsBridgeStdio(bootstrap: bootstrap);
     if (calls.owners.isNotEmpty ||
         calls.allocations.isNotEmpty ||
