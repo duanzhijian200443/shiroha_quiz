@@ -33,6 +33,9 @@ revision、digest、hash、冻结或独立 Verifier。
 在一个已经由用户授权给 Automation 继续推进的 PR 上，controller 有一个窄 standing
 permission：只维护 `## Automation state` section。这个权限不包含 title、base、
 labels、close/reopen、merge 或其他 PR metadata 修改。
+更新时与 Reviewer/Verifier 清单同步共用 `AGENTS.md` §10 的 PR Body 写入约束；
+只能修改自己的 section，不能覆盖角色记录或共享验收目标。无安全独占/条件更新能力
+时保留正式证据并延后同步，不以普通读取再写回冒充并发安全。
 
 ## 授权与控制边界
 
@@ -104,8 +107,7 @@ canonical contract + Git facts + user authority
 → implementation/tests + required durable docs
 → checks + authorized commit/push/PR
 → current-head/current-target standing CI
-→ only if CI has a real acceptance gap: Verifier
-→ Independent Reviewer
+→ Independent Reviewer + only when Executor assessed REQUIRED: bounded Verifier (either order)
 → blocking finding: same-PR repair -> new-head CI -> fresh review
 → APPROVE
 → authorized merge
@@ -119,6 +121,13 @@ head，也不使已有 Reviewer approval 失效；真正改变 tracked target、
 Executor 的 STOP 结束 worker assignment，controller 可以在 Automation continuation
 范围内继续等待 CI、派发 Reviewer/Verifier、组织 bounded repair，直到授权终点。
 独立审查必须使用与实现 assignment 分离的 Reviewer 上下文。
+是否需要独立 Verifier 由 Executor 根据任务、契约、检查/CI 覆盖和明确请求判断，
+不是每次任务必备步骤。controller 读取其结论与依据，不默认派发验证。
+`REQUIRED` 的触发可为 `CI_COVERAGE_GAP` 或有界的 `EXPLICIT_REQUEST`；后者无需
+虚构 CI gap，仍受既有权限限制。证据充分的 `NOT_REQUIRED` 不需要验证批准；
+未解决的 `PENDING_DECISION`/范围争议阻断 merge。Reviewer 在自身证据充分时
+可先批准，不因 Verifier 后完成而刷新仍有效的审批。正式评论及覆盖/失败关闭关系
+按 `AGENTS.md` §10 聚合，清单和 Automation state 都不能替代这些证据。
 
 ## 先解决阻塞
 
@@ -158,8 +167,9 @@ Automation 使用和正常流程完全相同的 merge gate：
 
 - final-head/current-target `PR contract checks` SUCCESS；
 - final Reviewer `[REVIEW APPROVAL]` 对应 final head/current base，P0/P1/P2 = 0；
-- 只有真实 CI coverage gap 时才需要对应 head/base 的
-  `[VERIFICATION APPROVAL]`；
+- 按 Executor 的有依据判断，仅在需要独立验证时要求覆盖所有必需目标、对应
+  head/base 的 `[VERIFICATION APPROVAL]`；真实 CI gap 和明确请求都可触发；
+- 验证需求/范围无未决争议，必需验收证据完整，失败和实质性证据矛盾均已可信关闭；
 - canonical/durable docs 与 accepted diff 一致；
 - PR 可合并；
 - 用户已有明确 merge authority。

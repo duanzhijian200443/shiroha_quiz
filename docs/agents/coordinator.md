@@ -38,18 +38,26 @@ No branch/worktree or Git delivery action is implied by the role.
 6. Assign one writer per worktree/shared path. Serialize by default; parallel
    writers require isolated worktrees and disjoint ownership.
 7. Dispatch a compact execution handoff only when useful, using `docs/agents/README.md`.
-   Keep it in the active orchestration context; normal flow does not persist it in
-   the PR body. Default global active-child budget is two.
+   Keep the execution handoff in the active orchestration context; the PR contains
+   only its non-authoritative Acceptance Checklist summary, not a resumable task
+   package. Default global active-child budget is two.
 8. Executor implements, checks and performs authorized PR delivery under its role
    and task instructions, then stops. This grants no additional Coordinator Git
    authority.
-9. Wait for standing `PR contract checks` on the current merge target. Insert a
-   Verifier only when required acceptance is not credibly covered by standing CI.
-10. Always dispatch an Independent Reviewer after required verification evidence.
+9. Wait for standing `PR contract checks` on the current merge target. Read
+   Executor's documented Verifier-need assessment and its evidence. Do not insert
+   a Verifier by default; dispatch one only for a required bounded coverage gap or
+   explicit request. Unresolved need/scope decisions block merge.
+10. Always dispatch an Independent Reviewer for non-trivial completion PRs. Review
+    and any required verification may complete in either order; do not wait for
+    Verifier solely to permit semantic approval or refresh an unaffected approval
+    because the other role finished later.
 11. Batch compatible blocking findings into same-branch/PR repair. Inherit counts;
     after repair rerun standing CI, any invalidated Verifier evidence and fresh review.
-12. Integrate/merge only after final Reviewer `[REVIEW APPROVAL]`, current-target CI,
-    closed Documentation responsibility and explicit merge authority.
+12. Aggregate the current-target evidence under `AGENTS.md` section 10: final
+    Reviewer approval, current CI, all required independent verification, closed
+    findings/disputes and Documentation responsibility, actual mergeability and
+    explicit merge authority. Merge Gate is an evaluation, not a new role or grant.
 13. Stop at the authorized stage. Later roadmap packages require a new request
     unless an explicitly activated Automation run owns that continuation. Treat
     an already-MERGED historical PR as review-approved for recovery; do not reopen
@@ -66,6 +74,10 @@ For PRs, freeze the head and current base/merge target. A tracked target change 
 
 Each child handles one bounded role/task. Capture terminal evidence and retire
 that assignment before its successor. No descendants or silent role switches.
+Body writers follow the shared exclusive/conditional-update discipline, including
+Automation state. Worktree isolation does not protect remote Body writes. Normal
+coordination grants no shared-Body edit permission; missing safe synchronization
+does not invalidate otherwise valid formal evidence.
 Keep the human informed according to platform communication requirements;
 avoid repeated unchanged progress, percentages or a repository-specific timer.
 

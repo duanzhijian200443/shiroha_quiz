@@ -1,5 +1,6 @@
 """Fail-closed aggregate gate regressions: plan identity, reuse and matrix semantics."""
 
+from datetime import datetime, timedelta, timezone
 import importlib.util
 import io
 import json
@@ -28,6 +29,11 @@ sys.modules[GATE_SPEC.name] = gate
 GATE_SPEC.loader.exec_module(gate)
 RULES, DIGEST = impact.read_rules(ROOT / "tool/ci/impact_rules.json")
 RUNNER = {"ImageOS": "ubuntu22", "ImageVersion": "20261001"}
+# The gate reads the wall clock unless a test injects one. A fixture that pins a
+# literal expiry date therefore starts failing on a day nobody chose, so every
+# reuse fixture derives its timeline from this single injected instant.
+NOW = datetime(2026, 10, 17, 12, 0, tzinfo=timezone.utc)
+EVIDENCE_EXPIRES_AT = (NOW + timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
 WORKFLOW_TEXT = """name: fixture
 jobs:
   contracts:
@@ -143,9 +149,9 @@ class GateFixture(unittest.TestCase):
         values.update(overrides or {})
         return values
 
-    def validate(self, plan, event, results, api=None, run_id=2000, attempt=1):
+    def validate(self, plan, event, results, api=None, run_id=2000, attempt=1, now=NOW):
         return gate.validate(plan, self.repo, results, api, "pull_request", event,
-                             run_id, attempt, pause=lambda _seconds: None)
+                             run_id, attempt, now=now, pause=lambda _seconds: None)
 
 
 class GateTest(GateFixture):
@@ -276,16 +282,22 @@ class GateTest(GateFixture):
                                       SHARDS, head=code),
                   (2000, 1): jobs_for(SHARDS)},
             artifacts={1001: [{"id": 55, "name": "ci-impact-plan", "expired": False,
-                               "expires_at": "2026-10-24T08:00:00Z"}]},
+                               "expires_at": EVIDENCE_EXPIRES_AT}]},
             blobs={55: source_artifact.getvalue()}, runs=[source_run])
         plan = reuse.apply(self.repo, plan, api, repo_full_name="owner/repo",
                            base_repo_full_name="owner/repo", pr_number=7, head_ref="feature",
-                           now=gate.datetime(2026, 10, 17, 12, 0, tzinfo=gate.timezone.utc))
+                           now=NOW)
         self.assertEqual(plan["reuse"]["status"], "APPLIED")
         results = self.results(plan)
         self.assertEqual(results["static"], "skipped")
         self.assertEqual(results["windows_native"], "skipped")
         self.assertEqual(self.validate(plan, event, results, api)["verdict"], "PASS")
+        # The same claim must stop certifying once the source evidence expires.
+        api.artifacts[1001][0]["expires_at"] = (NOW - timedelta(seconds=1)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ")
+        with self.assertRaisesRegex(gate.GateError, "reuse_evidence_expired"):
+            self.validate(plan, event, results, api)
+        api.artifacts[1001][0]["expires_at"] = EVIDENCE_EXPIRES_AT
         drifted = dict(plan)
         drifted["reuse"] = json.loads(json.dumps(plan["reuse"]))
         drifted["reuse"]["source"]["evidenceSha256"] = "0" * 64
