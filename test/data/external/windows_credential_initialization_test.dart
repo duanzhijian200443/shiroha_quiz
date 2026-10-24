@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/external/external_credential_association.dart';
+import 'package:shiroha_quiz/data/external/external_bootstrap_bytes.dart';
 import 'package:shiroha_quiz/data/external/external_certificate_der.dart';
 import 'package:shiroha_quiz/data/external/external_credential_object_codec.dart';
 import 'package:shiroha_quiz/data/external/native/windows_external_crypto.dart';
@@ -70,7 +71,9 @@ class Harness {
       // A valid scalar signature for a different message fails real verification.
       return unhex('01'.padLeft(64, '0') * 2);
     }
-    expect(publicPoint, vectorBytes('point'));
+    if (!bootstrapEqual(publicPoint, vectorBytes('point'))) {
+      throw StateError('Synthetic public point mismatch');
+    }
     for (final role in ExternalCertificateRole.values) {
       final cert = ExternalCertificateDer.inspect(
           vectorBytes('${role.name == 'issuer' ? 'issuer' : role.name}Der'),
@@ -96,13 +99,15 @@ class Harness {
   void seed(int kind, [ExternalCredentialObject? object]) =>
       store.write(object ?? store_test.fixture(kind));
   void dispose() {
-    expect(calls.allocations, isEmpty);
-    expect(calls.credentialTickets, isEmpty);
-    for (final bytes in privateBuffers) {
-      expect(bytes, everyElement(0));
+    if (calls.allocations.isNotEmpty ||
+        calls.credentialTickets.isNotEmpty ||
+        privateBuffers.any((bytes) => bytes.any((value) => value != 0))) {
+      throw StateError('Synthetic native custody did not settle');
     }
     owner.close();
-    expect(calls.owners, isEmpty);
+    if (calls.owners.isNotEmpty) {
+      throw StateError('Synthetic native owner did not settle');
+    }
   }
 }
 

@@ -255,6 +255,10 @@ void registerFirstPartyInteractionTests({
     await interactionTap(tester, '确认初始比较并发布 Proof');
     expect(f.pairing.appExchange.readProof(unhex(id)), isNotNull);
     await interactionTap(tester, '验证配对证明');
+    // The earlier Trust copy belongs to the initial digest; completion changes
+    // that identity, so the stale export must disappear before any re-import.
+    await interactionFrame(tester, const Duration(seconds: 1));
+    expect(find.byKey(const Key('external-public-export')), findsNothing);
     await interactionTap(tester, '导出 Completion 公共数据');
     await tester.enterText(input('粘贴 App Completion 公共 JSON'), exported());
     await interactionTap(tester, '导入 Completion');

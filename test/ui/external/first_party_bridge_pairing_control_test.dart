@@ -237,4 +237,15 @@ void main() {
     expect(port.closes, 1);
     expect(port.confirms, 0);
   });
+
+  testWidgets('a page over a live port displays it without a new enrollment',
+      (tester) async {
+    final port = _BridgePort()..begun = true;
+    await _mount(tester, port);
+    expect(port.begins, 0);
+    expect(find.text('开始配对'), findsNothing);
+    expect(find.text(_id), findsOneWidget);
+    await tester.pump(const Duration(seconds: 1));
+    expect(port.begins, 0);
+  });
 }

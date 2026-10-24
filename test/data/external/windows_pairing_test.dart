@@ -35,8 +35,10 @@ Uint8List signPublicFixture(
     {required Uint8List pkcs8Der,
     required Uint8List publicPoint,
     required Uint8List digest}) {
-  expect(pkcs8Der.length, initialization.publicFixtureKey().length);
-  expect(publicPoint, vectorBytes('point'));
+  if (pkcs8Der.length != initialization.publicFixtureKey().length ||
+      !bootstrapEqual(publicPoint, vectorBytes('point'))) {
+    throw StateError('Synthetic signing vector mismatch');
+  }
   final n = BigInt.parse(
       'ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551',
       radix: 16);
@@ -201,11 +203,11 @@ class PairingHarness {
     bridgeOwner.close();
     await local.close();
     native.dispose();
-    for (final key in keys) {
-      expect(key, everyElement(0));
+    if (keys.any((key) => key.any((value) => value != 0)) ||
+        native.calls.exchangeReadTickets.isNotEmpty ||
+        native.calls.credentialTickets.isNotEmpty) {
+      throw StateError('Synthetic pairing custody did not settle');
     }
-    expect(native.calls.exchangeReadTickets, isEmpty);
-    expect(native.calls.credentialTickets, isEmpty);
   }
 }
 
@@ -1894,7 +1896,7 @@ void main() {
     expect(h.native.calls.associationFile, isNull);
     await expectLater(h.app.completionDisplay(h.request), rejected);
   });
-  test('P27 has no production consumer and stands exactly once in CI', () {
+  test('P27 has no normal startup consumer and stands exactly once in CI', () {
     for (final file
         in Directory('lib').listSync(recursive: true).whereType<File>()) {
       if (!file.path.endsWith('.dart') ||
@@ -1904,12 +1906,30 @@ void main() {
           file.path.replaceAll('\\', '/') ==
               'lib/composition/mcp_vnext_windows_startup.dart' ||
           file.path.replaceAll('\\', '/') ==
-              'lib/composition/mcp_vnext_windows_acquisition.dart') {
+              'lib/composition/mcp_vnext_windows_acquisition.dart' ||
+          file.path.replaceAll('\\', '/') ==
+              'lib/composition/bridge_ui_host.dart') {
         continue;
       }
       expect(file.readAsStringSync(), isNot(contains('windows_pairing.dart')),
           reason: file.path);
     }
+    // The explicit Bridge host is reachable only through its own construction;
+    // normal App startup, the authorization page and the MCP composition add no
+    // consumer, no automatic enrollment and no production switch.
+    for (final path in [
+      'lib/main.dart',
+      'lib/composition/mcp_vnext_app_integration.dart',
+      'lib/mcp/vnext_mcp_composition_root.dart',
+      'lib/ui/pages/first_party_external_control.dart',
+      'lib/ui/pages/external_authorization_screen.dart',
+    ]) {
+      final source = File(path).readAsStringSync();
+      expect(source, isNot(contains('bridge_ui_host.dart')), reason: path);
+      expect(source, isNot(contains('BridgeUiHost')), reason: path);
+    }
+    expect(File('lib/composition/bridge_ui_host.dart').readAsStringSync(),
+        contains('WindowsBridgePublicPairing('));
     final source =
         File('lib/data/external/windows_pairing.dart').readAsStringSync();
     for (final token in [

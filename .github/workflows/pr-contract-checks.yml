@@ -565,7 +565,10 @@ jobs:
             'test/application/agent/agent_config_service_test.dart',
             'test/application/agent/agent_history_test.dart',
             'test/data/repositories/agent_config_repository_test.dart',
-            'test/data/external/windows_public_pairing_worker_test.dart'
+            'test/data/external/windows_public_pairing_worker_test.dart',
+            # AR-R6B independent Bridge UI host and dual-process evidence gates.
+            'test/mcp/bridge_ui_host_test.dart',
+            'test/tool/mcp_vnext_windows_pairing_hosts_test.dart'
           )
 
           $shardCount = 4

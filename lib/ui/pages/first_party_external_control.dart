@@ -18,7 +18,7 @@ final class _ControlState extends State<FirstPartyExternalControl> {
   final _submission = TextEditingController();
   bool _busy = false, _reading = false, _enabling = false, _cancelling = false;
   bool _cancelRequested = false;
-  String? _error, _publicExport;
+  String? _error, _publicExport, _exportKey;
   int _minutes = 10, _generation = 0;
   Timer? _timer;
   FirstPartyStageApprovalView? _stageView;
@@ -32,6 +32,15 @@ final class _ControlState extends State<FirstPartyExternalControl> {
       _cancelling;
   bool _same(FirstPartyExternalAccess access, int generation) =>
       mounted && identical(access, widget.access) && generation == _generation;
+
+  /// Public copy identity. A changed Submission/digest/Revision invalidates any
+  /// previously displayed export so stale public data cannot be re-imported.
+  String? _pairingKey(FirstPartyExternalStatus status) {
+    final display = status.pairingDisplay;
+    if (display == null) return null;
+    return '${display.submissionId ?? ''}|${display.digest ?? ''}|'
+        '${display.revision ?? ''}';
+  }
 
   @override
   void initState() {
@@ -67,7 +76,7 @@ final class _ControlState extends State<FirstPartyExternalControl> {
       _stageChanges = null;
       _status = const FirstPartyExternalStatus();
       _busy = _reading = _enabling = _cancelling = _cancelRequested = false;
-      _error = _publicExport = null;
+      _error = _publicExport = _exportKey = null;
       _submission.clear();
       _refresh();
     }
@@ -88,7 +97,7 @@ final class _ControlState extends State<FirstPartyExternalControl> {
     if (!_current) {
       setState(() {
         _status = const FirstPartyExternalStatus();
-        _publicExport = null;
+        _publicExport = _exportKey = null;
       });
       return;
     }
@@ -102,8 +111,10 @@ final class _ControlState extends State<FirstPartyExternalControl> {
       if (_same(access, generation) && _current) {
         setState(() {
           _status = status;
-          if (status.pairingDisplay == null || status.pairingFailed) {
+          final key = _pairingKey(status);
+          if (key != _exportKey) {
             _publicExport = null;
+            _exportKey = null;
           }
         });
       }
@@ -111,7 +122,7 @@ final class _ControlState extends State<FirstPartyExternalControl> {
       if (_same(access, generation)) {
         setState(() {
           _status = const FirstPartyExternalStatus();
-          _publicExport = null;
+          _publicExport = _exportKey = null;
         });
       }
     } finally {
@@ -204,7 +215,7 @@ final class _ControlState extends State<FirstPartyExternalControl> {
           }
           if (choice.isNotEmpty) {
             await access.select(choice);
-            _publicExport = null;
+            _publicExport = _exportKey = null;
             return;
           }
           after = page.nextId;
@@ -250,7 +261,10 @@ final class _ControlState extends State<FirstPartyExternalControl> {
             ? await access.exportPairingCompletion()
             : await access.exportPairingTrust();
         if (_same(access, generation) && _current) {
-          setState(() => _publicExport = value);
+          setState(() {
+            _publicExport = value;
+            _exportKey = _pairingKey(_status);
+          });
         }
       });
 
@@ -376,7 +390,7 @@ final class _ControlState extends State<FirstPartyExternalControl> {
                               ? null
                               : () => _action((access) async {
                                     await access.cancelPairing();
-                                    _publicExport = null;
+                                    _publicExport = _exportKey = null;
                                   }),
                           child: const Text('取消配对并关闭运行时')),
                   ]),

@@ -1481,10 +1481,92 @@ verification and production admission remain distinct. The two controls share a 
 that test fixture; it is not a production App-to-Bridge control channel.
 
 Normal App startup remains honestly unavailable and supplies no accepted
-credential/transport binding. A registered independent Bridge local UI host,
-trusted formal-AOT business bootstrap and normal App/client registration remain
+credential/transport binding. The registered independent Bridge local UI host and
+its dual-process interaction are recorded in §17.8; trusted formal-AOT business
+bootstrap and normal App/client registration remain
 production integration work. Formal security acquisition/Pin/Discovery/TLS/native
 peer-policy and authenticated crash/Restore acceptance remain separate gaps.
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 No production configuration switch, new Pairing IPC, real protected operation,
 Trial 1A/G0-L1/L2/I or #327 assertion/budget change is introduced.
+
+### 17.8. Independent Bridge UI host and dual-process public pairing interaction
+
+`BridgeUiHost` is the explicit Bridge local host over the original P27 owner.
+Trusted composition supplies the existing `WindowsBridgePairing`, an existing
+instance root and the ONE resource closer; construction performs no OS operation
+and no normal startup, App page or MCP composition constructs it. The host builds
+exactly one `WindowsBridgePublicPairing` port and one `BridgeHostSurface`, so a
+page rebuild re-displays the live Enrollment instead of starting a second one.
+A process-wide latch plus an exclusive OS file lock under that root refuse a
+second host, including one started from another process; a refused or failed
+close retains the lock instead of allowing an unsettled Store/Owner to be
+adopted. Window exit, surface disposal, explicit cancellation and controller
+close all await the SAME latched P27 drain, then the caller's resource closer.
+The surface, like the existing App control, holds no key, Pin, approval or
+Session authority; Enable, Target Approval and STAGE Review remain separate.
+
+The App-side control now invalidates a displayed public export whenever the
+pairing identity (Submission/digest/Revision) changes. A previously copied Trust
+export is therefore withdrawn when Completion becomes the current display, so a
+stale public copy cannot be re-imported as current; replacing or closing the page
+still drops the export. `FirstPartyExternalScope`, `FirstPartyExternalControl`
+and `McpVnextAppIntegration` keep their existing ownership: the App page never
+creates a Bridge owner, and the Bridge host never receives App management,
+transport or Session objects.
+
+Two test-only Windows entrypoints exercise the actual windows in separate OS
+processes: `tool/mcp_vnext_windows_bridge_ui_host.dart` mounts the real
+`BridgeUiHost`, and `tool/mcp_vnext_windows_app_pairing_host.dart` mounts the
+actual authorization page and App control over an explicit pairing-only
+composition. Both run as normal Flutter applications (no test widget binding) on
+the existing Windows runner and refuse any unmarked, relative or unowned root.
+`tool/run_mcp_vnext_windows_pairing_hosts.mjs` verifies distinct entrypoint
+kernel digests, launches both, waits for both evidence ledgers, closes the two
+identity-checked windows and requires zero exit plus drained streams. The
+bounded link directory carries ONLY the original Submission ID, public P27
+export text, public P22 payload replication and stage names; it is a test
+facility, not a production Pairing IPC, and no private key, Pin, Session or
+exception body crosses it. Because the isolated Fake Native stores cannot share
+one Exchange root across processes, the existing public P22 payloads are
+replicated exactly as in the earlier public-handoff worker; production keeps
+using the single native Exchange root.
+
+Executed Windows evidence (2026-10-24, Windows x64): the paired scenario
+completed Enrollment, App request/Trust export, Bridge import and independent
+full-digest comparison, Proof publication, App approval and Proof verification,
+Completion export, Bridge import and second full-digest/Revision comparison, and
+the original Missing-only Pin save. Before the first Bridge confirmation no
+Proof existed and no Pin was present; before the second confirmation the Pin was
+still absent; after success the App reported access disabled, no authenticated
+Session and no kind-4 object, while only the Bridge store held the Pin. The
+peer-abort scenario exited the App immediately after its Trust export; the Bridge
+still required its own confirmation and Proof publication, then cancelled after
+the bounded wait with no Completion and no Pin. In the paired scenario both
+windows closed normally and each process recorded resource settlement. In
+peer-abort the App deliberately exited without a cleanup receipt; only the
+Bridge recorded resource settlement. Both scenarios exited zero, and the
+controller recorded distinct entrypoint digests, both PIDs, drained output and
+no failures. A zero App exit in peer-abort is not an App cleanup receipt.
+The existing P27/P11/P15 and App Enable/STAGE controls regressions stayed green.
+The bounded evidence script reads each window's displayed value, compares the two
+public values and then performs the same explicit checkbox and confirm actions a
+user performs; this is automated UI evidence, not a human usability study and not
+a claim that a person visually compared the digests. The Bridge host fixture
+change replaces `expect()` with equivalent explicit
+failures in reusable helper code so the same owners can run outside a test
+handle; no assertion or production behavior is weakened.
+
+This closes the **independent Bridge local-host registration and dual-process
+public interaction slice**, not full AR-R6B. It is real UI and real P27 state
+over the existing public codec, but its security primitives remain the existing
+Fake Native/P22/P23/TLS facilities: no real protected credential, Pin protection
+experiment, Discovery publication, TLS channel, formal AOT business bootstrap or
+normal App/client registration is executed or accepted. Normal App startup still
+reports the external composition unavailable and installs no pairing, credential
+or transport binding; there is no environment/CLI production switch and no new
+Pairing IPC. AR-R6A admission, real credential/TLS/native acceptance, trusted
+authenticated AOT bootstrap, App/client registration and Draft #327's
+short-deadline cancellation compatibility remain open. HOST_STABILITY_HALT =
+ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED. No Trial 1A/G0-L1/L2/I work is
+started by this slice.
