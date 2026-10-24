@@ -1328,8 +1328,9 @@ as a real child owned by an isolated App root; that is not AOT authenticated bus
 
 This independently reviewable delivery completes explicit dependency assembly,
 accepted-channel local acquisition, App child launch/custody and their executable
-public-handoff integration over simulated security. Non-security product work
-remains: normal user-facing public copy/import and comparison controls, pending
+public-handoff integration over simulated security. At this checkpoint (partly
+superseded by section 17.6), non-security product work remained: normal user-facing
+public copy/import and comparison controls, pending
 Enable/independent Bridge-connection interaction, and the trusted formal-AOT
 bootstrap plus client/stdio custody handoff. App-launched child stdout is still
 drained by the original process owner; it is not forwarded to an installed MCP
@@ -1340,3 +1341,87 @@ Windows execution and independent acceptance. Full AR-R6B/AR-R9B prerequisites
 remain unaccepted. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
 AR-R6A = NOT_ACCEPTED. Trial 1A/G0-L1/L2/I are not executed; #327 stays independently
 BLOCKED at its existing 4/4 repair budget and original assertions.
+
+### 17.6. Single-consumer child stdio and interruptible pending Enable
+
+`WindowsBridgeProcess.stdio(input:, output:)` is an explicit trusted composition
+choice over the SAME fixed-adjacent launcher and original Process. It transfers
+one client input subscription and exclusive protocol-output use for that child's
+lifetime. It adds no executable, MCP parser, protocol, credential selector or
+second Bridge. The input/output objects are process-local composition inputs,
+not command arguments, environment, JSON or authenticated business admission.
+The original custody-only constructor remains compatible and discards output;
+it must not be used for a child expected to serve a client.
+
+For the hosted path, the App-side process owner launches and closes the child,
+while the child alone reads MCP input and writes MCP responses. One subscription
+forwards child stdout byte-for-byte with backpressure; no parallel stdout drain
+or second consumer exists. Stderr is drained separately without retention or
+protocol forwarding. The caller owns the output sink, must not write competing
+bytes, and closes it only after original settlement. Client EOF cancels forwarding
+input and closes original child stdin. Explicit/repeated close or child exit also
+cancels a still-open client input subscription. Original input settlement, child
+exit, stdout forwarding/flush and stderr drain precede custody release. Failed
+output requests EOF and discards remaining stdout through the SAME subscription;
+it still reports failure. Failed input/cancel/stream/exit remains latched unknown,
+with no forced kill, timeout-success, retry or premature protected/database release.
+
+Direct Codex → Bridge remains a distinct ownership choice: Codex starts and owns
+that one Bridge and its pipes; App must not also launch/consume it. The two choices
+are not composed into an App child plus a second Codex-owned Bridge. This slice
+supplies and actually executes hosted forwarding, but does not register a normal
+App stdio endpoint, select an authenticated formal-entry bootstrap or change the
+current dormant `acquireAppRuntime` default. The test AOT custody probe is not a
+new shipped launcher or production App entry.
+
+`FirstPartyExternalStatus` now exposes `connectionPending` and `connectionFailed`.
+While explicit Enable waits for an independent server-authenticated connection,
+status observation is permitted without taking the mutating control lock or
+reauthenticating/disabling the live attempt. It conservatively reports no connected
+or enabled Session until the original operation completes. The original finite
+P0 expiry is also the pending-operation deadline; expiry cancels local waiting
+and reports failure, without extending P0 or any P9/client timeout. Status uses
+that same clock to reject an already expired pending operation. Before opening a
+connection, deadline capture requires a still-enabled P0 snapshot with a non-null,
+future expiry. Expiry between coordinator Enable and snapshot capture fails through
+the original cleanup; a cleared deadline is never treated as unlimited waiting.
+
+The default accepted-channel binding supplies `cancelPendingConnection` using
+`WindowsChannelVerification.cancelLocalConnection`. Local Disable withdraws
+P0 enablement/approvals immediately, rejects pending acquisition, and joins its
+original control-operation Future. Repeated pending Disable joins the same Future.
+It does not shut down the Host, close another channel or release any Owner.
+The original open owns pending-slot cleanup, including management/authentication
+work already in flight. Late completion cannot reinstall a cancelled Session.
+Legacy explicitly injected raw openers without cancellation retain their previous
+serialization and owning shutdown requirements; no invented cancellation receipt
+is supplied for them.
+
+A subsequent explicit Enable acquires a fresh original P15/P0 Session and checks
+Principal/generation/current Grant and policy as before. Old target approvals and
+user decisions are discarded, not transferred. Acquisition failure is observable
+without hidden enablement; successful retry here means a new explicit local
+Enable, never a retry of STAGE or an unknown business effect. Existing revoke,
+revision, disconnect, Restore and Host shutdown barriers remain authoritative.
+Normal UI still needs to bind these pending-state/cancel controls; this slice adds
+state-interface capability, not a UI redesign or automatic reconnect/enablement.
+
+Deterministic P11/startup regressions cover observable pending state, cancellation,
+expiry/failure, repeated Disable, explicit fresh connection and old-approval
+removal. The independent Windows App/Bridge process test exercises cancellation
+before Bridge connection, new Enable, accepted-channel READ, disconnect/reconnect
+and original child/Host/resource settlement using Fake Native/TLS and public data.
+The formal AOT suite executes the private adjacent forwarding adapter, EOF,
+explicit close with client stdin still open, injected client input/output failures,
+seven-tool refusal and direct/hosted installed-Codex reconnect. The Windows guide
+records executed versions/results separately from the simulated-security evidence.
+
+This is a bounded executable product-integration slice, not full AR-R6B COMPLETE.
+Formal Codex → AOT reaches the seven-tool **unavailable** port only; it does not
+reach authenticated App/Application business. Trusted formal bootstrap, normal
+App/client registration and public Pairing delivery/comparison UI remain concrete
+non-security product work in addition to independent security admission. Protected
+credentials/Pin/Discovery, real TLS/native peer policy and authenticated formal-AOT
+crash/Restore are not executed. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
+AR-R6A = NOT_ACCEPTED. Production vNext remains default-refusing. No Trial 1A or
+G0-L1/L2/I is run; #327 remains independently BLOCKED at its original 4/4 budget.

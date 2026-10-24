@@ -16,8 +16,13 @@ export '../generated_question/generated_test_support.dart';
 
 final class StageClock implements ExternalClock {
   DateTime current = DateTime.utc(2026);
+  void Function()? afterRead;
   @override
-  DateTime now() => current;
+  DateTime now() {
+    final result = current;
+    afterRead?.call();
+    return result;
+  }
 }
 
 /// Object possession is checked by the App-owned test credential port. Claimed

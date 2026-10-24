@@ -47,11 +47,16 @@ final class FirstPartyCredentialServices {
     required this.boundary,
     required this.pairing,
     required this.openConnection,
+    this.cancelPendingConnection,
     required this.close,
   });
   final ExternalCredentialBoundary boundary;
   final FirstPartyPairingPort pairing;
   final Future<FirstPartyCredentialConnection> Function(
       ExternalProfileReference profile) openConnection;
+
+  /// Rejects only the pending local acquisition, not the owning Host or channel.
+  /// The original open Future must still settle before controls release custody.
+  final void Function()? cancelPendingConnection;
   final Future<void> Function() close;
 }

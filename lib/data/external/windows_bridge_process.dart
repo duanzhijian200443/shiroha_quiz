@@ -39,6 +39,15 @@ final class WindowsBridgeProcess
   WindowsBridgeProcess({WindowsBridgeProcessIo? io})
       : _io = io ?? _AdjacentBridgeProcessIo();
 
+  /// Transfers the sole client input subscription and exclusive protocol output
+  /// use to the SAME adjacent child. No additional MCP server parses these bytes.
+  /// The caller retains ownership of the output sink and must not write to it
+  /// until settlement; stderr is never forwarded onto the protocol stream.
+  WindowsBridgeProcess.stdio({
+    required Stream<List<int>> input,
+    required IOSink output,
+  }) : _io = _AdjacentBridgeProcessIo(input: input, output: output);
+
   final WindowsBridgeProcessIo _io;
   WindowsCreatedBridgeProcess? _child;
   Future<void>? _starting, _closing;
@@ -128,6 +137,9 @@ final class WindowsBridgeProcess
 }
 
 final class _AdjacentBridgeProcessIo implements WindowsBridgeProcessIo {
+  _AdjacentBridgeProcessIo({this.input, this.output});
+  final Stream<List<int>>? input;
+  final IOSink? output;
   String? _executable;
   RandomAccessFile? _inspection;
   Process? _created;
@@ -176,26 +188,116 @@ final class _AdjacentBridgeProcessIo implements WindowsBridgeProcessIo {
         // ERROR_INVALID_PARAMETER (87). One inert empty value avoids that SDK
         // boundary without inheriting any parent values or adding a selector.
         environment: const {'SHIROHA_PROCESS_ENV_PAD': ''});
-    final result = _DartCreatedBridgeProcess(_created!);
+    final result =
+        _DartCreatedBridgeProcess(_created!, input: input, output: output);
     _created = null;
     return result;
   }
 }
 
 final class _DartCreatedBridgeProcess implements WindowsCreatedBridgeProcess {
-  _DartCreatedBridgeProcess(this._process) {
-    // Discard output without logging; both original streams must settle too.
+  _DartCreatedBridgeProcess(this._process,
+      {Stream<List<int>>? input, IOSink? output}) {
+    _input = input == null ? null : StreamIterator(input);
+    _pumping = _pumpInput();
+    final forwarding = _forwardOutput(output);
+    if (output != null) {
+      void outputClosed() {
+        if (_outputSettled) return;
+        _outputFailed = true;
+        _requestClose();
+      }
+
+      unawaited(output.done.then((_) => outputClosed(),
+          onError: (Object _, StackTrace __) => outputClosed()));
+    }
     settlement = Future.wait<int>([
       _process.exitCode,
-      _process.stdout.drain<void>().then((_) => 0),
+      forwarding.then((_) => 0),
       _process.stderr.drain<void>().then((_) => 0),
+      _inputClosed.future.then((_) => 0),
     ]).then((values) => values.first);
+    if (_input != null) {
+      unawaited(_pumping.then((_) => _requestClose(),
+          onError: (Object _, StackTrace __) => _requestClose()));
+    }
+    unawaited(_process.exitCode.then((_) => _requestClose(),
+        onError: (Object _, StackTrace __) => _requestClose()));
+    unawaited(forwarding.then((_) {},
+        onError: (Object _, StackTrace __) => _requestClose()));
   }
   final Process _process;
+  late final StreamIterator<List<int>>? _input;
+  late final Future<void> _pumping;
+  final _inputClosed = Completer<void>();
+  Future<void>? _closing;
+  bool _stopped = false, _outputFailed = false, _outputSettled = false;
+
+  Future<void> _forwardOutput(IOSink? output) async {
+    if (output == null) {
+      await _process.stdout.drain<void>();
+      return;
+    }
+    // The SAME subscription forwards, then discards only after client failure.
+    // Draining after failed output lets EOF/real child settlement proceed, but
+    // never changes that failure into successful custody release.
+    final bytes = StreamIterator(_process.stdout);
+    try {
+      while (await bytes.moveNext()) {
+        if (_outputFailed) continue;
+        try {
+          output.add(bytes.current);
+          await output.flush();
+        } catch (_) {
+          _outputFailed = true;
+          _requestClose();
+        }
+      }
+      if (_outputFailed) throw WindowsBridgeProcess._unavailable();
+    } finally {
+      _outputSettled = true;
+      await bytes.cancel();
+    }
+  }
+
+  Future<void> _pumpInput() async {
+    final input = _input;
+    if (input == null) return;
+    while (!_stopped && await input.moveNext()) {
+      if (_stopped) break;
+      _process.stdin.add(input.current);
+      // Backpressure: never read the next client chunk before this one settles.
+      await _process.stdin.flush();
+    }
+  }
+
+  void _requestClose() {
+    unawaited(closeInput().then((_) {}, onError: (Object _, StackTrace __) {}));
+  }
+
   @override
   Future<int> get exitCode => _process.exitCode;
   @override
   late final Future<int> settlement;
   @override
-  Future<void> closeInput() => _process.stdin.close();
+  Future<void> closeInput() {
+    _stopped = true;
+    return _closing ??= () async {
+      try {
+        try {
+          await Future.wait([
+            if (_input != null) _input.cancel(),
+            _pumping,
+          ]);
+        } finally {
+          // EOF still reaches the original child after failed input/cancellation.
+          await _process.stdin.close();
+        }
+        _inputClosed.complete();
+      } catch (error, stack) {
+        _inputClosed.completeError(error, stack);
+        rethrow;
+      }
+    }();
+  }
 }

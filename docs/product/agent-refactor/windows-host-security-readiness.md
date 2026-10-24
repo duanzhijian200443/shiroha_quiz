@@ -4189,4 +4189,15 @@ launch/refusal/EOF remains distinct from authenticated formal-entry business.
 These source/functional results close no A/X row and do not authorize G0-L1/L2/I
 or Trial 1A. Normal public-data/comparison UI, pending Enable/Bridge interaction,
 trusted AOT bootstrap/client-stdio handoff and formal protected/TLS/Windows
-acceptance remain open.
+acceptance remain open at that checkpoint.
+
+[MCP §17.6](mcp-vnext-contract.md#176-single-consumer-child-stdio-and-interruptible-pending-enable)
+subsequently supplies explicit single-consumer forwarding of the original child
+pipes and observable/cancellable/expiring local Enable acquisition. No additional
+Bridge, authentication evidence, Session, protocol or native operation is introduced.
+Actual adjacent AOT/client-stdio execution still reaches only the refusal endpoint;
+App/Application business and independent-process connection tests retain Fake
+security. Normal registration, authenticated formal bootstrap and human public
+Pairing surfaces remain unfinished. This functional slice does not load protected
+credentials/Pin or run real TLS/peer-policy experiments, close A/X rows, alter #327,
+resume Trial 1A/G0-L1/L2/I or change the production default denial and halt statuses.

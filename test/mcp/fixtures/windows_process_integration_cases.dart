@@ -154,9 +154,19 @@ void windowsProcessIntegrationCases() {
           for (final row in h.native.calls.discoveryFiles.entries)
             [row.key, base64Encode(row.value)]
         ])));
+    final cancelledEnable = f.controls.enable(const Duration(minutes: 5));
+    final cancelledResult = expectLater(cancelledEnable, throwsA(anything));
+    await pumpEventQueue(times: 20);
+    expect((await f.controls.status()).connectionPending, isTrue);
+    await f.controls.disable();
+    await cancelledResult;
+    expect(process.isCurrent, isTrue);
+    expect(f.host.verification.hasPendingLocalConnection, isFalse);
+    expect((await f.controls.status()).enabled, isFalse);
     var enabling = f.controls.enable(const Duration(minutes: 5));
     await pumpEventQueue(times: 20);
     expect(f.host.verification.hasPendingLocalConnection, isTrue);
+    expect((await f.controls.status()).connectionPending, isTrue);
     await publishPublic(temp, 'start-bridge', [1]);
     for (var i = 0; i < 2; i++) {
       await waitPublicFile(temp, 'connect-$i');
