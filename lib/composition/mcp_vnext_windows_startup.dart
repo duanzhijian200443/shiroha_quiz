@@ -86,7 +86,10 @@ final class McpVnextWindowsAppDependencies {
   /// callback must also interrupt pending opens and await their real settlement.
   /// The default accepted-channel path is already closed by the owning Host.
   final Future<void> Function()? closeLocalConnections;
-  final McpVnextWindowsProcessOwner process;
+
+  /// Null only when the independent MCP client owns its Bridge process/pipes.
+  /// In that case App owns its Host, never a second Bridge child.
+  final McpVnextWindowsProcessOwner? process;
 }
 
 /// Minimal wiring over the App's original P0/P15/P8 graph and owned TLS Host.
@@ -284,7 +287,7 @@ final class McpVnextWindowsAppStartup {
           if (d.closeLocalConnections != null)
             Future<void>.sync(d.closeLocalConnections!),
           if (_localPending != 0) _localIdle!.future,
-          Future<void>.sync(d.process.stopAndWait),
+          if (d.process != null) Future<void>.sync(d.process!.stopAndWait),
         ]);
       }();
 
@@ -473,7 +476,7 @@ bool _processCurrent(McpVnextWindowsProcessOwner? process) =>
     process is! McpVnextWindowsObservedProcessOwner || process.isCurrent;
 
 void _observeProcess(
-    McpVnextWindowsProcessOwner process, Future<void> Function() close) {
+    McpVnextWindowsProcessOwner? process, Future<void> Function() close) {
   if (process is McpVnextWindowsObservedProcessOwner) {
     // Notification initiates the SAME latched shutdown. stopAndWait still owns
     // settlement; awaiting close from inside that settlement would deadlock.

@@ -1153,3 +1153,135 @@ The original stdio/AOT implementation is unchanged; prior Windows evidence is no
 represented as a new run. Required current-target CI and fresh Reviewer closure
 remain pending. Review-repair round: 1/4; this bounded repair self-repair: 0/4.
 #327 remains independently BLOCKED at 4/4; no production activation is added.
+
+## Trusted Bootstrap: non-activating Windows composition evidence
+
+[MCP §17.9](../product/agent-refactor/mcp-vnext-contract.md#179-trusted-bootstrap-and-lifetime-registration-non-activating)
+owns this bounded functional slice. The real product Bootstrap joins the original
+protected acquirer, P26 validation, Bridge startup and seven-tool server. App
+registration has explicit direct-client and hosted-client paths, while normal
+`main.dart` registers only unavailable integration. This does not accept full
+AR-R6B or production authentication.
+
+| Path | Actual connection and limit |
+|---|---|
+| Installed Codex → formal `shiroha_bridge.exe` | MCP initialization, seven-tool discovery, refusal and reconnection exercised. The formal AOT supplies no Bootstrap and returns `unavailable` for business. This is not business Owner-drain proof. |
+| Formal AOT → normal App/Application | No authenticated production composition is registered. No external argument, environment variable or MCP input can select one. |
+| Isolated patched Codex → compiled test Bridge → App/Application | Real stdio and OS processes; product Bootstrap/P26/TLS Bridge; original App P15/P0/P8/P10 and Proposal/Review Writer. Only security infrastructure uses existing Fake Native/TLS/public vectors and temporary data. |
+| Independent Bridge UI Host | Actual Flutter window over the original P27 controller. Completed Pairing joins controller, original resource/Owner closer and host lock before business handoff; no live Owner/Session/approval transfer. |
+
+The compiled fixture's file channel is test-only delivery of the original P9
+frames. It supplies neither fabricated authentication results nor business
+responses. Its ordinary file lock models process exclusion in the Fake backend;
+it proves no production `client.lock`, DPAPI, NTFS security or TLS property.
+UI pairing and compiled business composition are separate isolated proofs, not
+an assertion that a real protected Pin crossed the production process boundary.
+
+### Reproducible client and custody
+
+The installed npm vendor binary remains `codex-cli 0.144.1`, unchanged. Its matching
+official tag pins commit `44918ea10c0f99151c6710411b4322c2f5c96bea`:
+[shutdown](https://github.com/openai/codex/blob/44918ea10c0f99151c6710411b4322c2f5c96bea/codex-rs/rmcp-client/src/rmcp_client.rs#L731)
+terminates the process before dropping state, and the
+[Windows launcher](https://github.com/openai/codex/blob/44918ea10c0f99151c6710411b4322c2f5c96bea/codex-rs/rmcp-client/src/stdio_server_launcher.rs#L340)
+uses forced process-tree termination. The retained failed business run observed
+original Bridge exit 1 with no close-entry, successful-Owner-close or final
+settlement receipt, even though Codex itself exited 0. That failure is not
+reclassified as success. It is consistent with the source mechanism, not an OS
+call trace or signed-binary provenance attestation.
+
+The authorized [isolated client patch/build recipe](../../tool/external/isolated_codex/README.md)
+retains the original child and single stdout consumer. It closes stdin first,
+drains stdout/stderr and waits for original exit 0. Timeout/nonzero exit/stream
+failure/lost transport stay failed; forced cleanup is only a bounded fallback.
+It adds no protocol, detached broker, second Writer or production switch. Portable
+Rust 1.95.0, just 1.59.0, nextest 0.9.149, public dependencies and the client binary
+remain task-local; the installed client and global toolchain are not replaced.
+Only four scoped upstream lifecycle tests are run; other upstream tests are not
+claimed as verified.
+
+Codex `mcpServerStatus/list` creates a temporary connection manager even with a
+thread ID. The initial composite attempt returned an empty inventory because
+status discovery overlapped an existing business Owner. The driver now discovers
+before creating its business thread and waits for the original discovery process
+to settle. The seven-tool assertion is unchanged. Business lifetime then owns
+exactly one Bridge, and a competing launch must exit 78 with no protocol output.
+A supported product client still needs this serialized behavior or an inventory
+path over its existing manager; repeatedly probing by spawning a competitor is
+not a supported ownership handoff.
+
+```powershell
+pwsh -NoProfile -File tool/external/isolated_codex/build.ps1
+$env:SHIROHA_CODEX_EXE = "$PWD/.dart_tool/ct/dev-small/codex.exe"
+flutter test --no-pub --concurrency=1 test/mcp/windows_trusted_bootstrap_test.dart
+```
+
+The test uses a fresh isolated Codex home and an offline provider, with no model
+turn or copied authentication. Its read-only PowerShell 7 exit observer retains
+the original fixture Process handle before client close and requires exit 0.
+The three lifecycle receipts and original 15-second settlement assertion remain;
+process disappearance alone cannot satisfy them. Observer failure still closes
+the original client in `finally`. The observer never kills/restarts a process or
+changes script execution policy.
+
+### Executor evidence (2026-10-24)
+
+| Check | Result and covered boundary |
+|---|---|
+| Isolated Rust lifecycle tests | 4 PASS: control-triggered EOF and original exit; nonzero exit stays failed; forced timeout stays failed; lost transport wakes retained closers with failure. |
+| Compiled trusted Bootstrap suite | 6 PASS: direct EOF; pending STAGE across EOF/crash/Shutdown/Restore; real selected-client seven-tool READ/STAGE, local Review, original SubmissionKey recovery, contention and B0. |
+| Restart within compiled EOF/crash cases | Old pending approval is invalid; restart requires a new exact-Session approval and cannot create a Proposal automatically. Same-Principal current READ references remain revalidatable under the frozen P4/P8 rule. |
+| App transport + credential initialization + P27 regressions | 248 PASS, including original failed-close retention, process settlement, single-use acquisition, authorization and pairing boundaries. |
+| Formal AOT + UI Host + source/package/host guards | 47 PASS, including 14 formal process cases with the installed client selected; no activated business claim. |
+| Normal Windows App and formal Bridge AOT builds | PASS. Native loader validation is ABI-only, with no protected operation. |
+| Independent Windows UI Pairing/handoff | A completed run recorded controllerClosed/ownerClosed/hostLockReleased, exit 0 for both windows, drained streams and no App Enable/authenticated Session. Recompiled driver-repair run PASS; no relaxed assertions. Peer-abort also PASS: App exits before completion, Bridge cancels/drains without saving a Pin; no App graceful-drain claim for that abrupt fixture exit. |
+| Static boundaries | Bootstrap/Discovery/Pairing/TLS guards PASS; Windows source guard 87 mutation rejections and readiness guard 108 rejections PASS. Existing pending security rows remain pending. |
+
+The isolated selected client SHA-256 is
+`fb3e30a2e51cef13697d7e42826fc9a6814aff2ce5c5a53d06d019eb79fdfd24`;
+the formal Bridge AOT SHA-256 is
+`86eac4dc476cf432c80de4740dc1b818079e026ac160bfb6a874e3b9552c7740`.
+These identify different artifacts and do not attest production signing/security.
+
+Three failed observations remain part of the evidence:
+
+- The original installed-client business shutdown failed, as described above.
+  The patched binary is a different test artifact, not proof that the installed
+  client was repaired.
+- An earlier direct-EOF run reached exit 0 and all receipts but temporary cleanup
+  failed with Windows sharing error 32. The old helper cancelled subscriptions
+  immediately after process exit without joining stdout EOF/stderr drain. It now
+  retains one close Future joining all original resources, and each case runs a
+  separate copy of the once-compiled AOT. All six final compiled cases deleted
+  their temporary directories without retries or timeout changes. The historical
+  holder was not captured; no particular external process is blamed. A read-only
+  Restart Manager query reports holders on any future failure, then rethrows it.
+- The first dual-window run failed at Profile selection. The old test driver
+  retried a covered, busy opener if the dialog option tap had not selected a
+  Profile. Its original bounded retry now stays in the same open dialog; it still
+  performs the actual UI choice and verifies the original Application status.
+  No direct approval/selection shortcut, timeout increase or relaxed success
+  assertion was introduced. The failed evidence and the prior successful repeat
+  are retained separately.
+
+An added test initially asserted that a reconnected Session must reject every old
+READ reference. MCP §14 explicitly permits same-Principal current-reference
+revalidation. That new test was corrected to the frozen behavior and verifies the
+actual security boundary: old Target Approval cannot be reused, the new Session
+must request a fresh approval, and no Proposal is written implicitly. Product
+Context semantics were not changed.
+
+Remaining product work is **not only security admission**: the compatible client
+behavior must be delivered/selected as a supported client, and a separately
+admitted production root must supply the admission check, independent trust and
+accepted native/TLS infrastructure to the existing registrations. Normal roots
+remain unavailable. The separate #327 cancellation issue remains BLOCKED with its
+unchanged assertions and budget. Model-directed/Desktop usage and plugin
+packaging are not proved by this isolated no-model-turn check.
+
+Verifier assessment: REQUIRED, `CI_COVERAGE_GAP`, for fixed-target Windows client,
+compiled business, UI handoff, close/Restore and cleanup behavior absent from
+standing Linux CI. Green Executor results are not independent approval. Current
+PR CI and Independent Reviewer remain required. HOST_STABILITY_HALT = ACTIVE;
+TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED. No Trial 1A/G0-L1/L2/I or real
+protected-credential/Pin/Discovery/TLS security experiment was run.

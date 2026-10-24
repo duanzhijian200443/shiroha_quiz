@@ -176,6 +176,23 @@ Future<void> _script(
   evidence.record('pin_saved', {'pinPresent': true});
   await link.publishText(PairingLinkFile.saved, '1');
   await driver.screenshot(p.join(root, 'bridge-5-saved.png'));
+  await host.closeForBusiness();
+  if (!h.bridgeOwner.isClosed || !host.port.display().closed) {
+    throw StateError('Pairing custody did not settle');
+  }
+  final lock =
+      await File(p.join(root, 'bridge-host', BridgeUiHost.lockFileName))
+          .open(mode: FileMode.append);
+  try {
+    await lock.lock(FileLock.exclusive);
+  } finally {
+    await lock.close();
+  }
+  evidence.record('business_handoff_settled', {
+    'controllerClosed': true,
+    'ownerClosed': true,
+    'hostLockReleased': true,
+  });
 }
 
 Future<T> _step<T>(PairingHostEvidence evidence, String name,

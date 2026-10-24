@@ -74,6 +74,12 @@ final class McpVnextWindowsProtectedAcquirer {
   ExternalProtectedObjects? _owner;
   WindowsCredentialAssociationStore? _associations;
   WindowsExternalNative? _native;
+  Future<void>? _aborting;
+
+  /// After startup has settled, join any original failed-acquisition cleanup.
+  /// A caller must not turn a rejected acquisition with unknown custody into
+  /// a successful App/database or Bridge shutdown.
+  Future<void> get whenAcquisitionSettled => _aborting ?? Future<void>.value();
 
   McpVnextWindowsCredentialPrimitives _primitivesFor(
       WindowsExternalNative native) {
@@ -94,9 +100,11 @@ final class McpVnextWindowsProtectedAcquirer {
     required int port,
     Future<Uint8List> Function()? submissionId,
     WindowsBridgeProcess? process,
+    bool clientOwnsBridge = false,
     TlsListenerIo? listener,
   }) {
-    final child = process ?? WindowsBridgeProcess();
+    if (clientOwnsBridge && process != null) throw _unavailable();
+    final child = clientOwnsBridge ? null : process ?? WindowsBridgeProcess();
     return acquireApp(
         process: child,
         assemble: (r) => McpVnextWindowsAppDependencies(
@@ -158,7 +166,7 @@ final class McpVnextWindowsProtectedAcquirer {
     required FutureOr<McpVnextWindowsAppDependencies> Function(
             McpVnextWindowsAppResources)
         assemble,
-    required McpVnextWindowsProcessOwner process,
+    required McpVnextWindowsProcessOwner? process,
     Future<void> Function()? closeLocalConnections,
   }) async {
     _admit();
@@ -242,14 +250,18 @@ final class McpVnextWindowsProtectedAcquirer {
     }
   }
 
-  Future<void> _abort(McpVnextWindowsProcessOwner process,
+  Future<void> _abort(McpVnextWindowsProcessOwner? process,
+          Future<void> Function() closeLocalConnections) =>
+      _aborting ??= _abortOnce(process, closeLocalConnections);
+
+  Future<void> _abortOnce(McpVnextWindowsProcessOwner? process,
       Future<void> Function() closeLocalConnections) async {
     try {
       // All original work settles even if another closer fails. Unknown process
       // or local-channel close retains the SAME Store/Owner and native lock.
       await Future.wait([
         Future<void>.sync(closeLocalConnections),
-        Future<void>.sync(process.stopAndWait),
+        if (process != null) Future<void>.sync(process.stopAndWait),
       ]);
       if (_owner?.runtimeClaimed == true) throw _unavailable();
       await _associations?.close();

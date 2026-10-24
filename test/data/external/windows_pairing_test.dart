@@ -27,33 +27,8 @@ import 'bootstrap_test_support.dart';
 import 'windows_credential_initialization_test.dart' as initialization;
 import 'windows_credential_object_store_test.dart' as objects;
 import 'fixtures/public_pairing_cases.dart';
-
-// PUBLIC RFC6979 fixture only. Deliberately fixed k=1 is NOT production crypto.
-// Arbitrary locally reconstructed transcripts are checked by the independent
-// existing mathematical P-256 verifier, rather than an accepting boolean fake.
-Uint8List signPublicFixture(
-    {required Uint8List pkcs8Der,
-    required Uint8List publicPoint,
-    required Uint8List digest}) {
-  if (pkcs8Der.length != initialization.publicFixtureKey().length ||
-      !bootstrapEqual(publicPoint, vectorBytes('point'))) {
-    throw StateError('Synthetic signing vector mismatch');
-  }
-  final n = BigInt.parse(
-      'ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551',
-      radix: 16);
-  final r = BigInt.parse(
-      '6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296',
-      radix: 16);
-  final d =
-      BigInt.parse(hex(pkcs8Der.sublist(pkcs8Der.length - 32)), radix: 16);
-  final z = BigInt.parse(hex(digest), radix: 16);
-  return unhex(r.toRadixString(16).padLeft(64, '0') +
-      ((z + r * d) % n).toRadixString(16).padLeft(64, '0'));
-}
-
-String hex(List<int> bytes) =>
-    bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+import 'fixtures/public_fixture_crypto.dart';
+export 'fixtures/public_fixture_crypto.dart' show signPublicFixture, hex;
 
 class PairingHarness {
   final native = initialization.Harness();

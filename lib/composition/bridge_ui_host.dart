@@ -97,6 +97,16 @@ final class BridgeUiHost {
 
   Future<void> close() => _closing ??= _close();
 
+  /// Settles pairing custody before a fresh business Owner can be acquired.
+  /// This transfers no credential, Session, approval or live Owner. A cancelled
+  /// enrollment is not a successful handoff; failed close remains latched.
+  Future<void> closeForBusiness() {
+    if (!_port.display().pinSaved) {
+      throw StateError('Bridge UI handoff unavailable');
+    }
+    return close();
+  }
+
   Future<void> _close() async {
     _closed = true;
     // A failed/unknown P27 drain must retain the caller's Store/Owner too.

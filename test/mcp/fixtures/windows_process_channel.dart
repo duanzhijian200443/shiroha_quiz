@@ -5,7 +5,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/data/external/windows_tls_transport.dart';
-import '../../data/external/fixtures/public_pairing_process_support.dart';
+import '../../data/external/fixtures/process_file_support.dart';
 
 final class ProcessTestChannel implements TlsChannel {
   ProcessTestChannel(this.root, this.outgoing, this.incoming, this.peerDer);

@@ -22,6 +22,15 @@ separate opt-in installed-Codex STAGE/File READ suites. The standalone default
 refuses business calls. This source slice does not activate full AR-R6B,
 the production Host/Transport or any Windows experiment.
 
+The [trusted Bootstrap/registration slice](mcp-vnext-contract.md#179-trusted-bootstrap-and-lifetime-registration-non-activating)
+supplies executable non-activating composition over the same owners and completed
+Pairing drain before fresh Bridge acquisition. Ordinary App registration and
+formal AOT remain unavailable. Isolated Windows evidence covers the compiled
+business composition with an EOF-first patched Codex client; installed 0.144.1
+still has the recorded force-first incompatibility. Supported client delivery,
+explicit admitted product-root wiring and security acceptance remain open. This
+bounded functional completion does not activate production or close full AR-R6B.
+
 The bounded lifecycle source extension uses MCP profile v2 and an independent
 READ/Proposal-metadata path over that same Proposal owner. It supplies persisted
 pending/rejected/committed status and safe counts by original key, including

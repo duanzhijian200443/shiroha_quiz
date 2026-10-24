@@ -1574,3 +1574,94 @@ authenticated AOT bootstrap, App/client registration and Draft #327's
 short-deadline cancellation compatibility remain open. HOST_STABILITY_HALT =
 ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED. No Trial 1A/G0-L1/L2/I work is
 started by this slice.
+
+### 17.9. Trusted Bootstrap and lifetime registration (non-activating)
+
+The bounded non-activating Bootstrap/registration slice is implemented and
+independently reviewable (phase COMPLETE; production admission remains blocked).
+It supplies executable product composition and isolated Windows business/lifetime
+evidence, not production authentication or full AR-R6B
+admission. The Windows guide distinguishes the original installed-client failure,
+the isolated patched-client success and the formal default refusal.
+
+`McpVnextWindowsBridgeBootstrap` composes the original protected acquirer,
+Bridge startup and seven-tool server. Trusted product code must supply a
+separately authorized security-admission check and independently established
+`DiscoveryExpectations`; neither input comes from MCP, argv, environment or a
+test mode. Admission and independent trust precede optional same-process Pairing
+drain and acquisition of a fresh Bridge Owner. The original P26
+`readAndAdvanceExistingPin` rejects missing/mismatched existing credentials,
+trust and Discovery before a business port is served. Each tool still uses the
+original TLS Bridge/P15/P0/P8/P10 checks. No credential initialization, recovery,
+new Session, Context, approval, protocol, schema or Writer is supplied.
+
+The acquirer remains single-use. Before transfer it owns partial cleanup; its
+original failed-acquisition cleanup Future is retained and joined by registration
+and Bootstrap close. Bootstrap retains a dependency bundle whose pre-start
+cleanup failed. After transfer the original startup/Host owns closure. Failure
+cannot become clean shutdown or a fresh acquisition attempt.
+
+`BridgeUiHost.closeForBusiness` requires the original completed Pin save and
+joins the same controller, resource closer and host-lock settlement. It
+transfers no live Owner, credentials, Session or Target Approval. A subsequent
+business process must acquire its own original native Bridge Owner; the native
+client lock, not the UI host's separate window lock, remains the exclusion
+authority across processes. Failed or incomplete Pairing close grants no handoff.
+
+`McpVnextWindowsAppRegistration` owns the original startup and integration
+barriers used by App shutdown and B0. `main.dart` installs only
+`.unavailable(integration)`. Explicit trusted direct-client registration owns the
+App Host and no Bridge child; the independent MCP client owns its one Bridge and
+stdio. Explicit hosted-client registration uses the original
+`WindowsBridgeProcess.stdio` to forward one input/output pair to one adjacent
+child. These are alternative custody paths, not two concurrent business owners.
+Neither registration pairs, enables, approves, stages or reconnects automatically.
+Existing first-party status/Enable/connection-failure behavior remains authoritative.
+
+The formal AOT calls `serveWindowsBridgeStdio()` without a Bootstrap and still
+serves `UnavailableVnextApp`. The explicit in-code Bootstrap parameter is not an
+external activation switch. Supplying production admission, an independent trust
+source and accepted protected/native/TLS infrastructure remains future authorized
+composition work; ordinary startup cannot manufacture any of them.
+
+`McpVnextWindowsStdioCustody` is an in-process output-flush barrier. It does not
+own or await its own OS exit, and cannot intercept forced termination by an
+external client. The client must allow original EOF/close work and actual resource
+settlement before declaring graceful exit. A nonzero exit or missing cleanup
+receipt remains a failure/unknown result. Killing a process tree cannot prove
+that its Dart finalizers, P27 drain or protected Owner closer ran. Putting the
+existing hosted forwarding process inside that same tree does not supply this
+missing guarantee. No detached process, replacement protocol, idle timeout or
+premature Owner release is introduced as a workaround.
+
+The isolated compiled fixture uses existing public mathematical vectors and Fake
+Native/TLS; files carry original P9 frames, not substituted authentication or
+business results. The receiving App uses the original P15/P0/P8/P10 and
+Proposal/Review Writer. Its compiled tests cover seven tools, READ/STAGE, local
+Review, original-key recovery, duplicate Owner rejection, EOF, crash, App shutdown,
+Restore and restart. P4 still permits a fresh Session of the same Principal to
+revalidate a current READ reference; it does not inherit the old execution
+Context or Target Approval. Normal Windows App compilation and formal AOT refusal
+are separate from these isolated business results.
+
+The supported client contract must serialize temporary discovery with business
+ownership and settle the original process before reacquisition. In Codex 0.144.1,
+`mcpServerStatus/list` creates a temporary manager even with a thread ID. The
+isolated driver discovers before starting its business thread and waits for the
+original discovery process's settlement. A live business inventory must not be
+implemented by launching another credential owner. The compiled contention test
+continues to reject an overlapping launch rather than weakening exclusion.
+
+The isolated client patch closes original stdin, drains stdout/stderr and awaits
+the original child; timeout, abnormal exit and lost transport stay failed.
+Installed Codex 0.144.1 is unchanged and retains its known force-first shutdown
+incompatibility. This is an isolated compatibility proof, not a shipped fix.
+Remaining product work includes supported client distribution/selection and the
+explicit admitted production root supplying the admission check, independent
+trust and accepted infrastructure to these registrations. The normal roots do
+not yet consume an authenticated composition. Therefore only-security-admission
+remaining is not a valid claim. Independent Windows verification of the candidate
+and independent semantic review remain required. #327 remains separately BLOCKED
+with unchanged assertions/budget. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
+AR-R6A = NOT_ACCEPTED. No Trial 1A/G0-L1/L2/I or real protected/TLS experiment is
+part of this slice.

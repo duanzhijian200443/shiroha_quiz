@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $allowed = @('windows_discovery.dart', 'windows_credential_initialization.dart')
 foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.dart' -File -Recurse) {
-    if ($file.FullName -eq (Join-Path $root 'lib/composition/mcp_vnext_windows_startup.dart')) { continue }
+    if ($file.FullName -in @((Join-Path $root 'lib/composition/mcp_vnext_windows_startup.dart'), (Join-Path $root 'lib/composition/mcp_vnext_windows_bootstrap.dart'))) { continue }
     $code = [IO.File]::ReadAllText($file.FullName)
     $owned = $file.DirectoryName -eq [IO.Path]::GetFullPath((Join-Path $root 'lib/data/external')) -and $file.Name -in $allowed
     $tlsConsumer = $file.DirectoryName -eq [IO.Path]::GetFullPath((Join-Path $root 'lib/data/external')) -and $file.Name -in @('windows_tls_transport.dart', 'windows_tls_credentials.dart', 'windows_tls_bridge.dart')

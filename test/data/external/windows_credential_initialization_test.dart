@@ -14,11 +14,10 @@ import 'package:shiroha_quiz/services/backup/sha256.dart';
 
 import 'bootstrap_test_support.dart';
 import 'external_native_test_support.dart';
+import 'fixtures/public_fixture_crypto.dart' show publicFixtureKey;
+export 'fixtures/public_fixture_crypto.dart' show publicFixtureKey;
 import 'windows_credential_object_store_test.dart' as store_test;
 
-// Only the unchanged public RFC6979/P21 fixture key exists in these tests.
-Uint8List publicFixtureKey() => unhex(
-    '3041020100301306072a8648ce3d020106082a8648ce3d030107042730250201010420c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721');
 String digestHex(List<int> bytes) =>
     (StreamingSha256()..update(bytes)).digestHex();
 Uint8List digest(List<int> bytes) => unhex(digestHex(bytes));

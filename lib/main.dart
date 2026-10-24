@@ -104,6 +104,7 @@ import 'data/repositories/review_repository.dart';
 import 'data/repositories/settings_repository.dart';
 import 'application/external/local_authorization_service.dart';
 import 'composition/mcp_vnext_app_integration.dart';
+import 'composition/mcp_vnext_windows_registration.dart';
 import 'data/repositories/external_target_read_repository.dart';
 import 'data/repositories/external_question_read_repository.dart';
 import 'data/repositories/external_file_read_repository.dart';
@@ -260,7 +261,7 @@ void runShirohaQuiz({
         databaseHelper: databaseHelper,
       );
       late Future<void> Function() relaunchApp;
-      McpVnextAppIntegration? externalIntegration;
+      McpVnextWindowsAppRegistration? externalIntegration;
       final backupRestore = BackupRestoreCoordinator(
         compositionReload: () => relaunchApp(),
         operations: BackupRestoreRuntime(
@@ -837,7 +838,11 @@ void runShirohaQuiz({
                 mintId: uuid.v4,
                 compositionIsCurrent: () => authorizationDatabase.isOpen)
             : null;
-        externalIntegration = integration;
+        final externalRegistration = integration == null
+            ? null
+            : McpVnextWindowsAppRegistration.unavailable(integration);
+        externalIntegration = externalRegistration;
+        await externalRegistration?.start();
         final app = ShirohaQuizApp(
           localAuthorization: authorizationService,
           generatedLocalAuthority: localAuthority,
@@ -900,7 +905,7 @@ void runShirohaQuiz({
               : FirstPartyExternalLifetime(
                   key: ObjectKey(integration),
                   access: integration.controls,
-                  close: integration.close,
+                  close: externalRegistration!.close,
                   child: app,
                 ),
         );

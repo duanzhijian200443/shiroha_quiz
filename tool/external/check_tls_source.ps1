@@ -49,6 +49,18 @@ foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.
             'native.peerCertificatePolicy.check', 'WindowsAppPublicPairingHandoff(')) {
             if (!$code.Contains($required)) { throw "Concrete dormant dependency assembly missing: $required" }
         }
+    } elseif ($file.FullName -in @((Join-Path $root 'lib/composition/mcp_vnext_windows_bootstrap.dart'),
+            (Join-Path $root 'lib/composition/mcp_vnext_windows_registration.dart'))) {
+        foreach ($token in @('Platform.environment', 'fromEnvironment', 'jsonDecode',
+            'Process.start', 'Process.run', 'Process.kill', 'File(', 'Directory(', 'ExternalTrustCore(', 'ExternalSession(',
+            'ExternalPrincipal(', 'PairingProof(', 'AuthenticatedPeerEvidence(',
+            'DatabaseHelper', '.initialize(', '.recoverServer(', '.enable(',
+            '.approveTarget(', '.acquireBridgeObjects(', '.acquireAppObjects(')) {
+            if ($code.Contains($token)) { throw "Trusted registration escaped admission boundary: $token" }
+        }
+        if (!$code.Contains('await requireSecurityAdmission();')) {
+            throw 'Trusted registration missing admission check'
+        }
     } elseif ($file.FullName -eq (Join-Path $root 'lib/composition/mcp_vnext_windows_startup.dart')) {
         foreach ($token in @('dart:io', 'dart:ffi', 'Process.', 'Platform.environment',
             'DatabaseHelper', 'ExternalTrustCore(', 'ExternalSession(', 'ExternalPrincipal(',
@@ -77,12 +89,16 @@ foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.
             (Join-Path $root 'lib/composition/mcp_vnext_windows_bridge.dart')) -and
         $code -match 'vnext_mcp_bridge_port|VnextMcpBridgePort') { throw 'Bridge projection startup consumer is active' }
     if ($file.FullName -notin @((Join-Path $root 'lib/composition/mcp_vnext_windows_startup.dart'),
-            (Join-Path $root 'lib/composition/mcp_vnext_windows_acquisition.dart')) -and $code -match "(?:import|export).*mcp_vnext_windows_(?:transport|bridge|startup|acquisition)" ) {
+            (Join-Path $root 'lib/composition/mcp_vnext_windows_acquisition.dart'),
+            (Join-Path $root 'lib/composition/mcp_vnext_windows_bootstrap.dart'),
+            (Join-Path $root 'lib/composition/mcp_vnext_windows_registration.dart')) -and $code -match "(?:import|export).*mcp_vnext_windows_(?:transport|bridge|startup|acquisition)" ) {
         throw 'Inactive Windows composition acquired a production consumer'
     }
     if ($file.FullName -notin @((Join-Path $root 'lib/data/external/windows_bridge_process.dart'),
             (Join-Path $root 'lib/composition/mcp_vnext_windows_startup.dart'),
-            (Join-Path $root 'lib/composition/mcp_vnext_windows_acquisition.dart')) -and
+            (Join-Path $root 'lib/composition/mcp_vnext_windows_acquisition.dart'),
+            (Join-Path $root 'lib/composition/mcp_vnext_windows_bootstrap.dart'),
+            (Join-Path $root 'lib/composition/mcp_vnext_windows_registration.dart')) -and
         $code -match "(?:import|export).*windows_bridge_process") {
         throw 'Inactive process adapter acquired a production consumer'
     }
@@ -127,3 +143,14 @@ foreach ($forbidden in @('CertOpenStore', 'CertGetCertificateChain', 'CertAddCer
     if ($native.Contains($forbidden)) { throw 'Peer-only Native ABI gained unrelated access' }
 }
 Write-Output 'PASS: inactive TLS candidate, explicit Raw I/O, isolated TLS13 contexts and crypt32-only peer policy (WINDOWS_PENDING)'
+
+$main = [IO.File]::ReadAllText((Join-Path $root 'lib/main.dart'))
+if (!$main.Contains('McpVnextWindowsAppRegistration.unavailable(integration)') -or
+    $main -match 'McpVnextWindowsAppRegistration\.(directClient|hostedClient)') {
+    throw 'Normal App registration activated protected startup'
+}
+$entry = [IO.File]::ReadAllText((Join-Path $root 'tool/external/bridge_candidate.dart'))
+if (!$entry.Contains('await serveWindowsBridgeStdio();') -or
+    $entry -match 'bootstrap\s*:|Platform.environment|fromEnvironment') {
+    throw 'Formal AOT acquired a business selector'
+}

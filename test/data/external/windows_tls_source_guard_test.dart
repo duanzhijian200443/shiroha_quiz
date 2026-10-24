@@ -110,6 +110,33 @@ void main() {
                 'createIo: createIo ?? () => const DartLoopbackBridgeIo()'));
         expect(source, contains('native.peerCertificatePolicy.check'));
         expect(source, contains('WindowsAppPublicPairingHandoff('));
+      } else if (path == 'lib/composition/mcp_vnext_windows_bootstrap.dart' ||
+          path == 'lib/composition/mcp_vnext_windows_registration.dart') {
+        for (final token in [
+          'Platform.environment',
+          'fromEnvironment',
+          'jsonDecode',
+          'Process.start',
+          'Process.run',
+          'Process.kill',
+          'File(',
+          'Directory(',
+          'ExternalTrustCore(',
+          'ExternalSession(',
+          'ExternalPrincipal(',
+          'PairingProof(',
+          'AuthenticatedPeerEvidence(',
+          'DatabaseHelper',
+          '.initialize(',
+          '.recoverServer(',
+          '.enable(',
+          '.approveTarget(',
+          '.acquireBridgeObjects(',
+          '.acquireAppObjects('
+        ]) {
+          expect(source, isNot(contains(token)), reason: path);
+        }
+        expect(source, contains('await requireSecurityAdmission();'));
       } else if (path == 'lib/composition/mcp_vnext_windows_startup.dart') {
         for (final token in [
           'dart:io',
@@ -177,7 +204,9 @@ void main() {
         expect(source, isNot(contains('VnextMcpBridgePort')), reason: path);
       }
       if (path != 'lib/composition/mcp_vnext_windows_startup.dart' &&
-          path != 'lib/composition/mcp_vnext_windows_acquisition.dart') {
+          path != 'lib/composition/mcp_vnext_windows_acquisition.dart' &&
+          path != 'lib/composition/mcp_vnext_windows_bootstrap.dart' &&
+          path != 'lib/composition/mcp_vnext_windows_registration.dart') {
         expect(
             RegExp(r'(?:import|export).*mcp_vnext_windows_(?:transport|bridge|startup|acquisition)')
                 .hasMatch(source),
@@ -186,7 +215,9 @@ void main() {
       }
       if (path != 'lib/data/external/windows_bridge_process.dart' &&
           path != 'lib/composition/mcp_vnext_windows_startup.dart' &&
-          path != 'lib/composition/mcp_vnext_windows_acquisition.dart') {
+          path != 'lib/composition/mcp_vnext_windows_acquisition.dart' &&
+          path != 'lib/composition/mcp_vnext_windows_bootstrap.dart' &&
+          path != 'lib/composition/mcp_vnext_windows_registration.dart') {
         expect(
             RegExp(r'(?:import|export).*windows_bridge_process')
                 .hasMatch(source),

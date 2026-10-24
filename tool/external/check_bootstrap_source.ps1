@@ -35,7 +35,7 @@ foreach ($name in $files) {
 # token-checked by check_tls_source.ps1; Application/P15 remain prohibited.
 foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.dart' -File -Recurse) {
     if ($file.DirectoryName -eq [IO.Path]::GetFullPath((Join-Path $root 'lib/data/external')) -and $files -contains $file.Name) { continue }
-    if ($file.FullName -in @((Join-Path $root 'lib/composition/mcp_vnext_windows_startup.dart'), (Join-Path $root 'lib/composition/mcp_vnext_windows_acquisition.dart'))) { continue }
+    if ($file.FullName -in @((Join-Path $root 'lib/composition/mcp_vnext_windows_startup.dart'), (Join-Path $root 'lib/composition/mcp_vnext_windows_acquisition.dart'), (Join-Path $root 'lib/composition/mcp_vnext_windows_bootstrap.dart'))) { continue }
     $code = [IO.File]::ReadAllText($file.FullName)
     # P24 is the inactive file-I/O consumer of the P22 Exchange codec.
     # The exact dormant startup root above is separately token-checked by
@@ -53,7 +53,7 @@ foreach ($token in @('dart:io', 'dart:ffi', 'PairingProof(', 'AuthenticatedPeerE
     if ($exchange.Contains($token)) { throw 'P24 file adapter escaped its bounded responsibility' }
 }
 foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.dart' -File -Recurse) {
-    if ($file.FullName -in @((Join-Path $root 'lib/composition/mcp_vnext_windows_startup.dart'), (Join-Path $root 'lib/composition/mcp_vnext_windows_acquisition.dart'))) { continue }
+    if ($file.FullName -in @((Join-Path $root 'lib/composition/mcp_vnext_windows_startup.dart'), (Join-Path $root 'lib/composition/mcp_vnext_windows_acquisition.dart'), (Join-Path $root 'lib/composition/mcp_vnext_windows_bootstrap.dart'))) { continue }
     if ($file.FullName -eq [IO.Path]::GetFullPath((Join-Path $root 'lib/data/external/windows_exchange_file_store.dart'))) { continue }
     if ($file.FullName -eq [IO.Path]::GetFullPath((Join-Path $root 'lib/data/external/windows_pairing.dart'))) { continue }
     if ([IO.File]::ReadAllText($file.FullName) -match 'windows_exchange_file_store|WindowsExchangeFileStore') {
