@@ -55,7 +55,10 @@ foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.
             'Process.start', 'Process.run', 'Process.kill', 'File(', 'Directory(', 'ExternalTrustCore(', 'ExternalSession(',
             'ExternalPrincipal(', 'PairingProof(', 'AuthenticatedPeerEvidence(',
             'DatabaseHelper', '.initialize(', '.recoverServer(', '.enable(',
-            '.approveTarget(', '.acquireBridgeObjects(', '.acquireAppObjects(')) {
+            '.approveTarget(', '.acquireBridgeObjects(', '.acquireAppObjects(',
+            'DiscoveryDescriptorCodec', 'PairingTranscriptCodec', 'ExchangeMessageCodec',
+            'ExternalBootstrapBytes', 'WindowsDiscoveryPublisher', 'publishDiscovery',
+            'readDiscovery')) {
             if ($code.Contains($token)) { throw "Trusted registration escaped admission boundary: $token" }
         }
         if (!$code.Contains('await requireSecurityAdmission();')) {

@@ -1285,3 +1285,20 @@ standing Linux CI. Green Executor results are not independent approval. Current
 PR CI and Independent Reviewer remain required. HOST_STABILITY_HALT = ACTIVE;
 TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED. No Trial 1A/G0-L1/L2/I or real
 protected-credential/Pin/Discovery/TLS security experiment was run.
+
+### Review-driven repair: Bootstrap source enforcement
+
+Review round 1/4 on this target (0/4 self-repair for this assignment; behavior
+unchanged) restores the P22/P24/P26 enforcement that the first candidate had
+bypassed with a wholesale per-file skip of the privileged Bootstrap root. That
+root now passes the same consumer scans as every other production root: exactly
+one type-only `DiscoveryExpectations` import and one original
+`WindowsDiscoveryReader.readAndAdvanceExistingPin` call are admitted, while codec
+operations/classes, the Exchange store, Discovery publication, owner-level
+Discovery reads and any second or non-advancing Reader path fail both the
+PowerShell gates and their Dart mirrors. Five P22/P24 mutations, five P26
+mutations and three Dart negative controls prove the rejection. The
+trusted-root TLS gate additionally rejects codec and Discovery-publication tokens,
+and the direct/hosted custody split is now pinned by an assertion. Standing CI on
+the new head and Independent Reviewer closure remain the gates; no activation,
+contract or runtime behavior changed.

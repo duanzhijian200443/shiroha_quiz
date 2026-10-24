@@ -132,11 +132,27 @@ void main() {
           '.enable(',
           '.approveTarget(',
           '.acquireBridgeObjects(',
-          '.acquireAppObjects('
+          '.acquireAppObjects(',
+          'DiscoveryDescriptorCodec',
+          'PairingTranscriptCodec',
+          'ExchangeMessageCodec',
+          'ExternalBootstrapBytes',
+          'WindowsDiscoveryPublisher',
+          'publishDiscovery',
+          'readDiscovery'
         ]) {
           expect(source, isNot(contains(token)), reason: path);
         }
         expect(source, contains('await requireSecurityAdmission();'));
+        if (path == 'lib/composition/mcp_vnext_windows_registration.dart') {
+          // Direct-client and hosted-client custody stay alternative paths: the
+          // hosted child is the sole Bridge owner and the App owns none.
+          expect(source, contains('clientOwnsBridge: child == null'));
+          expect(
+              source,
+              contains(
+                  'WindowsBridgeProcess.stdio(input: input, output: output)'));
+        }
       } else if (path == 'lib/composition/mcp_vnext_windows_startup.dart') {
         for (final token in [
           'dart:io',

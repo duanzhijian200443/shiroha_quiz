@@ -1601,6 +1601,15 @@ and Bootstrap close. Bootstrap retains a dependency bundle whose pre-start
 cleanup failed. After transfer the original startup/Host owns closure. Failure
 cannot become clean shutdown or a fresh acquisition attempt.
 
+`McpVnextWindowsBridgeBootstrap` receives no composition exemption from the
+existing P22/P24/P26 source gates. Its only admitted parsing reference is the
+immutable `DiscoveryExpectations` type import and its only admitted Discovery
+call is one original `WindowsDiscoveryReader.readAndAdvanceExistingPin`. Codec
+operations/classes, the Exchange file store, Discovery publication, owner-level
+Discovery reads, a second Reader construction and any non-advancing Reader path
+are rejected by the PowerShell gates and their Dart mirrors, with in-memory
+mutation cases proving each rejection.
+
 `BridgeUiHost.closeForBusiness` requires the original completed Pin save and
 joins the same controller, resource closer and host-lock settlement. It
 transfers no live Owner, credentials, Session or Target Approval. A subsequent

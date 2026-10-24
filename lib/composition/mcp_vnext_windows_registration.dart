@@ -106,9 +106,16 @@ final class McpVnextWindowsAppRegistration {
 
   Future<void> close() {
     _closed = true;
-    return _closing ??= Future.wait([
-      if (_startup != null) _startup!.close(),
-      integration.close(),
-    ]).then((_) async => _acquirer?.whenAcquisitionSettled);
+    return _closing ??= () async {
+      try {
+        await Future.wait([
+          if (_startup != null) _startup!.close(),
+          integration.close(),
+        ]);
+      } finally {
+        // A failing closer must not skip joining original acquisition cleanup.
+        await _acquirer?.whenAcquisitionSettled;
+      }
+    }();
   }
 }
