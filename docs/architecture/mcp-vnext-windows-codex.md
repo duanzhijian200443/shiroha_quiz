@@ -533,7 +533,9 @@ original P27 owner: trusted composition supplies the existing
 creates exactly one Bridge port, refuses a second host by a process latch and an
 exclusive OS file lock, reuses the live Enrollment on page rebuild, and awaits one
 latched drain from window exit, disposal, cancel and explicit close. A failed
-drain retains the lock instead of releasing an unsettled owner. The visible
+P27 drain never enters the caller's resource closer: the original Store/Owner
+and host lock stay retained, admission stays closed, and repeated close joins
+the same failure without retry. The visible
 surface is `lib/ui/pages/bridge_host_surface.dart`; neither it nor the existing
 App control holds a key, Pin, approval or Session.
 The host reserves its process slot before asynchronous file acquisition, so
@@ -541,6 +543,14 @@ concurrent opens with different roots cannot create two live hosts. Its one
 surface port delegates all pairing operations to the original P27 port and routes
 close/cancel through the host drain. Terminal UI completion also settles that
 same resource owner; later window closure joins the already completed drain.
+
+`bridge_ui_host_failed_close_test.dart` injects failure at the original P27
+Exchange read release and checks that resource teardown is not entered, the
+Owner and OS host lock are retained, late operations are rejected and repeated
+close does not retry. It runs as a separate standing-CI suite because its failed
+host remains quarantined until isolate exit. The bundle hashes and UI runs below
+are historical successful-drain evidence; they do not validate this failure
+branch or later source heads.
 
 Two test-only entrypoints reuse the actual Windows runner as normal Flutter
 applications (no test widget binding):

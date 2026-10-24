@@ -1503,6 +1503,10 @@ second host, including one started from another process; a refused or failed
 close retains the lock instead of allowing an unsettled Store/Owner to be
 adopted. Window exit, surface disposal, explicit cancellation and controller
 close all await the SAME latched P27 drain, then the caller's resource closer.
+Only a successful P27 drain permits that resource closer to run. A failed or
+unknown original Exchange read release retains the caller's Store/Owner and
+host lock, with admission closed; repeated close returns the same failed future
+without retrying P27 or entering resource teardown.
 The surface, like the existing App control, holds no key, Pin, approval or
 Session authority; Enable, Target Approval and STAGE Review remain separate.
 

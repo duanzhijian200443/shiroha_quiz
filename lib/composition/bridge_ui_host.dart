@@ -99,27 +99,12 @@ final class BridgeUiHost {
 
   Future<void> _close() async {
     _closed = true;
-    Object? failure;
-    StackTrace? trace;
-    try {
-      await _port.close();
-    } catch (error, stack) {
-      failure = error;
-      trace = stack;
-    }
-    try {
-      await _dependencies.closeResources();
-    } catch (error, stack) {
-      failure ??= error;
-      trace ??= stack;
-    }
-    if (failure == null) {
-      await _release();
-    } else {
-      // Keep the lock: an unsettled Store/Owner must never be re-adopted.
-      _active = this;
-    }
-    if (failure != null) Error.throwWithStackTrace(failure, trace!);
+    // A failed/unknown P27 drain must retain the caller's Store/Owner too.
+    // Sequential awaits preserve the original failure in _closing, with no
+    // resource callback, lock release or retry after a failed port close.
+    await _port.close();
+    await _dependencies.closeResources();
+    await _release();
   }
 
   Future<void> _release() async {
