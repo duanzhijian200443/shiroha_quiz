@@ -840,7 +840,15 @@ void runShirohaQuiz({
             : null;
         final externalRegistration = integration == null
             ? null
-            : McpVnextWindowsAppRegistration.unavailable(integration);
+            : McpVnextWindowsAppRegistration.appOwnedRelay(integration,
+                onRelayEvent: (event, connection) => AppLogger.info(
+                        'Codex relay lifecycle',
+                        module: 'MCP',
+                        data: {
+                          'event': event,
+                          'connection': connection,
+                          'appPid': pid
+                        }));
         externalIntegration = externalRegistration;
         await externalRegistration?.start();
         final app = ShirohaQuizApp(
@@ -906,6 +914,7 @@ void runShirohaQuiz({
                   key: ObjectKey(integration),
                   access: integration.controls,
                   close: externalRegistration!.close,
+                  flushExitLogs: AppLogger.flush,
                   child: app,
                 ),
         );

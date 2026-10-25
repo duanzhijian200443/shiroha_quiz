@@ -523,6 +523,13 @@ started work settles in its owning service; disconnect never proves rollback.
 
 ### Named Pipe fallback
 
+The separately authorized App-owned Codex relay in
+[MCP §17.12](mcp-vnext-contract.md#1712-app-owned-local-relay-authorized-development-integration)
+adds a same-user local forwarding hop before the original Bridge. It is not the
+App/Bridge secure-transport fallback below and cannot replace P15/mTLS,
+protected-object or admission checks. Its local OS peer checks are not A0–A12
+acceptance. The existing freeze and real protected-operation gates remain in force.
+
 TCP/mTLS stays blocked if required crypto/storage, Discovery integrity, bounded
 TLS admission, credential validation or release/AOT behavior cannot be proved
 within the frozen model. Report the specific failing A/M property and static or

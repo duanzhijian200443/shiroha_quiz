@@ -135,6 +135,41 @@ W0 proposal, approval, scope, replay and typed-write contract.
 
 ## Agent refactor frozen target route
 
+### Development-instance Codex integration priority (2026-10-25)
+
+Prioritize the user's ordinary, normally signed-in Codex connecting to the
+existing Windows Shiroha development instance. Development question data may
+be used for this authorized integration; that permission does not authorize
+database deletion, access to account secrets or unrelated files. This scheduling
+amendment supersedes the requirement to make every functional check a separate
+isolated App/database/model experiment below. Reuse the existing protocol,
+business, process and recovery evidence; retain historical failures as failures.
+
+First connect the existing exactly-six READ_ONLY MCP v0 entry to the same
+development database as the normal Debug/Profile App. Use project-local MCP
+configuration and the user's existing Codex login. Verify one actual model tool
+call against an App-visible question and report the two entrypoints' data scope.
+Do not replace this usage check with direct RPC, scripted Responses or another
+model service. Working read-only access is a separate deliverable, not vNext
+acceptance. Existing v0 functionality needs no duplicate implementation.
+
+For vNext, focus on the observed official-client forced termination/competing
+Discovery, the missing admitted normal App/Bridge composition, and the original
+STAGE confirmation plus first-party Proposal Review flow. A change to client
+support, process custody/recovery or transport requires a specific proposal and
+separate authorization; do not bypass selection or promote the isolated patch.
+Autonomous model usage is acceptance of the normal integration, not a new
+independent model-test project. Independent patched-client login, additional
+model APIs and further layers of Fake validation are not the current mainline.
+
+HOST_STABILITY_HALT remains ACTIVE, TRANSPORT BLOCKED and AR-R6A NOT_ACCEPTED.
+Real protected operations and production activation receive no new authority.
+Pairing/authentication, finite enablement, exact-Session STAGE confirmation,
+App-only Review/COMMIT and original SubmissionKey recovery remain mandatory.
+#327 stays outside this work with its existing failure and repair budget.
+The [development connection procedure](mcp-vnext-windows-codex.md#normal-codex-read-only-development-connection)
+distinguishes configuration readiness, actual Codex reading and vNext admission.
+
 ### Windows MCP first scheduling amendment (2026-10-19)
 
 **Prioritize Windows desktop MCP functional development; defer Windows

@@ -1,0 +1,297 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:ffi';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:path/path.dart' as p;
+
+/// The local hop has no Application identity or credential authority.
+final class LocalRelayException implements Exception {
+  const LocalRelayException(
+      {this.unsettled = false, this.independentAppRequired = false});
+  final bool unsettled;
+  final bool independentAppRequired;
+  @override
+  String toString() => 'Local relay unavailable';
+}
+
+/// Bounded framing shared by the two local transport endpoints.
+final class LocalRelayFrame {
+  static const maxBytes = 2 * 1024 * 1024;
+  static void _checkTree(Map<String, Object?> value) {
+    // Bound traversal before allocating the encoded body, including cycles.
+    var units = 0;
+    void visit(Object? node, int depth) {
+      if (depth > 32 || ++units > maxBytes) throw const LocalRelayException();
+      if (node is String) {
+        units += node.length * 6 + 2;
+      } else if (node is Map<String, Object?>) {
+        for (final entry in node.entries) {
+          visit(entry.key, depth + 1);
+          visit(entry.value, depth + 1);
+        }
+      } else if (node is List) {
+        for (final item in node) {
+          visit(item, depth + 1);
+        }
+      } else if (node != null && node is! num && node is! bool) {
+        throw const LocalRelayException();
+      }
+      if (units > maxBytes) throw const LocalRelayException();
+    }
+
+    visit(value, 0);
+  }
+
+  static Uint8List encode(Map<String, Object?> value) {
+    _checkTree(value);
+    final body = utf8.encode(jsonEncode(value));
+    if (body.isEmpty || body.length > maxBytes) {
+      throw const LocalRelayException();
+    }
+    final result = Uint8List(body.length + 4);
+    ByteData.sublistView(result).setUint32(0, body.length, Endian.little);
+    result.setRange(4, result.length, body);
+    return result;
+  }
+
+  static Map<String, Object?> decode(Uint8List bytes) {
+    if (bytes.isEmpty || bytes.length > maxBytes) {
+      throw const LocalRelayException();
+    }
+    try {
+      final value = jsonDecode(utf8.decode(bytes));
+      if (value is! Map<String, dynamic>) throw const LocalRelayException();
+      _checkTree(value);
+      return value;
+    } catch (_) {
+      throw const LocalRelayException();
+    }
+  }
+}
+
+/// One nonblocking, kernel-authenticated pipe. The native helper accepts only
+/// fixed adjacent App/adapter executable peers in the same user/session.
+final class WindowsLocalRelay {
+  WindowsLocalRelay._(this._native, this._id, this._server);
+  static WindowsLocalRelay openApp() => _open(true);
+  static WindowsLocalRelay openAdapter() => _open(false);
+
+  static WindowsLocalRelay _open(bool server) {
+    final native = _RelayNative();
+    try {
+      final result = native.open(server ? 0 : 1, native.id);
+      if (result != 0 || native.id.value == 0) {
+        throw LocalRelayException(independentAppRequired: result == 6);
+      }
+      return WindowsLocalRelay._(native, native.id.value, server);
+    } catch (error) {
+      native.dispose();
+      if (error is LocalRelayException) rethrow;
+      throw const LocalRelayException();
+    }
+  }
+
+  final _RelayNative _native;
+  final int _id;
+  final bool _server;
+  bool _closed = false, _reading = false, _writing = false;
+  bool _accepted = false;
+  Future<void>? _closing;
+  Timer? _monitor;
+  final _lost = Completer<void>();
+  Future<void> get disconnected => _lost.future;
+  bool get isCurrent => !_closed && _accepted;
+
+  void _observe() {
+    _accepted = true;
+    _monitor = Timer.periodic(const Duration(milliseconds: 20), (_) {
+      if (!_closed && _native.state(_id) != 0) _noticeLost();
+    });
+  }
+
+  void _noticeLost() {
+    _accepted = false;
+    if (!_lost.isCompleted) _lost.complete();
+  }
+
+  Future<void> accept() async {
+    if (_closed || _accepted) throw const LocalRelayException();
+    if (!_server) {
+      _observe();
+      return;
+    }
+    while (!_closed) {
+      final result = _native.accept(_id);
+      if (result == 0) {
+        _observe();
+        return;
+      }
+      if (result != 1) throw const LocalRelayException();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    throw const LocalRelayException();
+  }
+
+  Future<Map<String, Object?>> receive(Duration deadline) async {
+    if (!isCurrent || _reading) throw const LocalRelayException();
+    _reading = true;
+    final watch = Stopwatch()..start();
+    final header = Uint8List(4);
+    Uint8List? body;
+    var used = 0;
+    try {
+      while (isCurrent && watch.elapsed < deadline) {
+        final destination = body ?? header;
+        final wanted = destination.length - used;
+        final result = _native.read(
+            _id,
+            _native.buffer,
+            wanted < _RelayNative.capacity ? wanted : _RelayNative.capacity,
+            _native.count);
+        if (result == 1) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+          continue;
+        }
+        if (result != 0) throw const LocalRelayException();
+        final length = _native.count.value;
+        if (length < 1 || length > wanted || length > _RelayNative.capacity) {
+          throw const LocalRelayException();
+        }
+        destination.setRange(
+            used, used + length, _native.buffer.asTypedList(length));
+        used += length;
+        if (used != destination.length) continue;
+        if (body != null) return LocalRelayFrame.decode(body);
+        final size = ByteData.sublistView(header).getUint32(0, Endian.little);
+        if (size == 0 || size > LocalRelayFrame.maxBytes) {
+          throw const LocalRelayException();
+        }
+        body = Uint8List(size);
+        used = 0;
+      }
+      throw const LocalRelayException();
+    } finally {
+      _reading = false;
+    }
+  }
+
+  Future<void> send(Map<String, Object?> message, Duration deadline) async {
+    if (!isCurrent || _writing) throw const LocalRelayException();
+    _writing = true;
+    try {
+      final frame = LocalRelayFrame.encode(message);
+      final watch = Stopwatch()..start();
+      var offset = 0;
+      while (isCurrent && watch.elapsed < deadline && offset < frame.length) {
+        final remaining = frame.length - offset;
+        final size = remaining < _RelayNative.capacity
+            ? remaining
+            : _RelayNative.capacity;
+        _native.writeBuffer.asTypedList(size).setRange(0, size, frame, offset);
+        final result =
+            _native.write(_id, _native.writeBuffer, size, _native.writeCount);
+        if (result == 1) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+          continue;
+        }
+        if (result != 0) throw const LocalRelayException();
+        final count = _native.writeCount.value;
+        if (count < 1 || count > size) throw const LocalRelayException();
+        offset += count;
+      }
+      if (offset != frame.length) throw const LocalRelayException();
+    } finally {
+      _writing = false;
+    }
+  }
+
+  Future<void> close() {
+    _closed = true;
+    _monitor?.cancel();
+    _noticeLost();
+    return _closing ??= () async {
+      // Every native I/O call is nonblocking and completes synchronously. Join
+      // Dart waiters before freeing their buffers; failure never reopens a pipe.
+      while (_reading || _writing) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      if (_native.close(_id) != 0) {
+        throw const LocalRelayException(unsettled: true);
+      }
+      _native.dispose();
+    }();
+  }
+}
+
+final class _RelayNative {
+  _RelayNative() {
+    if (!Platform.isWindows) throw const LocalRelayException();
+    try {
+      final library = DynamicLibrary.open(p.join(
+          p.dirname(Platform.resolvedExecutable), 'shiroha_relay_native.dll'));
+      final version = library.lookupFunction<Uint32 Function(), int Function()>(
+          'shiroha_relay_version');
+      if (version() != 1) throw const LocalRelayException();
+      _healthy = library.lookupFunction<Uint32 Function(), int Function()>(
+          'shiroha_relay_healthy');
+      _allocate = library.lookupFunction<Pointer<Uint8> Function(Uint32),
+          Pointer<Uint8> Function(int)>('shiroha_relay_allocate');
+      _free = library.lookupFunction<Void Function(Pointer<Uint8>),
+          void Function(Pointer<Uint8>)>('shiroha_relay_free');
+      open = library.lookupFunction<Int32 Function(Uint32, Pointer<Uint64>),
+          int Function(int, Pointer<Uint64>)>('shiroha_relay_open');
+      accept =
+          library.lookupFunction<Int32 Function(Uint64), int Function(int)>(
+              'shiroha_relay_accept');
+      state = library.lookupFunction<Int32 Function(Uint64), int Function(int)>(
+          'shiroha_relay_state');
+      close = library.lookupFunction<Int32 Function(Uint64), int Function(int)>(
+          'shiroha_relay_close');
+      read = library.lookupFunction<
+          Int32 Function(Uint64, Pointer<Uint8>, Uint32, Pointer<Uint32>),
+          int Function(
+              int, Pointer<Uint8>, int, Pointer<Uint32>)>('shiroha_relay_read');
+      write = library.lookupFunction<
+          Int32 Function(Uint64, Pointer<Uint8>, Uint32, Pointer<Uint32>),
+          int Function(int, Pointer<Uint8>, int,
+              Pointer<Uint32>)>('shiroha_relay_write');
+      buffer = _newBuffer(capacity);
+      writeBuffer = _newBuffer(capacity);
+      id = _newBuffer(8).cast<Uint64>();
+      count = _newBuffer(4).cast<Uint32>();
+      writeCount = _newBuffer(4).cast<Uint32>();
+    } catch (_) {
+      dispose();
+      throw const LocalRelayException();
+    }
+  }
+  static const capacity = 65536;
+  final _buffers = <Pointer<Uint8>>[];
+  late final Pointer<Uint8> Function(int) _allocate;
+  late final void Function(Pointer<Uint8>) _free;
+  late final int Function() _healthy;
+  late final int Function(int, Pointer<Uint64>) open;
+  late final int Function(int) accept, state, close;
+  late final int Function(int, Pointer<Uint8>, int, Pointer<Uint32>) read,
+      write;
+  late final Pointer<Uint8> buffer, writeBuffer;
+  late final Pointer<Uint64> id;
+  late final Pointer<Uint32> count, writeCount;
+  Pointer<Uint8> _newBuffer(int length) {
+    final result = _allocate(length);
+    if (result == nullptr) throw const LocalRelayException();
+    _buffers.add(result);
+    return result;
+  }
+
+  void dispose() {
+    if (_buffers.isEmpty) return;
+    for (final buffer in _buffers.reversed) {
+      _free(buffer);
+    }
+    _buffers.clear();
+    if (_healthy() != 1) throw const LocalRelayException(unsettled: true);
+  }
+}

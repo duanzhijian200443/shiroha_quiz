@@ -6,11 +6,163 @@ pinned EOF patch remains an isolated test artifact. Earlier successful protocol,
 unavailable-AOT or mailbox tests below do not establish original business-Bridge
 process settlement or promote any client into product support.
 
-This guide covers isolated stdio compatibility, synthetic File READ and STAGE
+The current development priority is the ordinary Codex client reading the normal
+Shiroha development instance through existing MCP v0. That separate read-only
+profile does not use the vNext client-selection or protected Bootstrap described
+above. The retained sections also cover isolated stdio compatibility, synthetic File READ and STAGE
 with an installed Windows Codex client. [MCP contract §7](../product/agent-refactor/mcp-vnext-contract.md#7-bounded-stage-stdio-source-composition)
 owns profile v2, seven tools and the closed production admission boundary.
 
+## Normal Codex read-only development connection
+
+Reuse `lib/mcp/study_mcp_composition_root.dart` unchanged. It selects the existing
+`explicitReadOnly` database runtime and exposes exactly the six v0 tools. It
+requires an existing absolute database path; it cannot create/migrate a database,
+stage proposals or commit questions. No vNext credentials or login are needed
+for this local read-only profile. Codex continues using its normal account.
+
+Start the normal Windows Debug App (`lib/main.dart`) and use its database from
+the [data-path authority](data-path-authority.md). For the current Windows
+runner metadata (empty CompanyName, ProductName `Shiroha Quiz`), Debug/Profile
+resolves to:
+
+```text
+%APPDATA%\Shiroha Quiz\Shiroha\development\database\shiroha_core_v1.db
+```
+
+This is not the Release `production` root, a repository-local legacy database,
+or the smoke App's temporary database. Do not scan for another database or copy
+one when the selected file is missing. Resolve `%APPDATA%` to an absolute path
+before registration; TOML argument strings do not expand shell variables.
+
+In this trusted project's `.codex/config.toml`, add only the following server,
+substituting local absolute paths. Preserve any other entries. The machine-local
+file is Git-ignored because it records local SDK/project/data paths; do not
+commit it, copy account settings or edit another MCP service.
+
+```toml
+[mcp_servers.shiroha_study]
+enabled = true
+command = 'C:\path\to\flutter\bin\cache\dart-sdk\bin\dart.exe'
+args = [
+  '--packages=C:\path\to\shiroha_quiz\.dart_tool\package_config.json',
+  'C:\path\to\shiroha_quiz\lib\mcp\study_mcp_composition_root.dart',
+  '--database-path',
+  'C:\Users\you\AppData\Roaming\Shiroha Quiz\Shiroha\development\database\shiroha_core_v1.db',
+]
+cwd = 'C:\path\to\shiroha_quiz'
+startup_timeout_sec = 30
+tool_timeout_sec = 60
+enabled_tools = ['list_question_banks', 'get_study_overview', 'get_due_review_summary', 'search_questions', 'get_question_detail', 'get_weak_questions']
+```
+
+This direct VM invocation uses the existing package configuration; it does not
+run `pub get`, install dependencies, use a shell wrapper or place build output
+on MCP stdout. If the SDK or package configuration is absent, resolve that
+specific setup problem instead of silently installing or switching databases.
+
+[Official Codex MCP configuration](https://learn.chatgpt.com/docs/extend/mcp)
+supports trusted project-local registration. In Desktop, open Settings → MCP
+servers and restart `shiroha_study` if shown; `/mcp` displays connected servers.
+If the project configuration has not been loaded, fully quit and reopen the
+desktop client, then return to this trusted local project and conversation.
+Run `codex mcp get shiroha_study --json` from the project with the same client
+backend to inspect this one registration; it must show `enabled: true` and the
+intended command/database arguments. This command checks configuration, not
+live model access. Keep `enabled = true` explicit: an effective disabled entry
+cannot be repaired by repeatedly restarting it. After reloading, send a new
+ordinary message so the conversation can receive the refreshed tool catalog.
+Do not create a duplicate global registration. An agent without a live-client
+reload control hands this step to the user; a separate app-server or direct
+JSON-RPC probe is not evidence that the user's session acquired the tools.
+
+For actual-use acceptance, select one existing question in the App. Ask the
+normal Codex session to find it by bank and a short stem keyword using
+`shiroha_study`, then explain it from the returned detail. Check the bank, stem,
+options and answer against the App; retain actual tool names and success/error
+results, without storing full question bodies in diagnostic evidence. Inspect
+the model's genuine MCP events, not a predetermined sequence supplied by a
+driver. Record absence of tools or tool errors as incomplete/failed usage.
+
+Scope matters: v0 lists all banks in the selected database and searches one
+explicitly named bank. It does not inherit the App's current training-content
+selection, Project selection or vNext Profile/Grant. The Today dashboard may
+aggregate only selected training members; compare a particular bank/question,
+not its dashboard total with a global MCP count. Safe typed/legacy projection
+and corrupt-sidecar refusal remain the v0 contract.
+
+For errors, check only this server's command, existing package configuration
+and selected database path. `invalidPath` means the explicit file is missing or
+invalid; a schema mismatch must be resolved through the normal App's existing
+migration flow, never a migration in MCP. A Shiroha `temporarily_unavailable`,
+`data_corrupt` or other tool error is not a successful lookup. After App Restore,
+close/restart the v0 connection before reading the replacement database; v0 has
+no App lifetime/Restore attachment and does not promise hot database replacement.
+
+Report three distinct outcomes: ordinary-client READ availability, vNext
+STAGE/Review availability, and their remaining conditions. Direct protocol
+checks can diagnose startup and original-process EOF/exit, but do not establish
+model selection, Desktop reconnection or protected Bridge cleanup. Working v0
+does not enable vNext, change its supported-client set or close #327.
+
 ## Launch and configuration
+
+The current App-owned mode is governed by
+[§17.12](../product/agent-refactor/mcp-vnext-contract.md#1712-app-owned-local-relay-authorized-development-integration).
+Build the normal App, then its fixed-adjacent development adapters:
+
+```powershell
+flutter build windows --debug --no-pub -t lib/main.dart
+pwsh -NoProfile -File tool/external/build_codex_relay.ps1 `
+  -DartExecutable '<absolute Flutter SDK>/bin/cache/dart-sdk/bin/dart.exe' `
+  -AppDirectory '<repository>/build/windows/x64/runner/Debug'
+```
+
+Start that normal App directly from the system desktop Explorer. This bounded mode verifies
+the original Explorer parent handle, creation time, same user/session and opened
+system executable identity; CLI/IDE/agent launches refuse local registration.
+An arbitrary inherited Job does not establish Codex ownership and is no longer
+used as that proxy. The App registers a current-user/session local pipe and
+verifies the original adapter process against the fixed adjacent
+`shiroha_codex.exe`; the adapter verifies the original App against adjacent
+`shiroha_quiz.exe`. File identities and retained process handles are checked;
+the pipe name itself is not authentication. No account token or shared plaintext
+secret is configured. Missing helper, unverified/dead launch parent, wrong/dead peer or
+occupied endpoint leaves the relay unavailable. This same-user local hop does
+not replace P15 or the existing App/Bridge mTLS channel.
+
+Register only the adapter in this project's local configuration when exercising
+the new mode; retain the working `shiroha_study` entry independently:
+
+```toml
+[mcp_servers.shiroha_vnext]
+enabled = true
+command = 'C:\path\to\shiroha_quiz\build\windows\x64\runner\Debug\shiroha_codex.exe'
+startup_timeout_sec = 30
+tool_timeout_sec = 180
+```
+
+Discovery serves the seven existing schemas without opening a pipe or launching
+a Bridge. On a business call, the normal App owns the original adjacent Bridge
+and its sole output consumer. The current formal Bridge still returns
+`unavailable`: protected acquisition, independent trust and admitted runtime
+wiring have not been enabled. That is an expected frozen-boundary refusal, not
+successful READ/STAGE or production readiness. Never insert a Fake service,
+change an admission callback to success or add a digest allowlist to turn this
+into a business result. Existing v0 remains the working development READ path.
+
+Retain separate observations for adapter interruption, original Bridge exit and
+stream drain. The App must finish original child custody before allowing another
+connection or database replacement. Unknown/failed cleanup blocks replacement;
+no PID-only success, forced cleanup, automatic STAGE retry or inherited approval
+is permitted. Cancelable App exit waits for original closure and then the existing
+log queue before accepting exit. Missing final evidence remains a failed check,
+including when the App and Bridge exit codes are zero. Programmatic normal window
+close may exercise the same handler; no forced termination substitutes for it.
+An idle local connection expires after ten minutes, which closes
+custody; this is not a mechanism for declaring an unsettled Owner closed.
+
+### Retained Direct/Hosted qualification configuration
 
 Use the actual `codex.exe`, rather than the npm `codex.ps1`/`codex.cmd` wrapper,
 for subprocess tests. The npm Windows package contains it beneath
@@ -1531,8 +1683,10 @@ Unchanged #340/#341 official-client qualification, Direct/Hosted lifecycle,
 formal AOT/default refusal and Rust EOF-patch failure-custody matrices are reused
 as merged evidence, not rerun or relabeled as model-turn acceptance. This new
 model group exercises **Direct** registration only; it makes no additional Hosted
-model-turn claim. The existing formal AOT still has no admitted Bootstrap and
-normal App entry still uses unavailable registration.
+model-turn claim. For that isolated-model-turn slice, the formal AOT had no
+admitted Bootstrap and the normal App used unavailable registration. The later
+App-owned relay adds local custody as described above; its formal Bridge still
+has no admitted business Bootstrap.
 
 The three conclusions remain separate:
 

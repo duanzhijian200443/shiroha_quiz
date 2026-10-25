@@ -491,8 +491,16 @@ evidence grants no AR-R6A/AR-R6B production activation or external COMMIT.
 
 The first-party App integration in `composition/mcp_vnext_app_integration.dart`
 captures the existing production authorization, Proposal, local Review and
-F1/RAG owners. Startup installs only its dormant local controls, not P0/P8,
-credentials, an MCP server or transport. An explicitly supplied, admitted trusted
+F1/RAG owners. Startup installs its dormant local controls and the §17.12
+App-owned local relay; it installs no P0/P8, protected credentials or TLS Host.
+The local relay authenticates same-user/session fixed-adjacent executable peers
+and owns the original Bridge process outside the Codex Job. Discovery stays in
+the adapter without a business Owner. The formal Bridge still refuses business
+while security admission is frozen; local forwarding grants no Application
+identity, permission or security acceptance. App exit/B0 join the original child
+settlement even after relay disconnection. Cancelable App exit also joins queued
+lifecycle-log writes after original close; failed custody cannot be replaced by
+successful logging. An explicitly supplied, admitted trusted
 composition may attach the existing P0 authority through the retained App Port.
 Application owns Profile selection, fresh authentication, finite enablement and
 explicit P3 target confirmation; UI supplies no credential or READ-to-STAGE

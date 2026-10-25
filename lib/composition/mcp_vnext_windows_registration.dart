@@ -10,6 +10,7 @@ import '../data/external/windows_bridge_process.dart';
 import '../data/external/windows_codex_client.dart';
 import '../data/external/windows_tls_transport.dart';
 import 'mcp_vnext_app_integration.dart';
+import 'mcp_vnext_app_owned_relay.dart';
 import 'mcp_vnext_windows_acquisition.dart';
 import 'mcp_vnext_windows_startup.dart';
 
@@ -18,6 +19,12 @@ import 'mcp_vnext_windows_startup.dart';
 /// Enable, approve a target or reconnect; those remain explicit App actions.
 final class McpVnextWindowsAppRegistration {
   McpVnextWindowsAppRegistration.unavailable(this.integration);
+
+  /// Normal App owns the original adjacent Bridge outside the Codex Job.
+  /// The local hop grants no protected Bootstrap/business admission.
+  McpVnextWindowsAppRegistration.appOwnedRelay(this.integration,
+      {void Function(String, int)? onRelayEvent})
+      : _relay = McpVnextAppOwnedRelay(onEvent: onRelayEvent);
 
   McpVnextWindowsAppRegistration.directClient({
     required this.integration,
@@ -69,6 +76,8 @@ final class McpVnextWindowsAppRegistration {
   }
 
   final McpVnextAppIntegration integration;
+  McpVnextAppOwnedRelay? _relay;
+  bool get localRelayAvailable => _relay?.available == true;
   McpVnextWindowsAppStartup? _startup;
   McpVnextWindowsProtectedAcquirer? _acquirer;
   Future<void>? _starting, _closing;
@@ -117,6 +126,7 @@ final class McpVnextWindowsAppRegistration {
     }
     return _starting = () async {
       try {
+        _relay?.start();
         await _startup?.start();
       } catch (_) {
         await close();
@@ -130,6 +140,7 @@ final class McpVnextWindowsAppRegistration {
     return _closing ??= () async {
       try {
         await Future.wait([
+          if (_relay != null) _relay!.close(),
           if (_startup != null) _startup!.close(),
           integration.close(),
         ]);

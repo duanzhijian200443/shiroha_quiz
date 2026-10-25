@@ -650,16 +650,20 @@ non-empty strings, IANA membership, cursor decoding, window ordering, the
   existing sqflite runtime.
 - Database infrastructure provides a generic explicit read-only profile. It
   accepts only an existing absolute path, canonicalizes it, opens it read-only,
-  and requires the current v19 `user_version`. It never creates, migrates, or
-  deletes the selected database.
+  and requires `DatabaseHelper.databaseVersion` (currently v34) as `user_version`.
+  It never creates, migrates, or deletes the selected database.
 - The MCP composition root selects that generic profile from the required
   `--database-path` process argument. Server, Adapter, Application, and Domain
   layers never receive the path.
 - Production acceptance runs the real stdio entrypoint with real
-  `QuestionRepository` and `ReviewRepository` over an isolated synthetic v19
-  file. A Flutter-side production-callback handle remains open while the MCP
+  `QuestionRepository` and `ReviewRepository` over an isolated synthetic
+  current-schema file. A Flutter-side production-callback handle remains open while the MCP
   subprocess reads the same canonical path, proving App-open + MCP-read
   interoperability without user data, network, Provider, OCR, or PDF access.
+  The original M0.1 evidence used v19; later schema evolution does not authorize
+  MCP to migrate or downgrade a selected file. Normal development-instance
+  registration and actual-use checks are described in the
+  [Windows connection guide](mcp-vnext-windows-codex.md#normal-codex-read-only-development-connection).
 
 ## 13. Non-goals
 
