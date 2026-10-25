@@ -677,6 +677,7 @@ verification, production admission and full AR-R6B completion remain open.
 | Codex actual call | Codex sends `tools/call`; the production entry returns `isError: true` and exactly `{profileVersion: 2, data: null, error: unavailable}` in both structured and JSON text content. This is successful protocol handling of a business refusal. |
 | SDK synthetic App workflow | SDK clients use the shared synthetic App to prove modern/legacy stdio STAGE, idempotency, Review, lifecycle and authorization semantics. This evidence alone does not prove installed Codex behavior. |
 | Codex synthetic STAGE | The opt-in installed-client suite uses actual `mcpServer/tool/call` plus the test-only mailbox to reach that same App composition and persisted Proposal/Review lifecycle. Results count only when run against an explicit installed executable; SDK success or skipped cases cannot substitute. |
+| Isolated scripted Codex model turn | The `model turns` group uses actual `thread/start`/`turn/start`, a loopback scripted Responses provider and the original MCP manager/compiled Bridge/App registration. Returned tool outputs are observed in the same turn. It proves orchestration, not autonomous model choice, Desktop interaction or production support. |
 | Codex synthetic File READ | The separate opt-in suite reaches existing P6/F1/RAG/FTS5 through actual Codex calls, explicit file selection and bounded passages, including authorization/source invalidation and cleanup. Only executed cases against the named installed binary establish client evidence. |
 | Codex Bridge v3 | The separate opt-in Bridge suite sends actual installed-client calls through the existing mailbox, single-request Fake TLS Bridge and App P10 v3/P8/P7. It checks fresh authentication/Context binding, six non-STAGE tools, refusal, response loss and cleanup. Bridge STAGE remains zero-send; this supplies no production process/security binding. |
 | Codex Windows App/Bridge functional composition | `windows_app_transport_codex_test.dart` exercises all seven tools through the product App composition, P27 Handoff, owned Host and `McpVnextWindowsBridge` (executed with `codex-cli 0.144.1` and Desktop `codex-cli 0.163.0-alpha.11.1`), including explicit same-Session first-party STAGE confirmation and original-key lifecycle query. Uses the existing test mailbox, Fake TLS and temporary SQLite; Draft #327's short-deadline cancellation compatibility remains BLOCKED. |
@@ -694,7 +695,7 @@ offline evidence; it does not activate that remaining integration. Successful
 authorized file selection/retrieval/passage through installed Codex is covered
 by the separate synthetic File READ fixture above. This closes that isolated
 client-fixture gap only; it supplies no production App/Bridge or approval UI.
-Reference-plugin distribution and model-directed/Desktop-interactive usage are
+Reference-plugin distribution and autonomous model choice/Desktop interaction are
 separate integration scopes, not established by these app-server calls.
 
 The current completion assessment is bounded: the seven-tool business workflow,
@@ -744,7 +745,7 @@ and acceptance work**; callbacks do not prove those operations.
 Draft #327's installed-client short-deadline cancellation compatibility remains
 separately BLOCKED. They must not be reported as security-approval-only blockers. Reference-package
 distribution/Windows executable discovery and supported-version acceptance in
-MCP contract §5/AR-R9 are separate unfinished client-integration scope; model-led
+MCP contract §5/AR-R9 are separate unfinished client-integration scope; autonomous model-led
 and Codex Desktop-interactive use remain unverified. No business reimplementation
 or experiment resumption follows from this assessment.
 
@@ -1424,7 +1425,7 @@ remain delivery gates. Repository/global acceptance is NOT_EVALUATED.
 
 Remaining non-security conditions are a compatible official client (or a separately
 approved supported distribution), accepted product-root consumption of the selected
-client and lifecycle contract, actual Desktop/model-directed workflow acceptance,
+client and lifecycle contract, autonomous model choice/Desktop workflow acceptance,
 and independent Windows verification/review of the delivered integration.
 AR-R9B reference-package/distribution acceptance remains a separate stage.
 The independent #327 short-timeout cancellation issue remains BLOCKED at its
@@ -1432,3 +1433,99 @@ original 4/4 budget. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
 AR-R6A = NOT_ACCEPTED. This work does not replace installed clients, edit global
 configuration, activate production authentication, or run protected credential,
 Pin, Discovery or TLS security experiments.
+
+## Isolated scripted model-turn evidence (2026-10-25)
+
+This extends the merged #341 selection boundary using the **unchanged** isolated
+EOF-first `codex-cli 0.144.1` patch. Its executable SHA-256 was rechecked as
+`fb3e30a2e51cef13697d7e42826fc9a6814aff2ce5c5a53d06d019eb79fdfd24`.
+The source pin/build recipe above still applies. Product support remains empty.
+
+The output source is `test/mcp/fixtures/offline_codex_responses.dart`, a local
+`127.0.0.1` HTTP Responses service with deterministic scripts and no credentials.
+Actual Codex `thread/start`/`turn/start` invokes the original MCP manager. The
+model fixture can only emit advertised function calls and consume original
+returned `function_call_output`; it cannot call Shiroha or replace its results.
+Both App registration and compiled Bridge Bootstrap use the existing selection,
+P27 public handoff, P15/P0/P8/P10 and Proposal/Review owners. Native/TLS security
+uses existing public vectors/Fakes, and SQLite/data are temporary synthetic
+fixtures. The test driver supplies explicit first-party pairing/approval/Review
+actions; it does not claim human Desktop interaction.
+
+The protocol follows the official [app-server lifecycle](https://developers.openai.com/codex/app-server#lifecycle-overview),
+checked through OpenAI Developer Docs MCP. Exact namespace and result formatting
+follow the pinned client's [MCP tool specification](https://github.com/openai/codex/blob/44918ea10c0f99151c6710411b4322c2f5c96bea/codex-rs/core/src/tools/handlers/mcp.rs)
+and [MCP output wrapper](https://github.com/openai/codex/blob/44918ea10c0f99151c6710411b4322c2f5c96bea/codex-rs/core/src/tools/context.rs).
+Only the exact `Wall time: … seconds`/`Output:` prefix is removed before comparing
+structured JSON. No event or result injection is used. `InstalledCodex.call`
+rejects direct `mcpServer/tool/call` in model mode.
+
+```powershell
+$env:SHIROHA_CODEX_EXE = "$PWD/.dart_tool/ct/dev-small/codex.exe"
+flutter test --no-pub --concurrency=1 test/mcp/windows_trusted_bootstrap_test.dart --plain-name 'model turns' -r expanded
+flutter test --no-pub --concurrency=1 test/mcp/windows_app_transport_test.dart --plain-name 'offline Responses evidence guard' -r expanded
+```
+
+The final serial Windows model group passed **6/6**, without selected skips:
+
+| Executed case | Observed result |
+|---|---|
+| READ and approved STAGE | One turn executes target listing, Context creation, seeded question READ, STAGE and original-key lifecycle query. Five original results return to the same turn and match its MCP events. No Proposal before first-party approval; afterward `STAGED`/`pending_review`, one Proposal, zero COMMIT receipts and unchanged formal Question count. Turn `completed`. |
+| Client EOF while STAGE awaits approval | Client closes before turn completion, old approval becomes unusable, zero Proposals, original Bridge exit 0 and cleanup receipts. This is cancellation/cleanup evidence, not a completed business turn. |
+| App registration shutdown while waiting | Original pending request drains, late approval fails, zero Proposals. Tool error reaches a `completed` turn; business failure is retained. |
+| Actual B0 Restore while waiting | Original App shutdown/database replacement executes, late approval fails, current database has zero Proposals. Tool error reaches a `completed` turn. |
+| Connection loss while waiting | Fake raw channel EOF reaches the original Host/Bridge, invalidates pending approval and publishes nothing. Error returns to the same completed turn; STAGE is issued once. |
+| Approved publication, response loss and explicit reconnect | The Fake channel drops original response bytes after publication. Codex receives error but the durable Proposal survives. Fresh client/Session queries original key as `pending_review`; original STAGE count remains one. A distinct new-key request still waits for fresh approval and is rejected without publication. Only subsequent original local Review creates the COMMIT receipt. Both turns complete with their actual success/error results. |
+
+Every business lifetime retains its original Bridge OS handle before client EOF,
+requires exit 0 plus close-entry/Owner-close/entry-settled receipts and rejects
+forced client cleanup. Temporary discovery exits/settles before business; active
+discovery is rejected without another launch. Final App close asserts original
+Fake Owner/ticket release. Safe `MODEL_TURN`, `MODEL_BOUNDARY` and
+`MODEL_RECOVERY` records contain executable digest, tool names/counts, turn status,
+Bridge/Owner cleanup and client exit; raw prompts and business bodies are absent.
+
+The portable evidence guards passed **4/4** after a scoped Flutter test-HTTP
+override correction. Missing, foreign or duplicate call output cannot produce
+the final scripted message. The shared App/Bootstrap/registration/transport
+regression run also passed **92 existing cases**; its initial overall run failed
+only the four new guards because `TestWidgetsFlutterBinding` substituted HTTP 400
+without contacting the loopback service. The four-case rerun is separate evidence,
+not a retroactive PASS for that initial run. The override is scoped to creating
+the local test client; the surrounding binding and assertions remain unchanged.
+
+Other pre-success failures are retained as harness integration evidence: without
+explicit loopback `NO_PROXY`, the turn failed before the fixture received any
+request; afterward it reached the service. The next failures identified the
+pinned namespace schema and its timing-prefixed tool output. Matching those
+source-defined formats closed those failures without bypassing the client.
+The initial Restore assertion used a closed pre-Restore database handle; querying
+the current DatabaseHelper authority closed that test-only failure. These failed
+runs do not prove working model turns. The final six-case run supplies that proof.
+No official-client patch, timeout relaxation or #327 repair was made.
+
+Unchanged #340/#341 official-client qualification, Direct/Hosted lifecycle,
+formal AOT/default refusal and Rust EOF-patch failure-custody matrices are reused
+as merged evidence, not rerun or relabeled as model-turn acceptance. This new
+model group exercises **Direct** registration only; it makes no additional Hosted
+model-turn claim. The existing formal AOT still has no admitted Bootstrap and
+normal App entry still uses unavailable registration.
+
+The three conclusions remain separate:
+
+- **Verified here:** offline scripted model output -> actual Codex turn/MCP ->
+  compiled Bridge -> App/Application -> original result returned to that turn,
+  with first-party STAGE/Review and bounded lifecycle/recovery evidence.
+- **Not verified:** real-model autonomous tool choice and Desktop GUI interaction.
+- **Still unresolved:** official-client graceful business lifecycle, supported
+  distribution/AR-R9B, admitted product registration and real security acceptance.
+
+Verifier requirement is **REQUIRED / CI_COVERAGE_GAP**: standing CI exercises
+deterministic source/fixture/approval checks but cannot establish this Windows
+binary/process/stdio evidence. Independent Windows verification must cover the
+six model cases, original event/result correlation, lost-response no-replay,
+fresh approval and original process/Owner cleanup. Independent semantic review
+and current-target CI are still required. Repository/global acceptance remains
+NOT_EVALUATED. #327 stays independently BLOCKED at its original budget;
+HOST_STABILITY_HALT = ACTIVE, TRANSPORT = BLOCKED and AR-R6A = NOT_ACCEPTED.
+No Trial 1A/G0-L1/L2/I or protected credential/Pin/Discovery/TLS experiment runs.

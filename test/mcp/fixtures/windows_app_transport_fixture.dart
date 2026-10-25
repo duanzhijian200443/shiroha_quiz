@@ -6,6 +6,9 @@ import 'package:shiroha_quiz/application/external/first_party_stage_approval.dar
 import 'package:shiroha_quiz/application/external/first_party_external_credentials.dart';
 import 'package:shiroha_quiz/composition/mcp_vnext_windows_bridge.dart';
 import 'package:shiroha_quiz/composition/mcp_vnext_windows_startup.dart';
+import 'package:shiroha_quiz/composition/mcp_vnext_windows_registration.dart';
+import 'package:shiroha_quiz/data/external/windows_codex_client.dart';
+import 'package:shiroha_quiz/data/external/external_credential_object_codec.dart';
 import 'package:shiroha_quiz/composition/mcp_vnext_windows_acquisition.dart';
 import 'package:shiroha_quiz/data/external/windows_bridge_process.dart'
     show WindowsBridgeProcess;
@@ -53,6 +56,9 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
   late WindowsPairingHandoff handoff;
   late WindowsTlsHost host;
   late McpVnextWindowsAppStartup startup;
+  WindowsCodexClientSelection? registeredClient;
+  McpVnextWindowsAppRegistration? registration;
+  late ExternalInitializationResult publicMaterial;
   late McpVnextWindowsAppDependencies appDependencies;
   late McpVnextWindowsBridgeDependencies bridgeDependencies;
   McpVnextWindowsBridgeStartup? bridgeStartup;
@@ -114,6 +120,7 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
       if (localPlanCreated) plan.dispose();
     }
 
+    final initialMaterial = h.native.service.validatedPublicMaterial();
     if (protectedAcquisition) h.native.owner.close();
     files.s.clock.current = h.native.now;
     final verifier = WindowsPairingVerification.withPrimitives(
@@ -205,12 +212,34 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
             : assemble();
       },
     );
-    port = await startup.start();
+    if (registeredClient case final selected?) {
+      if (!protectedAcquisition || !enroll || appProcessOverride != null) {
+        throw StateError('Registered test composition requires direct custody');
+      }
+      useAcceptedLocalConnection = true;
+      registration = McpVnextWindowsAppRegistration.directClient(
+          integration: integration,
+          acquirer: acquirer(),
+          clientSelection: selected,
+          requireSecurityAdmission: () async {},
+          clock: files.s.clock,
+          readiness:
+              OfflineReadiness(() async => files.s.h.db.rawQuery('SELECT 1')),
+          port: listener.port,
+          listener: listener,
+          enableStageApprovalWait: stage);
+      startup = registration!.startup!;
+      await registration!.start();
+    } else {
+      port = await startup.start();
+    }
     host = startup.host!;
     if (stage) {
       approval = (host.binding as VnextMcpAppComposition).stageApproval!;
     }
-    final material = h.native.service.validatedPublicMaterial();
+    final material = publicMaterial = registeredClient == null
+        ? h.native.service.validatedPublicMaterial()
+        : initialMaterial;
     plan = TlsContextPlan.validate(
         role: TlsPeerRole.server,
         leafDer: material.serverLeafDer!,
@@ -225,27 +254,50 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
       bridge = port!;
       return;
     }
-    final local = handoff.bridge;
-    local.beginEnrollment(
-        displayLabel: 'PUBLIC FIXTURE', clientBuild: 'offline');
-    final id = local.display().submissionId!;
-    await controls.select(files.s.profile.profileId);
-    await controls.requestPairing();
-    await local.inspectAppTrust();
-    expect((await controls.status()).pairingDisplay!.digest,
-        local.display().initialDigest);
-    clientDer = h.bridgeExchange.readChallenge(id)!.clientLeafDer;
-    controlChannel = tls.MemoryTlsChannel(clientDer);
-    await controls.approvePairing();
-    local.confirmInitialAndPublishProof(
-        comparedDigest: local.display().initialDigest!);
-    await controls.completePairing();
-    final completed = (await controls.status()).pairingDisplay!;
-    await local.inspectAppCompletion();
-    expect(completed.digest, local.display().completionDigest);
-    local.confirmCompletionAndSave(
-        comparedRevision: completed.revision!,
-        comparedDigest: completed.digest!);
+    if (registration != null) {
+      final local = WindowsBridgePublicPairing(owner: h.bridge);
+      local.beginEnrollment(
+          displayLabel: 'PUBLIC FIXTURE', clientBuild: 'offline');
+      await controls.select(files.s.profile.profileId);
+      await controls.requestPairing(
+          submissionId: local.display().submissionId!);
+      await local.importTrust(await controls.exportPairingTrust());
+      final displayed = (await controls.status()).pairingDisplay!;
+      expect(local.display().initialDigest, displayed.digest);
+      await controls.approvePairing();
+      local.confirmInitial(displayed.digest!);
+      await controls.completePairing();
+      await local.importCompletion(await controls.exportPairingCompletion());
+      final completed = (await controls.status()).pairingDisplay!;
+      expect(local.display().completionDigest, completed.digest);
+      local.confirmCompletion(completed.digest!, completed.revision!);
+      clientDer =
+          (h.bridgeStore.read(4)! as ExternalBridgeClient).clientLeafDer;
+      controlChannel = tls.MemoryTlsChannel(clientDer);
+      await local.close();
+    } else {
+      final local = handoff.bridge;
+      local.beginEnrollment(
+          displayLabel: 'PUBLIC FIXTURE', clientBuild: 'offline');
+      final id = local.display().submissionId!;
+      await controls.select(files.s.profile.profileId);
+      await controls.requestPairing();
+      await local.inspectAppTrust();
+      expect((await controls.status()).pairingDisplay!.digest,
+          local.display().initialDigest);
+      clientDer = h.bridgeExchange.readChallenge(id)!.clientLeafDer;
+      controlChannel = tls.MemoryTlsChannel(clientDer);
+      await controls.approvePairing();
+      local.confirmInitialAndPublishProof(
+          comparedDigest: local.display().initialDigest!);
+      await controls.completePairing();
+      final completed = (await controls.status()).pairingDisplay!;
+      await local.inspectAppCompletion();
+      expect(completed.digest, local.display().completionDigest);
+      local.confirmCompletionAndSave(
+          comparedRevision: completed.revision!,
+          comparedDigest: completed.digest!);
+    }
     final enabling = controls.enable(const Duration(minutes: 5));
     if (useAcceptedLocalConnection) {
       await pumpEventQueue(times: 20);
@@ -257,7 +309,7 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
     if (productBridge) {
       final process = bridgeProcessOverride ?? bridgeProcess;
       if (protectedAcquisition) {
-        await handoff.bridge.close();
+        if (registration == null) await handoff.bridge.close();
         h.bridgeOwner.close();
       }
       McpVnextWindowsBridgeDependencies assembleBridge(
@@ -367,6 +419,7 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
   @override
   Future<void> close() async {
     await bridge.close();
+    await registration?.close();
     await startup.close();
     await super.close();
     plan.dispose();

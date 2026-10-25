@@ -216,7 +216,7 @@ acceptance is preserved without manufacturing missing older approval markers.
 | Windows launch/connection/disconnection/errors and App controls | Installed-client fixture accepted in #312-#314; #315 supplies dormant controls. This smoke adds desktop display/refusal and user-attested restart/bank behavior; authenticated production App/Bridge use remains unproved. |
 | Ordinary Windows subprocess lifecycle | MCP §17.1 records an actual 12/12 Executor Windows PASS over temporary Dart children, with EOF/exit/raw streams, creation cancellation, repeated close and Fake Owner/App database-barrier settlement. Fake Process PASS remains separate; formal Bridge AOT/Loader and real credential/TLS/production cross-process runtime remain UNVERIFIED. |
 | Remaining blockers are exclusively production admission/security | **Not satisfied.** MCP §§10–16 and external boundary §8 supply inactive pairing/handoff, a bounded P9 client, v3 App-owned READ/File/original-key binding, explicit source-only same-Session first-party STAGE waiting (default off) and inactive App/Bridge process-boundary functional composition (`McpVnextWindowsTransport` / `McpVnextWindowsBridge`) with a dormant trusted startup/credential handoff root and process custody interfaces (MCP section 16). Actual protected credential acquisition, real OS process bootstrap/transfer, admitted runtime wiring and Draft #327's short-deadline cancellation compatibility remain product/compatibility blockers alongside formal admission. |
-| Separate reference-client scope | MCP §5/AR-R9 reference-package distribution, Windows executable discovery/supported-version acceptance remain unfinished; model-directed/Codex Desktop-interactive use remains unverified. |
+| Separate reference-client scope | MCP §17.11 proves isolated Codex turn orchestration with scripted offline Responses output. Autonomous model choice and Desktop interaction remain unverified; MCP §5/AR-R9 reference-package distribution and supported-version acceptance remain unfinished. |
 | Admission-only remainder | Formal Windows credential/storage/isolation/transport/lifecycle and AR-R6A/AR-R6B production exposure acceptance remain pending independently of implementation. |
 
 The overall Windows completion condition therefore remains open. No Trial 1A or
@@ -362,8 +362,12 @@ explicit admitted production-root consumption and security admission remain open
 Actual Windows execution of protected acquisition, production OS process bootstrap/transfer,
 admitted App/Bridge channels and Draft #327's short-deadline cancellation
 compatibility remain open and require further integration/acceptance. These fixtures and the App/Bridge source
-slices do not establish reference-plugin distribution or
-model-directed/Desktop-interactive usage.
+slices do not establish reference-plugin distribution or autonomous
+model-selected/Desktop-interactive usage. MCP §17.11 separately adds actual
+thread/turn orchestration over the original MCP manager, compiled Bootstrap and
+App registration with offline scripted Responses output. Its Windows READ/STAGE,
+first-party approval/Review, original-key recovery and turn-lifetime evidence
+does not promote the validation-only client or supply production admission.
 Independent Windows verification remains necessary for the exact candidate.
 These functional/integration gaps are distinct from frozen production
 credential/storage/isolation/transport acceptance, AR-R6A/AR-R6B admission and

@@ -38,6 +38,15 @@ settle before business and cannot create a competing live Owner. This is not a
 fix or supported release of the installed official clients. The Windows guide
 records actual candidate/Direct/Hosted evidence and remaining functional gaps.
 
+[Isolated model turns](mcp-vnext-contract.md#1711-isolated-codex-model-turn-orchestration)
+now exercise actual `thread/start`/`turn/start`, original MCP calls and returned
+App/Application results with the pinned patch and compiled Bridge. The Responses
+output is deterministic offline scripting, not autonomous model selection.
+Same-Session STAGE approval, pending Review, lost-response/original-key recovery
+and model-turn shutdown boundaries have bounded Windows evidence. Desktop GUI,
+official-client lifecycle, product registration and security admission remain
+separate open scope; the product-supported client set stays empty.
+
 The bounded lifecycle source extension uses MCP profile v2 and an independent
 READ/Proposal-metadata path over that same Proposal owner. It supplies persisted
 pending/rejected/committed status and safe counts by original key, including

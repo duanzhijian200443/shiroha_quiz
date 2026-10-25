@@ -20,6 +20,7 @@ import '../application/generated_question/generated_test_support.dart';
 import '../application/study_query/study_query_test_support.dart'
     show insertLegacyQuestion;
 import 'fixtures/codex_app_server_support.dart';
+import 'fixtures/offline_codex_responses.dart';
 import 'fixtures/windows_app_transport_fixture.dart';
 import 'fixtures/windows_process_channel.dart';
 import 'fixtures/settled_test_directory.dart';
@@ -82,6 +83,8 @@ final class _RawLink {
   final channels = <ProcessTestChannel>[];
   final seen = <String>{};
   bool stopped = false;
+  bool dropNextResponse = false;
+  int droppedResponses = 0;
   late Future<void> running;
   void start() => running = _run();
   Future<void> _run() async {
@@ -100,7 +103,13 @@ final class _RawLink {
           }
           final number = int.parse(name.substring(8));
           final channel = ProcessTestChannel(
-              session, 'server-$number', 'client-$number', app.clientDer!);
+              session, 'server-$number', 'client-$number', app.clientDer!,
+              dropWrite: () {
+            if (!dropNextResponse) return false;
+            dropNextResponse = false;
+            droppedResponses++;
+            return true;
+          });
           channels.add(channel);
           if (app.host.phase == WindowsTlsHostPhase.ready) {
             app.listener.controller.add(ProcessTestRawPeer(channel));
@@ -191,6 +200,116 @@ Future<void> _restore(WindowsAppTransportFixture app) async {
   await backup.commitPreparedRestore();
 }
 
+/// Start the selected original MCP manager only after discovery has settled.
+Future<({InstalledCodex client, WindowsCodexClientSelection selection})>
+    _modelClient(String codex, String binary, Directory root,
+        OfflineCodexResponses model) async {
+  final home = await root.createTemp('model-home-');
+  final client = InstalledCodex(codex, Directory.current.path, home);
+  final selection = await WindowsCodexClientSelection.inspect(
+      executable: WindowsCodexExecutableFile(codex),
+      use: WindowsCodexClientUse.isolatedValidation,
+      mode: WindowsCodexConnectionMode.direct);
+  await client.configure(
+      command: binary,
+      commandArguments: [root.path],
+      responsesBase: model.base);
+  await client.start(createThread: false);
+  try {
+    final hold = File(p.join(root.path, 'observe-discovery'));
+    await hold.writeAsString('observe-original');
+    final seen =
+        root.listSync().whereType<Directory>().map((d) => d.path).toSet();
+    _ExitObservation? observer;
+    Directory? discovery;
+    await selection.discoverBeforeBusiness(discover: () async {
+      final inventory = client.inventory();
+      await _waitFor(() {
+        final fresh = root.listSync().whereType<Directory>().where((d) =>
+            !seen.contains(d.path) &&
+            p.basename(d.path).startsWith('session-') &&
+            File(p.join(d.path, 'ready')).existsSync());
+        if (fresh.isEmpty) return false;
+        discovery = fresh.single;
+        return true;
+      }, 'model discovery original process');
+      observer = await _ExitObservation.capture(discovery!);
+      await File(p.join(discovery!.path, 'observed')).writeAsString('bound');
+      expect((await inventory)['result']['data'].single['tools'], hasLength(7));
+    }, settleOriginal: () async {
+      if (observer == null) throw StateError('Discovery observation missing');
+      await observer!.report();
+      expect(
+          File(p.join(discovery!.path, 'owner-closed')).existsSync(), isTrue);
+      expect(File(p.join(discovery!.path, 'settled')).existsSync(), isTrue);
+    });
+    await hold.delete();
+    await selection.claim(WindowsCodexConnectionMode.direct);
+    await client.newThread();
+    return (client: client, selection: selection);
+  } catch (_) {
+    await client.rpc.close();
+    rethrow;
+  }
+}
+
+Directory _liveSession(Directory root) =>
+    root.listSync().whereType<Directory>().singleWhere((d) =>
+        p.basename(d.path).startsWith('session-') &&
+        !File(p.join(d.path, 'settled')).existsSync());
+
+Future<void> _closeModelClient(InstalledCodex client, Directory root) async {
+  final session = _liveSession(root);
+  final observer = await _ExitObservation.capture(session);
+  expect(await client.rpc.close(), 0);
+  await observer.report();
+  expect(client.rpc.forcedClose, isFalse);
+  expect(client.rpc.protocolClean, isTrue);
+  for (final name in ['close-entered', 'owner-closed', 'settled']) {
+    expect(File(p.join(session.path, name)).existsSync(), isTrue);
+  }
+}
+
+List<ScriptedMcpCall> _readScript() => [
+      ScriptedMcpCall('open_generation_context', (_) => {}),
+      ScriptedMcpCall(
+          'open_generation_context',
+          (outputs) => {
+                'targetRef': outputs[0]['data']['items'][0]['targetRef'],
+              }),
+      ScriptedMcpCall(
+          'search_questions',
+          (outputs) => {
+                'contextRef': outputs[1]['data']['contextRef'],
+                'query': 'needle',
+              }),
+    ];
+
+void _checkModelTurn(CodexTurnObservation turn, OfflineCodexResponses model) {
+  expect(model.failures, isEmpty);
+  expect(model.finished, isTrue);
+  expect(model.requests, model.calls.length + 1);
+  expect(turn.status, 'completed');
+  final tools =
+      turn.items.where((item) => item['type'] == 'mcpToolCall').toList();
+  expect(tools, hasLength(model.calls.length));
+  for (var i = 0; i < tools.length; i++) {
+    expect(tools[i]['id'], 'probe-call-$i');
+    expect(tools[i]['server'], 'shiroha_vnext');
+    expect(tools[i]['tool'], model.calls[i].tool);
+    expect(tools[i]['arguments'], model.issued[i]['arguments']);
+    expect(OfflineCodexResponses.decodeOutput(tools[i]['result']),
+        model.outputs[i]);
+  }
+  expect(
+      turn.items.where((item) => !const {
+            'userMessage',
+            'agentMessage',
+            'mcpToolCall'
+          }.contains(item['type'])),
+      isEmpty);
+}
+
 void main() {
   initializeGeneratedTests();
   final codex = Platform.environment['SHIROHA_CODEX_EXE'];
@@ -204,6 +323,7 @@ void main() {
     late String compiled;
     late String compiledHosted;
     late String hostedProbe;
+    var modelComposition = false;
     setUpAll(() async {
       parent = await Directory(p.absolute('.dart_tool/ar-r6b-bootstrap-tests'))
           .create(recursive: true);
@@ -245,10 +365,16 @@ void main() {
       binary = p.join(root.path, 'isolated_bridge.exe');
       await File(compiled).copy(binary);
       app = WindowsAppTransportFixture();
+      if (modelComposition) {
+        app.registeredClient = await WindowsCodexClientSelection.inspect(
+            executable: WindowsCodexExecutableFile(codex!),
+            use: WindowsCodexClientUse.isolatedValidation,
+            mode: WindowsCodexConnectionMode.direct);
+      }
       await app.open(productBridge: true, protectedAcquisition: true);
       await app.bridge.close();
       final d = app.bridgeDependencies;
-      final material = app.pairing.native.service.validatedPublicMaterial();
+      final material = app.publicMaterial;
       await File(p.join(root.path, 'isolated-bootstrap'))
           .writeAsString('public-fake-security-only');
       await File(p.join(root.path, 'public-material.json'))
@@ -285,6 +411,12 @@ void main() {
             await deleteSettledTestDirectory(root, settled: () async {
           await link.close();
           await app.close();
+          if (modelComposition) {
+            expect(app.registration!.registered, isTrue);
+            expect(app.host.phase, WindowsTlsHostPhase.closed);
+            expect(app.pairing.native.calls.owners, isEmpty);
+            expect(app.pairing.native.calls.credentialTickets, isEmpty);
+          }
         }());
         if (sharingRetries != 0) {
           stdout.writeln('TEST_DIRECTORY_CLEANUP ${jsonEncode({
@@ -548,6 +680,329 @@ void main() {
           skip: codex == null ? 'Client not selected' : false,
           timeout: const Timeout(Duration(minutes: 3)));
     }
+
+    group('model turns', () {
+      setUpAll(() => modelComposition = true);
+      tearDownAll(() => modelComposition = false);
+      test('READ and approved STAGE return original results', () async {
+        await insertLegacyQuestion(app.files.s.h.db,
+            id: 'model-question',
+            bankName: 'bank',
+            createdAt: 1,
+            content: 'Synthetic model needle');
+        final model = OfflineCodexResponses([
+          ..._readScript(),
+          ScriptedMcpCall(
+              'propose_generated_questions',
+              (outputs) => {
+                    'contextRef': outputs[1]['data']['contextRef'],
+                    'submission': jsonDecode(submission(key: 'model-original')),
+                  }),
+          ScriptedMcpCall('get_question_proposal',
+              (_) => {'submissionKey': 'model-original'}),
+        ]);
+        await model.start();
+        InstalledCodex? client;
+        try {
+          final connected = await _modelClient(codex!, binary, root, model);
+          client = connected.client;
+          final turn = client.turn();
+          // Observe the original first-party wait before making a local decision.
+          await Future.any([
+            _waitFor(
+                () => app.approval.waitingForUser, 'model target approval'),
+            turn.then((t) => fail('Model turn ended before approval: '
+                'status=${t.status} code=${t.errorCode} categories=${t.errorCategories}')),
+          ]);
+          expect(model.requests, 4);
+          expect(model.outputs[2]['data']['items'], hasLength(1));
+          expect(model.outputs[2]['data']['items'][0]['stemPreview'],
+              'Synthetic model needle');
+          expect(await app.files.s.h.count('generated_question_proposals'), 0);
+          final launches = root
+              .listSync()
+              .whereType<File>()
+              .where((f) => p.basename(f.path).startsWith('launch-'))
+              .length;
+          await expectLater(
+              connected.selection.discoverBeforeBusiness(
+                discover: () => client!.inventory(),
+                settleOriginal: () async {},
+              ),
+              throwsStateError);
+          expect(
+              root
+                  .listSync()
+                  .whereType<File>()
+                  .where((f) => p.basename(f.path).startsWith('launch-'))
+                  .length,
+              launches);
+          await app.approvalView.confirm(app.approvalView.pending!);
+          final observed = await turn;
+          _checkModelTurn(observed, model);
+          expect(model.outputs[3]['data']['publication'], 'STAGED');
+          expect(model.outputs[4]['data']['lifecycleStatus'], 'pending_review');
+          expect(await app.files.s.h.count('generated_question_proposals'), 1);
+          expect(
+              await app.files.s.h.count('generated_question_commit_receipts'),
+              0);
+          expect(await app.files.s.h.count('questions'), 1);
+          await _closeModelClient(client, root);
+          client = null;
+          stdout.writeln('MODEL_TURN ${jsonEncode({
+                'source': 'offline-scripted-responses',
+                'clientDigest': connected.selection.digest,
+                'tools': model.calls.map((c) => c.tool).toList(),
+                'turnStatus': observed.status,
+                'returnedOutputs': model.outputs.length,
+                'bridgeExit': 0,
+                'ownerSettled': true,
+                'clientExit': 0,
+                'autonomousModel': false,
+              })}');
+        } finally {
+          printOnFailure('offline model: requests=${model.requests} '
+              'outputs=${model.outputs.length} failures=${model.failures}');
+          if (client != null) await client.rpc.close();
+          await model.close();
+        }
+      }, timeout: const Timeout(Duration(minutes: 2)));
+
+      for (final boundary in [
+        'client EOF',
+        'App shutdown',
+        'Restore',
+        'connection loss'
+      ]) {
+        test('pending STAGE settles on $boundary', () async {
+          final model = OfflineCodexResponses([
+            ..._readScript().take(2),
+            ScriptedMcpCall(
+                'propose_generated_questions',
+                (outputs) => {
+                      'contextRef': outputs[1]['data']['contextRef'],
+                      'submission':
+                          jsonDecode(submission(key: 'model-boundary')),
+                    }),
+          ]);
+          await model.start();
+          InstalledCodex? client;
+          try {
+            final connected = await _modelClient(codex!, binary, root, model);
+            client = connected.client;
+            final turn = client.turn().then<Object>((value) => value,
+                onError: (Object error, StackTrace _) => error);
+            await Future.any([
+              _waitFor(
+                  () => app.approval.waitingForUser, 'model boundary approval'),
+              turn.then(
+                  (_) => fail('Model boundary ended before pending STAGE')),
+            ]);
+            final pending = app.approvalView.pending!;
+            expect(
+                await app.files.s.h.count('generated_question_proposals'), 0);
+            switch (boundary) {
+              case 'client EOF':
+                await _closeModelClient(client, root);
+                client = null;
+              case 'App shutdown':
+                await app.registration!.close();
+              case 'Restore':
+                await _restore(app);
+              case 'connection loss':
+                await link.disconnectSession(_liveSession(root));
+            }
+            final result = await turn;
+            if (boundary == 'client EOF') {
+              expect(
+                  result is StateError ||
+                      (result is CodexTurnObservation &&
+                          result.status != 'completed'),
+                  isTrue);
+            } else {
+              _checkModelTurn(result as CodexTurnObservation, model);
+              expect(model.outputs.last['error'], isNotNull);
+            }
+            await app.host.whenConnectionsSettled;
+            expect(app.approval.pendingCount, 0);
+            await expectLater(
+                app.approvalView.confirm(pending), throwsA(anything));
+            // Restore replaces the database handle; observe the current authority.
+            expect(
+                await (await app.files.s.h.helper.database)
+                    .query('generated_question_proposals'),
+                isEmpty);
+            expect(
+                model.issued
+                    .where((c) => c['tool'] == 'propose_generated_questions'),
+                hasLength(1));
+            if (client != null) {
+              await _closeModelClient(client, root);
+              client = null;
+            }
+            stdout.writeln('MODEL_BOUNDARY ${jsonEncode({
+                  'boundary': boundary,
+                  'stageCalls': 1,
+                  'proposals': 0,
+                  'turnStatus': result is CodexTurnObservation
+                      ? result.status
+                      : 'client_closed',
+                  'bridgeExit': 0,
+                  'ownerSettled': true,
+                  'clientExit': 0,
+                })}');
+          } finally {
+            printOnFailure('offline boundary: requests=${model.requests} '
+                'outputs=${model.outputs.length} failures=${model.failures}');
+            if (client != null) await client.rpc.close();
+            await model.close();
+          }
+        }, timeout: const Timeout(Duration(minutes: 2)));
+      }
+
+      test(
+          'lost STAGE response reconciles original key without replay or inherited approval',
+          () async {
+        final model = OfflineCodexResponses([
+          ..._readScript().take(2),
+          ScriptedMcpCall(
+              'propose_generated_questions',
+              (outputs) => {
+                    'contextRef': outputs[1]['data']['contextRef'],
+                    'submission': jsonDecode(submission(key: 'model-lost')),
+                  }),
+        ]);
+        await model.start();
+        InstalledCodex? client;
+        OfflineCodexResponses? recovery;
+        try {
+          client = (await _modelClient(codex!, binary, root, model)).client;
+          final first = client.turn();
+          await Future.any([
+            _waitFor(() => app.approval.waitingForUser,
+                'lost-response original approval'),
+            first.then((_) => fail('Lost-response turn ended before approval')),
+          ]);
+          final originalApproval = app.approvalView.pending!;
+          link.dropNextResponse = true;
+          await app.approvalView.confirm(originalApproval);
+          final lost = await first;
+          _checkModelTurn(lost, model);
+          expect(link.droppedResponses, 1);
+          expect(model.outputs.last['error'], isNotNull);
+          expect(await app.files.s.h.count('generated_question_proposals'), 1);
+          expect(
+              await app.files.s.h.count('generated_question_commit_receipts'),
+              0);
+          expect(
+              model.issued
+                  .where((c) => c['tool'] == 'propose_generated_questions'),
+              hasLength(1));
+          final context = model.outputs[1]['data']['contextRef'];
+          await _closeModelClient(client, root);
+          client = null;
+          await app.host.whenConnectionsSettled;
+          await expectLater(
+              app.approvalView.confirm(originalApproval), throwsA(anything));
+
+          recovery = OfflineCodexResponses([
+            ScriptedMcpCall('get_question_proposal',
+                (_) => {'submissionKey': 'model-lost'}),
+            ScriptedMcpCall(
+                'open_generation_context', (_) => {'contextRef': context}),
+            // A DISTINCT explicit request probes approval isolation. It is never
+            // a replay of the original uncertain SubmissionKey.
+            ScriptedMcpCall(
+                'propose_generated_questions',
+                (_) => {
+                      'contextRef': context,
+                      'submission':
+                          jsonDecode(submission(key: 'model-fresh-denied')),
+                    }),
+          ]);
+          await recovery.start();
+          client = (await _modelClient(codex, binary, root, recovery)).client;
+          final fresh = client.turn();
+          await Future.any([
+            _waitFor(() => app.approval.waitingForUser,
+                'fresh Session target approval'),
+            fresh.then((_) => fail('Fresh Session inherited approval')),
+          ]);
+          expect(
+              recovery.outputs[0]['data']['lifecycleStatus'], 'pending_review');
+          expect(
+              identical(originalApproval, app.approvalView.pending), isFalse);
+          expect(await app.files.s.h.count('generated_question_proposals'), 1);
+          app.approvalView.reject(app.approvalView.pending!);
+          final recovered = await fresh;
+          _checkModelTurn(recovered, recovery);
+          expect(recovery.outputs.last['error'], isNotNull);
+          expect(await app.files.s.h.count('generated_question_proposals'), 1);
+          expect(
+              await app.files.s.h.count('generated_question_commit_receipts'),
+              0);
+          expect(await app.files.s.h.count('questions'), 0);
+          await _closeModelClient(client, root);
+          client = null;
+
+          // Only the original first-party Review can commit the durable Proposal.
+          final rows = await app.files.s.h.db
+              .query('generated_question_proposals', columns: ['proposal_id']);
+          final local = await app.files.s.localFactory.openSession();
+          try {
+            var proposal =
+                await local.read(rows.single['proposal_id'] as String);
+            final approval = local.confirmDisplayedTarget(proposal.target);
+            proposal = await app.files.s.h.service.flush(
+                GeneratedReviewFlush.fromJson({
+                  'proposalId': proposal.proposalId,
+                  'expectedReviewRevision': proposal.reviewRevision,
+                  'operations': [
+                    for (final item in proposal.items)
+                      {
+                        'type': 'decide',
+                        'itemId': item.itemId,
+                        'decision': 'accepted'
+                      }
+                  ],
+                }),
+                approval);
+            await app.files.s.h.service.approve(
+                ApproveGeneratedProposalCommand.fromJson({
+                  'proposalId': proposal.proposalId,
+                  'expectedReviewRevision': proposal.reviewRevision,
+                  'approvedItemIds':
+                      proposal.items.map((i) => i.itemId).toList(),
+                }),
+                approval);
+          } finally {
+            local.close();
+          }
+          expect(
+              await app.files.s.h.count('generated_question_commit_receipts'),
+              1);
+          stdout.writeln('MODEL_RECOVERY ${jsonEncode({
+                'lostResponse': true,
+                'originalStageCalls': 1,
+                'replayedStageCalls': 0,
+                'recovery': 'pending_review',
+                'freshApprovalRequired': true,
+                'freshStageRejected': true,
+                'localReviewCommitReceipts': 1,
+                'turnStatuses': [lost.status, recovered.status],
+                'bridgeExits': [0, 0],
+                'ownersSettled': true,
+                'clientExits': [0, 0],
+              })}');
+        } finally {
+          printOnFailure('recovery model: first=${model.failures} '
+              'reconnect=${recovery?.failures}');
+          if (client != null) await client.rpc.close();
+          await recovery?.close();
+          await model.close();
+        }
+      }, timeout: const Timeout(Duration(minutes: 3)));
+    }, skip: codex == null ? 'Isolated client not selected' : false);
 
     test('selected Codex seven tools, Review, original key, reconnect and B0',
         () async {

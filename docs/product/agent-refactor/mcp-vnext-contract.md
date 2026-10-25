@@ -1727,8 +1727,70 @@ defined in §14/§17.9.
 
 This closes only the independently reviewable selection/refusal integration.
 Compatible official-client availability, accepted product-root consumption and
-actual Desktop/model-driven usage remain functional delivery gaps. AR-R9B
+autonomous model choice/Desktop interaction remain functional delivery gaps;
+§17.11 separately covers scripted offline model-turn orchestration. AR-R9B
 distribution is separate. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
 AR-R6A = NOT_ACCEPTED. #327 remains independently BLOCKED with unchanged
 assertions and repair budget. No protected credential/Pin/Discovery/TLS experiment
 or production authentication entry change is supplied.
+
+### 17.11. Isolated Codex model-turn orchestration
+
+The Windows opt-in `model turns` group in
+`test/mcp/windows_trusted_bootstrap_test.dart` extends §17.10's exact isolated
+client, without changing product selection or the client binary. It starts real
+Codex `thread/start` and `turn/start` requests. A test-only IPv4 loopback Responses
+service emits deterministic namespaced function calls from the client's advertised
+MCP tools. It has no App, MCP or database reference. It issues subsequent calls
+only after receiving the preceding original `function_call_output` from Codex;
+opaque target/Context references come from those actual tool results.
+
+The driver observes original MCP item events and `turn/completed`, checks the
+thread/turn/call identities, arguments and every returned result, and refuses
+direct `mcpServer/tool/call` in model mode. It never injects tool outputs, replaces
+App replies or manufactures app-server events. Missing/foreign/duplicate output
+cannot produce the final scripted message. Only the pinned client's exact timing
+header is removed when decoding its original structured JSON. Raw request/response
+bodies are not logged; evidence contains stages, counts, statuses and client digest.
+
+The test uses an isolated Codex home/profile, explicit no-auth offline provider,
+loopback-only proxy exclusion and zero provider retries. No installed client,
+global configuration, real model service, saved credential or private App data is
+used. Original `WindowsCodexClientSelection` serializes discovery and joins its
+observed process exit/Owner settlement before the business manager starts.
+Live-business discovery refuses before another launch. Direct App registration
+uses its original protected-acquirer/Host lifetime with Fake Native/TLS/public
+vectors; explicit public Pairing comparisons and Enable precede business calls.
+The actual compiled Bridge uses the original Bootstrap, one process/stdio pair
+and P15/P0/P8/P10 routes against temporary SQLite. The test adds no Writer,
+Approval, Context or authentication source.
+
+READ returns the seeded App/Application query result through the model turn.
+STAGE waits in the original authenticated Session for an explicit first-party
+decision: no Proposal exists before approval; approval publishes one durable
+Proposal in `pending_review`, with no formal Question/COMMIT receipt. Only the
+existing local Review operation can subsequently commit. A distinct STAGE after
+reconnect must request fresh approval even when a same-Principal READ handle is
+revalidated; rejecting that request publishes nothing.
+
+Pending STAGE is exercised during client EOF, App registration close, actual B0
+Restore and Fake-channel disconnect. Late confirmation fails, owning work drains
+and no Proposal is published. App/tool failure returned to a completed Codex turn
+is not a successful STAGE. A separate test drops the original response bytes
+after approved publication: Codex receives failure, the Proposal survives, and
+explicit reconnect queries its original SubmissionKey under fresh authorization.
+There is exactly one original STAGE, no automatic replay and no inferred rollback.
+Original Bridge handles are observed before EOF; exit 0, output drain and original
+close/Owner/settlement receipts are required. App close also releases the original
+Fake Owner/tickets. A failed/missing receipt cannot become a clean result.
+
+The [Windows evidence guide](../../architecture/mcp-vnext-windows-codex.md#isolated-scripted-model-turn-evidence-2026-10-25)
+records executable identity, commands, executed cases and retained failure
+classification. This is isolated **scripted model-output orchestration** evidence,
+not real-model autonomous tool selection, Desktop GUI operation, a shipped client
+fix or a new support level. The unchanged §17.10 official-client failures, formal
+AOT/normal-App default refusal, product-supported set (empty), AR-R9B distribution
+gap and #327's independently BLOCKED short-timeout cancellation/budget remain.
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
+No Trial 1A/G0-L1/L2/I or real protected credential/Pin/Discovery/TLS experiment is
+activated. Independent Windows verification remains required for this evidence.

@@ -53,8 +53,11 @@ to settle, then starts the business lifetime. It retains the seven-tool inventor
 assertion and refuses any overlapping Owner. A live status snapshot must not
 create a second credential owner.
 
-The selected-client acceptance uses a fresh isolated Codex home, offline provider
-configuration and no model turn. The compiled Bridge fixture imports product
+The original selected-client acceptance uses a fresh isolated Codex home, offline
+provider configuration and no model turn. The separate `model turns` group now
+uses a test-only loopback Responses service with scripted tool calls; it proves
+Codex turn orchestration, not autonomous model choice or Desktop interaction.
+The compiled Bridge fixture imports product
 Bootstrap/P26/TLS Bridge code while injecting existing Fake Native/TLS only at
 test boundaries. The receiving App exercises the real P15/P0/P8/P10 and original
 Proposal/Review Writer. Selecting this binary cannot enable the formal AOT.
