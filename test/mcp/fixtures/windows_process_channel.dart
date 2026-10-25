@@ -8,9 +8,12 @@ import 'package:shiroha_quiz/data/external/windows_tls_transport.dart';
 import '../../data/external/fixtures/process_file_support.dart';
 
 final class ProcessTestChannel implements TlsChannel {
-  ProcessTestChannel(this.root, this.outgoing, this.incoming, this.peerDer);
+  ProcessTestChannel(this.root, this.outgoing, this.incoming, this.peerDer,
+      {this.dropWrite});
   final Directory root;
   final String outgoing, incoming;
+  // Explicit test fault: lose bytes, never synthesize an App response.
+  final bool Function()? dropWrite;
   @override
   final Uint8List peerDer;
   int _sent = 0, _received = 0;
@@ -22,6 +25,10 @@ final class ProcessTestChannel implements TlsChannel {
   @override
   Future<void> write(Uint8List bytes) async {
     if (!_open) throw StateError('Test channel closed');
+    if (dropWrite?.call() == true) {
+      await close();
+      return;
+    }
     await publishPublic(root, '$outgoing-${_sent++}', bytes);
   }
 

@@ -657,6 +657,16 @@ Direct/Hosted selection reuse refuse. This selection owns no process or business
 authority; original drain, failure retention and fresh-Session approval still
 apply. Normal App/AOT refusal and all security admission blocks remain unchanged.
 
+MCP §17.11 adds isolated Windows model-turn evidence with the same pinned client,
+App registration and compiled Bridge Bootstrap. A loopback Responses fixture
+scripts function calls; Codex's original thread/turn and MCP manager return real
+App/Application results to that same turn. First-party STAGE approval, local
+Review/COMMIT, fresh-Session approval and original-key recovery remain separate.
+Pending EOF/App close/Restore/disconnect and committed-response-loss checks add
+no authority or production path. This proves scripted turn orchestration only;
+autonomous model choice, Desktop interaction, official-client lifecycle,
+production registration and security admission remain unaccepted.
+
 The bounded lifecycle extension adds independent READ Proposal metadata over
 the same persistence owner, through P7/P8, retained lifecycle-only IPC schema v2
 and explicit v3 original-key selection.

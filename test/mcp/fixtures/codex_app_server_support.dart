@@ -1,4 +1,4 @@
-// Opt-in installed-client checks. No model turn, auth copy, socket or App data.
+// Opt-in isolated-client checks. No auth copy or private App data.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -27,6 +27,7 @@ final class JsonLineProcess {
         .listen((line) {
       try {
         final message = (jsonDecode(line) as Map).cast<String, dynamic>();
+        if (message['method'] != null) _events.add(message);
         final pending = _pending.remove(message['id']);
         if (pending != null) pending.complete(message);
       } catch (_) {
@@ -35,6 +36,7 @@ final class JsonLineProcess {
       }
     }, onDone: () {
       _failPending('Protocol closed.');
+      unawaited(_events.close());
       if (!_stdoutDone.isCompleted) _stdoutDone.complete();
     }, onError: (_) {
       protocolClean = false;
@@ -54,6 +56,8 @@ final class JsonLineProcess {
   late final StreamSubscription<String> _stdout;
   late final StreamSubscription<List<int>> _stderr;
   final _pending = <int, Completer<Map<String, dynamic>>>{};
+  final _events = StreamController<Map<String, dynamic>>.broadcast(sync: true);
+  Stream<Map<String, dynamic>> get events => _events.stream;
   final _stdoutDone = Completer<void>(), _stderrDone = Completer<void>();
   Future<int>? _closing;
   int _id = 0;
@@ -61,7 +65,9 @@ final class JsonLineProcess {
   bool forcedClose = false;
 
   static Future<JsonLineProcess> start(String executable, List<String> args,
-      {required String cwd, required String home}) async {
+      {required String cwd,
+      required String home,
+      bool isolateProfile = false}) async {
     // Deliberate allowlist: never inherit provider keys, OpenCodex configuration,
     // CODEX_HOME or auth-token variables from the developer session.
     final environment = <String, String>{
@@ -79,6 +85,13 @@ final class JsonLineProcess {
         }.contains(entry.key.toUpperCase()))
           entry.key: entry.value,
       'CODEX_HOME': home,
+      if (isolateProfile) ...{
+        'HOME': home,
+        'USERPROFILE': home,
+        'APPDATA': home,
+        'LOCALAPPDATA': home,
+        'NO_PROXY': '127.0.0.1,localhost',
+      },
     };
     return JsonLineProcess._(await Process.start(executable, args,
         workingDirectory: cwd,
@@ -144,20 +157,36 @@ final class InstalledCodex {
   final Directory home;
   late JsonLineProcess rpc;
   String? threadId;
+  bool _modelTurns = false;
 
   Future<void> configure(
       {String? command,
       List<String>? commandArguments,
       String? entrypoint,
-      List<String>? entrypointArguments}) async {
+      List<String>? entrypointArguments,
+      Uri? responsesBase}) async {
+    if (responsesBase != null &&
+        (responsesBase.scheme != 'http' ||
+            responsesBase.host != '127.0.0.1' ||
+            responsesBase.userInfo.isNotEmpty ||
+            responsesBase.hasQuery ||
+            responsesBase.hasFragment)) {
+      throw ArgumentError(
+          'Only the test loopback Responses service is allowed.');
+    }
+    _modelTurns = responsesBase != null;
     // TOML basic strings share JSON escaping for these absolute Windows paths.
     final config = '''
 model = "offline-probe"
 model_provider = "offline"
 [model_providers.offline]
-name = "Offline probe - never start a turn"
-base_url = "http://127.0.0.1:1"
+name = "Offline scripted probe"
+base_url = ${jsonEncode(responsesBase?.toString() ?? 'http://127.0.0.1:1')}
 wire_api = "responses"
+requires_openai_auth = false
+supports_websockets = false
+request_max_retries = 0
+stream_max_retries = 0
 [features]
 plugins = false
 apps = false
@@ -182,7 +211,7 @@ tool_timeout_sec = 10
 
   Future<void> start({bool createThread = true}) async {
     rpc = await JsonLineProcess.start(executable, ['app-server', '--stdio'],
-        cwd: home.path, home: home.path);
+        cwd: home.path, home: home.path, isolateProfile: _modelTurns);
     final init = await rpc.request('initialize', {
       'clientInfo': {'name': 'shiroha_windows_probe', 'version': '1.0.0'},
       'capabilities': {'experimentalApi': true}
@@ -213,11 +242,105 @@ tool_timeout_sec = 10
       rpc.request('mcpServerStatus/list', {'threadId': threadId});
 
   Future<Map<String, dynamic>> call(
-          String tool, Map<String, dynamic> arguments) =>
-      rpc.request('mcpServer/tool/call', {
+      String tool, Map<String, dynamic> arguments) {
+    if (_modelTurns) {
+      throw StateError('Direct calls cannot prove a model turn.');
+    }
+    return rpc.request('mcpServer/tool/call', {
+      'threadId': threadId,
+      'server': 'shiroha_vnext',
+      'tool': tool,
+      'arguments': arguments,
+    });
+  }
+
+  /// Observe only original app-server events. Never inject tool results/items.
+  Future<CodexTurnObservation> turn() async {
+    if (!_modelTurns) throw StateError('Offline model service not configured.');
+    final observed = CodexTurnObservation(threadId!);
+    final subscription =
+        rpc.events.listen(observed.receive, onDone: observed.closed);
+    try {
+      final response = await rpc.request('turn/start', {
         'threadId': threadId,
-        'server': 'shiroha_vnext',
-        'tool': tool,
-        'arguments': arguments,
+        'input': [
+          {'type': 'text', 'text': 'Execute the isolated scripted MCP probe.'}
+        ],
       });
+      if (response.containsKey('error')) throw StateError('Turn start failed.');
+      final id = response['result']['turn']['id'] as String;
+      observed.turnId = id;
+      await observed.done.future.timeout(const Duration(seconds: 40));
+      if (observed.completedId != id || observed.foreignTurn) {
+        throw StateError('Turn evidence correlation failed.');
+      }
+      return observed;
+    } finally {
+      await subscription.cancel();
+    }
+  }
+}
+
+final class CodexTurnObservation {
+  CodexTurnObservation(this.threadId) {
+    unawaited(done.future.then((_) {}, onError: (Object _, StackTrace __) {}));
+  }
+  final String threadId;
+  String? turnId, completedId, status;
+  Object? errorCode;
+  List<String> errorCategories = [];
+  bool foreignTurn = false;
+  final done = Completer<void>();
+  final items = <Map<String, dynamic>>[];
+  final eventTurnIds = <String>{};
+  void receive(Map<String, dynamic> event) {
+    final params = event['params'];
+    if (params is! Map || params['threadId'] != threadId) return;
+    if (params['turnId'] is String) {
+      eventTurnIds.add(params['turnId'] as String);
+    }
+    if (event['method'] == 'item/completed') {
+      items.add((params['item'] as Map).cast<String, dynamic>());
+    }
+    if (event['method'] == 'turn/completed') {
+      completedId = params['turn']['id'] as String;
+      status = params['turn']['status'] as String;
+      final error = params['turn']['error'];
+      if (error is Map) {
+        final info = error['codexErrorInfo'];
+        errorCode = info is Map ? info.keys.toList() : info;
+        final message = (error['message'] as String? ?? '').toLowerCase();
+        errorCategories = [
+          for (final word in const [
+            'sandbox',
+            'auth',
+            'api key',
+            'model',
+            'network',
+            'connection',
+            'decode',
+            'stream',
+            'not found',
+            'access',
+            'proxy',
+            'http',
+            '401',
+            '403',
+            'timeout',
+            'credential',
+            'login'
+          ])
+            if (message.contains(word)) word
+        ];
+      }
+      foreignTurn = eventTurnIds.any((id) => id != completedId);
+      if (!done.isCompleted) done.complete();
+    }
+  }
+
+  void closed() {
+    if (!done.isCompleted) {
+      done.completeError(StateError('Client closed during turn.'));
+    }
+  }
 }
