@@ -1748,10 +1748,15 @@ opaque target/Context references come from those actual tool results.
 The driver observes original MCP item events and `turn/completed`, checks the
 thread/turn/call identities, arguments and every returned result, and refuses
 direct `mcpServer/tool/call` in model mode. It never injects tool outputs, replaces
-App replies or manufactures app-server events. Missing/foreign/duplicate output
-cannot produce the final scripted message. Only the pinned client's exact timing
-header is removed when decoding its original structured JSON. Raw request/response
-bodies are not logged; evidence contains stages, counts, statuses and client digest.
+App replies or manufactures app-server events. Every request checks the complete
+set of `function_call_output` IDs: the initial request accepts none, later requests
+require the immediately preceding issued call exactly once, and retained earlier
+issued IDs are optional but may appear at most once each. Unknown/unissued IDs and
+duplicates are rejected even alongside a valid latest result. Missing/foreign/
+duplicate output cannot produce the final scripted message. Only the pinned
+client's exact timing header is removed when decoding its original structured JSON.
+Raw request/response bodies are not logged; evidence contains stages, counts,
+statuses and client digest.
 
 The test uses an isolated Codex home/profile, explicit no-auth offline provider,
 loopback-only proxy exclusion and zero provider retries. No installed client,

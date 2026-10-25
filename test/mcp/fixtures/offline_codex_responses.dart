@@ -47,16 +47,27 @@ final class OfflineCodexResponses {
           throw StateError('unexpected_model_retry');
         }
         final index = requests++;
+        // Codex may retain earlier results in input. Check every output before
+        // accepting the latest one: history may contain only issued IDs, once
+        // each, and the initial request cannot contain any tool result.
+        final allowedIds = {
+          for (var i = 0; i < issued.length; i++) 'probe-call-$i'
+        };
+        final returned = <String, Map>{};
+        for (final item in (body['input'] as List).whereType<Map>()) {
+          if (item['type'] != 'function_call_output') continue;
+          final id = item['call_id'];
+          if (id is! String ||
+              !allowedIds.contains(id) ||
+              returned.containsKey(id)) {
+            throw StateError('invalid_output_set');
+          }
+          returned[id] = item;
+        }
         if (index > 0) {
-          final input = body['input'] as List;
-          final returned = input
-              .whereType<Map>()
-              .where((item) =>
-                  item['type'] == 'function_call_output' &&
-                  item['call_id'] == 'probe-call-${index - 1}')
-              .toList();
-          if (returned.length != 1) throw StateError('missing_original_output');
-          outputs.add(decodeOutput(returned.single['output']));
+          final latest = returned['probe-call-${index - 1}'];
+          if (latest == null) throw StateError('missing_original_output');
+          outputs.add(decodeOutput(latest['output']));
         }
         Map<String, dynamic> item;
         if (index < calls.length) {
@@ -120,6 +131,7 @@ final class OfflineCodexResponses {
           'request_limit',
           'unexpected_model_retry',
           'missing_original_output',
+          'invalid_output_set',
           'mcp_tool_not_advertised',
           'Unrecognized original tool output'
         };

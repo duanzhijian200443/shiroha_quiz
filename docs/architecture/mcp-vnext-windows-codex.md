@@ -1485,14 +1485,37 @@ Fake Owner/ticket release. Safe `MODEL_TURN`, `MODEL_BOUNDARY` and
 `MODEL_RECOVERY` records contain executable digest, tool names/counts, turn status,
 Bridge/Owner cleanup and client exit; raw prompts and business bodies are absent.
 
-The portable evidence guards passed **4/4** after a scoped Flutter test-HTTP
-override correction. Missing, foreign or duplicate call output cannot produce
-the final scripted message. The shared App/Bootstrap/registration/transport
-regression run also passed **92 existing cases**; its initial overall run failed
-only the four new guards because `TestWidgetsFlutterBinding` substituted HTTP 400
+The original portable evidence guards passed **4/4** after a scoped Flutter test-HTTP
+override correction. That initial matrix did not cover valid output mixed with a
+foreign output, unexpected initial output, or duplicate retained history; it did
+not establish rejection of the complete output set. The shared App/Bootstrap/
+registration/transport regression run also passed **92 existing cases**; its initial
+overall run failed only the four new guards because `TestWidgetsFlutterBinding` substituted HTTP 400
 without contacting the loopback service. The four-case rerun is separate evidence,
 not a retroactive PASS for that initial run. The override is scoped to creating
 the local test client; the surrounding binding and assertions remain unchanged.
+
+The focused P2-1 review repair validates every returned output ID before accepting
+any latest result. The initial request rejects all outputs; later requests require
+the immediately preceding issued call exactly once, admit optional earlier issued
+IDs once each, and reject unknown/unissued or duplicate IDs anywhere in the input.
+The counterexample was reproduced before repair: valid plus foreign output returned
+HTTP 200 where the new regression expected 500. After repair, the expanded portable
+matrix passes **13/13**, including mixed/future IDs, initial outputs, duplicate old
+IDs, missing latest output, and both retained and omitted legitimate history.
+This does not relabel the original four-case run as complete negative coverage.
+
+With the stricter guard, the bounded Windows rerun passed **2/2**, without skips:
+`--name 'model turns (READ and approved STAGE|lost STAGE response)'` on the same
+test entry and unchanged client digest. Normal READ/STAGE returned five original
+outputs in one completed turn. Response-loss/reconnect retained one original STAGE,
+zero replays, fresh approval, one local Review receipt, completed turns and clean
+Bridge/Owner/client exits. The four unchanged pending-boundary cases retain their
+original six-case evidence; this rerun does not claim a new full six-case pass.
+For this guard repair, independent verification remains **REQUIRED /
+CI_COVERAGE_GAP**, bounded to these two affected real-client cases and the retained
+client/cleanup identities. Portable negative coverage belongs to standing CI and
+targeted Reviewer closure; unchanged lifecycle evidence need not be repeated.
 
 Other pre-success failures are retained as harness integration evidence: without
 explicit loopback `NO_PROXY`, the turn failed before the fixture received any
