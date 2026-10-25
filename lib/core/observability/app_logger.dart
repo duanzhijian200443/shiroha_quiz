@@ -196,4 +196,5 @@ abstract final class AppLogger {
   }
 
   static Future<void> flush() => LogWriter.flush();
+  static Future<void> flushForExit() => LogWriter.flushForExit();
 }

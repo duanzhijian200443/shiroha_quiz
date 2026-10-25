@@ -97,6 +97,14 @@ explicitly. V0 adds no Isolate / Process support.
 `operationKind?`, `taskId?`. `AppLogger` injects them automatically from
 `TraceContext`; callers must not copy correlation fields manually.
 
+The explicit cancelable App-exit barrier in MCP §17.12 uses
+`AppLogger.flushForExit` / the pure-Dart `LogWriter` drain. It joins queued writes
+and retains a terminal write/flush failure for that configured sink lifetime,
+without retaining failed record bodies or exception payloads. A later successful
+write does not clear the failure. Ordinary log calls and the existing `flush`
+API preserve best-effort semantics; this exit-only observation never changes
+business results, authorizes work or replaces original process settlement.
+
 Example record:
 
 ```json

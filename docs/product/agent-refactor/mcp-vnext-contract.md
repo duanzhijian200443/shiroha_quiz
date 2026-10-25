@@ -13,6 +13,9 @@ Application. Identity/context/egress rules are owned by
 [external-agent-boundary.md](external-agent-boundary.md). Bridge has no database,
 repository, migrations or alternate App writer.
 
+The authorized App-owned relay in §17.12 adds a local authenticated hop before
+that SAME stdio Bridge. It does not replace the authenticated App Host channel.
+
 | Tool | Minimum input intent | Safe output / permission |
 |---|---|---|
 | open_generation_context | Optional server-minted target reference | Without target: bounded/paged authorized target metadata; with target: opaque handle and approved evidence references; READ |
@@ -1618,8 +1621,9 @@ client lock, not the UI host's separate window lock, remains the exclusion
 authority across processes. Failed or incomplete Pairing close grants no handoff.
 
 `McpVnextWindowsAppRegistration` owns the original startup and integration
-barriers used by App shutdown and B0. `main.dart` installs only
-`.unavailable(integration)`. Explicit trusted direct-client registration owns the
+barriers used by App shutdown and B0. At this checkpoint `main.dart` installed
+only `.unavailable(integration)`; §17.12 adds the normal App's local relay while
+retaining protected business refusal. Explicit trusted direct-client registration owns the
 App Host and no Bridge child; the independent MCP client owns its one Bridge and
 stdio. Explicit hosted-client registration uses the original
 `WindowsBridgeProcess.stdio` to forward one input/output pair to one adjacent
@@ -1799,3 +1803,114 @@ gap and #327's independently BLOCKED short-timeout cancellation/budget remain.
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 No Trial 1A/G0-L1/L2/I or real protected credential/Pin/Discovery/TLS experiment is
 activated. Independent Windows verification remains required for this evidence.
+
+### 17.12. App-owned local relay (authorized development integration)
+
+The 2026-10-25 user authorization adds this custody mode; it does not waive
+Windows security admission. The normal App owns the original adjacent Bridge
+process. Codex owns only `shiroha_codex.exe`, a seven-tool stdio adapter using
+the same schemas. Discovery never opens the local channel or acquires an Owner.
+The adapter opens one authenticated local connection on its first business call.
+There is no database, credential-store, alternate Writer or automatic STAGE retry
+in the adapter. The v0 profile remains independent and unchanged.
+
+The added hop is a Windows local byte-mode Named Pipe, not the Named Pipe
+fallback for App/Bridge mTLS. Its namespace is derived from the current logon
+user, Windows session and fixed adjacent package directory. Creation uses an
+explicit current-user protected DACL, local-only mode, first-instance exclusion
+and a single instance. Both peers verify the kernel-reported counterpart PID,
+retain the original process handle, require the same user/session and compare
+the opened executable file identity with the fixed adjacent expected executable.
+Both endpoints must be non-elevated; a missing elevation check refuses access.
+The client allows identification only, never delegation impersonation. Missing,
+wrong, dead or uninspectable peers fail before any business bytes are released.
+Public pipe names and client-supplied fields are not identity evidence.
+This is local OS peer authentication, not P15 identity, a Grant, a signature/code
+attestation, protection from same-user process injection, or Windows A0–A12
+acceptance. The existing same-SID risk is retained, not relabeled as isolation.
+
+The App must be launched independently by the user directly from the system
+Explorer that owns the current desktop Shell window. A separate agent-launched
+Explorer process is not admitted. The helper retains that original parent
+process handle, checks its
+same non-elevated user/session, verifies that it predates the App (rejecting PID
+reuse), and pins its executable file identity against the system Windows
+Explorer. An absent, dead, wrong or uninspectable parent refuses registration;
+parent death invalidates an active local connection. CLI/IDE/agent launches are
+not admitted by this bounded mode. Membership in an arbitrary inherited Job is
+not treated as proof of Codex ownership: `IsProcessInJob(process, NULL)` cannot
+make that distinction. This launch provenance is not arbitrary-Job attestation
+or protection against same-user parent spoofing, injection or later reassignment.
+Real client interruption and original Bridge settlement remain required evidence.
+No detached child, Job escape or installed-Codex patch is used.
+The new helper has no protected-object, DPAPI, Pin, Discovery or TLS API.
+Ordinary builds include its local transport only. Protected acquisition stays
+behind the original admission and independent-trust checks.
+
+The relay has one connection and one in-flight request, with bounded length
+framing, strict UTF-8/JSON and correlation. A frame is at most 2 MiB; native
+buffers are at most 64 KiB. A caller cancellation, peer EOF/death, malformed
+frame, deadline or failed output closes the connection without replay. Request
+waiting retains original business custody. Discovery cannot create a competing
+Bridge, and a busy business connection is not replaced by a newer connection.
+The App retains the same first-instance pipe handle across sequential peers.
+Disconnect retires the old connection and its peer/image pins; it does not drop
+namespace exclusion or wait for an old adapter to release its client handle.
+The next accept rechecks the full fixed-peer policy. An idle adapter also closes
+its own native handle when its loss monitor detects disconnection.
+
+App-side composition uses the original `WindowsBridgeProcess.stdio` and one
+original stdout consumer. Its stable internal MCP client drains the Bridge even
+after the outer peer disappears. Close first delivers EOF to that original child,
+then joins exit and stdout/stderr settlement before releasing resources. A relay
+connection failure and successful child cleanup are distinct results; failed or
+unknown child cleanup remains latched and prevents replacement. App close and B0
+join this SAME barrier. A later connection never inherits a Session, Context or
+Target Approval; unknown STAGE is reconciled only by its original SubmissionKey
+under fresh authorization.
+SDK connection/tool failures follow this same rule: fail the original attempt,
+join the actual child exit and both output drains, and only then allow a fresh
+peer. Such a failed attempt does not poison an otherwise successful custody
+barrier. Failed native retirement or failed/unknown child settlement remains
+latched, blocks re-arm and causes the original App close to fail.
+
+Lifecycle diagnostics include the emitting App PID for correlation with a retained
+original process handle; a PID or log event alone is never custody authority.
+Normal cancelable App exit first joins the original registration close and then
+awaits the existing logger's queued lifecycle writes. Pending close or log drain
+keeps exit pending; failure of either cancels that exit request. Failure evidence
+is also drained after a failed close, without replacing its failure with logging
+success. Logs remain observations, never authorization or evidence that overrides
+original custody. This waits for file-write completion, not a power-loss durability
+guarantee. Forced exit/detach does not gain a clean-settlement claim, and completed
+business effects are not rolled back by exit/log failure.
+The explicit `AppLogger.flushForExit` barrier retains terminal sink-write and
+drain failures for the configured sink lifetime, including an earlier omitted
+record followed by a successful write. Later success or repeated exit requests
+cannot clear that failure. Ordinary logging and the existing `flush` API retain
+their best-effort behavior; neither path replays a failed business operation.
+
+`tool/external/check_local_relay_windows.ps1` exercises this boundary in an
+isolated test package with actual named pipes, fixed adjacent test executables,
+the unchanged Shell/peer checks, original process handles and the production
+Bridge stream owner. It covers idle/malformed server disconnect with the old
+raw client handle retained, monitored client loss, MCP inventory/call failures,
+fresh peers after clean settlement and blocked re-arm after a nonzero child exit.
+Its synthetic Bridge supplies refusal/protocol faults only; it loads no protected
+helper, normal App data, credential or provider and proves no Codex model turn.
+The test may shorten the idle deadline; normal registration retains ten minutes.
+
+The normal App consumes this relay registration. While the security freeze is
+active, its adjacent formal Bridge still reaches the existing seven-tool refusal
+endpoint. Local peer authentication, forwarding and process custody can be
+verified independently, but that refusal is not a READ/STAGE success and no
+protected Owner is claimed to have been acquired or closed. Activating business
+still requires the original admitted App registration and Bridge Bootstrap,
+independent trust, current P15/P0/P8/P10 authorization, first-party STAGE
+confirmation and local Review. No new allowlist entry accepts an incompatible
+Direct/Hosted Codex binary, and §17.10's existing refusal policy is retained for
+those modes. #327 and its repair budget remain unchanged.
+
+HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
+The local-hop authorization starts no Trial 1A/G0-L1/L2/I, protected credential,
+Pin/Discovery or real mTLS experiment, and is not AR-R9B distribution acceptance.

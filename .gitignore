@@ -70,5 +70,7 @@ test_regex.exe
 # Local environment / secret files (never commit; nothing in the repo reads them)
 .env
 .env.*
+# Machine-local Codex MCP registration (SDK and development-data paths).
+/.codex/config.toml
 # Legacy local Automation queue artifacts (ignored for one-time takeover; do not create new items)
 docs/automation/task-queue/*

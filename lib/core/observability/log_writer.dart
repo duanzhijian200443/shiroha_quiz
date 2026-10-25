@@ -23,12 +23,14 @@ abstract interface class LogSink {
 /// seam and is identical regardless of the sink.
 abstract final class LogWriter {
   static LogSink? _sink;
+  static _SinkExitDrain? _exitDrain;
   static void Function(LogRecord record)? _recordHandler;
   static void Function(Object error, StackTrace stack)? _sinkErrorHandler;
 
   /// Sets the active sink; null disables file/stream output.
   static void setSink(LogSink? sink) {
     _sink = sink;
+    _exitDrain = sink == null ? null : _SinkExitDrain(sink);
   }
 
   /// Optional observer for every produced record (for example a debug-mode
@@ -101,6 +103,12 @@ abstract final class LogWriter {
     await _sink?.flush();
   }
 
+  /// Explicit cancelable-exit barrier for this sink lifetime. Ordinary logging
+  /// and [flush] keep their existing best-effort behavior.
+  static Future<void> flushForExit() async {
+    await _exitDrain?.flush();
+  }
+
   static void _write(
     LogLevel level,
     String message, {
@@ -123,7 +131,10 @@ abstract final class LogWriter {
     _recordHandler?.call(record);
     final sink = _sink;
     if (sink != null) {
-      unawaited(sink.write(record).catchError((Object error, StackTrace stack) {
+      final drain = _exitDrain!;
+      final write = Future<void>.sync(() => sink.write(record));
+      drain.observe(write);
+      unawaited(write.catchError((Object error, StackTrace stack) {
         _sinkErrorHandler?.call(error, stack);
       }));
     }
@@ -209,5 +220,35 @@ abstract final class LogWriter {
       sanitized = '${sanitized.substring(0, maxLength)}...[TRUNCATED]';
     }
     return sanitized;
+  }
+}
+
+/// Tracks terminal write failures without retaining records or exception data.
+final class _SinkExitDrain {
+  _SinkExitDrain(this.sink);
+  final LogSink sink;
+  bool failed = false;
+  Future<void> pending = Future<void>.value();
+
+  void observe(Future<void> write) {
+    final settled = write.then((_) {}, onError: (Object _, StackTrace __) {
+      failed = true;
+    });
+    pending = Future.wait([pending, settled]).then((_) {});
+  }
+
+  Future<void> flush() async {
+    // Drain writes enqueued while an earlier flush was pending as well.
+    Future<void> snapshot;
+    do {
+      snapshot = pending;
+      await snapshot;
+      try {
+        await sink.flush();
+      } catch (_) {
+        failed = true;
+      }
+    } while (!identical(snapshot, pending));
+    if (failed) throw StateError('Application log drain failed');
   }
 }

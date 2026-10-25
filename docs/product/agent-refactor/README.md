@@ -1,8 +1,10 @@
 # Agent Runtime v1 / External Agent / MCP vNext Contract Index
 
-Current scheduling: **Windows desktop MCP functional development first; Windows
-high-assurance real security experiments DEFERRED**. The
-[roadmap amendment](../../architecture/shiroha-project-roadmap.md#windows-mcp-first-scheduling-amendment-2026-10-19)
+Current scheduling: **ordinary Codex connecting to the existing development App
+first; Windows high-assurance real security experiments DEFERRED**. The
+[development-priority amendment](../../architecture/shiroha-project-roadmap.md#development-instance-codex-integration-priority-2026-10-25)
+supersedes isolated-model testing as the mainline. The retained
+[earlier roadmap amendment](../../architecture/shiroha-project-roadmap.md#windows-mcp-first-scheduling-amendment-2026-10-19)
 owns the complete functional exit conditions: full seven-tool READ/STAGE and
 Proposal queries, controlled App/user Review, durable/idempotent recovery,
 isolated real-client end-to-end proof and Windows Codex launch/lifecycle/errors.
@@ -24,12 +26,20 @@ the production Host/Transport or any Windows experiment.
 
 The [trusted Bootstrap/registration slice](mcp-vnext-contract.md#179-trusted-bootstrap-and-lifetime-registration-non-activating)
 supplies executable non-activating composition over the same owners and completed
-Pairing drain before fresh Bridge acquisition. Ordinary App registration and
-formal AOT remain unavailable. Isolated Windows evidence covers the compiled
+Pairing drain before fresh Bridge acquisition. Protected business registration
+and formal AOT business remain unavailable. Isolated Windows evidence covers the compiled
 business composition with an EOF-first patched Codex client; installed 0.144.1
 still has the recorded force-first incompatibility. Supported client delivery,
 explicit admitted product-root wiring and security acceptance remain open. This
 bounded functional completion does not activate production or close full AR-R6B.
+
+The authorized [App-owned local relay](mcp-vnext-contract.md#1712-app-owned-local-relay-authorized-development-integration)
+is consumed by normal App startup. It authenticates local OS peers and holds the
+original Bridge process outside Codex custody, keeping the original output drain
+alive after a forwarding disconnect. The separate local-hop DLL accesses no
+protected credentials, Pin or Discovery; it is not an App/Bridge mTLS fallback.
+The current formal Bridge still refuses business. Local forwarding/refusal is
+not a successful STAGE/Review flow or production authentication admission.
 
 [Client selection/refusal](mcp-vnext-contract.md#1710-windows-client-compatibility-selection-non-activating)
 now guards both registrations and Bootstrap before acquisition. Product support
