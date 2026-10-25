@@ -160,6 +160,7 @@ import 'ui/pages/import_staging_screen.dart';
 import 'ui/theme/app_theme.dart';
 import 'ui/theme/shiroha_theme_tokens.dart';
 import 'application/appearance/appearance_settings_service.dart';
+import 'application/today/workspace_dashboard_query.dart';
 import 'ui/pages/main_screen.dart';
 import 'ui/widgets/structured_content_renderer.dart';
 import 'package:flutter_tex/flutter_tex.dart';
@@ -1079,6 +1080,11 @@ class ShirohaQuizApp extends StatelessWidget {
           darkTheme: AppTheme.themeFor(themeName, Brightness.dark),
           themeMode: AppTheme.themeMode(themeName),
           home: MainScreen(
+            dashboardQuery: WorkspaceDashboardQuery(
+                loadDailyReviews: QuestionRepository.instance.getHeatmapData,
+                loadRecentFiles: () => u1WorkspaceFacade.listLibraryFiles(
+                    view: FileLibraryView.recent),
+                loadBanks: u1WorkspaceFacade.listQuestionBanks),
             appearanceSettings: appearanceSettingsService,
             taskCenter: taskCenter ??
                 createTaskCenterDependencies(

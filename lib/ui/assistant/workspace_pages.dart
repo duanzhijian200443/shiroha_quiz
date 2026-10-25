@@ -439,14 +439,15 @@ class _FileLibraryContentState extends State<_FileLibraryContent> {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) =>
-            _FileDetailScreen(controller: controller, fileId: fileId),
+            LibraryFileDetailScreen(controller: controller, fileId: fileId),
       ),
     );
   }
 }
 
-class _FileDetailScreen extends StatelessWidget {
-  const _FileDetailScreen({required this.controller, required this.fileId});
+class LibraryFileDetailScreen extends StatelessWidget {
+  const LibraryFileDetailScreen(
+      {super.key, required this.controller, required this.fileId});
 
   final FileLibraryController controller;
   final String fileId;

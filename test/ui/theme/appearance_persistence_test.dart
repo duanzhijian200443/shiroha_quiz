@@ -92,7 +92,8 @@ void main() {
   for (final style in ShirohaThemeStyle.values) {
     for (final mode in ShirohaDisplayMode.values) {
       test('$style / $mode survives new service and database reopen', () async {
-        final expected = ShirohaAppearance(style: style, mode: mode);
+        final expected = ShirohaAppearance(
+            style: style, mode: mode, layout: ShirohaLayoutMode.workspace);
         await SettingsRepository().setAppTheme('dark');
         await AppearanceSettingsService(SettingsRepository()).save(expected);
         await DatabaseHelper.resetRuntimeProfileForTesting();
@@ -139,7 +140,8 @@ void main() {
   test('failed atomic save preserves both persisted axes and invalidates cache',
       () async {
     final settings = SettingsRepository();
-    final previous = ShirohaAppearance.dark;
+    final previous =
+        ShirohaAppearance.dark.copyWith(layout: ShirohaLayoutMode.workspace);
     await settings.setAppTheme('colorful');
     await settings.setAppearance(previous);
     final db = await DatabaseHelper.instance.database;

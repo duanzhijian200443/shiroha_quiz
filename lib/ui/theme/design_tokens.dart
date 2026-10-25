@@ -15,6 +15,13 @@ abstract final class DesignTokens {
   static const double prominentIconContainerRadius = 13;
   static const double navigationSelectedRadius = 12;
   static const double contentMaxWidth = 640;
+  static const double workspaceMaxWidth = 1360;
+  static const double workspaceDashboardMaxWidth = 1440;
+  static const double workspaceNavigationBreakpoint = 600;
+  static const double expandedNavigationBreakpoint = 1200;
+  static const double workspaceColumnsBreakpoint = 880;
+  static const double compactNavigationWidth = 80;
+  static const double expandedNavigationWidth = 248;
 
   static const Color _lightSurfaceShadowColor = Color(0xFF375078);
 

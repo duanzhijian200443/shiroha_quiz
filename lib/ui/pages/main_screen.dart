@@ -11,6 +11,7 @@ import '../../application/study_plan/study_plan_command_service.dart';
 import '../../application/study_plan/study_plan_draft_service.dart';
 import '../../application/study_plan/study_plan_selection_service.dart';
 import '../../application/today/today_context_query.dart';
+import '../../application/today/workspace_dashboard_query.dart';
 import '../../application/u1_workspace/u1_workspace_facade.dart';
 import '../../application/questions/folder_query_port.dart';
 import '../../application/questions/question_bank_mutation_command.dart';
@@ -20,6 +21,7 @@ import '../../application/safe_write/typed_answer_command.dart';
 import '../../services/study_plan/study_plan_practice_session_launcher.dart';
 import 'home_page.dart';
 import 'profile_screen.dart';
+import 'data_center_screen.dart';
 import '../dependencies/ai_dependencies_scope.dart';
 import '../dependencies/practice_command_dependencies.dart';
 import '../assistant/assistant_workspace_shell.dart';
@@ -30,6 +32,7 @@ import '../assistant/workspace_pages.dart';
 import '../../services/import_review/import_commit_service.dart';
 import '../theme/design_tokens.dart';
 import '../widgets/shiroha_icons.dart';
+import '../widgets/shiroha_workspace_navigation.dart';
 import '../dependencies/home_training_dependencies.dart';
 import '../dependencies/task_center_dependencies.dart';
 import '../dependencies/study_activity_dependencies_scope.dart';
@@ -43,6 +46,7 @@ class MainScreen extends StatefulWidget {
     required this.appearanceSettings,
     required this.startAgentTurn,
     this.todayContextQuery,
+    this.dashboardQuery,
     this.homeTraining,
     this.taskCenter,
     this.studySessionLauncher,
@@ -70,6 +74,7 @@ class MainScreen extends StatefulWidget {
   final AppearanceSettingsService appearanceSettings;
   final AgentTurnStarter startAgentTurn;
   final TodayContextQuery? todayContextQuery;
+  final WorkspaceDashboardQuery? dashboardQuery;
   final HomeTrainingDependencies? homeTraining;
   final TaskCenterDependencies? taskCenter;
   final StudySessionLauncher? studySessionLauncher;
@@ -96,6 +101,14 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   final GlobalKey<ScaffoldState> _mainScaffoldKey = GlobalKey<ScaffoldState>();
   int _currentIndex = 0;
+  WorkspaceDestination _workspaceDestination = WorkspaceDestination.home;
+  AssistantWorkspaceEntry _workspaceEntry =
+      AssistantWorkspaceEntry.conversation;
+  int _workspaceEntryEpoch = 0;
+  bool _banksVisited = false;
+  bool _dashboardStarted = false;
+  int _dashboardGeneration = 0;
+  WorkspaceDashboardSnapshot? _dashboard;
   int _assistantPrefillEpoch = 0;
   String? _assistantPrefillText;
   Object? _assistantDrawerOwner;
@@ -106,6 +119,59 @@ class _MainScreenState extends State<MainScreen> {
   /// ordinary and plan snapshots; HomePage itself is never recreated.
   int _todayActivationEpoch = 0;
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_dashboardStarted &&
+        Theme.of(context).extension<ShirohaThemeTokens>()?.appearance.layout ==
+            ShirohaLayoutMode.workspace) {
+      _dashboardStarted = true;
+      _refreshDashboard();
+    }
+  }
+
+  Future<void> _refreshDashboard() async {
+    if (!_dashboardStarted) return;
+    final generation = ++_dashboardGeneration;
+    final snapshot = await widget.dashboardQuery?.read() ??
+        const WorkspaceDashboardSnapshot();
+    if (!mounted || generation != _dashboardGeneration) return;
+    setState(() => _dashboard = snapshot);
+  }
+
+  void _selectWorkspace(int index) {
+    final destination = WorkspaceDestination.values[index];
+    final page = switch (destination) {
+      WorkspaceDestination.home || WorkspaceDestination.training => 0,
+      WorkspaceDestination.library ||
+      WorkspaceDestination.spaces ||
+      WorkspaceDestination.assistant =>
+        1,
+      WorkspaceDestination.settings => 2,
+      WorkspaceDestination.banks => 3,
+    };
+    _handleNavigation(page);
+    setState(() {
+      _workspaceDestination = destination;
+      _banksVisited |= page == 3;
+      if (page == 1) {
+        _workspaceEntry = switch (destination) {
+          WorkspaceDestination.library => AssistantWorkspaceEntry.fileLibrary,
+          WorkspaceDestination.spaces => AssistantWorkspaceEntry.learningSpaces,
+          _ => AssistantWorkspaceEntry.conversation,
+        };
+        _workspaceEntryEpoch++;
+      }
+    });
+  }
+
+  Future<void> _openRecentFile(String fileId) async {
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => _WorkspaceFileDetailRoute(
+            facade: widget.u1WorkspaceFacade, fileId: fileId)));
+    if (mounted) await _refreshDashboard();
+  }
+
   void _handleNavigation(int index) {
     if (index != 1) {
       _mainScaffoldKey.currentState?.closeDrawer();
@@ -115,6 +181,12 @@ class _MainScreenState extends State<MainScreen> {
         _todayActivationEpoch++;
       }
       _currentIndex = index;
+      _workspaceDestination = switch (index) {
+        1 => WorkspaceDestination.assistant,
+        2 => WorkspaceDestination.settings,
+        3 => WorkspaceDestination.banks,
+        _ => WorkspaceDestination.home,
+      };
     });
   }
 
@@ -132,6 +204,7 @@ class _MainScreenState extends State<MainScreen> {
       _assistantPrefillEpoch++;
       _assistantPrefillText = text;
       _currentIndex = 1;
+      _workspaceDestination = WorkspaceDestination.assistant;
     });
   }
 
@@ -177,6 +250,11 @@ class _MainScreenState extends State<MainScreen> {
     final dependencies = AiDependenciesScope.of(context);
     final pages = <Widget>[
       HomePage(
+        dashboard: _dashboard,
+        onRefreshDashboard: _refreshDashboard,
+        onWorkspaceDestination: _selectWorkspace,
+        onOpenRecentFile: _openRecentFile,
+        trainingOnly: _workspaceDestination == WorkspaceDestination.training,
         taskCenter: widget.taskCenter,
         homeTraining: widget.homeTraining,
         studyActivityQuery:
@@ -205,6 +283,15 @@ class _MainScreenState extends State<MainScreen> {
               ),
         onConsumed: _consumeAssistantPrefill,
         child: AssistantWorkspaceShell(
+          externalWorkspaceNavigation: Theme.of(context)
+                      .extension<ShirohaThemeTokens>()
+                      ?.appearance
+                      .layout ==
+                  ShirohaLayoutMode.workspace &&
+              (_workspaceDestination == WorkspaceDestination.library ||
+                  _workspaceDestination == WorkspaceDestination.spaces),
+          workspaceEntry: _workspaceEntry,
+          workspaceEntryEpoch: _workspaceEntryEpoch,
           facade: widget.u1WorkspaceFacade,
           conversationService: widget.conversationService,
           agentSettingsService: widget.agentSettingsService,
@@ -226,10 +313,26 @@ class _MainScreenState extends State<MainScreen> {
         onRestoreCompleted: widget.onRestoreCompleted,
         onOpenFileLibrary: _openFileLibrary,
       ), // Tab 2 — 我的
+      _banksVisited
+          ? DataCenterScreen(practiceCommands: widget.practiceCommands)
+          : const SizedBox.shrink(),
     ];
     final theme = Theme.of(context);
+    final width = MediaQuery.sizeOf(context).width;
+    final workspaceMode =
+        theme.extension<ShirohaThemeTokens>()?.appearance.layout ==
+            ShirohaLayoutMode.workspace;
+    final workspace =
+        workspaceMode && width >= DesignTokens.workspaceNavigationBreakpoint;
+    final expanded = width >= DesignTokens.expandedNavigationBreakpoint &&
+        MediaQuery.textScalerOf(context).scale(16) <= 24;
+    final navigationWidth = !workspace
+        ? 0.0
+        : expanded
+            ? DesignTokens.expandedNavigationWidth
+            : DesignTokens.compactNavigationWidth;
     final assistantDrawerEnabled = _currentIndex == 1 &&
-        MediaQuery.sizeOf(context).width < 900 &&
+        width - navigationWidth < 900 &&
         _assistantDrawerBuilder != null;
     return AssistantGlobalDrawerScope(
       registerDrawer: _registerAssistantDrawer,
@@ -244,43 +347,74 @@ class _MainScreenState extends State<MainScreen> {
         drawerScrimColor: assistantDrawerEnabled
             ? theme.extension<ShirohaThemeTokens>()?.assistantDrawerScrim
             : null,
-        body: IndexedStack(index: _currentIndex, children: pages),
-        bottomNavigationBar: BottomNavigationBar(
-          currentIndex: _currentIndex,
-          onTap: _handleNavigation,
-          type: BottomNavigationBarType.fixed,
-          selectedItemColor: theme.bottomNavigationBarTheme.selectedItemColor,
-          unselectedItemColor:
-              theme.bottomNavigationBarTheme.unselectedItemColor,
-          items: const [
-            BottomNavigationBarItem(
-              icon: Icon(Icons.home_rounded),
-              activeIcon: _SelectedNavigationIcon(
-                icon: Icons.home_rounded,
-                neutral: true,
-                itemKey: ValueKey<String>('main-nav-selected-home'),
+        // Keep the page subtree in the same slot across layout/width changes.
+        // Nested adapters must see the width remaining after primary navigation.
+        body: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          workspace
+              ? ShirohaWorkspaceNavigation(
+                  expanded: expanded,
+                  selectedIndex: _workspaceDestination.index,
+                  onSelected: _selectWorkspace,
+                  recentFiles: _dashboard?.recentFiles,
+                  onOpenFile: _openRecentFile)
+              : const SizedBox.shrink(),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) => MediaQuery(
+                data: MediaQuery.of(context).copyWith(
+                    size: Size(constraints.maxWidth, constraints.maxHeight)),
+                child: IndexedStack(index: _currentIndex, children: pages),
               ),
-              label: '今日',
             ),
-            BottomNavigationBarItem(
-              icon: ShirohaIcon(ShirohaGlyph.assistant),
-              activeIcon: _SelectedNavigationIcon(
-                icon: Icons.auto_awesome_outlined,
-                assistant: true,
-                itemKey: ValueKey<String>('main-nav-selected-assistant'),
-              ),
-              label: '助手',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.person_rounded),
-              activeIcon: _SelectedNavigationIcon(
-                icon: Icons.person_rounded,
-                itemKey: ValueKey<String>('main-nav-selected-profile'),
-              ),
-              label: '我的',
-            ),
-          ],
-        ),
+          ),
+        ]),
+        bottomNavigationBar: workspace
+            ? null
+            : workspaceMode
+                ? ShirohaWorkspaceNavigation(
+                    expanded: false,
+                    horizontal: true,
+                    selectedIndex: _workspaceDestination.index,
+                    onSelected: _selectWorkspace)
+                : BottomNavigationBar(
+                    currentIndex: _currentIndex,
+                    onTap: _handleNavigation,
+                    type: BottomNavigationBarType.fixed,
+                    selectedItemColor:
+                        theme.bottomNavigationBarTheme.selectedItemColor,
+                    unselectedItemColor:
+                        theme.bottomNavigationBarTheme.unselectedItemColor,
+                    items: const [
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.home_rounded),
+                        activeIcon: _SelectedNavigationIcon(
+                          icon: Icons.home_rounded,
+                          neutral: true,
+                          itemKey: ValueKey<String>('main-nav-selected-home'),
+                        ),
+                        label: '今日',
+                      ),
+                      BottomNavigationBarItem(
+                        icon: ShirohaIcon(ShirohaGlyph.assistant),
+                        activeIcon: _SelectedNavigationIcon(
+                          icon: Icons.auto_awesome_outlined,
+                          assistant: true,
+                          itemKey:
+                              ValueKey<String>('main-nav-selected-assistant'),
+                        ),
+                        label: '助手',
+                      ),
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.person_rounded),
+                        activeIcon: _SelectedNavigationIcon(
+                          icon: Icons.person_rounded,
+                          itemKey:
+                              ValueKey<String>('main-nav-selected-profile'),
+                        ),
+                        label: '我的',
+                      ),
+                    ],
+                  ),
       ),
     );
   }
@@ -334,6 +468,34 @@ class _ProfileFileLibraryRoute extends StatefulWidget {
   @override
   State<_ProfileFileLibraryRoute> createState() =>
       _ProfileFileLibraryRouteState();
+}
+
+class _WorkspaceFileDetailRoute extends StatefulWidget {
+  const _WorkspaceFileDetailRoute({required this.facade, required this.fileId});
+  final U1WorkspaceFacade facade;
+  final String fileId;
+  @override
+  State<_WorkspaceFileDetailRoute> createState() =>
+      _WorkspaceFileDetailRouteState();
+}
+
+class _WorkspaceFileDetailRouteState extends State<_WorkspaceFileDetailRoute> {
+  late final FileLibraryController _controller;
+  @override
+  void initState() {
+    super.initState();
+    _controller = FileLibraryController(widget.facade)..select(widget.fileId);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      LibraryFileDetailScreen(controller: _controller, fileId: widget.fileId);
 }
 
 class _ProfileFileLibraryRouteState extends State<_ProfileFileLibraryRoute> {

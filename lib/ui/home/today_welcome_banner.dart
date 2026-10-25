@@ -7,8 +7,9 @@ import '../theme/shiroha_theme_tokens.dart';
 ///
 /// It also carries the page title so the header does not repeat a greeting.
 class TodayWelcomeBanner extends StatelessWidget {
-  const TodayWelcomeBanner({super.key, this.now});
+  const TodayWelcomeBanner({super.key, this.now, this.workspace = false});
   final DateTime? now;
+  final bool workspace;
   @override
   Widget build(BuildContext context) {
     final active = AppTheme.withPresetFallback(Theme.of(context))
@@ -52,10 +53,15 @@ class TodayWelcomeBanner extends StatelessWidget {
         ])))),
         LayoutBuilder(
             builder: (context, constraints) => ConstrainedBox(
-                constraints:
-                    BoxConstraints(minHeight: constraints.maxWidth * .405),
+                constraints: BoxConstraints(
+                    minHeight: workspace
+                        ? (constraints.maxWidth * .24).clamp(220.0, 280.0)
+                        : constraints.maxWidth * .405),
                 child: Padding(
-                    padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
+                    padding: workspace
+                        ? const EdgeInsets.symmetric(
+                            horizontal: 32, vertical: 28)
+                        : const EdgeInsets.fromLTRB(18, 14, 18, 14),
                     child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -70,20 +76,20 @@ class TodayWelcomeBanner extends StatelessWidget {
                                       fontWeight: FontWeight.w600,
                                       letterSpacing: 1,
                                       color: tokens.welcomeCaption))),
-                          const SizedBox(height: 2),
-                          Text(greeting,
+                          SizedBox(height: workspace ? 12 : 2),
+                          Text(workspace ? 'Shiroha' : greeting,
                               style: TextStyle(
-                                  fontSize: 24,
+                                  fontSize: workspace ? 44 : 24,
                                   height: 1.25,
                                   fontWeight: FontWeight.w700,
                                   color: tokens.textPrimary)),
                           const SizedBox(height: 2),
-                          Text('今天也继续加油吧！',
+                          Text(workspace ? '$greeting，继续你的学习节奏' : '今天也继续加油吧！',
                               style: TextStyle(
-                                  fontSize: 13,
+                                  fontSize: workspace ? 17 : 13,
                                   height: 1.4,
                                   color: tokens.welcomeCaption)),
-                          const SizedBox(height: 10),
+                          SizedBox(height: workspace ? 20 : 10),
                           DecoratedBox(
                               decoration: BoxDecoration(
                                   color: tokens.surface

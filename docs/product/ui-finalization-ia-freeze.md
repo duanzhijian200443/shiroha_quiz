@@ -92,17 +92,28 @@ U1 retains authority for everything else it defines, including:
 
 ## 3. Final primary navigation
 
-The final primary navigation is exactly:
+**2026-10-25 workspace amendment:** The user explicitly approved the new desktop
+reference's navigation and Home calendar. In the user-selected computer/tablet
+layout, primary entries are 首页 / 资料库 / 学习空间 / 今日训练 / 题库 / 助手 / 设置.
+These reuse existing destinations and their command/approval/lifecycle owners;
+the desktop Home introduces no alternate Agent or content authority. Mobile
+retains the three destinations below. `shiroha-appearance.md` defines responsive
+geometry, real calendar/statistic scopes and the bounded Home composition.
+The desktop exception supersedes the three-only and calendar-retired clauses;
+MockExam and other unrelated non-goals remain unchanged. The closed v0 evidence
+below retains its historical context.
+
+The mobile primary navigation remains exactly:
 
 ```text
 今日 | 助手 | 我的
 ```
 
-There is **no fourth formal primary destination**. The top-level 模考
+Mobile has **no fourth formal primary destination**. The top-level 模考
 destination is **retired from primary navigation**; the exam capability is
 not deleted (see the Mock/Exam migration contract).
 
-No new primary tabs are added: 学习空间, 文件, 题库, and 项目 are not
+The historical v0 mobile rule adds no primary tabs: 学习空间, 文件, 题库, and 项目 are not
 primary navigation destinations. Learning Space / File Library / Question
 Bank continue to live inside the existing Assistant / content workspace
 system.

@@ -106,6 +106,66 @@ Real-device visual acceptance for Paper Light/Dark across Today, AI 服务,
 我的/appearance chooser and navigation remains pending and is not granted by
 this amendment.
 
+## Desktop / tablet layout amendment (2026-10-25)
+
+The appearance sheet offers an independent **界面布局** choice: **手机布局**
+or **电脑 / 平板布局**, selectable on any device. Existing and absent preferences
+keep the mobile layout. Changing layout preserves theme style and Light/Dark/System.
+`ShirohaAppearance.layout` uses `mobile` / `workspace`. The existing version-1
+appearance record accepts an optional `layout` field; absence means `mobile`,
+and mobile saves omit the field for compatibility. Present null or unknown
+values invalidate the record and use the existing read-only legacy fallback.
+The existing Application save seam, single-row publication, single-flight preview,
+rollback and portable-backup exclusion cover the whole preference. No settings
+store, schema, dependency or parallel theme system is added.
+
+The user's supplied desktop reference governs the workspace presentation. The
+user explicitly authorized its navigation and Home calendar on 2026-10-25;
+this supersedes the earlier three-destination/calendar-retirement requirements
+for workspace layout only. Mobile keeps 今日 / 助手 / 我的 and its current Home.
+Workspace navigation is 首页 / 资料库 / 学习空间 / 今日训练 / 题库 / 助手 / 设置.
+Library, Spaces and Assistant reuse the existing workspace lifecycle owner and
+its guards; Banks opens the existing data center; Settings reuses Profile.
+Today training retains the Category, TrainingContent, new/review and single-plan
+components and commands. The hero navigates to that surface; it never launches
+an undifferentiated practice pool. Main page instances and the Home Assistant
+draft survive navigation and layout changes. No automatic Agent turn is sent.
+
+The expanded sidebar is 248 logical pixels at window widths >= 1200, with an
+80-pixel icon rail at 600–1199; large text can collapse the expanded sidebar.
+Below 600, workspace uses horizontally scrollable navigation with all seven
+entries. Mobile retains its existing bottom navigation. Child adapters receive
+their remaining width. Sidebar recent items use real LibraryFile IDs; the
+workspace label is local-only and does not claim an unsupported account switcher.
+
+Each workspace destination exposes its name, button role, selected state and
+activation action to assistive technology. Tooltip overlay anchors remain outside
+excluded decorative semantics so visible hints retain a reachable traversal
+parent. Navigation must preserve accessibility while hovering and changing pages.
+
+Workspace Home has a bounded sea-view hero, four responsive shortcut cards,
+learning activity and recent-files panels, and an Assistant draft entry. Content
+is capped at 1440 logical pixels. Shortcut cards use four columns at inner width
+>= 940, two at >= 500, then one. Activity/files use two columns at >= 900 with
+ordinary text scaling and otherwise stack in one vertical scroll surface.
+The hero artwork is cropped from the user-provided reference with explicit
+permission; text and controls are live Flutter widgets. All colors, interaction
+states and typography use the existing theme and shared token factory.
+
+The calendar shows local-date **review-log entry counts** for the current month
+and previous eleven months, ending today. It does not claim distinct completed
+questions, correct-answer rate or a streak. Summary labels distinguish learning
+days in that window, review entries, current catalog question count and **this
+week's** recorded StudyActivity duration. Duration is never inferred from counts;
+partial and unavailable remain explicit. Recent files use the existing recent
+catalog ordering and createdAt, labelled 添加于, not a fabricated last-opened or
+updated time. Search covers the current bank catalog and at most twenty recent
+files, with its scope shown in the UI. No full-text/global search is implied.
+
+These geometry and IA rules replace earlier unchanged-layout clauses only for
+this bounded workspace increment. Other destination pages retain their existing
+functional UI for subsequent batches; UI-RWD-1 is not app-wide visual closure.
+
 ## Palette
 
 The table's `light` / `dark` columns are the Grayscale light/dark compatibility

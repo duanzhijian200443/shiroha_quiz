@@ -731,6 +731,19 @@ widget dispose、lifecycle callback、route pop、submit callback、checkpoint t
 
 ## 7.2 三项摘要
 
+2026-10-25 桌面/平板修订：用户明确批准按参考图重构导航与首页日历。
+`shiroha-appearance.md` 的桌面修订管理新首页：海景 Banner、四个快捷入口、
+真实学习动态和最近资料、助手草稿输入。电脑/平板布局的「今日训练」承接
+Category / TrainingContent、新题/复习和单一 StudyPlan；复用现有 Application
+接口、选择 guard 和会话归属。手机布局及其首屏要求保持原样。
+
+该授权只为桌面首页增加日历展示例外，覆盖 §1.6、§6.8、§7.1、§7.3、§12.8
+中对应的全局退休措辞：日历消费既有 review_logs 本地日期聚合，窗口为当月及
+前十一月截至今天，明确标为练习记录，不能称为 distinct 完成题数、正确率或
+连续学习天数。时长单独消费既有本周 StudyActivity DTO，保留 partial/unavailable，
+不从热力图推算时长、不回填历史。MockExam 仍不开放。学习记录、FSRS、计时、
+数据库和导入权限无变化。手机 Home 不构建桌面日历或桌面统计区。
+
 继续使用题库题量、已掌握、今日已练。
 
 三卡依序对应柱形统计、勾选、火焰图标；数字与标签使用真实快照。
