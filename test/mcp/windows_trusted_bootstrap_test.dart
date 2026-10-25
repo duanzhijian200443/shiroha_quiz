@@ -22,6 +22,7 @@ import '../application/study_query/study_query_test_support.dart'
 import 'fixtures/codex_app_server_support.dart';
 import 'fixtures/windows_app_transport_fixture.dart';
 import 'fixtures/windows_process_channel.dart';
+import 'fixtures/settled_test_directory.dart';
 
 final class _Disk implements BackupDiskSpaceProbe {
   @override
@@ -201,6 +202,7 @@ void main() {
     late Directory buildRoot;
     late Directory parent;
     late String compiled;
+    late String compiledHosted;
     late String hostedProbe;
     setUpAll(() async {
       parent = await Directory(p.absolute('.dart_tool/ar-r6b-bootstrap-tests'))
@@ -216,6 +218,16 @@ void main() {
       ]);
       expect(result.exitCode, 0,
           reason: 'Compile isolated product bootstrap: ${result.stderr}');
+      compiledHosted = p.join(buildRoot.path, 'isolated_hosted_bridge.exe');
+      final hostedBootstrapBuild = await Process.run(flutterDartExecutable(), [
+        'compile',
+        'exe',
+        'test/mcp/fixtures/windows_trusted_bootstrap_hosted_aot.dart',
+        '-o',
+        compiledHosted
+      ]);
+      expect(hostedBootstrapBuild.exitCode, 0,
+          reason: 'Compile isolated Hosted bootstrap');
       hostedProbe = p.join(buildRoot.path, 'hosted_probe.exe');
       final hostedBuild = await Process.run(flutterDartExecutable(), [
         'compile',
@@ -268,10 +280,18 @@ void main() {
             'ownerClosed=${File(p.join(session.path, 'owner-closed')).existsSync()} '
             'entrySettled=${File(p.join(session.path, 'settled')).existsSync()}');
       }
-      await link.close();
-      await app.close();
       try {
-        await root.delete(recursive: true);
+        final sharingRetries =
+            await deleteSettledTestDirectory(root, settled: () async {
+          await link.close();
+          await app.close();
+        }());
+        if (sharingRetries != 0) {
+          stdout.writeln('TEST_DIRECTORY_CLEANUP ${jsonEncode({
+                'sharingViolations': sharingRetries,
+                'removed': true
+              })}');
+        }
       } on FileSystemException {
         final observation = await Process.run('pwsh.exe', [
           '-NoProfile',
@@ -415,7 +435,8 @@ void main() {
         var command = binary;
         var args = [root.path];
         if (mode == WindowsCodexConnectionMode.hosted) {
-          await File(binary).copy(p.join(root.path, 'shiroha_bridge.exe'));
+          await File(compiledHosted)
+              .copy(p.join(root.path, 'shiroha_bridge.exe'));
           final package = Platform.environment['SHIROHA_BRIDGE_PACKAGE'];
           expect(package, isNotNull,
               reason: 'Explicit formal package required');

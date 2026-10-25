@@ -1688,6 +1688,13 @@ inspection port is trusted infrastructure; Fake implementations belong only in
 tests. Digest matching is not authentication, signing, secure launch or security
 admission, and does not bind an arbitrary remote process to an identity.
 
+Trusted Bootstrap callers must supply the expected `connectionMode` independently
+of the client selection; App registration fixes it through its Direct or Hosted
+constructor. Both boundaries compare the selection against that mode before
+security admission, trust reads, Pairing settlement or protected acquisition.
+The mode is an in-code composition input, never selected by argv, environment
+or MCP fields.
+
 The product-supported client set is currently **empty**. The exact EOF-first
 patch documented in the Windows guide is selectable only for explicit isolated
 validation. No external argument, environment variable or MCP field installs this

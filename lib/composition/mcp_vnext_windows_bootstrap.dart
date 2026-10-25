@@ -34,6 +34,7 @@ final class McpVnextWindowsBridgeBootstrap implements VnextMcpPort {
     required Future<void> Function() requireSecurityAdmission,
     required Future<DiscoveryExpectations> Function() independentTrust,
     required McpVnextWindowsProcessOwner process,
+    required WindowsCodexConnectionMode connectionMode,
     WindowsCodexClientSelection? clientSelection,
     Future<void> Function()? settlePairing,
     TlsBridgeIo Function()? createIo,
@@ -45,7 +46,7 @@ final class McpVnextWindowsBridgeBootstrap implements VnextMcpPort {
         if (clientSelection == null) {
           throw StateError('Codex client unsupported');
         }
-        await clientSelection.claim(clientSelection.mode);
+        await clientSelection.claim(connectionMode);
         _checkCurrent();
         await requireSecurityAdmission();
         _checkCurrent();

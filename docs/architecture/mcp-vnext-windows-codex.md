@@ -1270,6 +1270,19 @@ Three failed observations remain part of the evidence:
   assertion was introduced. The failed evidence and the prior successful repeat
   are retained separately.
 
+Compiled-test temporary cleanup now distinguishes original process/stream/Owner
+settlement from Windows file-delete availability. It joins the original link/App
+closure before any deletion and only retries Windows sharing error 32, at most
+20 waits of 50 ms within the existing test timeout. Success requires actual
+directory removal and reports any sharing-recovery count. Persistent sharing
+rethrows the first error; other errors and failed original settlement do not
+retry. Exit codes, forced-close checks, original handles and all cleanup receipts
+remain unchanged. This is test-artifact housekeeping, not a product resource
+release rule. A controlled Windows read handle reproduces error 32 and explicit
+release permits deletion; deterministic cases cover failed/pending settlement,
+persistent sharing, other errors and false deletion success. These controls do
+not identify any historical holder or relabel an earlier failed run as passed.
+
 An added test initially asserted that a reconnected Session must reject every old
 READ reference. MCP §14 explicitly permits same-Principal current-reference
 revalidation. That new test was corrected to the frozen behavior and verifies the
@@ -1324,7 +1337,11 @@ offline provider and no model turn. The original compiled Bridge Process handle
 was retained before client shutdown. The same product Bootstrap/stdio and
 original App P15/P0/P8/P10 were used with Fake Native/TLS/public vectors only.
 Hosted qualification uses the existing fixed-adjacent `WindowsBridgeProcess.stdio`
-wrapper around that same compiled fixture; it does not create another protocol.
+wrapper around the same shared fixture assembly. Separate Direct and Hosted
+test entrypoints fix the expected mode in code and supply matching Fake client
+selections; no argv/environment/MCP mode selector is added. Bootstrap refusal
+regressions supply the opposite selection in both directions and require zero
+admission, trust, Pairing, native-acquisition and connection-creation calls.
 
 | Actual client | Direct original Bridge | Hosted original Bridge | Active `mcpServerStatus/list` | Product support |
 |---|---|---|---|---|
@@ -1383,7 +1400,7 @@ Bootstrap uses an explicit Fake compatibility input so an unsupported binary can
 be measured without opening a product admission path. Normal App/AOT roots never
 receive that input.
 
-Current Executor checks (no skipped case in these selected runs):
+Initial selection/refusal Executor checks (no skipped case in these selected runs):
 
 | Check | Result and limit |
 |---|---|

@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/composition/mcp_vnext_windows_acquisition.dart';
 import 'package:shiroha_quiz/composition/mcp_vnext_windows_bootstrap.dart';
 import 'package:shiroha_quiz/data/external/windows_bridge_process.dart';
+import 'package:shiroha_quiz/data/external/windows_codex_client.dart';
 import 'package:shiroha_quiz/data/external/discovery_descriptor_codec.dart';
 import 'package:shiroha_quiz/data/external/external_bootstrap_bytes.dart';
 import 'package:shiroha_quiz/data/external/external_credential_object_codec.dart';
@@ -32,7 +33,11 @@ final class _ObservedStdioCustody implements McpVnextWindowsProcessOwner {
   }
 }
 
-Future<void> main(List<String> arguments) async {
+Future<void> main(List<String> arguments) => runTrustedBootstrap(arguments,
+    connectionMode: WindowsCodexConnectionMode.direct);
+
+Future<void> runTrustedBootstrap(List<String> arguments,
+    {required WindowsCodexConnectionMode connectionMode}) async {
   RandomAccessFile? lock;
   McpVnextWindowsBridgeBootstrap? bootstrap;
   Timer? crash;
@@ -113,7 +118,8 @@ Future<void> main(List<String> arguments) async {
               }
             }));
     bootstrap = McpVnextWindowsBridgeBootstrap(
-        clientSelection: await isolatedClientSelection(),
+        connectionMode: connectionMode,
+        clientSelection: await isolatedClientSelection(mode: connectionMode),
         acquirer: acquirer,
         requireSecurityAdmission: () async {
           if (material['security'] != 'fake-only') {
