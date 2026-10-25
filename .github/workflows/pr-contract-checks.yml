@@ -97,6 +97,13 @@ jobs:
       - name: Compile and inspect helper, run fake-only contracts
         shell: pwsh
         run: ./windows/external_native/check_offline.ps1
+      - name: Compile local relay without loading the DLL
+        shell: pwsh
+        run: |
+          cmake -S windows/local_relay -B build/ci-local-relay -G "Visual Studio 17 2022" -A x64
+          if ($LASTEXITCODE -ne 0) { throw 'Local relay configure failed' }
+          cmake --build build/ci-local-relay --config Debug --target shiroha_relay_native
+          if ($LASTEXITCODE -ne 0) { throw 'Local relay build failed' }
 
   static:
     name: Static changed-Dart checks
@@ -569,7 +576,11 @@ jobs:
             # AR-R6B independent Bridge UI host and dual-process evidence gates.
             'test/mcp/bridge_ui_host_test.dart',
             'test/tool/mcp_vnext_windows_pairing_hosts_test.dart',
-            'test/mcp/bridge_ui_host_failed_close_test.dart'
+            'test/mcp/bridge_ui_host_failed_close_test.dart',
+            # App-owned relay framing, protocol refusal and App exit barriers.
+            'test/data/external/windows_local_relay_test.dart',
+            'test/mcp/vnext_app_owned_client_test.dart',
+            'test/ui/external/first_party_external_exit_test.dart'
           )
 
           $shardCount = 4

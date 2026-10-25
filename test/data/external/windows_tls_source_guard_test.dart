@@ -230,6 +230,7 @@ void main() {
             reason: path);
       }
       if (path != 'lib/data/external/windows_bridge_process.dart' &&
+          path != 'lib/composition/mcp_vnext_app_owned_relay.dart' &&
           path != 'lib/composition/mcp_vnext_windows_startup.dart' &&
           path != 'lib/composition/mcp_vnext_windows_acquisition.dart' &&
           path != 'lib/composition/mcp_vnext_windows_bootstrap.dart' &&

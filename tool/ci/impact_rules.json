@@ -17,8 +17,10 @@
       "paths": [
         "pubspec.yaml", "pubspec.lock", "analysis_options.yaml",
         "tool/verify_changed.ps1",
+        "windows/CMakeLists.txt",
         "windows/external_native/CMakeLists.txt",
-        "windows/external_native/check_offline.ps1"
+        "windows/external_native/check_offline.ps1",
+        "windows/local_relay/CMakeLists.txt"
       ],
       "prefixes": [".github/", "tool/ci/", "tool/tests/", "tool/external/", "scripts/"],
       "suffixes": [],
@@ -26,7 +28,7 @@
     },
     {
       "id": "native_adapter",
-      "paths": [],
+      "paths": ["lib/data/external/windows_local_relay.dart"],
       "prefixes": ["lib/data/external/native/"],
       "suffixes": [".dart"],
       "jobs": ["static", "windows_native", "train_c_finalization_parity", "contracts"]
@@ -34,7 +36,7 @@
     {
       "id": "native_code",
       "paths": [],
-      "prefixes": ["windows/external_native/"],
+      "prefixes": ["windows/external_native/", "windows/local_relay/"],
       "suffixes": [".cpp", ".h", ".cs"],
       "jobs": ["windows_native", "contracts"]
     },

@@ -97,6 +97,15 @@ Assert-True ($workflow.Contains("cron: '0 20 * * 0'")) 'weekly full regression i
 Assert-True ($workflow.Contains("github.event_name == 'schedule' && 'schedule'")) 'schedule owns a concurrency namespace'
 Assert-True ($workflow.Contains('actions: read')) 'plan and evidence reads use read-only Actions permission'
 Assert-True (!$workflow.Contains('paths-ignore')) 'no workflow-level path filter bypasses required checks'
+$native = [regex]::Match($workflow, '(?ms)^  windows_native:\r?\n(.*?)(?=^  [a-z_]+:|\z)')
+foreach ($command in @(
+    'run: ./windows/external_native/check_offline.ps1',
+    'cmake -S windows/local_relay -B build/ci-local-relay -G "Visual Studio 17 2022" -A x64',
+    'cmake --build build/ci-local-relay --config Debug --target shiroha_relay_native',
+    "if (`$LASTEXITCODE -ne 0) { throw 'Local relay configure failed' }",
+    "if (`$LASTEXITCODE -ne 0) { throw 'Local relay build failed' }")) {
+    Assert-True ($native.Success -and $native.Value.Contains($command)) "Native coverage missing: $command"
+}
 Write-Output 'PASS: plan-gated units, aggregate recomputation, weekly full regression and separate concurrency'
 
 $block = [regex]::Match($workflow, '(?s)\$tests = @\((.*?)\n\s*\)')
@@ -129,6 +138,8 @@ $externalOrigin = @(Get-ChildItem -LiteralPath (Join-Path $root 'test/applicatio
 })
 foreach ($path in $externalOrigin) { Assert-True ($paths -contains $path) "External origin coverage missing: $path" }
 foreach ($path in @(
+    'test/mcp/vnext_app_owned_client_test.dart',
+    'test/ui/external/first_party_external_exit_test.dart',
     'test/ui/external_authorization_screen_test.dart',
     'test/ui/generated_question/generated_external_origin_review_test.dart',
     'test/services/retrieval/rag_lazy_artifact_provisioning_integration_test.dart',

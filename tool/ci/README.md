@@ -14,6 +14,20 @@ test requires those entries. That is offline Linux evidence for the accepted
 P3-P12 behavior only; it is not Windows Credential, mTLS, ACL, Discovery or
 Host acceptance and it clears no WINDOWS_PENDING item.
 
+The App-owned relay adds standing framing/refusal, internal MCP client and App
+exit/log-drain suites. These portable tests load no Windows relay DLL and do not
+prove real Codex STAGE/Review or original-process settlement. The Windows native
+job separately configures and compiles `windows/local_relay` with MSVC x64 and
+the target's `/W4 /WX` settings; either command failing fails the job. It never
+loads the DLL or opens a relay. Relay C++/headers require Native and Contracts;
+its Dart FFI adapter and CMake configuration require all units. This compilation
+coverage grants no runtime authentication or security admission.
+The TLS source guard admits only the exact App-owned process consumer from MCP
+section 17.12 and checks its imports, absent protected authority and original
+closer. In-memory mutations retain rejection of protected startup, TLS imports,
+authority fabrication, forced process termination, missing drain and formal AOT
+business selection. Every other process-consumer restriction remains in place.
+
 P22 adds pairing transcript, exchange payload, Discovery descriptor and source
 guard suites to the same manifest. Static checks and contract shards run
 independently: shards consume no Static job outputs. Each shard scans the

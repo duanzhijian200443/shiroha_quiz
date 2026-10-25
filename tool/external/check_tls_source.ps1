@@ -98,6 +98,7 @@ foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.
         throw 'Inactive Windows composition acquired a production consumer'
     }
     if ($file.FullName -notin @((Join-Path $root 'lib/data/external/windows_bridge_process.dart'),
+            (Join-Path $root 'lib/composition/mcp_vnext_app_owned_relay.dart'),
             (Join-Path $root 'lib/composition/mcp_vnext_windows_startup.dart'),
             (Join-Path $root 'lib/composition/mcp_vnext_windows_acquisition.dart'),
             (Join-Path $root 'lib/composition/mcp_vnext_windows_bootstrap.dart'),
@@ -147,13 +148,72 @@ foreach ($forbidden in @('CertOpenStore', 'CertGetCertificateChain', 'CertAddCer
 }
 Write-Output 'PASS: inactive TLS candidate, explicit Raw I/O, isolated TLS13 contexts and crypt32-only peer policy (WINDOWS_PENDING)'
 
-$main = [IO.File]::ReadAllText((Join-Path $root 'lib/main.dart'))
-if (!$main.Contains('McpVnextWindowsAppRegistration.unavailable(integration)') -or
-    $main -match 'McpVnextWindowsAppRegistration\.(directClient|hostedClient)') {
-    throw 'Normal App registration activated protected startup'
+function Assert-AppOwnedRelayBoundary([hashtable]$Sources) {
+    # MCP 17.12 admits this one process consumer, with no protected authority.
+    $relay = $Sources.relay
+    $imports = @('dart:async', 'dart:io', 'package:path/path.dart',
+        '../data/external/windows_bridge_process.dart',
+        '../data/external/windows_local_relay.dart',
+        '../data/external/windows_release_candidate.dart',
+        '../mcp/vnext_app_owned_client.dart', '../mcp/vnext_mcp_server.dart')
+    foreach ($import in [regex]::Matches($relay, "(?m)^(?:import|export) '([^']+)'")) {
+        if ($import.Groups[1].Value -notin $imports) { throw 'Local relay gained an unauthorized dependency' }
+    }
+    if ($relay -cmatch '\bProcess\s*\.') { throw 'Local relay gained authority: Process' }
+    foreach ($token in @('killPid', '.kill(', 'Platform.environment',
+        'ExternalTrustCore', 'ExternalSession', 'ExternalPrincipal', 'PairingProof',
+        'AuthenticatedPeerEvidence', 'DatabaseHelper', 'LocalHostDispatchCore',
+        'WindowsTls', 'P26TlsStartup', 'RawServerSocket', 'ServerSocket',
+        'SecurityContext', '.approveTarget(', '.openSession(', '.bindSession(',
+        '.acquireAppObjects(', '.acquireBridgeObjects(')) {
+        if ($relay.Contains($token)) { throw "Local relay gained authority: $token" }
+    }
+    foreach ($required in @('WindowsBridgeProcess.stdio(', 'await process.stopAndWait();')) {
+        if (!$relay.Contains($required)) { throw 'Local relay lost original process custody' }
+    }
+    $constructor = [regex]::Match($Sources.registration,
+        '(?s)McpVnextWindowsAppRegistration\.appOwnedRelay\(.*?;')
+    if (!$constructor.Success -or
+        !$constructor.Value.Contains('_relay = McpVnextAppOwnedRelay(onEvent: onRelayEvent);') -or
+        $constructor.Value -match '_install|_startup|_acquirer|requireSecurityAdmission') {
+        throw 'Local relay registration gained protected startup'
+    }
+    if (!$Sources.main.Contains('McpVnextWindowsAppRegistration.appOwnedRelay(integration,') -or
+        $Sources.main -match 'McpVnextWindowsAppRegistration\.(directClient|hostedClient)') {
+        throw 'Normal App registration activated protected startup'
+    }
+    if (!$Sources.entry.Contains('await serveWindowsBridgeStdio();') -or
+        $Sources.entry -match 'bootstrap\s*:|Platform.environment|fromEnvironment') {
+        throw 'Formal AOT acquired a business selector'
+    }
 }
-$entry = [IO.File]::ReadAllText((Join-Path $root 'tool/external/bridge_candidate.dart'))
-if (!$entry.Contains('await serveWindowsBridgeStdio();') -or
-    $entry -match 'bootstrap\s*:|Platform.environment|fromEnvironment') {
-    throw 'Formal AOT acquired a business selector'
+$relaySources = @{
+    relay = [IO.File]::ReadAllText((Join-Path $root 'lib/composition/mcp_vnext_app_owned_relay.dart'))
+    registration = [IO.File]::ReadAllText((Join-Path $root 'lib/composition/mcp_vnext_windows_registration.dart'))
+    main = [IO.File]::ReadAllText((Join-Path $root 'lib/main.dart'))
+    entry = [IO.File]::ReadAllText((Join-Path $root 'tool/external/bridge_candidate.dart'))
 }
+Assert-AppOwnedRelayBoundary $relaySources
+# In-memory only: no source writes, DLL loading or runtime activation.
+$mutations = @(
+    @{key='relay'; code=$relaySources.relay + "`nimport '../data/external/windows_tls_host.dart';"; expected='Local relay gained an unauthorized dependency'},
+    @{key='relay'; code=$relaySources.relay + "`nExternalTrustCore();"; expected='Local relay gained authority'},
+    @{key='relay'; code=$relaySources.relay + "`nProcess.killPid(1);"; expected='Local relay gained authority'},
+    @{key='relay'; code=$relaySources.relay + "`nProcess.start('tool', []);"; expected='Local relay gained authority'},
+    @{key='relay'; code=$relaySources.relay.Replace('await process.stopAndWait();', ''); expected='Local relay lost original process custody'},
+    @{key='registration'; code=$relaySources.registration.Replace('_relay = McpVnextAppOwnedRelay(onEvent: onRelayEvent);', '_startup = protectedStartup;'); expected='Local relay registration gained protected startup'},
+    @{key='main'; code=$relaySources.main.Replace('.appOwnedRelay(integration,', '.directClient(integration,'); expected='Normal App registration activated protected startup'},
+    @{key='main'; code=$relaySources.main.Replace('.appOwnedRelay(integration,', '.hostedClient(integration,'); expected='Normal App registration activated protected startup'},
+    @{key='entry'; code=$relaySources.entry.Replace('serveWindowsBridgeStdio();', 'serveWindowsBridgeStdio(bootstrap: candidate);'); expected='Formal AOT acquired a business selector'}
+)
+foreach ($case in $mutations) {
+    if ($case.code -ceq $relaySources[$case.key]) { throw 'Local relay source mutation did not apply' }
+    $mutated = $relaySources.Clone()
+    $mutated[$case.key] = $case.code
+    $failure = $null
+    try { Assert-AppOwnedRelayBoundary $mutated } catch { $failure = $_.Exception.Message }
+    if (!$failure -or !$failure.StartsWith($case.expected)) {
+        throw "Local relay source mutation was not rejected: $($case.expected)"
+    }
+}
+Write-Output "PASS: App-owned local relay custody/refusal source mutations ($($mutations.Count) cases)"
