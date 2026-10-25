@@ -131,12 +131,24 @@ components and commands. The hero navigates to that surface; it never launches
 an undifferentiated practice pool. Main page instances and the Home Assistant
 draft survive navigation and layout changes. No automatic Agent turn is sent.
 
-The expanded sidebar is 248 logical pixels at window widths >= 1200, with an
-80-pixel icon rail at 600–1199; large text can collapse the expanded sidebar.
-Below 600, workspace uses horizontally scrollable navigation with all seven
-entries. Mobile retains its existing bottom navigation. Child adapters receive
-their remaining width. Sidebar recent items use real LibraryFile IDs; the
-workspace label is local-only and does not claim an unsupported account switcher.
+The user's proportional-scaling correction on 2026-10-25 supersedes the earlier
+window-width rail/bottom-navigation and card-reflow rules. Workspace uses a wide
+desktop canvas with a minimum design width of 1700 logical pixels. Below that
+window width, the entire canvas scales uniformly by windowWidth / 1700; at wider
+widths it stays at 1:1. Its design height is windowHeight / scale, retaining vertical
+scrolling and the viewport's available height. Window resizing preserves the
+expanded 248-design-pixel sidebar, four shortcut columns, the two activity/files
+columns and the full toolbar rather than switching to a compact or mobile UI.
+Fonts, spacing, artwork and controls share the same scale. Explicit accessibility
+text-size preferences remain respected within the design canvas.
+
+Scaling wraps the Navigator so routes, dialogs, tooltips, hit testing and semantic
+bounds share one coordinate space. MediaQuery size, safe areas, keyboard insets
+and display-feature bounds use design coordinates. The Navigator and page state
+remain mounted across resizing and layout selection. Mobile uses its physical
+logical viewport at 1:1 with its existing bottom navigation. Sidebar recent items
+use real LibraryFile IDs; the workspace label is local-only and does not claim an
+unsupported account switcher.
 
 Each workspace destination exposes its name, button role, selected state and
 activation action to assistive technology. Tooltip overlay anchors remain outside
@@ -145,9 +157,11 @@ parent. Navigation must preserve accessibility while hovering and changing pages
 
 Workspace Home has a bounded sea-view hero, four responsive shortcut cards,
 learning activity and recent-files panels, and an Assistant draft entry. Content
-is capped at 1440 logical pixels. Shortcut cards use four columns at inner width
+is capped at 1440 design pixels. Shortcut cards use four columns at inner width
 >= 940, two at >= 500, then one. Activity/files use two columns at >= 900 with
-ordinary text scaling and otherwise stack in one vertical scroll surface.
+ordinary text scaling and otherwise stack in one vertical scroll surface. These
+component widths refer to the design canvas, not the reduced physical viewport;
+shrinking the workspace window therefore does not trigger their reflow thresholds.
 The hero artwork is cropped from the user-provided reference with explicit
 permission; text and controls are live Flutter widgets. All colors, interaction
 states and typography use the existing theme and shared token factory.
