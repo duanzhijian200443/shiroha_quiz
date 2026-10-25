@@ -98,16 +98,24 @@ final class WindowsLocalRelay {
   final bool _server;
   bool _closed = false, _reading = false, _writing = false;
   bool _accepted = false;
-  Future<void>? _closing;
+  Future<void>? _closing, _disconnecting;
   Timer? _monitor;
-  final _lost = Completer<void>();
+  var _lost = Completer<void>();
   Future<void> get disconnected => _lost.future;
   bool get isCurrent => !_closed && _accepted;
 
   void _observe() {
     _accepted = true;
     _monitor = Timer.periodic(const Duration(milliseconds: 20), (_) {
-      if (!_closed && _native.state(_id) != 0) _noticeLost();
+      if (!_closed && _native.state(_id) != 0) {
+        _noticeLost();
+        if (!_server) {
+          // An idle adapter must release its handle without another tool call.
+          // close() retains any failure for its original owner to observe.
+          unawaited(
+              close().then((_) {}, onError: (Object _, StackTrace __) {}));
+        }
+      }
     });
   }
 
@@ -118,6 +126,10 @@ final class WindowsLocalRelay {
 
   Future<void> accept() async {
     if (_closed || _accepted) throw const LocalRelayException();
+    await _disconnecting;
+    if (_closed) throw const LocalRelayException();
+    _disconnecting = null;
+    _lost = Completer<void>();
     if (!_server) {
       _observe();
       return;
@@ -207,16 +219,39 @@ final class WindowsLocalRelay {
     }
   }
 
-  Future<void> close() {
-    _closed = true;
+  void _endConnection() {
     _monitor?.cancel();
     _noticeLost();
+  }
+
+  Future<void> _joinIo() async {
+    while (_reading || _writing) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+  }
+
+  /// Retire this peer while retaining the App's first-instance exclusion.
+  /// The caller must settle original Bridge custody before accepting again.
+  Future<void> disconnect() {
+    if (!_server) return close();
+    _endConnection();
+    return _disconnecting ??= () async {
+      await _joinIo();
+      if (_closed) return; // Full close owns native disposal.
+      if (_native.disconnect(_id) != 0) {
+        throw const LocalRelayException(unsettled: true);
+      }
+    }();
+  }
+
+  Future<void> close() {
+    _closed = true;
+    _endConnection();
     return _closing ??= () async {
       // Every native I/O call is nonblocking and completes synchronously. Join
       // Dart waiters before freeing their buffers; failure never reopens a pipe.
-      while (_reading || _writing) {
-        await Future<void>.delayed(const Duration(milliseconds: 10));
-      }
+      await _disconnecting;
+      await _joinIo();
       if (_native.close(_id) != 0) {
         throw const LocalRelayException(unsettled: true);
       }
@@ -249,6 +284,9 @@ final class _RelayNative {
           'shiroha_relay_state');
       close = library.lookupFunction<Int32 Function(Uint64), int Function(int)>(
           'shiroha_relay_close');
+      disconnect =
+          library.lookupFunction<Int32 Function(Uint64), int Function(int)>(
+              'shiroha_relay_disconnect');
       read = library.lookupFunction<
           Int32 Function(Uint64, Pointer<Uint8>, Uint32, Pointer<Uint32>),
           int Function(
@@ -273,7 +311,7 @@ final class _RelayNative {
   late final void Function(Pointer<Uint8>) _free;
   late final int Function() _healthy;
   late final int Function(int, Pointer<Uint64>) open;
-  late final int Function(int) accept, state, close;
+  late final int Function(int) accept, state, close, disconnect;
   late final int Function(int, Pointer<Uint8>, int, Pointer<Uint32>) read,
       write;
   late final Pointer<Uint8> buffer, writeBuffer;

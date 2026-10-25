@@ -12,9 +12,18 @@ import '../mcp/vnext_mcp_server.dart';
 /// Normal App custody for the new local hop. It does not manufacture admission
 /// for the adjacent Bridge: its existing formal entry remains fail-closed.
 final class McpVnextAppOwnedRelay {
-  McpVnextAppOwnedRelay({void Function(String, int)? onEvent})
-      : _onEvent = onEvent;
+  McpVnextAppOwnedRelay(
+      {void Function(String, int)? onEvent,
+      Duration idleTimeout = const Duration(minutes: 10)})
+      : _onEvent = onEvent,
+        _idleTimeout = idleTimeout {
+    if (idleTimeout <= Duration.zero ||
+        idleTimeout > const Duration(minutes: 10)) {
+      throw ArgumentError('Invalid relay idle deadline');
+    }
+  }
   final void Function(String, int)? _onEvent;
+  final Duration _idleTimeout;
   int _connectionId = 0;
   void _report(String event) {
     try {
@@ -56,81 +65,68 @@ final class McpVnextAppOwnedRelay {
   Future<void> _serve() async {
     while (!_closed) {
       final pipe = _pipe!;
+      Future<void>? lost;
       try {
         await pipe.accept();
         if (_closed) break;
         _connectionId++;
         _report('peerAuthenticated');
+        lost = pipe.disconnected.then((_) async => await _bridge?.close());
+        unawaited(lost.then((_) {}, onError: (Object _, StackTrace __) {}));
         await _connection(pipe);
-      } on LocalRelayException {
+      } catch (_) {
         _report('relayInterrupted');
-        // Peer interruption is not a successful business call. Original child
-        // cleanup below is independent, and an unknown cleanup is never reset.
+        // Protocol/SDK failure is not a custody failure. Never replay it.
+        // Only successful original settlement below permits another peer.
       } finally {
-        await _bridge?.close();
+        await Future.wait([
+          pipe.disconnect(),
+          if (_bridge != null) _bridge!.close(),
+          if (lost != null) lost,
+        ]);
         if (_bridge != null) _report('originalBridgeSettled');
         _bridge = null;
-        await pipe.close();
-        _pipe = null;
       }
       if (_closed) break;
       // Accept a new explicit adapter connection only after original custody
       // settled. This does not retry any request or restore business authority.
-      _pipe = WindowsLocalRelay.openApp();
+      _report('listening');
     }
   }
 
   Future<void> _connection(WindowsLocalRelay pipe) async {
     var lastId = 0;
-    final lost = pipe.disconnected.then((_) async {
-      await _bridge?.close();
-    });
-    unawaited(lost.then((_) {}, onError: (Object _, StackTrace __) {
-      _failed = true;
-    }));
-    try {
-      while (!_closed && pipe.isCurrent) {
-        // Idle expiry closes this connection; no approval/Session is revived.
-        final message = await pipe.receive(const Duration(minutes: 10));
-        final id = message['id'];
-        final tool = message['tool'];
-        final arguments = message['arguments'];
-        if (message.length != 4 ||
-            message['version'] != 1 ||
-            id is! int ||
-            id != lastId + 1 ||
-            id > 0x7fffffff ||
-            tool is! String ||
-            !VnextMcpServer.inputSchemas.containsKey(tool) ||
-            arguments is! Map<String, dynamic>) {
-          throw const LocalRelayException();
-        }
-        lastId = id;
-        if (_closed || !pipe.isCurrent) throw const LocalRelayException();
-        Map<String, Object?> result;
-        if (_bridge == null && !_OwnedBridge.packagePresent) {
-          _report('bridgePackageUnavailable');
-          result = vnextFailure('unavailable');
-        } else {
-          final bridge = _bridge ??= _OwnedBridge(onEvent: _report);
-          try {
-            await bridge.start();
-            if (_closed || !pipe.isCurrent) throw const LocalRelayException();
-            result = await bridge.client.call(tool, arguments);
-          } catch (_) {
-            // No repeated launch or request replay after an unknown effect.
-            await bridge.close();
-            rethrow;
-          }
-        }
-        if (_closed || !pipe.isCurrent) throw const LocalRelayException();
-        await pipe.send({'version': 1, 'id': id, 'result': result},
-            const Duration(seconds: 5));
+    while (!_closed && pipe.isCurrent) {
+      // Idle expiry closes this connection; no approval/Session is revived.
+      final message = await pipe.receive(_idleTimeout);
+      final id = message['id'];
+      final tool = message['tool'];
+      final arguments = message['arguments'];
+      if (message.length != 4 ||
+          message['version'] != 1 ||
+          id is! int ||
+          id != lastId + 1 ||
+          id > 0x7fffffff ||
+          tool is! String ||
+          !VnextMcpServer.inputSchemas.containsKey(tool) ||
+          arguments is! Map<String, dynamic>) {
+        throw const LocalRelayException();
       }
-    } finally {
-      // Wake the observer even on App close/malformed input, then join it.
-      await pipe.close();
-      await lost;
+      lastId = id;
+      if (_closed || !pipe.isCurrent) throw const LocalRelayException();
+      Map<String, Object?> result;
+      if (_bridge == null && !_OwnedBridge.packagePresent) {
+        _report('bridgePackageUnavailable');
+        result = vnextFailure('unavailable');
+      } else {
+        final bridge = _bridge ??= _OwnedBridge(onEvent: _report);
+        await bridge.start();
+        if (_closed || !pipe.isCurrent) throw const LocalRelayException();
+        result = await bridge.client.call(tool, arguments);
+      }
+      if (_closed || !pipe.isCurrent) throw const LocalRelayException();
+      await pipe.send({'version': 1, 'id': id, 'result': result},
+          const Duration(seconds: 5));
     }
   }
 

@@ -1,10 +1,49 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/core/observability/app_logger.dart';
+import 'package:shiroha_quiz/core/observability/log_writer.dart';
 import 'package:shiroha_quiz/ui/dependencies/first_party_external_scope.dart';
 
 void main() {
+  test('real file sink failure remains visible after a later successful write',
+      () async {
+    final root = await Directory('.dart_tool').createTemp('exit-log-');
+    final blocked = File('${root.path}/logs');
+    await blocked.writeAsString('test-only directory blocker');
+    final sink = RotatingFileLogSink(directory: Directory(blocked.path));
+    AppLogger.setSink(sink);
+    final failed = Completer<void>();
+    LogWriter.setRecordHandler(null);
+    LogWriter.setSinkErrorHandler((_, __) => failed.complete());
+    addTearDown(() async {
+      AppLogger.setSink(null);
+      await root.delete(recursive: true);
+    });
+
+    AppLogger.info('originalBridgeSettled', module: 'RelayTest');
+    await failed.future;
+    await blocked.delete();
+    AppLogger.info('later diagnostic', module: 'RelayTest');
+    await AppLogger.flush(); // Historical best-effort API can still succeed.
+    final contents = await sink.currentFile.readAsString();
+    expect(contents, contains('later diagnostic'));
+    expect(contents, isNot(contains('originalBridgeSettled')));
+    var closes = 0;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      expect(
+          await settleExternalAppExit(
+              close: () async {
+                closes++;
+              },
+              flushLogs: AppLogger.flushForExit),
+          AppExitResponse.cancel);
+    }
+    expect(closes, 2);
+  });
+
   test('exit waits for original close before waiting for queued logs',
       () async {
     final originalClose = Completer<void>();

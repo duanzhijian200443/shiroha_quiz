@@ -1853,6 +1853,11 @@ buffers are at most 64 KiB. A caller cancellation, peer EOF/death, malformed
 frame, deadline or failed output closes the connection without replay. Request
 waiting retains original business custody. Discovery cannot create a competing
 Bridge, and a busy business connection is not replaced by a newer connection.
+The App retains the same first-instance pipe handle across sequential peers.
+Disconnect retires the old connection and its peer/image pins; it does not drop
+namespace exclusion or wait for an old adapter to release its client handle.
+The next accept rechecks the full fixed-peer policy. An idle adapter also closes
+its own native handle when its loss monitor detects disconnection.
 
 App-side composition uses the original `WindowsBridgeProcess.stdio` and one
 original stdout consumer. Its stable internal MCP client drains the Bridge even
@@ -1863,6 +1868,11 @@ unknown child cleanup remains latched and prevents replacement. App close and B0
 join this SAME barrier. A later connection never inherits a Session, Context or
 Target Approval; unknown STAGE is reconciled only by its original SubmissionKey
 under fresh authorization.
+SDK connection/tool failures follow this same rule: fail the original attempt,
+join the actual child exit and both output drains, and only then allow a fresh
+peer. Such a failed attempt does not poison an otherwise successful custody
+barrier. Failed native retirement or failed/unknown child settlement remains
+latched, blocks re-arm and causes the original App close to fail.
 
 Lifecycle diagnostics include the emitting App PID for correlation with a retained
 original process handle; a PID or log event alone is never custody authority.
@@ -1874,6 +1884,21 @@ success. Logs remain observations, never authorization or evidence that override
 original custody. This waits for file-write completion, not a power-loss durability
 guarantee. Forced exit/detach does not gain a clean-settlement claim, and completed
 business effects are not rolled back by exit/log failure.
+The explicit `AppLogger.flushForExit` barrier retains terminal sink-write and
+drain failures for the configured sink lifetime, including an earlier omitted
+record followed by a successful write. Later success or repeated exit requests
+cannot clear that failure. Ordinary logging and the existing `flush` API retain
+their best-effort behavior; neither path replays a failed business operation.
+
+`tool/external/check_local_relay_windows.ps1` exercises this boundary in an
+isolated test package with actual named pipes, fixed adjacent test executables,
+the unchanged Shell/peer checks, original process handles and the production
+Bridge stream owner. It covers idle/malformed server disconnect with the old
+raw client handle retained, monitored client loss, MCP inventory/call failures,
+fresh peers after clean settlement and blocked re-arm after a nonzero child exit.
+Its synthetic Bridge supplies refusal/protocol faults only; it loads no protected
+helper, normal App data, credential or provider and proves no Codex model turn.
+The test may shorten the idle deadline; normal registration retains ten minutes.
 
 The normal App consumes this relay registration. While the security freeze is
 active, its adjacent formal Bridge still reaches the existing seven-tool refusal

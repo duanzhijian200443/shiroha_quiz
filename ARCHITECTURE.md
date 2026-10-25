@@ -500,8 +500,12 @@ while security admission is frozen; local forwarding grants no Application
 identity, permission or security acceptance. App exit/B0 join the original child
 settlement even after relay disconnection. Cancelable App exit also joins queued
 lifecycle-log writes after original close; failed custody cannot be replaced by
-successful logging. An explicitly supplied, admitted trusted
-composition may attach the existing P0 authority through the retained App Port.
+successful logging, and later successful writes cannot hide an earlier sink
+failure from that exit barrier. Sequential peers reuse the first-instance pipe
+only after the original child settles and each new peer is authenticated; a
+protocol failure alone does not poison clean custody. An explicitly supplied,
+admitted trusted composition may attach the existing P0 authority through the
+retained App Port.
 Application owns Profile selection, fresh authentication, finite enablement and
 explicit P3 target confirmation; UI supplies no credential or READ-to-STAGE
 upgrade. Database close drains the owner before B0 swap/rollback or rebuild;

@@ -22,6 +22,12 @@ the target's `/W4 /WX` settings; either command failing fails the job. It never
 loads the DLL or opens a relay. Relay C++/headers require Native and Contracts;
 its Dart FFI adapter and CMake configuration require all units. This compilation
 coverage grants no runtime authentication or security admission.
+The existing exit suite also uses a real rotating file sink with a failed write
+followed by a successful one, proving the exit-only failure latch. The explicit
+`tool/external/check_local_relay_windows.ps1` regression uses a disposable package
+and desktop Shell to exercise actual peer disconnect/re-arm and MCP failure
+settlement with original process handles. It is a separately invoked Windows
+runtime check, not part of the compile-only native CI unit or production admission.
 The TLS source guard admits only the exact App-owned process consumer from MCP
 section 17.12 and checks its imports, absent protected authority and original
 closer. In-memory mutations retain rejection of protected startup, TLS imports,

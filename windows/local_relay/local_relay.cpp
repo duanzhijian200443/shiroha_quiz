@@ -199,6 +199,21 @@ struct Pipe {
     return connected && !failed && peer.valid() &&
         WaitForSingleObject(peer.value, 0) == WAIT_TIMEOUT && launch_current();
   }
+  bool disconnect() {
+    // Retain the first-instance handle and Shell pins for the App lifetime.
+    // Old client handles may survive; they cannot keep this instance connected.
+    if (!server || !pipe.valid() || cleanup_failed || !launch_current()) return false;
+    failed = true;
+    if (!DisconnectNamedPipe(pipe.value) && GetLastError() != ERROR_PIPE_NOT_CONNECTED)
+      return false;
+    bool success = peer.close();
+    success = actual_image.close() && success;
+    success = expected_image.close() && success;
+    if (!success || cleanup_failed) return false;
+    connected = false;
+    failed = false;
+    return true;
+  }
   bool close() {
     failed = true;
     // Nonblocking pipe operations: no outstanding OVERLAPPED/buffer custody.
@@ -344,4 +359,9 @@ API int shiroha_relay_close(uint64_t id) {
   if (!p || !p->close()) return rejected;
   owned.reset();
   return ok;
+}
+API int shiroha_relay_disconnect(uint64_t id) {
+  std::lock_guard<std::mutex> guard(mutex);
+  auto* p = get(id);
+  return p && p->disconnect() ? ok : rejected;
 }

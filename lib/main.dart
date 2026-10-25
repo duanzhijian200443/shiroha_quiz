@@ -914,7 +914,7 @@ void runShirohaQuiz({
                   key: ObjectKey(integration),
                   access: integration.controls,
                   close: externalRegistration!.close,
-                  flushExitLogs: AppLogger.flush,
+                  flushExitLogs: AppLogger.flushForExit,
                   child: app,
                 ),
         );
