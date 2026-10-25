@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/application/backup/backup_restore_coordinator.dart';
 import 'package:shiroha_quiz/application/generated_question/generated_question_service.dart';
 import 'package:shiroha_quiz/data/external/windows_tls_transport.dart';
+import 'package:shiroha_quiz/data/external/windows_codex_client.dart';
 import 'package:shiroha_quiz/data/repositories/backup_database_authority.dart';
 import 'package:shiroha_quiz/data/repositories/backup_snapshot_repository.dart';
 import 'package:shiroha_quiz/services/backup/backup_disk_space.dart';
@@ -21,6 +22,7 @@ import '../application/study_query/study_query_test_support.dart'
 import 'fixtures/codex_app_server_support.dart';
 import 'fixtures/windows_app_transport_fixture.dart';
 import 'fixtures/windows_process_channel.dart';
+import 'fixtures/settled_test_directory.dart';
 
 final class _Disk implements BackupDiskSpaceProbe {
   @override
@@ -55,14 +57,19 @@ final class _ExitObservation {
   }
 
   Future<void> report() async {
-    expect(await lines.moveNext(), isTrue);
-    final result = jsonDecode(lines.current) as Map;
+    final result = await observe();
     printOnFailure('original compiled Bridge process: $result');
     expect(result['exited'], isTrue);
     expect(result['exitCode'], 0);
+  }
+
+  Future<Map<String, dynamic>> observe() async {
+    expect(await lines.moveNext(), isTrue);
+    final result = (jsonDecode(lines.current) as Map).cast<String, dynamic>();
     expect(await process.exitCode, 0);
     await lines.cancel();
     await errors;
+    return result;
   }
 }
 
@@ -195,6 +202,8 @@ void main() {
     late Directory buildRoot;
     late Directory parent;
     late String compiled;
+    late String compiledHosted;
+    late String hostedProbe;
     setUpAll(() async {
       parent = await Directory(p.absolute('.dart_tool/ar-r6b-bootstrap-tests'))
           .create(recursive: true);
@@ -209,6 +218,26 @@ void main() {
       ]);
       expect(result.exitCode, 0,
           reason: 'Compile isolated product bootstrap: ${result.stderr}');
+      compiledHosted = p.join(buildRoot.path, 'isolated_hosted_bridge.exe');
+      final hostedBootstrapBuild = await Process.run(flutterDartExecutable(), [
+        'compile',
+        'exe',
+        'test/mcp/fixtures/windows_trusted_bootstrap_hosted_aot.dart',
+        '-o',
+        compiledHosted
+      ]);
+      expect(hostedBootstrapBuild.exitCode, 0,
+          reason: 'Compile isolated Hosted bootstrap');
+      hostedProbe = p.join(buildRoot.path, 'hosted_probe.exe');
+      final hostedBuild = await Process.run(flutterDartExecutable(), [
+        'compile',
+        'exe',
+        'test/mcp/fixtures/windows_bridge_aot_probe.dart',
+        '-o',
+        hostedProbe
+      ]);
+      expect(hostedBuild.exitCode, 0,
+          reason: 'Compile original hosted custody');
     });
     tearDownAll(() => buildRoot.delete(recursive: true));
     setUp(() async {
@@ -251,10 +280,18 @@ void main() {
             'ownerClosed=${File(p.join(session.path, 'owner-closed')).existsSync()} '
             'entrySettled=${File(p.join(session.path, 'settled')).existsSync()}');
       }
-      await link.close();
-      await app.close();
       try {
-        await root.delete(recursive: true);
+        final sharingRetries =
+            await deleteSettledTestDirectory(root, settled: () async {
+          await link.close();
+          await app.close();
+        }());
+        if (sharingRetries != 0) {
+          stdout.writeln('TEST_DIRECTORY_CLEANUP ${jsonEncode({
+                'sharingViolations': sharingRetries,
+                'removed': true
+              })}');
+        }
       } on FileSystemException {
         final observation = await Process.run('pwsh.exe', [
           '-NoProfile',
@@ -387,6 +424,131 @@ void main() {
       }, timeout: const Timeout(Duration(minutes: 2)));
     }
 
+    for (final mode in WindowsCodexConnectionMode.values) {
+      test('selected client lifecycle qualification ${mode.name}', () async {
+        final selection = await WindowsCodexClientSelection.inspect(
+            executable: WindowsCodexExecutableFile(codex!),
+            use: WindowsCodexClientUse.product,
+            mode: mode);
+        // Even a clean observation cannot promote an unaccepted build or patch.
+        await expectLater(selection.claim(mode), throwsStateError);
+        var command = binary;
+        var args = [root.path];
+        if (mode == WindowsCodexConnectionMode.hosted) {
+          await File(compiledHosted)
+              .copy(p.join(root.path, 'shiroha_bridge.exe'));
+          final package = Platform.environment['SHIROHA_BRIDGE_PACKAGE'];
+          expect(package, isNotNull,
+              reason: 'Explicit formal package required');
+          await File(p.join(package!, 'shiroha_external_native.dll'))
+              .copy(p.join(root.path, 'shiroha_external_native.dll'));
+          command = p.join(root.path, 'hosted_probe.exe');
+          await File(hostedProbe).copy(command);
+          args = ['stdio'];
+        }
+        final home = await root.createTemp('qualification-');
+        final client = InstalledCodex(codex, Directory.current.path, home);
+        await client.configure(command: command, commandArguments: args);
+        _ExitObservation? observer;
+        late Directory session;
+        Map<String, dynamic>? exit;
+        var inventoryTools = -1;
+        var extraLaunches = -1;
+        try {
+          await client.start();
+          expect(
+              _data(await client.call('open_generation_context', {}))['items'],
+              isNotEmpty);
+          session = root
+              .listSync()
+              .whereType<Directory>()
+              .singleWhere((d) => p.basename(d.path).startsWith('session-'));
+          observer = await _ExitObservation.capture(session);
+          int launches() => root
+              .listSync()
+              .whereType<File>()
+              .where((f) => p.basename(f.path).startsWith('launch-'))
+              .length;
+          final before = launches();
+          final inventory = await client.inventory();
+          inventoryTools = ((inventory['result']?['data'] as List?)
+                      ?.firstOrNull?['tools'] as Map?)
+                  ?.length ??
+              0;
+          extraLaunches = launches() - before;
+          // Inventory must never destroy the original business connection.
+          expect(
+              _data(await client.call('open_generation_context', {}))['items'],
+              isNotEmpty);
+        } finally {
+          expect(await client.rpc.close(), 0);
+          expect(client.rpc.forcedClose, isFalse);
+          expect(client.rpc.protocolClean, isTrue);
+          if (observer != null) exit = await observer.observe();
+        }
+        bool receipt(String name) =>
+            File(p.join(session.path, name)).existsSync();
+        final clean = exit?['exitCode'] == 0 &&
+            receipt('close-entered') &&
+            receipt('owner-closed') &&
+            receipt('settled');
+        // Safe, durable test-run evidence; no paths, credentials or payloads.
+        stdout.writeln('CLIENT_QUALIFICATION ${jsonEncode({
+              'digest': selection.digest,
+              'mode': mode.name,
+              'bridgeExit': exit?['exitCode'],
+              'closeEntered': receipt('close-entered'),
+              'ownerClosed': receipt('owner-closed'),
+              'settled': receipt('settled'),
+              'liveInventoryTools': inventoryTools,
+              'extraLaunches': extraLaunches,
+              'originalLifecycleClean': clean,
+              'productSupported': false,
+            })}');
+        if (selection.support ==
+            WindowsCodexClientSupport.isolatedValidationOnly) {
+          expect(clean, isTrue);
+          // Explicit second connection after original settlement, never a
+          // recovery retry for an unsupported/unknown client outcome.
+          final reconnectHome =
+              await root.createTemp('qualification-reconnect-');
+          final reconnected =
+              InstalledCodex(codex, Directory.current.path, reconnectHome);
+          await reconnected.configure(command: command, commandArguments: args);
+          _ExitObservation? restartedExit;
+          try {
+            await reconnected.start();
+            expect(
+                _data(await reconnected.call('open_generation_context', {}))[
+                    'items'],
+                isNotEmpty);
+            final restartedSession = root
+                .listSync()
+                .whereType<Directory>()
+                .singleWhere((d) =>
+                    p.basename(d.path).startsWith('session-') &&
+                    !File(p.join(d.path, 'settled')).existsSync());
+            expect(restartedSession.path, isNot(session.path));
+            restartedExit = await _ExitObservation.capture(restartedSession);
+          } finally {
+            expect(await reconnected.rpc.close(), 0);
+            expect(reconnected.rpc.forcedClose, isFalse);
+            expect(reconnected.rpc.protocolClean, isTrue);
+            if (restartedExit != null) await restartedExit.report();
+          }
+          for (final d in root
+              .listSync()
+              .whereType<Directory>()
+              .where((d) => p.basename(d.path).startsWith('session-'))) {
+            expect(File(p.join(d.path, 'owner-closed')).existsSync(), isTrue);
+            expect(File(p.join(d.path, 'settled')).existsSync(), isTrue);
+          }
+        }
+      },
+          skip: codex == null ? 'Client not selected' : false,
+          timeout: const Timeout(Duration(minutes: 3)));
+    }
+
     test('selected Codex seven tools, Review, original key, reconnect and B0',
         () async {
       await insertLegacyQuestion(app.files.s.h.db,
@@ -400,19 +562,48 @@ void main() {
         final c = InstalledCodex(codex!, Directory.current.path, home);
         await c.configure(command: binary, commandArguments: [root.path]);
         active = c;
+        final selected = await WindowsCodexClientSelection.inspect(
+            executable: WindowsCodexExecutableFile(codex),
+            use: WindowsCodexClientUse.isolatedValidation,
+            mode: WindowsCodexConnectionMode.direct);
         // Status discovery creates a temporary MCP manager. Settle it before
         // starting the business thread instead of racing two credential Owners.
         await c.start(createThread: false);
-        expect((await c.inventory())['result']['data'].single['tools'],
-            hasLength(7));
-        for (final session in root
-            .listSync()
-            .whereType<Directory>()
-            .where((d) => p.basename(d.path).startsWith('session-'))) {
-          await _waitFor(
-              () => File(p.join(session.path, 'settled')).existsSync(),
-              'Codex discovery process settlement before business launch');
-        }
+        final hold = File(p.join(root.path, 'observe-discovery'));
+        await hold.writeAsString('observe-original');
+        final seen =
+            root.listSync().whereType<Directory>().map((d) => d.path).toSet();
+        _ExitObservation? discoveryExit;
+        await selected.discoverBeforeBusiness(discover: () async {
+          final inventory = c.inventory();
+          Directory? launched;
+          await _waitFor(() {
+            final fresh = root.listSync().whereType<Directory>().where((d) =>
+                !seen.contains(d.path) &&
+                p.basename(d.path).startsWith('session-') &&
+                File(p.join(d.path, 'ready')).existsSync());
+            if (fresh.isEmpty) return false;
+            launched = fresh.single;
+            return true;
+          }, 'original discovery process ready');
+          discoveryExit = await _ExitObservation.capture(launched!);
+          await File(p.join(launched!.path, 'observed')).writeAsString('bound');
+          expect((await inventory)['result']['data'].single['tools'],
+              hasLength(7));
+        }, settleOriginal: () async {
+          if (discoveryExit == null) throw StateError('Discovery exit unknown');
+          await discoveryExit!.report();
+          for (final session in root
+              .listSync()
+              .whereType<Directory>()
+              .where((d) => p.basename(d.path).startsWith('session-'))) {
+            await _waitFor(
+                () => File(p.join(session.path, 'settled')).existsSync(),
+                'Codex discovery process settlement before business launch');
+          }
+        });
+        await hold.delete();
+        await selected.claim(WindowsCodexConnectionMode.direct);
         await c.newThread();
         return c;
       }

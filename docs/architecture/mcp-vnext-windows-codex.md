@@ -1,5 +1,11 @@
 # Windows Codex integration for MCP vNext
 
+Current selection policy is in [MCP §17.10](../product/agent-refactor/mcp-vnext-contract.md#1710-windows-client-compatibility-selection-non-activating).
+**No official client is currently accepted for authenticated product use.** The
+pinned EOF patch remains an isolated test artifact. Earlier successful protocol,
+unavailable-AOT or mailbox tests below do not establish original business-Bridge
+process settlement or promote any client into product support.
+
 This guide covers isolated stdio compatibility, synthetic File READ and STAGE
 with an installed Windows Codex client. [MCP contract §7](../product/agent-refactor/mcp-vnext-contract.md#7-bounded-stage-stdio-source-composition)
 owns profile v2, seven tools and the closed production admission boundary.
@@ -1264,6 +1270,19 @@ Three failed observations remain part of the evidence:
   assertion was introduced. The failed evidence and the prior successful repeat
   are retained separately.
 
+Compiled-test temporary cleanup now distinguishes original process/stream/Owner
+settlement from Windows file-delete availability. It joins the original link/App
+closure before any deletion and only retries Windows sharing error 32, at most
+20 waits of 50 ms within the existing test timeout. Success requires actual
+directory removal and reports any sharing-recovery count. Persistent sharing
+rethrows the first error; other errors and failed original settlement do not
+retry. Exit codes, forced-close checks, original handles and all cleanup receipts
+remain unchanged. This is test-artifact housekeeping, not a product resource
+release rule. A controlled Windows read handle reproduces error 32 and explicit
+release permits deletion; deterministic cases cover failed/pending settlement,
+persistent sharing, other errors and false deletion success. These controls do
+not identify any historical holder or relabel an earlier failed run as passed.
+
 An added test initially asserted that a reconnected Session must reject every old
 READ reference. MCP §14 explicitly permits same-Principal current-reference
 revalidation. That new test was corrected to the frozen behavior and verifies the
@@ -1302,3 +1321,114 @@ trusted-root TLS gate additionally rejects codec and Discovery-publication token
 and the direct/hosted custody split is now pinned by an assertion. Standing CI on
 the new head and Independent Reviewer closure remain the gates; no activation,
 contract or runtime behavior changed.
+
+## Client compatibility selection and Windows qualification (2026-10-25)
+
+The [§17.10 selection](../product/agent-refactor/mcp-vnext-contract.md#1710-windows-client-compatibility-selection-non-activating)
+rejects missing/unsupported/product-patch selections before either registration
+or Bootstrap invokes security admission, protected acquisition or child launch.
+The product-supported client set is empty. The local executable is identified by
+its measured SHA-256, never a version-only rule or client-supplied identity.
+The explicitly injected inspection port is infrastructure, not authentication;
+neither digest comparison nor these tests prove signed launch or real security.
+
+All three official binaries were executed on Windows with an isolated Codex home,
+offline provider and no model turn. The original compiled Bridge Process handle
+was retained before client shutdown. The same product Bootstrap/stdio and
+original App P15/P0/P8/P10 were used with Fake Native/TLS/public vectors only.
+Hosted qualification uses the existing fixed-adjacent `WindowsBridgeProcess.stdio`
+wrapper around the same shared fixture assembly. Separate Direct and Hosted
+test entrypoints fix the expected mode in code and supply matching Fake client
+selections; no argv/environment/MCP mode selector is added. Bootstrap refusal
+regressions supply the opposite selection in both directions and require zero
+admission, trust, Pairing, native-acquisition and connection-creation calls.
+
+| Actual client | Direct original Bridge | Hosted original Bridge | Active `mcpServerStatus/list` | Product support |
+|---|---|---|---|---|
+| Installed npm CLI `0.144.1` | exit 1; no close/Owner/settled receipts | same failure | one extra launch; 0 tools | unsupported |
+| Desktop `26.1021.3705.0`, backend `0.164.0-alpha.11.1` | exit 1; no close/Owner/settled receipts | same failure | one extra launch; 0 tools | unsupported |
+| Official stable `0.164.0` portable candidate | exit 1; no close/Owner/settled receipts | same failure | one extra launch; 0 tools | unsupported |
+
+In all six observations Codex itself exited **0**, with no forced close by the
+test driver. Those client exits do not erase the original Bridge failures.
+The original business connection survived the competing discovery attempt;
+ordinary Fake-owner exclusion rejected its competitor. Qualification deliberately
+calls the raw client endpoint to observe this incompatibility. The selected
+integration instead rejects concurrent/live-business discovery before dispatch,
+and only allows a pre-business discovery whose original process and cleanup settle.
+No failed official-client lifetime is automatically reconnected or retried.
+
+The unchanged isolated patch (`fb3e30a2…79fdfd24`, full digest in the preceding
+section) passed original exit 0 plus all three cleanup receipts on **both Direct
+and Hosted**, followed by explicit reconnect and another clean original exit.
+Its raw active status endpoint still creates a competitor and returns zero tools.
+It is therefore usable only with serialized discovery through the selected
+integration, not as a generally compatible installed client. The product check
+also rejects this patch for product use. Positive business validation still needs
+the isolated patch; none of these results constitutes a distributed client fix.
+
+Measured client digests:
+
+- CLI: `cbacbb9726262ef558b4af0438a1b2a5bba9076132401d947b5b4d2bf92ab0e4`.
+- Desktop backend: `1103e9e09c71fa2cd0afd6d8f3b9a2d63174fe8efd7cb5bd09f1cb14ef58a098`.
+- Official stable candidate: `6f267830b029ee25d9339864aa867cd45de9f8fd4c5ea007d2e63c13a0c66d36`.
+
+The stable candidate was downloaded only into the task cache from the official
+[0.164.0 release](https://github.com/openai/codex/releases/tag/rust-v0.164.0), with
+its release asset digest checked. That tag's
+[shutdown implementation](https://github.com/openai/codex/blob/rust-v0.164.0/codex-rs/rmcp-client/src/rmcp_client.rs#L1075)
+terminates before dropping the transport, and its
+[Windows terminator](https://github.com/openai/codex/blob/rust-v0.164.0/codex-rs/rmcp-client/src/stdio_server_launcher.rs#L440)
+terminates the Job/process. This is consistent with the observed failures; it is
+not a trace of OS calls or an attestation of the Desktop binary's source.
+The current [OpenAI App Server documentation](https://developers.openai.com/codex/app-server)
+describes thread-bound connection reuse for status discovery, but that description
+does not override these executable-specific observations.
+
+Reproduce the classification for each explicitly selected executable:
+
+```powershell
+$env:SHIROHA_CODEX_EXE = '<absolute path to selected codex.exe>'
+$env:SHIROHA_BRIDGE_PACKAGE = (Resolve-Path .dart_tool/ar-r6b-integration).Path
+flutter test --no-pub --concurrency=1 test/mcp/windows_trusted_bootstrap_test.dart --plain-name 'selected client lifecycle qualification'
+```
+
+`CLIENT_QUALIFICATION` emits only digest, mode, exit code, receipt booleans and
+counts. A passing classification test means the evidence and refusal were checked;
+it does **not** mean the client's original lifecycle passed. Compiled test
+Bootstrap uses an explicit Fake compatibility input so an unsupported binary can
+be measured without opening a product admission path. Normal App/AOT roots never
+receive that input.
+
+Initial selection/refusal Executor checks (no skipped case in these selected runs):
+
+| Check | Result and limit |
+|---|---|
+| Official client qualification | 2/2 classification checks per binary, six retained **incompatible lifecycle** observations above; not six graceful exits. |
+| Isolated patched-client full compiled suite | 8/8: Direct/Hosted close and explicit reconnect, original temporary-discovery exit observation, seven-tool READ/STAGE, local Review, original-key recovery, duplicate Owner refusal, fresh approval after restart, EOF/crash/App close/Restore. |
+| Existing App/Bridge regressions | 76/76, including pending cleanup, failed process/stream settlement retaining Owner/database barriers and response-loss reconciliation without STAGE replay. |
+| Focused selection/refusal checks | 17/17, including five added registration/Bootstrap refusal cases after the full regression run; covered through the existing standing architecture entry, without changing CI. |
+| Existing formal AOT | CLI 14/14 full suite; Desktop and stable candidate 2/2 installed-client Direct/Hosted refusal/reconnect each. The existing AOT digest is unchanged; no authenticated AOT business claim. |
+| Source/package guards | 25/25 Dart cases and the chained Bootstrap/Discovery/Pairing/TLS PowerShell gates PASS. |
+| Final focused analysis / format / diff-check | PASS for all eight changed Dart files, including helpers; zero format changes. |
+
+The unchanged four isolated Rust lifecycle tests from #340 remain reused evidence
+for timeout, abnormal exit and lost-transport failure retention in the same pinned
+patch/binary; they were not rerun or claimed as fresh results. No timeout or
+cleanup assertion was relaxed. The new client selection/refusal regression uses
+the existing standing `local_authorization_architecture_test.dart` entry.
+Separate Verifier is **REQUIRED / CI_COVERAGE_GAP** for the fixed candidate's real
+Windows executable/custody, refusal and isolated business evidence; Linux CI does
+not run these opt-in clients. Current-target CI and independent semantic review
+remain delivery gates. Repository/global acceptance is NOT_EVALUATED.
+
+Remaining non-security conditions are a compatible official client (or a separately
+approved supported distribution), accepted product-root consumption of the selected
+client and lifecycle contract, actual Desktop/model-directed workflow acceptance,
+and independent Windows verification/review of the delivered integration.
+AR-R9B reference-package/distribution acceptance remains a separate stage.
+The independent #327 short-timeout cancellation issue remains BLOCKED at its
+original 4/4 budget. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
+AR-R6A = NOT_ACCEPTED. This work does not replace installed clients, edit global
+configuration, activate production authentication, or run protected credential,
+Pin, Discovery or TLS security experiments.

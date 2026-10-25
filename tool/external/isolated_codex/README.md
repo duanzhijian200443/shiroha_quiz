@@ -63,3 +63,11 @@ Original installed-client failure, isolated-client success and formal default
 refusal are distinct evidence. See the [Windows evidence guide](../../../docs/architecture/mcp-vnext-windows-codex.md)
 and [MCP contract](../../../docs/product/agent-refactor/mcp-vnext-contract.md).
 This patch does not resolve the separate #327 cancellation compatibility issue.
+
+The product `WindowsCodexClientSelection` recognizes the tested binary digest
+only as `isolatedValidationOnly`. Both Bootstrap and App registration reject it
+for product use, and reject missing/unknown selections before acquisition.
+Validation drivers must explicitly select this scope, settle discovery before
+business and obtain a fresh selection for reconnect. Rebuilding changes the
+artifact identity unless the resulting bytes match; no version-based fallback
+or automatic manifest promotion is supplied.

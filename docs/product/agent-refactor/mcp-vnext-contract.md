@@ -1665,7 +1665,8 @@ The isolated client patch closes original stdin, drains stdout/stderr and awaits
 the original child; timeout, abnormal exit and lost transport stay failed.
 Installed Codex 0.144.1 is unchanged and retains its known force-first shutdown
 incompatibility. This is an isolated compatibility proof, not a shipped fix.
-Remaining product work includes supported client distribution/selection and the
+Remaining product work includes compatible official-client availability and
+distribution (selection/refusal is supplied by §17.10), plus the
 explicit admitted production root supplying the admission check, independent
 trust and accepted infrastructure to these registrations. The normal roots do
 not yet consume an authenticated composition. Therefore only-security-admission
@@ -1674,3 +1675,60 @@ and independent semantic review remain required. #327 remains separately BLOCKED
 with unchanged assertions/budget. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
 AR-R6A = NOT_ACCEPTED. No Trial 1A/G0-L1/L2/I or real protected/TLS experiment is
 part of this slice.
+
+### 17.10. Windows client compatibility selection (non-activating)
+
+`WindowsCodexClientSelection` is a compatibility check at the existing App
+registration and Bridge Bootstrap boundaries, before security admission or Owner
+acquisition. Missing selection, unknown executable, product use of the isolated
+patch, changed executable, duplicate selection consumption and Direct/Hosted
+mismatch refuse startup. The local executable digest identifies an inspected
+artifact; a version string or MCP `clientInfo` is never evidence. The executable
+inspection port is trusted infrastructure; Fake implementations belong only in
+tests. Digest matching is not authentication, signing, secure launch or security
+admission, and does not bind an arbitrary remote process to an identity.
+
+Trusted Bootstrap callers must supply the expected `connectionMode` independently
+of the client selection; App registration fixes it through its Direct or Hosted
+constructor. Both boundaries compare the selection against that mode before
+security admission, trust reads, Pairing settlement or protected acquisition.
+The mode is an in-code composition input, never selected by argv, environment
+or MCP fields.
+
+The product-supported client set is currently **empty**. The exact EOF-first
+patch documented in the Windows guide is selectable only for explicit isolated
+validation. No external argument, environment variable or MCP field installs this
+selection in a normal product root. Both normal roots remain unavailable and the
+formal AOT retains seven-tool discovery with default business refusal. Official
+client qualification results and isolated patch results are separate evidence;
+passing a probe never automatically promotes a build into product support.
+
+For the accepted isolated path, `discoverBeforeBusiness` permits at most one
+temporary discovery and joins its original settlement before a business claim.
+It rejects concurrent discovery, business claims while discovery is pending,
+and live-business inventory without invoking another Manager. Failed discovery
+or settlement is retained and cannot be retried with that selection. The selected
+driver uses this check; it does not patch installed Codex or intercept arbitrary
+external clients. An incompatible external client remains rejected at the trusted
+registration/Bootstrap boundary, even if its discovery endpoint starts another
+Manager. No compatible official existing-Manager path is claimed merely because
+current OpenAI documentation describes `threadId` reuse.
+
+Direct registration owns the App Host only. Hosted registration forwards exactly
+one input/output pair through the existing `WindowsBridgeProcess`; it is not a
+workaround for a client that terminates the entire process tree. Selection owns
+no process, Session or credential and cannot declare cleanup successful. Original
+startup/stdio/Host/Owner barriers still govern EOF, stream failure, abnormal exit,
+App close and B0. Failed or unknown cleanup retains its failure and custody.
+Reconnection is explicit, requires a fresh selection and settled original
+ownership, and cannot restore old Target Approval or retry an unknown STAGE.
+Same-Principal READ revalidation and original SubmissionKey recovery remain as
+defined in §14/§17.9.
+
+This closes only the independently reviewable selection/refusal integration.
+Compatible official-client availability, accepted product-root consumption and
+actual Desktop/model-driven usage remain functional delivery gaps. AR-R9B
+distribution is separate. HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED;
+AR-R6A = NOT_ACCEPTED. #327 remains independently BLOCKED with unchanged
+assertions and repair budget. No protected credential/Pin/Discovery/TLS experiment
+or production authentication entry change is supplied.

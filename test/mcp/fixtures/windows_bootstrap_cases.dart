@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/composition/mcp_vnext_windows_acquisition.dart';
@@ -6,6 +7,7 @@ import 'package:shiroha_quiz/composition/mcp_vnext_windows_bootstrap.dart';
 import 'package:shiroha_quiz/composition/mcp_vnext_windows_registration.dart';
 import 'package:shiroha_quiz/data/external/discovery_descriptor_codec.dart';
 import 'package:shiroha_quiz/data/external/windows_tls_transport.dart';
+import 'package:shiroha_quiz/data/external/windows_codex_client.dart';
 
 import '../../application/external/local_host_test_support.dart'
     show OfflineReadiness;
@@ -15,10 +17,17 @@ import '../../data/external/windows_pairing_test.dart' as p27;
 import '../../data/external/windows_tls_transport_test.dart' as tls;
 import 'first_party_app_integration_cases.dart';
 import 'windows_app_transport_fixture.dart';
+import 'windows_codex_selection_fixture.dart';
+import 'windows_codex_client_cases.dart';
+import 'settled_test_directory_cases.dart';
 
-McpVnextWindowsProtectedAcquirer bootstrapAcquirer(p27.PairingHarness h) =>
+McpVnextWindowsProtectedAcquirer bootstrapAcquirer(p27.PairingHarness h,
+        {void Function()? onOpenNative}) =>
     McpVnextWindowsProtectedAcquirer(
-      openNative: () => objects.adapter(h.native.calls),
+      openNative: () {
+        onOpenNative?.call();
+        return objects.adapter(h.native.calls);
+      },
       primitives: McpVnextWindowsCredentialPrimitives(
         generateKey: h.native.generate,
         signDigest: p27.signPublicFixture,
@@ -33,6 +42,139 @@ McpVnextWindowsProtectedAcquirer bootstrapAcquirer(p27.PairingHarness h) =>
     );
 
 void windowsBootstrapCases() {
+  settledTestDirectoryCases();
+  windowsCodexClientCases();
+  for (final mode in WindowsCodexConnectionMode.values) {
+    for (final missing in [true, false]) {
+      test(
+          'registration ${mode.name} refuses client before acquisition missing=$missing',
+          () async {
+        final f = FirstPartyAppHarness();
+        final h = p27.PairingHarness();
+        await h.open();
+        await f.open(attach: false);
+        final output =
+            File('${f.files.s.h.temp.path}/refused-output').openWrite();
+        var admissions = 0;
+        final selection = missing
+            ? null
+            : await WindowsCodexClientSelection.inspect(
+                executable: FakeCodexExecutable(),
+                use: WindowsCodexClientUse.product,
+                mode: mode);
+        final owners = Map.of(h.native.calls.owners);
+        final registration = mode == WindowsCodexConnectionMode.direct
+            ? McpVnextWindowsAppRegistration.directClient(
+                integration: f.integration,
+                acquirer: bootstrapAcquirer(h),
+                clientSelection: selection,
+                requireSecurityAdmission: () async {
+                  admissions++;
+                },
+                clock: f.files.s.clock,
+                readiness: OfflineReadiness(() async => []),
+                port: 43123,
+                listener: tls.MemoryListener())
+            : McpVnextWindowsAppRegistration.hostedClient(
+                integration: f.integration,
+                acquirer: bootstrapAcquirer(h),
+                clientSelection: selection,
+                requireSecurityAdmission: () async {
+                  admissions++;
+                },
+                clock: f.files.s.clock,
+                readiness: OfflineReadiness(() async => []),
+                port: 43123,
+                input: const Stream.empty(),
+                output: output);
+        try {
+          await expectLater(registration.start(), throwsStateError);
+          await registration.close();
+          expect(admissions, 0);
+          expect(registration.startup!.host, isNull);
+          expect(f.integration.hasAttachment, isFalse);
+          expect(h.native.calls.owners, owners);
+        } finally {
+          await output.close();
+          await registration.close();
+          await f.close();
+          await h.close();
+        }
+      });
+    }
+  }
+
+  test('bootstrap missing client refuses before trust and acquisition',
+      () async {
+    final h = p27.PairingHarness();
+    await h.open();
+    addTearDown(h.close);
+    var admissions = 0, trustReads = 0;
+    final owners = Map.of(h.native.calls.owners);
+    final bootstrap = McpVnextWindowsBridgeBootstrap(
+        connectionMode: WindowsCodexConnectionMode.direct,
+        acquirer: bootstrapAcquirer(h),
+        requireSecurityAdmission: () async {
+          admissions++;
+        },
+        independentTrust: () async {
+          trustReads++;
+          throw StateError('must not run');
+        },
+        process: FakeWindowsMcpProcess());
+    await expectLater(bootstrap.start(), throwsStateError);
+    await bootstrap.close();
+    expect(admissions, 0);
+    expect(trustReads, 0);
+    expect(h.native.calls.owners, owners);
+  });
+  for (final mode in WindowsCodexConnectionMode.values) {
+    test(
+        'bootstrap ${mode.name} refuses opposite client mode before acquisition',
+        () async {
+      final f = WindowsAppTransportFixture();
+      await f.open(productBridge: true, protectedAcquisition: true);
+      addTearDown(f.close);
+      final d = f.bridgeDependencies;
+      await f.bridge.close();
+      final owners = Map.of(f.pairing.native.calls.owners);
+      var admissions = 0, trustReads = 0, pairingCloses = 0;
+      var nativeOpens = 0, ioCreations = 0;
+      final opposite = mode == WindowsCodexConnectionMode.direct
+          ? WindowsCodexConnectionMode.hosted
+          : WindowsCodexConnectionMode.direct;
+      final bootstrap = McpVnextWindowsBridgeBootstrap(
+          connectionMode: mode,
+          clientSelection: await isolatedClientSelection(mode: opposite),
+          acquirer:
+              bootstrapAcquirer(f.pairing, onOpenNative: () => nativeOpens++),
+          requireSecurityAdmission: () async {
+            admissions++;
+          },
+          independentTrust: () async {
+            trustReads++;
+            return d.trusted;
+          },
+          settlePairing: () async {
+            pairingCloses++;
+          },
+          process: FakeWindowsMcpProcess(),
+          createIo: () {
+            ioCreations++;
+            return d.createIo();
+          });
+      f.bridge = bootstrap;
+      await expectLater(bootstrap.start(), throwsStateError);
+      await bootstrap.close();
+      expect(admissions, 0);
+      expect(trustReads, 0);
+      expect(pairingCloses, 0);
+      expect(nativeOpens, 0);
+      expect(ioCreations, 0);
+      expect(f.pairing.native.calls.owners, owners);
+      expect((await f.call('open_generation_context'))['error'], 'unavailable');
+    });
+  }
   test('trusted bootstrap reacquires after settlement and rejects contention',
       () async {
     final f = WindowsAppTransportFixture();
@@ -41,6 +183,8 @@ void windowsBootstrapCases() {
     final d = f.bridgeDependencies;
     await f.bridge.close();
     final bootstrap = McpVnextWindowsBridgeBootstrap(
+        connectionMode: WindowsCodexConnectionMode.direct,
+        clientSelection: await isolatedClientSelection(),
         acquirer: bootstrapAcquirer(f.pairing),
         requireSecurityAdmission: () async {},
         independentTrust: () async => d.trusted,
@@ -50,6 +194,8 @@ void windowsBootstrapCases() {
     await bootstrap.start();
     expect((await f.call('open_generation_context'))['error'], isNull);
     final competitor = McpVnextWindowsBridgeBootstrap(
+        connectionMode: WindowsCodexConnectionMode.direct,
+        clientSelection: await isolatedClientSelection(),
         acquirer: bootstrapAcquirer(f.pairing),
         requireSecurityAdmission: () async {},
         independentTrust: () async => d.trusted,
@@ -84,6 +230,8 @@ void windowsBootstrapCases() {
       }
       final before = f.pairing.native.calls.commits;
       final bootstrap = McpVnextWindowsBridgeBootstrap(
+          connectionMode: WindowsCodexConnectionMode.direct,
+          clientSelection: await isolatedClientSelection(),
           acquirer: bootstrapAcquirer(f.pairing),
           requireSecurityAdmission: () async {
             if (failure == 'admission') throw StateError('unadmitted');
@@ -120,6 +268,8 @@ void windowsBootstrapCases() {
     final gate = Completer<void>();
     var trustReads = 0;
     final bootstrap = McpVnextWindowsBridgeBootstrap(
+        connectionMode: WindowsCodexConnectionMode.direct,
+        clientSelection: await isolatedClientSelection(),
         acquirer: bootstrapAcquirer(h),
         requireSecurityAdmission: () => gate.future,
         independentTrust: () async {
@@ -161,6 +311,7 @@ void windowsBootstrapCases() {
     h.native.owner.close();
     f.files.s.clock.current = h.native.now;
     final registration = McpVnextWindowsAppRegistration.directClient(
+        clientSelection: await isolatedClientSelection(),
         integration: f.integration,
         acquirer: bootstrapAcquirer(h),
         requireSecurityAdmission: () async {},
