@@ -8,6 +8,7 @@ import 'package:shiroha_quiz/ui/assistant/learning_spaces_screen.dart';
 import 'package:shiroha_quiz/ui/assistant/global_sidebar.dart';
 import 'package:shiroha_quiz/ui/pages/data_center_screen.dart';
 import 'package:shiroha_quiz/ui/pages/home_page.dart';
+import 'package:shiroha_quiz/ui/pages/main_screen.dart';
 import 'package:shiroha_quiz/ui/theme/app_theme.dart';
 import 'package:shiroha_quiz/ui/theme/shiroha_theme_tokens.dart';
 import 'package:shiroha_quiz/ui/theme/design_tokens.dart';
@@ -157,6 +158,81 @@ void main() {
     await app_test.drainBackgroundWork(tester);
     expect(tester.state(find.byType(HomePage)), same(homeState));
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('large text keeps the full MainScreen workspace sidebar expanded',
+      (tester) async {
+    final previousFactory = databaseFactory;
+    await tester.runAsync(() async {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfiNoIsolate;
+      await DatabaseHelper.resetRuntimeProfileForTesting();
+      DatabaseHelper.configureRuntimeProfile(
+          DatabaseRuntimeProfile.isolatedSmokeInMemory);
+      await DatabaseHelper.instance.database;
+    });
+    addTearDown(() async {
+      globalThemeNotifier.value = ShirohaAppearance.light;
+      await DatabaseHelper.resetRuntimeProfileForTesting();
+      databaseFactory = previousFactory;
+    });
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    globalThemeNotifier.value = ShirohaAppearance.paperLight
+        .copyWith(layout: ShirohaLayoutMode.workspace);
+    await app_test.pumpApp(tester, const Size(1700, 1000));
+    await app_test.drainBackgroundWork(tester);
+    final mainState = tester.state(find.byType(MainScreen));
+    final navigationFinder = find.byType(ShirohaWorkspaceNavigation);
+    final recentFiles =
+        find.descendant(of: navigationFinder, matching: find.text('最近资料'));
+
+    for (final textScale in [1.6, 2.0]) {
+      tester.platformDispatcher.textScaleFactorTestValue = textScale;
+      for (final size in [
+        const Size(1700, 1000),
+        const Size(768, 714),
+        const Size(540, 714),
+        const Size(390, 844),
+      ]) {
+        tester.view.physicalSize = size;
+        await app_test.drainBackgroundWork(tester);
+        final navigation =
+            tester.widget<ShirohaWorkspaceNavigation>(navigationFinder);
+        expect(navigation.expanded, isTrue,
+            reason: 'Keep the desktop sidebar at $textScale text and $size.');
+        expect(navigation.horizontal, isFalse);
+        expect(tester.getSize(navigationFinder).width,
+            DesignTokens.expandedNavigationWidth);
+        expect(
+            _paintedRect(tester, navigationFinder).width,
+            closeTo(
+                DesignTokens.expandedNavigationWidth *
+                    size.width /
+                    DesignTokens.workspaceReferenceWidth,
+                .1));
+        expect(recentFiles, findsOneWidget);
+        expect(find.byType(BottomNavigationBar), findsNothing);
+        expect(MediaQuery.textScalerOf(tester.element(recentFiles)).scale(16),
+            closeTo(16 * textScale, .01));
+        expect(tester.state(find.byType(MainScreen)), same(mainState));
+        expect(tester.takeException(), isNull);
+      }
+      await tester.ensureVisible(recentFiles);
+      await tester.pumpAndSettle();
+      expect(_paintedRect(tester, recentFiles).bottom,
+          lessThanOrEqualTo(tester.view.physicalSize.height));
+      final training = find.byKey(const ValueKey('workspace-nav-3'));
+      await tester.ensureVisible(training);
+      await tester.tap(training);
+      await app_test.drainBackgroundWork(tester);
+      expect(find.byKey(const ValueKey('home-training-card')), findsOneWidget);
+      final home = find.byKey(const ValueKey('workspace-nav-0'));
+      await tester.ensureVisible(home);
+      await tester.tap(home);
+      await app_test.drainBackgroundWork(tester);
+      expect(find.byKey(const ValueKey('workspace-home-hero')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }
   });
 
   for (final brightness in Brightness.values) {
