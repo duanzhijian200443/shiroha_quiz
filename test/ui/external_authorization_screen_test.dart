@@ -66,7 +66,7 @@ void main() {
     expect(find.byType(AlertDialog), findsOneWidget);
     await tap(tester, '确认');
     expect(find.text('当前 Revision：1'), findsOneWidget);
-    expect(find.text('已保存访问规则；未配对 / 未启用'), findsOneWidget);
+    expect(find.text('已保存访问规则'), findsOneWidget);
     final record = await fixture.repository.read(
         (await fixture.repository.listProfiles()).items.single.clientProfileId);
     expect(record.grant!.policy.scopes, hasLength(4));

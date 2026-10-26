@@ -48,6 +48,9 @@ final class _FailSwap extends BackupFaultInjector {
 /// The exact product root, with existing isolated DB/F1/RAG owners. Only this
 /// fixture supplies synthetic P0 credentials; product startup supplies none.
 class FirstPartyAppHarness {
+  FirstPartyAppHarness({FirstPartyRelayObservation Function()? observeRelay})
+      : _observeRelay = observeRelay;
+  final FirstPartyRelayObservation Function()? _observeRelay;
   final files = FileReadHarness();
   late LocalAuthorizationService policy;
   late McpVnextAppIntegration integration;
@@ -59,11 +62,11 @@ class FirstPartyAppHarness {
     files.s.clock.current = DateTime.utc(2030);
     files.s.trust.disable(files.s.principal);
     attempt = files.s.credentials.authentication;
-    compose();
+    compose(observeRelay: _observeRelay);
     if (attach) await connect();
   }
 
-  void compose() {
+  void compose({FirstPartyRelayObservation Function()? observeRelay}) {
     final s = files.s;
     final db = s.h.db;
     policy = LocalAuthorizationService(
@@ -91,6 +94,7 @@ class FirstPartyAppHarness {
         index: files.index,
         chunker: const DeterministicSourceChunker(),
         mintId: const Uuid().v4,
+        observeRelay: observeRelay,
         compositionIsCurrent: () => db.isOpen);
   }
 
@@ -493,6 +497,113 @@ void registerFirstPartyAppIntegrationTests() {
             .widget<OutlinedButton>(find.widgetWithText(OutlinedButton, '请求配对'))
             .onPressed,
         isNull);
+    expect((await tester.runAsync(f.controls.status))!.enabled, isFalse);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  test('relay observation failure preserves original business authorization',
+      () async {
+    final f = FirstPartyAppHarness(
+        observeRelay: () => throw StateError('observationUnavailable'));
+    await f.open();
+    addTearDown(f.close);
+    await f.enable();
+    await f.approve();
+    final status = await f.controls.status();
+    expect(status.relay.phase, FirstPartyRelayPhase.unavailable);
+    expect(status.connected, isTrue);
+    expect(status.enabled, isTrue);
+    expect(status.approvedTargets, 1);
+    expect(status.profileId, f.files.s.profile.profileId);
+    expect(status.expiresAt,
+        f.files.s.clock.now().add(const Duration(minutes: 10)));
+  });
+
+  testWidgets('connected relay cannot authenticate or enable dormant controls',
+      (tester) async {
+    var observation =
+        const FirstPartyRelayObservation(FirstPartyRelayPhase.connected);
+    final f = FirstPartyAppHarness(observeRelay: () => observation);
+    await tester.runAsync(() => f.open(attach: false));
+    addTearDown(f.close);
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: FirstPartyExternalControl(access: f.controls))));
+    await settleGenerated(tester);
+    expect(find.text('Codex 本地通道：已连通（不代表业务授权）'), findsOneWidget);
+    expect(find.textContaining('未连接 / 不可用'), findsOneWidget);
+    expect(find.text('访问已禁用'), findsOneWidget);
+    expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '限时启用'))
+            .onPressed,
+        isNull);
+    expect(
+        tester
+            .widget<OutlinedButton>(find.widgetWithText(OutlinedButton, '请求配对'))
+            .onPressed,
+        isNull);
+    await tester.runAsync(() async {
+      await expectLater(f.controls.enable(const Duration(minutes: 10)),
+          throwsA(isA<Exception>()));
+      final status = await f.controls.status();
+      expect(status.connected, isFalse);
+      expect(status.enabled, isFalse);
+      expect(status.pairingAvailable, isFalse);
+      expect(status.approvedTargets, 0);
+      expect(await f.files.s.h.count('generated_question_proposals'), 0);
+      expect(await f.files.s.h.count('generated_question_commit_receipts'), 0);
+      expect(await f.files.s.h.count('questions'), 0);
+    });
+    observation =
+        const FirstPartyRelayObservation(FirstPartyRelayPhase.settling);
+    await tester.pump(const Duration(seconds: 1));
+    await settleGenerated(tester);
+    expect(find.text('Codex 本地通道：正在关闭，等待原操作收敛'), findsOneWidget);
+    expect(find.text('访问已禁用'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('relay observation stays bound to the current composition',
+      (tester) async {
+    var oldObservation =
+        const FirstPartyRelayObservation(FirstPartyRelayPhase.connected);
+    var oldReads = 0;
+    final f = FirstPartyAppHarness(observeRelay: () {
+      oldReads++;
+      return oldObservation;
+    });
+    await tester.runAsync(() => f.open(attach: false));
+    addTearDown(f.close);
+    Widget app() => MaterialApp(
+        home: Scaffold(body: FirstPartyExternalControl(access: f.controls)));
+    await tester.pumpWidget(app());
+    await settleGenerated(tester);
+    expect(find.text('Codex 本地通道：已连通（不代表业务授权）'), findsOneWidget);
+    var newObservation =
+        const FirstPartyRelayObservation(FirstPartyRelayPhase.listening);
+    await tester.runAsync(() async {
+      await f.integration.close();
+      f.policy.invalidate();
+      f.compose(observeRelay: () => newObservation);
+    });
+    await tester.pumpWidget(app());
+    await settleGenerated(tester);
+    expect(find.text('Codex 本地通道：等待连接'), findsOneWidget);
+    expect(find.text('Codex 本地通道：已连通（不代表业务授权）'), findsNothing);
+    final oldReadsAfterReplacement = oldReads;
+    oldObservation =
+        const FirstPartyRelayObservation(FirstPartyRelayPhase.unsettled);
+    await tester.pump(const Duration(seconds: 1));
+    await settleGenerated(tester);
+    expect(oldReads, oldReadsAfterReplacement);
+    expect(find.text('Codex 本地通道：等待连接'), findsOneWidget);
+    expect(find.text('Codex 本地通道：关闭未确认，不能重新连接'), findsNothing);
+    newObservation =
+        const FirstPartyRelayObservation(FirstPartyRelayPhase.connected);
+    await tester.pump(const Duration(seconds: 1));
+    await settleGenerated(tester);
+    expect(find.text('Codex 本地通道：已连通（不代表业务授权）'), findsOneWidget);
+    expect(find.text('访问已禁用'), findsOneWidget);
     expect((await tester.runAsync(f.controls.status))!.enabled, isFalse);
     await tester.pumpWidget(const SizedBox());
   });

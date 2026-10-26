@@ -103,8 +103,10 @@ import 'data/persistence/question_v2_persistence_mapper.dart';
 import 'data/repositories/review_repository.dart';
 import 'data/repositories/settings_repository.dart';
 import 'application/external/local_authorization_service.dart';
+import 'application/external/first_party_external_access.dart';
 import 'composition/mcp_vnext_app_integration.dart';
 import 'composition/mcp_vnext_windows_registration.dart';
+import 'composition/mcp_vnext_development_pairing.dart';
 import 'data/repositories/external_target_read_repository.dart';
 import 'data/repositories/external_question_read_repository.dart';
 import 'data/repositories/external_file_read_repository.dart';
@@ -196,7 +198,16 @@ class DevHttpOverrides extends HttpOverrides {
   }
 }
 
-void main() => runShirohaQuiz();
+void main(List<String> arguments) {
+  if (arguments.isEmpty) {
+    runShirohaQuiz();
+  } else if (arguments.length == 1 &&
+      arguments.single == '--shiroha-bridge-pairing-ui') {
+    unawaited(runDevelopmentBridgePairing());
+  } else {
+    exitCode = 64;
+  }
+}
 
 /// Runs the existing App composition with explicit isolated-smoke dependencies.
 ///
@@ -819,6 +830,7 @@ void runShirohaQuiz({
         }
 
         AppLogger.info('Application started', module: 'Application');
+        McpVnextWindowsAppRegistration? externalRegistration;
         final integration = Platform.isWindows
             ? McpVnextAppIntegration(
                 targets: SqliteExternalTargetReadRepository(
@@ -836,9 +848,13 @@ void runShirohaQuiz({
                 index: retrievalIndex,
                 chunker: const DeterministicSourceChunker(),
                 mintId: uuid.v4,
+                observeRelay: () =>
+                    externalRegistration?.relayObservation ??
+                    const FirstPartyRelayObservation(
+                        FirstPartyRelayPhase.unavailable),
                 compositionIsCurrent: () => authorizationDatabase.isOpen)
             : null;
-        final externalRegistration = integration == null
+        externalRegistration = integration == null
             ? null
             : McpVnextWindowsAppRegistration.appOwnedRelay(integration,
                 onRelayEvent: (event, connection) => AppLogger.info(

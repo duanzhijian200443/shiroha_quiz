@@ -34,6 +34,15 @@ auto create_function() noexcept -> decltype(&NtCreateFile) {
   return result;
 }
 
+SetInformationFile rename_function() noexcept {
+  const auto module = GetModuleHandleW(L"ntdll.dll");
+  const auto symbol = module ? GetProcAddress(module, "NtSetInformationFile") : nullptr;
+  SetInformationFile set_information = nullptr;
+  static_assert(sizeof(set_information) == sizeof(symbol), "Windows function pointer size");
+  std::memcpy(&set_information, &symbol, sizeof(symbol));
+  return set_information;
+}
+
 struct SecurityRecipe {
   SECURITY_DESCRIPTOR descriptor{};
   std::vector<uint8_t> acl;
@@ -230,7 +239,7 @@ class WindowsObjects final : public ObjectOperations {
     return status == 0 ? SHIROHA_NATIVE_OK : SHIROHA_NATIVE_UNAVAILABLE;
   }
   int32_t credential_replace(HANDLE temporary, HANDLE directory, uint32_t kind, bool existing) override {
-    return rename_credential(SetFileInformationByHandle, temporary, directory, kind, existing);
+    return rename_credential(rename_function(), temporary, directory, kind, existing);
   }
   int32_t discovery_open(HANDLE parent, uint32_t kind, HANDLE& result) override {
     result = nullptr;
@@ -243,7 +252,7 @@ class WindowsObjects final : public ObjectOperations {
     return status == 0 ? SHIROHA_NATIVE_OK : SHIROHA_NATIVE_UNAVAILABLE;
   }
   int32_t discovery_replace(HANDLE temp, HANDLE parent, uint32_t kind, bool replace) override {
-    return rename_discovery(SetFileInformationByHandle, temp, parent, kind, replace);
+    return rename_discovery(rename_function(), temp, parent, kind, replace);
   }
   int32_t exchange_lock(const ObjectInfo& directory, const Sid& sid, HANDLE& result) override {
     result = nullptr;
@@ -419,12 +428,7 @@ class WindowsObjects final : public ObjectOperations {
     return FlushFileBuffers(file) ? SHIROHA_NATIVE_OK : SHIROHA_NATIVE_UNAVAILABLE;
   }
   int32_t replace_file(HANDLE temporary, HANDLE directory, bool existing) override {
-    const auto module = GetModuleHandleW(L"ntdll.dll");
-    const auto symbol = module ? GetProcAddress(module, "NtSetInformationFile") : nullptr;
-    SetInformationFile set_information = nullptr;
-    static_assert(sizeof(set_information) == sizeof(symbol), "Windows function pointer size");
-    std::memcpy(&set_information, &symbol, sizeof(symbol));
-    return rename_association(set_information, temporary, directory, existing);
+    return rename_association(rename_function(), temporary, directory, existing);
   }
 };
 

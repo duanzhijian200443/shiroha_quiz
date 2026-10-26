@@ -4,7 +4,128 @@ import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 
+import '../../application/external/first_party_development_access.dart';
+import 'windows_child_environment.dart';
 import 'windows_release_candidate.dart';
+import 'windows_process_observation.dart';
+
+/// Bounded stderr observations and original Future outcomes only. Nothing here
+/// decides admission, Pin persistence or successful Owner release.
+final class WindowsBridgeProcessDiagnostics {
+  static const marker = WindowsPairingProcessReport.marker;
+  static const maxBytes = 8192, maxLine = 128, maxRecords = 32;
+  final _parts = <FirstPartyChildPart, FirstPartyObservedResult>{
+    for (final part in FirstPartyChildPart.values)
+      part: FirstPartyObservedResult.unobserved,
+  };
+  final _line = <int>[];
+  int _bytes = 0, _records = 0;
+  bool _discardLine = false;
+  int? _exitCode;
+  FirstPartyPairingStage? _stage;
+  FirstPartyPairingFailure? _primary, _cleanup;
+  FirstPartyBusinessStage? _businessStage;
+  FirstPartyBusinessFailure? _businessPrimary, _businessCleanup;
+  FirstPartyChildObservation get observation => FirstPartyChildObservation(
+      parts: _parts,
+      exitCode: _exitCode,
+      reportedStage: _stage,
+      primaryFailure: _primary,
+      cleanupFailure: _cleanup,
+      businessStage: _businessStage,
+      businessPrimary: _businessPrimary,
+      businessCleanup: _businessCleanup);
+
+  Future<T> track<T>(FirstPartyChildPart part, Future<T> work) async {
+    _parts[part] = FirstPartyObservedResult.pending;
+    try {
+      final result = await work;
+      if (part == FirstPartyChildPart.exit && result is int) _exitCode = result;
+      _parts[part] = FirstPartyObservedResult.returned;
+      return result;
+    } catch (_) {
+      _parts[part] = FirstPartyObservedResult.failed;
+      rethrow;
+    }
+  }
+
+  /// A sole stderr consumer calls this. Unknown/binary/oversized output is
+  /// discarded without retaining or printing it; parsing never changes drain.
+  void observeStderr(List<int> chunk) {
+    for (final byte in chunk) {
+      if (_bytes >= maxBytes || _records >= maxRecords) {
+        _line.clear();
+        return;
+      }
+      _bytes++;
+      if (byte == 10) {
+        if (!_discardLine) {
+          final line = String.fromCharCodes(_line);
+          _accept(
+              line.endsWith('\r') ? line.substring(0, line.length - 1) : line);
+        }
+        _line.clear();
+        _discardLine = false;
+      } else if ((byte < 32 && byte != 13) ||
+          byte > 126 ||
+          _line.length >= maxLine) {
+        _line.clear();
+        _discardLine = true;
+      } else if (!_discardLine) {
+        _line.add(byte);
+      }
+    }
+  }
+
+  void _accept(String line) {
+    if (line.startsWith(WindowsBusinessProcessReport.marker)) {
+      final fields =
+          line.substring(WindowsBusinessProcessReport.marker.length).split('|');
+      if (fields.length < 2 || fields.length > 3) return;
+      final stages =
+          FirstPartyBusinessStage.values.where((v) => v.name == fields[1]);
+      if (stages.isEmpty) return;
+      if (fields[0] == 'S' && fields.length == 2) {
+        _records++;
+        _businessStage = stages.first;
+      } else if ((fields[0] == 'P' || fields[0] == 'C') && fields.length == 3) {
+        final codes = FirstPartyBusinessFailureCode.values
+            .where((v) => v.name == fields[2]);
+        if (codes.isEmpty) return;
+        _records++;
+        final failure = FirstPartyBusinessFailure(stages.first, codes.first);
+        if (fields[0] == 'P') {
+          _businessPrimary ??= failure;
+        } else {
+          _businessCleanup ??= failure;
+        }
+      }
+      return;
+    }
+    if (!line.startsWith(marker)) return;
+    final fields = line.substring(marker.length).split('|');
+    if (fields.length < 2 || fields.length > 3) return;
+    final stages =
+        FirstPartyPairingStage.values.where((v) => v.name == fields[1]);
+    if (stages.isEmpty) return;
+    final stage = stages.first;
+    if (fields[0] == 'S' && fields.length == 2) {
+      _records++;
+      _stage = stage;
+    } else if ((fields[0] == 'P' || fields[0] == 'C') && fields.length == 3) {
+      final codes =
+          FirstPartyPairingFailureCode.values.where((v) => v.name == fields[2]);
+      if (codes.isEmpty) return;
+      _records++;
+      final failure = FirstPartyPairingFailure(stage, codes.first);
+      if (fields[0] == 'P') {
+        _primary ??= failure;
+      } else {
+        _cleanup ??= failure;
+      }
+    }
+  }
+}
 
 /// Custody only, never process identity or authority. Unknown exit must fail.
 abstract interface class McpVnextWindowsProcessOwner {
@@ -48,7 +169,14 @@ final class WindowsBridgeProcess
     required IOSink output,
   }) : _io = _AdjacentBridgeProcessIo(input: input, output: output);
 
+  /// One fixed first-party UI action in the SAME adjacent Flutter executable.
+  /// The action selects a root only; its original parent/preface grant admits it.
+  WindowsBridgeProcess.pairingUi({required Stream<List<int>> input})
+      : _io = _AdjacentBridgeProcessIo(input: input, pairingUi: true);
+
   final WindowsBridgeProcessIo _io;
+  final _diagnostics = WindowsBridgeProcessDiagnostics();
+  FirstPartyChildObservation get observation => _diagnostics.observation;
   WindowsCreatedBridgeProcess? _child;
   Future<void>? _starting, _closing;
   final _exited = Completer<void>();
@@ -72,15 +200,33 @@ final class WindowsBridgeProcess
       _inspectionUnknown = true;
       final files = await _io.inspect();
       _inspectionUnknown = false;
-      WindowsExternalReleaseCandidate.inspect(
-          role: ExternalReleaseRole.bridge, files: files);
+      if (_io is _AdjacentBridgeProcessIo && _io.pairingUi) {
+        if (files.keys
+                .toSet()
+                .difference(_AdjacentBridgeProcessIo.pairingFiles)
+                .isNotEmpty ||
+            files.length != _AdjacentBridgeProcessIo.pairingFiles.length) {
+          throw _unavailable();
+        }
+        for (final bytes in files.values) {
+          WindowsExternalReleaseCandidate.inspectX64Pe(bytes);
+        }
+      } else {
+        WindowsExternalReleaseCandidate.inspect(
+            role: ExternalReleaseRole.bridge, files: files);
+      }
       if (_stopped) throw _unavailable();
       _createUnknown = true;
+      if (_io case final _AdjacentBridgeProcessIo io) {
+        io.diagnostics = _diagnostics;
+      }
       final child = _child = await _io.create();
       _createUnknown = false;
       _running = true;
       // Observe immediately, including exits during acquisition/attachment.
-      unawaited(child.exitCode.then((code) {
+      unawaited(_diagnostics
+          .track(FirstPartyChildPart.exit, child.exitCode)
+          .then((code) {
         _running = false;
         if (code != 0) _unknown = true;
         if (!_exited.isCompleted) _exited.complete();
@@ -107,7 +253,8 @@ final class WindowsBridgeProcess
   @override
   Future<void> stopAndWait() {
     _stopped = true;
-    return _closing ??= () async {
+    return _closing ??=
+        _diagnostics.track(FirstPartyChildPart.settlement, () async {
       try {
         await _starting;
       } catch (_) {/* Still join a child returned during interrupted launch. */}
@@ -130,16 +277,23 @@ final class WindowsBridgeProcess
         _unknown = true;
         throw _unavailable();
       }
-    }();
+    }());
   }
 
   static StateError _unavailable() => StateError('Bridge process unavailable');
 }
 
 final class _AdjacentBridgeProcessIo implements WindowsBridgeProcessIo {
-  _AdjacentBridgeProcessIo({this.input, this.output});
+  _AdjacentBridgeProcessIo({this.input, this.output, this.pairingUi = false});
   final Stream<List<int>>? input;
   final IOSink? output;
+  final bool pairingUi;
+  WindowsBridgeProcessDiagnostics? diagnostics;
+  static const pairingFiles = {
+    'shiroha_quiz.exe',
+    'shiroha_relay_native.dll',
+    'shiroha_external_native.dll'
+  };
   String? _executable;
   RandomAccessFile? _inspection;
   Process? _created;
@@ -153,7 +307,9 @@ final class _AdjacentBridgeProcessIo implements WindowsBridgeProcessIo {
     }
     final root = context.dirname(resolved);
     final files = <String, Uint8List>{};
-    for (final name in WindowsExternalReleaseCandidate.bridgeFiles) {
+    for (final name in pairingUi
+        ? pairingFiles
+        : WindowsExternalReleaseCandidate.bridgeFiles) {
       // Bounded reads, fixed two names; no scan or caller-selected installation.
       final file = File(context.join(root, name));
       _inspection = await file.open();
@@ -171,8 +327,11 @@ final class _AdjacentBridgeProcessIo implements WindowsBridgeProcessIo {
         _inspection = null;
       }
     }
-    _executable =
-        context.join(root, WindowsExternalReleaseCandidate.bridgeExecutable);
+    _executable = context.join(
+        root,
+        pairingUi
+            ? 'shiroha_quiz.exe'
+            : WindowsExternalReleaseCandidate.bridgeExecutable);
     return files;
   }
 
@@ -181,15 +340,13 @@ final class _AdjacentBridgeProcessIo implements WindowsBridgeProcessIo {
     final executable = _executable;
     if (executable == null) throw WindowsBridgeProcess._unavailable();
     _executable = null;
-    _created = await Process.start(executable, const [],
+    _created = await Process.start(executable,
+        pairingUi ? const ['--shiroha-bridge-pairing-ui'] : const [],
         runInShell: false,
         includeParentEnvironment: false,
-        // Dart 3.11.5 on Windows can reject a zero-entry environment with
-        // ERROR_INVALID_PARAMETER (87). One inert empty value avoids that SDK
-        // boundary without inheriting any parent values or adding a selector.
-        environment: const {'SHIROHA_PROCESS_ENV_PAD': ''});
-    final result =
-        _DartCreatedBridgeProcess(_created!, input: input, output: output);
+        environment: windowsChildEnvironment());
+    final result = _DartCreatedBridgeProcess(_created!,
+        input: input, output: output, diagnostics: diagnostics!);
     _created = null;
     return result;
   }
@@ -197,10 +354,11 @@ final class _AdjacentBridgeProcessIo implements WindowsBridgeProcessIo {
 
 final class _DartCreatedBridgeProcess implements WindowsCreatedBridgeProcess {
   _DartCreatedBridgeProcess(this._process,
-      {Stream<List<int>>? input, IOSink? output}) {
+      {Stream<List<int>>? input, IOSink? output, required this.diagnostics}) {
     _input = input == null ? null : StreamIterator(input);
     _pumping = _pumpInput();
-    final forwarding = _forwardOutput(output);
+    final forwarding =
+        diagnostics.track(FirstPartyChildPart.stdout, _forwardOutput(output));
     if (output != null) {
       void outputClosed() {
         if (_outputSettled) return;
@@ -214,8 +372,12 @@ final class _DartCreatedBridgeProcess implements WindowsCreatedBridgeProcess {
     settlement = Future.wait<int>([
       _process.exitCode,
       forwarding.then((_) => 0),
-      _process.stderr.drain<void>().then((_) => 0),
-      _inputClosed.future.then((_) => 0),
+      diagnostics
+          .track(FirstPartyChildPart.stderr, _drainError())
+          .then((_) => 0),
+      diagnostics
+          .track(FirstPartyChildPart.stdin, _inputClosed.future)
+          .then((_) => 0),
     ]).then((values) => values.first);
     if (_input != null) {
       unawaited(_pumping.then((_) => _requestClose(),
@@ -227,6 +389,16 @@ final class _DartCreatedBridgeProcess implements WindowsCreatedBridgeProcess {
         onError: (Object _, StackTrace __) => _requestClose()));
   }
   final Process _process;
+  final WindowsBridgeProcessDiagnostics diagnostics;
+
+  Future<void> _drainError() async {
+    await for (final bytes in _process.stderr) {
+      try {
+        diagnostics.observeStderr(bytes);
+      } catch (_) {/* Observation only. */}
+    }
+  }
+
   late final StreamIterator<List<int>>? _input;
   late final Future<void> _pumping;
   final _inputClosed = Completer<void>();

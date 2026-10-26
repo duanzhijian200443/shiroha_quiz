@@ -464,9 +464,12 @@ final class ExternalReadContextService {
         }
         if (parent != null) {
           final access = ExternalQuestionReadAccess._(this, runtime, parent);
+          // A page's last hit and its cursor share one exact selection. Every
+          // handle was checked above; merge only equal complete identities.
           final keys = selected
               .map((h) => h.questionKey)
               .whereType<ExternalQuestionKey>()
+              .toSet()
               .toList();
           if (keys.isNotEmpty) {
             await _questions!.release(access, keys, check);

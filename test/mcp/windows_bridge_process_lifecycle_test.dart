@@ -3,11 +3,13 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/data/external/windows_tls_transport.dart';
+import 'package:shiroha_quiz/data/external/windows_child_environment.dart';
 
 import '../application/generated_question/generated_test_support.dart'
     show initializeGeneratedTests;
 import 'fixtures/windows_app_transport_fixture.dart';
 import 'fixtures/windows_process_lifecycle_fixture.dart';
+import 'fixtures/codex_app_server_support.dart' show flutterDartExecutable;
 
 // Quarantine disposal is test-only and follows the original startup fixture.
 // It never clears a product failed-close latch or retries unknown SDK work.
@@ -28,6 +30,18 @@ Future<void> _disposeFake(WindowsAppTransportFixture f) async {
 void main() {
   initializeGeneratedTests();
   group('Windows ordinary Dart child lifecycle', () {
+    test(
+        'fixed OS environment permits an unconnected socket without inheritance',
+        () async {
+      final result = await Process.run(flutterDartExecutable(),
+          ['test/mcp/fixtures/windows_socket_environment_probe.dart'],
+          includeParentEnvironment: false,
+          environment: windowsChildEnvironment());
+      expect(result.exitCode, 0,
+          reason: 'ordinary socket and original cleanup');
+      expect(result.stdout, isEmpty);
+      expect(result.stderr, isEmpty);
+    });
     test('creation, ready, stdin EOF, zero exit and both raw streams',
         () async {
       final f = await WindowsProcessLifecycleFixture.open();

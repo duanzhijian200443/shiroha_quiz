@@ -125,7 +125,8 @@ interfaces and caller-owned trust/high-water inputs. No file access, Native call
 P15 evidence producer or production composition is added.
 The inactive P23 Data adapter `WindowsCredentialObjectStore` adds fixed kind
 1/2/4 persistence through those same owners, strict P21 codecs, P18 DPAPI and
-Win32 handle-relative native transactions; App kinds 1/2/3 share one ticket.
+fixed-name NT class 10 handle-relative native transactions under readiness §15;
+App kinds 1/2/3 share one ticket.
 No credential lifecycle, initialization, issuer, Pairing or startup is supplied.
 The inactive P24 `WindowsExchangeFileStore` uses P22's single strict codec and
 optional ABI-3 fixed-kind/ID I/O. Native owns parent-bound Exchange access,
@@ -168,8 +169,9 @@ P20's read-only inverse query over the same protected associations and private
 P15 channel attempts. P27 Pairing events remain separate. P0/P12 alone mint
 Sessions; trusted P8 Contexts and unchanged P9/P10/P7 authorize every command.
 The P8/P10 read-only settlement barrier lets transport reservations outlive a
-caller result without creating another business lifecycle. No startup root
-imports/starts this candidate. Readiness section 20 owns its offline/resource
+caller result without creating another business lifecycle. Default startup does
+not activate this candidate; MCP §17.12's separately authorized Debug development
+root requires explicit local admission. Readiness section 20 owns its offline/resource
 limits; real TLS/Windows behavior and production activation remain pending.
 
 The inactive Package 3 extension keeps lifecycle custody in that SAME
@@ -485,27 +487,57 @@ The bounded vNext STAGE stdio source slice is described in
 `docs/product/agent-refactor/mcp-vnext-contract.md` §7. Its separate seven-tool
 server and explicit inactive App composition reuse P3/P7/P8/P9/P10 and the local
 Proposal Review UI. Trusted App-approved exact-Session targets remain mandatory;
-client READ references never grant STAGE. The standalone entrypoint refuses
-business calls until production transport/admission is accepted. Synthetic stdio
+client READ references never grant STAGE. Outside the separately authorized
+App-owned development root in §17.12, the standalone entrypoint refuses business
+calls until production transport/admission is accepted. Synthetic stdio
 evidence grants no AR-R6A/AR-R6B production activation or external COMMIT.
 
 The first-party App integration in `composition/mcp_vnext_app_integration.dart`
 captures the existing production authorization, Proposal, local Review and
-F1/RAG owners. Startup installs its dormant local controls and the §17.12
-App-owned local relay; it installs no P0/P8, protected credentials or TLS Host.
+F1/RAG owners. Startup installs local controls and the §17.12 App-owned relay;
+protected business remains inactive until explicit finite development admission.
 The local relay authenticates same-user/session fixed-adjacent executable peers
 and owns the original Bridge process outside the Codex Job. Discovery stays in
-the adapter without a business Owner. The formal Bridge still refuses business
-while security admission is frozen; local forwarding grants no Application
+the adapter without a business Owner. The formal Bridge refuses business without
+its verified original App parent and finite public-only startup handoff;
+local forwarding grants no Application
 identity, permission or security acceptance. App exit/B0 join the original child
 settlement even after relay disconnection. Cancelable App exit also joins queued
 lifecycle-log writes after original close; failed custody cannot be replaced by
 successful logging, and later successful writes cannot hide an earlier sink
-failure from that exit barrier. Sequential peers reuse the first-instance pipe
-only after the original child settles and each new peer is authenticated; a
-protocol failure alone does not poison clean custody. An explicitly supplied,
+failure from that exit barrier. After accepted cancelable exit, the Windows
+runner explicitly destroys the original
+window/controller before COM teardown, including framework `WM_QUIT` exits;
+this does not replace the Dart resource/log barriers. Sequential peers reuse the
+first-instance pipe only after the original child settles and each new peer is
+authenticated; a protocol failure alone does not poison clean custody. An explicitly supplied,
 admitted trusted composition may attach the existing P0 authority through the
 retained App Port.
+
+The explicitly authorized normal Debug development root consumes this SAME
+integration, original protected acquirer and owned TLS Host on
+`127.0.0.1:48763`. User-confirmed P25 double-Missing initialization and the
+original independent P27 comparisons are separate from the thirty-minute
+deployment scope, finite business Enable, each fresh authentication and local
+Review. The original Flutter executable supplies a fixed pairing-only root
+before any App database/Provider initialization, and its original process must
+settle before the raw Bridge acquires an Owner. The child verifies its retained
+App/Explorer parent chain before consuming public startup trust; no credential,
+Session, Grant or approval is transported in that handoff. Original stdin/stdout
+custody, P26 validation/CAS and P15/P0/P8/P10 remain authoritative.
+
+Readiness §9.C.8 and external boundary §12 permit an explicitly started, live
+mTLS confirmation of an existing credential after App reopen: one private,
+bounded, exact-channel candidate and human identity decision may reach original
+P0 `pairedDisabled` without creating/replacing credentials or associations.
+Saved files alone never restore state. Separate finite Enable and fresh business
+authentication follow; the App-owned binding rechecks its selected Profile and
+Enable revision on every business channel, independent of UI polling. Per-tool
+TLS closure and outer adapter loss have different meanings; only the latter
+withdraws that Enable and old STAGE approval. This is a narrow development-use
+exception, not formal production activation or security acceptance. Historical
+dormant checkpoints below retain their original scope; §17.12 owns this consumer.
+
 Application owns Profile selection, fresh authentication, finite enablement and
 explicit P3 target confirmation; UI supplies no credential or READ-to-STAGE
 upgrade. Database close drains the owner before B0 swap/rollback or rebuild;

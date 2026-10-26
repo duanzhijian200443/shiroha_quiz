@@ -5,7 +5,7 @@ import '../../services/backup/sha256.dart';
 
 enum WindowsCodexClientUse { product, isolatedValidation }
 
-enum WindowsCodexConnectionMode { direct, hosted }
+enum WindowsCodexConnectionMode { direct, hosted, appOwnedDevelopment }
 
 enum WindowsCodexClientSupport { unsupported, isolatedValidationOnly }
 
@@ -82,6 +82,7 @@ final class WindowsCodexClientSelection {
 
   void _requireEligible() {
     if (_failed ||
+        mode == WindowsCodexConnectionMode.appOwnedDevelopment ||
         use != WindowsCodexClientUse.isolatedValidation ||
         support != WindowsCodexClientSupport.isolatedValidationOnly) {
       throw StateError('Codex client unsupported');

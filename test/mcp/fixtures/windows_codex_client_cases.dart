@@ -128,7 +128,13 @@ void windowsCodexClientCases() {
     for (final name in ['bootstrap', 'registration']) {
       final source = File('lib/composition/mcp_vnext_windows_$name.dart')
           .readAsStringSync();
-      expect(source, contains('if (clientSelection == null)'));
+      expect(source, contains('clientSelection == null'));
+      if (name == 'bootstrap') {
+        expect(source,
+            contains('clientSelection == null || appOwnedAdmission != null'));
+        expect(source,
+            contains('clientSelection != null || appOwnedAdmission == null'));
+      }
       expect(source.indexOf('await clientSelection.claim('),
           lessThan(source.indexOf('await requireSecurityAdmission();')));
     }

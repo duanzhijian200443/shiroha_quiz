@@ -15,6 +15,8 @@ import '../../application/study_query/study_query_test_support.dart'
 import 'windows_app_transport_fixture.dart';
 import 'windows_startup_cases.dart';
 import 'offline_codex_responses_cases.dart';
+import 'windows_development_bootstrap_cases.dart';
+import 'existing_credential_confirmation_cases.dart';
 
 final class _Disk implements BackupDiskSpaceProbe {
   @override
@@ -22,8 +24,59 @@ final class _Disk implements BackupDiskSpaceProbe {
 }
 
 void windowsAppTransportCases() {
+  windowsDevelopmentBootstrapCases();
+  existingCredentialConfirmationCases();
   offlineCodexResponsesCases();
   windowsStartupCases();
+  test(
+      'App-owned finite Enable survives per-call TLS and UI polls without retaining Session',
+      () async {
+    final f = WindowsAppTransportFixture()..useAcceptedLocalConnection = true;
+    await f.open(enableWithoutRetainedChannel: true);
+    addTearDown(f.close);
+    expect(f.host.verification.hasPendingLocalConnection, isFalse);
+    String? context;
+    for (var i = 0; i < 3; i++) {
+      context = await f.context();
+      final status = await f.controls.status();
+      expect(status.enabled, isTrue);
+      expect(status.connected, isFalse);
+      expect(await f.controls.authenticatedSession(), isNull);
+    }
+    expect(f.clients.length, greaterThanOrEqualTo(3));
+    expect(
+        f.data(
+            await f.approvedStage(context!, 'app-owned-scope'))['publication'],
+        'STAGED');
+    await f.controls.disconnectTransport();
+    expect((await f.controls.status()).enabled, isFalse);
+    expect(f.host.phase, WindowsTlsHostPhase.ready);
+    expect((await f.call('open_generation_context'))['error'], isNotNull);
+  });
+  for (final change in ['revision', 'revoke', 'expiry']) {
+    test('App-owned finite Enable rejects $change without UI polling',
+        () async {
+      final f = WindowsAppTransportFixture()..useAcceptedLocalConnection = true;
+      await f.open(enableWithoutRetainedChannel: true);
+      addTearDown(f.close);
+      await f.context();
+      if (change == 'revision') {
+        await f.files.grant();
+      } else if (change == 'revoke') {
+        final view = f.policy.openView();
+        final ref = await view.select(f.files.s.profile.profileId);
+        final revision = (await view.read(ref)).profile.grantRevision;
+        await view.revokeGrant(ref, revision);
+        view.close();
+      } else {
+        f.files.s.clock.current =
+            f.files.s.clock.current.add(const Duration(minutes: 6));
+      }
+      expect((await f.call('open_generation_context'))['error'], isNotNull);
+      expect((await f.controls.status()).enabled, isFalse);
+      expect(await f.controls.authenticatedSession(), isNull);
+    });
+  }
   test(
       'default inactive Bridge composition refuses STAGE before connection creation',
       () async {

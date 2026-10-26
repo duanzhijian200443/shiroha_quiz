@@ -53,6 +53,31 @@ void main() {
       'lib/composition/mcp_vnext_windows_startup.dart'
     ];
     const trusted = 'lib/composition/mcp_vnext_windows_bootstrap.dart';
+    const proof = 'lib/composition/mcp_vnext_development_pairing.dart';
+    const proofForbidden = [
+      'WindowsDiscoveryPublisher',
+      'publishDiscovery',
+      'readDiscovery',
+      '.request(',
+      '.requestStageApproval(',
+      'store.write(',
+      'store.initializeMissing(',
+    ];
+    void expectProofOnly(String code) {
+      for (final token in proofForbidden) {
+        expect(code, isNot(contains(token)), reason: proof);
+      }
+      expect(RegExp('WindowsDiscoveryReader').allMatches(code).length, 1,
+          reason: proof);
+      expect(code, contains('await connection.waitForProofClosure()'),
+          reason: proof);
+      expect(
+          code,
+          contains(
+              'requirePublication: admitted.packet.requireCurrentPublication'),
+          reason: proof);
+    }
+
     void expectReaderOnly(String path, String code) {
       final body = code.replaceFirst(
           "import '../data/external/windows_discovery.dart';", '');
@@ -81,6 +106,10 @@ void main() {
         expectReaderOnly(path, code);
         continue;
       }
+      if (path == proof) {
+        expectProofOnly(code);
+        continue;
+      }
       expect(code, isNot(contains('WindowsDiscoveryPublisher')), reason: path);
       expect(code, isNot(contains('WindowsDiscoveryReader')), reason: path);
     }
@@ -93,6 +122,18 @@ void main() {
       source.replaceFirst('readAndAdvanceExistingPin(', 'read('),
     ]) {
       expect(() => expectReaderOnly(trusted, mutation), throwsA(anything));
+    }
+    // Exact mirror of the seven prohibited capabilities and two required
+    // proof/publication checks in check_discovery_source.ps1 (nine mutations).
+    final proofSource = File(proof).readAsStringSync();
+    for (final mutation in [
+      for (final token in proofForbidden) '$proofSource\n$token',
+      proofSource.replaceFirst(
+          'requirePublication: admitted.packet.requireCurrentPublication', ''),
+      proofSource.replaceFirst('await connection.waitForProofClosure()', ''),
+    ]) {
+      expect(mutation, isNot(proofSource));
+      expect(() => expectProofOnly(mutation), throwsA(anything));
     }
     final workflow =
         File('.github/workflows/pr-contract-checks.yml').readAsStringSync();

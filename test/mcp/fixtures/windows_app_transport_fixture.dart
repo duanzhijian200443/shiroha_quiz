@@ -40,10 +40,12 @@ class FakeWindowsMcpProcess implements McpVnextWindowsProcessOwner {
   int stops = 0;
   bool fail = false;
   Completer<void>? stopping;
+  void Function()? onStop;
   final reached = Completer<void>();
   @override
   Future<void> stopAndWait() async {
     stops++;
+    onStop?.call();
     if (!reached.isCompleted) reached.complete();
     await stopping?.future;
     if (fail) throw StateError('Fake process exit unconfirmed');
@@ -86,11 +88,13 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
   bool useAcceptedLocalConnection = false;
   FirstPartyPairingPort Function(WindowsAppPairing)? pairingOverride;
   Future<Uint8List> Function()? publicSubmissionId;
+  bool Function()? associationRecoveryAvailable;
 
   @override
   Future<void> open(
       {bool attach = true,
       bool stage = true,
+      bool enableWithoutRetainedChannel = false,
       bool productBridge = false,
       bool protectedAcquisition = false,
       bool enroll = true}) async {
@@ -131,6 +135,8 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
     startup = McpVnextWindowsAppStartup(
       integration: integration,
       enableStageApprovalWait: stage,
+      enableWithoutRetainedChannel: enableWithoutRetainedChannel,
+      associationRecoveryAvailable: associationRecoveryAvailable,
       acquire: () async {
         await beforeAcquire?.call();
         if (publicSubmissionId case final input?) {
@@ -299,7 +305,7 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
           comparedDigest: completed.digest!);
     }
     final enabling = controls.enable(const Duration(minutes: 5));
-    if (useAcceptedLocalConnection) {
+    if (useAcceptedLocalConnection && !enableWithoutRetainedChannel) {
       await pumpEventQueue(times: 20);
       expect(host.verification.hasPendingLocalConnection, isTrue);
       listener.controller.add(tls.MemoryRawPeer(controlChannel!));

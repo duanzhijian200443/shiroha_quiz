@@ -1883,6 +1883,8 @@ void main() {
           file.path.replaceAll('\\', '/') ==
               'lib/composition/mcp_vnext_windows_acquisition.dart' ||
           file.path.replaceAll('\\', '/') ==
+              'lib/composition/mcp_vnext_development_pairing.dart' ||
+          file.path.replaceAll('\\', '/') ==
               'lib/composition/bridge_ui_host.dart') {
         continue;
       }

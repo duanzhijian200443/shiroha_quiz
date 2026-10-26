@@ -56,7 +56,7 @@ void main() {
     expect(registration, contains('await requireSecurityAdmission()'));
     expect(bootstrap, contains('await requireSecurityAdmission()'));
     expect(File('tool/external/bridge_candidate.dart').readAsStringSync(),
-        contains('await serveWindowsBridgeStdio();'));
+        contains('await serveDevelopmentWindowsBridge();'));
     expect(adapter,
         contains('VnextMcpServer(VnextLocalRelayPort()).serveStdio()'));
     for (final prohibited in [

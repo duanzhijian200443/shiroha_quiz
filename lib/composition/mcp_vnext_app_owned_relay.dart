@@ -3,17 +3,39 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import '../application/external/first_party_external_access.dart';
+import '../application/external/first_party_development_access.dart';
 import '../data/external/windows_bridge_process.dart';
 import '../data/external/windows_local_relay.dart';
 import '../data/external/windows_release_candidate.dart';
+import '../data/external/windows_development_bootstrap.dart';
 import '../mcp/vnext_app_owned_client.dart';
 import '../mcp/vnext_mcp_server.dart';
 
+/// Pure admission gate before original child creation. A missing/expired public
+/// snapshot is a business refusal, never an attempted child or cleanup failure.
+Future<Map<String, Object?>> dispatchWithAppOwnedBootstrap({
+  required bool requireBootstrap,
+  required WindowsDevelopmentBootstrap Function()? snapshot,
+  required Future<Map<String, Object?>> Function(WindowsDevelopmentBootstrap?)
+      dispatch,
+}) async {
+  WindowsDevelopmentBootstrap? packet;
+  try {
+    packet = snapshot?.call();
+  } catch (_) {
+    return vnextFailure('unavailable');
+  }
+  if (requireBootstrap && packet == null) return vnextFailure('unavailable');
+  return dispatch(packet);
+}
+
 /// Normal App custody for the new local hop. It does not manufacture admission
 /// for the adjacent Bridge: its existing formal entry remains fail-closed.
-final class McpVnextAppOwnedRelay {
+final class McpVnextAppOwnedRelay implements McpVnextWindowsProcessOwner {
   McpVnextAppOwnedRelay(
       {void Function(String, int)? onEvent,
+      this.requireBusinessBootstrap = false,
       Duration idleTimeout = const Duration(minutes: 10)})
       : _onEvent = onEvent,
         _idleTimeout = idleTimeout {
@@ -24,6 +46,7 @@ final class McpVnextAppOwnedRelay {
   }
   final void Function(String, int)? _onEvent;
   final Duration _idleTimeout;
+  final bool requireBusinessBootstrap;
   int _connectionId = 0;
   void _report(String event) {
     try {
@@ -36,6 +59,65 @@ final class McpVnextAppOwnedRelay {
   Future<void>? _serving, _closing;
   bool _closed = false, _failed = false, _nativeUnsettled = false;
   bool get available => !_closed && !_failed && _pipe != null;
+  bool get launchCurrent =>
+      !_closed && !_failed && _pipe?.appLaunchCurrent == true;
+  bool get hasChild => _bridge != null || _pairing != null;
+  bool get hasPairingChild => _pairing != null;
+  Future<void> waitPairingWindowClosed() async => await _pairingSettlement;
+  WindowsDevelopmentBootstrap Function()? businessBootstrap;
+  Future<void> Function()? onDisconnected;
+  WindowsBridgeProcess? _pairing;
+  WindowsBridgeProcess? _observedPairing;
+  FirstPartyChildObservation? get pairingObservation =>
+      _observedPairing?.observation;
+  WindowsBridgeProcess? _observedBusiness;
+  FirstPartyChildObservation? get businessObservation =>
+      _observedBusiness?.observation;
+  StreamController<List<int>>? _pairingInput;
+  Future<void>? _pairingSettlement;
+
+  /// Holds the same child custody barrier as business; the UI never overlaps a
+  /// raw Bridge Owner. Exit is observed, not interpreted as successful Pairing.
+  Future<void> openPairing(WindowsDevelopmentBootstrap packet) async {
+    if (!launchCurrent || hasChild) {
+      throw StateError('Pairing window unavailable');
+    }
+    final input = _pairingInput = StreamController<List<int>>();
+    final process = _observedPairing =
+        _pairing = WindowsBridgeProcess.pairingUi(input: input.stream);
+    try {
+      await process.start();
+      input.add(packet.encode(DateTime.now().toUtc()));
+      _pairingSettlement = () async {
+        await process.exited;
+        await process.stopAndWait();
+        await input.close();
+        _pairing = null;
+        _pairingInput = null;
+      }();
+      unawaited(
+          _pairingSettlement!.then((_) {}, onError: (Object _, StackTrace __) {
+        _failed = true;
+        _observe(FirstPartyRelayPhase.unsettled);
+      }));
+    } catch (_) {
+      await process.stopAndWait();
+      await input.close();
+      _pairing = null;
+      _pairingInput = null;
+      rethrow;
+    }
+  }
+
+  FirstPartyRelayObservation _observation =
+      const FirstPartyRelayObservation(FirstPartyRelayPhase.unavailable);
+  FirstPartyRelayObservation get observation => _observation;
+
+  void _observe(FirstPartyRelayPhase phase) {
+    if (_observation.phase != FirstPartyRelayPhase.unsettled) {
+      _observation = FirstPartyRelayObservation(phase);
+    }
+  }
 
   /// Registration errors disable only this optional connection surface.
   /// No scan, fallback path, credentials or external configuration is loaded.
@@ -45,10 +127,14 @@ final class McpVnextAppOwnedRelay {
     }
     try {
       _pipe = WindowsLocalRelay.openApp();
+      _observe(FirstPartyRelayPhase.listening);
       _report('listening');
     } on LocalRelayException catch (failure) {
       _nativeUnsettled = failure.unsettled;
       _failed = true;
+      _observe(failure.unsettled
+          ? FirstPartyRelayPhase.unsettled
+          : FirstPartyRelayPhase.unavailable);
       _report(failure.unsettled
           ? 'registrationUnsettled'
           : failure.independentAppRequired
@@ -59,6 +145,7 @@ final class McpVnextAppOwnedRelay {
     _serving = _serve();
     unawaited(_serving!.then((_) {}, onError: (Object _, StackTrace __) {
       _failed = true;
+      _observe(FirstPartyRelayPhase.unsettled);
     }));
   }
 
@@ -66,12 +153,21 @@ final class McpVnextAppOwnedRelay {
     while (!_closed) {
       final pipe = _pipe!;
       Future<void>? lost;
+      Future<void>? withdrawn;
       try {
         await pipe.accept();
         if (_closed) break;
         _connectionId++;
+        _observe(FirstPartyRelayPhase.connected);
         _report('peerAuthenticated');
-        lost = pipe.disconnected.then((_) async => await _bridge?.close());
+        lost = pipe.disconnected.then((_) async {
+          _observe(FirstPartyRelayPhase.settling);
+          if (!_closed) withdrawn ??= onDisconnected?.call();
+          await Future.wait([
+            if (_bridge != null) _bridge!.close(),
+            if (withdrawn != null) withdrawn!,
+          ]);
+        });
         unawaited(lost.then((_) {}, onError: (Object _, StackTrace __) {}));
         await _connection(pipe);
       } catch (_) {
@@ -79,10 +175,13 @@ final class McpVnextAppOwnedRelay {
         // Protocol/SDK failure is not a custody failure. Never replay it.
         // Only successful original settlement below permits another peer.
       } finally {
+        _observe(FirstPartyRelayPhase.settling);
+        if (!_closed) withdrawn ??= onDisconnected?.call();
         await Future.wait([
           pipe.disconnect(),
           if (_bridge != null) _bridge!.close(),
           if (lost != null) lost,
+          if (withdrawn != null) withdrawn!,
         ]);
         if (_bridge != null) _report('originalBridgeSettled');
         _bridge = null;
@@ -90,6 +189,7 @@ final class McpVnextAppOwnedRelay {
       if (_closed) break;
       // Accept a new explicit adapter connection only after original custody
       // settled. This does not retry any request or restore business authority.
+      _observe(FirstPartyRelayPhase.listening);
       _report('listening');
     }
   }
@@ -115,14 +215,23 @@ final class McpVnextAppOwnedRelay {
       lastId = id;
       if (_closed || !pipe.isCurrent) throw const LocalRelayException();
       Map<String, Object?> result;
-      if (_bridge == null && !_OwnedBridge.packagePresent) {
+      if (_pairing != null) {
+        result = vnextFailure('unavailable');
+      } else if (_bridge == null && !_OwnedBridge.packagePresent) {
         _report('bridgePackageUnavailable');
         result = vnextFailure('unavailable');
       } else {
-        final bridge = _bridge ??= _OwnedBridge(onEvent: _report);
-        await bridge.start();
-        if (_closed || !pipe.isCurrent) throw const LocalRelayException();
-        result = await bridge.client.call(tool, arguments);
+        result = await dispatchWithAppOwnedBootstrap(
+            requireBootstrap: requireBusinessBootstrap,
+            snapshot: businessBootstrap,
+            dispatch: (packet) async {
+              final bridge =
+                  _bridge ??= _OwnedBridge(onEvent: _report, bootstrap: packet);
+              _observedBusiness = bridge.process;
+              await bridge.start();
+              if (_closed || !pipe.isCurrent) throw const LocalRelayException();
+              return bridge.client.call(tool, arguments);
+            });
       }
       if (_closed || !pipe.isCurrent) throw const LocalRelayException();
       await pipe.send({'version': 1, 'id': id, 'result': result},
@@ -133,22 +242,35 @@ final class McpVnextAppOwnedRelay {
   Future<void> close() {
     _closed = true;
     return _closing ??= () async {
-      await Future.wait([
-        if (_pipe != null) _pipe!.close(),
-        if (_bridge != null) _bridge!.close(),
-        if (_serving != null) _serving!,
-      ]);
-      if (_nativeUnsettled || (_failed && _bridge != null)) {
-        throw StateError('Local relay unsettled');
+      _observe(FirstPartyRelayPhase.settling);
+      try {
+        await Future.wait([
+          if (_pipe != null) _pipe!.close(),
+          if (_bridge != null) _bridge!.close(),
+          if (_pairing != null) _pairing!.stopAndWait(),
+          if (_pairingInput != null) _pairingInput!.close(),
+          if (_pairingSettlement != null) _pairingSettlement!,
+          if (_serving != null) _serving!,
+        ]);
+        if (_nativeUnsettled || (_failed && _bridge != null)) {
+          throw StateError('Local relay unsettled');
+        }
+        _observe(FirstPartyRelayPhase.closed);
+      } catch (_) {
+        _observe(FirstPartyRelayPhase.unsettled);
+        rethrow;
       }
     }();
   }
+
+  @override
+  Future<void> stopAndWait() => close();
 }
 
 /// Stable internal protocol output stays alive after the outer pipe breaks.
 /// This keeps the original child's sole stdout consumer draining through EOF.
 final class _OwnedBridge {
-  _OwnedBridge({required this.onEvent}) {
+  _OwnedBridge({required this.onEvent, this.bootstrap}) {
     _toChild.onListen = () => _toListened = true;
     _fromChild.onListen = () => _fromListened = true;
     _output = IOSink(_ProtocolOutput(_fromChild));
@@ -165,6 +287,7 @@ final class _OwnedBridge {
 
   final _toChild = StreamController<List<int>>(sync: true);
   final void Function(String) onEvent;
+  final WindowsDevelopmentBootstrap? bootstrap;
   final _fromChild = StreamController<List<int>>(sync: true);
   late final IOSink _output;
   late final WindowsBridgeProcess process;
@@ -177,6 +300,9 @@ final class _OwnedBridge {
         await process.start();
         onEvent('originalBridgeStarted');
         if (_closed) throw const LocalRelayException();
+        if (bootstrap != null) {
+          _toChild.add(bootstrap!.encode(DateTime.now().toUtc()));
+        }
         await client.connect();
       }();
 

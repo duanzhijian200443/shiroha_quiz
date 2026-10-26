@@ -259,6 +259,12 @@ projection: reload Grant/revision/scope/target and verify every selected identit
 then Application rechecks Context/cancellation/deadline and emits only the
 size-checked whitelist. Revocation queued during a read cannot commit inside that
 read transaction; once it wins before Release, no held preview/detail is emitted.
+At Kernel final release, each opaque reference is still validated independently.
+A search hit and its continuation cursor may share the same complete selection
+key; Application checks that key once through the original Data release port.
+Equality includes storage id, creation time, row identity and content fingerprint,
+so a different content version is never collapsed by storage id alone. Data's
+duplicate-key rejection and 50-key ceiling remain unchanged.
 No automatic retry or fallback scope exists. Unknown references and references
 from another identity/Context share safe denial; a previously selected deleted or
 changed question reports fixed stale, never other content.
@@ -1456,11 +1462,66 @@ historical STAGE effect is rolled back. Shutdown also drains pending verificatio
 and association work before runtime replacement. Disconnect does not invent a
 P0 per-Session revoke operation. Restart reads no association automatically;
 replacement is unpaired/disabled and requires fresh proof, binding and enablement.
+
+MCP §17.12's separately authorized development residual-recovery entry exposes
+this SAME local revocation through an optional first-party Application port.
+It binds a one-use comparison view to the selected opaque management reference,
+original association snapshot and exact identity/installation/revision, rechecks
+before dispatch and calls the original owned Host/P15 revoke path. No MCP route,
+direct UI Store write, new Grant/Enable authority or P0 reset is added. The
+original Host response and subsequent runtime close remain separate observations;
+the first-party idle slot is released before full close is joined, and expected
+terminal invalidation cannot turn acknowledged success into failure. Readiness
+§9.C.8 owns the explicit fresh-runtime/revoke-first/new-P27 conditions; partial,
+corrupt and unknown objects remain refusals.
 Portable B0 excludes credentials/associations; Restore and raw rollback require
 the existing close/drain and fresh trusted recovery, never Session resurrection.
 Orphan associations after portable Restore stay untouched/non-authorizing.
 Their cleanup or reassignment requires a separately approved recovery contract;
 P15 cannot invent a missing Profile to reclaim a surviving credential.
+
+For the explicitly authorized normal development mode in MCP §17.12, Windows
+readiness §9.C.8 additionally permits **fresh first-party confirmation of an
+existing credential for this runtime**. This is an explicit new P15 evidence
+purpose, not automatic restart hydration, P27 re-enrollment or Authentication
+evidence relabeled as Pairing. The original Host/channel verifier owns one live
+mTLS candidate for a locally selected opaque Profile; P15 owns its one-use
+private evidence and original P0 remains the only state machine. No Session or
+P8 entry exists while confirmation is pending, and the proof channel never
+parses or dispatches P9/P10 business input.
+
+The candidate slot is occupied before asynchronous validation. Bind original
+channel, exact credential/installation, association snapshot/revision, Profile
+grant revision, runtime/generation and both clocks. Keep the original thirty-
+second maximum. Only the user's exact local decision may finish the proof;
+confirmation rechecks current management, association and original snapshot,
+liveness, expiry and composition before and after the private P0 window. The
+original request -> approve -> complete sequence reaches `pairedDisabled`;
+the association completion branch is read-only and cannot call `register()`.
+Waiting/denial must not advance P0; failure after entering original pending
+states cannot silently reset them. No accepting/default verifier is added.
+
+The decision Future and original connection-done Future have different owners:
+P15 settles the decision and its verification work; Host closes the channel and
+resources before connection-done; the first-party operation joins both without
+placing Host.done inside P15's pending-work drain. Cancellation, page closure,
+revocation, observed disconnect and expiry invalidate the candidate immediately;
+slot release waits for actual work and original transport settlement. Unknown
+cleanup remains a failure. UI projections expose safe comparison data only.
+
+No key, certificate, association or Pin is created/replaced by confirmation.
+Only the separately authorized original P26 high-water update remains possible
+when connecting. Identity confirmation may be Grantless but requires an intact,
+non-revoked Profile and its exact active association. No Profile/Grant is
+supplied, and B0-scrubbed or orphan records still refuse.
+After proof-channel settlement, independent finite Enable and a fresh business
+authentication are required. The App-owned binding checks the selected Profile,
+live P0 Enable and the revision frozen at Enable on every business channel,
+without relying on UI polling or caching an old Session. Per-tool channel end
+does not revoke that finite Enable; outer adapter loss withdraws Enable and old
+STAGE/target approval. Existing default bindings retain their own behavior.
+Initial P27, durable Proposal, original-key lifecycle lookup and local COMMIT
+authority remain unchanged. This adds no persistent authority or second P0.
 
 P15 supplies no Windows storage/crypto implementation or production wiring.
 The later P20 Data candidate implements this same association port, with its
@@ -1479,22 +1540,26 @@ P25's inactive credential initialization and restricted Client leaf issuer are
 owned by Windows readiness §17. An issued leaf and its exact-DER digest remain
 public correlation material: neither proves Client possession nor creates a
 Principal, PairingProof, Session, Association, Grant or Enablement. No active
-production consumer calls this infrastructure; the sole dormant exception is the
+production consumer called this infrastructure in the original P25 slice; its
+dormant exception was the
 [MCP §16](mcp-vnext-contract.md#16-dormant-windows-startup-and-credential-handoff-composition)
 startup root, which activates no acquisition, Listener, transport or normal
 startup. Its dormant [MCP §17 acquisition adapter](mcp-vnext-contract.md#17-dormant-protected-acquisition-and-child-process-custody)
-reuses existing-only P25 validation and the same P24/P27 owners, without a normal
-startup consumer or a new authentication/Writer authority. P27 enrollment remains
-separately scoped.
+reuses existing-only P25 validation and the same P24/P27 owners. Those historical
+slices supplied no normal startup consumer or new authentication/Writer authority.
+The later explicitly admitted Debug consumer and first-party initial P25/P27
+setup are bounded by MCP §17.12 and readiness §§6/8/9.F; they preserve the same
+authentication and Writer owners.
 P26's inactive Discovery Publisher/Reader is owned by Windows readiness §18.
 Fixed Native object access and same-ticket epoch/high-water persistence use
 P19/P23/P25; P22 still owns the descriptor and independent trusted inputs.
 Discovery data supplies no P15 evidence, Pairing, Session or connection
-authority. P26 itself introduces no initial Pin or production consumer; the sole
-later consumer is the dormant
+authority. P26 itself introduced no initial Pin or production consumer; the
+original later consumer was the dormant
 [MCP §16](mcp-vnext-contract.md#16-dormant-windows-startup-and-credential-handoff-composition)
-startup root, which does not activate acquisition, publication or a normal
-startup.
+startup root, which did not activate acquisition, publication or a normal
+startup. The separately admitted Debug consumer in MCP §17.12 now uses those
+same owners; it adds no Discovery-derived identity or automatic Pin creation.
 
 P27-D0 freezes only the bounded bootstrap decisions in Windows readiness
 §9.C.5/§9.C.8/§9.D; it does not implement or activate P27. First trust requires

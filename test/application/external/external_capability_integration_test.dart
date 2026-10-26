@@ -133,6 +133,94 @@ void main() {
           ['bank']);
     });
 
+    for (final size in [1, 50]) {
+      test('paginated Question READ releases a shared hit/cursor at size $size',
+          () async {
+        for (var i = 0; i < size; i++) {
+          await h.legacy('page-$i', createdAt: 200 + i);
+        }
+        final token = await h.context();
+        final context =
+            await gateway.openRead(session: h.s.session, context: token);
+        final first = await gateway.execute(
+            ExternalCapabilities.searchQuestions,
+            ExternalQuestionQuery('needle', pageSize: size),
+            session: h.s.session,
+            context: context);
+        expect(first.failure, isNull);
+        expect(first.receipt.status, CapabilityExecutionStatus.completed);
+        expect(first.output!.items, hasLength(size));
+        expect(first.output!.nextCursor, isNotNull);
+        final detail = await gateway.execute(
+            ExternalCapabilities.getQuestionDetail,
+            ExternalQuestionSelection(first.output!.items.last.questionRef),
+            session: h.s.session,
+            context: context);
+        expect(detail.failure, isNull);
+        expect(detail.output!.toJson().toString(), contains('Legacy needle'));
+        final second = await gateway.execute(
+            ExternalCapabilities.searchQuestions,
+            ExternalQuestionQuery('needle',
+                pageSize: size, cursor: first.output!.nextCursor),
+            session: h.s.session,
+            context: context);
+        expect(second.failure, isNull);
+        expect(second.output!.items, hasLength(1));
+        expect(second.output!.items.single.stemPreview, 'Synthetic needle');
+        expect(second.output!.nextCursor, isNull);
+        expect(await h.s.h.count('questions'), size + 2);
+      });
+    }
+
+    test('paginated Question READ still rechecks revoke at final Kernel egress',
+        () async {
+      await h.legacy('page-newer', createdAt: 200);
+      final token = await h.context();
+      final context =
+          await gateway.openRead(session: h.s.session, context: token);
+      final handlesBefore = h.read.activeHandleCount;
+      h.barrier.beforeRelease = () async {
+        if (h.barrier.releases == 2) {
+          await h.s.management.revokeGrant(h.s.profile, 2);
+        }
+      };
+      final result = await gateway.execute(ExternalCapabilities.searchQuestions,
+          const ExternalQuestionQuery('needle', pageSize: 1),
+          session: h.s.session, context: context);
+      expect(h.barrier.releases, 2);
+      expect(result.output, isNull);
+      expect(result.failure, CapabilityFailure.externalReadDenied);
+      // Final egress refusal preserves the completed handler's evidence.
+      expect(result.receipt.status, CapabilityExecutionStatus.completed);
+      expect(result.receipt.knownEffect, CapabilityEffect.none);
+      expect(h.read.activeHandleCount, handlesBefore);
+      expect(await h.s.h.count('questions'), 3);
+    });
+
+    test('final Question release preserves different content fingerprints',
+        () async {
+      await h.legacy('changing-question',
+          createdAt: 200, stem: 'Before needle');
+      final token = await h.context();
+      final before = await h.read.searchQuestions(
+          session: h.s.session, context: token, query: 'before');
+      await h.s.h.db.update('questions', {'content': 'After needle'},
+          where: 'id=?', whereArgs: ['changing-question']);
+      final after = await h.read.searchQuestions(
+          session: h.s.session, context: token, query: 'after');
+      await expectLater(
+          h.read.releaseCapabilityOutput(
+              session: h.s.session,
+              context: token,
+              references: [
+                after.items.single.questionRef,
+                before.items.single.questionRef
+              ],
+              control: ExternalCallControl(clock: h.s.clock)),
+          throwsA(isA<ExternalReadException>()
+              .having((e) => e.failure, 'failure', ExternalReadFailure.stale)));
+    });
+
     test(
         'another TrustCore with identical Profile display id cannot mint P7 context',
         () async {

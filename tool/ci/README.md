@@ -28,11 +28,17 @@ followed by a successful one, proving the exit-only failure latch. The explicit
 and desktop Shell to exercise actual peer disconnect/re-arm and MCP failure
 settlement with original process handles. It is a separately invoked Windows
 runtime check, not part of the compile-only native CI unit or production admission.
-The TLS source guard admits only the exact App-owned process consumer from MCP
-section 17.12 and checks its imports, absent protected authority and original
-closer. In-memory mutations retain rejection of protected startup, TLS imports,
-authority fabrication, forced process termination, missing drain and formal AOT
-business selection. Every other process-consumer restriction remains in place.
+The TLS/Bootstrap source guards admit only the exact App-owned development
+roots in MCP section 17.12: `mcp_vnext_development_app.dart`,
+`mcp_vnext_development_bridge.dart` and `mcp_vnext_development_pairing.dart`,
+alongside the existing relay owner. The guards inspect their specific admission,
+parent provenance, public-prefix, original-owner and close bindings; no directory
+is exempted. In-memory negative mutations retain rejection of fabricated
+authority, unguarded protected acquisition, missing drain and default formal-AOT
+business selection. The proof-only consumer additionally requires the same P26
+read's exact current publication epoch and its original closer. Portable tests
+cover fresh existing-credential confirmation, per-channel Enable/revision checks
+and invalidation; these do not establish real credential, TLS or model use.
 
 P22 adds pairing transcript, exchange payload, Discovery descriptor and source
 guard suites to the same manifest. Static checks and contract shards run
@@ -44,11 +50,13 @@ Discovery directory, pairing or transport. The Python helper only reads
 repository fixtures and verifies public signatures; it never signs or creates
 keys. This is offline evidence, not runtime trust or G0-I acceptance.
 
-The chained P27 source guard admits only the exact dormant
+The chained P27 source guard retains the exact
 `lib/composition/bridge_ui_host.dart` from MCP section 17.8. It checks that host's
 imports and rejects native acquisition, a second Pairing owner and business
-authority. Every other `lib/` source, including the existing dormant startup and
-acquisition roots, still rejects a Bridge UI host consumer. The Bootstrap gate
+authority. Its only admitted normal consumer is the fixed pairing-only
+`mcp_vnext_development_pairing.dart` root from MCP §17.12, before normal App
+database/Provider composition. Other `lib/` sources still reject a Bridge UI host
+consumer. The Bootstrap gate
 always runs the P27 guard's in-memory mutation self-tests; it never edits source
 inputs or starts a host to check these boundaries.
 

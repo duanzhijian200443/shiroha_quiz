@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/external/first_party_external_access.dart';
 import 'package:shiroha_quiz/data/external/windows_pairing.dart';
@@ -201,6 +202,19 @@ void registerFirstPartyInteractionTests({
   testWidgets(
       'desktop public P27 handoff requires both independent UI decisions',
       (tester) async {
+    String? copied;
+    // Exercise the real App button and platform-channel write. This fixture
+    // owns only a synthetic clipboard, not the user's Windows clipboard.
+    tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') {
+        copied = (call.arguments as Map)['text'] as String;
+      }
+      if (call.method == 'Clipboard.getData') return {'text': copied};
+      return null;
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null));
     final f = WindowsAppTransportFixture()..useAcceptedLocalConnection = true;
     f.pairingOverride = (owner) => WindowsAppPublicPairingHandoff(owner: owner);
     await interactionRead(tester, () => f.open(enroll: false, stage: false));
@@ -231,14 +245,11 @@ void registerFirstPartyInteractionTests({
             .pairingDisplay!
             .submissionId,
         id);
-    await interactionTap(tester, '导出 Trust 公共数据');
-    String exported() => tester
-        .widget<SelectableText>(find.byKey(const Key('external-public-export')))
-        .data!;
-    Finder input(String label) => find.byWidgetPredicate(
-        (w) => w is TextField && w.decoration?.labelText == label);
-    await tester.enterText(input('粘贴 App Trust 公共 JSON'), exported());
-    await interactionTap(tester, '导入 Trust');
+    await interactionTap(tester, '复制当前 Trust');
+    expect(
+        copied, await interactionRead(tester, f.controls.exportPairingTrust));
+    expect(find.text('已复制 Trust 公共数据。'), findsOneWidget);
+    await interactionTap(tester, '粘贴并导入 Trust');
     final initial = (await interactionRead(tester, f.controls.status))
         .pairingDisplay!
         .digest;
@@ -259,12 +270,22 @@ void registerFirstPartyInteractionTests({
     // that identity, so the stale export must disappear before any re-import.
     await interactionFrame(tester, const Duration(seconds: 1));
     expect(find.byKey(const Key('external-public-export')), findsNothing);
-    await interactionTap(tester, '导出 Completion 公共数据');
-    await tester.enterText(input('粘贴 App Completion 公共 JSON'), exported());
-    await interactionTap(tester, '导入 Completion');
+    final oldTrust = copied;
+    await interactionTap(tester, '粘贴并导入 Completion');
+    expect(bridge.display().closed, isFalse);
+    expect(bridge.display().completionDigest, isNull);
+    expect(f.pairing.native.calls.credentialFiles[4], isNull);
+    expect(find.textContaining('尚未导入或确认'), findsOneWidget);
+    await interactionTap(tester, '复制当前 Completion');
+    expect(copied,
+        await interactionRead(tester, f.controls.exportPairingCompletion));
+    expect(copied, isNot(oldTrust));
+    expect(find.text('已复制 Completion 公共数据。'), findsOneWidget);
+    await interactionTap(tester, '粘贴并导入 Completion');
     final actual =
         (await interactionRead(tester, f.controls.status)).pairingDisplay!;
     expect(bridge.display().completionDigest, actual.digest);
+    expect(find.textContaining('尚未导入或确认'), findsNothing);
     expect(bridge.display().revision, actual.revision);
     expect(f.pairing.native.calls.credentialFiles[4], isNull);
     await observe?.call(tester, 'comparison');

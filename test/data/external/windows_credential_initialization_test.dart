@@ -494,7 +494,8 @@ void main() {
         'lib/data/external/windows_pairing.dart',
         'lib/data/external/windows_tls_credentials.dart',
         'lib/composition/mcp_vnext_windows_startup.dart',
-        'lib/composition/mcp_vnext_windows_acquisition.dart'
+        'lib/composition/mcp_vnext_windows_acquisition.dart',
+        'lib/composition/mcp_vnext_development_app.dart'
       ].contains(entry.path.replaceAll('\\', '/'))) {
         continue;
       }

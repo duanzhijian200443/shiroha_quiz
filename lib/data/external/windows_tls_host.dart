@@ -345,7 +345,12 @@ final class _TlsConnection {
       }
       handshake.release();
       handshake = null;
-      session = await owner.verification.authenticate(channel!, owner._plan!);
+      session = await owner.verification.authenticateForHost(
+          channel!, owner._plan!,
+          connectionDone: () => done!,
+          close: close,
+          clean: () => owner.budget.isUsable);
+      if (session == null) return; // Proof-only: no P8 entry or P9/P10 parser.
       if (!live) _tlsReject();
       final projection = OfflineIpcCommandProjection(
           host: owner.host, authentication: session!);
@@ -362,6 +367,7 @@ final class _TlsConnection {
       } catch (_) {
         owner.budget.invalidate();
       }
+      await owner.verification.proofObservationSettled(channel);
       // Awaiting upgrade/owning work AND acknowledged close is required. Unknown
       // cleanup keeps the reservations owned and poisons further admission.
       if (owner.budget.isUsable) {

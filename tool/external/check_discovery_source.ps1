@@ -6,12 +6,25 @@ $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $allowed = @('windows_discovery.dart', 'windows_credential_initialization.dart')
 $startupPath = 'lib/composition/mcp_vnext_windows_startup.dart'
 $bootstrapPath = 'lib/composition/mcp_vnext_windows_bootstrap.dart'
+$proofPath = 'lib/composition/mcp_vnext_development_pairing.dart'
 # The one admitted P26 reference is the original ownership type; the only
 # admitted call is the original same-trust advance, never publication.
 $bootstrapImport = "import '../data/external/windows_discovery.dart';"
 function Assert-DiscoveryConsumer([string]$Path, [string]$Code) {
     # The dormant startup root publishes by design and keeps its own TLS gate.
     if ($Path -eq $startupPath) { return }
+    if ($Path -eq $proofPath) {
+        foreach ($token in @('WindowsDiscoveryPublisher', 'publishDiscovery', 'readDiscovery',
+            '.request(', '.requestStageApproval(', 'store.write(', 'store.initializeMissing(')) {
+            if ($Code.Contains($token)) { throw 'P26 existing-proof root acquired publication or business authority' }
+        }
+        if ([regex]::Matches($Code, 'WindowsDiscoveryReader').Count -ne 1 -or
+            !$Code.Contains('await connection.waitForProofClosure()') -or
+            !$Code.Contains('requirePublication: admitted.packet.requireCurrentPublication')) {
+            throw 'P26 existing-proof root lost exact publication or proof-only boundary'
+        }
+        return
+    }
     $directory = [IO.Path]::GetDirectoryName($Path).Replace('\', '/')
     $name = [IO.Path]::GetFileName($Path)
     if ($Path -eq $bootstrapPath) {
@@ -67,6 +80,19 @@ foreach ($case in @(
     Assert-MutationRejected $bootstrapPath $case.code $case.expected
 }
 Write-Output 'PASS: P26 trusted Bootstrap source mutation rejections (5 cases)'
+$proofSource = $sources[$proofPath]
+foreach ($token in @('WindowsDiscoveryPublisher', 'publishDiscovery', 'readDiscovery',
+    '.request(', '.requestStageApproval(', 'store.write(', 'store.initializeMissing(')) {
+    Assert-MutationRejected $proofPath ($proofSource + "`n$token") `
+        'P26 existing-proof root acquired publication or business authority'
+}
+Assert-MutationRejected $proofPath `
+    ($proofSource.Replace('requirePublication: admitted.packet.requireCurrentPublication', '')) `
+    'P26 existing-proof root lost exact publication or proof-only boundary'
+Assert-MutationRejected $proofPath `
+    ($proofSource.Replace('await connection.waitForProofClosure()', '')) `
+    'P26 existing-proof root lost exact publication or proof-only boundary'
+Write-Output 'PASS: P26 existing-proof source mutation rejections (9 cases)'
 $core = [IO.File]::ReadAllText((Join-Path $root 'windows/external_native/discovery_files.cpp'))
 foreach ($token in @('exchange_delete(', 'DeleteFile', 'MoveFileEx', 'FILE_DELETE_ON_CLOSE')) {
     if ($core.Contains($token)) { throw 'P26 unowned cleanup/path fallback' }

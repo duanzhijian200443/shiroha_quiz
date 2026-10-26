@@ -45,6 +45,41 @@ abstract interface class ExternalCredentialVerificationPort {
   bool isLive(Object attempt);
 }
 
+/// Optional trusted verifier capability; ordinary authentication is not proof
+/// for this separately approved, first-party existing-credential purpose.
+abstract interface class ExternalExistingCredentialVerificationPort {
+  Future<bool> verifyExistingCredential(
+      ExternalCredentialChallenge challenge, Object event);
+}
+
+/// Private-constructor, one-use evidence owned by the original P15 boundary.
+/// Transport retains the candidate until its original connection has settled.
+final class ExternalExistingCredentialConfirmation {
+  ExternalExistingCredentialConfirmation._(
+      this._owner,
+      this._reference,
+      this._profile,
+      this._challenge,
+      this._event,
+      this._snapshot,
+      this._policyRevision);
+  final ExternalCredentialBoundary _owner;
+  final ExternalProfileReference _reference;
+  final ExternalTrustProfile _profile;
+  final ExternalCredentialChallenge _challenge;
+  final Object _event;
+  final ExternalCredentialAssociationSnapshot _snapshot;
+  final int _policyRevision;
+  bool _invalid = false, _claimed = false;
+  String get profileId => _challenge.profileId;
+  String get credentialIdentity => _challenge.credentialIdentity;
+  String get installationId => _challenge.installationId;
+  int get revision => _challenge.revision;
+  DateTime get expiresAt => _challenge.expiresAt;
+}
+
+enum _CredentialUse { pairing, authentication, existingConfirmation }
+
 /// One local request handle, never proof. P0 alone owns its pairing state.
 final class ExternalCredentialRegistration {
   ExternalCredentialRegistration._(
@@ -108,6 +143,9 @@ final class ExternalCredentialBoundary implements ExternalCredentialPort {
   final _requests = <ExternalCredentialRegistration>{};
   final _events = Set<Object>.identity();
   final _windows = <_VerifiedAttempt>{};
+  ExternalExistingCredentialConfirmation? _existing;
+  bool _preparingExisting = false;
+  int _existingSequence = 0;
 
   /// One trusted composition attachment; cannot replace this port's authority.
   void attach(ExternalTrustCoordinator coordinator, ExternalTrustCore trust) {
@@ -319,7 +357,7 @@ final class ExternalCredentialBoundary implements ExternalCredentialPort {
   }
 
   Future<void> _verify(ExternalCredentialChallenge challenge, Object event,
-      {required bool pairing}) async {
+      {required _CredentialUse use}) async {
     _live(challenge, event);
     if (_events.contains(event)) {
       credentialFail(ExternalCredentialFailure.verificationRejected);
@@ -329,9 +367,16 @@ final class ExternalCredentialBoundary implements ExternalCredentialPort {
     }
     bool verified;
     try {
-      verified = pairing
-          ? await _verification.verifyPairing(challenge, event)
-          : await _verification.verifyAuthentication(challenge, event);
+      verified = switch (use) {
+        _CredentialUse.pairing =>
+          await _verification.verifyPairing(challenge, event),
+        _CredentialUse.authentication =>
+          await _verification.verifyAuthentication(challenge, event),
+        _CredentialUse.existingConfirmation => _verification
+                is ExternalExistingCredentialVerificationPort &&
+            await (_verification as ExternalExistingCredentialVerificationPort)
+                .verifyExistingCredential(challenge, event),
+      };
     } catch (_) {
       credentialFail(ExternalCredentialFailure.verificationRejected);
     }
@@ -349,7 +394,7 @@ final class ExternalCredentialBoundary implements ExternalCredentialPort {
       ExternalCredentialChallenge challenge,
       Object event,
       ExternalCredentialAssociationSnapshot snapshot,
-      bool pairing,
+      _CredentialUse use,
       Future<T> Function(Object) call) async {
     _live(challenge, event);
     final record = _record(snapshot, challenge.profileId);
@@ -359,7 +404,7 @@ final class ExternalCredentialBoundary implements ExternalCredentialPort {
         record.credentialIdentity != challenge.credentialIdentity) {
       credentialFail(ExternalCredentialFailure.unauthorized);
     }
-    final attempt = _VerifiedAttempt(challenge, event, snapshot, pairing);
+    final attempt = _VerifiedAttempt(challenge, event, snapshot, use);
     _windows.add(attempt);
     try {
       final result = await call(attempt);
@@ -382,7 +427,7 @@ final class ExternalCredentialBoundary implements ExternalCredentialPort {
             _requests.remove(
                 request); // Every completion attempt consumes its local challenge.
             final challenge = request._challenge;
-            await _verify(challenge, proof, pairing: true);
+            await _verify(challenge, proof, use: _CredentialUse.pairing);
             await _profile(request._reference);
             final snapshot = await _associations.register(
                 profileId: challenge.profileId,
@@ -407,7 +452,7 @@ final class ExternalCredentialBoundary implements ExternalCredentialPort {
                 challenge,
                 proof,
                 snapshot,
-                true,
+                _CredentialUse.pairing,
                 (attempt) =>
                     _coordinator!.completePairing(request._profile, attempt));
             request._completed = true;
@@ -453,7 +498,8 @@ final class ExternalCredentialBoundary implements ExternalCredentialPort {
         }
         final challenge = _challenge(
             reference.profileId, record.credentialIdentity, record.revision);
-        await _verify(challenge, authentication, pairing: false);
+        await _verify(challenge, authentication,
+            use: _CredentialUse.authentication);
         await _profile(reference);
         final current = await _read(reference.profileId);
         if (!first.isCurrent ||
@@ -461,15 +507,159 @@ final class ExternalCredentialBoundary implements ExternalCredentialPort {
                 record.revision) {
           credentialFail(ExternalCredentialFailure.unauthorized);
         }
-        return _window(challenge, authentication, current, false,
+        return _window(
+            challenge,
+            authentication,
+            current,
+            _CredentialUse.authentication,
             (attempt) => _coordinator!.openSession(profile, attempt));
       });
 
-  _VerifiedAttempt? _consume(Object attempt, bool pairing) {
+  /// Preparation performs no P0 transition and no association write.
+  Future<ExternalExistingCredentialConfirmation> prepareExistingConfirmation(
+      ExternalProfileReference reference, Object event) async {
+    _check();
+    if (_preparingExisting || _existing != null) {
+      credentialFail(ExternalCredentialFailure.resourceLimit);
+    }
+    _preparingExisting = true;
+    try {
+      return await _track(() async {
+        await _profile(reference);
+        _check();
+        final policy = await _management.read(reference);
+        _check();
+        final profile = await _coordinator!.registerProfile(reference);
+        _check();
+        if (_trust!.snapshot(profile.principal).state !=
+            PairingState.unpaired) {
+          credentialFail(ExternalCredentialFailure.unauthorized);
+        }
+        final snapshot = await _read(reference.profileId);
+        _check();
+        final record = _record(snapshot, reference.profileId);
+        if (record == null ||
+            record.revoked ||
+            record.installationId != _installationId) {
+          credentialFail(ExternalCredentialFailure.unauthorized);
+        }
+        final challenge = _challenge(
+            reference.profileId, record.credentialIdentity, record.revision);
+        // Correlation is local only. Its lifetime is always the original 30 s,
+        // independently of the longer first-enrollment request window.
+        final bound = ExternalCredentialChallenge._(
+            challenge.profileId,
+            challenge.installationId,
+            challenge.generation,
+            challenge.credentialIdentity,
+            challenge.revision,
+            challenge.expiresAt,
+            challenge.runtimeInstance,
+            challenge._expiresElapsed,
+            'existing-${++_existingSequence}');
+        await _verify(bound, event, use: _CredentialUse.existingConfirmation);
+        final candidate = _existing = ExternalExistingCredentialConfirmation._(
+            this,
+            reference,
+            profile,
+            bound,
+            event,
+            snapshot,
+            policy.profile.grantRevision);
+        await validateExistingConfirmation(candidate);
+        return candidate;
+      });
+    } catch (_) {
+      final candidate = _existing;
+      if (candidate != null && identical(candidate._event, event)) {
+        cancelExistingConfirmation(candidate);
+        _existing = null;
+      }
+      rethrow;
+    } finally {
+      _preparingExisting = false;
+    }
+  }
+
+  void _existingCurrent(ExternalExistingCredentialConfirmation candidate) {
+    if (!identical(candidate._owner, this) ||
+        !identical(_existing, candidate) ||
+        candidate._invalid) {
+      credentialFail(ExternalCredentialFailure.unauthorized);
+    }
+    _live(candidate._challenge, candidate._event);
+    _record(candidate._snapshot, candidate.profileId);
+  }
+
+  Future<void> validateExistingConfirmation(
+          ExternalExistingCredentialConfirmation candidate) =>
+      _track(() async {
+        _existingCurrent(candidate);
+        await _profile(candidate._reference);
+        _existingCurrent(candidate);
+        final policy = await _management.read(candidate._reference);
+        _existingCurrent(candidate);
+        if (policy.profile.grantRevision != candidate._policyRevision) {
+          credentialFail(ExternalCredentialFailure.unauthorized);
+        }
+        final current = await _read(candidate.profileId);
+        _existingCurrent(candidate);
+        final record = _record(current, candidate.profileId);
+        if (record == null ||
+            record.revoked ||
+            record.installationId != candidate.installationId ||
+            record.credentialIdentity != candidate.credentialIdentity ||
+            record.revision != candidate.revision) {
+          credentialFail(ExternalCredentialFailure.unauthorized);
+        }
+      });
+
+  /// Explicit local confirmation only. No association register/CAS occurs here.
+  Future<void> confirmExistingCredential(
+          ExternalExistingCredentialConfirmation candidate) =>
+      BackupRestoreMutationGate.instance.runMutation(() => _track(() async {
+            _existingCurrent(candidate);
+            if (candidate._claimed) {
+              credentialFail(ExternalCredentialFailure.unauthorized);
+            }
+            candidate._claimed = true;
+            await validateExistingConfirmation(candidate);
+            _existingCurrent(candidate);
+            await _coordinator!.requestPairing(candidate._profile,
+                requestId: candidate._challenge.requestId!,
+                credentialIdentity: candidate.credentialIdentity);
+            await validateExistingConfirmation(candidate);
+            await _coordinator!.approvePairing(candidate._profile);
+            await validateExistingConfirmation(candidate);
+            await _window(
+                candidate._challenge,
+                candidate._event,
+                candidate._snapshot,
+                _CredentialUse.existingConfirmation,
+                (attempt) =>
+                    _coordinator!.completePairing(candidate._profile, attempt));
+            await validateExistingConfirmation(candidate);
+          }));
+
+  void cancelExistingConfirmation(
+      ExternalExistingCredentialConfirmation? candidate) {
+    if (candidate != null && identical(candidate._owner, this)) {
+      candidate._invalid = true;
+    }
+  }
+
+  /// Trusted Host calls this only after the original proof channel has settled.
+  void releaseExistingConfirmation(
+      ExternalExistingCredentialConfirmation? candidate) {
+    cancelExistingConfirmation(candidate);
+    if (identical(_existing, candidate)) _existing = null;
+  }
+
+  _VerifiedAttempt? _consume(Object attempt, _CredentialUse use) {
     if (attempt is! _VerifiedAttempt ||
         !_windows.contains(attempt) ||
         attempt.used ||
-        attempt.pairing != pairing) {
+        attempt.use != use) {
       return null;
     }
     attempt.used = true;
@@ -484,7 +674,11 @@ final class ExternalCredentialBoundary implements ExternalCredentialPort {
 
   @override
   PairingProof? provePossession(Object proofAttempt) {
-    final attempt = _consume(proofAttempt, true);
+    final use = proofAttempt is _VerifiedAttempt &&
+            proofAttempt.use == _CredentialUse.existingConfirmation
+        ? _CredentialUse.existingConfirmation
+        : _CredentialUse.pairing;
+    final attempt = _consume(proofAttempt, use);
     return attempt == null
         ? null
         : PairingProof(
@@ -493,7 +687,8 @@ final class ExternalCredentialBoundary implements ExternalCredentialPort {
 
   @override
   AuthenticatedPeerEvidence? authenticate(Object authenticationAttempt) {
-    final attempt = _consume(authenticationAttempt, false);
+    final attempt =
+        _consume(authenticationAttempt, _CredentialUse.authentication);
     return attempt == null
         ? null
         : AuthenticatedPeerEvidence(attempt.challenge.credentialIdentity);
@@ -504,6 +699,7 @@ final class ExternalCredentialBoundary implements ExternalCredentialPort {
   Future<void> shutdown() {
     if (_shutdown != null) return _shutdown!;
     _closed = true;
+    cancelExistingConfirmation(_existing);
     _windows.clear();
     _requests.clear();
     return _shutdown = Future.wait([
@@ -530,11 +726,11 @@ final class ExternalCredentialBoundary implements ExternalCredentialPort {
 }
 
 final class _VerifiedAttempt {
-  _VerifiedAttempt(this.challenge, this.event, this.snapshot, this.pairing);
+  _VerifiedAttempt(this.challenge, this.event, this.snapshot, this.use);
   final ExternalCredentialChallenge challenge;
   final Object event;
   final ExternalCredentialAssociationSnapshot snapshot;
-  final bool pairing;
+  final _CredentialUse use;
   bool used = false;
 }
 

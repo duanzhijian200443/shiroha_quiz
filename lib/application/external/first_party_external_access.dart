@@ -3,17 +3,36 @@ import 'dart:async';
 import '../backup/backup_restore_gate.dart';
 import '../generated_question/generated_local_authority.dart';
 import 'external_authorization.dart';
+import 'external_credential_association.dart';
 import 'external_generated_stage.dart';
 import 'external_trust_coordinator.dart';
 import 'external_trust_core.dart';
 import 'first_party_external_credentials.dart';
+import 'first_party_development_access.dart';
 import 'first_party_stage_approval.dart';
 import 'local_authorization_service.dart';
+
+/// Local relay custody observation, independent of business authentication.
+enum FirstPartyRelayPhase {
+  unavailable,
+  listening,
+  connected,
+  settling,
+  closed,
+  unsettled
+}
+
+final class FirstPartyRelayObservation {
+  const FirstPartyRelayObservation(this.phase);
+  final FirstPartyRelayPhase phase;
+}
 
 /// Safe local UI state. Policy selection is never evidence of a connection.
 final class FirstPartyExternalStatus {
   const FirstPartyExternalStatus(
-      {this.profileId,
+      {this.relay =
+          const FirstPartyRelayObservation(FirstPartyRelayPhase.unavailable),
+      this.profileId,
       this.pairing,
       this.pairingAvailable = false,
       this.publicPairingAvailable = false,
@@ -28,6 +47,7 @@ final class FirstPartyExternalStatus {
       this.expiresAt,
       this.remainingSeconds,
       this.approvedTargets = 0});
+  final FirstPartyRelayObservation relay;
   final String? profileId;
   final PairingState? pairing;
   final bool pairingAvailable, publicPairingAvailable, pairingFailed;
@@ -40,6 +60,25 @@ final class FirstPartyExternalStatus {
   final DateTime? expiresAt;
   final int? remainingSeconds;
   final int approvedTargets;
+
+  FirstPartyExternalStatus _withRelay(FirstPartyRelayObservation observation) =>
+      FirstPartyExternalStatus(
+          relay: observation,
+          profileId: profileId,
+          pairing: pairing,
+          pairingAvailable: pairingAvailable,
+          publicPairingAvailable: publicPairingAvailable,
+          pairingDisplay: pairingDisplay,
+          pairingFailed: pairingFailed,
+          connected: connected,
+          enabled: enabled,
+          connectionPending: connectionPending,
+          connectionSettling: connectionSettling,
+          connectionCancellationAvailable: connectionCancellationAvailable,
+          connectionFailed: connectionFailed,
+          expiresAt: expiresAt,
+          remainingSeconds: remainingSeconds,
+          approvedTargets: approvedTargets);
 }
 
 /// Supplied only by trusted composition after transport/credential admission.
@@ -55,6 +94,7 @@ final class FirstPartyExternalBinding {
       required this.authenticationAttempt,
       this.credentials,
       this.stageApproval,
+      this.enableWithoutRetainedChannel = false,
       required this.publishApprovals,
       required this.shutdown});
   final ExternalAuthorizationManagement management;
@@ -65,17 +105,346 @@ final class FirstPartyExternalBinding {
   final Object? Function() authenticationAttempt;
   final FirstPartyCredentialServices? credentials;
   final FirstPartyStageApproval? stageApproval;
+  final bool enableWithoutRetainedChannel;
   final void Function(List<ExternalStageContext>) publishApprovals;
   final Future<void> Function() shutdown;
+}
+
+/// One local view's exact original association snapshot; never authentication.
+final class FirstPartyAssociationRecoveryDisplay {
+  FirstPartyAssociationRecoveryDisplay._(
+      this._owner,
+      this._binding,
+      this._reference,
+      this._snapshot,
+      this._policy,
+      this._version,
+      this._generation);
+  final FirstPartyExternalAccess _owner;
+  final FirstPartyExternalBinding _binding;
+  final ExternalProfileReference _reference;
+  final ExternalCredentialAssociationSnapshot _snapshot;
+  final ExternalAuthorizationRecord _policy;
+  final int _version, _generation;
+  bool _consumed = false;
+  String get profileId => _reference.profileId;
+  String get profileName => _policy.profile.displayName;
+  String get credentialIdentity => _snapshot.record!.credentialIdentity;
+  String get installationId => _snapshot.record!.installationId;
+  int get revision => _snapshot.record!.revision;
+  bool get revoked => _snapshot.record!.revoked;
 }
 
 /// First-party control only; never registered as a Capability or MCP tool.
 final class FirstPartyExternalAccess {
   FirstPartyExternalAccess(
-      {required this.policy, required bool Function() compositionIsCurrent})
-      : _isCurrent = compositionIsCurrent;
+      {required this.policy,
+      required bool Function() compositionIsCurrent,
+      FirstPartyRelayObservation Function()? observeRelay})
+      : _isCurrent = compositionIsCurrent,
+        _observeRelay = observeRelay;
   final LocalAuthorizationService policy;
   final bool Function() _isCurrent;
+  final FirstPartyRelayObservation Function()? _observeRelay;
+  FirstPartyDevelopmentAccess? _development;
+  FirstPartyDevelopmentAccess? get development => _development;
+  FirstPartyPairingObservation? _pairingObservation;
+  FirstPartyPairingObservation? get pairingObservation => _pairingObservation;
+  FirstPartyAssociationRevocationObservation? _revocationObservation;
+  FirstPartyAssociationRevocationObservation? get revocationObservation =>
+      _revocationObservation;
+  FirstPartyAssociationRecoveryDisplay? _recoveryDisplay;
+  int _recoveryVersion = 0;
+  bool _revocationDispatched = false;
+  bool get associationRecoveryAvailable =>
+      isCurrent &&
+      !_revocationDispatched &&
+      _binding?.credentials?.associationRecovery != null;
+
+  Future<T> _observePairing<T>(
+      FirstPartyAppPairingPhase phase, Future<T> Function() action) async {
+    _pairingObservation = FirstPartyPairingObservation(phase,
+        FirstPartyObservedResult.pending, _pairingObservation?.firstFailure);
+    try {
+      final result = await action();
+      _pairingObservation = FirstPartyPairingObservation(phase,
+          FirstPartyObservedResult.returned, _pairingObservation?.firstFailure);
+      return result;
+    } catch (error) {
+      _pairingObservation = FirstPartyPairingObservation(
+          phase,
+          FirstPartyObservedResult.failed,
+          _pairingObservation?.firstFailure ??
+              FirstPartyAppPairingFailure(
+                  phase, FirstPartyApplicationFailure.from(error)));
+      rethrow;
+    }
+  }
+
+  void cancelAssociationRecovery() {
+    _recoveryVersion++;
+    _recoveryDisplay = null;
+  }
+
+  FirstPartyAssociationRecoveryPort _recoveryPort(
+      FirstPartyExternalBinding binding, int version) {
+    _validate();
+    final port = binding.credentials?.associationRecovery;
+    if (!identical(binding, _binding) ||
+        version != _recoveryVersion ||
+        _revocationDispatched ||
+        !binding.enableWithoutRetainedChannel ||
+        port == null ||
+        !port.isCurrent ||
+        _development == null ||
+        _profile == null ||
+        _selectedId == null ||
+        _pairingRequest != null ||
+        _pairingFailed ||
+        _session != null ||
+        _enabling ||
+        binding.credentials?.existingCredential?.display() != null ||
+        binding.trust.snapshot(_profile!.principal).state !=
+            PairingState.unpaired) {
+      externalAuthFail(ExternalAuthFailure.unauthorized);
+    }
+    return port;
+  }
+
+  Future<void> _recoveryDevelopment(
+      FirstPartyExternalBinding binding, int version) async {
+    _recoveryPort(binding, version);
+    final status = await _development!.status();
+    _recoveryPort(binding, version);
+    // Metadata is only an additional refusal condition. The later original
+    // Bridge Native path alone establishes kind-4 Missing before initial save.
+    if (status.phase != FirstPartyDevelopmentPhase.active ||
+        status.pairingWindowOpen ||
+        status.bridgePinMissing != true) {
+      externalAuthFail(ExternalAuthFailure.unauthorized);
+    }
+  }
+
+  bool _sameRecoveryPolicy(ExternalAuthorizationRecord first,
+          ExternalAuthorizationRecord current) =>
+      current.profile.clientProfileId == first.profile.clientProfileId &&
+      current.profile.revokedAtUtcMs == null &&
+      current.profile.grantRevision == first.profile.grantRevision &&
+      current.grant?.profileId == first.grant?.profileId &&
+      current.grant?.revision == first.grant?.revision &&
+      current.grant?.revokedAtUtcMs == first.grant?.revokedAtUtcMs;
+
+  Future<FirstPartyAssociationRecoveryDisplay>
+      inspectAssociationForRevocation() => _run(() async {
+            cancelAssociationRecovery();
+            final binding = _binding;
+            if (binding == null) {
+              externalAuthFail(ExternalAuthFailure.unauthorized);
+            }
+            final version = _recoveryVersion, selected = _selectedId;
+            final port = _recoveryPort(binding, version);
+            await _recoveryDevelopment(binding, version);
+            final reference = await binding.management.selectProfile(selected!);
+            _recoveryPort(binding, version);
+            final policy = await binding.management.read(reference);
+            _recoveryPort(binding, version);
+            if (selected != _selectedId ||
+                policy.profile.revokedAtUtcMs != null) {
+              externalAuthFail(ExternalAuthFailure.unauthorized);
+            }
+            final snapshot = await port.read(reference);
+            _recoveryPort(binding, version);
+            final current = await binding.management.read(reference);
+            _recoveryPort(binding, version);
+            final record = snapshot.record;
+            if (selected != _selectedId ||
+                !_sameRecoveryPolicy(policy, current) ||
+                !snapshot.isCurrent ||
+                record == null ||
+                record.profileId != selected ||
+                record.installationId != port.installationId) {
+              externalAuthFail(ExternalAuthFailure.unauthorized);
+            }
+            return _recoveryDisplay = FirstPartyAssociationRecoveryDisplay._(
+                this,
+                binding,
+                reference,
+                snapshot,
+                policy,
+                version,
+                binding.trust.generation);
+          });
+
+  void _checkRecoveryDisplay(FirstPartyAssociationRecoveryDisplay display) {
+    _recoveryPort(display._binding, display._version);
+    if (!identical(display._owner, this) ||
+        !identical(display, _recoveryDisplay) ||
+        display.profileId != _selectedId ||
+        display._generation != display._binding.trust.generation ||
+        !display._snapshot.isCurrent ||
+        display.revoked) {
+      externalAuthFail(ExternalAuthFailure.unauthorized);
+    }
+  }
+
+  Future<void> confirmAssociationRevocation(
+      FirstPartyAssociationRecoveryDisplay display) async {
+    _validate();
+    if (_busy || display._consumed || !identical(display._owner, this)) {
+      externalAuthFail(ExternalAuthFailure.unauthorized);
+    }
+    display._consumed = true;
+    Object? failure;
+    StackTrace? failureStack;
+    var dispatched = false;
+    _busy = true;
+    final idle = _idle = Completer<void>();
+    try {
+      _checkRecoveryDisplay(display);
+      final binding = display._binding;
+      await _recoveryDevelopment(binding, display._version);
+      _checkRecoveryDisplay(display);
+      final policy = await binding.management.read(display._reference);
+      _checkRecoveryDisplay(display);
+      if (!_sameRecoveryPolicy(display._policy, policy)) {
+        externalAuthFail(ExternalAuthFailure.staleRevision);
+      }
+      final port = binding.credentials!.associationRecovery!;
+      final snapshot = await port.read(display._reference);
+      _checkRecoveryDisplay(display);
+      final record = snapshot.record;
+      if (!snapshot.isCurrent ||
+          record == null ||
+          record.revoked ||
+          record.profileId != display.profileId ||
+          record.revision != display.revision ||
+          record.installationId != display.installationId ||
+          record.credentialIdentity != display.credentialIdentity) {
+        externalAuthFail(ExternalAuthFailure.staleRevision);
+      }
+      final current = await binding.management.read(display._reference);
+      _checkRecoveryDisplay(display);
+      if (!_sameRecoveryPolicy(display._policy, current) ||
+          !snapshot.isCurrent) {
+        externalAuthFail(ExternalAuthFailure.staleRevision);
+      }
+      _revocationDispatched = dispatched = true;
+      _revocationObservation = const FirstPartyAssociationRevocationObservation(
+          revoke: FirstPartyObservedResult.pending);
+      await port.revoke(display._reference, display.revision);
+      // Terminal operation: Host shutdown intentionally invalidates this runtime.
+      // Unlike ordinary _run, no old-runtime post-validation belongs here.
+      _revocationObservation = const FirstPartyAssociationRevocationObservation(
+          revoke: FirstPartyObservedResult.returned);
+    } catch (error, stack) {
+      failure = error;
+      failureStack = stack;
+      if (dispatched) {
+        _revocationObservation = FirstPartyAssociationRevocationObservation(
+            revoke: FirstPartyObservedResult.failed,
+            failure: FirstPartyApplicationFailure.from(error));
+      }
+    } finally {
+      cancelAssociationRecovery();
+      _busy = false;
+      idle.complete();
+      _idle = null;
+    }
+    if (dispatched) {
+      final original = _revocationObservation!;
+      _revocationObservation = FirstPartyAssociationRevocationObservation(
+          revoke: original.revoke,
+          failure: original.failure,
+          close: FirstPartyObservedResult.pending);
+      try {
+        // Outside the busy/idle region: stop may join controls.shutdown/_idle.
+        await _development!.stop();
+        _revocationObservation = FirstPartyAssociationRevocationObservation(
+            revoke: original.revoke,
+            failure: original.failure,
+            close: FirstPartyObservedResult.returned);
+      } catch (error, stack) {
+        _revocationObservation = FirstPartyAssociationRevocationObservation(
+            revoke: original.revoke,
+            failure: original.failure,
+            close: FirstPartyObservedResult.failed,
+            closeFailure: FirstPartyApplicationFailure.from(error));
+        failure ??= error;
+        failureStack ??= stack;
+      }
+    }
+    if (failure != null) Error.throwWithStackTrace(failure, failureStack!);
+  }
+
+  bool get requestScopedStageApproval =>
+      _binding?.enableWithoutRetainedChannel == true;
+  FirstPartyExistingCredentialDisplay? get existingCredentialDisplay =>
+      isCurrent ? _binding?.credentials?.existingCredential?.display() : null;
+
+  Future<void> beginExistingCredentialConfirmation() => _run(() async {
+        cancelAssociationRecovery();
+        final version = _identityControlVersion;
+        final b = _binding;
+        final profile = _profile;
+        final port = b?.credentials?.existingCredential;
+        if (b == null ||
+            profile == null ||
+            port == null ||
+            _pairingFailed ||
+            b.trust.snapshot(profile.principal).state !=
+                PairingState.unpaired) {
+          externalAuthFail(ExternalAuthFailure.unauthorized);
+        }
+        final reference = await b.management.selectProfile(_selectedId!);
+        await b.management.read(reference);
+        _validate();
+        if (!identical(profile, _profile) ||
+            version != _identityControlVersion) {
+          externalAuthFail(ExternalAuthFailure.unauthorized);
+        }
+        port.begin(reference);
+      });
+
+  Future<void> confirmExistingCredential(
+          FirstPartyExistingCredentialDisplay display) =>
+      _run(() async {
+        final port = _binding?.credentials?.existingCredential;
+        if (port == null || display.profileId != _selectedId) {
+          externalAuthFail(ExternalAuthFailure.unauthorized);
+        }
+        await port.confirm(display);
+        await _development?.waitPairingWindowClosed();
+      });
+
+  Future<void> cancelExistingCredentialConfirmation() async {
+    _identityControlVersion++;
+    final port = _binding?.credentials?.existingCredential;
+    final pending = port?.display() != null;
+    await port?.cancel();
+    if (pending) await _development?.waitPairingWindowClosed();
+  }
+
+  void installDevelopment(FirstPartyDevelopmentAccess development) {
+    if (_closed || _development != null) {
+      externalAuthFail(ExternalAuthFailure.unauthorized);
+    }
+    _development = development;
+  }
+
+  /// Original outer adapter loss invalidates old Enable/approval immediately.
+  /// This is not Host shutdown and never reauthenticates or replays work.
+  Future<void> disconnectTransport() async {
+    cancelAssociationRecovery();
+    if (_closed) return;
+    _enableCancelled = true;
+    _forgetAccess();
+    _binding?.credentials?.cancelPendingConnection?.call();
+    await Future.wait([
+      cancelExistingCredentialConfirmation(),
+      _idle?.future ?? Future<void>.value(),
+    ]);
+  }
+
   FirstPartyExternalBinding? _binding;
   ExternalTrustProfile? _profile;
   String? _selectedId;
@@ -85,6 +454,8 @@ final class FirstPartyExternalAccess {
   bool _pairingFailed = false, _requestingPairing = false;
   Future<void>? _cancellingPairing;
   int? _sessionRevision;
+  int _accessVersion = 0;
+  int _identityControlVersion = 0;
   final _approvals = <ExternalStageContext>[];
   List<GeneratedReviewTargetChoice> _choices = const [];
   bool _closed = false, _busy = false;
@@ -142,6 +513,7 @@ final class FirstPartyExternalAccess {
       });
 
   void _forgetAccess() {
+    _accessVersion++;
     _binding?.stageApproval?.cancel();
     final b = _binding;
     if (b != null &&
@@ -159,7 +531,9 @@ final class FirstPartyExternalAccess {
   }
 
   Future<void> select(String profileId) => _run(() async {
+        cancelAssociationRecovery();
         final b = _binding;
+        await cancelExistingCredentialConfirmation();
         _forgetAccess();
         _profile = null;
         _selectedId = null;
@@ -190,57 +564,65 @@ final class FirstPartyExternalAccess {
     return services;
   }
 
-  Future<void> requestPairing({String? submissionId}) => _run(() async {
-        final services = _credentials();
-        final b = _binding!;
-        if (_pairingFailed ||
-            b.trust.snapshot(_profile!.principal).state !=
-                PairingState.unpaired) {
-          externalAuthFail(ExternalAuthFailure.unauthorized);
-        }
-        _requestingPairing = true;
-        try {
-          final ref = await b.management.selectProfile(_selectedId!);
-          final port = services.pairing;
-          if (submissionId != null) {
-            if (port is! FirstPartyPublicPairingPort) {
+  Future<void> requestPairing({String? submissionId}) => _observePairing(
+      FirstPartyAppPairingPhase.request,
+      () => _run(() async {
+            cancelAssociationRecovery();
+            final services = _credentials();
+            final b = _binding!;
+            if (_pairingFailed ||
+                b.trust.snapshot(_profile!.principal).state !=
+                    PairingState.unpaired) {
               externalAuthFail(ExternalAuthFailure.unauthorized);
             }
-            _pairingRequest = await port.requestSubmission(ref, submissionId);
-          } else {
-            _pairingRequest = await port.request(ref);
-          }
-          _validate();
-          if (_pairingFailed) {
-            externalAuthFail(ExternalAuthFailure.unauthorized);
-          }
-        } catch (_) {
-          _pairingFailed = true;
-          rethrow;
-        } finally {
-          _requestingPairing = false;
-        }
-      });
+            _requestingPairing = true;
+            try {
+              final ref = await b.management.selectProfile(_selectedId!);
+              final port = services.pairing;
+              if (submissionId != null) {
+                if (port is! FirstPartyPublicPairingPort) {
+                  externalAuthFail(ExternalAuthFailure.unauthorized);
+                }
+                _pairingRequest =
+                    await port.requestSubmission(ref, submissionId);
+              } else {
+                _pairingRequest = await port.request(ref);
+              }
+              _validate();
+              if (_pairingFailed) {
+                externalAuthFail(ExternalAuthFailure.unauthorized);
+              }
+            } catch (_) {
+              _pairingFailed = true;
+              rethrow;
+            } finally {
+              _requestingPairing = false;
+            }
+          }));
 
   Future<String> exportPairingTrust() => _exportPairing(false);
   Future<String> exportPairingCompletion() => _exportPairing(true);
 
-  Future<String> _exportPairing(bool completion) => _run(() async {
-        final port = _credentials().pairing;
-        if (port is! FirstPartyPublicPairingPort ||
-            _pairingRequest == null ||
-            _pairingFailed) {
-          externalAuthFail(ExternalAuthFailure.unauthorized);
-        }
-        try {
-          return completion
-              ? await port.exportPublicCompletion()
-              : await port.exportPublicTrust();
-        } catch (_) {
-          _pairingFailed = true;
-          rethrow;
-        }
-      });
+  Future<String> _exportPairing(bool completion) => _observePairing(
+      completion
+          ? FirstPartyAppPairingPhase.exportCompletion
+          : FirstPartyAppPairingPhase.exportTrust,
+      () => _run(() async {
+            final port = _credentials().pairing;
+            if (port is! FirstPartyPublicPairingPort ||
+                _pairingRequest == null ||
+                _pairingFailed) {
+              externalAuthFail(ExternalAuthFailure.unauthorized);
+            }
+            try {
+              return completion
+                  ? await port.exportPublicCompletion()
+                  : await port.exportPublicTrust();
+            } catch (_) {
+              _pairingFailed = true;
+              rethrow;
+            }
+          }));
 
   Future<void> cancelPairing() {
     if (_cancellingPairing != null) return _cancellingPairing!;
@@ -256,7 +638,9 @@ final class FirstPartyExternalAccess {
   }
 
   Future<void> cancelPendingControls() async {
+    cancelAssociationRecovery();
     if (!isCurrent) return;
+    await cancelExistingCredentialConfirmation();
     if (_enabling) {
       if (_binding?.credentials?.cancelPendingConnection != null) {
         await disable();
@@ -275,31 +659,36 @@ final class FirstPartyExternalAccess {
     }
   }
 
-  Future<void> _pairingAction(bool complete) => _run(() async {
-        _credentials();
-        final request = _pairingRequest;
-        final expected = complete
-            ? PairingState.approvedPendingProof
-            : PairingState.requestPending;
-        if (request == null ||
-            _pairingFailed ||
-            _binding!.trust.snapshot(_profile!.principal).state != expected) {
-          externalAuthFail(ExternalAuthFailure.unauthorized);
-        }
-        try {
-          if (complete) {
-            await request.complete();
-          } else {
-            await request.approve();
-          }
-        } catch (_) {
-          // Preserve P0's actual pending state. Failed/unknown completion has no
-          // automatic retry, reset, success projection or enablement.
-          _pairingFailed = true;
-          _forgetAccess();
-          rethrow;
-        }
-      });
+  Future<void> _pairingAction(bool complete) => _observePairing(
+      complete
+          ? FirstPartyAppPairingPhase.complete
+          : FirstPartyAppPairingPhase.approve,
+      () => _run(() async {
+            _credentials();
+            final request = _pairingRequest;
+            final expected = complete
+                ? PairingState.approvedPendingProof
+                : PairingState.requestPending;
+            if (request == null ||
+                _pairingFailed ||
+                _binding!.trust.snapshot(_profile!.principal).state !=
+                    expected) {
+              externalAuthFail(ExternalAuthFailure.unauthorized);
+            }
+            try {
+              if (complete) {
+                await request.complete();
+              } else {
+                await request.approve();
+              }
+            } catch (_) {
+              // Preserve P0's actual pending state. Failed/unknown completion has no
+              // automatic retry, reset, success projection or enablement.
+              _pairingFailed = true;
+              _forgetAccess();
+              rethrow;
+            }
+          }));
 
   Future<void> approvePairing() => _pairingAction(false);
   Future<void> completePairing() => _pairingAction(true);
@@ -319,6 +708,16 @@ final class FirstPartyExternalAccess {
   }
 
   Future<FirstPartyExternalStatus> status() async {
+    final business = await _businessStatus();
+    var observation =
+        const FirstPartyRelayObservation(FirstPartyRelayPhase.unavailable);
+    try {
+      observation = _observeRelay?.call() ?? observation;
+    } catch (_) {/* Observation cannot change business authority. */}
+    return business._withRelay(observation);
+  }
+
+  Future<FirstPartyExternalStatus> _businessStatus() async {
     if (!_enabling) return _readStatus();
     _validate();
     final b = _binding!;
@@ -372,7 +771,7 @@ final class FirstPartyExternalAccess {
           if (record.profile.revokedAtUtcMs != null ||
               record.grant == null ||
               record.grant!.revokedAtUtcMs != null ||
-              (_session != null &&
+              (_sessionRevision != null &&
                   record.grant!.revision != _sessionRevision)) {
             _forgetAccess();
             if (record.profile.revokedAtUtcMs != null ||
@@ -390,7 +789,9 @@ final class FirstPartyExternalAccess {
                 !_pairingFailed &&
                 snapshot.state != PairingState.enabledForCurrentRuntime) {
               try {
-                display = await _pairingRequest!.display();
+                display = await _observePairing(
+                    FirstPartyAppPairingPhase.display,
+                    () => _pairingRequest!.display());
               } catch (_) {
                 _pairingFailed = true;
               }
@@ -413,7 +814,12 @@ final class FirstPartyExternalAccess {
                 pairingFailed: _pairingFailed,
                 connectionFailed: _connectionFailed,
                 connected: requestConnected || session != null,
-                enabled: requestConnected || session != null,
+                enabled: requestConnected ||
+                    session != null ||
+                    (b.enableWithoutRetainedChannel &&
+                        _sessionRevision != null &&
+                        snapshot.state ==
+                            PairingState.enabledForCurrentRuntime),
                 expiresAt: snapshot.expiresAt,
                 remainingSeconds: _remaining(snapshot.expiresAt),
                 approvedTargets: _approvals.length);
@@ -463,6 +869,25 @@ final class FirstPartyExternalAccess {
           }
           _enableExpiresAt = expiry;
           deadline = Timer(expiry.difference(now), _expireEnable);
+          if (b.enableWithoutRetainedChannel) {
+            if (services == null) {
+              externalAuthFail(ExternalAuthFailure.unauthorized);
+            }
+            final reference = await b.management.selectProfile(_selectedId!);
+            final record = await b.management.read(reference);
+            _validateEnable();
+            if (record.profile.revokedAtUtcMs != null ||
+                record.grant == null ||
+                record.grant!.revokedAtUtcMs != null ||
+                b.trust.snapshot(_profile!.principal).state !=
+                    PairingState.enabledForCurrentRuntime) {
+              externalAuthFail(ExternalAuthFailure.unauthorized);
+            }
+            // Enable is finite local policy. Each request must independently
+            // authenticate through P15; no Session is manufactured or retained.
+            _sessionRevision = record.grant!.revision;
+            return;
+          }
           FirstPartyCredentialConnection? connection;
           if (services != null) {
             final reference = await b.management.selectProfile(_selectedId!);
@@ -540,10 +965,72 @@ final class FirstPartyExternalAccess {
   }
 
   /// Trusted port rechecks the current Session and owning policy at every call.
+  /// App-owned channels call this after verified association lookup, before P15.
+  Future<void Function()> admitBusinessConnection(
+      ExternalProfileReference reference, int observedRevision) async {
+    final b = _binding;
+    final profile = _profile;
+    final version = _accessVersion;
+    final revision = _sessionRevision;
+    void current() {
+      _validate();
+      if (b == null ||
+          !b.enableWithoutRetainedChannel ||
+          profile == null ||
+          !identical(b, _binding) ||
+          !identical(profile, _profile) ||
+          version != _accessVersion ||
+          revision == null ||
+          revision != _sessionRevision ||
+          revision != observedRevision ||
+          reference.profileId != _selectedId ||
+          reference.profileId != profile.principal.profileId ||
+          b.trust.snapshot(profile.principal).state !=
+              PairingState.enabledForCurrentRuntime) {
+        externalAuthFail(ExternalAuthFailure.unauthorized);
+      }
+    }
+
+    try {
+      current();
+      final record = await b!.management.read(reference);
+      current();
+      if (record.profile.revokedAtUtcMs != null ||
+          record.profile.grantRevision != revision ||
+          record.grant == null ||
+          record.grant!.revokedAtUtcMs != null ||
+          record.grant!.revision != revision) {
+        externalAuthFail(ExternalAuthFailure.unauthorized);
+      }
+      return current;
+    } catch (_) {
+      // A stale channel cannot withdraw a newer explicit user enablement.
+      if (version == _accessVersion && reference.profileId == _selectedId) {
+        _forgetAccess();
+      }
+      rethrow;
+    }
+  }
+
   Future<ExternalSession?> authenticatedSession() async {
     try {
       _validate();
       final b = _binding!;
+      if (b.enableWithoutRetainedChannel && _session == null) {
+        _credentials();
+        final reference = await b.management.selectProfile(_selectedId!);
+        final record = await b.management.read(reference);
+        _validate();
+        if (record.profile.revokedAtUtcMs != null ||
+            record.grant == null ||
+            record.grant!.revokedAtUtcMs != null ||
+            record.grant!.revision != _sessionRevision ||
+            b.trust.snapshot(_profile!.principal).state !=
+                PairingState.enabledForCurrentRuntime) {
+          _forgetAccess();
+        }
+        return null;
+      }
       if (b.credentials == null) {
         _authenticate(b);
       } else {
@@ -625,10 +1112,12 @@ final class FirstPartyExternalAccess {
   /// Blocks synchronously, then awaits local work and owning Host/port drain.
   Future<void> shutdown() {
     if (_shutdown != null) return _shutdown!;
+    cancelAssociationRecovery();
     _closed = true;
     _forgetAccess();
+    final proofClosing = cancelExistingCredentialConfirmation();
     final owning = _binding?.shutdown() ?? Future<void>.value();
-    return _shutdown =
-        Future.wait([owning, _idle?.future ?? Future<void>.value()]);
+    return _shutdown = Future.wait(
+        [owning, proofClosing, _idle?.future ?? Future<void>.value()]);
   }
 }

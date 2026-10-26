@@ -61,10 +61,13 @@ final class McpVnextAppIntegration {
       required this.index,
       required this.chunker,
       required this.mintId,
+      FirstPartyRelayObservation Function()? observeRelay,
       required bool Function() compositionIsCurrent})
       : _isCurrent = compositionIsCurrent {
     controls = FirstPartyExternalAccess(
-        policy: policy, compositionIsCurrent: compositionIsCurrent);
+        policy: policy,
+        compositionIsCurrent: compositionIsCurrent,
+        observeRelay: observeRelay);
   }
   final ExternalTargetReadPort targets;
   final ExternalQuestionReadPort questions;
@@ -117,6 +120,7 @@ final class McpVnextAppIntegration {
         services,
     Duration Function()? monotonicNow,
     bool enableStageApprovalWait = false,
+    bool enableWithoutRetainedChannel = false,
     McpVnextAppTransport Function(ExternalTrustCoordinator coordinator,
             VnextMcpAppComposition binding)?
         transport,
@@ -144,6 +148,7 @@ final class McpVnextAppIntegration {
         readiness,
         () => null,
         enableStageApprovalWait: enableStageApprovalWait,
+        enableWithoutRetainedChannel: enableWithoutRetainedChannel,
         transport: transport,
         credentials: (coordinator, trust) {
           boundary.attach(coordinator, trust);
@@ -165,7 +170,8 @@ final class McpVnextAppIntegration {
       McpVnextAppTransport Function(ExternalTrustCoordinator coordinator,
               VnextMcpAppComposition binding)?
           transport,
-      bool enableStageApprovalWait = false}) async {
+      bool enableStageApprovalWait = false,
+      bool enableWithoutRetainedChannel = false}) async {
     final owner = await localAuthority.openSession();
     late ExternalTrustCore trust;
     final management = ExternalAuthorizationManagement(
@@ -262,6 +268,7 @@ final class McpVnextAppIntegration {
           authenticationAttempt: attempt,
           credentials: credentialServices,
           stageApproval: stageApproval,
+          enableWithoutRetainedChannel: enableWithoutRetainedChannel,
           publishApprovals: port.replaceApprovedTargets,
           shutdown: shutdown));
       await coordinator.startOffline();
@@ -289,9 +296,15 @@ final class McpVnextAppIntegration {
   /// Await before replacement; production database close uses this same barrier.
   Future<void> close() async {
     final closing = controls.shutdown();
-    try {
-      await _attaching;
-    } catch (_) {/* Failed attachment already drains. */}
-    await closing;
+    // Observe both original Futures before yielding: shutdown may already hold
+    // a failed Host close. Still join attachment and propagate that close error.
+    await Future.wait([
+      closing,
+      () async {
+        try {
+          await _attaching;
+        } catch (_) {/* Failed attachment already drains. */}
+      }(),
+    ]);
   }
 }

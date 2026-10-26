@@ -319,6 +319,40 @@ it grants no experiment execution authority. Each real batch needs separate,
 explicit user approval. An implementation task, a merged contract, or another
 batch's success never supplies that approval or clears HOST_STABILITY_HALT.
 
+**Separately authorized development use (2026-10-26).** The user's explicit
+authorization for the normal Windows Codex integration permits only MCP
+§17.12's normal Debug App, its original fixed-adjacent children and a selected
+development test bank on this Windows development machine. It permits the
+original protected Owner/locks, validation of existing credentials/Pin, original
+Discovery/epoch/high-water updates, one `127.0.0.1:48763` mTLS Host, and the
+existing READ, independently confirmed STAGE and local Review paths. A separate
+first-party confirmation may run P25 double-Missing initial issuer/server
+creation and the original P27 two-comparison, Missing-only initial Bridge save.
+Section 9.C.8 defines the separately approved fresh confirmation of an existing
+credential after normal App reopen and the separately approved explicit
+residual-association revoke-first flow. No other credential recovery, rotation,
+overwrite, automatic re-pairing, destructive database Restore or unrelated data
+use follows.
+
+This is a finite development-use exception, not another G0 tier or a security
+experiment grant. The original Native checks, trust provenance, mTLS, P15/P0,
+current Grant/scope/egress and independent user decisions all remain mandatory.
+The fixed `%LOCALAPPDATA%\Shiroha\external` root has no Debug/Release partition;
+this authorization does not claim one. Thirty-minute deployment admission does
+not grant business Enablement and expiry must actively drain the original
+runtime. Trial 1A, G0-L1/L2/I, A0–A12/X0–X12 and formal production acceptance stay
+deferred; their experiment prerequisites and the permanent AF_UNIX halt are
+unchanged. Source/offline evidence and a successful development loop do not
+close a WINDOWS_PENDING security row.
+
+The separately authorized peer-policy repair permits one bounded comparison
+using only the repository's fixed public certificate vectors: two original-DLL
+calls and six corrected-DLL calls (Server/Client acceptance, opposite roles,
+wrong curve and malformed signature). It loads no saved credential, creates no
+key, acquires no protected Owner and opens no socket. This eight-call grant is
+not reusable test-run permission, a Trial 1A/G0 run or formal security acceptance.
+The ordinary App runtime continues under the existing development-use scope.
+
 | Tier | Permitted scope / gate |
 |---|---|
 | G0-L0 — normal development | On the primary computer, write C++/Win32 Native Helper, Dart FFI Adapter, Credential Store, Discovery and Host source under normal scoped task authority; compile, analyze, format and run offline pure-algorithm/Mock tests that touch no real Windows security objects. No real-experiment grant is needed. Code authority still does not authorize Host activation or later Git actions. |
@@ -568,6 +602,11 @@ Provider storage or the accepted identity model. A required change to a frozen
 contract, unapproved native primitive, inadequate independent environment or a
 test possible only through high-risk primary-host experiments is BLOCKED. Static
 design can record that blocker; implementation and experiment stop at that boundary.
+
+Section 6's explicit development-use exception admits only the bounded MCP
+§17.12 composition. It does not satisfy or waive this section's separate
+production activation decision, security/system-stability acceptance or
+independent review and required verification.
 
 ## 9. P16 production primitive freeze
 
@@ -997,16 +1036,17 @@ requires.
   serialize → DPAPI-protect → create temp `~tmp-<runtimeId16>-<rand8>` in the
   same directory with the explicit owner DACL (`CREATE_NEW`) → write + flush
   (`FlushFileBuffers`) → atomic replace by handle
-  (`SetFileInformationByHandle`/`FileRenameInfo` with replace;
-  `MoveFileExW` + `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH` is the
-  documented alternative). For the P20 Association Store only, the G0-L0
-  candidate uses `NtSetInformationFile(FileRenameInformation, class 10)` with
-  the verified state-directory handle and fixed relative `associations.bin`;
-  there is no path-based fallback. This exception changes no other object's
-  implementation or acceptance. Success requires a settled successful API and
-  completion result plus section 12's post-publication checks. Section 12 also
-  owns the P20-only verified-target close before class 10 replacement; the App
-  owner, writer lock and all parent pins remain held throughout.
+  using the retained parent handle and fixed relative component. The original
+  P20 `NtSetInformationFile(FileRenameInformation, class 10)` mechanism now also
+  applies to Credential kinds 1/2/4 (§15) and the three fixed Discovery objects
+  (§18), under the user's narrow development authorization of 2026-10-26.
+  Association remains fixed to `associations.bin`; no caller supplies a path.
+  No null-parent, current-directory, absolute-path or alternate-API fallback is
+  permitted. Direct NTSTATUS and IO_STATUS_BLOCK completion must both be exactly
+  STATUS_SUCCESS, followed by the original post-publication checks. The existing
+  verified-target close remains once-only; owner, writer lock and all parent
+  pins remain held throughout. Access/sharing, DACL, store formats and ABI do not
+  change. This implementation amendment grants no formal security acceptance.
   The whole read-through-replace sequence runs only while the
   root's writer lock is held (single writer above); the atomic replace is its
   final durability step, not its mutual-exclusion mechanism. A crash before
@@ -1415,7 +1455,7 @@ P27-D0 failure matrix for the manual bootstrap/completion amendment in §9.C.5:
 | Both succeeded but Bridge exits before initial kind 4 commit | No durable Bridge private key | The unpersisted key is lost; accept an unusable Association residue rather than auto-repairing Pairing |
 | Initial kind 4 save fails, is `commitUnknown`, or sensitive-resource release fails | Never report save success or automatically retry | Settle the local attempt once; any later explicit protected read establishes credential facts only |
 | Initial kind 4 encounters existing valid credentials, corruption or a conflicting Pin | No overwrite | Fail closed; no silent Pin replacement, key regeneration or recovery write |
-| Initial kind 4 succeeds, followed by restart/Restore/runtime replacement | Existing credential only | Fresh runtime remains unpaired/disabled; persisted credentials never restore Paired, Sessions or Enablement |
+| Initial kind 4 succeeds, followed by restart/Restore/runtime replacement | Existing credential only | Fresh runtime remains unpaired/disabled; persisted credentials never restore Paired, Sessions or Enablement. Only the separately approved live first-party confirmation below may rebind an existing credential for a new development runtime. |
 
 The App may already be `pairedDisabled` before a Bridge failure; a lost
 acknowledgement does not roll P0 back. No cross-process atomic commit or
@@ -1423,11 +1463,100 @@ automatic compensation is promised. Once manual save is attempted its local
 confirmation is spent even on failure/unknown; it cannot be replayed into a
 second save attempt. Bridge never journals the unpersisted key or writes it to
 App, Exchange, Discovery, logs or recovery artifacts. Exit before reliable
-persistence loses that key. Later recovery requires an explicit trusted local
+persistence loses that key. Except for the separately approved existing-
+credential confirmation below, later recovery requires an explicit trusted local
 flow under §9.C.8 and §9.A.6: fresh runtime composition and standard Pairing,
 with revoke-first before a new credential replaces an active Association.
 Neither an orphan Association nor a successfully read kind 4 reconstructs P0
 state. A corrupt or unknown object is not deleted or rewritten to force progress.
+
+**Explicit existing-credential confirmation for development use.** The separate
+2026-10-26 user authorization permits a narrow alternative to issuing a new
+credential after normal App reopen. It applies only to MCP §17.12 and an intact,
+current local Profile plus its exact active protected association and existing
+Bridge credential. It does not make persisted files Paired state and does not
+relax any initial P27 comparison or Missing-only save.
+
+The user explicitly starts confirmation for one opaque local Profile. The SAME
+owned Host/WindowsChannelVerification verifies a fresh real mTLS peer, native
+role, certificate, private-key possession and exact association. At most one
+private candidate may be held, occupying its slot before asynchronous work.
+It binds that original live channel, credential/installation, selected Profile,
+association snapshot/revision, Profile grant revision, Owner, runtime/generation
+and both clocks, for at most the original thirty-second evidence window. No
+Session, P8 entry, P10 parsing or business request is permitted in this branch.
+UI receives only safe identity/comparison state, never the private event.
+
+After the user confirms that exact candidate, P15 rechecks current management,
+the exact active association and original snapshot, channel liveness, generation
+and deadline. A purpose-specific, one-use private verification window then uses
+the original P0 request -> approve -> complete sequence to reach
+`pairedDisabled`. Waiting for the user does not mutate P0. This completion is
+read-only for the association and cannot call its registration writer. Existing
+authentication or P27 events cannot be relabeled as this new proof purpose.
+An intact non-revoked Profile may be confirmed without a Grant; confirmation
+does not create one, and later Enable/business admission still requires it.
+If completion fails after P0 entered a pending state, preserve the real state;
+there is no catch-and-reset, fabricated acknowledgement or automatic retry.
+
+The identity decision and original channel settlement are distinct. Host waits
+for the decision, closes the original channel/raw resources and completes its
+original connection-done barrier; the first-party caller separately joins that
+barrier. P15 pending-work drain must not wait back on Host.done. Cancel, page
+closure, expiry, revocation, generation change or observed disconnect invalidates
+the candidate immediately; its slot is released only after original validation
+work and channel settlement. Unknown or failed cleanup stays latched. A late
+confirmation never revives an invalid candidate.
+
+The existing Bridge UI root may establish this proof channel using its original
+validated kind 4 and the App's public startup trust; it sends no business frame,
+generates no enrollment key and performs no credential, certificate, association
+or initial Pin creation/replacement. Only the already authorized original P26
+high-water validation/update is permitted. After proof-channel and UI-process
+settlement, the user separately
+enables the Profile; a fresh business connection must authenticate through the
+original P15/P0/P8 path. Old Session, Context, target and STAGE approval never
+return. Missing/revoked management, orphan association, conflicting identity,
+partial/corrupt/unknown objects and Portable Restore scrub remain refusals.
+No new store, P0 instance, business protocol or automatic restore is introduced.
+
+**Explicit residual-association revocation for development use.** A separate
+2026-10-26 authorization permits the existing §9.A.6/§9.C.8 flow for the selected
+development Profile after Bridge exit before initial Pin persistence. This does
+not make an orphan association or missing private key usable. The normal Debug
+App installs one first-party Application port over its SAME Native/P20 Owner and
+owned Host/P15; no MCP command or direct UI Store access is added. A fresh
+unpaired/disabled runtime with no pairing child or business peer reads and
+displays the exact association identity, installation, revision and revoked flag.
+Missing Pin metadata can reject the action but cannot establish Native Missing.
+Malformed, conflicting or unknown storage facts cannot produce a confirmable view.
+
+The private one-use view binds current selection, opaque management reference,
+runtime and original snapshot. Each pre-dispatch await rechecks currentness;
+confirmation freshly compares the exact tuple/revision and current management.
+Cancellation, page closure, selection/observed connection changes and invalid
+snapshots reject late decisions. Grant and business Enable are not required for
+this local revocation; observing a Grant revision before dispatch does not add
+new CAS semantics to P15. The user's confirmation invokes original Host.revoke,
+which retains §21's control-work/Owner barrier and writes the original revisioned
+tombstone. It neither deletes the record nor alters Profile/Grant or App roots.
+
+The original Host response includes its shutdown, and remains distinct from the
+subsequent development close. Unknown/failed results never become a claim that
+the association was unchanged or rolled back. The first-party operation releases
+its own idle slot before joining full runtime close, and does not reject an
+acknowledged terminal result merely because that runtime was intentionally
+invalidated. Both original close/attachment Futures are observed immediately and
+fully joined; an attachment failure cannot hide a close failure.
+After successful closure and normal App reopen, the user may perform one fresh
+P27 enrollment with a new key, two full manual comparisons and original Native
+Missing-only Pin save. P20's existing CAS updates the same record from its
+tombstone at a newer revision; no historical journal or second authority is
+created. Existing/partial/corrupt/unknown Pin or credential objects still refuse.
+This explicit development recovery does not authorize automatic retry, deletion,
+rotation, overwriting an active association, new safety experiments or production
+activation. A forced process termination remains unconfirmed cleanup, never
+normal-close or security acceptance evidence.
 
 ### 9.D Windows Discovery and local isolation (P16-D)
 
@@ -1678,6 +1807,12 @@ HOST_STABILITY_HALT remains ACTIVE: high-risk crash/driver/kernel reproduction
 is forbidden, while new TCP/DPAPI/CNG/NTFS local experiments require their
 individual L1/L2 exception grants. The primary computer may be named in such a
 future application; P17 itself authorizes no real calls, listener or test run.
+
+The separate explicit development-use grant in section 6 is the only exception
+for MCP §17.12's named normal-App integration. It permits no generic experiment,
+system trust-store installation, credential repair or expansion of the G0
+classes above. Its runtime checks and independent local confirmations cannot
+be replaced by a build flag, an accepting callback or a saved Pin.
 
 **BLOCKED_ON_G0** now describes real experiments lacking their applicable
 environment/prerequisites and exact batch grants, not G0-L0 code development.
@@ -2184,6 +2319,9 @@ is performed. Unknown names and foreign objects are never read or removed.
 The P20 Association Store G0-L0 publication candidate uses the user-mode
 `ntdll.dll` export `NtSetInformationFile` with `NTAPI`, `IO_STATUS_BLOCK` and
 `FileRenameInformation` (10), never extended rename semantics or NtosKrnl linkage.
+The separately authorized §15/§18 consumers reuse this publication mechanism;
+they do not change P20's transaction, target-close or success semantics. The
+earlier P20-only validation below remains evidence for its original scope.
 Its x64 `FILE_RENAME_INFORMATION`-compatible fixed-name structure carries the
 verified state pin in `RootDirectory`, relative `associations.bin` and replace
 only when the original target existed and its identity was validated. The
@@ -2453,15 +2591,17 @@ retained transaction; uncertain closes quarantine and never retry handles.
 The 64 KiB object, 32-leftover, 4096-entry and existing handle/owner budgets stay
 unchanged. Unknown files/leftovers are neither read nor removed.
 
-Publication for kinds 1/2/4 uses the frozen section 9.B.4 Win32
-`SetFileInformationByHandle(FileRenameInfo)` form. Microsoft's
-[FILE_RENAME_INFO contract](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info)
-permits a directory handle in RootDirectory with a relative filename. The only
-names are `issuer.bin`, `server.bin`, `client.bin`: each ten UTF-16 units,
-20 bytes excluding NUL, in a zero-initialized 48-byte x64 allocation. Layout,
-alignment, field offsets, sufficient capacity and C ABI signatures are checked
-at compile time and through injected fake calls. This uses no extended flags,
-path fallback, `MoveFileExW` or P20 NT publication exception.
+Publication for kinds 1/2/4 uses the §9.B.4 authorized extension of the original
+P20 user-mode `NtSetInformationFile(FileRenameInformation, class 10)` mechanism.
+The only names are `issuer.bin`, `server.bin`, `client.bin`: each ten UTF-16
+units, 20 bytes excluding NUL, in a zero-initialized 48-byte x64 allocation.
+The retained verified directory remains `RootDirectory`. Layout, alignment,
+field offsets, capacity and unchanged C ABI signatures are checked at compile
+time and through injected calls. Both direct NTSTATUS and IO_STATUS_BLOCK.Status
+must be exactly zero; pending, warnings, missing export, mismatched or untouched
+completion remain `commitUnknown`. There are no extended flags, null-parent,
+path-based, Win32 or `MoveFileExW` fallbacks and no retry. Access/sharing and the
+original transaction's pre/post-publication checks remain unchanged.
 
 The shared transaction core revalidates captured target identity/security and
 held pins, creates one same-directory CREATE_NEW temp with explicit owner/DACL,
@@ -2828,8 +2968,11 @@ never hidden by a path-based reread.
 
 Publish uses explicit protected-DACL CREATE_NEW `~tmp-<runtimeId16>-<rand8>`
 under the verified Discovery directory, bounded leftover counting, write,
-Flush, target identity/Missing recheck, verified-target close, and documented
-handle-relative FileRenameInfo. Post-publication reopen must match the
+Flush, target identity/Missing recheck, verified-target close, and the §9.B.4
+fixed-name NT class 10 publication. The original parent handle remains bound;
+direct NTSTATUS and IO_STATUS_BLOCK.Status must both be exactly zero. Pending,
+warning, missing export, mismatched or untouched completion is never success.
+No null-parent, path-based or alternate-API fallback is provided. Post-publication reopen must match the
 temporary's captured volume/file identity and full security recipe. Only
 endpoint may replace an existing validated object. Existing anchor/id must
 have exact expected bytes; mismatches/security failures never overwrite them.
@@ -3188,7 +3331,12 @@ authority or trusted Context; App P10/P8 still own every READ/STAGE route.
    validity. `CertFreeCertificateContext`/`LocalFree` release decoded resources.
    No chain builder, ambient store, network, arbitrary path or key access is
    exposed. Missing optional symbols reject; P21 DER inspection cannot replace
-   this Native policy. Actual crypt32 behavior remains WINDOWS_PENDING.
+   this Native policy. `X509_CERT` decoding explicitly preserves signature byte
+   order before decoding the ECDSA DER sequence; the allocated
+   `X509_OBJECT_IDENTIFIER` result is an `LPSTR` structure and is dereferenced
+   before comparing the curve. The ABI and certificate acceptance rules are
+   unchanged. The bounded public-vector comparison in section 6 covers these
+   SDK adaptations only; full crypt32/security acceptance remains WINDOWS_PENDING.
 3. SHA-256 over the exact peer DER yields lowercase `credentialIdentity`.
    P20's optional `ExternalCredentialIdentityLookup.findCredential` rereads the
    SAME strict protected association object under its existing serialized
@@ -4171,6 +4319,11 @@ EOF/exit/dual raw-stream settlement and fail-closed App/Bridge integration over
 Fake protected Owners/TLS, with test-controlled normal exit and cleanup. The
 fixed inert empty-value environment entry repairs observed SDK error 87 while
 preserving no parent inheritance; it conveys no credential or startup authority.
+The later authorized development repair also supplies only OS-derived
+`SystemRoot` via `GetSystemWindowsDirectoryW` for Winsock provider initialization.
+It copies no parent environment or configuration and changes no protected Native
+ABI, credential, Pin, Discovery or admission rule. An ordinary unconnected-socket
+check is separate from actual mTLS and business acceptance.
 Fake Process PASS and Windows test subprocess PASS are separate from formal
 Bridge AOT/Loader UNVERIFIED and real credentials/TLS/production cross-process
 runtime UNVERIFIED. No private adjacent production child wrapper, production

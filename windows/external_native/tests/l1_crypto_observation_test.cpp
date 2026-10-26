@@ -207,26 +207,36 @@ BOOL fake_CertFreeCertificateContext(PCCERT_CONTEXT p) {
   env.release(p);
   return TRUE;
 }
-BOOL fake_CryptDecodeObjectEx(DWORD, LPCSTR type, const BYTE *, DWORD, DWORD,
+BOOL fake_CryptDecodeObjectEx(DWORD, LPCSTR type, const BYTE *data, DWORD encoded_size, DWORD flags,
                               PCRYPT_DECODE_PARA, void *output, DWORD *) {
   if (!env.before(NativeOp::kDecode)) return FALSE;
   void *decoded = nullptr;
-  static BYTE dummy[] = {1};
+  static BYTE signature[] = {0x30, 6, 2, 1, 1, 2, 1, 2};
   if (type == X509_CERT) {
+    check(flags == (CRYPT_DECODE_ALLOC_FLAG |
+                    CRYPT_DECODE_NO_SIGNATURE_BYTE_REVERSAL_FLAG),
+          "X509 certificate preserves DER signature byte order");
     auto *p = static_cast<CERT_SIGNED_CONTENT_INFO *>(
         env.allocate(sizeof(CERT_SIGNED_CONTENT_INFO)));
     p->SignatureAlgorithm.pszObjId = const_cast<char *>(szOID_ECDSA_SHA256);
-    p->Signature = {1, dummy, 0};
+    p->Signature = {sizeof(signature), signature, 0};
     decoded = p;
   } else if (type == X509_ECC_SIGNATURE) {
+    check(flags == CRYPT_DECODE_ALLOC_FLAG && encoded_size == sizeof(signature) &&
+              std::memcmp(data, signature, sizeof(signature)) == 0,
+          "ECDSA decoder receives original DER signature");
     auto *p = static_cast<CERT_ECC_SIGNATURE *>(
         env.allocate(sizeof(CERT_ECC_SIGNATURE)));
     p->r.cbData = p->s.cbData = 32;
     decoded = p;
   } else if (type == X509_OBJECT_IDENTIFIER) {
+    check(flags == CRYPT_DECODE_ALLOC_FLAG, "OID decode allocation flag");
     const size_t size = std::strlen(szOID_ECC_CURVE_P256) + 1;
-    decoded = env.allocate(size);
-    std::memcpy(decoded, szOID_ECC_CURVE_P256, size);
+    // SDK output is a structure containing LPSTR, not the string itself.
+    auto **p = static_cast<LPSTR *>(env.allocate(sizeof(LPSTR) + size));
+    *p = reinterpret_cast<char *>(p + 1);
+    std::memcpy(*p, szOID_ECC_CURVE_P256, size);
+    decoded = p;
   } else if (type == X509_BASIC_CONSTRAINTS2) {
     decoded = env.allocate(sizeof(CERT_BASIC_CONSTRAINTS2_INFO));
   } else if (type == X509_KEY_USAGE) {

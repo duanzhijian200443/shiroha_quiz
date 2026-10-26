@@ -3,6 +3,7 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Stdin;
 import 'package:mcp_dart/mcp_dart.dart';
 
 /// Trusted bridge transport/composition, never selected by client metadata.
@@ -98,9 +99,9 @@ final class VnextMcpServer {
   Future<void>? _portClosing, _closing;
   Future<void> _closePort() => _portClosing ??= Future<void>.sync(port.close);
 
-  Future<void> serveStdio() async {
+  Future<void> serveStdio({Stdin? input}) async {
     try {
-      await _server.connect(StdioServerTransport());
+      await _server.connect(StdioServerTransport(stdin: input));
       await _settled.future;
     } finally {
       await close();

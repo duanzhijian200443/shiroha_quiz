@@ -10,6 +10,8 @@ import 'package:shiroha_quiz/data/external/native/windows_external_native.dart';
 import 'package:shiroha_quiz/data/external/windows_credential_initialization.dart';
 import 'package:shiroha_quiz/data/external/windows_credential_object_store.dart';
 import 'package:shiroha_quiz/data/external/windows_discovery.dart';
+import 'package:shiroha_quiz/data/external/windows_development_bootstrap.dart';
+import 'package:shiroha_quiz/composition/mcp_vnext_development_bridge.dart';
 
 import 'bootstrap_test_support.dart';
 import 'windows_credential_initialization_test.dart' as initialization;
@@ -94,6 +96,33 @@ void main() {
   tearDown(() {
     bridge.close();
     h.dispose();
+  });
+
+  test(
+      'App-owned current publication is distinct from historical Bridge pin floor',
+      () {
+    pin(BigInt.one);
+    loadPublic(2);
+    final original = trusted();
+    final packet = WindowsDevelopmentBootstrap(
+        pairingUi: false,
+        expiresAtUtcMs: 1,
+        issuerDer: original.trustedAnchorDer,
+        installationId: original.installationId,
+        serverLeafDigest: original.serverLeafDigest,
+        epoch: BigInt.two);
+    final result = reader
+        .readAndAdvanceExistingPin(developmentDiscoveryExpectations(packet));
+    packet.requireCurrentPublication(result.publicationEpoch);
+    expect(result.publicationEpoch, BigInt.two);
+    expect(
+        (bridgeStore.read(4)! as ExternalBridgeClient)
+            .pinnedDiscoveryEpochHighWater,
+        BigInt.two);
+    expect(
+        () => packet.requireCurrentPublication(BigInt.one), throwsStateError);
+    expect(() => packet.requireCurrentPublication(BigInt.from(3)),
+        throwsStateError);
   });
 
   test(

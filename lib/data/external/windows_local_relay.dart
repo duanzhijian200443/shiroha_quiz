@@ -104,6 +104,14 @@ final class WindowsLocalRelay {
   Future<void> get disconnected => _lost.future;
   bool get isCurrent => !_closed && _accepted;
 
+  /// Original independently launched App, including while awaiting a peer.
+  /// This is provenance/liveness only, never credential or business admission.
+  bool get appLaunchCurrent {
+    if (!_server || _closed) return false;
+    final state = _native.state(_id);
+    return state == 0 || state == 1;
+  }
+
   void _observe() {
     _accepted = true;
     _monitor = Timer.periodic(const Duration(milliseconds: 20), (_) {
@@ -257,6 +265,38 @@ final class WindowsLocalRelay {
       }
       _native.dispose();
     }();
+  }
+}
+
+/// Retains the original App parent and desktop Explorer/image handles. It has
+/// no pipe, protected-store, credential or TLS operation. Each child can acquire
+/// this guard only once, before reading its private startup preface.
+final class WindowsAppParentGuard {
+  WindowsAppParentGuard._(this._native, this._id);
+  factory WindowsAppParentGuard.open({required bool pairingUi}) {
+    final native = _RelayNative();
+    try {
+      final status = native.open(pairingUi ? 3 : 2, native.id);
+      if (status != 0 || native.id.value == 0) {
+        throw const LocalRelayException();
+      }
+      return WindowsAppParentGuard._(native, native.id.value);
+    } catch (_) {
+      native.dispose();
+      rethrow;
+    }
+  }
+  final _RelayNative _native;
+  final int _id;
+  bool _closed = false;
+  bool get isCurrent => !_closed && _native.state(_id) == 0;
+  void close() {
+    if (_closed) return;
+    _closed = true;
+    if (_native.close(_id) != 0) {
+      throw const LocalRelayException(unsettled: true);
+    }
+    _native.dispose();
   }
 }
 

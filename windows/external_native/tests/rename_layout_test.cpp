@@ -1,5 +1,6 @@
 #include "../association_rename.h"
 #include "../credential_rename.h"
+#include "../discovery_rename.h"
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
@@ -41,21 +42,49 @@ NTSTATUS NTAPI fake_set(HANDLE file, PIO_STATUS_BLOCK io, PVOID buffer, ULONG le
   return scenario == 1 ? static_cast<NTSTATUS>(0xC0000022u) : scenario == 3 ? 0x103 : scenario == 6 ? 1 : 0;
 }
 uint32_t expected_kind = 0;
-BOOL WINAPI fake_credential_set(HANDLE file, FILE_INFO_BY_HANDLE_CLASS information_class, LPVOID buffer, DWORD length) {
+NTSTATUS completion(PIO_STATUS_BLOCK io) {
+  const NTSTATUS denied = static_cast<NTSTATUS>(0xC0000022u);
+  if (scenario != 5) {
+    io->Status = scenario == 2 || scenario == 8 ? denied :
+        scenario == 4 || scenario == 9 ? 0x103 : scenario == 7 ? 1 : 0;
+  }
+  return scenario == 1 || scenario == 8 ? denied :
+      scenario == 3 || scenario == 9 ? 0x103 : scenario == 6 ? 1 : 0;
+}
+NTSTATUS NTAPI fake_credential_set(HANDLE file, PIO_STATUS_BLOCK io, PVOID buffer, ULONG length,
+                                  FILE_INFORMATION_CLASS information_class) {
   ++calls;
   require(file == reinterpret_cast<HANDLE>(uintptr_t{41}));
-  require(information_class == FileRenameInfo);
-  require(length == 48 && length >= sizeof(FILE_RENAME_INFO) + 20);
+  require(static_cast<int>(information_class) == 10);
+  require(length == 48 && length >= 24u + 20u);
   require(reinterpret_cast<uintptr_t>(buffer) % 8 == 0);
+  require(reinterpret_cast<uintptr_t>(io) % alignof(IO_STATUS_BLOCK) == 0);
   const auto& info = *static_cast<CredentialRenameInformation*>(buffer);
   require(info.RootDirectory == reinterpret_cast<HANDLE>(uintptr_t{42}));
   require((info.ReplaceIfExists != FALSE) == expected_existing);
   require(info.FileNameLength == 20 && info.FileName[10] == 0);
   const auto* name = expected_kind == 1 ? L"issuer.bin" : expected_kind == 2 ? L"server.bin" : L"client.bin";
   require(std::memcmp(info.FileName, name, 22) == 0);
-  return scenario == 0 ? TRUE : FALSE;
+  return completion(io);
 }
-
+NTSTATUS NTAPI fake_discovery_set(HANDLE file, PIO_STATUS_BLOCK io, PVOID buffer, ULONG length,
+                                 FILE_INFORMATION_CLASS information_class) {
+  ++calls;
+  require(file == reinterpret_cast<HANDLE>(uintptr_t{41}));
+  require(static_cast<int>(information_class) == 10);
+  require(reinterpret_cast<uintptr_t>(buffer) % 8 == 0);
+  require(reinterpret_cast<uintptr_t>(io) % alignof(IO_STATUS_BLOCK) == 0);
+  const auto& info = *static_cast<AssociationRenameBase*>(buffer);
+  const auto* name = expected_kind == 1 ? L"endpoint.bin" :
+      expected_kind == 2 ? L"anchor.der" : L"installation.id";
+  const auto name_bytes = expected_kind == 1 ? 24u : expected_kind == 2 ? 20u : 30u;
+  require(info.RootDirectory == reinterpret_cast<HANDLE>(uintptr_t{42}));
+  require((info.ReplaceIfExists != FALSE) == expected_existing);
+  require(info.FileNameLength == name_bytes);
+  require(length == 56 && length >= 24u + name_bytes);
+  require(std::memcmp(info.FileName, name, name_bytes + 2) == 0);
+  return completion(io);
+}
 }
 int main() {
   require(sizeof(AssociationRenameBase) == 24 && sizeof(AssociationRenameInformation) == 56);
@@ -68,7 +97,7 @@ int main() {
     expected_kind = kind;
     for (const bool existing : {false, true}) {
       expected_existing = existing;
-      for (scenario = 0; scenario < 2; ++scenario) {
+      for (scenario = 0; scenario < 10; ++scenario) {
         const auto count_before = calls;
         require(rename_credential(fake_credential_set, file, parent, kind, existing) ==
             (scenario == 0 ? SHIROHA_NATIVE_OK : SHIROHA_NATIVE_COMMIT_UNKNOWN));
@@ -79,7 +108,34 @@ int main() {
   const auto credential_calls = calls;
   require(rename_credential(fake_credential_set, file, parent, 3, false) == SHIROHA_NATIVE_INVALID_INPUT);
   require(rename_credential(nullptr, file, parent, 1, false) == SHIROHA_NATIVE_COMMIT_UNKNOWN);
+  require(rename_credential(fake_credential_set, nullptr, parent, 1, false) == SHIROHA_NATIVE_COMMIT_UNKNOWN);
+  require(rename_credential(fake_credential_set, file, nullptr, 1, false) == SHIROHA_NATIVE_COMMIT_UNKNOWN);
+  require(rename_credential(fake_credential_set, INVALID_HANDLE_VALUE, parent, 1, false) == SHIROHA_NATIVE_COMMIT_UNKNOWN);
+  require(rename_credential(fake_credential_set, file, INVALID_HANDLE_VALUE, 1, false) == SHIROHA_NATIVE_COMMIT_UNKNOWN);
   require(calls == credential_calls);
+  for (const uint32_t kind : {1u, 2u, 3u}) {
+    expected_kind = kind;
+    for (const bool existing : {false, true}) {
+      expected_existing = existing;
+      for (scenario = 0; scenario < 10; ++scenario) {
+        const auto count_before = calls;
+        const bool invalid = existing && kind != 1;
+        require(rename_discovery(fake_discovery_set, file, parent, kind, existing) ==
+            (invalid ? SHIROHA_NATIVE_INVALID_INPUT :
+             scenario == 0 ? SHIROHA_NATIVE_OK : SHIROHA_NATIVE_COMMIT_UNKNOWN));
+        require(calls == count_before + (invalid ? 0 : 1));
+      }
+    }
+  }
+  const auto discovery_calls = calls;
+  require(rename_discovery(fake_discovery_set, file, parent, 0, false) == SHIROHA_NATIVE_INVALID_INPUT);
+  require(rename_discovery(fake_discovery_set, file, parent, 4, false) == SHIROHA_NATIVE_INVALID_INPUT);
+  require(rename_discovery(nullptr, file, parent, 1, false) == SHIROHA_NATIVE_COMMIT_UNKNOWN);
+  require(rename_discovery(fake_discovery_set, nullptr, parent, 1, false) == SHIROHA_NATIVE_COMMIT_UNKNOWN);
+  require(rename_discovery(fake_discovery_set, file, nullptr, 1, false) == SHIROHA_NATIVE_COMMIT_UNKNOWN);
+  require(rename_discovery(fake_discovery_set, INVALID_HANDLE_VALUE, parent, 1, false) == SHIROHA_NATIVE_COMMIT_UNKNOWN);
+  require(rename_discovery(fake_discovery_set, file, INVALID_HANDLE_VALUE, 1, false) == SHIROHA_NATIVE_COMMIT_UNKNOWN);
+  require(calls == discovery_calls);
   scenario = 0; expected_existing = false;
   AssociationRenameInformation info{};
   info.RootDirectory = parent; info.FileNameLength = 32;

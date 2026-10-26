@@ -302,12 +302,26 @@ void main() {
             'file_share != MAXDWORD ? file_share : (exclusive ? 0 : FILE_SHARE_READ | FILE_SHARE_WRITE)'));
     expect(source, contains('GetProcAddress(module, "NtSetInformationFile")'));
     expect(source, contains('rename_association('));
-    expect(source, contains('rename_credential(SetFileInformationByHandle'));
+    expect(source, contains('rename_credential(rename_function()'));
+    expect(source, contains('rename_discovery(rename_function()'));
     final credential =
         File('windows/external_native/credential_rename.h').readAsStringSync();
     expect(credential, contains('info.RootDirectory = directory'));
-    expect(credential, contains('FileRenameInfo, &info, length'));
-    expect(credential, isNot(contains('NtSetInformationFile')));
+    final discovery =
+        File('windows/external_native/discovery_rename.h').readAsStringSync();
+    for (final fixed in [credential, discovery]) {
+      expect(fixed, contains('SetInformationFile'));
+      expect(fixed, contains('static_cast<FILE_INFORMATION_CLASS>(10)'));
+      expect(fixed, contains('io.Status = static_cast<NTSTATUS>(0xC0000001u)'));
+      expect(fixed, contains('status == 0 && io.Status == 0'));
+      expect(fixed, isNot(contains('SetFileInformationByHandle')));
+      expect(fixed, isNot(contains('MoveFileEx')));
+      expect(fixed, isNot(contains('GetCurrentDirectory')));
+      expect(fixed, isNot(contains('GetLastError')));
+    }
+    expect(discovery, contains('info.parent = parent'));
+    expect(discovery, contains('!parent || parent == INVALID_HANDLE_VALUE'));
+    expect(discovery, contains('(kind != 1 && replace)'));
     for (final name in ['issuer.bin', 'server.bin', 'client.bin']) {
       expect(credential, contains(name));
     }

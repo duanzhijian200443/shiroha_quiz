@@ -5,7 +5,7 @@ import '../../application/external/local_authorization_service.dart';
 import '../dependencies/first_party_external_scope.dart';
 import 'first_party_external_control.dart';
 
-const externalPolicyNotice = '当前仅配置访问规则。外部客户端尚未配对，真实连接功能未启用。';
+const externalPolicyNotice = '此处配置访问规则。保存规则不会完成配对或启用业务访问。';
 
 final class ExternalAuthorizationScreen extends StatefulWidget {
   const ExternalAuthorizationScreen({super.key, required this.service});
@@ -205,7 +205,7 @@ final class _ExternalAuthorizationScreenState
         final text = switch (operation) {
           'save' =>
             '将明确替换当前策略：Revision $revision，${permissions.map((p) => p.name.toUpperCase()).join(' / ')}，${targets.length} 个精确目标，Egress：${categories.map((c) => c.name).join(' / ')}。空 Scope 无可访问目标。保存不代表已配对或已启用。',
-          'grant' => '撤销当前访问规则。客户端仍未配对、未启用。',
+          'grant' => '撤销当前访问规则。此操作不修改已保存的配对凭据。',
           _ => '永久撤销此 Profile，之后不能重新授权或激活。',
         };
         if (!await _confirm(title, text) ||
@@ -279,7 +279,7 @@ final class _ExternalAuthorizationScreenState
             key: ValueKey(profile.clientProfileId),
             title: Text(profile.displayName),
             subtitle: Text(
-                '${profile.adapter} / ${profile.protocol}\nRevision ${profile.grantRevision} · ${profile.revokedAtUtcMs == null ? '未配对 / 未启用' : 'Profile 已撤销'}'),
+                '${profile.adapter} / ${profile.protocol}\nRevision ${profile.grantRevision} · ${profile.revokedAtUtcMs == null ? 'Profile 未撤销' : 'Profile 已撤销'}'),
             selected: _selected?.profileId == profile.clientProfileId,
             onTap: _busy || !_current
                 ? null
@@ -316,7 +316,7 @@ final class _ExternalAuthorizationScreenState
                   ? '无 Grant'
                   : record.grant!.revokedAtUtcMs != null
                       ? 'Grant 已撤销'
-                      : '已保存访问规则；未配对 / 未启用'),
+                      : '已保存访问规则'),
           const Text('Permission（不包含正式提交或删除权限）'),
           for (final permission in [
             CapabilityPermission.read,
