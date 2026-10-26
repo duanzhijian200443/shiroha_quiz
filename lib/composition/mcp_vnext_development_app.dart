@@ -16,6 +16,7 @@ import '../data/external/windows_development_bootstrap.dart';
 import '../services/backup/sha256.dart';
 import 'mcp_vnext_app_integration.dart';
 import 'mcp_vnext_app_owned_relay.dart';
+import 'mcp_vnext_development_lifetime.dart';
 import 'mcp_vnext_windows_acquisition.dart';
 import 'mcp_vnext_windows_startup.dart';
 
@@ -285,20 +286,14 @@ final class McpVnextDevelopmentApp implements FirstPartyDevelopmentAccess {
           relay.businessBootstrap = () => _packet(pairingUi: false);
           relay.onDisconnected = integration.controls.disconnectTransport;
           _phase = FirstPartyDevelopmentPhase.active;
-          _monitor = Timer.periodic(const Duration(milliseconds: 100), (_) {
-            if (!_current) {
-              final cause = _expiry != null &&
-                      (!DateTime.now().toUtc().isBefore(_expiry!) ||
-                          _elapsed.elapsed >=
-                              WindowsDevelopmentBootstrap.lifetime)
-                  ? FirstPartyDevelopmentStopCause.expired
-                  : !relay.launchCurrent
-                      ? FirstPartyDevelopmentStopCause.relayLost
-                      : FirstPartyDevelopmentStopCause.appInvalidated;
-              unawaited(stopFor(cause)
-                  .then((_) {}, onError: (Object _, StackTrace __) {}));
-            }
-          });
+          _monitor = monitorWindowsDevelopmentLifetime(
+              isCurrent: () => _current,
+              isExpired: () =>
+                  _expiry != null &&
+                  (!DateTime.now().toUtc().isBefore(_expiry!) ||
+                      _elapsed.elapsed >= WindowsDevelopmentBootstrap.lifetime),
+              launchIsCurrent: () => relay.launchCurrent,
+              stop: stopFor);
         } catch (_) {
           _phase = FirstPartyDevelopmentPhase.failed;
           await candidate.close();

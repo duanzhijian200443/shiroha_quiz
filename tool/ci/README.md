@@ -28,6 +28,13 @@ followed by a successful one, proving the exit-only failure latch. The explicit
 and desktop Shell to exercise actual peer disconnect/re-arm and MCP failure
 settlement with original process handles. It is a separately invoked Windows
 runtime check, not part of the compile-only native CI unit or production admission.
+Its pending-peer cases hold an original request/child settlement across the
+production development monitor after graceful adapter exit, then check clean
+re-arm or failed-close refusal. Standing `windows_app_transport_test` coverage
+uses that same monitor with the original offline Host/P0 to retain Enable/target
+withdrawal, fresh authentication after a separate Enable, and terminal original
+drain on launch loss, expiry or App invalidation. The native launch observation
+is separate from per-connection peer state; neither check grants business access.
 The TLS/Bootstrap source guards admit only the exact App-owned development
 roots in MCP section 17.12: `mcp_vnext_development_app.dart`,
 `mcp_vnext_development_bridge.dart` and `mcp_vnext_development_pairing.dart`,

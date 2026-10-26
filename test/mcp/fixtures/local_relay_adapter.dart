@@ -40,6 +40,19 @@ Future<void> main(List<String> args) async {
     } else {
       raw = _RetainedPeer(root);
       raw.send(request);
+      if (label == 'old' && scenario.startsWith('pending-peer')) {
+        report('requestSent');
+        final watch = Stopwatch()..start();
+        while (!File(p.join(root, 'disconnect-old')).existsSync() &&
+            watch.elapsed < const Duration(seconds: 20)) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+        if (!File(p.join(root, 'disconnect-old')).existsSync()) {
+          throw StateError('Peer disconnect was not requested');
+        }
+        report('peerClosing');
+        return; // finally closes this original peer; no forced termination.
+      }
       try {
         final response = await raw.receive();
         if ((response['result'] as Map)['error'] != 'unavailable') {
@@ -107,6 +120,13 @@ final class _RetainedPeer {
     if (open(1, _id) != 0) {
       close();
       throw const LocalRelayException();
+    }
+    final appLaunchState =
+        dll.lookupFunction<Int32 Function(Uint64), int Function(int)>(
+            'shiroha_relay_app_launch_state');
+    if (appLaunchState(_id.value) == 0) {
+      close();
+      throw StateError('Adapter cannot claim App launch custody');
     }
   }
   late final void Function(Pointer<Uint8>) _free;

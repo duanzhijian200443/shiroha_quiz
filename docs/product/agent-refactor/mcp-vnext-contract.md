@@ -1902,6 +1902,13 @@ the unchanged Shell/peer checks, original process handles and the production
 Bridge stream owner. It covers idle/malformed server disconnect with the old
 raw client handle retained, monitored client loss, MCP inventory/call failures,
 fresh peers after clean settlement and blocked re-arm after a nonzero child exit.
+The pending-peer cases retain an outstanding original client call and child
+settlement across three production development-monitor intervals after the outer
+adapter closes normally. They require the original launch observation to remain
+current, then either a freshly authenticated peer after clean settlement or
+terminal refusal after failed settlement. The portable companion uses the
+original Host/P0 controls to check immediate Enable/approval withdrawal, fresh
+Enable and authentication, and terminal launch-loss/expiry/App-invalidation drain.
 Its synthetic Bridge supplies refusal/protocol faults only; it loads no protected
 helper, normal App data, credential or provider and proves no Codex model turn.
 The test may shorten the idle deadline; normal registration retains ten minutes.
@@ -2077,6 +2084,15 @@ per-tool TLS closure does not disable the whole Profile. Outer adapter loss
 synchronously withdraws Enable and pending STAGE/target approval and joins its
 original work; a new adapter requires fresh explicit Enable. Exact request
 Session/entry/revision/target binding and local Review/COMMIT are unchanged.
+The App launch-liveness query observes only the original server instance and
+retained Explorer provenance, independently of the old adapter's process or pipe
+state. It remains current during a clean connection drain, including an
+outstanding call spanning the development monitor interval. Missing/closed
+server custody, actual parent loss and native/relay failed cleanup still refuse;
+the ordinary connection state and every read/write retain their original peer
+checks. The same deployment Host survives clean outer-peer settlement. The
+hundred-millisecond monitor still makes actual launch loss, deployment expiry
+and App invalidation terminal through the original shutdown barrier.
 
 **Existing credential confirmation after App reopen.** Readiness §9.C.8 and
 external boundary §12 define the separately approved first-party confirmation

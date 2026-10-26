@@ -17,6 +17,7 @@ import 'windows_startup_cases.dart';
 import 'offline_codex_responses_cases.dart';
 import 'windows_development_bootstrap_cases.dart';
 import 'existing_credential_confirmation_cases.dart';
+import 'development_relay_lifetime_cases.dart';
 
 final class _Disk implements BackupDiskSpaceProbe {
   @override
@@ -25,6 +26,7 @@ final class _Disk implements BackupDiskSpaceProbe {
 
 void windowsAppTransportCases() {
   windowsDevelopmentBootstrapCases();
+  developmentRelayLifetimeCases();
   existingCredentialConfirmationCases();
   offlineCodexResponsesCases();
   windowsStartupCases();

@@ -108,8 +108,7 @@ final class WindowsLocalRelay {
   /// This is provenance/liveness only, never credential or business admission.
   bool get appLaunchCurrent {
     if (!_server || _closed) return false;
-    final state = _native.state(_id);
-    return state == 0 || state == 1;
+    return _native.appLaunchState(_id) == 0;
   }
 
   void _observe() {
@@ -322,6 +321,9 @@ final class _RelayNative {
               'shiroha_relay_accept');
       state = library.lookupFunction<Int32 Function(Uint64), int Function(int)>(
           'shiroha_relay_state');
+      appLaunchState =
+          library.lookupFunction<Int32 Function(Uint64), int Function(int)>(
+              'shiroha_relay_app_launch_state');
       close = library.lookupFunction<Int32 Function(Uint64), int Function(int)>(
           'shiroha_relay_close');
       disconnect =
@@ -351,7 +353,7 @@ final class _RelayNative {
   late final void Function(Pointer<Uint8>) _free;
   late final int Function() _healthy;
   late final int Function(int, Pointer<Uint64>) open;
-  late final int Function(int) accept, state, close, disconnect;
+  late final int Function(int) accept, state, appLaunchState, close, disconnect;
   late final int Function(int, Pointer<Uint8>, int, Pointer<Uint32>) read,
       write;
   late final Pointer<Uint8> buffer, writeBuffer;

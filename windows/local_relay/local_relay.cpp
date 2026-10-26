@@ -386,6 +386,14 @@ API int shiroha_relay_state(uint64_t id) {
   return PeekNamedPipe(p->pipe.value, nullptr, 0, nullptr, nullptr, nullptr)
       ? ok : disconnected;
 }
+API int shiroha_relay_app_launch_state(uint64_t id) {
+  std::lock_guard<std::mutex> guard(mutex);
+  const auto* p = get(id);
+  // Retained App/Explorer provenance is independent of an old adapter's pipe.
+  // Failed native cleanup remains terminal even while the parent is alive.
+  return p && p->server && !p->guard_only && !p->failed && !cleanup_failed &&
+      p->pipe.valid() && p->launch_current() ? ok : disconnected;
+}
 API int shiroha_relay_close(uint64_t id) {
   std::lock_guard<std::mutex> guard(mutex);
   auto* p = get(id);
