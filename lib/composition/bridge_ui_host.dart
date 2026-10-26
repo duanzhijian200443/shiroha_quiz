@@ -7,6 +7,7 @@ import 'package:flutter/widgets.dart';
 import 'package:path/path.dart' as p;
 
 import '../application/external/first_party_external_credentials.dart';
+import '../application/external/first_party_development_access.dart';
 import '../data/external/windows_pairing.dart';
 import '../ui/pages/bridge_host_surface.dart';
 
@@ -21,6 +22,7 @@ final class BridgeUiHostDependencies {
     required this.instanceRoot,
     required this.closeResources,
     this.title = 'Shiroha Bridge',
+    this.onObservation,
   });
 
   final WindowsBridgePairing pairing;
@@ -29,6 +31,10 @@ final class BridgeUiHostDependencies {
   final String instanceRoot;
   final Future<void> Function() closeResources;
   final String title;
+
+  /// Local composition callback only. It receives no import/comparison bytes;
+  /// its exception can never change the original port result or close barrier.
+  final void Function(FirstPartyPairingStage, Object?, bool)? onObservation;
 }
 
 /// One Bridge window over the original Enrollment controller.
@@ -41,7 +47,7 @@ final class BridgeUiHostDependencies {
 /// second host can adopt an unsettled owner.
 final class BridgeUiHost {
   BridgeUiHost._(this._dependencies, this._lock, this._port) {
-    _surfacePort = _HostedPairingPort(_port, close);
+    _surfacePort = _HostedPairingPort(_port, close, _observe);
   }
 
   static const lockFileName = 'bridge-ui-host.lock';
@@ -51,13 +57,19 @@ final class BridgeUiHost {
   final BridgeUiHostDependencies _dependencies;
   final RandomAccessFile _lock;
   final WindowsBridgePublicPairing _port;
-  late final FirstPartyBridgePairingPort _surfacePort;
+  late final _HostedPairingPort _surfacePort;
   Future<void>? _closing;
   bool _closed = false;
 
   /// Read-only view; the UI never receives host or resource authority.
   FirstPartyBridgePairingPort get port => _surfacePort;
   bool get isClosed => _closed;
+
+  void _observe(FirstPartyPairingStage stage, Object? failure, bool cleanup) {
+    try {
+      _dependencies.onObservation?.call(stage, failure, cleanup);
+    } catch (_) {/* Observation only. */}
+  }
 
   static Future<BridgeUiHost> open(
       BridgeUiHostDependencies dependencies) async {
@@ -101,7 +113,7 @@ final class BridgeUiHost {
   /// This transfers no credential, Session, approval or live Owner. A cancelled
   /// enrollment is not a successful handoff; failed close remains latched.
   Future<void> closeForBusiness() {
-    if (!_port.display().pinSaved) {
+    if (!_surfacePort.display().pinSaved) {
       throw StateError('Bridge UI handoff unavailable');
     }
     return close();
@@ -112,9 +124,21 @@ final class BridgeUiHost {
     // A failed/unknown P27 drain must retain the caller's Store/Owner too.
     // Sequential awaits preserve the original failure in _closing, with no
     // resource callback, lock release or retry after a failed port close.
-    await _port.close();
-    await _dependencies.closeResources();
-    await _release();
+    _observe(FirstPartyPairingStage.closing, null, false);
+    try {
+      await _port.close();
+      await _dependencies.closeResources();
+      await _release();
+      _observe(
+          _surfacePort.pinObserved
+              ? FirstPartyPairingStage.closed
+              : FirstPartyPairingStage.closedWithoutPinObservation,
+          null,
+          false);
+    } catch (error) {
+      _observe(FirstPartyPairingStage.closing, error, true);
+      rethrow;
+    }
   }
 
   Future<void> _release() async {
@@ -130,35 +154,72 @@ final class BridgeUiHost {
 /// Keeps the existing controller as the only pairing authority while routing
 /// every surface close (including cancellation) through the owning host drain.
 final class _HostedPairingPort implements FirstPartyBridgePairingPort {
-  _HostedPairingPort(this._delegate, this._closeHost);
+  _HostedPairingPort(this._delegate, this._closeHost, this._observe);
 
   final WindowsBridgePublicPairing _delegate;
   final Future<void> Function() _closeHost;
+  final void Function(FirstPartyPairingStage, Object?, bool) _observe;
+  bool pinObserved = false;
+  T _sync<T>(FirstPartyPairingStage stage, T Function() action) {
+    _observe(stage, null, false);
+    try {
+      return action();
+    } catch (error) {
+      _observe(stage, error, false);
+      rethrow;
+    }
+  }
+
+  Future<void> _async(
+      FirstPartyPairingStage stage, Future<void> Function() action) async {
+    _observe(stage, null, false);
+    try {
+      await action();
+    } catch (error) {
+      _observe(stage, error, false);
+      rethrow;
+    }
+  }
 
   @override
-  FirstPartyBridgePairingDisplay display() => _delegate.display();
+  FirstPartyBridgePairingDisplay display() =>
+      _sync(FirstPartyPairingStage.display, () {
+        final value = _delegate.display();
+        pinObserved = pinObserved || value.pinSaved;
+        if (value.closed && !value.pinSaved) {
+          _observe(
+              FirstPartyPairingStage.closedWithoutPinObservation, null, false);
+        }
+        return value;
+      });
 
   @override
   void beginEnrollment(
           {required String displayLabel, required String clientBuild}) =>
-      _delegate.beginEnrollment(
-          displayLabel: displayLabel, clientBuild: clientBuild);
+      _sync(
+          FirstPartyPairingStage.beginEnrollment,
+          () => _delegate.beginEnrollment(
+              displayLabel: displayLabel, clientBuild: clientBuild));
 
   @override
-  Future<void> importTrust(String publicData) =>
-      _delegate.importTrust(publicData);
+  Future<void> importTrust(String publicData) => _async(
+      FirstPartyPairingStage.importTrust,
+      () => _delegate.importTrust(publicData));
 
   @override
-  void confirmInitial(String comparedDigest) =>
-      _delegate.confirmInitial(comparedDigest);
+  void confirmInitial(String comparedDigest) => _sync(
+      FirstPartyPairingStage.confirmInitial,
+      () => _delegate.confirmInitial(comparedDigest));
 
   @override
-  Future<void> importCompletion(String publicData) =>
-      _delegate.importCompletion(publicData);
+  Future<void> importCompletion(String publicData) => _async(
+      FirstPartyPairingStage.importCompletion,
+      () => _delegate.importCompletion(publicData));
 
   @override
-  void confirmCompletion(String comparedDigest, int comparedRevision) =>
-      _delegate.confirmCompletion(comparedDigest, comparedRevision);
+  void confirmCompletion(String comparedDigest, int comparedRevision) => _sync(
+      FirstPartyPairingStage.confirmCompletion,
+      () => _delegate.confirmCompletion(comparedDigest, comparedRevision));
 
   @override
   Future<void> close() => _closeHost();

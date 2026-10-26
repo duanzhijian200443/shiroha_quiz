@@ -37,6 +37,7 @@ foreach ($name in $files) {
 $startupPath = 'lib/composition/mcp_vnext_windows_startup.dart'
 $acquisitionPath = 'lib/composition/mcp_vnext_windows_acquisition.dart'
 $bootstrapPath = 'lib/composition/mcp_vnext_windows_bootstrap.dart'
+$developmentBridgePath = 'lib/composition/mcp_vnext_development_bridge.dart'
 # The one admitted P22 reference is the immutable DiscoveryExpectations trust
 # input type; no codec class, operation, second codec file or P24 store is.
 $bootstrapCodecImport = "import '../data/external/discovery_descriptor_codec.dart';"
@@ -52,7 +53,7 @@ function Assert-P22Consumer([string]$Path, [string]$Code) {
         if ($name -eq 'windows_exchange_file_store.dart') { return }
         if ($name -in @('windows_discovery.dart', 'windows_credential_initialization.dart', 'windows_pairing.dart', 'windows_tls_transport.dart', 'windows_tls_credentials.dart', 'windows_tls_channel.dart')) { return }
     }
-    if ($Path -eq $bootstrapPath) {
+    if ($Path -in @($bootstrapPath, $developmentBridgePath)) {
         # Trusted Bootstrap: strip exactly one type-only import, then apply the
         # same P22 prohibition as every other production consumer.
         if (([regex]::Matches($Code, [regex]::Escape($bootstrapCodecImport))).Count -gt 1) {
@@ -72,6 +73,7 @@ function Assert-P22Consumer([string]$Path, [string]$Code) {
 # startup/acquisition roots are separately checked by check_tls_source.ps1.
 function Assert-P24Consumer([string]$Path, [string]$Code) {
     if ($Path -in @($startupPath, $acquisitionPath,
+        'lib/composition/mcp_vnext_development_pairing.dart',
         'lib/data/external/windows_exchange_file_store.dart',
         'lib/data/external/windows_pairing.dart')) { return }
     if ($Code -match 'windows_exchange_file_store|WindowsExchangeFileStore') {
@@ -115,7 +117,7 @@ foreach ($token in @('dart:io', 'dart:ffi', 'PairingProof(', 'AuthenticatedPeerE
     if ($exchange.Contains($token)) { throw 'P24 file adapter escaped its bounded responsibility' }
 }
 foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.dart' -File -Recurse) {
-    if ($file.FullName -in @((Join-Path $root 'lib/composition/mcp_vnext_windows_startup.dart'), (Join-Path $root 'lib/composition/mcp_vnext_windows_acquisition.dart'), (Join-Path $root 'lib/composition/mcp_vnext_windows_bootstrap.dart'))) { continue }
+    if ($file.FullName -in @((Join-Path $root 'lib/composition/mcp_vnext_windows_startup.dart'), (Join-Path $root 'lib/composition/mcp_vnext_windows_acquisition.dart'), (Join-Path $root 'lib/composition/mcp_vnext_windows_bootstrap.dart'), (Join-Path $root 'lib/composition/mcp_vnext_development_pairing.dart'))) { continue }
     if ($file.FullName -eq [IO.Path]::GetFullPath((Join-Path $root 'lib/data/external/windows_exchange_file_store.dart'))) { continue }
     if ($file.FullName -eq [IO.Path]::GetFullPath((Join-Path $root 'lib/data/external/windows_pairing.dart'))) { continue }
     if ([IO.File]::ReadAllText($file.FullName) -match 'windows_exchange_file_store|WindowsExchangeFileStore') {

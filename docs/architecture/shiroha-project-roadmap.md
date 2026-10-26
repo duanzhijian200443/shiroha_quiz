@@ -153,9 +153,10 @@ Do not replace this usage check with direct RPC, scripted Responses or another
 model service. Working read-only access is a separate deliverable, not vNext
 acceptance. Existing v0 functionality needs no duplicate implementation.
 
-For vNext, focus on the observed official-client forced termination/competing
-Discovery, the missing admitted normal App/Bridge composition, and the original
-STAGE confirmation plus first-party Proposal Review flow. A change to client
+For vNext, the original focus was official-client forced termination/competing
+Discovery and missing normal App/Bridge composition. The separately authorized
+App-owned development path now connects that composition to original STAGE
+confirmation and first-party Proposal Review. A change to client
 support, process custody/recovery or transport requires a specific proposal and
 separate authorization; do not bypass selection or promote the isolated patch.
 Autonomous model usage is acceptance of the normal integration, not a new
@@ -163,7 +164,43 @@ independent model-test project. Independent patched-client login, additional
 model APIs and further layers of Fake validation are not the current mainline.
 
 HOST_STABILITY_HALT remains ACTIVE, TRANSPORT BLOCKED and AR-R6A NOT_ACCEPTED.
-Real protected operations and production activation receive no new authority.
+The scheduling amendment alone grants no protected-operation or production
+activation authority. The separate explicit 2026-10-26 development grant is
+bounded by MCP §17.12 and Windows readiness §§6/8/9.F: the normal Debug App,
+fixed-adjacent original children, one fixed loopback Host and a selected
+development test bank. It includes independently confirmed initial P25/P27
+setup and, under readiness §9.C.8/external boundary §12, fresh first-party
+confirmation of an existing credential for a new runtime. That confirmation
+uses the original Host/P15/P0, writes no new credential/association and restores
+no old Session or approval; finite Enable and fresh authentication follow.
+Only the existing P26 high-water update is retained by that confirmation. A
+separate explicit grant under readiness §9.C.8 admits original Host/P15
+revoke-first recovery of a selected association left before initial Bridge Pin
+save, followed by full close, normal App reopen and new P27 manual pairing.
+It preserves the original tombstone/CAS rules and does not restore a lost key.
+The first-party public handoff distinguishes Trust/Completion copying and reports
+its result; shutdown retains original barriers through Windows window teardown.
+Current-step guidance, explicit public copy/paste shortcuts and side-by-side
+pairing windows reduce manual handoff work while keeping both confirmations.
+Business-stage failure diagnostics remain observations, separate from original
+process settlement and actual normal-client acceptance.
+The bounded Native peer-policy repair corrects crypt32 signature-order and
+OID-pointer handling, with a separately authorized eight-call public-vector
+comparison under readiness section 6. This does not reopen a G0 experiment batch
+or change certificate acceptance, credential persistence or business authority.
+No other credential recovery/rotation, security experiment, destructive Restore
+or formal activation is added.
+The bounded Question pagination repair preserves each reference's authorization
+and merges only identical full selection keys before the original final Data
+release. It changes neither READ limits nor persistence, credentials or Review.
+Source/offline completion, real normal-Codex business closure and formal security
+acceptance must be reported separately; only actual model tools and explicit
+local STAGE/Review decisions can establish the second result.
+That bounded normal-instance workflow has exercised actual existing-question
+READ, independent STAGE rejection/approval, pending persistence over normal App
+reopen, local Review/COMMIT and original-key committed reconciliation. Exact
+execution facts remain in the task/PR evidence. This does not complete the wider
+Windows/client/security acceptance route retained below.
 Pairing/authentication, finite enablement, exact-Session STAGE confirmation,
 App-only Review/COMMIT and original SubmissionKey recovery remain mandatory.
 #327 stays outside this work with its existing failure and repair budget.
@@ -248,10 +285,10 @@ acceptance is preserved without manufacturing missing older approval markers.
 | Complete seven-tool business surface including lifecycle query | Implemented with bounded source/protocol evidence in #309/#311; no business rewrite needed. |
 | Real-client isolated E2E | Installed-Codex synthetic workflows have executed evidence in #312-#314 and #315's independent Windows verification. |
 | STAGE/persistence/local Review/idempotency/disconnect-restart recovery | Covered through the same App owners in #309/#311/#313 and subsequent regressions. |
-| Windows launch/connection/disconnection/errors and App controls | Installed-client fixture accepted in #312-#314; #315 supplies dormant controls. This smoke adds desktop display/refusal and user-attested restart/bank behavior; authenticated production App/Bridge use remains unproved. |
-| Ordinary Windows subprocess lifecycle | MCP §17.1 records an actual 12/12 Executor Windows PASS over temporary Dart children, with EOF/exit/raw streams, creation cancellation, repeated close and Fake Owner/App database-barrier settlement. Fake Process PASS remains separate; formal Bridge AOT/Loader and real credential/TLS/production cross-process runtime remain UNVERIFIED. |
-| Remaining blockers are exclusively production admission/security | **Not satisfied.** MCP §§10–16 and external boundary §8 supply inactive pairing/handoff, a bounded P9 client, v3 App-owned READ/File/original-key binding, explicit source-only same-Session first-party STAGE waiting (default off) and inactive App/Bridge process-boundary functional composition (`McpVnextWindowsTransport` / `McpVnextWindowsBridge`) with a dormant trusted startup/credential handoff root and process custody interfaces (MCP section 16). Actual protected credential acquisition, real OS process bootstrap/transfer, admitted runtime wiring and Draft #327's short-deadline cancellation compatibility remain product/compatibility blockers alongside formal admission. |
-| Separate reference-client scope | MCP §17.11 proves isolated Codex turn orchestration with scripted offline Responses output. Autonomous model choice and Desktop interaction remain unverified; MCP §5/AR-R9 reference-package distribution and supported-version acceptance remain unfinished. |
+| Windows launch/connection/disconnection/errors and App controls | Installed-client fixture accepted in #312-#314; #315 supplies the original controls. MCP §17.12 adds separately authorized normal App-owned development wiring and actual normal-Codex business use. Formal production/client qualification remains unproved. |
+| Ordinary Windows subprocess lifecycle | MCP §17.1 records an actual 12/12 Executor Windows PASS over temporary Dart children, with EOF/exit/raw streams, creation cancellation, repeated close and Fake Owner/App database-barrier settlement. Those ordinary-child checks do not prove protected runtime behavior. MCP §17.12's real normal-development Bridge/authentication/settlement observations remain separate from formal AOT/Loader/security and production cross-process qualification. |
+| Remaining blockers are exclusively production admission/security | **Not satisfied for the wider route.** MCP §17.12's bounded normal-instance Question READ/STAGE/Review/original-key workflow has actual evidence, while #327's short-deadline cancellation, general client compatibility and formal admission remain outside this completed development-use scope. Limited development authorization is not global production admission. |
+| Separate reference-client scope | MCP §17.11 retains isolated orchestration evidence. MCP §17.12 additionally has normal model tool calls and first-party Desktop decisions; MCP §5/AR-R9 reference-package distribution and general supported-version acceptance remain unfinished. |
 | Admission-only remainder | Formal Windows credential/storage/isolation/transport/lifecycle and AR-R6A/AR-R6B production exposure acceptance remain pending independently of implementation. |
 
 The overall Windows completion condition therefore remains open. No Trial 1A or

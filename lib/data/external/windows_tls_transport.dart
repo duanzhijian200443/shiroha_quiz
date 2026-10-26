@@ -13,6 +13,7 @@ import '../../application/capabilities/capability.dart';
 import '../../application/external/external_credential_association.dart';
 import '../../application/external/external_credential_boundary.dart';
 import '../../application/external/first_party_external_credentials.dart';
+import '../../application/external/first_party_development_access.dart';
 import '../../application/external/first_party_stage_approval.dart';
 import '../../application/external/external_invocation_core.dart';
 import '../../application/external/external_trust_core.dart';
@@ -32,6 +33,7 @@ import 'windows_credential_object_store.dart';
 import 'windows_credential_association_store.dart';
 import 'windows_discovery.dart';
 import 'windows_pairing.dart';
+import 'windows_process_observation.dart';
 
 part 'windows_tls_resources.dart';
 part 'windows_tls_credentials.dart';

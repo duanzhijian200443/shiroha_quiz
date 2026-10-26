@@ -5,6 +5,8 @@ import 'dart:async';
 import 'dart:io';
 
 import '../application/external/external_trust_core.dart';
+import '../application/external/first_party_external_access.dart';
+import '../application/external/first_party_development_access.dart';
 import '../application/external/local_host_dispatch.dart';
 import '../data/external/windows_bridge_process.dart';
 import '../data/external/windows_codex_client.dart';
@@ -13,6 +15,7 @@ import 'mcp_vnext_app_integration.dart';
 import 'mcp_vnext_app_owned_relay.dart';
 import 'mcp_vnext_windows_acquisition.dart';
 import 'mcp_vnext_windows_startup.dart';
+import 'mcp_vnext_development_app.dart';
 
 /// Owns the same startup and integration barrier used by App close and B0.
 /// Default registration is unavailable. Trusted registration does not Pair,
@@ -24,7 +27,12 @@ final class McpVnextWindowsAppRegistration {
   /// The local hop grants no protected Bootstrap/business admission.
   McpVnextWindowsAppRegistration.appOwnedRelay(this.integration,
       {void Function(String, int)? onRelayEvent})
-      : _relay = McpVnextAppOwnedRelay(onEvent: onRelayEvent);
+      : _relay = McpVnextAppOwnedRelay(
+            onEvent: onRelayEvent, requireBusinessBootstrap: true) {
+    _development =
+        McpVnextDevelopmentApp(integration: integration, relay: _relay!);
+    integration.controls.installDevelopment(_development!);
+  }
 
   McpVnextWindowsAppRegistration.directClient({
     required this.integration,
@@ -78,14 +86,18 @@ final class McpVnextWindowsAppRegistration {
   final McpVnextAppIntegration integration;
   McpVnextAppOwnedRelay? _relay;
   bool get localRelayAvailable => _relay?.available == true;
+  FirstPartyRelayObservation get relayObservation =>
+      _relay?.observation ??
+      const FirstPartyRelayObservation(FirstPartyRelayPhase.unavailable);
   McpVnextWindowsAppStartup? _startup;
+  McpVnextDevelopmentApp? _development;
   McpVnextWindowsProtectedAcquirer? _acquirer;
   Future<void>? _starting, _closing;
   bool _closed = false;
 
   /// The existing host/control state remains authoritative for connections.
-  McpVnextWindowsAppStartup? get startup => _startup;
-  bool get registered => _startup != null;
+  McpVnextWindowsAppStartup? get startup => _startup ?? _development?.startup;
+  bool get registered => startup != null;
 
   void _install(
       McpVnextWindowsProtectedAcquirer acquirer,
@@ -142,6 +154,8 @@ final class McpVnextWindowsAppRegistration {
         await Future.wait([
           if (_relay != null) _relay!.close(),
           if (_startup != null) _startup!.close(),
+          if (_development != null)
+            _development!.stopFor(FirstPartyDevelopmentStopCause.appClose),
           integration.close(),
         ]);
       } finally {

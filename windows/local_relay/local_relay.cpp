@@ -82,7 +82,7 @@ bool bind_image(HANDLE process, const std::wstring& expected,
       left.nFileIndexHigh == right.nFileIndexHigh &&
       left.nFileIndexLow == right.nFileIndexLow;
 }
-DWORD parent_id() {
+DWORD parent_id(DWORD child = GetCurrentProcessId()) {
   Handle snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
   if (!snapshot.valid()) return 0;
   PROCESSENTRY32W entry{};
@@ -91,7 +91,7 @@ DWORD parent_id() {
   if (Process32FirstW(snapshot.value, &entry)) {
     size_t remaining = 65536;
     do {
-      if (entry.th32ProcessID == GetCurrentProcessId()) {
+      if (entry.th32ProcessID == child) {
         result = entry.th32ParentProcessID;
         break;
       }
@@ -134,21 +134,22 @@ std::wstring endpoint(const std::wstring& root, const std::wstring& sid,
   return result;
 }
 struct Pipe {
-  bool server = false, connected = false, failed = false;
+  bool server = false, connected = false, failed = false, guard_only = false;
   DWORD session = 0;
   std::wstring root;
   std::vector<uint8_t> sid;
   Handle pipe, peer, expected_image, actual_image;
   Handle launch_parent, expected_shell, actual_shell;
-  bool independent_launch() {
+  bool independent_launch(DWORD child = GetCurrentProcessId(),
+                          HANDLE child_process = GetCurrentProcess()) {
     // Any-Job membership does not identify a Codex-owned Job. This mode admits
     // only a normal direct Explorer launch, using kernel process/file facts.
     // It does not grant business authority or resist same-user process spoofing.
-    const DWORD parent = parent_id();
+    const DWORD parent = parent_id(child);
     DWORD shell = 0;
     const HWND shell_window = GetShellWindow();
     if (!shell_window || !GetWindowThreadProcessId(shell_window, &shell) ||
-        !parent || parent != shell || parent == GetCurrentProcessId())
+        !parent || parent != shell || parent == child)
       return false;  // An agent-started explorer.exe is not the desktop shell.
     launch_parent.value = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE,
                                       FALSE, parent);
@@ -161,7 +162,7 @@ struct Pipe {
       return false;
     FILETIME parent_created{}, self_created{}, exited{}, kernel{}, user{};
     if (!GetProcessTimes(launch_parent.value, &parent_created, &exited, &kernel, &user) ||
-        !GetProcessTimes(GetCurrentProcess(), &self_created, &exited, &kernel, &user) ||
+        !GetProcessTimes(child_process, &self_created, &exited, &kernel, &user) ||
         CompareFileTime(&parent_created, &self_created) >= 0)
       return false;  // Refuse a reused parent PID.
     std::wstring system_root(32768, L'\0');
@@ -173,8 +174,28 @@ struct Pipe {
                       expected_shell, actual_shell) && launch_current();
   }
   bool launch_current() const {
-    return !server || (launch_parent.valid() &&
+    return (!server && !guard_only) || (launch_parent.valid() &&
         WaitForSingleObject(launch_parent.value, 0) == WAIT_TIMEOUT);
+  }
+  bool authenticate_parent() {
+    const DWORD id = parent_id();
+    if (!id || id == GetCurrentProcessId()) return false;
+    peer.value = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE,
+                             FALSE, id);
+    const auto other_sid = peer.valid() ? user_sid(peer.value)
+                                       : std::vector<uint8_t>{};
+    DWORD peer_session = 0;
+    FILETIME parent_created{}, self_created{}, exited{}, kernel{}, user{};
+    if (!peer.valid() || other_sid.empty() ||
+        !EqualSid(sid.data(), const_cast<uint8_t*>(other_sid.data())) ||
+        !ProcessIdToSessionId(id, &peer_session) || peer_session != session ||
+        !GetProcessTimes(peer.value, &parent_created, &exited, &kernel, &user) ||
+        !GetProcessTimes(GetCurrentProcess(), &self_created, &exited, &kernel, &user) ||
+        CompareFileTime(&parent_created, &self_created) >= 0 ||
+        !bind_image(peer.value, root + L"\\shiroha_quiz.exe",
+                    expected_image, actual_image)) return false;
+    return independent_launch(id, peer.value) &&
+        WaitForSingleObject(peer.value, 0) == WAIT_TIMEOUT;
   }
   bool authenticate() {
     ULONG id = 0;
@@ -243,23 +264,32 @@ API void shiroha_relay_free(void* buffer) {
   if (buffer && !HeapFree(GetProcessHeap(), 0, buffer)) cleanup_failed = true;
 }
 static int open_pipe(uint32_t role, uint64_t* output) {
-  if (!output || role > 1) return rejected;
+  if (!output || role > 3) return rejected;
   *output = 0;
   std::lock_guard<std::mutex> guard(mutex);
   if (owned || cleanup_failed || generation == UINT64_MAX) return rejected;
   auto p = std::make_unique<Pipe>();
   p->server = role == 0;
+  p->guard_only = role >= 2;
   const auto self = image(GetCurrentProcess());
   const auto split = self.find_last_of(L"\\/");
   if (split == std::wstring::npos) return rejected;
   const auto name = self.substr(split + 1);
-  if (_wcsicmp(name.c_str(), p->server ? L"shiroha_quiz.exe"
-                                      : L"shiroha_codex.exe") != 0)
+  const auto expected_name = role == 0 || role == 3 ? L"shiroha_quiz.exe"
+      : role == 2 ? L"shiroha_bridge.exe" : L"shiroha_codex.exe";
+  if (_wcsicmp(name.c_str(), expected_name) != 0)
     return rejected;
   p->root = self.substr(0, split);
   p->sid = user_sid(GetCurrentProcess());
   if (p->sid.empty() || !ProcessIdToSessionId(GetCurrentProcessId(), &p->session))
     return rejected;
+  if (p->guard_only) {
+    if (!p->authenticate_parent()) return rejected;
+    p->connected = true;
+    owned = std::move(p);
+    *output = ++generation;
+    return ok;
+  }
   const auto sid = sid_text(p->sid);
   const auto address = endpoint(p->root, sid, p->session);
   if (sid.empty() || address.empty()) return rejected;
@@ -324,7 +354,7 @@ API int shiroha_relay_read(uint64_t id, uint8_t* data, uint32_t size, uint32_t* 
   *count = 0;
   std::lock_guard<std::mutex> guard(mutex);
   auto* p = get(id);
-  if (!p || !p->live()) return disconnected;
+  if (!p || p->guard_only || !p->live()) return disconnected;
   DWORD available = 0;
   if (!PeekNamedPipe(p->pipe.value, nullptr, 0, nullptr, &available, nullptr))
     return disconnected;
@@ -340,7 +370,7 @@ API int shiroha_relay_write(uint64_t id, const uint8_t* data, uint32_t size, uin
   *count = 0;
   std::lock_guard<std::mutex> guard(mutex);
   auto* p = get(id);
-  if (!p || !p->live()) return disconnected;
+  if (!p || p->guard_only || !p->live()) return disconnected;
   DWORD bytes = 0;
   if (!WriteFile(p->pipe.value, data, size, &bytes, nullptr)) return disconnected;
   *count = bytes;
@@ -349,9 +379,20 @@ API int shiroha_relay_write(uint64_t id, const uint8_t* data, uint32_t size, uin
 API int shiroha_relay_state(uint64_t id) {
   std::lock_guard<std::mutex> guard(mutex);
   auto* p = get(id);
+  if (p && p->server && !p->connected && !p->failed && p->launch_current())
+    return pending;
   if (!p || !p->live()) return disconnected;
+  if (p->guard_only) return ok;
   return PeekNamedPipe(p->pipe.value, nullptr, 0, nullptr, nullptr, nullptr)
       ? ok : disconnected;
+}
+API int shiroha_relay_app_launch_state(uint64_t id) {
+  std::lock_guard<std::mutex> guard(mutex);
+  const auto* p = get(id);
+  // Retained App/Explorer provenance is independent of an old adapter's pipe.
+  // Failed native cleanup remains terminal even while the parent is alive.
+  return p && p->server && !p->guard_only && !p->failed && !cleanup_failed &&
+      p->pipe.valid() && p->launch_current() ? ok : disconnected;
 }
 API int shiroha_relay_close(uint64_t id) {
   std::lock_guard<std::mutex> guard(mutex);

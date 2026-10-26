@@ -37,6 +37,8 @@ final class WindowsTlsBridge {
       Duration Function()? monotonicNow,
       this.schedule = _tlsSchedule,
       this.enableStageApprovalWait = false,
+      this.requirePublication,
+      this.report,
       TlsBudgets? limits})
       : _owner = owner,
         _current = compositionIsCurrent,
@@ -57,6 +59,8 @@ final class WindowsTlsBridge {
   final _clock = Stopwatch()..start();
   final TlsSchedule schedule;
   final bool enableStageApprovalWait;
+  final void Function(BigInt)? requirePublication;
+  final WindowsBusinessProcessReport? report;
   Duration get _now => _monotonicNow?.call() ?? _clock.elapsed;
   final TlsResourceBudget budget;
   TlsContextPlan? _plan;
@@ -65,6 +69,7 @@ final class WindowsTlsBridge {
   Future<void>? _connecting, _closing, _disposing;
   TlsReservation? _socket, _handshake;
   Future<void>? _requesting;
+  Future<void>? _proofWaiting;
   Completer<UntrustedIpcEnvelope>? _reply;
   bool _sent = false;
   bool get _connectionIsCurrent {
@@ -89,6 +94,7 @@ final class WindowsTlsBridge {
     Timer? timer;
     ExternalBridgeClient? pin;
     try {
+      report?.enter(FirstPartyBusinessStage.credentialRead);
       _owner.ensureOpen();
       pin =
           WindowsCredentialObjectStore(_owner).read(4) as ExternalBridgeClient?;
@@ -97,6 +103,7 @@ final class WindowsTlsBridge {
           !bootstrapEqual(pin.issuerCertificateDer, trusted.trustedAnchorDer)) {
         _tlsReject();
       }
+      report?.enter(FirstPartyBusinessStage.credentialValidation);
       _plan = TlsContextPlan.validate(
           role: TlsPeerRole.client,
           leafDer: pin.clientLeafDer,
@@ -106,7 +113,9 @@ final class WindowsTlsBridge {
           signDigest: signDigest,
           verifyDigest: verifyDigest,
           utcNow: utcNow);
+      report?.enter(FirstPartyBusinessStage.discovery);
       final descriptor = reader.readAndAdvanceExistingPin(trusted);
+      requirePublication?.call(descriptor.publicationEpoch);
       if (_closed || !_current()) _tlsReject();
       _socket = budget.reserve(TlsResource.socket);
       _handshake = budget.reserve(TlsResource.handshake);
@@ -116,13 +125,17 @@ final class WindowsTlsBridge {
         // A pending Future is still owned until it actually settles. The real
         // SDK connect also has a five-second cancellation deadline.
       });
+      report?.enter(FirstPartyBusinessStage.tlsConnect);
       _channel = await io.connect(descriptor.port, _plan!);
       timer.cancel();
       if (_closed || !_current() || !_channel!.isOpen) _tlsReject();
       final der = _channel!.peerDer;
+      report?.enter(FirstPartyBusinessStage.peerPolicy);
       nativePolicy(der, TlsPeerRole.server);
+      report?.enter(FirstPartyBusinessStage.peerCertificate);
       _verifyPeer(
           der, _plan!.anchorDer, TlsPeerRole.server, utcNow(), verifyDigest);
+      report?.enter(FirstPartyBusinessStage.peerBinding);
       if (!bootstrapEqual(_tlsHash(der), descriptor.serverLeafDigest)) {
         _tlsReject();
       }
@@ -130,15 +143,38 @@ final class WindowsTlsBridge {
       _handshake!.release();
       _handshake = null;
       _verified = true;
-    } catch (_) {
+      report?.enter(FirstPartyBusinessStage.connected);
+    } catch (error) {
+      report?.primary(error);
       _invalid = true;
       _closed = true;
-      await _dispose();
+      try {
+        await _dispose();
+      } catch (cleanup) {
+        report?.cleanup(cleanup);
+        rethrow;
+      }
       rethrow;
     } finally {
       timer?.cancel();
       pin?.clientPkcs8Der.fillRange(0, pin.clientPkcs8Der.length, 0);
     }
+  }
+
+  /// Sends opaque P10 text once, only after existing server verification.
+  /// First-party proof channel only: no request bytes or business response.
+  Future<void> waitForProofClosure() {
+    if (!isLive || _reply != null || _proofWaiting != null) _tlsReject();
+    return _proofWaiting = () async {
+      final timer = Timer(ExternalCredentialBoundary.evidenceLifetime, () {
+        unawaited(close().then((_) {}, onError: (Object _, StackTrace __) {}));
+      });
+      try {
+        if (await _channel!.read(1) != null) _tlsReject();
+      } finally {
+        timer.cancel();
+      }
+    }();
   }
 
   /// Sends opaque P10 text once, only after existing server verification.
@@ -161,7 +197,7 @@ final class WindowsTlsBridge {
 
   Future<UntrustedIpcEnvelope> _request(String requestId,
       {String? payload, String Function()? stagePayload}) {
-    if (!isLive || _reply != null) {
+    if (!isLive || _reply != null || _proofWaiting != null) {
       throw const TlsBridgeException(TlsBridgeFailure.unavailable,
           executionUnknown: false);
     }
@@ -361,7 +397,7 @@ final class WindowsTlsBridge {
         try {
           await _channel?.close();
           _handshake?.release();
-          if (_requesting == null) _socket?.release();
+          if (_requesting == null && _proofWaiting == null) _socket?.release();
         } catch (_) {
           budget.invalidate();
           rethrow;
@@ -384,6 +420,8 @@ final class WindowsTlsBridge {
         await _dispose();
       } finally {
         await _requesting;
+        await _proofWaiting;
+        if (_proofWaiting != null && budget.isUsable) _socket?.release();
       }
     }();
   }

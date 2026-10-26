@@ -104,6 +104,13 @@ final class WindowsLocalRelay {
   Future<void> get disconnected => _lost.future;
   bool get isCurrent => !_closed && _accepted;
 
+  /// Original independently launched App, including while awaiting a peer.
+  /// This is provenance/liveness only, never credential or business admission.
+  bool get appLaunchCurrent {
+    if (!_server || _closed) return false;
+    return _native.appLaunchState(_id) == 0;
+  }
+
   void _observe() {
     _accepted = true;
     _monitor = Timer.periodic(const Duration(milliseconds: 20), (_) {
@@ -260,6 +267,38 @@ final class WindowsLocalRelay {
   }
 }
 
+/// Retains the original App parent and desktop Explorer/image handles. It has
+/// no pipe, protected-store, credential or TLS operation. Each child can acquire
+/// this guard only once, before reading its private startup preface.
+final class WindowsAppParentGuard {
+  WindowsAppParentGuard._(this._native, this._id);
+  factory WindowsAppParentGuard.open({required bool pairingUi}) {
+    final native = _RelayNative();
+    try {
+      final status = native.open(pairingUi ? 3 : 2, native.id);
+      if (status != 0 || native.id.value == 0) {
+        throw const LocalRelayException();
+      }
+      return WindowsAppParentGuard._(native, native.id.value);
+    } catch (_) {
+      native.dispose();
+      rethrow;
+    }
+  }
+  final _RelayNative _native;
+  final int _id;
+  bool _closed = false;
+  bool get isCurrent => !_closed && _native.state(_id) == 0;
+  void close() {
+    if (_closed) return;
+    _closed = true;
+    if (_native.close(_id) != 0) {
+      throw const LocalRelayException(unsettled: true);
+    }
+    _native.dispose();
+  }
+}
+
 final class _RelayNative {
   _RelayNative() {
     if (!Platform.isWindows) throw const LocalRelayException();
@@ -282,6 +321,9 @@ final class _RelayNative {
               'shiroha_relay_accept');
       state = library.lookupFunction<Int32 Function(Uint64), int Function(int)>(
           'shiroha_relay_state');
+      appLaunchState =
+          library.lookupFunction<Int32 Function(Uint64), int Function(int)>(
+              'shiroha_relay_app_launch_state');
       close = library.lookupFunction<Int32 Function(Uint64), int Function(int)>(
           'shiroha_relay_close');
       disconnect =
@@ -311,7 +353,7 @@ final class _RelayNative {
   late final void Function(Pointer<Uint8>) _free;
   late final int Function() _healthy;
   late final int Function(int, Pointer<Uint64>) open;
-  late final int Function(int) accept, state, close, disconnect;
+  late final int Function(int) accept, state, appLaunchState, close, disconnect;
   late final int Function(int, Pointer<Uint8>, int, Pointer<Uint32>) read,
       write;
   late final Pointer<Uint8> buffer, writeBuffer;

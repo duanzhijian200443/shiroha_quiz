@@ -909,9 +909,12 @@ identity and security. Batch 2 exercised only the new-file branch; its status
 API failure versus post-publication failure. Its STOP violation and absent
 memory measurements must remain attached to any archived observation.
 
-The approved P20-only G0-L0 candidate resolves NtSetInformationFile in the
+The then-approved P20-only G0-L0 candidate resolves NtSetInformationFile in the
 already-loaded user-mode ntdll module, with the NTAPI signature and class 10.
 `association_rename.h` is the actual production seam also called by fake tests.
+Current Credential/Discovery consumers are separately bounded by readiness
+§§9.B.4/15/18; that later extension does not expand this historical evidence or
+authorize these diagnostic programs to run.
 Its fixed-name structure has x64 alignment 8, offsets 8/16/20, storage size 56
 and request length 56, meeting the 24-byte base plus 32 filename-byte documented
 minimum without exceeding the 56-byte allocation. FileNameLength stays 32 and

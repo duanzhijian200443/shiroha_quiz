@@ -182,7 +182,7 @@ void main() {
     }
     final entry =
         File('tool/external/bridge_candidate.dart').readAsStringSync();
-    expect(entry, contains('await serveWindowsBridgeStdio();'));
+    expect(entry, contains('await serveDevelopmentWindowsBridge();'));
     expect(entry, contains('exitCode = 64;'));
     final refusal =
         File('lib/mcp/vnext_mcp_entrypoint.dart').readAsStringSync();

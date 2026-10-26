@@ -99,7 +99,7 @@ final class McpVnextWindowsProtectedAcquirer {
     required LocalHostReadinessPort readiness,
     required int port,
     Future<Uint8List> Function()? submissionId,
-    WindowsBridgeProcess? process,
+    McpVnextWindowsProcessOwner? process,
     bool clientOwnsBridge = false,
     TlsListenerIo? listener,
   }) {

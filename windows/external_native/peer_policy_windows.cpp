@@ -21,12 +21,13 @@ template <typename T> struct Decoded {
           [](auto result) { return result == nullptr; },
           reinterpret_cast<HLOCAL>(1));
   }
-  bool decode(LPCSTR type, const BYTE* data, DWORD size) noexcept {
+  bool decode(LPCSTR type, const BYTE* data, DWORD size,
+              DWORD flags = 0) noexcept {
     DWORD count = 0;
     const auto result = L1_NATIVE_CALL(
         kDecode,
         CryptDecodeObjectEx(X509_ASN_ENCODING, type, data, size,
-                            CRYPT_DECODE_ALLOC_FLAG, nullptr, &value, &count),
+                            CRYPT_DECODE_ALLOC_FLAG | flags, nullptr, &value, &count),
         [](auto status) { return status != FALSE; }, FALSE);
     L1_NATIVE_ACQUIRED(value != nullptr);
     return result != FALSE;
@@ -57,7 +58,10 @@ int32_t inspect(const uint8_t* der, size_t length,
   const auto& c = *cert.value->pCertInfo;
   p->v3 = c.dwVersion == CERT_V3;
   Decoded<CERT_SIGNED_CONTENT_INFO> outer;
-  if (!outer.decode(X509_CERT, der, static_cast<DWORD>(length)))
+  // X509_CERT otherwise reverses signature bytes. ECDSA-Sig-Value remains
+  // the original ASN.1 DER sequence for the separate crypt32 structure check.
+  if (!outer.decode(X509_CERT, der, static_cast<DWORD>(length),
+                    CRYPT_DECODE_NO_SIGNATURE_BYTE_REVERSAL_FLAG))
     return SHIROHA_NATIVE_VERIFICATION_REJECTED;
   p->signature_sha256 = oid(c.SignatureAlgorithm.pszObjId, szOID_ECDSA_SHA256) &&
       c.SignatureAlgorithm.Parameters.cbData == 0 &&
@@ -70,12 +74,13 @@ int32_t inspect(const uint8_t* der, size_t length,
       sig.value->r.cbData > 0 && sig.value->r.cbData <= 33 &&
       sig.value->s.cbData > 0 && sig.value->s.cbData <= 33;
   // Crypt32 independently decodes the curve OID; P21 is not policy authority.
-  Decoded<char> curve;
+  // X509_OBJECT_IDENTIFIER's allocated structure contains an LPSTR.
+  Decoded<LPSTR> curve;
   const auto& spki = c.SubjectPublicKeyInfo;
   p->p256 = oid(spki.Algorithm.pszObjId, szOID_ECC_PUBLIC_KEY) &&
       curve.decode(X509_OBJECT_IDENTIFIER, spki.Algorithm.Parameters.pbData,
                    spki.Algorithm.Parameters.cbData) &&
-      oid(curve.value, szOID_ECC_CURVE_P256) &&
+      curve.value && oid(*curve.value, szOID_ECC_CURVE_P256) &&
       spki.PublicKey.cUnusedBits == 0 && spki.PublicKey.cbData == 65 &&
       spki.PublicKey.pbData[0] == 4;
   p->valid_now =

@@ -1024,9 +1024,12 @@ default I/O derives exactly the adjacent `shiroha_bridge.exe` and Native DLL fro
 Bridge candidate inventory/x64 PE inspection before creation. It accepts no
 path/arguments/environment/request selectors. SDK creation uses an empty
 argument list, no shell, no inherited environment and the original returned
-Process object. The fixed environment has only `SHIROHA_PROCESS_ENV_PAD=`:
-one inert empty value avoids Windows Dart SDK rejection of a zero-entry block.
-No product code reads this entry; it selects no behavior and transfers no data.
+Process object. The fixed environment contains `SHIROHA_PROCESS_ENV_PAD=` and
+`SystemRoot` obtained only from `GetSystemWindowsDirectoryW`. The inert entry
+avoids Windows Dart SDK rejection of a zero-entry block; the OS directory lets
+Winsock initialize its provider. No parent environment value is copied, and no
+path, trust or startup selector is accepted. An unavailable OS directory refuses
+creation. This ordinary Data helper changes no protected Native ABI or Owner.
 No PID lookup/kill, elevation, restart, watchdog or service is
 added. Existing stdin EOF requests shutdown. Actual original exit plus both
 discarded output drains must settle; a non-cooperating child remains pending.
@@ -1497,8 +1500,9 @@ Trial 1A/G0-L1/L2/I or #327 assertion/budget change is introduced.
 
 `BridgeUiHost` is the explicit Bridge local host over the original P27 owner.
 Trusted composition supplies the existing `WindowsBridgePairing`, an existing
-instance root and the ONE resource closer; construction performs no OS operation
-and no normal startup, App page or MCP composition constructs it. The host builds
+instance root and the ONE resource closer; construction performs no OS operation.
+Section 17.12 adds the explicitly admitted pairing-only Flutter root; the normal
+database App page and MCP projection still never construct a Bridge owner. The host builds
 exactly one `WindowsBridgePublicPairing` port and one `BridgeHostSurface`, so a
 page rebuild re-displays the live Enrollment instead of starting a second one.
 A process-wide latch plus an exclusive OS file lock under that root refuse a
@@ -1569,10 +1573,10 @@ public interaction slice**, not full AR-R6B. It is real UI and real P27 state
 over the existing public codec, but its security primitives remain the existing
 Fake Native/P22/P23/TLS facilities: no real protected credential, Pin protection
 experiment, Discovery publication, TLS channel, formal AOT business bootstrap or
-normal App/client registration is executed or accepted. Normal App startup still
-reports the external composition unavailable and installs no pairing, credential
-or transport binding; there is no environment/CLI production switch and no new
-Pairing IPC. AR-R6A admission, real credential/TLS/native acceptance, trusted
+normal App/client registration was executed or accepted at that checkpoint.
+Section 17.12 now defines the separately gated normal Debug consumer; its fixed
+pairing UI action alone cannot admit protected work or business. There is no
+environment/CLI production activation switch or new Pairing IPC. AR-R6A admission, real credential/TLS/native acceptance, trusted
 authenticated AOT bootstrap, App/client registration and Draft #327's
 short-deadline cancellation compatibility remain open. HOST_STABILITY_HALT =
 ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED. No Trial 1A/G0-L1/L2/I work is
@@ -1631,11 +1635,12 @@ child. These are alternative custody paths, not two concurrent business owners.
 Neither registration pairs, enables, approves, stages or reconnects automatically.
 Existing first-party status/Enable/connection-failure behavior remains authoritative.
 
-The formal AOT calls `serveWindowsBridgeStdio()` without a Bootstrap and still
-serves `UnavailableVnextApp`. The explicit in-code Bootstrap parameter is not an
-external activation switch. Supplying production admission, an independent trust
-source and accepted protected/native/TLS infrastructure remains future authorized
-composition work; ordinary startup cannot manufacture any of them.
+At this checkpoint the formal AOT called `serveWindowsBridgeStdio()` without a
+Bootstrap. Section 17.12 now defines the separately authorized development root:
+only a verified original App parent and its finite, public-only startup handoff
+can supply the in-code App-owned Bootstrap. Direct/Hosted callers retain
+`UnavailableVnextApp`. Neither MCP input nor an argument/environment selector
+supplies business admission. Formal production activation remains separate.
 
 `McpVnextWindowsStdioCustody` is an in-process output-flush barrier. It does not
 own or await its own OS exit, and cannot intercept forced termination by an
@@ -1699,11 +1704,12 @@ security admission, trust reads, Pairing settlement or protected acquisition.
 The mode is an in-code composition input, never selected by argv, environment
 or MCP fields.
 
-The product-supported client set is currently **empty**. The exact EOF-first
+The Direct/Hosted product-supported client set is currently **empty**. The exact EOF-first
 patch documented in the Windows guide is selectable only for explicit isolated
 validation. No external argument, environment variable or MCP field installs this
-selection in a normal product root. Both normal roots remain unavailable and the
-formal AOT retains seven-tool discovery with default business refusal. Official
+selection in a normal product root. Section 17.12's App-owned development mode
+uses a separate original-parent admission, never this isolated selection or a
+new official-client digest allowlist. Other callers retain default refusal. Official
 client qualification results and isolated patch results are separate evidence;
 passing a probe never automatically promotes a build into product support.
 
@@ -1896,21 +1902,229 @@ the unchanged Shell/peer checks, original process handles and the production
 Bridge stream owner. It covers idle/malformed server disconnect with the old
 raw client handle retained, monitored client loss, MCP inventory/call failures,
 fresh peers after clean settlement and blocked re-arm after a nonzero child exit.
+The pending-peer cases retain an outstanding original client call and child
+settlement across three production development-monitor intervals after the outer
+adapter closes normally. They require the original launch observation to remain
+current, then either a freshly authenticated peer after clean settlement or
+terminal refusal after failed settlement. The portable companion uses the
+original Host/P0 controls to check immediate Enable/approval withdrawal, fresh
+Enable and authentication, and terminal launch-loss/expiry/App-invalidation drain.
 Its synthetic Bridge supplies refusal/protocol faults only; it loads no protected
 helper, normal App data, credential or provider and proves no Codex model turn.
 The test may shorten the idle deadline; normal registration retains ten minutes.
 
-The normal App consumes this relay registration. While the security freeze is
-active, its adjacent formal Bridge still reaches the existing seven-tool refusal
-endpoint. Local peer authentication, forwarding and process custody can be
-verified independently, but that refusal is not a READ/STAGE success and no
-protected Owner is claimed to have been acquired or closed. Activating business
-still requires the original admitted App registration and Bridge Bootstrap,
-independent trust, current P15/P0/P8/P10 authorization, first-party STAGE
-confirmation and local Review. No new allowlist entry accepts an incompatible
-Direct/Hosted Codex binary, and §17.10's existing refusal policy is retained for
-those modes. #327 and its repair budget remain unchanged.
+The normal App consumes this relay registration. The original local-hop-only
+authorization did not admit protected business. The user's explicit development
+authorization on 2026-10-26 adds the following bounded composition; it does not
+promote Direct/Hosted clients or the isolated patch into product support.
+
+**Development admission and custody.** The normal Windows Debug App exposes
+explicit first-party setup and a thirty-minute development runtime. Release,
+unverified launch provenance, expired/closed composition and unavailable
+resources refuse. The App uses the SAME integration, protected acquirer, P25,
+P27, P15/P0/P8/P10 and owned TLS Host. There is one literal
+`127.0.0.1:48763` listener; an occupied port refuses without scanning or retry.
+This deployment admission is separate from a Profile's finite business Enable,
+Grant, authentication, target approval and Review. It supplies none of them.
+Expiry actively closes the original runtime; a closed integration requires a
+normal App restart. No successful callback or OS peer check replaces
+`requireSecurityAdmission`, P26, mTLS or Application authorization.
+
+Before admitted business is ready, a tool call returns `unavailable` without
+launching an unadmitted raw Bridge. Relay observation distinguishes listening,
+connected, settling, closed and unsettled; none means business authenticated.
+Missing-file metadata is a non-authorizing status hint. Actual credential and
+Pin acceptance remains in the original Native/P25/P26 owners. Missing, partial,
+corrupt, conflicting or unknown state never triggers automatic repair.
+
+**Explicit initial setup.** Only a separate first-party confirmation invokes
+the original P25 `initialize()`: two Missing App objects may create one issuer/
+server pair; a complete valid pair is reused; partial, corrupt or unknown state
+stops. This initialization action provides no recovery, rotation or overwrite.
+The fixed External root remains `%LOCALAPPDATA%\Shiroha\external`; it is not a
+Debug/Release partition.
+First-party initialization diagnostics retain only fixed load/acquire/P25/
+post-admission/close stages, closed Native/Credential error categories, whether
+the original Owner returned and the original close result. Primary and cleanup
+failures remain separate; later cleanup does not erase an earlier failure.
+These observations contain no exception body, stack, path or credential bytes,
+and establish neither rollback nor permission to retry. Unknown acquisition and
+failed-close custody barriers remain unchanged.
+Credential and fixed Discovery publication use readiness §§9.B.4/15/18's
+narrowly authorized NT class 10 mechanism over the original parent handles.
+This replaces the earlier Win32 publication form without changing object
+formats, ABI, Owner/lock/ACL/access/sharing, target checks or unknown-result
+semantics. No null-parent, path fallback or automatic retry is introduced.
+Initial Bridge enrollment reuses the original P27 two full human comparisons,
+actual committed Revision and Missing-only kind 4 save. Pairing still adds no
+Grant, Enablement, Session or STAGE approval.
+
+The same normal Flutter executable supplies a separate pairing-only root using
+the fixed internal action `--shiroha-bridge-pairing-ui`. It branches before App
+database, Provider, logger, relay or Host composition; the action alone grants
+nothing. This is the production consumer of the existing §17.8 `BridgeUiHost`,
+not a test entrypoint or another installer. Its UI instance lock is in the fixed
+development runtime's `bridge-pairing-ui` directory, outside the credential
+layout. The App serializes this child with the raw Bridge and waits for actual
+exit and both output drains. Exit zero alone never proves Pin save. EOF,
+cancel, expiry and window exit join the same P27/Owner close; failed close keeps
+the window exit barrier and cannot be replaced by Dart `exitCode` or a timeout.
+
+App-side P27 diagnostics retain fixed request/approval/completion/export/display
+phases, closed Application error categories and the first failure even after
+controls become unavailable. Pairing-child reports are bounded observations on
+the original sole stderr consumer: an ASCII whitelist, at most 128 bytes per
+line, 8192 total bytes and 32 accepted records; other output is discarded.
+Original exit code and stdin/stdout/stderr/overall settlement are observed
+independently. Child primary and cleanup failures remain separate. Display/timer
+failure enters the SAME original close barrier without extending any deadline.
+Reported stages, clean child exit and a closed window without observed Pin save
+are not pairing success, rollback evidence or permission to retry.
+
+The public-copy surface identifies Trust and Completion separately. A copy click
+joins an in-flight status observation, rechecks the same view/export identity and
+freshly obtains the matching original public export before one clipboard write.
+Page replacement, invalidation or changed bytes withdraw that copy; no approval
+is queued. Success is shown only after the platform write returns and the view
+remains current. Failed/unknown writes are not success or automatic retry, and
+do not establish that the clipboard no longer contains earlier data. P27's
+deadlines and both independent comparisons are unchanged.
+The authorization page presents the current next step and folds technical
+observations into a diagnostic section. Existing-Pin runs use fresh identity
+confirmation and do not show initial Submission input or Pairing actions.
+A user-invoked shortcut may combine
+export with the SAME freshly checked clipboard write; a matching explicit
+Bridge paste/import still grants no comparison or confirmation. Wrong-kind,
+unreadable or oversized clipboard text is rejected at the presentation boundary
+before invoking original P27. Manual import remains available. The Windows
+pairing runner may place its window beside the same-image parent for comparison;
+this presentation observation is not Native provenance, an approval channel,
+App-to-Bridge Pairing IPC or trust evidence. Both original local decisions remain.
+
+The original business child's sole stderr consumer also observes a separate
+fixed `SHIROHA_BUSINESS_V1` record whitelist, under the SAME 128-byte line,
+8192-byte total and 32-record bounds. Startup/admission, Pin/Discovery, TLS/peer
+checks and business request/response stages carry no request or credential data.
+The first primary and cleanup categories remain separate from original process
+exit and stream settlement; no diagnostic field changes refusal, retries,
+authentication, cleanup authority or MCP result schemas. Existing-credential
+proof-only connections can emit the same categories without sending business.
+The fixed socket-provider failure category distinguishes Windows error 10106
+without logging its message, system directory or any additional exception data.
+The original Native peer policy preserves the X509 certificate's DER signature
+byte order and dereferences crypt32's allocated OID string structure correctly.
+Readiness section 6 bounds the separately authorized public-vector comparison;
+it adds no trust exception, ABI, key/Pin operation or business authority. A
+successful Native certificate-policy check still requires the remaining exact
+peer binding, P15 authentication, current Enable/Grant and Application checks.
+After the existing cancelable Dart exit accepts original resource/log settlement,
+the Windows runner calls its original window destroy path before COM teardown.
+This clears controller custody before reentrant window messages; framework
+`WM_QUIT` does not bypass that destruction or any failed-close barrier.
+
+**Explicit residual-association recovery.** The separate 2026-10-26 approval
+permits readiness §9.C.8's original revoke-first flow for the selected development
+Profile when initial Bridge persistence was not completed. A fresh unpaired,
+disabled development runtime, no child/business peer and explicit local selection
+precede an original same-Owner P20 read. A one-use view binds the opaque management
+reference, runtime, selection and original snapshot to the displayed identity,
+installation, association revision and revocation state. Confirmation rechecks
+that lease and a fresh exact tuple/revision; cancellation, page/selection changes,
+observed connection changes or invalidation cannot revive an old view. Pin-file
+metadata is only an additional refusal filter, never a Native Missing verdict.
+
+Explicit local confirmation calls only the original Host/P15 revoke operation
+with that exact revision. It writes the original tombstone; it does not change
+Profile/Grant, issuer/server or Pin. Grant/Enable is not this local management
+authority; a pre-confirmation Grant revision observation adds no Grant CAS to
+Host.revoke. The original Host response (which includes its own shutdown) and
+subsequent full runtime close are recorded separately. Terminal success does not
+require the deliberately retired runtime to remain live; both original Futures
+are joined, and close errors remain errors. Only after successful closure and
+normal App reopen may a fresh P27 key/request, both independent comparisons and
+Native Missing-only save proceed. The existing CAS advances the same association
+record from its tombstone; no journal, deleted record, recovered key, replayed
+Proof/Completion or new recovery authority is introduced. Partial, corrupt and
+unknown objects continue to stop.
+
+**Public startup trust.** Both child roots verify and retain their original
+fixed-adjacent App parent and that App's original desktop Explorer parent, with
+the existing non-elevated SID/session, creation-order, image-identity and liveness
+checks. This preserves the documented same-SID spoofing/injection limitations;
+it is provenance for the handoff, not a P15 identity or security attestation.
+Only then may the child consume one bounded public-only prefix on its original
+stdin. The App obtains issuer DER, installation ID, server-leaf digest and
+current publication epoch from its SAME validated P25 owner and supplies the
+finite deadline. No private key, Session, Grant, target approval, arbitrary path
+or configuration enters this prefix. It is not an MCP method or argv/environment
+trust selector, and it creates no trust store. One subscription removes the
+prefix and retains a shared chunk's tail. The business root passes the remainder
+to the original SDK transport. The pairing root instead has one remainder
+consumer: nonempty input refuses and EOF closes its original Host/Owner. The
+original stdout still has exactly one consumer.
+
+The current App publication epoch is distinct from an independently remembered
+historical Bridge Pin floor. This root has no separate historical Pin store:
+it supplies historical floor zero to the unchanged original
+`readAndAdvanceExistingPin`, then requires that SAME read's publication epoch
+equal the independently supplied current App epoch before exposing business.
+The original existing-Pin/anchor/installation checks and full-snapshot monotonic
+CAS remain intact; missing Pin still refuses. Old or future publications refuse.
+A rejected startup does not claim that an already completed high-water advance
+was undone. Subsequent calls use the original P26 checks and advanced Pin.
+
+**Business Enable and reconnection.** In this App-owned binding, explicit
+first-party Enable sets the original P0 finite Enable and freezes the selected
+Profile's current Grant revision; it does not wait for a short-lived tool TLS
+channel and creates/caches no Session. Every business channel independently
+checks the same selected Profile, live Enable and frozen revision before the
+original P15 `openSession`; this cannot depend on UI polling. Each tool then
+uses fresh original authentication and the existing Application checks. Ordinary
+per-tool TLS closure does not disable the whole Profile. Outer adapter loss
+synchronously withdraws Enable and pending STAGE/target approval and joins its
+original work; a new adapter requires fresh explicit Enable. Exact request
+Session/entry/revision/target binding and local Review/COMMIT are unchanged.
+The App launch-liveness query observes only the original server instance and
+retained Explorer provenance, independently of the old adapter's process or pipe
+state. It remains current during a clean connection drain, including an
+outstanding call spanning the development monitor interval. Missing/closed
+server custody, actual parent loss and native/relay failed cleanup still refuse;
+the ordinary connection state and every read/write retain their original peer
+checks. The same deployment Host survives clean outer-peer settlement. The
+hundred-millisecond monitor still makes actual launch loss, deployment expiry
+and App invalidation terminal through the original shutdown barrier.
+
+**Existing credential confirmation after App reopen.** Readiness §9.C.8 and
+external boundary §12 define the separately approved first-party confirmation
+of an existing credential for this runtime. Saved Pin/association never restores
+Paired by itself. One fresh, live mTLS proof and explicit local identity decision
+may reach original P0 `pairedDisabled`, without creating or replacing a key,
+certificate, association or initial Pin. Only the previously authorized original
+P26 Pin high-water advance is permitted. Separate Enable and new business
+authentication remain mandatory. The proof
+channel carries no P9/P10 business request and must settle before the raw Bridge
+acquires its own Owner. Original submission-key lookup then uses the existing
+READ/proposalMetadata and original/current target checks, never STAGE replay.
+
+Question search uses the original P5 bounded pagination. Kernel final release
+validates every reference before merging equal complete question selection keys
+shared by a hit and its cursor. Different fingerprints remain separate and fail
+if stale; Data limits, current Grant checks and output withholding are unchanged.
+This adds no new query path, storage access or business authority.
+
+The close dependency is one-way: original Host/startup auxiliary drain -> relay
+process owner -> original children and streams. Relay cleanup never waits back
+on Host/integration shutdown. Unknown acquisition/close remains latched, blocks
+replacement and participates in App exit/B0. No second business server, writer,
+Session registry or restore mechanism is introduced.
+
+This mode's source/offline checks, actual normal-Codex business use and formal
+Windows security acceptance are separate results. Only actual tools in the
+user's normally signed-in session can establish the real READ/STAGE/Review loop;
+unavailable, direct RPC, scripted Responses and Fake security cannot substitute.
+`#327` remains separate: a client timeout is not proof of App cancellation,
+and changing a timeout does not close that issue.
 
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
-The local-hop authorization starts no Trial 1A/G0-L1/L2/I, protected credential,
-Pin/Discovery or real mTLS experiment, and is not AR-R9B distribution acceptance.
+The exact development exception in readiness §§6/8/9.F does not resume Trial 1A,
+G0-L1/L2/I, high-assurance security experiments, production activation or AR-R9B.

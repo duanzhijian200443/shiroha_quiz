@@ -26,11 +26,12 @@ the production Host/Transport or any Windows experiment.
 
 The [trusted Bootstrap/registration slice](mcp-vnext-contract.md#179-trusted-bootstrap-and-lifetime-registration-non-activating)
 supplies executable non-activating composition over the same owners and completed
-Pairing drain before fresh Bridge acquisition. Protected business registration
-and formal AOT business remain unavailable. Isolated Windows evidence covers the compiled
+Pairing drain before fresh Bridge acquisition. The separately authorized
+development consumer is now specified in §17.12; Direct/Hosted and unadmitted
+formal AOT business remain unavailable. Isolated Windows evidence covers the compiled
 business composition with an EOF-first patched Codex client; installed 0.144.1
 still has the recorded force-first incompatibility. Supported client delivery,
-explicit admitted product-root wiring and security acceptance remain open. This
+formal product activation and security acceptance remain open. This
 bounded functional completion does not activate production or close full AR-R6B.
 
 The authorized [App-owned local relay](mcp-vnext-contract.md#1712-app-owned-local-relay-authorized-development-integration)
@@ -38,12 +39,49 @@ is consumed by normal App startup. It authenticates local OS peers and holds the
 original Bridge process outside Codex custody, keeping the original output drain
 alive after a forwarding disconnect. The separate local-hop DLL accesses no
 protected credentials, Pin or Discovery; it is not an App/Bridge mTLS fallback.
-The current formal Bridge still refuses business. Local forwarding/refusal is
-not a successful STAGE/Review flow or production authentication admission.
+The normal Debug App additionally offers explicit finite development admission
+over the SAME protected Bootstrap/Host/Application chain. Its fixed-adjacent
+child receives public-only trust only after native App/Explorer parent checks;
+unadmitted calls refuse before child launch. First P25 setup, P27 comparisons,
+business Enable, per-request STAGE confirmation and local Review remain separate
+user decisions. A separately approved fresh mTLS identity confirmation through
+original P15/P0 may rebind an existing credential after normal App reopen, without
+credential/association replacement or old Session/approval restoration. See
+[readiness §9.C.8](windows-host-security-readiness.md#9c8-failure-and-unknown-result-recovery-frozen).
+That section also owns the separately authorized local revoke-first entry for
+an association left before initial Bridge Pin save: exact current snapshot,
+independent user confirmation, original Host/P15 tombstone and full close before
+new P27 pairing. It supplies no automatic repair or credential overwrite.
+Trust/Completion copies have distinct labels and explicit write-result feedback;
+observation races cannot silently discard a visible copy click. Original exit
+barriers precede Windows window/controller and COM teardown.
+The configuration page now guides the current step, offers explicit matching
+copy/paste-import shortcuts and folds diagnostic details. Pairing windows can
+be placed side by side without merging their original independent confirmations.
+Bounded business-stage diagnostics retain primary/cleanup and process facts
+separately; they provide no additional authority or successful READ evidence.
+The original Native peer-policy adapter now follows crypt32's signature-order
+and OID-pointer contracts. Its separately authorized public-certificate
+comparison retains wrong-role/curve/signature refusal and proves no business
+Session or formal Windows security acceptance.
+Question pagination retains P5's limits and final authorization checks; the
+original release path merges equal complete identities shared by a hit/cursor,
+while stale content versions remain distinct. The Windows guide describes actual
+adapter restart and local Review operations separately from tool discovery.
+Local forwarding, offline tests and source completion are not actual normal-
+Codex READ/STAGE/Review acceptance. That evidence must come from the user's
+normally signed-in session and selected development test bank.
+The bounded normal-instance workflow has now exercised existing-question READ,
+separate STAGE rejection/approval, pending persistence over App reopen, local
+Review/COMMIT and original-key committed reconciliation. The task/PR owns exact
+execution evidence; Direct/Hosted support and formal Windows security admission
+are unchanged.
 
 [Client selection/refusal](mcp-vnext-contract.md#1710-windows-client-compatibility-selection-non-activating)
-now guards both registrations and Bootstrap before acquisition. Product support
-is empty; the pinned patch remains isolated-validation-only. Discovery must
+guards Direct/Hosted registrations and Bootstrap before acquisition. Their
+product support is empty; the pinned patch remains isolated-validation-only.
+App-owned development admission is separate and does not accept every official
+client or establish formal security support. Discovery must
 settle before business and cannot create a competing live Owner. This is not a
 fix or supported release of the installed official clients. The Windows guide
 records actual candidate/Direct/Hosted evidence and remaining functional gaps.
@@ -392,8 +430,10 @@ No file publisher/reader, actual crypto operation, pairing flow, Host/Bridge or
 transport is activated; this is G0-L0 format/validation implementation only.
 P23, merged in PR #281, under readiness §15 adds SOURCE IMPLEMENTED / OFFLINE TESTED fixed kind
 1/2/4 protected-object transactions and `WindowsCredentialObjectStore`, with
-strict existing-object decoding, user-scope DPAPI and Win32 handle-relative
-publication. ABI 3 adds three optional exports while preserving P20 behavior.
+strict existing-object decoding and user-scope DPAPI. Its original Win32
+publication is now the narrowly authorized fixed-name NT class 10 mechanism in
+readiness §15, preserving the original parent handle and checks. ABI 3's three
+optional exports and P20 behavior remain unchanged.
 REAL WINDOWS PENDING / FORMAL ACCEPTANCE PENDING remain explicit; no credential
 initialization, signing/rotation, Pairing, Discovery I/O or startup is activated.
 P24, merged in PR #282, under readiness §16 adds SOURCE IMPLEMENTED / OFFLINE TESTED fixed-kind/ID

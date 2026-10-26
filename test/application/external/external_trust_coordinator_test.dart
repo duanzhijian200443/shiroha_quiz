@@ -966,7 +966,7 @@ void main() {
     expect(
         File('lib/ui/pages/external_authorization_screen.dart')
             .readAsStringSync(),
-        contains('当前仅配置访问规则。外部客户端尚未配对，真实连接功能未启用。'));
+        contains('此处配置访问规则。保存规则不会完成配对或启用业务访问。'));
     for (final path in [
       'lib/data/external/ipc_envelope_codec.dart',
       'lib/data/external/ipc_command_projection.dart',

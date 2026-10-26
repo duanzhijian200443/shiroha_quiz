@@ -1,15 +1,26 @@
 # Windows Codex integration for MCP vNext
 
 Current selection policy is in [MCP §17.10](../product/agent-refactor/mcp-vnext-contract.md#1710-windows-client-compatibility-selection-non-activating).
-**No official client is currently accepted for authenticated product use.** The
-pinned EOF patch remains an isolated test artifact. Earlier successful protocol,
+**The Direct/Hosted product support sets remain empty.** The separately authorized
+App-owned Debug development mode in [MCP §17.12](../product/agent-refactor/mcp-vnext-contract.md#1712-app-owned-local-relay-authorized-development-integration)
+uses the normal Codex client through the fixed adjacent adapter; it is not formal
+production or Windows security acceptance. The pinned EOF patch remains an
+isolated test artifact. Earlier successful protocol,
 unavailable-AOT or mailbox tests below do not establish original business-Bridge
 process settlement or promote any client into product support.
 
-The current development priority is the ordinary Codex client reading the normal
-Shiroha development instance through existing MCP v0. That separate read-only
-profile does not use the vNext client-selection or protected Bootstrap described
-above. The retained sections also cover isolated stdio compatibility, synthetic File READ and STAGE
+The normal-instance vNext path now has explicit development admission, original
+App/Bridge business composition and first-party controls. Actual success still
+requires the user's normal conversation to acquire and call `shiroha_vnext`;
+the authorized development workflow has exercised existing-question READ,
+independent STAGE rejection/approval, durable pending Review across normal App
+reopen, explicit local COMMIT and original-key committed counts in that normal
+conversation. Single-item pagination and detail were also checked in the repaired
+runtime. Exact execution evidence belongs to the task/PR; this is bounded
+development use, not a general client qualification or security result.
+Compilation and offline tests alone do not establish that result. Existing MCP v0
+remains a separate read-only capability and uses none of this protected Bootstrap.
+The retained historical sections also cover isolated stdio compatibility, synthetic File READ and STAGE
 with an installed Windows Codex client. [MCP contract §7](../product/agent-refactor/mcp-vnext-contract.md#7-bounded-stage-stdio-source-composition)
 owns profile v2, seven tools and the closed production admission boundary.
 
@@ -143,13 +154,172 @@ tool_timeout_sec = 180
 ```
 
 Discovery serves the seven existing schemas without opening a pipe or launching
-a Bridge. On a business call, the normal App owns the original adjacent Bridge
-and its sole output consumer. The current formal Bridge still returns
-`unavailable`: protected acquisition, independent trust and admitted runtime
-wiring have not been enabled. That is an expected frozen-boundary refusal, not
-successful READ/STAGE or production readiness. Never insert a Fake service,
-change an admission callback to success or add a digest allowlist to turn this
-into a business result. Existing v0 remains the working development READ path.
+a Bridge. On an admitted business call, the normal App owns the original adjacent
+Bridge and its sole output consumer. The child validates its original App/Explorer
+parent chain and receives bounded public P25 material on its original stdin. Its
+original Bootstrap/P26/mTLS path reaches the same App integration and Application.
+Direct standalone invocation has no admitted Bootstrap and remains unavailable.
+Missing deployment admission or the fixed Pin file refuses before raw business
+launch; actual credential/Pin validation remains with Native/P25/P26. Missing
+finite business Enable refuses at the original channel authorization boundary.
+Relay connectivity never means
+P15 authentication, business permission or STAGE approval.
+
+Use the existing `我的 -> 外部 Agent 授权` page for this sequence:
+
+1. Select one explicitly approved development test bank and configure its local
+   Profile/Grant for READ and STAGE, question content and Proposal metadata. Grant
+   file scope only for separately selected files. Saving rules does not pair or
+   enable the Profile; finish rule changes before starting a pairing proof.
+2. If the App issuer/server are absent, use **首次配置 App 凭据** and explicitly
+   confirm. Original Native/P25 must establish both Missing before creation;
+   complete valid objects are reused, partial/corrupt/unknown objects stop. This
+   action never recovers, overwrites or rotates credentials.
+3. Choose **启用 30 分钟开发连接**. This admits one original Host on literal
+   `127.0.0.1:48763`; occupied port, invalid provenance or expired admission
+   refuses. It supplies no business Enable. Select the intended Profile and use
+   **打开独立 Bridge 配对窗口** for initial enrollment. Complete the original
+   Challenge/Submission and two full human digest/actual Revision comparisons,
+   App proof verification and Missing-only Bridge save. Both surfaces' decisions
+   remain separate; no agent or script approves them.
+   On a sufficiently wide monitor the pairing runner places its own window beside
+   its parent App. This is presentation only, not parent authentication. The page
+   gives the current next step and keeps technical observations under **连接诊断**.
+   Copy the Bridge Submission ID and use **粘贴 Submission ID** in the App.
+   For each public handoff, use **复制当前 Trust** or **复制当前 Completion**,
+   wait for the matching successful copy message, then use the matching
+   **粘贴并导入** button in Bridge. The manual export/input controls remain available.
+   Wrong-kind or unreadable clipboard input is reported before entering P27;
+   it never publishes a Proof, saves a Pin or confirms a comparison.
+   A click during observation waits for that observation and revalidates the
+   original export; **复制未确认** is not success and the clipboard may still hold
+   earlier data. Copying never extends the original 120-second save window.
+4. Wait for that independent Bridge window and its original resources to settle,
+   then choose **限时启用**. Enable freezes the selected Profile's current Grant
+   revision; every business channel rechecks it and obtains fresh original P15
+   authentication. Changing rules, disabling or expiration requires fresh Enable.
+5. Reload `shiroha_vnext` in the normal Codex client. If it has not loaded the
+   project configuration, fully quit/reopen Codex and return to the same trusted
+   project/conversation. Send a new ordinary message so this conversation receives
+   the current tool catalog. Do not copy login files, create another model service
+   or use an app-server diagnostic as evidence that this session has tools.
+
+On normal App reopen, reuse intact existing credentials instead of enrolling
+again. Start the finite development connection, select the same Profile and use
+**验证既有 Bridge 凭据**. Its original proof-only mTLS channel produces a private
+one-use candidate valid for at most 30 seconds. Inspect **确认本次身份** and make
+the explicit identity decision while that same channel remains live. Wait for
+the pairing-only child to settle, then independently **限时启用** and reconnect
+Codex. Confirmation only reaches `pairedDisabled`; it restores no Session,
+target approval or old STAGE decision. It creates/replaces no key, certificate,
+association or initial Pin; only original P26 high-water advancement is allowed.
+Missing, revoked, orphaned or B0-scrubbed state cannot use this shortcut.
+The old outer adapter can remain disconnected after the App closes. A refreshed
+tool inventory alone does not restart that process. Reload the actual MCP server,
+or fully quit/reopen Codex if no reload control is available, then independently
+Enable the new connection in the App. Reconcile the original submission key;
+never publish another Proposal merely because the previous adapter was unavailable.
+Some desktop builds show project-local entries as locked and offer no Restart
+action. In that case, finish the current turn and completely quit/reopen Codex;
+closing and reopening its window alone may retain the old backend. Verify actual
+reconnection rather than treating the visible tool list as proof. If the App
+still reports unpaired, complete its existing-credential identity confirmation
+before Enable; an authenticated local pipe alone cannot start business.
+
+If the Bridge exits after App association creation but before initial Pin save,
+preserve that failed attempt. The separately approved residual recovery uses a
+new normal App runtime and the same selected Profile: choose **核对配对残留关联**,
+inspect the full identity/installation and actual association Revision, then
+personally choose **撤销此关联并关闭开发连接** only for the intended record. The
+original Host/P15 writes a revisioned tombstone; Profile/Grant and issuer/server
+remain unchanged. Wait for both **原 Host 结果 returned** and **后续关闭 returned**,
+normally close/reopen the App, then perform fresh P27 pairing with both independent
+comparisons and Missing-only Pin save. This entry requires a fresh disabled,
+unpaired runtime with no child/business peer. Changed, cancelled or stale views
+cannot be confirmed. An unknown result, corrupt/partial object or failed close
+stops the flow; do not repeat the action or delete files. The original CAS later
+updates the tombstone during new pairing; there is no new history store.
+
+If first credential setup fails, read its first-party diagnostic: fixed stage,
+safe error category, original Owner return and original close result. Primary
+failure and cleanup failure are displayed separately. Do not collect credential
+contents or infer success from missing files, a readable lock or process exit.
+The observation does not permit retry, recovery or replacement; preserve the
+failure and resolve its specific boundary before another explicit user decision.
+
+Pairing diagnostics are separate from that earlier initialization snapshot.
+The same original sole stderr consumer also accepts bounded business-stage
+observations: parent/security admission, independent trust, protected acquisition,
+Pin/Discovery, TLS connection and peer checks, then request/response. The App
+shows the first failure separately from cleanup, exit and stream settlement.
+Only fixed stages/error categories are retained, never exception strings,
+certificate bytes, request content or private paths. A reported response stage
+does not mean the business result succeeded; the actual tool result remains
+authoritative. Neither diagnostics nor window placement expands runtime admission.
+Both fixed child roots receive only the inert environment entry and `SystemRoot`
+obtained from the Windows API; they still inherit no parent environment. Without
+the OS directory, an ordinary socket probe on this host failed with 10106 before
+any connection. `socketProviderUnavailable` identifies this category separately
+from other socket failures. This repair and an unconnected-socket PASS do not
+prove mTLS authentication or a successful normal Codex READ.
+For `peerPolicy / nativeVerificationRejected`, do not re-pair or overwrite
+credentials. The corrected Native adapter preserves X509 ECDSA signature order
+and reads crypt32's OID pointer correctly. The authorized eight public-vector
+calls reproduced both original valid-role refusals; the corrected adapter
+accepted Server/Client and rejected both opposite roles, wrong curve and malformed
+signature. No saved credential, protected object or socket was used in that
+comparison. Actual normal-App authentication and Codex business results remain
+separate acceptance items.
+Read the App's current P27 phase/first failure, the child's fixed reported stage,
+original exit code and independent input/output settlement, and the development
+stop cause/result. Child stderr reports are bounded whitelist observations, not
+Pin or pairing receipts. A business rejection with successful cleanup and a
+cleanup failure remain different results. A manually terminated process retains
+unconfirmed cleanup; disappearance never substitutes for the normal exit barrier.
+After the original cancelable exit barriers accept shutdown, the Windows runner
+explicitly destroys the still-live window/controller before COM teardown. A
+framework `WM_QUIT` alone does not mean HWND destruction already occurred.
+
+Fixed Credential/Discovery publication now uses the original P20 NT class 10
+mechanism under readiness §§9.B.4/15/18, retaining the original directory handle,
+fixed name and transaction checks. The earlier Win32 form returned parameter
+error 87 in a bounded ordinary-file check on this Windows host; a null-parent
+ordinary-file control is evidence only and is never a product fallback.
+Ordinary-file publication success does not reclassify an earlier protected
+`commitUnknown` or establish credential, TLS or formal security acceptance.
+
+For actual READ, select a verifiable existing question in that bank. The normal
+model turn must use vNext Context/target selection, `search_questions` and
+`get_question_detail`; compare its returned bank/stem/options/answer with the
+App. A v0 answer, `unavailable`, `unauthorized` or missing tool catalog is not a
+vNext success. Existing file selection/retrieval/passages require their own
+authorized Context scope; the relay introduces no file or database access port.
+Search pagination keeps the original page-size and resource bounds. Final
+release validates each opaque reference and then merges only equal complete
+question identities shared by a result and its continuation cursor. It does not
+reject a valid page merely because those two references select the same row;
+changed fingerprints, wrong Contexts and revoked access still withhold output.
+
+For STAGE, submit only 1–3 explicitly identified test candidates. The App displays
+the exact live Session/target/revision request. **拒绝本次暂存** publishes no
+Proposal; **批准本次暂存** allows a durable `pending_review` Proposal but adds no
+formal question. Local Proposal Review is a second decision: only explicit
+approval commits, and explicit Review rejection retains `rejected` without a
+write. Query the original `submissionKey` from Codex for the actual lifecycle and
+safe counts. Do not retry STAGE after a lost response or unknown outcome; reconnect,
+authenticate/enable afresh and query that original key. Pending Proposals survive
+normal App reopen through the existing store and Review UI.
+Open **助手 → 待审核题目** (the checklist action), select the intended batch and
+inspect its target and candidates. **接受** and **保存审核** retain review work;
+only **正式批准入库** and its separate target/count confirmation commit questions.
+The completed batch and original-key query report the resulting safe counts.
+
+The thirty-minute deployment expiry actively closes/drains this runtime. Restart
+the normal App before another development admission; no silent renewal is
+provided. **关闭开发连接**, outer adapter loss and ordinary App exit invalidate
+pending approvals through the original owners. Per-tool TLS end alone does not
+disable the finite Profile. A fresh adapter needs independent Enable and cannot
+inherit old STAGE approval. Closed/failed approval pages cannot revive requests.
 
 Retain separate observations for adapter interruption, original Bridge exit and
 stream drain. The App must finish original child custody before allowing another
@@ -194,8 +364,12 @@ synthetic/refusal checks below. Codex's official default `tool_timeout_sec` is
 window (up to 120 seconds human wait, 132 seconds post-upload response/EOF, 142
 seconds total Bridge exchange; see external boundary §8) is exercised by an MCP
 caller, configure `tool_timeout_sec` above `142` (for example `150` seconds);
-a shorter caller timeout (such as `10` or default `60` seconds) will cancel the
-pending request early and fail closed before STAGE handler entry.
+a shorter caller timeout may return before the App observes cancellation.
+**#327 remains unresolved:** Codex timeout is not proof of App cancellation,
+zero effects or rollback. Only cancellation actually observed by the original
+App invalidates an unentered request; entered/unknown work requires original-key
+reconciliation. The normal registration's `180`-second budget accommodates human
+interaction and does not claim to repair that client issue.
 
 Use absolute paths for the Flutter SDK's **VM executable** and repository `cwd`.
 Keep each argument separate; do not invoke `dart.bat`, a shell command string,
@@ -1316,10 +1490,11 @@ remain pending. Review-repair round: 1/4; this bounded repair self-repair: 0/4.
 ## Trusted Bootstrap: non-activating Windows composition evidence
 
 [MCP §17.9](../product/agent-refactor/mcp-vnext-contract.md#179-trusted-bootstrap-and-lifetime-registration-non-activating)
-owns this bounded functional slice. The real product Bootstrap joins the original
+owns this historical bounded functional slice. The real product Bootstrap joins the original
 protected acquirer, P26 validation, Bridge startup and seven-tool server. App
 registration has explicit direct-client and hosted-client paths, while normal
-`main.dart` registers only unavailable integration. This does not accept full
+`main.dart` registered only unavailable integration at that checkpoint. The later
+bounded Debug consumer is described in Launch and configuration above. Neither accepts full
 AR-R6B or production authentication.
 
 | Path | Actual connection and limit |
@@ -1685,8 +1860,9 @@ as merged evidence, not rerun or relabeled as model-turn acceptance. This new
 model group exercises **Direct** registration only; it makes no additional Hosted
 model-turn claim. For that isolated-model-turn slice, the formal AOT had no
 admitted Bootstrap and the normal App used unavailable registration. The later
-App-owned relay adds local custody as described above; its formal Bridge still
-has no admitted business Bootstrap.
+App-owned relay first added local custody without an admitted business Bootstrap.
+The subsequent explicitly authorized Debug composition is described in Launch
+and configuration above; it does not change this historical model-turn evidence.
 
 The three conclusions remain separate:
 

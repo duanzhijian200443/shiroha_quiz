@@ -126,15 +126,50 @@ class _FirstPartyBridgePairingControlState
     }
   }
 
-  Future<void> _import({required bool completion}) => _act(() async {
+  Future<void> _import(
+          {required bool completion, bool fromClipboard = false}) =>
+      _act(() async {
         setState(_clearComparisons);
         final controller = completion ? _completion : _trust;
-        final input = controller.text;
+        String? input;
+        try {
+          input = fromClipboard
+              ? (await Clipboard.getData(Clipboard.kTextPlain))?.text
+              : controller.text;
+        } catch (_) {
+          if (mounted && !_disposed && !_stopped) {
+            setState(() => _message = '剪贴板读取未完成，尚未导入。可使用下面的手动输入框。');
+          }
+          return;
+        }
+        if (_disposed || _stopped || !mounted) return;
+        // Wrong-kind clipboard data is a correctable input error. Never pass it
+        // into the one-use P27 operation or infer that an import was confirmed.
+        final expected = completion ? 'completion' : 'trust';
+        Object? header;
+        if (input != null &&
+            input.length <= 4096 &&
+            utf8.encode(input).length <= 4096) {
+          try {
+            header = jsonDecode(input);
+          } on FormatException {
+            /* Correctable input error before original P27. */
+          }
+        }
+        if (header is! List ||
+            header.length < 2 ||
+            header[0] != 1 ||
+            header[1] != expected) {
+          setState(() =>
+              _message = '剪贴板或输入框不是本步 $expected 公共数据。请在 App 复制当前数据；尚未导入或确认。');
+          return;
+        }
         controller.clear();
+        setState(() => _message = null);
         if (completion) {
-          await _port.importCompletion(input);
+          await _port.importCompletion(input!);
         } else {
-          await _port.importTrust(input);
+          await _port.importTrust(input!);
         }
       });
 
@@ -178,7 +213,7 @@ class _FirstPartyBridgePairingControlState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('Bridge 本地配对', style: Theme.of(context).textTheme.titleLarge),
-          const Text('仅在受信任的独立 Bridge 本地宿主使用。两次比较必须分别与 App 完整显示核对；导入不等于确认。'),
+          const Text('与左侧 App 并排核对。只需处理下面当前一步；导入数据不会替你确认。'),
           if (_message != null) Text(_message!),
           if (!_stopped && display.submissionId == null) ...[
             _input(_label, '显示名称', 64),
@@ -203,6 +238,14 @@ class _FirstPartyBridgePairingControlState
               label: const Text('复制 Submission ID'),
             ),
             if (display.initialDigest == null) ...[
+              const Text('复制左侧 App 的当前 Trust 后，点下面的“粘贴并导入 Trust”。'),
+              FilledButton.icon(
+                onPressed: active
+                    ? () => _import(completion: false, fromClipboard: true)
+                    : null,
+                icon: const Icon(Icons.paste),
+                label: const Text('粘贴并导入 Trust'),
+              ),
               _input(_trust, '粘贴 App Trust 公共 JSON', 4096, multiline: true),
               FilledButton(
                 onPressed: active && _trust.text.isNotEmpty
@@ -238,6 +281,13 @@ class _FirstPartyBridgePairingControlState
             if (display.proofPublished) ...[
               const Text('Proof 已发布。请在 App 分别批准并完成验证，再导入其最新 Completion。'),
               if (display.completionDigest == null) ...[
+                FilledButton.icon(
+                  onPressed: active
+                      ? () => _import(completion: true, fromClipboard: true)
+                      : null,
+                  icon: const Icon(Icons.paste),
+                  label: const Text('粘贴并导入 Completion'),
+                ),
                 _input(_completion, '粘贴 App Completion 公共 JSON', 4096,
                     multiline: true),
                 FilledButton(

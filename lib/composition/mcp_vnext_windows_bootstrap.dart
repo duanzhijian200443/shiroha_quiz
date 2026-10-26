@@ -4,10 +4,13 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import '../application/external/first_party_development_access.dart';
 import '../data/external/discovery_descriptor_codec.dart';
 import '../data/external/windows_discovery.dart';
 import '../data/external/windows_codex_client.dart';
 import '../data/external/windows_tls_transport.dart';
+import '../data/external/windows_development_admission.dart';
+import '../data/external/windows_process_observation.dart';
 import '../mcp/vnext_mcp_entrypoint.dart';
 import '../mcp/vnext_mcp_server.dart';
 import 'mcp_vnext_windows_acquisition.dart';
@@ -36,26 +39,39 @@ final class McpVnextWindowsBridgeBootstrap implements VnextMcpPort {
     required McpVnextWindowsProcessOwner process,
     required WindowsCodexConnectionMode connectionMode,
     WindowsCodexClientSelection? clientSelection,
+    WindowsDevelopmentAdmission? appOwnedAdmission,
     Future<void> Function()? settlePairing,
     TlsBridgeIo Function()? createIo,
     bool enableStageApprovalWait = false,
+    WindowsBusinessProcessReport? report,
   }) : _acquirer = acquirer {
     _startup = McpVnextWindowsBridgeStartup(
       enableStageApprovalWait: enableStageApprovalWait,
+      report: report,
       acquire: () async {
-        if (clientSelection == null) {
-          throw StateError('Codex client unsupported');
+        if (connectionMode == WindowsCodexConnectionMode.appOwnedDevelopment) {
+          if (clientSelection != null || appOwnedAdmission == null) {
+            throw StateError('App-owned admission unavailable');
+          }
+          appOwnedAdmission.claimBusiness();
+        } else {
+          if (clientSelection == null || appOwnedAdmission != null) {
+            throw StateError('Codex client unsupported');
+          }
+          await clientSelection.claim(connectionMode);
         }
-        await clientSelection.claim(connectionMode);
         _checkCurrent();
+        report?.enter(FirstPartyBusinessStage.securityAdmission);
         await requireSecurityAdmission();
         _checkCurrent();
+        report?.enter(FirstPartyBusinessStage.independentTrust);
         final trusted = await independentTrust();
         _checkCurrent();
         // Same-process handoff joins the original controller/Owner/host lock.
         // Across processes native client.lock remains the sole exclusion.
         await settlePairing?.call();
         _checkCurrent();
+        report?.enter(FirstPartyBusinessStage.acquire);
         final d = await acquirer.acquireBridgeRuntime(
             trusted: trusted, process: process, createIo: createIo);
         _pending = d;
@@ -63,7 +79,8 @@ final class McpVnextWindowsBridgeBootstrap implements VnextMcpPort {
           _checkCurrent();
           // Fail before exposing a business port on missing credentials, stale
           // trust or invalid Discovery. Reuse the original P26 verification/CAS.
-          WindowsDiscoveryReader(d.owner, verifier: (
+          report?.enter(FirstPartyBusinessStage.bootstrapDiscovery);
+          final descriptor = WindowsDiscoveryReader(d.owner, verifier: (
               {required publicPoint, required digest, required rawSignature}) {
             d.verifyDigest(
                 publicPoint: publicPoint,
@@ -71,6 +88,8 @@ final class McpVnextWindowsBridgeBootstrap implements VnextMcpPort {
                 rawSignature: rawSignature);
             return true;
           }).readAndAdvanceExistingPin(d.trusted);
+          appOwnedAdmission?.packet
+              .requireCurrentPublication(descriptor.publicationEpoch);
           _pending = null;
           return d;
         } catch (_) {
@@ -104,10 +123,10 @@ final class McpVnextWindowsBridgeBootstrap implements VnextMcpPort {
 
   Future<void> start() => _startup.start();
 
-  Future<void> serveStdio() async {
+  Future<void> serveStdio({Stdin? input}) async {
     try {
       await start();
-      await VnextMcpServer(this).serveStdio();
+      await VnextMcpServer(this).serveStdio(input: input);
     } finally {
       await close();
     }

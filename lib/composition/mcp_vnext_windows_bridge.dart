@@ -3,6 +3,8 @@ library;
 
 import 'dart:async';
 
+import '../application/external/first_party_development_access.dart';
+import '../data/external/windows_process_observation.dart';
 import '../data/external/windows_tls_transport.dart';
 import '../mcp/vnext_mcp_bridge_port.dart';
 import '../mcp/vnext_mcp_protocol_projection.dart';
@@ -16,10 +18,12 @@ final class McpVnextWindowsBridge implements VnextMcpPort {
   McpVnextWindowsBridge({
     required WindowsTlsBridge Function() createConnection,
     this.enableStageApprovalWait = false,
+    this.report,
   }) : _createConnection = createConnection;
 
   final WindowsTlsBridge Function() _createConnection;
   final bool enableStageApprovalWait;
+  final WindowsBusinessProcessReport? report;
   VnextMcpBridgePort? _active;
   Completer<void>? _pending;
   Future<void>? _closing;
@@ -61,12 +65,15 @@ final class McpVnextWindowsBridge implements VnextMcpPort {
           result = vnextFailure('cancelled');
         } else {
           dispatched = true;
+          report?.enter(FirstPartyBusinessStage.request);
           result = await port.call(tool, arguments,
               cancelled: forwarded.stream,
               available: () => !_closed && !interrupted && available());
+          report?.enter(FirstPartyBusinessStage.response);
         }
       }
-    } catch (_) {
+    } catch (error) {
+      report?.primary(error);
       // No business call is retried, including ambiguous connection failures.
       result = vnextFailure(dispatched
           ? 'outcome_unknown'
@@ -74,9 +81,11 @@ final class McpVnextWindowsBridge implements VnextMcpPort {
               ? 'cancelled'
               : 'unavailable');
     } finally {
+      report?.enter(FirstPartyBusinessStage.connectionClose);
       try {
         await _active?.close();
-      } catch (_) {
+      } catch (error) {
+        report?.cleanup(error);
         _cleanupFailed = true;
         _closed = true;
       }

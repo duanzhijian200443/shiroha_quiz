@@ -1,5 +1,8 @@
 [CmdletBinding()]
-param()
+param(
+    [ValidateSet('idle', 'malformed', 'monitored-idle', 'inventory', 'sdk-error', 'failed-close', 'pending-peer', 'pending-peer-failed-close')]
+    [string[]]$Scenarios = @('idle', 'malformed', 'monitored-idle', 'inventory', 'sdk-error', 'failed-close', 'pending-peer', 'pending-peer-failed-close')
+)
 
 # Isolated ordinary-process diagnostics only. No normal App, database, protected
 # objects, credentials, Codex configuration or provider. Retain every run artifact.
@@ -69,7 +72,9 @@ try {
     $desktop = $shellWindows.FindWindowSW(0, 0, 8, [ref]$desktopHandle, 1)
     $shell = $desktop.Document.Application
     $results = @()
-    foreach ($scenario in @('idle', 'malformed', 'monitored-idle', 'inventory', 'sdk-error', 'failed-close')) {
+    foreach ($scenario in $Scenarios) {
+        $pendingPeer = $scenario.StartsWith('pending-peer')
+        $failedClose = $scenario -in @('failed-close', 'pending-peer-failed-close')
         $directory = Join-Path $run $scenario
         New-Item -ItemType Directory -Path $directory | Out-Null
         Get-ChildItem -LiteralPath $bin -File | Copy-Item -Destination $directory
@@ -85,12 +90,33 @@ try {
             $old = Start-Adapter $directory 'old'
             $started = Wait-Event $bridgeEvents 'started'
             $child = Pin-Process $started.pid (Join-Path $directory 'shiroha_bridge.exe')
+            if ($pendingPeer) {
+                $null = Wait-Event $bridgeEvents 'pendingCall'
+                [IO.File]::WriteAllText((Join-Path $directory 'disconnect-old'), '')
+                Join-Process $old 0
+                $null = Wait-Event $bridgeEvents 'eof'
+                $null = Wait-Event $appEvents 'enableWithdrawn'
+                $ticks = @(Read-Events $appEvents | Where-Object event -eq 'launchCurrent').Count
+                $watch = [Diagnostics.Stopwatch]::StartNew()
+                do {
+                    $observed = @(Read-Events $appEvents)
+                    Assert-True (@($observed | Where-Object event -in @('launchLost', 'deploymentStopped')).Count -eq 0) 'Outer peer loss invalidated deployment while original settlement was pending'
+                    Assert-True (!$child.HasExited) 'Original Bridge exited before the controlled settlement release'
+                    Assert-True (@($observed | Where-Object event -eq 'originalBridgeSettled').Count -eq 0) 'Pending original child was labeled settled'
+                    $currentTicks = @($observed | Where-Object event -eq 'launchCurrent').Count
+                    if ($currentTicks -ge $ticks + 3) { break }
+                    Start-Sleep -Milliseconds 25
+                } while ($watch.Elapsed.TotalSeconds -lt 5)
+                Assert-True ($currentTicks -ge $ticks + 3) 'Missing production monitor ticks during pending settlement'
+            }
             [IO.File]::WriteAllText((Join-Path $directory 'allow-exit-1'), '')
-            $lostEvent = if ($scenario -eq 'monitored-idle') { 'closedOnLoss' } else { 'lostWithHandleRetained' }
-            $null = Wait-Event (Join-Path $directory 'old.jsonl') $lostEvent
-            Assert-True (!$old.HasExited) 'Old adapter must remain alive'
+            if (!$pendingPeer) {
+                $lostEvent = if ($scenario -eq 'monitored-idle') { 'closedOnLoss' } else { 'lostWithHandleRetained' }
+                $null = Wait-Event (Join-Path $directory 'old.jsonl') $lostEvent
+                Assert-True (!$old.HasExited) 'Old adapter must remain alive'
+            }
             $null = Wait-Event $bridgeEvents 'eof'
-            if ($scenario -eq 'failed-close') {
+            if ($failedClose) {
                 Join-Process $child 23
                 # Fresh peer cannot dispatch on a failed original close.
                 $fresh = Start-Adapter $directory 'fresh'
@@ -109,7 +135,7 @@ try {
                 Join-Process $fresh 0
                 Join-Process $nextChild 0
                 $null = Wait-Event $appEvents 'originalBridgeSettled' 2
-                Assert-True (!$old.HasExited) 'Fresh connection must succeed with old adapter alive'
+                if (!$pendingPeer) { Assert-True (!$old.HasExited) 'Fresh connection must succeed with old adapter alive' }
                 $calls = @(Read-Events $bridgeEvents | Where-Object event -eq 'call').Count
                 $expectedCalls = if ($scenario -eq 'inventory') { 1 } else { 2 }
                 Assert-True ($calls -eq $expectedCalls) 'Unexpected call replay'
@@ -117,15 +143,15 @@ try {
             [IO.File]::WriteAllText((Join-Path $directory 'release-old'), '')
             Join-Process $old 0
             [IO.File]::WriteAllText((Join-Path $directory 'stop'), '')
-            $expectedExit = if ($scenario -eq 'failed-close') { 23 } else { 0 }
+            $expectedExit = if ($failedClose) { 23 } else { 0 }
             Join-Process $app $expectedExit
-            $event = if ($scenario -eq 'failed-close') { 'appCloseFailed' } else { 'appClosed' }
+            $event = if ($failedClose) { 'appCloseFailed' } else { 'appClosed' }
             $null = Wait-Event $appEvents $event
             $results += @{scenario=$scenario;result='PASS';appExit=$expectedExit}
             Write-Output "PASS: $scenario"
         } finally {
             # Only graceful test control; no process kill or erased failure.
-            foreach ($marker in @('allow-exit-1', 'allow-exit-2', 'release-old', 'stop')) {
+            foreach ($marker in @('allow-exit-1', 'allow-exit-2', 'release-old', 'disconnect-old', 'stop')) {
                 [IO.File]::WriteAllText((Join-Path $directory $marker), '')
             }
             foreach ($process in @($old, $fresh, $child, $nextChild, $app)) {

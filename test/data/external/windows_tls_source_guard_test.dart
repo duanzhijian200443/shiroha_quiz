@@ -1,7 +1,9 @@
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
+import 'development_source_guard.dart';
 
 void main() {
+  developmentSourceGuardCases();
   test('TLS13 isolated contexts, fixed Raw admission and crypt32 optional ABI',
       () {
     final config = File('lib/data/external/windows_tls_credentials.dart')
@@ -193,6 +195,23 @@ void main() {
         ]) {
           expect(source, isNot(contains(token)), reason: path);
         }
+      } else if (path == 'lib/composition/mcp_vnext_development_pairing.dart') {
+        expect(source, contains('await connection.waitForProofClosure()'));
+        expect(
+            source,
+            contains(
+                'requirePublication: admitted.packet.requireCurrentPublication'));
+        for (final token in [
+          '.request(',
+          '.requestStageApproval(',
+          'IpcEnvelopeCodec',
+          'ExternalSession(',
+          'ExternalTrustCore(',
+          '.initialize(',
+          '.recoverServer('
+        ]) {
+          expect(source, isNot(contains(token)), reason: path);
+        }
       } else if (path == 'lib/composition/mcp_vnext_windows_transport.dart' ||
           path == 'lib/composition/mcp_vnext_windows_bridge.dart') {
         for (final token in [
@@ -221,6 +240,8 @@ void main() {
       }
       if (path != 'lib/composition/mcp_vnext_windows_startup.dart' &&
           path != 'lib/composition/mcp_vnext_windows_acquisition.dart' &&
+          path != 'lib/composition/mcp_vnext_development_app.dart' &&
+          path != 'lib/composition/mcp_vnext_development_bridge.dart' &&
           path != 'lib/composition/mcp_vnext_windows_bootstrap.dart' &&
           path != 'lib/composition/mcp_vnext_windows_registration.dart') {
         expect(
@@ -275,15 +296,35 @@ void main() {
     for (final token in [
       'WindowsExternalReleaseCandidate.inspect(',
       'Platform.resolvedExecutable',
-      'Process.start(executable, const []',
-      "environment: const {'SHIROHA_PROCESS_ENV_PAD': ''}",
+      'Process.start(executable,',
+      'includeParentEnvironment: false',
+      'environment: windowsChildEnvironment()',
       '_process.stdin.close()',
       '_process.exitCode',
       '_process.stdout.drain',
-      '_process.stderr.drain'
+      'await for (final bytes in _process.stderr)',
+      'diagnostics.observeStderr(bytes)',
+      '.track(FirstPartyChildPart.stderr, _drainError())'
     ]) {
       expect(source, contains(token));
     }
+    final environment = File('lib/data/external/windows_child_environment.dart')
+        .readAsStringSync();
+    for (final token in [
+      'Platform.environment',
+      'fromEnvironment',
+      'GetEnvironmentVariable',
+      'Directory.current',
+      'Process.',
+      'windows_external_native',
+      'File('
+    ]) {
+      expect(environment, isNot(contains(token)));
+    }
+    expect(environment, contains("'GetSystemWindowsDirectoryW'"));
+    expect(environment, contains("'SystemRoot': directory"));
+    expect(environment, contains("'SHIROHA_PROCESS_ENV_PAD': ''"));
+    expect(environment, contains('release(heap, 0, memory)'));
   });
   test(
       'all new suites registered once; static and Native import gates remain hard failing',

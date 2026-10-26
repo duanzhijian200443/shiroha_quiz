@@ -101,11 +101,12 @@ struct Fake final : ObjectOperations {
     return 0;
   }
 };
-BOOL WINAPI renamed(HANDLE, FILE_INFO_BY_HANDLE_CLASS cls, LPVOID value, DWORD size) {
-  const auto* info = static_cast<FILE_RENAME_INFO*>(value);
-  require(cls == FileRenameInfo && size >= offsetof(FILE_RENAME_INFO, FileName) + info->FileNameLength, "rename Win32 layout");
+NTSTATUS NTAPI renamed(HANDLE, PIO_STATUS_BLOCK io, PVOID value, ULONG size, FILE_INFORMATION_CLASS cls) {
+  const auto* info = static_cast<AssociationRenameBase*>(value);
+  require(static_cast<int>(cls) == 10 && size >= sizeof(AssociationRenameBase) + info->FileNameLength, "rename NT layout");
   require(info->RootDirectory == reinterpret_cast<HANDLE>(2), "verified parent in rename");
-  return TRUE;
+  io->Status = 0;
+  return 0;
 }
 struct Fixture {
   Fake f; ProtectedObjects core{f}; uint64_t app = 0, bridge = 0;
@@ -126,7 +127,7 @@ int main() {
     require(x.core.discovery_publish(3, x.app, kind, data.data(), data.size()) == 0, "equal identity publication");
     if (kind != 1) { require(before == x.f.events.size(), "anchor/id never replaced"); data[0] ^= 1; require(x.core.discovery_publish(3, x.app, kind, data.data(), data.size()) == 5, "mismatched identity never overwritten"); }
     require(x.f.discovery_creates == 1, "Bridge never creates directory");
-    require(rename_discovery(renamed, reinterpret_cast<HANDLE>(1), reinterpret_cast<HANDLE>(2), kind, kind == 1) == 0, "Win32 rename layout");
+    require(rename_discovery(renamed, reinterpret_cast<HANDLE>(1), reinterpret_cast<HANDLE>(2), kind, kind == 1) == 0, "NT rename layout");
   }
   for (auto stage : {"write", "flush", "rename", "throw-rename", "post"}) {
     Fixture x; x.f.fail = stage; uint8_t data[185]{};

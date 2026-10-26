@@ -39,6 +39,11 @@ Future<void> main() async {
         };
       case 'tools/call':
         report('call');
+        if (first && scenario.startsWith('pending-peer')) {
+          // Keep the original client call pending until original EOF/exit/drain.
+          report('pendingCall');
+          continue;
+        }
         if (first && scenario == 'sdk-error') {
           stdout.writeln(jsonEncode({
             'jsonrpc': '2.0',
@@ -66,5 +71,8 @@ Future<void> main() async {
   }
   await stdout.flush();
   await stderr.flush();
-  if (first && scenario == 'failed-close') exitCode = 23;
+  if (first &&
+      (scenario == 'failed-close' || scenario == 'pending-peer-failed-close')) {
+    exitCode = 23;
+  }
 }

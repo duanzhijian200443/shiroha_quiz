@@ -68,7 +68,7 @@ foreach ($name in @('CryptProtectData', 'CryptUnprotectData', 'SHGetKnownFolderP
     'BCryptCloseAlgorithmProvider', 'SetFileInformationByHandle', 'CreateMutexExW', 'WaitForSingleObject', 'ReleaseMutex')) {
     if ($imports -notmatch "\b$name\b") { throw "Missing production system import: $name" }
 }
-# P20 resolves NtSetInformationFile; P23 uses the documented Win32 relative rename.
+# The fixed P20/P23/P26 publishers share the approved user-mode class-10 loader.
 # No kernel linkage or path-based publication fallback is allowed.
 if ($imports -match 'ntoskrnl|MoveFileEx[AW]') { throw 'Unexpected publication fallback/kernel import' }
 $wrapper = Get-Content (Join-Path $PSScriptRoot 'protected_windows.cpp') -Raw

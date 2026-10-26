@@ -7,11 +7,12 @@ $hostPath = 'lib/composition/bridge_ui_host.dart'
 function Assert-PairingSource([string]$Path, [string]$Code) {
     # This check also applies to the existing dormant composition exceptions.
     # Only the explicit host may name/import itself; no lib consumer is admitted.
-    if ($Path -ne $hostPath -and $Code -match 'bridge_ui_host|BridgeUiHost') {
+    if ($Path -notin @($hostPath, 'lib/composition/mcp_vnext_development_pairing.dart') -and $Code -match 'bridge_ui_host|BridgeUiHost') {
         throw 'Bridge UI host acquired a production consumer'
     }
     if ($Path -in @('lib/composition/mcp_vnext_windows_startup.dart',
-        'lib/composition/mcp_vnext_windows_acquisition.dart')) { return }
+        'lib/composition/mcp_vnext_windows_acquisition.dart',
+        'lib/composition/mcp_vnext_development_pairing.dart')) { return }
     if ($Path -eq 'lib/data/external/windows_pairing.dart') {
         foreach ($token in @('dart:io', 'dart:ffi', 'PairingProof(', 'AuthenticatedPeerEvidence(',
             'SecurityContext', 'Socket', 'Process.', 'Timer(', 'engine.', 'print(', 'debugPrint(',
@@ -24,6 +25,7 @@ function Assert-PairingSource([string]$Path, [string]$Code) {
         $allowedImports = @('dart:io', 'package:flutter/widgets.dart',
             'package:path/path.dart',
             '../application/external/first_party_external_credentials.dart',
+            '../application/external/first_party_development_access.dart',
             '../data/external/windows_pairing.dart', '../ui/pages/bridge_host_surface.dart')
         foreach ($import in [regex]::Matches($Code, "(?m)^(?:import|export) '([^']+)'")) {
             if ($allowedImports -notcontains $import.Groups[1].Value) {

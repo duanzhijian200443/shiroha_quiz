@@ -17,7 +17,10 @@ export '../study_query/study_query_test_support.dart'
 final class QuestionReadBarrier implements ExternalQuestionReadPort {
   QuestionReadBarrier(this.inner);
   final ExternalQuestionReadPort inner;
-  Future<void> Function()? beforeSearch, afterSearch, afterDetail;
+  Future<void> Function()? beforeSearch,
+      afterSearch,
+      afterDetail,
+      beforeRelease;
   int releases = 0;
   @override
   Future<ExternalQuestionCandidates> search(
@@ -42,9 +45,10 @@ final class QuestionReadBarrier implements ExternalQuestionReadPort {
 
   @override
   Future<void> release(ExternalQuestionReadAccess access,
-      List<ExternalQuestionKey> keys, void Function() check) {
+      List<ExternalQuestionKey> keys, void Function() check) async {
     releases++;
-    return inner.release(access, keys, check);
+    await beforeRelease?.call();
+    await inner.release(access, keys, check);
   }
 }
 

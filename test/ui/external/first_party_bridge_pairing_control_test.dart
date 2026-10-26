@@ -103,7 +103,8 @@ Future<void> _mount(WidgetTester tester, _BridgePort port) async {
 
 Future<void> _trust(WidgetTester tester) async {
   await _tap(tester, '开始配对');
-  await tester.enterText(_field('粘贴 App Trust 公共 JSON'), '["public trust"]');
+  await tester.enterText(
+      _field('粘贴 App Trust 公共 JSON'), '[1,"trust","public trust"]');
   await tester.pump();
   await _tap(tester, '导入 Trust');
 }
@@ -125,7 +126,7 @@ void main() {
     expect(port.begins, 0);
     await _trust(tester);
     expect(port.begins, 1);
-    expect(port.importedTrust, '["public trust"]');
+    expect(port.importedTrust, '[1,"trust","public trust"]');
     expect(find.text(_id), findsOneWidget);
     await _tap(tester, '复制 Submission ID');
     expect(copied, {'text': _id});
@@ -138,11 +139,11 @@ void main() {
     await _tap(tester, '确认初始比较并发布 Proof');
     expect(port.confirms, 1);
     expect(port.saves, 0);
-    await tester.enterText(
-        _field('粘贴 App Completion 公共 JSON'), '["public completion"]');
+    await tester.enterText(_field('粘贴 App Completion 公共 JSON'),
+        '[1,"completion","public completion"]');
     await tester.pump();
     await _tap(tester, '导入 Completion');
-    expect(port.importedCompletion, '["public completion"]');
+    expect(port.importedCompletion, '[1,"completion","public completion"]');
     expect(find.text(_completed), findsOneWidget);
     expect(find.text('实际 Revision：17'), findsOneWidget);
     expect(port.saves, 0);
@@ -229,7 +230,8 @@ void main() {
     await tester.enterText(_field('粘贴 App Trust 公共 JSON'), '界' * 1366);
     await tester.pump();
     expect(_button(tester, '导入 Trust').onPressed, isNull);
-    await tester.enterText(_field('粘贴 App Trust 公共 JSON'), '["untrusted"]');
+    await tester.enterText(
+        _field('粘贴 App Trust 公共 JSON'), '[1,"trust","untrusted"]');
     await tester.pump();
     await _tap(tester, '导入 Trust');
     expect(find.textContaining(_privateDiagnostic), findsNothing);

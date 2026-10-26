@@ -5,9 +5,11 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import '../application/external/external_credential_boundary.dart';
+import '../application/external/external_credential_association.dart';
 import '../application/external/external_authorization.dart';
 import '../application/external/external_trust_core.dart';
 import '../application/external/first_party_external_credentials.dart';
+import '../application/external/first_party_development_access.dart';
 import '../application/external/local_host_dispatch.dart';
 import '../data/external/discovery_descriptor_codec.dart';
 import '../data/external/native/windows_external_native.dart';
@@ -15,6 +17,7 @@ import '../data/external/native/windows_peer_certificate_policy.dart';
 import '../data/external/windows_credential_association_store.dart';
 import '../data/external/windows_credential_initialization.dart';
 import '../data/external/windows_bridge_process.dart';
+import '../data/external/windows_process_observation.dart';
 import '../data/external/windows_discovery.dart';
 import '../data/external/windows_exchange_file_store.dart';
 import '../data/external/windows_pairing.dart';
@@ -100,11 +103,15 @@ final class McpVnextWindowsAppStartup {
     required this.integration,
     required Future<McpVnextWindowsAppDependencies> Function() acquire,
     this.enableStageApprovalWait = false,
+    this.enableWithoutRetainedChannel = false,
+    this.associationRecoveryAvailable,
   }) : _acquire = acquire;
 
   final McpVnextAppIntegration integration;
   final Future<McpVnextWindowsAppDependencies> Function() _acquire;
   final bool enableStageApprovalWait;
+  final bool enableWithoutRetainedChannel;
+  final bool Function()? associationRecoveryAvailable;
   McpVnextWindowsAppDependencies? _dependencies;
   // A rejected borrowed bundle remains with its original owner; never close it.
   McpVnextWindowsAppDependencies? _rejectedDependencies;
@@ -122,6 +129,13 @@ final class McpVnextWindowsAppStartup {
   /// Read-only lifecycle observation; never an identity/approval capability.
   WindowsTlsHost? get host => _host;
   WindowsAppPublicPairingHandoff? get publicPairing => _publicPairing;
+  ExternalInitializationResult currentPublicMaterial() {
+    if (!_current || _host?.phase != WindowsTlsHostPhase.ready) {
+      throw StateError('Windows MCP startup unavailable');
+    }
+    return _dependencies!.credentials.validatedPublicMaterial();
+  }
+
   bool get _current =>
       !_stopped &&
       integration.controls.isCurrent &&
@@ -178,6 +192,9 @@ final class McpVnextWindowsAppStartup {
           verifyDigest: d.verifyDigest,
           utcNow: d.utcNow,
           monotonicNow: d.monotonicNow,
+          admitBusinessConnection: enableWithoutRetainedChannel
+              ? integration.controls.admitBusinessConnection
+              : null,
           compositionIsCurrent: () => _current,
         ),
         clock: d.clock,
@@ -185,6 +202,10 @@ final class McpVnextWindowsAppStartup {
         readiness: d.readiness,
         monotonicNow: d.monotonicNow,
         enableStageApprovalWait: enableStageApprovalWait,
+        enableWithoutRetainedChannel: enableWithoutRetainedChannel,
+        pairingRequestLifetime: enableWithoutRetainedChannel
+            ? const Duration(seconds: 600)
+            : ExternalCredentialBoundary.evidenceLifetime,
         services: (boundary) {
           _channels!.attach(boundary);
           final pairing = _pairing = WindowsAppPairing.withPrimitives(
@@ -209,6 +230,13 @@ final class McpVnextWindowsAppStartup {
             cancelPendingConnection: d.openLocalConnection == null
                 ? _channels!.cancelLocalConnection
                 : null,
+            existingCredential: enableWithoutRetainedChannel
+                ? _channels!.existingCredential
+                : null,
+            associationRecovery: associationRecoveryAvailable == null ||
+                    !enableWithoutRetainedChannel
+                ? null
+                : _WindowsAssociationRecovery(this, d, material.installationId),
             close: _closeAuxiliary,
           );
         },
@@ -365,9 +393,11 @@ final class McpVnextWindowsBridgeStartup implements VnextMcpPort {
   McpVnextWindowsBridgeStartup({
     required Future<McpVnextWindowsBridgeDependencies> Function() acquire,
     this.enableStageApprovalWait = false,
+    this.report,
   }) : _acquire = acquire;
   final Future<McpVnextWindowsBridgeDependencies> Function() _acquire;
   final bool enableStageApprovalWait;
+  final WindowsBusinessProcessReport? report;
   McpVnextWindowsBridgeDependencies? _dependencies;
   bool _rejectedDependencies = false;
   McpVnextWindowsBridge? _bridge;
@@ -408,8 +438,10 @@ final class McpVnextWindowsBridgeStartup implements VnextMcpPort {
         throw StateError('Windows MCP startup unavailable');
       }
       _bridge = McpVnextWindowsBridge(
+        report: report,
         enableStageApprovalWait: enableStageApprovalWait,
         createConnection: () => WindowsTlsBridge(
+          report: report,
           io: d.createIo(),
           reader: WindowsDiscoveryReader(d.owner, verifier: (
               {required publicPoint, required digest, required rawSignature}) {
@@ -433,9 +465,16 @@ final class McpVnextWindowsBridgeStartup implements VnextMcpPort {
           enableStageApprovalWait: enableStageApprovalWait,
         ),
       );
-    } catch (_) {
+      report?.enter(FirstPartyBusinessStage.ready);
+    } catch (error) {
+      report?.primary(error);
       _stopped = true;
-      await _settle();
+      try {
+        await _settle();
+      } catch (cleanup) {
+        report?.cleanup(cleanup);
+        rethrow;
+      }
       throw StateError('Windows MCP startup unavailable');
     }
   }
@@ -469,6 +508,41 @@ final class McpVnextWindowsBridgeStartup implements VnextMcpPort {
       } catch (_) {/* Failed startup already settled. */}
       await _settle();
     }();
+  }
+}
+
+final class _WindowsAssociationRecovery
+    implements FirstPartyAssociationRecoveryPort {
+  _WindowsAssociationRecovery(
+      this.startup, this.dependencies, this.installationId);
+  final McpVnextWindowsAppStartup startup;
+  final McpVnextWindowsAppDependencies dependencies;
+  @override
+  final String installationId;
+  @override
+  bool get isCurrent =>
+      startup._current &&
+      startup._host?.isReady == true &&
+      dependencies.associations.usesOwner(dependencies.owner) &&
+      startup.associationRecoveryAvailable?.call() == true;
+  void _check() {
+    if (!isCurrent) credentialFail(ExternalCredentialFailure.unauthorized);
+  }
+
+  @override
+  Future<ExternalCredentialAssociationSnapshot> read(
+      ExternalProfileReference reference) async {
+    _check();
+    final snapshot = await dependencies.associations.read(reference.profileId);
+    _check();
+    return snapshot;
+  }
+
+  @override
+  Future<void> revoke(
+      ExternalProfileReference reference, int expectedRevision) {
+    _check();
+    return startup._host!.revoke(reference, expectedRevision);
   }
 }
 

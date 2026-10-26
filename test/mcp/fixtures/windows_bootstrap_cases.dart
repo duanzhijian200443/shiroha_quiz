@@ -44,7 +44,10 @@ McpVnextWindowsProtectedAcquirer bootstrapAcquirer(p27.PairingHarness h,
 void windowsBootstrapCases() {
   settledTestDirectoryCases();
   windowsCodexClientCases();
-  for (final mode in WindowsCodexConnectionMode.values) {
+  for (final mode in [
+    WindowsCodexConnectionMode.direct,
+    WindowsCodexConnectionMode.hosted
+  ]) {
     for (final missing in [true, false]) {
       test(
           'registration ${mode.name} refuses client before acquisition missing=$missing',
@@ -128,7 +131,10 @@ void windowsBootstrapCases() {
     expect(trustReads, 0);
     expect(h.native.calls.owners, owners);
   });
-  for (final mode in WindowsCodexConnectionMode.values) {
+  for (final mode in [
+    WindowsCodexConnectionMode.direct,
+    WindowsCodexConnectionMode.hosted
+  ]) {
     test(
         'bootstrap ${mode.name} refuses opposite client mode before acquisition',
         () async {
