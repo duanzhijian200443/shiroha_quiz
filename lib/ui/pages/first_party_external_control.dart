@@ -246,7 +246,9 @@ final class _ControlState extends State<FirstPartyExternalControl> {
     if (!_same(access, generation) ||
         !_current ||
         _operationPending ||
-        _status.pairing != PairingState.unpaired) return;
+        _status.pairing != PairingState.unpaired) {
+      return;
+    }
     final text = value?.text;
     if (text == null || !RegExp(r'^[0-9a-f]{32}$').hasMatch(text)) {
       setState(() => _error = '剪贴板不是本次 Submission ID，请在 Bridge 重新复制。');

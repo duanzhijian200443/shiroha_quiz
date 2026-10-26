@@ -77,20 +77,24 @@ FirstPartyBusinessFailureCode businessDiagnosticFailureCode(Object error) {
         FirstPartyBusinessFailureCode.credentialResourceLimit,
     };
   }
-  if (error is LocalRelayException)
+  if (error is LocalRelayException) {
     return FirstPartyBusinessFailureCode.localAdmission;
-  if (error is HandshakeException)
+  }
+  if (error is HandshakeException) {
     return FirstPartyBusinessFailureCode.tlsHandshake;
+  }
   if (error is TlsException) return FirstPartyBusinessFailureCode.tlsContext;
   if (error is SocketException) {
     return error.osError?.errorCode == 10106
         ? FirstPartyBusinessFailureCode.socketProviderUnavailable
         : FirstPartyBusinessFailureCode.socketUnavailable;
   }
-  if (error is FormatException)
+  if (error is FormatException) {
     return FirstPartyBusinessFailureCode.invalidBootstrap;
-  if (error is StateError)
+  }
+  if (error is StateError) {
     return FirstPartyBusinessFailureCode.runtimeUnavailable;
+  }
   return FirstPartyBusinessFailureCode.unknown;
 }
 
