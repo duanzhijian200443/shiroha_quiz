@@ -188,6 +188,7 @@ def _unit_jobs(jobs, unit, attempt, head):
 
 
 def _validate_candidate(repo, plan, api, run, units, now):
+    _require(plan.get("stackBaseSha") is None, "stacked_merge_full")
     head = impact.sha(run.get("head_sha"))
     _require(plan.get("workflowSha256") is not None, "inputs_changed")
     _require(head != plan["headSha"], "source_is_current_head")
@@ -255,6 +256,9 @@ def _belongs_to_pr(run, pr_number):
 def apply(repo, plan, api, repo_full_name, base_repo_full_name, pr_number, head_ref, now=None):
     plan["reuse"] = {"status": "REFUSED", "code": "reuse_not_applicable", "source": None, "units": []}
     if plan["event"] != "pull_request" or plan["mode"] != "plan":
+        return impact.seal(plan)
+    if plan.get("stackBaseSha") is not None:
+        plan["reuse"]["code"] = "stacked_merge_full"
         return impact.seal(plan)
     if not repo_full_name or repo_full_name != base_repo_full_name:
         plan["reuse"]["code"] = "fork_source"

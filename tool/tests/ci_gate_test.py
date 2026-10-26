@@ -173,6 +173,49 @@ class GateTest(GateFixture):
         self.assertEqual(report["shards"], SHARDS)
         self.assertEqual(report["totals"]["executed"], 3)
 
+    def test_stack_target_is_recomputed_reported_and_requires_every_unit(self):
+        lower = self.commit({"lib/app.dart": "lower PR\n"})
+        head = self.commit({"README.md": "upper PR\n"})
+        target = self.merge(lower)
+        tested = self.merge(head, base=target)
+        self.run_git("checkout", "-q", "--detach", tested)
+        event = {"pull_request": {
+            "head": {"sha": head, "repo": {"full_name": "owner/repo"}},
+            "base": {"sha": lower, "repo": {"full_name": "owner/repo"}},
+            "merge_commit_sha": tested,
+            "stack": {"id": 1, "number": 2, "position": 2, "size": 2,
+                      "base": {"ref": "main", "sha": self.base}},
+        }}
+        with patch.dict(os.environ, RUNNER):
+            plan = impact.resolve_plan(self.repo, "pull_request", event, RULES, DIGEST)
+        api = FakeApi(jobs={(2000, 1): jobs_for([
+            "Static changed-Dart checks", "Windows native offline contracts",
+            "TRAIN C finalization parity", *SHARDS])})
+        report = self.validate(plan, event, self.results(plan), api)
+        self.assertEqual(report["verdict"], "PASS")
+        self.assertEqual(report["totals"]["executed"], 4)
+        self.assertEqual(report["baseSha"], lower)
+        self.assertEqual(report["mergeTargetSha"], target)
+        self.assertEqual(report["stackBaseSha"], self.base)
+        self.assertEqual(report["testedSha"], tested)
+        with self.assertRaisesRegex(gate.impact.ImpactError, "target_mismatch"):
+            gate.validate(plan, self.repo, self.results(plan), api, "pull_request", event,
+                          2000, 1, now=NOW, trigger_sha=head)
+        for key in ("mergeTargetSha", "stackBaseSha", "mergeBaseSha"):
+            with self.subTest(field=key):
+                broken = impact.seal(dict(plan, **{key: head}))
+                with self.assertRaisesRegex(gate.GateError, "identity_mismatch"):
+                    self.validate(broken, event, self.results(plan), api)
+        for job in impact.JOBS:
+            with self.subTest(unit=job):
+                with self.assertRaisesRegex(gate.GateError, f"unit_{job}_execute_not_success"):
+                    self.validate(plan, event, self.results(plan, {job: "skipped"}), api)
+                broken = json.loads(json.dumps(plan))
+                broken["units"][job]["status"] = impact.NOT_APPLICABLE
+                impact.seal(broken)
+                with self.assertRaisesRegex(gate.GateError, "classification_mismatch"):
+                    self.validate(broken, event, self.results(broken), api)
+
     def test_impact_failure_cancellation_absence_or_skip_is_rejected(self):
         head = self.commit({"README.md": "wording\n"})
         plan, event = self.build(head)

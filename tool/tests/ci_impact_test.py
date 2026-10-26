@@ -204,6 +204,80 @@ class GitInputTest(unittest.TestCase):
         with self.assertRaisesRegex(impact.ImpactError, "target_mismatch"):
             self.plan(new_head, tested=original_merge)
 
+    def stacked_target(self):
+        lower = self.commit({"README.md": "lower PR\n"})
+        head = self.commit({"README.md": "upper PR\n"})
+        self.run_git("switch", "-q", "-c", "advanced-trunk", self.base)
+        trunk = self.commit({"lib/upstream.dart": "trunk change\n"})
+        def merge(left, right):
+            tree = self.run_git("merge-tree", "--write-tree", left, right)
+            return self.run_git("commit-tree", tree, "-p", left, "-p", right, "-m", "stack merge")
+        lower_merge = merge(trunk, lower)
+        tested = merge(lower_merge, head)
+        event = {"repository": {"full_name": "owner/repo"}, "pull_request": {
+            "head": {"sha": head, "repo": {"full_name": "owner/repo"}},
+            "base": {"sha": lower, "repo": {"full_name": "owner/repo"}},
+            "merge_commit_sha": tested,
+            "stack": {"id": 1, "number": 2, "position": 2, "size": 2,
+                      "base": {"ref": "main", "sha": self.base}},
+        }}
+        return event, tested, lower_merge, trunk
+
+    def test_stacked_merge_binds_direct_base_and_actual_target_and_executes_all(self):
+        event, tested, target, _trunk = self.stacked_target()
+        plan = impact.resolve_plan(self.repo, "pull_request", event, RULES, DIGEST, tested_ref=tested)
+        self.assertEqual(plan["baseSha"], event["pull_request"]["base"]["sha"])
+        self.assertEqual(plan["mergeTargetSha"], target)
+        self.assertEqual(plan["stackBaseSha"], self.base)
+        self.assertEqual(plan["testedSha"], tested)
+        self.assertEqual(running(plan), ALL)
+        self.assertIn("stacked_merge_full", plan["reasons"])
+        # Includes the upstream file as well as the child PR's README change.
+        self.assertEqual(plan["changedFileCount"], 2)
+
+    def test_stacked_target_rejects_missing_stale_or_unrelated_identity(self):
+        event, tested, _target, _trunk = self.stacked_target()
+        mutations = [
+            lambda p: p.pop("stack"),
+            lambda p: p.pop("merge_commit_sha"),
+            lambda p: p.update(merge_commit_sha=self.base),
+            lambda p: p["head"].update(sha=self.base),
+            lambda p: p["base"].update(sha=self.base),
+            lambda p: p["stack"]["base"].update(sha=p["head"]["sha"]),
+            lambda p: p["stack"].update(position=1),
+            lambda p: p["stack"].update(position=True),
+            lambda p: p["stack"].update(size=1),
+            lambda p: p["head"]["repo"].update(full_name="fork/repo"),
+        ]
+        for index, mutate in enumerate(mutations):
+            with self.subTest(mutation=index):
+                broken = copy.deepcopy(event)
+                mutate(broken["pull_request"])
+                with self.assertRaisesRegex(impact.ImpactError, "target_mismatch"):
+                    impact.resolve_plan(self.repo, "pull_request", broken, RULES, DIGEST, tested_ref=tested)
+
+    def test_bottom_stack_entry_binds_advanced_trunk(self):
+        event, _tested, tested, trunk = self.stacked_target()
+        pull = event["pull_request"]
+        pull["head"]["sha"] = pull["base"]["sha"]
+        pull["base"]["sha"] = self.base
+        pull["stack"]["position"] = 1
+        pull["merge_commit_sha"] = tested
+        plan = impact.resolve_plan(self.repo, "pull_request", event, RULES, DIGEST, tested_ref=tested)
+        self.assertEqual(plan["mergeTargetSha"], trunk)
+        self.assertEqual(plan["baseSha"], self.base)
+        self.assertEqual(running(plan), ALL)
+
+    def test_workflow_sha_binds_stack_even_when_pull_merge_field_is_stale(self):
+        event, tested, target, _trunk = self.stacked_target()
+        event["pull_request"]["merge_commit_sha"] = None
+        plan = impact.resolve_plan(self.repo, "pull_request", event, RULES, DIGEST,
+                                   tested_ref=tested, trigger_sha=tested)
+        self.assertEqual(plan["mergeTargetSha"], target)
+        with self.assertRaisesRegex(impact.ImpactError, "target_mismatch"):
+            impact.resolve_plan(self.repo, "pull_request", event, RULES, DIGEST,
+                                tested_ref=tested, trigger_sha=self.base)
+
     def test_merge_result_changes_are_also_classified(self):
         head = self.commit({"README.md": "branch wording\n"})
         extra = self.commit({"lib/app.dart": "merge tree change\n"})
@@ -324,7 +398,8 @@ class GitInputTest(unittest.TestCase):
         with patch.object(impact, "ROOT", self.repo), patch.object(sys, "argv", [
             "resolve_ci_impact.py", "--event-name", "workflow_dispatch", "--event-path", str(event_path)
         ]), patch.dict("os.environ", {"GITHUB_STEP_SUMMARY": str(summary_path),
-                                      "GITHUB_OUTPUT": str(output_path)}), redirect_stdout(output):
+                                      "GITHUB_OUTPUT": str(output_path),
+                                      "GITHUB_SHA": self.run_git("rev-parse", "HEAD")}), redirect_stdout(output):
             self.assertEqual(impact.main(), 0)
         plan = json.loads((self.repo / ".dart_tool/ci-impact/plan.json").read_text())
         self.assertEqual(running(plan), ALL)

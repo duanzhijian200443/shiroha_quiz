@@ -84,6 +84,27 @@ plan binds the event Head/Base, the unique merge base, the actual tested merge
 commit, the rule digest, the workflow digest, the pinned input blobs and a
 content digest of every tracked entry except the ordinary-document allowlist.
 
+Ordinary PR merge commits must have exactly the event's Base and Head as their
+ordered parents. GitHub stacked PRs can instead merge onto a lower PR's synthetic
+merge. An explicit, valid event `pull_request.stack` and exact workflow
+`GITHUB_SHA` are required for that topology, with same-repository branches. Offline
+callers can bind the event `merge_commit_sha` instead; CI uses `GITHUB_SHA`, the
+documented triggering merge commit, even if the PR's merge field is stale.
+The checked-out merge's second parent still must be the exact Head. For an upper
+stack entry, a different first parent must itself be a two-parent merge whose
+second parent is the exact direct Base; the event stack base must be an ancestor
+of its first parent. A bottom entry binds its direct Base to the event stack base
+and permits only a descendant trunk target. The direct Base must be an ancestor
+of Head. Missing, malformed, stale or unrelated target evidence hard-fails.
+
+Plans and aggregate reports keep the declared `baseSha`, actual first-parent
+`mergeTargetSha`, event `stackBaseSha` and tested merge SHA separately. The
+aggregate recomputes those identities. Every stacked plan executes all units
+(`stacked_merge_full`); neither planning nor aggregate revalidation permits
+cross-head reuse. The cumulative diff still includes direct-Base-to-tested-merge
+changes, including lower-stack and trunk inputs. No branch or PR is rewritten.
+See [GitHub's stacked PR event contract](https://docs.github.com/en/pull-requests/reference/stacked-pull-requests-apis-and-webhooks).
+
 | Unit | Job | Executes when |
 |---|---|---|
 | G | Change impact analysis | Every event; also plan, safety checks and reuse resolution |
