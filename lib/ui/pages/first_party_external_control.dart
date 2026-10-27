@@ -592,6 +592,14 @@ final class _ControlState extends State<FirstPartyExternalControl> {
           ? [30, 120, 480]
           : [5, 10, 30];
 
+  int? get _durationValue =>
+      _durationOptions.contains(_minutes) ? _minutes : null;
+
+  bool get _durationAvailable =>
+      _current &&
+      (_development == null ||
+          _development!.phase == FirstPartyDevelopmentPhase.active);
+
   String _durationLabel(int minutes) =>
       minutes >= 60 ? '${minutes ~/ 60} 小时' : '$minutes 分钟';
 
@@ -940,20 +948,22 @@ final class _ControlState extends State<FirstPartyExternalControl> {
                         child: const Text('验证配对证明')),
                   ],
                   DropdownButton<int>(
-                      value: _minutes,
+                      value: _durationValue,
+                      hint: const Text('请选择访问时长'),
                       items: [
                         for (final m in _durationOptions)
                           DropdownMenuItem(
                               value: m, child: Text(_durationLabel(m)))
                       ],
-                      onChanged: _locked || enabled
+                      onChanged: !_durationAvailable || _locked || enabled
                           ? null
                           : (value) => setState(() {
                                 _minutes = value!;
                                 _durationSelected = true;
                               })),
                   FilledButton(
-                      onPressed: !_current ||
+                      onPressed: !_durationAvailable ||
+                              _durationValue == null ||
                               _locked ||
                               enabled ||
                               (!_status.connected &&

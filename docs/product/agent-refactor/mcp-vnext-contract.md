@@ -2010,6 +2010,10 @@ A guided **连接 Codex** action delegates to the same development start, select
 Profile and existing-credential proof owners. It never initializes credentials
 or confirms identity/Enable: **确认本次身份** and **允许本次访问** remain separate
 local decisions, and an invalidated view cannot continue the preparation.
+Duration controls display only a value present in the current options (or an
+empty selection), including failed status reads and pending/terminal closure.
+Unavailable development observations disable access actions; restoring a valid
+observation does not itself Enable or renew access.
 The independent proof window does not activate itself or resize the main App;
 initial enrollment still retains both original independent comparison surfaces.
 Basic resource selection explicitly drafts READ and the corresponding content
@@ -2110,8 +2114,13 @@ uses fresh original authentication and the existing Application checks. Ordinary
 per-tool TLS closure does not disable the whole Profile. Outer adapter loss
 synchronously withdraws Enable and pending STAGE/target approval and joins its
 original work; a new connection, including one from the same surviving adapter,
-requires fresh explicit Enable. Exact request
-Session/entry/revision/target binding and local Review/COMMIT are unchanged.
+requires fresh explicit Enable.
+The pending Enable cancellation boundary begins before deployment status I/O;
+disconnect or page cancellation during that read survives late completion and
+cannot reach the original P0 Enable transition. Preflight failure joins the same
+operation settlement, and a subsequent Enable requires a new local decision.
+Exact request Session/entry/revision/target binding and local Review/COMMIT are
+unchanged.
 The App launch-liveness query observes only the original server instance and
 retained Explorer provenance, independently of the old adapter's process or pipe
 state. It remains current during a clean connection drain, including an

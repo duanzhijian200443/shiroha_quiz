@@ -684,15 +684,17 @@ final class FirstPartyExternalAccess {
   Future<void> cancelPendingControls() async {
     cancelAssociationRecovery();
     if (!isCurrent) return;
-    await cancelExistingCredentialConfirmation();
+    final identityClosing = cancelExistingCredentialConfirmation();
     if (_enabling) {
-      if (_binding?.credentials?.cancelPendingConnection != null) {
-        await disable();
-      } else {
-        await shutdown();
-      }
+      // Withdraw the pending decision synchronously, before joining any drain.
+      final accessClosing =
+          _binding?.credentials?.cancelPendingConnection != null
+              ? disable()
+              : shutdown();
+      await Future.wait([identityClosing, accessClosing]);
       return;
     }
+    await identityClosing;
     final state = _profile == null
         ? null
         : _binding?.trust.snapshot(_profile!.principal).state;
@@ -891,34 +893,36 @@ final class FirstPartyExternalAccess {
   Future<void> enable(Duration duration) => _run(() async {
         final b = _binding;
         if (b == null) externalAuthFail(ExternalAuthFailure.unauthorized);
-        // One visible access deadline must never outlive the admitted deployment.
-        // Generic/offline callers retain their original P0 duration limit.
-        DateTime? deploymentDeadline;
-        if (b.enableWithoutRetainedChannel && _development != null) {
-          final deployment = await _development!.status();
-          final deadline = deployment.expiresAt;
-          if (deployment.phase != FirstPartyDevelopmentPhase.active ||
-              deadline == null ||
-              duration <= Duration.zero ||
-              duration > deployment.maxAccessDuration) {
-            externalAuthFail(ExternalAuthFailure.unauthorized);
-          }
-          final remaining = deadline.difference(b.trust.clock.now());
-          if (remaining <= Duration.zero) {
-            externalAuthFail(ExternalAuthFailure.unauthorized);
-          }
-          deploymentDeadline = deadline;
-        }
-        final services = b.credentials;
-        if (services != null) _credentials();
-        if (_pairingFailed) externalAuthFail(ExternalAuthFailure.unauthorized);
-        final attempt = services == null ? _authenticate(b) : null;
+        // Preflight belongs to this same cancellable operation: a disconnect or
+        // departing view during status I/O must not be reset by its continuation.
         _forgetAccess();
         _enabling = true;
         _enableCancelled = false;
         _connectionFailed = false;
         Timer? deadline;
         try {
+          final services = b.credentials;
+          if (services != null) _credentials();
+          if (_pairingFailed)
+            externalAuthFail(ExternalAuthFailure.unauthorized);
+          final attempt = services == null ? _authenticate(b) : null;
+          // One visible access deadline must never outlive the admitted deployment.
+          // Generic/offline callers retain their original P0 duration limit.
+          DateTime? deploymentDeadline;
+          if (b.enableWithoutRetainedChannel && _development != null) {
+            final deployment = await _development!.status();
+            _validateEnable();
+            final expiresAt = deployment.expiresAt;
+            if (deployment.phase != FirstPartyDevelopmentPhase.active ||
+                expiresAt == null ||
+                duration <= Duration.zero ||
+                duration > deployment.maxAccessDuration ||
+                !b.trust.clock.now().isBefore(expiresAt)) {
+              externalAuthFail(ExternalAuthFailure.unauthorized);
+            }
+            deploymentDeadline = expiresAt;
+          }
+          _validateEnable();
           await b.coordinator
               .enable(_profile!, duration, notAfter: deploymentDeadline);
           _validateEnable();
@@ -937,6 +941,7 @@ final class FirstPartyExternalAccess {
               externalAuthFail(ExternalAuthFailure.unauthorized);
             }
             final reference = await b.management.selectProfile(_selectedId!);
+            _validateEnable();
             final record = await b.management.read(reference);
             _validateEnable();
             if (record.profile.revokedAtUtcMs != null ||

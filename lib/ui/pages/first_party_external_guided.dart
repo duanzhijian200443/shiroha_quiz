@@ -103,18 +103,20 @@ extension _GuidedExternalControl on _ControlState {
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         DropdownButton<int>(
-                            value: _minutes,
+                            value: _durationValue,
+                            hint: const Text('请选择访问时长'),
                             items: [
                               for (final value in _durationOptions)
                                 DropdownMenuItem(
                                     value: value,
                                     child: Text(_durationLabel(value))),
                             ],
-                            onChanged: _locked
+                            onChanged: !_durationAvailable || _locked
                                 ? null
                                 : (value) => _selectDuration(value!)),
                         FilledButton.icon(
-                            onPressed: _current &&
+                            onPressed: _durationAvailable &&
+                                    _durationValue != null &&
                                     !_locked &&
                                     !childBusy &&
                                     widget.policySaved
