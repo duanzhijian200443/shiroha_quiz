@@ -26,6 +26,45 @@ owns profile v2, seven tools and the closed production admission boundary.
 
 ## Normal Codex read-only development connection
 
+For the current milestone/maintenance boundary, see the
+[limited-development roadmap amendment](shiroha-project-roadmap.md#limited-windows-development-use-and-maintenance-2026-10-27).
+Normal-instance Question/File READ, independent STAGE/Review and original-key
+reconnection evidence is reused from the merged tasks; it is not a request to
+repeat integration setup or generate more batches.
+
+### Using an already committed generated question
+
+After explicit local Review has committed a candidate, use the existing learning
+entry for its real bank. Confirm the stem, typed answer and explanation agree
+with the accepted Review content. A pending or rejected Proposal is not a formal
+practice question. Do not use preview mode as proof of learning persistence.
+
+In normal Practice, answer or explicitly self-review, reveal the existing
+answer/explanation and submit an existing rating. Then leave the learning route
+and check the persisted records. Nonempty subjective self-review saves a text
+AnswerAttempt with unknown
+correctness; a separate rating updates ReviewState/ReviewLog. An empty reveal
+must not fabricate an attempt. StudyActivity follows the existing foreground,
+pause and true-exit rules. The current contracts are
+[Practice](../product/practice-ui-refresh-freeze.md) and
+[Home Training V3](../product/home-training-v3.md#6-真实学习时长契约).
+
+The existing `shiroha_study` tools can confirm formal typed content and
+bank-scoped study summaries; they expose neither an answer/rating command nor
+single-question AnswerAttempt history. Counts/read-back alone cannot establish
+this entire usage check. Use existing App learning actions and bounded saved
+record evidence, with no direct database writes, new MCP command or AI judging
+requirement. Once this narrow check is covered, reuse it; do not replay STAGE,
+repeat twenty-question generation or repeat both Review batches.
+
+Learning a committed question needs no renewed external STAGE approval. Any
+subsequent vNext operation still requires its own current identity, Enable,
+Scope/Egress and target decisions. Maintenance of this finite development path
+does not qualify general Direct/Hosted clients, resolve #327, deliver AR-R9B,
+resume security experiments or enable production/remote/Android support.
+
+### Existing read-only registration
+
 Reuse `lib/mcp/study_mcp_composition_root.dart` unchanged. It selects the existing
 `explicitReadOnly` database runtime and exposes exactly the six v0 tools. It
 requires an existing absolute database path; it cannot create/migrate a database,

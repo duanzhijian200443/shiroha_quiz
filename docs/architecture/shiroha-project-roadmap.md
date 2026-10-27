@@ -135,7 +135,58 @@ W0 proposal, approval, scope, replay and typed-write contract.
 
 ## Agent refactor frozen target route
 
+### Limited Windows development use and maintenance (2026-10-27)
+
+**Limited Windows/Codex development use: COMPLETE; MAINTENANCE.**
+This milestone is limited to the user's existing normal Windows Debug
+App and normally signed-in Codex through MCP §17.12. It does not close the wider
+Windows functional/production route retained below. The accepted path includes
+an already committed generated question entering existing Practice, answer/reveal
+and learning-record persistence under the current rules. Empty subjective
+self-review creates no invented AnswerAttempt; explicit rating and learning
+activity retain their separate existing records.
+
+Reuse the merged normal-instance evidence for Question/File READ, independent
+STAGE and local Review, original SubmissionKey queries and clean reconnection.
+The [normal-instance acceptance](https://github.com/duanzhijian200443/shiroha_quiz/pull/348#issuecomment-6436664353)
+and its [final-target applicability assessment](https://github.com/duanzhijian200443/shiroha_quiz/pull/348#issuecomment-6438542238)
+retain their actual targets and historical failures. Do not regenerate twenty
+questions, repeat two batches or rerun the complete integration acceptance to
+close the remaining learning-use check. Reviewed typed content remains the
+formal content authority; Practice uses the existing AnswerAttempt,
+ReviewState/ReviewLog and StudyActivity owners. No new study entry, statistics,
+Agent tool or persistence rule is part of this milestone.
+
+With this bounded usage closure, Windows/Codex development integration enters
+**MAINTENANCE**: repair only reproduced defects that directly block the accepted
+path. No defect means no production-code change. Completion does not select or
+automatically start another Windows feature.
+
+Current scheduling supersedes the earlier functionality-first priority below:
+
+- OCR optimization is **PAUSED**; existing OCR/import behavior is retained.
+- Built-in Agent new-feature expansion is **PAUSED**; existing capabilities and
+  approval boundaries are retained.
+- Computer/tablet UI proceeds as an **independent workstream**, with its own
+  scope, evidence and delivery; its completion is not this milestone's gate.
+- Remote transport and Android runtime are **later independent capabilities**,
+  not prerequisites for this local development milestone.
+- Windows high-assurance/security verification remains **DEFERRED**. The current
+  admission and independent human identity/Enable/STAGE/Review decisions remain
+  mandatory; this closeout grants no external permission or credential operation.
+
+The wider route remains open: #327 short-deadline cancellation, general client
+qualification (Direct/Hosted support sets remain empty), AR-R9B/reference-client
+distribution, formal production support and Windows security acceptance are
+**not resolved**. HOST_STABILITY_HALT remains ACTIVE, TRANSPORT BLOCKED and
+AR-R6A NOT_ACCEPTED. Trial 1A and G0-L1/L2/I do not resume. Existing finite
+development admission is not production authorization. Exact usage and delivery
+facts belong to the task/PR evidence, not a new closeout contract.
+
 ### Development-instance Codex integration priority (2026-10-25)
+
+Retained implementation/admission history; current scheduling is superseded by
+the limited-development maintenance amendment above.
 
 Prioritize the user's ordinary, normally signed-in Codex connecting to the
 existing Windows Shiroha development instance. Development question data may
@@ -299,7 +350,8 @@ acceptance is preserved without manufacturing missing older approval markers.
 | Separate reference-client scope | MCP §17.11 retains isolated orchestration evidence. MCP §17.12 additionally has normal model tool calls and first-party Desktop decisions; MCP §5/AR-R9 reference-package distribution and general supported-version acceptance remain unfinished. |
 | Admission-only remainder | Formal Windows credential/storage/isolation/transport/lifecycle and AR-R6A/AR-R6B production exposure acceptance remain pending independently of implementation. |
 
-The overall Windows completion condition therefore remains open. No Trial 1A or
+The overall Windows completion condition therefore remains open independently
+of the limited-development milestone above. No Trial 1A or
 G0-L1/L2/I work resumes, and all production/security gates above remain unchanged.
 
 The bounded MCP-vNext STAGE source slice under
