@@ -994,10 +994,13 @@ void main() {
         }
       }
     }
-    expect(
-        File('lib/ui/pages/external_authorization_screen.dart')
-            .readAsStringSync(),
-        contains('此处配置访问规则。保存规则不会完成配对或启用业务访问。'));
+    final settings = File('lib/ui/pages/external_authorization_screen.dart')
+        .readAsStringSync();
+    // The daily switch delegates fresh proof/Enable to the Application owner;
+    // the screen itself cannot consume credential evidence or mint authority.
+    expect(settings, contains('await access.allowConfiguredAccess('));
+    expect(settings, isNot(contains('confirmExistingCredential(')));
+    expect(settings, isNot(contains('PairingProof')));
     for (final path in [
       'lib/data/external/ipc_envelope_codec.dart',
       'lib/data/external/ipc_command_projection.dart',

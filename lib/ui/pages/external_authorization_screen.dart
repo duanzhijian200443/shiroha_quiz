@@ -116,8 +116,9 @@ final class _ExternalAuthorizationScreenState
         setState(() => _error = '授权设置暂不可用，请重新打开页面。');
       }
     } finally {
-      if (mounted && (view == null || identical(view, _view)))
+      if (mounted && (view == null || identical(view, _view))) {
         setState(() => _loading = false);
+      }
     }
   }
 
@@ -277,7 +278,9 @@ final class _ExternalAuthorizationScreenState
     if (scope == null ||
         !scope.contributions.any((c) =>
             c.slot == ModuleUiSlot.workspaceAction &&
-            c.key == 'generated_proposal_review')) return;
+            c.key == 'generated_proposal_review')) {
+      return;
+    }
     Navigator.of(context).push<void>(MaterialPageRoute(
         builder: (_) => GeneratedProposalInboxScreen(dependencies: scope)));
   }

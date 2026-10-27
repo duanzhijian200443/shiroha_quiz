@@ -35,21 +35,24 @@ extension ExternalFileContextOperations on ExternalReadContextService {
           String? cursor,
           ExternalCallControl? control}) =>
       _run(session, control, (runtime, check, allocations) async {
-        if (pageSize < 1 || pageSize > 50)
+        if (pageSize < 1 || pageSize > 50) {
           externalReadFail(ExternalReadFailure.resourceLimit);
+        }
         final parent = _lookup(context, _HandleKind.context, runtime);
         final previous = cursor == null
             ? null
             : _lookup(cursor, _HandleKind.fileSelectionCursor, runtime);
-        if (previous != null && !identical(previous.parentContext, parent))
+        if (previous != null && !identical(previous.parentContext, parent)) {
           externalReadFail(ExternalReadFailure.denied);
+        }
         final access = ExternalQuestionReadAccess._(this, runtime, parent);
         final page = await _fileReader.authorization
             .listChoices(access, pageSize, previous?.afterFileId, check);
         final choices = page.files;
         // Metadata choices bind a generation but do not load document bodies.
-        if (choices.isNotEmpty)
+        if (choices.isNotEmpty) {
           await _fileReader.authorize(access, choices, check);
+        }
         final now = admission.trust.clock.now();
         final next = page.nextFileId == null
             ? null

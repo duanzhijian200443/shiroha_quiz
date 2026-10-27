@@ -8,7 +8,6 @@ import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/application/backup/backup_restore_coordinator.dart';
 import 'package:shiroha_quiz/application/backup/backup_restore_gate.dart';
 import 'package:shiroha_quiz/application/capabilities/capability.dart';
-import 'package:shiroha_quiz/application/external/external_authorization.dart';
 import 'package:shiroha_quiz/application/external/external_invocation_core.dart';
 import 'package:shiroha_quiz/application/external/local_host_dispatch.dart';
 import 'package:shiroha_quiz/application/external/first_party_external_access.dart';

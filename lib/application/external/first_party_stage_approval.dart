@@ -196,7 +196,9 @@ final class FirstPartyStageApproval {
       final grant = access.grantSnapshot;
       if (grant == null ||
           grant.revokedAtUtcMs != null ||
-          grant.revision != request._revision) _deny();
+          grant.revision != request._revision) {
+        _deny();
+      }
       request._cancelTimer!();
       if (grant.policy.generationMode != ExternalGenerationMode.confirm) {
         request._cancelTimer =

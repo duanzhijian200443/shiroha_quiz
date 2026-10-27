@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/external/first_party_external_access.dart';
 import 'package:shiroha_quiz/application/external/external_trust_core.dart';
 import 'external_trust_test_support.dart';
-import 'durable_stage_test_support.dart' show initializeGeneratedTests;
 
 void main() {
   initializeGeneratedTests();

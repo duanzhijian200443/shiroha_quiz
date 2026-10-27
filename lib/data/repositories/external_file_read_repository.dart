@@ -104,10 +104,12 @@ final class SqliteExternalFileReadRepository implements ExternalFileReadPort {
                     .every((f) => scopes.any((s) => s.targetId == f.fileId)))) {
           externalReadFail(ExternalReadFailure.denied);
         }
-        if (scopes.isEmpty && pageSize == null)
+        if (scopes.isEmpty && pageSize == null) {
           externalReadFail(ExternalReadFailure.denied);
-        if (scopes.isEmpty && !grant.policy.allContent)
+        }
+        if (scopes.isEmpty && !grant.policy.allContent) {
           externalReadFail(ExternalReadFailure.denied);
+        }
         final remaining = scopes
             .where((s) =>
                 afterFileId == null || s.targetId.compareTo(afterFileId) > 0)
