@@ -73,7 +73,15 @@ final class LocalRelayFrame {
 
 /// One nonblocking, kernel-authenticated pipe. The native helper accepts only
 /// fixed adjacent App/adapter executable peers in the same user/session.
-final class WindowsLocalRelay {
+abstract interface class LocalRelayConnection {
+  bool get isCurrent;
+  Future<void> accept();
+  Future<void> send(Map<String, Object?> message, Duration deadline);
+  Future<Map<String, Object?>> receive(Duration deadline);
+  Future<void> close();
+}
+
+final class WindowsLocalRelay implements LocalRelayConnection {
   WindowsLocalRelay._(this._native, this._id, this._server);
   static WindowsLocalRelay openApp() => _open(true);
   static WindowsLocalRelay openAdapter() => _open(false);
@@ -102,6 +110,7 @@ final class WindowsLocalRelay {
   Timer? _monitor;
   var _lost = Completer<void>();
   Future<void> get disconnected => _lost.future;
+  @override
   bool get isCurrent => !_closed && _accepted;
 
   /// Original independently launched App, including while awaiting a peer.
@@ -131,6 +140,7 @@ final class WindowsLocalRelay {
     if (!_lost.isCompleted) _lost.complete();
   }
 
+  @override
   Future<void> accept() async {
     if (_closed || _accepted) throw const LocalRelayException();
     await _disconnecting;
@@ -153,6 +163,7 @@ final class WindowsLocalRelay {
     throw const LocalRelayException();
   }
 
+  @override
   Future<Map<String, Object?>> receive(Duration deadline) async {
     if (!isCurrent || _reading) throw const LocalRelayException();
     _reading = true;
@@ -196,6 +207,7 @@ final class WindowsLocalRelay {
     }
   }
 
+  @override
   Future<void> send(Map<String, Object?> message, Duration deadline) async {
     if (!isCurrent || _writing) throw const LocalRelayException();
     _writing = true;
@@ -251,6 +263,7 @@ final class WindowsLocalRelay {
     }();
   }
 
+  @override
   Future<void> close() {
     _closed = true;
     _endConnection();

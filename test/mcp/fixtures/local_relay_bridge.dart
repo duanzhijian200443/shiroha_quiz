@@ -72,7 +72,9 @@ Future<void> main() async {
   await stdout.flush();
   await stderr.flush();
   if (first &&
-      (scenario == 'failed-close' || scenario == 'pending-peer-failed-close')) {
+      (scenario == 'failed-close' ||
+          scenario == 'pending-peer-failed-close' ||
+          scenario == 'adapter-reconnect-failed-close')) {
     exitCode = 23;
   }
 }

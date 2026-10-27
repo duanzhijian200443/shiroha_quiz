@@ -180,8 +180,16 @@ save, followed by full close, normal App reopen and new P27 manual pairing.
 It preserves the original tombstone/CAS rules and does not restore a lost key.
 The first-party public handoff distinguishes Trust/Completion copying and reports
 its result; shutdown retains original barriers through Windows window teardown.
-Current-step guidance, explicit public copy/paste shortcuts and side-by-side
-pairing windows reduce manual handoff work while keeping both confirmations.
+Normal existing-credential use is guided in the main authorization page;
+connection preparation, identity confirmation and explicit access remain distinct.
+The separately approved eight-hour normal App-owned development default/ceiling
+shows actual access expiry capped at the deployment deadline, with no automatic
+renewal. Exact resource and outgoing content choices are reviewed together before
+policy save; STAGE confirmation and the original Review inbox are visibly separate.
+First-time pairing remains advanced and keeps both independent comparisons; its
+window does not activate itself or resize the main App. After clean original
+settlement, the same adapter can make a new explicit connection on a later call;
+failed/unknown cleanup still blocks replacement and unknown STAGE is never replayed.
 Business-stage failure diagnostics remain observations, separate from original
 process settlement and actual normal-client acceptance.
 The bounded Native peer-policy repair corrects crypt32 signature-order and

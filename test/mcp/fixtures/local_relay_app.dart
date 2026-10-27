@@ -17,9 +17,10 @@ Future<void> main() async {
   final scenario = File(p.join(root, 'scenario')).readAsStringSync();
   final relay = McpVnextAppOwnedRelay(
       onEvent: report,
-      idleTimeout: scenario.contains('idle')
-          ? const Duration(seconds: 1)
-          : const Duration(seconds: 30));
+      idleTimeout:
+          scenario.contains('idle') || scenario.startsWith('adapter-reconnect')
+              ? const Duration(seconds: 1)
+              : const Duration(seconds: 30));
   relay.start();
   report(relay.available ? 'ready' : 'unavailable', 0);
   Timer? monitor;

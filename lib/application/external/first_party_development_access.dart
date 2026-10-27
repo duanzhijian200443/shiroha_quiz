@@ -198,6 +198,8 @@ final class FirstPartyInitializationObservation {
 final class FirstPartyDevelopmentStatus {
   const FirstPartyDevelopmentStatus({
     required this.phase,
+    this.expiresAt,
+    this.maxAccessDuration = const Duration(minutes: 30),
     this.issuerMissing,
     this.serverMissing,
     this.bridgePinMissing,
@@ -208,6 +210,8 @@ final class FirstPartyDevelopmentStatus {
     this.stopObservation,
   });
   final FirstPartyDevelopmentPhase phase;
+  final DateTime? expiresAt;
+  final Duration maxAccessDuration;
   // Non-authorizing fixed-object metadata, never credential validation.
   final bool? issuerMissing, serverMissing, bridgePinMissing;
   final bool pairingWindowOpen;

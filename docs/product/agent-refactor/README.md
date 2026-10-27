@@ -55,9 +55,16 @@ new P27 pairing. It supplies no automatic repair or credential overwrite.
 Trust/Completion copies have distinct labels and explicit write-result feedback;
 observation races cannot silently discard a visible copy click. Original exit
 barriers precede Windows window/controller and COM teardown.
-The configuration page now guides the current step, offers explicit matching
-copy/paste-import shortcuts and folds diagnostic details. Pairing windows can
-be placed side by side without merging their original independent confirmations.
+The configuration page guides existing-credential use through **连接 Codex**,
+identity confirmation and separate access Enable. Normal App-owned development
+defaults to eight hours with the actual deployment-capped access deadline; no
+automatic renewal is introduced. Basic exact-resource selection includes its
+outgoing content category in the explicit save confirmation, while advanced
+independent fields remain available. Pending STAGE and the original Proposal
+Review inbox have separate entries. First-time public handoffs remain under
+advanced controls; their independent window does not activate itself or resize
+the main App. Clean relay loss permits a later independent call in the same
+adapter process to reconnect after original cleanup, without STAGE replay.
 Bounded business-stage diagnostics retain primary/cleanup and process facts
 separately; they provide no additional authority or successful READ evidence.
 The original Native peer-policy adapter now follows crypt32's signature-order
@@ -66,8 +73,8 @@ comparison retains wrong-role/curve/signature refusal and proves no business
 Session or formal Windows security acceptance.
 Question pagination retains P5's limits and final authorization checks; the
 original release path merges equal complete identities shared by a hit/cursor,
-while stale content versions remain distinct. The Windows guide describes actual
-adapter restart and local Review operations separately from tool discovery.
+while stale content versions remain distinct. The Windows guide distinguishes
+initial adapter loading, clean reconnection and local Review from tool discovery.
 Local forwarding, offline tests and source completion are not actual normal-
 Codex READ/STAGE/Review acceptance. That evidence must come from the user's
 normally signed-in session and selected development test bank.

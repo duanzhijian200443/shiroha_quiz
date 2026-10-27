@@ -55,9 +55,8 @@ void PlacePairingBesideParent(HWND child) {
   const RECT area = monitor.rcWork;
   const int width = area.right - area.left, height = area.bottom - area.top;
   if (width < 1000 || height < 500) return;
-  ShowWindow(search.window, SW_SHOWNOACTIVATE);
-  SetWindowPos(search.window, nullptr, area.left, area.top, width / 2, height,
-               SWP_NOZORDER | SWP_NOACTIVATE);
+  // Keep the App's size and focus. Existing-credential proof needs a decision
+  // only in that App; this independent child must not pull the user away.
   SetWindowPos(child, nullptr, area.left + width / 2, area.top,
                width - width / 2, height, SWP_NOZORDER | SWP_NOACTIVATE);
 }
@@ -85,7 +84,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
-  FlutterWindow window(project);
+  FlutterWindow window(project, !pairing_window);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
   if (!window.Create(L"Shiroha Quiz", origin, size)) {

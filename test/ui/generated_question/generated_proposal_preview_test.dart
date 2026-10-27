@@ -17,6 +17,41 @@ void main() {
     await h.open();
   });
   tearDown(() async => h.close());
+  testWidgets('labelled authorization entry uses original module and Inbox',
+      (tester) async {
+    Widget page(bool enabled) => h.dependencies(
+        enabled: enabled,
+        child: MaterialApp(
+            home: const Scaffold(
+                body: GeneratedProposalWorkspaceAction(label: '打开待审核题目'))));
+    await tester.pumpWidget(page(false));
+    expect(find.text('打开待审核题目'), findsNothing);
+    await tester.pumpWidget(page(true));
+    await tester.runAsync(() async {
+      await tester.tap(find.text('打开待审核题目'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      final state =
+          tester.state(find.byType(GeneratedProposalInboxScreen)) as dynamic;
+      final loading = state.controller as GeneratedProposalInboxController;
+      if (loading.isLoading) {
+        final loaded = Completer<void>();
+        void done() {
+          if (!loading.isLoading) {
+            loading.removeListener(done);
+            loaded.complete();
+          }
+        }
+
+        loading.addListener(done);
+        await loaded.future;
+      }
+    });
+    await settleGenerated(tester);
+    expect(find.byType(GeneratedProposalInboxScreen), findsOneWidget);
+    expect(find.byKey(const ValueKey('generated-empty')), findsOneWidget);
+    expect(await h.storage.count('generated_question_proposals'), 0);
+  });
   testWidgets(
       'empty Inbox has a real empty state and disabled module hides entry',
       (tester) async {

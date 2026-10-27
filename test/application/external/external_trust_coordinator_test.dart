@@ -55,6 +55,37 @@ void main() {
     }
   });
 
+  test('Enable absolute ceiling survives delayed policy reads without renewal',
+      () async {
+    await f.save();
+    await f.pair();
+    final deadline = f.clock.now().add(const Duration(minutes: 10));
+    f.barrier.reached = Completer<void>();
+    f.barrier.resume = Completer<void>();
+    final enabling = f.coordinator
+        .enable(f.profile, const Duration(minutes: 30), notAfter: deadline);
+    await f.barrier.reached!.future;
+    f.clock.current = f.clock.now().add(const Duration(minutes: 5));
+    f.barrier.resume!.complete();
+    await enabling;
+    f.barrier.reached = f.barrier.resume = null;
+    expect(f.trust.snapshot(f.profile.principal).expiresAt, deadline);
+    f.clock.current = deadline;
+    expect(f.trust.snapshot(f.profile.principal).state,
+        PairingState.pairedDisabled);
+    // An absolute ceiling can only shorten access, never bypass the default cap.
+    await expectLater(
+        f.coordinator.enable(f.profile, const Duration(hours: 8),
+            notAfter: deadline.add(const Duration(minutes: 10))),
+        coreFailure(ExternalFailure.invalidRequest));
+    await expectLater(
+        f.coordinator
+            .enable(f.profile, const Duration(minutes: 5), notAfter: deadline),
+        coreFailure(ExternalFailure.invalidRequest));
+    expect(f.trust.snapshot(f.profile.principal).state,
+        PairingState.pairedDisabled);
+  });
+
   test('parallel/repeated opaque selection returns one identical Principal',
       () async {
     final selected = await f.management.selectProfile(f.reference.profileId);

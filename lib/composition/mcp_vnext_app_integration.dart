@@ -121,6 +121,7 @@ final class McpVnextAppIntegration {
     Duration Function()? monotonicNow,
     bool enableStageApprovalWait = false,
     bool enableWithoutRetainedChannel = false,
+    Duration maxEnableDuration = const Duration(minutes: 30),
     McpVnextAppTransport Function(ExternalTrustCoordinator coordinator,
             VnextMcpAppComposition binding)?
         transport,
@@ -143,7 +144,10 @@ final class McpVnextAppIntegration {
               monotonicNow: monotonicNow,
               pairingRequestLifetime: pairingRequestLifetime);
           return ExternalTrustCore(
-              credentials: boundary, clock: clock, mintProfileId: mintId);
+              credentials: boundary,
+              clock: clock,
+              mintProfileId: mintId,
+              maxEnableDuration: maxEnableDuration);
         },
         readiness,
         () => null,

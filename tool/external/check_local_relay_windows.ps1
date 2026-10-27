@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('idle', 'malformed', 'monitored-idle', 'inventory', 'sdk-error', 'failed-close', 'pending-peer', 'pending-peer-failed-close')]
+    [ValidateSet('idle', 'malformed', 'monitored-idle', 'inventory', 'sdk-error', 'failed-close', 'pending-peer', 'pending-peer-failed-close', 'adapter-reconnect', 'adapter-reconnect-failed-close')]
     [string[]]$Scenarios = @('idle', 'malformed', 'monitored-idle', 'inventory', 'sdk-error', 'failed-close', 'pending-peer', 'pending-peer-failed-close')
 )
 
@@ -74,7 +74,8 @@ try {
     $results = @()
     foreach ($scenario in $Scenarios) {
         $pendingPeer = $scenario.StartsWith('pending-peer')
-        $failedClose = $scenario -in @('failed-close', 'pending-peer-failed-close')
+        $failedClose = $scenario -in @('failed-close', 'pending-peer-failed-close', 'adapter-reconnect-failed-close')
+        $adapterReconnect = $scenario.StartsWith('adapter-reconnect')
         $directory = Join-Path $run $scenario
         New-Item -ItemType Directory -Path $directory | Out-Null
         Get-ChildItem -LiteralPath $bin -File | Copy-Item -Destination $directory
@@ -90,6 +91,35 @@ try {
             $old = Start-Adapter $directory 'old'
             $started = Wait-Event $bridgeEvents 'started'
             $child = Pin-Process $started.pid (Join-Path $directory 'shiroha_bridge.exe')
+            if ($adapterReconnect) {
+                $null = Wait-Event (Join-Path $directory 'old.jsonl') 'firstResponse'
+                [IO.File]::WriteAllText((Join-Path $directory 'allow-exit-1'), '')
+                $null = Wait-Event $bridgeEvents 'eof'
+                Join-Process $child $(if ($failedClose) { 23 } else { 0 })
+                if (!$failedClose) {
+                    $null = Wait-Event $appEvents 'originalBridgeSettled'
+                    $null = Wait-Event $appEvents 'listening' 2
+                }
+                Assert-True (!$old.HasExited) 'The original adapter must remain alive for reconnection'
+                [IO.File]::WriteAllText((Join-Path $directory 'allow-exit-2'), '')
+                [IO.File]::WriteAllText((Join-Path $directory 'request-reconnect'), '')
+                $null = Wait-Event (Join-Path $directory 'old.jsonl') 'secondResponse'
+                Join-Process $old 0
+                if ($failedClose) {
+                    Assert-True (@(Read-Events $bridgeEvents | Where-Object event -eq 'started').Count -eq 1) 'Failed original cleanup permitted a replacement Bridge'
+                    Assert-True (@(Read-Events $appEvents | Where-Object event -eq 'originalBridgeSettled').Count -eq 0) 'Failed original cleanup was called settled'
+                } else {
+                    $null = Wait-Event $appEvents 'originalBridgeSettled' 2
+                    Assert-True (@(Read-Events $bridgeEvents | Where-Object event -eq 'started').Count -eq 2) 'The same adapter did not acquire a new original Bridge'
+                    Assert-True (@(Read-Events $bridgeEvents | Where-Object event -eq 'call').Count -eq 2) 'A request was replayed'
+                }
+                [IO.File]::WriteAllText((Join-Path $directory 'stop'), '')
+                $expectedExit = if ($failedClose) { 23 } else { 0 }
+                Join-Process $app $expectedExit
+                $results += @{scenario=$scenario;result='PASS';appExit=$expectedExit;sameAdapterPid=$old.Id}
+                Write-Output "PASS: $scenario"
+                continue
+            }
             if ($pendingPeer) {
                 $null = Wait-Event $bridgeEvents 'pendingCall'
                 [IO.File]::WriteAllText((Join-Path $directory 'disconnect-old'), '')
@@ -151,7 +181,7 @@ try {
             Write-Output "PASS: $scenario"
         } finally {
             # Only graceful test control; no process kill or erased failure.
-            foreach ($marker in @('allow-exit-1', 'allow-exit-2', 'release-old', 'disconnect-old', 'stop')) {
+            foreach ($marker in @('allow-exit-1', 'allow-exit-2', 'release-old', 'disconnect-old', 'request-reconnect', 'stop')) {
                 [IO.File]::WriteAllText((Join-Path $directory $marker), '')
             }
             foreach ($process in @($old, $fresh, $child, $nextChild, $app)) {
