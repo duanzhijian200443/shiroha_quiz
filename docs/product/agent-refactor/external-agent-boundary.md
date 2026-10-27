@@ -1762,7 +1762,11 @@ cannot outlive deployment admission; no automatic renewal occurs.
 Switch-off, closing/replacing a pending settings view, outer adapter loss,
 revocation, expiry and shutdown invalidate pending orchestration and join its
 original settlement. Switch-off withdraws authority synchronously even while a
-status read is pending. Repeated enable while already enabled does not renew the
+status read is pending. The same Application operation owns the action before
+its first await, including joining an existing status read and saving/re-reading
+policy; a late preparation continuation cannot acquire a new cancellation
+generation after withdrawal. Already committed settings need not be rolled back.
+Repeated enable while already enabled does not renew the
 deadline. Opening diagnostics for the current Profile does not withdraw access.
 
 ### Default drafts and optional direct insertion
@@ -1771,7 +1775,10 @@ Current saved `review` or `direct` mode is first-party authorization for
 request-scoped STAGE target approval. The original `FirstPartyStageApproval`
 owner validates authenticated Session/entry, current Grant revision, runtime,
 exact App-minted target, caller availability and P3 checks without requiring an
-open settings view. Legacy `confirm` mode retains its bounded manual view.
+open settings view. Legacy `confirm` mode retains its bounded manual view:
+closing or replacing that original view invalidates an unresolved decision even
+after the click has claimed it and asynchronous confirmation checks have begun.
+Saved-policy requests do not acquire this manual view ownership.
 Cancellation returns to the caller promptly while original validation and
 transport reservations remain held until real settlement.
 

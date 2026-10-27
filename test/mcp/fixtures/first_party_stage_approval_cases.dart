@@ -210,6 +210,52 @@ void firstPartyStageApprovalCases(tls.TlsHarness Function() harness) {
     });
 
     for (final direct in [false, true]) {
+      for (final replace in [false, true]) {
+        test(
+            'saved ${direct ? "direct" : "review"} approval survives unrelated view ${replace ? "replacement" : "close"} during validation',
+            () async {
+          await f.open(direct: direct);
+          final channel = tls.MemoryTlsChannel();
+          final authenticated =
+              await f.h.verifier.authenticate(channel, f.h.plan);
+          final session = authenticated.session;
+          final entry = await f.approval.host.bindSession(session);
+          final entered = Completer<void>(), release = Completer<void>();
+          addTearDown(() {
+            if (!release.isCompleted) release.complete();
+          });
+          final control = ExternalCallControl(clock: f.h.pairing.local.clock);
+          var calls = 0;
+          final work = f.approval.waitForApproval(
+              session: session,
+              entry: entry,
+              contextRef: f.contextRef,
+              submissionJson: submission(),
+              control: control,
+              available: () => true,
+              authenticate: () async {
+                if (++calls == 3) {
+                  entered.complete();
+                  await release.future;
+                }
+                return session;
+              });
+          await entered.future;
+          if (replace) {
+            f.view = f.controls.openStageApprovalView();
+          } else {
+            f.view!.close();
+          }
+          release.complete();
+          expect((await work).session, same(session));
+          await f.approval.whenSettled;
+          expect(control.failure, isNull);
+          f.approval.finish(control, clean: true);
+          f.h.verifier.invalidateChannel(channel);
+          await channel.close();
+          await f.close();
+        });
+      }
       test(
           'saved ${direct ? "direct" : "review"} policy works without an open settings view through TLS and IPC',
           () async {
@@ -406,6 +452,48 @@ void firstPartyStageApprovalCases(tls.TlsHarness Function() harness) {
       expect(await f.count('generated_question_proposals'), 0);
       await expectLater(f.view!.confirm(old), throwsA(anything));
     });
+
+    for (final replace in [false, true]) {
+      test(
+          'manual approval ${replace ? "view replacement" : "view close"} cancels in-flight confirmation and retains settlement',
+          () async {
+        await f.open();
+        await f.start();
+        final view = f.view!;
+        final request = view.pending!;
+        final barrier = f.h.pairing.local.barrier;
+        final reached = barrier.reached = Completer<void>();
+        final release = barrier.resume = Completer<void>();
+        addTearDown(() {
+          if (!release.isCompleted) release.complete();
+        });
+        final click = view.confirm(request);
+        await reached.future;
+        var settled = false;
+        final settling = f.approval.whenSettled.then((_) => settled = true);
+        if (replace) {
+          f.view = f.controls.openStageApprovalView();
+        } else {
+          view.close();
+        }
+        await pumpEventQueue(times: 4);
+        expect(settled, isFalse);
+        expect(f.approval.pendingCount, 1);
+        expect(f.h.candidate!.budget.used(TlsResource.pipeline), 1);
+        release.complete();
+        await click;
+        await settling;
+        await f.finish();
+        expect(f.handlers, 0);
+        expect(await f.count('generated_question_proposals'), 0);
+        expect((await f.result!)['error'], isNotNull);
+        await expectLater(view.confirm(request), throwsA(anything));
+        if (replace) {
+          await expectLater(f.view!.confirm(request), throwsA(anything));
+        }
+        await f.close();
+      });
+    }
 
     test(
         'publication followed by response loss uses only original-key reconciliation',

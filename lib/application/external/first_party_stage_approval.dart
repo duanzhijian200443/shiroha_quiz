@@ -97,6 +97,7 @@ final class FirstPartyStageApproval {
     }
     if (!_live ||
         !identical(_request, request) ||
+        (request._view != null && !identical(request._view, _view)) ||
         request._failure != null ||
         request._session.failure != null ||
         !request._available()) {
@@ -169,6 +170,7 @@ final class FirstPartyStageApproval {
   }) async {
     if (!_live) _deny();
     if (_request != null) _deny(CapabilityFailure.budgetDenied);
+    final originalView = _view;
     final request = _request = FirstPartyStageRequest._(this, session, entry,
         contextRef, submissionJson, control, authenticate, available);
     request._cancelTimer =
@@ -209,7 +211,8 @@ final class FirstPartyStageApproval {
         if (context == null) _deny();
         return context;
       }
-      if (_view == null) _deny();
+      if (originalView == null || !identical(originalView, _view)) _deny();
+      request._view = originalView;
       request._due = _now + FirstPartyStageLimits.waiting;
       request._awaiting = true;
       request._cancelTimer =
@@ -261,6 +264,7 @@ final class FirstPartyStageApproval {
   Future<void> _confirm(
       FirstPartyStageApprovalView view, FirstPartyStageRequest request) async {
     if (!identical(view, _view) ||
+        !identical(view, request._view) ||
         !request._awaiting ||
         request._due == null ||
         _now >= request._due!) {
@@ -347,6 +351,7 @@ final class FirstPartyStageRequest {
   final _released = Completer<bool>();
   ExternalQuestionReadAccess? _access;
   GeneratedReviewTargetChoice? _choice;
+  FirstPartyStageApprovalView? _view;
   int? _revision;
   Duration? _due;
   bool _awaiting = false;
@@ -385,7 +390,7 @@ final class FirstPartyStageApprovalView {
 
   void close() {
     if (!identical(_owner._view, this)) return;
-    if (_owner._request?._awaiting == true &&
+    if (identical(_owner._request?._view, this) &&
         !_owner._request!._decision.isCompleted) {
       _owner.cancel();
     }

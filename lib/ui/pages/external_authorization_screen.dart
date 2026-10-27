@@ -64,6 +64,7 @@ final class _ExternalAuthorizationScreenState
       unawaited(_access?.cancelPendingControls().catchError((Object _) {}));
       _access = access;
       _status = const FirstPartyExternalStatus();
+      _busy = false;
     }
   }
 
@@ -164,60 +165,70 @@ final class _ExternalAuthorizationScreenState
     final access = _access;
     if (!_current || access == null) return;
     if (!enabled) {
-      _operation++;
+      final view = _view;
+      final operation = ++_operation;
+      bool current() =>
+          _current &&
+          identical(view, _view) &&
+          identical(access, _access) &&
+          operation == _operation;
       setState(() => _busy = true);
       try {
         await access.disable();
       } catch (_) {
-        if (mounted) setState(() => _error = '访问已撤回，连接仍需完成清理。');
+        if (current()) setState(() => _error = '访问已撤回，连接仍需完成清理。');
       } finally {
-        if (mounted) setState(() => _busy = false);
-        await _refresh();
+        if (current()) {
+          setState(() => _busy = false);
+          await _refresh();
+        }
       }
       return;
     }
     await _change((view, current) async {
-      if (_selected == null) {
-        final reference = await view.create('外部 Agent');
-        if (!current()) return;
-        await _load(view, reference);
-      }
-      if (!current()) return;
-      if (!_configured) {
-        await access.disable();
-        if (!current()) return;
-        await view.saveAllContent(_selected!, _record!.profile.grantRevision,
-            directWrite: false);
-        if (!current()) return;
-        await _load(view, _selected!);
-      }
-      if (!current()) return;
-      await access.allowConfiguredAccess(_selected!.profileId,
-          available: current);
-    });
+      await access.allowConfiguredAccess(_selected?.profileId,
+          available: current,
+          pendingStatus: _refreshing, prepare: (current, withdraw) async {
+        if (_selected == null) {
+          final reference = await view.create('外部 Agent');
+          if (!current()) return null;
+          await _load(view, reference);
+        }
+        if (!current()) return null;
+        if (!_configured) {
+          await withdraw();
+          if (!current()) return null;
+          await view.saveAllContent(_selected!, _record!.profile.grantRevision,
+              directWrite: false);
+          if (!current()) return null;
+          await _load(view, _selected!);
+        }
+        return current() ? _selected!.profileId : null;
+      });
+    }, waitForRefresh: false);
   }
 
   Future<void> _setDirectWrite(bool enabled) => _change((view, current) async {
         final access = _access;
         if (access == null || !_enabled || !_configured) return;
-        final reference = _selected!;
-        final revision = _record!.profile.grantRevision;
-        // Changing the policy invalidates all old contexts before publication.
-        await access.disable();
-        if (!current()) return;
-        await view.saveAllContent(reference, revision, directWrite: enabled);
-        if (!current()) return;
-        await _load(view, reference);
-        if (!current()) return;
-        await access.allowConfiguredAccess(reference.profileId,
-            available: current);
-      });
+        await access.allowConfiguredAccess(_selected!.profileId,
+            available: current,
+            pendingStatus: _refreshing, prepare: (current, withdraw) async {
+          final reference = _selected!;
+          final revision = _record!.profile.grantRevision;
+          // Withdraw old contexts inside this same cancellable action.
+          await withdraw();
+          if (!current()) return null;
+          await view.saveAllContent(reference, revision, directWrite: enabled);
+          if (!current()) return null;
+          await _load(view, reference);
+          return current() ? reference.profileId : null;
+        });
+      }, waitForRefresh: false);
 
   Future<void> _change(
-      Future<void> Function(LocalAuthorizationView, bool Function())
-          action) async {
-    if (!_current || _busy || _loading) return;
-    if (_refreshing case final pending?) await pending;
+      Future<void> Function(LocalAuthorizationView, bool Function()) action,
+      {bool waitForRefresh = true}) async {
     if (!_current || _busy || _loading) return;
     final view = _view!;
     final access = _access;
@@ -232,6 +243,8 @@ final class _ExternalAuthorizationScreenState
       _error = null;
     });
     try {
+      if (waitForRefresh && _refreshing != null) await _refreshing;
+      if (!current()) return;
       await action(view, current);
     } on ExternalAuthException catch (e) {
       if (current()) {

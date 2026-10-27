@@ -563,16 +563,21 @@ final class FirstPartyExternalAccess {
 
   /// One explicit local access decision. Reuses fresh live credential proof;
   /// no credential, Pin, Session or successful result is reconstructed by UI.
-  Future<void> allowConfiguredAccess(String profileId,
-      {required bool Function() available}) {
+  Future<void> allowConfiguredAccess(String? profileId,
+      {required bool Function() available,
+      Future<void>? pendingStatus,
+      Future<String?> Function(
+              bool Function() current, Future<void> Function() withdraw)?
+          prepare}) {
     _validate();
     if (_configuredWork != null) {
-      if (_configuredProfile != profileId) {
+      if (_configuredProfile != profileId || prepare != null) {
         externalAuthFail(ExternalAuthFailure.unauthorized);
       }
       return _configuredWork!;
     }
     final token = ++_configuredVersion;
+    final done = Completer<void>();
     _configuredProfile = profileId;
     FirstPartyExternalBinding? originalBinding;
     ExternalTrustProfile? originalProfile;
@@ -580,6 +585,7 @@ final class FirstPartyExternalAccess {
         isCurrent &&
         available() &&
         token == _configuredVersion &&
+        identical(_configuredWork, done.future) &&
         (originalBinding == null || identical(originalBinding, _binding)) &&
         (originalProfile == null || identical(originalProfile, _profile));
     void check() {
@@ -588,15 +594,30 @@ final class FirstPartyExternalAccess {
 
     // The independent operation slot cannot use _run: each original owner
     // below already uses that serialization boundary.
-    final done = Completer<void>();
     _configuredWork = done.future;
     unawaited(() async {
       try {
         check();
+        // Own the user action before its first status/policy await. Preparation
+        // may withdraw old access without cancelling or joining its own slot.
+        await pendingStatus;
+        check();
+        final selectedProfile = prepare == null
+            ? profileId
+            : await prepare(current, () async {
+                check();
+                await _disable();
+                check();
+              });
+        check();
+        if (selectedProfile == null) {
+          externalAuthFail(ExternalAuthFailure.unauthorized);
+        }
+        _configuredProfile = selectedProfile;
         final before = await status();
         check();
-        if (before.profileId == profileId && before.enabled) return;
-        await prepareExistingConnection(profileId, available: current);
+        if (before.profileId == selectedProfile && before.enabled) return;
+        await prepareExistingConnection(selectedProfile, available: current);
         check();
         originalBinding = _binding;
         originalProfile = _profile;
@@ -608,7 +629,7 @@ final class FirstPartyExternalAccess {
             check();
             final display = existingCredentialDisplay;
             if (display == null ||
-                display.profileId != profileId ||
+                display.profileId != selectedProfile ||
                 display.settling ||
                 display.remainingSeconds <= 0 ||
                 elapsed.elapsed >= const Duration(seconds: 30)) {
@@ -1127,6 +1148,10 @@ final class FirstPartyExternalAccess {
         pending.catchError((Object _) {}),
       ]);
     }
+    return _disable();
+  }
+
+  Future<void> _disable() {
     if (_busy) {
       _validate();
       if (_disabling != null) return _disabling!;
