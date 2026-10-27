@@ -8,6 +8,9 @@ import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/application/backup/backup_restore_coordinator.dart';
 import 'package:shiroha_quiz/application/backup/backup_restore_gate.dart';
 import 'package:shiroha_quiz/application/capabilities/capability.dart';
+import 'package:shiroha_quiz/application/external/external_authorization.dart';
+import 'package:shiroha_quiz/application/external/external_invocation_core.dart';
+import 'package:shiroha_quiz/application/external/local_host_dispatch.dart';
 import 'package:shiroha_quiz/application/external/first_party_external_access.dart';
 import 'package:shiroha_quiz/application/external/first_party_stage_approval.dart';
 import 'package:shiroha_quiz/data/external/windows_tls_transport.dart';
@@ -45,7 +48,7 @@ final class _ApprovalFixture {
   Future<Map<String, Object?>>? result;
   int handlers = 0;
 
-  Future<void> open({bool widget = false}) async {
+  Future<void> open({bool widget = false, bool? direct}) async {
     final local = h.pairing.local;
     approval = FirstPartyStageApproval(
         host: local.coordinator.host,
@@ -63,7 +66,18 @@ final class _ApprovalFixture {
         approvedTargets: const []);
     connection = BridgeFixture(h);
     await connection.open(
-        binding: app, enableStageApprovalWait: true, attachHost: false);
+        binding: app,
+        enableStageApprovalWait: true,
+        attachHost: false,
+        configureGrant: direct == null
+            ? null
+            : () async {
+                final ref = await local.view.select(local.reference.profileId);
+                final revision =
+                    (await local.view.read(ref)).profile.grantRevision;
+                await local.view
+                    .saveAllContent(ref, revision, directWrite: direct);
+              });
     port = VnextMcpBridgePort(connection.bridge);
     controls = FirstPartyExternalAccess(
         policy: local.local.service, compositionIsCurrent: () => local.current);
@@ -92,9 +106,13 @@ final class _ApprovalFixture {
     final targets = await host.dispatch(
         ExternalCapabilities.listTargets, const ExternalTargetQuery(),
         entry: entry, context: read);
-    final context = await host.dispatch(ExternalCapabilities.createReadContext,
-        ExternalTargetSelection(targets.output!.items.single.targetRef),
-        entry: entry, context: read);
+    final context = await host.dispatch(
+        ExternalCapabilities.createReadContext,
+        ExternalTargetSelection(targets.output!.items
+            .firstWhere((t) => t.bankName == 'bank' && t.projectId == null)
+            .targetRef),
+        entry: entry,
+        context: read);
     contextRef = context.output!;
     h.verifier.invalidateChannel(previous);
     await previous.close();
@@ -149,6 +167,66 @@ void firstPartyStageApprovalCases(tls.TlsHarness Function() harness) {
   group('explicit first-party Bridge STAGE wait', () {
     late _ApprovalFixture f;
     setUp(() => f = _ApprovalFixture(harness()));
+
+    test(
+        'saved-mode cancellation returns while original authentication still owns settlement',
+        () async {
+      await f.open(widget: true, direct: false);
+      final channel = tls.MemoryTlsChannel();
+      final authenticated = await f.h.verifier.authenticate(channel, f.h.plan);
+      final session = authenticated.session;
+      final entry = await f.approval.host.bindSession(session);
+      final entered = Completer<void>(), release = Completer<void>();
+      final control = ExternalCallControl(clock: f.h.pairing.local.clock);
+      var calls = 0;
+      final work = f.approval.waitForApproval(
+          session: session,
+          entry: entry,
+          contextRef: f.contextRef,
+          submissionJson: submission(),
+          control: control,
+          available: () => true,
+          authenticate: () async {
+            if (++calls == 3) {
+              entered.complete();
+              await release.future;
+            }
+            return session;
+          });
+      final refused =
+          expectLater(work, throwsA(isA<LocalHostAdmissionException>()));
+      await entered.future;
+      var settled = false;
+      final settling = f.approval.whenSettled.then((_) => settled = true);
+      control.cancel();
+      await refused;
+      expect(settled, isFalse);
+      release.complete();
+      await settling;
+      expect(await f.count('generated_question_proposals'), 0);
+      f.approval.finish(control, clean: true);
+      f.h.verifier.invalidateChannel(channel);
+      await channel.close();
+      await f.close();
+    });
+
+    for (final direct in [false, true]) {
+      test(
+          'saved ${direct ? "direct" : "review"} policy works without an open settings view through TLS and IPC',
+          () async {
+        await f.open(widget: true, direct: direct);
+        await f.start(key: 'saved-mode');
+        final response = await f.result!;
+        expect(response['error'], isNull, reason: '$response');
+        expect(f.approval.waitingForUser, isFalse);
+        expect(await f.count('generated_question_proposals'), 1);
+        expect(await f.count('questions'), direct ? 1 : 0);
+        expect(await f.count('generated_question_commit_receipts'),
+            direct ? 1 : 0);
+        await f.finish();
+        await f.close();
+      });
+    }
 
     testWidgets(
         'real Widget click after ten seconds stages once through Fake TLS and SQLite',

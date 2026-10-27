@@ -44,6 +44,69 @@ void main() {
   });
   tearDown(() => h.close());
 
+  test(
+      'all-content file discovery pages beyond 64, skips unparsed pages, and binds cursors to their context',
+      () async {
+    await h.s.management.replaceGrant(
+        h.s.profile,
+        h.revision,
+        ExternalGrantPolicy(
+            permissions: [
+              CapabilityPermission.read,
+              CapabilityPermission.stage
+            ],
+            scopes: [],
+            categories: ExternalContentCategory.values,
+            allContent: true,
+            generationMode: ExternalGenerationMode.review));
+    h.revision++;
+    for (var i = 0; i < 65; i++) {
+      await h.seed('added-${i.toString().padLeft(3, '0')}');
+    }
+    for (var i = 0; i < 20; i++) {
+      await h.seed('aaa-${i.toString().padLeft(3, '0')}', parsed: false);
+    }
+    final target = (await h.read.listTargets(session: h.s.session))
+        .items
+        .firstWhere((t) => t.projectId == h.project);
+    final context = await h.read
+        .createContext(session: h.s.session, targetRef: target.targetRef);
+    final first =
+        await h.read.listFileSelections(session: h.s.session, context: context);
+    expect(first.items, isEmpty);
+    expect(first.unsupportedExcluded, isTrue);
+    expect(first.nextCursor, isNotNull);
+    final other = await h.read
+        .createContext(session: h.s.session, targetRef: target.targetRef);
+    await expectLater(
+        h.read.listFileSelections(
+            session: h.s.session, context: other, cursor: first.nextCursor),
+        throwsA(isA<ExternalReadException>()));
+    var cursor = first.nextCursor;
+    var total = 0;
+    do {
+      final page = await h.read.listFileSelections(
+          session: h.s.session, context: context, cursor: cursor);
+      expect(page.items.length, lessThanOrEqualTo(20));
+      total += page.items.length;
+      cursor = page.nextCursor;
+      if (cursor == null) {
+        final selected = await h.read.createFileContext(
+            session: h.s.session,
+            context: context,
+            fileRefs: [page.items.last['fileRef'] as String]);
+        expect((await h.search(selected)).items, isNotEmpty);
+      }
+    } while (cursor != null);
+    expect(total, 67);
+    expect(h.generation.calls, 67);
+    await h.grant();
+    await expectLater(
+        h.read.listFileSelections(
+            session: h.s.session, context: context, cursor: first.nextCursor),
+        throwsA(isA<ExternalReadException>()));
+  });
+
   test('T1 authenticated Principal and enabled Runtime are mandatory',
       () async {
     final context = await h.approved();

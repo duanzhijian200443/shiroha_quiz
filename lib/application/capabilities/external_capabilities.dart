@@ -119,7 +119,7 @@ abstract final class ExternalCapabilities {
       CapabilityId<ExternalQuestionSelection, ExternalQuestionDetail>(
           'external_get_question_detail');
   static const listFileSelections =
-      CapabilityId<ExternalNoInput, ExternalFilePage>(
+      CapabilityId<ExternalTargetQuery, ExternalFilePage>(
           'external_list_file_selections');
   static const createFileContext = CapabilityId<ExternalFileSelections, String>(
       'external_create_file_context');
@@ -520,14 +520,18 @@ final class ExternalCapabilityGateway {
                 control: call.control),
             (input, _) => [input.questionRef],
             existingSelection: true),
-        _read<ExternalNoInput, ExternalFilePage>(
+        _read<ExternalTargetQuery, ExternalFilePage>(
             ExternalCapabilities.listFileSelections,
-            (_, call, __) => reads.listFileSelections(
+            (input, call, __) => reads.listFileSelections(
+                pageSize: input.pageSize,
+                cursor: input.cursor,
                 session: call.session,
                 context: call.context.authorization.contextReference!,
                 control: call.control),
-            (_, page) =>
-                page.items.map((e) => e['fileRef']! as String).toList()),
+            (_, page) => [
+                  ...page.items.map((e) => e['fileRef']! as String),
+                  if (page.nextCursor != null) page.nextCursor!,
+                ]),
         _read<ExternalFileSelections, String>(
             ExternalCapabilities.createFileContext,
             (input, call, _) => reads.createFileContext(
@@ -599,7 +603,8 @@ final class ExternalCapabilityGateway {
           permission: CapabilityPermission.stage,
           permittedEffects: {
             CapabilityEffect.none,
-            CapabilityEffect.proposalStaged
+            CapabilityEffect.proposalStaged,
+            CapabilityEffect.formalMutation,
           },
           semantics: CapabilityExecutionSemantics.durableStage,
           authorize: (_, context) async =>

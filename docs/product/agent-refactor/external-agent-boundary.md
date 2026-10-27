@@ -66,7 +66,8 @@ and per-call/final-release authorization remain independently required.
 Host publishes an external capability allowlist limited to READ + STAGE.
 Internal local-user approval commands are not Host routes even if registered
 elsewhere. No autonomous external COMMIT or DESTRUCTIVE. Client tool approval
-and chat agreement do not authorize Shiroha formal writes.
+and chat agreement do not authorize Shiroha formal writes. The explicit saved
+first-party policy exception in section 14 authorizes only new generated batches.
 
 ExternalProposalOrigin records clientProfileId, optional externalRequestId,
 submissionKey, adapterProtocol and trusted target/scope/authorization snapshot.
@@ -83,7 +84,9 @@ the local/synthetic entry remains closed to external contexts/historical keys.
 
 Scope admission precedes content lookup; unauthorized/nonexistent targets share
 safe non-enumerating errors. Aggregates operate inside authorized scope, not
-global query followed by filtering. Revalidate current grants on every call and
+global query followed by filtering. Section 14 all-content grants explicitly
+authorize global Shiroha discovery before the query; actual Project relationships
+and current object existence are still required. Revalidate current grants on every call and
 egress release. Recipient is the authenticated external principal unless a
 stronger verified recipient contract exists; a model name supplied by the client
 does not establish its actual downstream recipient.
@@ -1715,3 +1718,94 @@ Pairing/Session authority, P1/P11 durable policy, P7/P8 current checks, S0
 Provider credentials and the B-class isolation model (including the accepted
 same-SID proxy risk) are unchanged. HOST_STABILITY_HALT = ACTIVE;
 TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED; AR-R6B remains inactive.
+
+
+## 14. Simplified first-party access and v35 saved generation policy
+
+This current amendment owns the simplified settings behavior and narrows the
+older exact-scope, separate identity-decision and per-request UI requirements
+above for the MCP section 17.12 development consumer. It grants no production
+security acceptance, new credential provider or generic external COMMIT route.
+
+### Durable policy and migration
+
+SQLite v35 adds `external_access_preferences`, keyed by Profile and the same
+Grant revision, with `all_content` and `generation_mode` (`confirm`, `review`,
+`direct`). Missing rows retain legacy exact scopes and per-request confirmation.
+Migration adds an empty table; merely opening settings never expands a Grant.
+The explicit new access action saves READ/STAGE, all content categories and
+`all_content=true`, with an empty exact-scope list and `review` mode by default.
+Empty scopes alone still authorize nothing. All-content covers current and
+subsequently added Shiroha banks and File Library files, not arbitrary OS paths.
+Current target existence, Project membership, recipient/category/permission,
+revision CAS and per-call/final-release checks remain mandatory. A policy change
+withdraws old runtime access before saving and starts a fresh finite enablement.
+
+The new table has strict schema/data validation, revision FK/CAS coupling and no
+credentials. Portable B0 validates then scrubs it before the existing four
+authorization tables. Restoring portable packages with any authorization rows is
+rejected; raw rollback retains the original local policy. Package v2 and existing
+Proposal/Receipt JSON formats remain unchanged.
+
+### One everyday access switch
+
+The explicit daily access action orchestrates deployment preparation, fresh
+existing-credential proof, original proof/channel/child settlement and finite
+Enable. It consumes only the original exact-channel P15 candidate after Native
+certificate, possession, active association, Profile/revision, generation,
+liveness and deadline checks. No saved-file hydration, accepting verifier or new
+Pin save is introduced. First setup retains original P25/P27 initialization and
+both independent human comparisons. Ordinary reconnects need no repeated manual
+identity dialog. Enable remains in memory, starts off per App generation and
+cannot outlive deployment admission; no automatic renewal occurs.
+
+Switch-off, closing/replacing a pending settings view, outer adapter loss,
+revocation, expiry and shutdown invalidate pending orchestration and join its
+original settlement. Switch-off withdraws authority synchronously even while a
+status read is pending. Repeated enable while already enabled does not renew the
+deadline. Opening diagnostics for the current Profile does not withdraw access.
+
+### Default drafts and optional direct insertion
+
+Current saved `review` or `direct` mode is first-party authorization for
+request-scoped STAGE target approval. The original `FirstPartyStageApproval`
+owner validates authenticated Session/entry, current Grant revision, runtime,
+exact App-minted target, caller availability and P3 checks without requiring an
+open settings view. Legacy `confirm` mode retains its bounded manual view.
+Cancellation returns to the caller promptly while original validation and
+transport reservations remain held until real settlement.
+
+`direct` is off by default and changes only through an explicit settings action.
+Only a newly published external batch under the current direct policy can be
+accepted and committed in the SAME owning SQLite transaction, using the existing
+typed writer, target/evidence/quality/duplicate gates, Training maintenance,
+item mappings, durable Receipt and terminal CAS. `accepted` means included by the
+saved policy, not a claim of human item-by-item review. Existing drafts, replayed
+SubmissionKeys and mode changes never trigger retroactive commit. Failed gates,
+writes or observed cancellation before direct commit roll back the entire batch;
+legacy draft cancellation retains its existing unknown-effect semantics.
+
+STAGE/reconcile report Data-confirmed `formalMutation` for committed history and
+`proposalStaged` for pending history, only after owning persistence evidence.
+The existing wire acknowledgement remains `STAGED` / `NOT_REPORTED`: it reports
+publication, not final save status. Clients query lifecycle using the original
+SubmissionKey and never automatically replay uncertain writes. No COMMIT or
+DESTRUCTIVE capability, client-supplied approval or receipt-content output is added.
+
+### Bounded file discovery
+
+All-content file choices use keyset pagination over current Shiroha files (or
+current Project membership), default 20 and maximum 50 scanned files per page.
+Unparsed files are excluded with `unsupportedExcluded=true`; an empty page may
+still have a next cursor, which advances over scanned files. No parser/provider
+is invoked. Existing selected-file revalidation remains strict: missing or stale
+artifacts fail rather than silently disappearing. Opaque cursors bind the exact
+parent Context, Profile, revision and expiry. Selection ordinals are page-local;
+fileRefs carry identity. The 64-file selection/context limit, handle budgets,
+response size and invocation deadlines remain in force.
+
+The page uses product settings components and exposes access, the independent
+`允许直接写入题库` switch and the existing draft inbox. Closing access preserves
+the saved direct choice but disables that control; existing drafts remain in
+Review. First pairing and connection diagnostics are folded into connection
+settings. Business ownership remains in Application/Data, never UI SQLite calls.

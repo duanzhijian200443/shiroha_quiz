@@ -2003,26 +2003,19 @@ is queued. Success is shown only after the platform write returns and the view
 remains current. Failed/unknown writes are not success or automatic retry, and
 do not establish that the clipboard no longer contains earlier data. P27's
 deadlines and both independent comparisons are unchanged.
-The authorization page presents the current next step and folds technical
-observations into a diagnostic section. Existing-Pin runs use fresh identity
-confirmation and do not show initial Submission input or Pairing actions.
-A guided **连接 Codex** action delegates to the same development start, selected
-Profile and existing-credential proof owners. It never initializes credentials
-or confirms identity/Enable: **确认本次身份** and **允许本次访问** remain separate
-local decisions, and an invalidated view cannot continue the preparation.
-Duration controls display only a value present in the current options (or an
-empty selection), including failed status reads and pending/terminal closure.
-Unavailable development observations disable access actions; restoring a valid
-observation does not itself Enable or renew access.
-The independent proof window does not activate itself or resize the main App;
-initial enrollment still retains both original independent comparison surfaces.
-Basic resource selection explicitly drafts READ and the corresponding content
-category together, then lists exact scopes and outgoing categories in the save
-confirmation. It never silently upgrades a loaded policy; legacy file scopes
-without fileContent show a separate, explicit draft repair. Advanced independent
-Permission/Egress editing remains available. Saving still disables stale access
-and does not authenticate or enable. STAGE approval remains on this page, while
-the existing Review entry opens only the original durable Proposal inbox.
+The current authorization page follows external boundary section 14: first
+configuration is retained, everyday access uses one switch, and direct insertion
+is an independent saved option defaulting off. A local action saves the explicit
+all-content policy, validates the existing credential using the original owners,
+waits for original settlement and enables finite access. No additional manual
+identity or per-request STAGE prompt is required for saved review/direct modes.
+Existing policies are never widened merely by loading the page. The original
+Review inbox remains available for pending drafts; direct mode affects only new
+batches. Technical initialization, initial pairing comparisons and diagnostic
+controls remain available under connection settings. Unavailable observations
+refuse Enable, and a later valid observation does not automatically renew access.
+The proof window does not activate itself or resize the main App. Original P27
+independent comparison and Missing-only save requirements remain unchanged.
 A user-invoked shortcut may combine
 export with the SAME freshly checked clipboard write; a matching explicit
 Bridge paste/import still grants no comparison or confirmation. Wrong-kind,
@@ -2165,3 +2158,28 @@ and changing a timeout does not close that issue.
 HOST_STABILITY_HALT = ACTIVE; TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED.
 The exact development exception in readiness §§6/8/9.F does not resume Trial 1A,
 G0-L1/L2/I, high-assurance security experiments, production activation or AR-R9B.
+
+
+### Current saved-policy projection amendment (external boundary section 14)
+
+The v35 policy and daily access orchestration amend this consumer's older
+separate manual identity/Enable and per-request STAGE UI descriptions. Original
+fresh mTLS/association/Native validation, finite runtime authority, settlement
+and per-call checks remain mandatory. New batches may be committed only by the
+explicit local saved direct policy and the existing atomic typed transaction;
+legacy/manual behavior and existing pending drafts retain Review.
+
+`STAGED` / `formalCommit=NOT_REPORTED` acknowledges publication, including when
+current local policy directly saved a new batch. It is not a promise that the
+batch is pending; `get_question_proposal` supplies the authoritative lifecycle.
+No wire COMMIT route or receipt-content output is added. Internal stage/reconcile
+effect evidence distinguishes pending publication from committed formal mutation.
+
+`open_generation_context(contextRef, pageSize?, cursor?)` lists paginated file
+choices through `external_list_file_selections`. Its existing empty input remains
+compatible; the paged input has exact `pageSize` (1..50) and nullable `cursor`.
+Output retains the existing keys, with `nextCursor`/`hasMore` consistent and
+`unsupportedExcluded` indicating unparsed files skipped on that page. Ordinals
+are page-local. `contextRef + fileRefs` still creates a separate bounded File
+Context; mixed target/file-selection modes reject. Cursors are opaque, parent
+bound and do not extend authorization lifetime. No source parsing is triggered.

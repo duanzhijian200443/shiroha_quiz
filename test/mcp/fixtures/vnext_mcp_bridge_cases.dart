@@ -375,7 +375,7 @@ void vnextBridgeCases(tls.TlsHarness Function() harness) {
           'external_create_file_context');
       for (final invalid in [
         {'targetRef': _ref, 'pageSize': 20},
-        {'contextRef': _ref, 'cursor': null},
+        {'contextRef': _ref, 'targetRef': _ref},
         {
           'fileRefs': [_ref]
         },

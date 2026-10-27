@@ -14,8 +14,12 @@ export 'external_proposal_lifecycle.dart' show ExternalProposalLifecycle;
 
 /// Narrow acknowledgement, never candidate content, Review or COMMIT authority.
 final class ExternalStageSummary {
-  const ExternalStageSummary(this.proposalId, this.submissionKey);
+  const ExternalStageSummary(this.proposalId, this.submissionKey,
+      {this.effect = CapabilityEffect.proposalStaged});
   final String proposalId, submissionKey;
+
+  /// Data-confirmed durable result; never accepted from client JSON.
+  final CapabilityEffect effect;
 }
 
 final class ExternalStageResult {
@@ -237,7 +241,7 @@ final class ExternalGeneratedStageService {
         generatedToken(submissionKey);
         final result = await _persistence.lookupExternalStage(
             _access(session), submissionKey);
-        if (result != null) confirmed.confirm(CapabilityEffect.proposalStaged);
+        if (result != null) confirmed.confirm(result.effect);
         return result;
       }, onEffectConfirmed: onEffectConfirmed)
           .then((result) =>
@@ -334,7 +338,7 @@ final class ExternalGeneratedStageService {
               interruption: control.failure ?? ExternalFailure.responseLost);
         }
         return ExternalStageResult(CapabilityEvidence.completed(
-            output, CapabilityEffect.proposalStaged));
+            output, confirmed.knownEffect ?? CapabilityEffect.proposalStaged));
       } on GeneratedQuestionException catch (e) {
         return ExternalStageResult(
             CapabilityEvidence(

@@ -7,6 +7,14 @@ fixtures are not executable entries. Training/StudyActivity suites are standing
 coverage even when a PR changes only production code.
 
 The standing list also retains the AR-R6A External offline regression matrix:
+
+The v35 saved-policy suites cover legacy migration defaults, all-content target
+checks, default drafts, direct new-batch transactions, old-key replay and
+original-key recovery. Existing B0 suites cover policy scrub/raw rollback, and
+the existing TLS/App suites cover saved-mode approval without a UI, pending
+switch cancellation and original settlement. File suites cover bounded all-file
+discovery and parent-bound pagination. These are synthetic offline checks;
+normal Windows daily-use and formal security acceptance remain separate.
 every `test/application/external/` and `test/data/external/` suite, the
 `generated_external_origin*` Proposal suites, the P11 authorization widget and
 the repeatedly re-verified `rag_lazy`/Agent config-history suites. The contract

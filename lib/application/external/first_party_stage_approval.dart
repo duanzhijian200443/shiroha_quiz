@@ -3,6 +3,7 @@ import 'dart:async';
 import '../capabilities/capability.dart';
 import '../generated_question/generated_local_authority.dart';
 import 'external_generated_stage.dart';
+import 'external_authorization.dart';
 import 'external_invocation_core.dart';
 import 'external_read_context.dart';
 import 'external_trust_core.dart';
@@ -166,7 +167,7 @@ final class FirstPartyStageApproval {
     required bool Function() available,
     void Function()? onWaiting,
   }) async {
-    if (!_live || _view == null) _deny();
+    if (!_live) _deny();
     if (_request != null) _deny(CapabilityFailure.budgetDenied);
     final request = _request = FirstPartyStageRequest._(this, session, entry,
         contextRef, submissionJson, control, authenticate, available);
@@ -189,7 +190,24 @@ final class FirstPartyStageApproval {
         if (request._choice == null) _deny();
         await _validate(request);
       }));
+      final access = await _interruptible(
+          request, _track(() => stages.runtimeAdmission.admit(session)));
+      _check(request);
+      final grant = access.grantSnapshot;
+      if (grant == null ||
+          grant.revokedAtUtcMs != null ||
+          grant.revision != request._revision) _deny();
       request._cancelTimer!();
+      if (grant.policy.generationMode != ExternalGenerationMode.confirm) {
+        request._cancelTimer =
+            _schedule(FirstPartyStageLimits.completion, control.expireDeadline);
+        await _interruptible(request, _approve(request));
+        final context = await _interruptible(request, request._decision.future);
+        _check(request);
+        if (context == null) _deny();
+        return context;
+      }
+      if (_view == null) _deny();
       request._due = _now + FirstPartyStageLimits.waiting;
       request._awaiting = true;
       request._cancelTimer =
@@ -253,6 +271,10 @@ final class FirstPartyStageApproval {
     request._cancelTimer = _schedule(
         FirstPartyStageLimits.completion, request._control.expireDeadline);
     _changed();
+    await _approve(request);
+  }
+
+  Future<void> _approve(FirstPartyStageRequest request) async {
     await _track(() async {
       try {
         await _validate(request);
@@ -361,7 +383,8 @@ final class FirstPartyStageApprovalView {
 
   void close() {
     if (!identical(_owner._view, this)) return;
-    if (_owner._request != null && !_owner._request!._decision.isCompleted) {
+    if (_owner._request?._awaiting == true &&
+        !_owner._request!._decision.isCompleted) {
       _owner.cancel();
     }
     _owner._view = null;

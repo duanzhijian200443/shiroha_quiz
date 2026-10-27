@@ -53,7 +53,7 @@ final class OfflineHostHarness {
     gateway = ExternalCapabilityGateway(stages: h.s.service, reads: h.read);
     readiness = OfflineReadiness(() async {
       final row = await h.s.h.db.rawQuery('PRAGMA user_version');
-      expect(row.single.values.single, 34);
+      expect(row.single.values.single, 35);
     });
     host = LocalHostDispatchCore(gateway: gateway, readiness: readiness);
   }

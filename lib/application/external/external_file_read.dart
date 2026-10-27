@@ -13,10 +13,20 @@ import 'external_read_context.dart';
 
 /// Policy/relationship authority remains the existing SQLite Grant owner.
 abstract interface class ExternalFileReadPort {
+  Future<ExternalFileChoicePage> listChoices(ExternalQuestionReadAccess access,
+      int pageSize, String? afterFileId, void Function() check);
   Future<List<RetrievalArtifactSnapshot>> query(
       ExternalQuestionReadAccess access,
       List<RetrievalArtifactSnapshot>? selected,
       void Function() check);
+}
+
+final class ExternalFileChoicePage {
+  const ExternalFileChoicePage(this.files,
+      {this.nextFileId, this.unsupportedExcluded = false});
+  final List<RetrievalArtifactSnapshot> files;
+  final String? nextFileId;
+  final bool unsupportedExcluded;
 }
 
 /// Fixed safe failure plus real RAG transaction evidence, including pending

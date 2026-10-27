@@ -529,6 +529,7 @@ final class GeneratedProposalRepository
       ExternalCallControl control,
       CapabilityExecutionEvidence evidence) async {
     var writesStarted = false;
+    var knownEffect = CapabilityEffect.proposalStaged;
     try {
       await _externalCheckpoint(ExternalStageCheckpoint.beforeTransaction);
       final result = await _mutation((db) async {
@@ -567,7 +568,11 @@ final class GeneratedProposalRepository
           if (p.semanticFingerprint != fingerprint) {
             generatedFail(GeneratedFailure.idempotencyConflict);
           }
-          return ExternalStageSummary(p.proposalId, p.submissionKey);
+          if (p.lifecycleStatus == GeneratedStatus.committed) {
+            knownEffect = CapabilityEffect.formalMutation;
+          }
+          return ExternalStageSummary(p.proposalId, p.submissionKey,
+              effect: knownEffect);
         }
         for (final item in input.items) {
           if ((await _evidence(db, context.target, item))
@@ -606,13 +611,54 @@ final class GeneratedProposalRepository
             fingerprint: fingerprint,
             validate: context.validate,
             origin: origin);
+        if (record.grant!.policy.generationMode ==
+            ExternalGenerationMode.direct) {
+          // Only the freshly inserted batch is eligible. Replayed keys returned
+          // above, so enabling this policy never commits existing drafts.
+          final proposal = staged.proposal;
+          final accepted = await db.update(
+              'generated_question_review_state', {'decision': 'accepted'},
+              where: "proposal_id=? AND decision='unreviewed'",
+              whereArgs: [proposal.proposalId]);
+          if (accepted != proposal.items.length) {
+            generatedFail(GeneratedFailure.staleRevision);
+          }
+          final revised = await db.update(
+              'generated_question_proposals',
+              {
+                'review_revision': 1,
+                'updated_at_utc_ms':
+                    generatedInt(_clock(), min: proposal.updatedAtUtcMs),
+              },
+              where:
+                  "proposal_id=? AND lifecycle_status='pending_review' AND review_revision=0",
+              whereArgs: [proposal.proposalId]);
+          if (revised != 1) generatedFail(GeneratedFailure.staleRevision);
+          final current = await readGeneratedProposal(db, proposal.proposalId);
+          await _commitAcceptedProposal(db, current,
+              expectedReviewRevision: 1,
+              approvedItemIds: current.items.map((i) => i.itemId).toList(),
+              validateAuthority: () {
+            context.validate();
+            if (control.failure != null) {
+              generatedFail(GeneratedFailure.unauthorized);
+            }
+          });
+          knownEffect = CapabilityEffect.formalMutation;
+        }
         await _externalCheckpoint(ExternalStageCheckpoint.beforeCommit);
         context.validate();
+        if (record.grant!.policy.generationMode ==
+                ExternalGenerationMode.direct &&
+            control.failure != null) {
+          generatedFail(GeneratedFailure.unauthorized);
+        }
         return ExternalStageSummary(
-            staged.proposal.proposalId, input.submissionKey);
+            staged.proposal.proposalId, input.submissionKey,
+            effect: knownEffect);
       });
       // Only the completed owning transaction proves durable publication.
-      evidence.confirm(CapabilityEffect.proposalStaged);
+      evidence.confirm(knownEffect);
       await _externalCheckpoint(ExternalStageCheckpoint.afterCommit);
       return result;
     } catch (_) {
@@ -664,7 +710,10 @@ final class GeneratedProposalRepository
     if (p.originKind != 'external' || p.localOwner != access.localOwner) {
       return null;
     }
-    return ExternalStageSummary(p.proposalId, p.submissionKey);
+    return ExternalStageSummary(p.proposalId, p.submissionKey,
+        effect: p.lifecycleStatus == GeneratedStatus.committed
+            ? CapabilityEffect.formalMutation
+            : CapabilityEffect.proposalStaged);
   }
 
   @override
@@ -952,82 +1001,95 @@ final class GeneratedProposalRepository
         context.validate();
         return receipt;
       }
-      _pending(p, command.expectedReviewRevision);
-      final selected = p.items
-          .where((i) => i.decision == GeneratedDecision.accepted)
-          .toList();
-      if (selected.isEmpty ||
-          generatedCanonical(ids) !=
-              generatedCanonical(selected.map((i) => i.itemId).toList()) ||
-          p.items.any((i) =>
-              i.decision != GeneratedDecision.accepted &&
-              i.decision != GeneratedDecision.rejected)) {
-        generatedFail(GeneratedFailure.reviewIncomplete);
-      }
-      await _target(db, p.target);
-      for (final item in selected) {
-        final states = await _evidence(db, p.target, item);
-        if (states.any((v) => (v as Map)['status'] != 'authorized') &&
-            item.evidenceAcknowledgement != generatedCanonical(states)) {
-          generatedFail(GeneratedFailure.staleEvidence);
-        }
-      }
-      final duplicates =
-          await _duplicates(db, p.target, selected, excluding: p.proposalId);
-      if (duplicates.exact.isNotEmpty) {
-        generatedFail(GeneratedFailure.duplicateContent);
-      }
-      if (duplicates.legacyOverlap.isNotEmpty) {
-        generatedFail(GeneratedFailure.qualityBlocked);
-      }
-      final now = generatedInt(_clock(), min: p.updatedAtUtcMs);
-      final writes = _freeze(p.target, selected, now);
-      await reconcilePreexistingTrainingBindingDrift(db,
-          affectedBankNames: [p.target.bankName]);
-      await const TypedQuestionBatchWriter().write(db,
-          bankName: p.target.bankName,
-          resolvedFolderName: p.target.folderName,
-          frozenWrites: writes,
-          assetIdentities: {});
-      await _verifyWrittenBatch(db, writes);
-      await _target(db, p.target);
-      await invalidateTrainingBindingsAtFinalState(db,
-          affectedBankNames: [p.target.bankName]);
-      final receipt = GeneratedReceipt(
-          proposalId: p.proposalId,
-          committedAtUtcMs: now,
-          reviewRevision: p.reviewRevision,
-          itemMappings: {
-            for (var i = 0; i < selected.length; i++)
-              selected[i].itemId: writes[i].questionRow['id']! as String
-          });
-      await db.insert('generated_question_commit_receipts', {
-        'proposal_id': p.proposalId,
-        'receipt_json': generatedCanonical(receipt.toJson()),
-        'review_revision': p.reviewRevision,
-        'committed_at_utc_ms': now
-      });
-      for (final mapping in receipt.itemMappings.entries) {
-        await db.insert('generated_question_commit_items', {
-          'proposal_id': p.proposalId,
-          'item_id': mapping.key,
-          'persisted_question_id': mapping.value
-        });
-      }
-      context.validate();
-      final count = await db.update(
-          'generated_question_proposals',
-          {
-            'lifecycle_status': 'committed',
-            'terminal_revision': p.reviewRevision,
-            'updated_at_utc_ms': now
-          },
-          where:
-              "proposal_id=? AND lifecycle_status='pending_review' AND review_revision=?",
-          whereArgs: [p.proposalId, p.reviewRevision]);
-      if (count != 1) generatedFail(GeneratedFailure.staleRevision);
-      return (await readGeneratedProposal(db, p.proposalId)).commitReceipt!;
+      return _commitAcceptedProposal(db, p,
+          expectedReviewRevision: command.expectedReviewRevision,
+          approvedItemIds: ids,
+          validateAuthority: context.validate);
     });
+  }
+
+  /// Same transaction and typed gates for manual Review and a newly generated
+  /// batch covered by the user's explicit direct-insert policy.
+  Future<GeneratedReceipt> _commitAcceptedProposal(
+      DatabaseExecutor db, GeneratedQuestionProposal p,
+      {required int expectedReviewRevision,
+      required List<String> approvedItemIds,
+      required void Function() validateAuthority}) async {
+    validateAuthority();
+    _pending(p, expectedReviewRevision);
+    final selected =
+        p.items.where((i) => i.decision == GeneratedDecision.accepted).toList();
+    if (selected.isEmpty ||
+        generatedCanonical(approvedItemIds) !=
+            generatedCanonical(selected.map((i) => i.itemId).toList()) ||
+        p.items.any((i) =>
+            i.decision != GeneratedDecision.accepted &&
+            i.decision != GeneratedDecision.rejected)) {
+      generatedFail(GeneratedFailure.reviewIncomplete);
+    }
+    await _target(db, p.target);
+    for (final item in selected) {
+      final states = await _evidence(db, p.target, item);
+      if (states.any((v) => (v as Map)['status'] != 'authorized') &&
+          item.evidenceAcknowledgement != generatedCanonical(states)) {
+        generatedFail(GeneratedFailure.staleEvidence);
+      }
+    }
+    final duplicates =
+        await _duplicates(db, p.target, selected, excluding: p.proposalId);
+    if (duplicates.exact.isNotEmpty) {
+      generatedFail(GeneratedFailure.duplicateContent);
+    }
+    if (duplicates.legacyOverlap.isNotEmpty) {
+      generatedFail(GeneratedFailure.qualityBlocked);
+    }
+    final now = generatedInt(_clock(), min: p.updatedAtUtcMs);
+    final writes = _freeze(p.target, selected, now);
+    await reconcilePreexistingTrainingBindingDrift(db,
+        affectedBankNames: [p.target.bankName]);
+    await const TypedQuestionBatchWriter().write(db,
+        bankName: p.target.bankName,
+        resolvedFolderName: p.target.folderName,
+        frozenWrites: writes,
+        assetIdentities: {});
+    await _verifyWrittenBatch(db, writes);
+    await _target(db, p.target);
+    await invalidateTrainingBindingsAtFinalState(db,
+        affectedBankNames: [p.target.bankName]);
+    final receipt = GeneratedReceipt(
+        proposalId: p.proposalId,
+        committedAtUtcMs: now,
+        reviewRevision: p.reviewRevision,
+        itemMappings: {
+          for (var i = 0; i < selected.length; i++)
+            selected[i].itemId: writes[i].questionRow['id']! as String
+        });
+    await db.insert('generated_question_commit_receipts', {
+      'proposal_id': p.proposalId,
+      'receipt_json': generatedCanonical(receipt.toJson()),
+      'review_revision': p.reviewRevision,
+      'committed_at_utc_ms': now
+    });
+    for (final mapping in receipt.itemMappings.entries) {
+      await db.insert('generated_question_commit_items', {
+        'proposal_id': p.proposalId,
+        'item_id': mapping.key,
+        'persisted_question_id': mapping.value
+      });
+    }
+    validateAuthority();
+    final count = await db.update(
+        'generated_question_proposals',
+        {
+          'lifecycle_status': 'committed',
+          'terminal_revision': p.reviewRevision,
+          'updated_at_utc_ms': now
+        },
+        where:
+            "proposal_id=? AND lifecycle_status='pending_review' AND review_revision=?",
+        whereArgs: [p.proposalId, p.reviewRevision]);
+    if (count != 1) generatedFail(GeneratedFailure.staleRevision);
+    return (await readGeneratedProposal(db, p.proposalId)).commitReceipt!;
   }
 
   @override

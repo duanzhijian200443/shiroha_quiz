@@ -230,6 +230,148 @@ final class _PrivateInitializationError implements Exception {
 }
 
 void existingCredentialConfirmationCases() {
+  testWidgets(
+      'simplified settings connect, save direct policy, and open diagnostics without revoking access',
+      (tester) async {
+    final f = _ExistingFixture();
+    await interactionRead(tester, f.open);
+    final development = _DevelopmentControl()
+      ..expiresAt = f.app.files.s.clock.current.add(const Duration(minutes: 30))
+      ..childSettled.complete()
+      ..onOpenWindow = () async {
+        f.proof = f.connection();
+        await f.proof!.connect();
+        f.peerClosed = f.proof!.waitForProofClosure();
+      };
+    f.app.controls.installDevelopment(development);
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+      await interactionRead(tester, f.close);
+    });
+    await tester.binding.setSurfaceSize(const Size(500, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+        home: FirstPartyExternalScope(
+            access: f.app.controls,
+            child: ExternalAuthorizationScreen(service: f.app.policy))));
+    await interactionFrame(tester);
+    for (var i = 0;
+        i < 30 &&
+            tester
+                    .widget<FilledButton>(
+                        find.byKey(const Key('external-connect')))
+                    .onPressed ==
+                null;
+        i++) {
+      await interactionFrame(tester, Duration.zero);
+    }
+    await interactionTap(tester, '连接并开启访问');
+    for (var i = 0;
+        i < 30 && find.byType(LinearProgressIndicator).evaluate().isNotEmpty;
+        i++) {
+      await interactionFrame(tester, Duration.zero);
+    }
+    expect(
+        (await interactionRead(tester, f.app.controls.status)).enabled, isTrue,
+        reason: find
+            .byKey(const Key('external-access-error'))
+            .evaluate()
+            .map((e) => (e.widget as Text).data)
+            .join());
+    final view = f.app.policy.openView();
+    final ref = await interactionRead(
+        tester, () => view.select(f.app.files.s.profile.profileId));
+    var record = await interactionRead(tester, () => view.read(ref));
+    expect(record.grant!.policy.allContent, isTrue);
+    expect(record.grant!.policy.generationMode, ExternalGenerationMode.review);
+    await interactionTap(tester, '允许直接写入题库');
+    for (var i = 0;
+        i < 30 && find.byType(LinearProgressIndicator).evaluate().isNotEmpty;
+        i++) {
+      await interactionFrame(tester, Duration.zero);
+    }
+    record = await interactionRead(tester, () => view.read(ref));
+    expect(record.grant!.policy.generationMode, ExternalGenerationMode.direct);
+    expect(
+        (await interactionRead(tester, f.app.controls.status)).enabled, isTrue);
+    await interactionTap(tester, '连接设置');
+    await tester.pumpAndSettle();
+    await interactionTap(tester, '首次配对与连接诊断');
+    await tester.pumpAndSettle();
+    expect(find.byType(FirstPartyExternalControl), findsOneWidget);
+    expect(
+        (await interactionRead(tester, f.app.controls.status)).enabled, isTrue);
+    view.close();
+  });
+  test(
+      'daily access switch proves identity once and waits for original settlement before enable',
+      () async {
+    final f = _ExistingFixture();
+    await f.open();
+    addTearDown(f.close);
+    final originalClosed = Completer<void>();
+    final development = _DevelopmentControl()
+      ..expiresAt = f.app.files.s.clock.current.add(const Duration(minutes: 30))
+      ..onOpenWindow = () async {
+        f.proof = f.connection();
+        await f.proof!.connect();
+        f.peerClosed = f.proof!.waitForProofClosure();
+        unawaited(f.peerClosed!.then((_) => originalClosed.complete()));
+      };
+    f.app.controls.installDevelopment(development);
+    final profile = f.app.files.s.profile.profileId;
+    final work =
+        f.app.controls.allowConfiguredAccess(profile, available: () => true);
+    var enabled = false;
+    final observed = work.then((_) => enabled = true);
+    await originalClosed.future;
+    expect(enabled, isFalse);
+    development.childSettled.complete();
+    await observed;
+    expect((await f.app.controls.status()).enabled, isTrue);
+    final expires = (await f.app.controls.status()).expiresAt;
+    await f.app.controls.allowConfiguredAccess(profile, available: () => true);
+    expect((await f.app.controls.status()).expiresAt, expires);
+    await f.app.controls.disable();
+    expect((await f.app.controls.status()).enabled, isFalse);
+  });
+
+  for (final cancel in ['switch', 'view', 'disconnect']) {
+    test('daily access $cancel during startup prevents late enable', () async {
+      final f = _ExistingFixture();
+      await f.open();
+      addTearDown(f.close);
+      final entered = Completer<void>(), release = Completer<void>();
+      var opened = 0;
+      final development = _DevelopmentControl()
+        ..phase = FirstPartyDevelopmentPhase.inactive
+        ..childSettled.complete()
+        ..onStart = () {
+          entered.complete();
+          return release.future;
+        }
+        ..onOpenWindow = () async {
+          opened++;
+        };
+      f.app.controls.installDevelopment(development);
+      final work = f.app.controls.allowConfiguredAccess(
+          f.app.files.s.profile.profileId,
+          available: () => true);
+      final denied = expectLater(work, throwsA(isA<ExternalAuthException>()));
+      await entered.future;
+      final stopping = switch (cancel) {
+        'view' => f.app.controls.cancelPendingControls(),
+        'disconnect' => f.app.controls.disconnectTransport(),
+        _ => f.app.controls.disable(),
+      };
+      development.phase = FirstPartyDevelopmentPhase.active;
+      release.complete();
+      await denied;
+      await stopping;
+      expect(opened, 0);
+      expect((await f.app.controls.status()).enabled, isFalse);
+    });
+  }
   for (final cancellation in ['disconnect', 'view']) {
     test('Enable preflight status preserves $cancellation cancellation',
         () async {
@@ -537,7 +679,7 @@ void existingCredentialConfirmationCases() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     tester.view.devicePixelRatio = 1;
-    for (final width in [720.0, 1100.0]) {
+    for (final width in [360.0, 720.0, 1100.0]) {
       tester.view.physicalSize = Size(width, 900);
       await tester.pump();
       expect(tester.takeException(), isNull);
@@ -1205,23 +1347,16 @@ void existingCredentialConfirmationCases() {
             access: f.app.controls,
             child: ExternalAuthorizationScreen(service: f.app.policy))));
     await settleGenerated(tester);
-    expect(find.text('身份已确认，等待允许访问'), findsOneWidget);
+    expect(find.text('尚未开启访问'), findsOneWidget);
     expect(find.textContaining('未配对 / 未启用'), findsNothing);
-    final profile = find.byKey(ValueKey(f.app.files.s.profile.profileId));
-    await tester.ensureVisible(profile);
-    await tester.runAsync(() async {
-      await tester.tap(profile);
-      await pumpEventQueue(times: 30);
-    });
-    await settleGenerated(tester);
-    expect(find.text('已保存访问规则'), findsOneWidget);
-    await tester.ensureVisible(find.text('撤销 Grant'));
-    await tester.tap(find.text('撤销 Grant'));
-    await tester.pump();
-    expect(find.text('撤销当前访问规则。此操作不修改已保存的配对凭据。'), findsOneWidget);
-    expect(find.textContaining('客户端仍未配对'), findsNothing);
-    await tester.tap(find.text('取消').last);
-    await settleGenerated(tester);
+    expect(find.text('首次连接'), findsNothing);
+    expect(find.text('连接并开启访问'), findsOneWidget);
+    final status = await interactionRead(tester, f.app.controls.status);
+    expect(status.pairing, PairingState.pairedDisabled);
+    expect(status.enabled, isFalse);
+    final record = await interactionRead(
+        tester, () => f.app.files.s.management.read(f.app.files.s.profile));
+    expect(record.grant!.policy.allContent, isFalse);
   });
 
   testWidgets('guided profile change withdraws a late identity confirmation',

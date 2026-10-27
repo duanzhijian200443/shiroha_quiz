@@ -160,9 +160,14 @@ final class _CommandRequest {
       case _Command.getQuestionDetail:
         final m = _object(rawInput, ['questionRef']);
         input = ExternalQuestionSelection(_ref(m['questionRef']));
-      case _Command.listFileSelections ||
-            _Command.reconcile ||
-            _Command.proposalLifecycle:
+      case _Command.listFileSelections:
+        final m = rawInput is Map && rawInput.isEmpty
+            ? <String, Object?>{'pageSize': 20, 'cursor': null}
+            : _object(rawInput, ['pageSize', 'cursor']);
+        input = ExternalTargetQuery(
+            pageSize: _integer(m['pageSize'], 1, 50),
+            cursor: _cursor(m['cursor']));
+      case _Command.reconcile || _Command.proposalLifecycle:
         _object(rawInput, []);
         input = const ExternalNoInput();
       case _Command.createFileContext:
@@ -352,17 +357,18 @@ void _validateData(_Command command, Object? value) {
       _boolean(page['hasMore']);
       _boolean(page['unsupportedExcluded']);
       _boolean(page['startsAtDocumentBeginning']);
-      if (command != _Command.getFilePassage &&
+      if (command == _Command.retrieveFileContent &&
           (page['nextCursor'] != null ||
               page['hasMore'] != false ||
               page['startsAtDocumentBeginning'] != false)) {
         _bad();
       }
       if (command == _Command.listFileSelections &&
-          page['unsupportedExcluded'] != false) {
+          page['startsAtDocumentBeginning'] != false) {
         _bad();
       }
-      if (command == _Command.getFilePassage &&
+      if ((command == _Command.getFilePassage ||
+              command == _Command.listFileSelections) &&
           (page['hasMore'] == true) != (page['nextCursor'] != null)) {
         _bad();
       }

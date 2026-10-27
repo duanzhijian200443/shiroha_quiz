@@ -104,6 +104,7 @@ enum _HandleKind {
   question,
   questionCursor,
   fileSelection,
+  fileSelectionCursor,
   passage,
   passageCursor
 }
@@ -115,6 +116,7 @@ final class _Handle {
       this.parentContext,
       this.questionKey,
       this.query,
+      this.afterFileId,
       this.files = const [],
       this.file,
       this.chunkId,
@@ -128,6 +130,7 @@ final class _Handle {
   final _Handle? parentContext;
   final ExternalQuestionKey? questionKey;
   final String? query;
+  final String? afterFileId;
   final List<RetrievalArtifactSnapshot> files;
   final RetrievalArtifactSnapshot? file;
   final String? chunkId;

@@ -79,6 +79,31 @@
       "before": "    if (oldVersion < externalAuthorizationSchemaVersion) {\n      await migrateExternalAuthorizationSchema(db);\n    }\n",
       "after": "    if (oldVersion < externalAuthorizationSchemaVersion) {\n      await migrateExternalAuthorizationSchema(db);\n    }\n    if (oldVersion < generatedProposalOriginSchemaVersion) {\n      await migrateGeneratedProposalOriginToV34(db);\n    }\n",
       "count": 1
+    },
+    {
+      "before": "import 'external_authorization_schema.dart';\n",
+      "after": "import 'external_authorization_schema.dart';\nimport 'external_access_v35_schema.dart';\n",
+      "count": 1
+    },
+    {
+      "before": "static const int _dbVersion = generatedProposalOriginSchemaVersion;",
+      "after": "static const int _dbVersion = externalAccessSchemaVersion;",
+      "count": 1
+    },
+    {
+      "before": "    await createExternalAuthorizationSchema(db);\n",
+      "after": "    await createExternalAuthorizationSchema(db);\n    await createExternalAccessV35Schema(db);\n",
+      "count": 1
+    },
+    {
+      "before": "    await validateExternalAuthorizationData(db);\n",
+      "after": "    await validateExternalAuthorizationData(db);\n    await validateExternalAccessV35Schema(db);\n",
+      "count": 2
+    },
+    {
+      "before": "    if (oldVersion < generatedProposalOriginSchemaVersion) {\n      await migrateGeneratedProposalOriginToV34(db);\n    }\n",
+      "after": "    if (oldVersion < generatedProposalOriginSchemaVersion) {\n      await migrateGeneratedProposalOriginToV34(db);\n    }\n    if (oldVersion < externalAccessSchemaVersion) {\n      await migrateExternalAccessToV35(db);\n    }\n    await validateExternalAccessV35Schema(db);\n",
+      "count": 1
     }
   ],
   "lib/data/repositories/backup_snapshot_repository.dart": [
@@ -115,6 +140,26 @@
     {
       "before": "      await db.delete(\n        'app_settings',\n        where: 'key = ?',\n        whereArgs: <Object?>['app_theme'],\n      );\n",
       "after": "      await db.delete(\n        'app_settings',\n        where: 'key = ?',\n        whereArgs: <Object?>['app_theme'],\n      );\n      await db.delete(\n        'app_settings',\n        where: 'key = ?',\n        whereArgs: <Object?>['app_appearance'],\n      );\n",
+      "count": 1
+    },
+    {
+      "before": "import '../../core/database/external_authorization_schema.dart';\n",
+      "after": "import '../../core/database/external_authorization_schema.dart';\nimport '../../core/database/external_access_v35_schema.dart';\n",
+      "count": 1
+    },
+    {
+      "before": "      await validateExternalAuthorizationData(db);\n",
+      "after": "      await validateExternalAuthorizationData(db);\n      await validateExternalAccessV35Schema(db);\n",
+      "count": 2
+    },
+    {
+      "before": "    for (final table in externalAuthorizationTables.reversed) {\n",
+      "after": "    await db.delete(externalAccessPreferencesTable);\n    for (final table in externalAuthorizationTables.reversed) {\n",
+      "count": 1
+    },
+    {
+      "before": "      ...externalAuthorizationTables,\n",
+      "after": "      ...externalAuthorizationTables,\n      externalAccessPreferencesTable,\n",
       "count": 1
     }
   ]

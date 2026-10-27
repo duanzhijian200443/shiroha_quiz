@@ -7,7 +7,7 @@ import '../../core/database/database_helper.dart';
 import '../../core/database/external_authorization_schema.dart';
 import 'external_authorization_repository.dart';
 
-/// Exact current scopes only. No global files query, new policy or writer.
+/// Current explicit policy and Project relationships; never parses source files.
 final class SqliteExternalFileReadRepository implements ExternalFileReadPort {
   SqliteExternalFileReadRepository({DatabaseHelper? databaseHelper})
       : _helper = databaseHelper ?? DatabaseHelper.instance;
@@ -15,9 +15,19 @@ final class SqliteExternalFileReadRepository implements ExternalFileReadPort {
 
   @override
   Future<List<RetrievalArtifactSnapshot>> query(
-      ExternalQuestionReadAccess access,
-      List<RetrievalArtifactSnapshot>? selected,
-      void Function() check) async {
+          ExternalQuestionReadAccess access,
+          List<RetrievalArtifactSnapshot>? selected,
+          void Function() check) async =>
+      (await _query(access, selected, check)).files;
+
+  @override
+  Future<ExternalFileChoicePage> listChoices(ExternalQuestionReadAccess access,
+          int pageSize, String? afterFileId, void Function() check) =>
+      _query(access, null, check, pageSize: pageSize, afterFileId: afterFileId);
+
+  Future<ExternalFileChoicePage> _query(ExternalQuestionReadAccess access,
+      List<RetrievalArtifactSnapshot>? selected, void Function() check,
+      {int? pageSize, String? afterFileId}) async {
     check();
     access.validate();
     final database = await _helper.database;
@@ -50,7 +60,36 @@ final class SqliteExternalFileReadRepository implements ExternalFileReadPort {
             .contains(ExternalContentCategory.fileContent)) {
           externalReadFail(ExternalReadFailure.denied);
         }
-        final scopes = grant.policy.scopes
+        final allScopes = <ExternalGrantScope>[];
+        if (grant.policy.allContent) {
+          final selectedIds = selected?.map((f) => f.fileId).toList();
+          final constraints = <String>[
+            if (access.target.projectId != null) 'project_id=?',
+            if (afterFileId != null) 'file_id>?',
+            if (selectedIds != null)
+              'file_id IN (${List.filled(selectedIds.length, '?').join(',')})',
+          ];
+          final files = await db.rawQuery(
+              'SELECT file_id FROM ${access.target.projectId == null ? 'library_files' : 'project_files'} '
+              '${constraints.isEmpty ? '' : 'WHERE ${constraints.join(' AND ')}'} '
+              'ORDER BY file_id ${pageSize == null ? '' : 'LIMIT ?'}',
+              [
+                if (access.target.projectId != null) access.target.projectId,
+                if (afterFileId != null) afterFileId,
+                ...?selectedIds,
+                if (pageSize != null) pageSize + 1
+              ]);
+          check();
+          for (final file in files) {
+            allScopes.add(ExternalGrantScope(
+                kind: ExternalTargetKind.file,
+                targetId: file['file_id'] as String,
+                projectId: access.target.projectId));
+          }
+        }
+        final scopes = (grant.policy.allContent
+                ? allScopes
+                : grant.policy.scopes)
             .where((s) =>
                 s.kind == ExternalTargetKind.file &&
                 s.projectId == access.target.projectId)
@@ -65,9 +104,20 @@ final class SqliteExternalFileReadRepository implements ExternalFileReadPort {
                     .every((f) => scopes.any((s) => s.targetId == f.fileId)))) {
           externalReadFail(ExternalReadFailure.denied);
         }
-        if (scopes.isEmpty) externalReadFail(ExternalReadFailure.denied);
+        if (scopes.isEmpty && pageSize == null)
+          externalReadFail(ExternalReadFailure.denied);
+        if (scopes.isEmpty && !grant.policy.allContent)
+          externalReadFail(ExternalReadFailure.denied);
+        final remaining = scopes
+            .where((s) =>
+                afterFileId == null || s.targetId.compareTo(afterFileId) > 0)
+            .toList();
+        final page =
+            pageSize == null ? remaining : remaining.take(pageSize).toList();
+        final hasMore = pageSize != null && remaining.length > pageSize;
+        var excluded = false;
         final result = <RetrievalArtifactSnapshot>[];
-        for (final scope in scopes.where((s) =>
+        for (final scope in page.where((s) =>
             selected == null || selected.any((f) => f.fileId == s.targetId))) {
           check();
           await requireExternalGrant(
@@ -87,6 +137,10 @@ final class SqliteExternalFileReadRepository implements ExternalFileReadPort {
           ''', [scope.targetId]);
           check();
           if (rows.isEmpty) {
+            if (pageSize != null && grant.policy.allContent) {
+              excluded = true;
+              continue;
+            }
             externalReadFail(ExternalReadFailure.sourceNotReady);
           }
           final row = rows.single;
@@ -106,7 +160,9 @@ final class SqliteExternalFileReadRepository implements ExternalFileReadPort {
         }
         check();
         access.validate();
-        return result;
+        return ExternalFileChoicePage(result,
+            nextFileId: hasMore ? page.last.targetId : null,
+            unsupportedExcluded: excluded);
       });
     } on ExternalReadException {
       rethrow;

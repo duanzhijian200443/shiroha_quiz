@@ -223,6 +223,12 @@ Future<void> _selectProfile(
     // Retry that same visible choice; never wait for the covered opener or
     // bypass the product dialog by selecting directly through Application.
     if (!driver.hasText('选择授权 Profile')) {
+      if (!driver.hasText('选择连接 Profile')) {
+        if (!driver.hasText('首次配对与连接诊断')) {
+          await driver.scrollToBottom();
+        }
+        await driver.tapText('首次配对与连接诊断');
+      }
       await driver.tapButton('选择连接 Profile');
     }
     try {

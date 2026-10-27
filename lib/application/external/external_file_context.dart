@@ -31,18 +31,35 @@ extension ExternalFileContextOperations on ExternalReadContextService {
   Future<ExternalFilePage> listFileSelections(
           {required ExternalSession session,
           required String context,
+          int pageSize = 20,
+          String? cursor,
           ExternalCallControl? control}) =>
       _run(session, control, (runtime, check, allocations) async {
-        final parent = _lookup(context, _HandleKind.context, runtime);
-        final access = ExternalQuestionReadAccess._(this, runtime, parent);
-        final choices =
-            await _fileReader.authorization.query(access, null, check);
-        if (choices.length > 64) {
+        if (pageSize < 1 || pageSize > 50)
           externalReadFail(ExternalReadFailure.resourceLimit);
-        }
+        final parent = _lookup(context, _HandleKind.context, runtime);
+        final previous = cursor == null
+            ? null
+            : _lookup(cursor, _HandleKind.fileSelectionCursor, runtime);
+        if (previous != null && !identical(previous.parentContext, parent))
+          externalReadFail(ExternalReadFailure.denied);
+        final access = ExternalQuestionReadAccess._(this, runtime, parent);
+        final page = await _fileReader.authorization
+            .listChoices(access, pageSize, previous?.afterFileId, check);
+        final choices = page.files;
         // Metadata choices bind a generation but do not load document bodies.
-        await _fileReader.authorize(access, choices, check);
+        if (choices.isNotEmpty)
+          await _fileReader.authorize(access, choices, check);
         final now = admission.trust.clock.now();
+        final next = page.nextFileId == null
+            ? null
+            : _mint(
+                _Handle(_HandleKind.fileSelectionCursor, runtime,
+                    parent.snapshot, now, parent.expiresAt,
+                    target: parent.target,
+                    parentContext: parent,
+                    afterFileId: page.nextFileId),
+                allocations);
         final result = ExternalFilePage([
           for (var i = 0; i < choices.length; i++)
             {
@@ -55,7 +72,10 @@ extension ExternalFileContextOperations on ExternalReadContextService {
                   allocations),
               'selectionOrdinal': i
             }
-        ]);
+        ],
+            nextCursor: next,
+            hasMore: next != null,
+            unsupportedExcluded: page.unsupportedExcluded);
         _fileSize(result);
         check();
         access.validate();

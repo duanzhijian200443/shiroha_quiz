@@ -615,7 +615,7 @@ void main() {
     final readiness = OfflineReadiness(() async {
       expect(
           (await h.s.h.db.rawQuery('PRAGMA user_version')).single.values.single,
-          34);
+          35);
     });
     final host = LocalHostDispatchCore(gateway: gateway, readiness: readiness);
     try {
@@ -633,7 +633,7 @@ void main() {
       final parent = await host.openRead(entry, context: created.output!);
       final bodies = h.observed.reads;
       final choices = await host.dispatch(
-          ExternalCapabilities.listFileSelections, const ExternalNoInput(),
+          ExternalCapabilities.listFileSelections, const ExternalTargetQuery(),
           entry: entry, context: parent);
       expect(h.observed.reads, bodies);
       final files = await host.dispatch(

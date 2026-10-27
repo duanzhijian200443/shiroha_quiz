@@ -200,7 +200,7 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
 6. Typed content mutation must not pass through the legacy editor or reconstruct authority from a V1 projection.
 7. Review/FSRS state is separate from typed question content mutation.
 8. `RichContent` is structural: a persisted `TextNode` is not reparsed later as Markdown/math/image syntax.
-9. Current database schema is **v34**: the frozen v15 typed sidecar remains
+9. Current database schema is **v35**: the frozen v15 typed sidecar remains
    authoritative, with the additive v16 File Library, v17 Project, v18 flat
    File Library Folder, v19 Conversation, and v20 parsed-artifact tables, the
    additive RAG-1 derived lexical-retrieval cache and FTS5 objects, the
@@ -213,7 +213,10 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
    preferences configuration schema, v30 StudyActivity sessions/segments and v31
    nullable ImportTask current-attempt event timestamps and v32 durable generated
    Proposal originals/review/receipts/mappings, plus v33 non-secret external
-   Profile/Grant policy, exact scopes and Egress categories. The authorization
+   Profile/Grant policy, exact scopes and Egress categories. v35 adds the
+   revision-coupled `external_access_preferences` all-content/generation policy;
+   legacy rows default to exact scope/manual confirmation. Portable B0 scrubs
+   this policy; raw rollback retains it (external boundary section 14). The authorization
    contract is owned by `external-agent-boundary.md` §6; P1 adds no authentication,
    pairing, runtime Enablement, external Origin, Dispatcher or Host wiring. B0
    scrubs its rows from portable copies and preserves original raw rollback state.
@@ -526,7 +529,8 @@ App/Explorer parent chain before consuming public startup trust; no credential,
 Session, Grant or approval is transported in that handoff. Original stdin/stdout
 custody, P26 validation/CAS and P15/P0/P8/P10 remain authoritative.
 The guided first-party connection delegates preparation to these same owners;
-identity confirmation and business Enable remain independent local decisions.
+the daily access action may join fresh system identity validation, original
+settlement and finite Enable under external boundary section 14.
 Only this normal development composition supplies an eight-hour P0 ceiling;
 effective access cannot outlive its deployment deadline. Other roots keep their
 existing default, with no automatic renewal. The adapter may acquire a fresh pipe
@@ -535,9 +539,10 @@ lost request or bypassing the App's child-settlement barrier.
 
 Readiness §9.C.8 and external boundary §12 permit an explicitly started, live
 mTLS confirmation of an existing credential after App reopen: one private,
-bounded, exact-channel candidate and human identity decision may reach original
+bounded, exact-channel candidate and a trusted first-party identity decision may reach original
 P0 `pairedDisabled` without creating/replacing credentials or associations.
-Saved files alone never restore state. Separate finite Enable and fresh business
+Saved files alone never restore state. The daily action may sequence finite
+Enable after settlement; fresh business
 authentication follow; the App-owned binding rechecks its selected Profile and
 Enable revision on every business channel, independent of UI polling. Per-tool
 TLS closure and outer adapter loss have different meanings; only the latter
@@ -546,7 +551,8 @@ exception, not formal production activation or security acceptance. Historical
 dormant checkpoints below retain their original scope; §17.12 owns this consumer.
 
 Application owns Profile selection, fresh authentication, finite enablement and
-explicit P3 target confirmation; UI supplies no credential or READ-to-STAGE
+P3 target approval from a manual decision or current saved generation policy
+(external boundary section 14); UI supplies no credential or READ-to-STAGE
 upgrade. Database close drains the owner before B0 swap/rollback or rebuild;
 replacement starts disabled. MCP contract §9 owns this bounded App slice and
 the remaining production pairing/authentication/transport admission gap.

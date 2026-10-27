@@ -12,6 +12,7 @@ import '../../core/database/study_activity_v30_schema.dart';
 import '../../core/database/import_task_v31_schema.dart';
 import '../../core/database/generated_proposal_schema.dart';
 import '../../core/database/external_authorization_schema.dart';
+import '../../core/database/external_access_v35_schema.dart';
 import 'generated_proposal_reader.dart';
 import '../../domain/study_activity/study_activity_values.dart';
 import '../../domain/backup/backup_failure.dart';
@@ -185,9 +186,11 @@ final class BackupSnapshotRepository {
     try {
       await validateExternalAuthorizationSchema(db);
       await validateExternalAuthorizationData(db);
+      await validateExternalAccessV35Schema(db);
     } catch (_) {
       throw const BackupException(BackupFailure.databaseInvalid);
     }
+    await db.delete(externalAccessPreferencesTable);
     for (final table in externalAuthorizationTables.reversed) {
       await db.delete(table);
     }
@@ -237,6 +240,7 @@ final class BackupSnapshotRepository {
       await validateGeneratedProposalData(db);
       await validateExternalAuthorizationSchema(db);
       await validateExternalAuthorizationData(db);
+      await validateExternalAccessV35Schema(db);
       await validateTrainingContentV29Schema(db);
       await validateTrainingContentV29Data(db);
       await validateImportTaskV31Schema(db);
@@ -253,6 +257,7 @@ final class BackupSnapshotRepository {
 
     final excludedTables = <String>[
       ...externalAuthorizationTables,
+      externalAccessPreferencesTable,
       'parsed_artifacts',
       'parsed_artifact_heads',
       'retrieval_index_builds',

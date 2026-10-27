@@ -154,10 +154,16 @@ final class VnextMcpCommand {
             contextRef: context);
       }
       if (context != null) {
-        if (arguments.length != 1) {
+        if (arguments.keys.any((key) =>
+            !const ['contextRef', 'pageSize', 'cursor'].contains(key))) {
           throw const FormatException('invalidRequest');
         }
-        return VnextMcpCommand._('external_list_file_selections', {},
+        return VnextMcpCommand._(
+            'external_list_file_selections',
+            {
+              'pageSize': arguments['pageSize'] ?? 20,
+              'cursor': arguments['cursor']
+            },
             contextRef: context);
       }
       if (arguments.containsKey('targetRef')) {
