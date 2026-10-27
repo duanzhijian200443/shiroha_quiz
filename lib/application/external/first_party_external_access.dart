@@ -903,8 +903,9 @@ final class FirstPartyExternalAccess {
         try {
           final services = b.credentials;
           if (services != null) _credentials();
-          if (_pairingFailed)
+          if (_pairingFailed) {
             externalAuthFail(ExternalAuthFailure.unauthorized);
+          }
           final attempt = services == null ? _authenticate(b) : null;
           // One visible access deadline must never outlive the admitted deployment.
           // Generic/offline callers retain their original P0 duration limit.
