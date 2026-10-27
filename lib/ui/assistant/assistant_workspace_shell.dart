@@ -24,6 +24,8 @@ enum _WorkspaceDestination {
   mcp,
 }
 
+enum AssistantWorkspaceEntry { conversation, fileLibrary, learningSpaces }
+
 class AssistantWorkspaceShell extends StatefulWidget {
   const AssistantWorkspaceShell({
     super.key,
@@ -38,6 +40,9 @@ class AssistantWorkspaceShell extends StatefulWidget {
     this.studyPlanCommandService,
     this.practiceCommands,
     this.conversationFocusEpoch = 0,
+    this.workspaceEntry = AssistantWorkspaceEntry.conversation,
+    this.workspaceEntryEpoch = 0,
+    this.externalWorkspaceNavigation = false,
   });
 
   final U1WorkspaceFacade facade;
@@ -51,6 +56,9 @@ class AssistantWorkspaceShell extends StatefulWidget {
   final StudyPlanCommandService? studyPlanCommandService;
   final PracticeCommandDependencies? practiceCommands;
   final int conversationFocusEpoch;
+  final AssistantWorkspaceEntry workspaceEntry;
+  final int workspaceEntryEpoch;
+  final bool externalWorkspaceNavigation;
 
   @override
   State<AssistantWorkspaceShell> createState() =>
@@ -89,6 +97,23 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
   @override
   void didUpdateWidget(covariant AssistantWorkspaceShell oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.workspaceEntryEpoch != oldWidget.workspaceEntryEpoch) {
+      _projectId = null;
+      _destination = switch (widget.workspaceEntry) {
+        AssistantWorkspaceEntry.conversation =>
+          _WorkspaceDestination.conversation,
+        AssistantWorkspaceEntry.fileLibrary =>
+          _WorkspaceDestination.fileLibrary,
+        AssistantWorkspaceEntry.learningSpaces =>
+          _WorkspaceDestination.learningSpaces,
+      };
+      if (widget.workspaceEntry == AssistantWorkspaceEntry.fileLibrary) {
+        _fileController.load();
+      } else if (widget.workspaceEntry ==
+          AssistantWorkspaceEntry.learningSpaces) {
+        _spacesController.load();
+      }
+    }
     if (widget.conversationFocusEpoch <= oldWidget.conversationFocusEpoch) {
       return;
     }
@@ -239,6 +264,7 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
+        if (widget.externalWorkspaceNavigation) return _buildWorkspace();
         if (constraints.maxWidth < 900) {
           return AssistantScreen(
             spacesController: _spacesController,

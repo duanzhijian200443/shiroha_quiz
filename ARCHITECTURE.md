@@ -966,6 +966,16 @@ boundary remains frozen and applies to any future P7 extension:
 
 ## 12. UI Finalization Presentation boundary
 
+The user-authorized 2026-10-25 workspace exception in
+`docs/product/shiroha-appearance.md` adds selectable mobile/computer-tablet layout.
+Computer/tablet navigation exposes Home, Library, Learning Spaces, Today Training,
+Banks, Assistant and Settings through existing capability owners. Its reference-led
+Home restores a review-entry calendar and a separately labelled current-week
+StudyActivity summary. Mobile retains the three-destination Home below. The
+workspace exception supersedes only the global three-only/calendar-retirement
+presentation clauses, not training, timing, persistence, Agent approval or MockExam
+retirement. The new read-only dashboard projection composes existing queries.
+
 The global Paper/Grayscale/Colorful styles with independent Light/Dark/System
 display modes, legacy-preset compatibility and shared visual tokens are governed by
 `docs/product/shiroha-appearance.md`. They share page structure and behavior;

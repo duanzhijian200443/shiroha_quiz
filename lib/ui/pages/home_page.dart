@@ -20,6 +20,8 @@ import '../dependencies/practice_command_dependencies.dart';
 import '../../application/safe_write/typed_answer_command.dart';
 import '../../application/today/today_context_query.dart';
 import '../home/today_controller.dart';
+import '../../application/today/workspace_dashboard_query.dart';
+import '../home/workspace_home_dashboard.dart';
 import '../../domain/study_plan/active_study_plan.dart';
 import '../../services/study_plan/study_plan_practice_session_launcher.dart';
 import '../dependencies/task_center_dependencies.dart';
@@ -49,6 +51,11 @@ class HomePage extends StatefulWidget {
   const HomePage({
     super.key,
     this.taskCenter,
+    this.dashboard,
+    this.onRefreshDashboard,
+    this.onWorkspaceDestination,
+    this.onOpenRecentFile,
+    this.trainingOnly = false,
     this.todayContextQuery,
     this.homeTraining,
     this.studyActivityQuery,
@@ -73,6 +80,11 @@ class HomePage extends StatefulWidget {
   });
 
   final TaskCenterDependencies? taskCenter;
+  final WorkspaceDashboardSnapshot? dashboard;
+  final Future<void> Function()? onRefreshDashboard;
+  final ValueChanged<int>? onWorkspaceDestination;
+  final ValueChanged<String>? onOpenRecentFile;
+  final bool trainingOnly;
   final TodayContextQuery? todayContextQuery;
   final HomeTrainingDependencies? homeTraining;
   final StudyActivityQuery? studyActivityQuery;
@@ -109,6 +121,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   late final TodayController _controller;
   int? _taskBadge;
+  final _workspaceComposer = TextEditingController();
   int _badgeGeneration = 0;
   String get _currentBank => _controller.contextSnapshot.bankName ?? '点击修改选择题库';
   int get _newCount => _controller.contextSnapshot.newCount;
@@ -162,6 +175,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _controller.removeListener(_onControllerChanged);
     _controller.dispose();
+    _workspaceComposer.dispose();
     super.dispose();
   }
 
@@ -174,6 +188,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (widget.homeTraining != null) _controller.loadWeek(),
       _loadFocusedState()
     ]);
+    await widget.onRefreshDashboard?.call();
   }
 
   Future<void> _loadTaskBadge() async {
@@ -274,98 +289,152 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       Theme(data: _visualTheme, child: Builder(builder: _buildHome));
 
   Widget _buildHome(BuildContext context) {
-    final theme = Theme.of(context);
+    final workspace =
+        Theme.of(context).extension<ShirohaThemeTokens>()?.appearance.layout ==
+            ShirohaLayoutMode.workspace;
+    if (workspace && !widget.trainingOnly) {
+      String count(HomeTrainingResult<TrainingCount>? result) =>
+          switch (result) {
+            HomeTrainingSuccess(:final value) => '${value.value} 题',
+            _ => '—',
+          };
+      return WorkspaceHomeDashboard(
+        composer: _workspaceComposer,
+        snapshot: widget.dashboard,
+        week: _controller.weekResult,
+        newCount: count(_training?.newCount),
+        reviewCount: count(_training?.categoryReviewCount),
+        taskCount: _taskBadge,
+        onRefresh: _refresh,
+        onTraining: () => widget.onWorkspaceDestination?.call(3),
+        onSpaces: () => widget.onWorkspaceDestination?.call(2),
+        onImport: _openImport,
+        onBanks: () => widget.onWorkspaceDestination?.call(4),
+        onLibrary: () => widget.onWorkspaceDestination?.call(1),
+        onSettings: () => widget.onWorkspaceDestination?.call(6),
+        onParse: widget.taskCenter == null ? null : _openTaskCenter,
+        onOpenFile: widget.onOpenRecentFile,
+        onAssistant: widget.onAskAssistant,
+      );
+    }
     return Scaffold(
       body: SafeArea(
-          child: Align(
-        alignment: Alignment.topCenter,
-        child: ConstrainedBox(
-          constraints:
-              const BoxConstraints(maxWidth: DesignTokens.contentMaxWidth),
-          child: RefreshIndicator(
-            onRefresh: _refresh,
-            child: SingleChildScrollView(
-              key: const ValueKey('today-scroll'),
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _brand(),
-                    const SizedBox(height: 6),
-                    TodayWelcomeBanner(now: widget.localNow?.call()),
-                    const SizedBox(height: 10),
-                    Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+                maxWidth: workspace
+                    ? DesignTokens.workspaceMaxWidth
+                    : DesignTokens.contentMaxWidth),
+            child: LayoutBuilder(builder: (context, constraints) {
+              final roomy = workspace && constraints.maxWidth >= 600;
+              final padding = roomy ? 24.0 : 16.0;
+              final contentWidth = constraints.maxWidth - padding * 2;
+              final columns = roomy &&
+                  contentWidth >= DesignTokens.workspaceColumnsBreakpoint &&
+                  MediaQuery.textScalerOf(context).scale(16) <= 24;
+              final trainingWidth =
+                  columns ? (contentWidth - 24) * .6 : contentWidth;
+              final planWidth =
+                  columns ? (contentWidth - 24) * .4 : contentWidth;
+              return RefreshIndicator(
+                onRefresh: _refresh,
+                child: SingleChildScrollView(
+                  key: const ValueKey('today-scroll'),
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: EdgeInsets.fromLTRB(
+                      padding, roomy ? 20 : 10, padding, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _brand(),
+                      SizedBox(height: roomy ? 18 : 6),
+                      TodayWelcomeBanner(
+                          now: widget.localNow?.call(), workspace: roomy),
+                      SizedBox(height: roomy ? 20 : 10),
+                      _summaries(),
+                      SizedBox(height: roomy ? 24 : 12),
+                      Wrap(
+                        key: const ValueKey('home-training-and-plan'),
+                        spacing: 24,
+                        runSpacing: 18,
                         children: [
-                          Expanded(
-                              child: _summary(
-                                  '题库题量',
-                                  _summaryCount(_totalCount,
-                                      _trainingSummary?.totalCount),
-                                  Icons.bar_chart_rounded)),
-                          const SizedBox(width: 8),
-                          Expanded(
-                              child: _summary(
-                                  '已掌握',
-                                  _summaryCount(_masteredCount,
-                                      _trainingSummary?.masteredCount),
-                                  Icons.check_box_rounded)),
-                          const SizedBox(width: 8),
-                          Expanded(
-                              child: _summary(
-                                  '今日已练',
-                                  _summaryCount(
-                                      _controller
-                                          .contextSnapshot.todayPracticeCount,
-                                      _trainingSummary?.todayPracticedCount),
-                                  Icons.local_fire_department_rounded)),
-                        ]),
-                    const SizedBox(height: 12),
-                    widget.homeTraining == null
-                        ? _trainingCard()
-                        : _trainingV2(),
-                    const SizedBox(height: 18),
-                    Row(children: [
-                      const Icon(Icons.calendar_today_outlined, size: 20),
-                      const SizedBox(width: 8),
-                      Expanded(
-                          child: Text('学习计划',
-                              style: theme.textTheme.titleMedium
-                                  ?.copyWith(fontWeight: FontWeight.w700))),
-                      TextButton(
-                          key: const ValueKey('home-view-plan'),
-                          style: TextButton.styleFrom(
-                            minimumSize: const Size(0, 36),
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          ),
-                          onPressed: _openPlan,
-                          child: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text('查看计划'),
-                                Icon(Icons.chevron_right_rounded, size: 18)
-                              ])),
-                    ]),
-                    TodayPlanCard(
-                        state: _focusedState,
-                        onOpen: _openPlan,
-                        onRetry: _loadFocusedState,
-                        onAskAssistant: widget.onAskAssistant == null
-                            ? null
-                            : _askAssistant),
-                    const SizedBox(height: 4),
-                    if (widget.homeTraining != null) _secondaryEntries(),
-                    const SizedBox(
-                        height: 40,
-                        width: double.infinity,
-                        child: TodayLandscapeDecoration()),
-                  ]),
-            ),
+                          SizedBox(
+                              width: trainingWidth,
+                              child: widget.homeTraining == null
+                                  ? _trainingCard()
+                                  : _trainingV2()),
+                          SizedBox(
+                              width: planWidth, child: _planSection(context)),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      if (widget.homeTraining != null) _secondaryEntries(),
+                      const SizedBox(
+                          height: 40,
+                          width: double.infinity,
+                          child: TodayLandscapeDecoration()),
+                    ],
+                  ),
+                ),
+              );
+            }),
           ),
         ),
-      )),
+      ),
     );
+  }
+
+  Widget _summaries() =>
+      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(
+            child: _summary(
+                '题库题量',
+                _summaryCount(_totalCount, _trainingSummary?.totalCount),
+                Icons.bar_chart_rounded)),
+        const SizedBox(width: 8),
+        Expanded(
+            child: _summary(
+                '已掌握',
+                _summaryCount(_masteredCount, _trainingSummary?.masteredCount),
+                Icons.check_box_rounded)),
+        const SizedBox(width: 8),
+        Expanded(
+            child: _summary(
+                '今日已练',
+                _summaryCount(_controller.contextSnapshot.todayPracticeCount,
+                    _trainingSummary?.todayPracticedCount),
+                Icons.local_fire_department_rounded)),
+      ]);
+
+  Widget _planSection(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        const Icon(Icons.calendar_today_outlined, size: 20),
+        const SizedBox(width: 8),
+        Expanded(
+            child: Text('学习计划',
+                style: theme.textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w700))),
+        TextButton(
+            key: const ValueKey('home-view-plan'),
+            style: TextButton.styleFrom(
+              minimumSize: const Size(0, 44),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            onPressed: _openPlan,
+            child: const Row(mainAxisSize: MainAxisSize.min, children: [
+              Text('查看计划'),
+              Icon(Icons.chevron_right_rounded, size: 18)
+            ])),
+      ]),
+      TodayPlanCard(
+          state: _focusedState,
+          onOpen: _openPlan,
+          onRetry: _loadFocusedState,
+          onAskAssistant: widget.onAskAssistant == null ? null : _askAssistant)
+    ]);
   }
 
   Widget _brand() => LayoutBuilder(builder: (context, constraints) {
@@ -435,27 +504,30 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Widget _summary(String label, String count, IconData icon) => _surface(
       padding: 9,
       child: LayoutBuilder(builder: (context, constraints) {
+        final roomy = constraints.maxWidth >= 160 &&
+            _visualTheme.extension<ShirohaThemeTokens>()?.appearance.layout ==
+                ShirohaLayoutMode.workspace;
         final texts =
             Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(label,
               style: TextStyle(
-                  fontSize: 10,
+                  fontSize: roomy ? 13 : 10,
                   height: 1.3,
                   color: _visualTheme.colorScheme.onSurfaceVariant)),
           const SizedBox(height: 3),
           Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
             Flexible(
                 child: Text(count,
-                    style: const TextStyle(
-                        fontSize: 19,
+                    style: TextStyle(
+                        fontSize: roomy ? 26 : 19,
                         height: 1.1,
                         fontWeight: FontWeight.w600))),
             const SizedBox(width: 3),
-            const Text('题', style: TextStyle(fontSize: 10, height: 1.3)),
+            Text('题', style: TextStyle(fontSize: roomy ? 12 : 10, height: 1.3)),
           ]),
         ]);
-        final tile =
-            TodayIconTile(icon, size: 28, iconSize: 20, circular: true);
+        final tile = TodayIconTile(icon,
+            size: roomy ? 40 : 28, iconSize: roomy ? 24 : 20, circular: true);
         final stack = MediaQuery.textScalerOf(context).scale(14) > 18 ||
             count.length > 4 ||
             constraints.maxWidth < 76;
