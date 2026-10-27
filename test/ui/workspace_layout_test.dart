@@ -8,13 +8,22 @@ import 'package:shiroha_quiz/ui/assistant/learning_spaces_screen.dart';
 import 'package:shiroha_quiz/ui/assistant/global_sidebar.dart';
 import 'package:shiroha_quiz/ui/pages/data_center_screen.dart';
 import 'package:shiroha_quiz/ui/pages/home_page.dart';
+import 'package:shiroha_quiz/ui/pages/main_screen.dart';
 import 'package:shiroha_quiz/ui/theme/app_theme.dart';
 import 'package:shiroha_quiz/ui/theme/shiroha_theme_tokens.dart';
+import 'package:shiroha_quiz/ui/theme/design_tokens.dart';
 import 'package:shiroha_quiz/ui/widgets/shiroha_workspace_navigation.dart';
+import 'package:shiroha_quiz/ui/widgets/workspace_layout_viewport.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../support/home_training_fakes.dart';
 import '../widget_test.dart' as app_test;
+
+Rect _paintedRect(WidgetTester tester, Finder finder) {
+  final box = tester.renderObject<RenderBox>(finder);
+  return Rect.fromPoints(box.localToGlobal(Offset.zero),
+      box.localToGlobal(box.size.bottomRight(Offset.zero)));
+}
 
 void main() {
   setUpAll(() {
@@ -39,9 +48,42 @@ void main() {
     });
     globalThemeNotifier.value = ShirohaAppearance.paperLight
         .copyWith(layout: ShirohaLayoutMode.workspace);
-    await app_test.pumpApp(tester, const Size(1440, 1000));
+    await app_test.pumpApp(tester, const Size(1700, 1000));
     await app_test.drainBackgroundWork(tester);
     final homeState = tester.state(find.byType(HomePage));
+    final geometry = {
+      for (final key in [
+        'workspace-home-hero',
+        for (var i = 0; i < 4; i++) 'workspace-shortcut-$i',
+        'workspace-review-calendar',
+      ])
+        key: _paintedRect(tester, find.byKey(ValueKey(key))),
+    };
+    for (final size in [
+      const Size(1268, 714),
+      const Size(768, 1024),
+      const Size(540, 714),
+      const Size(390, 844),
+    ]) {
+      tester.view.physicalSize = size;
+      await app_test.drainBackgroundWork(tester);
+      final scale = size.width / DesignTokens.workspaceReferenceWidth;
+      for (final entry in geometry.entries) {
+        final actual = _paintedRect(tester, find.byKey(ValueKey(entry.key)));
+        expect(actual.left, closeTo(entry.value.left * scale, .1));
+        expect(actual.top, closeTo(entry.value.top * scale, .1));
+        expect(actual.width, closeTo(entry.value.width * scale, .1));
+        expect(actual.height, closeTo(entry.value.height * scale, .1));
+      }
+      final navigation = tester.widget<ShirohaWorkspaceNavigation>(
+          find.byType(ShirohaWorkspaceNavigation));
+      expect(navigation.expanded, isTrue);
+      expect(navigation.horizontal, isFalse);
+      expect(find.byType(BottomNavigationBar), findsNothing);
+      expect(tester.takeException(), isNull);
+    }
+    tester.view.physicalSize = const Size(1700, 1000);
+    await app_test.drainBackgroundWork(tester);
     await tester
         .ensureVisible(find.byKey(const ValueKey('workspace-assistant-input')));
     await tester.enterText(
@@ -70,8 +112,8 @@ void main() {
     }
     tester.view.physicalSize = const Size(1440, 1000);
     await app_test.drainBackgroundWork(tester);
-    expect(
-        tester.getSize(find.byType(ShirohaWorkspaceNavigation)).height, 1000);
+    expect(_paintedRect(tester, find.byType(ShirohaWorkspaceNavigation)).height,
+        closeTo(1000, .1));
     expect(
         tester
             .widget<ShirohaWorkspaceNavigation>(
@@ -88,7 +130,7 @@ void main() {
               .widget<ShirohaWorkspaceNavigation>(
                   find.byType(ShirohaWorkspaceNavigation))
               .expanded,
-          isFalse);
+          isTrue);
       expect(tester.takeException(), isNull);
     }
     tester.view.physicalSize = const Size(390, 844);
@@ -98,7 +140,7 @@ void main() {
             .widget<ShirohaWorkspaceNavigation>(
                 find.byType(ShirohaWorkspaceNavigation))
             .horizontal,
-        isTrue);
+        isFalse);
     await tester.ensureVisible(find.byKey(const ValueKey('workspace-nav-6')));
     await tester.tap(find.byKey(const ValueKey('workspace-nav-6')));
     await app_test.drainBackgroundWork(tester);
@@ -118,14 +160,90 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('large text keeps the full MainScreen workspace sidebar expanded',
+      (tester) async {
+    final previousFactory = databaseFactory;
+    await tester.runAsync(() async {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfiNoIsolate;
+      await DatabaseHelper.resetRuntimeProfileForTesting();
+      DatabaseHelper.configureRuntimeProfile(
+          DatabaseRuntimeProfile.isolatedSmokeInMemory);
+      await DatabaseHelper.instance.database;
+    });
+    addTearDown(() async {
+      globalThemeNotifier.value = ShirohaAppearance.light;
+      await DatabaseHelper.resetRuntimeProfileForTesting();
+      databaseFactory = previousFactory;
+    });
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    globalThemeNotifier.value = ShirohaAppearance.paperLight
+        .copyWith(layout: ShirohaLayoutMode.workspace);
+    await app_test.pumpApp(tester, const Size(1700, 1000));
+    await app_test.drainBackgroundWork(tester);
+    final mainState = tester.state(find.byType(MainScreen));
+    final navigationFinder = find.byType(ShirohaWorkspaceNavigation);
+    final recentFiles =
+        find.descendant(of: navigationFinder, matching: find.text('最近资料'));
+
+    for (final textScale in [1.6, 2.0]) {
+      tester.platformDispatcher.textScaleFactorTestValue = textScale;
+      for (final size in [
+        const Size(1700, 1000),
+        const Size(768, 714),
+        const Size(540, 714),
+        const Size(390, 844),
+      ]) {
+        tester.view.physicalSize = size;
+        await app_test.drainBackgroundWork(tester);
+        final navigation =
+            tester.widget<ShirohaWorkspaceNavigation>(navigationFinder);
+        expect(navigation.expanded, isTrue,
+            reason: 'Keep the desktop sidebar at $textScale text and $size.');
+        expect(navigation.horizontal, isFalse);
+        expect(tester.getSize(navigationFinder).width,
+            DesignTokens.expandedNavigationWidth);
+        expect(
+            _paintedRect(tester, navigationFinder).width,
+            closeTo(
+                DesignTokens.expandedNavigationWidth *
+                    size.width /
+                    DesignTokens.workspaceReferenceWidth,
+                .1));
+        expect(recentFiles, findsOneWidget);
+        expect(find.byType(BottomNavigationBar), findsNothing);
+        expect(MediaQuery.textScalerOf(tester.element(recentFiles)).scale(16),
+            closeTo(16 * textScale, .01));
+        expect(tester.state(find.byType(MainScreen)), same(mainState));
+        expect(tester.takeException(), isNull);
+      }
+      await tester.ensureVisible(recentFiles);
+      await tester.pumpAndSettle();
+      expect(_paintedRect(tester, recentFiles).bottom,
+          lessThanOrEqualTo(tester.view.physicalSize.height));
+      final training = find.byKey(const ValueKey('workspace-nav-3'));
+      await tester.ensureVisible(training);
+      await tester.tap(training);
+      await app_test.drainBackgroundWork(tester);
+      expect(find.byKey(const ValueKey('home-training-card')), findsOneWidget);
+      final home = find.byKey(const ValueKey('workspace-nav-0'));
+      await tester.ensureVisible(home);
+      await tester.tap(home);
+      await app_test.drainBackgroundWork(tester);
+      expect(find.byKey(const ValueKey('workspace-home-hero')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }
+  });
+
   for (final brightness in Brightness.values) {
-    testWidgets('training view reflows real snapshot cards in $brightness',
+    testWidgets('training view scales its wide composition in $brightness',
         (tester) async {
       final fake = HomeTrainingFake();
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetDevicePixelRatio);
       addTearDown(tester.view.resetPhysicalSize);
       State? categoryState;
+      double? planContentOffset;
       for (final size in [
         const Size(1280, 900),
         const Size(944, 768),
@@ -138,23 +256,24 @@ void main() {
               ShirohaAppearance.paperLight
                   .copyWith(layout: ShirohaLayoutMode.workspace),
               brightness),
+          builder: (context, child) => WorkspaceLayoutViewport(child: child!),
           home: HomePage(homeTraining: fake.ports, trainingOnly: true),
         ));
         await tester.pumpAndSettle();
-        final training =
-            tester.getRect(find.byKey(const ValueKey('home-training-card')));
-        final plan = tester
-            .getRect(find.byKey(const ValueKey('today-focused-unavailable')));
-        if (size.width >= 944) {
-          expect(plan.left, greaterThan(training.right));
-          expect(
-              tester
-                  .getSize(find.byKey(const ValueKey('home-welcome-banner')))
-                  .height,
-              lessThan(300));
-        } else {
-          expect(plan.top, greaterThan(training.bottom));
-        }
+        final training = _paintedRect(
+            tester, find.byKey(const ValueKey('home-training-card')));
+        final plan = _paintedRect(
+            tester, find.byKey(const ValueKey('today-focused-unavailable')));
+        expect(plan.left, greaterThan(training.right));
+        // The plan's own heading precedes its content; preserve that offset too.
+        final scale = size.width / DesignTokens.workspaceReferenceWidth;
+        planContentOffset ??= (plan.top - training.top) / scale;
+        expect(plan.top - training.top, closeTo(planContentOffset * scale, .1));
+        expect(
+            _paintedRect(
+                    tester, find.byKey(const ValueKey('home-welcome-banner')))
+                .height,
+            lessThan(300));
         final state = tester.state(find.byType(TodayCategoryTrainingCard));
         categoryState ??= state;
         expect(state, same(categoryState));

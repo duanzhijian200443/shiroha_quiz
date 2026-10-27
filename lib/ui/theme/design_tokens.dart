@@ -17,6 +17,8 @@ abstract final class DesignTokens {
   static const double contentMaxWidth = 640;
   static const double workspaceMaxWidth = 1360;
   static const double workspaceDashboardMaxWidth = 1440;
+  // Narrow workspace windows zoom out from the wide desktop composition.
+  static const double workspaceReferenceWidth = 1700;
   static const double workspaceNavigationBreakpoint = 600;
   static const double expandedNavigationBreakpoint = 1200;
   static const double workspaceColumnsBreakpoint = 880;

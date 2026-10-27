@@ -324,15 +324,59 @@ def commit_sha(repo, ref):
     return sha(raw.decode().strip())
 
 
-def resolve_plan(repo, event_name, event, rules, rules_hash, mode="plan", tested_ref="HEAD"):
+def pull_request_merge_target(repo, tested, pull, head, base, trigger_sha=None):
+    """Bind ordinary or explicitly stacked GitHub merge topology to the event."""
+    try:
+        parents = git(repo, "rev-list", "--parents", "-n", "1", tested).decode().split()[1:]
+        if len(parents) != 2 or parents[1] != head:
+            raise ImpactError("target_mismatch")
+        target = parents[0]
+        stack = pull.get("stack")
+        if stack is None:
+            if target != base:
+                raise ImpactError("target_mismatch")
+            return target, None
+        if (type(stack) is not dict
+                or any(type(stack.get(key)) is not int or stack[key] < 1
+                       for key in ("id", "number", "position", "size"))
+                or stack["position"] > stack["size"]
+                or sha(trigger_sha if trigger_sha is not None else pull.get("merge_commit_sha")) != tested):
+            raise ImpactError("target_mismatch")
+        stack_base = sha(stack["base"]["sha"])
+        head_repo = pull["head"]["repo"]["full_name"]
+        if not head_repo or head_repo != pull["base"]["repo"]["full_name"]:
+            raise ImpactError("target_mismatch")
+        trunk = target
+        if stack["position"] == 1:
+            if base != stack_base:
+                raise ImpactError("target_mismatch")
+        elif target != base:
+            # An upper entry merges onto the lower PR's synthetic merge, whose
+            # second parent must be this event's exact direct Base.
+            lower = git(repo, "rev-list", "--parents", "-n", "1", target).decode().split()[1:]
+            if len(lower) != 2 or lower[1] != base:
+                raise ImpactError("target_mismatch")
+            trunk = lower[0]
+        git(repo, "merge-base", "--is-ancestor", stack_base, trunk)
+        git(repo, "merge-base", "--is-ancestor", base, head)
+        return target, stack_base
+    except (ImpactError, KeyError, TypeError):
+        # Unknown topology/metadata cannot fall back to an unbound full run.
+        raise ImpactError("target_mismatch") from None
+
+
+def resolve_plan(repo, event_name, event, rules, rules_hash, mode="plan", tested_ref="HEAD", trigger_sha=None):
     if mode not in ("plan", "full"):
         raise ImpactError("invalid_mode")
     if not isinstance(event, dict):
         raise ImpactError("invalid_event")
     tested = commit_sha(repo, tested_ref)
+    if trigger_sha is not None and sha(trigger_sha) != tested:
+        raise ImpactError("target_mismatch")
     plan = {
         "version": 2, "mode": mode, "event": event_name, "headSha": tested,
         "baseSha": None, "mergeBaseSha": None, "testedSha": tested,
+        "mergeTargetSha": None, "stackBaseSha": None,
         "rulesSha256": rules_hash, "workflowSha256": workflow_sha256(repo, tested),
         "treeSha256": tree_sha256(repo, tested, rules), "flutterVersion": flutter_version(repo, tested),
         "runner": runner(), "changedFileCount": 0,
@@ -361,10 +405,9 @@ def resolve_plan(repo, event_name, event, rules, rules_hash, mode="plan", tested
     except (KeyError, TypeError):
         raise ImpactError("invalid_target") from None
     plan.update(headSha=head, baseSha=base)
+    target, stack_base = pull_request_merge_target(repo, tested, event["pull_request"], head, base, trigger_sha)
+    plan.update(mergeTargetSha=target, stackBaseSha=stack_base)
     try:
-        parents = git(repo, "rev-list", "--parents", "-n", "1", tested).decode().split()[1:]
-        if len(parents) != 2 or parents != [base, head]:
-            raise ImpactError("target_mismatch")
         merge_bases = git(repo, "merge-base", "--all", base, head).decode().split()
         if len(merge_bases) != 1:
             raise ImpactError("ambiguous_diff")
@@ -384,6 +427,9 @@ def resolve_plan(repo, event_name, event, rules, rules_hash, mode="plan", tested
     git(repo, "diff", "--no-ext-diff", "--check", merge_base, head, "--")
     git(repo, "diff", "--no-ext-diff", "--check", base, tested, "--")
     required, reasons = classify(changes, rules)
+    if stack_base is not None:
+        required.update(JOBS)
+        reasons.add("stacked_merge_full")
     if merge_base != base:
         required.update(JOBS)
         reasons.add("base_diverged_full")
@@ -417,6 +463,7 @@ def write_outputs(plan, path):
 def summary(plan):
     lines = ["## CI impact plan", f"Mode: {plan['mode']}; units drive job execution.",
              f"Head: `{plan['headSha']}`; Base: `{plan['baseSha']}`; Tested: `{plan['testedSha']}`.",
+             f"Merge target: `{plan['mergeTargetSha']}`; stack base: `{plan['stackBaseSha']}`.",
              f"Changed files: {plan['changedFileCount']}; reasons: {', '.join(plan['reasons'])}.",
              f"Reuse: {plan['reuse']['status']} ({plan['reuse']['code']}).",
              "", "| Unit | Status | Reason |", "|---|---|---|"]
@@ -437,7 +484,8 @@ def main():
             raise ImpactError("missing_event")
         event = json.loads(Path(args.event_path).read_text(encoding="utf-8"), object_pairs_hook=unique_fields)
         rules, digest = read_rules(ROOT / "tool/ci/impact_rules.json")
-        plan = resolve_plan(ROOT, args.event_name, event, rules, digest, args.mode)
+        plan = resolve_plan(ROOT, args.event_name, event, rules, digest, args.mode,
+                            trigger_sha=os.environ.get("GITHUB_SHA"))
         if args.event_name == "pull_request" and args.mode == "plan":
             sys.path.insert(0, str(Path(__file__).resolve().parent))
             import resolve_ci_reuse

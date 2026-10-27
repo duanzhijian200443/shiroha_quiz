@@ -324,8 +324,8 @@ class _MainScreenState extends State<MainScreen> {
             ShirohaLayoutMode.workspace;
     final workspace =
         workspaceMode && width >= DesignTokens.workspaceNavigationBreakpoint;
-    final expanded = width >= DesignTokens.expandedNavigationBreakpoint &&
-        MediaQuery.textScalerOf(context).scale(16) <= 24;
+    // Accessibility text sizing must preserve the wide workspace composition.
+    final expanded = width >= DesignTokens.expandedNavigationBreakpoint;
     final navigationWidth = !workspace
         ? 0.0
         : expanded

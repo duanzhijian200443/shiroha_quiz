@@ -88,7 +88,7 @@ def _settled_jobs(api, run_id, attempt, contracts_execute, pause):
     raise GateError("shard_not_success")
 
 
-def validate(plan, repo, results, api, event_name, event, run_id, attempt, now=None, pause=None):
+def validate(plan, repo, results, api, event_name, event, run_id, attempt, now=None, pause=None, trigger_sha=None):
     now = now or datetime.now(timezone.utc)
     _require(plan.get("version") == 2, "invalid_plan")
     _require(plan.get("planSha256") == impact.canonical(plan), "plan_digest_mismatch")
@@ -111,7 +111,10 @@ def validate(plan, repo, results, api, event_name, event, run_id, attempt, now=N
     _require(plan.get("treeSha256") == impact.tree_sha256(repo, tested, rules), "inputs_changed")
     _require(plan.get("flutterVersion") == impact.flutter_version(repo, tested), "toolchain_changed")
 
-    computed = impact.resolve_plan(repo, event_name, event, rules, digest, "plan", tested_ref=tested)
+    computed = impact.resolve_plan(repo, event_name, event, rules, digest, "plan",
+                                  tested_ref=tested, trigger_sha=trigger_sha)
+    for key in ("mergeTargetSha", "stackBaseSha", "mergeBaseSha"):
+        _require(computed[key] == plan.get(key), "identity_mismatch")
     _require(computed["requiredJobs"] == plan.get("requiredJobs"), "classification_mismatch")
     _require(computed["reasons"] == plan.get("reasons"), "classification_mismatch")
 
@@ -171,6 +174,8 @@ def validate(plan, repo, results, api, event_name, event, run_id, attempt, now=N
     return {
         "version": 1, "verdict": "PASS", "runId": run_id, "headSha": plan["headSha"],
         "baseSha": plan["baseSha"], "mergeBaseSha": plan["mergeBaseSha"],
+        "testedSha": tested, "mergeTargetSha": plan["mergeTargetSha"],
+        "stackBaseSha": plan["stackBaseSha"],
         "units": {job: {"status": plan["units"][job]["status"], "result": results.get(job),
                         "durationSeconds": (max(shard_seconds) if job == "contracts" and shard_seconds
                                             else durations.get(display[job]))}
@@ -192,6 +197,8 @@ def validate(plan, repo, results, api, event_name, event, run_id, attempt, now=N
 
 def summary(report):
     lines = ["## CI execution report", f"Verdict: {report['verdict']}.",
+             f"Head: `{report['headSha']}`; Base: `{report['baseSha']}`; Tested: `{report['testedSha']}`.",
+             f"Merge target: `{report['mergeTargetSha']}`; stack base: `{report['stackBaseSha']}`.",
              f"Units executed {report['totals']['executed']}, not applicable "
              f"{report['totals']['notApplicable']}, reused {report['totals']['reused']}; "
              f"elapsed {report['totals']['elapsedSeconds']}s.",
@@ -222,7 +229,8 @@ def main():
         results = {job: os.environ.get(name, "") for job, name in RESULT_ENV.items()}
         api = reuse.GitHubApi.from_environment(os.environ)
         report = validate(plan, impact.ROOT, results, api, args.event_name, event,
-                          int(args.run_id or 0), int(args.attempt or 1))
+                          int(args.run_id or 0), int(args.attempt or 1),
+                          trigger_sha=os.environ.get("GITHUB_SHA"))
         output = Path(args.output)
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")

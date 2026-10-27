@@ -180,6 +180,28 @@ class ReuseTest(ReuseFixture):
         self.assertEqual(plan["units"]["contracts"]["status"], impact.REUSE)
         self.assertNotIn("windows_native", plan["reuse"]["units"])
 
+    def test_stack_plan_cannot_apply_or_revalidate_reuse(self):
+        code = self.commit({"lib/app.dart": "code change\n"})
+        api, _, _ = self.source_setup(code)
+        head = self.commit({"README.md": "wording\n"})
+        applied = self.apply(self.make_plan(head), api)
+        self.assertEqual(applied["reuse"]["status"], "APPLIED")
+        # Even an otherwise valid reusable source cannot certify a stack target.
+        stacked = self.make_plan(head)
+        stacked["stackBaseSha"] = self.base
+        stacked["reasons"].append("stacked_merge_full")
+        stacked["requiredJobs"] = dict.fromkeys(impact.JOBS, True)
+        stacked["units"] = {job: {"status": impact.EXECUTE, "reason": "stacked_merge_full"}
+                            for job in impact.JOBS}
+        plan = self.apply(impact.seal(stacked), api)
+        self.assertEqual(plan["reuse"]["status"], "REFUSED")
+        self.assertEqual(plan["reuse"]["code"], "stacked_merge_full")
+        self.assertTrue(all(unit["status"] == impact.EXECUTE for unit in plan["units"].values()))
+        applied["stackBaseSha"] = self.base
+        impact.seal(applied)
+        with self.assertRaisesRegex(reuse.ReuseRefusal, "stacked_merge_full"):
+            reuse.validate_applied(self.repo, applied, api, NOW)
+
     def test_source_head_must_be_an_ancestor(self):
         self.run_git("switch", "-q", "-c", "side", self.base)
         side = self.commit({"lib/app.dart": "side change\n"})
