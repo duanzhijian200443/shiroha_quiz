@@ -89,6 +89,7 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
   FirstPartyPairingPort Function(WindowsAppPairing)? pairingOverride;
   Future<Uint8List> Function()? publicSubmissionId;
   bool Function()? associationRecoveryAvailable;
+  Duration maxEnableDuration = const Duration(minutes: 30);
 
   @override
   Future<void> open(
@@ -136,6 +137,7 @@ class WindowsAppTransportFixture extends FirstPartyAppHarness {
       integration: integration,
       enableStageApprovalWait: stage,
       enableWithoutRetainedChannel: enableWithoutRetainedChannel,
+      maxEnableDuration: maxEnableDuration,
       associationRecoveryAvailable: associationRecoveryAvailable,
       acquire: () async {
         await beforeAcquire?.call();

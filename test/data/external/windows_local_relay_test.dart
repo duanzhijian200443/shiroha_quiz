@@ -4,8 +4,10 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/data/external/windows_local_relay.dart';
+import '../../mcp/fixtures/local_relay_reconnection_cases.dart';
 
 void main() {
+  localRelayReconnectionCases();
   test('framing preserves Unicode and exact request/result correlation data',
       () {
     final value = <String, Object?>{

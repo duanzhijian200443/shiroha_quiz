@@ -104,6 +104,7 @@ final class McpVnextWindowsAppStartup {
     required Future<McpVnextWindowsAppDependencies> Function() acquire,
     this.enableStageApprovalWait = false,
     this.enableWithoutRetainedChannel = false,
+    this.maxEnableDuration = const Duration(minutes: 30),
     this.associationRecoveryAvailable,
   }) : _acquire = acquire;
 
@@ -111,6 +112,7 @@ final class McpVnextWindowsAppStartup {
   final Future<McpVnextWindowsAppDependencies> Function() _acquire;
   final bool enableStageApprovalWait;
   final bool enableWithoutRetainedChannel;
+  final Duration maxEnableDuration;
   final bool Function()? associationRecoveryAvailable;
   McpVnextWindowsAppDependencies? _dependencies;
   // A rejected borrowed bundle remains with its original owner; never close it.
@@ -203,6 +205,7 @@ final class McpVnextWindowsAppStartup {
         monotonicNow: d.monotonicNow,
         enableStageApprovalWait: enableStageApprovalWait,
         enableWithoutRetainedChannel: enableWithoutRetainedChannel,
+        maxEnableDuration: maxEnableDuration,
         pairingRequestLifetime: enableWithoutRetainedChannel
             ? const Duration(seconds: 600)
             : ExternalCredentialBoundary.evidenceLifetime,

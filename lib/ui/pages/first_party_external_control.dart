@@ -8,9 +8,20 @@ import '../../application/external/external_trust_core.dart';
 import '../../application/external/first_party_stage_approval.dart';
 import '../../application/generated_question/generated_local_authority.dart';
 
+part 'first_party_external_guided.dart';
+
 final class FirstPartyExternalControl extends StatefulWidget {
-  const FirstPartyExternalControl({super.key, required this.access});
+  const FirstPartyExternalControl(
+      {super.key,
+      required this.access,
+      this.guided = false,
+      this.policySaved = true,
+      this.profileId,
+      this.profileName});
   final FirstPartyExternalAccess access;
+  final bool guided;
+  final bool policySaved;
+  final String? profileId, profileName;
   @override
   State<FirstPartyExternalControl> createState() => _ControlState();
 }
@@ -25,6 +36,7 @@ final class _ControlState extends State<FirstPartyExternalControl> {
   String? _error, _publicExport, _exportKey, _exportKind, _copyMessage;
   Completer<void>? _readingDone;
   int _minutes = 10, _generation = 0;
+  bool _durationSelected = false;
   Timer? _timer;
   FirstPartyStageApprovalView? _stageView;
   StreamSubscription<void>? _stageChanges;
@@ -76,7 +88,10 @@ final class _ControlState extends State<FirstPartyExternalControl> {
   @override
   void didUpdateWidget(FirstPartyExternalControl oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.access, widget.access)) {
+    if (!identical(oldWidget.access, widget.access) ||
+        (widget.guided &&
+            oldWidget.profileId != null &&
+            oldWidget.profileId != widget.profileId)) {
       _leave(oldWidget.access);
       _generation++;
       _stageView?.close();
@@ -86,6 +101,8 @@ final class _ControlState extends State<FirstPartyExternalControl> {
       _status = const FirstPartyExternalStatus();
       _development = null;
       _existing = null;
+      _minutes = 10;
+      _durationSelected = false;
       _busy = _reading = _enabling = _cancelling = _cancelRequested = false;
       _error = null;
       _clearPublicExport();
@@ -163,6 +180,9 @@ final class _ControlState extends State<FirstPartyExternalControl> {
         setState(() {
           _status = status;
           _development = development;
+          if (widget.guided && !_durationSelected && development != null) {
+            _minutes = development.maxAccessDuration.inMinutes;
+          }
           _existing = current && businessRead && developmentRead
               ? access.existingCredentialDisplay
               : null;
@@ -270,9 +290,11 @@ final class _ControlState extends State<FirstPartyExternalControl> {
 
   Future<void> _action(Future<void> Function(FirstPartyExternalAccess) action,
       {bool enabling = false}) async {
-    if (!_current || _locked) return;
+    if (!_current || _operationPending) return;
     final access = widget.access;
     final generation = _generation;
+    await _readingDone?.future;
+    if (!_same(access, generation) || !_current || _locked) return;
     setState(() {
       _busy = true;
       _enabling = enabling;
@@ -537,6 +559,7 @@ final class _ControlState extends State<FirstPartyExternalControl> {
       });
 
   Future<void> _confirmExisting() => _action((access) async {
+        final generation = _generation;
         final displayed = _existing;
         if (displayed?.credentialIdentity == null) return;
         final approved = await showDialog<bool>(
@@ -556,13 +579,40 @@ final class _ControlState extends State<FirstPartyExternalControl> {
                           onPressed: () => Navigator.pop(context, true),
                           child: const Text('确认本次身份'))
                     ]));
-        if (approved == true && _current) {
+        if (approved == true &&
+            _same(access, generation) &&
+            _current &&
+            (!widget.guided || widget.profileId == displayed!.profileId)) {
           await access.confirmExistingCredential(displayed!);
         }
       });
 
+  List<int> get _durationOptions =>
+      (_development?.maxAccessDuration.inMinutes ?? 30) > 30
+          ? [30, 120, 480]
+          : [5, 10, 30];
+
+  int? get _durationValue =>
+      _durationOptions.contains(_minutes) ? _minutes : null;
+
+  bool get _durationAvailable =>
+      _current &&
+      (_development == null ||
+          _development!.phase == FirstPartyDevelopmentPhase.active);
+
+  String _durationLabel(int minutes) =>
+      minutes >= 60 ? '${minutes ~/ 60} 小时' : '$minutes 分钟';
+
+  void _selectDuration(int minutes) => setState(() {
+        _durationSelected = true;
+        _minutes = minutes;
+      });
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      widget.guided ? _guidedControl(context) : _technicalControl(context);
+
+  Widget _technicalControl(BuildContext context) {
     final appPairing = widget.access.pairingObservation;
     final revocation = widget.access.revocationObservation;
     final initialization = _development?.initialization;
@@ -610,7 +660,8 @@ final class _ControlState extends State<FirstPartyExternalControl> {
                       '不可用（需从桌面 Explorer 启动正常 Debug App）',
                     FirstPartyDevelopmentPhase.inactive => '未启用',
                     FirstPartyDevelopmentPhase.starting => '正在验证既有凭据并启动',
-                    FirstPartyDevelopmentPhase.active => '已显式启用，最多 30 分钟',
+                    FirstPartyDevelopmentPhase.active =>
+                      '已显式启用，最多 ${_durationLabel(_development!.maxAccessDuration.inMinutes)}',
                     FirstPartyDevelopmentPhase.closed => '已关闭，需正常重启 App',
                     FirstPartyDevelopmentPhase.failed => '失败，需保留证据并正常重启 App',
                   }}'),
@@ -647,7 +698,7 @@ final class _ControlState extends State<FirstPartyExternalControl> {
                             ? () =>
                                 _action((access) => access.development!.start())
                             : null,
-                        child: const Text('启用 30 分钟开发连接')),
+                        child: const Text('开启开发连接')),
                     OutlinedButton(
                         onPressed: _current &&
                                 !_locked &&
@@ -835,7 +886,7 @@ final class _ControlState extends State<FirstPartyExternalControl> {
                 ],
                 const Text('仅允许按授权读取和暂存草稿。内容将交给外部客户端；已释放内容无法撤回。'),
                 if (_error != null) Text(_error!),
-                if (pending != null)
+                if (pending != null && !widget.guided)
                   Column(
                     key: const Key('external-stage-approval'),
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -897,16 +948,22 @@ final class _ControlState extends State<FirstPartyExternalControl> {
                         child: const Text('验证配对证明')),
                   ],
                   DropdownButton<int>(
-                      value: _minutes,
+                      value: _durationValue,
+                      hint: const Text('请选择访问时长'),
                       items: [
-                        for (final m in [5, 10, 30])
-                          DropdownMenuItem(value: m, child: Text('$m 分钟'))
+                        for (final m in _durationOptions)
+                          DropdownMenuItem(
+                              value: m, child: Text(_durationLabel(m)))
                       ],
-                      onChanged: _locked || enabled
+                      onChanged: !_durationAvailable || _locked || enabled
                           ? null
-                          : (value) => setState(() => _minutes = value!)),
+                          : (value) => setState(() {
+                                _minutes = value!;
+                                _durationSelected = true;
+                              })),
                   FilledButton(
-                      onPressed: !_current ||
+                      onPressed: !_durationAvailable ||
+                              _durationValue == null ||
                               _locked ||
                               enabled ||
                               (!_status.connected &&

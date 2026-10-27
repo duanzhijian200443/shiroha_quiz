@@ -1817,6 +1817,11 @@ Windows security admission. The normal App owns the original adjacent Bridge
 process. Codex owns only `shiroha_codex.exe`, a seven-tool stdio adapter using
 the same schemas. Discovery never opens the local channel or acquires an Owner.
 The adapter opens one authenticated local connection on its first business call.
+After an old connection is lost and its original local cleanup succeeds, a later
+explicit tool invocation may open a new connection in the same adapter process.
+Each connection starts correlation at one. There is no reconnect loop or replay
+of the interrupted invocation; failed/unknown local cleanup remains terminal.
+App-side raw Bridge settlement must still complete before accepting that peer.
 There is no database, credential-store, alternate Writer or automatic STAGE retry
 in the adapter. The v0 profile remains independent and unchanged.
 
@@ -1902,6 +1907,9 @@ the unchanged Shell/peer checks, original process handles and the production
 Bridge stream owner. It covers idle/malformed server disconnect with the old
 raw client handle retained, monitored client loss, MCP inventory/call failures,
 fresh peers after clean settlement and blocked re-arm after a nonzero child exit.
+The adapter-reconnect cases use the production `VnextLocalRelayPort` twice in
+one retained adapter process, requiring two separately settled original children
+after clean loss and no replacement after failed original child cleanup.
 The pending-peer cases retain an outstanding original client call and child
 settlement across three production development-monitor intervals after the outer
 adapter closes normally. They require the original launch observation to remain
@@ -1919,7 +1927,13 @@ authorization on 2026-10-26 adds the following bounded composition; it does not
 promote Direct/Hosted clients or the isolated patch into product support.
 
 **Development admission and custody.** The normal Windows Debug App exposes
-explicit first-party setup and a thirty-minute development runtime. Release,
+explicit first-party setup and a finite development runtime. The separately
+approved 2026-10-27 amendment sets the normal App-owned development lifetime and
+business Enable ceiling to eight hours, with eight hours as the guided default.
+Other compositions retain their existing thirty-minute P0 default. Business
+Enable is bounded by the remaining deployment lifetime and the page displays its
+actual expiry; it cannot extend deployment admission. There is no automatic
+renewal or persisted Enable. Release,
 unverified launch provenance, expired/closed composition and unavailable
 resources refuse. The App uses the SAME integration, protected acquirer, P25,
 P27, P15/P0/P8/P10 and owned TLS Host. There is one literal
@@ -1992,6 +2006,23 @@ deadlines and both independent comparisons are unchanged.
 The authorization page presents the current next step and folds technical
 observations into a diagnostic section. Existing-Pin runs use fresh identity
 confirmation and do not show initial Submission input or Pairing actions.
+A guided **连接 Codex** action delegates to the same development start, selected
+Profile and existing-credential proof owners. It never initializes credentials
+or confirms identity/Enable: **确认本次身份** and **允许本次访问** remain separate
+local decisions, and an invalidated view cannot continue the preparation.
+Duration controls display only a value present in the current options (or an
+empty selection), including failed status reads and pending/terminal closure.
+Unavailable development observations disable access actions; restoring a valid
+observation does not itself Enable or renew access.
+The independent proof window does not activate itself or resize the main App;
+initial enrollment still retains both original independent comparison surfaces.
+Basic resource selection explicitly drafts READ and the corresponding content
+category together, then lists exact scopes and outgoing categories in the save
+confirmation. It never silently upgrades a loaded policy; legacy file scopes
+without fileContent show a separate, explicit draft repair. Advanced independent
+Permission/Egress editing remains available. Saving still disables stale access
+and does not authenticate or enable. STAGE approval remains on this page, while
+the existing Review entry opens only the original durable Proposal inbox.
 A user-invoked shortcut may combine
 export with the SAME freshly checked clipboard write; a matching explicit
 Bridge paste/import still grants no comparison or confirmation. Wrong-kind,
@@ -2082,8 +2113,14 @@ original P15 `openSession`; this cannot depend on UI polling. Each tool then
 uses fresh original authentication and the existing Application checks. Ordinary
 per-tool TLS closure does not disable the whole Profile. Outer adapter loss
 synchronously withdraws Enable and pending STAGE/target approval and joins its
-original work; a new adapter requires fresh explicit Enable. Exact request
-Session/entry/revision/target binding and local Review/COMMIT are unchanged.
+original work; a new connection, including one from the same surviving adapter,
+requires fresh explicit Enable.
+The pending Enable cancellation boundary begins before deployment status I/O;
+disconnect or page cancellation during that read survives late completion and
+cannot reach the original P0 Enable transition. Preflight failure joins the same
+operation settlement, and a subsequent Enable requires a new local decision.
+Exact request Session/entry/revision/target binding and local Review/COMMIT are
+unchanged.
 The App launch-liveness query observes only the original server instance and
 retained Explorer provenance, independently of the old adapter's process or pipe
 state. It remains current during a clean connection drain, including an

@@ -517,7 +517,7 @@ retained App Port.
 The explicitly authorized normal Debug development root consumes this SAME
 integration, original protected acquirer and owned TLS Host on
 `127.0.0.1:48763`. User-confirmed P25 double-Missing initialization and the
-original independent P27 comparisons are separate from the thirty-minute
+original independent P27 comparisons are separate from the eight-hour normal
 deployment scope, finite business Enable, each fresh authentication and local
 Review. The original Flutter executable supplies a fixed pairing-only root
 before any App database/Provider initialization, and its original process must
@@ -525,6 +525,13 @@ settle before the raw Bridge acquires an Owner. The child verifies its retained
 App/Explorer parent chain before consuming public startup trust; no credential,
 Session, Grant or approval is transported in that handoff. Original stdin/stdout
 custody, P26 validation/CAS and P15/P0/P8/P10 remain authoritative.
+The guided first-party connection delegates preparation to these same owners;
+identity confirmation and business Enable remain independent local decisions.
+Only this normal development composition supplies an eight-hour P0 ceiling;
+effective access cannot outlive its deployment deadline. Other roots keep their
+existing default, with no automatic renewal. The adapter may acquire a fresh pipe
+on a later explicit call after successful original cleanup, never by replaying a
+lost request or bypassing the App's child-settlement barrier.
 
 Readiness §9.C.8 and external boundary §12 permit an explicitly started, live
 mTLS confirmation of an existing credential after App reopen: one private,

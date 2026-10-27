@@ -172,6 +172,9 @@ final class _DevelopmentControl implements FirstPartyDevelopmentAccess {
   bool? bridgePinMissing = false;
   Future<void> Function()? onStop;
   Future<void> Function()? onInitialize;
+  Future<void> Function()? onStart, onOpenWindow;
+  DateTime? expiresAt;
+  Duration maxAccessDuration = const Duration(minutes: 30);
   FirstPartyInitializationObservation? initialization;
   Completer<FirstPartyDevelopmentStatus>? pendingStatus;
   bool failStatus = false;
@@ -183,6 +186,8 @@ final class _DevelopmentControl implements FirstPartyDevelopmentAccess {
     return pendingStatus?.future ??
         Future.value(FirstPartyDevelopmentStatus(
             phase: phase,
+            expiresAt: expiresAt,
+            maxAccessDuration: maxAccessDuration,
             bridgePinMissing: bridgePinMissing,
             initialization: initialization,
             pairingWindowOpen: !childSettled.isCompleted));
@@ -197,9 +202,17 @@ final class _DevelopmentControl implements FirstPartyDevelopmentAccess {
   }
 
   @override
-  Future<void> openPairingWindow() async => throw StateError('unused');
+  Future<void> openPairingWindow() async {
+    if (onOpenWindow == null) throw StateError('unused');
+    await onOpenWindow!();
+  }
+
   @override
-  Future<void> start() async => throw StateError('unused');
+  Future<void> start() async {
+    if (onStart == null) throw StateError('unused');
+    await onStart!();
+  }
+
   @override
   Future<void> stop() async {
     if (onStop == null) throw StateError('unused');
@@ -217,6 +230,321 @@ final class _PrivateInitializationError implements Exception {
 }
 
 void existingCredentialConfirmationCases() {
+  for (final cancellation in ['disconnect', 'view']) {
+    test('Enable preflight status preserves $cancellation cancellation',
+        () async {
+      final f = _ExistingFixture();
+      await f.open();
+      addTearDown(f.close);
+      final development = _DevelopmentControl()
+        ..expiresAt =
+            f.app.files.s.clock.current.add(const Duration(minutes: 30))
+        ..childSettled.complete();
+      f.app.controls.installDevelopment(development);
+      await f.begin();
+      await f.app.controls
+          .confirmExistingCredential(f.app.controls.existingCredentialDisplay!);
+      final deployment = await development.status();
+      final pending =
+          development.pendingStatus = Completer<FirstPartyDevelopmentStatus>();
+      final reads = development.statusReads;
+      Object? failure;
+      final enabling = f.app.controls
+          .enable(const Duration(minutes: 10))
+          .then((_) {}, onError: (Object error) {
+        failure = error;
+      });
+      expect(development.statusReads, reads + 1);
+      var settled = false;
+      final cancelling = (cancellation == 'disconnect'
+              ? f.app.controls.disconnectTransport()
+              : f.app.controls.cancelPendingControls())
+          .then((_) => settled = true);
+      await pumpEventQueue(times: 10);
+      final settledBeforeRead = settled;
+      development.pendingStatus = null;
+      pending.complete(deployment);
+      await Future.wait([enabling, cancelling]);
+      expect(failure, isA<ExternalAuthException>());
+      expect(settledBeforeRead, isFalse);
+      final status = await f.app.controls.status();
+      expect(status.enabled, isFalse);
+      expect(status.connectionPending, isFalse);
+      expect(status.connectionSettling, isFalse);
+      expect((await f.app.call('open_generation_context'))['error'], isNotNull);
+      await f.app.controls.enable(const Duration(minutes: 10));
+      expect((await f.app.controls.status()).enabled, isTrue);
+      expect(await f.app.context(), isNotEmpty);
+    });
+  }
+
+  test('Enable preflight status failure settles before a fresh explicit Enable',
+      () async {
+    final f = _ExistingFixture();
+    await f.open();
+    addTearDown(f.close);
+    final development = _DevelopmentControl()
+      ..expiresAt = f.app.files.s.clock.current.add(const Duration(minutes: 30))
+      ..childSettled.complete();
+    f.app.controls.installDevelopment(development);
+    await f.begin();
+    await f.app.controls
+        .confirmExistingCredential(f.app.controls.existingCredentialDisplay!);
+    development.failStatus = true;
+    await expectLater(
+        f.app.controls.enable(const Duration(minutes: 10)), throwsStateError);
+    final status = await f.app.controls.status();
+    expect(status.enabled, isFalse);
+    expect(status.connectionPending, isFalse);
+    expect(status.connectionSettling, isFalse);
+    development.failStatus = false;
+    await f.app.controls.enable(const Duration(minutes: 10));
+    expect(await f.app.context(), isNotEmpty);
+  });
+
+  for (final minutes in [120, 480]) {
+    for (final outcome in ['readFailure', 'closed', 'failed']) {
+      testWidgets('guided duration $minutes survives $outcome observation',
+          (tester) async {
+        final f = _ExistingFixture();
+        f.app.maxEnableDuration = const Duration(hours: 8);
+        final development = _DevelopmentControl()
+          ..maxAccessDuration = const Duration(hours: 8)
+          ..childSettled.complete();
+        await tester.binding.setSurfaceSize(const Size(1200, 1800));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        await interactionRead(tester, () async {
+          await f.open();
+          development.expiresAt =
+              f.app.files.s.clock.current.add(const Duration(hours: 8));
+          f.app.controls.installDevelopment(development);
+          await f.begin();
+          await f.app.controls.confirmExistingCredential(
+              f.app.controls.existingCredentialDisplay!);
+        });
+        addTearDown(() async {
+          final pending = development.pendingStatus;
+          if (pending != null && !pending.isCompleted) {
+            pending.complete(const FirstPartyDevelopmentStatus(
+                phase: FirstPartyDevelopmentPhase.closed));
+          }
+          await tester.pumpWidget(const SizedBox());
+          await interactionRead(tester, f.close);
+        });
+        await tester.pumpWidget(MaterialApp(
+            home: Scaffold(
+                body: SingleChildScrollView(
+                    child: FirstPartyExternalControl(
+                        access: f.app.controls,
+                        guided: true,
+                        profileId: f.app.files.s.profile.profileId)))));
+        await interactionFrame(tester);
+        await tester.tap(find.byType(DropdownButton<int>).first);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('${minutes ~/ 60} 小时').last);
+        await tester.pumpAndSettle();
+        expect(
+            tester
+                .widget<DropdownButton<int>>(
+                    find.byType(DropdownButton<int>).first)
+                .value,
+            minutes);
+        expect(find.text('首次配置 App 凭据'), findsNothing);
+
+        if (outcome == 'readFailure') {
+          development.failStatus = true;
+        } else {
+          await interactionRead(tester, f.app.controls.shutdown);
+          development.pendingStatus = Completer<FirstPartyDevelopmentStatus>();
+        }
+        await interactionFrame(tester, const Duration(seconds: 1));
+        expect(tester.takeException(), isNull);
+        expect(find.text('首次配对与连接诊断'), findsOneWidget);
+        expect(find.text('首次配置 App 凭据'), findsNothing);
+        if (outcome == 'readFailure') {
+          expect(
+              tester
+                  .widget<FilledButton>(
+                      find.widgetWithText(FilledButton, '允许本次访问'))
+                  .onPressed,
+              isNull);
+        } else {
+          expect(
+              tester
+                  .widget<FilledButton>(
+                      find.widgetWithText(FilledButton, '连接 Codex'))
+                  .onPressed,
+              isNull);
+        }
+        // Expand only after the unavailable projection has built while collapsed.
+        await interactionTap(tester, '首次配对与连接诊断');
+        expect(find.text('开发连接：不可用（需从桌面 Explorer 启动正常 Debug App）'),
+            findsOneWidget);
+        for (final dropdown in tester.widgetList<DropdownButton<int>>(
+            find.byType(DropdownButton<int>))) {
+          expect(dropdown.value, isNull);
+          expect(dropdown.onChanged, isNull);
+        }
+        final enable = tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '限时启用'));
+        expect(enable.onPressed, isNull);
+        if (outcome == 'readFailure') {
+          development.failStatus = false;
+          await interactionFrame(tester, const Duration(seconds: 1));
+          expect(
+              tester
+                  .widget<DropdownButton<int>>(
+                      find.byType(DropdownButton<int>).first)
+                  .value,
+              minutes);
+          expect((await interactionRead(tester, f.app.controls.status)).enabled,
+              isFalse);
+        } else {
+          development.pendingStatus!.complete(FirstPartyDevelopmentStatus(
+              phase: outcome == 'closed'
+                  ? FirstPartyDevelopmentPhase.closed
+                  : FirstPartyDevelopmentPhase.failed));
+          await interactionFrame(tester);
+          expect(
+              find.text(outcome == 'closed'
+                  ? '开发连接：已关闭，需正常重启 App'
+                  : '开发连接：失败，需保留证据并正常重启 App'),
+              findsOneWidget);
+          expect(
+              tester
+                  .widget<FilledButton>(
+                      find.widgetWithText(FilledButton, '限时启用'))
+                  .onPressed,
+              isNull);
+        }
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
+  test(
+      'guided connection prepares original proof but never confirms or enables',
+      () async {
+    final f = _ExistingFixture();
+    f.app.maxEnableDuration = const Duration(hours: 8);
+    await f.open();
+    addTearDown(f.close);
+    final now = f.app.files.s.clock.current;
+    final development = _DevelopmentControl()
+      ..expiresAt = now.add(const Duration(hours: 7))
+      ..maxAccessDuration = const Duration(hours: 8)
+      ..childSettled.complete()
+      ..onOpenWindow = () async {
+        f.proof = f.connection();
+        await f.proof!.connect();
+        f.peerClosed = f.proof!.waitForProofClosure();
+      };
+    f.app.controls.installDevelopment(development);
+    final id = f.app.files.s.profile.profileId;
+    await f.app.controls.prepareExistingConnection(id, available: () => true);
+    for (var i = 0;
+        i < 100 &&
+            f.app.controls.existingCredentialDisplay?.credentialIdentity ==
+                null;
+        i++) {
+      await pumpEventQueue(times: 1);
+    }
+    expect((await f.app.controls.status()).pairing, PairingState.unpaired);
+    expect((await f.app.controls.status()).enabled, isFalse);
+    await expectLater(
+        f.app.controls.enable(const Duration(hours: 8)), throwsA(anything));
+    final display = f.app.controls.existingCredentialDisplay!;
+    await f.app.controls.confirmExistingCredential(display);
+    await f.peerClosed;
+    expect(
+        (await f.app.controls.status()).pairing, PairingState.pairedDisabled);
+    expect((await f.app.controls.status()).enabled, isFalse);
+    await f.app.controls.enable(const Duration(hours: 8));
+    final enabled = await f.app.controls.status();
+    expect(enabled.enabled, isTrue);
+    expect(enabled.expiresAt, development.expiresAt);
+    await f.app.controls.disable();
+    await expectLater(
+        f.app.controls.enable(const Duration(hours: 9)), throwsA(anything));
+    expect((await f.app.controls.status()).enabled, isFalse);
+    f.app.files.s.clock.current = development.expiresAt!;
+    await expectLater(
+        f.app.controls.enable(const Duration(minutes: 30)), throwsA(anything));
+  });
+
+  test('guided connection stops after its view is cancelled during startup',
+      () async {
+    final f = _ExistingFixture();
+    await f.open();
+    addTearDown(f.close);
+    var available = true, opened = 0;
+    final entered = Completer<void>(), settle = Completer<void>();
+    final development = _DevelopmentControl()
+      ..phase = FirstPartyDevelopmentPhase.inactive
+      ..childSettled.complete()
+      ..onOpenWindow = () async {
+        opened++;
+      }
+      ..onStart = () {
+        entered.complete();
+        return settle.future;
+      };
+    f.app.controls.installDevelopment(development);
+    final work = f.app.controls.prepareExistingConnection(
+        f.app.files.s.profile.profileId,
+        available: () => available);
+    final rejected = expectLater(work, throwsA(isA<ExternalAuthException>()));
+    await entered.future;
+    available = false;
+    development.phase = FirstPartyDevelopmentPhase.active;
+    settle.complete();
+    await rejected;
+    expect(opened, 0);
+    expect(f.app.controls.existingCredentialDisplay, isNull);
+    expect((await f.app.controls.status()).enabled, isFalse);
+  });
+
+  testWidgets(
+      'guided connection names STAGE before Review and keeps technical controls collapsed',
+      (tester) async {
+    final f = _ExistingFixture();
+    await tester.runAsync(f.open);
+    final development = _DevelopmentControl()
+      ..expiresAt = f.app.files.s.clock.current.add(const Duration(hours: 8))
+      ..maxAccessDuration = const Duration(hours: 8)
+      ..childSettled.complete();
+    f.app.controls.installDevelopment(development);
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+      await tester.runAsync(f.close);
+    });
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SingleChildScrollView(
+      child: FirstPartyExternalControl(
+          access: f.app.controls,
+          guided: true,
+          profileId: f.app.files.s.profile.profileId,
+          profileName: 'Synthetic connection'),
+    ))));
+    await settleGenerated(tester);
+    expect(find.text('连接 Codex'), findsOneWidget);
+    expect(find.text('暂存确认'), findsOneWidget);
+    expect(find.textContaining('成功发布后才会出现在'), findsOneWidget);
+    expect(find.text('首次配置 App 凭据'), findsNothing);
+    expect(find.text('Profile ID：'), findsNothing);
+    expect((await tester.runAsync(f.app.controls.status))!.enabled, isFalse);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    tester.view.devicePixelRatio = 1;
+    for (final width in [720.0, 1100.0]) {
+      tester.view.physicalSize = Size(width, 900);
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(find.text('连接 Codex'), findsOneWidget);
+    }
+  });
+
   for (final outcome in ['copied', 'pageClosed', 'clipboardFailed']) {
     testWidgets('Completion copy during refresh: $outcome', (tester) async {
       final f = WindowsAppTransportFixture()
@@ -745,7 +1073,7 @@ void existingCredentialConfirmationCases() {
       expect(find.textContaining('凭据指纹：'), findsNothing);
       for (final label in [
         '首次配置 App 凭据',
-        '启用 30 分钟开发连接',
+        '开启开发连接',
         '打开独立 Bridge 配对窗口',
         '关闭开发连接'
       ]) {
@@ -877,7 +1205,7 @@ void existingCredentialConfirmationCases() {
             access: f.app.controls,
             child: ExternalAuthorizationScreen(service: f.app.policy))));
     await settleGenerated(tester);
-    expect(find.text('配对状态：已配对，访问已禁用'), findsOneWidget);
+    expect(find.text('身份已确认，等待允许访问'), findsOneWidget);
     expect(find.textContaining('未配对 / 未启用'), findsNothing);
     final profile = find.byKey(ValueKey(f.app.files.s.profile.profileId));
     await tester.ensureVisible(profile);
@@ -894,6 +1222,47 @@ void existingCredentialConfirmationCases() {
     expect(find.textContaining('客户端仍未配对'), findsNothing);
     await tester.tap(find.text('取消').last);
     await settleGenerated(tester);
+  });
+
+  testWidgets('guided profile change withdraws a late identity confirmation',
+      (tester) async {
+    final f = _ExistingFixture();
+    final development = _DevelopmentControl()..childSettled.complete();
+    tester.view.physicalSize = const Size(1200, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.runAsync(() async {
+      await f.open();
+      f.app.controls.installDevelopment(development);
+      await f.begin();
+    });
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+      await tester.runAsync(f.close);
+    });
+    Widget page(String profile) => MaterialApp(
+        home: Scaffold(
+            body: SingleChildScrollView(
+                child: FirstPartyExternalControl(
+                    access: f.app.controls,
+                    guided: true,
+                    profileId: profile))));
+    await tester.pumpWidget(page(f.app.files.s.profile.profileId));
+    await settleGenerated(tester);
+    await interactionTap(tester, '确认本次身份');
+    // The pending human decision intentionally keeps the progress indicator live.
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byType(AlertDialog), findsOneWidget);
+    await tester.pumpWidget(page('another-profile'));
+    await tester.runAsync(() => pumpEventQueue(times: 30));
+    await tester.pump();
+    await interactionTap(tester, '确认本次身份');
+    await settleGenerated(tester);
+    await tester.runAsync(() async {
+      expect((await f.app.controls.status()).pairing, PairingState.unpaired);
+      expect(f.app.controls.existingCredentialDisplay, isNull);
+    });
   });
 
   testWidgets(

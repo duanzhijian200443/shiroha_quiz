@@ -43,7 +43,37 @@ void main() {
     await tester.enterText(find.byType(TextField), 'Synthetic UI');
     await tap(tester, '新建 Profile');
     expect(find.text('无 Grant'), findsOneWidget);
+    await tap(tester, '高级权限字段');
   }
+
+  testWidgets(
+      'guided file choice explicitly saves READ and fileContent with exact scope',
+      (tester) async {
+    await pump(tester);
+    await tester.enterText(find.byType(TextField), 'Guided access');
+    await tap(tester, '新建 Profile');
+    await tap(tester, '文件 · 本地 · Synthetic file2');
+    expect(find.textContaining('阅读资料还需要选择同一空间的题库'), findsOneWidget);
+    await tap(tester, '题库 · 本地 · second');
+    expect(find.textContaining('阅读资料还需要选择同一空间的题库'), findsNothing);
+    await tap(tester, '允许提交待审核练习');
+    await tap(tester, '保存策略');
+    expect(find.textContaining('所选资料的正文'), findsWidgets);
+    await tap(tester, '确认');
+    final record = await fixture.repository.read(
+        (await fixture.repository.listProfiles()).items.single.clientProfileId);
+    expect(record.grant!.policy.permissions,
+        {CapabilityPermission.read, CapabilityPermission.stage});
+    expect(record.grant!.policy.categories, {
+      ExternalContentCategory.questionContent,
+      ExternalContentCategory.fileContent,
+      ExternalContentCategory.proposalMetadata,
+    });
+    expect(record.grant!.policy.scopes.map((s) => s.targetId).toSet(),
+        {'second', 'file2'});
+    expect(
+        record.grant!.policy.scopes.every((s) => s.projectId == null), isTrue);
+  });
 
   testWidgets(
       'create/edit/revoke flow remains unpaired and permission/egress independent',

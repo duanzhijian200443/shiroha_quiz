@@ -165,7 +165,38 @@ finite business Enable refuses at the original channel authorization boundary.
 Relay connectivity never means
 P15 authentication, business permission or STAGE approval.
 
-Use the existing `我的 -> 外部 Agent 授权` page for this sequence:
+Use `我的 -> 外部 Agent 授权`. For an already paired device, the ordinary path is:
+
+1. In **选择可访问的内容**, select the saved access configuration, exact development
+   bank and separately approved files. Basic resource selection includes READ and
+   the corresponding outgoing content category in the draft; **允许提交待审核练习**
+   includes STAGE and Proposal metadata. Review the exact resources/categories in
+   **保存策略** before confirming. A loaded older policy is never silently changed;
+   a file scope missing fileContent explicitly offers **允许读取所选资料**, followed
+   by the same save confirmation. Advanced independent fields remain available.
+2. Choose **连接 Codex**. This prepares the original development Host, Profile and
+   existing-credential proof. In the main App, inspect the identity and choose
+   **确认本次身份** within the original 30-second window. The independent proof child
+   stays separate and settles through its original barrier; it does not activate
+   itself or resize the main App. No new credential or pairing is created.
+3. Choose **允许本次访问** separately. Normal App-owned development defaults to eight
+   hours; 30-minute and two-hour choices remain available. Access cannot outlast
+   the eight-hour deployment started by this run, so the displayed actual expiry
+   can be earlier than the selected duration. There is no automatic renewal.
+4. Use the already loaded `shiroha_vnext` tools. First registration or replacing
+   the adapter executable still requires the client's actual MCP reload/restart.
+   Ordinary clean connection loss no longer requires restarting Codex: a later
+   tool call in the same adapter can acquire a fresh connection after original
+   cleanup. Enable withdrawn by outer disconnect must still be explicitly renewed
+   in the App. No interrupted request is replayed.
+
+**暂存确认** appears on this authorization page when a request is pending. It is
+distinct from **待审核题目**, which opens the existing Review inbox only after a
+Proposal was successfully published. Approving STAGE does not save a formal
+question; Review approval or rejection is a later independent decision. If a
+STAGE result is unknown, query its original submissionKey instead of resubmitting.
+
+First-time enrollment remains under **首次配对与连接诊断**:
 
 1. Select one explicitly approved development test bank and configure its local
    Profile/Grant for READ and STAGE, question content and Proposal metadata. Grant
@@ -175,16 +206,17 @@ Use the existing `我的 -> 外部 Agent 授权` page for this sequence:
    confirm. Original Native/P25 must establish both Missing before creation;
    complete valid objects are reused, partial/corrupt/unknown objects stop. This
    action never recovers, overwrites or rotates credentials.
-3. Choose **启用 30 分钟开发连接**. This admits one original Host on literal
+3. Choose **开启开发连接**. This admits one original Host on literal
    `127.0.0.1:48763`; occupied port, invalid provenance or expired admission
    refuses. It supplies no business Enable. Select the intended Profile and use
    **打开独立 Bridge 配对窗口** for initial enrollment. Complete the original
    Challenge/Submission and two full human digest/actual Revision comparisons,
    App proof verification and Missing-only Bridge save. Both surfaces' decisions
    remain separate; no agent or script approves them.
-   On a sufficiently wide monitor the pairing runner places its own window beside
-   its parent App. This is presentation only, not parent authentication. The page
-   gives the current next step and keeps technical observations under **连接诊断**.
+   On a sufficiently wide monitor the pairing runner positions its own window
+   beside its parent without resizing or activating the App. Window placement
+   is presentation only, not parent authentication. Technical observations remain
+   under **连接诊断**.
    Copy the Bridge Submission ID and use **粘贴 Submission ID** in the App.
    For each public handoff, use **复制当前 Trust** or **复制当前 Completion**,
    wait for the matching successful copy message, then use the matching
@@ -204,27 +236,25 @@ Use the existing `我的 -> 外部 Agent 授权` page for this sequence:
    the current tool catalog. Do not copy login files, create another model service
    or use an app-server diagnostic as evidence that this session has tools.
 
-On normal App reopen, reuse intact existing credentials instead of enrolling
-again. Start the finite development connection, select the same Profile and use
-**验证既有 Bridge 凭据**. Its original proof-only mTLS channel produces a private
+On normal App reopen, use the ordinary guided path above with intact existing
+credentials. Advanced controls retain **验证既有 Bridge 凭据** for the same original
+proof-only mTLS channel. It produces a private
 one-use candidate valid for at most 30 seconds. Inspect **确认本次身份** and make
 the explicit identity decision while that same channel remains live. Wait for
-the pairing-only child to settle, then independently **限时启用** and reconnect
+the pairing-only child to settle, then independently allow access and reconnect
 Codex. Confirmation only reaches `pairedDisabled`; it restores no Session,
 target approval or old STAGE decision. It creates/replaces no key, certificate,
 association or initial Pin; only original P26 high-water advancement is allowed.
 Missing, revoked, orphaned or B0-scrubbed state cannot use this shortcut.
-The old outer adapter can remain disconnected after the App closes. A refreshed
-tool inventory alone does not restart that process. Reload the actual MCP server,
-or fully quit/reopen Codex if no reload control is available, then independently
-Enable the new connection in the App. Reconcile the original submission key;
-never publish another Proposal merely because the previous adapter was unavailable.
-Some desktop builds show project-local entries as locked and offer no Restart
-action. In that case, finish the current turn and completely quit/reopen Codex;
-closing and reopening its window alone may retain the old backend. Verify actual
-reconnection rather than treating the visible tool list as proof. If the App
-still reports unpaired, complete its existing-credential identity confirmation
-before Enable; an authenticated local pipe alone cannot start business.
+An interrupted call still fails; successful local cleanup merely permits the
+next independent invocation to reconnect. Failed/unknown native cleanup stays
+latched in the adapter; failed original Bridge cleanup stays latched in the App
+and refuses replacement. Neither case gains an automatic retry/recovery path.
+Development expiry remains terminal and requires normal App reopen. If the client
+has not loaded a newly registered/rebuilt adapter, reload the actual MCP service;
+where project entries are locked, fully quit/reopen Codex. Tool inventory alone
+proves neither a fresh executable nor business authorization. An unpaired App
+still requires fresh existing-credential confirmation before Enable.
 
 If the Bridge exits after App association creation but before initial Pin save,
 preserve that failed attempt. The separately approved residual recovery uses a
@@ -314,7 +344,7 @@ inspect its target and candidates. **接受** and **保存审核** retain review
 only **正式批准入库** and its separate target/count confirmation commit questions.
 The completed batch and original-key query report the resulting safe counts.
 
-The thirty-minute deployment expiry actively closes/drains this runtime. Restart
+The eight-hour normal development expiry actively closes/drains this runtime. Restart
 the normal App before another development admission; no silent renewal is
 provided. **关闭开发连接**, outer adapter loss and ordinary App exit invalidate
 pending approvals through the original owners. Per-tool TLS end alone does not

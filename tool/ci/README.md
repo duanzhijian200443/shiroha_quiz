@@ -35,6 +35,15 @@ uses that same monitor with the original offline Host/P0 to retain Enable/target
 withdrawal, fresh authentication after a separate Enable, and terminal original
 drain on launch loss, expiry or App invalidation. The native launch observation
 is separate from per-connection peer state; neither check grants business access.
+The separately selected `adapter-reconnect` and `adapter-reconnect-failed-close`
+scenarios retain one production adapter port/process across two explicit calls.
+They check connection-local correlation, two original children after clean drain,
+and no replacement after failed child drain. Standing portable tests also retain
+the local failed-cleanup latch, observed cancellation and unknown-STAGE original-
+key lookup without replay. Eight-hour normal development and the guided UI are
+covered through the same existing Application/UI suites; generic P0 defaults and
+identity/STAGE deadlines remain separate. These checks are not a real Codex
+model turn or formal Windows security acceptance.
 The TLS/Bootstrap source guards admit only the exact App-owned development
 roots in MCP section 17.12: `mcp_vnext_development_app.dart`,
 `mcp_vnext_development_bridge.dart` and `mcp_vnext_development_pairing.dart`,

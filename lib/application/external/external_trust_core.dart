@@ -246,7 +246,8 @@ final class ExternalTrustCore {
   }
 
   /// Trusted explicit local action; never adds capabilities, scope or grants.
-  void enable(ExternalPrincipal principal, Duration duration) {
+  void enable(ExternalPrincipal principal, Duration duration,
+      {DateTime? notAfter}) {
     final profile = _profile(principal);
     _refresh(profile);
     if (profile.state != PairingState.pairedDisabled) {
@@ -255,8 +256,14 @@ final class ExternalTrustCore {
     if (duration <= Duration.zero || duration > maxEnableDuration) {
       throw const ExternalCoreException(ExternalFailure.invalidRequest);
     }
+    final now = clock.now();
+    var expiry = now.add(duration);
+    if (notAfter != null && notAfter.isBefore(expiry)) expiry = notAfter;
+    if (!now.isBefore(expiry)) {
+      throw const ExternalCoreException(ExternalFailure.invalidRequest);
+    }
     profile.enableEpoch++;
-    profile.expiresAt = clock.now().add(duration);
+    profile.expiresAt = expiry;
     profile.disableReason = null;
     profile.state = PairingState.enabledForCurrentRuntime;
   }

@@ -18,7 +18,7 @@ final class WindowsDevelopmentBootstrap {
             Uint8List.fromList(serverLeafDigest).asUnmodifiableView();
 
   static const maxBytes = 4096;
-  static const lifetime = Duration(minutes: 30);
+  static const lifetime = Duration(hours: 8);
   static const _magic = [83, 72, 68, 69, 86, 48, 48, 49];
   final bool pairingUi;
   final int expiresAtUtcMs;

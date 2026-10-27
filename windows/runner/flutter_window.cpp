@@ -4,8 +4,9 @@
 
 #include "flutter/generated_plugin_registrant.h"
 
-FlutterWindow::FlutterWindow(const flutter::DartProject& project)
-    : project_(project) {}
+FlutterWindow::FlutterWindow(const flutter::DartProject& project,
+                             bool activate_on_show)
+    : project_(project), activate_on_show_(activate_on_show) {}
 
 FlutterWindow::~FlutterWindow() {}
 
@@ -25,10 +26,11 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
-  SetChildContent(flutter_controller_->view()->GetNativeWindow());
+  SetChildContent(flutter_controller_->view()->GetNativeWindow(),
+                  activate_on_show_);
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
-    this->Show();
+    this->Show(activate_on_show_);
   });
 
   // Flutter can complete the first frame before the "show window" callback is

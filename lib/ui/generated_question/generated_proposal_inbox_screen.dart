@@ -6,7 +6,8 @@ import 'generated_proposal_controllers.dart';
 import 'generated_proposal_review_screen.dart';
 
 class GeneratedProposalWorkspaceAction extends StatelessWidget {
-  const GeneratedProposalWorkspaceAction({super.key});
+  const GeneratedProposalWorkspaceAction({super.key, this.label});
+  final String? label;
   @override
   Widget build(BuildContext context) {
     final scope = GeneratedQuestionDependenciesScope.maybeOf(context);
@@ -16,13 +17,19 @@ class GeneratedProposalWorkspaceAction extends StatelessWidget {
             c.key == 'generated_proposal_review')) {
       return const SizedBox.shrink();
     }
+    void open() => Navigator.of(context).push<void>(MaterialPageRoute(
+        builder: (_) => GeneratedProposalInboxScreen(dependencies: scope)));
+    if (label != null) {
+      return OutlinedButton.icon(
+          onPressed: open,
+          icon: const Icon(Icons.fact_check_outlined),
+          label: Text(label!));
+    }
     return IconButton(
         key: const ValueKey('generated_proposal_review'),
         tooltip: '待审核题目',
         icon: const Icon(Icons.fact_check_outlined),
-        onPressed: () => Navigator.of(context).push<void>(MaterialPageRoute(
-            builder: (_) =>
-                GeneratedProposalInboxScreen(dependencies: scope))));
+        onPressed: open);
   }
 }
 

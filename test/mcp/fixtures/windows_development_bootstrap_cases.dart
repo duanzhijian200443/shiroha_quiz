@@ -372,6 +372,31 @@ void windowsDevelopmentBootstrapCases() {
   }
 
   final now = DateTime.utc(2026, 10, 26);
+  test(
+      'development bootstrap admits eight hours but refuses expiry and a longer grant',
+      () {
+    WindowsDevelopmentBootstrap bounded(Duration duration) =>
+        WindowsDevelopmentBootstrap(
+            pairingUi: false,
+            expiresAtUtcMs: now.add(duration).millisecondsSinceEpoch,
+            issuerDer: [1, 2, 3],
+            installationId: '12345678-1234-4234-8234-123456789abc',
+            serverLeafDigest: List.filled(32, 7),
+            epoch: BigInt.one);
+    final accepted = bounded(const Duration(hours: 8));
+    expect(() => accepted.requireCurrent(now, expectedPairingUi: false),
+        returnsNormally);
+    expect(
+        () => accepted.requireCurrent(now.add(const Duration(hours: 8)),
+            expectedPairingUi: false),
+        throwsStateError);
+    expect(
+        () => bounded(const Duration(hours: 8, seconds: 1))
+            .requireCurrent(now, expectedPairingUi: false),
+        throwsStateError);
+    expect(() => accepted.requireCurrent(now, expectedPairingUi: true),
+        throwsStateError);
+  });
   WindowsDevelopmentBootstrap packet() => WindowsDevelopmentBootstrap(
       pairingUi: false,
       expiresAtUtcMs:

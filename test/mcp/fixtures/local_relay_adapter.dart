@@ -7,6 +7,7 @@ import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/data/external/windows_local_relay.dart';
+import 'package:shiroha_quiz/mcp/vnext_local_relay_port.dart';
 
 Future<void> main(List<String> args) async {
   final root = p.dirname(Platform.resolvedExecutable);
@@ -24,8 +25,31 @@ Future<void> main(List<String> args) async {
   };
   WindowsLocalRelay? monitored;
   _RetainedPeer? raw;
+  VnextLocalRelayPort? production;
   try {
-    if (scenario == 'monitored-idle' && label == 'old') {
+    if (scenario.startsWith('adapter-reconnect')) {
+      final port = production = VnextLocalRelayPort();
+      Future<void> call(String event) async {
+        final result = await port.call('open_generation_context', {},
+            cancelled: const Stream.empty(), available: () => true);
+        if (result['error'] != 'unavailable') {
+          throw StateError('Expected fixture refusal');
+        }
+        report(event);
+      }
+
+      await call('firstResponse');
+      final watch = Stopwatch()..start();
+      while (!File(p.join(root, 'request-reconnect')).existsSync() &&
+          watch.elapsed < const Duration(seconds: 30)) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      if (!File(p.join(root, 'request-reconnect')).existsSync()) {
+        throw StateError('Explicit second call was not requested');
+      }
+      await call('secondResponse');
+      return;
+    } else if (scenario == 'monitored-idle' && label == 'old') {
       monitored = WindowsLocalRelay.openAdapter();
       await monitored.accept();
       await monitored.send(request, const Duration(seconds: 5));
@@ -87,6 +111,7 @@ Future<void> main(List<String> args) async {
     report('failed');
     exitCode = 1;
   } finally {
+    await production?.close();
     await monitored?.close();
     raw?.close();
     report('closed');

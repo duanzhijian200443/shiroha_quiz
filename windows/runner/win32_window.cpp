@@ -149,8 +149,8 @@ bool Win32Window::Create(const std::wstring& title,
   return OnCreate();
 }
 
-bool Win32Window::Show() {
-  return ShowWindow(window_handle_, SW_SHOWNORMAL);
+bool Win32Window::Show(bool activate) {
+  return ShowWindow(window_handle_, activate ? SW_SHOWNORMAL : SW_SHOWNOACTIVATE);
 }
 
 // static
@@ -208,7 +208,7 @@ Win32Window::MessageHandler(HWND hwnd,
     }
 
     case WM_ACTIVATE:
-      if (child_content_ != nullptr) {
+      if (LOWORD(wparam) != WA_INACTIVE && child_content_ != nullptr) {
         SetFocus(child_content_);
       }
       return 0;
@@ -238,7 +238,7 @@ Win32Window* Win32Window::GetThisFromHandle(HWND const window) noexcept {
       GetWindowLongPtr(window, GWLP_USERDATA));
 }
 
-void Win32Window::SetChildContent(HWND content) {
+void Win32Window::SetChildContent(HWND content, bool focus) {
   child_content_ = content;
   SetParent(content, window_handle_);
   RECT frame = GetClientArea();
@@ -246,7 +246,7 @@ void Win32Window::SetChildContent(HWND content) {
   MoveWindow(content, frame.left, frame.top, frame.right - frame.left,
              frame.bottom - frame.top, true);
 
-  SetFocus(child_content_);
+  if (focus) SetFocus(child_content_);
 }
 
 RECT Win32Window::GetClientArea() {

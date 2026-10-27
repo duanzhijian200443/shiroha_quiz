@@ -204,6 +204,8 @@ final class McpVnextDevelopmentApp implements FirstPartyDevelopmentAccess {
     }
     return FirstPartyDevelopmentStatus(
         phase: developmentStatusPhase(phase: _phase, localAvailable: _local),
+        expiresAt: _expiry,
+        maxAccessDuration: WindowsDevelopmentBootstrap.lifetime,
         issuerMissing: issuerMissing,
         serverMissing: serverMissing,
         bridgePinMissing: pinMissing,
@@ -268,6 +270,7 @@ final class McpVnextDevelopmentApp implements FirstPartyDevelopmentAccess {
             integration: integration,
             enableStageApprovalWait: true,
             enableWithoutRetainedChannel: true,
+            maxEnableDuration: WindowsDevelopmentBootstrap.lifetime,
             associationRecoveryAvailable: () =>
                 _current &&
                 !relay.hasChild &&

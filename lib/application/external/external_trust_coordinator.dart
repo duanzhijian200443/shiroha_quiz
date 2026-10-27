@@ -107,8 +107,10 @@ final class ExternalTrustCoordinator {
       _local(profile, () => _trust.approvePairing(profile.principal));
   Future<void> completePairing(ExternalTrustProfile profile, Object proof) =>
       _local(profile, () => _trust.completePairing(profile.principal, proof));
-  Future<void> enable(ExternalTrustProfile profile, Duration duration) =>
-      _local(profile, () => _trust.enable(profile.principal, duration));
+  Future<void> enable(ExternalTrustProfile profile, Duration duration,
+          {DateTime? notAfter}) =>
+      _local(profile,
+          () => _trust.enable(profile.principal, duration, notAfter: notAfter));
   Future<void> disable(ExternalTrustProfile profile) =>
       _local(profile, () => _trust.disable(profile.principal));
 

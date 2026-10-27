@@ -338,8 +338,14 @@ This is a finite development-use exception, not another G0 tier or a security
 experiment grant. The original Native checks, trust provenance, mTLS, P15/P0,
 current Grant/scope/egress and independent user decisions all remain mandatory.
 The fixed `%LOCALAPPDATA%\Shiroha\external` root has no Debug/Release partition;
-this authorization does not claim one. Thirty-minute deployment admission does
-not grant business Enablement and expiry must actively drain the original
+this authorization does not claim one. The separately approved 2026-10-27
+amendment permits an eight-hour development admission and eight-hour default/
+maximum business Enable only in the normal Windows App-owned development mode.
+Enable cannot outlive the actual development deadline. Neither clock renews
+automatically; hand disable, revoke, App exit and expiry retain their original
+withdrawal/drain semantics. Other modes retain their previous limits, and the
+short identity-confirmation and STAGE windows are unchanged. Deployment admission
+does not grant business Enablement and expiry must actively drain the original
 runtime. Trial 1A, G0-L1/L2/I, A0–A12/X0–X12 and formal production acceptance stay
 deferred; their experiment prerequisites and the permanent AF_UNIX halt are
 unchanged. Source/offline evidence and a successful development loop do not
