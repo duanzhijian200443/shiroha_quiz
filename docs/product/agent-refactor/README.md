@@ -1,11 +1,21 @@
 # Agent Runtime v1 / External Agent / MCP vNext Contract Index
 
-Current scheduling: **ordinary Codex connecting to the existing development App
-first; Windows high-assurance real security experiments DEFERRED**. The
+Current scheduling is owned by the
+[limited Windows development milestone](../../architecture/shiroha-project-roadmap.md#limited-windows-development-use-and-maintenance-2026-10-27):
+the existing normal App/Codex path, including already committed-question study
+use, is complete within that finite development scope and is in maintenance,
+without new Agent expansion. Reuse the merged Question/File READ, STAGE/Review,
+original-key and reconnection evidence;
+do not repeat the full integration acceptance. OCR optimization is paused,
+computer/tablet UI proceeds independently, and remote/Android are later separate
+capabilities. Windows high-assurance real security experiments remain DEFERRED.
+No new admission, external permission or credential authority follows.
+
+The retained
 [development-priority amendment](../../architecture/shiroha-project-roadmap.md#development-instance-codex-integration-priority-2026-10-25)
 supersedes isolated-model testing as the mainline. The retained
 [earlier roadmap amendment](../../architecture/shiroha-project-roadmap.md#windows-mcp-first-scheduling-amendment-2026-10-19)
-owns the complete functional exit conditions: full seven-tool READ/STAGE and
+owns the wider functional exit conditions: full seven-tool READ/STAGE and
 Proposal queries, controlled App/user Review, durable/idempotent recovery,
 isolated real-client end-to-end proof and Windows Codex launch/lifecycle/errors.
 Reuse existing Application/Proposal/Review/Gateway/IPC/permission mechanisms.
