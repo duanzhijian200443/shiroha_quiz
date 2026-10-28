@@ -7,8 +7,11 @@ use, is complete within that finite development scope and is in maintenance,
 without new Agent expansion. Reuse the merged Question/File READ, STAGE/Review,
 original-key and reconnection evidence;
 do not repeat the full integration acceptance. OCR optimization is paused,
-computer/tablet UI proceeds independently, and remote/Android are later separate
-capabilities. Windows high-assurance real security experiments remain DEFERRED.
+computer/tablet UI proceeds independently. Android foreground device access is
+the next independent capability under [its focused contract](android-device-access-v0.md).
+The approved design and source-only foundation do not provide runtime/business
+activation or real-device acceptance. Hosted cloud access remains deferred.
+Windows high-assurance real security experiments remain DEFERRED.
 No new admission, external permission or credential authority follows.
 
 The retained
@@ -645,6 +648,7 @@ limit the module contract to Assistant features.
 | Typed capabilities, permissions, effects, receipts and projection boundaries | [application-capabilities.md](application-capabilities.md) |
 | Compile-time modules, contributions, dependencies and storage compatibility | [module-system.md](module-system.md) |
 | External identity, grants, context handles, egress and local Host/IPC | [external-agent-boundary.md](external-agent-boundary.md) |
+| Android fixed-device connection, Native credentials, foreground lifecycle and link limits | [android-device-access-v0.md](android-device-access-v0.md) |
 | Windows credential/IPC security readiness, frozen primitives, tiered local experiment gates and independent Windows acceptance | [windows-host-security-readiness.md](windows-host-security-readiness.md) |
 | Windows acceptance evidence matrix, entry gaps and unapproved L1/L2/I request templates (G0-L0 only) | [windows-host-acceptance-preparation.md](windows-host-acceptance-preparation.md), [static plan](windows-host-acceptance-plan.json) |
 | MCP profile, Tools, protocol schemas and reference-client packaging boundary | [mcp-vnext-contract.md](mcp-vnext-contract.md) |
@@ -702,7 +706,8 @@ This checkpoint changes no schema, dependency, runtime, UI or permission.
 Built-in Agent ---------------------------> Application Capability Kernel
 UI / explicit approval Commands ---------> Application -> Domain
 External Client -> protocol adapter
-                -> authenticated local Host -> Application
+                -> authenticated local Windows Host -> Application
+                -> separately admitted foreground Android link -> Application
 Data / Infrastructure -------------------> Application ports / Domain
 
 Compile-time Module -> capabilities -> optional UI / Agent / MCP projections
@@ -710,7 +715,9 @@ Compile-time Module -> capabilities -> optional UI / Agent / MCP projections
 
 The App is the sole business writer. The Built-in Agent does not call MCP.
 External clients are brand-neutral untrusted inputs; MCP initially exposes
-READ + STAGE only. Formal Question commit requires explicit Shiroha UI approval.
+READ + STAGE only. Formal Question commit remains App-owned and requires existing
+explicit local Review approval or the narrow saved direct policy for a newly
+published batch under external boundary section 14. No client gains COMMIT.
 Retain the dedicated Shiroha External Host architecture: Codex, Claude and
 other external Agents use their own MCP Bridges to the same Host, then the
 authenticated and authorized READ/STAGE services. Each Bridge is a protocol

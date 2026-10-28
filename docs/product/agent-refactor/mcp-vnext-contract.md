@@ -1,4 +1,4 @@
-# MCP vNext Local Generation Profile
+# MCP vNext Generation Profile
 
 Status: **FROZEN target capability surface; not implemented by AR-R0.**
 
@@ -6,12 +6,16 @@ Authority/activation: [index](README.md). Owns MCP projections/protocol and
 reference-package boundary, not business identity, authorization or commit.
 Full wire schemas/version identifiers are frozen in AR-R6B before exposure.
 
-## 1. Local Tools-only profile
+## 1. Tools-only profile and consumer boundaries
 
-External Client -> stdio MCP bridge -> authenticated local IPC -> App Host ->
-Application. Identity/context/egress rules are owned by
-[external-agent-boundary.md](external-agent-boundary.md). Bridge has no database,
-repository, migrations or alternate App writer.
+Windows uses its stdio bridge and authenticated local IPC, including section
+17.12's admitted App-owned relay. The separately specified Android consumer uses
+a local stdio transport adapter and authenticated device link to the foreground
+Android App, where the same MCP projection executes. Android's link is not
+Streamable HTTP or a new business authority. Identity/context/egress belong to
+[external-agent-boundary.md](external-agent-boundary.md); its platform boundary
+belongs to [Android device access](android-device-access-v0.md). Neither adapter
+has a database, repository, migration or alternate App writer.
 
 The authorized App-owned relay in §17.12 adds a local authenticated hop before
 that SAME stdio Bridge. It does not replace the authenticated App Host channel.
@@ -23,7 +27,7 @@ that SAME stdio Bridge. It does not replace the authenticated App Host channel.
 | get_question_detail | context handle, server-returned question reference | Authorized typed question projection; READ |
 | retrieve_file_content | context handle, bounded lexical query | Verified current RAG snippets/evidence; READ with permitted derived cache |
 | get_file_passage | context handle, returned evidence reference/cursor | Bounded verified parsed passages and coverage/exclusion metadata; READ |
-| propose_generated_questions | context handle, submission key, typed candidates | Durable Proposal identity/count/receipt, explicitly staged not committed; STAGE |
+| propose_generated_questions | context handle, submission key, typed candidates | Publication acknowledgement under current local policy; review produces a draft, explicit direct may atomically save only a new batch. Query original key for final lifecycle; STAGE |
 | get_question_proposal | Proposal reference or submission key | Currently authorized lifecycle/count/safe receipt, without needing old handle; READ |
 
 Generation targets are selected in Shiroha pairing; no extra list_learning_spaces
@@ -133,12 +137,14 @@ sequenceDiagram
     Note over Client: Generate typed candidates externally
     Client->>Bridge: propose_generated_questions + submission key
     Bridge->>App: Typed admission and current grants
-    App->>Data: Durable original/items/pending stage
-    Data-->>App: Stage receipt
-    App-->>Client: Staged, not committed
-    User->>App: Review edits/decisions and explicit confirm
-    App->>Data: Revalidate + typed Question/review/receipt/terminal CAS
-    Data-->>App: Atomic commit result
+    alt review or retained confirm flow
+        App->>Data: Durable pending Proposal
+        User->>App: Local Review and explicit confirmation
+        App->>Data: Original atomic typed commit
+    else Explicit direct policy and NEW submissionKey
+        App->>Data: Publish and formally commit in one transaction
+    end
+    App-->>Client: Publication acknowledged; final save not reported
     Client->>Bridge: get_question_proposal
     Bridge->>App: Authenticate and authorize outcome query
     App-->>Client: Pending/rejected/committed + safe receipt
@@ -147,7 +153,8 @@ sequenceDiagram
 Every MCP client that supports Tools can complete this flow; Resources/Prompts
 are optional future projections with the same authorization. Prompts only guide
 use; Resources only expose safe authorized snapshots. MCP Tasks, sampling,
-external formal approval and hosted remote transport are excluded from MVP.
+client-issued formal approval and hosted public transport are excluded. Android
+LAN is a separately specified consumer, not hosted ChatGPT support.
 
 ## 5. First-party reference integration
 
@@ -2190,3 +2197,26 @@ Output retains the existing keys, with `nextCursor`/`hasMore` consistent and
 are page-local. `contextRef + fileRefs` still creates a separate bounded File
 Context; mixed target/file-selection modes reject. Cursors are opaque, parent
 bound and do not extend authorization lifetime. No source parsing is triggered.
+
+## 18. Android foreground device consumer — specified, inactive
+
+[Android device access](android-device-access-v0.md) owns the device link, fixed
+device selection, Native credential adapter, foreground lifecycle and limits.
+Its source-only foundation does not activate this consumer.
+
+A local transport-only stdio adapter forwards MCP to the selected Android App.
+The App reuses the seven schemas, profileVersion 2, Submission v1 and original-key
+lifecycle query. Device/pairing selectors stay outside business arguments; only
+verified native-channel evidence may enter original P15/P0 authentication.
+
+Android STAGE must use original FirstPartyStageApproval through the bounded P10
+approval path. Saved review/direct does not require an open settings view;
+retained confirm keeps its original manual owner. No COMMIT/DESTRUCTIVE is added.
+Link/MCP/profile/Submission/persistence versions remain independent. The pinned
+SDK and Windows/v0 compatibility remain unchanged.
+
+Disconnect/timeout proves neither cancellation nor zero effect. Reconnect fixes
+the same device/Profile; uncertain writes are queried by the original key and
+never replayed. #327 remains a separate client-cancellation limitation. Closing
+this consumer preserves all local content and learning facts. Windows requires
+no new pairing, credential migration or transport change.

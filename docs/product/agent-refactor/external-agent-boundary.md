@@ -10,15 +10,28 @@ belong to [MCP](mcp-vnext-contract.md); Proposal business lifecycle belongs to
 ## 1. Trust and process boundary
 
 ```text
-External Agent -> protocol adapter / stdio bridge
+Windows consumer:
+External Agent -> stdio adapter / existing local relay
                -> authenticated local IPC -> App LocalCapabilityHost
-               -> Application CapabilityExecutor -> business services
-Built-in Agent ---------------------------> Application directly
+
+Android-device consumer, after separate implementation and acceptance:
+External Agent -> local stdio transport adapter
+               -> authenticated Android device link
+               -> foreground Android App MCP adapter / LocalCapabilityHost
+
+Both -> Application CapabilityExecutor -> existing business services
+Built-in Agent ------------------------> Application directly
 ```
 
 App is the sole business writer. Bridge never opens SQLite, holds repositories,
 executes migrations or starts an alternate writer when App is absent. Composition
 roots wire implementations; adapters do not bypass Application ports.
+
+Windows and Android have independent installation identity, credential
+association and runtime admission. A Windows pairing, Profile, development
+exception or accepted local relay does not authorize Android. The Android
+boundary is owned by [Android device access](android-device-access-v0.md).
+Its source-only foundation supplies no runtime or business activation.
 
 Any authorized client can use this boundary. No brand-specific Proposal/origin
 types or business `if client == ...` branches. A different protocol may add an
@@ -572,13 +585,14 @@ Scope and releases only persisted lifecycle and bounded aggregate counts. It
 does not enlarge the STAGE-only reconciliation acknowledgement above or grant
 external Review/COMMIT. P7/P8 retain authentication, budgets and final egress.
 
-Architecture freezes authenticated local-only transport, protected endpoint
-discovery, App/bridge peer validation, bounded framing/payload/concurrency,
-deadline/cancellation, versioning, reconciliation, restart/revoke behavior and
-safe logs. Windows P0 selects IPv4 Loopback TCP + mTLS as the preferred
-implementation and verification candidate, with Named Pipe retained as a
-fallback. Its listener may bind only explicit `127.0.0.1`, never `0.0.0.0`, a
-LAN address or an IPv6 wildcard. There is no unauthenticated business fallback.
+For the Windows consumer, architecture freezes authenticated local-only
+transport, protected discovery, peer validation, bounded framing/concurrency,
+deadlines/cancellation, versioning, reconciliation, restart/revoke and safe logs.
+Windows P0 retains IPv4 Loopback TCP + mTLS, with its existing Named Pipe fallback
+and explicit `127.0.0.1` restriction, never a wildcard or LAN address. These rules
+authorize no Windows LAN listener. The separately specified Android consumer
+may use only its authenticated foreground device link after its own acceptance.
+Neither consumer has an unauthenticated business fallback.
 
 Windows P0 uses **B-class isolation**: other local SIDs may attempt TCP
 connections; OS rejection by SID at TCP `connect()` is not promised. Before
@@ -623,7 +637,10 @@ Choose the least complex candidate passing every hard property. Spike must be
 allowed to overturn the TCP preference, fall back to Named Pipe or reject all
 candidates if evidence requires it. If none passes, keep
 Host unpublished; no unauthenticated fallback. HTTP is not preferred without a
-specific benefit. No shell, generic arbitrary RPC dispatch or remote listener.
+specific benefit. No shell or generic arbitrary RPC dispatch is allowed. Windows
+exposes no remote listener. Android's only specified endpoint is its foreground
+LAN endpoint; public hosting, automatic tunneling and background receipt remain
+excluded.
 Wire envelope belongs to infrastructure; Application remains typed/protocol-free.
 
 ## 6. Persistence, backup and acceptance
@@ -1475,6 +1492,14 @@ and association work before runtime replacement. Disconnect does not invent a
 P0 per-Session revoke operation. Restart reads no association automatically;
 replacement is unpaired/disabled and requires fresh proof, binding and enablement.
 
+Android startup likewise performs no automatic credential hydration or
+enablement. An explicit local Android access action may request fresh
+existing-credential confirmation for its selected Profile, using original P15
+private evidence and P0/P12 state transitions. Its verifier must bind the live
+native TLS channel, exact protected association, current runtime and deadline.
+Stored metadata alone remains non-authorizing. This separately specified
+consumer does not use or relax the Windows development exception.
+
 MCP §17.12's separately authorized development residual-recovery entry exposes
 this SAME local revocation through an optional first-party Application port.
 It binds a one-use comparison view to the selected opaque management reference,
@@ -1722,10 +1747,16 @@ TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED; AR-R6B remains inactive.
 
 ## 14. Simplified first-party access and v35 saved generation policy
 
-This current amendment owns the simplified settings behavior and narrows the
-older exact-scope, separate identity-decision and per-request UI requirements
-above for the MCP section 17.12 development consumer. It grants no production
-security acceptance, new credential provider or generic external COMMIT route.
+This amendment owns shared v35 saved generation policy and its explicitly listed
+first-party consumers. The currently active consumer is the MCP section 17.12
+Windows development consumer. The Android consumer is specified in
+[Android device access](android-device-access-v0.md); its source-only foundation
+does not activate it. Durable policy, default drafts/direct insertion and file
+discovery below define shared semantics for explicitly admitted consumers.
+The everyday-access subsection describes Windows deployment/channel/child
+orchestration; Android uses its separate foreground and credential boundary.
+Neither gains generic external COMMIT, cross-device authorization or production
+security acceptance from saved policy.
 
 ### Durable policy and migration
 
@@ -1747,7 +1778,7 @@ authorization tables. Restoring portable packages with any authorization rows is
 rejected; raw rollback retains the original local policy. Package v2 and existing
 Proposal/Receipt JSON formats remain unchanged.
 
-### One everyday access switch
+### Windows development consumer: one everyday access switch
 
 The explicit daily access action orchestrates deployment preparation, fresh
 existing-credential proof, original proof/channel/child settlement and finite
@@ -1824,3 +1855,11 @@ The page uses product settings components and exposes access, the independent
 the saved direct choice but disables that control; existing drafts remain in
 Review. First pairing and connection diagnostics are folded into connection
 settings. Business ownership remains in Application/Data, never UI SQLite calls.
+
+For Android, all-content covers only the selected device's current Shiroha data
+instance. Saved review/direct policy may authorize request-scoped STAGE through
+original FirstPartyStageApproval without an open settings view. Foreground
+enablement, live connection authentication and per-call/final-release checks
+remain independent. Installation, migration, pairing and navigation never widen
+existing exact-scope/confirm policies. Background, lock and network changes use
+the Android lifecycle and never delete durable content.
