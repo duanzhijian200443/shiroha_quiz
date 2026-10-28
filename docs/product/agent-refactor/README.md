@@ -8,9 +8,10 @@ without new Agent expansion. Reuse the merged Question/File READ, STAGE/Review,
 original-key and reconnection evidence;
 do not repeat the full integration acceptance. OCR optimization is paused,
 computer/tablet UI proceeds independently. Android foreground device access is
-the next independent capability under [its focused contract](android-device-access-v0.md).
-The approved design and source-only foundation do not provide runtime/business
-activation or real-device acceptance. Hosted cloud access remains deferred.
+an independent capability under [its focused contract](android-device-access-v0.md).
+Its dedicated Debug question READ subset has physical-device/normal-Codex and
+manual focus-recovery evidence. Full Android v0, STAGE, file READ and write-loss
+recovery remain pending. Hosted cloud access remains deferred.
 Windows high-assurance real security experiments remain DEFERRED.
 No new admission, external permission or credential authority follows.
 

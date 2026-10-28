@@ -7,6 +7,8 @@ import '../../application/external/first_party_external_access.dart';
 import '../../application/external/local_authorization_service.dart';
 import '../../application/modules/module_composition.dart';
 import '../dependencies/first_party_external_scope.dart';
+import '../dependencies/android_device_scope.dart';
+import 'android_device_access_panel.dart';
 import '../dependencies/generated_question_dependencies_scope.dart';
 import '../generated_question/generated_proposal_inbox_screen.dart';
 import 'external_agent_settings_body.dart';
@@ -300,6 +302,8 @@ final class _ExternalAuthorizationScreenState
 
   @override
   Widget build(BuildContext context) {
+    final android = AndroidDeviceScope.maybeOf(context);
+    if (android != null) return AndroidDeviceAccessPanel(access: android);
     final phase = _busy
         ? ExternalAgentAccessPhase.connecting
         : _enabled

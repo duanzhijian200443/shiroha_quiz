@@ -4,4 +4,12 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <application>
+        <activity
+            android:name="com.example.shiroha_quiz.external.DeviceNativeProofActivity"
+            android:enabled="${androidNativeProofEnabled}"
+            android:exported="true"
+            android:permission="android.permission.DUMP"
+            android:label="Shiroha Native validation" />
+    </application>
 </manifest>

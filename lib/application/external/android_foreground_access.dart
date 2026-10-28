@@ -113,6 +113,11 @@ final class AndroidForegroundAccess {
 
   AndroidAccessPhase get phase => _phase;
   int get generation => _generation;
+  Duration get remaining {
+    if (!_timeValid()) return Duration.zero;
+    return _expires! - _elapsed();
+  }
+
   bool get acceptsNew =>
       !_disposed &&
       _phase == AndroidAccessPhase.ready &&

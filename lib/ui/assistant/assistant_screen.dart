@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../application/conversations/conversation_repository.dart';
+import '../../application/questions/question_list_query_port.dart';
 import '../../application/u1_workspace/u1_workspace_dtos.dart';
 import '../../domain/conversations/conversation.dart';
 import '../../domain/conversations/conversation_message.dart';
@@ -81,6 +82,7 @@ class AssistantScreen extends StatefulWidget {
     required this.conversationController,
     this.showGlobalMenu = true,
     this.practiceCommands,
+    this.questionListQuery,
   });
 
   final LearningSpacesController spacesController;
@@ -91,6 +93,7 @@ class AssistantScreen extends StatefulWidget {
   /// Forwarded to learning spaces so the data-center practice entry stays
   /// wired; assembled at the composition root.
   final PracticeCommandDependencies? practiceCommands;
+  final QuestionListQueryPort? questionListQuery;
 
   @override
   State<AssistantScreen> createState() => _AssistantScreenState();
@@ -391,6 +394,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
           controller: widget.spacesController,
           fileController: widget.fileController,
           practiceCommands: widget.practiceCommands,
+          questionListQuery: widget.questionListQuery,
         ),
       ),
     );
@@ -477,6 +481,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
             controller: widget.spacesController,
             fileController: widget.fileController,
             practiceCommands: widget.practiceCommands,
+            questionListQuery: widget.questionListQuery,
           ),
         ),
         onOpenMcp: () => _pushFromDrawer(

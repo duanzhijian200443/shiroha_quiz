@@ -64,25 +64,75 @@ internal static class DeviceCertificatePolicy
 /// <summary>One connection; failure ends stdio. No alternate target or write replay.</summary>
 internal static class DeviceTransport
 {
-    internal static async Task Forward(DeviceTarget target, X509Certificate2 client, Stream input, Stream output, CancellationToken stop)
+    internal sealed class PinnedConnection(TcpClient tcp, SslStream tls) : IDisposable
     {
-        RequireRuntime();
+        internal TcpClient Tcp { get; } = tcp;
+        internal SslStream Tls { get; } = tls;
+        public void Dispose()
+        {
+            bool clean = true;
+            try { Tls.Dispose(); } catch { clean = false; }
+            try { Tcp.Dispose(); } catch { clean = false; }
+            if (!clean) throw new LinkFailure("settlement_unknown");
+        }
+    }
+
+    // A compiled local owner supplies acquisition admission. This produces no
+    // Application evidence or READY, and the ordinary entry remains closed.
+    internal static async Task<PinnedConnection> OpenPinned(DeviceTarget target,
+        X509Certificate2 client, CancellationToken stop, Action requireAdmission, Action<string>? observe = null)
+    {
+        requireAdmission();
+        target.Validate();
+        var tcp = new TcpClient(AddressFamily.InterNetwork);
+        SslStream? tls = null;
+        try
+        {
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stop);
+            deadline.CancelAfter(TimeSpan.FromSeconds(5));
+            await tcp.ConnectAsync(target.Address, target.Port, deadline.Token);
+            observe?.Invoke("tcp_connected");
+            requireAdmission();
+            tls = new SslStream(tcp.GetStream(), false, (_, cert, _, _) =>
+            {
+                bool accepted = cert is X509Certificate2 parsed && DeviceCertificatePolicy.Check(parsed, target);
+                observe?.Invoke(accepted ? "peer_certificate_valid" : "peer_certificate_rejected");
+                return accepted;
+            });
+            await tls.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+            {
+                TargetHost = "shiroha-android-device",
+                EnabledSslProtocols = SslProtocols.Tls13,
+                AllowRenegotiation = false,
+                AllowTlsResume = false,
+                ClientCertificates = new X509CertificateCollection { client },
+            }, deadline.Token);
+            requireAdmission();
+            if (!tls.IsMutuallyAuthenticated || tls.SslProtocol != SslProtocols.Tls13)
+                throw new LinkFailure("credential_rejected");
+            return new PinnedConnection(tcp, tls);
+        }
+        catch
+        {
+            bool clean = true;
+            try { tls?.Dispose(); } catch { clean = false; }
+            try { tcp.Dispose(); } catch { clean = false; }
+            if (!clean) throw new LinkFailure("settlement_unknown");
+            throw;
+        }
+    }
+
+    internal static async Task Forward(DeviceTarget target, X509Certificate2 client, Stream input, Stream output, CancellationToken stop, Action? admission = null)
+    {
+        Action requireAdmission = admission ?? RequireRuntime;
+        requireAdmission();
         target.Validate();
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(stop);
-        using var tcp = new TcpClient(AddressFamily.InterNetwork);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         deadline.CancelAfter(TimeSpan.FromSeconds(5));
-        await tcp.ConnectAsync(target.Address, target.Port, deadline.Token);
-        using var tls = new SslStream(tcp.GetStream(), false, (_, cert, _, _) =>
-            cert is X509Certificate2 parsed && DeviceCertificatePolicy.Check(parsed, target));
-        await tls.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
-        {
-            TargetHost = "shiroha-android-device", // Identity is pinned, never inferred from this name/IP.
-            EnabledSslProtocols = SslProtocols.Tls13,
-            AllowRenegotiation = false,
-            ClientCertificates = new X509CertificateCollection { client },
-        }, deadline.Token);
-        if (!tls.IsMutuallyAuthenticated || tls.SslProtocol != SslProtocols.Tls13) throw new LinkFailure("credential_rejected");
+        using var connection = await OpenPinned(target, client, deadline.Token, requireAdmission);
+        var tcp = connection.Tcp;
+        var tls = connection.Tls;
         byte[] nonce = RandomNumberGenerator.GetBytes(32);
         string encodedNonce = Convert.ToBase64String(nonce).TrimEnd('=').Replace('+', '-').Replace('/', '_');
         byte[] hello = JsonSerializer.SerializeToUtf8Bytes(new { type = "hello", purpose = "business", expectedDeviceId = target.DeviceId,
@@ -90,6 +140,7 @@ internal static class DeviceTransport
         await LinkFrames.Write(tls, 1, hello, false, deadline.Token);
         var ready = await LinkFrames.Read(tls, true, deadline.Token);
         if (ready.Kind != 1) throw new LinkFailure("protocol_violation");
+        string connectionId;
         using (var doc = LinkFrames.StrictObject(ready.Body))
         {
             var root = doc.RootElement;
@@ -100,21 +151,49 @@ internal static class DeviceTransport
                 root.GetProperty("clientNonce").GetString() != encodedNonce ||
                 !Guid.TryParseExact(root.GetProperty("runtimeId").GetString(), "D", out _) ||
                 !Guid.TryParseExact(root.GetProperty("connectionId").GetString(), "D", out _) ||
-                !System.Text.RegularExpressions.Regex.IsMatch(root.GetProperty("serverNonce").GetString() ?? "", "^[A-Za-z0-9_-]{43}$"))
+                !DeviceClient.IsNonce(root.GetProperty("serverNonce").GetString() ?? ""))
                 throw new LinkFailure("device_mismatch");
+            connectionId = root.GetProperty("connectionId").GetString()!;
         }
+        using var writer = new LinkWriter(tls, lifetime.Token);
+        long lastPeer = System.Diagnostics.Stopwatch.GetTimestamp();
+        string? pendingPing = null;
+        object heartbeatLock = new();
         async Task Upload()
         {
             while (await LinkFrames.ReadStdioLine(input, lifetime.Token) is { } line)
-                await LinkFrames.Write(tls, 2, line, false, lifetime.Token);
+                await writer.Write(2, line);
         }
         async Task Download()
         {
             while (true)
             {
                 var frame = await LinkFrames.Read(tls, true, lifetime.Token);
-                if (frame.Kind != 2) throw new LinkFailure("protocol_violation");
                 using var doc = LinkFrames.StrictObject(frame.Body);
+                if (frame.Kind == 1)
+                {
+                    var control = doc.RootElement;
+                    DeviceClient.Fields(control, ["type", "connectionId", "nonce"]);
+                    string controlType = DeviceClient.Text(control, "type"), heartbeatNonce = DeviceClient.Text(control, "nonce");
+                    if (DeviceClient.Text(control, "connectionId") != connectionId ||
+                        !DeviceClient.IsNonce(heartbeatNonce)) throw new LinkFailure("protocol_violation");
+                    if (controlType == "ping")
+                        await writer.Write(1, JsonSerializer.SerializeToUtf8Bytes(new { type = "pong", connectionId, nonce = heartbeatNonce }));
+                    else if (controlType == "pong")
+                    {
+                        lock (heartbeatLock)
+                        {
+                            if (pendingPing == null || pendingPing != heartbeatNonce) throw new LinkFailure("protocol_violation");
+                            pendingPing = null;
+                        }
+                    }
+                    else throw new LinkFailure("protocol_violation");
+                    Interlocked.Exchange(ref lastPeer, System.Diagnostics.Stopwatch.GetTimestamp());
+                    continue;
+                }
+                if (frame.Kind != 2 || !doc.RootElement.TryGetProperty("jsonrpc", out var version) || version.GetString() != "2.0")
+                    throw new LinkFailure("protocol_violation");
+                Interlocked.Exchange(ref lastPeer, System.Diagnostics.Stopwatch.GetTimestamp());
                 using var write = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
                 write.CancelAfter(TimeSpan.FromSeconds(5));
                 await output.WriteAsync(frame.Body, write.Token);
@@ -122,14 +201,49 @@ internal static class DeviceTransport
                 await output.FlushAsync(write.Token);
             }
         }
-        Task upload = Upload(), download = Download();
-        try { await await Task.WhenAny(upload, download); }
+        async Task Heartbeat()
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(15));
+            while (await timer.WaitForNextTickAsync(lifetime.Token))
+            {
+                requireAdmission();
+                if (System.Diagnostics.Stopwatch.GetElapsedTime(Interlocked.Read(ref lastPeer)) >= TimeSpan.FromSeconds(45))
+                    throw new LinkFailure("peer_lost");
+                string? nonce = null;
+                lock (heartbeatLock) { if (pendingPing == null && !writer.Busy) nonce = pendingPing = DeviceClient.Nonce(); }
+                if (nonce != null) await writer.Write(1, JsonSerializer.SerializeToUtf8Bytes(new { type = "ping", connectionId, nonce }));
+            }
+        }
+        Task upload = Upload(), download = Download(), heartbeat = Heartbeat();
+        try { await await Task.WhenAny(upload, download, heartbeat); }
         finally
         {
             lifetime.Cancel(); tcp.Close();
             // Observe both original pumps. Never launch a replacement from here.
-            try { await Task.WhenAll(upload, download); } catch { }
+            try { await Task.WhenAll(upload, download, heartbeat); } catch { }
         }
+    }
+
+    private sealed class LinkWriter(Stream output, CancellationToken stop) : IDisposable
+    {
+        private readonly SemaphoreSlim serial = new(1, 1);
+        private int queued;
+        internal bool Busy => Volatile.Read(ref queued) != 0;
+        internal async Task Write(byte kind, byte[] body)
+        {
+            if (Interlocked.Increment(ref queued) > 2)
+            { Interlocked.Decrement(ref queued); throw new LinkFailure("resource_limit"); }
+            bool acquired = false;
+            try
+            {
+                await serial.WaitAsync(stop); acquired = true;
+                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stop);
+                deadline.CancelAfter(TimeSpan.FromSeconds(5));
+                await LinkFrames.Write(output, kind, body, false, deadline.Token);
+            }
+            finally { if (acquired) serial.Release(); Interlocked.Decrement(ref queued); }
+        }
+        public void Dispose() => serial.Dispose();
     }
 
     internal static void RequireRuntime() => throw new LinkFailure("runtime_not_authorized");

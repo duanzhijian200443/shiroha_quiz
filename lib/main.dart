@@ -21,6 +21,8 @@ import 'application/practice/practice_session_mutation_command.dart';
 import 'application/questions/question_write_mutation_command.dart';
 import 'data/repositories/answer_attempt_repository.dart';
 import 'dart:async';
+import 'composition/android_device_app.dart';
+import 'ui/dependencies/android_device_scope.dart';
 import 'dart:io';
 import 'dart:ui';
 
@@ -273,12 +275,14 @@ void runShirohaQuiz({
       );
       late Future<void> Function() relaunchApp;
       McpVnextWindowsAppRegistration? externalIntegration;
+      AndroidDeviceApp? androidIntegration;
       final backupRestore = BackupRestoreCoordinator(
         compositionReload: () => relaunchApp(),
         operations: BackupRestoreRuntime(
           databaseAuthority: SqliteBackupDatabaseAuthority(
             beforeClose: () async {
               await externalIntegration?.close();
+              await androidIntegration?.close();
             },
             databaseHelper: databaseHelper,
             snapshotRepository: backupSnapshotRepository,
@@ -315,6 +319,7 @@ void runShirohaQuiz({
 
       Future<void> composeAndRun() async {
         await externalIntegration?.close();
+        await androidIntegration?.close();
         // B0 holds maintenance through recomposition. Old read sessions and
         // target confirmations must stay invalid after that window closes.
         generatedLocalAuthority?.invalidate();
@@ -831,8 +836,8 @@ void runShirohaQuiz({
 
         AppLogger.info('Application started', module: 'Application');
         McpVnextWindowsAppRegistration? externalRegistration;
-        final integration = Platform.isWindows
-            ? McpVnextAppIntegration(
+        McpVnextAppIntegration createExternalIntegration() =>
+            McpVnextAppIntegration(
                 targets: SqliteExternalTargetReadRepository(
                     databaseHelper: databaseHelper),
                 questions: SqliteExternalQuestionReadRepository(
@@ -852,7 +857,15 @@ void runShirohaQuiz({
                     externalRegistration?.relayObservation ??
                     const FirstPartyRelayObservation(
                         FirstPartyRelayPhase.unavailable),
-                compositionIsCurrent: () => authorizationDatabase.isOpen)
+                compositionIsCurrent: () => authorizationDatabase.isOpen);
+        final integration =
+            Platform.isWindows ? createExternalIntegration() : null;
+        final android = androidIntegration = Platform.isAndroid
+            ? AndroidDeviceApp(
+                createIntegration: createExternalIntegration,
+                policy: authorizationService,
+                applicationCurrent: () => authorizationDatabase.isOpen,
+                mintId: uuid.v4)
             : null;
         externalRegistration = integration == null
             ? null
@@ -924,15 +937,18 @@ void runShirohaQuiz({
           onRestoreCompleted: () {},
         );
         runApp(
-          integration == null
-              ? app
-              : FirstPartyExternalLifetime(
-                  key: ObjectKey(integration),
-                  access: integration.controls,
-                  close: externalRegistration!.close,
-                  flushExitLogs: AppLogger.flushForExit,
-                  child: app,
-                ),
+          android != null
+              ? AndroidDeviceLifetime(
+                  key: ObjectKey(android), access: android, child: app)
+              : integration == null
+                  ? app
+                  : FirstPartyExternalLifetime(
+                      key: ObjectKey(integration),
+                      access: integration.controls,
+                      close: externalRegistration!.close,
+                      flushExitLogs: AppLogger.flushForExit,
+                      child: app,
+                    ),
         );
       }
 

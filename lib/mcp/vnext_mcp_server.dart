@@ -102,8 +102,13 @@ final class VnextMcpServer {
   Future<void> _closePort() => _portClosing ??= Future<void>.sync(port.close);
 
   Future<void> serveStdio({Stdin? input}) async {
+    await serveTransport(StdioServerTransport(stdin: input));
+  }
+
+  /// The same seven-tool projection over an already authenticated channel.
+  Future<void> serveTransport(Transport transport) async {
     try {
-      await _server.connect(StdioServerTransport(stdin: input));
+      await _server.connect(transport);
       await _settled.future;
     } finally {
       await close();

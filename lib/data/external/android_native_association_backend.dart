@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/services.dart';
 
 import '../../application/external/external_credential_association.dart';
@@ -9,8 +10,23 @@ abstract interface class AndroidNativeCalls {
 }
 
 final class AndroidDeviceMethodChannel implements AndroidNativeCalls {
-  const AndroidDeviceMethodChannel();
+  AndroidDeviceMethodChannel() {
+    _channel.setMethodCallHandler((call) async {
+      if (call.arguments is Map) {
+        _events.add(
+            (call.method, Map<String, Object?>.from(call.arguments as Map)));
+      }
+    });
+  }
   static const _channel = MethodChannel('shiroha/android_device_foundation');
+  final _events =
+      StreamController<(String, Map<String, Object?>)>.broadcast(sync: true);
+  Stream<(String, Map<String, Object?>)> get events => _events.stream;
+  Future<void> close() async {
+    _channel.setMethodCallHandler(null);
+    await _events.close();
+  }
+
   @override
   Future<Object?> invoke(String method, [Map<String, Object?>? arguments]) =>
       _channel.invokeMethod<Object?>(method, arguments);

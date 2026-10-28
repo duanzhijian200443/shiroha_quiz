@@ -23,9 +23,23 @@ internal static class LinkFrames
     internal static async Task<(byte Kind, byte[] Body)> Read(Stream input, bool response, CancellationToken token)
     {
         byte[] header = new byte[12];
-        await input.ReadExactlyAsync(header, token);
+        // Idle has no partial-header deadline. Fragmentation never renews it.
+        await input.ReadExactlyAsync(header.AsMemory(0, 1), token);
+        using (var deadline = CancellationTokenSource.CreateLinkedTokenSource(token))
+        {
+            long started = System.Diagnostics.Stopwatch.GetTimestamp();
+            deadline.CancelAfter(TimeSpan.FromSeconds(2));
+            await input.ReadExactlyAsync(header.AsMemory(1), deadline.Token);
+            if (System.Diagnostics.Stopwatch.GetElapsedTime(started) >= TimeSpan.FromSeconds(2)) throw new LinkFailure("deadline_exceeded");
+        }
         byte[] body = new byte[Length(header, response)];
-        await input.ReadExactlyAsync(body, token);
+        using (var deadline = CancellationTokenSource.CreateLinkedTokenSource(token))
+        {
+            long started = System.Diagnostics.Stopwatch.GetTimestamp();
+            deadline.CancelAfter(TimeSpan.FromSeconds(10));
+            await input.ReadExactlyAsync(body, deadline.Token);
+            if (System.Diagnostics.Stopwatch.GetElapsedTime(started) >= TimeSpan.FromSeconds(10)) throw new LinkFailure("deadline_exceeded");
+        }
         _ = Utf8.GetCharCount(body);
         return (header[5], body);
     }

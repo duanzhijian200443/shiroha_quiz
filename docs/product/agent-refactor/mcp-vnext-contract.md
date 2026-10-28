@@ -2216,18 +2216,29 @@ are page-local. `contextRef + fileRefs` still creates a separate bounded File
 Context; mixed target/file-selection modes reject. Cursors are opaque, parent
 bound and do not extend authorization lifetime. No source parsing is triggered.
 
-## 18. Android foreground device consumer — specified, inactive
+## 18. Android foreground device consumer — bounded question READ
 
 [Android device access](android-device-access-v0.md) owns the device link, fixed
 device selection, Native credential adapter, foreground lifecycle and limits.
-Its source-only foundation does not activate this consumer.
+Only its explicitly selected `.androidread` Debug artifact admits this consumer.
+Ordinary artifacts still refuse. The separate native-validation entry itself
+exposes no MCP server, Application identity or READ/STAGE capability.
 
 A local transport-only stdio adapter forwards MCP to the selected Android App.
 The App reuses the seven schemas, profileVersion 2, Submission v1 and original-key
 lifecycle query. Device/pairing selectors stay outside business arguments; only
 verified native-channel evidence may enter original P15/P0 authentication.
 
-Android STAGE must use original FirstPartyStageApproval through the bounded P10
+The current subset dispatches `open_generation_context`, `search_questions` and
+`get_question_detail` only. The other four schemas remain unchanged and return
+`unavailable` before Application dispatch. Its initial Grant is question READ
+without STAGE or saved generation consent. First pairing and daily finite Enable
+use the original Native-bound P15/P0 and association CAS; the proof connection
+settles before a fresh business connection may reach READY/MCP. The App remains
+owner across settings navigation, with immediate current-authorization checks
+and original cancellation/settlement. No desktop question database is used.
+
+Future Android STAGE must use original FirstPartyStageApproval through the bounded P10
 approval path. Saved review/direct does not require an open settings view;
 retained confirm keeps its original manual owner. No COMMIT/DESTRUCTIVE is added.
 Link/MCP/profile/Submission/persistence versions remain independent. The pinned
@@ -2238,3 +2249,10 @@ the same device/Profile; uncertain writes are queried by the original key and
 never replayed. #327 remains a separate client-cancellation limitation. Closing
 this consumer preserves all local content and learning facts. Windows requires
 no new pairing, credential migration or transport change.
+
+Normal Codex READ has been exercised on the focused contract's selected physical
+device/client combination. That client loaded the project MCP entry after full
+exit/reopen even though its global settings list omitted the project entry.
+Post-focus recovery uses complete desktop exit/reopen and a fresh Context/search/
+detail READ within the same remaining enable period. Automatic recovery is not
+claimed; tool inventory is never proof of recovery.
