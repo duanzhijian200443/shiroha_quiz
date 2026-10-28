@@ -138,17 +138,35 @@ sequenceDiagram
     Client->>Bridge: propose_generated_questions + submission key
     Bridge->>App: Typed admission and current grants
     alt review or retained confirm flow
-        App->>Data: Durable pending Proposal
-        User->>App: Local Review and explicit confirmation
-        App->>Data: Original atomic typed commit
+        App->>Data: Atomically publish pending Proposal
+        Data-->>App: Durable publication result
     else Explicit direct policy and NEW submissionKey
         App->>Data: Publish and formally commit in one transaction
+        Data-->>App: Durable publication and terminal result
     end
     App-->>Client: Publication acknowledged; final save not reported
-    Client->>Bridge: get_question_proposal
+    Client->>Bridge: get_question_proposal with original key
     Bridge->>App: Authenticate and authorize outcome query
-    App-->>Client: Pending/rejected/committed + safe receipt
+    App-->>Client: Current pending/rejected/committed + safe receipt
+    opt Pending proposal; later independent local decision
+        User->>App: Review and explicitly approve or reject
+        App->>Data: Original terminal transaction; typed write only on approval
+        Data-->>App: Durable terminal result
+        Client->>Bridge: get_question_proposal with original key
+        Bridge->>App: Authenticate and authorize outcome query
+        App-->>Client: Actual durable status + safe receipt
+    end
 ```
+
+Publication acknowledgement follows the owning publication transaction and
+normal output checks; it never waits for local Review. Review/retained confirm
+returns with durable pending work even if the user leaves it untouched. Retained
+confirm's pre-publication STAGE decision remains separate from later Review.
+Direct mode completes the new-batch transaction first, but the unchanged
+STAGED/NOT_REPORTED acknowledgement still does not report final lifecycle.
+Outcome queries are independent of Review and may observe pending or a terminal
+state. Lost responses always reconcile through the original key; the diagram
+adds no network-delivery prerequisite to a user's later local Review decision.
 
 Every MCP client that supports Tools can complete this flow; Resources/Prompts
 are optional future projections with the same authorization. Prompts only guide
