@@ -113,10 +113,11 @@ and P15 proof are required. No accepting/default production verifier is allowed.
 Daily enable reads the current exact association only after explicit local
 action, obtains fresh same-channel evidence and uses the original P15/P0
 existing-credential confirmation. No repeated fingerprint comparison is required
-for an intact pairing. Proof and its original settlement precede a new business
-connection and finite Enable. Opening a page or reading saved state does not
-hydrate authentication. Preparation is bounded to 120 seconds; the actual P15
-proof keeps its existing maximum 30-second window.
+for an intact pairing. Verified proof and its original channel settlement
+precede finite Enable; only then may a fresh business connection be admitted.
+Opening a page or reading saved state does not hydrate authentication.
+Preparation is bounded to 120 seconds; the actual P15 proof keeps its existing
+maximum 30-second window.
 
 An enable period is at most eight hours from the explicit action, shortened by
 credential validity, foreground loss, revoke or other limits. Repeating enable
@@ -127,6 +128,52 @@ device and Profile even when an address now belongs to another phone.
 Missing/corrupt credentials, reinstall or expired certificates fail closed.
 Re-pair/recovery requires explicit local action; no pin replacement, revived
 revoked Profile or reassignment of old history is automatic.
+
+### Daily enable and desktop startup order
+
+For an intact pairing, the phone's explicit access action enters PREPARING and
+admits only the selected association's bounded enable-proof exchange. The local
+desktop connection helper initiates that exchange after the phone action; it
+reuses the pinned device/Profile and existing credential, outside model tool
+arguments. This local connect action does not repeat enrollment or authorize
+business. The helper is not a background polling service or a second writer.
+
+The original phone P15/P0 owner verifies the proof on its original live channel,
+then joins that channel's settlement before finite Enable. The helper must also
+settle its original connection. Only after the phone reports enabled may the
+normal Codex client start/restart its business adapter. The business connection
+performs fresh TLS, HELLO(business), current-association and access checks before
+business READY and MCP negotiation; it cannot reuse the proof channel or Session.
+
+```mermaid
+sequenceDiagram
+  actor User
+  participant Phone as Android access owner
+  participant Helper as Local desktop connection helper
+  participant Codex
+  participant Adapter as Business stdio adapter
+  User->>Phone: Enable access for the selected existing Profile
+  Note over Phone: PREPARING; bounded proof-only admission
+  User->>Helper: Connect to the existing pinned phone/Profile
+  Helper->>Phone: Fresh TLS and HELLO(enable-proof); original P15 proof
+  Note over Helper,Phone: Verify same-channel proof; settle original proof connection
+  Note over Phone: Original owner enables finite access
+  User->>Codex: Start or restart the configured MCP server
+  Codex->>Adapter: Launch business adapter
+  Adapter->>Phone: Fresh TLS and HELLO(business)
+  Phone-->>Adapter: READY only after current authentication and access checks
+  Adapter->>Phone: Existing MCP negotiation
+```
+
+A business attempt before Enable receives the existing safe unavailable/access
+refusal and ends; it is not held until the user enables access and cannot occupy
+the proof slot. A proof attempt without the matching current PREPARING action
+also refuses. After that failed startup, follow section 8's explicit client
+restart path. Neither side waits for an already-dead peer or creates a retry
+loop. Lost focus, cancellation or expiry during preparation invalidates this
+attempt and still joins late acquisition/settlement; it never enables access.
+This is target interaction ordering, not a claim that section 12 already supplies
+the helper workflow, live proof messages or business entrypoint.
 
 ## 4. Saved-policy applicability
 
@@ -175,7 +222,9 @@ States: OFF, PREPARING, READY, SUSPENDED, DRAINING, RECOVERY_REQUIRED.
 SUSPENDED preserves the unexpired enable intent only; its old connection is
 closed and cannot resume. A new authenticated connection may use the remaining
 time without renewal. DRAINING has no admission and keeps custody until actual
-settlement. Failed/unknown cleanup prevents replacement.
+settlement. Failed/unknown cleanup prevents replacement. Recovering foreground
+eligibility does not revive the closed LAN connection or desktop MCP session;
+section 8 owns their distinct restart responsibilities and evidence requirements.
 
 | Event | New work / output | In-flight and authority | Return path |
 |---|---|---|---|
@@ -254,8 +303,11 @@ existing negotiated protocol, Shiroha profile 2, Submission 1, current Proposal 
 Origin / Receipt codecs and SQLite v35. No automatic protocol/TLS downgrade.
 
 TLS authentication precedes HELLO and current-association/runtime checks.
-READY precedes MCP negotiation. Pairing, enable-proof and business are separate
-purposes; declaring one grants no corresponding permission.
+For purpose=business, READY requires completed finite Enable and fresh business
+channel authentication; only that READY permits MCP negotiation. Pairing and
+enable-proof stay control-only and never become business channels after their
+completion. Declaring a purpose grants no corresponding permission. Section 3
+owns the proof-settlement-before-Enable order.
 
 | Frame field | Encoding |
 |---|---|
@@ -291,7 +343,7 @@ are fresh random connection-layer references, never Application Sessions.
 | Request frame | 6,324,224 bytes; Submission still 1 MiB |
 | Response frame | 512 KiB; original smaller business output limits retained |
 | Raw frame buffers | 14 MiB across at most two incoming and one outgoing frame |
-| TLS / header / body | 5 / 2 / 10 seconds |
+| Link establishment / partial header / frame body | 5 / 2 / 10 seconds; start points below |
 | READ | Original 2 seconds |
 | STAGE | Original 2-second preparation / 10-second completion |
 | Legacy confirm | Original 120-second decision window |
@@ -301,6 +353,44 @@ are fresh random connection-layer references, never Application Sessions.
 
 These are protocol/buffer budgets, not a total-RSS or OS scheduling guarantee.
 Actual Native/provider memory and device behavior require measurement.
+
+### Deadline and heartbeat scheduling
+
+Use monotonic elapsed time for these connection deadlines. The earlier applicable
+connection, operation, foreground or authorization deadline wins; receiving bytes,
+heartbeats or a new frame never renews access or an original business deadline.
+
+- The 5-second establishment budget starts with the desktop connection attempt
+  (the accepted socket on the phone). It covers TLS and the initial link-control
+  negotiation, including business HELLO/READY. A pairing/enable-proof P15 exchange
+  then retains its separate original 30-second proof and 120-second preparation
+  limits; it is not a business READY wait. A premature business attempt refuses
+  instead of waiting for the phone to enable it.
+- After establishment, the 2-second header deadline starts on the first byte of
+  a new frame, not while an otherwise idle connection awaits that byte. The
+  10-second body deadline starts after the complete validated header. Both are
+  absolute for that frame; partial reads do not reset them. A complete buffered
+  frame no longer has a transport body timer while its handler or UI is waiting.
+- On an admitted business link, schedule a link-control heartbeat at least every
+  15 seconds independently of business handling, including a legacy confirm wait.
+  Its reply is connection-bound and grants no business permission. The 45-second
+  peer-loss clock starts at business READY and resets only for a complete valid
+  message from that authenticated peer (including a matching heartbeat reply),
+  never for locally sent traffic, malformed data or partial bytes.
+- Control and MCP output share one serialized frame writer: never interleave
+  frame bytes or block control processing on the single business-call slot.
+  Coalesce pending heartbeat work rather than queueing unbounded frames, and
+  preserve the existing buffer ceilings. Each selected frame's write/flush has
+  one absolute 5-second output budget; heartbeats cannot hide a stalled writer.
+- Original READ/STAGE and manual-decision timers retain their existing owners
+  and start points. A legacy confirmation wait can therefore last beyond a
+  frame's body timeout while bounded heartbeats continue. Background/focus loss,
+  switch-off or failed settlement still closes the link; heartbeats never keep
+  a suspended/background runtime alive or clear an unknown write outcome.
+
+These rules define the pending runtime scheduling, not an implemented heartbeat
+codec or a new business schema. Exact connection-bound heartbeat control encoding
+must be specified and checked with the future link runtime before activation.
 
 Fixed link errors: unavailable, busy, foreground_required, access_disabled,
 expired, network_changed, device_mismatch, credential_rejected, pairing_required,
@@ -333,11 +423,31 @@ resubmit, generate a new key, fall back to a different device or persist a retry
 queue. Reinstall/new Profile/B0 scrub cannot inherit the old external identity;
 retained history remains available through local Review.
 
-Connection loss ends the desktop MCP stdio session; normal Codex reconnect
-renegotiates it without rewriting configuration. Same-runtime READ references
-follow the original registry, not a promise from the transport. Old exact-Session
-STAGE approvals cannot transfer. New runtime, B0, background re-enable and
-recomposition invalidate old connection references, Sessions and Contexts.
+Connection loss ends the old desktop MCP stdio session. This contract does not
+assume that Codex automatically restarts an exited stdio server. Recovery has
+three separate owners:
+
+| Owner | Recovery responsibility |
+|---|---|
+| Android access owner | Settle old work; recheck foreground/network and retained unexpired enablement, or require a new explicit access action under section 5. Never reopen on failed/unknown settlement. |
+| Desktop adapter | End the old forwarding attempt and settle its original streams/socket. A later client-launched instance verifies the same pinned phone/Profile and negotiates a fresh link. It neither relaunches itself nor replays tool input. |
+| Codex / user | Start a new MCP server session using a restart/reconnect action actually verified for that client. Where unavailable, completely exit/reopen the client after original settlement. No assumption of automatic restart, configuration rewrite or re-pairing. |
+
+For focus-only suspension with clean settlement, a new authenticated connection
+may consume the same remaining enable period, without renewal. Background, lock,
+expiry or other withdrawal instead requires section 3's explicit access/proof
+sequence before starting the new business adapter. Restored phone focus or a
+visible cached tool list is not evidence of a usable Codex connection.
+
+A supported client record must identify its actual version and demonstrated
+recovery action. Automatic recovery is a claim only for the exact combination
+that passes section 11; absent such evidence, report manual restart required or
+recovery unverified. After restart, use a real READ or original-key query to
+establish success; never retry an uncertain STAGE to test the connection.
+Same-runtime READ references follow the original registry, not a promise from
+the transport. Old exact-Session STAGE approvals cannot transfer. New runtime,
+B0, background re-enable and recomposition invalidate old connection references,
+Sessions and Contexts.
 
 ```mermaid
 sequenceDiagram
@@ -350,17 +460,33 @@ sequenceDiagram
   Codex->>Phone: Existing READ tools
   Codex->>Phone: STAGE(original submissionKey)
   Phone->>Phone: Original approval owner and current gates
-  alt review
-    Phone->>Data: Publish pending
-    User->>Phone: Local Review / approve
-    Phone->>Data: Existing atomic typed commit
+  alt review or retained confirm flow
+    Phone->>Data: Original atomic pending publication
+    Data-->>Phone: Durable publication result
   else direct and NEW key
     Phone->>Data: Atomic publish and typed commit
+    Data-->>Phone: Durable publication and terminal result
   end
-  Phone--xCodex: Publication reply may be lost
-  Codex->>Phone: Fresh auth; lifecycle query(original key)
-  Phone-->>Codex: Durable status and safe counts
+  Phone--xCodex: Publication acknowledgement; reply may be lost
+  Codex->>Phone: Reconnect if needed; lifecycle query(original key)
+  Phone-->>Codex: Current pending/rejected/committed status and safe counts
+  opt Pending proposal; later independent local decision
+    User->>Phone: Review and explicitly approve or reject
+    Phone->>Data: Original terminal transaction; typed write only on approval
+    Data-->>Phone: Durable terminal result
+    Codex->>Phone: Authorized lifecycle query(original key)
+    Phone-->>Codex: Actual durable status and safe counts
+  end
 ```
+
+The publication response never waits for later local Review. In review/retained
+confirm mode, an untouched proposal remains pending and queryable after the
+STAGE call completes. Retained confirm's pre-publication STAGE decision is not
+post-publication Review. Direct mode instead completes its original new-batch
+transaction before acknowledgement; the unchanged acknowledgement does not report
+that terminal status. All modes use the original key to reconcile a lost reply.
+The diagram illustrates independent decisions, not a requirement that the user
+wait for network delivery before reviewing locally available pending work.
 
 ## 9. Backup, removal and diagnostics
 
@@ -397,10 +523,10 @@ existing draft inbox, folded first-connection/address/diagnostic controls.
 |---|---|
 | Not paired | First local connection |
 | Access off | Saved policy is not enablement; user may enable |
-| Verifying connection | Preparation only; wait or cancel |
-| Enabled, waiting for Codex | Finite enable, no business channel; connect client |
+| Verifying connection | PREPARING; complete the local desktop proof action or cancel; no business access yet |
+| Enabled, waiting for Codex | Finite enable, no business channel; start/restart the configured server as in section 8 |
 | Connected | Foreground and current auth hold |
-| Temporarily unfocused | Suspended, regain focus and authenticate |
+| Temporarily unfocused | Suspended; regain focus, settle the old link and recover the client session under section 8 |
 | Closed by background/lock/network | Explicit enable required |
 | Connection needs checking | Fixed safe diagnosis, never a false connected badge |
 
@@ -420,19 +546,22 @@ not real cross-device LAN proof; no row requires OCR.
 |---|---|---|
 | Normal Codex, selected phone, test question | Read correct phone; no desktop database | D+R |
 | Existing parsed small text | Read passages; zero parser/OCR/provider activation | D+E+R |
-| New default review batch | pending_review; no formal question before local approval | D+R |
+| New default review batch; leave Review untouched | STAGE returns after durable pending publication without waiting for local Review; original-key query is pending, no formal question | D+R |
 | Local Review approval | Original atomic commit; key query committed | D+R |
 | Explicit direct, new key | Original atomic Proposal/Question/Receipt write | D+R |
 | Old draft / repeated key / mode switch | No retroactive commit; changed semantics conflict | D+R |
 | Policy/STAGE race | Original transaction winner, no partial publication | D |
 | Wrong/same-name device | Reject before business content, no pin replacement | D+R |
 | Unpaired/forged Profile | No content/new write | D+E+R |
+| Existing pairing; daily enable and early business startup | Proof-only PREPARING, original proof settlement before Enable, then fresh business READY/MCP; early business attempt refuses without blocking proof | D+E+R |
 | Switch off during status/proof | Immediate withdrawal; no late re-enable | D+E+R |
 | Grant/association revoke | New calls denied; local history retained | D+R |
 | Commit then lost reply | Query original key, one durable result, no replay | D+R |
 | Query absent while unsettled | Unknown, never automatic retry | D |
 | Navigate after ready / leave pending setup | Preserve ready / cancel original pending operation | D+E+R |
 | Dialog, notification shade, split screen | Suspend when unfocused, no deadline renewal | D+E+R |
+| Successful READ, focus-only loss, return, next Codex call | Actual version-bound server restart/reconnect or proven automatic recovery; fresh link/MCP, same remaining enable time, no write replay | D+E+R |
+| Client lacks automatic stdio restart | Demonstrate supported manual recovery or record unsupported/unverified; cached tool inventory is not success | R |
 | Background/lock | Revoke; explicit foreground enable required | D+E+R |
 | Network/address switch | Close old authority, verify original identity again | D+R |
 | Kill before/during/after commit | Fresh authority; recover actual durable result | D+E+R |
@@ -441,6 +570,8 @@ not real cross-device LAN proof; no row requires OCR.
 | Disable new capability | Local study and Review remain usable | D+R |
 | Existing Windows path | No credential migration/re-pair/new transport requirement | D; bounded R if affected |
 | #327 short timeout | Preserve missing-cancel evidence; no invented rollback | D+R |
+| Idle link and slow partial header/body | No idle 2-second header timeout; absolute 2/10-second partial-frame limits and 45-second valid-peer-loss bound, no trickle reset | D+E |
+| Legacy confirm waits while heartbeats run | Control processing/writer remain live without interleaving frames or renewing business/access deadlines; lost peer still closes | D+E |
 | Oversize/slow/concurrent/stalled frames | Bounded refusal and actual settlement custody | D+E |
 | Keystore/KeyManager/TLS pairing | Correct proof succeeds; wrong pin/key/expiry fails | E+R |
 
