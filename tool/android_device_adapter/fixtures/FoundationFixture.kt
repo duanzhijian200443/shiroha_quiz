@@ -14,14 +14,43 @@ fun main(args: Array<String>) {
     }
     accepts(!DeviceLinkAdmission.runtimeAvailable)
     rejects { DeviceLinkAdmission.requireAuthorized() }
+    val closeExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+    try {
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val caller = Thread.currentThread()
+        val calls = java.util.concurrent.atomic.AtomicInteger()
+        val close = DeviceCloseWork(closeExecutor) {
+            check(Thread.currentThread() !== caller)
+            calls.incrementAndGet()
+            entered.countDown()
+            release.await()
+        }
+        close.request()
+        accepts(entered.await(1, java.util.concurrent.TimeUnit.SECONDS))
+        repeat(8) { close.request() }
+        accepts(calls.get() == 1)
+        val joined = java.util.concurrent.CompletableFuture.runAsync { close.join() }
+        accepts(!joined.isDone)
+        release.countDown()
+        joined.get(2, java.util.concurrent.TimeUnit.SECONDS)
+        close.join()
+        accepts(calls.get() == 1 && !close.failed)
+        val failedClose = DeviceCloseWork(closeExecutor) { throw java.io.IOException() }
+        rejects { failedClose.join() }
+        rejects { failedClose.join() }
+    } finally { closeExecutor.shutdownNow() }
     val gate = DeviceForegroundGate()
     val first = gate.observe(true, true, true, true, "wifi-1")
+    accepts(gate.current(first, "wifi-1"))
+    accepts(gate.observe(true, true, true, true, "wifi-1") == first)
     accepts(gate.current(first, "wifi-1"))
     accepts(!gate.current(first, "wifi-2"))
     gate.observe(true, false, true, true, "wifi-1")
     accepts(!gate.current(first, "wifi-1"))
     val again = gate.observe(true, true, true, true, "wifi-1")
     accepts(gate.current(again, "wifi-1"))
+    accepts(!gate.current(first, "wifi-1"))
     gate.close()
     val late = gate.observe(true, true, true, true, "wifi-1")
     accepts(!gate.current(late, "wifi-1"))
@@ -29,6 +58,21 @@ fun main(args: Array<String>) {
     DeviceLinkFrames.write(out, DeviceLinkFrame(1, "{}".toByteArray()))
     val frame = DeviceLinkFrames.read(ByteArrayInputStream(out.toByteArray()))
     accepts(frame.kind == 1 && frame.payload.contentEquals("{}".toByteArray()))
+    var elapsed = 0L
+    val timeouts = mutableListOf<Int>()
+    val idleInput = object : ByteArrayInputStream(out.toByteArray()) {
+        override fun read(): Int { elapsed += 3000000000; return super.read() }
+    }
+    accepts(DeviceLinkFrames.readTimed(idleInput, { timeouts.add(it) }, { elapsed }).kind == 1)
+    accepts(timeouts == listOf(0, 2000, 10000))
+    elapsed = 0
+    val fragmented = object : ByteArrayInputStream(out.toByteArray()) {
+        override fun read(bytes: ByteArray, offset: Int, length: Int): Int {
+            elapsed += 600000000
+            return super.read(bytes, offset, 1)
+        }
+    }
+    rejects { DeviceLinkFrames.readTimed(fragmented, {}, { elapsed }) }
     val header = out.toByteArray().copyOfRange(0, 12)
     header[4] = 2
     rejects { DeviceLinkFrames.length(header, false) }

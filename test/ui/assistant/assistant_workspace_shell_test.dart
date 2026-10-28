@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../generated_question/generated_ui_test_support.dart';
 import 'package:shiroha_quiz/application/agent/agent_config.dart';
 import 'package:shiroha_quiz/application/agent/agent_config_service.dart';
@@ -31,6 +34,8 @@ import 'package:shiroha_quiz/domain/conversations/conversation.dart';
 import 'package:shiroha_quiz/domain/conversations/conversation_message.dart';
 import 'package:shiroha_quiz/domain/projects/project.dart';
 import 'package:shiroha_quiz/domain/question/question_draft_v2.dart';
+import 'package:shiroha_quiz/core/database/database_helper.dart';
+import 'package:shiroha_quiz/data/repositories/question_repository.dart';
 import 'package:shiroha_quiz/ui/assistant/assistant_screen.dart';
 import 'package:shiroha_quiz/ui/assistant/assistant_content_renderer.dart';
 import 'package:shiroha_quiz/ui/assistant/assistant_workspace_shell.dart';
@@ -41,6 +46,7 @@ import 'package:shiroha_quiz/ui/assistant/workspace_controller.dart'
     show FileLibraryController, LearningSpacesController, workspaceSafeError;
 import 'package:shiroha_quiz/ui/assistant/workspace_pages.dart';
 import 'package:shiroha_quiz/ui/theme/app_theme.dart';
+import 'package:shiroha_quiz/ui/pages/question_list_screen.dart';
 
 const _sha = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
 
@@ -1463,6 +1469,85 @@ void main() {
     expect(find.text('按旧分类浏览'), findsOneWidget);
     expect(find.text('2 个题库 · 1 个文件'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('mobile legacy-bank navigation reads through the supplied port',
+      (tester) async {
+    late Directory temp;
+    await tester.runAsync(() async {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+      temp = await Directory.systemTemp.createTemp('legacy_bank_read_');
+      final dbDir = Directory(p.join(temp.path, 'db'))..createSync();
+      await databaseFactory.setDatabasesPath(dbDir.path);
+      await DatabaseHelper.resetRuntimeProfileForTesting();
+      DatabaseHelper.configureRuntimeProfile(
+        DatabaseRuntimeProfile.explicitFile,
+        databasePath: dbDir.path,
+      );
+      await QuestionRepository.instance.saveQuestionsToBank(
+        bankName: 'Read route bank',
+        folderName: 'Read route folder',
+        questions: [
+          {
+            'type': 0,
+            'content': 'Read route marker: What is 2 plus 3?',
+            'options': ['A. 4', 'B. 5', 'C. 6', 'D. 7'],
+            'answer': 'B',
+          },
+        ],
+      );
+    });
+    addTearDown(() async {
+      await DatabaseHelper.instance.close();
+      await DatabaseHelper.resetRuntimeProfileForTesting();
+      await temp.delete(recursive: true);
+    });
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+      theme: AppTheme.lightTheme,
+      home: AssistantWorkspaceShell(
+        facade: _facade(),
+        conversationService: _conversationService(),
+        agentSettingsService: _agentSettingsService(),
+        startAgentTurn: _failedAgentTurn,
+        questionListQuery: QuestionRepository.instance,
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('u1-ux0-open-drawer')));
+    await tester.pumpAndSettle();
+    await tester
+        .tap(find.byKey(const ValueKey('u1-ux01-open-learning-spaces')));
+    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const ValueKey('u1-open-legacy-library')));
+      await tester.pump();
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      await tester.pump();
+    });
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Read route bank'));
+    await tester.tap(find.text('Read route bank'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const ValueKey('bank-browse')));
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const ValueKey('bank-browse')));
+      await tester.pump();
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      await tester.pump();
+    });
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Read route marker'), findsOneWidget);
+    final list =
+        tester.widget<QuestionListScreen>(find.byType(QuestionListScreen));
+    expect(list.questionListQuery, same(QuestionRepository.instance));
+    expect(list.questionMutationPersistence, isNull);
+    expect(list.typedAnswerPersistence, isNull);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
   });
 
   testWidgets('learning-space home shows the failure state and retries',

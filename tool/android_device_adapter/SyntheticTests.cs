@@ -54,7 +54,65 @@ internal static class SyntheticTests
         Check(!DeviceCertificatePolicy.Check(wrongRole, target with { CertificateDigest = Value("clientDigest") }, now));
         using var expired = X509CertificateLoader.LoadCertificate(Convert.FromHexString(Value("expired")));
         Check(!DeviceCertificatePolicy.Check(expired, target with { CertificateDigest = Value("expiredDigest") }, now));
-        Console.WriteLine("PASS: 24 synthetic Android adapter checks; runtime remains disabled");
+        const string operation = "10000000-0000-4000-8000-000000000001";
+        Check(NativeProof.ParseReport(1, "cat: No such file or directory", operation) == null);
+        Reject(() => NativeProof.ParseReport(0, "cat: No such file or directory", operation));
+        Reject(() => NativeProof.ParseReport(0, "{\"operation\":\"different\"}", operation));
+        using var proofReport = NativeProof.ParseReport(0, "{\"operation\":\"" + operation + "\"}", operation);
+        Check(proofReport != null);
+        Reject(() => WindowsTlsClientIdentity.Import([1], "must-not-be-accessed", DeviceTransport.RequireRuntime));
+        var nativeAccepted = JsonSerializer.SerializeToElement(new
+        {
+            result = "accepted", settled = true, nonExportable = true, observationCurrent = true,
+            peerPolicyAttempted = true, peerPinMatched = true, peerPolicyAccepted = true,
+            acceptedSockets = 1, keyManagerSelections = 1, installationStable = true,
+        });
+        NativeProof.ValidateObservedOutcome("wrong-server-pin", false, "peer_certificate_rejected", nativeAccepted);
+        Check(true);
+        Reject(() => NativeProof.ValidateObservedOutcome("wrong-server-pin", true, "peer_certificate_valid", nativeAccepted));
+        Reject(() => NativeProof.ValidateObservedOutcome("wrong-server-pin", false, "tcp_connected", nativeAccepted));
+        Reject(() => NativeProof.ValidateObservedOutcome("wrong-client", true, "peer_certificate_valid", nativeAccepted));
+        CheckFrameDeadlines().GetAwaiter().GetResult();
+        Check(DeviceClient.IsNonce(DeviceClient.Nonce()));
+        Check(!DeviceClient.IsNonce(new string('A', 42) + "B"));
+        Console.WriteLine("PASS: 38 synthetic Android adapter checks; no business or credential acquisition in this test");
         return 0;
+    }
+
+    private static async Task CheckFrameDeadlines()
+    {
+        using var bytes = new MemoryStream();
+        await LinkFrames.Write(bytes, 1, "{}"u8.ToArray(), false, default);
+        // Idle before the first byte may exceed two seconds without expiry.
+        using var idle = new FragmentStream(bytes.ToArray(), [2200, 0, 0], [1, 11, 2]);
+        Check((await LinkFrames.Read(idle, false, default)).Kind == 1);
+        using var partial = new FragmentStream(bytes.ToArray(), [0, 1100, 1100], [1, 1, 10]);
+        try { await LinkFrames.Read(partial, false, default); throw new Exception("partial_header_renewed"); }
+        catch (OperationCanceledException) { Check(true); }
+        using var body = new FragmentStream(bytes.ToArray(), [0, 0, 1100], [1, 11, 2]);
+        using var stop = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+        try { await LinkFrames.Read(body, false, stop.Token); throw new Exception("body_ignored_cancellation"); }
+        catch (OperationCanceledException) { Check(true); }
+    }
+    private sealed class FragmentStream(byte[] bytes, int[] delays, int[] counts) : Stream
+    {
+        private int step, offset;
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken token = default)
+        {
+            if (offset == bytes.Length) return 0;
+            await Task.Delay(delays[step], token);
+            int count = Math.Min(buffer.Length, counts[step++]);
+            bytes.AsMemory(offset, count).CopyTo(buffer); offset += count; return count;
+        }
+        public override bool CanRead => true;
+        public override bool CanWrite => false;
+        public override bool CanSeek => false;
+        public override long Length => bytes.Length;
+        public override long Position { get => offset; set => throw new NotSupportedException(); }
+        public override void Flush() => throw new NotSupportedException();
+        public override int Read(byte[] b, int o, int c) => throw new NotSupportedException();
+        public override void Write(byte[] b, int o, int c) => throw new NotSupportedException();
+        public override long Seek(long o, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long length) => throw new NotSupportedException();
     }
 }

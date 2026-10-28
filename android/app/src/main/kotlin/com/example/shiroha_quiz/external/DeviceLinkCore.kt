@@ -8,6 +8,31 @@ import java.nio.charset.CodingErrorAction
 /** Fixed safe categories only. Never retain a platform exception or payload. */
 class DeviceLinkFailure(val code: String) : Exception(code)
 
+/** One original close, off the Activity thread; completion never clears failure. */
+internal class DeviceCloseWork(private val executor: java.util.concurrent.Executor,
+                               private val action: () -> Unit) {
+    private val started = java.util.concurrent.atomic.AtomicBoolean()
+    private val done = java.util.concurrent.CountDownLatch(1)
+    @Volatile var failed = false; private set
+    fun request() {
+        if (!started.compareAndSet(false, true)) return
+        try {
+            executor.execute {
+                try { action() } catch (_: Exception) { failed = true }
+                finally { done.countDown() }
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            failed = true
+            done.countDown()
+        }
+    }
+    fun join() {
+        request()
+        if (!done.await(5, java.util.concurrent.TimeUnit.SECONDS) || failed)
+            throw DeviceLinkFailure("settlement_unknown")
+    }
+}
+
 /** Source-only delivery: no production caller may acquire keys or a listener. */
 object DeviceLinkAdmission {
     const val runtimeAvailable = false
@@ -22,11 +47,14 @@ class DeviceForegroundGate {
     var eligible: Boolean = false; private set
     var network: String? = null; private set
     private var closed = false
+    private var last: List<Any?>? = null
 
     @Synchronized
     fun observe(resumed: Boolean, focused: Boolean, interactive: Boolean,
                 unlocked: Boolean, networkId: String?): Long {
-        sequence++
+        val observation = listOf(resumed, focused, interactive, unlocked, networkId)
+        if (last != observation) sequence++
+        last = observation
         network = networkId
         eligible = !closed && resumed && focused && interactive && unlocked && networkId != null
         return sequence
@@ -81,6 +109,38 @@ object DeviceLinkFrames {
         val size = length(header, response) // Validate BEFORE body allocation/read.
         val payload = ByteArray(size)
         exact(input, payload)
+        validateUtf8(payload)
+        return DeviceLinkFrame(header[5].toInt(), payload)
+    }
+
+    /** Idle is unlimited here; the owning link supplies establishment/loss bounds. */
+    fun readTimed(socket: javax.net.ssl.SSLSocket): DeviceLinkFrame {
+        return readTimed(socket.inputStream, { socket.soTimeout = it })
+    }
+
+    internal fun readTimed(input: InputStream, timeout: (Int) -> Unit,
+                           now: () -> Long = System::nanoTime): DeviceLinkFrame {
+        val header = ByteArray(12)
+        timeout(0)
+        val first = input.read()
+        if (first < 0) throw DeviceLinkFailure("connection_closed")
+        header[0] = first.toByte()
+        fun remaining(bytes: ByteArray, start: Int, seconds: Long) {
+            val ends = now() + java.util.concurrent.TimeUnit.SECONDS.toNanos(seconds)
+            var offset = start
+            while (offset < bytes.size) {
+                val nanos = ends - now()
+                if (nanos <= 0) throw DeviceLinkFailure("deadline_exceeded")
+                timeout(((nanos + 999999) / 1000000).coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+                val count = input.read(bytes, offset, bytes.size - offset)
+                if (count <= 0) throw DeviceLinkFailure("connection_closed")
+                offset += count
+            }
+            if (now() >= ends) throw DeviceLinkFailure("deadline_exceeded")
+        }
+        remaining(header, 1, 2)
+        val payload = ByteArray(length(header, false))
+        remaining(payload, 0, 10)
         validateUtf8(payload)
         return DeviceLinkFrame(header[5].toInt(), payload)
     }

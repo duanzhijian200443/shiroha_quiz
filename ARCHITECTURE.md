@@ -109,10 +109,15 @@ Owns physical persistence and external integration:
 The Android device-access foundation owns native Keystore operations, protected
 associations, TLS and foreground/network observations through bounded ports.
 It owns no business SQLite or authorization. Keys remain native rather than
-being exported to Dart SecurityContext. Its explicit construction is dormant,
-its runtime entry refuses acquisition, and normal startup does not consume it.
-`docs/product/agent-refactor/android-device-access-v0.md` owns the approved design
-and narrower source-only implementation boundary.
+being exported to Dart SecurityContext. The normal root constructs an inactive
+owner; only the explicitly selected Android READ Debug installation registers
+real lifecycle observations and admits local pairing/finite question READ.
+Ordinary artifacts retain refusal. The separate native-only validation entry
+uses the same key/TLS primitives and itself creates no P15 or business authority.
+The admitted App composes original P15/P0, Grant and READ owners; Native and the
+desktop adapter own no business database or authorization. Android STAGE and
+file tools remain unavailable. `docs/product/agent-refactor/android-device-access-v0.md`
+owns this narrower implementation and its demonstrated manual client recovery.
 
 The External Windows primitive adapter in `lib/data/external/native` owns
 explicit SDK FFI calls to the independent `windows/external_native` C ABI DLL.

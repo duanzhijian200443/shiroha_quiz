@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../application/content/content_asset_maintenance.dart';
+import '../../application/questions/question_list_query_port.dart';
 import '../../data/models/subject_tree_index.dart';
 import '../../application/latex_migration/latex_migration_mutation_command.dart';
 import '../../application/questions/question_bank_folder_mutation_command.dart';
@@ -12,11 +13,16 @@ import 'bank_detail_screen.dart';
 import 'import_settings_screen.dart';
 
 class DataCenterScreen extends StatefulWidget {
-  const DataCenterScreen({super.key, this.practiceCommands});
+  const DataCenterScreen({
+    super.key,
+    this.practiceCommands,
+    this.questionListQuery,
+  });
 
   /// Forwarded to bank detail so its practice entry stays wired; assembled at
   /// the composition root.
   final PracticeCommandDependencies? practiceCommands;
+  final QuestionListQueryPort? questionListQuery;
 
   @override
   State<DataCenterScreen> createState() => _DataCenterScreenState();
@@ -540,6 +546,8 @@ class _DataCenterScreenState extends State<DataCenterScreen> {
                                     MaterialPageRoute(
                                         builder: (context) => BankDetailScreen(
                                             bankName: bank.name,
+                                            questionListQuery:
+                                                widget.questionListQuery,
                                             practiceCommands:
                                                 widget.practiceCommands))).then(
                                     (_) => _loadRealData()); // 退出时刷新题库概览

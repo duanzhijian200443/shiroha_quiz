@@ -4,6 +4,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:shiroha_quiz/application/backup/backup_restore_gate.dart';
 import 'package:shiroha_quiz/application/capabilities/capability.dart';
 import 'package:shiroha_quiz/application/external/external_authorization.dart';
+import 'package:shiroha_quiz/application/external/android_device_access.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/core/database/external_authorization_schema.dart';
 import 'package:shiroha_quiz/data/repositories/external_authorization_repository.dart';
@@ -106,6 +107,21 @@ void main() {
           authFailure(ExternalAuthFailure.unauthorized));
     });
   }
+  test('Android question READ policy persists without generation consent',
+      () async {
+    await management.replaceGrant(ref, 0, androidQuestionReadPolicy());
+    await h.reopen();
+    final grant = await inspect();
+    expect(grant.policy.permissions, {CapabilityPermission.read});
+    expect(grant.policy.categories, {ExternalContentCategory.questionContent});
+    expect(grant.policy.allContent, isTrue);
+    expect(grant.policy.generationMode, ExternalGenerationMode.confirm);
+    await expectLater(inspect(permission: CapabilityPermission.stage),
+        authFailure(ExternalAuthFailure.unauthorized));
+    await expectLater(inspect(category: ExternalContentCategory.fileContent),
+        authFailure(ExternalAuthFailure.unauthorized));
+  });
+
   test('READ/STAGE exact scope and recipient/category checks survive reopen',
       () async {
     await management.replaceGrant(

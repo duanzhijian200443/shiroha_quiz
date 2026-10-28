@@ -10,6 +10,11 @@ android {
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
+    // Explicit task installation; ordinary Debug/Release retain their identity.
+    val androidReadValidation = providers.gradleProperty("androidReadValidation")
+        .map { it == "true" }.getOrElse(false)
+    buildFeatures { buildConfig = true }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -28,9 +33,18 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        buildConfigField("boolean", "ANDROID_READ_VALIDATION", "false")
+        manifestPlaceholders["androidNativeProofEnabled"] = "false"
     }
 
     buildTypes {
+        debug {
+            if (androidReadValidation) {
+                applicationIdSuffix = ".androidread"
+                buildConfigField("boolean", "ANDROID_READ_VALIDATION", "true")
+                manifestPlaceholders["androidNativeProofEnabled"] = "true"
+            }
+        }
         release {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.

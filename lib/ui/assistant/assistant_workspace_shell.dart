@@ -4,6 +4,7 @@ import '../../application/agent/agent_config_service.dart';
 import '../../application/agent/agent_turn.dart';
 import '../../application/conversations/conversation_service.dart';
 import '../../application/modules/module_composition.dart';
+import '../../application/questions/question_list_query_port.dart';
 import '../../application/safe_write/agent_write_proposal_service.dart';
 import '../../application/study_plan/study_plan_command_service.dart';
 import '../../application/study_plan/study_plan_draft_service.dart';
@@ -37,6 +38,7 @@ class AssistantWorkspaceShell extends StatefulWidget {
     this.studyPlanDraftService,
     this.studyPlanCommandService,
     this.practiceCommands,
+    this.questionListQuery,
     this.conversationFocusEpoch = 0,
   });
 
@@ -50,6 +52,7 @@ class AssistantWorkspaceShell extends StatefulWidget {
   final StudyPlanDraftService? studyPlanDraftService;
   final StudyPlanCommandService? studyPlanCommandService;
   final PracticeCommandDependencies? practiceCommands;
+  final QuestionListQueryPort? questionListQuery;
   final int conversationFocusEpoch;
 
   @override
@@ -195,6 +198,7 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
                 conversationController: _conversationController,
                 showGlobalMenu: false,
                 practiceCommands: widget.practiceCommands,
+                questionListQuery: widget.questionListQuery,
               ),
             ),
           ],
@@ -208,6 +212,7 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
           onOpenProject: _openSpaceHome,
           onCreateProject: _createSpace,
           practiceCommands: widget.practiceCommands,
+          questionListQuery: widget.questionListQuery,
         ),
       _WorkspaceDestination.learningSpaceHome => _projectId != null &&
               _spacesController.spaces
@@ -228,6 +233,7 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
               onOpenProject: _openSpaceHome,
               onCreateProject: _createSpace,
               practiceCommands: widget.practiceCommands,
+              questionListQuery: widget.questionListQuery,
             ),
       _WorkspaceDestination.mcp => McpWorkspace(
           projection: _spacesController.mcpProjection,
@@ -245,6 +251,7 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
             fileController: _fileController,
             conversationController: _conversationController,
             practiceCommands: widget.practiceCommands,
+            questionListQuery: widget.questionListQuery,
           );
         }
         return Scaffold(

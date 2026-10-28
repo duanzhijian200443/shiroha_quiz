@@ -2,11 +2,13 @@ package com.example.shiroha_quiz.external
 
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyInfo
 import android.security.keystore.KeyProperties
 import android.util.AtomicFile
 import java.io.File
 import java.math.BigInteger
 import java.security.KeyPairGenerator
+import java.security.KeyFactory
 import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.PrivateKey
@@ -21,13 +23,20 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.security.auth.x500.X500Principal
 
 /** Native key custody. Construction has no I/O. S0 engine.* is never consulted. */
-internal class DeviceCredentials(private val context: Context) {
+internal class DeviceCredentials(
+    private val context: Context,
+    private val admission: () -> Unit = DeviceLinkAdmission::requireAuthorized,
+) {
     private val identityAlias = "shiroha.external.android.v1.device"
     private val storageAlias = "shiroha.external.android.v1.storage"
     private fun store(): KeyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
 
+    // A trusted native owner supplies a bounded admission, never a wire boolean.
+    // The default remains closed, including the unregistered Flutter channel.
+    internal fun requireAuthorized() = admission()
+
     fun initialize() {
-        DeviceLinkAdmission.requireAuthorized()
+        requireAuthorized()
         try {
             val keys = store()
             // Partial initialization is recovery, never overwrite or automatic repair.
@@ -40,7 +49,9 @@ internal class DeviceCredentials(private val context: Context) {
             val generator = KeyPairGenerator.getInstance("EC", "AndroidKeyStore")
             generator.initialize(KeyGenParameterSpec.Builder(identityAlias, KeyProperties.PURPOSE_SIGN)
                 .setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1"))
-                .setDigests(KeyProperties.DIGEST_SHA256)
+                // Conscrypt hashes the TLS transcript and asks Keystore to sign
+                // that digest. SHA-256 also permits the leaf's self-signature.
+                .setDigests(KeyProperties.DIGEST_NONE, KeyProperties.DIGEST_SHA256)
                 .setUserAuthenticationRequired(false)
                 .setCertificateSubject(X500Principal("CN=Shiroha Android Device"))
                 .setCertificateSerialNumber(BigInteger(1, serial).max(BigInteger.ONE))
@@ -76,7 +87,7 @@ internal class DeviceCredentials(private val context: Context) {
     }
 
     fun certificate(): X509Certificate {
-        DeviceLinkAdmission.requireAuthorized()
+        requireAuthorized()
         return try { store().getCertificate(identityAlias) as? X509Certificate
             ?: throw DeviceLinkFailure("pairing_required") }
         catch (e: DeviceLinkFailure) { throw e }
@@ -84,7 +95,7 @@ internal class DeviceCredentials(private val context: Context) {
     }
 
     fun privateKey(): PrivateKey {
-        DeviceLinkAdmission.requireAuthorized()
+        requireAuthorized()
         return try { store().getKey(identityAlias, null) as? PrivateKey
             ?: throw DeviceLinkFailure("pairing_required") }
         catch (e: DeviceLinkFailure) { throw e }
@@ -93,8 +104,20 @@ internal class DeviceCredentials(private val context: Context) {
 
     fun deviceId(): String = digest(certificate().publicKey.encoded)
 
+    fun tlsDigestAuthorized(): Boolean {
+        requireAuthorized()
+        return try {
+            val key = privateKey()
+            val info = KeyFactory.getInstance(key.algorithm, "AndroidKeyStore")
+                .getKeySpec(key, KeyInfo::class.java)
+            info.purposes == KeyProperties.PURPOSE_SIGN &&
+                info.digests.toSet() == setOf(KeyProperties.DIGEST_NONE, KeyProperties.DIGEST_SHA256)
+        } catch (e: DeviceLinkFailure) { throw e }
+          catch (_: Exception) { throw DeviceLinkFailure("credential_store_unavailable") }
+    }
+
     fun installationId(): String {
-        DeviceLinkAdmission.requireAuthorized()
+        requireAuthorized()
         try {
             val file = AtomicFile(File(context.noBackupFilesDir, "shiroha-external-v1/installation.bin"))
             val encrypted = file.openRead().use { input ->
@@ -120,7 +143,7 @@ internal class DeviceCredentials(private val context: Context) {
     }
 
     private fun cipher(mode: Int, iv: ByteArray? = null, purpose: String): Cipher {
-        DeviceLinkAdmission.requireAuthorized()
+        requireAuthorized()
         val key = store().getKey(storageAlias, null) as? SecretKey
             ?: throw DeviceLinkFailure("pairing_required")
         return Cipher.getInstance("AES/GCM/NoPadding").apply {
@@ -130,7 +153,7 @@ internal class DeviceCredentials(private val context: Context) {
     }
 
     fun seal(bytes: ByteArray, purpose: String = "associations"): ByteArray {
-        DeviceLinkAdmission.requireAuthorized()
+        requireAuthorized()
         if (bytes.isEmpty() || bytes.size > 65536) throw DeviceLinkFailure("resource_limit")
         return try {
             val cipher = cipher(Cipher.ENCRYPT_MODE, purpose = purpose)
@@ -140,7 +163,7 @@ internal class DeviceCredentials(private val context: Context) {
     }
 
     fun open(bytes: ByteArray, purpose: String = "associations"): ByteArray {
-        DeviceLinkAdmission.requireAuthorized()
+        requireAuthorized()
         if (bytes.size !in 30..65565 || bytes[0].toInt() != 1) throw DeviceLinkFailure("credential_store_corrupt")
         return try { cipher(Cipher.DECRYPT_MODE, bytes.copyOfRange(1, 13), purpose).doFinal(bytes, 13, bytes.size - 13) }
         catch (e: DeviceLinkFailure) { throw e }
@@ -172,7 +195,7 @@ internal class DeviceAssociationFile(context: Context, private val credentials: 
             if (ended || poisoned || version != revision) throw DeviceLinkFailure("stale_revision")
         }
         fun commit(bytes: ByteArray) = synchronized(this@DeviceAssociationFile) {
-            DeviceLinkAdmission.requireAuthorized()
+            credentials.requireAuthorized()
             checkCurrent()
             if (attempted) throw DeviceLinkFailure("stale_revision")
             attempted = true
@@ -200,7 +223,7 @@ internal class DeviceAssociationFile(context: Context, private val credentials: 
     }
 
     @Synchronized fun begin(): Lease {
-        DeviceLinkAdmission.requireAuthorized()
+        credentials.requireAuthorized()
         if (poisoned) throw DeviceLinkFailure("recovery_required")
         if (occupied) throw DeviceLinkFailure("busy")
         credentials.installationId()

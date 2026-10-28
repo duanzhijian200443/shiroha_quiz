@@ -1748,10 +1748,10 @@ TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED; AR-R6B remains inactive.
 ## 14. Simplified first-party access and v35 saved generation policy
 
 This amendment owns shared v35 saved generation policy and its explicitly listed
-first-party consumers. The currently active consumer is the MCP section 17.12
-Windows development consumer. The Android consumer is specified in
-[Android device access](android-device-access-v0.md); its source-only foundation
-does not activate it. Durable policy, default drafts/direct insertion and file
+first-party consumers. The MCP section 17.12 Windows development consumer and
+the separately admitted question READ subset in
+[Android device access](android-device-access-v0.md) are implemented. Android's
+broader STAGE/file scope remains unavailable. Durable policy, default drafts/direct insertion and file
 discovery below define shared semantics for explicitly admitted consumers.
 The everyday-access subsection describes Windows deployment/channel/child
 orchestration; Android uses its separate foreground and credential boundary.
@@ -1863,3 +1863,10 @@ enablement, live connection authentication and per-call/final-release checks
 remain independent. Installation, migration, pairing and navigation never widen
 existing exact-scope/confirm policies. Background, lock and network changes use
 the Android lifecycle and never delete durable content.
+
+The separately bounded Android question READ integration grants only READ and
+questionContent on its first explicit enable. It retains the `confirm` default
+without granting STAGE: `review`/`direct` are invalid without STAGE permission.
+Its transport consumer refuses generation, proposal lookup and file reads; the
+full READ/STAGE default above does not expand this narrower integration. Existing
+saved grants are not broadened by reconnect or subsequent enable.

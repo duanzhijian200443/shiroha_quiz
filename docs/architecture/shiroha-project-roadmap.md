@@ -172,8 +172,10 @@ Current scheduling supersedes the earlier functionality-first priority below:
 - Android foreground device access is the next **independent capability** under
   [its focused contract](../product/agent-refactor/android-device-access-v0.md).
   The approved design selects one LAN path and preserves Application, saved-policy
-  and persistence owners. Its source-only foundation is not business/runtime
-  activation or real-device acceptance, and was not a prerequisite for Windows.
+  and persistence owners. Its dedicated Debug question READ subset now has
+  physical-device, normal-Codex and manual focus-recovery evidence. Full Android
+  v0, STAGE, file READ and write-loss recovery remain pending; this capability
+  was not a prerequisite for Windows.
 - Hosted remote/ChatGPT access, background receipt, offline queues and device
   synchronization remain **DEFERRED**.
 - Windows high-assurance/security verification remains **DEFERRED**. The current
@@ -912,7 +914,7 @@ context, but they do not change implementation status by themselves.
 
 | ID | Status | Current evidence / next scope |
 |---|---|---|
-| **ANDROID-DEVICE-ACCESS-V0** | SOURCE FOUNDATION / RUNTIME INACTIVE | [Focused contract](../product/agent-refactor/android-device-access-v0.md): one selected phone, foreground LAN access, existing seven tools and original-key recovery. Native/desktop source and synthetic checks do not establish real credential, network or business acceptance. |
+| **ANDROID-DEVICE-ACCESS-V0** | BOUNDED QUESTION READ / MANUAL RECOVERY; V0 REMAINDER PENDING | [Focused contract](../product/agent-refactor/android-device-access-v0.md): dedicated Debug installation, real Native identity, foreground LAN, original P15/P0/finite Enable and three READ dispatches within the seven unchanged schemas. Selected physical-device/normal-model READ and manual post-focus recovery have evidence; STAGE, file READ and write-loss recovery remain unavailable. |
 | **IMPORT-UX-1** | COMPLETE | Document import selects the real QuestionBank before parsing, silently remembers the target, freezes `bankName`/`folderName` per task and PDF batch, and confirms frozen targets in Review without renaming. Optional default-off perfect-score auto commit accepts only clean typedV2 RD0 snapshots through the existing typed lease/CAS writer, with manual Review fallback. `bankName` remains globally unique; no bankId, duplicate-name support, legacy backfill, AI classification, or schema change. |
 | **ARCH-EXAM-GENERATION-LIFETIME** | BACKLOG / HARDENING | Random mock-exam selection still happens before the final `ExamMutationCommand.createExamPaper` mutation lease. The durable create is gated; full selection-to-create lifetime ownership remains a low-risk hardening item. |
 | **UI-RWD-1** | PARTIAL | Shared `contentMaxWidth` constraints and Assistant/File Library breakpoints already exist. App-wide narrow/wide/desktop acceptance and consistent responsive policy are not yet closed. |

@@ -20,13 +20,18 @@ final class Calls implements AndroidNativeCalls {
 }
 
 void main() {
-  test('normal App and Activity have no foundation activation or Service', () {
+  test(
+      'native entry requires the explicit dedicated Debug artifact; no Service',
+      () {
     expect(File('lib/main.dart').readAsStringSync(),
         isNot(contains('android_device_foundation')));
     final activity = File(
             'android/app/src/main/kotlin/com/example/shiroha_quiz/MainActivity.kt')
         .readAsStringSync();
-    expect(activity, isNot(contains('DeviceFoundationChannel')));
+    expect(activity,
+        contains('!BuildConfig.DEBUG || !BuildConfig.ANDROID_READ_VALIDATION'));
+    expect(activity,
+        contains('packageName != "com.example.shiroha_quiz.androidread"'));
     expect(activity, isNot(contains('DeviceTlsEndpoint')));
     expect(File('android/app/src/main/AndroidManifest.xml').readAsStringSync(),
         isNot(contains('<service')));

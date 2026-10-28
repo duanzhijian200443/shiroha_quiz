@@ -1,10 +1,11 @@
 # Android device access v0
 
-Status: **Approved design; source-only foundation; runtime admission closed.**
+Status: **Bounded Debug question READ and manual recovery; full Android v0 remains pending.**
 The user approved this design and its first foundation implementation on
-2026-10-28. This grants no real connection, credential operation, model call,
-business exposure or Android product acceptance. The implementation boundary in
-section 12 is narrower than the complete target contract below.
+2026-10-28. Design approval alone grants no real connection, credential operation,
+model call, business exposure or Android product acceptance. The task-only native
+validation and READ entries in section 12 require their own selected
+installation/network authorization. The READ subset does not complete Android v0.
 
 ## 1. Scope and authority
 
@@ -172,12 +173,19 @@ also refuses. After that failed startup, follow section 8's explicit client
 restart path. Neither side waits for an already-dead peer or creates a retry
 loop. Lost focus, cancellation or expiry during preparation invalidates this
 attempt and still joins late acquisition/settlement; it never enables access.
-This is target interaction ordering, not a claim that section 12 already supplies
-the helper workflow, live proof messages or business entrypoint.
+Section 12 distinguishes this implemented READ sequence from the remaining v0
+business scope and its separate acceptance.
 
 ## 4. Saved-policy applicability
 
 External boundary section 14 now explicitly specifies this additional consumer.
+
+The bounded question READ integration is narrower than the eventual v0 policy:
+its first explicit enable saves READ and questionContent only, with all-content
+limited by that category. It retains the default `confirm` value because
+`review`/`direct` require STAGE permission. No generation consent or manual STAGE
+flow is activated; the Android consumer rejects all STAGE and file tools.
+Subsequent enables preserve the original saved policy rather than widening it.
 New Android access defaults to review; direct defaults off and requires an
 explicit local choice. All-content covers this phone's current Shiroha data
 instance, including subsequently added banks/File Library files, not OS files,
@@ -262,6 +270,13 @@ X509ExtendedKeyManager / SSLServerSocket. The private key object remains native;
 it is never exported into Dart SecurityContext. Existing flutter_secure_storage
 engine.* APIs are not treated as a TLS signing API.
 
+The signing key authorizes `DIGEST_NONE` and `DIGEST_SHA256`: the TLS provider
+signs its already-computed transcript digest; SHA-256 also permits the identity
+leaf's self-signature. This is a Keystore-use requirement, not a TLS downgrade
+or an unhashed TLS signature. Native checks the retained key's actual KeyInfo
+authorizations before listening. An existing incompatible key requires explicit
+recovery; rebuilding or reopening never replaces it or its installation binding.
+
 Each endpoint has a pinned self-signed identity leaf, not the Windows issuer
 hierarchy. Candidate validity is two years. Validate signature, P-256 parameters,
 key correspondence, validity and unknown critical extensions. Android-generated
@@ -296,6 +311,18 @@ client key, fixed phone identity/Profile and address hint. It does not read any
 Windows Shiroha credential. Same-user program isolation is not promised. The
 adapter never persists content, pending submissions or a business result queue.
 
+The native-validation desktop path may additionally use one explicitly admitted
+current-user Microsoft Software Key Storage Provider container for the same
+client key when required by Schannel. It imports no retained provider/name from
+the PFX, enrolls no certificate/trust root and acquires no existing Windows
+Shiroha key. The original owner retains the imported key through TLS settlement,
+deletes that exact CNG object and verifies its absence before reporting clean
+retirement. An operation marker under the selected desktop task directory blocks
+replacement after crash/unknown retirement. Provider-managed temporary key
+storage is a separate runtime-scope item; the ordinary/default proof mode does
+not silently fall back to it. Durable client authority remains in the dedicated
+DPAPI object, with P15/current authorization still required for any business.
+
 ## 7. Link protocol and limits
 
 Versions remain independent: android-device-link/1, TLS 1.3, the pinned MCP SDK's
@@ -326,6 +353,43 @@ against TLS/association evidence, not used as authority factories.
 READY exact fields: type=ready, linkVersion=1, deviceId, profileId, runtimeId,
 connectionId, original clientNonce, fresh serverNonce. Runtime/connection IDs
 are fresh random connection-layer references, never Application Sessions.
+
+### READ integration control fields
+
+The following exact-field objects extend link/1 for this READ integration.
+Unknown fields, duplicate keys, wrong purpose, reordered states and mismatched
+connection/nonces close the original connection. They do not change the seven
+business tools. All identifiers and fingerprints are non-secret selectors.
+
+- `offer`: type, purpose (`pairing` or `enable-proof`), deviceId,
+  installationId, profileId, runtimeId, connectionId, clientNonce, serverNonce,
+  clientCertificateDigest, serverCertificateDigest, associationRevision.
+  The phone constructs this from its local Profile and the original Native TLS
+  channel. During enrollment, strict self-signed client-leaf validation proves
+  possession only; the local full-fingerprint confirmation is still mandatory.
+- `proof-complete`: type, connectionId, clientNonce, serverNonce, profileId,
+  associationRevision, settlementNonce (fresh 32-byte unpadded base64url).
+  This is sent only after the original P15/P0 operation.
+  It is neither business READY nor finite Enable.
+- `closing`: type, connectionId, clientNonce, serverNonce, settlementNonce. The helper sends this
+  bound acknowledgement and TLS close-notify, closes its original connection
+  and retires its original temporary key owner. The phone requires the matching
+  acknowledgement and EOF, then joins its original Native close before Enable.
+  Neither side waits for another control message after closing.
+  The fresh settlement nonce rejects a closing frame sent before proof completion.
+  A single original reader observes peer exit even while local comparison or
+  P15 work is pending; it is reused for the closing frame, never replaced.
+- `ping` / `pong`: type, connectionId, nonce (32 random bytes, unpadded
+  base64url). A pong must match the single outstanding ping. Replies and MCP
+  messages share the bounded serialized writer; receiving control never waits
+  for the business-call slot. Heartbeats create no authority.
+
+The local listener uses the explicitly selected IPv4 and port 46443. No wildcard
+binding or alternate-address retry is permitted. Native connection handles are
+process-local opaque references, never accepted in a wire message. The trusted
+P15 adapter rechecks the original live Native TLS handle and current installation,
+foreground epoch, certificate and association before consuming each private
+one-use verification event. A certificate digest alone cannot create that event.
 
 ```json
 {"type":"hello","purpose":"business","expectedDeviceId":"<pinned-spki-sha256>","expectedProfileId":"<original-phone-profile>","clientNonce":"<32-byte-base64url>","linkVersions":[1]}
@@ -537,7 +601,9 @@ does not make it active. No full-app redesign or three-screen setup wizard.
 
 ## 11. Required acceptance matrix
 
-All product/runtime rows remain pending. D = deterministic synthetic fixture;
+This is the full v0 matrix, not the completion checklist for the bounded READ
+integration in section 12. Its generation/file and other undelivered rows remain
+pending. D = deterministic synthetic fixture;
 E = isolated emulator runtime; R = real phone/network/normal Codex evidence.
 E/R need separate explicit runtime authorization. Emulator port forwarding is
 not real cross-device LAN proof; no row requires OCR.
@@ -575,20 +641,68 @@ not real cross-device LAN proof; no row requires OCR.
 | Oversize/slow/concurrent/stalled frames | Bounded refusal and actual settlement custody | D+E |
 | Keystore/KeyManager/TLS pairing | Correct proof succeeds; wrong pin/key/expiry fails | E+R |
 
-## 12. Source foundation and subsequent activation boundary
+## 12. Bounded question READ integration and remaining admission boundary
 
-This delivery supplies a pure foreground resource state machine, a P15
-association-store adapter over the existing codec, dormant Native Keystore /
-AES-GCM / conditional-file / pinned TLS sources, an unregistered MethodChannel
-adapter, and the desktop transport sources with an unconditional runtime refusal.
-Synthetic tests exercise no sockets or real credentials. The native observer is
-not installed in MainActivity. lib/main.dart does not construct this root.
+The normal root constructs an inactive Android owner. Only the separately
+selected Debug artifact below registers its Native MethodChannel and real
+Activity/Flutter, focus, screen/keyguard and Wi-Fi observations. Ordinary Debug,
+Release, other installations and unsupported platforms retain explicit refusal;
+the foundation's default admission remains closed. Opening settings does not
+enable access or authenticate a connection.
 
-It does NOT yet supply a live first-pairing UI/protocol, accepted native-channel
-P15 authentication evidence, business READY/MCP dispatch, runtime timers or
-normal settings composition. Those belong to the next authorized integration
-after the necessary native combination proof. A raw certificate digest from the
-foundation probe is only an observation and cannot mint P15 evidence.
+An explicit Debug build with `-PandroidReadValidation=true` uses the separate
+`com.example.shiroha_quiz.androidread` installation. Its debug-only,
+shell-permission-protected native validation Activity consumes the SAME native
+credential, peer-policy and TLS endpoint, with real foreground/network
+observations and a 120-second local admission. The local desktop `--native-proof`
+entry uses the SAME pinned TLS and current-user DPAPI primitives. Ordinary builds
+disable that Activity; Release does not include it. Neither validation entry
+opens a database, runs Flutter business startup, creates an association/P15
+evidence, enables a Profile, publishes MCP tools or sends data to a model.
+Private local bootstrap files contain public connection material only; exported
+evidence contains fixed categories, stages and counts. Each original connection
+must settle before the next case, and failed close remains a failure.
+Compilation, key creation, raw signing metadata or a certificate observation
+alone do not establish a successful native TLS combination or normal READ.
+
+After successful native combination proof, the admitted normal App's existing
+external-Agent settings entry supplies first pairing with local fingerprint
+confirmation and a 30-minute question READ action. The same Native channel owns
+P15 verification events, installation/association binding, current authentication
+and true close settlement; a probe digest cannot mint authentication evidence.
+The original association CAS, Application P0, finite Enable and authorization
+owners remain authoritative. Enable uses section 3's proof-only PREPARING,
+desktop helper, original proof settlement, then a fresh business TLS/HELLO/READY
+sequence. An early business request closes without consuming the proof action.
+
+The existing seven schemas remain visible. Only `open_generation_context`,
+`search_questions` and `get_question_detail` enter the original Application READ
+owners, with one business connection and one active call. STAGE, proposal lookup,
+file retrieval and file passage remain `unavailable` before dispatch. No external
+write, direct/Review acceptance, response-loss write recovery, new schema or
+alternate tool profile is delivered. The desktop stores identity/routing only.
+
+The App owns READY access across normal navigation. Leaving preparation cancels
+and joins the original operation. Focus loss closes the original channel and
+may retain only the original remaining enable period; background, lock, network
+change and switch-off withdraw access. Native absolute deadlines start at the
+explicit action, and neither heartbeat nor reconnect extends them. Original
+Native/Dart resources must actually settle before replacement; failure remains
+RECOVERY_REQUIRED. The existing learning-space/legacy-category bank browser now
+receives its original QuestionListQueryPort for local content comparison, without
+adding mutation dependencies.
+
+The exercised combination is the dedicated HONOR 70 / Android 14 API 34
+installation over real Wi-Fi and a Windows 11 self-contained .NET 10.0.7 adapter.
+Native KeyManager/Keystore/TLS, first pairing, daily Enable and normal logged-in
+Codex question READ have runtime evidence. Codex desktop 26.1023.51421 (22530),
+bundled CLI 0.165.0-alpha.1.2, loaded the project MCP entry after a complete
+desktop exit/reopen; its global settings list did not display that project entry.
+After focus loss, complete desktop exit/reopen was followed by a fresh Context,
+search and detail READ on the same unextended enable period. Automatic recovery
+is not claimed. Lock/background/switch-off instead require a fresh explicit
+enable/proof action. Exact artifact hashes, failed attempts and superseding
+evidence belong to the execution/PR record, not this capability contract.
 
 Minimum native proof: Keystore key through KeyManager/TLS without export, exact
 credential/installation/channel binding, foreground/close settlement ordering,

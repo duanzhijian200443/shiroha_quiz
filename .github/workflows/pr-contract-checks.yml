@@ -538,6 +538,8 @@ jobs:
             'test/application/external/android_foreground_access_test.dart',
             'test/data/external/android_association_store_test.dart',
             'test/data/external/android_native_backend_test.dart',
+            'test/data/external/android_native_channel_test.dart',
+            'test/mcp/android_mcp_transport_test.dart',
             'test/application/external/external_direct_write_test.dart',
             'test/application/external/first_party_access_switch_test.dart',
             'test/application/external/tcp_core_memory_test.dart',

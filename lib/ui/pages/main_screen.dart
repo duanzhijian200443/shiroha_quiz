@@ -215,6 +215,7 @@ class _MainScreenState extends State<MainScreen> {
           studyPlanDraftService: widget.studyPlanDraftService,
           studyPlanCommandService: widget.studyPlanCommandService,
           practiceCommands: widget.practiceCommands,
+          questionListQuery: widget.questionListQuery,
           conversationFocusEpoch: _assistantPrefillEpoch,
         ),
       ), // Tab 1 — 助手

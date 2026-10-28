@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../application/questions/question_list_query_port.dart';
 import '../dependencies/practice_command_dependencies.dart';
 import '../pages/data_center_screen.dart';
 import 'workspace_controller.dart';
@@ -13,6 +14,7 @@ class LearningSpacesScreen extends StatelessWidget {
     this.onOpenProject,
     this.onCreateProject,
     this.practiceCommands,
+    this.questionListQuery,
   });
 
   final LearningSpacesController controller;
@@ -23,6 +25,7 @@ class LearningSpacesScreen extends StatelessWidget {
   /// Forwarded to the data center so its bank-detail practice entry stays
   /// wired; assembled at the composition root.
   final PracticeCommandDependencies? practiceCommands;
+  final QuestionListQueryPort? questionListQuery;
 
   Future<void> _create(BuildContext context) async {
     if (onCreateProject != null) {
@@ -89,8 +92,10 @@ class LearningSpacesScreen extends StatelessWidget {
             key: const ValueKey<String>('u1-open-legacy-library'),
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
-                  builder: (_) =>
-                      DataCenterScreen(practiceCommands: practiceCommands)),
+                  builder: (_) => DataCenterScreen(
+                        practiceCommands: practiceCommands,
+                        questionListQuery: questionListQuery,
+                      )),
             ),
             child: const Text('按旧分类浏览'),
           ),
