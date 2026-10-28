@@ -76,10 +76,12 @@ flutter test --concurrency=1 test/application/external/android_foreground_access
 ```
 
 `Check-Offline.ps1` additionally compiles all Native source against a real Android
-platform jar and Flutter embedding jar, then runs only the pure JVM framing/gate
-fixture. Pass the existing Java executable, Kotlin 2.2.20 compiler dependency
-classpath, Kotlin stdlib, Android jar and Flutter embedding jar explicitly. It
-writes classes only under `build/android_device_foundation/`; it installs no
+platform jar and Flutter embedding jar, then runs the pure JVM framing/gate
+fixture and the Debug Activity's original close owner, including late endpoint
+acquisition and sticky settlement failure. Pass the existing Java executable,
+Kotlin 2.2.20 compiler dependency classpath, Kotlin stdlib, Android jar and
+Flutter embedding jar explicitly. It writes classes only under
+`build/android_device_foundation/`; it installs no
 dependency, starts no App/emulator, opens no socket and reads no credential.
 An App Gradle compile is a separate packaging check. Kotlin/JVM success is not
 Android framework runtime or Keystore/TLS integration proof.
@@ -103,7 +105,11 @@ AndroidDeviceAdapter --native-proof <adb-executable> <selected-device-serial> <s
 ```
 
 It uses one foreground native Activity, the original Android Keystore key and
-KeyManager/TLS endpoint, and the original .NET TLS/pin policy. There is no ADB
+KeyManager/TLS endpoint, and the original .NET TLS/pin policy. Activity callbacks
+withdraw admission immediately and request the original close on an off-main
+worker; the proof worker joins it before
+publishing clean settlement or allowing replacement. Late endpoints retain the
+same owner, and an actual close failure remains terminal. There is no ADB
 port forwarding: TLS uses the selected LAN address. The default first invocation
 requests Missing-only native initialization. `--existing-native-identity`
 explicitly reuses this task's retained identity without key creation or repair.

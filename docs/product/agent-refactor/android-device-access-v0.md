@@ -662,6 +662,12 @@ evidence, enables a Profile, publishes MCP tools or sends data to a model.
 Private local bootstrap files contain public connection material only; exported
 evidence contains fixed categories, stages and counts. Each original connection
 must settle before the next case, and failed close remains a failure.
+The native validation Activity withdraws admission synchronously and requests
+its original endpoint close on a retained off-main worker, including endpoints
+acquired after cancellation. Its original proof worker joins that close before
+publishing clean settlement or releasing the process reservation; lifecycle
+callbacks neither perform TLS shutdown nor wait for it. Unknown/failed close
+keeps the reservation blocked.
 Compilation, key creation, raw signing metadata or a certificate observation
 alone do not establish a successful native TLS combination or normal READ.
 

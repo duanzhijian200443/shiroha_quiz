@@ -25,7 +25,8 @@ class DeviceNativeProofActivity : Activity() {
     private var started = false
     private val withdrawn = AtomicBoolean(false)
     @Volatile private var endpoint: DeviceTlsEndpoint? = null
-    @Volatile private var cleanupFailed = false
+    private val closeOwner = DeviceProofCloseOwner()
+    @Volatile private var closeOffMain = false
     private var deadline = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -75,7 +76,8 @@ class DeviceNativeProofActivity : Activity() {
 
     private fun withdraw() {
         withdrawn.set(true)
-        try { endpoint?.close() } catch (_: Exception) { cleanupFailed = true }
+        gate.close()
+        closeOwner.request()
         // The original worker retains the reservation until accept/late close settles.
     }
 
@@ -116,6 +118,11 @@ class DeviceNativeProofActivity : Activity() {
                 if (!tlsDigestAuthorized) throw DeviceLinkFailure("recovery_required")
                 val native = DeviceTlsEndpoint(keys, gate)
                 endpoint = native
+                closeOwner.adopt {
+                    check(android.os.Looper.myLooper() != android.os.Looper.getMainLooper())
+                    closeOffMain = true
+                    native.close()
+                }
                 requireAdmission()
                 stage = "listen"
                 val port = native.listen(ip, pin, epoch, network)
@@ -139,13 +146,18 @@ class DeviceNativeProofActivity : Activity() {
                 result = if (withdrawn.get()) "foreground_required" else "unavailable"
             } finally {
                 withdrawn.set(true)
-                try { endpoint?.close() } catch (_: Exception) { cleanupFailed = true }
+                try {
+                    closeOwner.settle()
+                    // The accept worker may observe a late peer/timer close failure
+                    // after the requested endpoint close has already completed.
+                    settled = result != "settlement_unknown"
+                } catch (_: Exception) { settled = false }
                 selected = endpoint?.keyManagerSelections ?: 0
-                settled = !cleanupFailed
                 if (!settled) result = "settlement_unknown"
                 try {
                     publish(id, "result", JSONObject()
                         .put("operation", id).put("result", result).put("stage", stage).put("settled", settled)
+                        .put("closeOffMain", closeOffMain)
                         .put("nonExportable", nonExportable).put("installationStable", installationStable)
                         .put("tlsDigestAuthorized", tlsDigestAuthorized)
                         .put("keyManagerSelections", selected)

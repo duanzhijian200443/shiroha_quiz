@@ -15,6 +15,7 @@ New-Item -ItemType Directory -Force -Path $output | Out-Null
 $native = Join-Path $repoRoot 'android/app/src/main/kotlin/com/example/shiroha_quiz/external'
 $sources = @(Get-ChildItem -LiteralPath $native -Filter '*.kt' | Sort-Object Name | ForEach-Object FullName)
 $sources += Join-Path $PSScriptRoot 'fixtures/FoundationFixture.kt'
+$sources += Join-Path $repoRoot 'android/app/src/debug/kotlin/com/example/shiroha_quiz/external/DeviceProofCloseOwner.kt'
 $sep = [IO.Path]::PathSeparator
 & $Java '-cp' $CompilerClasspath 'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler' '-no-stdlib' '-no-reflect' '-jvm-target' '17' '-classpath' "$KotlinStdlib$sep$AndroidJar$sep$FlutterEmbeddingJar" '-d' $output @sources
 if ($LASTEXITCODE -ne 0) { throw 'Android foundation Kotlin compilation failed' }

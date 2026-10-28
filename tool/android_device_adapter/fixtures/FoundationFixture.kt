@@ -40,6 +40,41 @@ fun main(args: Array<String>) {
         rejects { failedClose.join() }
         rejects { failedClose.join() }
     } finally { closeExecutor.shutdownNow() }
+    // Exercise the exact Debug Activity owner, not only the shared close primitive.
+    // A lifecycle withdrawal before endpoint acquisition must retain the late close.
+    val proofOwner = DeviceProofCloseOwner()
+    proofOwner.request()
+    val proofEntered = java.util.concurrent.CountDownLatch(1)
+    val proofRelease = java.util.concurrent.CountDownLatch(1)
+    val proofCalls = java.util.concurrent.atomic.AtomicInteger()
+    val proofCaller = Thread.currentThread()
+    proofOwner.adopt {
+        check(Thread.currentThread() !== proofCaller)
+        proofCalls.incrementAndGet()
+        proofEntered.countDown()
+        proofRelease.await()
+    }
+    try {
+        accepts(proofEntered.await(1, java.util.concurrent.TimeUnit.SECONDS))
+        // Repeated lifecycle callbacks return while the original close is blocked.
+        repeat(8) { proofOwner.request() }
+        val proofJoined = java.util.concurrent.CompletableFuture.runAsync { proofOwner.settle() }
+        try {
+            proofJoined.get(100, java.util.concurrent.TimeUnit.MILLISECONDS)
+            error("released_before_original_close")
+        } catch (_: java.util.concurrent.TimeoutException) { accepts(true) }
+        proofRelease.countDown()
+        proofJoined.get(2, java.util.concurrent.TimeUnit.SECONDS)
+        proofOwner.settle()
+        accepts(proofCalls.get() == 1)
+    } finally { proofRelease.countDown() }
+    val failedProof = DeviceProofCloseOwner()
+    failedProof.adopt { throw java.io.IOException() }
+    failedProof.request()
+    rejects { failedProof.settle() }
+    rejects { failedProof.settle() }
+    // Preparation failed before any endpoint existed: no close or worker to leak.
+    DeviceProofCloseOwner().settle()
     val gate = DeviceForegroundGate()
     val first = gate.observe(true, true, true, true, "wifi-1")
     accepts(gate.current(first, "wifi-1"))
