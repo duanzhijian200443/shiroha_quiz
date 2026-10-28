@@ -106,6 +106,14 @@ Owns physical persistence and external integration:
 - managed file storage;
 - OCR/AI/Web provider clients and DTO adaptation.
 
+The Android device-access foundation owns native Keystore operations, protected
+associations, TLS and foreground/network observations through bounded ports.
+It owns no business SQLite or authorization. Keys remain native rather than
+being exported to Dart SecurityContext. Its explicit construction is dormant,
+its runtime entry refuses acquisition, and normal startup does not consume it.
+`docs/product/agent-refactor/android-device-access-v0.md` owns the approved design
+and narrower source-only implementation boundary.
+
 The External Windows primitive adapter in `lib/data/external/native` owns
 explicit SDK FFI calls to the independent `windows/external_native` C ABI DLL.
 It supplies bounded DPAPI memory operations, an unvalidated known-folder path
@@ -485,6 +493,18 @@ DESTRUCTIVE -> additional approval; may remain unavailable in early versions
 ```
 
 No Agent or MCP tool may directly execute SQL or bypass the typed persistence/review boundary.
+
+For explicitly admitted saved-policy consumers, STAGE may cause formal mutation
+only through the local user's current direct policy for a NEW generated batch
+and the original atomic writer. This is not an external COMMIT permission.
+Existing pending proposals and repeated keys are never automatically committed.
+
+The existing Windows integration remains platform-specific. Android requires a
+separate composition over the same Application/Data owners, original
+request-scoped approval and Android foreground admission. Its specified LAN
+endpoint is not a Windows loopback-listener or development-exception extension.
+The source-only foundation does not yet wire those business owners or enable
+the endpoint. MCP v0 and the seven-tool business profile remain unchanged.
 
 The bounded vNext STAGE stdio source slice is described in
 `docs/product/agent-refactor/mcp-vnext-contract.md` §7. Its separate seven-tool
@@ -1036,6 +1056,11 @@ in-memory, temporary, explicit-file, and read-only profiles.
 The focused current contract is
 `docs/architecture/data-path-authority.md`. Legacy worktree-local data is not
 automatically migrated by this boundary.
+
+Android external installation identity and credential-association files use the
+platform no-backup directory through the dedicated Native adapter. This security
+state is not a second business data root and is excluded from B0/system transfer.
+Database, managed files, Proposal and learning data retain AppDataPaths ownership.
 
 ## 15. Review repair boundary
 

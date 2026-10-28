@@ -6,6 +6,14 @@ appear once and be assigned once by the existing `index % 4` split. Support
 fixtures are not executable entries. Training/StudyActivity suites are standing
 coverage even when a PR changes only production code.
 
+Android device-access foundation adds standing pure foreground-lifetime,
+association-CAS and Native-boundary refusal tests. They use synthetic resources,
+never an Android key, socket, credential file or business composition. Native
+Android and desktop .NET compilation/JVM fixtures are explicit offline checks
+under `tool/android_device_adapter`; this standing manifest alone does not prove
+those compilations or real TLS/device behavior. Delivery records that coverage
+gap rather than relabeling portable tests as Native acceptance.
+
 The standing list also retains the AR-R6A External offline regression matrix:
 
 The v35 saved-policy suites cover legacy migration defaults, all-content target
