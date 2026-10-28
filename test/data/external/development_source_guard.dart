@@ -13,6 +13,8 @@ void developmentSourceGuardCases() {
       'enableWithoutRetainedChannel:true',
       'associationRecoveryAvailable:()=>_current&&!relay.hasChild&&relay.observation.phase==FirstPartyRelayPhase.listening',
       'relay.onDisconnected=integration.controls.disconnectTransport',
+      'relay.businessBootstrap=()=>_packet(pairingUi:false)',
+      'if(!pairingUi){integration.controls.requireBusinessEnablement();',
       'startup!.currentPublicMaterial()',
       'monitorWindowsDevelopmentLifetime(isCurrent:()=>_current,',
       'launchIsCurrent:()=>relay.launchCurrent,stop:stopFor)',

@@ -162,6 +162,27 @@ final class PairingUiDriver {
 
   bool hasText(String text) => _matches(_text(text)).isNotEmpty;
 
+  Future<void> scrollToBottom() async {
+    final watch = Stopwatch()..start();
+    while (watch.elapsed < const Duration(seconds: 10)) {
+      for (final element in _matches((widget) => widget is Scrollable)) {
+        final scrollable =
+            (element as StatefulElement).state as ScrollableState;
+        final position = scrollable.position;
+        if (!position.hasContentDimensions) continue;
+        if (position.maxScrollExtent > position.pixels) {
+          await position.animateTo(position.maxScrollExtent,
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut);
+          await Future<void>.delayed(const Duration(milliseconds: 200));
+        }
+        return;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    throw StateError('UI scroll surface unavailable');
+  }
+
   static bool Function(Widget) _text(String text) => (widget) =>
       (widget is Text && widget.data == text) ||
       (widget is SelectableText && widget.data == text);

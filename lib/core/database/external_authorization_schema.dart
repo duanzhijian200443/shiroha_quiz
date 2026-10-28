@@ -1,6 +1,7 @@
 import '../../application/capabilities/capability.dart';
 import '../../application/external/external_authorization.dart';
 import 'sqflite_runtime.dart';
+import 'external_access_v35_schema.dart';
 
 const externalAuthorizationSchemaVersion = 33;
 const externalAuthorizationTables = [
@@ -155,7 +156,16 @@ Future<ExternalAuthorizationRecord> readExternalAuthorization(
       externalAuthFail(ExternalAuthFailure.corruptState);
     }
     ExternalAuthLimits.time(g['updated_at'] as int);
+    await validateExternalAccessV35Schema(db);
+    final preferences = await db.query(externalAccessPreferencesTable,
+        where: 'profile_id=?', whereArgs: [id]);
+    final preference = preferences.isEmpty ? null : preferences.single;
     final policy = ExternalGrantPolicy(
+        allContent: preference?['all_content'] == 1,
+        generationMode: preference == null
+            ? ExternalGenerationMode.confirm
+            : ExternalGenerationMode.values
+                .byName(preference['generation_mode'] as String),
         permissions: [
           if (g['allow_read'] == 1) CapabilityPermission.read,
           if (g['allow_stage'] == 1) CapabilityPermission.stage

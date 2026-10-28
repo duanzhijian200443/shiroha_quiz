@@ -119,7 +119,7 @@ void main() {
       final oldSchema = await h.db.rawQuery(
           "SELECT name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY name");
       await h.reopen();
-      expect(await h.db.getVersion(), 34);
+      expect(await h.db.getVersion(), 35);
       final after = await rows();
       for (final row in after['generated_question_proposals']!) {
         expect(row['external_origin_json'], isNull);
@@ -190,7 +190,7 @@ void main() {
     expect(await h.db.rawQuery('PRAGMA foreign_key_check'), isEmpty);
     await validateGeneratedProposalV32Schema(h.db);
     await h.reopen();
-    expect(await h.db.getVersion(), 34);
+    expect(await h.db.getVersion(), 35);
   });
   for (final defect in [
     'missing-trigger',

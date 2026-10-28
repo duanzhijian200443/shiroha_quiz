@@ -95,7 +95,7 @@ void main() {
     await h.reopen();
     expect(await contender().loadOrCreateOwner(), owners.first);
     expect(minted, 1);
-    expect(await h.db.getVersion(), 34);
+    expect(await h.db.getVersion(), 35);
   });
 
   test('missing setting with existing proposals stops without claiming them',

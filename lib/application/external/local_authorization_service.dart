@@ -93,6 +93,27 @@ final class LocalAuthorizationView {
   Future<ExternalAuthorizationRecord> read(ExternalProfileReference ref) =>
       _run(() => _management.read(ref));
 
+  /// Explicit first-party choice for all Shiroha content, including future
+  /// content. This never widens an existing grant merely by displaying it.
+  Future<ExternalAuthorizationRecord> saveAllContent(
+          ExternalProfileReference ref, int revision,
+          {required bool directWrite}) =>
+      _run(() => _management.replaceGrant(
+          ref,
+          revision,
+          ExternalGrantPolicy(
+            permissions: const [
+              CapabilityPermission.read,
+              CapabilityPermission.stage,
+            ],
+            scopes: const [],
+            categories: ExternalContentCategory.values,
+            allContent: true,
+            generationMode: directWrite
+                ? ExternalGenerationMode.direct
+                : ExternalGenerationMode.review,
+          )));
+
   /// Permission and Egress are separate; choices never accept freeform paths.
   Future<ExternalAuthorizationRecord> save(
           ExternalProfileReference ref, int revision,

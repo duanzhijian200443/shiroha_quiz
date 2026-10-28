@@ -131,7 +131,7 @@ void main() {
     final path = p.join(h.temp.path, 'roundtrip.shiroha');
     await runtime().exportTo(path);
     expect((await BackupArchiveIo.readManifestOnly(path)).packageVersion, 2);
-    expect((await BackupArchiveIo.readManifestOnly(path)).schemaVersion, 34);
+    expect((await BackupArchiveIo.readManifestOnly(path)).schemaVersion, 35);
     expect(await h.db.query('external_grants'), originalAuth);
     await repo.change(externalFixtureProfile, 1, null, 2, true, () {});
     final restoring = runtime();
@@ -187,7 +187,7 @@ void main() {
           current.toJson());
       await restoring.commitPreparedRestore();
       h.db = await h.helper.database;
-      expect(await h.db.getVersion(), 34);
+      expect(await h.db.getVersion(), 35);
       expect((await h.repository.read(legacy.proposalId, h.local)).toJson(),
           legacy.toJson());
       await expectLater(h.repository.read(current.proposalId, h.local),

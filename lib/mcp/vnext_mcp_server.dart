@@ -25,7 +25,9 @@ final class VnextMcpServer {
           const Implementation(name: 'shiroha_mcp_vnext', version: '0.2.0'),
           options: const McpServerOptions(
             instructions: 'Stage generated candidates for review in Shiroha. '
-                'STAGED is not formally saved. Reconcile uncertain submissions by '
+                'The App policy selects review drafts or direct saving. STAGED '
+                'acknowledges publication only; query lifecycle for saved status. '
+                'Reconcile uncertain submissions by '
                 'their original submissionKey; never automatically retry a write.',
             capabilities: ServerCapabilities(tools: ServerCapabilitiesTools()),
           ),
@@ -46,7 +48,7 @@ final class VnextMcpServer {
     for (final entry in inputSchemas.entries) {
       _server.registerTool(entry.key,
           description: entry.key == 'propose_generated_questions'
-              ? 'Stage a content-only Submission v1 for local user review.'
+              ? 'Submit content-only Submission v1; the App policy chooses review or direct saving.'
               : entry.key == 'get_question_proposal'
                   ? 'Query currently authorized pending_review, committed or rejected '
                       'status and safe counts by original submissionKey.'

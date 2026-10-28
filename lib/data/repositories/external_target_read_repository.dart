@@ -36,8 +36,25 @@ final class SqliteExternalTargetReadRepository
       if (expectedRevision != null && grant.revision != expectedRevision) {
         externalReadFail(ExternalReadFailure.stale);
       }
-      // At most 128 explicit scopes. Never load global banks/projects/files.
-      final scopes = grant.policy.scopes
+      // Global discovery is admitted only by the explicit v35 all-content
+      // grant. Context/handle budgets and wire pagination remain unchanged.
+      final allScopes = <ExternalGrantScope>[];
+      if (grant.policy.allContent) {
+        final banks = await db.rawQuery('''
+          SELECT bank_name, NULL AS project_id FROM bank_folders
+          UNION SELECT bank_name, NULL FROM questions
+          UNION SELECT bank_name, project_id FROM project_banks
+          ORDER BY project_id, bank_name
+        ''');
+        check();
+        for (final bank in banks) {
+          allScopes.add(ExternalGrantScope(
+              kind: ExternalTargetKind.bank,
+              targetId: bank['bank_name'] as String,
+              projectId: bank['project_id'] as String?));
+        }
+      }
+      final scopes = (grant.policy.allContent ? allScopes : grant.policy.scopes)
           .where((s) => s.kind == ExternalTargetKind.bank)
           .toList()
         ..sort((a, b) {

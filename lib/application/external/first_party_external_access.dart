@@ -436,12 +436,14 @@ final class FirstPartyExternalAccess {
   Future<void> disconnectTransport() async {
     cancelAssociationRecovery();
     if (_closed) return;
+    _configuredVersion++;
     _enableCancelled = true;
     _forgetAccess();
     _binding?.credentials?.cancelPendingConnection?.call();
     await Future.wait([
       cancelExistingCredentialConfirmation(),
       _idle?.future ?? Future<void>.value(),
+      _configuredWork?.catchError((Object _) {}) ?? Future<void>.value(),
     ]);
   }
 
@@ -463,6 +465,9 @@ final class FirstPartyExternalAccess {
   DateTime? _enableExpiresAt;
   Completer<void>? _idle;
   Future<void>? _shutdown, _disabling;
+  int _configuredVersion = 0;
+  String? _configuredProfile;
+  Future<void>? _configuredWork;
   bool get isCurrent =>
       !_closed &&
       _isCurrent() &&
@@ -537,7 +542,7 @@ final class FirstPartyExternalAccess {
         state.bridgePinMissing != false) {
       externalAuthFail(ExternalAuthFailure.unauthorized);
     }
-    if (_selectedId != profileId || _profile == null) await select(profileId);
+    if (_selectedId != profileId || _profile == null) await _select(profileId);
     final current = await status();
     if (!isCurrent || !available() || current.profileId != profileId) {
       externalAuthFail(ExternalAuthFailure.unauthorized);
@@ -554,6 +559,115 @@ final class FirstPartyExternalAccess {
         rethrow;
       }
     }
+  }
+
+  /// One explicit local access decision. Reuses fresh live credential proof;
+  /// no credential, Pin, Session or successful result is reconstructed by UI.
+  Future<void> allowConfiguredAccess(String? profileId,
+      {required bool Function() available,
+      Future<void>? pendingStatus,
+      Future<String?> Function(
+              bool Function() current, Future<void> Function() withdraw)?
+          prepare}) {
+    _validate();
+    if (_configuredWork != null) {
+      if (_configuredProfile != profileId || prepare != null) {
+        externalAuthFail(ExternalAuthFailure.unauthorized);
+      }
+      return _configuredWork!;
+    }
+    final token = ++_configuredVersion;
+    final done = Completer<void>();
+    _configuredProfile = profileId;
+    FirstPartyExternalBinding? originalBinding;
+    ExternalTrustProfile? originalProfile;
+    bool current() =>
+        isCurrent &&
+        available() &&
+        token == _configuredVersion &&
+        identical(_configuredWork, done.future) &&
+        (originalBinding == null || identical(originalBinding, _binding)) &&
+        (originalProfile == null || identical(originalProfile, _profile));
+    void check() {
+      if (!current()) externalAuthFail(ExternalAuthFailure.unauthorized);
+    }
+
+    // The independent operation slot cannot use _run: each original owner
+    // below already uses that serialization boundary.
+    _configuredWork = done.future;
+    unawaited(() async {
+      try {
+        check();
+        // Own the user action before its first status/policy await. Preparation
+        // may withdraw old access without cancelling or joining its own slot.
+        await pendingStatus;
+        check();
+        final selectedProfile = prepare == null
+            ? profileId
+            : await prepare(current, () async {
+                check();
+                await _disable();
+                check();
+              });
+        check();
+        if (selectedProfile == null) {
+          externalAuthFail(ExternalAuthFailure.unauthorized);
+        }
+        _configuredProfile = selectedProfile;
+        final before = await status();
+        check();
+        if (before.profileId == selectedProfile && before.enabled) return;
+        await prepareExistingConnection(selectedProfile, available: current);
+        check();
+        originalBinding = _binding;
+        originalProfile = _profile;
+        final prepared = await status();
+        check();
+        if (prepared.pairing == PairingState.unpaired) {
+          final elapsed = Stopwatch()..start();
+          while (true) {
+            check();
+            final display = existingCredentialDisplay;
+            if (display == null ||
+                display.profileId != selectedProfile ||
+                display.settling ||
+                display.remainingSeconds <= 0 ||
+                elapsed.elapsed >= const Duration(seconds: 30)) {
+              externalAuthFail(ExternalAuthFailure.unauthorized);
+            }
+            if (display.credentialIdentity != null &&
+                display.installationId != null &&
+                display.revision != null) {
+              // No await between obtaining and consuming the exact candidate.
+              await confirmExistingCredential(display);
+              check();
+              break;
+            }
+            await Future<void>.delayed(const Duration(milliseconds: 50));
+          }
+        }
+        final deployment = await _development!.status();
+        check();
+        await enable(deployment.maxAccessDuration);
+        check();
+      } catch (error, stack) {
+        _forgetAccess();
+        _binding?.credentials?.cancelPendingConnection?.call();
+        try {
+          await cancelExistingCredentialConfirmation();
+        } catch (closeError, closeStack) {
+          done.completeError(closeError, closeStack);
+          return;
+        }
+        done.completeError(error, stack);
+        return;
+      } finally {
+        _configuredProfile = null;
+        _configuredWork = null;
+        if (!done.isCompleted) done.complete();
+      }
+    }());
+    return done.future;
   }
 
   void _forgetAccess() {
@@ -574,7 +688,12 @@ final class FirstPartyExternalAccess {
     _binding?.publishApprovals(const []);
   }
 
-  Future<void> select(String profileId) => _run(() async {
+  Future<void> select(String profileId) async {
+    if (_configuredWork != null) await disable();
+    await _select(profileId);
+  }
+
+  Future<void> _select(String profileId) => _run(() async {
         cancelAssociationRecovery();
         final b = _binding;
         await cancelExistingCredentialConfirmation();
@@ -683,6 +802,10 @@ final class FirstPartyExternalAccess {
 
   Future<void> cancelPendingControls() async {
     cancelAssociationRecovery();
+    if (_configuredWork != null) {
+      await disable();
+      return;
+    }
     if (!isCurrent) return;
     final identityClosing = cancelExistingCredentialConfirmation();
     if (_enabling) {
@@ -1015,22 +1138,60 @@ final class FirstPartyExternalAccess {
   }
 
   Future<void> disable() {
-    if (_enabling && _binding?.credentials?.cancelPendingConnection != null) {
+    if (_configuredWork case final pending?) {
+      _configuredVersion++;
+      _enableCancelled = true;
+      _forgetAccess();
+      _binding?.credentials?.cancelPendingConnection?.call();
+      return Future.wait<void>([
+        cancelExistingCredentialConfirmation(),
+        pending.catchError((Object _) {}),
+      ]);
+    }
+    return _disable();
+  }
+
+  Future<void> _disable() {
+    if (_busy) {
       _validate();
       if (_disabling != null) return _disabling!;
       _enableCancelled = true;
       _forgetAccess(); // deny immediately; cancellation alone is not settlement
-      _binding!.credentials!.cancelPendingConnection!();
+      _binding?.credentials?.cancelPendingConnection?.call();
       final idle = _idle!.future;
       return _disabling = idle.whenComplete(() => _disabling = null);
     }
     return _run(() async {
       _forgetAccess();
       final b = _binding;
-      if (b != null && _profile != null) {
+      if (b != null &&
+          _profile != null &&
+          b.trust.snapshot(_profile!.principal).state ==
+              PairingState.pairedDisabled) {
         await b.coordinator.disable(_profile!);
       }
     });
+  }
+
+  /// Refusal-only preflight before the App-owned raw Bridge can be created.
+  /// A live deployment or saved Pin is not completed business Enablement.
+  /// P15 authentication and current policy checks still run on every channel.
+  void requireBusinessEnablement() {
+    _validate();
+    _credentials();
+    final b = _binding;
+    final profile = _profile;
+    if (b == null ||
+        !b.enableWithoutRetainedChannel ||
+        profile == null ||
+        _selectedId != profile.principal.profileId ||
+        _sessionRevision == null ||
+        _enabling ||
+        _configuredWork != null ||
+        b.trust.snapshot(profile.principal).state !=
+            PairingState.enabledForCurrentRuntime) {
+      externalAuthFail(ExternalAuthFailure.unauthorized);
+    }
   }
 
   /// Trusted port rechecks the current Session and owning policy at every call.
@@ -1182,11 +1343,16 @@ final class FirstPartyExternalAccess {
   Future<void> shutdown() {
     if (_shutdown != null) return _shutdown!;
     cancelAssociationRecovery();
+    _configuredVersion++;
     _closed = true;
     _forgetAccess();
     final proofClosing = cancelExistingCredentialConfirmation();
     final owning = _binding?.shutdown() ?? Future<void>.value();
-    return _shutdown = Future.wait(
-        [owning, proofClosing, _idle?.future ?? Future<void>.value()]);
+    return _shutdown = Future.wait([
+      owning,
+      proofClosing,
+      _idle?.future ?? Future<void>.value(),
+      _configuredWork?.catchError((Object _) {}) ?? Future<void>.value(),
+    ]);
   }
 }

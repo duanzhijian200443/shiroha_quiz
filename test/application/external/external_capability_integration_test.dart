@@ -640,7 +640,7 @@ void main() {
       final context =
           await gateway.openRead(session: h.s.session, context: parent);
       final choices = await gateway.execute(
-          ExternalCapabilities.listFileSelections, const ExternalNoInput(),
+          ExternalCapabilities.listFileSelections, const ExternalTargetQuery(),
           session: h.s.session, context: context);
       final file = await gateway.execute(
           ExternalCapabilities.createFileContext,
@@ -654,7 +654,7 @@ void main() {
       expect(approved.authorization.scopes.map((s) => s.targetId),
           ['bank', 'file-a']);
       final choicesAgain = await gateway.execute(
-          ExternalCapabilities.listFileSelections, const ExternalNoInput(),
+          ExternalCapabilities.listFileSelections, const ExternalTargetQuery(),
           session: h.s.session, context: approved);
       final reselected = await gateway.execute(
           ExternalCapabilities.createFileContext,
@@ -812,7 +812,7 @@ void main() {
           await gateway.openRead(session: h.s.session, context: parent);
       final kernelReads = h.observed.reads;
       final choices = await gateway.execute(
-          ExternalCapabilities.listFileSelections, const ExternalNoInput(),
+          ExternalCapabilities.listFileSelections, const ExternalTargetQuery(),
           session: h.s.session, context: context);
       expect(choices.failure, isNull);
       expect(choices.receipt.status, CapabilityExecutionStatus.completed);
@@ -830,7 +830,7 @@ void main() {
       final context =
           await gateway.openRead(session: h.s.session, context: parent);
       final choices = await gateway.execute(
-          ExternalCapabilities.listFileSelections, const ExternalNoInput(),
+          ExternalCapabilities.listFileSelections, const ExternalTargetQuery(),
           session: h.s.session, context: context);
       expect(choices.output, isNotNull);
       var created = 0;

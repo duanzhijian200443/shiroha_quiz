@@ -6,6 +6,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:shiroha_quiz/application/capabilities/capability.dart';
 import 'package:shiroha_quiz/application/external/external_authorization.dart';
 import 'package:shiroha_quiz/core/database/external_authorization_schema.dart';
+import 'package:shiroha_quiz/core/database/external_access_v35_schema.dart';
 import 'package:shiroha_quiz/data/repositories/external_authorization_repository.dart';
 import 'package:shiroha_quiz/data/repositories/backup_database_authority.dart';
 import 'package:shiroha_quiz/data/repositories/backup_snapshot_repository.dart';
@@ -56,12 +57,15 @@ void main() {
     await management.replaceGrant(
         ref,
         0,
-        ExternalGrantPolicy(permissions: [
-          CapabilityPermission.read,
-          CapabilityPermission.stage
-        ], scopes: [
-          ExternalGrantScope(kind: ExternalTargetKind.bank, targetId: 'bank')
-        ], categories: ExternalContentCategory.values));
+        ExternalGrantPolicy(
+            permissions: [
+              CapabilityPermission.read,
+              CapabilityPermission.stage
+            ],
+            scopes: [],
+            allContent: true,
+            generationMode: ExternalGenerationMode.direct,
+            categories: ExternalContentCategory.values));
     snapshots = BackupSnapshotRepository(databaseHelper: h.helper);
     managed = Directory(p.join(h.temp.path, 'managed'))..createSync();
     restore = Directory(p.join(h.temp.path, 'restore'))..createSync();
@@ -79,10 +83,13 @@ void main() {
           diskSpaceProbe: const _Disk(),
           faultInjector: faults);
   Future<Map<String, List<Map<String, Object?>>>> authRows() async => {
-        for (final table in externalAuthorizationTables)
+        for (final table in [
+          ...externalAuthorizationTables,
+          externalAccessPreferencesTable
+        ])
           table: await h.db.query(table)
       };
-  Future<String> package(String path, {int version = 34}) async {
+  Future<String> package(String path, {int version = 35}) async {
     final manifest = BackupManifest(
         packageVersion: 2,
         schemaVersion: version,
@@ -115,12 +122,13 @@ void main() {
     final before = await authRows();
     final copyPath = p.join(h.temp.path, 'scrub.db');
     final snapshot = await snapshots.createSanitizedSnapshot(copyPath);
-    expect(snapshot.schemaVersion, 34);
+    expect(snapshot.schemaVersion, 35);
     final copy = await databaseFactory.openDatabase(copyPath);
     try {
       for (final table in externalAuthorizationTables) {
         expect(await copy.query(table), isEmpty);
       }
+      expect(await copy.query(externalAccessPreferencesTable), isEmpty);
       expect(
           (await copy.query('generated_question_proposals'))
               .single['client_profile_id'],
@@ -214,7 +222,7 @@ void main() {
     expect(await authRows(), before);
     await restoring.commitPreparedRestore();
     h.db = await h.helper.database;
-    expect(await h.db.getVersion(), 34);
+    expect(await h.db.getVersion(), 35);
     for (final table in externalAuthorizationTables) {
       expect(await h.db.query(table), isEmpty);
     }

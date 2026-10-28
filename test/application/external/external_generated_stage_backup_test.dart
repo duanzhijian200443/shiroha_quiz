@@ -65,7 +65,7 @@ void main() {
     await runtime().exportTo(destination);
     final manifest = await BackupArchiveIo.readManifestOnly(destination);
     expect(manifest.packageVersion, 2);
-    expect(manifest.schemaVersion, 34);
+    expect(manifest.schemaVersion, 35);
     expect(await s.h.db.query('external_grants'), grant);
     final restoring = runtime();
     await restoring.prepareRestore(destination);

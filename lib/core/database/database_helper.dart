@@ -31,6 +31,7 @@ import 'study_activity_v30_schema.dart';
 import 'import_task_v31_schema.dart';
 import 'generated_proposal_schema.dart';
 import 'external_authorization_schema.dart';
+import 'external_access_v35_schema.dart';
 import '../../data/repositories/generated_proposal_reader.dart';
 import '../../application/task_center/retry_file_selection.dart';
 import '../../data/models/task_center_task_identity.dart';
@@ -95,7 +96,7 @@ class DatabaseHelper
   DatabaseHelper._();
 
   static const String _dbName = 'shiroha_core_v1.db';
-  static const int _dbVersion = generatedProposalOriginSchemaVersion;
+  static const int _dbVersion = externalAccessSchemaVersion;
 
   static String get databaseFileName => _dbName;
   static int get databaseVersion => _dbVersion;
@@ -710,6 +711,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await validateGeneratedProposalData(db);
     await validateExternalAuthorizationSchema(db);
     await validateExternalAuthorizationData(db);
+    await validateExternalAccessV35Schema(db);
   }
 
   /// Opens a database handle with the current production schema callbacks.
@@ -820,6 +822,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await validateGeneratedProposalData(db);
     await validateExternalAuthorizationSchema(db);
     await validateExternalAuthorizationData(db);
+    await validateExternalAccessV35Schema(db);
   }
 
   Future<void> _onConfigure(Database db) async {
@@ -979,6 +982,7 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     await createStudyActivityV30Schema(db);
     await createGeneratedProposalSchema(db);
     await createExternalAuthorizationSchema(db);
+    await createExternalAccessV35Schema(db);
     await validateExternalAuthorizationSchema(db);
     await validateExternalAuthorizationData(db);
     await _validateV15Schema(db);
@@ -1193,6 +1197,10 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     if (oldVersion < generatedProposalOriginSchemaVersion) {
       await migrateGeneratedProposalOriginToV34(db);
     }
+    if (oldVersion < externalAccessSchemaVersion) {
+      await migrateExternalAccessToV35(db);
+    }
+    await validateExternalAccessV35Schema(db);
     await validateExternalAuthorizationSchema(db);
     await validateExternalAuthorizationData(db);
     await validateAnswerAttemptV26Schema(db);

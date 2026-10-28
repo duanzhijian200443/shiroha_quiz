@@ -314,7 +314,8 @@ final class OfflineIpcCommandProjection {
             ExternalCapabilities.getQuestionDetail,
             request.input as ExternalQuestionSelection),
         _Command.listFileSelections => call(
-            ExternalCapabilities.listFileSelections, const ExternalNoInput()),
+            ExternalCapabilities.listFileSelections,
+            request.input as ExternalTargetQuery),
         _Command.createFileContext => call(
             ExternalCapabilities.createFileContext,
             request.input as ExternalFileSelections),

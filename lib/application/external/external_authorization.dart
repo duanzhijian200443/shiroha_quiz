@@ -75,6 +75,10 @@ enum ExternalTargetKind { bank, file }
 
 enum ExternalContentCategory { questionContent, fileContent, proposalMetadata }
 
+/// Legacy grants ask for each submission. New local policy can preauthorize
+/// drafts or the atomic insertion of newly generated questions.
+enum ExternalGenerationMode { confirm, review, direct }
+
 /// A named target in one Learning Space, or an explicit local target (null).
 /// Empty scopes deny everything; null never grants all banks/files.
 final class ExternalGrantScope {
@@ -102,7 +106,9 @@ final class ExternalGrantPolicy {
   ExternalGrantPolicy(
       {required Iterable<CapabilityPermission> permissions,
       required Iterable<ExternalGrantScope> scopes,
-      required Iterable<ExternalContentCategory> categories})
+      required Iterable<ExternalContentCategory> categories,
+      this.allContent = false,
+      this.generationMode = ExternalGenerationMode.confirm})
       : permissions = Set.unmodifiable(permissions),
         scopes = List.unmodifiable(scopes),
         categories = Set.unmodifiable(categories) {
@@ -111,13 +117,20 @@ final class ExternalGrantPolicy {
             p != CapabilityPermission.read &&
             p != CapabilityPermission.stage) ||
         this.scopes.length > ExternalAuthLimits.maxScopes ||
-        this.scopes.toSet().length != this.scopes.length) {
+        this.scopes.toSet().length != this.scopes.length ||
+        (allContent && this.scopes.isNotEmpty) ||
+        (generationMode != ExternalGenerationMode.confirm &&
+            !this.permissions.contains(CapabilityPermission.stage))) {
       externalAuthFail(ExternalAuthFailure.invalidInput);
     }
   }
   final Set<CapabilityPermission> permissions;
   final List<ExternalGrantScope> scopes;
   final Set<ExternalContentCategory> categories;
+  final bool allContent;
+  final ExternalGenerationMode generationMode;
+
+  bool allows(ExternalGrantScope scope) => allContent || scopes.contains(scope);
 }
 
 /// Recipient is the owning Profile, never a client-supplied provider/brand.

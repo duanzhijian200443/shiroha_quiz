@@ -333,12 +333,24 @@ void main() {
       'committedCount': 2,
       'rejectedCount': 1
     });
-    // Historical STAGE acknowledgement never turns into formal mutation evidence.
+    // Reconciliation reports the original committed effect without writing again.
+    final questionsBefore = await h.app.h.s.h.count('questions');
+    final receiptsBefore =
+        await h.app.h.s.h.count('generated_question_commit_receipts');
     final reconciliation = await h.app.h.s.reconcile('mixed');
     expect(reconciliation.output!.proposalId, id);
-    expect(reconciliation.effect, CapabilityEffect.proposalStaged);
+    expect(reconciliation.effect, CapabilityEffect.formalMutation);
+    expect(await h.app.h.s.h.count('questions'), questionsBefore);
+    expect(await h.app.h.s.h.count('generated_question_commit_receipts'),
+        receiptsBefore);
     await client.close();
     await h.restart();
+    final recovered = await h.app.h.s.reconcile('mixed');
+    expect(recovered.output!.proposalId, id);
+    expect(recovered.effect, CapabilityEffect.formalMutation);
+    expect(await h.app.h.s.h.count('questions'), questionsBefore);
+    expect(await h.app.h.s.h.count('generated_question_commit_receipts'),
+        receiptsBefore);
     expect(
         await call(await h.connect(), 'get_question_proposal',
             {'submissionKey': 'mixed'}),

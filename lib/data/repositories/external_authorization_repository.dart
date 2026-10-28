@@ -3,6 +3,7 @@ import '../../application/capabilities/capability.dart';
 import '../../application/external/external_authorization.dart';
 import '../../core/database/database_helper.dart';
 import '../../core/database/external_authorization_schema.dart';
+import '../../core/database/external_access_v35_schema.dart';
 import '../../core/database/sqflite_runtime.dart';
 
 /// All writes use the existing database and B0 mutation gate. No Host wiring.
@@ -169,6 +170,14 @@ final class SqliteExternalAuthorizationRepository
             await db.insert('external_grant_egress',
                 {'profile_id': profileId, 'category': category.name});
           }
+          await db.delete(externalAccessPreferencesTable,
+              where: 'profile_id=?', whereArgs: [profileId]);
+          await db.insert(externalAccessPreferencesTable, {
+            'profile_id': profileId,
+            'revision': revision,
+            'all_content': policy.allContent ? 1 : 0,
+            'generation_mode': policy.generationMode.name,
+          });
         } else if (before.grant != null) {
           await db.update('external_grants',
               {'updated_at': nowUtcMs, 'revoked_at': nowUtcMs},
@@ -250,7 +259,7 @@ Future<ExternalAuthorizationRecord> requireExternalGrant(
       (expectedRevision != null && grant.revision != expectedRevision) ||
       profileId != recipientProfileId ||
       !grant.policy.permissions.contains(permission) ||
-      !grant.policy.scopes.contains(scope) ||
+      !grant.policy.allows(scope) ||
       !grant.policy.categories.contains(category) ||
       (scope.kind == ExternalTargetKind.bank &&
           category == ExternalContentCategory.fileContent) ||

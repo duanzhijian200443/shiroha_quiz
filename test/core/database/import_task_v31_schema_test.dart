@@ -5,6 +5,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/core/database/import_task_v31_schema.dart';
 import 'package:shiroha_quiz/core/database/generated_proposal_schema.dart';
+import 'package:shiroha_quiz/core/database/external_access_v35_schema.dart';
 import 'package:shiroha_quiz/data/repositories/backup_snapshot_repository.dart';
 import 'package:shiroha_quiz/domain/backup/backup_values.dart';
 import 'package:shiroha_quiz/services/task_manager.dart';
@@ -31,11 +32,9 @@ void main() {
     final db = await helper.openPathForTesting(p.join(temp.path, 'fresh.db'));
     try {
       expect(importTaskSchemaVersion, 31);
-      expect(
-          DatabaseHelper.databaseVersion, generatedProposalOriginSchemaVersion);
-      expect(await db.getVersion(), generatedProposalOriginSchemaVersion);
-      expect(BackupValues.currentSchemaVersion,
-          generatedProposalOriginSchemaVersion);
+      expect(DatabaseHelper.databaseVersion, externalAccessSchemaVersion);
+      expect(await db.getVersion(), externalAccessSchemaVersion);
+      expect(BackupValues.currentSchemaVersion, externalAccessSchemaVersion);
       expect(BackupValues.currentPackageVersion, 2);
       await validateImportTaskV31Schema(db);
       final columns = await db.rawQuery('PRAGMA table_info(import_tasks)');
@@ -91,7 +90,7 @@ void main() {
       await oldProbe.close();
       final db = await helper.openPathForTesting(path);
       try {
-        expect(await db.getVersion(), generatedProposalOriginSchemaVersion);
+        expect(await db.getVersion(), externalAccessSchemaVersion);
         final after = await db.query('import_tasks', orderBy: 'id');
         expect(after, hasLength(4));
         for (var i = 0; i < after.length; i++) {
@@ -152,7 +151,7 @@ void main() {
     final path = p.join(temp.path, 'snapshot.db');
     final snapshots = BackupSnapshotRepository(databaseHelper: helper);
     final snapshot = await snapshots.createSanitizedSnapshot(path);
-    expect(snapshot.schemaVersion, generatedProposalOriginSchemaVersion);
+    expect(snapshot.schemaVersion, externalAccessSchemaVersion);
     expect(await db.query('import_tasks'), before);
     final probe = await databaseFactory.openDatabase(path);
     try {
@@ -175,7 +174,7 @@ void main() {
     await snapshots.openStagedAndValidate(path);
     final staged = await databaseFactory.openDatabase(path);
     try {
-      expect(await staged.getVersion(), generatedProposalOriginSchemaVersion);
+      expect(await staged.getVersion(), externalAccessSchemaVersion);
       expect(await staged.query('import_tasks'), isEmpty);
     } finally {
       await staged.close();

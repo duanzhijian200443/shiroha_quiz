@@ -1493,7 +1493,10 @@ and both clocks, for at most the original thirty-second evidence window. No
 Session, P8 entry, P10 parsing or business request is permitted in this branch.
 UI receives only safe identity/comparison state, never the private event.
 
-After the user confirms that exact candidate, P15 rechecks current management,
+For the current section 17.12 daily-access consumer, external boundary section
+14 permits the explicit local access action to consume the original exact
+candidate after system validation, without another identity dialog. The manual
+advanced path remains available. In either path P15 rechecks current management,
 the exact active association and original snapshot, channel liveness, generation
 and deadline. A purpose-specific, one-use private verification window then uses
 the original P0 request -> approve -> complete sequence to reach
@@ -1519,8 +1522,8 @@ validated kind 4 and the App's public startup trust; it sends no business frame,
 generates no enrollment key and performs no credential, certificate, association
 or initial Pin creation/replacement. Only the already authorized original P26
 high-water validation/update is permitted. After proof-channel and UI-process
-settlement, the user separately
-enables the Profile; a fresh business connection must authenticate through the
+settlement, finite Enable follows either its separate local action or the same
+explicit daily access orchestration; a fresh business connection authenticates through the
 original P15/P0/P8 path. Old Session, Context, target and STAGE approval never
 return. Missing/revoked management, orphan association, conflicting identity,
 partial/corrupt/unknown objects and Portable Restore scrub remain refusals.

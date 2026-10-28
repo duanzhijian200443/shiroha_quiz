@@ -2,28 +2,38 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/backup/backup_restore_gate.dart';
 import 'package:shiroha_quiz/application/external/first_party_development_access.dart';
 import 'package:shiroha_quiz/application/external/first_party_external_access.dart';
 import 'package:shiroha_quiz/application/external/external_credential_boundary.dart';
 import 'package:shiroha_quiz/application/external/external_authorization.dart';
 import 'package:shiroha_quiz/application/external/first_party_external_credentials.dart';
 import 'package:shiroha_quiz/application/external/external_trust_core.dart';
+import 'package:shiroha_quiz/application/external/local_authorization_service.dart';
+import 'package:shiroha_quiz/application/file_library/library_folder_service.dart';
+import 'package:shiroha_quiz/application/projects/project_service.dart';
 import 'package:shiroha_quiz/composition/mcp_vnext_windows_bridge.dart';
 import 'package:shiroha_quiz/composition/mcp_vnext_development_app.dart';
+import 'package:shiroha_quiz/composition/mcp_vnext_app_owned_relay.dart';
 import 'package:shiroha_quiz/mcp/vnext_mcp_composition_root.dart';
 import 'package:shiroha_quiz/data/external/discovery_descriptor_codec.dart';
+import 'package:shiroha_quiz/data/external/windows_development_bootstrap.dart';
 import 'package:shiroha_quiz/data/external/association_object_codec.dart';
 import 'package:shiroha_quiz/data/external/external_credential_object_codec.dart';
 import 'package:shiroha_quiz/data/external/native/windows_peer_certificate_policy.dart';
 import 'package:shiroha_quiz/data/external/windows_discovery.dart';
 import 'package:shiroha_quiz/data/external/windows_pairing.dart';
 import 'package:shiroha_quiz/data/external/windows_tls_transport.dart';
+import 'package:shiroha_quiz/data/repositories/library_folder_repository.dart';
+import 'package:shiroha_quiz/data/repositories/project_repository.dart';
 import 'package:shiroha_quiz/services/backup/sha256.dart';
 import 'package:shiroha_quiz/ui/pages/first_party_external_control.dart';
 import 'package:shiroha_quiz/ui/pages/external_authorization_screen.dart';
 import 'package:shiroha_quiz/ui/dependencies/first_party_external_scope.dart';
 import '../../ui/generated_question/generated_ui_test_support.dart'
     show settleGenerated;
+import '../../application/external/external_trust_test_support.dart'
+    show TrustManagementBarrier;
 import '../../data/external/bootstrap_test_support.dart';
 import '../../data/external/windows_credential_object_store_test.dart'
     as objects;
@@ -83,6 +93,27 @@ final class _ExistingFixture {
   WindowsTlsBridge? proof;
   LinkedChannel? client, server;
   Future<void>? peerClosed;
+  int businessDispatches = 0;
+
+  Future<Map<String, Object?>> readThroughBootstrap() =>
+      dispatchWithAppOwnedBootstrap(
+          requireBootstrap: true,
+          snapshot: () {
+            app.controls.requireBusinessEnablement();
+            return WindowsDevelopmentBootstrap(
+                pairingUi: false,
+                expiresAtUtcMs: app.files.s.clock.current
+                    .add(const Duration(minutes: 30))
+                    .millisecondsSinceEpoch,
+                issuerDer: app.publicMaterial.issuerCertificateDer,
+                installationId: app.publicMaterial.installationId,
+                serverLeafDigest: app.plan.leafDigest,
+                epoch: app.publicMaterial.publicationEpoch);
+          },
+          dispatch: (_) {
+            businessDispatches++;
+            return app.call('open_generation_context');
+          });
 
   Future<void> open({bool grantless = false}) async {
     await app.open(enroll: false, enableWithoutRetainedChannel: true);
@@ -230,6 +261,451 @@ final class _PrivateInitializationError implements Exception {
 }
 
 void existingCredentialConfirmationCases() {
+  Future<void> settingsIdle(WidgetTester tester) async {
+    for (var i = 0; i < 40; i++) {
+      await interactionFrame(tester, Duration.zero);
+      if (find.byType(LinearProgressIndicator).evaluate().isEmpty &&
+          (find.byKey(const Key('external-connect')).evaluate().isEmpty ||
+              tester
+                      .widget<FilledButton>(
+                          find.byKey(const Key('external-connect')))
+                      .onPressed !=
+                  null)) {
+        return;
+      }
+    }
+    fail('settings did not settle');
+  }
+
+  Widget settingsPage(_ExistingFixture f, LocalAuthorizationService policy) =>
+      MaterialApp(
+          home: FirstPartyExternalScope(
+              access: f.app.controls,
+              child: ExternalAuthorizationScreen(service: policy)));
+
+  Future<(_ExistingFixture, TrustManagementBarrier, LocalAuthorizationService)>
+      settingsFixture(WidgetTester tester) async {
+    final f = _ExistingFixture();
+    await tester.runAsync(f.open);
+    final development = _DevelopmentControl()
+      ..expiresAt = f.app.files.s.clock.current.add(const Duration(minutes: 30))
+      ..childSettled.complete()
+      ..onOpenWindow = () async {
+        f.proof = f.connection();
+        await f.proof!.connect();
+        f.peerClosed = f.proof!.waitForProofClosure();
+      };
+    f.app.controls.installDevelopment(development);
+    final store = f.app.files.s;
+    final barrier = TrustManagementBarrier(store.authorization);
+    final policy = LocalAuthorizationService(
+        repository: barrier,
+        profiles: store.authorization,
+        files: LibraryFolderService(
+            repository:
+                SqliteLibraryFolderRepository(databaseHelper: store.h.helper),
+            folderIdFactory: () => 'unused-settings-folder'),
+        projects: ProjectService(
+            repository:
+                SqliteProjectRepository(databaseHelper: store.h.helper)),
+        mintProfileId: () => 'settings-regression-profile',
+        compositionIsCurrent: () => f.app.controls.isCurrent);
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+      await interactionRead(tester, f.close);
+    });
+    await tester.binding.setSurfaceSize(const Size(500, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(settingsPage(f, policy));
+    await settingsIdle(tester);
+    return (f, barrier, policy);
+  }
+
+  for (final directChange in [false, true]) {
+    for (final cancellation in ['disconnect', 'switch', 'leave', 'replace']) {
+      testWidgets(
+          'settings ${directChange ? "direct change" : "first access"} $cancellation during saved policy reread cannot re-enable',
+          (tester) async {
+        final (f, barrier, policy) = await settingsFixture(tester);
+        if (directChange) {
+          await interactionTap(tester, '连接并开启访问');
+          await settingsIdle(tester);
+          expect((await interactionRead(tester, f.app.controls.status)).enabled,
+              isTrue);
+        }
+        final profile = f.app.files.s.profile;
+        final revision = (await interactionRead(
+                tester, () => f.app.files.s.management.read(profile)))
+            .profile
+            .grantRevision;
+        final reached = Completer<void>(), release = Completer<void>();
+        addTearDown(() {
+          if (!release.isCompleted) release.complete();
+        });
+        barrier.afterRead = (record) async {
+          if (record.profile.grantRevision > revision && !reached.isCompleted) {
+            reached.complete();
+            await release.future;
+          }
+        };
+        await interactionTap(tester, directChange ? '允许直接写入题库' : '连接并开启访问');
+        expect(reached.isCompleted, isTrue);
+        var settled = false;
+        late Future<void> stopping;
+        await tester.runAsync(() async {
+          if (cancellation == 'disconnect') {
+            stopping = f.app.controls.disconnectTransport();
+          } else if (cancellation == 'switch') {
+            await tester.tap(find.byKey(const Key('external-access-switch')));
+            stopping = f.app.controls.cancelPendingControls();
+          } else {
+            await tester.pumpWidget(cancellation == 'leave'
+                ? const SizedBox()
+                : settingsPage(f, f.app.policy));
+            stopping = f.app.controls.cancelPendingControls();
+          }
+          stopping = stopping.then((_) => settled = true);
+          await pumpEventQueue(times: 4);
+        });
+        final settledBeforeRelease = settled;
+        release.complete();
+        await interactionRead(tester, () => stopping);
+        if (cancellation != 'leave') await settingsIdle(tester);
+        expect((await interactionRead(tester, f.app.controls.status)).enabled,
+            isFalse);
+        expect(settledBeforeRelease, isFalse,
+            reason: 'the original policy read still owns settlement');
+        expect(
+            (await interactionRead(
+                tester, () => f.app.call('open_generation_context')))['error'],
+            isNotNull);
+        final saved = await interactionRead(
+            tester, () => f.app.files.s.management.read(profile));
+        expect(saved.grant!.policy.allContent, isTrue);
+        expect(
+            saved.grant!.policy.generationMode,
+            directChange
+                ? ExternalGenerationMode.direct
+                : ExternalGenerationMode.review);
+        if (cancellation == 'leave') {
+          await tester.pumpWidget(settingsPage(f, policy));
+          await settingsIdle(tester);
+        }
+        await tester.runAsync(() async {
+          await tester.tap(find.byKey(const Key('external-access-switch')));
+          await pumpEventQueue(times: 30);
+        });
+        await interactionFrame(tester);
+        await settingsIdle(tester);
+        expect((await interactionRead(tester, f.app.controls.status)).enabled,
+            isTrue,
+            reason: 'only a fresh local action may restore access');
+      });
+    }
+  }
+
+  for (final cancellation in ['disconnect', 'switch', 'leave', 'replace']) {
+    testWidgets(
+        'settings $cancellation while joining refresh discards old click',
+        (tester) async {
+      final (f, barrier, _) = await settingsFixture(tester);
+      await interactionTap(tester, '连接并开启访问');
+      await settingsIdle(tester);
+      final profile = f.app.files.s.profile;
+      final revision = (await interactionRead(
+              tester, () => f.app.files.s.management.read(profile)))
+          .profile
+          .grantRevision;
+      final reached = Completer<void>(), release = Completer<void>();
+      addTearDown(() {
+        if (!release.isCompleted) release.complete();
+      });
+      barrier.afterRead = (_) async {
+        if (!reached.isCompleted) {
+          reached.complete();
+          await release.future;
+        }
+      };
+      await interactionFrame(tester, const Duration(seconds: 1));
+      expect(reached.isCompleted, isTrue);
+      await interactionTap(tester, '允许直接写入题库');
+      expect(find.byType(LinearProgressIndicator), findsOneWidget);
+      late Future<void> stopping;
+      await tester.runAsync(() async {
+        if (cancellation == 'disconnect') {
+          stopping = f.app.controls.disconnectTransport();
+        } else if (cancellation == 'switch') {
+          await tester.tap(find.byKey(const Key('external-access-switch')));
+          stopping = f.app.controls.cancelPendingControls();
+        } else {
+          await tester.pumpWidget(cancellation == 'leave'
+              ? const SizedBox()
+              : settingsPage(f, f.app.policy));
+          stopping = f.app.controls.cancelPendingControls();
+        }
+      });
+      release.complete();
+      await interactionRead(tester, () => stopping);
+      if (cancellation != 'leave') await settingsIdle(tester);
+      expect((await interactionRead(tester, f.app.controls.status)).enabled,
+          isFalse);
+      final saved = await interactionRead(
+          tester, () => f.app.files.s.management.read(profile));
+      expect(saved.profile.grantRevision, revision);
+      expect(saved.grant!.policy.generationMode, ExternalGenerationMode.review);
+      expect(
+          (await interactionRead(
+              tester, () => f.app.call('open_generation_context')))['error'],
+          isNotNull);
+    });
+  }
+
+  testWidgets(
+      'simplified settings connect, save direct policy, and open diagnostics without revoking access',
+      (tester) async {
+    final f = _ExistingFixture();
+    await interactionRead(tester, f.open);
+    final development = _DevelopmentControl()
+      ..expiresAt = f.app.files.s.clock.current.add(const Duration(minutes: 30))
+      ..childSettled.complete()
+      ..onOpenWindow = () async {
+        f.proof = f.connection();
+        await f.proof!.connect();
+        f.peerClosed = f.proof!.waitForProofClosure();
+      };
+    f.app.controls.installDevelopment(development);
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+      await interactionRead(tester, f.close);
+    });
+    await tester.binding.setSurfaceSize(const Size(500, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+        home: FirstPartyExternalScope(
+            access: f.app.controls,
+            child: ExternalAuthorizationScreen(service: f.app.policy))));
+    await interactionFrame(tester);
+    for (var i = 0;
+        i < 30 &&
+            tester
+                    .widget<FilledButton>(
+                        find.byKey(const Key('external-connect')))
+                    .onPressed ==
+                null;
+        i++) {
+      await interactionFrame(tester, Duration.zero);
+    }
+    await interactionTap(tester, '连接并开启访问');
+    for (var i = 0;
+        i < 30 && find.byType(LinearProgressIndicator).evaluate().isNotEmpty;
+        i++) {
+      await interactionFrame(tester, Duration.zero);
+    }
+    expect(
+        (await interactionRead(tester, f.app.controls.status)).enabled, isTrue,
+        reason: find
+            .byKey(const Key('external-access-error'))
+            .evaluate()
+            .map((e) => (e.widget as Text).data)
+            .join());
+    final view = f.app.policy.openView();
+    final ref = await interactionRead(
+        tester, () => view.select(f.app.files.s.profile.profileId));
+    var record = await interactionRead(tester, () => view.read(ref));
+    expect(record.grant!.policy.allContent, isTrue);
+    expect(record.grant!.policy.generationMode, ExternalGenerationMode.review);
+    await interactionTap(tester, '允许直接写入题库');
+    for (var i = 0;
+        i < 30 && find.byType(LinearProgressIndicator).evaluate().isNotEmpty;
+        i++) {
+      await interactionFrame(tester, Duration.zero);
+    }
+    record = await interactionRead(tester, () => view.read(ref));
+    expect(record.grant!.policy.generationMode, ExternalGenerationMode.direct);
+    expect(
+        (await interactionRead(tester, f.app.controls.status)).enabled, isTrue);
+    await interactionTap(tester, '连接设置');
+    await tester.pumpAndSettle();
+    await interactionTap(tester, '首次配对与连接诊断');
+    await tester.pumpAndSettle();
+    expect(find.byType(FirstPartyExternalControl), findsOneWidget);
+    expect(
+        (await interactionRead(tester, f.app.controls.status)).enabled, isTrue);
+    view.close();
+  });
+  test(
+      'daily access switch proves identity once and waits for original settlement before enable',
+      () async {
+    final f = _ExistingFixture();
+    await f.open();
+    addTearDown(f.close);
+    final originalClosed = Completer<void>();
+    final development = _DevelopmentControl()
+      ..expiresAt = f.app.files.s.clock.current.add(const Duration(minutes: 30))
+      ..onOpenWindow = () async {
+        f.proof = f.connection();
+        await f.proof!.connect();
+        f.peerClosed = f.proof!.waitForProofClosure();
+        unawaited(f.peerClosed!.then((_) => originalClosed.complete()));
+      };
+    f.app.controls.installDevelopment(development);
+    final profile = f.app.files.s.profile.profileId;
+    final work =
+        f.app.controls.allowConfiguredAccess(profile, available: () => true);
+    var enabled = false;
+    final observed = work.then((_) => enabled = true);
+    await originalClosed.future;
+    expect(enabled, isFalse);
+    expect((await f.readThroughBootstrap())['error'], 'unavailable');
+    expect(f.businessDispatches, 0);
+    development.childSettled.complete();
+    await observed;
+    expect((await f.app.controls.status()).enabled, isTrue);
+    expect((await f.readThroughBootstrap())['error'], isNull);
+    expect(f.businessDispatches, 1);
+    final expires = (await f.app.controls.status()).expiresAt;
+    await f.app.controls.allowConfiguredAccess(profile, available: () => true);
+    expect((await f.app.controls.status()).expiresAt, expires);
+    await f.app.controls.disable();
+    expect((await f.app.controls.status()).enabled, isFalse);
+    expect((await f.readThroughBootstrap())['error'], 'unavailable');
+    expect(f.businessDispatches, 1);
+  });
+
+  for (final cancel in ['switch', 'view', 'disconnect']) {
+    test(
+        'business bootstrap refuses READ after $cancel and a new daily action enables access',
+        () async {
+      final f = _ExistingFixture();
+      await f.open();
+      addTearDown(f.close);
+      final entered = Completer<void>(), release = Completer<void>();
+      var opened = 0;
+      final development = _DevelopmentControl()
+        ..expiresAt =
+            f.app.files.s.clock.current.add(const Duration(minutes: 30))
+        ..childSettled.complete()
+        ..onOpenWindow = () async {
+          // Models the production mutual exclusion: a business dispatch before
+          // proof owns the raw child slot and prevents this window from opening.
+          expect(f.businessDispatches, 0);
+          if (++opened == 1) {
+            entered.complete();
+            await release.future;
+            return;
+          }
+          f.proof = f.connection();
+          await f.proof!.connect();
+          f.peerClosed = f.proof!.waitForProofClosure();
+        };
+      f.app.controls.installDevelopment(development);
+      final profile = f.app.files.s.profile.profileId;
+      expect((await f.readThroughBootstrap())['error'], 'unavailable');
+      final work =
+          f.app.controls.allowConfiguredAccess(profile, available: () => true);
+      final denied = expectLater(work, throwsA(isA<ExternalAuthException>()));
+      await entered.future;
+      expect((await f.readThroughBootstrap())['error'], 'unavailable');
+      final stopping = switch (cancel) {
+        'view' => f.app.controls.cancelPendingControls(),
+        'disconnect' => f.app.controls.disconnectTransport(),
+        _ => f.app.controls.disable(),
+      };
+      release.complete();
+      await denied;
+      await stopping;
+      expect((await f.app.controls.status()).pairing, PairingState.unpaired);
+      expect((await f.readThroughBootstrap())['error'], 'unavailable');
+      expect(f.businessDispatches, 0);
+
+      await f.app.controls
+          .allowConfiguredAccess(profile, available: () => true);
+      expect(opened, 2);
+      expect((await f.app.controls.status()).enabled, isTrue);
+      expect((await f.readThroughBootstrap())['error'], isNull);
+      expect(f.businessDispatches, 1);
+    });
+  }
+
+  for (final end in ['expiry', 'maintenance', 'shutdown']) {
+    test('business bootstrap refuses READ after $end without dispatch',
+        () async {
+      final f = _ExistingFixture();
+      await f.open();
+      addTearDown(f.close);
+      await f.begin();
+      await f.app.controls
+          .confirmExistingCredential(f.app.controls.existingCredentialDisplay!);
+      await f.app.controls.enable(const Duration(minutes: 5));
+      expect((await f.readThroughBootstrap())['error'], isNull);
+      switch (end) {
+        case 'expiry':
+          f.app.files.s.clock.current =
+              f.app.files.s.clock.current.add(const Duration(minutes: 5));
+        case 'maintenance':
+          await BackupRestoreMutationGate.instance.enterQuiescence();
+          addTearDown(BackupRestoreMutationGate.instance.exitQuiescence);
+        case 'shutdown':
+          await f.app.controls.shutdown();
+      }
+      expect((await f.readThroughBootstrap())['error'], 'unavailable');
+      expect(f.businessDispatches, 1);
+    });
+  }
+
+  test('business bootstrap never substitutes for current channel validation',
+      () async {
+    final f = _ExistingFixture();
+    await f.open();
+    addTearDown(f.close);
+    await f.begin();
+    await f.app.controls
+        .confirmExistingCredential(f.app.controls.existingCredentialDisplay!);
+    await f.app.controls.enable(const Duration(minutes: 5));
+    expect((await f.readThroughBootstrap())['error'], isNull);
+    // Only the transport fixture is invalidated here; Application Enablement
+    // remains current. The original channel must still withhold its result.
+    f.app.pairing.current = false;
+    expect((await f.readThroughBootstrap())['error'], isNotNull);
+    expect(f.businessDispatches, 2);
+  });
+
+  for (final cancel in ['switch', 'view', 'disconnect']) {
+    test('daily access $cancel during startup prevents late enable', () async {
+      final f = _ExistingFixture();
+      await f.open();
+      addTearDown(f.close);
+      final entered = Completer<void>(), release = Completer<void>();
+      var opened = 0;
+      final development = _DevelopmentControl()
+        ..phase = FirstPartyDevelopmentPhase.inactive
+        ..childSettled.complete()
+        ..onStart = () {
+          entered.complete();
+          return release.future;
+        }
+        ..onOpenWindow = () async {
+          opened++;
+        };
+      f.app.controls.installDevelopment(development);
+      final work = f.app.controls.allowConfiguredAccess(
+          f.app.files.s.profile.profileId,
+          available: () => true);
+      final denied = expectLater(work, throwsA(isA<ExternalAuthException>()));
+      await entered.future;
+      final stopping = switch (cancel) {
+        'view' => f.app.controls.cancelPendingControls(),
+        'disconnect' => f.app.controls.disconnectTransport(),
+        _ => f.app.controls.disable(),
+      };
+      development.phase = FirstPartyDevelopmentPhase.active;
+      release.complete();
+      await denied;
+      await stopping;
+      expect(opened, 0);
+      expect((await f.app.controls.status()).enabled, isFalse);
+    });
+  }
   for (final cancellation in ['disconnect', 'view']) {
     test('Enable preflight status preserves $cancellation cancellation',
         () async {
@@ -537,7 +1013,7 @@ void existingCredentialConfirmationCases() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     tester.view.devicePixelRatio = 1;
-    for (final width in [720.0, 1100.0]) {
+    for (final width in [360.0, 720.0, 1100.0]) {
       tester.view.physicalSize = Size(width, 900);
       await tester.pump();
       expect(tester.takeException(), isNull);
@@ -1205,23 +1681,16 @@ void existingCredentialConfirmationCases() {
             access: f.app.controls,
             child: ExternalAuthorizationScreen(service: f.app.policy))));
     await settleGenerated(tester);
-    expect(find.text('身份已确认，等待允许访问'), findsOneWidget);
+    expect(find.text('尚未开启访问'), findsOneWidget);
     expect(find.textContaining('未配对 / 未启用'), findsNothing);
-    final profile = find.byKey(ValueKey(f.app.files.s.profile.profileId));
-    await tester.ensureVisible(profile);
-    await tester.runAsync(() async {
-      await tester.tap(profile);
-      await pumpEventQueue(times: 30);
-    });
-    await settleGenerated(tester);
-    expect(find.text('已保存访问规则'), findsOneWidget);
-    await tester.ensureVisible(find.text('撤销 Grant'));
-    await tester.tap(find.text('撤销 Grant'));
-    await tester.pump();
-    expect(find.text('撤销当前访问规则。此操作不修改已保存的配对凭据。'), findsOneWidget);
-    expect(find.textContaining('客户端仍未配对'), findsNothing);
-    await tester.tap(find.text('取消').last);
-    await settleGenerated(tester);
+    expect(find.text('首次连接'), findsNothing);
+    expect(find.text('连接并开启访问'), findsOneWidget);
+    final status = await interactionRead(tester, f.app.controls.status);
+    expect(status.pairing, PairingState.pairedDisabled);
+    expect(status.enabled, isFalse);
+    final record = await interactionRead(
+        tester, () => f.app.files.s.management.read(f.app.files.s.profile));
+    expect(record.grant!.policy.allContent, isFalse);
   });
 
   testWidgets('guided profile change withdraws a late identity confirmation',

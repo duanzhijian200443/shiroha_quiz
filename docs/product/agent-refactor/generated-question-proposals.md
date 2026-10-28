@@ -76,6 +76,8 @@ Commit accepted subset only when all remaining items are explicitly rejected.
 Unreviewed/deferred items keep it pending and block commit. No multi-commit or
 automatic child-Proposal split. Passive dismissal is not rejection or approval.
 Restart reloads pending work; it does not authorize commit or repeat execution.
+The new-batch-only saved-policy exception is defined in external boundary
+section 14; it never changes a pre-existing pending Proposal.
 
 ## 3. Stage idempotency and duplicates
 
@@ -103,7 +105,10 @@ Near duplicates remain human/search-assisted; no semantic-dedup guarantee.
 Shiroha UI explicit confirmation -> dedicated Application approve command with
 Proposal identity, expectedReviewRevision and approved selection -> dedicated
 Data persistence port. Command is not an external/MCP route. Natural language,
-client-side tool approval and artifact reference cannot authorize it.
+client-side tool approval and artifact reference cannot authorize it. The explicit
+first-party saved direct policy in external boundary section 14 is the sole
+additional authorization source for a newly published external batch, reusing
+the same Data transaction checks and writer without fabricating a Review context.
 
 One SQLite transaction owns:
 
@@ -762,3 +767,26 @@ single-request connections; synthetic same-Session tests prove no human Windows
 approval path. Local Shiroha Review/approval/rejection and the sole COMMIT
 transaction remain unchanged. Production Host/Transport remain inactive and all
 Windows security/activation gates remain in force.
+
+
+## 14. v35 new-batch direct policy amendment
+
+[External boundary section 14](external-agent-boundary.md#14-simplified-first-party-access-and-v35-saved-generation-policy)
+owns current saved policy and supersedes older blanket manual-STAGE/COMMIT-only
+wording for this narrow consumer. SQLite v35 adds only local authorization policy;
+Proposal JSON v2, Origin v1 and Receipt codecs do not change. A new direct batch
+is published, its items marked accepted and review revision advanced once, then
+committed with the existing typed writer and Receipt in one transaction. Accepted
+here is policy inclusion, not evidence of human review. All quality, duplicate,
+evidence, target, owner, mapping, Training and terminal consistency checks remain.
+
+Default review mode publishes only a pending draft. Existing-key lookup precedes
+all automatic decision work; toggling direct or retrying an old key cannot commit
+an old draft. Any failure before direct commit rolls back publication and formal
+writes together. Response loss preserves the actual known effect; original-key
+reconciliation reports existing history without another commit. Portable B0
+scrubs v35 policy while retaining Proposal/Receipt/content; raw rollback retains
+original local policy. Required offline regressions cover migration/reopen,
+legacy defaults, CAS/revocation, B0 scrub/rollback, default drafts, new direct
+commit, old draft replay, duplicate rejection, concurrent same-key submissions,
+cancellation at the final commit boundary and response-loss reconciliation.
