@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/backup/backup_restore_gate.dart';
 import 'package:shiroha_quiz/application/external/first_party_development_access.dart';
 import 'package:shiroha_quiz/application/external/first_party_external_access.dart';
 import 'package:shiroha_quiz/application/external/external_credential_boundary.dart';
@@ -13,8 +14,10 @@ import 'package:shiroha_quiz/application/file_library/library_folder_service.dar
 import 'package:shiroha_quiz/application/projects/project_service.dart';
 import 'package:shiroha_quiz/composition/mcp_vnext_windows_bridge.dart';
 import 'package:shiroha_quiz/composition/mcp_vnext_development_app.dart';
+import 'package:shiroha_quiz/composition/mcp_vnext_app_owned_relay.dart';
 import 'package:shiroha_quiz/mcp/vnext_mcp_composition_root.dart';
 import 'package:shiroha_quiz/data/external/discovery_descriptor_codec.dart';
+import 'package:shiroha_quiz/data/external/windows_development_bootstrap.dart';
 import 'package:shiroha_quiz/data/external/association_object_codec.dart';
 import 'package:shiroha_quiz/data/external/external_credential_object_codec.dart';
 import 'package:shiroha_quiz/data/external/native/windows_peer_certificate_policy.dart';
@@ -90,6 +93,27 @@ final class _ExistingFixture {
   WindowsTlsBridge? proof;
   LinkedChannel? client, server;
   Future<void>? peerClosed;
+  int businessDispatches = 0;
+
+  Future<Map<String, Object?>> readThroughBootstrap() =>
+      dispatchWithAppOwnedBootstrap(
+          requireBootstrap: true,
+          snapshot: () {
+            app.controls.requireBusinessEnablement();
+            return WindowsDevelopmentBootstrap(
+                pairingUi: false,
+                expiresAtUtcMs: app.files.s.clock.current
+                    .add(const Duration(minutes: 30))
+                    .millisecondsSinceEpoch,
+                issuerDer: app.publicMaterial.issuerCertificateDer,
+                installationId: app.publicMaterial.installationId,
+                serverLeafDigest: app.plan.leafDigest,
+                epoch: app.publicMaterial.publicationEpoch);
+          },
+          dispatch: (_) {
+            businessDispatches++;
+            return app.call('open_generation_context');
+          });
 
   Future<void> open({bool grantless = false}) async {
     await app.open(enroll: false, enableWithoutRetainedChannel: true);
@@ -532,14 +556,118 @@ void existingCredentialConfirmationCases() {
     final observed = work.then((_) => enabled = true);
     await originalClosed.future;
     expect(enabled, isFalse);
+    expect((await f.readThroughBootstrap())['error'], 'unavailable');
+    expect(f.businessDispatches, 0);
     development.childSettled.complete();
     await observed;
     expect((await f.app.controls.status()).enabled, isTrue);
+    expect((await f.readThroughBootstrap())['error'], isNull);
+    expect(f.businessDispatches, 1);
     final expires = (await f.app.controls.status()).expiresAt;
     await f.app.controls.allowConfiguredAccess(profile, available: () => true);
     expect((await f.app.controls.status()).expiresAt, expires);
     await f.app.controls.disable();
     expect((await f.app.controls.status()).enabled, isFalse);
+    expect((await f.readThroughBootstrap())['error'], 'unavailable');
+    expect(f.businessDispatches, 1);
+  });
+
+  for (final cancel in ['switch', 'view', 'disconnect']) {
+    test(
+        'business bootstrap refuses READ after $cancel and a new daily action enables access',
+        () async {
+      final f = _ExistingFixture();
+      await f.open();
+      addTearDown(f.close);
+      final entered = Completer<void>(), release = Completer<void>();
+      var opened = 0;
+      final development = _DevelopmentControl()
+        ..expiresAt =
+            f.app.files.s.clock.current.add(const Duration(minutes: 30))
+        ..childSettled.complete()
+        ..onOpenWindow = () async {
+          // Models the production mutual exclusion: a business dispatch before
+          // proof owns the raw child slot and prevents this window from opening.
+          expect(f.businessDispatches, 0);
+          if (++opened == 1) {
+            entered.complete();
+            await release.future;
+            return;
+          }
+          f.proof = f.connection();
+          await f.proof!.connect();
+          f.peerClosed = f.proof!.waitForProofClosure();
+        };
+      f.app.controls.installDevelopment(development);
+      final profile = f.app.files.s.profile.profileId;
+      expect((await f.readThroughBootstrap())['error'], 'unavailable');
+      final work =
+          f.app.controls.allowConfiguredAccess(profile, available: () => true);
+      final denied = expectLater(work, throwsA(isA<ExternalAuthException>()));
+      await entered.future;
+      expect((await f.readThroughBootstrap())['error'], 'unavailable');
+      final stopping = switch (cancel) {
+        'view' => f.app.controls.cancelPendingControls(),
+        'disconnect' => f.app.controls.disconnectTransport(),
+        _ => f.app.controls.disable(),
+      };
+      release.complete();
+      await denied;
+      await stopping;
+      expect((await f.app.controls.status()).pairing, PairingState.unpaired);
+      expect((await f.readThroughBootstrap())['error'], 'unavailable');
+      expect(f.businessDispatches, 0);
+
+      await f.app.controls
+          .allowConfiguredAccess(profile, available: () => true);
+      expect(opened, 2);
+      expect((await f.app.controls.status()).enabled, isTrue);
+      expect((await f.readThroughBootstrap())['error'], isNull);
+      expect(f.businessDispatches, 1);
+    });
+  }
+
+  for (final end in ['expiry', 'maintenance', 'shutdown']) {
+    test('business bootstrap refuses READ after $end without dispatch',
+        () async {
+      final f = _ExistingFixture();
+      await f.open();
+      addTearDown(f.close);
+      await f.begin();
+      await f.app.controls
+          .confirmExistingCredential(f.app.controls.existingCredentialDisplay!);
+      await f.app.controls.enable(const Duration(minutes: 5));
+      expect((await f.readThroughBootstrap())['error'], isNull);
+      switch (end) {
+        case 'expiry':
+          f.app.files.s.clock.current =
+              f.app.files.s.clock.current.add(const Duration(minutes: 5));
+        case 'maintenance':
+          await BackupRestoreMutationGate.instance.enterQuiescence();
+          addTearDown(BackupRestoreMutationGate.instance.exitQuiescence);
+        case 'shutdown':
+          await f.app.controls.shutdown();
+      }
+      expect((await f.readThroughBootstrap())['error'], 'unavailable');
+      expect(f.businessDispatches, 1);
+    });
+  }
+
+  test('business bootstrap never substitutes for current channel validation',
+      () async {
+    final f = _ExistingFixture();
+    await f.open();
+    addTearDown(f.close);
+    await f.begin();
+    await f.app.controls
+        .confirmExistingCredential(f.app.controls.existingCredentialDisplay!);
+    await f.app.controls.enable(const Duration(minutes: 5));
+    expect((await f.readThroughBootstrap())['error'], isNull);
+    // Only the transport fixture is invalidated here; Application Enablement
+    // remains current. The original channel must still withhold its result.
+    f.app.pairing.current = false;
+    expect((await f.readThroughBootstrap())['error'], isNotNull);
+    expect(f.businessDispatches, 2);
   });
 
   for (final cancel in ['switch', 'view', 'disconnect']) {

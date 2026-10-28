@@ -1173,6 +1173,27 @@ final class FirstPartyExternalAccess {
     });
   }
 
+  /// Refusal-only preflight before the App-owned raw Bridge can be created.
+  /// A live deployment or saved Pin is not completed business Enablement.
+  /// P15 authentication and current policy checks still run on every channel.
+  void requireBusinessEnablement() {
+    _validate();
+    _credentials();
+    final b = _binding;
+    final profile = _profile;
+    if (b == null ||
+        !b.enableWithoutRetainedChannel ||
+        profile == null ||
+        _selectedId != profile.principal.profileId ||
+        _sessionRevision == null ||
+        _enabling ||
+        _configuredWork != null ||
+        b.trust.snapshot(profile.principal).state !=
+            PairingState.enabledForCurrentRuntime) {
+      externalAuthFail(ExternalAuthFailure.unauthorized);
+    }
+  }
+
   /// Trusted port rechecks the current Session and owning policy at every call.
   /// App-owned channels call this after verified association lookup, before P15.
   Future<void Function()> admitBusinessConnection(

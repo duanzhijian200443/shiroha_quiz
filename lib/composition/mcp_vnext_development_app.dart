@@ -308,6 +308,7 @@ final class McpVnextDevelopmentApp implements FirstPartyDevelopmentAccess {
   WindowsDevelopmentBootstrap _packet({required bool pairingUi}) {
     _requireCurrent();
     if (!pairingUi) {
+      integration.controls.requireBusinessEnablement();
       final root = WindowsExternalNative.open().resolveLocalAppData().value;
       if (!File(p.join(root, 'Shiroha', 'external', 'bridge', 'client.bin'))
           .existsSync()) {

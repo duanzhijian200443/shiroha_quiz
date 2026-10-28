@@ -1945,7 +1945,14 @@ normal App restart. No successful callback or OS peer check replaces
 `requireSecurityAdmission`, P26, mTLS or Application authorization.
 
 Before admitted business is ready, a tool call returns `unavailable` without
-launching an unadmitted raw Bridge. Relay observation distinguishes listening,
+launching an unadmitted raw Bridge. The development business bootstrap checks
+the original Application owner's completed finite Enablement, including its
+selected Profile and settled access action, before producing a startup packet.
+Deployment admission and an existing Pin alone are insufficient. Pending proof,
+pending Enable, cancellation, switch-off and expiry therefore cannot create a
+business child that blocks the next local proof window. This refusal-only check
+does not replace per-channel authentication or current policy validation.
+Relay observation distinguishes listening,
 connected, settling, closed and unsettled; none means business authenticated.
 Missing-file metadata is a non-authorizing status hint. Actual credential and
 Pin acceptance remains in the original Native/P25/P26 owners. Missing, partial,

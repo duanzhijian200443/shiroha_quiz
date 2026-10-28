@@ -1769,6 +1769,14 @@ generation after withdrawal. Already committed settings need not be rolled back.
 Repeated enable while already enabled does not renew the
 deadline. Opening diagnostics for the current Profile does not withdraw access.
 
+The App-owned business bootstrap requires completed finite Enablement of the
+selected Profile before creating a raw Bridge. While identity proof, Enable or
+the configured access action is pending, and after cancellation, switch-off or
+expiry, a tool call returns `unavailable` without acquiring that child. A denied
+READ must not occupy the child slot needed by the next local identity proof.
+This is only an early refusal check; every admitted business channel still
+performs the original P15 authentication and current Grant/revision checks.
+
 ### Default drafts and optional direct insertion
 
 Current saved `review` or `direct` mode is first-party authorization for
