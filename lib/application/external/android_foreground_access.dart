@@ -16,7 +16,12 @@ final class AndroidForegroundObservation {
   final bool resumed, focused, interactive, unlocked, visible;
   final String? network;
   bool get eligible =>
-      resumed && focused && interactive && unlocked && network != null;
+      visible &&
+      resumed &&
+      focused &&
+      interactive &&
+      unlocked &&
+      network != null;
   bool get withdraws => !visible || !interactive || !unlocked;
 }
 
@@ -42,6 +47,7 @@ final class _OwnedPreparation implements AndroidAccessPreparation {
   final _settled = Completer<void>();
   AndroidAccessPreparation? _inner;
   bool _cancelled = false;
+  bool cancellationFailed = false;
   _OwnedPreparation() {
     // Observe early errors while retaining them for the original owning join.
     unawaited(_result.future
@@ -50,17 +56,20 @@ final class _OwnedPreparation implements AndroidAccessPreparation {
         .then<void>((_) {}, onError: (Object _, StackTrace __) {}));
   }
   void start(AndroidAccessPreparation Function() begin) {
+    final AndroidAccessPreparation inner;
     try {
-      final inner = _inner = begin();
-      if (_cancelled) inner.cancel();
-      unawaited(
-          inner.result.then(_result.complete, onError: _result.completeError));
-      unawaited(inner.settled
-          .then(_settled.complete, onError: _settled.completeError));
+      inner = _inner = begin();
     } catch (error, stack) {
       _result.completeError(error, stack);
       _settled.completeError(error, stack);
+      return;
     }
+    // Cancellation failure cannot replace the original acquisition or drain.
+    unawaited(
+        inner.result.then(_result.complete, onError: _result.completeError));
+    unawaited(
+        inner.settled.then(_settled.complete, onError: _settled.completeError));
+    if (_cancelled) _cancelInner();
   }
 
   @override
@@ -71,7 +80,15 @@ final class _OwnedPreparation implements AndroidAccessPreparation {
   void cancel() {
     if (_cancelled) return;
     _cancelled = true;
-    _inner?.cancel();
+    _cancelInner();
+  }
+
+  void _cancelInner() {
+    try {
+      _inner?.cancel();
+    } catch (_) {
+      cancellationFailed = true;
+    }
   }
 }
 
@@ -83,7 +100,7 @@ final class AndroidForegroundAccess {
   final Duration Function() _elapsed;
   AndroidAccessPhase _phase = AndroidAccessPhase.off;
   AndroidForegroundObservation? _observation;
-  AndroidAccessPreparation? _preparation;
+  _OwnedPreparation? _preparation;
   AndroidAccessResources? _resources;
   Future<void>? _closing;
   Future<void>? _suspending;
@@ -257,6 +274,9 @@ final class AndroidForegroundAccess {
         } catch (_) {
           clean = false;
         }
+        // A reentrant cancel can fail only after begin returns. Check the latch
+        // after joining the real operation, including any late resource.
+        if (preparation.cancellationFailed) clean = false;
       }
       try {
         await acquired?.close();

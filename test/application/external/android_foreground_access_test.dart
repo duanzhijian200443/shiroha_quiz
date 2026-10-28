@@ -5,12 +5,13 @@ import 'package:shiroha_quiz/application/external/android_foreground_access.dart
 
 AndroidForegroundObservation observation(int sequence,
         {bool focus = true,
+        bool resumed = true,
         bool visible = true,
         bool unlocked = true,
         String? network = 'network-1'}) =>
     AndroidForegroundObservation(
         sequence: sequence,
-        resumed: visible,
+        resumed: resumed,
         focused: focus,
         interactive: true,
         unlocked: unlocked,
@@ -38,6 +39,7 @@ final class Preparation implements AndroidAccessPreparation {
   final acquired = Completer<AndroidAccessResources>();
   final drained = Completer<void>();
   bool cancelled = false;
+  bool failCancellation = false;
   @override
   Future<AndroidAccessResources> get result => acquired.future;
   @override
@@ -45,6 +47,7 @@ final class Preparation implements AndroidAccessPreparation {
   @override
   void cancel() {
     cancelled = true;
+    if (failCancellation) throw StateError('synthetic cancellation failure');
   }
 
   void complete(Resources resources) {
@@ -70,15 +73,67 @@ void main() {
     return r;
   }
 
-  test('starts off and cannot enable without all foreground observations',
-      () async {
-    expect(access.acceptsNew, isFalse);
-    access.observe(observation(1, focus: false));
-    await expectLater(
-        access.enable((_) => throw StateError('must not acquire')),
-        throwsStateError);
-    expect(access.phase, AndroidAccessPhase.off);
-  });
+  for (final event in [
+    observation(1, focus: false),
+    observation(1, resumed: false),
+    observation(1, visible: false),
+  ]) {
+    test(
+        'OFF rejects incomplete foreground ${event.focused}/${event.resumed}/${event.visible}',
+        () async {
+      expect(access.acceptsNew, isFalse);
+      access.observe(event);
+      var acquisitions = 0;
+      final p = Preparation()..complete(Resources());
+      try {
+        await expectLater(access.enable((_) {
+          acquisitions++;
+          return p;
+        }), throwsStateError);
+        expect(acquisitions, 0);
+        expect(access.phase, AndroidAccessPhase.off);
+        expect(access.acceptsNew, isFalse);
+      } finally {
+        await access.disable();
+      }
+    });
+  }
+
+  for (final acquiredBeforeHiding in [false, true]) {
+    test(
+        'hidden while resumed cannot revive pending enable (acquired=$acquiredBeforeHiding)',
+        () async {
+      access.observe(observation(1));
+      final p = Preparation(), r = Resources()..barrier = Completer<void>();
+      final enabling = access.enable((_) => p);
+      if (acquiredBeforeHiding) {
+        p.acquired.complete(r);
+        await Future<void>.delayed(Duration.zero);
+      }
+      access.observe(observation(2, visible: false));
+      try {
+        expect(p.cancelled, isTrue);
+        expect(access.phase, AndroidAccessPhase.draining);
+        expect(access.acceptsNew, isFalse);
+        access.observe(observation(3));
+        if (!acquiredBeforeHiding) p.acquired.complete(r);
+        p.drained.complete();
+        await Future<void>.delayed(Duration.zero);
+        expect(r.withdrawals, greaterThan(0));
+        expect(r.closes, 1);
+        expect(access.phase, AndroidAccessPhase.draining);
+        expect(access.acceptsNew, isFalse);
+      } finally {
+        if (!p.acquired.isCompleted) p.acquired.complete(r);
+        if (!p.drained.isCompleted) p.drained.complete();
+        r.barrier!.complete();
+        await Future.wait([enabling, access.disable()]);
+      }
+      expect(access.phase, AndroidAccessPhase.off);
+      expect(access.acceptsNew, isFalse);
+      expect(r.closes, 1);
+    });
+  }
 
   test('cancel before acquisition owns late resources until original drain',
       () async {
@@ -122,6 +177,72 @@ void main() {
     expect(r.closes, 1);
     expect(access.phase, AndroidAccessPhase.off);
   });
+
+  for (final reentrant in [true, false]) {
+    test(
+        'throwing cancellation retains late resources and original barriers (reentrant=$reentrant)',
+        () async {
+      access.observe(observation(1));
+      final p = Preparation()..failCancellation = true;
+      final r = Resources()..barrier = Completer<void>();
+      var closed = false;
+      var acquisitions = 0;
+      Future<void>? enabling, closing;
+      void cancel() {
+        closing = access.disable().then((_) => closed = true);
+      }
+
+      try {
+        enabling = access.enable((_) {
+          acquisitions++;
+          if (reentrant) cancel();
+          return p;
+        });
+        if (!reentrant) cancel();
+        expect(p.cancelled, isTrue);
+        expect(access.acceptsNew, isFalse);
+        await Future<void>.delayed(Duration.zero);
+        expect(closed, isFalse);
+        expect(access.phase, AndroidAccessPhase.draining);
+        await expectLater(access.enable((_) {
+          acquisitions++;
+          return Preparation();
+        }), throwsStateError);
+        expect(acquisitions, 1);
+
+        p.acquired.complete(r);
+        await Future<void>.delayed(Duration.zero);
+        expect(r.withdrawals, greaterThan(0));
+        expect(r.closes, 0);
+        expect(closed, isFalse);
+        expect(access.phase, AndroidAccessPhase.draining);
+
+        p.drained.complete();
+        await Future<void>.delayed(Duration.zero);
+        expect(r.closes, 1);
+        expect(closed, isFalse);
+        expect(access.phase, AndroidAccessPhase.draining);
+      } finally {
+        if (!p.acquired.isCompleted) p.acquired.complete(r);
+        if (!p.drained.isCompleted) p.drained.complete();
+        r.barrier!.complete();
+        await Future.wait(
+            [if (enabling != null) enabling, if (closing != null) closing!]);
+      }
+      expect(closed, isTrue);
+      expect(r.closes, 1);
+      expect(access.phase, AndroidAccessPhase.recovery);
+      access.observe(observation(2));
+      await access.disable();
+      await expectLater(access.enable((_) {
+        acquisitions++;
+        return Preparation();
+      }), throwsStateError);
+      expect(acquisitions, 1);
+      expect(access.phase, AndroidAccessPhase.recovery);
+      expect(access.acceptsNew, isFalse);
+    });
+  }
 
   test('focus loss closes old connection; resume does not renew deadline',
       () async {
