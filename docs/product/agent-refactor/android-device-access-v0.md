@@ -711,9 +711,14 @@ through approval validation, P10/P8/P7/persistence settlement and the matching
 SDK response's actual write/flush before releasing request approval. A reply to
 an excess request cannot release the original slot; duplicate in-flight IDs
 close the link. At most two protocol requests (the original and one bounded
-excess/protocol reply) are retained, with no business queue. Cancellation can
-suppress the SDK response and therefore closes the original channel; release
-then joins Native close acknowledgement and all original Dart I/O. Output or
+excess/protocol reply) are retained, with no business queue. Only explicit
+cancellation observed on the matching request's SDK signal before withdrawal
+can substitute acknowledged close for a suppressed response. EOF, protocol
+failure or local close before SDK send leaves unwritten output non-clean, even
+when Native close succeeds. SDK aborts caused by connection closure cannot
+retroactively turn that loss into explicit cancellation. Cancellation closes the
+original channel; release then joins Native close acknowledgement and all
+original Dart I/O. Output or
 close failure finishes approval as non-clean, retains its poisoned reservation
 and blocks replacement. Closing the connection never shuts
 down the App host/database or local Review/study. The desktop stores only

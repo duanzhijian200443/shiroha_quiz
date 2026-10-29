@@ -144,8 +144,8 @@ final class AndroidMcpTransport extends Transport {
 
   @override
   Future<void> send(JsonRpcMessage message, {int? relatedRequestId}) async {
-    if (_closed || !current()) androidLinkFail();
     try {
+      if (_closed || !current()) androidLinkFail();
       await _write(2, message.toJson());
       final id = switch (message) {
         JsonRpcResponse() => message.id,
@@ -159,6 +159,7 @@ final class AndroidMcpTransport extends Transport {
     } catch (_) {
       // Includes SDK response encoding, before any native write was started.
       _ioFailed = true;
+      port.outputFailed();
       _requestClose();
       rethrow;
     }
@@ -204,6 +205,7 @@ final class AndroidMcpPort implements VnextMcpResponsePort {
   Completer<bool>? _output;
   Object? _responseId;
   bool _closed = false, _settlementFailed = false;
+  bool _cancelledBeforeClose = false;
   int _requestId = 0;
 
   Future<void> get whenSettled => _idle?.future ?? Future<void>.value();
@@ -220,13 +222,24 @@ final class AndroidMcpPort implements VnextMcpResponsePort {
   }
 
   void withdraw() {
+    // Freeze the cause before closing the SDK: its onclose also aborts request
+    // signals, which is not evidence of an explicit peer cancellation.
+    if (_output?.isCompleted == false && !_cancelledBeforeClose) {
+      _settlementFailed = true;
+    }
     _closed = true;
     _control?.cancel();
   }
 
-  /// Native close and all original Dart I/O have completed. Cancellation can
-  /// suppress the SDK response; only this acknowledged close can settle it.
+  void outputFailed() => _settlementFailed = true;
+
+  /// Native close and all original Dart I/O have completed. Only an explicit
+  /// cancellation observed for this request BEFORE withdrawal can substitute
+  /// clean close for a response that the SDK suppresses.
   void channelSettled({required bool clean}) {
+    clean = clean &&
+        !_settlementFailed &&
+        (_output?.isCompleted != false || _cancelledBeforeClose);
     if (!clean) _settlementFailed = true;
     if (!_channelSettled.isCompleted) _channelSettled.complete(clean);
     if (_output?.isCompleted == false) _output!.complete(clean);
@@ -261,8 +274,10 @@ final class AndroidMcpPort implements VnextMcpResponsePort {
     final done = _idle = Completer<void>();
     final output = _output = Completer<bool>();
     _responseId = responseId;
+    _cancelledBeforeClose = false;
     final control = _control = ExternalCallControl(clock: binding.clock);
     final cancellation = cancelled.listen((_) {
+      if (!_closed) _cancelledBeforeClose = true;
       control.cancel();
       // The SDK suppresses a cancelled request's response. Close the original
       // channel instead of waiting forever for an output that will not exist.

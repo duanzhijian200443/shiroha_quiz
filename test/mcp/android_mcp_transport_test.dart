@@ -150,7 +150,7 @@ final class _Phone {
 /// Synthetic native channel with separately controlled write and close ACKs.
 /// All JSON-RPC dispatch, serialization and final send use the pinned MCP SDK.
 final class _ProtocolLink {
-  _ProtocolLink(this.phone) {
+  _ProtocolLink(this.phone, {VnextMcpPort? serverPort}) {
     reader = StreamIterator(input.stream);
     transport = AndroidMcpTransport(
         port: phone.port,
@@ -163,6 +163,7 @@ final class _ProtocolLink {
         write: (kind, message) async {
           if (kind != 2) return;
           final id = message['id'];
+          writtenIds.add(id);
           if (id == blockedId) {
             writeEntered.complete();
             await releaseWrite.future;
@@ -178,7 +179,7 @@ final class _ProtocolLink {
         invalidate: () {},
         connectionId: 'test-connection',
         current: () => phone.live);
-    server = androidDeviceServer(phone.port);
+    server = androidDeviceServer(serverPort ?? phone.port);
     settled = server
         .serveTransport(transport)
         .then((_) => true, onError: (Object _, StackTrace __) => false);
@@ -190,6 +191,7 @@ final class _ProtocolLink {
   late final VnextMcpServer server;
   late final Future<bool> settled;
   final responses = <Object?, Completer<Map<String, dynamic>>>{};
+  final writtenIds = <Object?>[];
   Object? blockedId;
   final writeEntered = Completer<void>(), releaseWrite = Completer<void>();
   final closeEntered = Completer<void>();
@@ -232,6 +234,35 @@ final class _ProtocolLink {
     expect(result['error'], isNull);
     input.add((2, {'jsonrpc': '2.0', 'method': 'notifications/initialized'}));
   }
+}
+
+/// Hold the real SDK tool callback after the original business owners settle,
+/// before it returns a result for SDK serialization/send. No production hook.
+final class _BeforeResponsePort implements VnextMcpResponsePort {
+  _BeforeResponsePort(this.original);
+  final AndroidMcpPort original;
+  final entered = Completer<void>(), release = Completer<void>();
+  final returned = Completer<void>();
+
+  @override
+  Future<Map<String, Object?>> call(String tool, Map<String, dynamic> arguments,
+      {required Stream<void> cancelled,
+      required bool Function() available,
+      Object? responseId}) async {
+    final result = await original.call(tool, arguments,
+        cancelled: cancelled, available: available, responseId: responseId);
+    if (tool == 'propose_generated_questions' && result['error'] == null) {
+      await original.binding.whenStageApprovalSettled;
+      await original.binding.host.whenSettled;
+      entered.complete();
+      await release.future;
+      returned.complete();
+    }
+    return result;
+  }
+
+  @override
+  Future<void> close() => original.close();
 }
 
 void main() {
@@ -536,6 +567,83 @@ void main() {
       expect(await f.s.h.count('questions'), count + 1);
       expect(await f.s.h.count('generated_question_proposals'), 1);
       expect(await f.s.h.count('generated_question_commit_receipts'), 1);
+    });
+  }
+
+  for (final scenario in [
+    (ExternalGenerationMode.review, 'eof'),
+    (ExternalGenerationMode.direct, 'eof'),
+    (ExternalGenerationMode.direct, 'protocol'),
+    (ExternalGenerationMode.direct, 'wrong-cancel'),
+    (ExternalGenerationMode.direct, 'cancel'),
+  ]) {
+    test(
+        'SDK pre-send ${scenario.$1}/${scenario.$2} distinguishes cancellation from lost output',
+        () async {
+      await f.policy(scenario.$1);
+      final context = await f.context();
+      final count = await f.s.h.count('questions');
+      await f.disconnect();
+      f.connect(protocol: true);
+      final paused = _BeforeResponsePort(f.port);
+      final link = _ProtocolLink(f, serverPort: paused)
+        ..closeGate = Completer<void>();
+      await link.initialize();
+      unawaited(link.call('unwritten', 'propose_generated_questions',
+          f.batch(context, 'unwritten')));
+      await paused.entered.future;
+      expect(await f.s.h.count('generated_question_proposals'), 1);
+      expect(await f.s.h.count('questions'),
+          count + (scenario.$1 == ExternalGenerationMode.direct ? 1 : 0));
+      expect(link.writtenIds, isNot(contains('unwritten')));
+      var settled = false;
+      final original = f.port.whenSettled.then((_) => settled = true);
+      final explicitlyCancelled = scenario.$2 == 'cancel';
+      f.expectFailedSettlement = !explicitlyCancelled;
+      try {
+        if (explicitlyCancelled) {
+          link.cancel('unwritten');
+        } else if (scenario.$2 == 'protocol') {
+          link.input.add((
+            2,
+            {'jsonrpc': '2.0', 'id': 'unwritten', 'method': 'tools/list'}
+          ));
+        } else {
+          if (scenario.$2 == 'wrong-cancel') link.cancel('unrelated-request');
+          unawaited(link.input.close());
+        }
+        await link.closeEntered.future;
+        expect(settled, isFalse);
+        expect(f.approval.pendingCount, 1);
+        if (scenario.$2 == 'protocol') {
+          // SDK still owns the live callback while native close is awaiting
+          // acknowledgement. Its late send hits the transport's closed guard.
+          paused.release.complete();
+          await paused.returned.future;
+          await Future<void>.delayed(Duration.zero);
+          expect(link.writtenIds, isNot(contains('unwritten')));
+        }
+        link.closeGate!.complete();
+        expect(await link.settled, explicitlyCancelled);
+        await original;
+        expect(f.approval.pendingCount, explicitlyCancelled ? 0 : 1);
+        expect(
+            (await f.port.call(
+                'propose_generated_questions', f.batch(context, 'replacement'),
+                responseId: 'replacement',
+                cancelled: const Stream.empty(),
+                available: () => true))['error'],
+            'unavailable');
+        if (!paused.release.isCompleted) paused.release.complete();
+        await paused.returned.future;
+        await Future<void>.delayed(Duration.zero);
+        expect(link.writtenIds, isNot(contains('unwritten')));
+        expect(await f.s.h.count('generated_question_proposals'), 1);
+        expect(f.app.host.isReady, isTrue);
+      } finally {
+        if (!link.closeGate!.isCompleted) link.closeGate!.complete();
+        if (!paused.release.isCompleted) paused.release.complete();
+      }
     });
   }
 

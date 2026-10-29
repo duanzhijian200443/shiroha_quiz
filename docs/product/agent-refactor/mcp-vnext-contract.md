@@ -2250,8 +2250,12 @@ and original-key lifecycle checks without the old generation Context. Publicatio
 does not wait for local Review; STAGED/NOT_REPORTED still reports no final save
 state. The invocation slot and request approval join original business settlement
 and the same request ID's final SDK response write/flush. An excess reply never
-releases that slot. Cancellation that suppresses a response closes the original
-channel and joins its close acknowledgement and Dart I/O. Output/close failure
+releases that slot. Only matching-request explicit SDK cancellation observed
+before withdrawal permits clean close to substitute for suppressed output.
+Unsolicited EOF/protocol/local close before send retains non-clean output even
+with successful Native close; the SDK's later connection-abort signal cannot
+change that cause. Cancellation closes the original channel and joins its close
+acknowledgement and Dart I/O. Output/close failure
 finishes approval as non-clean and retains poisoned custody. The Android contract
 owns duplicate-ID refusal and the two pending protocol-message bound; there is
 still only one business invocation and no business queue. No COMMIT/DESTRUCTIVE

@@ -1879,8 +1879,11 @@ Android now consumes the original request-scoped FirstPartyStageApproval/P10
 path; it never prepopulates static approvals. Its original-key query separately
 requires current READ/proposalMetadata, original Profile and authorized original
 and review targets, without an old Context. Calls retain their slot and approval
-through real owner settlement and matching final MCP write/flush. Cancellation
-with suppressed output joins original channel close acknowledgement and Dart I/O;
+through real owner settlement and matching final MCP write/flush. Only explicit
+matching-request SDK cancellation observed before withdrawal permits acknowledged
+close to replace suppressed output; unsolicited pre-send close remains non-clean.
+SDK connection-abort signals cannot retroactively grant that exception.
+Cancellation joins original channel close acknowledgement and Dart I/O;
 output/close failure retains non-clean approval custody and blocks replacement.
 A single MCP connection close never
 shuts down local Review or the App database. File selection/retrieval/passage
