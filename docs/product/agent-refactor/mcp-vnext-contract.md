@@ -2216,7 +2216,7 @@ are page-local. `contextRef + fileRefs` still creates a separate bounded File
 Context; mixed target/file-selection modes reject. Cursors are opaque, parent
 bound and do not extend authorization lifetime. No source parsing is triggered.
 
-## 18. Android foreground device consumer — bounded question READ
+## 18. Android foreground device consumer — question READ and generation
 
 [Android device access](android-device-access-v0.md) owns the device link, fixed
 device selection, Native credential adapter, foreground lifecycle and limits.
@@ -2229,18 +2229,28 @@ The App reuses the seven schemas, profileVersion 2, Submission v1 and original-k
 lifecycle query. Device/pairing selectors stay outside business arguments; only
 verified native-channel evidence may enter original P15/P0 authentication.
 
-The current subset dispatches `open_generation_context`, `search_questions` and
-`get_question_detail` only. The other four schemas remain unchanged and return
-`unavailable` before Application dispatch. Its initial Grant is question READ
-without STAGE or saved generation consent. First pairing and daily finite Enable
+The subset dispatches `open_generation_context`, `search_questions`,
+`get_question_detail`, `propose_generated_questions` and `get_question_proposal`
+under their original independent authorization. The two file tools and
+open_generation_context's file-selection modes remain unchanged schemas but
+return `unavailable` before dispatch. Initial Grant remains question READ;
+an explicit phone action adds scope-preserving STAGE/proposalMetadata with review
+first and direct as a separate choice. Ordinary Enable never upgrades policy.
+First pairing and daily finite Enable
 use the original Native-bound P15/P0 and association CAS; the proof connection
 settles before a fresh business connection may reach READY/MCP. The App remains
 owner across settings navigation, with immediate current-authorization checks
 and original cancellation/settlement. No desktop question database is used.
 
-Future Android STAGE must use original FirstPartyStageApproval through the bounded P10
-approval path. Saved review/direct does not require an open settings view;
-retained confirm keeps its original manual owner. No COMMIT/DESTRUCTIVE is added.
+Android STAGE uses original FirstPartyStageApproval through bounded P10 with
+the authenticated channel Session, current revision/runtime and exact local
+target. Saved review/direct requires no open settings view; confirm keeps its
+original manual owner. Proposal queries use independent READ/proposalMetadata
+and original-key lifecycle checks without the old generation Context. Publication
+does not wait for local Review; STAGED/NOT_REPORTED still reports no final save
+state. Caller cancellation does not release the invocation slot until original
+approval/dispatch/persistence settlement. Channel I/O retains its separate close
+owner; failure prevents replacement. No COMMIT/DESTRUCTIVE is added.
 Link/MCP/profile/Submission/persistence versions remain independent. The pinned
 SDK and Windows/v0 compatibility remain unchanged.
 
@@ -2256,3 +2266,13 @@ exit/reopen even though its global settings list omitted the project entry.
 Post-focus recovery uses complete desktop exit/reopen and a fresh Context/search/
 detail READ within the same remaining enable period. Automatic recovery is not
 claimed; tool inventory is never proof of recovery.
+
+Generation/Proposal wiring and deterministic regression are complemented by
+selected-device pending publication/original-key reopen, local approval with
+typed READ, rejection/direct terminal queries and practice with external access
+off. The selected new direct batch's original success response was withheld
+before any of its bytes reached Codex; after original-owner settlement and fresh
+authentication, normal Codex recovered committedCount 1 by that original key
+without another STAGE. Local formal content/counts and the persisted learning
+record agree. The focused contract bounds this evidence to the selected
+installation/client combination; it completes neither Android v0 nor file access.

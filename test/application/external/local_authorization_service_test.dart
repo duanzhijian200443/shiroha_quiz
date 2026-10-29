@@ -43,6 +43,48 @@ void main() {
     expect((await view.profiles()).items.single.clientProfileId, ref.profileId);
   });
   test(
+      'explicit generation upgrade preserves exact scope and needs separate direct consent',
+      () async {
+    final ref = await view.create('Android local choice');
+    final targets = (await view.targets())
+        .where(
+            (t) => t.scope.targetId == 'bank' && t.scope.projectId == 'space')
+        .toList();
+    final original = await save(ref, 0,
+        targets: targets,
+        categories: [ExternalContentCategory.questionContent]);
+    expect(
+        original.grant!.policy.generationMode, ExternalGenerationMode.confirm);
+    await expectLater(
+        view.saveQuestionGeneration(ref, 1,
+            mode: ExternalGenerationMode.direct),
+        authFailure(ExternalAuthFailure.unauthorized));
+    expect((await view.read(ref)).profile.grantRevision, 1);
+    final review = await view.saveQuestionGeneration(ref, 1,
+        mode: ExternalGenerationMode.review);
+    expect(review.grant!.policy.scopes, original.grant!.policy.scopes);
+    expect(review.grant!.policy.allContent, isFalse);
+    expect(review.grant!.policy.permissions,
+        {CapabilityPermission.read, CapabilityPermission.stage});
+    expect(review.grant!.policy.categories, {
+      ExternalContentCategory.questionContent,
+      ExternalContentCategory.proposalMetadata
+    });
+    await expectLater(
+        view.saveQuestionGeneration(ref, 1,
+            mode: ExternalGenerationMode.direct),
+        authFailure(ExternalAuthFailure.staleRevision));
+    final direct = await view.saveQuestionGeneration(ref, 2,
+        mode: ExternalGenerationMode.direct);
+    expect(direct.grant!.policy.generationMode, ExternalGenerationMode.direct);
+    final read = await view.saveQuestionGeneration(ref, 3, mode: null);
+    expect(read.grant!.policy.permissions, {CapabilityPermission.read});
+    expect(read.grant!.policy.categories,
+        {ExternalContentCategory.questionContent});
+    expect(read.grant!.policy.scopes, original.grant!.policy.scopes);
+    expect(read.grant!.policy.generationMode, ExternalGenerationMode.confirm);
+  });
+  test(
       'precise multi-bank/file/Project roundtrip; Permission and Egress independent',
       () async {
     final ref = await view.create('Synthetic');

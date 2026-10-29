@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/external/android_foreground_access.dart';
+import '../../composition/android_device_app_test.dart' as app_policy;
 
 AndroidForegroundObservation observation(int sequence,
         {bool focus = true,
@@ -57,6 +58,7 @@ final class Preparation implements AndroidAccessPreparation {
 }
 
 void main() {
+  group('Android App policy ownership', app_policy.main);
   late Duration now;
   late AndroidForegroundAccess access;
   setUp(() {

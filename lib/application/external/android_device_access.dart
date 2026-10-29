@@ -1,6 +1,7 @@
 import 'android_foreground_access.dart';
 import '../capabilities/capability.dart';
 import 'external_authorization.dart';
+import 'first_party_stage_approval.dart';
 
 /// Initial policy for the bounded Android question READ consumer.
 /// Saved generation consent is absent because this consumer grants no STAGE.
@@ -20,6 +21,8 @@ abstract interface class AndroidDeviceAccess {
   void confirmPairing();
   Future<void> enable();
   Future<void> disable();
+  Future<void> setGenerationMode(ExternalGenerationMode? mode);
+  FirstPartyStageApprovalView? openStageApprovalView();
   Future<void> cancelPending();
   Future<void> observeFlutter(bool resumed);
   Future<void> close();
@@ -39,8 +42,15 @@ final class AndroidDeviceAccessState {
       this.listening = false,
       this.connected = false,
       this.awaitingConfirmation = false,
+      this.policyReady = false,
+      this.policyChanging = false,
+      this.generationMode,
       this.error});
   final bool available, paired, awaitingConfirmation, listening, connected;
+  final bool policyReady, policyChanging;
+
+  /// Null means the current grant has no complete generation permission.
+  final ExternalGenerationMode? generationMode;
   final AndroidAccessPhase phase;
   final String? address,
       deviceId,

@@ -10,8 +10,11 @@ do not repeat the full integration acceptance. OCR optimization is paused,
 computer/tablet UI proceeds independently. Android foreground device access is
 an independent capability under [its focused contract](android-device-access-v0.md).
 Its dedicated Debug question READ subset has physical-device/normal-Codex and
-manual focus-recovery evidence. Full Android v0, STAGE, file READ and write-loss
-recovery remain pending. Hosted cloud access remains deferred.
+manual focus-recovery evidence. Generation/Proposal reuses original saved-policy
+and transaction owners, with selected-device draft/Review/direct, precise
+response-loss original-key recovery and independent practice evidence. This
+bounded generation loop does not complete file READ or full Android v0.
+Hosted cloud access remains deferred.
 Windows high-assurance real security experiments remain DEFERRED.
 No new admission, external permission or credential authority follows.
 

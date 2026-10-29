@@ -303,7 +303,10 @@ final class _ExternalAuthorizationScreenState
   @override
   Widget build(BuildContext context) {
     final android = AndroidDeviceScope.maybeOf(context);
-    if (android != null) return AndroidDeviceAccessPanel(access: android);
+    if (android != null) {
+      return AndroidDeviceAccessPanel(
+          access: android, onOpenReview: _openReview);
+    }
     final phase = _busy
         ? ExternalAgentAccessPhase.connecting
         : _enabled

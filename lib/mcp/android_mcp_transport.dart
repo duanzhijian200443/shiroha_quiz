@@ -1,14 +1,24 @@
 import 'dart:async';
 import 'package:mcp_dart/mcp_dart.dart';
 
+import '../application/external/external_invocation_core.dart';
+import '../data/external/ipc_command_projection.dart';
+import 'vnext_mcp_composition_root.dart';
+import 'vnext_mcp_protocol_projection.dart';
 import 'vnext_mcp_server.dart';
 
-VnextMcpServer androidReadServer(VnextMcpPort port) => VnextMcpServer(port,
+VnextMcpServer androidDeviceServer(VnextMcpPort port) => VnextMcpServer(port,
     protocolServer: McpServer(
       const Implementation(name: 'shiroha_mcp_vnext', version: '0.2.0'),
       options: const McpServerOptions(
           instructions:
-              'Read the selected Android phone question library. Android STAGE and file operations are unavailable.',
+              'Use the selected Android phone question library. The current '
+              'phone policy may allow generated drafts or direct saving of new '
+              'batches. STAGED/NOT_REPORTED acknowledges publication only: query '
+              'get_question_proposal by the original submissionKey for lifecycle '
+              'and counts. Never replay an uncertain write. File tools and file '
+              'selection are unavailable. Local Review and direct consent belong '
+              'to the phone user.',
           capabilities: ServerCapabilities(tools: ServerCapabilitiesTools())),
     ));
 
@@ -127,55 +137,92 @@ final class AndroidMcpTransport extends Transport {
 
 Never androidLinkFail() => throw StateError('android_link_unavailable');
 
-/// READ-only Android guard over the unchanged seven-tool schema and App port.
-/// Closing it cancels and joins its original calls, never App-wide shutdown.
-final class AndroidReadOnlyPort implements VnextMcpPort {
-  AndroidReadOnlyPort(this.inner, this.current);
-  final VnextMcpPort inner;
+/// One authenticated Android connection over the original P10/P8 business path.
+/// Caller completion does not release the slot: original approval, dispatch and
+/// persistence must settle. Closing this port never shuts down the App host.
+final class AndroidMcpPort implements VnextMcpPort {
+  AndroidMcpPort(this.binding, this.current);
+  final VnextMcpAppComposition binding;
   final bool Function() current;
-  final _cancel = StreamController<void>.broadcast(sync: true);
   Completer<void>? _idle;
-  bool _closed = false;
+  ExternalCallControl? _control;
+  Future<void>? _closing;
+  bool _closed = false, _settlementFailed = false;
+  int _requestId = 0;
+
+  Future<void> get whenSettled => _idle?.future ?? Future<void>.value();
+
   @override
   Future<Map<String, Object?>> call(String tool, Map<String, dynamic> arguments,
       {required Stream<void> cancelled,
       required bool Function() available}) async {
-    if (_closed || !current()) return vnextFailure('unavailable');
+    if (_closed || _settlementFailed || !current() || !available()) {
+      return vnextFailure('unavailable');
+    }
     if (!const {
-      'open_generation_context',
-      'search_questions',
-      'get_question_detail'
-    }.contains(tool)) {
+          'open_generation_context',
+          'search_questions',
+          'get_question_detail',
+          'propose_generated_questions',
+          'get_question_proposal',
+        }.contains(tool) ||
+        (tool == 'open_generation_context' &&
+            (arguments.containsKey('contextRef') ||
+                arguments.containsKey('fileRefs')))) {
       return vnextFailure('unavailable');
     }
     if (_idle != null) return vnextFailure('resourceLimit');
     final done = _idle = Completer<void>();
-    final merged = StreamController<void>.broadcast(sync: true);
-    final subscriptions = [
-      cancelled.listen((_) => merged.add(null)),
-      _cancel.stream.listen((_) => merged.add(null))
-    ];
+    final control = _control = ExternalCallControl(clock: binding.clock);
+    final cancellation = cancelled.listen((_) => control.cancel());
+    final projection = OfflineIpcCommandProjection(
+        host: binding.host, authentication: binding.authentication);
     try {
-      return await inner.call(tool, arguments,
-          cancelled: merged.stream,
-          available: () => !_closed && current() && available());
-    } finally {
-      for (final subscription in subscriptions) {
-        await subscription.cancel();
+      final command = VnextMcpCommand.parse(tool, arguments);
+      final id = 'android_${++_requestId}';
+      final result = await projection.invokeV3(command.request(id),
+          binding: binding,
+          stageApprovalWait: true,
+          control: control,
+          responseAvailable: () => !_closed && current() && available());
+      if (result.frame == null) return vnextFailure('outcome_unknown');
+      try {
+        return command.response(VnextMcpCommand.decodeFrame(result.frame!), id);
+      } catch (_) {
+        return vnextFailure('invalidResult');
       }
-      await merged.close();
-      _idle = null;
-      done.complete();
+    } on FormatException {
+      return vnextFailure('invalidRequest');
+    } catch (_) {
+      return vnextFailure('unavailable');
+    } finally {
+      // Cancellation may have returned above while the original work is still
+      // running. This same connection retains custody and refuses replacement.
+      unawaited(() async {
+        var clean = false;
+        try {
+          await projection.whenSettled;
+          clean = true;
+        } catch (_) {
+          _settlementFailed = true;
+        } finally {
+          await cancellation.cancel();
+          projection.finishStageApproval(clean: clean);
+          _control = null;
+          _idle = null;
+          done.complete();
+        }
+      }());
     }
   }
 
   @override
-  Future<void> close() async {
-    if (!_closed) {
-      _closed = true;
-      _cancel.add(null);
-    }
-    await _idle?.future;
-    await _cancel.close();
+  Future<void> close() {
+    _closed = true;
+    _control?.cancel();
+    return _closing ??= () async {
+      await whenSettled;
+      if (_settlementFailed) androidLinkFail();
+    }();
   }
 }

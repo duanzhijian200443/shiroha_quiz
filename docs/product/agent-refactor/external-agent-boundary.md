@@ -1749,9 +1749,11 @@ TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED; AR-R6B remains inactive.
 
 This amendment owns shared v35 saved generation policy and its explicitly listed
 first-party consumers. The MCP section 17.12 Windows development consumer and
-the separately admitted question READ subset in
-[Android device access](android-device-access-v0.md) are implemented. Android's
-broader STAGE/file scope remains unavailable. Durable policy, default drafts/direct insertion and file
+the separately admitted question READ/generation/Proposal subset in
+[Android device access](android-device-access-v0.md) are wired. Its focused contract
+bounds exercised phone generation/Review, post-loss original-key recovery and
+independent practice to the selected development installation; file access is
+unavailable. Durable policy, default drafts/direct insertion and file
 discovery below define shared semantics for explicitly admitted consumers.
 The everyday-access subsection describes Windows deployment/channel/child
 orchestration; Android uses its separate foreground and credential boundary.
@@ -1864,9 +1866,19 @@ remain independent. Installation, migration, pairing and navigation never widen
 existing exact-scope/confirm policies. Background, lock and network changes use
 the Android lifecycle and never delete durable content.
 
-The separately bounded Android question READ integration grants only READ and
-questionContent on its first explicit enable. It retains the `confirm` default
-without granting STAGE: `review`/`direct` are invalid without STAGE permission.
-Its transport consumer refuses generation, proposal lookup and file reads; the
-full READ/STAGE default above does not expand this narrower integration. Existing
-saved grants are not broadened by reconnect or subsequent enable.
+The Android consumer still grants only READ/questionContent on first Enable,
+retaining confirm without STAGE. Its explicit local generation action preserves
+the existing scope and other egress categories while adding STAGE/proposalMetadata
+through original revision CAS. First generation choice is review; direct is an
+independent phone action. Old access is withdrawn and drained before saving;
+the next Enable uses the original proof and finite period. Neither opening
+settings nor reconnect/ordinary Enable changes policy. Returning to READ removes
+STAGE/proposalMetadata without changing target scope.
+
+Android now consumes the original request-scoped FirstPartyStageApproval/P10
+path; it never prepopulates static approvals. Its original-key query separately
+requires current READ/proposalMetadata, original Profile and authorized original
+and review targets, without an old Context. Calls retain their slot through real
+owner settlement after caller cancellation. A single MCP connection close never
+shuts down local Review or the App database. File selection/retrieval/passage
+still refuse before dispatch even when the retained Grant includes file access.
