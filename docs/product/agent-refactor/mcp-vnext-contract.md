@@ -2216,7 +2216,7 @@ are page-local. `contextRef + fileRefs` still creates a separate bounded File
 Context; mixed target/file-selection modes reject. Cursors are opaque, parent
 bound and do not extend authorization lifetime. No source parsing is triggered.
 
-## 18. Android foreground device consumer — question READ and generation
+## 18. Android foreground device consumer — seven-tool library access
 
 [Android device access](android-device-access-v0.md) owns the device link, fixed
 device selection, Native credential adapter, foreground lifecycle and limits.
@@ -2229,13 +2229,28 @@ The App reuses the seven schemas, profileVersion 2, Submission v1 and original-k
 lifecycle query. Device/pairing selectors stay outside business arguments; only
 verified native-channel evidence may enter original P15/P0 authentication.
 
-The subset dispatches `open_generation_context`, `search_questions`,
-`get_question_detail`, `propose_generated_questions` and `get_question_proposal`
-under their original independent authorization. The two file tools and
-open_generation_context's file-selection modes remain unchanged schemas but
-return `unavailable` before dispatch. Initial Grant remains question READ;
+The consumer dispatches all seven tools under their original independent
+authorization. File-list/selection modes of `open_generation_context`,
+`retrieve_file_content` and `get_file_passage` use the original P10/P6 projection
+over this phone's current verified F1 artifacts and existing lexical index.
+No business schema, field whitelist, budget or source-tracking protocol changes.
+File choices are paginated under a parent Context (including empty pages with a
+next cursor); fileRefs create a separate bounded File Context. PassageRef/cursor
+reads preserve actual chunk order and coverage flags; ranked hits never mean
+the entire document was read. Neither file names nor raw IDs/paths are exposed.
+Initial Grant remains question READ;
 an explicit phone action adds scope-preserving STAGE/proposalMetadata with review
-first and direct as a separate choice. Ordinary Enable never upgrades policy.
+first and direct as a separate choice. An independent local fileContent action
+preserves that mode and all other permissions/categories/scopes, withdraws and
+settles old access before revision CAS, and requires fresh finite Enable/proof.
+An exact policy without File scopes cannot gain them through that action.
+All-content consent explicitly includes current/future files in this installation.
+Ordinary Enable never upgrades policy. Source-not-ready, stale/corrupt artifacts
+and revoked scope deny content without raw-file, reparse/OCR or Provider fallback.
+File READ may build the existing derived index; it is not a zero-write claim.
+Server instructions describe the file workflow and partial coverage, and make
+clear that PassageRefs do not become GeneratedEvidence; use existing uncited
+semantics when no recognized evidence exists.
 First pairing and daily finite Enable
 use the original Native-bound P15/P0 and association CAS; the proof connection
 settles before a fresh business connection may reach READY/MCP. The App remains
@@ -2283,5 +2298,17 @@ off. The selected new direct batch's original success response was withheld
 before any of its bytes reached Codex; after original-owner settlement and fresh
 authentication, normal Codex recovered committedCount 1 by that original key
 without another STAGE. Local formal content/counts and the persisted learning
-record agree. The focused contract bounds this evidence to the selected
-installation/client combination; it completes neither Android v0 nor file access.
+record agree. The focused contract bounds this inherited evidence to the selected
+installation/client combination.
+
+New selected-phone evidence covers old-policy file refusal, explicit fileContent,
+normal-Codex file choices/independent File Context, current TXT retrieval and
+actual continuation, followed by two model-authored uncited questions, one direct
+submission, original-key committed counts and matching question READ/phone view.
+Reading remains partial (beginning chunks 0–15 of the 47-part text; hasMore true).
+Instructions include the unchanged Submission v1 item format and one-call-at-a-time
+rule. The seven-tool finite development loop is now exercised; full Android v0
+and production acceptance are not claimed. The focused contract also records
+the exec-exit temporary-key cleanup failure and the demonstrated manual sequence:
+keep interactive Codex alive, close phone access, await original adapter/cleanup,
+then exit the client. Arbitrary process termination is not clean-close proof.

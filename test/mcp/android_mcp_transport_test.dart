@@ -287,7 +287,7 @@ void main() {
             'get_question_proposal', {'submissionKey': 'old-read'}))['error'],
         isNotNull);
     for (final tool in ['retrieve_file_content', 'get_file_passage']) {
-      expect((await f.call(tool))['error'], 'unavailable');
+      expect((await f.call(tool))['error'], 'invalidRequest');
     }
     for (final args in [
       {'contextRef': context},
@@ -296,8 +296,8 @@ void main() {
         'fileRefs': [context]
       }
     ]) {
-      expect((await f.call('open_generation_context', args))['error'],
-          'unavailable');
+      expect(
+          (await f.call('open_generation_context', args))['error'], isNotNull);
     }
     expect(await f.s.h.count('generated_question_proposals'), 0);
     await f.reopen();

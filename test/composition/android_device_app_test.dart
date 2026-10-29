@@ -82,6 +82,8 @@ void main() {
       await app.inspect();
       expect(app.state.paired, isTrue);
       expect(app.state.generationMode, isNull);
+      expect(app.state.fileContentAllowed, isFalse);
+      expect(app.state.allContent, isTrue);
       expect((await management.read(ref)).profile.grantRevision, 1);
       final cancelled = app.setGenerationMode(ExternalGenerationMode.review);
       final failure = expectLater(cancelled, throwsStateError);
@@ -95,10 +97,25 @@ void main() {
       await app.setGenerationMode(ExternalGenerationMode.direct);
       expect(app.state.phase, AndroidAccessPhase.off);
       expect(app.state.generationMode, ExternalGenerationMode.direct);
-      await management.replaceGrant(ref, 3, androidQuestionReadPolicy());
+      final fileCancellation = app.setFileContentAllowed(true);
+      final fileFailure = expectLater(fileCancellation, throwsStateError);
+      await app.cancelPending();
+      await fileFailure;
+      expect((await management.read(ref)).profile.grantRevision, 3);
+      await app.inspect();
+      await app.setFileContentAllowed(true);
+      expect(app.state.fileContentAllowed, isTrue);
+      expect(app.state.generationMode, ExternalGenerationMode.direct);
+      expect(app.state.phase, AndroidAccessPhase.off);
+      await app.inspect();
+      expect(app.state.fileContentAllowed, isTrue);
+      await app.setFileContentAllowed(false);
+      expect(app.state.fileContentAllowed, isFalse);
+      expect(app.state.generationMode, ExternalGenerationMode.direct);
+      await management.replaceGrant(ref, 5, androidQuestionReadPolicy());
       await expectLater(app.setGenerationMode(ExternalGenerationMode.review),
           throwsA(isA<ExternalAuthException>()));
-      expect((await management.read(ref)).profile.grantRevision, 4);
+      expect((await management.read(ref)).profile.grantRevision, 6);
       await app.inspect();
       expect(app.state.generationMode, isNull);
       expect(app.state.profileId, profile);

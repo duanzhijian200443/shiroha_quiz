@@ -13,7 +13,10 @@ Its dedicated Debug question READ subset has physical-device/normal-Codex and
 manual focus-recovery evidence. Generation/Proposal reuses original saved-policy
 and transaction owners, with selected-device draft/Review/direct, precise
 response-loss original-key recovery and independent practice evidence. This
-bounded generation loop does not complete file READ or full Android v0.
+bounded generation evidence is now joined by selected-phone file retrieval,
+actual continuation and file-backed generation/READ, closing the finite seven-tool
+usage loop. Partial reading and manual shutdown remain explicit; full Android v0,
+other devices/builds and production acceptance remain pending.
 Hosted cloud access remains deferred.
 Windows high-assurance real security experiments remain DEFERRED.
 No new admission, external permission or credential authority follows.

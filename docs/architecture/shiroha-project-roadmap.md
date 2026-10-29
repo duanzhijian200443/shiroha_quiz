@@ -169,15 +169,18 @@ Current scheduling supersedes the earlier functionality-first priority below:
   approval boundaries are retained.
 - Computer/tablet UI proceeds as an **independent workstream**, with its own
   scope, evidence and delivery; its completion is not this milestone's gate.
-- Android foreground device access is the next **independent capability** under
+- Android foreground device access is an **independent capability** under
   [its focused contract](../product/agent-refactor/android-device-access-v0.md).
   The approved design selects one LAN path and preserves Application, saved-policy
   and persistence owners. Its dedicated Debug question READ subset now has
   physical-device, normal-Codex and manual focus-recovery evidence. Android
   generation/Proposal reuses original saved-policy and transaction owners, with
   selected-device draft/Review/direct, precise response-loss original-key recovery
-  and independent practice evidence. The bounded question loop is exercised;
-  file READ and full Android v0 remain pending. This capability
+  and independent practice evidence. New normal-Codex current-file retrieval,
+  continuation and file-backed generation/READ complete the finite seven-tool
+  usage loop for this dedicated installation, with explicit file consent and
+  manual client/adapter shutdown. Full Android v0, arbitrary client-exit cleanup,
+  other devices and release acceptance remain pending. This capability
   was not a prerequisite for Windows.
 - Hosted remote/ChatGPT access, background receipt, offline queues and device
   synchronization remain **DEFERRED**.
@@ -917,7 +920,7 @@ context, but they do not change implementation status by themselves.
 
 | ID | Status | Current evidence / next scope |
 |---|---|---|
-| **ANDROID-DEVICE-ACCESS-V0** | BOUNDED QUESTION READ / MANUAL RECOVERY; V0 REMAINDER PENDING | [Focused contract](../product/agent-refactor/android-device-access-v0.md): dedicated Debug installation, real Native identity, foreground LAN, original P15/P0/finite Enable and three READ dispatches within the seven unchanged schemas. Selected physical-device/normal-model READ and manual post-focus recovery have evidence; STAGE, file READ and write-loss recovery remain unavailable. |
+| **ANDROID-DEVICE-ACCESS-V0** | FINITE SEVEN-TOOL USAGE LOOP EXERCISED; V0 REMAINDER PENDING | [Focused contract](../product/agent-refactor/android-device-access-v0.md): the selected dedicated Debug installation reuses original P15/P0, finite foreground LAN access and all seven unchanged schemas. Current-file selection/retrieval/continuation and file-backed generation/READ join inherited question READ, Review/direct, original-key loss recovery and practice evidence. Explicit file consent, partial reading and manual client/adapter shutdown remain bounded; the full matrix, arbitrary client termination, other devices and release acceptance are unproved. |
 | **IMPORT-UX-1** | COMPLETE | Document import selects the real QuestionBank before parsing, silently remembers the target, freezes `bankName`/`folderName` per task and PDF batch, and confirms frozen targets in Review without renaming. Optional default-off perfect-score auto commit accepts only clean typedV2 RD0 snapshots through the existing typed lease/CAS writer, with manual Review fallback. `bankName` remains globally unique; no bankId, duplicate-name support, legacy backfill, AI classification, or schema change. |
 | **ARCH-EXAM-GENERATION-LIFETIME** | BACKLOG / HARDENING | Random mock-exam selection still happens before the final `ExamMutationCommand.createExamPaper` mutation lease. The durable create is gated; full selection-to-create lifetime ownership remains a low-risk hardening item. |
 | **UI-RWD-1** | PARTIAL | Shared `contentMaxWidth` constraints and Assistant/File Library breakpoints already exist. App-wide narrow/wide/desktop acceptance and consistent responsive policy are not yet closed. |

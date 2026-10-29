@@ -21,25 +21,38 @@ Future<void> interactionFrame(WidgetTester tester,
   }
 }
 
-Future<T> interactionRead<T>(
-    WidgetTester tester, Future<T> Function() read) async {
+Future<T> interactionRead<T>(WidgetTester tester, Future<T> Function() read,
+    {Duration timeout = const Duration(seconds: 10)}) async {
   if (tester.binding is LiveTestWidgetsFlutterBinding) return read();
   var done = false;
   T? result;
   Object? failure;
   StackTrace? trace;
+  final settled = Completer<void>();
+  final elapsed = Stopwatch()..start();
   await tester.runAsync(() async {
     unawaited(read().then((value) {
       result = value;
       done = true;
+      settled.complete();
     }, onError: (Object error, StackTrace stack) {
       failure = error;
       trace = stack;
       done = true;
+      settled.complete();
     }));
   });
-  for (var i = 0; i < 100 && !done; i++) {
+  // SQLite/fixture files use real I/O while widgets use a fake clock. A fixed
+  // number of zero-time event turns can run out before that I/O is scheduled.
+  // Pump widget callbacks AND await the original completion with a wall bound.
+  while (!done && elapsed.elapsed < timeout) {
     await interactionFrame(tester, Duration.zero);
+    if (!done) {
+      await tester.runAsync(() => Future.any<void>([
+            settled.future,
+            Future<void>.delayed(const Duration(milliseconds: 10)),
+          ]));
+    }
   }
   expect(done, isTrue, reason: 'original asynchronous operation must settle');
   if (failure != null) Error.throwWithStackTrace(failure!, trace!);

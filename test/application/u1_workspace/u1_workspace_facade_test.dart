@@ -565,6 +565,14 @@ void main() {
       expect(status.status, LibraryFileArtifactStatus.available);
       expect(status.parserRoute, 'pdf_text');
       expect(status.revision, 2);
+      expect(status.document, lifecycle.artifacts['file-a']!.sourceDocument);
+      expect(lifecycle.ensureCalls, isEmpty);
+      lifecycle.currentError = const ParsedArtifactLifecycleException(
+          ParsedArtifactLifecycleFailure.artifactCorrupt);
+      final corrupt = await facade.getLibraryFileArtifactStatus('file-a');
+      expect(corrupt.status, LibraryFileArtifactStatus.failed);
+      expect(corrupt.document, isNull);
+      expect(lifecycle.ensureCalls, isEmpty);
     });
 
     test('deterministic PDF parse success -> available, OCR never called',

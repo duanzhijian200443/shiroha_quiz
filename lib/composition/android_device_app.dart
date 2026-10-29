@@ -96,6 +96,13 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
           _policyRecord?.profile.revokedAtUtcMs == null &&
           _policyRecord?.grant?.revokedAtUtcMs == null,
       policyChanging: _policySaving != null,
+      fileContentAllowed: _policyRecord?.grant?.policy.categories
+              .contains(ExternalContentCategory.fileContent) ??
+          false,
+      allContent: _policyRecord?.grant?.policy.allContent ?? false,
+      hasFileScope: _policyRecord?.grant?.policy.scopes
+              .any((scope) => scope.kind == ExternalTargetKind.file) ??
+          false,
       generationMode: _generationMode,
       awaitingConfirmation: _confirmation != null,
       expiresAt: _expiresAt,
@@ -736,7 +743,19 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
   /// The explicit phone action preserves scope through the original local
   /// policy owner. Saving never enables access; the next Enable uses fresh proof.
   @override
-  Future<void> setGenerationMode(ExternalGenerationMode? mode) {
+  Future<void> setGenerationMode(ExternalGenerationMode? mode) =>
+      _savePolicy((view, reference, revision) =>
+          view.saveQuestionGeneration(reference, revision, mode: mode));
+
+  @override
+  Future<void> setFileContentAllowed(bool allowed) =>
+      _savePolicy((view, reference, revision) =>
+          view.saveFileContent(reference, revision, allowed: allowed));
+
+  Future<void> _savePolicy(
+      Future<ExternalAuthorizationRecord> Function(
+              LocalAuthorizationView, ExternalProfileReference, int)
+          save) {
     final profile = _profile;
     final record = _policyRecord;
     if (!_current ||
@@ -764,9 +783,7 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
         if (!current()) androidLinkFail();
         final reference = await view.select(profile);
         if (!current()) androidLinkFail();
-        final saved = await view.saveQuestionGeneration(
-            reference, record.profile.grantRevision,
-            mode: mode);
+        final saved = await save(view, reference, record.profile.grantRevision);
         if (!current()) androidLinkFail();
         _policyRecord = saved;
         _error = null;

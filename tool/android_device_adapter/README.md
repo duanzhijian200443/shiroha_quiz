@@ -1,4 +1,4 @@
-# Android fixed-device question adapter
+# Android fixed-device library adapter
 
 The [approved capability contract](../../docs/product/agent-refactor/android-device-access-v0.md)
 owns the target and the narrower delivery in section 12. Only the explicitly
@@ -14,7 +14,8 @@ Ordinary Android artifacts reject protected acquisition. The admitted App uses
 original P15/P0, association CAS, finite Enable and current authorization. Its
 seven schemas are unchanged. The phone dispatches question READ plus
 `propose_generated_questions` and `get_question_proposal` under its current
-authorization. Both file tools and file-selection mode remain unavailable.
+authorization. File modes additionally require explicit local fileContent and
+the original File scope; they use the same phone F1/retrieval owners.
 The historical `.androidread` package and `android_device_read` directory names
 are retained; do not reinstall, re-pair or migrate credentials to rename them.
 
@@ -79,10 +80,51 @@ local practice with external access off have now been exercised. The selected
 new direct batch's original successful response was withheld in full, its owner
 settled cleanly, and a later normal-Codex query recovered committedCount 1 by the
 original key after fresh Enable. Local bank content/counts and a learning record
-surviving normal phone reopen provide separate phone evidence. File access, full
-Android v0 and other devices/artifacts remain outside this delivery.
+surviving normal phone reopen provide separate phone evidence. New file evidence
+adds normal-Codex selection, current TXT retrieval/continuation and two uncited
+questions with original-key committed counts and matching phone/READ content.
+The finite seven-tool loop is exercised on this installation; full Android v0
+and other devices/artifacts remain outside this delivery.
+
+For the exercised interactive CLI, keep the client alive until phone access is
+off and the original adapter has exited with its temporary-key marker removed,
+then exit Codex. The bundled CLI used `--no-daemon` because its interactive daemon
+packaging was unavailable. A `codex exec` auto-exit left an unsettled temporary
+import during acceptance; a later proof refused as designed. Unknown cleanup
+requires separately authorized exact-key recovery, never marker deletion alone,
+re-pairing or replacing the persistent record. Automatic/abrupt-exit cleanup is
+not claimed. This changes no transport or credential protocol.
 
 ## Phone generation policy and original-key recovery
+
+For file reading, enable `允许读取资料正文` only after checking its scope on the
+phone. This preserves the current generation mode, permissions and scopes;
+all-content covers this installation's current and future File Library files.
+An exact policy without File scopes cannot be widened by this switch. Policy
+changes close and settle old access; repeat the original Enable/proof flow.
+An existing same-scope file grant needs no new consent. Upgrade, settings open
+and ordinary reconnect never add file permission.
+
+In normal Codex, list targets/create a parent Context, then use
+one tool call at a time, waiting for its response. Use
+`open_generation_context(contextRef, pageSize?, cursor?)` to list file choices.
+Continue even an empty page when nextCursor is present. Select returned fileRefs
+into a separate File Context; selectionOrdinal is page-local, not file identity.
+Use `retrieve_file_content` for lexical hits and `get_file_passage` with the
+returned passageRef/cursor for continuous reading. Compare the approved sample
+in the phone's File Library view; do not add names/IDs/paths to the response.
+Report hasMore, startsAtDocumentBeginning and unsupportedExcluded accurately.
+Partial hits/pages do not mean the whole document was read. Current verified
+ParsedArtifact is the only source; no OCR, parser or Provider is triggered.
+Existing derived-index construction may write cache, so this is not zero writes.
+Generate only from actual returned content. PassageRefs are not evidenceKeys;
+without existing recognized GeneratedEvidence, retain explicit uncited items.
+Then use the unchanged STAGE/original submissionKey query and local review/direct
+policy below. Do not replay an uncertain submission or redo prior loss experiments.
+The unchanged Submission v1 item and uncited format is defined in
+[the generation contract](../../docs/product/agent-refactor/generated-question-proposals.md#candidate-submission)
+and summarized by the Android server instructions. `evidenceKeys: []` expresses
+uncited; there is no extra `uncited` field.
 
 Old READ grants stay READ until the phone user explicitly enables generation and
 Proposal queries. The first generation choice is review; the independent direct

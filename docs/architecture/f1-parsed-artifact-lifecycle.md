@@ -290,6 +290,13 @@ Application lifecycle seam:
 - `reparseArtifact(fileId, options, expectedRevision)`
 - `removeCurrentArtifact(fileId, expectedRevision)`
 
+The existing File Detail local body view receives the verified current
+`SourceDocument` through the Workspace Application DTO and structural renderer.
+Opening/refreshing uses only `getCurrentArtifact`; failure removes the prior
+display, with no original-file or lazy-parser fallback. Source order and the
+observed revision are explicit. This local view supplies no external egress grant
+and does not establish that an external consumer read the complete document.
+
 Safe outcomes:
 
 - `cacheHit`
