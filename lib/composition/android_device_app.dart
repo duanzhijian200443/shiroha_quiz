@@ -9,6 +9,7 @@ import '../application/external/external_authorization.dart';
 import '../application/external/external_credential_boundary.dart';
 import '../application/external/external_trust_core.dart';
 import '../application/external/first_party_external_credentials.dart';
+import '../application/external/first_party_stage_approval.dart';
 import '../application/external/local_authorization_service.dart';
 import '../application/external/local_host_dispatch.dart';
 import '../data/external/android_native_association_backend.dart';
@@ -65,6 +66,10 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
   Completer<void>? _confirmation, _proof;
   Future<void>? _stopping;
   Future<void>? _closing;
+  ExternalAuthorizationRecord? _policyRecord;
+  LocalAuthorizationView? _policyView;
+  Future<void>? _policySaving;
+  int _policyGeneration = 0;
   Timer? _deadline, _preparingDeadline;
   final _connections = <Future<void>>{};
   bool get _current => !_disposed && !_recovery && applicationCurrent();
@@ -87,13 +92,32 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
       profileId: _profile,
       clientDigest: _client,
       paired: _paired,
+      policyReady: _policyRecord?.grant != null &&
+          _policyRecord?.profile.revokedAtUtcMs == null &&
+          _policyRecord?.grant?.revokedAtUtcMs == null,
+      policyChanging: _policySaving != null,
+      generationMode: _generationMode,
       awaitingConfirmation: _confirmation != null,
       expiresAt: _expiresAt,
       error: _error);
 
+  ExternalGenerationMode? get _generationMode {
+    final grant = _policyRecord?.grant;
+    if (grant == null ||
+        grant.revokedAtUtcMs != null ||
+        _policyRecord!.profile.revokedAtUtcMs != null ||
+        !grant.policy.permissions.contains(CapabilityPermission.stage) ||
+        !grant.policy.categories
+            .contains(ExternalContentCategory.proposalMetadata)) {
+      return null;
+    }
+    return grant.policy.generationMode;
+  }
+
   @override
   Future<void> inspect() async {
-    if (!_current) return;
+    if (!_current || _policySaving != null) return;
+    final policyGeneration = _policyGeneration;
     try {
       final status = await _native.invoke('status');
       if (status is! Map || status['runtimeAvailable'] != true) return;
@@ -113,6 +137,10 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
             .toList();
         if (profiles.length > 1) androidLinkFail();
         if (profiles.length == 1) {
+          final policyRecord = await view
+              .read(await view.select(profiles.single.clientProfileId));
+          if (!_current || policyGeneration != _policyGeneration) return;
+          _policyRecord = policyRecord;
           _profile = profiles.single.clientProfileId;
           final snapshot = await _foundation.associations.read(_profile!);
           final record = snapshot.record;
@@ -253,6 +281,7 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
     if (!_current ||
         !_available ||
         _action ||
+        _policySaving != null ||
         _foreground.phase != AndroidAccessPhase.off ||
         _stopping != null ||
         _nativeObservedMs == null ||
@@ -324,6 +353,7 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
         installationId: identity['installationId']! as String,
         readiness: _AndroidReadiness(() => _current && applicationCurrent()),
         monotonicNow: () => _clock.elapsed,
+        enableStageApprovalWait: true,
         maxEnableDuration: const Duration(hours: 8),
         enableWithoutRetainedChannel: true,
         services: (boundary) {
@@ -367,15 +397,16 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
       _client = record.credentialIdentity;
       // First access saves this delivery's READ grant. Later enables preserve
       // the original saved policy; current P4 checks still decide every call.
-      final policyRecord = await management.read(reference);
+      var policyRecord = await management.read(reference);
       if (policyRecord.grant == null) {
-        await management.replaceGrant(reference,
+        policyRecord = await management.replaceGrant(reference,
             policyRecord.profile.grantRevision, androidQuestionReadPolicy());
       } else if (policyRecord.grant!.revokedAtUtcMs != null ||
           !policyRecord.grant!.policy.permissions
               .contains(CapabilityPermission.read)) {
         androidLinkFail();
       }
+      _policyRecord = policyRecord;
     }
     operation.check();
     final proof = _proof = Completer<void>();
@@ -516,16 +547,18 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
         }
 
         final appBinding = _binding!;
-        final port = AndroidReadOnlyPort(
+        final port = AndroidMcpPort(
             VnextMcpAppComposition(
                 host: appBinding.host,
                 reads: appBinding.reads,
                 stages: appBinding.stages,
+                stageApproval: appBinding.stageApproval,
                 approvedTargets: const [],
                 authentication: VnextMcpSessionAuthentication(() async =>
                     current() && await channel.attest() ? session : null)),
             current);
         final transport = AndroidMcpTransport(
+            port: port,
             newNonce: androidNonce,
             validNonce: androidNonceIsValid,
             read: channel.read,
@@ -534,7 +567,7 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
             invalidate: channel.invalidate,
             connectionId: channel.id,
             current: current);
-        final server = androidReadServer(port);
+        final server = androidDeviceServer(port);
         await channel.write(1, {
           'type': 'ready',
           'linkVersion': 1,
@@ -546,7 +579,15 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
         await channel.established();
         _businessId = channel.id;
         _notify();
-        await server.serveTransport(transport);
+        try {
+          await server.serveTransport(transport);
+        } catch (_) {
+          // The server joins its original port and transport close. Failed
+          // business settlement must not become a replaceable native channel.
+          _recovery = true;
+          _verification?.invalidateAll();
+          rethrow;
+        }
         return;
       }
       stage = 'offer';
@@ -689,12 +730,90 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
   }
 
   @override
-  Future<void> cancelPending() =>
-      _foreground.phase == AndroidAccessPhase.preparing
-          ? disable()
-          : Future.value();
+  FirstPartyStageApprovalView? openStageApprovalView() =>
+      _integration?.controls.openStageApprovalView();
+
+  /// The explicit phone action preserves scope through the original local
+  /// policy owner. Saving never enables access; the next Enable uses fresh proof.
+  @override
+  Future<void> setGenerationMode(ExternalGenerationMode? mode) {
+    final profile = _profile;
+    final record = _policyRecord;
+    if (!_current ||
+        !_paired ||
+        !_available ||
+        _action ||
+        _policySaving != null ||
+        profile == null ||
+        record?.grant == null ||
+        record!.profile.clientProfileId != profile) {
+      androidLinkFail();
+    }
+    final generation = ++_policyGeneration;
+    final view = _policyView = policy.openView();
+    // Withdrawal occurs synchronously, before the first policy read or CAS.
+    final withdrawal = _disableRuntime();
+    bool current() =>
+        _current &&
+        view.isCurrent &&
+        generation == _policyGeneration &&
+        _profile == profile;
+    final work = _policySaving = () async {
+      try {
+        await withdrawal;
+        if (!current()) androidLinkFail();
+        final reference = await view.select(profile);
+        if (!current()) androidLinkFail();
+        final saved = await view.saveQuestionGeneration(
+            reference, record.profile.grantRevision,
+            mode: mode);
+        if (!current()) androidLinkFail();
+        _policyRecord = saved;
+        _error = null;
+      } catch (_) {
+        _policyRecord = null;
+        _error = '设置未确认；访问保持关闭，请重新核对授权。';
+        rethrow;
+      } finally {
+        view.close();
+        if (identical(_policyView, view)) _policyView = null;
+        _policySaving = null;
+        _notify();
+      }
+    }();
+    _notify();
+    return work;
+  }
+
+  void _cancelPolicy() {
+    _policyGeneration++;
+    _policyView?.close();
+  }
+
+  @override
+  Future<void> cancelPending() async {
+    _cancelPolicy();
+    final saving = _policySaving;
+    if (_foreground.phase == AndroidAccessPhase.preparing) {
+      await disable();
+    }
+    try {
+      await saving;
+    } catch (_) {/* Failed local save never restores access. */}
+  }
+
   @override
   Future<void> disable() {
+    _cancelPolicy();
+    final saving = _policySaving;
+    final closing = _disableRuntime();
+    return Future.wait([
+      closing,
+      if (saving != null) saving.catchError((Object _) {}),
+    ]).then((_) {});
+  }
+
+  Future<void> _disableRuntime() {
     if (_stopping != null) return _stopping!;
     _deadline?.cancel();
     _preparingDeadline?.cancel();

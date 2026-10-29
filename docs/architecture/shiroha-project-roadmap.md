@@ -173,8 +173,11 @@ Current scheduling supersedes the earlier functionality-first priority below:
   [its focused contract](../product/agent-refactor/android-device-access-v0.md).
   The approved design selects one LAN path and preserves Application, saved-policy
   and persistence owners. Its dedicated Debug question READ subset now has
-  physical-device, normal-Codex and manual focus-recovery evidence. Full Android
-  v0, STAGE, file READ and write-loss recovery remain pending; this capability
+  physical-device, normal-Codex and manual focus-recovery evidence. Android
+  generation/Proposal reuses original saved-policy and transaction owners, with
+  selected-device draft/Review/direct, precise response-loss original-key recovery
+  and independent practice evidence. The bounded question loop is exercised;
+  file READ and full Android v0 remain pending. This capability
   was not a prerequisite for Windows.
 - Hosted remote/ChatGPT access, background receipt, offline queues and device
   synchronization remain **DEFERRED**.

@@ -111,13 +111,16 @@ associations, TLS and foreground/network observations through bounded ports.
 It owns no business SQLite or authorization. Keys remain native rather than
 being exported to Dart SecurityContext. The normal root constructs an inactive
 owner; only the explicitly selected Android READ Debug installation registers
-real lifecycle observations and admits local pairing/finite question READ.
+real lifecycle observations and admits local pairing/finite question access.
 Ordinary artifacts retain refusal. The separate native-only validation entry
 uses the same key/TLS primitives and itself creates no P15 or business authority.
-The admitted App composes original P15/P0, Grant and READ owners; Native and the
-desktop adapter own no business database or authorization. Android STAGE and
-file tools remain unavailable. `docs/product/agent-refactor/android-device-access-v0.md`
-owns this narrower implementation and its demonstrated manual client recovery.
+The admitted App composes original P15/P0, Grant, READ, request-scoped
+FirstPartyStageApproval/P10 and Proposal owners; Native and the desktop adapter
+own no business database or authorization. Explicit phone generation policy
+preserves scope/revision CAS; ordinary Enable leaves old READ grants unchanged.
+Files remain unavailable. Connection close joins original work without closing
+the App database/local Review. `docs/product/agent-refactor/android-device-access-v0.md`
+owns this subset, its manual client recovery and separate generation acceptance.
 
 The External Windows primitive adapter in `lib/data/external/native` owns
 explicit SDK FFI calls to the independent `windows/external_native` C ABI DLL.
@@ -508,8 +511,9 @@ The existing Windows integration remains platform-specific. Android requires a
 separate composition over the same Application/Data owners, original
 request-scoped approval and Android foreground admission. Its specified LAN
 endpoint is not a Windows loopback-listener or development-exception extension.
-The source-only foundation does not yet wire those business owners or enable
-the endpoint. MCP v0 and the seven-tool business profile remain unchanged.
+The selected Debug consumer wires question READ/generation/Proposal through
+those owners; other artifacts retain refusal and file access remains unavailable.
+MCP v0 and the seven-tool business profile remain unchanged.
 
 The bounded vNext STAGE stdio source slice is described in
 `docs/product/agent-refactor/mcp-vnext-contract.md` §7. Its separate seven-tool

@@ -114,6 +114,51 @@ final class LocalAuthorizationView {
                 : ExternalGenerationMode.review,
           )));
 
+  /// Explicit local generation choice over an existing READ grant. Unlike
+  /// all-content setup, this preserves the original target and egress scopes.
+  /// A null mode returns to question READ; direct requires a prior generation
+  /// choice and can never be the implicit first upgrade.
+  Future<ExternalAuthorizationRecord> saveQuestionGeneration(
+          ExternalProfileReference ref, int revision,
+          {required ExternalGenerationMode? mode}) =>
+      _run(() async {
+        final record = await _management.read(ref);
+        final grant = record.grant;
+        if (record.profile.grantRevision != revision) {
+          externalAuthFail(ExternalAuthFailure.staleRevision);
+        }
+        if (record.profile.revokedAtUtcMs != null ||
+            grant == null ||
+            grant.revokedAtUtcMs != null ||
+            !grant.policy.permissions.contains(CapabilityPermission.read) ||
+            !grant.policy.categories
+                .contains(ExternalContentCategory.questionContent) ||
+            (mode == ExternalGenerationMode.direct &&
+                !grant.policy.permissions
+                    .contains(CapabilityPermission.stage))) {
+          externalAuthFail(ExternalAuthFailure.unauthorized);
+        }
+        final previous = grant.policy;
+        final permissions = {...previous.permissions};
+        final categories = {...previous.categories};
+        if (mode == null) {
+          permissions.remove(CapabilityPermission.stage);
+          categories.remove(ExternalContentCategory.proposalMetadata);
+        } else {
+          permissions.add(CapabilityPermission.stage);
+          categories.add(ExternalContentCategory.proposalMetadata);
+        }
+        return _management.replaceGrant(
+            ref,
+            revision,
+            ExternalGrantPolicy(
+                permissions: permissions,
+                scopes: previous.scopes,
+                categories: categories,
+                allContent: previous.allContent,
+                generationMode: mode ?? ExternalGenerationMode.confirm));
+      });
+
   /// Permission and Egress are separate; choices never accept freeform paths.
   Future<ExternalAuthorizationRecord> save(
           ExternalProfileReference ref, int revision,

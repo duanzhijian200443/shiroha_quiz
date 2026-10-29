@@ -5,8 +5,10 @@ import 'package:shiroha_quiz/application/capabilities/capability.dart';
 import 'package:shiroha_quiz/application/external/external_authorization.dart';
 import 'package:shiroha_quiz/ui/pages/external_authorization_screen.dart';
 import '../application/external/local_authorization_test_support.dart';
+import 'android_device_access_panel_test.dart' as android_panel;
 
 void main() {
+  group('Android generation settings', android_panel.main);
   initializeGeneratedTests();
   late LocalAuthorizationHarness fixture;
   setUp(() async {

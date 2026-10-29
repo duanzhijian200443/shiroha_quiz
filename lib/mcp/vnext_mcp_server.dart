@@ -13,6 +13,16 @@ abstract interface class VnextMcpPort {
   Future<void> close();
 }
 
+/// A connection-owned port that also joins the SDK's final response output.
+/// The request ID correlates output only; it grants no business authority.
+abstract interface class VnextMcpResponsePort implements VnextMcpPort {
+  @override
+  Future<Map<String, Object?>> call(String tool, Map<String, dynamic> arguments,
+      {required Stream<void> cancelled,
+      required bool Function() available,
+      Object? responseId});
+}
+
 /// Safe business failure, distinct from an MCP JSON-RPC protocol error.
 Map<String, Object?> vnextFailure(String code) =>
     {'profileVersion': 2, 'data': null, 'error': code};
@@ -78,6 +88,11 @@ final class VnextMcpServer {
           final properties = entry.value['properties'] as Map;
           if (arguments.keys.any((key) => !properties.containsKey(key))) {
             result = vnextFailure('invalidRequest');
+          } else if (port case final VnextMcpResponsePort responsePort) {
+            result = await responsePort.call(entry.key, arguments,
+                responseId: extra.requestId,
+                cancelled: extra.signal.onAbort,
+                available: () => !_closed && !extra.signal.aborted);
           } else {
             result = await port.call(entry.key, arguments,
                 cancelled: extra.signal.onAbort,

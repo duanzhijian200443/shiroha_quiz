@@ -1,6 +1,7 @@
 # Android device access v0
 
-Status: **Bounded Debug question READ and manual recovery; full Android v0 remains pending.**
+Status: **Bounded Debug question READ plus generation/Proposal source integration;
+generation device acceptance and full Android v0 remain pending.**
 The user approved this design and its first foundation implementation on
 2026-10-28. Design approval alone grants no real connection, credential operation,
 model call, business exposure or Android product acceptance. The task-only native
@@ -180,14 +181,18 @@ business scope and its separate acceptance.
 
 External boundary section 14 now explicitly specifies this additional consumer.
 
-The bounded question READ integration is narrower than the eventual v0 policy:
-its first explicit enable saves READ and questionContent only, with all-content
-limited by that category. It retains the default `confirm` value because
-`review`/`direct` require STAGE permission. No generation consent or manual STAGE
-flow is activated; the Android consumer rejects all STAGE and file tools.
-Subsequent enables preserve the original saved policy rather than widening it.
-New Android access defaults to review; direct defaults off and requires an
-explicit local choice. All-content covers this phone's current Shiroha data
+First explicit Enable still saves READ/questionContent only and retains confirm.
+Updates, navigation, reconnect and ordinary Enable preserve that saved policy.
+The separate phone generation action adds STAGE/proposalMetadata through the
+original local authorization owner and revision CAS, preserving READ, exact
+scopes, all-content selection and other egress categories. Its first choice is
+review; direct requires a separate explicit action after generation is enabled.
+Returning to READ removes STAGE/proposalMetadata and restores confirm. Policy
+changes withdraw old access synchronously and join its owners before CAS;
+failure leaves access off. Saving never enables access: the user follows the
+original finite Enable/proof sequence again. File selection and both file tools
+remain unavailable even when retained policy includes file scope/category.
+All-content covers this phone's current Shiroha data
 instance, including subsequently added banks/File Library files, not OS files,
 other devices or Windows data. Current existence, Project membership, category,
 recipient, permission, revision, Context and final-release checks still apply.
@@ -601,9 +606,9 @@ does not make it active. No full-app redesign or three-screen setup wizard.
 
 ## 11. Required acceptance matrix
 
-This is the full v0 matrix, not the completion checklist for the bounded READ
-integration in section 12. Its generation/file and other undelivered rows remain
-pending. D = deterministic synthetic fixture;
+This is the full v0 matrix, not the completion checklist for the bounded question
+integration in section 12. File access and acceptance not explicitly covered by
+that section's evidence remain pending. D = deterministic synthetic fixture;
 E = isolated emulator runtime; R = real phone/network/normal Codex evidence.
 E/R need separate explicit runtime authorization. Emulator port forwarding is
 not real cross-device LAN proof; no row requires OCR.
@@ -641,7 +646,7 @@ not real cross-device LAN proof; no row requires OCR.
 | Oversize/slow/concurrent/stalled frames | Bounded refusal and actual settlement custody | D+E |
 | Keystore/KeyManager/TLS pairing | Correct proof succeeds; wrong pin/key/expiry fails | E+R |
 
-## 12. Bounded question READ integration and remaining admission boundary
+## 12. Bounded question generation integration and remaining admission boundary
 
 The normal root constructs an inactive Android owner. Only the separately
 selected Debug artifact below registers its Native MethodChannel and real
@@ -673,7 +678,7 @@ alone do not establish a successful native TLS combination or normal READ.
 
 After successful native combination proof, the admitted normal App's existing
 external-Agent settings entry supplies first pairing with local fingerprint
-confirmation and a 30-minute question READ action. The same Native channel owns
+confirmation and a 30-minute access action. The same Native channel owns
 P15 verification events, installation/association binding, current authentication
 and true close settlement; a probe digest cannot mint authentication evidence.
 The original association CAS, Application P0, finite Enable and authorization
@@ -681,12 +686,43 @@ owners remain authoritative. Enable uses section 3's proof-only PREPARING,
 desktop helper, original proof settlement, then a fresh business TLS/HELLO/READY
 sequence. An early business request closes without consuming the proof action.
 
-The existing seven schemas remain visible. Only `open_generation_context`,
-`search_questions` and `get_question_detail` enter the original Application READ
-owners, with one business connection and one active call. STAGE, proposal lookup,
-file retrieval and file passage remain `unavailable` before dispatch. No external
-write, direct/Review acceptance, response-loss write recovery, new schema or
-alternate tool profile is delivered. The desktop stores identity/routing only.
+The seven schemas remain visible. `open_generation_context`, `search_questions`
+and `get_question_detail` retain original question READ.
+`propose_generated_questions` enters original P10 request-scoped
+FirstPartyStageApproval/P8/P3 under the authenticated channel Session, current
+Grant revision, runtime, exact App-minted target and original cancellation.
+No static approved targets grant generation. Saved review/direct works without
+an open settings page; confirm retains its bounded local decision view.
+`get_question_proposal` uses independent READ/proposalMetadata and current
+Profile/original/review-target checks without the old Context, releasing only
+the original lifecycle/count whitelist. File selection, retrieval and passage
+refuse before dispatch even with file permission.
+
+Review acknowledges durable pending publication without waiting for Review.
+Direct applies only to new keys in the original atomic transaction; old drafts,
+repeated keys and mode changes never trigger late commit. STAGED/NOT_REPORTED is
+publication acknowledgement, not pending or formal-save evidence. Recovery
+queries the original key without replay. No new schema, writer, Receipt,
+recovery journal or external COMMIT is added.
+
+One business connection and one active original invocation remain bounded.
+Cancellation may return before settlement; the connection retains its slot
+through approval validation, P10/P8/P7/persistence settlement and the matching
+SDK response's actual write/flush before releasing request approval. A reply to
+an excess request cannot release the original slot; duplicate in-flight IDs
+close the link. At most two protocol requests (the original and one bounded
+excess/protocol reply) are retained, with no business queue. Only explicit
+cancellation observed on the matching request's SDK signal before withdrawal
+can substitute acknowledged close for a suppressed response. EOF, protocol
+failure or local close before SDK send leaves unwritten output non-clean, even
+when Native close succeeds. SDK aborts caused by connection closure cannot
+retroactively turn that loss into explicit cancellation. Cancellation closes the
+original channel; release then joins Native close acknowledgement and all
+original Dart I/O. Output or
+close failure finishes approval as non-clean, retains its poisoned reservation
+and blocks replacement. Closing the connection never shuts
+down the App host/database or local Review/study. The desktop stores only
+identity/routing.
 
 The App owns READY access across normal navigation. Leaving preparation cancels
 and joins the original operation. Focus loss closes the original channel and
@@ -709,6 +745,35 @@ search and detail READ on the same unextended enable period. Automatic recovery
 is not claimed. Lock/background/switch-off instead require a fresh explicit
 enable/proof action. Exact artifact hashes, failed attempts and superseding
 evidence belong to the execution/PR record, not this capability contract.
+
+Generation has deterministic temporary-SQLite/widget coverage for
+policy upgrade/CAS, old READ refusal, pending publication/reopen, local Review,
+new direct/replay/conflict, revision drift and cancellation before/after commit
+with owning settlement. Synthetic credentials are not physical-device write
+acceptance. In the authorized installation, normal Codex published pending
+drafts outside settings and queried them by original key, including after a
+normal phone reopen and fresh Enable. Local approval produced a committed key
+and matching typed READ; switching to direct preserved the other pending draft.
+Local history records that user's later rejection and a new direct batch's
+committed Receipt. With external access off, the existing practice entry accepted
+a real answer and grade; its learning record survived a normal phone reopen.
+
+The selected-connection loss helper received the original new direct batch's
+publication acknowledgement, forwarded zero bytes of that response and joined
+the original adapter's clean exit. After phone/client reopen and fresh original
+Enable, normal Codex queried the original keys without an old Context or another
+STAGE: the direct and approved batches each reported committedCount 1, and the
+rejected batch reported committedCount 0 / rejectedCount 1. The phone's formal
+bank contained exactly the two new accepted samples plus its original test
+question, with no rejected sample. This joins precise response-withholding,
+original-key recovery and local content/count evidence; an ordinary successful
+submission followed by reopen is not substituted for response loss.
+
+These observations exercise the bounded question-generation loop on the selected
+installation, not file access, other artifacts or the full section 11 matrix.
+No physical in-flight commit/invalidation race is inferred from a disconnect:
+deterministic transaction/settlement tests own that bounded evidence. Unchanged
+identity/TLS/READ evidence is not relabelled as write proof.
 
 Minimum native proof: Keystore key through KeyManager/TLS without export, exact
 credential/installation/channel binding, foreground/close settlement ordering,
