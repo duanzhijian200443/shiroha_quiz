@@ -159,6 +159,50 @@ final class LocalAuthorizationView {
                 generationMode: mode ?? ExternalGenerationMode.confirm));
       });
 
+  /// Explicit file-body egress choice over the SAME saved policy. This does not
+  /// add File scopes, READ/STAGE permissions or any generation consent.
+  Future<ExternalAuthorizationRecord> saveFileContent(
+          ExternalProfileReference ref, int revision,
+          {required bool allowed}) =>
+      _run(() async {
+        final record = await _management.read(ref);
+        final grant = record.grant;
+        if (record.profile.grantRevision != revision) {
+          externalAuthFail(ExternalAuthFailure.staleRevision);
+        }
+        if (record.profile.revokedAtUtcMs != null ||
+            grant == null ||
+            grant.revokedAtUtcMs != null ||
+            !grant.policy.permissions.contains(CapabilityPermission.read)) {
+          externalAuthFail(ExternalAuthFailure.unauthorized);
+        }
+        final previous = grant.policy;
+        if (allowed &&
+            !previous.allContent &&
+            !previous.scopes.any((s) => s.kind == ExternalTargetKind.file)) {
+          externalAuthFail(ExternalAuthFailure.unauthorized);
+        }
+        final categories = {...previous.categories};
+        if (allowed ==
+            categories.contains(ExternalContentCategory.fileContent)) {
+          return record;
+        }
+        if (allowed) {
+          categories.add(ExternalContentCategory.fileContent);
+        } else {
+          categories.remove(ExternalContentCategory.fileContent);
+        }
+        return _management.replaceGrant(
+            ref,
+            revision,
+            ExternalGrantPolicy(
+                permissions: previous.permissions,
+                scopes: previous.scopes,
+                categories: categories,
+                allContent: previous.allContent,
+                generationMode: previous.generationMode));
+      });
+
   /// Permission and Egress are separate; choices never accept freeform paths.
   Future<ExternalAuthorizationRecord> save(
           ExternalProfileReference ref, int revision,

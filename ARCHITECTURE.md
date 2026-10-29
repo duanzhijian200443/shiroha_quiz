@@ -118,9 +118,12 @@ The admitted App composes original P15/P0, Grant, READ, request-scoped
 FirstPartyStageApproval/P10 and Proposal owners; Native and the desktop adapter
 own no business database or authorization. Explicit phone generation policy
 preserves scope/revision CAS; ordinary Enable leaves old READ grants unchanged.
-Files remain unavailable. Connection close joins original work without closing
+Explicit file-body consent preserves the same policy's scope and generation
+mode; file modes consume original P6 and the phone's current verified F1/FTS5
+owners. Connection close joins original work and derived index I/O without closing
 the App database/local Review. `docs/product/agent-refactor/android-device-access-v0.md`
-owns this subset, its manual client recovery and separate generation acceptance.
+owns this finite seven-tool subset, its selected-device evidence and explicit
+manual client recovery/shutdown limits; full Android v0 remains separate.
 
 The External Windows primitive adapter in `lib/data/external/native` owns
 explicit SDK FFI calls to the independent `windows/external_native` C ABI DLL.
@@ -512,7 +515,8 @@ separate composition over the same Application/Data owners, original
 request-scoped approval and Android foreground admission. Its specified LAN
 endpoint is not a Windows loopback-listener or development-exception extension.
 The selected Debug consumer wires question READ/generation/Proposal through
-those owners; other artifacts retain refusal and file access remains unavailable.
+those owners, including P6 file selection/retrieval/passages under independent
+fileContent consent; other artifacts retain refusal.
 MCP v0 and the seven-tool business profile remain unchanged.
 
 The bounded vNext STAGE stdio source slice is described in

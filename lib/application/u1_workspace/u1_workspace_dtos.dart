@@ -1,6 +1,7 @@
 library;
 
 import '../study_query/study_query_dtos.dart';
+import '../../domain/source/source_document.dart';
 
 enum FileLibraryView { all, recent, unclassified }
 
@@ -125,12 +126,16 @@ final class LibraryFileArtifactState {
     this.parserRoute,
     this.revision,
     this.errorMessage,
+    this.document,
   });
 
   final LibraryFileArtifactStatus status;
   final String? parserRoute;
   final int? revision;
   final String? errorMessage;
+
+  /// Verified current F1 snapshot for local display; never an external grant.
+  final SourceDocument? document;
 
   @override
   bool operator ==(Object other) =>
@@ -139,8 +144,10 @@ final class LibraryFileArtifactState {
           status == other.status &&
           parserRoute == other.parserRoute &&
           revision == other.revision &&
-          errorMessage == other.errorMessage;
+          errorMessage == other.errorMessage &&
+          document == other.document;
 
   @override
-  int get hashCode => Object.hash(status, parserRoute, revision, errorMessage);
+  int get hashCode =>
+      Object.hash(status, parserRoute, revision, errorMessage, document);
 }

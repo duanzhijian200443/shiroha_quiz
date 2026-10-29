@@ -336,6 +336,7 @@ final class U1WorkspaceFacade {
         status: LibraryFileArtifactStatus.available,
         parserRoute: snapshot.parserRoute,
         revision: snapshot.artifact.revision,
+        document: snapshot.sourceDocument,
       );
     } on ParsedArtifactLifecycleException catch (e) {
       return switch (e.failure) {

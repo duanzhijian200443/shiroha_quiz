@@ -1,12 +1,13 @@
 # Android device access v0
 
-Status: **Bounded Debug question READ plus generation/Proposal source integration;
-generation device acceptance and full Android v0 remain pending.**
+Status: **The selected dedicated Debug installation has exercised the bounded
+seven-tool usage loop; the full Android v0 matrix and release acceptance remain
+pending.**
 The user approved this design and its first foundation implementation on
 2026-10-28. Design approval alone grants no real connection, credential operation,
 model call, business exposure or Android product acceptance. The task-only native
 validation and READ entries in section 12 require their own selected
-installation/network authorization. The READ subset does not complete Android v0.
+installation/network authorization. This bounded loop does not complete Android v0.
 
 ## 1. Scope and authority
 
@@ -190,8 +191,15 @@ review; direct requires a separate explicit action after generation is enabled.
 Returning to READ removes STAGE/proposalMetadata and restores confirm. Policy
 changes withdraw old access synchronously and join its owners before CAS;
 failure leaves access off. Saving never enables access: the user follows the
-original finite Enable/proof sequence again. File selection and both file tools
-remain unavailable even when retained policy includes file scope/category.
+original finite Enable/proof sequence again.
+The independent local file-body action adds/removes only `fileContent`, through
+the same policy owner and withdrawal/drain/revision CAS sequence. It preserves
+READ/STAGE, proposalMetadata, exact scopes, all-content and generationMode.
+An exact-scope policy without a File scope cannot enable file bodies; no scope
+is invented. Retained same-scope file consent is reused. Upgrade, page open and
+reconnect never add this category. The UI discloses the actual saved scope;
+all-content file consent covers current AND subsequently added File Library
+materials in this installation, even when a demonstration selects only one file.
 All-content covers this phone's current Shiroha data
 instance, including subsequently added banks/File Library files, not OS files,
 other devices or Windows data. Current existence, Project membership, category,
@@ -606,8 +614,8 @@ does not make it active. No full-app redesign or three-screen setup wizard.
 
 ## 11. Required acceptance matrix
 
-This is the full v0 matrix, not the completion checklist for the bounded question
-integration in section 12. File access and acceptance not explicitly covered by
+This is the full v0 matrix, not the completion checklist for the bounded
+integration in section 12. Acceptance not explicitly covered by
 that section's evidence remain pending. D = deterministic synthetic fixture;
 E = isolated emulator runtime; R = real phone/network/normal Codex evidence.
 E/R need separate explicit runtime authorization. Emulator port forwarding is
@@ -646,7 +654,7 @@ not real cross-device LAN proof; no row requires OCR.
 | Oversize/slow/concurrent/stalled frames | Bounded refusal and actual settlement custody | D+E |
 | Keystore/KeyManager/TLS pairing | Correct proof succeeds; wrong pin/key/expiry fails | E+R |
 
-## 12. Bounded question generation integration and remaining admission boundary
+## 12. Bounded seven-tool integration and remaining admission boundary
 
 The normal root constructs an inactive Android owner. Only the separately
 selected Debug artifact below registers its Native MethodChannel and real
@@ -695,8 +703,30 @@ No static approved targets grant generation. Saved review/direct works without
 an open settings page; confirm retains its bounded local decision view.
 `get_question_proposal` uses independent READ/proposalMetadata and current
 Profile/original/review-target checks without the old Context, releasing only
-the original lifecycle/count whitelist. File selection, retrieval and passage
-refuse before dispatch even with file permission.
+the original lifecycle/count whitelist.
+
+The Android port also dispatches the original file modes through P10/P8/P6.
+The production composition supplies the SAME phone database, File Library,
+ParsedArtifact lifecycle/metadata, lexical retrieval index and Chunker already
+owned by that App. A parent Context lists only authorized paginated choices;
+returned fileRefs create a separate immutable File Context without modifying or
+renewing the parent or granting STAGE. Unparsed choices are skipped/reported;
+an empty page can carry nextCursor, and selectionOrdinal is page-local.
+P6 retains its independent READ/fileContent/File-Project checks, opaque reference
+ownership and unchanged selection, Context, response and invocation budgets.
+
+Retrieval consumes only verified CURRENT F1 artifacts via
+ExternalVerifiedArtifactSource, reusing lexical retrieval/FTS5 and the existing
+derived cache. No raw original, desktop copy, old generation, parser, OCR or
+Provider fallback is available. Index construction can write derived cache and
+must not be described as zero writes. Source-not-ready, corruption, generation
+change and lost scope retain their existing refusal semantics. Final release
+revalidates current source integrity and authorization before releasing content.
+Search hits do not assert document coverage; passageRef/cursor reads preserve
+ordered complete chunks, hasMore, startsAtDocumentBeginning and
+unsupportedExcluded. Wire whitelists expose no filename, raw ID or path.
+Passage references are not GeneratedEvidence; absent recognized evidence,
+generated items retain the existing explicit uncited representation.
 
 Review acknowledges durable pending publication without waiting for Review.
 Direct applies only to new keys in the original atomic transaction; old drafts,
@@ -721,7 +751,10 @@ original channel; release then joins Native close acknowledgement and all
 original Dart I/O. Output or
 close failure finishes approval as non-clean, retains its poisoned reservation
 and blocks replacement. Closing the connection never shuts
-down the App host/database or local Review/study. The desktop stores only
+down the App host/database or local Review/study. File calls use this SAME slot
+and response settlement barrier. A cancelled file result does not finish an
+in-flight index build/read: P10 joins the original P8/read owner and necessary
+I/O before replacement. No STAGE settlement behavior is relaxed. The desktop stores only
 identity/routing.
 
 The App owns READY access across normal navigation. Leaving preparation cancels
@@ -769,11 +802,67 @@ question, with no rejected sample. This joins precise response-withholding,
 original-key recovery and local content/count evidence; an ordinary successful
 submission followed by reopen is not substituted for response loss.
 
-These observations exercise the bounded question-generation loop on the selected
-installation, not file access, other artifacts or the full section 11 matrix.
+These inherited observations exercise the bounded question-generation loop on
+the selected installation. They are not relabelled as new file evidence.
 No physical in-flight commit/invalidation race is inferred from a disconnect:
 deterministic transaction/settlement tests own that bounded evidence. Unchanged
 identity/TLS/READ evidence is not relabelled as write proof.
+
+### File-backed generation and finite development closeout
+
+The same retained installation/Profile and original LAN pairing have now been
+exercised with normal logged-in Codex CLI 0.165.0-alpha.1.2. Before file consent,
+normal target/parent calls succeeded and file discovery returned
+`capability.externalReadDenied`. The phone's existing all-content/direct policy
+was then changed only by the explicit file-body action; old access closed and
+generation mode was preserved. A fresh original Enable/proof preceded file use.
+
+The phone File Library was empty. One original non-sensitive TXT was uploaded
+through its existing file picker and explicitly parsed by the deterministic
+text route into revision 1, with no OCR/provider call. The existing file-detail
+page now offers a local body view over freshly verified current F1 content,
+using structural rendering in source order. Refresh failure removes the old
+view instead of falling back to cached/original content. Viewing locally grants
+no external permission.
+
+Normal Codex listed the sole file choice, created a separate File Context,
+retrieved its distinctive marker and used actual PassageRef/cursor continuation.
+The demonstrated beginning pages covered chunk ordinals 0–7 then 8–15, with
+`startsAtDocumentBeginning` true then false, `hasMore=true` and
+`unsupportedExcluded=false`. An earlier ranked end-marker hit remained a
+middle/end-document read. This is partial coverage of the 47-part current text,
+not complete-document reading. The phone view agreed with the beginning marker,
+source order and specific rules used by the exercise.
+
+Using only returned passages, the normal model authored two single-choice items
+with empty evidenceKeys (uncited), submitted one batch under the retained direct
+policy, and queried its original key: committed, requested/actual/committed 2,
+rejected 0. Existing question READ and the phone's bank browser matched stems,
+options, answers and explanations. No submission was replayed. Concurrent READ
+attempts encountered the existing resourceLimit; serial reads succeeded. Server
+instructions now state serial use and the unchanged Submission v1 item/uncited
+format, without extending any schema or budget. Derived-index writes remain
+possible and are not described as zero effects.
+
+Client shutdown remains a bounded operational limitation. One noninteractive
+`codex exec` exit left its adapter's temporary current-user CNG import unsettled;
+the pending marker correctly blocked the next proof. Recovery was explicitly
+authorized for that single marker-bound temporary key and verified its absence;
+the persistent device record, phone keys, pairing and data were unchanged.
+The successful interactive run used the installed CLI's `--no-daemon` mode and
+kept it running until phone access was switched off, the original adapter exited
+and its cleanup marker disappeared; only then did Codex exit. This proves that
+manual shutdown sequence, not clean arbitrary client termination or automatic
+recovery. Never remove an unknown marker or replace credentials automatically.
+
+Together with the unchanged READ/generation/Review/original-key recovery and
+learning evidence above, the seven-tool usage loop is complete for this dedicated
+development combination. This closes the finite file-reading/generation stage;
+no further package is needed merely to repeat prior A/B/C batches. The full
+section 11 matrix, other devices/builds, production/security acceptance and
+automatic reconnection/abrupt-client-exit recovery remain unproved. Exact run
+identities, failed attempts, hashes and independent delivery approvals belong
+to Git/PR evidence, not this durable contract.
 
 Minimum native proof: Keystore key through KeyManager/TLS without export, exact
 credential/installation/channel binding, foreground/close settlement ordering,

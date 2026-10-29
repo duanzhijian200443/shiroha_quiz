@@ -12,13 +12,28 @@ VnextMcpServer androidDeviceServer(VnextMcpPort port) => VnextMcpServer(port,
       const Implementation(name: 'shiroha_mcp_vnext', version: '0.2.0'),
       options: const McpServerOptions(
           instructions:
-              'Use the selected Android phone question library. The current '
+              'Use the selected Android phone library. Call one tool at a time '
+              'and await its response. File access requires '
+              'local fileContent permission: list paginated choices under a '
+              'parent contextRef, then select returned fileRefs into a separate '
+              'File Context. Empty pages may have nextCursor; ordinals are '
+              'page-local. Retrieve hits, then read passageRef/cursor; report '
+              'coverage flags and never infer complete reading from hits. '
+              'Passage refs are not GeneratedEvidence. The current '
               'phone policy may allow generated drafts or direct saving of new '
               'batches. STAGED/NOT_REPORTED acknowledges publication only: query '
               'get_question_proposal by the original submissionKey for lifecycle '
-              'and counts. Never replay an uncertain write. File tools and file '
-              'selection are unavailable. Local Review and direct consent belong '
-              'to the phone user.',
+              'and counts. Never replay an uncertain write. Local Review and direct consent belong '
+              'to the phone user. Submission v1 has schemaVersion:1, '
+              'submissionKey, requestedCount and items. Each item has exactly '
+              'itemKey, kind, stem, options, answer, explanation, evidenceKeys. '
+              'For singleChoice, stem/explanation and option content are node '
+              'arrays (for text: {type:"text",text:"..."}); explanation may be '
+              'null. Each option has optionKey,label,content; use 2..26 unique '
+              'options. answer is {type:"choice",optionKeys:[one optionKey]}. '
+              'Empty evidenceKeys:[] means uncited; do not add an uncited field. '
+              'itemKey/optionKey/submissionKey use '
+              '[A-Za-z0-9][A-Za-z0-9._-]{0,63}.',
           capabilities: ServerCapabilities(tools: ServerCapabilitiesTools())),
     ));
 
@@ -259,15 +274,14 @@ final class AndroidMcpPort implements VnextMcpResponsePort {
       return vnextFailure('unavailable');
     }
     if (!const {
-          'open_generation_context',
-          'search_questions',
-          'get_question_detail',
-          'propose_generated_questions',
-          'get_question_proposal',
-        }.contains(tool) ||
-        (tool == 'open_generation_context' &&
-            (arguments.containsKey('contextRef') ||
-                arguments.containsKey('fileRefs')))) {
+      'open_generation_context',
+      'search_questions',
+      'get_question_detail',
+      'retrieve_file_content',
+      'get_file_passage',
+      'propose_generated_questions',
+      'get_question_proposal',
+    }.contains(tool)) {
       return vnextFailure('unavailable');
     }
     if (_idle != null) return vnextFailure('resourceLimit');

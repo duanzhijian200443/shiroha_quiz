@@ -42,6 +42,71 @@ void main() {
     expect(record.profile.protocol, 'unconfigured');
     expect((await view.profiles()).items.single.clientProfileId, ref.profileId);
   });
+  for (final mode in ExternalGenerationMode.values) {
+    for (final allContent in [false, true]) {
+      test('file category CAS preserves $mode and allContent=$allContent',
+          () async {
+        final ref = await view.create('File policy');
+        final management = ExternalAuthorizationManagement(
+            repository: fixture.repository,
+            compositionIsCurrent: () => true,
+            mintProfileId: () => throw StateError('no new profile'));
+        final scopes = (await view.targets()).map((t) => t.scope).toList();
+        final original = await management.replaceGrant(
+            await management.selectProfile(ref.profileId),
+            0,
+            ExternalGrantPolicy(
+                permissions: const [
+                  CapabilityPermission.read,
+                  CapabilityPermission.stage
+                ],
+                scopes: allContent ? const [] : scopes,
+                categories: const [
+                  ExternalContentCategory.questionContent,
+                  ExternalContentCategory.proposalMetadata
+                ],
+                allContent: allContent,
+                generationMode: mode));
+        final enabled = await view.saveFileContent(ref, 1, allowed: true);
+        final unchanged = await view.saveFileContent(ref, 2, allowed: true);
+        expect(unchanged.profile.grantRevision, 2);
+        await expectLater(view.saveFileContent(ref, 1, allowed: false),
+            authFailure(ExternalAuthFailure.staleRevision));
+        final disabled = await view.saveFileContent(ref, 2, allowed: false);
+        for (final record in [enabled, unchanged, disabled]) {
+          expect(record.grant!.policy.permissions,
+              original.grant!.policy.permissions);
+          expect(record.grant!.policy.scopes, original.grant!.policy.scopes);
+          expect(record.grant!.policy.generationMode, mode);
+          expect(record.grant!.policy.allContent, allContent);
+        }
+        expect(enabled.grant!.policy.categories, {
+          ...original.grant!.policy.categories,
+          ExternalContentCategory.fileContent
+        });
+        expect(disabled.grant!.policy.categories,
+            original.grant!.policy.categories);
+        await view.revokeGrant(ref, 3);
+        await expectLater(view.saveFileContent(ref, 4, allowed: true),
+            authFailure(ExternalAuthFailure.unauthorized));
+        management.invalidate();
+      });
+    }
+  }
+  test('file category cannot broaden a legacy bank-only scope', () async {
+    final ref = await view.create('Legacy bank');
+    await save(ref, 0,
+        targets: (await view.targets())
+            .where((t) => t.scope.kind == ExternalTargetKind.bank)
+            .toList(),
+        categories: [ExternalContentCategory.questionContent]);
+    await expectLater(view.saveFileContent(ref, 1, allowed: true),
+        authFailure(ExternalAuthFailure.unauthorized));
+    final record = await view.read(ref);
+    expect(record.profile.grantRevision, 1);
+    expect(record.grant!.policy.allContent, isFalse);
+    expect(record.grant!.policy.generationMode, ExternalGenerationMode.confirm);
+  });
   test(
       'explicit generation upgrade preserves exact scope and needs separate direct consent',
       () async {

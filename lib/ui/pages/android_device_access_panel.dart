@@ -99,7 +99,7 @@ final class _AndroidPanelState extends State<AndroidDeviceAccessPanel> {
             ListTile(
                 title: Text(generation ? '本机题库 · 读取与生成' : '本机题库 · 仅只读'),
                 subtitle: const Text(
-                    '本次开启 30 分钟。授权范围内的题目与必要元数据可经 Codex 发送给模型服务。文件接入尚不可用。')),
+                    '本次开启 30 分钟。授权范围内的题目与必要元数据可经 Codex 发送给模型服务。资料正文须单独允许。')),
             if (state.available && !state.paired)
               Padding(
                   padding: const EdgeInsets.all(16),
@@ -132,6 +132,20 @@ final class _AndroidPanelState extends State<AndroidDeviceAccessPanel> {
           ]),
           if (state.paired)
             ShirohaSettingsCard(children: [
+              SwitchListTile.adaptive(
+                  key: const Key('android-file-content'),
+                  title: const Text('允许读取资料正文'),
+                  subtitle: Text(
+                      '${state.allContent ? "范围覆盖本安装中现有及之后加入的 File Library 资料。" : state.hasFileScope ? "仅覆盖原策略中明确授权的文件范围；不会扩大范围。" : "原策略没有文件范围，不能开启资料正文读取。"}'
+                      '获准正文可经 Codex 发送给模型服务。保留题库权限和生成模式；变更会关闭旧访问，保存后需重新开启连接。'),
+                  value: state.fileContentAllowed,
+                  onChanged: canChangePolicy &&
+                          (state.fileContentAllowed ||
+                              state.allContent ||
+                              state.hasFileScope)
+                      ? (allowed) => _run(
+                          () => widget.access.setFileContentAllowed(allowed))
+                      : null),
               SwitchListTile.adaptive(
                   key: const Key('android-generation'),
                   title: const Text('允许生成题目与查询提案'),

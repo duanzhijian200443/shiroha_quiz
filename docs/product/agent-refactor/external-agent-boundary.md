@@ -1749,11 +1749,15 @@ TRANSPORT = BLOCKED; AR-R6A = NOT_ACCEPTED; AR-R6B remains inactive.
 
 This amendment owns shared v35 saved generation policy and its explicitly listed
 first-party consumers. The MCP section 17.12 Windows development consumer and
-the separately admitted question READ/generation/Proposal subset in
+the separately admitted seven-tool Android consumer in
 [Android device access](android-device-access-v0.md) are wired. Its focused contract
 bounds exercised phone generation/Review, post-loss original-key recovery and
-independent practice to the selected development installation; file access is
-unavailable. Durable policy, default drafts/direct insertion and file
+independent practice to the selected development installation. File wiring
+consumes P6 below; new normal-Codex file selection/continuation and file-backed
+two-question generation/READ evidence closes that installation's finite
+seven-tool loop. Its partial-reading and manual-shutdown limits are recorded
+separately in that contract, without claiming the full Android matrix.
+Durable policy, default drafts/direct insertion and file
 discovery below define shared semantics for explicitly admitted consumers.
 The everyday-access subsection describes Windows deployment/channel/child
 orchestration; Android uses its separate foreground and credential boundary.
@@ -1887,4 +1891,14 @@ Cancellation joins original channel close acknowledgement and Dart I/O;
 output/close failure retains non-clean approval custody and blocks replacement.
 A single MCP connection close never
 shuts down local Review or the App database. File selection/retrieval/passage
-still refuse before dispatch even when the retained Grant includes file access.
+now use original P10/P6 and the phone's existing F1/FTS5 owners. The separate local
+file-body action changes only fileContent, after old access withdrawal/drain and
+through original revision CAS. READ/STAGE, proposalMetadata, exact scopes,
+all-content and generationMode are preserved. Missing exact File scope cannot
+be broadened by this action. Ordinary Enable, upgrade and reconnect never add
+fileContent; existing same-scope consent is reused. All-content disclosure covers
+current and future File Library materials in this installation, not only a test
+selection. Source integrity/current-generation checks, safe projections,
+pagination/coverage flags and all P6 limits remain unchanged. Only existing
+derived-cache writes are possible from file READ; cancellation retains original
+index work and matching output I/O custody until actual settlement.

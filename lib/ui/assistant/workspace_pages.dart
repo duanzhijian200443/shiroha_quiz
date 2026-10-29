@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../application/file_library/library_file_deletion.dart';
 import '../../application/u1_workspace/u1_workspace_dtos.dart';
 import 'workspace_controller.dart';
+import 'library_artifact_body_page.dart';
 
 typedef LibraryFilePicker = Future<FilePickerResult?> Function();
 
@@ -668,6 +669,15 @@ class _FileArtifactCard extends StatelessWidget {
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
               ),
+              TextButton.icon(
+                  key: const ValueKey<String>('file-detail-read-body'),
+                  icon: const Icon(Icons.article_outlined),
+                  label: const Text('查看已解析正文'),
+                  onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                          builder: (_) => LibraryArtifactBodyPage(
+                              load: () => controller.facade
+                                  .getLibraryFileArtifactStatus(fileId))))),
             ] else if (state.status ==
                 LibraryFileArtifactStatus.ocrRecommended) ...[
               const Text(

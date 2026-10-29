@@ -10,6 +10,8 @@ import 'package:shiroha_quiz/ui/pages/android_device_access_panel.dart';
 final class _Access implements AndroidDeviceAccess {
   final events = StreamController<void>.broadcast(sync: true);
   final choices = <ExternalGenerationMode?>[];
+  final fileChoices = <bool>[];
+  bool files = false, allContent = true, hasFileScope = false;
   int enables = 0, disables = 0, leaves = 0;
   ExternalGenerationMode? mode;
   @override
@@ -17,6 +19,9 @@ final class _Access implements AndroidDeviceAccess {
       available: true,
       paired: true,
       policyReady: true,
+      fileContentAllowed: files,
+      allContent: allContent,
+      hasFileScope: hasFileScope,
       phase: AndroidAccessPhase.off,
       generationMode: mode);
   @override
@@ -30,6 +35,13 @@ final class _Access implements AndroidDeviceAccess {
   Future<void> setGenerationMode(ExternalGenerationMode? value) async {
     choices.add(value);
     mode = value;
+    events.add(null);
+  }
+
+  @override
+  Future<void> setFileContentAllowed(bool allowed) async {
+    fileChoices.add(allowed);
+    files = allowed;
     events.add(null);
   }
 
@@ -61,6 +73,38 @@ final class _Access implements AndroidDeviceAccess {
 }
 
 void main() {
+  testWidgets('file consent describes actual scope and preserves direct mode',
+      (tester) async {
+    final access = _Access()..mode = ExternalGenerationMode.direct;
+    await tester.pumpWidget(
+        MaterialApp(home: AndroidDeviceAccessPanel(access: access)));
+    await tester.pumpAndSettle();
+    expect(access.fileChoices, isEmpty);
+    expect(find.textContaining('现有及之后加入的 File Library'), findsOneWidget);
+    final control = find.byKey(const Key('android-file-content'));
+    await tester.ensureVisible(control);
+    await tester.tap(control);
+    await tester.pumpAndSettle();
+    expect(access.fileChoices, [true]);
+    expect(access.choices, isEmpty);
+    expect(access.mode, ExternalGenerationMode.direct);
+    expect(access.enables, 0);
+    await tester.tap(control);
+    await tester.pumpAndSettle();
+    expect(access.fileChoices, [true, false]);
+    access.allContent = false;
+    access.events.add(null);
+    await tester.pumpAndSettle();
+    expect(tester.widget<SwitchListTile>(control).onChanged, isNull);
+    expect(find.textContaining('原策略没有文件范围'), findsOneWidget);
+    access.hasFileScope = true;
+    access.events.add(null);
+    await tester.pumpAndSettle();
+    expect(tester.widget<SwitchListTile>(control).onChanged, isNotNull);
+    expect(find.textContaining('仅覆盖原策略中明确授权的文件范围'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+    await access.close();
+  });
   testWidgets(
       'opening preserves READ; first generation choice is review and direct is independent',
       (tester) async {
@@ -107,6 +151,7 @@ void main() {
     expect(find.text('保留逐次发布确认'), findsOneWidget);
     expect(access.choices, isEmpty);
     await tester.ensureVisible(find.byKey(const Key('android-review')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('android-review')));
     expect(reviews, 1);
     expect(access.enables, 0);
