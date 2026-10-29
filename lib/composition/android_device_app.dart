@@ -558,6 +558,7 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
                     current() && await channel.attest() ? session : null)),
             current);
         final transport = AndroidMcpTransport(
+            port: port,
             newNonce: androidNonce,
             validNonce: androidNonceIsValid,
             read: channel.read,

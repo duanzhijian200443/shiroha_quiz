@@ -2248,9 +2248,14 @@ target. Saved review/direct requires no open settings view; confirm keeps its
 original manual owner. Proposal queries use independent READ/proposalMetadata
 and original-key lifecycle checks without the old generation Context. Publication
 does not wait for local Review; STAGED/NOT_REPORTED still reports no final save
-state. Caller cancellation does not release the invocation slot until original
-approval/dispatch/persistence settlement. Channel I/O retains its separate close
-owner; failure prevents replacement. No COMMIT/DESTRUCTIVE is added.
+state. The invocation slot and request approval join original business settlement
+and the same request ID's final SDK response write/flush. An excess reply never
+releases that slot. Cancellation that suppresses a response closes the original
+channel and joins its close acknowledgement and Dart I/O. Output/close failure
+finishes approval as non-clean and retains poisoned custody. The Android contract
+owns duplicate-ID refusal and the two pending protocol-message bound; there is
+still only one business invocation and no business queue. No COMMIT/DESTRUCTIVE
+is added.
 Link/MCP/profile/Submission/persistence versions remain independent. The pinned
 SDK and Windows/v0 compatibility remain unchanged.
 

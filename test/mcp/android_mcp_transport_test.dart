@@ -20,6 +20,8 @@ final class _Phone {
   late FirstPartyStageApproval approval;
   late AndroidMcpPort port;
   bool live = true;
+  bool expectFailedSettlement = false;
+  int responseSequence = 0;
   DurableStageHarness get s => app.h.s;
   Future<void> open() async {
     await app.open();
@@ -27,7 +29,7 @@ final class _Phone {
     connect();
   }
 
-  void connect() {
+  void connect({bool protocol = false}) {
     live = true;
     approval = FirstPartyStageApproval(
         host: app.host,
@@ -45,6 +47,14 @@ final class _Phone {
             stageApproval: approval,
             approvedTargets: const []),
         () => live);
+    if (!protocol) {
+      // Direct port fixtures explicitly acknowledge their synthetic I/O. The
+      // protocol regressions below exercise the real SDK/transport boundary.
+      port.attachTransport(() async {
+        port.withdraw();
+        port.channelSettled(clean: true);
+      });
+    }
   }
 
   Future<void> policy(ExternalGenerationMode? mode) async {
@@ -67,8 +77,10 @@ final class _Phone {
 
   Future<Map<String, Object?>> call(String name,
       [Map<String, dynamic> args = const {}]) async {
+    final id = ++responseSequence;
     final result = await port.call(name, args,
-        cancelled: const Stream.empty(), available: () => true);
+        responseId: id, cancelled: const Stream.empty(), available: () => true);
+    port.responseWritten(id);
     await port.whenSettled;
     return result;
   }
@@ -108,8 +120,13 @@ final class _Phone {
 
   Future<void> disconnect() async {
     live = false;
-    await port.close();
-    await approval.close();
+    if (expectFailedSettlement) {
+      await expectLater(port.close(), throwsStateError);
+      await expectLater(approval.close(), throwsA(isA<Exception>()));
+    } else {
+      await port.close();
+      await approval.close();
+    }
     expect(app.host.isReady, isTrue);
   }
 
@@ -127,6 +144,93 @@ final class _Phone {
   Future<void> close() async {
     await disconnect();
     await app.close();
+  }
+}
+
+/// Synthetic native channel with separately controlled write and close ACKs.
+/// All JSON-RPC dispatch, serialization and final send use the pinned MCP SDK.
+final class _ProtocolLink {
+  _ProtocolLink(this.phone) {
+    reader = StreamIterator(input.stream);
+    transport = AndroidMcpTransport(
+        port: phone.port,
+        read: () async {
+          if (!await reader.moveNext()) throw StateError('test_eof');
+          return reader.current;
+        },
+        newNonce: () => 'nonce',
+        validNonce: (value) => value == 'nonce',
+        write: (kind, message) async {
+          if (kind != 2) return;
+          final id = message['id'];
+          if (id == blockedId) {
+            writeEntered.complete();
+            await releaseWrite.future;
+          }
+          responses.remove(id)?.complete(message);
+        },
+        closeChannel: () async {
+          unawaited(input.close());
+          if (!closeEntered.isCompleted) closeEntered.complete();
+          await closeGate?.future;
+          if (failClose) throw StateError('test_close_failed');
+        },
+        invalidate: () {},
+        connectionId: 'test-connection',
+        current: () => phone.live);
+    server = androidDeviceServer(phone.port);
+    settled = server
+        .serveTransport(transport)
+        .then((_) => true, onError: (Object _, StackTrace __) => false);
+  }
+  final _Phone phone;
+  final input = StreamController<(int, Map<String, dynamic>)>();
+  late final StreamIterator<(int, Map<String, dynamic>)> reader;
+  late final AndroidMcpTransport transport;
+  late final VnextMcpServer server;
+  late final Future<bool> settled;
+  final responses = <Object?, Completer<Map<String, dynamic>>>{};
+  Object? blockedId;
+  final writeEntered = Completer<void>(), releaseWrite = Completer<void>();
+  final closeEntered = Completer<void>();
+  Completer<void>? closeGate;
+  bool failClose = false;
+
+  Future<Map<String, dynamic>> request(
+      Object id, String method, Map<String, dynamic> params) {
+    final reply = Completer<Map<String, dynamic>>();
+    responses[id] = reply;
+    input.add(
+        (2, {'jsonrpc': '2.0', 'id': id, 'method': method, 'params': params}));
+    return reply.future;
+  }
+
+  void cancel(Object id) => input.add((
+        2,
+        {
+          'jsonrpc': '2.0',
+          'method': 'notifications/cancelled',
+          'params': {'requestId': id}
+        }
+      ));
+
+  Future<Map<String, dynamic>> call(Object id, String tool,
+      [Map<String, dynamic> arguments = const {}]) async {
+    final response =
+        await request(id, 'tools/call', {'name': tool, 'arguments': arguments});
+    expect(response['error'], isNull);
+    return (response['result'] as Map)['structuredContent']
+        as Map<String, dynamic>;
+  }
+
+  Future<void> initialize() async {
+    final result = await request('init', 'initialize', {
+      'protocolVersion': '2025-03-26',
+      'capabilities': <String, dynamic>{},
+      'clientInfo': {'name': 'offline-test', 'version': '1'}
+    });
+    expect(result['error'], isNull);
+    input.add((2, {'jsonrpc': '2.0', 'method': 'notifications/initialized'}));
   }
 }
 
@@ -284,14 +388,18 @@ void main() {
       final cancel = StreamController<void>.broadcast(sync: true);
       final result = f.port.call(
           'propose_generated_questions', f.batch(context, 'lost'),
-          cancelled: cancel.stream, available: () => f.live);
+          responseId: 'cancelled-stage',
+          cancelled: cancel.stream,
+          available: () => f.live);
       await entered.future;
-      cancel.add(null);
-      expect((await result)['error'], isNotNull);
       expect(
           (await f.port.call('get_question_proposal', {'submissionKey': 'lost'},
-              cancelled: const Stream.empty(), available: () => true))['error'],
+              responseId: 'second',
+              cancelled: const Stream.empty(),
+              available: () => true))['error'],
           'resourceLimit');
+      cancel.add(null);
+      expect((await result)['error'], isNotNull);
       var closed = false;
       final closing = f.port.close().then((_) => closed = true);
       await Future<void>.delayed(Duration.zero);
@@ -337,5 +445,132 @@ void main() {
     expect((await result)['error'], isNotNull);
     await subscription.cancel();
     expect(await f.s.h.count('generated_question_proposals'), 0);
+  });
+
+  for (final mode in [
+    ExternalGenerationMode.review,
+    ExternalGenerationMode.direct
+  ]) {
+    test('SDK $mode retains approval and slot until its own response flush',
+        () async {
+      await f.policy(mode);
+      final context = await f.context();
+      final count = await f.s.h.count('questions');
+      await f.disconnect();
+      f.connect(protocol: true);
+      final link = _ProtocolLink(f);
+      await link.initialize();
+      link.blockedId = 'stage';
+      final staged = link.call(
+          'stage', 'propose_generated_questions', f.batch(context, 'flush'));
+      await link.writeEntered.future;
+      expect(await f.s.h.count('generated_question_proposals'), 1);
+      expect(await f.s.h.count('questions'),
+          count + (mode == ExternalGenerationMode.direct ? 1 : 0));
+      expect(f.approval.pendingCount, 1);
+      var settled = false;
+      final original = f.port.whenSettled.then((_) => settled = true);
+      final refused = await link.call(
+          2, 'propose_generated_questions', f.batch(context, 'excess'));
+      expect(refused['error'], 'resourceLimit');
+      expect(f.approval.pendingCount, 1);
+      expect(settled, isFalse);
+      expect(await f.s.h.count('generated_question_proposals'), 1);
+      link.releaseWrite.complete();
+      expect((await staged)['error'], isNull);
+      await original;
+      expect(f.approval.pendingCount, 0);
+      expect(
+          (await link.call('query', 'get_question_proposal',
+              {'submissionKey': 'flush'}))['error'],
+          isNull);
+      await f.port.whenSettled;
+      await link.server.close();
+      expect(await link.settled, isTrue);
+    });
+  }
+
+  for (final failure in ['output', 'close', 'duplicate-id']) {
+    test(
+        'SDK $failure failure retains non-clean approval after original I/O joins',
+        () async {
+      await f.policy(ExternalGenerationMode.direct);
+      final context = await f.context();
+      final count = await f.s.h.count('questions');
+      await f.disconnect();
+      f.connect(protocol: true);
+      final link = _ProtocolLink(f)
+        ..closeGate = Completer<void>()
+        ..failClose = failure == 'close';
+      await link.initialize();
+      link.blockedId = 7;
+      unawaited(link.call(
+          7, 'propose_generated_questions', f.batch(context, 'failed-output')));
+      await link.writeEntered.future;
+      expect(await f.s.h.count('questions'), count + 1);
+      expect(
+          (await link.call('excess', 'propose_generated_questions',
+              f.batch(context, 'must-not-enter')))['error'],
+          'resourceLimit');
+      f.expectFailedSettlement = true;
+      if (failure == 'close') {
+        unawaited(link.transport.close().catchError((Object _) {}));
+      } else if (failure == 'duplicate-id') {
+        link.input
+            .add((2, {'jsonrpc': '2.0', 'id': 7, 'method': 'tools/list'}));
+      } else {
+        link.releaseWrite.completeError(StateError('test_write_failed'));
+      }
+      await link.closeEntered.future;
+      var settled = false;
+      final original = f.port.whenSettled.then((_) => settled = true);
+      await Future<void>.delayed(Duration.zero);
+      expect(settled, isFalse);
+      expect(f.approval.pendingCount, 1);
+      if (failure != 'output') link.releaseWrite.complete();
+      link.closeGate!.complete();
+      expect(await link.settled, isFalse);
+      await original;
+      expect(f.approval.pendingCount, 1);
+      expect(f.app.host.isReady, isTrue);
+      expect(await f.s.h.count('questions'), count + 1);
+      expect(await f.s.h.count('generated_question_proposals'), 1);
+      expect(await f.s.h.count('generated_question_commit_receipts'), 1);
+    });
+  }
+
+  test(
+      'SDK cancellation suppresses output but waits for business and acknowledged close',
+      () async {
+    await f.policy(ExternalGenerationMode.direct);
+    final context = await f.context();
+    await f.disconnect();
+    f.connect(protocol: true);
+    final link = _ProtocolLink(f)..closeGate = Completer<void>();
+    await link.initialize();
+    final entered = Completer<void>(), release = Completer<void>();
+    f.s.checkpoint = (point) async {
+      if (point == ExternalStageCheckpoint.beforeCommit) {
+        entered.complete();
+        await release.future;
+      }
+    };
+    unawaited(link.call(
+        'cancel', 'propose_generated_questions', f.batch(context, 'cancel')));
+    await entered.future;
+    link.cancel('cancel');
+    await link.closeEntered.future;
+    var settled = false;
+    final original = f.port.whenSettled.then((_) => settled = true);
+    release.complete();
+    await f.app.host.whenSettled;
+    expect(settled, isFalse);
+    expect(f.approval.pendingCount, 1);
+    link.closeGate!.complete();
+    expect(await link.settled, isTrue);
+    await original;
+    expect(f.approval.pendingCount, 0);
+    expect(await f.s.h.count('generated_question_proposals'), 0);
+    f.s.checkpoint = null;
   });
 }

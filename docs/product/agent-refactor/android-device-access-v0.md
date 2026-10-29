@@ -707,9 +707,15 @@ recovery journal or external COMMIT is added.
 
 One business connection and one active original invocation remain bounded.
 Cancellation may return before settlement; the connection retains its slot
-through approval validation and P10/P8/P7/persistence settlement before releasing
-request approval. Native custody independently holds original I/O close and Dart
-drain. Failed settlement blocks replacement. Closing the connection never shuts
+through approval validation, P10/P8/P7/persistence settlement and the matching
+SDK response's actual write/flush before releasing request approval. A reply to
+an excess request cannot release the original slot; duplicate in-flight IDs
+close the link. At most two protocol requests (the original and one bounded
+excess/protocol reply) are retained, with no business queue. Cancellation can
+suppress the SDK response and therefore closes the original channel; release
+then joins Native close acknowledgement and all original Dart I/O. Output or
+close failure finishes approval as non-clean, retains its poisoned reservation
+and blocks replacement. Closing the connection never shuts
 down the App host/database or local Review/study. The desktop stores only
 identity/routing.
 

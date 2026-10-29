@@ -25,14 +25,18 @@ VnextMcpServer androidDeviceServer(VnextMcpPort port) => VnextMcpServer(port,
 /// Connection lifetime only. The App's P0/P15/Host owners remain outside it.
 final class AndroidMcpTransport extends Transport {
   AndroidMcpTransport(
-      {required this.read,
+      {required this.port,
+      required this.read,
       required this.newNonce,
       required this.validNonce,
       required this.write,
       required this.closeChannel,
       required this.invalidate,
       required this.connectionId,
-      required this.current});
+      required this.current}) {
+    port.attachTransport(close);
+  }
+  final AndroidMcpPort port;
   final Future<(int, Map<String, dynamic>)> Function() read;
   final String Function() newNonce;
   final bool Function(Object?) validNonce;
@@ -46,6 +50,9 @@ final class AndroidMcpTransport extends Transport {
   String? _ping;
   Timer? _timer;
   bool _closed = false, _sendingPing = false;
+  bool _ioFailed = false;
+  final _writes = <Future<void>>{};
+  final _requests = <Object>{};
   Future<void>? _pump, _closing;
   @override
   String? get sessionId => null;
@@ -65,7 +72,7 @@ final class AndroidMcpTransport extends Transport {
       if (_ping != null || _sendingPing) return;
       _sendingPing = true;
       final nonce = _ping = newNonce();
-      unawaited(write(
+      unawaited(_write(
               1, {'type': 'ping', 'connectionId': connectionId, 'nonce': nonce})
           .catchError((Object _) {
         unawaited(close().catchError((Object _) {}));
@@ -88,7 +95,7 @@ final class AndroidMcpTransport extends Transport {
             androidLinkFail();
           }
           if (message['type'] == 'ping') {
-            await write(1, {...message, 'type': 'pong'});
+            await _write(1, {...message, 'type': 'pong'});
           } else if (message['type'] == 'pong' &&
               _ping != null &&
               message['nonce'] == _ping) {
@@ -98,6 +105,12 @@ final class AndroidMcpTransport extends Transport {
           }
         } else if (kind == 2) {
           final parsed = JsonRpcMessage.fromJson(message);
+          if (parsed is JsonRpcRequest &&
+              (_requests.length >= 2 || !_requests.add(parsed.id))) {
+            // One original request and one bounded excess/protocol reply.
+            // A duplicate ID must never settle another invocation's output.
+            androidLinkFail();
+          }
           onmessage
               ?.call(parsed); // SDK work does not occupy the control reader.
         } else {
@@ -106,17 +119,49 @@ final class AndroidMcpTransport extends Transport {
         _lastPeer = _elapsed.elapsed;
       }
     } finally {
-      _closed = true;
-      _timer?.cancel();
-      invalidate();
-      onclose?.call();
+      _requestClose();
+    }
+  }
+
+  void _requestClose() => unawaited(close().catchError((Object _) {}));
+
+  Future<void> _write(int kind, Map<String, dynamic> value) async {
+    if (_closed || !current()) androidLinkFail();
+    final done = Completer<void>();
+    _writes.add(done.future);
+    try {
+      await write(kind, value);
+      if (_closed || !current()) androidLinkFail();
+    } catch (_) {
+      _ioFailed = true;
+      _requestClose();
+      rethrow;
+    } finally {
+      done.complete();
+      _writes.remove(done.future);
     }
   }
 
   @override
   Future<void> send(JsonRpcMessage message, {int? relatedRequestId}) async {
     if (_closed || !current()) androidLinkFail();
-    await write(2, message.toJson());
+    try {
+      await _write(2, message.toJson());
+      final id = switch (message) {
+        JsonRpcResponse() => message.id,
+        JsonRpcError() => message.id,
+        _ => null,
+      };
+      if (id != null) {
+        _requests.remove(id);
+        port.responseWritten(id);
+      }
+    } catch (_) {
+      // Includes SDK response encoding, before any native write was started.
+      _ioFailed = true;
+      _requestClose();
+      rethrow;
+    }
   }
 
   @override
@@ -124,14 +169,20 @@ final class AndroidMcpTransport extends Transport {
         _closed = true;
         _timer?.cancel();
         invalidate();
+        port.withdraw();
         try {
           await closeChannel();
+        } catch (_) {
+          _ioFailed = true;
         } finally {
           try {
             await _pump;
           } catch (_) {/* Original channel close decides settlement. */}
+          await Future.wait(_writes.toList());
+          port.channelSettled(clean: !_ioFailed);
           onclose?.call();
         }
+        if (_ioFailed) androidLinkFail();
       }();
 }
 
@@ -139,24 +190,59 @@ Never androidLinkFail() => throw StateError('android_link_unavailable');
 
 /// One authenticated Android connection over the original P10/P8 business path.
 /// Caller completion does not release the slot: original approval, dispatch and
-/// persistence must settle. Closing this port never shuts down the App host.
-final class AndroidMcpPort implements VnextMcpPort {
+/// persistence AND final response I/O must settle. Closing this port never shuts
+/// down the App host.
+final class AndroidMcpPort implements VnextMcpResponsePort {
   AndroidMcpPort(this.binding, this.current);
   final VnextMcpAppComposition binding;
   final bool Function() current;
   Completer<void>? _idle;
   ExternalCallControl? _control;
   Future<void>? _closing;
+  Future<void> Function()? _closeTransport;
+  final _channelSettled = Completer<bool>();
+  Completer<bool>? _output;
+  Object? _responseId;
   bool _closed = false, _settlementFailed = false;
   int _requestId = 0;
 
   Future<void> get whenSettled => _idle?.future ?? Future<void>.value();
 
+  void attachTransport(Future<void> Function() close) {
+    if (_closeTransport != null || _closed) androidLinkFail();
+    _closeTransport = close;
+  }
+
+  void responseWritten(Object id) {
+    if (!_closed && id == _responseId && _output?.isCompleted == false) {
+      _output!.complete(true);
+    }
+  }
+
+  void withdraw() {
+    _closed = true;
+    _control?.cancel();
+  }
+
+  /// Native close and all original Dart I/O have completed. Cancellation can
+  /// suppress the SDK response; only this acknowledged close can settle it.
+  void channelSettled({required bool clean}) {
+    if (!clean) _settlementFailed = true;
+    if (!_channelSettled.isCompleted) _channelSettled.complete(clean);
+    if (_output?.isCompleted == false) _output!.complete(clean);
+  }
+
   @override
   Future<Map<String, Object?>> call(String tool, Map<String, dynamic> arguments,
       {required Stream<void> cancelled,
-      required bool Function() available}) async {
-    if (_closed || _settlementFailed || !current() || !available()) {
+      required bool Function() available,
+      Object? responseId}) async {
+    if (responseId == null ||
+        _closeTransport == null ||
+        _closed ||
+        _settlementFailed ||
+        !current() ||
+        !available()) {
       return vnextFailure('unavailable');
     }
     if (!const {
@@ -173,8 +259,15 @@ final class AndroidMcpPort implements VnextMcpPort {
     }
     if (_idle != null) return vnextFailure('resourceLimit');
     final done = _idle = Completer<void>();
+    final output = _output = Completer<bool>();
+    _responseId = responseId;
     final control = _control = ExternalCallControl(clock: binding.clock);
-    final cancellation = cancelled.listen((_) => control.cancel());
+    final cancellation = cancelled.listen((_) {
+      control.cancel();
+      // The SDK suppresses a cancelled request's response. Close the original
+      // channel instead of waiting forever for an output that will not exist.
+      unawaited(_closeTransport!().catchError((Object _) {}));
+    });
     final projection = OfflineIpcCommandProjection(
         host: binding.host, authentication: binding.authentication);
     try {
@@ -206,10 +299,18 @@ final class AndroidMcpPort implements VnextMcpPort {
         } catch (_) {
           _settlementFailed = true;
         } finally {
+          clean = await output.future && clean;
           await cancellation.cancel();
+          if (_closed) clean = await _channelSettled.future && clean;
+          clean = clean && !_settlementFailed;
+          if (!clean) _settlementFailed = true;
           projection.finishStageApproval(clean: clean);
-          _control = null;
-          _idle = null;
+          if (clean) {
+            _control = null;
+            _idle = null;
+            _output = null;
+            _responseId = null;
+          }
           done.complete();
         }
       }());
@@ -218,9 +319,13 @@ final class AndroidMcpPort implements VnextMcpPort {
 
   @override
   Future<void> close() {
-    _closed = true;
-    _control?.cancel();
+    withdraw();
     return _closing ??= () async {
+      try {
+        await _closeTransport?.call();
+      } catch (_) {
+        _settlementFailed = true;
+      }
       await whenSettled;
       if (_settlementFailed) androidLinkFail();
     }();

@@ -827,7 +827,7 @@ void main() {
   });
 
   test(
-      'P10 is confined to offline infrastructure, without production registration or transport',
+      'P10 stays behind exact supplied-source consumers without owning transport or startup',
       () {
     final file = File('lib/data/external/ipc_command_projection.dart');
     final source = file.readAsStringSync();
@@ -855,6 +855,7 @@ void main() {
         continue; // exact inactive consumer, guarded by windows_tls_source_guard
       }
       if (const {
+        'lib/mcp/android_mcp_transport.dart',
         'lib/mcp/vnext_mcp_composition_root.dart',
         'lib/mcp/vnext_mcp_protocol_projection.dart',
       }.contains(path.path.replaceAll('\\', '/'))) {
@@ -869,6 +870,10 @@ void main() {
         ]) {
           expect(composition, isNot(contains(forbidden)));
         }
+        if (path.path.replaceAll('\\', '/') ==
+            'lib/mcp/android_mcp_transport.dart') {
+          expect(_androidProjectionBoundary(composition), isTrue);
+        }
         final startup = File('lib/main.dart').readAsStringSync();
         expect(startup, isNot(contains('vnext_mcp_composition_root')));
         expect(startup, isNot(contains('VnextMcpAppComposition')));
@@ -880,4 +885,41 @@ void main() {
           reason: path.path);
     }
   });
+
+  test('Android P10 exception still rejects authority and lifecycle bypasses',
+      () {
+    final source =
+        File('lib/mcp/android_mcp_transport.dart').readAsStringSync();
+    expect(_androidProjectionBoundary(source), isTrue);
+    for (final mutation in [
+      "import '../data/repositories/question_repository.dart';\n$source",
+      '$source\nvoid bypass() { binding.host.shutdown(); }',
+      source.replaceFirst(
+          'stageApprovalWait: true', 'stageApprovalWait: false'),
+      source.replaceFirst('await output.future', 'true'),
+    ]) {
+      expect(_androidProjectionBoundary(mutation), isFalse);
+    }
+  });
+}
+
+bool _androidProjectionBoundary(String source) {
+  const imports = {
+    'dart:async',
+    'package:mcp_dart/mcp_dart.dart',
+    '../application/external/external_invocation_core.dart',
+    '../data/external/ipc_command_projection.dart',
+    'vnext_mcp_composition_root.dart',
+    'vnext_mcp_protocol_projection.dart',
+    'vnext_mcp_server.dart',
+  };
+  final actual = RegExp(r'''^import ['"]([^'"]+)['"]''', multiLine: true)
+      .allMatches(source)
+      .map((match) => match[1]!);
+  return actual.every(imports.contains) &&
+      !source.contains('.shutdown(') &&
+      source.contains('stageApprovalWait: true') &&
+      source.contains('await projection.whenSettled') &&
+      source.contains('await output.future') &&
+      source.contains('projection.finishStageApproval(clean: clean)');
 }
