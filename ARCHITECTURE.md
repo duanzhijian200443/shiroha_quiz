@@ -16,6 +16,7 @@ reading order only; all existing contracts and historical amendments remain vali
 | Typed content / rendering / imports | 3–4 and the focused RichContent contracts |
 | File Library / artifacts / retrieval | 4 and its focused lifecycle/RAG contracts |
 | Conversation / Agent / MCP / write approval | 5–6; Agent refactor target index below |
+| Independent Link / remote access / content exchange | 2, 4, 6 and the [unified access target design](docs/product/agent-refactor/unified-access-and-content-exchange-v1.md); design adoption does not activate runtime |
 | Credentials / provider configuration | 9 |
 | Supplemental / single-question AI answers | 10–11 and Answer Completion v0 |
 | Navigation / Practice / Today | 12 and applicable product contracts |
@@ -124,6 +125,13 @@ owners. Connection close joins original work and derived index I/O without closi
 the App database/local Review. `docs/product/agent-refactor/android-device-access-v0.md`
 owns this finite seven-tool subset, its selected-device evidence and explicit
 manual client recovery/shutdown limits; full Android v0 remains separate.
+
+The adopted independent-Link target assigns local route selection, frontend
+leases and adapter settlement to a separate Infrastructure owner, with its own
+non-secret state store. Android-only routing must not initialize Windows App
+or read its SQLite/settings/B0. Each target App retains Application authorization
+and its own Data writer. This is a future composition boundary, not a claim that
+the Link or mobile tunnel is implemented; the existing runtime remains above.
 
 The External Windows primitive adapter in `lib/data/external/native` owns
 explicit SDK FFI calls to the independent `windows/external_native` C ABI DLL.
@@ -394,6 +402,15 @@ Rules:
 - Folder deletion removes Folder membership only; the `LibraryFile`, managed
   bytes, Project relations, banks, questions, sidecars, and review state remain.
 
+The [content-exchange target](docs/product/agent-refactor/unified-access-and-content-exchange-v1.md#s12)
+adds controlled snapshots through Application ports. Receiving a file does not
+parse/OCR it; receiving a question package uses a truthful import source and
+the original typed Review/writer. Durable adoption by File/Import/Review ends
+remote cancellation authority over that local content, even before commit.
+Transfer receipts only link original owners; they are not another content,
+approval or commit authority. These are design requirements, not new runtime
+tools, permissions, source enums or database migrations.
+
 ### ParsedArtifact lifecycle invariants
 
 - Identity is generation-scoped: `SourceDocument.sourceId = artifactId`, never
@@ -518,6 +535,21 @@ The selected Debug consumer wires question READ/generation/Proposal through
 those owners, including P6 file selection/retrieval/passages under independent
 fileContent consent; other artifacts retain refusal.
 MCP v0 and the seven-tool business profile remain unchanged.
+
+<a id="unified-access-successor"></a>
+The [unified access and content exchange v1.1 contract](docs/product/agent-refactor/unified-access-and-content-exchange-v1.md)
+is the adopted target design. It replaces the candidate Windows-global host
+topology with independent Shiroha Link for local routing; Windows App remains
+necessary only when Windows is the business target. Profile 3/statistics/Origin
+compatibility remains a separately integrated prerequisite; this documentation
+does not change the current v35/seven-tool runtime or import a candidate schema.
+Official Secure MCP Tunnel embedded on Android remains an unproved combination.
+Its final remote product gate requires the same phone's ChatGPT browser flow
+without a computer; server-only independence is preliminary evidence. Remote
+identity, finite lifecycle and object-specific exchange permits remain separate
+from desktop pairing and saved generation policy. Existing admission and original
+owner settlement remain mandatory until replacement behavior is delivered and
+accepted. See MCP §19 and each focused contract's design amendment.
 
 The bounded vNext STAGE stdio source slice is described in
 `docs/product/agent-refactor/mcp-vnext-contract.md` §7. Its separate seven-tool

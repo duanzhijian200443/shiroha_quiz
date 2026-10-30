@@ -892,3 +892,32 @@ Interface support is not evidence that this combination has run successfully.
 - [AtomicFile](https://developer.android.com/reference/android/util/AtomicFile)
 - [.NET TLS](https://learn.microsoft.com/en-us/dotnet/core/extensions/sslstream-best-practices)
 - [Schannel version support](https://learn.microsoft.com/en-us/windows/win32/secauthn/protocols-in-tls-ssl--schannel-ssp-)
+
+<a id="unified-access-successor"></a>
+## 14. Independent Link and remote successor — adopted design only
+
+The [unified access target](unified-access-and-content-exchange-v1.md)
+defines a separate Shiroha Link host for future local unified Android access.
+The computer runs Codex and Link, but Android routing must not run Windows
+Shiroha or read its database/settings/B0. The original adapter's identity, TLS,
+slot ownership and close protocol remain authoritative. This is a future
+composition, not Profile 3 delivery or a change to the existing seven-tool path.
+Target-app authorization, finite Enable and original owner settlement are retained.
+
+Phone-embedded official Secure MCP Tunnel is a separately admitted, unproved
+combination. It does not inherit desktop pairing or remove the LAN mode's
+foreground/focus restrictions. A new finite remote mode would require proven
+caller binding, epoch isolation, visible bounded lifecycle and lawful platform
+background behavior; SDK Stop is not evidence of settled business work.
+
+The [three completion levels](unified-access-and-content-exchange-v1.md#s02)
+are local independence, phone-server independence and same-phone web usability.
+Only the last satisfies the remote final product gate: enable Shiroha remote
+access on the phone, use ChatGPT in that phone's recorded browser, switch back
+for local confirmation, return to the browser for original-key query/recovery,
+then stop and prove no new admission. No computer or second device substitutes
+for this flow. READ and write have separate account/platform evidence; a blocked
+write capability cannot be reported as a complete read/write loop. Native
+ChatGPT mobile is outside this version's gate. Web-only documentation does not
+prove a specific Android browser works. Existing finite development evidence,
+manual close/recovery limits and unaccepted full Android v0 scope stay unchanged.

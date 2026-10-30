@@ -1902,3 +1902,38 @@ selection. Source integrity/current-generation checks, safe projections,
 pagination/coverage flags and all P6 limits remain unchanged. Only existing
 derived-cache writes are possible from file READ; cancellation retains original
 index work and matching output I/O custody until actual settlement.
+
+<a id="unified-access-successor"></a>
+## 15. Unified access and exchange — adopted design only
+
+The [unified access target](unified-access-and-content-exchange-v1.md#s08)
+adds future consumer/permission boundaries; it does not implement Grant fields,
+Profile 3/statistics, remote identity or exchange tools. Existing identity,
+current-scope checks, final release validation and saved policy remain in force.
+Link is only a transport/lifecycle owner. Each target App's Application owns
+Session creation, authorization and final writes; Link cannot consult Windows
+business state to authorize Android access.
+
+Remote access is a different principal from desktop pairing. Tunnel control
+credentials, tunnel identity, verified caller, RemoteBinding, phone Profile/Grant
+and Session remain distinct. A locally approved binding to a proven caller is
+required; model-supplied names/headers and possession of a tunnel runtime key do
+not prove business identity. Sessions bind the active run, enable epoch and
+binding revision. Old queued work must not enter a later epoch; inability to
+prove this keeps remote business admission closed. See
+[remote design §9](unified-access-and-content-exchange-v1.md#s09).
+
+An [ExchangePermit](unified-access-and-content-exchange-v1.md#s12) is a new,
+separately approved object/action/recipient/target/digest/expiry-bound permission.
+questionContent/fileContent does not authorize bulk export or original-file
+download. Generation direct policy does not approve package import. Installation,
+upgrade, reconnect and allContent never silently add these permissions. One
+precise local file-receive decision may cover that file's download and save,
+but not parse/OCR or onward export. History and transport success grant no access.
+
+After durable File/Import/Review adoption, a remote caller may end remaining
+transfer I/O but cannot cancel local Review, change its revision or delete local
+content. Result queries still require current authorization. The adoption/cancel
+race and protected-unknown behavior are owned by
+[design §17](unified-access-and-content-exchange-v1.md#s17) and the original local
+owner, not a parallel approval mechanism in the transport.

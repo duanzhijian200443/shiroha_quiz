@@ -1,5 +1,15 @@
 # Agent Runtime v1 / External Agent / MCP vNext Contract Index
 
+<a id="unified-access-design"></a>
+The [unified access and content exchange v1.1 target](unified-access-and-content-exchange-v1.md)
+is adopted as a design-only canonical contract. It defines independent local
+Shiroha Link, an official remote-channel candidate and controlled file/question
+snapshots as separately accepted capabilities. Android-only local routing must
+not depend on Windows App; the remote final gate is same-phone ChatGPT web use
+with no computer. Profile 3/v36 candidates, Link, remote mode and exchange are
+not delivered by this document amendment. Current v35/seven-tool runtime,
+authorization and previously bounded evidence remain authoritative below.
+
 Current scheduling is owned by the
 [limited Windows development milestone](../../architecture/shiroha-project-roadmap.md#limited-windows-development-use-and-maintenance-2026-10-27):
 the existing normal App/Codex path, including already committed-question study
@@ -17,7 +27,9 @@ bounded generation evidence is now joined by selected-phone file retrieval,
 actual continuation and file-backed generation/READ, closing the finite seven-tool
 usage loop. Partial reading and manual shutdown remain explicit; full Android v0,
 other devices/builds and production acceptance remain pending.
-Hosted cloud access remains deferred.
+Hosted cloud runtime remains deferred; the adopted target now defines a bounded
+official-channel feasibility route and its independent same-phone acceptance.
+It grants no tunnel setup, credential, runtime or background-service authority.
 Windows high-assurance real security experiments remain DEFERRED.
 No new admission, external permission or credential authority follows.
 

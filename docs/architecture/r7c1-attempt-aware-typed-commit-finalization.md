@@ -188,3 +188,22 @@ durable: `commitTyped` can be invoked with a flush-produced revision and
 either fully commits (questions + completion in one transaction) or fully
 rolls back with a fixed safe failure and a retryable `pendingReview` task.
 Provider calls remain 0 in all acceptance evidence.
+
+<a id="content-exchange-successor"></a>
+## 19. Content transfer source boundary (design only)
+
+The [unified access target](../product/agent-refactor/unified-access-and-content-exchange-v1.md#s16)
+may reuse typed Review/finalization for received question snapshots only through
+an accurately defined contentTransfer source adapter. Existing OCR/document
+admission is not permission to fabricate an OCR task or claim a new source is
+already supported. No source enum, schema or runtime admission changes here.
+
+The original Data owning transaction, task/attempt lease, persisted Review
+revision, sidecar validation and completion arbitration remain mandatory.
+TransferReceipt is only a relation to that owner/result; it must not create a
+second writer or a success flag with no atomic/recoverable relationship to
+actual inserts. Persistent local adoption protects Review even before commit;
+remote cancellation cannot become local discard or interrupt formal commit.
+The [DM-D4 adoption amendment](dm-d4-importtask-reviewdraft-lifecycle.md#content-exchange-successor)
+owns the cancel/cleanup boundary. These are requirements for later bounded
+implementation, not evidence that this writer already accepts exchanged packs.
