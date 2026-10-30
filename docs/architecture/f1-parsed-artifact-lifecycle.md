@@ -8,6 +8,24 @@ storage/atomic publish, the approved additive v20 schema expectation, the
 Application seam, supported routes, and F1 stage governance. It freezes design
 only; F1-P0 implements no production code, tests, or schema migration.
 
+<a id="content-exchange-successor"></a>
+## Content exchange successor (design only)
+
+The [unified access target](../product/agent-refactor/unified-access-and-content-exchange-v1.md#s15)
+adds future original-file receive/export through Application and existing managed
+file/LibraryFile publication. Receiving and saving bytes must validate integrity
+and safe ownership, but does not produce a ParsedArtifact or activate parse/OCR.
+External file-body READ continues to consume only a current verified artifact
+generation; that permission does not authorize exporting the original file.
+Export needs its own object/recipient-bound permit and immutable snapshot.
+
+Once the File owner durably adopts the received object, transfer cancellation,
+disconnect or temporary-byte TTL cannot delete it. Adoption/cancellation share
+the durable decision in target design §17; unknown ownership remains protected.
+F1 identity, current-generation validation, atomic publish, retention and B0
+semantics remain authoritative. This design adds no parser, file schema or
+runtime exchange surface.
+
 ## 1. Identity
 
 - `fileId`: the long-lived stable identity of the original `LibraryFile`.

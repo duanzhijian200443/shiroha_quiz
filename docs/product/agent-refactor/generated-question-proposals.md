@@ -790,3 +790,26 @@ original local policy. Required offline regressions cover migration/reopen,
 legacy defaults, CAS/revocation, B0 scrub/rollback, default drafts, new direct
 commit, old draft replay, duplicate rejection, concurrent same-key submissions,
 cancellation at the final commit boundary and response-loss reconciliation.
+
+<a id="content-exchange-successor"></a>
+## 15. Content exchange boundary — adopted design only
+
+The [unified access target](unified-access-and-content-exchange-v1.md#s16)
+defines future question snapshots as a separate contentTransfer import source,
+not an AI-generated Proposal, fabricated OCR task or external generated Origin.
+It reuses typed Review and the original formal writer only through an accurately
+specified source adapter. Direct generation policy does not authorize package
+import; transfer bytes, local Review and accepted formal writes remain distinct.
+
+This design does not change Submission, Proposal or Receipt codecs, introduce
+Origin v2/v36, implement a new source enum or expose remote COMMIT. Candidate
+Profile 3/Origin compatibility requires its own integration and acceptance.
+Unknown generation outcomes still query only the original submissionKey on the
+same device/Profile. Unknown import outcomes query their original transfer key
+and real import owner; neither path redispatches a write as recovery.
+
+TransferReceipt links the real import owner/result and never replaces Proposal
+Receipt or typed transaction authority. Persistent File/Import/Review adoption
+ends remote cancellation authority over local content, even before formal
+commit. Pending import Review retention/B0 follows that owner's contract, not
+the generated Proposal INCLUDE policy simply because both are called drafts.

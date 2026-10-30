@@ -14,6 +14,35 @@ closure) are COMPLETE. B0 itself added no migration or dependency changes. At
 that closure point the runtime schema was v23 because the additive
 AnswerAttempt migration followed the original B0-P0 v22 freeze.
 
+<a id="unified-access-successor"></a>
+### Unified access and content exchange successor (design only)
+
+The [unified access target](../product/agent-refactor/unified-access-and-content-exchange-v1.md#s07)
+defines future Link/handoff and exchange boundaries; this amendment implements
+no migration, new B0 codec or runtime maintenance barrier. Existing restore,
+rollback and original-owner settlement continue unchanged.
+
+Independent LinkStateStore, migration fences, pairing secrets, tunnel keys,
+RemoteBinding/ExchangePermit runtime authority, temporary URLs/bytes and network
+in-flight state are excluded from portable `.shiroha` content. Link does not
+read Windows SQLite; Android routing must not depend on unrelated Windows B0.
+Restore/reinstall of the actual target still invalidates old Context and runtime
+authorization. Existing machine-local restore/rollback state is not permission
+to overwrite Link's independent fence or resurrect an old host. Acquisition
+must recheck the persistent handoff even after restoring an old App database or
+configuration. See the exact handoff protocol in the target design §7.3.
+
+Formally imported Questions and LibraryFiles follow their existing INCLUDE
+rules. Pending import/Review content follows its real owner's existing B0
+policy; it does not acquire GeneratedQuestion Proposal inclusion by analogy.
+Future minimal TransferReceipt/control records are local recovery state:
+portable B0 excludes them by default, while raw rollback retains the original
+local records. Portable provenance would need a separately defined safe history
+projection, not export of active tasks/permissions. Restore never automatically
+resumes transfer, restores a Permit or grants a new actor access to old results.
+The source adapter, minimal schema and precise scrub/rollback validation must
+be delivered together if exchange persistence is implemented.
+
 ### Current-state amendment: AnswerAttempt schema v26
 
 This amendment raised the runtime to v26; the current runtime is v34 as stated

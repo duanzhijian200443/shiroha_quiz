@@ -182,11 +182,26 @@ Current scheduling supersedes the earlier functionality-first priority below:
   manual client/adapter shutdown. Full Android v0, arbitrary client-exit cleanup,
   other devices and release acceptance remain pending. This capability
   was not a prerequisite for Windows.
-- Hosted remote/ChatGPT access, background receipt, offline queues and device
-  synchronization remain **DEFERRED**.
+- Hosted remote/ChatGPT runtime remains **DEFERRED**; the adopted design below
+  defines its bounded feasibility and same-phone gates. General background
+  receipt, offline queues and device synchronization remain **DEFERRED**.
 - Windows high-assurance/security verification remains **DEFERRED**. The current
   admission and independent human identity/Enable/STAGE/Review decisions remain
   mandatory; this closeout grants no external permission or credential operation.
+
+<a id="unified-access-design"></a>
+The [unified access and content exchange v1.1 target](../product/agent-refactor/unified-access-and-content-exchange-v1.md)
+is adopted as design, with three independently bounded capabilities: local
+Shiroha Link decoupling, official remote-channel feasibility, and controlled
+file/question snapshot exchange. Local Android use requires Codex and Link on
+the computer, but no Windows Shiroha; remote final acceptance requires the same
+Android phone's ChatGPT browser flow without any computer relay. A phone server
+called from another device is only preliminary evidence. READ, write and file
+input/output each need their actual platform/account evidence. System
+selection/sharing is the first exchange route; it does not prove automatic
+ChatGPT attachments or device-to-device transport. The design adds no runtime
+admission, database migration or new delivery claim. Existing OCR/Agent pauses,
+high-assurance/security gates and current finite-use limits remain unchanged.
 
 The wider route remains open: #327 short-deadline cancellation, general client
 qualification (Direct/Hosted support sets remain empty), AR-R9B/reference-client

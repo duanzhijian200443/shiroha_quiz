@@ -2312,3 +2312,85 @@ and production acceptance are not claimed. The focused contract also records
 the exec-exit temporary-key cleanup failure and the demonstrated manual sequence:
 keep interactive Codex alive, close phone access, await original adapter/cleanup,
 then exit the client. Arbitrary process termination is not clean-close proof.
+
+<a id="unified-access-successor"></a>
+## 19. Unified access successor — adopted design only
+
+The [unified access and content exchange contract](unified-access-and-content-exchange-v1.md)
+owns the new topology, handoff and extension design. This section does not
+deliver Profile 3, new tool schemas, Link, a remote endpoint or database v36.
+Sections 1–18 retain the implemented six/seven-tool consumers and their actual
+admission/evidence. The candidate Windows-global host topology is superseded
+as the future design, without relabeling historical runtime results as success.
+
+### 19.1 Business profile and target authority
+
+The target Profile 3 retains the candidate eleven-tool question/file/statistics/
+generation surface listed in the [target design §8](unified-access-and-content-exchange-v1.md#s08).
+Independent studyStatistics consent, scope-before-query, original-key results
+and compatible Origin history remain required. Candidate input/output schemas,
+limits and persistence changes must be separately integrated and reviewed here
+before runtime exposure; merely listing eleven tools is not their acceptance.
+Existing v0/Profile 2 entries are not retired or silently selected as an
+authorization fallback. Content exchange requires an explicitly selected
+extension capability set; installation does not add tools or grants to an
+existing profile. Discovery remains static and does not connect to a device.
+
+### 19.2 Independent Link and close barriers
+
+Shiroha Link owns trusted local target selection, frontend business leases,
+non-secret LinkStateStore and hosted Android adapter settlement. Android-only
+startup must not initialize Windows Shiroha, read its SQLite/settings or wait on
+its B0. Windows targets still use the original Windows App-owned path. Every
+target App retains identity, Grant, finite Enable, egress and formal-write
+authority. The model cannot supply target addresses, executable paths or keys.
+
+A lease fixes the device, installation, Profile, route generation and frontend
+peer. A second chat cannot take it over. Stop/switch withdraws admission before
+joining original work, matching output, target close, TLS, keys, processes and
+streams. Dirty/unknown state blocks replacement. Link uses a distinct trusted
+IPC endpoint; it does not weaken the original Windows pipe's source validation.
+The complete ownership and failure rules live in
+[design §§4–7](unified-access-and-content-exchange-v1.md#s04).
+
+### 19.3 Packaging and compatibility
+
+The plugin source and Link runtime package are separate. Android-only packaging
+requires Link and the original Android adapter dependencies, not a Windows App
+build/layout. Windows target selection verifies its original adjacent
+App/client/Bridge layout separately. Trusted installation configuration locates
+the runtime; no repository scanning, model-selected executable or automatic
+runtime replacement is allowed. Secrets, DPAPI records and databases never enter
+plugin caches or portable packages. Updates await original lease settlement and
+do not change pairing or device grants. Old registrations may be disabled only
+after actual replacement acceptance and the user's explicit choice; two entries
+must not own the same paired-device slot concurrently.
+
+### 19.4 Recovery and old-host handoff
+
+Recovery binds the original dirty snapshot, target, generation and resource
+identities. PID disappearance, a released lock or missing key marker is not
+settlement. Reproof retains the same device/Profile and original P15/P0 boundary;
+it does not replace pairing, expand grants or replay an unknown submission.
+
+Migration from an installed old Windows-global host uses the persistent
+PREPARED → RELEASED → CLAIMED handoff in
+[design §7.3](unified-access-and-content-exchange-v1.md#s07).
+The old App alone reads and settles its SQLite state. Its exact-generation
+release and persistent acquisition fence precede the new Link claim; Link never
+opens that database. Partial commits are reconciled from matching durable
+records. Missing handoff on a known slot is not a fresh installation. Every
+supported old/new acquisition checks the fence; an old binary lacking it must
+be explicitly disabled and excluded before migration. B0/config restore must
+not resurrect released ownership. This design grants no runtime migration.
+
+### 19.5 Independent acceptance
+
+Local decoupling, phone-hosted remote access and content exchange have separate
+[acceptance matrices](unified-access-and-content-exchange-v1.md#s22).
+Remote final acceptance is same-phone ChatGPT web use without a computer; a
+desktop tunnel or another device's browser cannot replace it. SDK stop and
+transport retry are not business settlement or permission to redispatch writes.
+Existing runtime close/recovery restrictions remain until their replacement
+has corresponding evidence. No production, mobile-native ChatGPT or full
+background-support claim follows from design adoption.

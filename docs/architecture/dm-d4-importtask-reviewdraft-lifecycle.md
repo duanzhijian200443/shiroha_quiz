@@ -514,3 +514,38 @@ The reserved envelope survives metadata preservation, diagnostics replacement, R
 ImportTask remains ephemeral workflow state. On successful set-aware import, the existing `QuestionRepository` task-bound transaction is the sole transaction owner for Question rows, typed sidecars where applicable, set/membership, and task completion. No second transaction or post-success relation writer is authorized.
 
 This amendment freezes future behavior only; P0 does not modify current DM-D4 runtime.
+
+<a id="content-exchange-successor"></a>
+## 15. Content transfer adoption boundary (design only)
+
+The [unified access target](../product/agent-refactor/unified-access-and-content-exchange-v1.md#s16)
+requires an accurate contentTransfer source adapter for future question
+snapshots. It must reuse original task/attempt/revision ownership and the typed
+Review/commit boundary without fabricating OCR/PDF tasks or GeneratedQuestion
+Origin. This amendment adds no source enum, persisted task format, new writer
+or remote discard capability; those require an explicit minimal implementation.
+
+Persistent adoption by the local Import/Review owner ends the sender's authority
+to cancel that local content. This protection does not wait for user editing or
+formal commit. Remote cancel may stop remaining transfer I/O but must preserve
+the working copy, decisions, revision and referenced assets. Section 8's cleanup
+eligibility and section 9's retention remain in force; a 24-hour transfer-temp
+TTL cannot override them. Local rejection/discard uses only the separately
+allowed original local action and never follows from a remote transfer command.
+
+Adoption and cancellation serialize against the same durable revision. If
+cancel wins before adoption, stale adoption is rejected; if adoption wins,
+cancel cannot mutate local content. Separate transfer and Review transactions
+require a recoverable adoption intent and exact original-owner relation before
+cleanup can become eligible. An unchanged transfer row does not prove no local
+draft exists. Unknown results retain protection and query the original owner;
+they do not delete content or fabricate CANCELLED. See
+[target design §17](../product/agent-refactor/unified-access-and-content-exchange-v1.md#s17).
+
+TransferReceipt only associates the transfer key/digest with actual owner and
+result. Existing revision flush, commit arbitration and Questions/sidecars/task
+completion transaction remain the sole formal authority. Future receipt mapping
+must share that transaction or recover through a proven original-owner result;
+response loss must not cause another import. Portable B0 retains its distinction
+between formal content, transient ImportTask/Review state and transfer control
+history; no generated-Proposal inclusion is inferred for import drafts.
