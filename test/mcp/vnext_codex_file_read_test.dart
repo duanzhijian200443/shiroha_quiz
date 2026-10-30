@@ -60,7 +60,7 @@ final class _FileApp {
                   .single
                   .values
                   .single,
-              35);
+              36);
         }));
     await host.startOffline();
     composition = VnextMcpAppComposition(

@@ -1770,7 +1770,8 @@ SQLite v35 adds `external_access_preferences`, keyed by Profile and the same
 Grant revision, with `all_content` and `generation_mode` (`confirm`, `review`,
 `direct`). Missing rows retain legacy exact scopes and per-request confirmation.
 Migration adds an empty table; merely opening settings never expands a Grant.
-The explicit new access action saves READ/STAGE, all content categories and
+The explicit new access action saves READ/STAGE, the original questionContent/
+fileContent/proposalMetadata categories and
 `all_content=true`, with an empty exact-scope list and `review` mode by default.
 Empty scopes alone still authorize nothing. All-content covers current and
 subsequently added Shiroha banks and File Library files, not arbitrary OS paths.
@@ -1907,8 +1908,8 @@ index work and matching output I/O custody until actual settlement.
 ## 15. Unified access and exchange — adopted design only
 
 The [unified access target](unified-access-and-content-exchange-v1.md#s08)
-adds future consumer/permission boundaries; it does not implement Grant fields,
-Profile 3/statistics, remote identity or exchange tools. Existing identity,
+owns future consumer/permission boundaries. The business/statistics foundation
+is implemented separately in §16; remote identity and exchange remain design. Existing identity,
 current-scope checks, final release validation and saved policy remain in force.
 Link is only a transport/lifecycle owner. Each target App's Application owns
 Session creation, authorization and final writes; Link cannot consult Windows
@@ -1937,3 +1938,55 @@ content. Result queries still require current authorization. The adoption/cancel
 race and protected-unknown behavior are owned by
 [design §17](unified-access-and-content-exchange-v1.md#s17) and the original local
 owner, not a parallel approval mechanism in the transport.
+
+
+## 16. Unified business foundation: independent statistics and v36
+
+`studyStatistics` is an independent, default-off outbound category. It permits
+summaries, due windows and weak metrics inside current authorized bank scopes,
+not scoring, review writes, answer history or new question/file body rights.
+`allContent` chooses objects; it does not grant future categories. The original
+one-click setup and normal Enable/pairing/reconnect never add statistics. An
+existing explicit statistics choice survives unrelated saved-mode changes.
+
+Local Windows/Android controls update the same Grant through the original local
+Application owner. They withdraw old runtime access and join original work
+before revision CAS, preserving permissions, exact scopes/allContent, other
+categories and confirm/review/direct preference. Closed/replaced views cannot
+save late decisions. Saving does not enable access; the existing finite enable
+flow remains required. Android's admitted normal seven-tool link is unchanged.
+
+SQLite v36 changes only the exact `external_grant_egress` category CHECK. The
+original v35 access-preference version/format is retained. DatabaseHelper's
+upgrade transaction verifies the complete authorization schema/data and known
+legacy constraint, rebuilds only that table, copies legal rows and adds no
+statistics consent. An exact current DDL used by reset-version fixtures is an
+explicit compatibility case only when its rows contain exclusively legacy
+categories; unknown DDL, indexes/triggers, categories, orphan relationships or
+inconsistent preferences fail without repair. DDL, rows, relationships and
+user_version roll back together on failure. Fresh and reopened current databases
+use the exact four-category constraint. No device routing/lease/Link table or
+setting is added. A real candidate v36 installation must never be downgraded or
+cleared as an integration shortcut.
+
+The original Registry now admits App-created authorized-collection Contexts and
+single-bank selections. Scope enumeration precedes SQL and duplicate Project/
+bank relations do not duplicate counts. Original READ/category/revision/runtime,
+reference-kind/parent, current relationship, content-identity and final release
+gates apply. No statistics permission means omitted protected fields in bank
+listing, and refusal of statistics-only operations. Weak previews require both
+statistics and questionContent. Aggregate Contexts cannot choose an implicit
+STAGE bank. Original key outcome lookup remains independent of old Contexts.
+
+MCP §19.1 owns the exact Profile 3/codec v4 schemas, limits and source. Statistics
+share the original READ budget and pending-owner settlement, with transient
+invocation-local database-version checks at both output gates. An intervening
+write may conservatively stale the result. Existing File Contexts retain P6 and
+no OCR path is added. Trusted composition exposes explicit connection settlement/
+reference invalidation; it imports no Windows-global device host or Link owner.
+
+Origin payload 2 records the additional category in new historical snapshots;
+valid payload 1 remains readable and cannot express statistics. Historical
+snapshots never restore a current Grant/Session/Enable or approval. Portable B0
+scrubs the five authorization/preference tables and excludes runtime references;
+raw rollback retains local persisted policy while runtime access stays invalid.

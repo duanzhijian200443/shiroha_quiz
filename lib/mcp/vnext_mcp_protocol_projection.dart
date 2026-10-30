@@ -8,7 +8,7 @@ import '../data/external/ipc_envelope_codec.dart';
 import '../domain/generated_question/generated_question_contract.dart';
 import 'vnext_mcp_server.dart';
 
-enum VnextMcpContextKind { read, stage, proposalLifecycle }
+enum VnextMcpContextKind { read, stage, proposalLifecycle, rootStudy, study }
 
 /// Selectors must be resolved by the original App owners, under the exact
 /// authenticated Session. None of these fields is an execution Context.
@@ -16,17 +16,21 @@ final class VnextMcpCommand {
   VnextMcpCommand._(this.capability, Map<String, Object?> input,
       {this.contextKind = VnextMcpContextKind.read,
       this.contextRef,
-      this.submissionKey})
+      this.submissionKey,
+      this.profileVersion = 2})
       : _input = input,
         _submission = null;
 
   VnextMcpCommand._stage(this.capability, Map<String, Object?> submission,
-      {required this.contextRef, required this.submissionKey})
+      {required this.contextRef,
+      required this.submissionKey,
+      this.profileVersion = 2})
       : contextKind = VnextMcpContextKind.stage,
         _input = null,
         _submission = submission;
 
   final String capability;
+  final int profileVersion;
   final VnextMcpContextKind contextKind;
   final String? contextRef, submissionKey;
   Map<String, Object?>? _input;
@@ -116,6 +120,92 @@ final class VnextMcpCommand {
 
   /// STAGE classification; the default Bridge refuses before payload encoding.
   bool get bridgeStageBlocked => contextKind == VnextMcpContextKind.stage;
+
+  VnextMcpCommand _unified() => _submission != null
+      ? VnextMcpCommand._stage(capability, _submission,
+          contextRef: contextRef,
+          submissionKey: submissionKey,
+          profileVersion: 3)
+      : VnextMcpCommand._(capability, _input!,
+          contextKind: contextKind,
+          contextRef: contextRef,
+          submissionKey: submissionKey,
+          profileVersion: 3);
+
+  static VnextMcpCommand parseUnified(
+      String tool, Map<String, dynamic> arguments) {
+    final schema = VnextMcpServer.unifiedInputSchemas[tool];
+    if (schema == null ||
+        arguments.keys
+            .any((key) => !(schema['properties'] as Map).containsKey(key)) ||
+        (schema['required'] as List)
+            .any((key) => !arguments.containsKey(key))) {
+      throw const FormatException('invalidRequest');
+    }
+    if (tool == 'open_context') {
+      if (arguments.containsKey('contextRef') ||
+          arguments.containsKey('fileRefs')) {
+        if (arguments.containsKey('scope') ||
+            arguments.containsKey('targetRef')) {
+          throw const FormatException('invalidRequest');
+        }
+        return parse('open_generation_context', arguments)._unified();
+      }
+      if (arguments.keys.any((key) => key != 'scope' && key != 'targetRef') ||
+          (arguments.containsKey('targetRef') &&
+              (arguments['targetRef'] is! String ||
+                  !RegExp(r'^[A-Za-z0-9_-]{43}$')
+                      .hasMatch(arguments['targetRef'] as String))) ||
+          (arguments.containsKey('scope') &&
+              !['authorized', 'bank'].contains(arguments['scope'])) ||
+          (arguments['scope'] == 'bank' && arguments['targetRef'] == null) ||
+          (arguments['scope'] == 'authorized' &&
+              arguments['targetRef'] != null)) {
+        throw const FormatException('invalidRequest');
+      }
+      return VnextMcpCommand._(
+          'external_open_study_context', {'targetRef': arguments['targetRef']},
+          contextKind: VnextMcpContextKind.rootStudy, profileVersion: 3);
+    }
+    if (![
+      'list_question_banks',
+      'get_study_overview',
+      'get_due_review_summary',
+      'get_weak_questions'
+    ].contains(tool)) {
+      return parse(tool, arguments)._unified();
+    }
+    final context = arguments['contextRef'];
+    if (context is! String ||
+        !RegExp(r'^[A-Za-z0-9_-]{43}$').hasMatch(context)) {
+      throw const FormatException('invalidRequest');
+    }
+    final input = switch (tool) {
+      'get_study_overview' => <String, Object?>{
+          'timezone': arguments['timezone']
+        },
+      'get_due_review_summary' => <String, Object?>{
+          'timezone': arguments['timezone'],
+          'from': arguments['from'],
+          'to': arguments['to']
+        },
+      _ => <String, Object?>{
+          'pageSize': arguments['pageSize'] ?? 20,
+          'cursor': arguments['cursor']
+        },
+    };
+    return VnextMcpCommand._(
+        switch (tool) {
+          'list_question_banks' => 'external_list_study_banks',
+          'get_study_overview' => 'external_study_overview',
+          'get_due_review_summary' => 'external_due_review_summary',
+          _ => 'external_weak_questions',
+        },
+        input,
+        contextRef: context,
+        contextKind: VnextMcpContextKind.study,
+        profileVersion: 3);
+  }
 
   static VnextMcpCommand parse(String tool, Map<String, dynamic> arguments) {
     final schema = VnextMcpServer.inputSchemas[tool];
@@ -207,7 +297,7 @@ final class VnextMcpCommand {
   }
 
   String get payload => jsonEncode({
-        'schemaVersion': 3,
+        'schemaVersion': profileVersion == 3 ? 4 : 3,
         'type': 'command',
         'capability': capability,
         'input': {
@@ -230,7 +320,7 @@ final class VnextMcpCommand {
         decoded['error'] != null;
     if (envelope.requestId != id ||
         (!preCommandFailure &&
-            (decoded['schemaVersion'] != 3 ||
+            (decoded['schemaVersion'] != (profileVersion == 3 ? 4 : 3) ||
                 decoded['capability'] != capability))) {
       throw const FormatException('invalidResult');
     }
@@ -241,7 +331,7 @@ final class VnextMcpCommand {
       throw const FormatException('invalidResult');
     }
     return {
-      'profileVersion': 2,
+      'profileVersion': profileVersion,
       'data': data,
       'error': decoded['error'],
     };

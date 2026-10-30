@@ -2,6 +2,8 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/core/database/database_helper.dart';
+import 'package:shiroha_quiz/application/capabilities/capability.dart';
+import 'package:shiroha_quiz/application/external/external_authorization.dart';
 import 'package:shiroha_quiz/application/generated_question/generated_question_service.dart';
 import 'package:shiroha_quiz/core/database/external_authorization_schema.dart';
 import 'package:shiroha_quiz/data/repositories/backup_database_authority.dart';
@@ -36,6 +38,13 @@ void main() {
   setUp(() async {
     s = DurableStageHarness();
     await s.open();
+    await s.management.replaceGrant(
+        s.profile,
+        1,
+        s.policy(permissions: [
+          CapabilityPermission.read,
+          CapabilityPermission.stage
+        ], categories: ExternalContentCategory.values));
     snapshots = BackupSnapshotRepository(databaseHelper: s.h.helper);
     managed = Directory(p.join(s.h.temp.path, 'managed'))..createSync();
     restore = Directory(p.join(s.h.temp.path, 'restore'))..createSync();
@@ -60,12 +69,15 @@ void main() {
     expect(result.output, isNotNull);
     final before =
         await readGeneratedProposal(s.h.db, result.output!.proposalId);
+    expect(before.externalOrigin!.schemaVersion, 2);
+    expect(before.externalOrigin!.authorizationSnapshot.egressCategories,
+        contains('studyStatistics'));
     final grant = await s.h.db.query('external_grants');
     final destination = p.join(s.h.temp.path, 'roundtrip.shiroha');
     await runtime().exportTo(destination);
     final manifest = await BackupArchiveIo.readManifestOnly(destination);
     expect(manifest.packageVersion, 2);
-    expect(manifest.schemaVersion, 35);
+    expect(manifest.schemaVersion, 36);
     expect(await s.h.db.query('external_grants'), grant);
     final restoring = runtime();
     await restoring.prepareRestore(destination);

@@ -30,6 +30,13 @@ test requires those entries. That is offline Linux evidence for the accepted
 P3-P12 behavior only; it is not Windows Credential, mTLS, ACL, Discovery or
 Host acceptance and it clears no WINDOWS_PENDING item.
 
+The unified business foundation adds standing v36 transactional rollback,
+independent statistics consent/scope/final-release, Profile 3 SDK and original
+File Context suites. They use real disposable SQLite and production owners with
+synthetic credential possession. Default v0/Profile 2 compatibility remains in
+the existing protocol suites. No Link, installed client, Native/TLS or phone
+acceptance is established by these deterministic tests.
+
 The App-owned relay adds standing framing/refusal, internal MCP client and App
 exit/log-drain suites. These portable tests load no Windows relay DLL and do not
 prove real Codex STAGE/Review or original-process settlement. The Windows native

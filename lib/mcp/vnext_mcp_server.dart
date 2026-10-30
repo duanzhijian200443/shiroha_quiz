@@ -24,15 +24,43 @@ abstract interface class VnextMcpResponsePort implements VnextMcpPort {
 }
 
 /// Safe business failure, distinct from an MCP JSON-RPC protocol error.
-Map<String, Object?> vnextFailure(String code) =>
-    {'profileVersion': 2, 'data': null, 'error': code};
+Map<String, Object?> vnextFailure(String code,
+        {int profileVersion = 2,
+        VnextDataSource source = const VnextDataSource('unselected')}) =>
+    {
+      'profileVersion': profileVersion,
+      'data': null,
+      'error': code,
+      if (profileVersion == 3) 'source': source.toJson()
+    };
+
+final class VnextDataSource {
+  const VnextDataSource(this.kind, [this.deviceRef]);
+  final String kind;
+  final String? deviceRef;
+  Map<String, Object?> toJson() => {'kind': kind, 'deviceRef': deviceRef};
+}
+
+bool validVnextSource(Object? value) =>
+    value is Map &&
+    value.length == 2 &&
+    const ['unselected', 'windows', 'android'].contains(value['kind']) &&
+    value.containsKey('deviceRef') &&
+    (value['kind'] == 'unselected' && value['deviceRef'] == null ||
+        value['deviceRef'] is String &&
+            RegExp(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
+                .hasMatch(value['deviceRef'] as String));
 
 /// Separate entrypoint; construction never enables an App or authenticates it.
 final class VnextMcpServer {
-  VnextMcpServer(this.port, {McpServer? protocolServer}) {
+  VnextMcpServer(this.port,
+      {McpServer? protocolServer, this.profileVersion = 2}) {
+    final schemas = schemasFor(profileVersion);
     _server = protocolServer ??
         McpServer(
-          const Implementation(name: 'shiroha_mcp_vnext', version: '0.2.0'),
+          Implementation(
+              name: profileVersion == 3 ? 'shiroha' : 'shiroha_mcp_vnext',
+              version: profileVersion == 3 ? '0.1.0' : '0.2.0'),
           options: const McpServerOptions(
             instructions: 'Stage generated candidates for review in Shiroha. '
                 'The App policy selects review drafts or direct saving. STAGED '
@@ -55,7 +83,7 @@ final class VnextMcpServer {
     };
     unawaited(
         _settled.future.then((_) {}, onError: (Object _, StackTrace __) {}));
-    for (final entry in inputSchemas.entries) {
+    for (final entry in schemas.entries) {
       _server.registerTool(entry.key,
           description: entry.key == 'propose_generated_questions'
               ? 'Submit content-only Submission v1; the App policy chooses review or direct saving.'
@@ -65,29 +93,55 @@ final class VnextMcpServer {
                   : 'Read currently authorized generation context or content.',
           inputSchema: JsonObject.fromJson(entry.value),
           outputSchema: JsonObject(properties: {
-            'profileVersion': JsonInteger(minimum: 2, maximum: 2),
+            'profileVersion':
+                JsonInteger(minimum: profileVersion, maximum: profileVersion),
             'data': JsonUnion([
-              entry.key == 'get_question_proposal'
-                  ? JsonObject.fromJson(_lifecycleSchema)
-                  : const JsonObject(),
+              profileVersion == 3 && _studyOutputs.containsKey(entry.key)
+                  ? JsonObject.fromJson(_studyOutputs[entry.key]!)
+                  : entry.key == 'get_question_proposal'
+                      ? JsonObject.fromJson(_lifecycleSchema)
+                      : const JsonObject(),
               const JsonNull()
             ]),
             'error': JsonUnion([JsonString(), JsonNull()]),
+            if (profileVersion == 3)
+              'source': JsonObject.fromJson({
+                'type': 'object',
+                'properties': {
+                  'kind': {
+                    'type': 'string',
+                    'enum': ['unselected', 'windows', 'android']
+                  },
+                  'deviceRef': {
+                    'type': ['string', 'null'],
+                    'minLength': 1,
+                    'maxLength': 128,
+                    'pattern': r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$',
+                  },
+                },
+                'required': ['kind', 'deviceRef'],
+                'additionalProperties': false,
+              }),
           }, required: [
             'profileVersion',
             'data',
-            'error'
+            'error',
+            if (profileVersion == 3) 'source',
           ], additionalProperties: false),
           annotations: ToolAnnotations(
-              readOnlyHint: entry.key != 'propose_generated_questions',
+              readOnlyHint: entry.key != 'propose_generated_questions' &&
+                  !(profileVersion == 3 &&
+                      entry.key == 'retrieve_file_content'),
               destructiveHint: false,
-              idempotentHint: entry.key != 'open_generation_context',
+              idempotentHint: entry.key != 'open_generation_context' &&
+                  entry.key != 'open_context',
               openWorldHint: false), callback: (arguments, extra) async {
         Map<String, Object?> result;
         try {
           final properties = entry.value['properties'] as Map;
           if (arguments.keys.any((key) => !properties.containsKey(key))) {
-            result = vnextFailure('invalidRequest');
+            result =
+                vnextFailure('invalidRequest', profileVersion: profileVersion);
           } else if (port case final VnextMcpResponsePort responsePort) {
             result = await responsePort.call(entry.key, arguments,
                 responseId: extra.requestId,
@@ -100,7 +154,7 @@ final class VnextMcpServer {
           }
         } catch (_) {
           // Never export an exception, request body, or unknown-write claim.
-          result = vnextFailure('unavailable');
+          result = vnextFailure('unavailable', profileVersion: profileVersion);
         }
         return CallToolResult(
             content: [TextContent(text: jsonEncode(result))],
@@ -110,6 +164,7 @@ final class VnextMcpServer {
     }
   }
   final VnextMcpPort port;
+  final int profileVersion;
   late final McpServer _server;
   bool _closed = false;
   final _settled = Completer<void>();
@@ -176,6 +231,147 @@ final class VnextMcpServer {
     'committedCount',
     'rejectedCount'
   ]);
+  static Map<String, Map<String, dynamic>> schemasFor(int profile) =>
+      switch (profile) {
+        2 => inputSchemas,
+        3 => unifiedInputSchemas,
+        _ => throw ArgumentError('Unsupported business profile'),
+      };
+
+  static const _count = {
+    'type': 'integer',
+    'minimum': 0,
+    'maximum': 9007199254740991,
+  };
+  static final _studyOutputs = <String, Map<String, dynamic>>{
+    'list_question_banks': _object({
+      'statisticsAuthorized': {'type': 'boolean'},
+      'nextCursor': _cursor,
+      'items': {
+        'type': 'array',
+        'maxItems': 50,
+        'items': _object({
+          'targetRef': _ref,
+          'bankName': {'type': 'string', 'minLength': 1, 'maxLength': 256},
+          'folderName': {
+            'type': ['string', 'null'],
+            'maxLength': 256
+          },
+          'questionCount': _count,
+          'dueCount': _count,
+          'masteredCount': _count,
+        }, [
+          'targetRef',
+          'bankName',
+          'folderName'
+        ])
+      },
+    }, [
+      'statisticsAuthorized',
+      'nextCursor',
+      'items'
+    ]),
+    'get_study_overview': _object({
+      'questionCount': _count,
+      'masteredCount': _count,
+      'dueCount': _count,
+      'todayPracticeCount': _count,
+      'wrongQuestionCount': _count,
+    }, [
+      'questionCount',
+      'masteredCount',
+      'dueCount',
+      'todayPracticeCount',
+      'wrongQuestionCount'
+    ]),
+    'get_due_review_summary': _object({
+      'dueNow': _count,
+      'scheduledCount': _count,
+      'buckets': {
+        'type': 'array',
+        'maxItems': 92,
+        'items': _object({
+          'date': {'type': 'string', 'pattern': r'^\d{4}-\d{2}-\d{2}$'},
+          'count': _count,
+        }, [
+          'date',
+          'count'
+        ])
+      },
+    }, [
+      'dueNow',
+      'scheduledCount',
+      'buckets'
+    ]),
+    'get_weak_questions': _object({
+      'nextCursor': _cursor,
+      'items': {
+        'type': 'array',
+        'maxItems': 50,
+        'items': _object({
+          'questionRef': _ref,
+          'bankName': {'type': 'string', 'minLength': 1, 'maxLength': 256},
+          'stemPreview': {'type': 'string', 'maxLength': 32768},
+          'lapseCount': {
+            'type': 'integer',
+            'minimum': 1,
+            'maximum': 9007199254740991
+          },
+          'difficulty': {'type': 'number'},
+          'lastLapseAt': {
+            'type': ['string', 'null'],
+            'maxLength': 40
+          },
+        }, [
+          'questionRef',
+          'bankName',
+          'stemPreview',
+          'lapseCount',
+          'difficulty',
+          'lastLapseAt'
+        ])
+      },
+    }, [
+      'nextCursor',
+      'items'
+    ]),
+  };
+
+  static final unifiedInputSchemas = <String, Map<String, dynamic>>{
+    'open_context': _object({
+      ...(inputSchemas['open_generation_context']!['properties']
+          as Map<String, dynamic>),
+      'scope': {
+        'type': 'string',
+        'enum': ['authorized', 'bank']
+      },
+    }),
+    'list_question_banks': _object(
+        {'contextRef': _ref, 'pageSize': _page, 'cursor': _cursor},
+        ['contextRef']),
+    'get_study_overview': _object({
+      'contextRef': _ref,
+      'timezone': {'type': 'string', 'minLength': 1, 'maxLength': 64}
+    }, [
+      'contextRef'
+    ]),
+    'get_due_review_summary': _object({
+      'contextRef': _ref,
+      'timezone': {'type': 'string', 'minLength': 1, 'maxLength': 64},
+      'from': {'type': 'string', 'format': 'date-time'},
+      'to': {'type': 'string', 'format': 'date-time'}
+    }, [
+      'contextRef',
+      'from',
+      'to'
+    ]),
+    'get_weak_questions': _object(
+        {'contextRef': _ref, 'pageSize': _page, 'cursor': _cursor},
+        ['contextRef']),
+    for (final entry in inputSchemas.entries)
+      if (entry.key != 'open_generation_context') entry.key: entry.value,
+  };
+
   static final Map<String, Map<String, dynamic>> inputSchemas = {
     'open_generation_context': _object({
       'targetRef': _ref,

@@ -792,6 +792,24 @@ commit, old draft replay, duplicate rejection, concurrent same-key submissions,
 cancellation at the final commit boundary and response-loss reconciliation.
 
 <a id="content-exchange-successor"></a>
+## Unified foundation amendment: Origin payload 2
+
+New external publications use Origin payload `schemaVersion: 2`, with the same
+exact keys and bounds as §10 except that `egressCategories` also admits
+`studyStatistics` (at most four sorted unique categories). Legal payload 1
+continues to decode/encode as 1 and admits only its original three categories;
+unknown versions/fields/categories still fail. Existing origins are not rewritten.
+Proposal JSON remains external version 2/local version 1, Submission stays 1,
+Receipt stays 1 and key/fingerprint/target/item mappings do not change.
+
+This is historical source metadata only. It cannot recreate current statistics,
+READ/STAGE, Scope, Session, Enable or local approval. SQLite v36 changes the
+current authorization CHECK through external boundary §16, not Proposal tables.
+Portable B0 keeps pending/committed/rejected Proposal/Origin/Question history
+while scrubbing current policy; raw rollback retains original local persisted
+policy but never runtime references. Existing new-batch direct/review and
+unknown-result original-key recovery remain exactly §14.
+
 ## 15. Content exchange boundary — adopted design only
 
 The [unified access target](unified-access-and-content-exchange-v1.md#s16)

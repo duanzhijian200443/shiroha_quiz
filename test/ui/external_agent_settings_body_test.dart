@@ -7,6 +7,7 @@ void main() {
   testWidgets('access and direct writing are independent explicit callbacks',
       (tester) async {
     final access = <bool>[];
+    final statistics = <bool>[];
     final writes = <bool>[];
     var reviews = 0;
     await tester.pumpWidget(MaterialApp(
@@ -18,6 +19,7 @@ void main() {
           directWriteEnabled: false,
           pendingCount: 6,
           onAccessChanged: access.add,
+          onStudyStatisticsChanged: statistics.add,
           onDirectWriteChanged: writes.add,
           onOpenReview: () => reviews++,
         ),
@@ -25,6 +27,11 @@ void main() {
     ));
     expect(find.text('默认生成待审核草稿'), findsOneWidget);
     expect(writes, isEmpty);
+    expect(statistics, isEmpty);
+    await tester.tap(find.byKey(const Key('external-study-statistics')));
+    expect(statistics, [true]);
+    expect(writes, isEmpty);
+    expect(access, isEmpty);
     await tester.tap(find.byKey(const Key('external-direct-write-switch')));
     expect(writes, [true]);
     expect(access, isEmpty);
@@ -96,9 +103,9 @@ void main() {
       ));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
-      await tester
-          .ensureVisible(find.byKey(const Key('external-connection-settings')));
-      await tester.tap(find.byKey(const Key('external-connection-settings')));
+      await tester.ensureVisible(find.text('连接设置'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('连接设置'));
       await tester.pumpAndSettle();
       expect(find.text('Synthetic connection settings'), findsOneWidget);
       expect(tester.takeException(), isNull);

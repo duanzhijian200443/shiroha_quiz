@@ -199,8 +199,12 @@ Android phone's ChatGPT browser flow without any computer relay. A phone server
 called from another device is only preliminary evidence. READ, write and file
 input/output each need their actual platform/account evidence. System
 selection/sharing is the first exchange route; it does not prove automatic
-ChatGPT attachments or device-to-device transport. The design adds no runtime
-admission, database migration or new delivery claim. Existing OCR/Agent pauses,
+ChatGPT attachments or device-to-device transport. The shared business foundation
+now implements explicit Profile 3, independent statistics and v36/Origin/B0
+compatibility through the original owners, with real isolated SQLite/MCP SDK
+checks. Normal six/seven-tool defaults remain; Link/installed eleven-tool client,
+phone remote use and exchange still need their own implementation and acceptance.
+The target design itself adds no runtime admission. Existing OCR/Agent pauses,
 high-assurance/security gates and current finite-use limits remain unchanged.
 
 The wider route remains open: #327 short-deadline cancellation, general client

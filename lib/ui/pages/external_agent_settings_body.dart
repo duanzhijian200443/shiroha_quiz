@@ -18,6 +18,8 @@ class ExternalAgentSettingsBody extends StatelessWidget {
     this.onConnect,
     this.onAccessChanged,
     this.onDirectWriteChanged,
+    this.studyStatisticsAllowed = false,
+    this.onStudyStatisticsChanged,
     this.error,
     this.connectionSettings,
   });
@@ -30,6 +32,8 @@ class ExternalAgentSettingsBody extends StatelessWidget {
   final VoidCallback? onConnect;
   final ValueChanged<bool>? onAccessChanged;
   final ValueChanged<bool>? onDirectWriteChanged;
+  final bool studyStatisticsAllowed;
+  final ValueChanged<bool>? onStudyStatisticsChanged;
   final VoidCallback onOpenReview;
   final String? error;
   final Widget? connectionSettings;
@@ -76,6 +80,14 @@ class ExternalAgentSettingsBody extends StatelessWidget {
               ),
             ),
           ),
+        SwitchListTile.adaptive(
+          key: const Key('external-study-statistics'),
+          secondary: const Icon(Icons.insights_outlined),
+          title: const Text('允许读取学习统计'),
+          subtitle: const Text('仅限已授权题库的进度、待复习与薄弱指标。变更会关闭旧访问；不会增加题目或资料权限。'),
+          value: studyStatisticsAllowed,
+          onChanged: onStudyStatisticsChanged,
+        ),
       ]),
       if (connecting)
         const Padding(

@@ -99,6 +99,9 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
       fileContentAllowed: _policyRecord?.grant?.policy.categories
               .contains(ExternalContentCategory.fileContent) ??
           false,
+      studyStatisticsAllowed: _policyRecord?.grant?.policy.categories
+              .contains(ExternalContentCategory.studyStatistics) ??
+          false,
       allContent: _policyRecord?.grant?.policy.allContent ?? false,
       hasFileScope: _policyRecord?.grant?.policy.scopes
               .any((scope) => scope.kind == ExternalTargetKind.file) ??
@@ -751,6 +754,11 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
   Future<void> setFileContentAllowed(bool allowed) =>
       _savePolicy((view, reference, revision) =>
           view.saveFileContent(reference, revision, allowed: allowed));
+
+  @override
+  Future<void> setStudyStatisticsAllowed(bool allowed) =>
+      _savePolicy((view, reference, revision) =>
+          view.saveStudyStatistics(reference, revision, allowed: allowed));
 
   Future<void> _savePolicy(
       Future<ExternalAuthorizationRecord> Function(

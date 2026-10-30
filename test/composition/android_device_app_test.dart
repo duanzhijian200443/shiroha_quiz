@@ -112,10 +112,24 @@ void main() {
       await app.setFileContentAllowed(false);
       expect(app.state.fileContentAllowed, isFalse);
       expect(app.state.generationMode, ExternalGenerationMode.direct);
-      await management.replaceGrant(ref, 5, androidQuestionReadPolicy());
+      final statsCancellation = app.setStudyStatisticsAllowed(true);
+      final statsFailure = expectLater(statsCancellation, throwsStateError);
+      await app.cancelPending();
+      await statsFailure;
+      expect((await management.read(ref)).profile.grantRevision, 5);
+      await app.inspect();
+      await app.setStudyStatisticsAllowed(true);
+      expect(app.state.studyStatisticsAllowed, isTrue);
+      expect(app.state.generationMode, ExternalGenerationMode.direct);
+      expect(app.state.fileContentAllowed, isFalse);
+      expect(app.state.phase, AndroidAccessPhase.off);
+      await app.setStudyStatisticsAllowed(false);
+      expect(app.state.studyStatisticsAllowed, isFalse);
+      expect(app.state.generationMode, ExternalGenerationMode.direct);
+      await management.replaceGrant(ref, 7, androidQuestionReadPolicy());
       await expectLater(app.setGenerationMode(ExternalGenerationMode.review),
           throwsA(isA<ExternalAuthException>()));
-      expect((await management.read(ref)).profile.grantRevision, 6);
+      expect((await management.read(ref)).profile.grantRevision, 8);
       await app.inspect();
       expect(app.state.generationMode, isNull);
       expect(app.state.profileId, profile);
