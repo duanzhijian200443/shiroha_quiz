@@ -5,6 +5,11 @@ The contracts job retains the standing test list in
 appear once and be assigned once by the existing `index % 4` split. Support
 fixtures are not executable entries. Training/StudyActivity suites are standing
 coverage even when a PR changes only production code.
+The large standing shard script receives its matrix number through the step's
+`CONTRACT_SHARD` environment variable. Keep GitHub expression interpolation out
+of that script: interpolating the entire test list can exceed GitHub's expression
+length limit before any job starts. Modulo partitioning and report names stay
+bound to the same matrix number.
 
 Android device-access foundation adds standing pure foreground-lifetime,
 association-CAS and Native-boundary refusal tests. They use synthetic resources,

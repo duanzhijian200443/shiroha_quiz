@@ -264,6 +264,8 @@ jobs:
 
       - name: Run contract shard
         shell: pwsh
+        env:
+          CONTRACT_SHARD: ${{ matrix.shard }}
         run: |
           $tests = @(
             # Order calibrated from Linux suite timings; keep modulo sharding.
@@ -599,7 +601,8 @@ jobs:
           )
 
           $shardCount = 4
-          $shardIndex = [int]'${{ matrix.shard }}' - 1
+          $shardNumber = [int]$env:CONTRACT_SHARD
+          $shardIndex = $shardNumber - 1
           $selected = @()
           for ($i = $shardIndex; $i -lt $tests.Count; $i += $shardCount) {
             $selected += $tests[$i]
@@ -612,8 +615,8 @@ jobs:
 
           $reportDirectory = '.dart_tool/ci-contract-timings'
           New-Item -ItemType Directory -Path $reportDirectory -Force | Out-Null
-          $rawReport = "$reportDirectory/raw-${{ matrix.shard }}.jsonl"
-          $summary = "$reportDirectory/shard-${{ matrix.shard }}.json"
+          $rawReport = "$reportDirectory/raw-$shardNumber.jsonl"
+          $summary = "$reportDirectory/shard-$shardNumber.json"
           & flutter test --concurrency=1 --file-reporter "json:$rawReport" @selected
           $testExit = $LASTEXITCODE
           & ./tool/ci/summarize_flutter_test_times.ps1 -InputPath $rawReport -OutputPath $summary
