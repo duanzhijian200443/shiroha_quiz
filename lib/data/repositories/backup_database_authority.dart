@@ -23,8 +23,13 @@ final class SqliteBackupDatabaseAuthority implements BackupDatabaseAuthority {
       _databaseHelper.getProductionDatabasePath();
 
   @override
-  Future<void> closeProduction() async {
+  Future<void> settleProductionOwners() async {
     await _beforeClose?.call();
+  }
+
+  @override
+  Future<void> closeProduction() async {
+    await settleProductionOwners();
     await _databaseHelper.close();
   }
 

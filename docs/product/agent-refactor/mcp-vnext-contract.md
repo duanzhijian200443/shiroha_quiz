@@ -2416,9 +2416,13 @@ cannot close or swap the database while these original operations are pending.
 During B0 maintenance, the original live lease may finish only its conditional
 dirty-to-clean update for the same target and generation. Application admits
 that store-bound proof only while joining successful original settlement; a
-retained or failed lease cannot reuse it. B0's existing before-close barrier
-joins this write before database close/swap. New selection, lease acquisition
-and manual recovery still require the ordinary mutation gate.
+retained or failed lease cannot reuse it. After commit's free-space preflight,
+B0 joins the same before-close owner barrier with SQLite still open, before
+freezing its raw rollback snapshot and before PREPARED. Failed settlement blocks
+snapshot/swap and preserves the original dirty marker; successful settlement is
+captured in rollback, including startup recovery after a crash. The same barrier
+still precedes database close/swap. New selection, lease acquisition and manual
+recovery still require the ordinary mutation gate.
 
 The local hop can also return `busy` while a failed original owner still retains
 its pipe. This is a refusal, not evidence of another healthy chat or permission

@@ -40,6 +40,13 @@ final class _FailSwap extends BackupFaultInjector {
       throw const BackupException(BackupFailure.databaseInvalid);
 }
 
+final class _CrashSwap extends BackupFaultInjector {
+  const _CrashSwap();
+  @override
+  Future<void> beforePostSwapValidation() async =>
+      throw const BackupCrashSimulation();
+}
+
 void main() {
   initializeGeneratedTests();
   late GeneratedHarness h;
@@ -117,8 +124,83 @@ void main() {
     return destination;
   }
 
-  test(
-      'B0 restore joins original live device cleanup inside quiescence before swap',
+  for (final outcome in ['success', 'rollback', 'startup recovery']) {
+    test('B0 $outcome preserves original live device settlement', () async {
+      final selectionStore =
+          SqliteExternalDeviceSelectionStore(databaseHelper: h.helper);
+      final device = ExternalDeviceConnection(
+          store: selectionStore,
+          availableTargets: () async => [const ExternalDeviceTarget.windows()],
+          endConnection: () async {});
+      await device.load();
+      await device.select(const ExternalDeviceTarget.windows());
+      final lease = await device.begin();
+      Future<void>? closing;
+      var closed = false;
+      final coordinator = BackupRestoreCoordinator(
+          operations: runtime(
+              faults: switch (outcome) {
+                'rollback' => const _FailSwap(),
+                'startup recovery' => const _CrashSwap(),
+                _ => const BackupFaultInjector(),
+              },
+              beforeClose: () => closing ??= () async {
+                    expect(
+                        BackupRestoreMutationGate.instance.isMaintenance, true);
+                    device.withdraw();
+                    // This callback represents the original relay's completed child
+                    // drain, at the same beforeClose seam used by the production root.
+                    await device.settled(lease, clean: true);
+                    expect(
+                        (await selectionStore.readDeviceSelection())!
+                            .needsCleanup,
+                        false);
+                    await device.close();
+                    closed = true;
+                  }()),
+          compositionReload: () async => expect(closed, true));
+      final destination = p.join(h.temp.path, 'live-device.shiroha');
+      await coordinator.exportTo(destination);
+      expect((await selectionStore.readDeviceSelection())!.needsCleanup, true);
+      await coordinator.prepareRestore(destination);
+      if (outcome == 'success') {
+        await coordinator.commitPreparedRestore();
+      } else {
+        await expectLater(
+            coordinator.commitPreparedRestore(),
+            throwsA(outcome == 'rollback'
+                ? isA<BackupException>().having(
+                    (e) => e.failure, 'failure', BackupFailure.databaseInvalid)
+                : isA<BackupCrashSimulation>()));
+        if (outcome == 'startup recovery') {
+          final recovered = await coordinator.recoverStartupIfNeeded();
+          expect(recovered.blocked, false);
+        }
+      }
+      expect(closed, true);
+      expect(BackupRestoreMutationGate.instance.isMaintenance, false);
+      final reopened = ExternalDeviceConnection(
+          store: selectionStore,
+          availableTargets: () async => [const ExternalDeviceTarget.windows()],
+          endConnection: () async {});
+      await reopened.load();
+      if (outcome == 'success') {
+        expect(await selectionStore.readDeviceSelection(), isNull);
+        expect(reopened.selection.target.kind, ExternalDeviceKind.unselected);
+      } else {
+        final saved = (await selectionStore.readDeviceSelection())!;
+        expect(saved.needsCleanup, false);
+        expect(saved.target, lease.target);
+        expect(saved.generation, lease.generation);
+        expect(reopened.phase, ExternalDevicePhase.disconnected);
+        final freshLease = await reopened.begin();
+        await reopened.settled(freshLease, clean: true);
+      }
+      await reopened.close();
+    });
+  }
+
+  test('B0 failed original device cleanup stops before snapshot and swap',
       () async {
     final selectionStore =
         SqliteExternalDeviceSelectionStore(databaseHelper: h.helper);
@@ -129,40 +211,37 @@ void main() {
     await device.load();
     await device.select(const ExternalDeviceTarget.windows());
     final lease = await device.begin();
+    final before = await authRows();
+    var closeCalls = 0;
     Future<void>? closing;
-    var closed = false;
     final coordinator = BackupRestoreCoordinator(
         operations: runtime(
             beforeClose: () => closing ??= () async {
-                  expect(
-                      BackupRestoreMutationGate.instance.isMaintenance, true);
+                  closeCalls++;
                   device.withdraw();
-                  // This callback represents the original relay's completed child
-                  // drain, at the same beforeClose seam used by the production root.
-                  await device.settled(lease, clean: true);
-                  expect(
-                      (await selectionStore.readDeviceSelection())!
-                          .needsCleanup,
-                      false);
-                  await device.close();
-                  closed = true;
-                }()),
-        compositionReload: () async => expect(closed, true));
-    final destination = p.join(h.temp.path, 'live-device.shiroha');
+                  await device.settled(lease, clean: false);
+                }()));
+    final destination = p.join(h.temp.path, 'failed-cleanup.shiroha');
     await coordinator.exportTo(destination);
-    expect((await selectionStore.readDeviceSelection())!.needsCleanup, true);
     await coordinator.prepareRestore(destination);
-    await coordinator.commitPreparedRestore();
-    expect(closed, true);
+    await expectLater(
+        coordinator.commitPreparedRestore(),
+        throwsA(isA<ExternalDeviceException>().having((e) => e.failure,
+            'failure', ExternalDeviceFailure.needsAttention)));
+    expect(closeCalls, 1);
+    expect(h.db.isOpen, true);
+    expect(await authRows(), before);
+    expect(coordinator.preparedRestore, isNotNull);
     expect(BackupRestoreMutationGate.instance.isMaintenance, false);
-    expect(await selectionStore.readDeviceSelection(), isNull);
-    final reopened = ExternalDeviceConnection(
-        store: selectionStore,
-        availableTargets: () async => [const ExternalDeviceTarget.windows()],
-        endConnection: () async {});
-    await reopened.load();
-    expect(reopened.selection.target.kind, ExternalDeviceKind.unselected);
-    await reopened.close();
+    final saved = (await selectionStore.readDeviceSelection())!;
+    expect(saved.needsCleanup, true);
+    expect(saved.target, lease.target);
+    expect(saved.generation, lease.generation);
+    expect(File(p.join(restore.path, 'journal', 'journal.json')).existsSync(),
+        false);
+    final rollback = Directory(p.join(restore.path, 'rollback'));
+    expect(rollback.existsSync() ? rollback.listSync() : const [], isEmpty);
+    await expectLater(device.begin(), throwsA(isA<ExternalDeviceException>()));
   });
 
   test(

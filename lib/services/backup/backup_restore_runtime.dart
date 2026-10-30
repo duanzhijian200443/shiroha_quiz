@@ -577,6 +577,10 @@ final class BackupRestoreRuntime implements BackupRestoreOperations {
               : 0) +
           await _directorySize(liveManaged),
     );
+    // Freeze rollback only after the original owners have persisted clean
+    // settlement. Otherwise a later rollback resurrects their dirty markers.
+    // Keep SQLite open; the existing close barrier still runs before swap.
+    await _database.settleProductionOwners();
     await Directory(rollbackDbPath).create(recursive: true);
     final rollbackDbFile = p.join(rollbackDbPath, 'shiroha_core_v1.db');
     await _faultInjector.beforeRollbackSnapshot();
