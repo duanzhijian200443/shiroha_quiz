@@ -264,6 +264,8 @@ jobs:
 
       - name: Run contract shard
         shell: pwsh
+        env:
+          CONTRACT_SHARD: ${{ matrix.shard }}
         run: |
           $tests = @(
             # Order calibrated from Linux suite timings; keep modulo sharding.
@@ -521,6 +523,9 @@ jobs:
             'test/application/external/external_capability_integration_test.dart',
             'test/application/external/external_question_read_test.dart',
             'test/application/external/external_read_context_test.dart',
+            'test/application/external/external_study_read_test.dart',
+            'test/application/external/external_device_connection_test.dart',
+            'test/application/external/external_study_statistics_v36_test.dart',
             'test/application/external/local_host_dispatch_test.dart',
             'test/application/external/external_trust_coordinator_test.dart',
             'test/application/external/external_authorization_backup_test.dart',
@@ -576,6 +581,7 @@ jobs:
             'test/application/generated_question/generated_external_origin_backup_test.dart',
             'test/ui/external_authorization_screen_test.dart',
             'test/ui/external_agent_settings_body_test.dart',
+            'test/ui/external_device_settings_test.dart',
             'test/services/retrieval/rag_lazy_artifact_provisioning_integration_test.dart',
             'test/application/generated_question/generated_external_origin_migration_test.dart',
             'test/application/agent/agent_config_service_test.dart',
@@ -589,11 +595,14 @@ jobs:
             # App-owned relay framing, protocol refusal and App exit barriers.
             'test/data/external/windows_local_relay_test.dart',
             'test/mcp/vnext_app_owned_client_test.dart',
+            'test/mcp/unified_mcp_profile_test.dart',
+            'test/mcp/unified_mcp_file_test.dart',
             'test/ui/external/first_party_external_exit_test.dart'
           )
 
           $shardCount = 4
-          $shardIndex = [int]'${{ matrix.shard }}' - 1
+          $shardNumber = [int]$env:CONTRACT_SHARD
+          $shardIndex = $shardNumber - 1
           $selected = @()
           for ($i = $shardIndex; $i -lt $tests.Count; $i += $shardCount) {
             $selected += $tests[$i]
@@ -606,8 +615,8 @@ jobs:
 
           $reportDirectory = '.dart_tool/ci-contract-timings'
           New-Item -ItemType Directory -Path $reportDirectory -Force | Out-Null
-          $rawReport = "$reportDirectory/raw-${{ matrix.shard }}.jsonl"
-          $summary = "$reportDirectory/shard-${{ matrix.shard }}.json"
+          $rawReport = "$reportDirectory/raw-$shardNumber.jsonl"
+          $summary = "$reportDirectory/shard-$shardNumber.json"
           & flutter test --concurrency=1 --file-reporter "json:$rawReport" @selected
           $testExit = $LASTEXITCODE
           & ./tool/ci/summarize_flutter_test_times.ps1 -InputPath $rawReport -OutputPath $summary

@@ -143,6 +143,11 @@ abstract interface class ManagedOriginalReader {
 /// staged validation; concrete sqflite wiring stays in the data layer.
 abstract interface class BackupDatabaseAuthority {
   Future<String> productionDatabasePath();
+
+  /// Withdraws and drains original App owners before freezing rollback state.
+  /// SQLite stays open for the snapshot; failed settlement must block restore.
+  Future<void> settleProductionOwners();
+
   Future<void> closeProduction();
   Future<void> reopenProduction();
   Future<void> validateDatabaseFile(String path);

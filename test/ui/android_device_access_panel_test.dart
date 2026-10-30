@@ -11,6 +11,8 @@ final class _Access implements AndroidDeviceAccess {
   final events = StreamController<void>.broadcast(sync: true);
   final choices = <ExternalGenerationMode?>[];
   final fileChoices = <bool>[];
+  final statisticsChoices = <bool>[];
+  bool statistics = false;
   bool files = false, allContent = true, hasFileScope = false;
   int enables = 0, disables = 0, leaves = 0;
   ExternalGenerationMode? mode;
@@ -20,6 +22,7 @@ final class _Access implements AndroidDeviceAccess {
       paired: true,
       policyReady: true,
       fileContentAllowed: files,
+      studyStatisticsAllowed: statistics,
       allContent: allContent,
       hasFileScope: hasFileScope,
       phase: AndroidAccessPhase.off,
@@ -42,6 +45,13 @@ final class _Access implements AndroidDeviceAccess {
   Future<void> setFileContentAllowed(bool allowed) async {
     fileChoices.add(allowed);
     files = allowed;
+    events.add(null);
+  }
+
+  @override
+  Future<void> setStudyStatisticsAllowed(bool allowed) async {
+    statisticsChoices.add(allowed);
+    statistics = allowed;
     events.add(null);
   }
 
@@ -73,6 +83,26 @@ final class _Access implements AndroidDeviceAccess {
 }
 
 void main() {
+  testWidgets('statistics opt-in is independent of files and generation',
+      (tester) async {
+    final access = _Access()..mode = ExternalGenerationMode.direct;
+    await tester.pumpWidget(
+        MaterialApp(home: AndroidDeviceAccessPanel(access: access)));
+    await tester.pumpAndSettle();
+    final control = find.byKey(const Key('android-study-statistics'));
+    expect(tester.widget<SwitchListTile>(control).value, false);
+    await tester.ensureVisible(control);
+    await tester.tap(control);
+    await tester.pumpAndSettle();
+    expect(access.statisticsChoices, [true]);
+    expect(access.fileChoices, isEmpty);
+    expect(access.choices, isEmpty);
+    expect(access.mode, ExternalGenerationMode.direct);
+    expect(access.enables, 0);
+    await tester.pumpWidget(const SizedBox());
+    await access.close();
+  });
+
   testWidgets('file consent describes actual scope and preserves direct mode',
       (tester) async {
     final access = _Access()..mode = ExternalGenerationMode.direct;

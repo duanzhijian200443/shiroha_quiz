@@ -75,7 +75,15 @@ internal static class SyntheticTests
         CheckFrameDeadlines().GetAwaiter().GetResult();
         Check(DeviceClient.IsNonce(DeviceClient.Nonce()));
         Check(!DeviceClient.IsNonce(new string('A', 42) + "B"));
-        Console.WriteLine("PASS: 38 synthetic Android adapter checks; no business or credential acquisition in this test");
+        Check(DeviceClient.RecoveryReport("tls", "deadline") == "SHIROHA_ANDROID_RECOVERY|P|tls|deadline");
+        Check(DeviceClient.RecoveryReport("settled") == "SHIROHA_ANDROID_RECOVERY|S|settled");
+        Check(DeviceClient.RecoveryReport("private-path", "deadline") == null);
+        Check(DeviceClient.RecoveryReport("tls", "private-exception") == null);
+        Check(DeviceClient.RecoveryReport("client-key", "credential_store_unavailable") == "SHIROHA_ANDROID_RECOVERY|P|client-key|credential_store_unavailable");
+        Check(DeviceClient.BusinessReport("heartbeat", "peer_lost") == "SHIROHA_ANDROID_LINK|P|heartbeat|peer_lost");
+        Check(DeviceClient.BusinessReport("download", "io") == "SHIROHA_ANDROID_LINK|P|download|io");
+        Check(DeviceClient.BusinessReport("private", "private") == null);
+        Console.WriteLine("PASS: 46 synthetic Android adapter checks; no business or credential acquisition in this test");
         return 0;
     }
 

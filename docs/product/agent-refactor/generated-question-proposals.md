@@ -790,3 +790,17 @@ original local policy. Required offline regressions cover migration/reopen,
 legacy defaults, CAS/revocation, B0 scrub/rollback, default drafts, new direct
 commit, old draft replay, duplicate rejection, concurrent same-key submissions,
 cancellation at the final commit boundary and response-loss reconciliation.
+
+## 15. External Origin v2 and statistics consent
+
+New external STAGE records write historical `externalOrigin.schemaVersion = 2`.
+The category whitelist adds `studyStatistics`; the remaining shape, limits,
+sorted unique categories/files, original target and authenticated Profile binding
+remain unchanged. Readers accept exact Origin v1 and v2. V1 still rejects the
+new category and is serialized back as v1; old history is never rewritten.
+
+This supersedes the Origin-v1 writer statements in sections 11 and 14. Proposal
+JSON v2, Submission v1, Receipt, semantic fingerprints and original-key lookup
+keep their formats. Statistics consent does not grant STAGE or COMMIT. B0 keeps
+either historical Origin version while removing live authorization from portable
+copies; original rollback retains its prior authorization and history.

@@ -46,6 +46,21 @@ Future<Map<String, Object?>> _call(VnextLocalRelayPort port,
     port.call(tool, arguments, cancelled: cancelled, available: () => true);
 
 void localRelayReconnectionCases() {
+  test('second chat reports busy without taking ownership or retrying',
+      () async {
+    var attempts = 0;
+    final port = VnextLocalRelayPort(
+        profileVersion: 3,
+        connect: () {
+          attempts++;
+          throw const LocalRelayException(busy: true);
+        });
+    final result = await _call(port, tool: 'open_context');
+    expect(result['error'], 'busy');
+    expect(result['profileVersion'], 3);
+    expect(attempts, 1);
+    await port.close();
+  });
   test('relay unknown acquisition never permits another connection', () async {
     var attempts = 0;
     final port = VnextLocalRelayPort(connect: () {

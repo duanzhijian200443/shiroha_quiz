@@ -4,7 +4,8 @@ part of 'generated_question_contract.dart';
 /// cannot produce a GeneratedOriginContext or an external STAGE command.
 final class ExternalProposalOrigin {
   ExternalProposalOrigin._(
-      {required this.clientProfileId,
+      {required this.schemaVersion,
+      required this.clientProfileId,
       required this.submissionKey,
       required this.originalTarget,
       required this.adapterProtocol,
@@ -13,6 +14,7 @@ final class ExternalProposalOrigin {
 
   // These are bound to the Proposal's original header, not repeated in payload.
   final String clientProfileId, submissionKey;
+  final int schemaVersion;
   final GeneratedTarget originalTarget;
   final ExternalOriginAdapterProtocol adapterProtocol;
   final ExternalOriginAuthorizationSnapshot authorizationSnapshot;
@@ -29,7 +31,8 @@ final class ExternalProposalOrigin {
       'adapterProtocol',
       'authorizationSnapshot'
     ]);
-    if (m['schemaVersion'] is! int || m['schemaVersion'] != 1) {
+    final version = m['schemaVersion'];
+    if (version is! int || (version != 1 && version != 2)) {
       generatedFail(GeneratedFailure.corruptState);
     }
     final request = m['externalRequestId'];
@@ -41,6 +44,7 @@ final class ExternalProposalOrigin {
     final target = GeneratedTarget.fromJson(originalTarget.toJson());
     final profile = generatedToken(clientProfileId, uuid: true);
     return ExternalProposalOrigin._(
+        schemaVersion: version,
         clientProfileId: profile,
         submissionKey: generatedToken(submissionKey),
         originalTarget: target,
@@ -48,11 +52,12 @@ final class ExternalProposalOrigin {
         adapterProtocol:
             ExternalOriginAdapterProtocol._decode(m['adapterProtocol']),
         authorizationSnapshot: ExternalOriginAuthorizationSnapshot._decode(
-            m['authorizationSnapshot'], target, profile));
+            m['authorizationSnapshot'], target, profile,
+            schemaVersion: version));
   }
 
   Map<String, Object?> toPersistedPayload() => {
-        'schemaVersion': 1,
+        'schemaVersion': schemaVersion,
         'externalRequestId': externalRequestId,
         'adapterProtocol': adapterProtocol.toJson(),
         'authorizationSnapshot': authorizationSnapshot.toJson()
@@ -104,7 +109,8 @@ final class ExternalOriginAuthorizationSnapshot {
   final String recipientProfileId;
   final List<String> authorizedFileIds, egressCategories;
   static ExternalOriginAuthorizationSnapshot _decode(
-      Object? value, GeneratedTarget target, String recipient) {
+      Object? value, GeneratedTarget target, String recipient,
+      {required int schemaVersion}) {
     final m = generatedObject(value, [
       'grantRevision',
       'permission',
@@ -117,9 +123,16 @@ final class ExternalOriginAuthorizationSnapshot {
     final files = generatedList(m['authorizedFileIds'], max: 128)
         .map(generatedToken)
         .toList();
-    final categories = generatedList(m['egressCategories'], max: 3).map((v) {
-      if (v is! String ||
-          !['questionContent', 'fileContent', 'proposalMetadata'].contains(v)) {
+    final allowedCategories = [
+      'questionContent',
+      'fileContent',
+      'proposalMetadata',
+      if (schemaVersion == 2) 'studyStatistics',
+    ];
+    final categories =
+        generatedList(m['egressCategories'], max: allowedCategories.length)
+            .map((v) {
+      if (v is! String || !allowedCategories.contains(v)) {
         generatedFail(GeneratedFailure.corruptState);
       }
       return v;

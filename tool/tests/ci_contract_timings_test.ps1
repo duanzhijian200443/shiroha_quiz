@@ -59,6 +59,12 @@ $contracts = [regex]::Match($workflow, '(?ms)^  contracts:\r?\n(.*?)(?=^  [a-z_]
 Assert-True $contracts.Success 'contracts job exists'
 Assert-True ($contracts.Value -match '(?m)^    needs: impact\r?$') 'contract shards consume only the plan'
 Assert-True (!($contracts.Value -match '(?m)^      - static\r?$')) 'contract shards do not depend on static'
+$shardStep = [regex]::Match($contracts.Value, '(?ms)^      - name: Run contract shard\r?\n(?<configuration>.*?)^        run: \|\r?\n(?<script>.*?)(?=^      - name:|\z)')
+Assert-True $shardStep.Success 'contract shard script exists'
+Assert-True ($shardStep.Groups['configuration'].Value.Contains('CONTRACT_SHARD: ${{ matrix.shard }}')) 'matrix shard is passed through the step environment'
+Assert-True (!$shardStep.Groups['script'].Value.Contains('${{')) 'large standing script must not expand into a GitHub expression'
+Assert-True ($shardStep.Groups['script'].Value.Contains('$shardNumber = [int]$env:CONTRACT_SHARD') -and
+    $shardStep.Groups['script'].Value.Contains('$shardIndex = $shardNumber - 1')) 'environment shard preserves zero-based modulo partitioning'
 $sourceGate = $contracts.Value.IndexOf('run: ./tool/external/check_bootstrap_source.ps1')
 $vectorGate = $contracts.Value.IndexOf('run: python3 tool/external/verify_bootstrap_vectors.py')
 $testRun = $contracts.Value.IndexOf('& flutter test --concurrency=1 --file-reporter')

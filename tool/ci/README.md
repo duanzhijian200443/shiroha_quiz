@@ -5,6 +5,11 @@ The contracts job retains the standing test list in
 appear once and be assigned once by the existing `index % 4` split. Support
 fixtures are not executable entries. Training/StudyActivity suites are standing
 coverage even when a PR changes only production code.
+The large standing shard script receives its matrix number through the step's
+`CONTRACT_SHARD` environment variable. Keep GitHub expression interpolation out
+of that script: interpolating the entire test list can exceed GitHub's expression
+length limit before any job starts. Modulo partitioning and report names stay
+bound to the same matrix number.
 
 Android device-access foundation adds standing pure foreground-lifetime,
 association-CAS and Native-boundary refusal tests. They use synthetic resources,
@@ -15,6 +20,32 @@ those compilations or real TLS/device behavior. Delivery records that coverage
 gap rather than relabeling portable tests as Native acceptance.
 
 The standing list also retains the AR-R6A External offline regression matrix:
+every `test/application/external/` and `test/data/external/` suite, the
+`generated_external_origin*` Proposal suites, the P11 authorization widget and
+the repeatedly re-verified `rag_lazy`/Agent config-history suites. The contract
+test requires those entries. That is offline Linux evidence for the accepted
+P3-P12 behavior only; it is not Windows Credential, mTLS, ACL, Discovery or
+Host acceptance and it clears no WINDOWS_PENDING item.
+
+The unified local plugin adds schema-v36 rollback and statistics-consent tests,
+authorized-set study queries, profile-3/version-4 dispatch, unchanged profile-2
+file selection/passage regression, and App-owned device-switch/cleanup barriers.
+The recovery widget regression requires explicit invocation, shows pending
+proof, and retains the dirty state after failure; a Windows target cannot use
+the Android recovery action.
+Those synthetic checks do not prove an installed Codex plugin, phone TLS,
+temporary-key retirement, or operating-system lifecycle behavior. The explicit
+host qualification and separately scoped device runtime evidence cover those
+remaining boundaries; a green contract shard alone cannot close them.
+The portable Bootstrap source gate checks both explicit protocol versions, fixed
+Windows/Android child arguments and the App-owned device-store/close/recovery
+wiring. Its in-memory mutations still reject protected startup, direct process
+authority and replacement owners; the unified profile does not bypass that gate.
+The opt-in Windows relay script includes an unexpected original-child exit with
+an idle client. It must enter original cleanup without another call and retain
+nonzero-exit failure. Its failed-close reconnection case expects the retained
+native pipe's `busy` refusal and verifies that no replacement child or replay
+appears; this is not another healthy business connection.
 
 The v35 saved-policy suites cover legacy migration defaults, all-content target
 checks, default drafts, direct new-batch transactions, old-key replay and
@@ -23,13 +54,6 @@ the existing TLS/App suites cover saved-mode approval without a UI, pending
 switch cancellation and original settlement. File suites cover bounded all-file
 discovery and parent-bound pagination. These are synthetic offline checks;
 normal Windows daily-use and formal security acceptance remain separate.
-every `test/application/external/` and `test/data/external/` suite, the
-`generated_external_origin*` Proposal suites, the P11 authorization widget and
-the repeatedly re-verified `rag_lazy`/Agent config-history suites. The contract
-test requires those entries. That is offline Linux evidence for the accepted
-P3-P12 behavior only; it is not Windows Credential, mTLS, ACL, Discovery or
-Host acceptance and it clears no WINDOWS_PENDING item.
-
 The App-owned relay adds standing framing/refusal, internal MCP client and App
 exit/log-drain suites. These portable tests load no Windows relay DLL and do not
 prove real Codex STAGE/Review or original-process settlement. The Windows native

@@ -9,6 +9,7 @@ import 'external_trust_coordinator.dart';
 import 'external_trust_core.dart';
 import 'first_party_external_credentials.dart';
 import 'first_party_development_access.dart';
+import 'external_device_connection.dart';
 import 'first_party_stage_approval.dart';
 import 'local_authorization_service.dart';
 
@@ -137,6 +138,15 @@ final class FirstPartyAssociationRecoveryDisplay {
 
 /// First-party control only; never registered as a Capability or MCP tool.
 final class FirstPartyExternalAccess {
+  ExternalDeviceConnection? _deviceConnection;
+  ExternalDeviceConnection? get deviceConnection => _deviceConnection;
+  void installDeviceConnection(ExternalDeviceConnection connection) {
+    if (_deviceConnection != null) {
+      throw StateError('Device connection already installed');
+    }
+    _deviceConnection = connection;
+  }
+
   FirstPartyExternalAccess(
       {required this.policy,
       required bool Function() compositionIsCurrent,

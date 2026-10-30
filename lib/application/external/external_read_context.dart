@@ -9,11 +9,14 @@ import 'external_question_read.dart';
 import 'external_file_read.dart';
 import '../retrieval/retrieval.dart';
 import '../retrieval/retrieval_ports.dart';
+import '../study_query/study_query_ports.dart';
+import '../study_query/study_query_time_zone.dart';
 import '../../domain/retrieval/retrieval_chunk.dart';
 import 'external_runtime_admission.dart';
 import 'external_trust_core.dart';
 
 part 'external_file_context.dart';
+part 'external_study_context.dart';
 
 enum ExternalReadFailure {
   denied,
@@ -106,7 +109,8 @@ enum _HandleKind {
   fileSelection,
   fileSelectionCursor,
   passage,
-  passageCursor
+  passageCursor,
+  studyCursor
 }
 
 final class _Handle {
@@ -120,7 +124,9 @@ final class _Handle {
       this.files = const [],
       this.file,
       this.chunkId,
-      this.anchor});
+      this.anchor,
+      this.lastLapse,
+      this.lastQuestionId});
   final _HandleKind kind;
   final ExternalRuntimeAccess access;
   final ExternalReadSnapshot snapshot;
@@ -135,6 +141,8 @@ final class _Handle {
   final RetrievalArtifactSnapshot? file;
   final String? chunkId;
   final _Handle? anchor;
+  final int? lastLapse;
+  final String? lastQuestionId;
   // Evidence for generated STAGE remains separate from File READ snapshots.
   final List<GeneratedEvidence> approvedEvidence = const [];
 }
@@ -142,13 +150,17 @@ final class _Handle {
 /// Context-minted Data proof; no public constructor or wire decoder. Current
 /// durable authorization is still checked by the owning Data transaction.
 final class ExternalQuestionReadAccess {
-  ExternalQuestionReadAccess._(this._owner, this.runtime, this._context);
+  ExternalQuestionReadAccess._(this._owner, this.runtime, this._context,
+      {ExternalReadTarget? target})
+      : _target = target;
   final ExternalReadContextService _owner;
   final ExternalRuntimeAccess runtime;
   final _Handle _context;
-  ExternalReadTarget get target => _context.target!;
+  final ExternalReadTarget? _target;
+  ExternalReadTarget get target => _target ?? _context.target!;
   int get revision => _context.snapshot.grant.revision;
   DateTime get expiresAt => _context.expiresAt;
+  bool get isAggregate => _context.target == null;
   List<RetrievalArtifactSnapshot> get files => _context.files;
   bool belongsTo(ExternalReadContextService service) =>
       identical(_owner, service);
@@ -157,6 +169,8 @@ final class ExternalQuestionReadAccess {
     _context.access.validate();
     if (_owner._closed ||
         !_owner._handles.values.contains(_context) ||
+        (_target ?? _context.target) == null ||
+        !_context.snapshot.targets.contains(_target ?? _context.target) ||
         !_owner.admission.trust.clock.now().isBefore(_context.expiresAt)) {
       externalReadFail(ExternalReadFailure.denied);
     }
@@ -171,6 +185,7 @@ final class ExternalReadContextService {
     required ExternalTargetReadPort targets,
     ExternalQuestionReadPort? questions,
     ExternalFileReader? files,
+    ExternalStudyReadPort? study,
     this.maxActiveHandles = 256,
     this.maxHandlesPerProfile = 160,
     this.maxContexts = 64,
@@ -182,6 +197,7 @@ final class ExternalReadContextService {
     this.contextLifetime = const Duration(minutes: 15),
   })  : _targets = targets,
         _questions = questions,
+        _study = study,
         _files = files {
     if ([
           maxActiveHandles,
@@ -215,6 +231,7 @@ final class ExternalReadContextService {
   final ExternalRuntimeAdmission admission;
   final ExternalTargetReadPort _targets;
   final ExternalQuestionReadPort? _questions;
+  final ExternalStudyReadPort? _study;
   final ExternalFileReader? _files;
   final int maxActiveHandles,
       maxHandlesPerProfile,
@@ -233,6 +250,14 @@ final class ExternalReadContextService {
   int get activeHandleCount => _handles.length;
   int get pendingCount => _pending.values.fold(0, (a, b) => a + b);
   Future<void> get whenIdle => _idle?.future ?? Future.value();
+
+  /// A trusted connection owner calls this after its original work settles.
+  /// Authentication may keep the principal enabled for a later connection;
+  /// selection, question, file and cursor handles must not survive that handoff.
+  void invalidateConnectionContexts(ExternalSession session) {
+    _handles.removeWhere((_, handle) =>
+        identical(handle.access.session.principal, session.principal));
+  }
 
   void close() {
     _closed = true;
@@ -615,7 +640,8 @@ final class ExternalReadContextService {
         }
         final port =
             _questions ?? (externalReadFail(ExternalReadFailure.unavailable));
-        final access = ExternalQuestionReadAccess._(this, runtime, handle);
+        final access = ExternalQuestionReadAccess._(this, runtime, handle,
+            target: selected.target);
         access.validate();
         final detail = await port.detail(access, selected.questionKey!, check);
         check();

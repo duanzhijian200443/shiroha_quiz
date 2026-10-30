@@ -7,35 +7,39 @@ import 'vnext_mcp_composition_root.dart';
 import 'vnext_mcp_protocol_projection.dart';
 import 'vnext_mcp_server.dart';
 
-VnextMcpServer androidDeviceServer(VnextMcpPort port) => VnextMcpServer(port,
-    protocolServer: McpServer(
-      const Implementation(name: 'shiroha_mcp_vnext', version: '0.2.0'),
-      options: const McpServerOptions(
-          instructions:
-              'Use the selected Android phone library. Call one tool at a time '
-              'and await its response. File access requires '
-              'local fileContent permission: list paginated choices under a '
-              'parent contextRef, then select returned fileRefs into a separate '
-              'File Context. Empty pages may have nextCursor; ordinals are '
-              'page-local. Retrieve hits, then read passageRef/cursor; report '
-              'coverage flags and never infer complete reading from hits. '
-              'Passage refs are not GeneratedEvidence. The current '
-              'phone policy may allow generated drafts or direct saving of new '
-              'batches. STAGED/NOT_REPORTED acknowledges publication only: query '
-              'get_question_proposal by the original submissionKey for lifecycle '
-              'and counts. Never replay an uncertain write. Local Review and direct consent belong '
-              'to the phone user. Submission v1 has schemaVersion:1, '
-              'submissionKey, requestedCount and items. Each item has exactly '
-              'itemKey, kind, stem, options, answer, explanation, evidenceKeys. '
-              'For singleChoice, stem/explanation and option content are node '
-              'arrays (for text: {type:"text",text:"..."}); explanation may be '
-              'null. Each option has optionKey,label,content; use 2..26 unique '
-              'options. answer is {type:"choice",optionKeys:[one optionKey]}. '
-              'Empty evidenceKeys:[] means uncited; do not add an uncited field. '
-              'itemKey/optionKey/submissionKey use '
-              '[A-Za-z0-9][A-Za-z0-9._-]{0,63}.',
-          capabilities: ServerCapabilities(tools: ServerCapabilitiesTools())),
-    ));
+VnextMcpServer androidDeviceServer(VnextMcpPort port,
+        {int profileVersion = 2}) =>
+    VnextMcpServer(port,
+        profileVersion: profileVersion,
+        protocolServer: McpServer(
+          const Implementation(name: 'shiroha_mcp_vnext', version: '0.2.0'),
+          options: const McpServerOptions(
+              instructions:
+                  'Use the selected Android phone library. Call one tool at a time '
+                  'and await its response. File access requires '
+                  'local fileContent permission: list paginated choices under a '
+                  'parent contextRef, then select returned fileRefs into a separate '
+                  'File Context. Empty pages may have nextCursor; ordinals are '
+                  'page-local. Retrieve hits, then read passageRef/cursor; report '
+                  'coverage flags and never infer complete reading from hits. '
+                  'Passage refs are not GeneratedEvidence. The current '
+                  'phone policy may allow generated drafts or direct saving of new '
+                  'batches. STAGED/NOT_REPORTED acknowledges publication only: query '
+                  'get_question_proposal by the original submissionKey for lifecycle '
+                  'and counts. Never replay an uncertain write. Local Review and direct consent belong '
+                  'to the phone user. Submission v1 has schemaVersion:1, '
+                  'submissionKey, requestedCount and items. Each item has exactly '
+                  'itemKey, kind, stem, options, answer, explanation, evidenceKeys. '
+                  'For singleChoice, stem/explanation and option content are node '
+                  'arrays (for text: {type:"text",text:"..."}); explanation may be '
+                  'null. Each option has optionKey,label,content; use 2..26 unique '
+                  'options. answer is {type:"choice",optionKeys:[one optionKey]}. '
+                  'Empty evidenceKeys:[] means uncited; do not add an uncited field. '
+                  'itemKey/optionKey/submissionKey use '
+                  '[A-Za-z0-9][A-Za-z0-9._-]{0,63}.',
+              capabilities:
+                  ServerCapabilities(tools: ServerCapabilitiesTools())),
+        ));
 
 /// Connection lifetime only. The App's P0/P15/Host owners remain outside it.
 final class AndroidMcpTransport extends Transport {
@@ -48,7 +52,8 @@ final class AndroidMcpTransport extends Transport {
       required this.closeChannel,
       required this.invalidate,
       required this.connectionId,
-      required this.current}) {
+      required this.current,
+      this.onDiagnostic}) {
     port.attachTransport(close);
   }
   final AndroidMcpPort port;
@@ -60,6 +65,16 @@ final class AndroidMcpTransport extends Transport {
   final void Function() invalidate;
   final String connectionId;
   final bool Function() current;
+  final void Function(String cause)? onDiagnostic;
+  bool _reportedClose = false;
+  void _reportClose(String cause) {
+    if (_reportedClose) return;
+    _reportedClose = true;
+    try {
+      onDiagnostic?.call(cause);
+    } catch (_) {/* Observation never changes the original close. */}
+  }
+
   final _elapsed = Stopwatch()..start();
   Duration _lastPeer = Duration.zero;
   String? _ping;
@@ -79,8 +94,13 @@ final class AndroidMcpTransport extends Transport {
     unawaited(_pump!.catchError((Object _) {}));
     _timer = Timer.periodic(const Duration(seconds: 15), (_) {
       if (_closed) return;
-      if (!current() ||
-          _elapsed.elapsed - _lastPeer >= const Duration(seconds: 45)) {
+      if (!current()) {
+        _reportClose('authorization_changed');
+        unawaited(close().catchError((Object _) {}));
+        return;
+      }
+      if (_elapsed.elapsed - _lastPeer >= const Duration(seconds: 45)) {
+        _reportClose('peer_timeout');
         unawaited(close().catchError((Object _) {}));
         return;
       }
@@ -109,6 +129,13 @@ final class AndroidMcpTransport extends Transport {
               !validNonce(message['nonce'])) {
             androidLinkFail();
           }
+          if (message['type'] == 'closing' &&
+              port.binding.profileVersion == 3) {
+            _reportClose('peer_closing');
+            if (!await port.beginGracefulClose()) androidLinkFail();
+            await _write(1, {...message, 'type': 'closed'});
+            return; // finally closes the original channel after the acknowledgement.
+          }
           if (message['type'] == 'ping') {
             await _write(1, {...message, 'type': 'pong'});
           } else if (message['type'] == 'pong' &&
@@ -133,6 +160,9 @@ final class AndroidMcpTransport extends Transport {
         }
         _lastPeer = _elapsed.elapsed;
       }
+    } catch (_) {
+      _reportClose('read_failed');
+      rethrow;
     } finally {
       _requestClose();
     }
@@ -148,6 +178,7 @@ final class AndroidMcpTransport extends Transport {
       await write(kind, value);
       if (_closed || !current()) androidLinkFail();
     } catch (_) {
+      _reportClose('write_failed');
       _ioFailed = true;
       _requestClose();
       rethrow;
@@ -173,6 +204,7 @@ final class AndroidMcpTransport extends Transport {
       }
     } catch (_) {
       // Includes SDK response encoding, before any native write was started.
+      _reportClose('output_failed');
       _ioFailed = true;
       port.outputFailed();
       _requestClose();
@@ -182,6 +214,7 @@ final class AndroidMcpTransport extends Transport {
 
   @override
   Future<void> close() => _closing ??= () async {
+        _reportClose('local_close');
         _closed = true;
         _timer?.cancel();
         invalidate();
@@ -213,6 +246,7 @@ final class AndroidMcpPort implements VnextMcpResponsePort {
   final VnextMcpAppComposition binding;
   final bool Function() current;
   Completer<void>? _idle;
+  Completer<bool>? _businessSettled;
   ExternalCallControl? _control;
   Future<void>? _closing;
   Future<void> Function()? _closeTransport;
@@ -224,6 +258,15 @@ final class AndroidMcpPort implements VnextMcpResponsePort {
   int _requestId = 0;
 
   Future<void> get whenSettled => _idle?.future ?? Future<void>.value();
+  Future<bool> get whenBusinessSettled =>
+      _businessSettled?.future ?? Future<bool>.value(true);
+
+  Future<bool> beginGracefulClose() async {
+    // Desktop stdin EOF is not cancellation of the outstanding MCP request.
+    // Join original work, but never acknowledge a lost response as clean.
+    withdraw();
+    return await whenBusinessSettled && !_settlementFailed;
+  }
 
   void attachTransport(Future<void> Function() close) {
     if (_closeTransport != null || _closed) androidLinkFail();
@@ -260,6 +303,9 @@ final class AndroidMcpPort implements VnextMcpResponsePort {
     if (_output?.isCompleted == false) _output!.complete(clean);
   }
 
+  Map<String, Object?> _failure(String code) => vnextFailure(code,
+      profileVersion: binding.profileVersion, source: binding.source);
+
   @override
   Future<Map<String, Object?>> call(String tool, Map<String, dynamic> arguments,
       {required Stream<void> cancelled,
@@ -271,21 +317,14 @@ final class AndroidMcpPort implements VnextMcpResponsePort {
         _settlementFailed ||
         !current() ||
         !available()) {
-      return vnextFailure('unavailable');
+      return _failure('unavailable');
     }
-    if (!const {
-      'open_generation_context',
-      'search_questions',
-      'get_question_detail',
-      'retrieve_file_content',
-      'get_file_passage',
-      'propose_generated_questions',
-      'get_question_proposal',
-    }.contains(tool)) {
-      return vnextFailure('unavailable');
+    if (!VnextMcpServer.schemasFor(binding.profileVersion).containsKey(tool)) {
+      return _failure('unavailable');
     }
-    if (_idle != null) return vnextFailure('resourceLimit');
+    if (_idle != null) return _failure('resourceLimit');
     final done = _idle = Completer<void>();
+    final businessSettled = _businessSettled = Completer<bool>();
     final output = _output = Completer<bool>();
     _responseId = responseId;
     _cancelledBeforeClose = false;
@@ -300,23 +339,30 @@ final class AndroidMcpPort implements VnextMcpResponsePort {
     final projection = OfflineIpcCommandProjection(
         host: binding.host, authentication: binding.authentication);
     try {
-      final command = VnextMcpCommand.parse(tool, arguments);
+      final command = binding.profileVersion == 3
+          ? VnextMcpCommand.parseUnified(tool, arguments)
+          : VnextMcpCommand.parse(tool, arguments);
       final id = 'android_${++_requestId}';
-      final result = await projection.invokeV3(command.request(id),
+      final result = await (binding.profileVersion == 3
+              ? projection.invokeV4
+              : projection.invokeV3)(command.request(id),
           binding: binding,
           stageApprovalWait: true,
           control: control,
           responseAvailable: () => !_closed && current() && available());
-      if (result.frame == null) return vnextFailure('outcome_unknown');
+      if (result.frame == null) return _failure('outcome_unknown');
       try {
-        return command.response(VnextMcpCommand.decodeFrame(result.frame!), id);
+        return {
+          ...command.response(VnextMcpCommand.decodeFrame(result.frame!), id),
+          if (binding.profileVersion == 3) 'source': binding.source.toJson()
+        };
       } catch (_) {
-        return vnextFailure('invalidResult');
+        return _failure('invalidResult');
       }
     } on FormatException {
-      return vnextFailure('invalidRequest');
+      return _failure('invalidRequest');
     } catch (_) {
-      return vnextFailure('unavailable');
+      return _failure('unavailable');
     } finally {
       // Cancellation may have returned above while the original work is still
       // running. This same connection retains custody and refuses replacement.
@@ -328,6 +374,7 @@ final class AndroidMcpPort implements VnextMcpResponsePort {
         } catch (_) {
           _settlementFailed = true;
         } finally {
+          businessSettled.complete(clean);
           clean = await output.future && clean;
           await cancellation.cancel();
           if (_closed) clean = await _channelSettled.future && clean;

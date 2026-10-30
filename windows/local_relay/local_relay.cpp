@@ -308,6 +308,7 @@ static int open_pipe(uint32_t role, uint64_t* output) {
   } else {
     p->pipe.value = CreateFileW(address.c_str(), pipe_access, 0, nullptr,
         OPEN_EXISTING, SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION, nullptr);
+    if (!p->pipe.valid() && GetLastError() == ERROR_PIPE_BUSY) return 7;
     DWORD mode = PIPE_READMODE_BYTE | PIPE_NOWAIT;
     if (!p->pipe.valid() || !SetNamedPipeHandleState(p->pipe.value, &mode, nullptr, nullptr) ||
         !p->authenticate()) return rejected;

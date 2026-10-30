@@ -2,13 +2,14 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:shiroha_quiz/services/backup/sha256.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'b0_device_settlement_baseline.dart';
 import 'r5a_storage_baseline.dart';
 import 'p7_capability_baseline.dart';
 import 'r7_runtime_baseline.dart';
 
 void main() {
   test(
-      'AR-R3 lifecycle, Provider, receipts, storage and MCP wire retain hashes through exact R7 amendments',
+      'AR-R3 lifecycle, Provider, receipts, storage and MCP wire retain hashes through exact R7 and B0 amendments',
       () {
     final entries = jsonDecode(
         File('test/application/modules/fixtures/retained_source_contracts.json')
@@ -16,6 +17,7 @@ void main() {
     for (final entry in entries) {
       final path = entry['path'] as String;
       var source = File(path).readAsStringSync().replaceAll('\r\n', '\n');
+      source = retainedB0DeviceSettlementSource(path, source);
       source = retainedR6RuntimeSource(path, source);
       source = retainedR4StorageSource(path, source);
       source = retainedR2CapabilitySource(path, source);
@@ -27,6 +29,61 @@ void main() {
       final hash = StreamingSha256()..update(utf8.encode(source));
       expect(hash.digestHex(), entry['sha256'], reason: path);
     }
+  });
+  group('B0 owner settlement amendment', () {
+    const path = 'lib/services/backup/backup_restore_runtime.dart';
+    const call = '    await _database.settleProductionOwners();\n';
+    late String source;
+    setUp(() {
+      source = File(path).readAsStringSync().replaceAll('\r\n', '\n');
+      expect(source.split(call).length - 1, 1);
+    });
+
+    for (final entry in <String, String>{
+      'missing': '',
+      'changed': '    await _database.closeProduction();\n',
+      'unawaited': '    _database.settleProductionOwners();\n',
+      'duplicated': '$call$call',
+    }.entries) {
+      test('rejects ${entry.key} settlement', () {
+        expect(
+            () => retainedB0DeviceSettlementSource(
+                path, source.replaceFirst(call, entry.value)),
+            throwsA(isA<TestFailure>()));
+      });
+    }
+
+    for (final entry in <String, String>{
+      'before preflight': '    await BackupFreeSpacePolicy.ensureAvailable(\n',
+      'after snapshot':
+          '    await _database.validateRollbackDatabaseFile(rollbackDbFile);\n',
+    }.entries) {
+      test('rejects settlement moved ${entry.key}', () {
+        final withoutCall = source.replaceFirst(call, '');
+        final method =
+            withoutCall.indexOf('  Future<void> _copyLiveToRollback(');
+        expect(method, greaterThanOrEqualTo(0));
+        final position = withoutCall.indexOf(entry.value, method);
+        expect(position, greaterThan(method));
+        final moved = withoutCall.replaceRange(position, position, call);
+        expect(() => retainedB0DeviceSettlementSource(path, moved),
+            throwsA(isA<TestFailure>()));
+      });
+    }
+
+    test('retains the original hash for unrelated rollback code', () {
+      const original = '    await _database.closeProduction();';
+      expect(source, contains(original));
+      final changed = source.replaceFirst(
+          original, '    await _database.reopenProduction();');
+      final projected = retainedB0DeviceSettlementSource(path, changed);
+      final entries = jsonDecode(File(
+              'test/application/modules/fixtures/retained_source_contracts.json')
+          .readAsStringSync()) as List;
+      final expected = entries.singleWhere((entry) => entry['path'] == path);
+      final hash = StreamingSha256()..update(utf8.encode(projected));
+      expect(hash.digestHex(), isNot(expected['sha256']));
+    });
   });
   test('P7 exact amendment projection rejects changed admission code', () {
     const path = 'lib/application/capabilities/capability.dart';

@@ -8,6 +8,15 @@ import java.nio.charset.CodingErrorAction
 /** Fixed safe categories only. Never retain a platform exception or payload. */
 class DeviceLinkFailure(val code: String) : Exception(code)
 
+/** Diagnostic labels only; never expose exception messages or wire payloads. */
+internal fun deviceIoFailureKind(error: Exception): String = when (error) {
+    is java.net.SocketTimeoutException -> "timeout"
+    is javax.net.ssl.SSLException -> "tls"
+    is java.net.SocketException -> "socket"
+    is java.io.IOException -> "io"
+    else -> "native"
+}
+
 /** One original close, off the Activity thread; completion never clears failure. */
 internal class DeviceCloseWork(private val executor: java.util.concurrent.Executor,
                                private val action: () -> Unit) {

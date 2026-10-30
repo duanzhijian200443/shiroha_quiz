@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('idle', 'malformed', 'monitored-idle', 'inventory', 'sdk-error', 'failed-close', 'pending-peer', 'pending-peer-failed-close', 'adapter-reconnect', 'adapter-reconnect-failed-close')]
-    [string[]]$Scenarios = @('idle', 'malformed', 'monitored-idle', 'inventory', 'sdk-error', 'failed-close', 'pending-peer', 'pending-peer-failed-close')
+    [ValidateSet('idle', 'malformed', 'monitored-idle', 'inventory', 'sdk-error', 'failed-close', 'pending-peer', 'pending-peer-failed-close', 'adapter-reconnect', 'adapter-reconnect-failed-close', 'unexpected-exit')]
+    [string[]]$Scenarios = @('idle', 'malformed', 'monitored-idle', 'inventory', 'sdk-error', 'failed-close', 'pending-peer', 'pending-peer-failed-close', 'unexpected-exit')
 )
 
 # Isolated ordinary-process diagnostics only. No normal App, database, protected
@@ -70,7 +70,16 @@ try {
     $shellWindows = (New-Object -ComObject Shell.Application).Windows()
     $desktopHandle = 0
     $desktop = $shellWindows.FindWindowSW(0, 0, 8, [ref]$desktopHandle, 1)
-    $shell = $desktop.Document.Application
+    $shell = if ($null -ne $desktop) { $desktop.Document.Application } else { $null }
+    if ($null -eq $shell) {
+        foreach ($window in $shellWindows) {
+            if ($window.FullName -ieq (Join-Path $env:SystemRoot 'explorer.exe')) {
+                $shell = $window.Document.Application
+                if ($null -ne $shell) { break }
+            }
+        }
+    }
+    if ($null -eq $shell) { throw 'An existing desktop Explorer window is required.' }
     $results = @()
     foreach ($scenario in $Scenarios) {
         $pendingPeer = $scenario.StartsWith('pending-peer')
@@ -91,6 +100,23 @@ try {
             $old = Start-Adapter $directory 'old'
             $started = Wait-Event $bridgeEvents 'started'
             $child = Pin-Process $started.pid (Join-Path $directory 'shiroha_bridge.exe')
+            if ($scenario -eq 'unexpected-exit') {
+                $null = Wait-Event $bridgeEvents 'exitArmed'
+                [IO.File]::WriteAllText((Join-Path $directory 'exit-now'), '')
+                Join-Process $child 23
+                $null = Wait-Event $appEvents 'originalBridgeExited'
+                $null = Wait-Event $appEvents 'originalBridgeCloseFailed'
+                Assert-True (!$old.HasExited) 'No extra client call or client exit may trigger settlement'
+                Assert-True (@(Read-Events $bridgeEvents | Where-Object event -eq 'call').Count -eq 1) 'Unexpected extra invocation'
+                Assert-True (@(Read-Events $appEvents | Where-Object event -eq 'originalBridgeSettled').Count -eq 0) 'Nonzero child exit was labeled clean'
+                [IO.File]::WriteAllText((Join-Path $directory 'release-old'), '')
+                Join-Process $old 0
+                [IO.File]::WriteAllText((Join-Path $directory 'stop'), '')
+                Join-Process $app 23
+                $results += @{scenario=$scenario;result='PASS';appExit=23;additionalClientCalls=0}
+                Write-Output "PASS: $scenario"
+                continue
+            }
             if ($adapterReconnect) {
                 $null = Wait-Event (Join-Path $directory 'old.jsonl') 'firstResponse'
                 [IO.File]::WriteAllText((Join-Path $directory 'allow-exit-1'), '')
@@ -181,7 +207,7 @@ try {
             Write-Output "PASS: $scenario"
         } finally {
             # Only graceful test control; no process kill or erased failure.
-            foreach ($marker in @('allow-exit-1', 'allow-exit-2', 'release-old', 'disconnect-old', 'request-reconnect', 'stop')) {
+            foreach ($marker in @('allow-exit-1', 'allow-exit-2', 'release-old', 'disconnect-old', 'request-reconnect', 'exit-now', 'stop')) {
                 [IO.File]::WriteAllText((Join-Path $directory $marker), '')
             }
             foreach ($process in @($old, $fresh, $child, $nextChild, $app)) {

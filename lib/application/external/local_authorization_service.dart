@@ -98,21 +98,70 @@ final class LocalAuthorizationView {
   Future<ExternalAuthorizationRecord> saveAllContent(
           ExternalProfileReference ref, int revision,
           {required bool directWrite}) =>
-      _run(() => _management.replaceGrant(
-          ref,
-          revision,
-          ExternalGrantPolicy(
-            permissions: const [
-              CapabilityPermission.read,
-              CapabilityPermission.stage,
-            ],
-            scopes: const [],
-            categories: ExternalContentCategory.values,
-            allContent: true,
-            generationMode: directWrite
-                ? ExternalGenerationMode.direct
-                : ExternalGenerationMode.review,
-          )));
+      _run(() async {
+        final record = await _management.read(ref);
+        final statistics = record.grant?.policy.categories
+                .contains(ExternalContentCategory.studyStatistics) ??
+            false;
+        return _management.replaceGrant(
+            ref,
+            revision,
+            ExternalGrantPolicy(
+              permissions: const [
+                CapabilityPermission.read,
+                CapabilityPermission.stage,
+              ],
+              scopes: const [],
+              categories: [
+                ExternalContentCategory.questionContent,
+                ExternalContentCategory.fileContent,
+                ExternalContentCategory.proposalMetadata,
+                if (statistics) ExternalContentCategory.studyStatistics,
+              ],
+              allContent: true,
+              generationMode: directWrite
+                  ? ExternalGenerationMode.direct
+                  : ExternalGenerationMode.review,
+            ));
+      });
+
+  /// Independent statistics egress consent on the same READ grant and revision.
+  Future<ExternalAuthorizationRecord> saveStudyStatistics(
+          ExternalProfileReference ref, int revision,
+          {required bool allowed}) =>
+      _run(() async {
+        final record = await _management.read(ref);
+        final grant = record.grant;
+        if (record.profile.grantRevision != revision) {
+          externalAuthFail(ExternalAuthFailure.staleRevision);
+        }
+        if (record.profile.revokedAtUtcMs != null ||
+            grant == null ||
+            grant.revokedAtUtcMs != null ||
+            !grant.policy.permissions.contains(CapabilityPermission.read)) {
+          externalAuthFail(ExternalAuthFailure.unauthorized);
+        }
+        final previous = grant.policy;
+        final categories = {...previous.categories};
+        if (allowed ==
+            categories.contains(ExternalContentCategory.studyStatistics)) {
+          return record;
+        }
+        if (allowed) {
+          categories.add(ExternalContentCategory.studyStatistics);
+        } else {
+          categories.remove(ExternalContentCategory.studyStatistics);
+        }
+        return _management.replaceGrant(
+            ref,
+            revision,
+            ExternalGrantPolicy(
+                permissions: previous.permissions,
+                scopes: previous.scopes,
+                categories: categories,
+                allContent: previous.allContent,
+                generationMode: previous.generationMode));
+      });
 
   /// Explicit local generation choice over an existing READ grant. Unlike
   /// all-content setup, this preserves the original target and egress scopes.

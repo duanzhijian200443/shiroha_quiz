@@ -26,7 +26,7 @@ DiscoveryExpectations developmentDiscoveryExpectations(
 
 /// Fixed formal Bridge entry. A Direct/Hosted caller has no accepted App parent
 /// and retains normal seven-tool refusal, without consuming any startup bytes.
-Future<void> serveDevelopmentWindowsBridge() async {
+Future<void> serveDevelopmentWindowsBridge({int profileVersion = 2}) async {
   final report = WindowsBusinessProcessReport(stderr.writeln);
   unawaited(stderr.done.then((_) {}, onError: (Object _, StackTrace __) {}));
   report.enter(FirstPartyBusinessStage.parentAdmission);
@@ -36,7 +36,7 @@ Future<void> serveDevelopmentWindowsBridge() async {
   } on LocalRelayException catch (failure) {
     report.primary(failure);
     if (failure.unsettled) rethrow;
-    await serveWindowsBridgeStdio();
+    await serveWindowsBridgeStdio(profileVersion: profileVersion);
     return;
   } catch (error) {
     report.primary(error);
@@ -61,6 +61,7 @@ Future<void> serveDevelopmentWindowsBridge() async {
       connectionMode: WindowsCodexConnectionMode.appOwnedDevelopment,
       appOwnedAdmission: admission,
       report: report,
+      profileVersion: profileVersion,
       enableStageApprovalWait: true);
   final monitor = Timer.periodic(const Duration(milliseconds: 50), (_) {
     if (!admission.isCurrent) {

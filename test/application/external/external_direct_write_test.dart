@@ -51,6 +51,9 @@ void main() {
     completed(r, CapabilityEffect.proposalStaged);
     final p = await readGeneratedProposal(s.h.db, r.output!.proposalId);
     expect(p.lifecycleStatus, GeneratedStatus.pendingReview);
+    expect(p.externalOrigin!.schemaVersion, 2);
+    expect(p.externalOrigin!.authorizationSnapshot.egressCategories,
+        contains('studyStatistics'));
     await counts(1, 0, 0);
   });
   test(

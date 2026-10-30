@@ -20,6 +20,7 @@ void main() {
     for (final path in [
       'lib/ui/pages/external_authorization_screen.dart',
       'lib/ui/pages/external_agent_settings_body.dart',
+      'lib/ui/pages/external_device_settings.dart',
       'lib/ui/pages/first_party_external_control.dart',
       'lib/ui/pages/first_party_external_guided.dart',
       'lib/ui/pages/first_party_bridge_pairing_control.dart',

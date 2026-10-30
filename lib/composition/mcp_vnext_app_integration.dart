@@ -55,6 +55,7 @@ final class McpVnextAppIntegration {
       required this.proposals,
       required this.targets,
       required this.questions,
+      this.study,
       required this.files,
       required this.artifacts,
       required this.artifactMetadata,
@@ -71,6 +72,7 @@ final class McpVnextAppIntegration {
   }
   final ExternalTargetReadPort targets;
   final ExternalQuestionReadPort questions;
+  final ExternalStudyReadPort? study;
   final ExternalFileReadPort files;
   final GeneratedLocalAuthorityFactory localAuthority;
   final ExternalAuthorizationRepository authorization;
@@ -201,6 +203,7 @@ final class McpVnextAppIntegration {
         admission: stages.runtimeAdmission,
         targets: targets,
         questions: questions,
+        study: study,
         files: ExternalFileReader(
             authorization: files,
             source: ExternalVerifiedArtifactSource(
@@ -208,7 +211,8 @@ final class McpVnextAppIntegration {
             index: index,
             chunker: chunker));
     final coordinator = ExternalTrustCoordinator.offline(
-        gateway: ExternalCapabilityGateway(stages: stages, reads: reads),
+        gateway: ExternalCapabilityGateway(
+            stages: stages, reads: reads, enableStudyQueries: study != null),
         management: management,
         readiness: readiness,
         compositionIsCurrent: () =>
@@ -225,6 +229,7 @@ final class McpVnextAppIntegration {
         reads: reads,
         stages: stages,
         stageApproval: stageApproval,
+        profileVersion: study == null ? 2 : 3,
         authentication:
             VnextMcpSessionAuthentication(controls.authenticatedSession),
         approvedTargets: const []);

@@ -365,7 +365,7 @@ void main() {
         "SELECT name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'");
     await h.db.setVersion(32);
     await h.reopen();
-    expect(await h.db.getVersion(), 35);
+    expect(await h.db.getVersion(), 36);
     expect(await h.db.query('bank_folders'), oldRows);
     expect((await h.repository.read(proposal.proposalId, h.local)).toJson(),
         original.toJson());

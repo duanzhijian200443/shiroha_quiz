@@ -212,6 +212,9 @@ final class BackupSnapshotRepository {
     await db.delete('import_tasks');
     await db.delete('content_asset_reclamation_observations');
     if (await _tableExists(db, 'app_settings')) {
+      await db.delete('app_settings',
+          where: 'key = ?',
+          whereArgs: <Object?>['external_device_selection_v1']);
       await db.delete(
         'app_settings',
         where: 'key = ?',
@@ -279,6 +282,14 @@ final class BackupSnapshotRepository {
       }
     }
 
+    if (await _tableExists(db, 'app_settings') &&
+        (await db.query('app_settings',
+                where: 'key = ?',
+                whereArgs: ['external_device_selection_v1'],
+                limit: 1))
+            .isNotEmpty) {
+      throw const BackupException(BackupFailure.databaseInvalid);
+    }
     final engineKeys = Sqflite.firstIntValue(
           await db.rawQuery(
             "SELECT COUNT(*) FROM ai_engines WHERE api_key IS NOT NULL AND api_key <> ''",

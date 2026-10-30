@@ -1,6 +1,11 @@
 part of 'ipc_command_projection.dart';
 
 enum _Command {
+  openStudyContext('external_open_study_context'),
+  listStudyBanks('external_list_study_banks'),
+  studyOverview('external_study_overview'),
+  dueReviewSummary('external_due_review_summary'),
+  weakQuestions('external_weak_questions'),
   listTargets('external_list_targets'),
   createReadContext('external_create_read_context'),
   searchQuestions('external_search_questions'),
@@ -15,7 +20,12 @@ enum _Command {
 
   const _Command(this.wireName);
   final String wireName;
-  int get version => this == proposalLifecycle ? 2 : 1;
+  bool get study => index < 5;
+  int get version => study
+      ? 4
+      : this == proposalLifecycle
+          ? 2
+          : 1;
   static _Command parse(Object? value) =>
       values.firstWhere((command) => command.wireName == value,
           orElse: () => _bad(IpcCommandFailure.unsupportedCapability));
@@ -95,43 +105,63 @@ final class _CommandRequest {
   final int version;
   final IpcContextSelection? selection;
   static _CommandRequest decode(UntrustedIpcEnvelope envelope,
-      {required bool selected}) {
+      {required bool selected, int selectedVersion = 3}) {
     if (envelope.kind != IpcMessageKind.request) _bad();
     final root = _object(
         _decodeJson(envelope.payload, IpcEnvelopeLimits.requestBytes),
         ['schemaVersion', 'type', 'capability', 'input']);
     if (root['schemaVersion'] is! int ||
-        ![1, 2, 3].contains(root['schemaVersion'])) {
+        ![1, 2, 3, 4].contains(root['schemaVersion'])) {
       _bad(IpcCommandFailure.unsupportedVersion);
     }
     if (root['type'] != 'command') _bad();
     final command = _Command.parse(root['capability']);
     final version = root['schemaVersion']! as int;
-    if (selected ? version != 3 : version != command.version) {
+    if ((version == 4 && !selected) ||
+        (command.study && version != 4) ||
+        (selected
+            ? selectedVersion == 0
+                ? ![3, 4].contains(version)
+                : version != selectedVersion
+            : version != command.version)) {
       _bad(IpcCommandFailure.unsupportedVersion);
     }
     var rawInput = root['input'];
     IpcContextSelection? selection;
-    if (version == 3) {
+    if (version == 3 || version == 4) {
       final kind = switch (command) {
         _Command.listTargets ||
         _Command.createReadContext =>
           IpcContextSelectionKind.rootRead,
+        _Command.openStudyContext => IpcContextSelectionKind.rootStudy,
+        _Command.listStudyBanks ||
+        _Command.studyOverview ||
+        _Command.dueReviewSummary ||
+        _Command.weakQuestions =>
+          IpcContextSelectionKind.study,
+        _Command.getQuestionDetail when version == 4 =>
+          IpcContextSelectionKind.questionRead,
         _Command.stage => IpcContextSelectionKind.stage,
         _Command.reconcile => IpcContextSelectionKind.reconciliation,
         _Command.proposalLifecycle => IpcContextSelectionKind.proposalLifecycle,
         _ => IpcContextSelectionKind.read,
       };
-      if (kind == IpcContextSelectionKind.rootRead) {
+      if (kind == IpcContextSelectionKind.rootRead ||
+          kind == IpcContextSelectionKind.rootStudy) {
         selection = IpcContextSelection._(kind);
       } else {
         if (rawInput is! Map) _bad();
         final values = Map<String, Object?>.from(rawInput);
         if (kind == IpcContextSelectionKind.read ||
-            kind == IpcContextSelectionKind.stage) {
+            kind == IpcContextSelectionKind.stage ||
+            kind == IpcContextSelectionKind.study ||
+            kind == IpcContextSelectionKind.questionRead) {
           // Missing and explicit null both reject; never substitute a Context.
           selection = IpcContextSelection._(kind,
-              contextRef: _ref(values.remove('contextRef')));
+              contextRef: _ref(values.remove('contextRef')),
+              questionRef: kind == IpcContextSelectionKind.questionRead
+                  ? _ref(values['questionRef'])
+                  : null);
         } else {
           final key = _text(values.remove('submissionKey'), 64, nonblank: true);
           if (!RegExp(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$').hasMatch(key)) {
@@ -144,6 +174,39 @@ final class _CommandRequest {
     }
     Object input;
     switch (command) {
+      case _Command.openStudyContext:
+        final m = _object(rawInput, ['targetRef']);
+        input = ExternalStudySelection(
+            m['targetRef'] == null ? null : _ref(m['targetRef']));
+      case _Command.listStudyBanks || _Command.weakQuestions:
+        final m = _object(rawInput, ['pageSize', 'cursor']);
+        input = ExternalStudyQuery(
+            pageSize: _integer(m['pageSize'], 1, 50),
+            cursor: _cursor(m['cursor']));
+      case _Command.studyOverview:
+        final m = _object(rawInput, ['timezone']);
+        input = ExternalStudyQuery(
+            timezone: _text(m['timezone'], 64, nonblank: true));
+      case _Command.dueReviewSummary:
+        final m = _object(rawInput, ['timezone', 'from', 'to']);
+        DateTime date(Object? value) {
+          final text = _text(value, 40, nonblank: true);
+          final result = DateTime.tryParse(text);
+          if (result == null ||
+              !RegExp(r'(Z|[+-][0-9]{2}:[0-9]{2})$').hasMatch(text)) {
+            _bad();
+          }
+          return result.toUtc();
+        }
+        final from = date(m['from']), to = date(m['to']);
+        if (!from.isBefore(to) ||
+            to.difference(from) > const Duration(days: 90)) {
+          _bad();
+        }
+        input = ExternalStudyQuery(
+            timezone: _text(m['timezone'], 64, nonblank: true),
+            from: from,
+            to: to);
       case _Command.listTargets:
         final m = _object(rawInput, ['pageSize', 'cursor']);
         input = ExternalTargetQuery(
@@ -216,7 +279,7 @@ abstract final class IpcCommandResponseCodec {
         _decodeJson(envelope.payload, IpcEnvelopeLimits.responseBytes),
         ['schemaVersion', 'type', 'capability', 'data', 'error']);
     if (root['schemaVersion'] is! int ||
-        ![1, 2, 3].contains(root['schemaVersion'])) {
+        ![1, 2, 3, 4].contains(root['schemaVersion'])) {
       _bad(IpcCommandFailure.unsupportedVersion);
     }
     if (root['type'] != 'result') _bad();
@@ -224,8 +287,10 @@ abstract final class IpcCommandResponseCodec {
         root['capability'] == null ? null : _Command.parse(root['capability']);
     if (command == null
         ? root['schemaVersion'] != version
-        : root['schemaVersion'] != 3 &&
-            root['schemaVersion'] != command.version) {
+        : (command.study && root['schemaVersion'] != 4) ||
+            root['schemaVersion'] != 4 &&
+                root['schemaVersion'] != 3 &&
+                root['schemaVersion'] != command.version) {
       _bad(IpcCommandFailure.unsupportedVersion);
     }
     if (root['error'] == null) {
@@ -308,8 +373,86 @@ void _validateData(_Command command, Object? value) {
           _text(m['folderName'], 512, nonblank: true);
         }
       }
-    case _Command.createReadContext || _Command.createFileContext:
+    case _Command.createReadContext ||
+          _Command.createFileContext ||
+          _Command.openStudyContext:
       _ref(_object(value, ['contextRef'])['contextRef']);
+    case _Command.listStudyBanks:
+      final page =
+          _object(value, ['items', 'nextCursor', 'statisticsAuthorized']);
+      _cursor(page['nextCursor']);
+      _boolean(page['statisticsAuthorized']);
+      for (final raw in _list(page['items'], 50)) {
+        final item = _object(raw, [
+          'targetRef',
+          'bankName',
+          'folderName',
+          if (page['statisticsAuthorized'] == true) ...[
+            'questionCount',
+            'dueCount',
+            'masteredCount'
+          ]
+        ]);
+        _ref(item['targetRef']);
+        _text(item['bankName'], 256, nonblank: true);
+        if (item['folderName'] != null) {
+          _text(item['folderName'], 256, nonblank: true);
+        }
+        if (page['statisticsAuthorized'] == true) {
+          for (final field in ['questionCount', 'dueCount', 'masteredCount']) {
+            _integer(item[field], 0, 9007199254740991);
+          }
+        }
+      }
+    case _Command.studyOverview:
+      final fields = [
+        'questionCount',
+        'masteredCount',
+        'dueCount',
+        'todayPracticeCount',
+        'wrongQuestionCount'
+      ];
+      final result = _object(value, fields);
+      for (final field in fields) {
+        _integer(result[field], 0, 9007199254740991);
+      }
+    case _Command.dueReviewSummary:
+      final result = _object(value, ['dueNow', 'scheduledCount', 'buckets']);
+      _integer(result['dueNow'], 0, 9007199254740991);
+      _integer(result['scheduledCount'], 0, 9007199254740991);
+      for (final raw in _list(result['buckets'], 91)) {
+        final bucket = _object(raw, ['date', 'count']);
+        if (!RegExp(r'^\d{4}-\d{2}-\d{2}$')
+            .hasMatch(_text(bucket['date'], 10))) {
+          _bad();
+        }
+        _integer(bucket['count'], 0, 9007199254740991);
+      }
+    case _Command.weakQuestions:
+      final result = _object(value, ['items', 'nextCursor']);
+      _cursor(result['nextCursor']);
+      for (final raw in _list(result['items'], 50)) {
+        final item = _object(raw, [
+          'questionRef',
+          'bankName',
+          'stemPreview',
+          'lapseCount',
+          'difficulty',
+          'lastLapseAt'
+        ]);
+        _ref(item['questionRef']);
+        _text(item['bankName'], 256, nonblank: true);
+        _text(item['stemPreview'], 32768);
+        _integer(item['lapseCount'], 1, 9007199254740991);
+        if (item['difficulty'] is! num ||
+            !(item['difficulty'] as num).isFinite) {
+          _bad();
+        }
+        if (item['lastLapseAt'] != null &&
+            DateTime.tryParse(_text(item['lastLapseAt'], 40)) == null) {
+          _bad();
+        }
+      }
     case _Command.searchQuestions:
       final page = _object(value, ['items', 'nextCursor']);
       _cursor(page['nextCursor']);

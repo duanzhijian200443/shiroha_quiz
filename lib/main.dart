@@ -111,6 +111,8 @@ import 'composition/mcp_vnext_windows_registration.dart';
 import 'composition/mcp_vnext_development_pairing.dart';
 import 'data/repositories/external_target_read_repository.dart';
 import 'data/repositories/external_question_read_repository.dart';
+import 'data/repositories/external_study_read_repository.dart';
+import 'data/repositories/external_device_selection_store.dart';
 import 'data/repositories/external_file_read_repository.dart';
 import 'ui/dependencies/first_party_external_scope.dart';
 import 'data/repositories/external_authorization_repository.dart';
@@ -842,6 +844,8 @@ void runShirohaQuiz({
                     databaseHelper: databaseHelper),
                 questions: SqliteExternalQuestionReadRepository(
                     databaseHelper: databaseHelper),
+                study: SqliteExternalStudyReadRepository(
+                    databaseHelper: databaseHelper),
                 files: SqliteExternalFileReadRepository(
                     databaseHelper: databaseHelper),
                 policy: authorizationService,
@@ -870,13 +874,38 @@ void runShirohaQuiz({
         externalRegistration = integration == null
             ? null
             : McpVnextWindowsAppRegistration.appOwnedRelay(integration,
+                deviceSelectionStore: SqliteExternalDeviceSelectionStore(
+                    databaseHelper: databaseHelper),
                 onRelayEvent: (event, connection) => AppLogger.info(
                         'Codex relay lifecycle',
                         module: 'MCP',
                         data: {
                           'event': event,
                           'connection': connection,
-                          'appPid': pid
+                          'appPid': pid,
+                          if (event == 'originalBridgeCloseFailed') ...{
+                            if (externalRegistration?.androidLinkFailure
+                                case final failure?) ...{
+                              'androidStage': failure.stage,
+                              'androidFailure': failure.code,
+                            },
+                            'exitCode': externalRegistration
+                                ?.businessObservation?.exitCode,
+                            'parts': externalRegistration
+                                    ?.businessObservation?.parts
+                                    .map((part, result) =>
+                                        MapEntry(part.name, result.name)) ??
+                                <String, String>{},
+                          },
+                          if (event.startsWith('androidRecovery')) ...{
+                            'exitCode': externalRegistration
+                                ?.recoveryObservation?.exitCode,
+                            'parts': externalRegistration
+                                    ?.recoveryObservation?.parts
+                                    .map((part, result) =>
+                                        MapEntry(part.name, result.name)) ??
+                                <String, String>{},
+                          },
                         }));
         externalIntegration = externalRegistration;
         await externalRegistration?.start();

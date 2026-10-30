@@ -43,9 +43,11 @@ final class McpVnextWindowsBridgeBootstrap implements VnextMcpPort {
     Future<void> Function()? settlePairing,
     TlsBridgeIo Function()? createIo,
     bool enableStageApprovalWait = false,
+    this.profileVersion = 2,
     WindowsBusinessProcessReport? report,
   }) : _acquirer = acquirer {
     _startup = McpVnextWindowsBridgeStartup(
+      profileVersion: profileVersion,
       enableStageApprovalWait: enableStageApprovalWait,
       report: report,
       acquire: () async {
@@ -111,6 +113,7 @@ final class McpVnextWindowsBridgeBootstrap implements VnextMcpPort {
 
   late final McpVnextWindowsBridgeStartup _startup;
   final McpVnextWindowsProtectedAcquirer _acquirer;
+  final int profileVersion;
   Future<void>? _closing;
   // Strong custody on failed pre-transfer settlement; never a retry source.
   McpVnextWindowsBridgeDependencies? _pending;
@@ -126,7 +129,8 @@ final class McpVnextWindowsBridgeBootstrap implements VnextMcpPort {
   Future<void> serveStdio({Stdin? input}) async {
     try {
       await start();
-      await VnextMcpServer(this).serveStdio(input: input);
+      await VnextMcpServer(this, profileVersion: profileVersion)
+          .serveStdio(input: input);
     } finally {
       await close();
     }
@@ -154,7 +158,9 @@ final class McpVnextWindowsBridgeBootstrap implements VnextMcpPort {
 /// Only a different, explicitly admitted product root may pass a bootstrap;
 /// CLI/environment/MCP input never resolves one.
 Future<void> serveWindowsBridgeStdio(
-        {McpVnextWindowsBridgeBootstrap? bootstrap}) =>
+        {McpVnextWindowsBridgeBootstrap? bootstrap, int profileVersion = 2}) =>
     bootstrap == null
-        ? VnextMcpServer(const UnavailableVnextApp()).serveStdio()
+        ? VnextMcpServer(UnavailableVnextApp(profileVersion: profileVersion),
+                profileVersion: profileVersion)
+            .serveStdio()
         : bootstrap.serveStdio();

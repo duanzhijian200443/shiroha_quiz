@@ -32,7 +32,15 @@ Future<void> main(List<String> args) async {
       Future<void> call(String event) async {
         final result = await port.call('open_generation_context', {},
             cancelled: const Stream.empty(), available: () => true);
-        if (result['error'] != 'unavailable') {
+        final error = result['error'];
+        report(error == 'busy' || error == 'unavailable'
+            ? 'result-$error'
+            : 'result-other');
+        final expected = scenario == 'adapter-reconnect-failed-close' &&
+                event == 'secondResponse'
+            ? 'busy'
+            : 'unavailable';
+        if (result['error'] != expected) {
           throw StateError('Expected fixture refusal');
         }
         report(event);
@@ -85,7 +93,8 @@ Future<void> main(List<String> args) async {
         report('response');
       } on LocalRelayException {
         if (label != 'old' ||
-            !['inventory', 'sdk-error', 'failed-close'].contains(scenario)) {
+            !['inventory', 'sdk-error', 'failed-close', 'unexpected-exit']
+                .contains(scenario)) {
           rethrow;
         }
         report('requestFailed');

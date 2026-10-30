@@ -22,12 +22,14 @@ export 'package:shiroha_quiz/data/external/windows_pairing.dart'
         PairingPublicExport;
 
 Future<void> main(List<String> arguments) async {
-  if (!WindowsExternalReleaseCandidate.acceptsArguments(arguments)) {
+  final unified = arguments.length == 1 && arguments.single == '--profile=3';
+  if (!unified &&
+      !WindowsExternalReleaseCandidate.acceptsArguments(arguments)) {
     stderr.writeln('invalidBridgeArguments');
     exitCode = 64;
     return;
   }
   // The existing seven-tool refusal endpoint creates no authenticated runtime.
   // Codex can discover the profile and close on EOF without enabling business.
-  await serveDevelopmentWindowsBridge();
+  await serveDevelopmentWindowsBridge(profileVersion: unified ? 3 : 2);
 }

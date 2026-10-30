@@ -2312,3 +2312,200 @@ and production acceptance are not claimed. The focused contract also records
 the exec-exit temporary-key cleanup failure and the demonstrated manual sequence:
 keep interactive Codex alive, close phone access, await original adapter/cleanup,
 then exit the client. Arbitrary process termination is not clean-close proof.
+
+## 19. Shiroha local unified plugin v1
+
+The selected integration is a personal local `shiroha` plugin, packaged in an
+independent integration repository. Windows Shiroha remains the connection owner
+for local and paired Android targets. Web ChatGPT, cloud hosting and public
+marketplace publication remain deferred. Original six-tool and seven-tool entry
+points retain their compatibility boundaries; the unified profile is selected
+explicitly and cannot silently downgrade.
+
+The accepted first-release lifecycle requires stopping an active Codex turn and
+waiting for original App-owned work and resources to settle before disabling or
+upgrading the plugin. Idle disable/re-enable remains direct. Normal Codex exit
+and restart must also settle original resources. A disabled toggle during an
+active turn is not evidence of cancellation. This is the user's explicit
+2026-10-30 amendment to direct-shutdown acceptance; phone-first access shutdown
+is not a prerequisite. Unknown outcomes retain the original submission key.
+
+The opt-in `tool/plugin/qualify_host.ps1` gate uses isolated homes/marketplaces,
+the installed backend, the original adapter/relay and synthetic child processes.
+It verifies the stop/settle/change sequence and never counts timeout or fixture
+cleanup as proof of cancellation. Real selected-device runtime evidence remains
+separate from this synthetic host qualification.
+
+The storage prerequisite is schema v36 with independent `studyStatistics`
+consent and backward-readable External Origin v2. This alone exposes no new
+business tools and does not widen old grants. The unified tool/transport delivery
+must still satisfy the same Application and target-App authorization boundaries.
+
+### 19.1 Unified business profile and scoped statistics
+
+Business `profileVersion: 3` exposes exactly `open_context`,
+`list_question_banks`, `get_study_overview`, `get_due_review_summary`,
+`get_weak_questions`, `search_questions`, `get_question_detail`,
+`retrieve_file_content`, `get_file_passage`, `propose_generated_questions`,
+and `get_question_proposal`. Profile 2 retains its seven names and v0 retains
+its six-tool entry. The internal command codec version is 4 for profile 3;
+this is independent of the business profile, MCP, Link, Submission and Receipt
+versions. An explicitly selected version rejects other versions before dispatch.
+
+`open_context` without a target creates an authorized-set context. A bank is
+selected only with a returned opaque `targetRef` (optionally `scope: bank`);
+`scope: authorized` cannot also select a target. Existing `contextRef` and
+`fileRefs` selection flows preserve independent File Contexts. Aggregate
+contexts cannot submit generated questions; a single-bank context is required.
+
+The four study queries take a `contextRef`. Bank discovery and pagination
+return only authorized bank metadata; no caller-supplied database path, bank ID
+or claimed grant expands scope. Statistics require READ plus `studyStatistics`.
+Without that category, discovery sets `statisticsAuthorized: false` and omits
+progress counts. It does not report unauthorized statistics as zero.
+Weak previews additionally require `questionContent`; returned `questionRef`
+values work with `get_question_detail` under the same aggregate or bank context.
+All handles remain bound to the original registry, Session, grant revision and
+expiry; authorization changes and replacement registries invalidate old handles.
+After an Android profile-3 connection's original work and transport settle, its
+App owner invalidates that principal's selection, context, question, file and
+cursor handles. The finite grant can remain enabled, but reconnecting or switching
+away and back requires fresh handles; it cannot revive the previous connection's
+references. Original submission keys remain available for result reconciliation.
+
+Counts, distinct practice records, mastered/due predicates and weak-question
+ordering reuse T0 semantics. SQL applies the authorized bank set first and
+deduplicates banks included through overlapping scopes. Overview accepts an
+IANA `timezone` (default UTC). Due summary requires offset-bearing `from`/`to`,
+uses the half-open interval `[from,to)`, caps it at 90 days, and returns local
+date buckets plus `dueNow`. Cursors are opaque, context-bound and limited to
+their original query kind. Query and final output release both revalidate
+authorization; revocation during a query withholds its result.
+
+Every profile-3 success or business failure has `profileVersion`, `data`,
+`error` and an App-owned `source` object (`kind: unselected|windows|android`,
+`deviceRef: null|string`). The adapter cannot select an App's source identity.
+
+### 19.2 Windows-owned target and close barriers
+
+Windows external-Agent settings select no target by default, the local App, or
+an existing paired Android slot. Only a non-secret slot reference is persisted;
+installing the plugin neither pairs a phone nor loads its key. The first local
+release uses the existing `build/android_device_read` protected slot under the
+selected source build, with the original adjacent Android adapter package.
+No database or credential path is accepted from an MCP invocation.
+
+A profile-3 business connection takes one App-owned lease. A second chat receives
+`busy` and cannot replace it. Before child launch, the App persists a dirty
+connection marker. Original child exit, stdout/stderr and input drains precede
+clearing it. Device selection first withdraws and joins the old connection,
+then saves the new selection and increments its generation. Failed or unknown
+cleanup preserves the marker, retains the old selection and refuses all new
+connections. Restart never deletes this marker or reconstructs pairing.
+Portable backup excludes the selection/active-connection record; raw rollback
+retains the original state.
+
+App closure withdraws new device operations before joining original selection,
+target discovery, dirty-marker persistence and recovery, including failed
+operations. Selection rechecks that withdrawal after the old connection drain
+and before saving a replacement. A dirty write already in progress remains in
+the original borrower's custody: its late lease must settle before closure can
+succeed. Other close failures cannot skip this device-operation barrier. B0
+cannot close or swap the database while these original operations are pending.
+
+During B0 maintenance, the original live lease may finish only its conditional
+dirty-to-clean update for the same target and generation. Application admits
+that store-bound proof only while joining successful original settlement; a
+retained or failed lease cannot reuse it. After commit's free-space preflight,
+B0 joins the same before-close owner barrier with SQLite still open, before
+freezing its raw rollback snapshot and before PREPARED. Failed settlement blocks
+snapshot/swap and preserves the original dirty marker; successful settlement is
+captured in rollback, including startup recovery after a crash. The same barrier
+still precedes database close/swap. New selection, lease acquisition and manual
+recovery still require the ordinary mutation gate.
+
+The local hop can also return `busy` while a failed original owner still retains
+its pipe. This is a refusal, not evidence of another healthy chat or permission
+to replace it. The App's `needsAttention` state and explicit recovery remain
+authoritative for that retained connection.
+
+An original child exit also withdraws the current client connection immediately,
+without waiting for another MCP request; the same close owner still decides
+whether settlement is clean or unknown.
+
+The credential-free `shiroha_codex.exe --profile=3` exposes tools without opening
+a business connection. Its local framing explicitly selects profile 3; legacy
+local framing still selects profile 2. Windows Shiroha owns either the original
+Windows Bridge or the original Android adapter and never moves those binaries
+into the plugin cache. Android target grants, expiration and save mode remain
+phone-owned. Windows controls display phone ownership instead of Windows grant
+toggles when the phone is selected.
+
+For Android profile 3, business HELLO/READY explicitly agree on profile 3. EOF
+at the App-owned adapter initiates a nonce-bound `closing`/`closed` exchange.
+The phone withdraws new business admission and waits for the original P10/P8
+work before acknowledging. This control is not an explicit MCP cancellation:
+an unwritten or unconfirmed response remains non-clean, retains the original
+approval reservation and suppresses `closed`, even if business persistence has
+completed. Only a flushed response, idle connection or matching-request explicit
+cancellation before withdrawal can satisfy the output boundary in section 18.
+The adapter then requires TLS shutdown/EOF and its
+original local key retirement before its process is treated as clean. A missing
+acknowledgement, timeout or retained key marker yields unknown cleanup; no retry
+or automatic credential repair follows. Link v1 and legacy profile 2 stay
+compatible, with no fallback from profile 3.
+
+### 19.3 Personal local package
+
+The independent `shiroha-codex-plugin` source package starts at version `0.1.0`
+with root `plugin.json`, `mcp.json`, three skills and an SVG asset. Its explicit
+configuration command validates the selected existing x64 Debug App and adjacent
+adapters, including exact eleven-tool discovery without a business connection.
+It writes an immutable content-addressed copy to a personal local marketplace.
+The generated server uses the bare `shiroha_codex.exe --profile=3` command and a
+dedicated PATH pointing to the original build. It does not set an absolute cwd,
+copy executables into the plugin cache, build Flutter, or install dependencies.
+
+Local marketplace configuration stays outside the portable source package.
+Neither package contains App databases, credentials, pairing records or active
+connections. Existing registrations are disabled only after selected-device
+runtime acceptance, with recoverable local configuration retained. Installing
+or upgrading the package does not alter target-App permissions or pairing.
+
+### 19.4 Explicit Android recovery after uncertain cleanup
+
+Startup still preserves a dirty marker and refuses business connections. For an
+existing Android target only, the local settings page offers a separately
+confirmed recovery action after restart, with no live lease. The user must first
+close and re-enable access on the phone, leaving its original enable-proof
+pending. Windows App owns the adjacent original proof helper, which uses the
+existing association, excludes other adapter writers, and refuses any retained
+CNG-key marker. It creates no replacement association and accepts no MCP request.
+
+Only successful original proof, TLS settlement, key retirement, process exit and
+stream drain permit an atomic comparison-and-swap of that same dirty selection
+to the next clean generation. Failure, changed state, leaving the confirming
+view, or App closure keeps the original marker. This operator-initiated recovery
+does not establish that an earlier uncertain submission failed: its original
+key must still be queried. There is no automatic startup recovery, generic
+credential repair, or recovery of malformed/unsupported target records.
+
+The recovery CAS rechecks the confirming view and App lifetime inside its SQLite
+transaction, after database admission and around the conditional update. A
+withdrawal observed there rolls the update back; waiting for SQLite cannot
+convert a cancelled recovery into a clean generation.
+
+An App that still owns a failed live lease does not offer that recovery action
+and may refuse ordinary exit. Preserve the failure and original-key evidence;
+an explicitly authorized operator restart is separate from successful cleanup.
+The restarted App still refuses new business until the original proof and the
+conditional acknowledgment above succeed. Lock/expiry can terminate a phone
+channel without a graceful-close acknowledgment; local key retirement and a
+departed adapter alone must not turn that outcome into a clean close.
+Recovery and business diagnostics accept only bounded, allowlisted stage/failure
+markers and original process/drain outcomes. Unknown stderr, addresses, credential fields
+and exception text are discarded; observation never changes cleanup admission.
+Phone transport diagnostics retain only the first fixed close cause, such as
+peer timeout, authorization change or read/write failure, without frame content.
+Native I/O diagnostics identify only the fixed operation and failure family;
+exception messages and payloads are never recorded.

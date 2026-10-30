@@ -1902,3 +1902,39 @@ selection. Source integrity/current-generation checks, safe projections,
 pagination/coverage flags and all P6 limits remain unchanged. Only existing
 derived-cache writes are possible from file READ; cancellation retains original
 index work and matching output I/O custody until actual settlement.
+
+## 15. Independent study statistics consent (schema v36)
+
+`studyStatistics` is a separate egress category. All-content setup, file consent,
+generation policy, pairing and reconnect do not grant it. Existing authorization
+rows are copied unchanged by the v35-to-v36 migration, inside the original
+database-open transaction. The migration expands only the egress constraint;
+failure rolls back DDL, relationships, rows and the database version.
+
+The first-party statistics action changes the same Grant through revision CAS.
+Unrelated policy edits preserve that choice. Statistics still require READ and
+the current App-created authorized scope; question previews additionally require
+`questionContent`. Clients cannot choose a database or assert their own scope.
+Changing consent invalidates old contexts under the existing revision boundary.
+Omitted consent is not an empty or zero-valued statistics result.
+
+Historical snapshots record current categories as External Origin v2. They are
+not reusable authorization. The original P0/P15 authentication, finite enablement,
+read/write publication checks and B0 cleanup authority remain mandatory.
+
+The local unified plugin selects the target only in Windows App settings. The
+App persists a non-secret device reference and connection generation, marks an
+active lease before child launch, and clears it only after original settlement.
+Uncertain cleanup is not repaired by switching targets, restarting the plugin,
+deleting a marker or re-pairing. The App-owned Android child retains its original
+key/TLS custody; the phone still decides every grant and saved generation mode.
+See MCP contract section 19 for the explicit profile and shutdown protocol.
+
+MCP section 19.4 defines the separately confirmed Android recovery action.
+After restart, with no live lease, the user re-enables phone access and the
+Windows App runs the original bounded enable proof against the same protected
+association. Only fully settled proof, key retirement and original process
+streams allow conditional acknowledgment of that exact dirty generation.
+Changing targets, a failed proof, stale state or leaving before acknowledgment
+cannot clear the marker. Recovery grants no additional access and never replays
+a submission; uncertain generated results still use their original key.

@@ -4,6 +4,21 @@ import 'package:shiroha_quiz/ui/pages/external_agent_settings_body.dart';
 import 'package:shiroha_quiz/ui/theme/app_theme.dart';
 
 void main() {
+  testWidgets('phone target shows phone-owned permissions', (tester) async {
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: ExternalAgentSettingsBody(
+                clientName: 'Test client',
+                phase: ExternalAgentAccessPhase.disabled,
+                directWriteEnabled: false,
+                remoteTarget: true,
+                deviceSettings: const Text('Device selector'),
+                onOpenReview: () {}))));
+    expect(find.text('Device selector'), findsOneWidget);
+    expect(find.textContaining('手机独立决定'), findsOneWidget);
+    expect(find.byKey(const Key('external-study-statistics')), findsNothing);
+    expect(find.byKey(const Key('external-direct-write-switch')), findsNothing);
+  });
   testWidgets('access and direct writing are independent explicit callbacks',
       (tester) async {
     final access = <bool>[];
@@ -96,9 +111,9 @@ void main() {
       ));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
-      await tester
-          .ensureVisible(find.byKey(const Key('external-connection-settings')));
-      await tester.tap(find.byKey(const Key('external-connection-settings')));
+      await tester.ensureVisible(find.text('连接设置'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('连接设置'));
       await tester.pumpAndSettle();
       expect(find.text('Synthetic connection settings'), findsOneWidget);
       expect(tester.takeException(), isNull);

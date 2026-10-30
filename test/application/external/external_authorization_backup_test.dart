@@ -4,10 +4,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:shiroha_quiz/application/capabilities/capability.dart';
+import 'package:shiroha_quiz/application/backup/backup_restore_coordinator.dart';
+import 'package:shiroha_quiz/application/backup/backup_restore_gate.dart';
 import 'package:shiroha_quiz/application/external/external_authorization.dart';
+import 'package:shiroha_quiz/application/external/external_device_connection.dart';
 import 'package:shiroha_quiz/core/database/external_authorization_schema.dart';
 import 'package:shiroha_quiz/core/database/external_access_v35_schema.dart';
 import 'package:shiroha_quiz/data/repositories/external_authorization_repository.dart';
+import 'package:shiroha_quiz/data/repositories/external_device_selection_store.dart';
 import 'package:shiroha_quiz/data/repositories/backup_database_authority.dart';
 import 'package:shiroha_quiz/data/repositories/backup_snapshot_repository.dart';
 import 'package:shiroha_quiz/domain/backup/backup_failure.dart';
@@ -34,6 +38,13 @@ final class _FailSwap extends BackupFaultInjector {
   @override
   Future<void> beforePostSwapValidation() async =>
       throw const BackupException(BackupFailure.databaseInvalid);
+}
+
+final class _CrashSwap extends BackupFaultInjector {
+  const _CrashSwap();
+  @override
+  Future<void> beforePostSwapValidation() async =>
+      throw const BackupCrashSimulation();
 }
 
 void main() {
@@ -72,10 +83,13 @@ void main() {
   });
   tearDown(() async => h.close());
   BackupRestoreRuntime runtime(
-          {BackupFaultInjector faults = const BackupFaultInjector()}) =>
+          {BackupFaultInjector faults = const BackupFaultInjector(),
+          Future<void> Function()? beforeClose}) =>
       BackupRestoreRuntime(
           databaseAuthority: SqliteBackupDatabaseAuthority(
-              databaseHelper: h.helper, snapshotRepository: snapshots),
+              databaseHelper: h.helper,
+              snapshotRepository: snapshots,
+              beforeClose: beforeClose),
           snapshotRepository: snapshots,
           managedFileStorage: ManagedFileStorageAdapter(managedRoot: managed),
           restoreRoot: restore,
@@ -110,6 +124,126 @@ void main() {
     return destination;
   }
 
+  for (final outcome in ['success', 'rollback', 'startup recovery']) {
+    test('B0 $outcome preserves original live device settlement', () async {
+      final selectionStore =
+          SqliteExternalDeviceSelectionStore(databaseHelper: h.helper);
+      final device = ExternalDeviceConnection(
+          store: selectionStore,
+          availableTargets: () async => [const ExternalDeviceTarget.windows()],
+          endConnection: () async {});
+      await device.load();
+      await device.select(const ExternalDeviceTarget.windows());
+      final lease = await device.begin();
+      Future<void>? closing;
+      var closed = false;
+      final coordinator = BackupRestoreCoordinator(
+          operations: runtime(
+              faults: switch (outcome) {
+                'rollback' => const _FailSwap(),
+                'startup recovery' => const _CrashSwap(),
+                _ => const BackupFaultInjector(),
+              },
+              beforeClose: () => closing ??= () async {
+                    expect(
+                        BackupRestoreMutationGate.instance.isMaintenance, true);
+                    device.withdraw();
+                    // This callback represents the original relay's completed child
+                    // drain, at the same beforeClose seam used by the production root.
+                    await device.settled(lease, clean: true);
+                    expect(
+                        (await selectionStore.readDeviceSelection())!
+                            .needsCleanup,
+                        false);
+                    await device.close();
+                    closed = true;
+                  }()),
+          compositionReload: () async => expect(closed, true));
+      final destination = p.join(h.temp.path, 'live-device.shiroha');
+      await coordinator.exportTo(destination);
+      expect((await selectionStore.readDeviceSelection())!.needsCleanup, true);
+      await coordinator.prepareRestore(destination);
+      if (outcome == 'success') {
+        await coordinator.commitPreparedRestore();
+      } else {
+        await expectLater(
+            coordinator.commitPreparedRestore(),
+            throwsA(outcome == 'rollback'
+                ? isA<BackupException>().having(
+                    (e) => e.failure, 'failure', BackupFailure.databaseInvalid)
+                : isA<BackupCrashSimulation>()));
+        if (outcome == 'startup recovery') {
+          final recovered = await coordinator.recoverStartupIfNeeded();
+          expect(recovered.blocked, false);
+        }
+      }
+      expect(closed, true);
+      expect(BackupRestoreMutationGate.instance.isMaintenance, false);
+      final reopened = ExternalDeviceConnection(
+          store: selectionStore,
+          availableTargets: () async => [const ExternalDeviceTarget.windows()],
+          endConnection: () async {});
+      await reopened.load();
+      if (outcome == 'success') {
+        expect(await selectionStore.readDeviceSelection(), isNull);
+        expect(reopened.selection.target.kind, ExternalDeviceKind.unselected);
+      } else {
+        final saved = (await selectionStore.readDeviceSelection())!;
+        expect(saved.needsCleanup, false);
+        expect(saved.target, lease.target);
+        expect(saved.generation, lease.generation);
+        expect(reopened.phase, ExternalDevicePhase.disconnected);
+        final freshLease = await reopened.begin();
+        await reopened.settled(freshLease, clean: true);
+      }
+      await reopened.close();
+    });
+  }
+
+  test('B0 failed original device cleanup stops before snapshot and swap',
+      () async {
+    final selectionStore =
+        SqliteExternalDeviceSelectionStore(databaseHelper: h.helper);
+    final device = ExternalDeviceConnection(
+        store: selectionStore,
+        availableTargets: () async => [const ExternalDeviceTarget.windows()],
+        endConnection: () async {});
+    await device.load();
+    await device.select(const ExternalDeviceTarget.windows());
+    final lease = await device.begin();
+    final before = await authRows();
+    var closeCalls = 0;
+    Future<void>? closing;
+    final coordinator = BackupRestoreCoordinator(
+        operations: runtime(
+            beforeClose: () => closing ??= () async {
+                  closeCalls++;
+                  device.withdraw();
+                  await device.settled(lease, clean: false);
+                }()));
+    final destination = p.join(h.temp.path, 'failed-cleanup.shiroha');
+    await coordinator.exportTo(destination);
+    await coordinator.prepareRestore(destination);
+    await expectLater(
+        coordinator.commitPreparedRestore(),
+        throwsA(isA<ExternalDeviceException>().having((e) => e.failure,
+            'failure', ExternalDeviceFailure.needsAttention)));
+    expect(closeCalls, 1);
+    expect(h.db.isOpen, true);
+    expect(await authRows(), before);
+    expect(coordinator.preparedRestore, isNotNull);
+    expect(BackupRestoreMutationGate.instance.isMaintenance, false);
+    final saved = (await selectionStore.readDeviceSelection())!;
+    expect(saved.needsCleanup, true);
+    expect(saved.target, lease.target);
+    expect(saved.generation, lease.generation);
+    expect(File(p.join(restore.path, 'journal', 'journal.json')).existsSync(),
+        false);
+    final rollback = Directory(p.join(restore.path, 'rollback'));
+    expect(rollback.existsSync() ? rollback.listSync() : const [], isEmpty);
+    await expectLater(device.begin(), throwsA(isA<ExternalDeviceException>()));
+  });
+
   test(
       'portable copy strips all authorization; live data and soft Proposal origin survive',
       () async {
@@ -120,9 +254,12 @@ void main() {
         (await h.service.stage(submission(), h.origin(profile: ref.profileId)))
             .proposal;
     final before = await authRows();
+    const connectionKey = 'external_device_selection_v1';
+    await h.helper.saveSetting(connectionKey,
+        '{"version":1,"kind":"android","reference":"paired-android","generation":2,"needsCleanup":true}');
     final copyPath = p.join(h.temp.path, 'scrub.db');
     final snapshot = await snapshots.createSanitizedSnapshot(copyPath);
-    expect(snapshot.schemaVersion, 35);
+    expect(snapshot.schemaVersion, 36);
     final copy = await databaseFactory.openDatabase(copyPath);
     try {
       for (final table in externalAuthorizationTables) {
@@ -130,14 +267,25 @@ void main() {
       }
       expect(await copy.query(externalAccessPreferencesTable), isEmpty);
       expect(
+          await copy.query('app_settings',
+              where: 'key = ?', whereArgs: [connectionKey]),
+          isEmpty);
+      expect(
           (await copy.query('generated_question_proposals'))
               .single['client_profile_id'],
           ref.profileId);
       await snapshots.validateScrubInvariantsOn(copy);
+      await copy.insert('app_settings', {'key': connectionKey, 'value': '{}'});
+      await expectLater(snapshots.validateScrubInvariantsOn(copy),
+          throwsA(isA<BackupException>()));
+      await copy
+          .delete('app_settings', where: 'key = ?', whereArgs: [connectionKey]);
     } finally {
       await copy.close();
     }
     expect(await authRows(), before);
+    expect(await h.helper.getSetting(connectionKey),
+        contains('"needsCleanup":true'));
     final path = p.join(h.temp.path, 'roundtrip.shiroha');
     await runtime().exportTo(path);
     expect((await BackupArchiveIo.readManifestOnly(path)).packageVersion, 2);
@@ -222,7 +370,7 @@ void main() {
     expect(await authRows(), before);
     await restoring.commitPreparedRestore();
     h.db = await h.helper.database;
-    expect(await h.db.getVersion(), 35);
+    expect(await h.db.getVersion(), 36);
     for (final table in externalAuthorizationTables) {
       expect(await h.db.query(table), isEmpty);
     }

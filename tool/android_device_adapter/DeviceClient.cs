@@ -8,12 +8,62 @@ namespace Shiroha.AndroidDevice;
 /// <summary>Local pairing/enable helper and one normal business adapter process.</summary>
 internal static class DeviceClient
 {
-    internal static async Task<int> Run(string mode, string directory, string? address)
+    internal static string? RecoveryReport(string stage, string? failure = null)
+    {
+        if (stage is not ("configuration" or "protected-configuration" or "client-key" or
+            "tls" or "hello" or "offer" or "proof" or "settlement" or "settled")) return null;
+        if (failure != null && failure is not ("runtime_not_authorized" or "invalid_target" or
+            "pairing_required" or "credential_store_corrupt" or "credential_store_unavailable" or
+            "credential_commit_unknown" or "credential_rejected" or "device_mismatch" or
+            "stale_revision" or "protocol_violation" or "settlement_unknown" or "socket" or
+            "tls" or "eof" or "deadline" or "io" or "invalid_configuration" or
+            "peer_lost" or "resource_limit")) return null;
+        return $"SHIROHA_ANDROID_RECOVERY|{(failure == null ? "S" : "P")}|{stage}" +
+            (failure == null ? "" : $"|{failure}");
+    }
+
+    internal static string? BusinessReport(string stage, string failure) =>
+        (stage is "upload" or "download" or "heartbeat" or "connection") &&
+        RecoveryReport("tls", failure) != null
+            ? $"SHIROHA_ANDROID_LINK|P|{stage}|{failure}" : null;
+
+    private static void ReportBusinessFailure(string stage, Exception error)
+    {
+        string code = error is LinkFailure link ? link.Code :
+            error is OperationCanceledException ? "deadline" :
+            error is EndOfStreamException ? "eof" :
+            error is IOException ? "io" : "invalid_configuration";
+        var line = BusinessReport(stage, code) ?? BusinessReport(stage, "invalid_configuration");
+        try { Console.Error.WriteLine(line); } catch { /* Observation only. */ }
+    }
+
+    internal static bool IsRecordDirectory(string directory)
+    {
+        try
+        {
+            DirectoryInfo? root = new(AppContext.BaseDirectory);
+            while (root != null && !File.Exists(Path.Combine(root.FullName, "pubspec.yaml"))) root = root.Parent;
+            return root != null && Path.GetFullPath(directory).Equals(
+                Path.Combine(root.FullName, "build", "android_device_read"), StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return false; }
+    }
+
+    internal static async Task<int> Run(string mode, string directory, string? address, int profileVersion = 2)
     {
         byte[] clear = [], pfx = [], replacement = [];
         using var stop = new CancellationTokenSource();
         bool ended = false;
         string stage = "configuration";
+        void Report(string? failure = null)
+        {
+            if (mode == "enable-proof" && RecoveryReport(stage, failure) is { } line)
+            {
+                try { Console.Error.WriteLine(line); }
+                catch { /* Diagnostics cannot interrupt original cleanup. */ }
+            }
+        }
+        void Enter(string value) { stage = value; Report(); }
         void Admission()
         {
             if (ended || !OperatingSystem.IsWindows() || stop.IsCancellationRequested)
@@ -21,11 +71,10 @@ internal static class DeviceClient
         }
         try
         {
-            DirectoryInfo? root = new(AppContext.BaseDirectory);
-            while (root != null && !File.Exists(Path.Combine(root.FullName, "pubspec.yaml"))) root = root.Parent;
-            if (root == null || !Path.GetFullPath(directory).Equals(Path.Combine(root.FullName, "build", "android_device_read"), StringComparison.OrdinalIgnoreCase))
+            Report();
+            if (!IsRecordDirectory(directory))
                 throw new LinkFailure("invalid_target");
-            stage = "protected-configuration";
+            Enter("protected-configuration");
             clear = ProtectedDeviceStore.Read(directory, Admission);
             using var document = LinkFrames.StrictObject(clear);
             var record = document.RootElement;
@@ -40,26 +89,26 @@ internal static class DeviceClient
             target.Validate();
             pfx = Convert.FromBase64String(record.GetProperty("clientPfx").GetString()!);
             if (mode != "business") stop.CancelAfter(TimeSpan.FromSeconds(120));
-            stage = "client-key";
+            Enter("client-key");
             using (var identity = WindowsTlsClientIdentity.Import(pfx, directory, Admission))
             {
                 if (mode == "business")
                 {
                     using var input = new WindowsStdioInput();
-                    await DeviceTransport.Forward(target, identity.Certificate, input, Console.OpenStandardOutput(), stop.Token, Admission);
+                    await DeviceTransport.Forward(target, identity.Certificate, input, Console.OpenStandardOutput(), stop.Token, Admission, profileVersion, ReportBusinessFailure);
                     return 0;
                 }
                 using var establishment = CancellationTokenSource.CreateLinkedTokenSource(stop.Token);
                 establishment.CancelAfter(TimeSpan.FromSeconds(5));
-                stage = "tls";
+                Enter("tls");
                 using var connection = await DeviceTransport.OpenPinned(target, identity.Certificate, establishment.Token, Admission);
-                stage = "hello";
+                Enter("hello");
                 string clientNonce = Nonce();
                 await LinkFrames.Write(connection.Tls, 1, JsonSerializer.SerializeToUtf8Bytes(new {
                     type = "hello", purpose = mode, expectedDeviceId = device,
                     expectedProfileId = mode == "pairing" ? null : profile, clientNonce, linkVersions = new[] { 1 }
                 }), false, establishment.Token);
-                stage = "offer";
+                Enter("offer");
                 var offerFrame = await LinkFrames.Read(connection.Tls, true, establishment.Token);
                 using var offerDocument = LinkFrames.StrictObject(offerFrame.Body);
                 var offer = offerDocument.RootElement;
@@ -79,7 +128,7 @@ internal static class DeviceClient
                 Console.WriteLine(JsonSerializer.Serialize(new { stage = "verified-offer", deviceId = device,
                     certificateDigest = pin, clientCertificateDigest = actualClient, installationId = installation, profileId = profile,
                     action = mode == "pairing" ? "Compare the full client fingerprint and confirm on the phone" : "Waiting for original P15 confirmation and settlement" }));
-                stage = "proof";
+                Enter("proof");
                 var proofFrame = await LinkFrames.Read(connection.Tls, true, stop.Token);
                 using var proofDocument = LinkFrames.StrictObject(proofFrame.Body);
                 var proof = proofDocument.RootElement;
@@ -92,7 +141,7 @@ internal static class DeviceClient
                 if (!IsNonce(settlementNonce)) throw new LinkFailure("protocol_violation");
                 if (mode == "enable-proof" && proof.GetProperty("associationRevision").GetInt32() != record.GetProperty("associationRevision").GetInt32())
                     throw new LinkFailure("stale_revision");
-                stage = "settlement";
+                Enter("settlement");
                 using var closing = CancellationTokenSource.CreateLinkedTokenSource(stop.Token);
                 closing.CancelAfter(TimeSpan.FromSeconds(5));
                 await LinkFrames.Write(connection.Tls, 1, JsonSerializer.SerializeToUtf8Bytes(new { type = "closing", connectionId, clientNonce, serverNonce, settlementNonce }), false, closing.Token);
@@ -107,14 +156,22 @@ internal static class DeviceClient
             }
             // CNG retirement and original TLS close precede persistent replacement.
             if (replacement.Length != 0) ProtectedDeviceStore.Replace(directory, clear, replacement, Admission);
+            Enter("settled");
             Console.WriteLine($"android_{mode}_settled; restart-business-adapter-only-after-phone-enabled");
             return 0;
         }
-        catch (LinkFailure error) { Console.Error.WriteLine($"android_device:{stage}:{error.Code}"); return 78; }
-        catch (Exception error) { Console.Error.WriteLine(JsonSerializer.Serialize(new {
-            androidDevice = "unavailable", stage, category = error is System.Net.Sockets.SocketException ? "socket" :
+        catch (LinkFailure error) {
+            if (mode == "business") ReportBusinessFailure("connection", error);
+            Report(error.Code); Console.Error.WriteLine($"android_device:{stage}:{error.Code}"); return error.Code == "settlement_unknown" ? 79 : 78;
+        }
+        catch (Exception error) {
+            if (mode == "business") ReportBusinessFailure("connection", error);
+            string category = error is System.Net.Sockets.SocketException ? "socket" :
                 error is System.Security.Authentication.AuthenticationException ? "tls" : error is EndOfStreamException ? "eof" :
-                error is OperationCanceledException ? "deadline" : error is IOException ? "io" : "invalid_configuration",
+                error is OperationCanceledException ? "deadline" : error is IOException ? "io" : "invalid_configuration";
+            Report(category);
+            Console.Error.WriteLine(JsonSerializer.Serialize(new {
+            androidDevice = "unavailable", stage, category,
             code = error.HResult })); return 78; }
         finally
         {

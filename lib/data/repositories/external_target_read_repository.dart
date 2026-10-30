@@ -8,14 +8,24 @@ import 'external_authorization_repository.dart';
 
 /// Read-only, scope-first SQL on the existing database authority. No new writer.
 final class SqliteExternalTargetReadRepository
-    implements ExternalTargetReadPort {
+    implements ExternalTargetReadPort, ExternalStudyTargetReadPort {
   SqliteExternalTargetReadRepository({DatabaseHelper? databaseHelper})
       : _helper = databaseHelper ?? DatabaseHelper.instance;
   final DatabaseHelper _helper;
 
   @override
   Future<ExternalReadSnapshot> query(ExternalRuntimeAccess access,
-      int? expectedRevision, void Function() check) async {
+          int? expectedRevision, void Function() check) =>
+      _query(access, expectedRevision, check, study: false);
+
+  @override
+  Future<ExternalReadSnapshot> queryStudyTargets(ExternalRuntimeAccess access,
+          int? expectedRevision, void Function() check) =>
+      _query(access, expectedRevision, check, study: true);
+
+  Future<ExternalReadSnapshot> _query(ExternalRuntimeAccess access,
+      int? expectedRevision, void Function() check,
+      {required bool study}) async {
     check();
     access.validate();
     final database = await _helper.database;
@@ -25,12 +35,17 @@ final class SqliteExternalTargetReadRepository
       final record = await readExternalAuthorization(db, access.profileId);
       check();
       final grant = record.grant;
+      final category = study &&
+              grant?.policy.categories
+                      .contains(ExternalContentCategory.studyStatistics) ==
+                  true
+          ? ExternalContentCategory.studyStatistics
+          : ExternalContentCategory.questionContent;
       if (record.profile.revokedAtUtcMs != null ||
           grant == null ||
           grant.revokedAtUtcMs != null ||
           !grant.policy.permissions.contains(CapabilityPermission.read) ||
-          !grant.policy.categories
-              .contains(ExternalContentCategory.questionContent)) {
+          !grant.policy.categories.contains(category)) {
         externalReadFail(ExternalReadFailure.denied);
       }
       if (expectedRevision != null && grant.revision != expectedRevision) {
@@ -70,14 +85,8 @@ final class SqliteExternalTargetReadRepository
         }
         check();
         // Transaction-local current policy and recipient check, shared with P3.
-        await requireExternalGrant(
-            db,
-            access.profileId,
-            grant.revision,
-            CapabilityPermission.read,
-            scope,
-            ExternalContentCategory.questionContent,
-            access.profileId);
+        await requireExternalGrant(db, access.profileId, grant.revision,
+            CapabilityPermission.read, scope, category, access.profileId);
         check();
         final rows = await db.query('bank_folders',
             columns: ['folder_name'],

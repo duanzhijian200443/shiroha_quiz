@@ -1,7 +1,8 @@
 import '../../application/external/external_authorization.dart';
 import 'sqflite_runtime.dart';
 
-const externalAccessSchemaVersion = 35;
+// Current database version; the public name is retained for existing callers.
+const externalAccessSchemaVersion = 36;
 const externalAccessPreferencesTable = 'external_access_preferences';
 const externalAccessPreferencesDdl =
     '''CREATE TABLE external_access_preferences (

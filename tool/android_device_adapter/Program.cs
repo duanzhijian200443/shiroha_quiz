@@ -13,6 +13,23 @@ internal static class Program
             return DeviceClient.Run("enable-proof", proofDirectory, null).GetAwaiter().GetResult();
         if (args is ["--business", var businessDirectory, "--current-user-cng-import"])
             return DeviceClient.Run("business", businessDirectory, null).GetAwaiter().GetResult();
+        if (args is ["--business", var unifiedDirectory, "--profile=3", "--current-user-cng-import"])
+            return DeviceClient.Run("business", unifiedDirectory, null, 3).GetAwaiter().GetResult();
+        if (args is ["--hosted-business", var hostedDirectory, "--profile=3", "--current-user-cng-import"])
+        {
+            if (!DeviceClient.IsRecordDirectory(hostedDirectory)) return 78;
+            // Only original process/stream settlement with no retained key
+            // marker permits the App to release this child. Never repair here.
+            var result = DeviceClient.Run("business", hostedDirectory, null, 3).GetAwaiter().GetResult();
+            if (result == 79) return 79;
+            try
+            {
+                using var lease = new FileStream(Path.Combine(hostedDirectory, "adapter.lock"),
+                    FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                return File.Exists(Path.Combine(hostedDirectory, "native-client-key.pending")) ? 79 : 0;
+            }
+            catch { return 79; }
+        }
         if (args.Length >= 5 && args[0] == "--native-proof")
         {
             string[] options = args[5..];

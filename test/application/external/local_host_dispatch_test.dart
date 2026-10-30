@@ -615,7 +615,7 @@ void main() {
     final readiness = OfflineReadiness(() async {
       expect(
           (await h.s.h.db.rawQuery('PRAGMA user_version')).single.values.single,
-          35);
+          36);
     });
     final host = LocalHostDispatchCore(gateway: gateway, readiness: readiness);
     try {
