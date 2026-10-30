@@ -16,6 +16,19 @@ AnswerAttempt migration followed the original B0-P0 v22 freeze.
 
 ### Current-state amendment: AnswerAttempt schema v26
 
+The current schema is v36. Its independent `studyStatistics` grant category is
+SCRUB state alongside existing external authorization and v35 preferences.
+The v36 migration preserves legacy grants without granting statistics. External
+Origin v1/v2 is historical INCLUDE state; new rows write v2 and old v1 payloads
+are preserved. Package v1/v2, Receipt, credential exclusions and raw rollback
+remain unchanged. The older runtime-version statements below describe their
+individual historical amendments and are superseded by this v36 statement.
+
+The local unified plugin's `external_device_selection_v1` setting, including
+its active-connection/unknown-cleanup marker, is excluded from portable copies
+and rejected by staged portable validation. Raw rollback preserves the original
+setting. Pairing records, credentials and temporary keys remain outside B0.
+
 This amendment raised the runtime to v26; the current runtime is v34 as stated
 below. Staged v25 databases rebuild `answer_attempts` inside
 DatabaseHelper's upgrade transaction, preserving all rows and both indexes;

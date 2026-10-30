@@ -21,6 +21,69 @@ import 'settled_test_directory.dart';
 import 'windows_resource_process_cases.dart' show FakeBridgeProcessIo;
 
 void windowsDevelopmentBootstrapCases() {
+  test('Android link diagnostics preserve a bounded first failure only', () {
+    final diagnostics = WindowsBridgeProcessDiagnostics();
+    const marker = WindowsBridgeProcessDiagnostics.androidLinkMarker;
+    diagnostics.observeStderr(utf8.encode('${marker}P|private|private\n'));
+    expect(diagnostics.androidLinkFailure, isNull);
+    diagnostics.observeStderr(utf8.encode('${marker}P|heartbeat|peer_lost\n'));
+    diagnostics.observeStderr(utf8.encode('${marker}P|download|io\n'));
+    expect(diagnostics.androidLinkFailure,
+        (stage: 'heartbeat', code: 'peer_lost'));
+    expect(diagnostics.observation.exitCode, isNull);
+  });
+
+  test('Android recovery diagnostics reject private output and observer faults',
+      () async {
+    final received = <(String, String?)>[];
+    final diagnostics = WindowsBridgeProcessDiagnostics()
+      ..onAndroidRecovery = (stage, failure) => received.add((stage, failure));
+    void send(String line) {
+      for (final byte in utf8.encode('$line\n')) {
+        diagnostics.observeStderr([byte]);
+      }
+    }
+
+    const marker = WindowsBridgeProcessDiagnostics.androidRecoveryMarker;
+    send('${marker}S|tls');
+    send('${marker}P|tls|deadline');
+    send('${marker}P|client-key|credential_store_unavailable');
+    send('${marker}P|private-path|deadline');
+    send('${marker}P|tls|private-exception');
+    send('${marker}S|settled|private-body');
+    send('${marker}P|tls|deadline|extra');
+    send('private output');
+    expect(received, [
+      ('tls', null),
+      ('tls', 'deadline'),
+      ('client-key', 'credential_store_unavailable'),
+    ]);
+    expect(diagnostics.observation.exitCode, isNull);
+    diagnostics.onAndroidRecovery = (_, __) => throw StateError('observer');
+    expect(() => send('${marker}S|settled'), returnsNormally);
+    await diagnostics.track(FirstPartyChildPart.exit, Future.value(78));
+    expect(diagnostics.observation.exitCode, 78);
+    expect(diagnostics.observation.parts[FirstPartyChildPart.settlement],
+        FirstPartyObservedResult.unobserved);
+  });
+
+  test('Android recovery reports share the bounded stderr budget', () {
+    var count = 0;
+    final diagnostics = WindowsBridgeProcessDiagnostics()
+      ..onAndroidRecovery = (_, __) => count++;
+    const line =
+        '${WindowsBridgeProcessDiagnostics.androidRecoveryMarker}S|tls\n';
+    for (var i = 0; i < WindowsBridgeProcessDiagnostics.maxRecords + 3; i++) {
+      diagnostics.observeStderr(utf8.encode(line));
+    }
+    expect(count, WindowsBridgeProcessDiagnostics.maxRecords);
+    final overlong = WindowsBridgeProcessDiagnostics()
+      ..onAndroidRecovery = (_, __) => count++;
+    overlong.observeStderr(utf8
+        .encode('x' * (WindowsBridgeProcessDiagnostics.maxLine + 1) + line));
+    expect(count, WindowsBridgeProcessDiagnostics.maxRecords);
+  });
+
   test('business socket diagnostics classify provider failure without raw text',
       () {
     expect(

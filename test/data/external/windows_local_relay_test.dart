@@ -57,10 +57,14 @@ void main() {
         contains('McpVnextWindowsAppRegistration.appOwnedRelay(integration,'));
     expect(registration, contains('await requireSecurityAdmission()'));
     expect(bootstrap, contains('await requireSecurityAdmission()'));
-    expect(File('tool/external/bridge_candidate.dart').readAsStringSync(),
-        contains('await serveDevelopmentWindowsBridge();'));
-    expect(adapter,
-        contains('VnextMcpServer(VnextLocalRelayPort()).serveStdio()'));
+    expect(
+        File('tool/external/bridge_candidate.dart').readAsStringSync(),
+        contains(
+            'await serveDevelopmentWindowsBridge(profileVersion: unified ? 3 : 2)'));
+    expect(
+        adapter,
+        contains(
+            'VnextMcpServer(VnextLocalRelayPort(profileVersion: profile)'));
     for (final prohibited in [
       'DatabaseHelper',
       'Fake',

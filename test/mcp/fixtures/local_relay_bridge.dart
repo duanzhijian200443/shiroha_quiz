@@ -5,7 +5,8 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/mcp/vnext_mcp_server.dart';
 
-Future<void> main() async {
+Future<void> main(List<String> arguments) async {
+  final profile = arguments.contains('--profile=3') ? 3 : 2;
   final root = p.dirname(Platform.resolvedExecutable);
   final events = File(p.join(root, 'bridge.jsonl'));
   final first = !events.existsSync();
@@ -32,7 +33,8 @@ Future<void> main() async {
           'tools':
               first && (scenario == 'inventory' || scenario == 'failed-close')
                   ? <Object?>[]
-                  : VnextMcpServer.inputSchemas.entries
+                  : VnextMcpServer.schemasFor(profile)
+                      .entries
                       .map((entry) =>
                           {'name': entry.key, 'inputSchema': entry.value})
                       .toList()
@@ -52,7 +54,9 @@ Future<void> main() async {
           }));
           continue;
         }
-        final refusal = vnextFailure('unavailable');
+        final refusal = vnextFailure('unavailable',
+            profileVersion: profile,
+            source: const VnextDataSource('windows', 'synthetic'));
         result = {
           'content': <Object?>[],
           'structuredContent': refusal,
@@ -62,6 +66,19 @@ Future<void> main() async {
         result = <String, Object?>{};
     }
     stdout.writeln(jsonEncode({'jsonrpc': '2.0', 'id': id, 'result': result}));
+    if (first &&
+        scenario == 'unexpected-exit' &&
+        request['method'] == 'tools/call') {
+      await stdout.flush();
+      report('exitArmed');
+      final deadline = Stopwatch()..start();
+      while (!File(p.join(root, 'exit-now')).existsSync() &&
+          deadline.elapsed < const Duration(seconds: 30)) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      report('spontaneousExit');
+      exit(23); // Isolated original-child failure, without a client EOF.
+    }
   }
   report('eof');
   final watch = Stopwatch()..start();

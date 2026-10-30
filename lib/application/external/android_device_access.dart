@@ -23,6 +23,7 @@ abstract interface class AndroidDeviceAccess {
   Future<void> disable();
   Future<void> setGenerationMode(ExternalGenerationMode? mode);
   Future<void> setFileContentAllowed(bool allowed);
+  Future<void> setStudyStatisticsAllowed(bool allowed);
   FirstPartyStageApprovalView? openStageApprovalView();
   Future<void> cancelPending();
   Future<void> observeFlutter(bool resumed);
@@ -46,13 +47,17 @@ final class AndroidDeviceAccessState {
       this.policyReady = false,
       this.policyChanging = false,
       this.fileContentAllowed = false,
+      this.studyStatisticsAllowed = false,
       this.allContent = false,
       this.hasFileScope = false,
       this.generationMode,
       this.error});
   final bool available, paired, awaitingConfirmation, listening, connected;
   final bool policyReady, policyChanging;
-  final bool fileContentAllowed, allContent, hasFileScope;
+  final bool fileContentAllowed,
+      studyStatisticsAllowed,
+      allContent,
+      hasFileScope;
 
   /// Null means the current grant has no complete generation permission.
   final ExternalGenerationMode? generationMode;

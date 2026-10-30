@@ -184,6 +184,20 @@ Current scheduling supersedes the earlier functionality-first priority below:
   was not a prerequisite for Windows.
 - Hosted remote/ChatGPT access, background receipt, offline queues and device
   synchronization remain **DEFERRED**.
+- The personal local Shiroha plugin is an independently authorized integration
+  under MCP section 19. Its storage prerequisite is v36 independent statistics
+  consent and backward-readable Origin v2. Unified tools, Windows-owned target
+  routing, packaging and selected-device acceptance remain separate delivery
+  work. The first release requires stopping active Codex work and awaiting
+  settlement before plugin disable/upgrade; idle switching remains direct.
+  The integration repository is `shiroha-codex-plugin`; installation prepares a
+  personal marketplace and uses the original adjacent `shiroha_codex.exe`.
+  `tool/plugin/build_local_runtime.ps1` prepares the local Debug App/adapter
+  layout explicitly; plugin startup never builds or installs dependencies.
+  Uncertain Android cleanup has an explicit App-local recovery boundary under
+  MCP section 19.4: fresh original phone enable proof and complete key/process
+  settlement precede conditional acknowledgment of the same dirty generation.
+  Startup never clears the marker or replaces the existing pairing.
 - Windows high-assurance/security verification remains **DEFERRED**. The current
   admission and independent human identity/Enable/STAGE/Review decisions remain
   mandatory; this closeout grants no external permission or credential operation.

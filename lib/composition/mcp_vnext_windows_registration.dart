@@ -6,6 +6,8 @@ import 'dart:io';
 
 import '../application/external/external_trust_core.dart';
 import '../application/external/first_party_external_access.dart';
+import '../application/external/external_device_connection.dart';
+import '../data/external/windows_android_adapter_layout.dart';
 import '../application/external/first_party_development_access.dart';
 import '../application/external/local_host_dispatch.dart';
 import '../data/external/windows_bridge_process.dart';
@@ -26,9 +28,30 @@ final class McpVnextWindowsAppRegistration {
   /// Normal App owns the original adjacent Bridge outside the Codex Job.
   /// The local hop grants no protected Bootstrap/business admission.
   McpVnextWindowsAppRegistration.appOwnedRelay(this.integration,
-      {void Function(String, int)? onRelayEvent})
-      : _relay = McpVnextAppOwnedRelay(
-            onEvent: onRelayEvent, requireBusinessBootstrap: true) {
+      {void Function(String, int)? onRelayEvent,
+      ExternalDeviceSelectionStore? deviceSelectionStore}) {
+    _onRecoveryEvent = onRelayEvent;
+    if (deviceSelectionStore != null) {
+      _devices = ExternalDeviceConnection(
+          store: deviceSelectionStore,
+          availableTargets: () async {
+            final layout = WindowsAndroidAdapterLayout.resolve(
+                Platform.resolvedExecutable);
+            return [
+              const ExternalDeviceTarget.windows(),
+              if (layout?.paired == true && layout?.packagePresent == true)
+                ExternalDeviceTarget.android(
+                    WindowsAndroidAdapterLayout.reference)
+            ];
+          },
+          endConnection: () => _relay!.endCurrentConnection(),
+          verifyRecovery: _recoverAndroid);
+      integration.controls.installDeviceConnection(_devices!);
+    }
+    _relay = McpVnextAppOwnedRelay(
+        onEvent: onRelayEvent,
+        requireBusinessBootstrap: true,
+        devices: _devices);
     _development =
         McpVnextDevelopmentApp(integration: integration, relay: _relay!);
     integration.controls.installDevelopment(_development!);
@@ -85,10 +108,61 @@ final class McpVnextWindowsAppRegistration {
 
   final McpVnextAppIntegration integration;
   McpVnextAppOwnedRelay? _relay;
+  ExternalDeviceConnection? _devices;
+  WindowsBridgeProcess? _recoveryChild;
+  void Function(String, int)? _onRecoveryEvent;
+  FirstPartyChildObservation? _lastRecoveryObservation;
+  FirstPartyChildObservation? get recoveryObservation =>
+      _recoveryChild?.observation ?? _lastRecoveryObservation;
+
+  void _reportRecovery(String event) {
+    try {
+      _onRecoveryEvent?.call(event, 0);
+    } catch (_) {/* Observation only. */}
+  }
+
+  Future<void> _recoverAndroid(ExternalDeviceTarget target) async {
+    if (_closed ||
+        _recoveryChild != null ||
+        target.kind != ExternalDeviceKind.android ||
+        target.reference != WindowsAndroidAdapterLayout.reference) {
+      throw const ExternalDeviceException(ExternalDeviceFailure.needsAttention);
+    }
+    final child = _recoveryChild = WindowsBridgeProcess.androidRecovery(
+        onDiagnostic: (stage, failure) => _reportRecovery(failure == null
+            ? 'androidRecoveryStage:$stage'
+            : 'androidRecoveryFailure:$stage:$failure'));
+    _reportRecovery('androidRecoveryStarting');
+    try {
+      await child.start();
+      await child.exited;
+      await child.stopAndWait();
+      if (_closed) {
+        throw const ExternalDeviceException(
+            ExternalDeviceFailure.needsAttention);
+      }
+      _reportRecovery('androidRecoverySettled');
+    } catch (_) {
+      _reportRecovery('androidRecoveryFailed');
+      rethrow;
+    } finally {
+      try {
+        await child.stopAndWait();
+      } finally {
+        _lastRecoveryObservation = child.observation;
+        _recoveryChild = null;
+      }
+    }
+  }
+
   bool get localRelayAvailable => _relay?.available == true;
   FirstPartyRelayObservation get relayObservation =>
       _relay?.observation ??
       const FirstPartyRelayObservation(FirstPartyRelayPhase.unavailable);
+  FirstPartyChildObservation? get businessObservation =>
+      _relay?.businessObservation;
+  ({String stage, String code})? get androidLinkFailure =>
+      _relay?.androidLinkFailure;
   McpVnextWindowsAppStartup? _startup;
   McpVnextDevelopmentApp? _development;
   McpVnextWindowsProtectedAcquirer? _acquirer;
@@ -138,6 +212,9 @@ final class McpVnextWindowsAppRegistration {
     }
     return _starting = () async {
       try {
+        try {
+          await _devices?.load();
+        } catch (_) {/* The selector retains needsAttention. */}
         _relay?.start();
         await _startup?.start();
       } catch (_) {
@@ -149,15 +226,18 @@ final class McpVnextWindowsAppRegistration {
 
   Future<void> close() {
     _closed = true;
+    _devices?.withdraw();
     return _closing ??= () async {
       try {
         await Future.wait([
           if (_relay != null) _relay!.close(),
+          if (_recoveryChild != null) _recoveryChild!.stopAndWait(),
           if (_startup != null) _startup!.close(),
           if (_development != null)
             _development!.stopFor(FirstPartyDevelopmentStopCause.appClose),
           integration.close(),
         ]);
+        await _devices?.close();
       } finally {
         // A failing closer must not skip joining original acquisition cleanup.
         await _acquirer?.whenAcquisitionSettled;

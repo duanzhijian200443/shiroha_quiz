@@ -34,13 +34,18 @@ final class VnextMcpSessionAuthentication
 /// App owns authentication and prior target approvals. This composition selects
 /// existing authority; a READ handle never mints approval. No startup installs it.
 final class VnextMcpAppComposition
-    implements VnextMcpPort, IpcTrustedStageApprovalBinding {
+    implements
+        VnextMcpPort,
+        IpcTrustedStageApprovalBinding,
+        IpcVersionedContextBinding {
   VnextMcpAppComposition(
       {required this.host,
       required this.reads,
       required this.stages,
       required this.authentication,
       this.stageApproval,
+      this.profileVersion = 2,
+      this.source = const VnextDataSource('windows', 'local'),
       required Iterable<ExternalStageContext> approvedTargets})
       : _approved = List.unmodifiable(approvedTargets) {
     if (!identical(reads.admission, stages.runtimeAdmission)) {
@@ -53,6 +58,10 @@ final class VnextMcpAppComposition
   final ExternalGeneratedStageService stages;
   final OfflineIpcAuthenticationPort authentication;
   final FirstPartyStageApproval? stageApproval;
+  final int profileVersion;
+  @override
+  bool get supportsUnifiedProfile => profileVersion == 3;
+  final VnextDataSource source;
   List<ExternalStageContext> _approved;
 
   @override
@@ -117,6 +126,23 @@ final class VnextMcpAppComposition
     check();
     final ExternalExecutionContext context;
     switch (selection.kind) {
+      case IpcContextSelectionKind.rootStudy:
+        if (profileVersion != 3) {
+          throw const FormatException('unsupportedVersion');
+        }
+        context = await host.openStudy(entry);
+      case IpcContextSelectionKind.study:
+        if (profileVersion != 3) {
+          throw const FormatException('unsupportedVersion');
+        }
+        context = await host.openStudy(entry, context: selection.contextRef!);
+      case IpcContextSelectionKind.questionRead:
+        if (profileVersion != 3) {
+          throw const FormatException('unsupportedVersion');
+        }
+        context = await host.openRead(entry,
+            context: selection.contextRef!,
+            questionRef: selection.questionRef!);
       case IpcContextSelectionKind.rootRead:
         context = await host.openRead(entry);
       case IpcContextSelectionKind.read:
@@ -174,18 +200,22 @@ final class VnextMcpAppComposition
   Future<Map<String, Object?>> call(String tool, Map<String, dynamic> arguments,
       {required Stream<void> cancelled,
       required bool Function() available}) async {
-    if (_closed || !host.isReady) return vnextFailure('unavailable');
-    if (_pending.length >= 16) return vnextFailure('busy');
+    Map<String, Object?> failure(String code) =>
+        vnextFailure(code, profileVersion: profileVersion, source: source);
+    if (_closed || !host.isReady) return failure('unavailable');
+    if (_pending.length >= 16) return failure('busy');
     final done = Completer<void>();
     _pending.add(done.future);
     final control = ExternalCallControl(clock: reads.admission.trust.clock);
     final cancellation = cancelled.listen((_) => control.cancel());
     try {
-      final command = VnextMcpCommand.parse(tool, arguments);
+      final command = profileVersion == 3
+          ? VnextMcpCommand.parseUnified(tool, arguments)
+          : VnextMcpCommand.parse(tool, arguments);
       OfflineIpcAuthenticationPort invocationAuthentication = authentication;
       if (command.contextKind == VnextMcpContextKind.stage) {
         final session = await authentication.authenticate();
-        if (session == null) return vnextFailure('unauthenticated');
+        if (session == null) return failure('unauthenticated');
         // Preserve cheap refusal before serializing the App's STAGE payload.
         await _stageContext(session, await host.bindSession(session),
             command.contextRef!, control);
@@ -196,20 +226,25 @@ final class VnextMcpAppComposition
           host: host, authentication: invocationAuthentication);
       if (_closed || !available()) control.cancel();
       final id = 'mcp_${++_id}';
-      final result = await projection.invokeV3(command.request(id),
+      final result = await (profileVersion == 3
+              ? projection.invokeV4
+              : projection.invokeV3)(command.request(id),
           binding: this,
           control: control,
           responseAvailable: () => !_closed && available());
-      if (result.frame == null) return vnextFailure('outcome_unknown');
+      if (result.frame == null) return failure('outcome_unknown');
       try {
-        return command.response(VnextMcpCommand.decodeFrame(result.frame!), id);
+        return {
+          ...command.response(VnextMcpCommand.decodeFrame(result.frame!), id),
+          if (profileVersion == 3) 'source': source.toJson()
+        };
       } catch (_) {
-        return vnextFailure('invalidResult');
+        return failure('invalidResult');
       }
     } on FormatException {
-      return vnextFailure('invalidRequest');
+      return failure('invalidRequest');
     } catch (_) {
-      return vnextFailure(
+      return failure(
           _closed || !host.isReady ? 'unavailable' : 'capability.accessDenied');
     } finally {
       await cancellation.cancel();

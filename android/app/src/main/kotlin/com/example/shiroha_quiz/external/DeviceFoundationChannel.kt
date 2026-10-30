@@ -124,7 +124,13 @@ internal class DeviceFoundationChannel(private val context: Context,
                 else -> result.notImplemented()
             }
         } catch (e: DeviceLinkFailure) { result.error(e.code, e.code, null) }
-          catch (_: Exception) { result.error("credential_store_unavailable", "credential_store_unavailable", null) }
+          catch (error: Exception) {
+              if (call.method in setOf("read", "write", "peerClosed")) {
+                  try { android.util.Log.w("AndroidDeviceIo", "${call.method}:${deviceIoFailureKind(error)}") }
+                  catch (_: Exception) { /* Observation only. */ }
+              }
+              result.error("credential_store_unavailable", "credential_store_unavailable", null)
+          }
     }
 
     private fun requireLink() = link ?: throw DeviceLinkFailure("connection_closed")

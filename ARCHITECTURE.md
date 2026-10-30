@@ -219,7 +219,7 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
 6. Typed content mutation must not pass through the legacy editor or reconstruct authority from a V1 projection.
 7. Review/FSRS state is separate from typed question content mutation.
 8. `RichContent` is structural: a persisted `TextNode` is not reparsed later as Markdown/math/image syntax.
-9. Current database schema is **v35**: the frozen v15 typed sidecar remains
+9. Current database schema is **v36**: the frozen v15 typed sidecar remains
    authoritative, with the additive v16 File Library, v17 Project, v18 flat
    File Library Folder, v19 Conversation, and v20 parsed-artifact tables, the
    additive RAG-1 derived lexical-retrieval cache and FTS5 objects, the
@@ -234,6 +234,19 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
    Proposal originals/review/receipts/mappings, plus v33 non-secret external
    Profile/Grant policy, exact scopes and Egress categories. v35 adds the
    revision-coupled `external_access_preferences` all-content/generation policy;
+   v36 adds independent `studyStatistics` egress consent. Existing grants retain
+   their rows and do not gain this category. New external histories use Origin
+   v2; old Origin v1 remains readable and is never rewritten. Submission,
+   Proposal/Receipt and B0 package versions are unchanged.
+   The local unified plugin's profile 3 routes eleven tools through App-owned
+   scope contexts. Windows owns the selected local/Android connection and its
+   durable close barrier; phone authorization remains independent. The non-secret
+   target/active-lease setting is excluded from portable B0, but preserved by
+   raw rollback. See MCP contract section 19 for tool and lifetime boundaries.
+   Its section 19.4 permits only a separately confirmed Android recovery after
+   restart: original enable proof and key/process settlement precede conditional
+   acknowledgment of the same dirty generation. No automatic recovery or
+   pairing replacement is introduced.
    legacy rows default to exact scope/manual confirmation. Portable B0 scrubs
    this policy; raw rollback retains it (external boundary section 14). The authorization
    contract is owned by `external-agent-boundary.md` §6; P1 adds no authentication,

@@ -6,6 +6,26 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/composition/mcp_vnext_app_owned_relay.dart';
 import 'package:shiroha_quiz/composition/mcp_vnext_development_lifetime.dart';
+import 'package:shiroha_quiz/application/external/external_device_connection.dart';
+
+final class _SelectionStore implements ExternalDeviceSelectionStore {
+  @override
+  Future<void> acknowledgeDeviceCleanup(ExternalDeviceSelection expected,
+          ExternalDeviceSelection replacement) async =>
+      throw UnsupportedError('Recovery is not enabled in this fixture');
+  _SelectionStore(this.file);
+  final File file;
+  @override
+  Future<ExternalDeviceSelection?> readDeviceSelection() async => null;
+  @override
+  Future<void> saveDeviceSelection(ExternalDeviceSelection value) async =>
+      file.writeAsStringSync(
+          jsonEncode({
+            'generation': value.generation,
+            'needsCleanup': value.needsCleanup
+          }),
+          flush: true);
+}
 
 Future<void> main() async {
   final root = p.dirname(Platform.resolvedExecutable);
@@ -15,12 +35,24 @@ Future<void> main() async {
       mode: FileMode.append,
       flush: true);
   final scenario = File(p.join(root, 'scenario')).readAsStringSync();
-  final relay = McpVnextAppOwnedRelay(
+  late final McpVnextAppOwnedRelay relay;
+  final devices = File(p.join(root, 'unified')).existsSync()
+      ? ExternalDeviceConnection(
+          store: _SelectionStore(File(p.join(root, 'selection.json'))),
+          availableTargets: () async => [const ExternalDeviceTarget.windows()],
+          endConnection: () => relay.endCurrentConnection())
+      : null;
+  relay = McpVnextAppOwnedRelay(
+      devices: devices,
       onEvent: report,
       idleTimeout:
           scenario.contains('idle') || scenario.startsWith('adapter-reconnect')
               ? const Duration(seconds: 1)
               : const Duration(seconds: 30));
+  if (devices != null) {
+    await devices.load();
+    await devices.select(const ExternalDeviceTarget.windows());
+  }
   relay.start();
   report(relay.available ? 'ready' : 'unavailable', 0);
   Timer? monitor;

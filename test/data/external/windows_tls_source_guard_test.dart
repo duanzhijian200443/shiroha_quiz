@@ -57,12 +57,16 @@ void main() {
         expect(bridge, contains('FirstPartyStageLimits.bridgeExchange'));
         final projection = File('lib/mcp/vnext_mcp_protocol_projection.dart')
             .readAsStringSync();
-        expect(projection, contains("'schemaVersion': 3"));
+        expect(projection,
+            contains("'schemaVersion': profileVersion == 3 ? 4 : 3"));
         expect(
             projection,
             contains(
                 'bridgeStageBlocked => contextKind == VnextMcpContextKind.stage'));
-        expect(projection, contains("decoded['schemaVersion'] != 3"));
+        expect(
+            projection,
+            contains(
+                "decoded['schemaVersion'] != (profileVersion == 3 ? 4 : 3)"));
         for (final token in [
           '.connect(',
           'WindowsTlsBridge(',
@@ -306,7 +310,8 @@ void main() {
       'diagnostics.observeStderr(bytes)',
       '.track(FirstPartyChildPart.stderr, _drainError())'
     ]) {
-      expect(source, contains(token));
+      expect(source.replaceAll(RegExp(r'\s'), ''),
+          contains(token.replaceAll(RegExp(r'\s'), '')));
     }
     final environment = File('lib/data/external/windows_child_environment.dart')
         .readAsStringSync();

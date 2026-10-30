@@ -73,7 +73,12 @@ final class ExternalClientProfile {
 
 enum ExternalTargetKind { bank, file }
 
-enum ExternalContentCategory { questionContent, fileContent, proposalMetadata }
+enum ExternalContentCategory {
+  questionContent,
+  fileContent,
+  proposalMetadata,
+  studyStatistics
+}
 
 /// Legacy grants ask for each submission. New local policy can preauthorize
 /// drafts or the atomic insertion of newly generated questions.

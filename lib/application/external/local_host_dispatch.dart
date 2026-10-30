@@ -66,7 +66,11 @@ final class LocalHostDispatchCore {
         _idle?.future ?? Future<void>.value(),
       ]).then((_) {});
 
-  static const _routes = <CapabilityId>[
+  List<CapabilityId> get _routes => [
+        ..._legacyRoutes,
+        if (_gateway.enableStudyQueries) ...ExternalCapabilities.studyRoutes,
+      ];
+  static const _legacyRoutes = <CapabilityId>[
     ExternalCapabilities.listTargets,
     ExternalCapabilities.createReadContext,
     ExternalCapabilities.searchQuestions,
@@ -216,9 +220,18 @@ final class LocalHostDispatchCore {
       });
 
   Future<ExternalExecutionContext> openRead(LocalHostSessionEntry entry,
+          {String? context, String? questionRef}) =>
+      _open(
+          entry,
+          () => _gateway.openRead(
+              session: entry._session,
+              context: context,
+              questionRef: questionRef));
+
+  Future<ExternalExecutionContext> openStudy(LocalHostSessionEntry entry,
           {String? context}) =>
       _open(entry,
-          () => _gateway.openRead(session: entry._session, context: context));
+          () => _gateway.openStudy(session: entry._session, context: context));
 
   Future<ExternalExecutionContext> openStage(
           LocalHostSessionEntry entry, ExternalStageContext context) =>

@@ -5,6 +5,8 @@ import 'package:path/path.dart' as p;
 
 import '../application/external/first_party_external_access.dart';
 import '../application/external/first_party_development_access.dart';
+import '../application/external/external_device_connection.dart';
+import '../data/external/windows_android_adapter_layout.dart';
 import '../data/external/windows_bridge_process.dart';
 import '../data/external/windows_local_relay.dart';
 import '../data/external/windows_release_candidate.dart';
@@ -16,6 +18,7 @@ import '../mcp/vnext_mcp_server.dart';
 /// snapshot is a business refusal, never an attempted child or cleanup failure.
 Future<Map<String, Object?>> dispatchWithAppOwnedBootstrap({
   required bool requireBootstrap,
+  int profileVersion = 2,
   required WindowsDevelopmentBootstrap Function()? snapshot,
   required Future<Map<String, Object?>> Function(WindowsDevelopmentBootstrap?)
       dispatch,
@@ -24,9 +27,11 @@ Future<Map<String, Object?>> dispatchWithAppOwnedBootstrap({
   try {
     packet = snapshot?.call();
   } catch (_) {
-    return vnextFailure('unavailable');
+    return vnextFailure('unavailable', profileVersion: profileVersion);
   }
-  if (requireBootstrap && packet == null) return vnextFailure('unavailable');
+  if (requireBootstrap && packet == null) {
+    return vnextFailure('unavailable', profileVersion: profileVersion);
+  }
   return dispatch(packet);
 }
 
@@ -36,6 +41,7 @@ final class McpVnextAppOwnedRelay implements McpVnextWindowsProcessOwner {
   McpVnextAppOwnedRelay(
       {void Function(String, int)? onEvent,
       this.requireBusinessBootstrap = false,
+      this.devices,
       Duration idleTimeout = const Duration(minutes: 10)})
       : _onEvent = onEvent,
         _idleTimeout = idleTimeout {
@@ -47,6 +53,11 @@ final class McpVnextAppOwnedRelay implements McpVnextWindowsProcessOwner {
   final void Function(String, int)? _onEvent;
   final Duration _idleTimeout;
   final bool requireBusinessBootstrap;
+  ({String stage, String code})? get androidLinkFailure =>
+      _observedBusiness?.androidLinkFailure;
+  final ExternalDeviceConnection? devices;
+  ExternalDeviceLease? _deviceLease;
+  Completer<void>? _connectionEnded;
   int _connectionId = 0;
   void _report(String event) {
     try {
@@ -157,6 +168,7 @@ final class McpVnextAppOwnedRelay implements McpVnextWindowsProcessOwner {
       try {
         await pipe.accept();
         if (_closed) break;
+        _connectionEnded = Completer<void>();
         _connectionId++;
         _observe(FirstPartyRelayPhase.connected);
         _report('peerAuthenticated');
@@ -177,14 +189,34 @@ final class McpVnextAppOwnedRelay implements McpVnextWindowsProcessOwner {
       } finally {
         _observe(FirstPartyRelayPhase.settling);
         if (!_closed) withdrawn ??= onDisconnected?.call();
-        await Future.wait([
-          pipe.disconnect(),
-          if (_bridge != null) _bridge!.close(),
-          if (lost != null) lost,
-          if (withdrawn != null) withdrawn!,
-        ]);
-        if (_bridge != null) _report('originalBridgeSettled');
-        _bridge = null;
+        try {
+          await Future.wait([
+            pipe.disconnect(),
+            if (_bridge != null) _bridge!.close(),
+            if (lost != null) lost,
+            if (withdrawn != null) withdrawn!,
+          ]);
+          if (_bridge != null) _report('originalBridgeSettled');
+          if (_deviceLease case final lease?) {
+            await devices!.settled(lease, clean: true);
+          }
+          _deviceLease = null;
+          _bridge = null;
+          if (_connectionEnded?.isCompleted == false) {
+            _connectionEnded!.complete();
+          }
+        } catch (_) {
+          _report('originalBridgeCloseFailed');
+          if (_deviceLease case final lease?) {
+            try {
+              await devices!.settled(lease, clean: false);
+            } catch (_) {/* Retain the dirty marker. */}
+          }
+          if (_connectionEnded?.isCompleted == false) {
+            _connectionEnded!.complete();
+          }
+          rethrow;
+        }
       }
       if (_closed) break;
       // Accept a new explicit adapter connection only after original custody
@@ -196,37 +228,48 @@ final class McpVnextAppOwnedRelay implements McpVnextWindowsProcessOwner {
 
   Future<void> _connection(WindowsLocalRelay pipe) async {
     var lastId = 0;
+    int? connectionProfile;
     while (!_closed && pipe.isCurrent) {
       // Idle expiry closes this connection; no approval/Session is revived.
       final message = await pipe.receive(_idleTimeout);
       final id = message['id'];
       final tool = message['tool'];
       final arguments = message['arguments'];
-      if (message.length != 4 ||
-          message['version'] != 1 ||
+      final profile = message['version'] == 1 ? 2 : 3;
+      if ((profile == 2
+              ? message.length != 4 || message['version'] != 1
+              : message.length != 5 ||
+                  message['version'] != 2 ||
+                  message['profileVersion'] != 3) ||
+          connectionProfile != null && connectionProfile != profile ||
           id is! int ||
           id != lastId + 1 ||
           id > 0x7fffffff ||
           tool is! String ||
-          !VnextMcpServer.inputSchemas.containsKey(tool) ||
+          !VnextMcpServer.schemasFor(profile).containsKey(tool) ||
           arguments is! Map<String, dynamic>) {
         throw const LocalRelayException();
       }
+      connectionProfile = profile;
       lastId = id;
       if (_closed || !pipe.isCurrent) throw const LocalRelayException();
       Map<String, Object?> result;
-      if (_pairing != null) {
-        result = vnextFailure('unavailable');
+      if (profile == 3) {
+        result =
+            await _unified(tool, arguments, () => !_closed && pipe.isCurrent);
+      } else if (_pairing != null) {
+        result = vnextFailure('unavailable', profileVersion: profile);
       } else if (_bridge == null && !_OwnedBridge.packagePresent) {
         _report('bridgePackageUnavailable');
-        result = vnextFailure('unavailable');
+        result = vnextFailure('unavailable', profileVersion: profile);
       } else {
         result = await dispatchWithAppOwnedBootstrap(
             requireBootstrap: requireBusinessBootstrap,
+            profileVersion: profile,
             snapshot: businessBootstrap,
             dispatch: (packet) async {
-              final bridge =
-                  _bridge ??= _OwnedBridge(onEvent: _report, bootstrap: packet);
+              final bridge = _bridge ??=
+                  _createBridge(bootstrap: packet, profileVersion: profile);
               _observedBusiness = bridge.process;
               await bridge.start();
               if (_closed || !pipe.isCurrent) throw const LocalRelayException();
@@ -234,8 +277,90 @@ final class McpVnextAppOwnedRelay implements McpVnextWindowsProcessOwner {
             });
       }
       if (_closed || !pipe.isCurrent) throw const LocalRelayException();
-      await pipe.send({'version': 1, 'id': id, 'result': result},
+      await pipe.send(
+          {'version': profile == 3 ? 2 : 1, 'id': id, 'result': result},
           const Duration(seconds: 5));
+    }
+  }
+
+  Future<Map<String, Object?>> _unified(String tool,
+      Map<String, dynamic> arguments, bool Function() current) async {
+    final owner = devices;
+    if (owner == null) return vnextFailure('unavailable', profileVersion: 3);
+    try {
+      if (_pairing != null) return vnextFailure('busy', profileVersion: 3);
+      final lease = _deviceLease ??= await owner.begin();
+      if (!current()) throw const LocalRelayException();
+      final android = lease.target.kind == ExternalDeviceKind.android;
+      if (android &&
+          lease.target.reference != WindowsAndroidAdapterLayout.reference) {
+        return vnextFailure('targetUnavailable', profileVersion: 3);
+      }
+      final layout = android
+          ? WindowsAndroidAdapterLayout.resolve(Platform.resolvedExecutable)
+          : null;
+      if (android
+          ? layout?.packagePresent != true
+          : !_OwnedBridge.packagePresent) {
+        return vnextFailure('unavailable', profileVersion: 3);
+      }
+      final result = await dispatchWithAppOwnedBootstrap(
+          requireBootstrap: !android && requireBusinessBootstrap,
+          profileVersion: 3,
+          snapshot: android ? null : businessBootstrap,
+          dispatch: (packet) async {
+            final child = _bridge ??= _createBridge(
+                bootstrap: packet, profileVersion: 3, android: android);
+            _observedBusiness = child.process;
+            await child.start();
+            if (!current()) throw const LocalRelayException();
+            return child.client.call(tool, arguments);
+          });
+      if (result['error'] == null) owner.connected(lease);
+      return result;
+    } on ExternalDeviceException catch (error) {
+      return vnextFailure(error.failure.name, profileVersion: 3);
+    }
+  }
+
+  _OwnedBridge _createBridge(
+      {WindowsDevelopmentBootstrap? bootstrap,
+      required int profileVersion,
+      bool android = false}) {
+    final connection = _connectionId;
+    final child = _OwnedBridge(
+        onEvent: _report,
+        bootstrap: bootstrap,
+        profileVersion: profileVersion,
+        android: android);
+    unawaited(child.process.exited.then((_) async {
+      if (_closed ||
+          child._closed ||
+          connection != _connectionId ||
+          !identical(_bridge, child)) {
+        return;
+      }
+      _report('originalBridgeExited');
+      try {
+        // Wake the original connection owner even when Codex sends no more
+        // requests. That owner alone joins work and decides clean vs unknown.
+        await _pipe?.disconnect();
+      } catch (_) {
+        _failed = true;
+        _observe(FirstPartyRelayPhase.unsettled);
+      }
+    }));
+    return child;
+  }
+
+  /// Selection closes the authenticated pipe first, then waits for the same
+  /// child/Session drain used by EOF. It cannot transfer a running connection.
+  Future<void> endCurrentConnection() async {
+    final ended = _connectionEnded;
+    await _pipe?.disconnect();
+    await ended?.future;
+    if (_bridge != null || _deviceLease != null || _failed) {
+      throw const ExternalDeviceException(ExternalDeviceFailure.needsAttention);
     }
   }
 
@@ -270,14 +395,25 @@ final class McpVnextAppOwnedRelay implements McpVnextWindowsProcessOwner {
 /// Stable internal protocol output stays alive after the outer pipe breaks.
 /// This keeps the original child's sole stdout consumer draining through EOF.
 final class _OwnedBridge {
-  _OwnedBridge({required this.onEvent, this.bootstrap}) {
+  _OwnedBridge(
+      {required this.onEvent,
+      this.bootstrap,
+      int profileVersion = 2,
+      bool android = false}) {
     _toChild.onListen = () => _toListened = true;
     _fromChild.onListen = () => _fromListened = true;
     _output = IOSink(_ProtocolOutput(_fromChild));
-    process =
-        WindowsBridgeProcess.stdio(input: _toChild.stream, output: _output);
-    client =
-        VnextAppOwnedClient(input: _fromChild.stream, output: _toChild.sink);
+    process = android
+        ? WindowsBridgeProcess.androidStdio(
+            input: _toChild.stream, output: _output)
+        : WindowsBridgeProcess.stdio(
+            input: _toChild.stream,
+            output: _output,
+            profileVersion: profileVersion);
+    client = VnextAppOwnedClient(
+        input: _fromChild.stream,
+        output: _toChild.sink,
+        profileVersion: profileVersion);
   }
   static bool get packagePresent {
     final root = p.dirname(Platform.resolvedExecutable);

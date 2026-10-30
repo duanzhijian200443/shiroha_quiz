@@ -487,7 +487,11 @@ final class _TlsConnection {
       if (owner.binding != null) {
         // v3 parsing and selector resolution happen only after the original
         // P15/P0 Session has been admitted by P8. No legacy Context fallback.
-        result = await projection.invokeV3(envelope,
+        result = await (owner.binding is IpcVersionedContextBinding &&
+                    (owner.binding! as IpcVersionedContextBinding)
+                        .supportsUnifiedProfile
+                ? projection.invokeVersioned
+                : projection.invokeV3)(envelope,
             binding: owner.binding!,
             control: control,
             stageApprovalWait: owner.enableStageApprovalWait,

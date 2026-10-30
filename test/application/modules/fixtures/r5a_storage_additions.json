@@ -102,7 +102,12 @@
     },
     {
       "before": "    if (oldVersion < generatedProposalOriginSchemaVersion) {\n      await migrateGeneratedProposalOriginToV34(db);\n    }\n",
-      "after": "    if (oldVersion < generatedProposalOriginSchemaVersion) {\n      await migrateGeneratedProposalOriginToV34(db);\n    }\n    if (oldVersion < externalAccessSchemaVersion) {\n      await migrateExternalAccessToV35(db);\n    }\n    await validateExternalAccessV35Schema(db);\n",
+      "after": "    if (oldVersion < generatedProposalOriginSchemaVersion) {\n      await migrateGeneratedProposalOriginToV34(db);\n    }\n    if (oldVersion < 35) {\n      await migrateExternalAccessToV35(db);\n    }\n    if (oldVersion < externalStudyStatisticsSchemaVersion) {\n      await migrateExternalStudyStatisticsToV36(db);\n    }\n    await validateExternalAccessV35Schema(db);\n",
+      "count": 1
+    },
+    {
+      "before": "import 'external_access_v35_schema.dart';\n",
+      "after": "import 'external_access_v35_schema.dart';\nimport 'external_study_statistics_v36_schema.dart';\n",
       "count": 1
     }
   ],
@@ -160,6 +165,16 @@
     {
       "before": "      ...externalAuthorizationTables,\n",
       "after": "      ...externalAuthorizationTables,\n      externalAccessPreferencesTable,\n",
+      "count": 1
+    },
+    {
+      "before": "    if (await _tableExists(db, 'app_settings')) {\n",
+      "after": "    if (await _tableExists(db, 'app_settings')) {\n      await db.delete('app_settings',\n          where: 'key = ?',\n          whereArgs: <Object?>['external_device_selection_v1']);\n",
+      "count": 1
+    },
+    {
+      "before": "    final engineKeys = Sqflite.firstIntValue(\n",
+      "after": "    if (await _tableExists(db, 'app_settings') &&\n        (await db.query('app_settings',\n                where: 'key = ?',\n                whereArgs: ['external_device_selection_v1'],\n                limit: 1))\n            .isNotEmpty) {\n      throw const BackupException(BackupFailure.databaseInvalid);\n    }\n    final engineKeys = Sqflite.firstIntValue(\n",
       "count": 1
     }
   ]

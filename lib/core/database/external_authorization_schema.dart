@@ -2,6 +2,7 @@ import '../../application/capabilities/capability.dart';
 import '../../application/external/external_authorization.dart';
 import 'sqflite_runtime.dart';
 import 'external_access_v35_schema.dart';
+import 'external_study_statistics_v36_schema.dart';
 
 const externalAuthorizationSchemaVersion = 33;
 const externalAuthorizationTables = [
@@ -39,12 +40,7 @@ const externalAuthorizationSchemaObjects = <String, String>{
   PRIMARY KEY(profile_id,project_id,target_kind,target_id),
   FOREIGN KEY(profile_id) REFERENCES external_grants(profile_id)
 );''',
-  'external_grant_egress': '''CREATE TABLE external_grant_egress (
-  profile_id TEXT NOT NULL,
-  category TEXT NOT NULL CHECK(category IN ('questionContent','fileContent','proposalMetadata')),
-  PRIMARY KEY(profile_id,category),
-  FOREIGN KEY(profile_id) REFERENCES external_grants(profile_id)
-);''',
+  'external_grant_egress': externalGrantEgressV36Ddl,
   'external_profile_identity_immutable':
       "CREATE TRIGGER external_profile_identity_immutable BEFORE UPDATE OF profile_id,display_name,adapter,protocol,created_at ON external_client_profiles BEGIN SELECT RAISE(ABORT,'external_identity_immutable'); END;",
   'external_profile_revision_guard':
@@ -141,7 +137,9 @@ Future<ExternalAuthorizationRecord> readExternalAuthorization(
         orderBy: 'project_id,target_kind,target_id',
         limit: ExternalAuthLimits.maxScopes + 1);
     final egress = await db.query('external_grant_egress',
-        where: 'profile_id=?', whereArgs: [id], limit: 4);
+        where: 'profile_id=?',
+        whereArgs: [id],
+        limit: ExternalContentCategory.values.length + 1);
     if (g['revision'] != profile.grantRevision ||
         g['updated_at'] is! int ||
         (g['updated_at'] as int) < profile.createdAtUtcMs ||

@@ -18,8 +18,12 @@ class ExternalAgentSettingsBody extends StatelessWidget {
     this.onConnect,
     this.onAccessChanged,
     this.onDirectWriteChanged,
+    this.studyStatisticsAllowed = false,
+    this.onStudyStatisticsChanged,
     this.error,
     this.connectionSettings,
+    this.deviceSettings,
+    this.remoteTarget = false,
   });
 
   final String clientName;
@@ -30,13 +34,27 @@ class ExternalAgentSettingsBody extends StatelessWidget {
   final VoidCallback? onConnect;
   final ValueChanged<bool>? onAccessChanged;
   final ValueChanged<bool>? onDirectWriteChanged;
+  final bool studyStatisticsAllowed;
+  final ValueChanged<bool>? onStudyStatisticsChanged;
   final VoidCallback onOpenReview;
   final String? error;
   final Widget? connectionSettings;
+  final Widget? deviceSettings;
+  final bool remoteTarget;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    if (remoteTarget) {
+      return ShirohaPageBody(children: [
+        if (deviceSettings != null) deviceSettings!,
+        const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text(
+                '请在手机 Shiroha 中开启访问。手机独立决定题库、资料、学习统计权限和题目保存方式。Windows Shiroha 需保持运行。')),
+        if (error != null) Text(error!, style: TextStyle(color: colors.error)),
+      ]);
+    }
     final enabled = phase == ExternalAgentAccessPhase.enabled;
     final connecting = phase == ExternalAgentAccessPhase.connecting;
     final status = switch (phase) {
@@ -47,6 +65,10 @@ class ExternalAgentSettingsBody extends StatelessWidget {
       ExternalAgentAccessPhase.failed => '连接需要检查',
     };
     return ShirohaPageBody(children: [
+      if (deviceSettings != null) ...[
+        deviceSettings!,
+        const SizedBox(height: 16)
+      ],
       ShirohaSettingsCard(children: [
         SwitchListTile.adaptive(
           key: const Key('external-access-switch'),
@@ -76,6 +98,14 @@ class ExternalAgentSettingsBody extends StatelessWidget {
               ),
             ),
           ),
+        SwitchListTile.adaptive(
+          key: const Key('external-study-statistics'),
+          secondary: const Icon(Icons.insights_outlined),
+          title: const Text('允许读取学习统计'),
+          subtitle: const Text('按已授权题库查询进度、待复习与薄弱题。修改后旧上下文失效，需重新连接。'),
+          value: studyStatisticsAllowed,
+          onChanged: onStudyStatisticsChanged,
+        ),
       ]),
       if (connecting)
         const Padding(

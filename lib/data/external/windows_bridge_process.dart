@@ -8,11 +8,48 @@ import '../../application/external/first_party_development_access.dart';
 import 'windows_child_environment.dart';
 import 'windows_release_candidate.dart';
 import 'windows_process_observation.dart';
+import 'windows_android_adapter_layout.dart';
 
 /// Bounded stderr observations and original Future outcomes only. Nothing here
 /// decides admission, Pin persistence or successful Owner release.
 final class WindowsBridgeProcessDiagnostics {
   static const marker = WindowsPairingProcessReport.marker;
+  static const androidRecoveryMarker = 'SHIROHA_ANDROID_RECOVERY|';
+  static const androidLinkMarker = 'SHIROHA_ANDROID_LINK|';
+  ({String stage, String code})? androidLinkFailure;
+  static const _androidRecoveryStages = {
+    'configuration',
+    'protected-configuration',
+    'client-key',
+    'tls',
+    'hello',
+    'offer',
+    'proof',
+    'settlement',
+    'settled',
+  };
+  static const _androidRecoveryFailures = {
+    'runtime_not_authorized',
+    'invalid_target',
+    'pairing_required',
+    'credential_store_corrupt',
+    'credential_store_unavailable',
+    'credential_commit_unknown',
+    'credential_rejected',
+    'device_mismatch',
+    'stale_revision',
+    'protocol_violation',
+    'settlement_unknown',
+    'peer_lost',
+    'resource_limit',
+    'socket',
+    'tls',
+    'eof',
+    'deadline',
+    'io',
+    'invalid_configuration',
+  };
+  void Function(String stage, String? failure)? onAndroidRecovery;
   static const maxBytes = 8192, maxLine = 128, maxRecords = 32;
   final _parts = <FirstPartyChildPart, FirstPartyObservedResult>{
     for (final part in FirstPartyChildPart.values)
@@ -78,6 +115,37 @@ final class WindowsBridgeProcessDiagnostics {
   }
 
   void _accept(String line) {
+    if (line.startsWith(androidLinkMarker)) {
+      final fields = line.substring(androidLinkMarker.length).split('|');
+      if (fields.length != 3 ||
+          fields[0] != 'P' ||
+          !const {'upload', 'download', 'heartbeat', 'connection'}
+              .contains(fields[1]) ||
+          !_androidRecoveryFailures.contains(fields[2])) {
+        return;
+      }
+      _records++;
+      androidLinkFailure ??= (stage: fields[1], code: fields[2]);
+      return;
+    }
+    if (line.startsWith(androidRecoveryMarker)) {
+      final fields = line.substring(androidRecoveryMarker.length).split('|');
+      if (fields.length < 2 ||
+          fields.length > 3 ||
+          !_androidRecoveryStages.contains(fields[1])) {
+        return;
+      }
+      final failure = fields.length == 3 ? fields[2] : null;
+      if (!((fields[0] == 'S' && failure == null) ||
+          (fields[0] == 'P' && _androidRecoveryFailures.contains(failure)))) {
+        return;
+      }
+      _records++;
+      try {
+        onAndroidRecovery?.call(fields[1], failure);
+      } catch (_) {/* Observation cannot interrupt the original drain. */}
+      return;
+    }
     if (line.startsWith(WindowsBusinessProcessReport.marker)) {
       final fields =
           line.substring(WindowsBusinessProcessReport.marker.length).split('|');
@@ -167,16 +235,34 @@ final class WindowsBridgeProcess
   WindowsBridgeProcess.stdio({
     required Stream<List<int>> input,
     required IOSink output,
-  }) : _io = _AdjacentBridgeProcessIo(input: input, output: output);
+    int profileVersion = 2,
+  }) : _io = _AdjacentBridgeProcessIo(
+            input: input, output: output, profileVersion: profileVersion);
 
   /// One fixed first-party UI action in the SAME adjacent Flutter executable.
   /// The action selects a root only; its original parent/preface grant admits it.
   WindowsBridgeProcess.pairingUi({required Stream<List<int>> input})
       : _io = _AdjacentBridgeProcessIo(input: input, pairingUi: true);
 
+  /// Windows App owns the original Android adapter and both stdio streams.
+  WindowsBridgeProcess.androidStdio(
+      {required Stream<List<int>> input, required IOSink output})
+      : _io = _AdjacentBridgeProcessIo(
+            input: input, output: output, android: true, profileVersion: 3);
+
+  /// An explicit local recovery uses the original bounded phone enable proof.
+  /// No MCP stream, new pairing, or business invocation is supplied.
+  WindowsBridgeProcess.androidRecovery(
+      {void Function(String stage, String? failure)? onDiagnostic})
+      : _io = _AdjacentBridgeProcessIo(android: true, recovery: true) {
+    _diagnostics.onAndroidRecovery = onDiagnostic;
+  }
+
   final WindowsBridgeProcessIo _io;
   final _diagnostics = WindowsBridgeProcessDiagnostics();
   FirstPartyChildObservation get observation => _diagnostics.observation;
+  ({String stage, String code})? get androidLinkFailure =>
+      _diagnostics.androidLinkFailure;
   WindowsCreatedBridgeProcess? _child;
   Future<void>? _starting, _closing;
   final _exited = Completer<void>();
@@ -200,16 +286,18 @@ final class WindowsBridgeProcess
       _inspectionUnknown = true;
       final files = await _io.inspect();
       _inspectionUnknown = false;
-      if (_io is _AdjacentBridgeProcessIo && _io.pairingUi) {
-        if (files.keys
-                .toSet()
-                .difference(_AdjacentBridgeProcessIo.pairingFiles)
-                .isNotEmpty ||
-            files.length != _AdjacentBridgeProcessIo.pairingFiles.length) {
+      if (_io is _AdjacentBridgeProcessIo && (_io.pairingUi || _io.android)) {
+        final expected = _io.android
+            ? WindowsAndroidAdapterLayout.files
+            : _AdjacentBridgeProcessIo.pairingFiles;
+        if (files.keys.toSet().difference(expected).isNotEmpty ||
+            files.length != expected.length) {
           throw _unavailable();
         }
-        for (final bytes in files.values) {
-          WindowsExternalReleaseCandidate.inspectX64Pe(bytes);
+        for (final entry in files.entries) {
+          if (entry.key.endsWith('.exe') || entry.key.endsWith('.dll')) {
+            WindowsExternalReleaseCandidate.inspectX64Pe(entry.value);
+          }
         }
       } else {
         WindowsExternalReleaseCandidate.inspect(
@@ -284,10 +372,19 @@ final class WindowsBridgeProcess
 }
 
 final class _AdjacentBridgeProcessIo implements WindowsBridgeProcessIo {
-  _AdjacentBridgeProcessIo({this.input, this.output, this.pairingUi = false});
+  _AdjacentBridgeProcessIo(
+      {this.input,
+      this.output,
+      this.pairingUi = false,
+      this.android = false,
+      this.recovery = false,
+      this.profileVersion = 2});
   final Stream<List<int>>? input;
   final IOSink? output;
   final bool pairingUi;
+  final bool android;
+  final bool recovery;
+  final int profileVersion;
   WindowsBridgeProcessDiagnostics? diagnostics;
   static const pairingFiles = {
     'shiroha_quiz.exe',
@@ -307,9 +404,11 @@ final class _AdjacentBridgeProcessIo implements WindowsBridgeProcessIo {
     }
     final root = context.dirname(resolved);
     final files = <String, Uint8List>{};
-    for (final name in pairingUi
-        ? pairingFiles
-        : WindowsExternalReleaseCandidate.bridgeFiles) {
+    for (final name in android
+        ? WindowsAndroidAdapterLayout.files
+        : pairingUi
+            ? pairingFiles
+            : WindowsExternalReleaseCandidate.bridgeFiles) {
       // Bounded reads, fixed two names; no scan or caller-selected installation.
       final file = File(context.join(root, name));
       _inspection = await file.open();
@@ -329,9 +428,11 @@ final class _AdjacentBridgeProcessIo implements WindowsBridgeProcessIo {
     }
     _executable = context.join(
         root,
-        pairingUi
-            ? 'shiroha_quiz.exe'
-            : WindowsExternalReleaseCandidate.bridgeExecutable);
+        android
+            ? WindowsAndroidAdapterLayout.executableName
+            : pairingUi
+                ? 'shiroha_quiz.exe'
+                : WindowsExternalReleaseCandidate.bridgeExecutable);
     return files;
   }
 
@@ -340,8 +441,26 @@ final class _AdjacentBridgeProcessIo implements WindowsBridgeProcessIo {
     final executable = _executable;
     if (executable == null) throw WindowsBridgeProcess._unavailable();
     _executable = null;
-    _created = await Process.start(executable,
-        pairingUi ? const ['--shiroha-bridge-pairing-ui'] : const [],
+    final layout = android
+        ? WindowsAndroidAdapterLayout.resolve(Platform.resolvedExecutable)
+        : null;
+    if (android && (layout == null || !layout.paired)) {
+      throw WindowsBridgeProcess._unavailable();
+    }
+    _created = await Process.start(
+        executable,
+        android
+            ? [
+                recovery ? '--enable-proof' : '--hosted-business',
+                layout!.recordDirectory,
+                if (!recovery) '--profile=3',
+                '--current-user-cng-import'
+              ]
+            : pairingUi
+                ? const ['--shiroha-bridge-pairing-ui']
+                : profileVersion == 3
+                    ? const ['--profile=3']
+                    : const [],
         runInShell: false,
         includeParentEnvironment: false,
         environment: windowsChildEnvironment());

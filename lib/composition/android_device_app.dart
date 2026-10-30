@@ -16,6 +16,7 @@ import '../data/external/android_native_association_backend.dart';
 import '../data/external/android_native_channel.dart';
 import '../mcp/android_mcp_transport.dart' hide androidLinkFail;
 import '../mcp/vnext_mcp_composition_root.dart';
+import '../mcp/vnext_mcp_server.dart';
 import '../core/observability/app_logger.dart';
 import 'android_device_foundation.dart';
 import 'mcp_vnext_app_integration.dart';
@@ -100,6 +101,9 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
               .contains(ExternalContentCategory.fileContent) ??
           false,
       allContent: _policyRecord?.grant?.policy.allContent ?? false,
+      studyStatisticsAllowed: _policyRecord?.grant?.policy.categories
+              .contains(ExternalContentCategory.studyStatistics) ??
+          false,
       hasFileScope: _policyRecord?.grant?.policy.scopes
               .any((scope) => scope.kind == ExternalTargetKind.file) ??
           false,
@@ -480,9 +484,17 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
         'expectedDeviceId',
         'expectedProfileId',
         'clientNonce',
-        'linkVersions'
+        'linkVersions',
+        if (hello.containsKey('profileVersion')) 'profileVersion',
       });
       final purpose = hello['purpose'];
+      final profileVersion =
+          hello.containsKey('profileVersion') ? hello['profileVersion'] : 2;
+      if (profileVersion is! int ||
+          ![2, 3].contains(profileVersion) ||
+          purpose != 'business' && hello.containsKey('profileVersion')) {
+        androidLinkFail();
+      }
       AppLogger.info('Android HELLO checks', module: 'MCP', data: {
         'control': kind == 1,
         'type': hello['type'] == 'hello',
@@ -560,6 +572,9 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
                 reads: appBinding.reads,
                 stages: appBinding.stages,
                 stageApproval: appBinding.stageApproval,
+                profileVersion: profileVersion,
+                source: VnextDataSource(
+                    'android', _identity!['deviceId'] as String),
                 approvedTargets: const [],
                 authentication: VnextMcpSessionAuthentication(() async =>
                     current() && await channel.attest() ? session : null)),
@@ -568,16 +583,45 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
             port: port,
             newNonce: androidNonce,
             validNonce: androidNonceIsValid,
-            read: channel.read,
+            read: () async {
+              try {
+                return await channel.read();
+              } catch (error) {
+                final category = switch (error) {
+                  PlatformException(code: final code) => switch (code) {
+                      'connection_closed' ||
+                      'deadline_exceeded' ||
+                      'foreground_required' ||
+                      'resource_limit' ||
+                      'protocol_violation' ||
+                      'credential_store_unavailable' =>
+                        code,
+                      _ => 'native_other',
+                    },
+                  StateError() => 'state',
+                  FormatException() => 'format',
+                  _ => 'other',
+                };
+                AppLogger.info('Android business read refusal',
+                    module: 'MCP', data: {'category': category});
+                rethrow;
+              }
+            },
             write: channel.write,
             closeChannel: channel.close,
             invalidate: channel.invalidate,
             connectionId: channel.id,
+            onDiagnostic: (cause) => AppLogger.info(
+                'Android business transport',
+                module: 'MCP',
+                data: {'cause': cause}),
             current: current);
-        final server = androidDeviceServer(port);
+        final server =
+            androidDeviceServer(port, profileVersion: profileVersion);
         await channel.write(1, {
           'type': 'ready',
           'linkVersion': 1,
+          if (profileVersion == 3) 'profileVersion': 3,
           'deviceId': _identity!['deviceId'],
           'profileId': reference.profileId,
           'runtimeId': _runtime,
@@ -594,6 +638,10 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
           _recovery = true;
           _verification?.invalidateAll();
           rethrow;
+        } finally {
+          if (profileVersion == 3) {
+            appBinding.reads.invalidateConnectionContexts(session);
+          }
         }
         return;
       }
@@ -751,6 +799,11 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
   Future<void> setFileContentAllowed(bool allowed) =>
       _savePolicy((view, reference, revision) =>
           view.saveFileContent(reference, revision, allowed: allowed));
+
+  @override
+  Future<void> setStudyStatisticsAllowed(bool allowed) =>
+      _savePolicy((view, reference, revision) =>
+          view.saveStudyStatistics(reference, revision, allowed: allowed));
 
   Future<void> _savePolicy(
       Future<ExternalAuthorizationRecord> Function(

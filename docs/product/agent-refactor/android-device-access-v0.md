@@ -221,7 +221,7 @@ Four independent conditions must remain separate in code and UI:
 
 | Condition | Persistence | Sufficient by itself? |
 |---|---|---|
-| Saved Grant / generation preference | Existing SQLite v35 | No |
+| Saved Grant / generation preference | Current SQLite v36 | No |
 | Current finite access enabled | Memory only | No |
 | Exact connection authenticated | Memory only | No |
 | Current invocation and release authorized | Revalidated per call | Only for that operation |
@@ -340,7 +340,7 @@ DPAPI object, with P15/current authorization still required for any business.
 
 Versions remain independent: android-device-link/1, TLS 1.3, the pinned MCP SDK's
 existing negotiated protocol, Shiroha profile 2, Submission 1, current Proposal /
-Origin / Receipt codecs and SQLite v35. No automatic protocol/TLS downgrade.
+Origin v1/v2 / unchanged Receipt codecs and SQLite v36. No automatic protocol/TLS downgrade.
 
 TLS authentication precedes HELLO and current-association/runtime checks.
 For purpose=business, READY requires completed finite Enable and fresh business
@@ -892,3 +892,42 @@ Interface support is not evidence that this combination has run successfully.
 - [AtomicFile](https://developer.android.com/reference/android/util/AtomicFile)
 - [.NET TLS](https://learn.microsoft.com/en-us/dotnet/core/extensions/sslstream-best-practices)
 - [Schannel version support](https://learn.microsoft.com/en-us/windows/win32/secauthn/protocols-in-tls-ssl--schannel-ssp-)
+
+## 14. Unified local-plugin storage prerequisite
+
+The common v36 authorization store adds independent `studyStatistics` consent.
+Old phone grants remain unchanged and statistics default off. App-local revision
+CAS, finite access, foreground/network checks and current-scope revalidation still
+apply; Windows hosting never grants phone access. All-content and generation
+preferences do not implicitly grant statistics. New historical Origin v2 accepts
+this category while v1 history and Receipt formats remain compatible.
+
+The unified plugin's first-release lifecycle is governed by MCP section 19:
+stop an active Codex turn and await original settlement before disable/upgrade.
+This does not claim that the existing standalone Android adapter has acquired
+new shutdown guarantees or that unified phone transport has passed runtime
+acceptance. Phone-first shutdown is not the unified-plugin prerequisite.
+
+Profile 3 is selected explicitly by the optional business HELLO `profileVersion`
+field and echoed in READY; absence retains profile 2. Other HELLO purposes do
+not accept this field. Profile 3 exposes the common eleven tools and internal
+command v4, with Android-owned source identity and independent statistics
+consent. The common Application registry still owns all scope/ref validation.
+
+For a hosted profile-3 close, the desktop adapter sends `{type: closing,
+connectionId, nonce}`. The phone cancels admission and awaits its original
+Application work before returning `{type: closed, connectionId, nonce}`. The
+adapter then requires TLS shutdown/EOF. A 45-second missing acknowledgment or
+failed TLS close is unknown settlement, even when local key deletion succeeds.
+The App retains its dirty marker and refuses a replacement. The original
+temporary CNG key and protected pairing record remain adapter-owned; no key is
+passed into the Codex plugin. Legacy profile-2 shutdown behavior is unchanged.
+
+When cleanup remains uncertain across restart, the explicit Windows settings
+recovery in MCP section 19.4 requires the phone's original off/on enable flow.
+Windows owns a fresh adjacent `--enable-proof` helper using the existing
+protected association; no pairing replacement or credential repair occurs.
+The existing exclusive adapter lease and pending CNG-key refusal still apply.
+Only successful original proof and all TLS/key/process/stream settlement permit
+the same dirty selection to advance to a clean generation. A failed attempt
+retains the marker and target, and no generated submission is replayed.

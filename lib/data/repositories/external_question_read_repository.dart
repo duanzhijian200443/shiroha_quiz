@@ -196,6 +196,34 @@ final class SqliteExternalQuestionReadRepository
         StudyUnsupportedNode() => '',
       };
 
+  /// Same bounded materializer and identity for a statistics-selected question.
+  /// The caller owns the transaction; current content authorization is checked
+  /// here before selecting or materializing its exact bank-bound storage row.
+  Future<ExternalQuestionCandidate> studyCandidate(
+      DatabaseExecutor db,
+      ExternalQuestionReadAccess access,
+      String id,
+      void Function() check) async {
+    access.validate();
+    await requireExternalGrant(
+        db,
+        access.runtime.profileId,
+        access.revision,
+        CapabilityPermission.read,
+        access.target.scope,
+        ExternalContentCategory.questionContent,
+        access.runtime.profileId);
+    check();
+    final rows = await db.rawQuery(
+        '$_selection WHERE q.bank_name=? AND q.id=? LIMIT 1',
+        [access.target.bankName, id]);
+    check();
+    if (rows.length != 1) externalReadFail(ExternalReadFailure.stale);
+    final value = await _materialize(db, access, rows.single, check);
+    return ExternalQuestionCandidate(
+        value.$1, _projection.searchItem(value.$2));
+  }
+
   @override
   Future<ExternalQuestionCandidates> search(
           ExternalQuestionReadAccess access,

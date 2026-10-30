@@ -31,13 +31,17 @@ final class ExternalCapabilityAuthorization {
 final class ExternalExecutionContext {
   ExternalExecutionContext._(this._owner, this.authorization, this.capabilities,
       this.scope, this.expiresAt,
-      {this.readAccess, this.stageContext, this.submissionKey});
+      {this.readAccess,
+      this.studyAccess,
+      this.stageContext,
+      this.submissionKey});
   final ExternalCapabilityGateway _owner;
   final ExternalCapabilityAuthorization authorization;
   final Set<CapabilityId> capabilities;
   final ConversationScope scope;
   final DateTime expiresAt;
   final ExternalQuestionReadAccess? readAccess;
+  final ExternalStudyReadAccess? studyAccess;
   final ExternalStageContext? stageContext;
   final String? submissionKey;
   ExternalSession get session => authorization._runtime.session;
@@ -49,6 +53,7 @@ final class ExternalExecutionContext {
     }
     authorization._runtime.validate();
     readAccess?.validate();
+    studyAccess?.validate();
     stageContext?.validate();
   }
 }
@@ -104,8 +109,61 @@ final class ExternalNoInput {
   const ExternalNoInput();
 }
 
+final class ExternalStudySelection {
+  const ExternalStudySelection(this.targetRef);
+  final String? targetRef;
+}
+
+final class ExternalStudyQuery {
+  const ExternalStudyQuery(
+      {this.timezone = 'UTC',
+      this.pageSize = 20,
+      this.cursor,
+      this.from,
+      this.to});
+  final String timezone;
+  final int pageSize;
+  final String? cursor;
+  final DateTime? from, to;
+}
+
+final class ExternalStudyResult {
+  ExternalStudyResult(Map<String, Object?> value)
+      : _value = Map.unmodifiable(value);
+  final Map<String, Object?> _value;
+  Map<String, Object?> toJson() => _value;
+  List<String> get references => [
+        for (final item in (_value['items'] as List? ?? const []))
+          if (item is Map &&
+              (item['targetRef'] ?? item['questionRef']) is String)
+            (item['targetRef'] ?? item['questionRef']) as String,
+        if (_value['nextCursor'] is String) _value['nextCursor'] as String,
+      ];
+}
+
 /// Explicit, independent external allowlist. No Built-in definitions are copied.
 abstract final class ExternalCapabilities {
+  static const openStudyContext = CapabilityId<ExternalStudySelection, String>(
+      'external_open_study_context');
+  static const listStudyBanks =
+      CapabilityId<ExternalStudyQuery, ExternalStudyResult>(
+          'external_list_study_banks');
+  static const studyOverview =
+      CapabilityId<ExternalStudyQuery, ExternalStudyResult>(
+          'external_study_overview');
+  static const dueReviewSummary =
+      CapabilityId<ExternalStudyQuery, ExternalStudyResult>(
+          'external_due_review_summary');
+  static const weakQuestions =
+      CapabilityId<ExternalStudyQuery, ExternalStudyResult>(
+          'external_weak_questions');
+  static const studyRoutes = <CapabilityId>[
+    openStudyContext,
+    listStudyBanks,
+    studyOverview,
+    dueReviewSummary,
+    weakQuestions,
+  ];
   static const listTargets =
       CapabilityId<ExternalTargetQuery, ExternalTargetPage>(
           'external_list_targets');
@@ -142,7 +200,10 @@ abstract final class ExternalCapabilities {
 /// Unpublished App composition seam. Uses the existing registry/executor and
 /// owning P3-P6 services; creates no Host, wire projection or business writer.
 final class ExternalCapabilityGateway {
-  ExternalCapabilityGateway({required this.stages, required this.reads}) {
+  ExternalCapabilityGateway(
+      {required this.stages,
+      required this.reads,
+      this.enableStudyQueries = false}) {
     if (!identical(stages.runtimeAdmission, reads.admission)) {
       throw ArgumentError('External services must share runtime admission.');
     }
@@ -152,6 +213,7 @@ final class ExternalCapabilityGateway {
   }
   final ExternalGeneratedStageService stages;
   final ExternalReadContextService reads;
+  final bool enableStudyQueries;
   ExternalRuntimeAdmission get admission => stages.runtimeAdmission;
   late final CapabilityExecutor executor;
   bool _closed = false;
@@ -165,13 +227,18 @@ final class ExternalCapabilityGateway {
   }
 
   Future<ExternalExecutionContext> openRead(
-      {required ExternalSession session, String? context}) async {
+      {required ExternalSession session,
+      String? context,
+      String? questionRef}) async {
     final runtime = await admission.admit(session);
     final grant = _grant(runtime, CapabilityPermission.read,
         ExternalContentCategory.questionContent);
     final access = context == null
         ? null
-        : await reads.capabilityAccess(session: session, context: context);
+        : questionRef == null
+            ? await reads.capabilityAccess(session: session, context: context)
+            : await reads.capabilityAccessForQuestion(
+                session: session, context: context, questionRef: questionRef);
     if (access != null && access.revision != grant.revision) {
       externalAuthFail(ExternalAuthFailure.staleRevision);
     }
@@ -193,6 +260,38 @@ final class ExternalCapabilityGateway {
               },
         context: context,
         readAccess: access);
+  }
+
+  Future<ExternalExecutionContext> openStudy(
+      {required ExternalSession session, String? context}) async {
+    final runtime = await admission.admit(session);
+    final grant = runtime.grantSnapshot;
+    if (!enableStudyQueries ||
+        !reads.studyQueriesAvailable ||
+        grant == null ||
+        grant.revokedAtUtcMs != null ||
+        !grant.policy.permissions.contains(CapabilityPermission.read) ||
+        !grant.policy.categories.any((c) =>
+            c == ExternalContentCategory.questionContent ||
+            c == ExternalContentCategory.studyStatistics)) {
+      externalAuthFail(ExternalAuthFailure.unauthorized);
+    }
+    final access = context == null
+        ? null
+        : await reads.studyCapabilityAccess(session: session, context: context);
+    return _mint(
+        runtime,
+        grant,
+        context == null
+            ? {ExternalCapabilities.openStudyContext}
+            : {
+                ExternalCapabilities.listStudyBanks,
+                ExternalCapabilities.studyOverview,
+                ExternalCapabilities.dueReviewSummary,
+                ExternalCapabilities.weakQuestions
+              },
+        context: context,
+        studyAccess: access);
   }
 
   Future<ExternalExecutionContext> openStage(
@@ -247,32 +346,35 @@ final class ExternalCapabilityGateway {
       ExternalGrant grant, Set<CapabilityId> capabilities,
       {String? context,
       ExternalQuestionReadAccess? readAccess,
+      ExternalStudyReadAccess? studyAccess,
       ExternalStageContext? stageContext,
       String? submissionKey}) {
     final project =
         readAccess?.target.projectId ?? stageContext?.target.projectId;
-    final scopes = readAccess == null && stageContext == null
-        ? grant.policy.scopes
-        : [
-            if (readAccess != null) readAccess.target.scope,
-            if (stageContext != null)
-              ExternalGrantScope(
-                  kind: ExternalTargetKind.bank,
-                  targetId: stageContext.target.bankName,
-                  projectId: project),
-            if (readAccess != null)
-              for (final file in readAccess.files)
-                ExternalGrantScope(
-                    kind: ExternalTargetKind.file,
-                    targetId: file.fileId,
-                    projectId: project),
-            if (stageContext != null)
-              for (final file in stageContext.evidence)
-                ExternalGrantScope(
-                    kind: ExternalTargetKind.file,
-                    targetId: file.fileId,
-                    projectId: project)
-          ];
+    final scopes = studyAccess != null
+        ? studyAccess.targets.map((t) => t.scope).toList()
+        : readAccess == null && stageContext == null
+            ? grant.policy.scopes
+            : [
+                if (readAccess != null) readAccess.target.scope,
+                if (stageContext != null)
+                  ExternalGrantScope(
+                      kind: ExternalTargetKind.bank,
+                      targetId: stageContext.target.bankName,
+                      projectId: project),
+                if (readAccess != null)
+                  for (final file in readAccess.files)
+                    ExternalGrantScope(
+                        kind: ExternalTargetKind.file,
+                        targetId: file.fileId,
+                        projectId: project),
+                if (stageContext != null)
+                  for (final file in stageContext.evidence)
+                    ExternalGrantScope(
+                        kind: ExternalTargetKind.file,
+                        targetId: file.fileId,
+                        projectId: project)
+              ];
     final result = ExternalExecutionContext._(
         this,
         ExternalCapabilityAuthorization._(
@@ -288,9 +390,11 @@ final class ExternalCapabilityGateway {
             ? ConversationScope.global()
             : ConversationScope.learningSpace(project),
         readAccess?.expiresAt ??
+            studyAccess?.expiresAt ??
             stageContext?.expiresAt ??
             admission.trust.clock.now().add(const Duration(minutes: 15)),
         readAccess: readAccess,
+        studyAccess: studyAccess,
         stageContext: stageContext,
         submissionKey: submissionKey);
     result._validate();
@@ -399,7 +503,8 @@ final class ExternalCapabilityGateway {
               invoke,
           List<String> Function(I, O) references,
           {bool mayBuildCache = false,
-          bool existingSelection = false}) =>
+          bool existingSelection = false,
+          bool study = false}) =>
       CapabilityDefinition<I, O>(
           id: id,
           permission: CapabilityPermission.read,
@@ -422,11 +527,18 @@ final class ExternalCapabilityGateway {
                   output.nextCursor != null) {
                 call.allocations.add(output.nextCursor!);
               }
-              call.release = () => reads.releaseCapabilityOutput(
-                  session: call.session,
-                  context: call.context.authorization.contextReference,
-                  references: refs,
-                  control: call.control);
+              call.release = () =>
+                  (study || call.context.readAccess?.isAggregate == true)
+                      ? reads.releaseStudyCapabilityOutput(
+                          session: call.session,
+                          context: call.context.authorization.contextReference,
+                          references: refs,
+                          control: call.control)
+                      : reads.releaseCapabilityOutput(
+                          session: call.session,
+                          context: call.context.authorization.contextReference,
+                          references: refs,
+                          control: call.control);
               return CapabilityEvidence(
                   output: output,
                   status: call.cache?.effectKnown == false
@@ -444,6 +556,60 @@ final class ExternalCapabilityGateway {
           release: (_, context) => context._externalCall!.releaseOutput());
 
   Iterable<CapabilityDefinition> _definitions() => [
+        if (enableStudyQueries) ...[
+          _read<ExternalStudySelection, String>(
+              ExternalCapabilities.openStudyContext,
+              (input, call, _) => reads.openStudyContext(
+                  session: call.session,
+                  targetRef: input.targetRef,
+                  control: call.control),
+              (_, token) => [token],
+              study: true),
+          _read<ExternalStudyQuery, ExternalStudyResult>(
+              ExternalCapabilities.listStudyBanks,
+              (input, call, _) async => ExternalStudyResult(
+                  await reads.listStudyBanks(
+                      session: call.session,
+                      context: call.context.authorization.contextReference!,
+                      pageSize: input.pageSize,
+                      cursor: input.cursor,
+                      control: call.control)),
+              (_, output) => output.references,
+              study: true),
+          _read<ExternalStudyQuery, ExternalStudyResult>(
+              ExternalCapabilities.studyOverview,
+              (input, call, _) async => ExternalStudyResult(
+                  await reads.studyOverview(
+                      session: call.session,
+                      context: call.context.authorization.contextReference!,
+                      timezone: input.timezone,
+                      control: call.control)),
+              (_, output) => output.references,
+              study: true),
+          _read<ExternalStudyQuery, ExternalStudyResult>(
+              ExternalCapabilities.dueReviewSummary,
+              (input, call, _) async => ExternalStudyResult(
+                  await reads.studyDueSummary(
+                      session: call.session,
+                      context: call.context.authorization.contextReference!,
+                      timezone: input.timezone,
+                      from: input.from!,
+                      to: input.to!,
+                      control: call.control)),
+              (_, output) => output.references,
+              study: true),
+          _read<ExternalStudyQuery, ExternalStudyResult>(
+              ExternalCapabilities.weakQuestions,
+              (input, call, _) async => ExternalStudyResult(
+                  await reads.studyWeakQuestions(
+                      session: call.session,
+                      context: call.context.authorization.contextReference!,
+                      pageSize: input.pageSize,
+                      cursor: input.cursor,
+                      control: call.control)),
+              (_, output) => output.references,
+              study: true),
+        ],
         CapabilityDefinition<ExternalNoInput, ExternalProposalLifecycle>(
             id: ExternalCapabilities.proposalLifecycle,
             permission: CapabilityPermission.read,

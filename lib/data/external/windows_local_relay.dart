@@ -9,9 +9,12 @@ import 'package:path/path.dart' as p;
 /// The local hop has no Application identity or credential authority.
 final class LocalRelayException implements Exception {
   const LocalRelayException(
-      {this.unsettled = false, this.independentAppRequired = false});
+      {this.unsettled = false,
+      this.independentAppRequired = false,
+      this.busy = false});
   final bool unsettled;
   final bool independentAppRequired;
+  final bool busy;
   @override
   String toString() => 'Local relay unavailable';
 }
@@ -91,7 +94,8 @@ final class WindowsLocalRelay implements LocalRelayConnection {
     try {
       final result = native.open(server ? 0 : 1, native.id);
       if (result != 0 || native.id.value == 0) {
-        throw LocalRelayException(independentAppRequired: result == 6);
+        throw LocalRelayException(
+            independentAppRequired: result == 6, busy: result == 7);
       }
       return WindowsLocalRelay._(native, native.id.value, server);
     } catch (error) {

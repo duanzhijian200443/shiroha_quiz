@@ -33,7 +33,7 @@ void developmentSourceGuardCases() {
     'lib/composition/mcp_vnext_development_bridge.dart': [
       'WindowsDevelopmentAdmission.receive(pairingUi:false)',
       'if(failure.unsettled)rethrow',
-      'awaitserveWindowsBridgeStdio()',
+      'awaitserveWindowsBridgeStdio(profileVersion:profileVersion)',
       'verifiedEpochHighWater:BigInt.zero',
       'connectionMode:WindowsCodexConnectionMode.appOwnedDevelopment',
       'requireSecurityAdmission:()async=>admission.requireCurrent()',

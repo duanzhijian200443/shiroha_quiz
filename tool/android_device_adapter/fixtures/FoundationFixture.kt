@@ -13,6 +13,11 @@ fun main(args: Array<String>) {
         error("expected_rejection")
     }
     accepts(!DeviceLinkAdmission.runtimeAvailable)
+    accepts(deviceIoFailureKind(java.net.SocketTimeoutException("private")) == "timeout")
+    accepts(deviceIoFailureKind(javax.net.ssl.SSLException("private")) == "tls")
+    accepts(deviceIoFailureKind(java.net.SocketException("private")) == "socket")
+    accepts(deviceIoFailureKind(java.io.IOException("private")) == "io")
+    accepts(deviceIoFailureKind(IllegalStateException("private")) == "native")
     rejects { DeviceLinkAdmission.requireAuthorized() }
     val closeExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
     try {

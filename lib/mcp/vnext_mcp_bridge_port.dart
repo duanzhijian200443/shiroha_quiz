@@ -9,8 +9,12 @@ import 'vnext_mcp_server.dart';
 /// Trusted composition supplies ONE already verified connection. A fresh Port
 /// requires another explicitly authenticated connection; no reconnect is done.
 final class VnextMcpBridgePort implements VnextMcpPort {
-  VnextMcpBridgePort(this.bridge);
+  VnextMcpBridgePort(this.bridge, {this.profileVersion = 2});
   final WindowsTlsBridge bridge;
+  final int profileVersion;
+  Map<String, Object?> _failure(String code) => vnextFailure(code,
+      profileVersion: profileVersion,
+      source: const VnextDataSource('windows', 'local'));
   bool _closed = false, _attempted = false;
   Future<void>? _closing;
 
@@ -19,22 +23,24 @@ final class VnextMcpBridgePort implements VnextMcpPort {
       {required Stream<void> cancelled,
       required bool Function() available}) async {
     if (_closed || _attempted) {
-      return vnextFailure('unavailable');
+      return _failure('unavailable');
     }
     if (!available()) {
       unawaited(close().catchError((Object _) {}));
-      return vnextFailure('unavailable');
+      return _failure('unavailable');
     }
     final VnextMcpCommand command;
     try {
-      command = VnextMcpCommand.parse(tool, arguments);
+      command = profileVersion == 3
+          ? VnextMcpCommand.parseUnified(tool, arguments)
+          : VnextMcpCommand.parse(tool, arguments);
     } catch (_) {
-      return vnextFailure('invalidRequest');
+      return _failure('invalidRequest');
     }
     // v3 carries untrusted READ/key selectors to the original App authority.
     // STAGE needs the explicit same-connection first-party waiting profile.
     if (command.bridgeStageBlocked && !bridge.enableStageApprovalWait) {
-      return vnextFailure('capability.accessDenied');
+      return _failure('capability.accessDenied');
     }
     _attempted = true;
     var interrupted = false;
@@ -45,7 +51,7 @@ final class VnextMcpBridgePort implements VnextMcpPort {
     try {
       if (_closed || interrupted || !available()) {
         await close();
-        return vnextFailure('cancelled');
+        return _failure('cancelled');
       }
       const id = 'mcp_bridge_1'; // Correlation only; never a submission key.
       final response = command.bridgeStageBlocked
@@ -53,18 +59,22 @@ final class VnextMcpBridgePort implements VnextMcpPort {
               requestId: id, buildPayload: () => command.payload)
           : await bridge.request(requestId: id, payload: command.payload);
       if (_closed || interrupted || !available()) {
-        return vnextFailure('cancelled');
+        return _failure('cancelled');
       }
       try {
-        return command.response(response, id);
+        return {
+          ...command.response(response, id),
+          if (profileVersion == 3)
+            'source': const VnextDataSource('windows', 'local').toJson()
+        };
       } catch (_) {
-        return vnextFailure('invalidResult');
+        return _failure('invalidResult');
       }
     } on TlsBridgeException catch (error) {
-      return vnextFailure(
+      return _failure(
           error.executionUnknown ? 'outcome_unknown' : error.failure.name);
     } catch (_) {
-      return vnextFailure('outcome_unknown');
+      return _failure('outcome_unknown');
     } finally {
       await subscription.cancel();
     }

@@ -81,7 +81,7 @@ void main() {
     view.close();
     await f.h.reopen();
     f.compose();
-    expect(await f.h.db.getVersion(), 35);
+    expect(await f.h.db.getVersion(), 36);
     expect(await f.h.db.query('external_grants'), before);
     expect(await f.h.db.query(externalAccessPreferencesTable), isEmpty);
     final record = await f.repository.read(ref.profileId);

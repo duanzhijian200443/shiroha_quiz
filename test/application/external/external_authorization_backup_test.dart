@@ -120,9 +120,12 @@ void main() {
         (await h.service.stage(submission(), h.origin(profile: ref.profileId)))
             .proposal;
     final before = await authRows();
+    const connectionKey = 'external_device_selection_v1';
+    await h.helper.saveSetting(connectionKey,
+        '{"version":1,"kind":"android","reference":"paired-android","generation":2,"needsCleanup":true}');
     final copyPath = p.join(h.temp.path, 'scrub.db');
     final snapshot = await snapshots.createSanitizedSnapshot(copyPath);
-    expect(snapshot.schemaVersion, 35);
+    expect(snapshot.schemaVersion, 36);
     final copy = await databaseFactory.openDatabase(copyPath);
     try {
       for (final table in externalAuthorizationTables) {
@@ -130,14 +133,25 @@ void main() {
       }
       expect(await copy.query(externalAccessPreferencesTable), isEmpty);
       expect(
+          await copy.query('app_settings',
+              where: 'key = ?', whereArgs: [connectionKey]),
+          isEmpty);
+      expect(
           (await copy.query('generated_question_proposals'))
               .single['client_profile_id'],
           ref.profileId);
       await snapshots.validateScrubInvariantsOn(copy);
+      await copy.insert('app_settings', {'key': connectionKey, 'value': '{}'});
+      await expectLater(snapshots.validateScrubInvariantsOn(copy),
+          throwsA(isA<BackupException>()));
+      await copy
+          .delete('app_settings', where: 'key = ?', whereArgs: [connectionKey]);
     } finally {
       await copy.close();
     }
     expect(await authRows(), before);
+    expect(await h.helper.getSetting(connectionKey),
+        contains('"needsCleanup":true'));
     final path = p.join(h.temp.path, 'roundtrip.shiroha');
     await runtime().exportTo(path);
     expect((await BackupArchiveIo.readManifestOnly(path)).packageVersion, 2);
@@ -222,7 +236,7 @@ void main() {
     expect(await authRows(), before);
     await restoring.commitPreparedRestore();
     h.db = await h.helper.database;
-    expect(await h.db.getVersion(), 35);
+    expect(await h.db.getVersion(), 36);
     for (final table in externalAuthorizationTables) {
       expect(await h.db.query(table), isEmpty);
     }

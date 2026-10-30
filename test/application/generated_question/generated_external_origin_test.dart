@@ -18,6 +18,27 @@ void main() {
     await h.open();
   });
   tearDown(() async => h.close());
+  test('Origin v1 stays unchanged and v2 alone accepts statistics history',
+      () async {
+    ExternalProposalOrigin decode(Map<String, Object?> payload) =>
+        ExternalProposalOrigin.fromPersistedPayload(payload,
+            clientProfileId: externalFixtureProfile,
+            submissionKey: 'origin-version',
+            originalTarget: h.target);
+    final legacy = externalPayload();
+    expect(decode(legacy).toPersistedPayload(), legacy);
+    final current = externalPayload()..['schemaVersion'] = 2;
+    (current['authorizationSnapshot'] as Map)['egressCategories'] = [
+      'proposalMetadata',
+      'questionContent',
+      'studyStatistics'
+    ];
+    expect(decode(current).toPersistedPayload(), current);
+    current['schemaVersion'] = 1;
+    expect(() => decode(current), failure(GeneratedFailure.corruptState));
+    current['schemaVersion'] = 3;
+    expect(() => decode(current), failure(GeneratedFailure.corruptState));
+  });
   test(
       'external history roundtrips as v2; header is the only identity/key/target source',
       () async {

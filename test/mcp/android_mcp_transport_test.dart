@@ -29,7 +29,7 @@ final class _Phone {
     connect();
   }
 
-  void connect({bool protocol = false}) {
+  void connect({bool protocol = false, int profileVersion = 2}) {
     live = true;
     approval = FirstPartyStageApproval(
         host: app.host,
@@ -42,6 +42,8 @@ final class _Phone {
             host: app.host,
             reads: app.h.read,
             stages: s.service,
+            profileVersion: profileVersion,
+            source: const VnextDataSource('android', 'synthetic-phone'),
             authentication: VnextMcpSessionAuthentication(
                 () async => live ? session : null),
             stageApproval: approval,
@@ -150,7 +152,8 @@ final class _Phone {
 /// Synthetic native channel with separately controlled write and close ACKs.
 /// All JSON-RPC dispatch, serialization and final send use the pinned MCP SDK.
 final class _ProtocolLink {
-  _ProtocolLink(this.phone, {VnextMcpPort? serverPort}) {
+  _ProtocolLink(this.phone,
+      {VnextMcpPort? serverPort, bool diagnosticThrows = false}) {
     reader = StreamIterator(input.stream);
     transport = AndroidMcpTransport(
         port: phone.port,
@@ -161,7 +164,13 @@ final class _ProtocolLink {
         newNonce: () => 'nonce',
         validNonce: (value) => value == 'nonce',
         write: (kind, message) async {
-          if (kind != 2) return;
+          if (kind != 2) {
+            controls.add(message);
+            if (message['type'] == 'closed' && !closedAck.isCompleted) {
+              closedAck.complete();
+            }
+            return;
+          }
           final id = message['id'];
           writtenIds.add(id);
           if (id == blockedId) {
@@ -178,8 +187,13 @@ final class _ProtocolLink {
         },
         invalidate: () {},
         connectionId: 'test-connection',
+        onDiagnostic: (cause) {
+          diagnostics.add(cause);
+          if (diagnosticThrows) throw StateError('observer');
+        },
         current: () => phone.live);
-    server = androidDeviceServer(serverPort ?? phone.port);
+    server = androidDeviceServer(serverPort ?? phone.port,
+        profileVersion: phone.port.binding.profileVersion);
     settled = server
         .serveTransport(transport)
         .then((_) => true, onError: (Object _, StackTrace __) => false);
@@ -192,6 +206,9 @@ final class _ProtocolLink {
   late final Future<bool> settled;
   final responses = <Object?, Completer<Map<String, dynamic>>>{};
   final writtenIds = <Object?>[];
+  final controls = <Map<String, dynamic>>[];
+  final diagnostics = <String>[];
+  final closedAck = Completer<void>();
   Object? blockedId;
   final writeEntered = Completer<void>(), releaseWrite = Completer<void>();
   final closeEntered = Completer<void>();
@@ -273,6 +290,50 @@ void main() {
     await f.open();
   });
   tearDown(() => f.close());
+
+  test('unified close acknowledges only after original READ work settles',
+      () async {
+    await f.disconnect();
+    f.connect(protocol: true, profileVersion: 3);
+    final ref = await f.app.h.context();
+    final entered = Completer<void>(), release = Completer<void>();
+    f.app.h.barrier.afterSearch = () async {
+      entered.complete();
+      await release.future;
+    };
+    final link = _ProtocolLink(f)..closeGate = Completer<void>();
+    await link.initialize();
+    final reading = link.call(
+        'read', 'search_questions', {'contextRef': ref, 'query': 'needle'});
+    unawaited(reading.then((_) {}, onError: (Object _) {}));
+    await entered.future;
+    link.input.add((
+      1,
+      {'type': 'closing', 'connectionId': 'test-connection', 'nonce': 'nonce'}
+    ));
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(link.closedAck.isCompleted, false);
+    expect(f.app.h.read.pendingCount, greaterThan(0));
+    release.complete();
+    await link.closedAck.future;
+    expect(f.app.h.read.pendingCount, 0);
+    expect(link.controls.last['type'], 'closed');
+    link.closeGate!.complete();
+    expect(await link.settled, true);
+    expect(link.diagnostics, ['peer_closing']);
+  });
+
+  test('transport failure diagnostics exclude input and cannot block close',
+      () async {
+    await f.disconnect();
+    f.connect(protocol: true, profileVersion: 3);
+    final link = _ProtocolLink(f, diagnosticThrows: true);
+    await link.initialize();
+    link.input.add((1, {'private': 'must not enter diagnostics'}));
+    await link.closeEntered.future;
+    await link.settled;
+    expect(link.diagnostics, ['read_failed']);
+  });
 
   test('seven schemas; old READ grant and all file modes refuse', () async {
     expect(VnextMcpServer.inputSchemas.length, 7);

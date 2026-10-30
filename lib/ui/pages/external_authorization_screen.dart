@@ -12,6 +12,8 @@ import 'android_device_access_panel.dart';
 import '../dependencies/generated_question_dependencies_scope.dart';
 import '../generated_question/generated_proposal_inbox_screen.dart';
 import 'external_agent_settings_body.dart';
+import 'external_device_settings.dart';
+import '../../application/external/external_device_connection.dart';
 import 'first_party_external_control.dart';
 
 const externalPolicyNotice = '开启后允许外部 Agent 读取 Shiroha 内全部题库与资料。';
@@ -49,6 +51,34 @@ final class _ExternalAuthorizationScreenState
       _status.enabled && _status.profileId == _selected?.profileId;
   bool get _direct =>
       _record?.grant?.policy.generationMode == ExternalGenerationMode.direct;
+  bool get _statistics =>
+      _record?.grant?.policy.categories
+          .contains(ExternalContentCategory.studyStatistics) ??
+      false;
+
+  Future<void> _recoverDevice(ExternalDeviceConnection devices) async {
+    final generation = devices.selection.generation;
+    final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+              title: const Text('核对上次连接清理'),
+              content: const Text('请先在手机关闭访问，再重新开启，等待显示“等待电脑”。'
+                  '本次会使用已有配对完成新的启用证明；只有原连接助手、密钥和通道均正常收尾，'
+                  '才会恢复连接。失败会继续保留清理标记，不会重发题目。'),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('取消')),
+                FilledButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('开始核对')),
+              ],
+            ));
+    if (confirmed != true || !_current) return;
+    await _change(
+        (_, current) => devices.recover(generation, isCurrent: current),
+        waitForRefresh: false);
+  }
 
   @override
   void initState() {
@@ -228,6 +258,16 @@ final class _ExternalAuthorizationScreenState
         });
       }, waitForRefresh: false);
 
+  Future<void> _setStatistics(bool allowed) => _change((view, current) async {
+        final reference = _selected;
+        if (reference == null || _record == null) return;
+        final revision = _record!.profile.grantRevision;
+        await _access?.disable();
+        if (!current()) return;
+        await view.saveStudyStatistics(reference, revision, allowed: allowed);
+        if (current()) await _load(view, reference);
+      });
+
   Future<void> _change(
       Future<void> Function(LocalAuthorizationView, bool Function()) action,
       {bool waitForRefresh = true}) async {
@@ -316,13 +356,29 @@ final class _ExternalAuthorizationScreenState
                 : _error != null
                     ? ExternalAgentAccessPhase.failed
                     : ExternalAgentAccessPhase.disabled;
+    final devices = _access?.deviceConnection;
     return Scaffold(
       appBar: AppBar(title: const Text('外部 Agent')),
       body: ExternalAgentSettingsBody(
+        remoteTarget: _access?.deviceConnection?.selection.target.kind ==
+            ExternalDeviceKind.android,
+        deviceSettings: devices != null
+            ? ExternalDeviceSettings(
+                connection: devices,
+                onRecover: _busy ? null : () => _recoverDevice(devices),
+                onSelected: _busy
+                    ? null
+                    : (target) => _change((_, current) async {
+                          await devices.select(target);
+                        }, waitForRefresh: false))
+            : null,
         clientName: _record?.profile.displayName ?? '外部 Agent',
         phase: phase,
         directWriteEnabled: _direct,
         allContentConfigured: _configured,
+        studyStatisticsAllowed: _statistics,
+        onStudyStatisticsChanged:
+            !_loading && !_busy && _configured ? _setStatistics : null,
         error: _error,
         onConnect: !_loading && !_busy && _current && _access != null
             ? () => _setAccess(true)
