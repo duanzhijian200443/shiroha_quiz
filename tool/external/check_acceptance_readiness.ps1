@@ -8,6 +8,7 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $planPath = Join-Path $root 'docs/product/agent-refactor/windows-host-acceptance-plan.json'
 $workflow = [IO.File]::ReadAllText((Join-Path $root '.github/workflows/pr-contract-checks.yml'))
+$standingTests = @((Import-PowerShellDataFile (Join-Path $root 'tool/ci/contract_test_suites.psd1')).Tests)
 $plan = [IO.File]::ReadAllText($planPath) | ConvertFrom-Json -AsHashtable
 
 function Require([bool]$Condition, [string]$Code) {
@@ -24,7 +25,7 @@ function Assert-RepoPath([string]$Path, [string]$Prefix) {
         $Path -match '^[a-zA-Z0-9_./-]+$') 'repository_path'
     Require ([IO.File]::Exists((Join-Path $root $Path))) 'missing_source'
 }
-function Assert-Plan([System.Collections.IDictionary]$Value) {
+function Assert-Plan([System.Collections.IDictionary]$Value, [string[]]$RegisteredTests = $script:standingTests) {
     Has-Fields $Value @('schemaVersion', 'purpose', 'authority', 'guide', 'executionAuthorized',
         'invariants', 'environment', 'ownership', 'failurePolicy', 'l1Preparation', 'l2Budget',
         'dependencyOrder', 'matrix', 'requests', 'evidenceFields', 'hostABatch3')
@@ -303,7 +304,7 @@ function Assert-Plan([System.Collections.IDictionary]$Value) {
         foreach ($path in $row.source) { Assert-RepoPath $path 'lib/' }
         foreach ($path in $row.offlineTests) {
             Assert-RepoPath $path 'test/'
-            Require ([regex]::Matches($workflow, [regex]::Escape("'$path'")).Count -eq 1) 'standing_test'
+            Require (@($RegisteredTests | Where-Object { $_ -ceq $path }).Count -eq 1) 'standing_test'
         }
     }
     $ids = @('L1-ADMISSION','L1-CRYPTO','L1-OBJECTS','L1-STORE','L1-RELEASE','L2-AUTH','G0-I-FORMAL')
@@ -480,6 +481,7 @@ function Assert-Plan([System.Collections.IDictionary]$Value) {
     }
 }
 
+Require ($workflow.Contains('$tests = @((Import-PowerShellDataFile ./tool/ci/contract_test_suites.psd1).Tests)')) 'standing_manifest_binding'
 Assert-Plan $plan
 $guide = [IO.File]::ReadAllText((Join-Path $root $plan.guide))
 for ($i = 0; $i -lt 13; $i++) {
@@ -500,6 +502,19 @@ Require ($header.Contains('#define SHIROHA_NATIVE_ABI_VERSION 3u') -and $declare
 Write-Output 'PASS: G0-L0 plan structure; 13 WINDOWS_PENDING rows; 7 unapproved drafts (5 G0-L1 + L2 + G0-I); 27 ABI-3 source symbols. NO EXPERIMENT AUTHORITY.'
 
 if ($SelfTest) {
+    $requiredTest = $plan.matrix[0].offlineTests[0]
+    foreach ($kind in @('missing', 'duplicate')) {
+        $registered = if ($kind -eq 'missing') {
+            @($standingTests | Where-Object { $_ -cne $requiredTest })
+        } else {
+            @($standingTests) + $requiredTest
+        }
+        $rejected = $false
+        try { Assert-Plan $plan $registered }
+        catch { $rejected = $_.Exception.Message -ceq 'readiness:standing_test' }
+        Require $rejected 'standing_test_mutation_not_rejected'
+    }
+    Write-Output 'PASS: missing and duplicate standing registrations rejected (2 cases).'
     $mutations = @(
         { param($p) $p.matrix = $p.matrix[0..11] },
         { param($p) $p.matrix[1].trial = 'X0' },

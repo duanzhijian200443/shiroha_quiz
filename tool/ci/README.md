@@ -15,6 +15,12 @@ the test catalog no longer grows an inline expression. Manifest changes remain
 shared-configuration inputs requiring full validation, and the existing tracked
 input digest includes the manifest for reuse checks.
 
+Acceptance-readiness and Dart source guards read suite registrations from the
+same manifest; job ordering and Native/aggregate gates remain in the workflow.
+Changing the manifest location requires the readiness self-test and the affected
+source-guard suites as well as the timing/coverage check. Missing or duplicate
+required registrations still fail the readiness gate.
+
 Android device-access foundation adds standing pure foreground-lifetime,
 association-CAS and Native-boundary refusal tests. They use synthetic resources,
 never an Android key, socket, credential file or business composition. Native
