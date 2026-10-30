@@ -37,6 +37,10 @@ Those synthetic checks do not prove an installed Codex plugin, phone TLS,
 temporary-key retirement, or operating-system lifecycle behavior. The explicit
 host qualification and separately scoped device runtime evidence cover those
 remaining boundaries; a green contract shard alone cannot close them.
+The portable Bootstrap source gate checks both explicit protocol versions, fixed
+Windows/Android child arguments and the App-owned device-store/close/recovery
+wiring. Its in-memory mutations still reject protected startup, direct process
+authority and replacement owners; the unified profile does not bypass that gate.
 The opt-in Windows relay script includes an unexpected original-child exit with
 an idle client. It must enter original cleanup without another call and retain
 nonzero-exit failure. Its failed-close reconnection case expects the retained

@@ -31,10 +31,10 @@ foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.
         if (!$code.Contains('!bridge.enableStageApprovalWait') -or
             !$code.Contains('requestStageApproval(')) { throw 'Default Bridge STAGE refusal or explicit bounded path missing' }
         $projection = [IO.File]::ReadAllText((Join-Path $root 'lib/mcp/vnext_mcp_protocol_projection.dart'))
-        if (!$projection.Contains("'schemaVersion': 3") -or
+        if (!$projection.Contains("'schemaVersion': profileVersion == 3 ? 4 : 3") -or
             !$projection.Contains('bridgeStageBlocked => contextKind == VnextMcpContextKind.stage') -or
-            !$projection.Contains("decoded['schemaVersion'] != 3")) {
-            throw 'Bridge v3 selection/response or STAGE classification missing'
+            !$projection.Contains("decoded['schemaVersion'] != (profileVersion == 3 ? 4 : 3)")) {
+            throw 'Bridge explicit v3/v4 selection/response or STAGE classification missing'
         }
     } elseif ($file.FullName -eq (Join-Path $root 'lib/composition/mcp_vnext_windows_acquisition.dart')) {
         foreach ($token in @('dart:io', 'dart:ffi', 'Process.', 'Platform.environment',
@@ -125,7 +125,13 @@ foreach ($token in @('killPid', '.kill(', '.pid', 'Platform.environment', 'Proce
     if ($process.Contains($token)) { throw "Process adapter escaped original child custody: $token" }
 }
 foreach ($required in @('WindowsExternalReleaseCandidate.inspect(', 'Platform.resolvedExecutable',
-    'Process.start(executable,', "pairingUi ? const ['--shiroha-bridge-pairing-ui'] : const []", 'runInShell: false', 'includeParentEnvironment: false',
+    'Process.start(executable,',
+    "pairingUi ? const ['--shiroha-bridge-pairing-ui'] : profileVersion == 3 ? const ['--profile=3'] : const []",
+    'WindowsAndroidAdapterLayout.resolve(Platform.resolvedExecutable)',
+    'if (android && (layout == null || !layout.paired))',
+    "recovery ? '--enable-proof' : '--hosted-business'", 'layout!.recordDirectory',
+    "if (!recovery) '--profile=3'", "'--current-user-cng-import'",
+    'runInShell: false', 'includeParentEnvironment: false',
     'environment: windowsChildEnvironment()',
     '_process.stdin.close()', '_process.exitCode', '_process.stdout.drain',
     'await for (final bytes in _process.stderr)', 'diagnostics.observeStderr(bytes)',
@@ -181,6 +187,8 @@ function Assert-AppOwnedRelayBoundary([hashtable]$Sources) {
     $imports = @('dart:async', 'dart:io', 'package:path/path.dart',
         '../application/external/first_party_external_access.dart',
         '../application/external/first_party_development_access.dart',
+        '../application/external/external_device_connection.dart',
+        '../data/external/windows_android_adapter_layout.dart',
         '../data/external/windows_development_bootstrap.dart',
         '../data/external/windows_bridge_process.dart',
         '../data/external/windows_local_relay.dart',
@@ -202,18 +210,27 @@ function Assert-AppOwnedRelayBoundary([hashtable]$Sources) {
         if (!$relay.Contains($required)) { throw 'Local relay lost original process custody' }
     }
     $constructor = [regex]::Match($Sources.registration,
-        '(?s)McpVnextWindowsAppRegistration\.appOwnedRelay\(.*?;')
+        '(?ms)McpVnextWindowsAppRegistration\.appOwnedRelay\(.*?(?=^  McpVnextWindowsAppRegistration\.directClient)')
     if (!$constructor.Success -or
-        !(($constructor.Value -replace '\s', '').Contains('_relay=McpVnextAppOwnedRelay(onEvent:onRelayEvent,requireBusinessBootstrap:true)')) -or
+        !(($constructor.Value -replace '\s', '').Contains('_relay=McpVnextAppOwnedRelay(onEvent:onRelayEvent,requireBusinessBootstrap:true,devices:_devices)')) -or
         !$constructor.Value.Contains('requireBusinessBootstrap: true') -or
         $constructor.Value -match '_install|_startup|_acquirer|requireSecurityAdmission') {
         throw 'Local relay registration gained protected startup'
+    }
+    foreach ($required in @('store: deviceSelectionStore',
+        'endConnection: () => _relay!.endCurrentConnection()',
+        'verifyRecovery: _recoverAndroid', 'integration.controls.installDeviceConnection(_devices!)')) {
+        if (!(($constructor.Value -replace '\s', '').Contains(($required -replace '\s', '')))) {
+            throw 'Local relay lost App-owned device custody'
+        }
     }
     if (!$Sources.main.Contains('McpVnextWindowsAppRegistration.appOwnedRelay(integration,') -or
         $Sources.main -match 'McpVnextWindowsAppRegistration\.(directClient|hostedClient)') {
         throw 'Normal App registration activated protected startup'
     }
-    if (!$Sources.entry.Contains('await serveDevelopmentWindowsBridge();') -or
+    if (!$Sources.entry.Contains('await serveDevelopmentWindowsBridge(profileVersion: unified ? 3 : 2);') -or
+        !$Sources.entry.Contains("arguments.length == 1 && arguments.single == '--profile=3'") -or
+        !(($Sources.entry -replace '\s', '').Contains('if(!unified&&!WindowsExternalReleaseCandidate.acceptsArguments(arguments))')) -or
         $Sources.entry -match 'bootstrap\s*:|Platform.environment|fromEnvironment') {
         throw 'Formal AOT acquired a business selector'
     }
@@ -233,9 +250,14 @@ $mutations = @(
     @{key='relay'; code=$relaySources.relay + "`nProcess.start('tool', []);"; expected='Local relay gained authority'},
     @{key='relay'; code=$relaySources.relay.Replace('await process.stopAndWait();', ''); expected='Local relay lost original process custody'},
     @{key='registration'; code=$relaySources.registration.Replace('requireBusinessBootstrap: true', 'requireBusinessBootstrap: false'); expected='Local relay registration gained protected startup'},
+    @{key='registration'; code=$relaySources.registration.Replace('store: deviceSelectionStore', 'store: alternateStore'); expected='Local relay lost App-owned device custody'},
+    @{key='registration'; code=$relaySources.registration.Replace('endConnection: () => _relay!.endCurrentConnection()', 'endConnection: () async {}'); expected='Local relay lost App-owned device custody'},
+    @{key='registration'; code=$relaySources.registration.Replace('verifyRecovery: _recoverAndroid', 'verifyRecovery: alternateRecovery'); expected='Local relay lost App-owned device custody'},
     @{key='main'; code=$relaySources.main.Replace('.appOwnedRelay(integration,', '.directClient(integration,'); expected='Normal App registration activated protected startup'},
     @{key='main'; code=$relaySources.main.Replace('.appOwnedRelay(integration,', '.hostedClient(integration,'); expected='Normal App registration activated protected startup'},
-    @{key='entry'; code=$relaySources.entry.Replace('serveDevelopmentWindowsBridge();', 'serveWindowsBridgeStdio(bootstrap: candidate);'); expected='Formal AOT acquired a business selector'}
+    @{key='entry'; code=$relaySources.entry.Replace('serveDevelopmentWindowsBridge(profileVersion: unified ? 3 : 2);', 'serveWindowsBridgeStdio(bootstrap: candidate);'); expected='Formal AOT acquired a business selector'},
+    @{key='entry'; code=$relaySources.entry.Replace('arguments.length == 1', 'arguments.isNotEmpty'); expected='Formal AOT acquired a business selector'},
+    @{key='entry'; code=$relaySources.entry.Replace('WindowsExternalReleaseCandidate.acceptsArguments(arguments)', 'true'); expected='Formal AOT acquired a business selector'}
 )
 foreach ($case in $mutations) {
     if ($case.code -ceq $relaySources[$case.key]) { throw 'Local relay source mutation did not apply' }
