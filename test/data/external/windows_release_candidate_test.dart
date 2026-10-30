@@ -182,12 +182,24 @@ void main() {
     }
     final entry =
         File('tool/external/bridge_candidate.dart').readAsStringSync();
-    expect(entry, contains('await serveDevelopmentWindowsBridge();'));
+    expect(entry,
+        contains("arguments.length == 1 && arguments.single == '--profile=3'"));
+    expect(
+        entry.replaceAll(RegExp(r'\s'), ''),
+        contains(
+            'if(!unified&&!WindowsExternalReleaseCandidate.acceptsArguments(arguments))'));
+    expect(
+        entry,
+        contains(
+            'await serveDevelopmentWindowsBridge(profileVersion: unified ? 3 : 2);'));
     expect(entry, contains('exitCode = 64;'));
     final refusal =
         File('lib/mcp/vnext_mcp_entrypoint.dart').readAsStringSync();
     expect(refusal, contains('VnextMcpServer(const UnavailableVnextApp())'));
-    expect(refusal, contains("vnextFailure('unavailable')"));
+    expect(
+        refusal,
+        contains(
+            "vnextFailure('unavailable', profileVersion: profileVersion)"));
     for (final forbidden in [
       '.connect(',
       '.acquireAppObjects(',

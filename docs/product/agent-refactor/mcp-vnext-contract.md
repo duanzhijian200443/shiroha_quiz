@@ -2405,6 +2405,13 @@ connections. Restart never deletes this marker or reconstructs pairing.
 Portable backup excludes the selection/active-connection record; raw rollback
 retains the original state.
 
+During B0 maintenance, the original live lease may finish only its conditional
+dirty-to-clean update for the same target and generation. Application admits
+that store-bound proof only while joining successful original settlement; a
+retained or failed lease cannot reuse it. B0's existing before-close barrier
+joins this write before database close/swap. New selection, lease acquisition
+and manual recovery still require the ordinary mutation gate.
+
 The local hop can also return `busy` while a failed original owner still retains
 its pipe. This is a refusal, not evidence of another healthy chat or permission
 to replace it. The App's `needsAttention` state and explicit recovery remain
@@ -2465,6 +2472,11 @@ view, or App closure keeps the original marker. This operator-initiated recovery
 does not establish that an earlier uncertain submission failed: its original
 key must still be queried. There is no automatic startup recovery, generic
 credential repair, or recovery of malformed/unsupported target records.
+
+The recovery CAS rechecks the confirming view and App lifetime inside its SQLite
+transaction, after database admission and around the conditional update. A
+withdrawal observed there rolls the update back; waiting for SQLite cannot
+convert a cancelled recovery into a clean generation.
 
 An App that still owns a failed live lease does not offer that recovery action
 and may refuse ordinary exit. Preserve the failure and original-key evidence;

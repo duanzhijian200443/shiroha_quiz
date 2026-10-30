@@ -70,14 +70,29 @@ final class ExternalDeviceSelection {
 abstract interface class ExternalDeviceSelectionStore {
   Future<ExternalDeviceSelection?> readDeviceSelection();
   Future<void> saveDeviceSelection(ExternalDeviceSelection value);
+
+  /// Only the original live lease may finish its exact dirty-to-clean write
+  /// during B0 maintenance; replacement, selection and recovery remain gated.
+  Future<void> settleDeviceLease(ExternalDeviceLease lease);
   Future<void> acknowledgeDeviceCleanup(
-      ExternalDeviceSelection expected, ExternalDeviceSelection replacement);
+      ExternalDeviceSelection expected, ExternalDeviceSelection replacement,
+      {required bool Function() isCurrent});
 }
 
 final class ExternalDeviceLease {
-  ExternalDeviceLease._(this.target, this.generation);
+  ExternalDeviceLease._(this._store, this.target, this.generation);
+  final ExternalDeviceSelectionStore _store;
   final ExternalDeviceTarget target;
   final int generation;
+  bool _settling = false;
+
+  /// Data can only consume this proof while its original Application owner is
+  /// joining clean settlement. A retained lease cannot clear a later marker.
+  void requireSettlement(ExternalDeviceSelectionStore store) {
+    if (!identical(_store, store) || !_settling) {
+      throw const ExternalDeviceException(ExternalDeviceFailure.needsAttention);
+    }
+  }
 }
 
 /// App-level admission and durable cleanup barrier shared by target selection
@@ -174,8 +189,8 @@ final class ExternalDeviceConnection {
           needsCleanup: true);
       await store.saveDeviceSelection(pending);
       _selection = pending;
-      final lease =
-          _active = ExternalDeviceLease._(pending.target, pending.generation);
+      final lease = _active =
+          ExternalDeviceLease._(store, pending.target, pending.generation);
       _phase = ExternalDevicePhase.waitingAuthorization;
       return lease;
     } catch (_) {
@@ -198,15 +213,20 @@ final class ExternalDeviceConnection {
   }
 
   Future<void> settled(ExternalDeviceLease lease, {required bool clean}) async {
-    if (!identical(lease, _active)) _fail(ExternalDeviceFailure.needsAttention);
+    if (!identical(lease, _active) ||
+        lease._settling ||
+        _phase == ExternalDevicePhase.needsAttention) {
+      _fail(ExternalDeviceFailure.needsAttention);
+    }
     if (!clean) {
       _attention();
       _fail(ExternalDeviceFailure.needsAttention);
     }
+    lease._settling = true;
     try {
       final settled = ExternalDeviceSelection(
           target: _selection.target, generation: _selection.generation);
-      await store.saveDeviceSelection(settled);
+      await store.settleDeviceLease(lease);
       _selection = settled;
       _active = null;
       if (!_changing) _phase = ExternalDevicePhase.disconnected;
@@ -214,6 +234,8 @@ final class ExternalDeviceConnection {
     } catch (_) {
       _attention();
       rethrow;
+    } finally {
+      lease._settling = false;
     }
   }
 
@@ -278,7 +300,8 @@ final class ExternalDeviceConnection {
         }
         final recovered = ExternalDeviceSelection(
             target: original.target, generation: original.generation + 1);
-        await store.acknowledgeDeviceCleanup(original, recovered);
+        await store.acknowledgeDeviceCleanup(original, recovered,
+            isCurrent: () => !_closed && isCurrent());
         _selection = recovered;
         _phase = ExternalDevicePhase.disconnected;
       } catch (_) {

@@ -55,38 +55,71 @@ final class SqliteExternalDeviceSelectionStore
       });
 
   @override
-  Future<void> acknowledgeDeviceCleanup(ExternalDeviceSelection expected,
-          ExternalDeviceSelection replacement) =>
+  Future<void> settleDeviceLease(ExternalDeviceLease lease) => _replaceDirty(
+      ExternalDeviceSelection(
+          target: lease.target,
+          generation: lease.generation,
+          needsCleanup: true),
+      ExternalDeviceSelection(
+          target: lease.target, generation: lease.generation),
+      () => lease.requireSettlement(this));
+
+  @override
+  Future<void> acknowledgeDeviceCleanup(
+          ExternalDeviceSelection expected, ExternalDeviceSelection replacement,
+          {required bool Function() isCurrent}) =>
       BackupRestoreMutationGate.instance.runMutation(() async {
-        final db = await databaseHelper.database;
-        await db.transaction((txn) async {
-          final rows = await txn
-              .query('app_settings', where: 'key = ?', whereArgs: [settingKey]);
-          if (rows.length != 1 || rows.single['value'] is! String) {
-            throw const ExternalDeviceException(
-                ExternalDeviceFailure.needsAttention);
-          }
-          final raw = rows.single['value'] as String;
-          final current = _decode(raw);
-          if (!expected.needsCleanup ||
-              replacement.needsCleanup ||
-              current.target != expected.target ||
-              current.generation != expected.generation ||
-              current.needsCleanup != expected.needsCleanup ||
-              replacement.target != expected.target ||
-              replacement.generation != expected.generation + 1) {
-            throw const ExternalDeviceException(
-                ExternalDeviceFailure.needsAttention);
-          }
-          final changed = await txn.update(
-              'app_settings', {'value': _encode(replacement)},
-              where: 'key = ? AND value = ?', whereArgs: [settingKey, raw]);
-          if (changed != 1) {
+        if (replacement.generation != expected.generation + 1) {
+          throw const ExternalDeviceException(
+              ExternalDeviceFailure.needsAttention);
+        }
+        await _replaceDirty(expected, replacement, () {
+          if (!isCurrent()) {
             throw const ExternalDeviceException(
                 ExternalDeviceFailure.needsAttention);
           }
         });
       });
+
+  // Original live cleanup is a fixed CAS consumed only under its owner's
+  // settlement proof, not a new user mutation. B0 beforeClose joins that same
+  // owner before closing/swapping SQLite. No other write bypasses its gate.
+  Future<void> _replaceDirty(ExternalDeviceSelection expected,
+      ExternalDeviceSelection replacement, void Function() check) async {
+    check();
+    final db = await databaseHelper.database;
+    await db.transaction((txn) async {
+      check();
+      final rows = await txn
+          .query('app_settings', where: 'key = ?', whereArgs: [settingKey]);
+      check();
+      if (rows.length != 1 || rows.single['value'] is! String) {
+        throw const ExternalDeviceException(
+            ExternalDeviceFailure.needsAttention);
+      }
+      final raw = rows.single['value'] as String;
+      final current = _decode(raw);
+      if (!expected.needsCleanup ||
+          replacement.needsCleanup ||
+          current.target != expected.target ||
+          current.generation != expected.generation ||
+          current.needsCleanup != expected.needsCleanup ||
+          replacement.target != expected.target) {
+        throw const ExternalDeviceException(
+            ExternalDeviceFailure.needsAttention);
+      }
+      final changed = await txn.update(
+          'app_settings', {'value': _encode(replacement)},
+          where: 'key = ? AND value = ?', whereArgs: [settingKey, raw]);
+      // A withdrawal while SQLite was busy must roll the update back,
+      // rather than discover cancellation after the transaction commits.
+      check();
+      if (changed != 1) {
+        throw const ExternalDeviceException(
+            ExternalDeviceFailure.needsAttention);
+      }
+    });
+  }
 
   @override
   Future<void> saveDeviceSelection(ExternalDeviceSelection value) =>

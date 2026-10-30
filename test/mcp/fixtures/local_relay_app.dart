@@ -10,9 +10,17 @@ import 'package:shiroha_quiz/application/external/external_device_connection.dar
 
 final class _SelectionStore implements ExternalDeviceSelectionStore {
   @override
-  Future<void> acknowledgeDeviceCleanup(ExternalDeviceSelection expected,
-          ExternalDeviceSelection replacement) async =>
+  Future<void> acknowledgeDeviceCleanup(
+          ExternalDeviceSelection expected, ExternalDeviceSelection replacement,
+          {required bool Function() isCurrent}) async =>
       throw UnsupportedError('Recovery is not enabled in this fixture');
+  @override
+  Future<void> settleDeviceLease(ExternalDeviceLease lease) async {
+    lease.requireSettlement(this);
+    await saveDeviceSelection(ExternalDeviceSelection(
+        target: lease.target, generation: lease.generation));
+  }
+
   _SelectionStore(this.file);
   final File file;
   @override

@@ -241,7 +241,7 @@ void main() {
               ? isNull
               : policy == 'empty-egress'
                   ? isEmpty
-                  : hasLength(3));
+                  : unorderedEquals(ExternalContentCategory.values));
     });
   }
 

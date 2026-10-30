@@ -4,10 +4,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:shiroha_quiz/application/capabilities/capability.dart';
+import 'package:shiroha_quiz/application/backup/backup_restore_coordinator.dart';
+import 'package:shiroha_quiz/application/backup/backup_restore_gate.dart';
 import 'package:shiroha_quiz/application/external/external_authorization.dart';
+import 'package:shiroha_quiz/application/external/external_device_connection.dart';
 import 'package:shiroha_quiz/core/database/external_authorization_schema.dart';
 import 'package:shiroha_quiz/core/database/external_access_v35_schema.dart';
 import 'package:shiroha_quiz/data/repositories/external_authorization_repository.dart';
+import 'package:shiroha_quiz/data/repositories/external_device_selection_store.dart';
 import 'package:shiroha_quiz/data/repositories/backup_database_authority.dart';
 import 'package:shiroha_quiz/data/repositories/backup_snapshot_repository.dart';
 import 'package:shiroha_quiz/domain/backup/backup_failure.dart';
@@ -72,10 +76,13 @@ void main() {
   });
   tearDown(() async => h.close());
   BackupRestoreRuntime runtime(
-          {BackupFaultInjector faults = const BackupFaultInjector()}) =>
+          {BackupFaultInjector faults = const BackupFaultInjector(),
+          Future<void> Function()? beforeClose}) =>
       BackupRestoreRuntime(
           databaseAuthority: SqliteBackupDatabaseAuthority(
-              databaseHelper: h.helper, snapshotRepository: snapshots),
+              databaseHelper: h.helper,
+              snapshotRepository: snapshots,
+              beforeClose: beforeClose),
           snapshotRepository: snapshots,
           managedFileStorage: ManagedFileStorageAdapter(managedRoot: managed),
           restoreRoot: restore,
@@ -109,6 +116,54 @@ void main() {
         files: const []);
     return destination;
   }
+
+  test(
+      'B0 restore joins original live device cleanup inside quiescence before swap',
+      () async {
+    final selectionStore =
+        SqliteExternalDeviceSelectionStore(databaseHelper: h.helper);
+    final device = ExternalDeviceConnection(
+        store: selectionStore,
+        availableTargets: () async => [const ExternalDeviceTarget.windows()],
+        endConnection: () async {});
+    await device.load();
+    await device.select(const ExternalDeviceTarget.windows());
+    final lease = await device.begin();
+    Future<void>? closing;
+    var closed = false;
+    final coordinator = BackupRestoreCoordinator(
+        operations: runtime(
+            beforeClose: () => closing ??= () async {
+                  expect(
+                      BackupRestoreMutationGate.instance.isMaintenance, true);
+                  device.withdraw();
+                  // This callback represents the original relay's completed child
+                  // drain, at the same beforeClose seam used by the production root.
+                  await device.settled(lease, clean: true);
+                  expect(
+                      (await selectionStore.readDeviceSelection())!
+                          .needsCleanup,
+                      false);
+                  await device.close();
+                  closed = true;
+                }()),
+        compositionReload: () async => expect(closed, true));
+    final destination = p.join(h.temp.path, 'live-device.shiroha');
+    await coordinator.exportTo(destination);
+    expect((await selectionStore.readDeviceSelection())!.needsCleanup, true);
+    await coordinator.prepareRestore(destination);
+    await coordinator.commitPreparedRestore();
+    expect(closed, true);
+    expect(BackupRestoreMutationGate.instance.isMaintenance, false);
+    expect(await selectionStore.readDeviceSelection(), isNull);
+    final reopened = ExternalDeviceConnection(
+        store: selectionStore,
+        availableTargets: () async => [const ExternalDeviceTarget.windows()],
+        endConnection: () async {});
+    await reopened.load();
+    expect(reopened.selection.target.kind, ExternalDeviceKind.unselected);
+    await reopened.close();
+  });
 
   test(
       'portable copy strips all authorization; live data and soft Proposal origin survive',

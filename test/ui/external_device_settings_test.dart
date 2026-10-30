@@ -13,8 +13,17 @@ final class _Store implements ExternalDeviceSelectionStore {
   Future<void> saveDeviceSelection(ExternalDeviceSelection next) async =>
       value = next;
   @override
+  Future<void> settleDeviceLease(ExternalDeviceLease lease) async {
+    lease.requireSettlement(this);
+    value = ExternalDeviceSelection(
+        target: lease.target, generation: lease.generation);
+  }
+
+  @override
   Future<void> acknowledgeDeviceCleanup(
-      ExternalDeviceSelection expected, ExternalDeviceSelection next) async {
+      ExternalDeviceSelection expected, ExternalDeviceSelection next,
+      {required bool Function() isCurrent}) async {
+    expect(isCurrent(), isTrue);
     expect(value, same(expected));
     value = next;
   }

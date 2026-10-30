@@ -28,6 +28,11 @@ The local unified plugin's `external_device_selection_v1` setting, including
 its active-connection/unknown-cleanup marker, is excluded from portable copies
 and rejected by staged portable validation. Raw rollback preserves the original
 setting. Pairing records, credentials and temporary keys remain outside B0.
+An original live device lease may complete its exact dirty-to-clean CAS during
+maintenance after successful original resource settlement. The existing
+before-close owner barrier joins that write before database close/swap. It is
+not new user-mutation admission: selection, new leases and manual recovery stay
+blocked by the ordinary gate. MCP section 19.2 owns this bounded cleanup proof.
 
 This amendment raised the runtime to v26; the current runtime is v34 as stated
 below. Staged v25 databases rebuild `answer_attempts` inside

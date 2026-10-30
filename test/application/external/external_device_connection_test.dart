@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/backup/backup_restore_gate.dart';
 import 'package:shiroha_quiz/application/external/external_device_connection.dart';
 import 'package:shiroha_quiz/data/repositories/external_device_selection_store.dart';
+import 'package:shiroha_quiz/domain/backup/backup_failure.dart';
+import 'package:shiroha_quiz/domain/backup/backup_manifest.dart';
 import '../generated_question/generated_test_support.dart';
 
 final class _Store implements ExternalDeviceSelectionStore {
@@ -16,9 +19,18 @@ final class _Store implements ExternalDeviceSelectionStore {
   }
 
   @override
+  Future<void> settleDeviceLease(ExternalDeviceLease lease) async {
+    lease.requireSettlement(this);
+    await saveDeviceSelection(ExternalDeviceSelection(
+        target: lease.target, generation: lease.generation));
+  }
+
+  @override
   Future<void> acknowledgeDeviceCleanup(
-      ExternalDeviceSelection expected, ExternalDeviceSelection next) async {
-    if (fail ||
+      ExternalDeviceSelection expected, ExternalDeviceSelection next,
+      {required bool Function() isCurrent}) async {
+    if (!isCurrent() ||
+        fail ||
         value?.target != expected.target ||
         value?.generation != expected.generation ||
         value?.needsCleanup != expected.needsCleanup) {
@@ -157,6 +169,97 @@ void main() {
         connection.begin(), failure(ExternalDeviceFailure.needsAttention));
   });
 
+  test('only current original clean settlement can consume a live lease',
+      () async {
+    await connection.select(local);
+    final first = await connection.begin();
+    await expectLater(store.settleDeviceLease(first),
+        failure(ExternalDeviceFailure.needsAttention));
+    await connection.settled(first, clean: true);
+    final next = await connection.begin();
+    await expectLater(connection.settled(first, clean: true),
+        failure(ExternalDeviceFailure.needsAttention));
+    await expectLater(store.settleDeviceLease(first),
+        failure(ExternalDeviceFailure.needsAttention));
+    expect(store.value!.needsCleanup, true);
+    await expectLater(connection.settled(next, clean: false),
+        failure(ExternalDeviceFailure.needsAttention));
+    await expectLater(connection.settled(next, clean: true),
+        failure(ExternalDeviceFailure.needsAttention));
+    expect(store.value!.needsCleanup, true);
+  });
+
+  test(
+      'SQLite original cleanup during maintenance retains all other write gates',
+      () async {
+    final h = GeneratedHarness();
+    await h.open();
+    final persisted =
+        SqliteExternalDeviceSelectionStore(databaseHelper: h.helper);
+    final owner = ExternalDeviceConnection(
+        store: persisted,
+        availableTargets: () async => [local],
+        endConnection: () async {});
+    try {
+      await owner.load();
+      await owner.select(local);
+      final lease = await owner.begin();
+      await BackupRestoreMutationGate.instance.enterQuiescence();
+      final blocked = throwsA(isA<BackupException>()
+          .having((e) => e.failure, 'failure', BackupFailure.restoreBlocked));
+      await expectLater(
+          persisted.saveDeviceSelection(ExternalDeviceSelection(target: phone)),
+          blocked);
+      await expectLater(
+          persisted.acknowledgeDeviceCleanup(
+              ExternalDeviceSelection(
+                  target: phone, generation: 11, needsCleanup: true),
+              ExternalDeviceSelection(target: phone, generation: 12),
+              isCurrent: () => true),
+          blocked);
+      owner.withdraw();
+      await owner.settled(lease, clean: true);
+      final saved = (await persisted.readDeviceSelection())!;
+      expect(saved.needsCleanup, false);
+      expect(saved.target, local);
+      expect(saved.generation, lease.generation);
+      await expectLater(persisted.settleDeviceLease(lease),
+          failure(ExternalDeviceFailure.needsAttention));
+      await owner.close();
+    } finally {
+      BackupRestoreMutationGate.instance.exitQuiescence();
+      await h.close();
+    }
+  });
+
+  test('SQLite live cleanup cannot overwrite a changed dirty generation',
+      () async {
+    final h = GeneratedHarness();
+    await h.open();
+    final persisted =
+        SqliteExternalDeviceSelectionStore(databaseHelper: h.helper);
+    final owner = ExternalDeviceConnection(
+        store: persisted,
+        availableTargets: () async => [local],
+        endConnection: () async {});
+    try {
+      await owner.load();
+      await owner.select(local);
+      final lease = await owner.begin();
+      await persisted.saveDeviceSelection(ExternalDeviceSelection(
+          target: phone, generation: lease.generation + 1, needsCleanup: true));
+      await expectLater(owner.settled(lease, clean: true),
+          failure(ExternalDeviceFailure.needsAttention));
+      final saved = (await persisted.readDeviceSelection())!;
+      expect(saved.needsCleanup, true);
+      expect(saved.target, phone);
+      expect(saved.generation, lease.generation + 1);
+      expect(owner.phase, ExternalDevicePhase.needsAttention);
+    } finally {
+      await h.close();
+    }
+  });
+
   Future<ExternalDeviceConnection> interrupted(
       Future<void> Function(ExternalDeviceTarget) proof) async {
     store.value = ExternalDeviceSelection(
@@ -240,6 +343,60 @@ void main() {
     }
   });
 
+  for (final appClose in [false, true]) {
+    test(
+        'SQLite-wait recovery withdrawal retains dirty state: appClose=$appClose',
+        () async {
+      final h = GeneratedHarness();
+      await h.open();
+      final persisted =
+          SqliteExternalDeviceSelectionStore(databaseHelper: h.helper);
+      final blocked = Completer<void>(), release = Completer<void>();
+      var current = true;
+      final restored = ExternalDeviceConnection(
+          store: persisted,
+          availableTargets: () async => [phone],
+          endConnection: () async {},
+          verifyRecovery: (_) async {});
+      Future<void>? holdingDatabase;
+      try {
+        await persisted.saveDeviceSelection(ExternalDeviceSelection(
+            target: phone, generation: 11, needsCleanup: true));
+        await restored.load();
+        holdingDatabase = h.db.transaction<void>((txn) async {
+          blocked.complete();
+          await release.future;
+        });
+        await blocked.future;
+        final recovery = restored.recover(11, isCurrent: () => current);
+        final refused = expectLater(
+            recovery, failure(ExternalDeviceFailure.needsAttention));
+        await Future<void>.delayed(Duration.zero);
+        expect(BackupRestoreMutationGate.instance.activeMutationCount, 1,
+            reason:
+                'Recovery reached its mutation lease and is queued behind SQLite.');
+        if (appClose) {
+          restored.withdraw();
+        } else {
+          current = false;
+        }
+        release.complete();
+        await holdingDatabase;
+        await refused;
+        final saved = (await persisted.readDeviceSelection())!;
+        expect(saved.needsCleanup, true);
+        expect(saved.generation, 11);
+        expect(saved.target, phone);
+        expect(restored.phase, ExternalDevicePhase.needsAttention);
+      } finally {
+        if (!release.isCompleted) release.complete();
+        await holdingDatabase;
+        await restored.close();
+        await h.close();
+      }
+    });
+  }
+
   test(
       'SQLite cleanup acknowledgment is conditional and preserves corrupt records',
       () async {
@@ -252,13 +409,18 @@ void main() {
           target: phone, generation: 11, needsCleanup: true);
       final after = ExternalDeviceSelection(target: phone, generation: 12);
       await persisted.saveDeviceSelection(before);
-      await persisted.acknowledgeDeviceCleanup(before, after);
+      await persisted.acknowledgeDeviceCleanup(before, after,
+          isCurrent: () => true);
       expect((await persisted.readDeviceSelection())!.needsCleanup, false);
-      await expectLater(persisted.acknowledgeDeviceCleanup(before, after),
+      await expectLater(
+          persisted.acknowledgeDeviceCleanup(before, after,
+              isCurrent: () => true),
           failure(ExternalDeviceFailure.needsAttention));
       await h.helper.saveSetting(
           SqliteExternalDeviceSelectionStore.settingKey, '{"version":99}');
-      await expectLater(persisted.acknowledgeDeviceCleanup(before, after),
+      await expectLater(
+          persisted.acknowledgeDeviceCleanup(before, after,
+              isCurrent: () => true),
           failure(ExternalDeviceFailure.needsAttention));
       expect(
           await h.helper
