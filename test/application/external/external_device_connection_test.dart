@@ -10,10 +10,12 @@ import '../generated_question/generated_test_support.dart';
 final class _Store implements ExternalDeviceSelectionStore {
   ExternalDeviceSelection? value;
   bool fail = false;
+  Future<void> Function()? beforeSave;
   @override
   Future<ExternalDeviceSelection?> readDeviceSelection() async => value;
   @override
   Future<void> saveDeviceSelection(ExternalDeviceSelection next) async {
+    await beforeSave?.call();
     if (fail) throw StateError('synthetic save failure');
     value = next;
   }
@@ -50,12 +52,14 @@ void main() {
   late _Store store;
   late ExternalDeviceConnection connection;
   Future<void> Function()? close;
+  Future<List<ExternalDeviceTarget>> Function()? available;
   setUp(() async {
     close = null;
+    available = null;
     store = _Store();
     connection = ExternalDeviceConnection(
         store: store,
-        availableTargets: () async => [local, phone],
+        availableTargets: () async => await available?.call() ?? [local, phone],
         endConnection: () async => await close?.call());
     await connection.load();
   });
@@ -140,6 +144,111 @@ void main() {
         connection.select(const ExternalDeviceTarget.unselected()),
         failure(ExternalDeviceFailure.needsAttention));
   });
+
+  test('App close joins selection drain and prevents the late target write',
+      () async {
+    await connection.select(local);
+    final lease = await connection.begin();
+    final entered = Completer<void>(), release = Completer<void>();
+    close = () async {
+      entered.complete();
+      await release.future;
+      await connection.settled(lease, clean: true);
+    };
+    final switching = connection
+        .select(phone)
+        .then((_) => true, onError: (Object _) => false);
+    await entered.future;
+    var ended = false;
+    final closing = connection
+        .close()
+        .then((_) => ended = true, onError: (Object _) => ended = true);
+    await Future<void>.delayed(Duration.zero);
+    final endedBeforeDrain = ended;
+    release.complete();
+    final selected = await switching;
+    await closing;
+    expect(endedBeforeDrain, false);
+    expect(selected, false);
+    expect(store.value!.target, local);
+    expect(store.value!.generation, lease.generation);
+    expect(store.value!.needsCleanup, false);
+  });
+
+  for (final saveFails in [false, true]) {
+    test('App close joins dirty-marker persistence: saveFails=$saveFails',
+        () async {
+      await connection.select(local);
+      final entered = Completer<void>(), release = Completer<void>();
+      store.beforeSave = () async {
+        entered.complete();
+        await release.future;
+      };
+      store.fail = saveFails;
+      final acquiring = connection.begin().then<ExternalDeviceLease?>(
+          (lease) => lease,
+          onError: (Object _) => null);
+      await entered.future;
+      var ended = false;
+      final closing = connection.close().then((_) {
+        ended = true;
+        return true;
+      }, onError: (Object _) {
+        ended = true;
+        return false;
+      });
+      await Future<void>.delayed(Duration.zero);
+      final endedBeforeSave = ended;
+      release.complete();
+      final lease = await acquiring;
+      final clean = await closing;
+      store.beforeSave = null;
+      expect(endedBeforeSave, false);
+      if (saveFails) {
+        expect(lease, isNull);
+        expect(connection.phase, ExternalDevicePhase.needsAttention);
+      } else {
+        expect(clean, false);
+        expect(lease, isNotNull);
+        expect(store.value!.needsCleanup, true);
+        // Only the original borrower can finish this late lease. Until then
+        // App close must fail, so B0 cannot close/swap the database.
+        await connection.settled(lease!, clean: true);
+        expect(store.value!.needsCleanup, false);
+      }
+    });
+  }
+
+  for (final selecting in [false, true]) {
+    test(
+        'App close joins availability before new persistence: select=$selecting',
+        () async {
+      await connection.select(local);
+      final entered = Completer<void>(), release = Completer<void>();
+      available = () async {
+        entered.complete();
+        await release.future;
+        return [local, phone];
+      };
+      final operation =
+          (selecting ? connection.select(phone) : connection.begin())
+              .then((_) => true, onError: (Object _) => false);
+      await entered.future;
+      var ended = false;
+      final closing = connection.close().then((_) => ended = true);
+      await Future<void>.delayed(Duration.zero);
+      final endedBeforeAvailability = ended;
+      release.complete();
+      final admitted = await operation;
+      await closing;
+      expect(endedBeforeAvailability, false);
+      expect(admitted, false);
+      expect(store.value!.target, local);
+      expect(store.value!.needsCleanup, false);
+      await expectLater(
+          connection.begin(), failure(ExternalDeviceFailure.needsAttention));
+    });
+  }
   test('App restart preserves an unresolved dirty marker', () async {
     await connection.select(phone);
     await connection.begin();

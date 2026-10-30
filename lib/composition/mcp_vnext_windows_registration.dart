@@ -237,10 +237,13 @@ final class McpVnextWindowsAppRegistration {
             _development!.stopFor(FirstPartyDevelopmentStopCause.appClose),
           integration.close(),
         ]);
-        await _devices?.close();
       } finally {
         // A failing closer must not skip joining original acquisition cleanup.
-        await _acquirer?.whenAcquisitionSettled;
+        try {
+          await _devices?.close();
+        } finally {
+          await _acquirer?.whenAcquisitionSettled;
+        }
       }
     }();
   }

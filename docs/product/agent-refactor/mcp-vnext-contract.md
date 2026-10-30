@@ -2405,6 +2405,14 @@ connections. Restart never deletes this marker or reconstructs pairing.
 Portable backup excludes the selection/active-connection record; raw rollback
 retains the original state.
 
+App closure withdraws new device operations before joining original selection,
+target discovery, dirty-marker persistence and recovery, including failed
+operations. Selection rechecks that withdrawal after the old connection drain
+and before saving a replacement. A dirty write already in progress remains in
+the original borrower's custody: its late lease must settle before closure can
+succeed. Other close failures cannot skip this device-operation barrier. B0
+cannot close or swap the database while these original operations are pending.
+
 During B0 maintenance, the original live lease may finish only its conditional
 dirty-to-clean update for the same target and generation. Application admits
 that store-bound proof only while joining successful original settlement; a
@@ -2432,7 +2440,12 @@ toggles when the phone is selected.
 For Android profile 3, business HELLO/READY explicitly agree on profile 3. EOF
 at the App-owned adapter initiates a nonce-bound `closing`/`closed` exchange.
 The phone withdraws new business admission and waits for the original P10/P8
-work before acknowledging. The adapter then requires TLS shutdown/EOF and its
+work before acknowledging. This control is not an explicit MCP cancellation:
+an unwritten or unconfirmed response remains non-clean, retains the original
+approval reservation and suppresses `closed`, even if business persistence has
+completed. Only a flushed response, idle connection or matching-request explicit
+cancellation before withdrawal can satisfy the output boundary in section 18.
+The adapter then requires TLS shutdown/EOF and its
 original local key retirement before its process is treated as clean. A missing
 acknowledgement, timeout or retained key marker yields unknown cleanup; no retry
 or automatic credential repair follows. Link v1 and legacy profile 2 stay

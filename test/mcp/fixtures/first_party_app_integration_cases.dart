@@ -8,10 +8,13 @@ import 'package:uuid/uuid.dart';
 import 'package:shiroha_quiz/application/backup/backup_restore_coordinator.dart';
 import 'package:shiroha_quiz/application/capabilities/capability.dart';
 import 'package:shiroha_quiz/application/external/first_party_external_access.dart';
+import 'package:shiroha_quiz/application/external/external_device_connection.dart';
+import 'package:shiroha_quiz/application/external/external_trust_coordinator.dart';
 import 'package:shiroha_quiz/application/external/local_authorization_service.dart';
 import 'package:shiroha_quiz/application/file_library/library_folder_service.dart';
 import 'package:shiroha_quiz/application/projects/project_service.dart';
 import 'package:shiroha_quiz/composition/mcp_vnext_app_integration.dart';
+import 'package:shiroha_quiz/composition/mcp_vnext_windows_registration.dart';
 import 'package:shiroha_quiz/data/repositories/backup_database_authority.dart';
 import 'package:shiroha_quiz/data/repositories/backup_snapshot_repository.dart';
 import 'package:shiroha_quiz/data/repositories/library_folder_repository.dart';
@@ -43,6 +46,28 @@ final class _FailSwap extends BackupFaultInjector {
   @override
   Future<void> beforePostSwapValidation() async =>
       throw const BackupException(BackupFailure.databaseInvalid);
+}
+
+final class _DelayedDeviceStore implements ExternalDeviceSelectionStore {
+  final entered = Completer<void>(), release = Completer<void>();
+  @override
+  Future<ExternalDeviceSelection?> readDeviceSelection() async {
+    entered.complete();
+    await release.future;
+    throw StateError('synthetic selection read failure');
+  }
+
+  @override
+  Future<void> saveDeviceSelection(ExternalDeviceSelection value) async =>
+      throw StateError('unexpected write');
+  @override
+  Future<void> settleDeviceLease(ExternalDeviceLease lease) async =>
+      throw StateError('unexpected lease');
+  @override
+  Future<void> acknowledgeDeviceCleanup(
+          ExternalDeviceSelection expected, ExternalDeviceSelection replacement,
+          {required bool Function() isCurrent}) async =>
+      throw StateError('unexpected recovery');
 }
 
 /// The exact product root, with existing isolated DB/F1/RAG owners. Only this
@@ -152,6 +177,65 @@ class FirstPartyAppHarness {
 
 /// Registered by the standing P11 architecture shard as well as focused runs.
 void registerFirstPartyAppIntegrationTests() {
+  for (final shutdownFails in [false, true]) {
+    test(
+        'Windows close joins device operation despite sibling failure=$shutdownFails',
+        () async {
+      final f = FirstPartyAppHarness();
+      await f.open(attach: false);
+      final s = f.files.s;
+      final failure = StateError('synthetic owning close failure');
+      final coordinator = ExternalTrustCoordinator.offline(
+          gateway:
+              ExternalCapabilityGateway(stages: s.service, reads: f.files.read),
+          management: s.management,
+          readiness: OfflineReadiness(() async {}),
+          compositionIsCurrent: () => s.h.db.isOpen);
+      f.controls.installTrusted(FirstPartyExternalBinding(
+          management: s.management,
+          coordinator: coordinator,
+          trust: s.trust,
+          stages: s.service,
+          localOwner: s.localSession,
+          authenticationAttempt: () => null,
+          publishApprovals: (_) {},
+          shutdown: () async {
+            if (shutdownFails) throw failure;
+          }));
+      final store = _DelayedDeviceStore();
+      // Construct only: no registration.start(), native pipe, child or key.
+      final registration = McpVnextWindowsAppRegistration.appOwnedRelay(
+          f.integration,
+          deviceSelectionStore: store);
+      final loading = f.controls.deviceConnection!
+          .load()
+          .then<Object?>((_) => null, onError: (Object error) => error);
+      await store.entered.future;
+      var ended = false;
+      final closing = registration.close().then<Object?>((_) {
+        ended = true;
+        return null;
+      }, onError: (Object error) {
+        ended = true;
+        return error;
+      });
+      try {
+        await Future<void>.delayed(Duration.zero);
+        final endedBeforeRead = ended;
+        store.release.complete();
+        expect(await loading, isA<StateError>());
+        expect(await closing, shutdownFails ? same(failure) : isNull);
+        expect(endedBeforeRead, false);
+      } finally {
+        if (!store.release.isCompleted) store.release.complete();
+        await loading;
+        await closing;
+        await coordinator.shutdown();
+        f.policy.invalidate();
+        await f.files.close();
+      }
+    });
+  }
   group('first-party App composition', () {
     late FirstPartyAppHarness f;
     setUp(() async {

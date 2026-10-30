@@ -132,8 +132,7 @@ final class AndroidMcpTransport extends Transport {
           if (message['type'] == 'closing' &&
               port.binding.profileVersion == 3) {
             _reportClose('peer_closing');
-            port.beginGracefulClose();
-            if (!await port.whenBusinessSettled) androidLinkFail();
+            if (!await port.beginGracefulClose()) androidLinkFail();
             await _write(1, {...message, 'type': 'closed'});
             return; // finally closes the original channel after the acknowledgement.
           }
@@ -262,9 +261,11 @@ final class AndroidMcpPort implements VnextMcpResponsePort {
   Future<bool> get whenBusinessSettled =>
       _businessSettled?.future ?? Future<bool>.value(true);
 
-  void beginGracefulClose() {
-    _cancelledBeforeClose = true;
+  Future<bool> beginGracefulClose() async {
+    // Desktop stdin EOF is not cancellation of the outstanding MCP request.
+    // Join original work, but never acknowledge a lost response as clean.
     withdraw();
+    return await whenBusinessSettled && !_settlementFailed;
   }
 
   void attachTransport(Future<void> Function() close) {

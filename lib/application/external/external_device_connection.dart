@@ -115,6 +115,7 @@ final class ExternalDeviceConnection {
   ExternalDeviceLease? _active;
   bool _initialized = false, _changing = false, _closed = false;
   Future<void>? _recovering;
+  final _operations = <Future<void>>{};
   List<ExternalDeviceTarget> _targets = const [];
   ExternalDeviceSelection get selection => _selection;
   ExternalDevicePhase get phase => _phase;
@@ -150,7 +151,22 @@ final class ExternalDeviceConnection {
     _notify();
   }
 
-  Future<void> load() async {
+  // Register before the first await, including target discovery. Close joins
+  // completion (not caller success) so a failed persistence cannot escape it.
+  Future<T> _joinOnClose<T>(Future<T> Function() operation) async {
+    final done = Completer<void>();
+    _operations.add(done.future);
+    try {
+      return await operation();
+    } finally {
+      _operations.remove(done.future);
+      done.complete();
+    }
+  }
+
+  Future<void> load() => _joinOnClose(_load);
+
+  Future<void> _load() async {
     if (_initialized || _changing || _closed) _fail(ExternalDeviceFailure.busy);
     _changing = true;
     try {
@@ -168,7 +184,9 @@ final class ExternalDeviceConnection {
     }
   }
 
-  Future<ExternalDeviceLease> begin() async {
+  Future<ExternalDeviceLease> begin() => _joinOnClose(_begin);
+
+  Future<ExternalDeviceLease> _begin() async {
     _admit();
     if (_active != null) _fail(ExternalDeviceFailure.busy);
     if (_selection.target.kind == ExternalDeviceKind.unselected) {
@@ -189,6 +207,9 @@ final class ExternalDeviceConnection {
           needsCleanup: true);
       await store.saveDeviceSelection(pending);
       _selection = pending;
+      // A completed dirty write stays owned by this original borrower even if
+      // withdrawal raced it. The relay checks its lifetime before child launch
+      // and settles the late lease; close cannot succeed while it is active.
       final lease = _active =
           ExternalDeviceLease._(store, pending.target, pending.generation);
       _phase = ExternalDevicePhase.waitingAuthorization;
@@ -239,7 +260,10 @@ final class ExternalDeviceConnection {
     }
   }
 
-  Future<void> select(ExternalDeviceTarget target) async {
+  Future<void> select(ExternalDeviceTarget target) =>
+      _joinOnClose(() => _select(target));
+
+  Future<void> _select(ExternalDeviceTarget target) async {
     _admit();
     if (target == _selection.target) return;
     if (target.kind != ExternalDeviceKind.unselected &&
@@ -252,7 +276,8 @@ final class ExternalDeviceConnection {
     _notify();
     try {
       await endConnection();
-      if (_active != null ||
+      if (_closed ||
+          _active != null ||
           _selection.needsCleanup ||
           _phase == ExternalDevicePhase.needsAttention) {
         _fail(ExternalDeviceFailure.needsAttention);
@@ -320,6 +345,7 @@ final class ExternalDeviceConnection {
   /// Called after the original relay close, including late acquisition/drains.
   Future<void> close() async {
     withdraw();
+    await Future.wait(_operations.toList());
     try {
       await _recovering;
     } catch (_) {/* Original recovery kept its marker. */}

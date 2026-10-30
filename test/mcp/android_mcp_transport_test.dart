@@ -21,6 +21,7 @@ final class _Phone {
   late AndroidMcpPort port;
   bool live = true;
   bool expectFailedSettlement = false;
+  bool expectFailedReadSettlement = false;
   int responseSequence = 0;
   DurableStageHarness get s => app.h.s;
   Future<void> open() async {
@@ -122,11 +123,14 @@ final class _Phone {
 
   Future<void> disconnect() async {
     live = false;
-    if (expectFailedSettlement) {
+    if (expectFailedSettlement || expectFailedReadSettlement) {
       await expectLater(port.close(), throwsStateError);
-      await expectLater(approval.close(), throwsA(isA<Exception>()));
     } else {
       await port.close();
+    }
+    if (expectFailedSettlement) {
+      await expectLater(approval.close(), throwsA(isA<Exception>()));
+    } else {
       await approval.close();
     }
     expect(app.host.isReady, isTrue);
@@ -291,7 +295,7 @@ void main() {
   });
   tearDown(() => f.close());
 
-  test('unified close acknowledges only after original READ work settles',
+  test('unified close retains unconfirmed READ output after business settles',
       () async {
     await f.disconnect();
     f.connect(protocol: true, profileVersion: 3);
@@ -307,6 +311,7 @@ void main() {
         'read', 'search_questions', {'contextRef': ref, 'query': 'needle'});
     unawaited(reading.then((_) {}, onError: (Object _) {}));
     await entered.future;
+    f.expectFailedReadSettlement = true;
     link.input.add((
       1,
       {'type': 'closing', 'connectionId': 'test-connection', 'nonce': 'nonce'}
@@ -315,12 +320,31 @@ void main() {
     expect(link.closedAck.isCompleted, false);
     expect(f.app.h.read.pendingCount, greaterThan(0));
     release.complete();
-    await link.closedAck.future;
+    await link.closeEntered.future;
     expect(f.app.h.read.pendingCount, 0);
-    expect(link.controls.last['type'], 'closed');
     link.closeGate!.complete();
-    expect(await link.settled, true);
+    expect(await link.settled, false);
+    expect(link.closedAck.isCompleted, false);
     expect(link.diagnostics, ['peer_closing']);
+  });
+
+  test('unified idle close acknowledges a flushed response', () async {
+    await f.disconnect();
+    f.connect(protocol: true, profileVersion: 3);
+    final ref = await f.app.h.context();
+    final link = _ProtocolLink(f);
+    await link.initialize();
+    expect(
+        (await link.call('read', 'search_questions',
+            {'contextRef': ref, 'query': 'needle'}))['error'],
+        isNull);
+    await f.port.whenSettled;
+    link.input.add((
+      1,
+      {'type': 'closing', 'connectionId': 'test-connection', 'nonce': 'nonce'}
+    ));
+    expect(await link.settled, true);
+    expect(link.closedAck.isCompleted, true);
   });
 
   test('transport failure diagnostics exclude input and cannot block close',
@@ -582,7 +606,7 @@ void main() {
     });
   }
 
-  for (final failure in ['output', 'close', 'duplicate-id']) {
+  for (final failure in ['output', 'close', 'duplicate-id', 'closing']) {
     test(
         'SDK $failure failure retains non-clean approval after original I/O joins',
         () async {
@@ -590,7 +614,7 @@ void main() {
       final context = await f.context();
       final count = await f.s.h.count('questions');
       await f.disconnect();
-      f.connect(protocol: true);
+      f.connect(protocol: true, profileVersion: failure == 'closing' ? 3 : 2);
       final link = _ProtocolLink(f)
         ..closeGate = Completer<void>()
         ..failClose = failure == 'close';
@@ -610,6 +634,15 @@ void main() {
       } else if (failure == 'duplicate-id') {
         link.input
             .add((2, {'jsonrpc': '2.0', 'id': 7, 'method': 'tools/list'}));
+      } else if (failure == 'closing') {
+        link.input.add((
+          1,
+          {
+            'type': 'closing',
+            'connectionId': 'test-connection',
+            'nonce': 'nonce'
+          }
+        ));
       } else {
         link.releaseWrite.completeError(StateError('test_write_failed'));
       }
@@ -622,6 +655,7 @@ void main() {
       if (failure != 'output') link.releaseWrite.complete();
       link.closeGate!.complete();
       expect(await link.settled, isFalse);
+      expect(link.closedAck.isCompleted, false);
       await original;
       expect(f.approval.pendingCount, 1);
       expect(f.app.host.isReady, isTrue);
@@ -632,20 +666,24 @@ void main() {
   }
 
   for (final scenario in [
-    (ExternalGenerationMode.review, 'eof'),
-    (ExternalGenerationMode.direct, 'eof'),
-    (ExternalGenerationMode.direct, 'protocol'),
-    (ExternalGenerationMode.direct, 'wrong-cancel'),
-    (ExternalGenerationMode.direct, 'cancel'),
+    (ExternalGenerationMode.review, 'eof', 2),
+    (ExternalGenerationMode.direct, 'eof', 2),
+    (ExternalGenerationMode.direct, 'protocol', 2),
+    (ExternalGenerationMode.direct, 'wrong-cancel', 2),
+    (ExternalGenerationMode.direct, 'cancel', 2),
+    (ExternalGenerationMode.direct, 'wrong-cancel', 3),
+    (ExternalGenerationMode.direct, 'cancel', 3),
+    (ExternalGenerationMode.review, 'closing', 3),
+    (ExternalGenerationMode.direct, 'closing', 3),
   ]) {
     test(
-        'SDK pre-send ${scenario.$1}/${scenario.$2} distinguishes cancellation from lost output',
+        'SDK pre-send ${scenario.$1}/${scenario.$2}/v${scenario.$3} distinguishes cancellation from lost output',
         () async {
       await f.policy(scenario.$1);
       final context = await f.context();
       final count = await f.s.h.count('questions');
       await f.disconnect();
-      f.connect(protocol: true);
+      f.connect(protocol: true, profileVersion: scenario.$3);
       final paused = _BeforeResponsePort(f.port);
       final link = _ProtocolLink(f, serverPort: paused)
         ..closeGate = Completer<void>();
@@ -664,6 +702,16 @@ void main() {
       try {
         if (explicitlyCancelled) {
           link.cancel('unwritten');
+        } else if (scenario.$2 == 'closing') {
+          // The desktop sends this control on stdin EOF, without an MCP cancel.
+          link.input.add((
+            1,
+            {
+              'type': 'closing',
+              'connectionId': 'test-connection',
+              'nonce': 'nonce'
+            }
+          ));
         } else if (scenario.$2 == 'protocol') {
           link.input.add((
             2,
@@ -687,6 +735,7 @@ void main() {
         link.closeGate!.complete();
         expect(await link.settled, explicitlyCancelled);
         await original;
+        expect(link.closedAck.isCompleted, false);
         expect(f.approval.pendingCount, explicitlyCancelled ? 0 : 1);
         expect(
             (await f.port.call(
