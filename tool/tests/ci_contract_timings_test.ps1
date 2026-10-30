@@ -6,12 +6,23 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $scriptPath = Join-Path $root 'tool/ci/summarize_flutter_test_times.ps1'
 $workflowPath = Join-Path $root '.github/workflows/pr-contract-checks.yml'
+$manifestPath = Join-Path $root 'tool/ci/contract_test_suites.psd1'
 $fixture = Join-Path $root ('.dart_tool/ci-timing-fixture-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $fixture | Out-Null
 $inputPath = Join-Path $fixture 'events.jsonl'
 $outputPath = Join-Path $fixture 'summary.json'
 function Assert-True([bool]$Condition, [string]$Message) {
     if (!$Condition) { throw "Assertion failed: $Message" }
+}
+function Assert-InlineRunBudget([string]$Workflow) {
+    # GitHub expands interpolated run blocks into format expressions. Keep a
+    # conservative budget below its 21,000-character expression limit.
+    $runs = [regex]::Matches($Workflow, '(?m)^        run: \|\r?\n((?:^          .*\r?\n|^\r?\n)+)')
+    Assert-True ($runs.Count -gt 0) 'workflow inline run blocks found'
+    foreach ($run in $runs) {
+        $script = $run.Groups[1].Value -replace '(?m)^          ', ''
+        Assert-True ($script.Length -le 10000) 'inline run exceeds 10,000-character budget; move data or commands to a file'
+    }
 }
 function Write-Events([object[]]$Events) {
     $lines = @($Events | ForEach-Object { ConvertTo-Json -InputObject $_ -Depth 5 -Compress })
@@ -55,6 +66,11 @@ Expect-Rejected (@($events) + @(@{type='testDone';time=190;testID=1}))
 Expect-Rejected @(@{type='suite';time=0;suite=@{id=0;path=(Join-Path $root '../outside_test.dart')}})
 
 $workflow = Get-Content -LiteralPath $workflowPath -Raw
+Assert-InlineRunBudget $workflow
+$oversizedRun = "        run: |`n          " + ('x' * 21001) + "`n"
+$budgetRejected = $false
+try { Assert-InlineRunBudget $oversizedRun } catch { $budgetRejected = $true }
+Assert-True $budgetRejected 'oversized inline script must fail before GitHub workflow admission'
 $contracts = [regex]::Match($workflow, '(?ms)^  contracts:\r?\n(.*?)(?=^  [a-z_]+:|\z)')
 Assert-True $contracts.Success 'contracts job exists'
 Assert-True ($contracts.Value -match '(?m)^    needs: impact\r?$') 'contract shards consume only the plan'
@@ -108,10 +124,14 @@ foreach ($command in @(
 }
 Write-Output 'PASS: plan-gated units, aggregate recomputation, weekly full regression and separate concurrency'
 
-$block = [regex]::Match($workflow, '(?s)\$tests = @\((.*?)\n\s*\)')
-$paths = @([regex]::Matches($block.Groups[1].Value, "'([^']+_test\.dart)'") | ForEach-Object { $_.Groups[1].Value })
+Assert-True ($contracts.Value.Contains('$tests = @((Import-PowerShellDataFile ./tool/ci/contract_test_suites.psd1).Tests)')) 'shards load the checked standing manifest'
+$manifest = Import-PowerShellDataFile -LiteralPath $manifestPath
+Assert-True ($manifest.Count -eq 1 -and $manifest.ContainsKey('Tests')) 'manifest contains only the ordered Tests array'
+$paths = @($manifest.Tests)
+Assert-True ($paths.Count -gt 0) 'standing test manifest is not empty'
 Assert-True ($paths.Count -eq @($paths | Select-Object -Unique).Count) 'no duplicate standing tests'
 foreach ($path in $paths) {
+    Assert-True ($path -is [string] -and $path -match '^test/[A-Za-z0-9_/-]+_test\.dart$') 'manifest entry is an executable repository-relative test path'
     Assert-True (Test-Path -LiteralPath (Join-Path $root $path) -PathType Leaf) "missing standing test: $path"
 }
 $v3 = @(Get-ChildItem -LiteralPath (Join-Path $root 'test') -Recurse -Filter '*_test.dart' | ForEach-Object {
@@ -149,8 +169,8 @@ foreach ($path in @(
 )) {
     Assert-True ($paths -contains $path) "External regression coverage missing: $path"
 }
-Assert-True (!$workflow.Contains("'test/support/study_activity_time_fakes.dart'")) 'support is not executable'
-Assert-True (!($workflow -match "'test/[^']*_(?:support|probe)\.dart'")) 'support/probe files are not executable entries'
+Assert-True ($paths -notcontains 'test/support/study_activity_time_fakes.dart') 'support is not executable'
+Assert-True (@($paths | Where-Object { $_ -match '_(?:support|probe)\.dart$' }).Count -eq 0) 'support/probe files are not executable entries'
 $partitions = @(0..3 | ForEach-Object { $shard=$_; for ($i=$shard; $i -lt $paths.Count; $i+=4) { $paths[$i] } })
 Assert-True ($partitions.Count -eq $paths.Count -and @($partitions | Select-Object -Unique).Count -eq $paths.Count) 'modulo assignment exactly once'
 Assert-True ($workflow.Contains('github.head_ref || github.ref_name')) 'branch identity shared across events'

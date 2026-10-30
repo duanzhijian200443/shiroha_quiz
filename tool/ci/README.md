@@ -1,10 +1,19 @@
 # Contract CI timings, selective units and verified reuse
 
-The contracts job retains the standing test list in
-`.github/workflows/pr-contract-checks.yml`. Every executable entry must exist,
-appear once and be assigned once by the existing `index % 4` split. Support
-fixtures are not executable entries. Training/StudyActivity suites are standing
-coverage even when a PR changes only production code.
+The contracts job loads the ordered standing test list from
+`tool/ci/contract_test_suites.psd1` with `Import-PowerShellDataFile`.
+`.github/workflows/pr-contract-checks.yml` retains the execution and failure
+gates. Every executable entry must exist, appear once and be assigned once by
+the existing `index % 4` split. Support fixtures are not executable entries.
+Training/StudyActivity suites are standing coverage even when a PR changes only
+production code.
+
+The coverage check reads that same manifest and limits inline workflow run
+blocks to 10,000 characters. This conservative budget leaves room for GitHub's
+interpolation expansion under its 21,000-character expression limit; growing
+the test catalog no longer grows an inline expression. Manifest changes remain
+shared-configuration inputs requiring full validation, and the existing tracked
+input digest includes the manifest for reuse checks.
 
 Android device-access foundation adds standing pure foreground-lifetime,
 association-CAS and Native-boundary refusal tests. They use synthetic resources,

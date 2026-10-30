@@ -58,6 +58,7 @@ class ClassificationTest(unittest.TestCase):
             (".github/workflows/pr-contract-checks.yml", ALL),
             ("tool/ci/resolve_ci_impact.py", ALL),
             ("tool/ci/impact_rules.json", ALL),
+            ("tool/ci/contract_test_suites.psd1", ALL),
             ("windows/external_native/CMakeLists.txt", ALL),
             ("windows/external_native/check_offline.ps1", ALL),
             ("windows/CMakeLists.txt", ALL),
