@@ -232,12 +232,15 @@ lastSettlementState: CLEAN | DIRTY | UNKNOWN
 revision
 ```
 
+新配对的字段按阶段有效：`UNCLAIMED/PREPARING` 中 `verifiedInstallationBinding` 在原 P15/P0 验证完成前必须为 `null`；`adapterCredentialSlotRef` 可为 `null` 或原 adapter 预留的固定引用，但预留不证明凭据已保存或设备身份已验证。尚无结算证据时 `lastSettlementRef=null`、`lastSettlementState=UNKNOWN`。不得用自报值、占位身份或默认 clean 填齐字段。转为 `LINK_OWNED` 前，必须由原 adapter 的真实结果填入已验证绑定、已保存凭据引用及对应结算证据，并按同一 operationId／expected revision 条件更新；失败或中断仍保留准备阶段及已取得的真实证据。#359 的缺失旧字段另按 §7.2.1 处理。
+
 规则：
 
 - 新配对先创建 `UNCLAIMED/PREPARING` 准备记录；原 P15/P0 配对、用户确认、凭据保存和资源结算完成后，才在同一槽位控制锁及 expected revision CAS 下转为 `LINK_OWNED`。
 - 对历史上已存在、没有该记录的配对，**不能由缺失记录推断 `UNCLAIMED`**。只有原适配器／原 owner 能提供与设备、安装、槽位及 resource generation 绑定的 clean 结算证明，并且可信本机注册来源能证明未曾进入 #356 托管，才允许一次性建立初始 `LINK_OWNED` 记录。
 - 由 #356 创建或更新过的记录必须保留 `LEGACY356_OWNED`／对应旧 owner 证据；不得由新 Link 单方面改写成 `UNCLAIMED`。
-- 记录损坏、未知版本、槽位冲突、来源缺失或结算不明时设为／解释为 `UNKNOWN`，进入 `LEGACY_STATUS_UNKNOWN` 或 `RECOVERY_REQUIRED`，提供脱敏诊断信息和明确的人工处置出口；不得自动初始化、清空或重配对。
+- 所有权来源记录损坏、未知版本、槽位／owner 绑定冲突或所有权来源缺失时设为／解释为 `UNKNOWN`，进入 `LEGACY_STATUS_UNKNOWN` 或 `RECOVERY_REQUIRED`，提供脱敏诊断信息和明确的人工处置出口；不得自动初始化、清空或重配对。
+- 已独立证实的所有权不因结算回执缺失、损坏或不属于当前资源运行而失效；保留原 `LINK_OWNED` 和 dirty／unknown 资源快照，进入 `RECOVERY_REQUIRED`。这些回执问题不能证明 clean，也不能把已确认 owner 改成 `UNKNOWN` 或未认领。
 - 所有创建／转换使用槽位独占与 expected revision CAS；同一槽位不能并发建立两个 owner。
 - `SlotOwnershipRecord` 只证明托管来源与资源状态，不认证设备、不授予 Grant、不恢复 Enable，也不能代替 P15/P0。
 
@@ -416,14 +419,14 @@ Link 不读 `app_settings` 或任何题库数据库。使用用户私有、版�
 
 `SlotOwnershipRecord` 是独立 Link Infrastructure 的托管历史／资源 owner 记录，不是设备认证、Grant 或业务 Session。其字段、来源和状态转换由 §4.3 定义；本节规定持久化和恢复要求。
 
-- 记录必须与原受保护配对槽位、设备／安装身份和 adapter credential slot 一一绑定。
+- 已完成配对的记录必须与原受保护配对槽位、设备／安装身份和 adapter credential slot 一一绑定；新配对准备阶段的空值／预留引用按 §4.3 处理，不提前声明已验证身份。
 - 新配对在原 owner 流程内创建 `UNCLAIMED` 记录；只有原 P15/P0 与资源结算完成后才能转成 `LINK_OWNED`。
 - 已有历史配对若无记录，必须取得原 owner／adapter 对该精确槽位和 resource generation 的 clean 结算证据，并取得可信本机来源登记证明未由 #356 托管，才允许一次性初始化。
 - 缺记录不是 `UNCLAIMED` 证据；配对凭据不是托管历史证据；PID、锁、marker 的单独状态不是结算证明。
 - 已由 #356 管理的记录必须保持 `LEGACY356_OWNED`，不得被 Link 的普通初始化覆盖。
 - 已为 `LINK_OWNED` 的槽位沿用同一 owner；Link 崩溃后不得重新创建 owner 或再次执行旧宿主退役。
 
-LinkStateStore 与 SlotOwnershipRecord 的跨文件更新必须使用同一槽位互斥、expected revision、operationId 和可恢复阶段。若一侧写入完成而另一侧未完成，重启时只允许按同一 operationId／owner generation 补齐或保持 `UNKNOWN`；不得新建第二个 owner。
+LinkStateStore 与 SlotOwnershipRecord 的跨文件更新必须使用同一槽位互斥、expected revision、operationId 和可恢复阶段。若一侧写入完成而另一侧未完成，重启时只允许按同一 operationId／owner generation 核验并补齐；所有权无法确认时保持 `UNKNOWN`，已确认的 owner 则保留其所有权和原 dirty／unknown 资源状态，不能由缺失结算证据否定所有权。不得新建第二个 owner。
 
 #### 7.2.1 #359 旧格式适配与可恢复升级
 
@@ -436,22 +439,31 @@ LinkStateStore 与 SlotOwnershipRecord 的跨文件更新必须使用同一槽�
 | `RELEASED`，尚无 Link claim | `LEGACY_RETIRED` | 保留原 handoffId、releaseRecordRef 和 fence revision；不单独证明 Link 已拥有槽位 |
 | `CLAIM_PENDING` | `LINK_CLAIM_PENDING` | 只由同一 handoffId、Link instance 和预期 revision 续接 |
 | `CLAIMED` 且 owner 绑定完整 | `LINK_OWNED`，ownerKind=`legacy_link_claim` | 沿用原 Link owner／generation，不再次退役或创建第二 owner |
-| `CLAIMED` 且资源 dirty／unknown | `LINK_OWNED` + 原 settlement 状态 | 原样保留 dirty／unknown、原 run/resource/process 和缺失回执 |
+| `CLAIMED`，owner 绑定完整且资源 dirty／unknown | `LINK_OWNED` + 原 settlement 状态 | 原样保留 dirty／unknown、原 run/resource/process 和缺失回执 |
 | `PREPARED`／旧释放未完成 | `LEGACY_RETIRE_PENDING` | 保留旧 owner 和 operationId，新 Link 不接管 |
-| 缺失、损坏、冲突或未知版本 | `UNKNOWN` | 诊断，不推断全新、不生成 clean、不删除原文件 |
+| 所有权来源缺失、损坏、冲突或未知版本 | `UNKNOWN` | 诊断，不推断全新、不生成 clean、不删除原文件 |
 
 旧字段映射必须以源码事实为准。若旧格式没有 `ownerGeneration` 或 `resourceGeneration` 同名字段，应从旧 owner／resource 绑定或资源回执映射；确实不存在时记录 `UNAVAILABLE_IN_LEGACY_FORMAT`，不得伪造数值、默认 0 或合成 clean。
 
+适配必须分开两类核验：
+
+- **所有权核验**：按 #359 原认领规则核对 `HostHandoffRecord` 与 `LinkStateStore` 的 slotRef／targetRef、handoffId、newOwner／connectorInstanceId、设备／安装／Profile 绑定及认领 revision 与后续 revision 的合法关系；不得要求认领时 revision 等于当前运行 revision。所有权来源本身冲突或无法独立确认时 fail-closed，不认领、不初始化。
+- **资源结算核验**：独立核对原资源快照及回执的 run/resource/process、目标和完整结算事实。只有匹配当前待恢复资源的真实证据才能证明 clean；缺失、无法解码或仅属于较早 enable-proof／其他运行的回执不能证明当前 business 资源 clean，也不否定已独立确认的 `CLAIMED` owner。原 dirty／unknown、原资源身份和缺失证据必须保留；格式适配本身不执行 clean 转换。
+
+旧格式写入互斥是迁移的前置条件。#359 的 `HostHandoffStore` 使用原槽位的 `adapter.lock`，`LinkStateStore` 在打开期间持有原状态目录的 `link-owner.lock`；新的 `SlotOwnershipLock` 不能排除这些旧写入者。迁移前须撤回旧写入入口，确认旧 Link／原写入者已停止写入，并通过上述原互斥取得一致来源快照。受信安装／入口配置中的旧 #359 写入入口须在取快照前、于锁外完成升级或停用；须有其重新启动／旧配置恢复也不能恢复旧写入权的证据，不能仅关闭当前进程或写入旧二进制不认识的新迁移标记。资源已结算、PID 消失或一次摘要相等均不等于写入权已排除；旧进程已停止但资源仍 dirty 时可保留原状态适配，不要求先补造 clean。
+
+原互斥须覆盖来源读取、新格式发布、回读核验和完成标记，不能读完便释放、再凭旧快照发布。全部迁移锁使用不等待的获取；任一不可得即释放本次取得的锁并有界拒绝，原 adapter 结算或人工等待留在锁外，不抢锁、不强杀、不清除 pending／dirty 文件。持锁期间只执行有界本机状态 I/O，不等待 TLS、进程退出或人工操作；完成标记发布前回读确认旧入口排除措施仍有效，释放锁后也不能恢复旧写入权。此要求沿用 §7.3.3 的受支持入口证明边界，不新增 owner 状态，也不重新执行 #356 退役。
+
 格式升级采用保留原件的单向适配：
 
-1. 在槽位控制锁下读取旧记录，计算来源摘要并创建唯一 `migrationOperationId`。
-2. 严格解码旧 `HostHandoffRecord`、`LinkStateStore` 和资源回执，核对 slot、handoff、owner、run/resource/process 关系；不匹配即 UNKNOWN。
-3. 写入新格式临时记录，包含 `sourceFormat=#359`、来源摘要、migrationOperationId、映射后的 owner 与 settlement 状态；flush 后原子发布。原文件不删除、不覆盖。
-4. 回读新记录并与旧来源逐项比对；只有完全一致才写入迁移完成标记。
-5. 中断后按同一 migrationOperationId 重读并继续核验；不得创建第二 owner、改变 owner generation、把 dirty 改成 clean 或跳过原恢复。
-6. 只有新格式持久化及来源核验完成后，才允许新代码以规范投影继续运行。旧文件保留到独立迁移验收完成，删除旧文件需要另行明确授权。
+1. 满足上述旧写入者排除条件，在原 `link-owner.lock`、`adapter.lock` 与槽位控制锁共同保护下读取一致来源快照，记录各来源 revision／摘要并创建唯一 `migrationOperationId`。
+2. 严格解码所有权来源，独立完成 owner 核验；再按原资源快照核验可用结算回执。所有权冲突进入 `UNKNOWN`；owner 已确认但回执缺失或不匹配时，保留 `LINK_OWNED` 与原 dirty／unknown，不将二者混为同一失败。
+3. 写入新格式临时记录，包含 `sourceFormat=#359`、来源 revision／摘要、migrationOperationId、映射后的 owner 与 settlement 状态。仍在原互斥保护下重新读取来源并核对 revision／摘要，确认未变后 flush、原子发布；原文件不删除、不覆盖。
+4. 保持原互斥，回读新记录并与稳定的旧来源逐项比对；只有完全一致且旧入口升级／停用的持久排除证据成立，才写入迁移完成标记并切换到新格式。来源变化、锁保护丢失或排除措施不明时不得标记完成或使用新记录准入。
+5. 中断后先重新取得同样的原互斥并核验旧入口排除条件，再按同一 migrationOperationId 重读来源和目标；来源漂移时保留原件与未完成迁移记录并进入诊断，不用新摘要覆盖原 operation。不得创建第二 owner、改变 owner generation、把 dirty 改成 clean 或跳过原恢复。
+6. 只有新格式持久化、来源核验和旧写入者排除全部完成后，才允许新代码以该迁移结果继续运行；缺少匹配同一 migrationOperationId 的完成标记时，新文件存在不表示迁移已完成。旧文件保留到独立迁移验收完成，删除旧文件需要另行明确授权。
 
-`SlotOwnershipRecord` 是规范投影，不意味着必须把所有旧记录改写成一份新文件后才可恢复。兼容读取可先提供只读 adapter；任何升级写入必须可重入、可核验、保留来源且不改变资源结算事实。
+`SlotOwnershipRecord` 是规范投影，不意味着必须把所有旧记录改写成一份新文件后才可恢复。兼容读取可先提供只读 adapter；用于接管／恢复准入的投影也必须来自原互斥保护的一致快照，并在使用期间维持单一写入 owner，不能以只读为由绕过旧写入者排除。任何升级写入必须可重入、可核验、保留来源且不改变资源结算事实。
 
 ### 7.3 #356 遗留槽位的一次性退役
 
@@ -524,7 +536,7 @@ LinkStateStore 与 SlotOwnershipRecord 的跨文件更新必须使用同一槽�
 
 必须按以下顺序处理：
 
-1. 读取 LinkStateStore、SlotOwnershipRecord 和原资源 journal，核对相同 `connectorInstanceId`、`targetRef`、installation binding、Profile、owner generation、resource generation、lease/resource/process identity。
+1. 读取 LinkStateStore、SlotOwnershipRecord 和原资源 journal，按 §7.2.1 分别核验持久 owner 的 `connectorInstanceId`、`targetRef`、installation binding、Profile、owner generation，以及待结算资源的 resource generation、lease/run/resource/process identity；原认领关系和结算回执不能互相代替，旧格式缺失字段不得补造。
 2. 若 owner 记录为 `LINK_OWNED`／`CLAIMED` 且所有 owner 绑定一致、无未结算资源，沿用同一个 owner generation；允许创建新的运行代次和新业务 lease，但不得创建第二个 owner、重做旧 App retired 或重新配对。
 3. 若业务／资源为 dirty／unknown，保留原 CLAIMED／LINK_OWNED、原 owner 和 dirty snapshot，进入原 owner 的恢复流程。恢复必须针对原 run/resource/process，不能拿更早的 enable-proof 回执替代 business 资源回执。
 4. 只有原 owner 的结算证据证明 clean，才允许对同一 owner generation 条件更新资源状态并建立新 lease。
@@ -1284,13 +1296,15 @@ Link 可以有界读取并丢弃不能交付的 MCP 输出；这不允许持久�
 | L09 | 新建 Link／新配对 | 仅受信初始化入口持久创建同一 operationId 的 UNCLAIMED/PREPARING；完成原 P15/P0、凭据保存及资源结算后 CAS 建立 LINK_OWNED；重试不创建第二 owner，不依赖旧宿主、不伪造交接 | D+N+A |
 | L10 | 已有配对、从未由 #356 托管 | 受信来源记录与原 owner clean 结算证据匹配后直接建立 LINK_OWNED；缺证据进入诊断 | D+N+A |
 | L11 | #356 遗留退役 | 旧入口清单与升级／停用证据成立；RETIRE_INTENT 持久阻断新准入；原 adapter 结算并释放 adapter.lock；RETIRE_PREPARED 先于旧 App retired 事务；RETIRED 后 Link 接管 | D+N+A |
-| L12 | #359 已 CLAIMED 的 Link owner 崩溃 | 同一 owner generation 恢复；不再次退役、不新建 owner；dirty 仍按原 business run/resource/process 证据结算 | D+N |
+| L12 | #359 已 CLAIMED 的 Link owner 崩溃 | owner 绑定独立核验，同一 owner generation 恢复；缺失／旧回执保留原 owner 与 dirty；真实 owner 冲突拒绝；仅原 business run/resource/process 证据可证明结算；不再次退役、不新建 owner | D+N |
 | L13 | 初始化／旧格式升级／退役／认领各持久写入点中断 | UNCLAIMED/PREPARING、LINK_OWNED、RETIRE_INTENT、RETIRE_PREPARED、RETIRED、#359 RELEASED、CLAIM_PENDING、CLAIMED 均按 operationId／revision 恢复；无双 owner、无自动清 dirty、旧文件不丢失 | D+N+A |
 | L14 | 统计／文件／生成 | 原权限和正式数据结果一致，无旧 v0 回退 | D+A+C |
 | L15 | 插件／运行包更新 | 未覆盖在用程序，不改变手机 Grant | D+N |
 | L16 | 关闭全部外部入口 | 本地题库、Review、练习仍可用 | A |
 
 L09／L10 须在隔离夹具中覆盖“LinkStateStore 缺失但旧配对、owner 或 dirty 仍存在”、重复初始化、首次准备写入后崩溃与并发初始化；不得把这些情况误判为全新或生成第二 owner。L11／L13 须验证每个已登记旧入口的 `RETIRE_INTENT` 拒绝，或其实际停用措施在重新启动及旧注册／配置恢复后仍有效；仅观察当前进程退出不构成通过。这些是未来实现验收条件，不要求删除真实 dirty 文件，也不把静态推演计为真机恢复成功。
+
+L09 还须验证准备阶段允许的空值／预留引用不能通过 `LINK_OWNED` 的已验证身份门槛。L12 须分别覆盖 owner 一致但回执缺失、损坏、属于旧 enable-proof／其他运行，以及真正的 owner 绑定冲突；前者保留原 owner 与 dirty，后者 fail-closed，均不能启动新业务。L13 须覆盖旧写入者仍持原锁、快照读取后尝试写入、发布前／后及完成标记前中断、来源 revision／摘要漂移，以及迁移锁释放后旧入口重启／配置恢复；必须证明无未受保护的快照发布、无旧新双写、无 dirty 洗白。原写入者已停止而结算仍 unknown 的夹具可以原样适配，不把资源 clean 作为格式适配前置。
 
 ### 22.2 官方远程通道
 

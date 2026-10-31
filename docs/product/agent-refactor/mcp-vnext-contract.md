@@ -2483,6 +2483,11 @@ it checks the original protected-slot provenance and retains one durable
 initialization operationId across retries/interruption. The original adapter
 supplies verified device/installation/Profile bindings. Missing LinkStateStore
 with retained pairing/owner/dirty evidence is not a fresh-slot admission.
+For new pairing, PREPARING keeps an unverified installation binding null and
+allows only a null or adapter-reserved credential-slot reference. A reservation
+does not prove saved credentials or verified identity. LINK_OWNED requires the
+original verified binding, saved credentials and corresponding settlement;
+initialization never fabricates these values to satisfy required fields.
 
 <a id="194-recovery-and-old-host-handoff"></a>
 ### 19.4 Initialization, legacy retirement and Link recovery
@@ -2522,6 +2527,27 @@ upgrade preserves source files, matching revisions and resource facts; missing
 legacy fields are not fabricated. A CLAIMED slot already belongs to Link and
 must not repeat old-App retirement. Dirty recovery still needs the original
 business run/resource/process evidence, not an earlier enable-proof receipt.
+
+Ownership and resource settlement are validated separately. An independently
+verified CLAIMED owner remains LINK_OWNED when its current resource receipt is
+missing, malformed or belongs to another run; retain the original dirty/unknown
+snapshot and refuse new business. Conflicting or unprovable ownership still
+fails closed. Format adaptation itself never marks resources clean.
+
+Old-format migration must exclude the original writers using the original
+link-owner.lock and adapter.lock as well as the short slot control lock. Keep
+the source snapshot protected through publication, readback and the completion
+marker; recheck source revisions/digests before publication. Acquire migration
+locks without waiting and release acquired locks on contention; never hold them
+while waiting for adapter settlement or human action. Stopped writers with dirty
+resources may be adapted without a fabricated clean receipt. Trusted installation
+and entry measures must be established outside the locks before taking the
+snapshot and rechecked before completion; after lock release they must still
+prevent old #359 writers from regaining write access through restart or config
+restore. A new lock, a one-time digest check or a marker unknown to the old binary
+is insufficient. Interrupted migration revalidates these conditions
+and the same operation identity; source drift blocks activation. This preserves
+the original owner and adds neither a new owner state nor another #356 retirement.
 
 These are target requirements, not implemented migration or recovery proof.
 The candidate's actual source and bounded observations remain in
