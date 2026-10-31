@@ -211,6 +211,10 @@ Link 不得默认由 Codex 以同一终止范围的普通子进程方式托管�
 
 为使上述判定可执行，Link 使用**独立的槽位所有权记录**（`SlotOwnershipRecord`），由受信本机安装／配对流程创建和条件更新，不放入 Windows 题库数据库。它不是 Grant、设备认证或业务授权，只记录连接托管历史和当前资源 owner。
 
+首次登记只能由受信安装配置指定、通过本机来源校验的独立 Link 初始化入口发起；MCP 业务前端和模型请求没有首次登记权限。初始化入口通过原凭据 owner 核对指定槽位的既有受保护配对引用、owner 来源和未结算资源；配对后的设备／安装／Profile 绑定由原 adapter 的验证结果提供，不能由初始化参数自报。既有配对或 owner 记录不会因 LinkStateStore 缺失、重装或重跑初始化命令而变成全新槽位，仍按上表处理；证据不明时拒绝普通初始化。
+
+初始化 operationId 必须在首次准备记录或对应初始化 journal 中持久化，绑定同一 slotRef、初始化来源及预期 revision。重复执行和崩溃续接复用同一 operationId；已完成时核对并返回同一 owner，不创建第二个 owner。存在未完成登记却无法核对原 operationId 时进入诊断，不用新 ID 覆盖原准备记录。
+
 最小字段：
 
 ```text
@@ -494,6 +498,10 @@ LinkStateStore 与 SlotOwnershipRecord 的跨文件更新必须使用同一槽�
 | 旧入口重启、旧配置或 B0 恢复 | 必须先检查持久 fence／retired 记录；已退役槽位拒绝旧 owner，不得自动恢复 |
 
 所有受支持旧入口在每次获取槽位前都必须检查 fence。若某个旧二进制不识别 fence，它必须在退役前被明确停用并从支持运行集合排除；只关闭当前进程不够。记录 ACL／peer 校验必须说明实际保护边界，不宣称抵抗同用户任意恶意改写。
+
+退役证据必须列明受信安装／入口配置内能够获取该槽位的旧入口标识、二进制版本或摘要，以及各入口是否识别 `RETIRE_INTENT`。不识别的入口须记录实际生效的升级／停用措施及回读结果，例如部署具备检查能力的受支持版本，或禁用旧注册／启动入口并隔离其运行包；仅把版本从“支持列表”移除不算措施。此清单和不兼容入口的停用须在发布 `RETIRE_INTENT` 前确认；已有资源仍由原 owner 正常结算，不通过停用措施强杀原工作或清除其资源。
+
+退役完成前必须再次确认清单与已生效措施一致，并取得旧入口重新启动及旧注册／配置恢复后仍不能绕过措施、重新获取该槽位的证据。任一受支持入口未覆盖或措施效果不明，退役验收不通过，不得据此认领新 owner。证明范围限于上述受信配置和支持运行集合，不要求扫描任意用户目录，也不扩大为阻止同用户任意复制、改写或重建旧程序的安全承诺。
 
 #### 7.3.4 Dirty／unknown 遗留状态
 
@@ -1273,14 +1281,16 @@ Link 可以有界读取并丢弃不能交付的 MCP 输出；这不允许持久�
 | L06 | 目标切换 | 原结算后才变代次；旧引用不能访问新设备 | D+A+C |
 | L07 | 客户端／前端结束 | Link 存活、原输出／密钥／进程据实结算 | N+C |
 | L08 | Link 自身崩溃 | 重启保留 dirty，不重放、不自动删标记 | D+N |
-| L09 | 新建 Link／新配对 | 受信初始化创建 UNCLAIMED/PREPARING；完成原 P15/P0、凭据保存及资源结算后 CAS 建立 LINK_OWNED；不依赖旧宿主、不伪造交接 | D+N+A |
+| L09 | 新建 Link／新配对 | 仅受信初始化入口持久创建同一 operationId 的 UNCLAIMED/PREPARING；完成原 P15/P0、凭据保存及资源结算后 CAS 建立 LINK_OWNED；重试不创建第二 owner，不依赖旧宿主、不伪造交接 | D+N+A |
 | L10 | 已有配对、从未由 #356 托管 | 受信来源记录与原 owner clean 结算证据匹配后直接建立 LINK_OWNED；缺证据进入诊断 | D+N+A |
-| L11 | #356 遗留退役 | RETIRE_INTENT 先持久阻断新准入；原 adapter 结算并释放 adapter.lock；RETIRE_PREPARED 先于旧 App retired 事务；RETIRED 后 Link 接管 | D+N+A |
+| L11 | #356 遗留退役 | 旧入口清单与升级／停用证据成立；RETIRE_INTENT 持久阻断新准入；原 adapter 结算并释放 adapter.lock；RETIRE_PREPARED 先于旧 App retired 事务；RETIRED 后 Link 接管 | D+N+A |
 | L12 | #359 已 CLAIMED 的 Link owner 崩溃 | 同一 owner generation 恢复；不再次退役、不新建 owner；dirty 仍按原 business run/resource/process 证据结算 | D+N |
 | L13 | 初始化／旧格式升级／退役／认领各持久写入点中断 | UNCLAIMED/PREPARING、LINK_OWNED、RETIRE_INTENT、RETIRE_PREPARED、RETIRED、#359 RELEASED、CLAIM_PENDING、CLAIMED 均按 operationId／revision 恢复；无双 owner、无自动清 dirty、旧文件不丢失 | D+N+A |
 | L14 | 统计／文件／生成 | 原权限和正式数据结果一致，无旧 v0 回退 | D+A+C |
 | L15 | 插件／运行包更新 | 未覆盖在用程序，不改变手机 Grant | D+N |
 | L16 | 关闭全部外部入口 | 本地题库、Review、练习仍可用 | A |
+
+L09／L10 须在隔离夹具中覆盖“LinkStateStore 缺失但旧配对、owner 或 dirty 仍存在”、重复初始化、首次准备写入后崩溃与并发初始化；不得把这些情况误判为全新或生成第二 owner。L11／L13 须验证每个已登记旧入口的 `RETIRE_INTENT` 拒绝，或其实际停用措施在重新启动及旧注册／配置恢复后仍有效；仅观察当前进程退出不构成通过。这些是未来实现验收条件，不要求删除真实 dirty 文件，也不把静态推演计为真机恢复成功。
 
 ### 22.2 官方远程通道
 

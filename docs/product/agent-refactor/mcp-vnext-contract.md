@@ -2478,6 +2478,11 @@ after actual replacement acceptance and the user's explicit choice; two entries
 must not own the same paired-device slot concurrently. Normal Android-only
 setup must not require a Windows App release or manufacture legacy handoff
 records. Already-owned or corrupt state is never reset by installation.
+First registration is restricted to the trusted local initialization entry;
+it checks the original protected-slot provenance and retains one durable
+initialization operationId across retries/interruption. The original adapter
+supplies verified device/installation/Profile bindings. Missing LinkStateStore
+with retained pairing/owner/dirty evidence is not a fresh-slot admission.
 
 <a id="194-recovery-and-old-host-handoff"></a>
 ### 19.4 Initialization, legacy retirement and Link recovery
@@ -2501,6 +2506,13 @@ persisted before the old App's retired transaction; RETIRED is published only
 after confirmed commit. The designated Link may then acquire ownership.
 Old entrypoints must honor the persistent intent/fence; unsupported binaries
 are explicitly retired. B0/config restore cannot resurrect old ownership.
+Retirement evidence identifies the old entries in trusted installation/entry
+configuration, their binary identities and actual upgrade/disable measures.
+Incompatible entries are disabled before RETIRE_INTENT; old resource custody
+still settles normally. Completion needs restart/config-restore evidence that
+those entries cannot regain the slot, not just absence of a current process.
+Uncovered entries or unproved measures block retirement acceptance and new-owner
+claim. This does not promise protection against arbitrary same-user binaries.
 
 The actual #359 HostHandoffRecord/LinkStateStore format is read through the
 compatibility projection in design §7.2.1. Absence of the new file never makes
