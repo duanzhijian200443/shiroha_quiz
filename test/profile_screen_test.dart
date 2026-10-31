@@ -332,7 +332,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('two exclusive groups preview and save both axes',
+  testWidgets('three exclusive groups preserve independent preferences',
       (tester) async {
     final settings = _AppearanceSettings();
     await pumpProfile(tester, appearanceSettings: settings, followGlobal: true);
@@ -342,14 +342,17 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('主题风格'), findsOneWidget);
     expect(find.text('显示模式'), findsOneWidget);
+    expect(find.text('界面布局'), findsOneWidget);
     var expected = ShirohaAppearance.light;
     for (final choice in [
       ('style', 'paper'),
       ('mode', 'dark'),
+      ('layout', 'workspace'),
       ('style', 'grayscale'),
       ('mode', 'system'),
       ('style', 'colorful'),
       ('mode', 'light'),
+      ('layout', 'mobile'),
     ]) {
       final key = ValueKey('appearance-${choice.$1}-${choice.$2}');
       await tester.ensureVisible(find.byKey(key));
@@ -357,12 +360,15 @@ void main() {
       await tester.pumpAndSettle();
       expected = choice.$1 == 'style'
           ? expected.copyWith(style: ShirohaThemeStyle.values.byName(choice.$2))
-          : expected.copyWith(
-              mode: ShirohaDisplayMode.values.byName(choice.$2));
+          : choice.$1 == 'mode'
+              ? expected.copyWith(
+                  mode: ShirohaDisplayMode.values.byName(choice.$2))
+              : expected.copyWith(
+                  layout: ShirohaLayoutMode.values.byName(choice.$2));
       expect(globalThemeNotifier.value, expected);
       expect(settings.saved, expected);
       expect(tester.widget<ListTile>(find.byKey(key)).selected, isTrue);
-      for (final group in ['style', 'mode']) {
+      for (final group in ['style', 'mode', 'layout']) {
         final tiles = tester.widgetList<ListTile>(find.byWidgetPredicate((w) =>
             w is ListTile &&
             w.key is ValueKey<String> &&
@@ -377,7 +383,7 @@ void main() {
               .style,
           expected.style);
     }
-    expect(settings.calls, 6);
+    expect(settings.calls, 8);
     expect(tester.takeException(), isNull);
   });
 

@@ -126,7 +126,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
       };
 
   String _themeLabel(ShirohaAppearance value) =>
-      '${_styleLabel(value.style)} · ${_modeLabel(value.mode)}';
+      '${_styleLabel(value.style)} · ${_modeLabel(value.mode)}'
+      '${value.layout == ShirohaLayoutMode.workspace ? ' · 电脑 / 平板' : ''}';
+
+  String _layoutLabel(ShirohaLayoutMode value) => switch (value) {
+        ShirohaLayoutMode.mobile => '手机布局',
+        ShirohaLayoutMode.workspace => '电脑 / 平板布局',
+      };
 
   Widget _appearanceOption(
           {required String key,
@@ -186,6 +192,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     selected: globalThemeNotifier.value.mode == mode,
                     next: globalThemeNotifier.value.copyWith(mode: mode),
                   ),
+                const ListTile(title: Text('界面布局')),
+                for (final layout in ShirohaLayoutMode.values)
+                  _appearanceOption(
+                    key: 'appearance-layout-${layout.name}',
+                    label: _layoutLabel(layout),
+                    selected: globalThemeNotifier.value.layout == layout,
+                    next: globalThemeNotifier.value.copyWith(layout: layout),
+                  ),
+                const Padding(
+                    padding: EdgeInsets.fromLTRB(16, 0, 16, 24),
+                    child: Text('可自行选择布局。电脑 / 平板布局随窗口宽度调整侧栏和首页列数。')),
               ]))),
         ),
       ),

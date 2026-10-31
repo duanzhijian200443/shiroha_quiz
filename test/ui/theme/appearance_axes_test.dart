@@ -6,6 +6,29 @@ import 'package:shiroha_quiz/ui/home/today_visual_theme.dart';
 import 'package:shiroha_quiz/ui/training/training_ui_theme.dart';
 
 void main() {
+  test('layout is optional for old records and independent of color axes', () {
+    final previous = ShirohaAppearance.paperLight;
+    final workspace = previous.copyWith(layout: ShirohaLayoutMode.workspace);
+    for (final preset in [
+      ShirohaAppearance.light,
+      ShirohaAppearance.dark,
+      ShirohaAppearance.colorful
+    ]) {
+      expect(preset.copyWith(layout: ShirohaLayoutMode.workspace).name,
+          preset.name);
+    }
+    expect(ShirohaAppearance.fromJson(previous.toJson()), previous);
+    expect(ShirohaAppearance.fromJson(workspace.toJson()), workspace);
+    expect(workspace.copyWith(mode: ShirohaDisplayMode.system).layout,
+        ShirohaLayoutMode.workspace);
+    for (final invalid in [null, 'unknown', 1]) {
+      expect(
+          ShirohaAppearance.fromJson({...previous.toJson(), 'layout': invalid}),
+          isNull);
+    }
+    expect(AppTheme.themeFor(previous, Brightness.light).colorScheme,
+        AppTheme.themeFor(workspace, Brightness.light).colorScheme);
+  });
   for (final style in ShirohaThemeStyle.values) {
     for (final brightness in Brightness.values) {
       final appearance =
