@@ -147,6 +147,16 @@ final class _AndroidPanelState extends State<AndroidDeviceAccessPanel> {
                           () => widget.access.setFileContentAllowed(allowed))
                       : null),
               SwitchListTile.adaptive(
+                  key: const Key('android-study-statistics'),
+                  title: const Text('允许读取学习统计'),
+                  subtitle:
+                      const Text('仅限原授权题库的进度、待复习和薄弱指标。变更会关闭旧访问；保存后需重新开启连接。'),
+                  value: state.studyStatisticsAllowed,
+                  onChanged: canChangePolicy
+                      ? (allowed) => _run(() =>
+                          widget.access.setStudyStatisticsAllowed(allowed))
+                      : null),
+              SwitchListTile.adaptive(
                   key: const Key('android-generation'),
                   title: const Text('允许生成题目与查询提案'),
                   subtitle: const Text(

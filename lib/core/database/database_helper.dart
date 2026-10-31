@@ -32,6 +32,7 @@ import 'import_task_v31_schema.dart';
 import 'generated_proposal_schema.dart';
 import 'external_authorization_schema.dart';
 import 'external_access_v35_schema.dart';
+import 'external_study_statistics_v36_schema.dart';
 import '../../data/repositories/generated_proposal_reader.dart';
 import '../../application/task_center/retry_file_selection.dart';
 import '../../data/models/task_center_task_identity.dart';
@@ -96,7 +97,7 @@ class DatabaseHelper
   DatabaseHelper._();
 
   static const String _dbName = 'shiroha_core_v1.db';
-  static const int _dbVersion = externalAccessSchemaVersion;
+  static const int _dbVersion = externalStudyStatisticsSchemaVersion;
 
   static String get databaseFileName => _dbName;
   static int get databaseVersion => _dbVersion;
@@ -1199,6 +1200,9 @@ CREATE TABLE IF NOT EXISTS parsed_artifacts (
     }
     if (oldVersion < externalAccessSchemaVersion) {
       await migrateExternalAccessToV35(db);
+    }
+    if (oldVersion < externalStudyStatisticsSchemaVersion) {
+      await migrateExternalStudyStatisticsToV36(db);
     }
     await validateExternalAccessV35Schema(db);
     await validateExternalAuthorizationSchema(db);

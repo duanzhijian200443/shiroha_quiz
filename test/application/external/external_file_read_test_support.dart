@@ -269,7 +269,8 @@ final class FileReadHarness {
   }
 
   void compose(
-      {int maxHandles = 256,
+      {ExternalStudyReadPort? study,
+      int maxHandles = 256,
       int maxBytes = 32768,
       ExternalRuntimeAdmission? admission,
       Duration timeout = const Duration(seconds: 2)}) {
@@ -278,6 +279,7 @@ final class FileReadHarness {
     observed = ObservedF1(lifecycle);
     read = ExternalReadContextService(
         admission: admission ?? s.service.runtimeAdmission,
+        study: study,
         targets: SqliteExternalTargetReadRepository(databaseHelper: s.h.helper),
         questions:
             SqliteExternalQuestionReadRepository(databaseHelper: s.h.helper),

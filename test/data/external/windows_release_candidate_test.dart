@@ -261,10 +261,12 @@ void main() {
         File('windows/external_native/check_offline.ps1').readAsStringSync();
     expect(native, contains('FFI/DLL symbol mismatch'));
     expect(native, contains('/dependents'));
-    final ci =
-        File('.github/workflows/pr-contract-checks.yml').readAsStringSync();
+    final standing =
+        File('tool/ci/contract_test_suites.psd1').readAsStringSync();
     for (final name in ['windows_tls_lifecycle', 'windows_release_candidate']) {
-      expect("'test/data/external/${name}_test.dart'".allMatches(ci).length, 1);
+      expect(
+          "'test/data/external/${name}_test.dart'".allMatches(standing).length,
+          1);
     }
     final cmake = File('windows/CMakeLists.txt').readAsStringSync();
     expect(cmake, contains('install(TARGETS shiroha_external_native'));

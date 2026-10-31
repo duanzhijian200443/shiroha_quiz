@@ -106,7 +106,7 @@ void main() {
     final path = p.join(h.temp.path, 'roundtrip.shiroha');
     await runtime().exportTo(path);
     final manifest = await BackupArchiveIo.readManifestOnly(path);
-    expect(manifest.schemaVersion, 35);
+    expect(manifest.schemaVersion, 36);
     expect(manifest.packageVersion, 2);
     await h.db.delete('questions');
     final restoring = runtime();
@@ -191,7 +191,7 @@ void main() {
         current.proposalId);
     await restoring.commitPreparedRestore();
     h.db = await h.helper.database;
-    expect(await h.db.getVersion(), 35);
+    expect(await h.db.getVersion(), 36);
     expect(await h.count('generated_question_proposals'), 0);
     await validateGeneratedProposalSchema(h.db);
   });

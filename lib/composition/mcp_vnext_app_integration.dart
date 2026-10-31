@@ -55,6 +55,10 @@ final class McpVnextAppIntegration {
       required this.proposals,
       required this.targets,
       required this.questions,
+      this.study,
+      this.studyTimeZone = 'UTC',
+      this.profileVersion = 2,
+      this.source = const VnextDataSource('unselected'),
       required this.files,
       required this.artifacts,
       required this.artifactMetadata,
@@ -64,6 +68,10 @@ final class McpVnextAppIntegration {
       FirstPartyRelayObservation Function()? observeRelay,
       required bool Function() compositionIsCurrent})
       : _isCurrent = compositionIsCurrent {
+    if (![2, 3].contains(profileVersion) ||
+        profileVersion == 3 && (study == null || source.kind == 'unselected')) {
+      throw ArgumentError('Invalid explicit business profile');
+    }
     controls = FirstPartyExternalAccess(
         policy: policy,
         compositionIsCurrent: compositionIsCurrent,
@@ -71,6 +79,10 @@ final class McpVnextAppIntegration {
   }
   final ExternalTargetReadPort targets;
   final ExternalQuestionReadPort questions;
+  final ExternalStudyReadPort? study;
+  final String studyTimeZone;
+  final int profileVersion;
+  final VnextDataSource source;
   final ExternalFileReadPort files;
   final GeneratedLocalAuthorityFactory localAuthority;
   final ExternalAuthorizationRepository authorization;
@@ -201,6 +213,8 @@ final class McpVnextAppIntegration {
         admission: stages.runtimeAdmission,
         targets: targets,
         questions: questions,
+        study: study,
+        studyTimeZone: studyTimeZone,
         files: ExternalFileReader(
             authorization: files,
             source: ExternalVerifiedArtifactSource(
@@ -208,7 +222,10 @@ final class McpVnextAppIntegration {
             index: index,
             chunker: chunker));
     final coordinator = ExternalTrustCoordinator.offline(
-        gateway: ExternalCapabilityGateway(stages: stages, reads: reads),
+        gateway: ExternalCapabilityGateway(
+            stages: stages,
+            reads: reads,
+            enableStudyQueries: profileVersion == 3),
         management: management,
         readiness: readiness,
         compositionIsCurrent: () =>
@@ -225,6 +242,8 @@ final class McpVnextAppIntegration {
         reads: reads,
         stages: stages,
         stageApproval: stageApproval,
+        profileVersion: profileVersion,
+        source: source,
         authentication:
             VnextMcpSessionAuthentication(controls.authenticatedSession),
         approvedTargets: const []);

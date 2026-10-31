@@ -93,6 +93,88 @@ void main() {
       });
     }
   }
+  for (final mode in ExternalGenerationMode.values) {
+    for (final allContent in [false, true]) {
+      test('statistics category CAS preserves $mode and allContent=$allContent',
+          () async {
+        final ref = await view.create('Statistics policy');
+        final management = ExternalAuthorizationManagement(
+            repository: fixture.repository,
+            compositionIsCurrent: () => true,
+            mintProfileId: () => throw StateError('no new profile'));
+        final scopes = (await view.targets()).map((t) => t.scope).toList();
+        final original = await management.replaceGrant(
+            await management.selectProfile(ref.profileId),
+            0,
+            ExternalGrantPolicy(
+                permissions: const [
+                  CapabilityPermission.read,
+                  CapabilityPermission.stage
+                ],
+                scopes: allContent ? const [] : scopes,
+                categories: const [
+                  ExternalContentCategory.questionContent,
+                  ExternalContentCategory.proposalMetadata
+                ],
+                allContent: allContent,
+                generationMode: mode));
+        final enabled = await view.saveStudyStatistics(ref, 1, allowed: true);
+        final unchanged = await view.saveStudyStatistics(ref, 2, allowed: true);
+        expect(unchanged.profile.grantRevision, 2);
+        await expectLater(view.saveStudyStatistics(ref, 1, allowed: false),
+            authFailure(ExternalAuthFailure.staleRevision));
+        final disabled = await view.saveStudyStatistics(ref, 2, allowed: false);
+        for (final record in [enabled, unchanged, disabled]) {
+          expect(record.grant!.policy.permissions,
+              original.grant!.policy.permissions);
+          expect(record.grant!.policy.scopes, original.grant!.policy.scopes);
+          expect(record.grant!.policy.generationMode, mode);
+          expect(record.grant!.policy.allContent, allContent);
+        }
+        expect(enabled.grant!.policy.categories, {
+          ...original.grant!.policy.categories,
+          ExternalContentCategory.studyStatistics
+        });
+        expect(disabled.grant!.policy.categories,
+            original.grant!.policy.categories);
+        await view.revokeGrant(ref, 3);
+        await expectLater(view.saveStudyStatistics(ref, 4, allowed: true),
+            authFailure(ExternalAuthFailure.unauthorized));
+        management.invalidate();
+      });
+    }
+  }
+  test('statistics operation cannot save after its owning view closes',
+      () async {
+    final ref = await view.create('Closing statistics view');
+    await save(ref, 0, categories: [ExternalContentCategory.questionContent]);
+    final pending = view.saveStudyStatistics(ref, 1, allowed: true);
+    final refusal =
+        expectLater(pending, authFailure(ExternalAuthFailure.unauthorized));
+    view.close();
+    await refusal;
+    expect((await fixture.repository.read(ref.profileId)).profile.grantRevision,
+        1);
+  });
+
+  test('statistics consent on a READ-only policy never grants generation',
+      () async {
+    final ref = await view.create('READ only');
+    final original = await save(ref, 0,
+        targets: await view.targets(),
+        categories: [ExternalContentCategory.questionContent]);
+    for (final allowed in [true, false]) {
+      final revision = (await view.read(ref)).profile.grantRevision;
+      final updated =
+          await view.saveStudyStatistics(ref, revision, allowed: allowed);
+      expect(updated.grant!.policy.permissions, {CapabilityPermission.read});
+      expect(updated.grant!.policy.scopes, original.grant!.policy.scopes);
+      expect(updated.grant!.policy.allContent, false);
+      expect(
+          updated.grant!.policy.generationMode, ExternalGenerationMode.confirm);
+    }
+  });
+
   test('file category cannot broaden a legacy bank-only scope', () async {
     final ref = await view.create('Legacy bank');
     await save(ref, 0,

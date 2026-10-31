@@ -450,3 +450,30 @@ P13's static Windows credential/IPC readiness is owned by external boundary §11
 and [the readiness document](windows-host-security-readiness.md). It defines
 future security/environment/authorization acceptance gates, changes no Kernel
 or capability surface and starts no real experiment or production Host.
+
+
+## 9. Explicit unified statistics capabilities
+
+An explicitly enabled `ExternalCapabilityGateway` adds five typed READ routes:
+`external_open_study_context`, `external_list_study_banks`,
+`external_study_overview`, `external_due_review_summary` and
+`external_weak_questions`. The original eleven internal routes remain the
+default. No Built-in/v0 definitions or Kernel identities are copied. Trusted
+`openStudy` binds the original authenticated Session, current Grant revision
+and the App-resolved target collection; `openRead` can bind a returned weak
+QuestionRef to its exact aggregate parent for original P5 detail materialization.
+
+Data ports receive App-minted access, resolve/deduplicate authorized banks before
+SQL and preserve T0 metrics. The original Registry, 2-second READ control,
+pending slots and current authorization/content final gates remain. A typed
+`ExternalStudyResult` carries safe projection plus invocation-local Data proof
+through Kernel release; transient SQLite revision observations are never wire
+fields or persistent authority. Cancellations hold original resources through
+settlement. Statistics are READ/none; original file retrieval can retain its
+derived-cache evidence and STAGE preserves original durable/direct effects.
+
+`McpVnextAppIntegration` accepts a target-owned statistics reader, source,
+timezone and explicit profile selection. Adding a reader alone retains Profile
+2; normal Windows/Android roots retain their original defaults. There is no
+Windows device selector, global host, second Proposal writer or Link dependency.
+External boundary §16 and MCP §19.1 own authorization/storage and wire details.

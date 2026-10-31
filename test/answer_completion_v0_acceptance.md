@@ -147,8 +147,8 @@ git diff --check
 
 ## Standing CI and limits
 
-All 22 files are literal entries in the unconditional `$tests` list in
-`.github/workflows/pr-contract-checks.yml`. Four serial-within-shard jobs run
+All 22 files are literal entries in `tool/ci/contract_test_suites.psd1`, loaded
+by `.github/workflows/pr-contract-checks.yml`. Four serial-within-shard jobs run
 them regardless of changed-file selection; the aggregate job requires every
 shard. D1, B0, I0, Q0, U0, P6/P7 and the added V0 lifecycle/rollback cases are
 covered. Package C additionally adds the existing D0 value-object and

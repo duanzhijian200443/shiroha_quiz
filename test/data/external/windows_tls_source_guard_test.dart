@@ -2,8 +2,38 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'development_source_guard.dart';
 
+void _expectBusinessProfileProjection(String source) {
+  final compact = source.replaceAll(RegExp(r'\s'), '');
+  for (final required in [
+    "'schemaVersion':profileVersion==3?4:3",
+    "decoded['schemaVersion']!=(profileVersion==3?4:3)",
+    'bridgeStageBlocked=>contextKind==VnextMcpContextKind.stage',
+  ]) {
+    expect(compact, contains(required));
+  }
+  expect('this.profileVersion=2'.allMatches(compact).length, 2);
+}
+
 void main() {
   developmentSourceGuardCases();
+  test('explicit v3/v4 projection and legacy defaults reject source drift', () {
+    final source =
+        File('lib/mcp/vnext_mcp_protocol_projection.dart').readAsStringSync();
+    _expectBusinessProfileProjection(source);
+    for (final mutation in [
+      source.replaceAll('profileVersion == 3 ? 4 : 3', '4'),
+      source.replaceFirst(
+          "decoded['schemaVersion'] !=", "decoded['schemaVersion'] =="),
+      source.replaceAll('this.profileVersion = 2', 'this.profileVersion = 3'),
+      source.replaceFirst(
+          'bridgeStageBlocked => contextKind == VnextMcpContextKind.stage',
+          'bridgeStageBlocked => contextKind == VnextMcpContextKind.read'),
+    ]) {
+      expect(mutation, isNot(source));
+      expect(
+          () => _expectBusinessProfileProjection(mutation), throwsA(anything));
+    }
+  });
   test('TLS13 isolated contexts, fixed Raw admission and crypt32 optional ABI',
       () {
     final config = File('lib/data/external/windows_tls_credentials.dart')
@@ -57,12 +87,8 @@ void main() {
         expect(bridge, contains('FirstPartyStageLimits.bridgeExchange'));
         final projection = File('lib/mcp/vnext_mcp_protocol_projection.dart')
             .readAsStringSync();
-        expect(projection, contains("'schemaVersion': 3"));
-        expect(
-            projection,
-            contains(
-                'bridgeStageBlocked => contextKind == VnextMcpContextKind.stage'));
-        expect(projection, contains("decoded['schemaVersion'] != 3"));
+        _expectBusinessProfileProjection(projection);
+        expect(source, isNot(contains('parseUnified(')));
         for (final token in [
           '.connect(',
           'WindowsTlsBridge(',
@@ -329,14 +355,16 @@ void main() {
   test(
       'all new suites registered once; static and Native import gates remain hard failing',
       () {
-    final ci =
-        File('.github/workflows/pr-contract-checks.yml').readAsStringSync();
+    final standing =
+        File('tool/ci/contract_test_suites.psd1').readAsStringSync();
     for (final name in [
       'windows_tls_transport',
       'windows_tls_source_guard',
       'windows_peer_certificate_policy'
     ]) {
-      expect("'test/data/external/${name}_test.dart'".allMatches(ci).length, 1);
+      expect(
+          "'test/data/external/${name}_test.dart'".allMatches(standing).length,
+          1);
     }
     expect(File('tool/external/check_bootstrap_source.ps1').readAsStringSync(),
         contains('check_tls_source.ps1'));

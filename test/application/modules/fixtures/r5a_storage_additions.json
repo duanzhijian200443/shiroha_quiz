@@ -104,6 +104,21 @@
       "before": "    if (oldVersion < generatedProposalOriginSchemaVersion) {\n      await migrateGeneratedProposalOriginToV34(db);\n    }\n",
       "after": "    if (oldVersion < generatedProposalOriginSchemaVersion) {\n      await migrateGeneratedProposalOriginToV34(db);\n    }\n    if (oldVersion < externalAccessSchemaVersion) {\n      await migrateExternalAccessToV35(db);\n    }\n    await validateExternalAccessV35Schema(db);\n",
       "count": 1
+    },
+    {
+      "before": "import 'external_access_v35_schema.dart';\n",
+      "after": "import 'external_access_v35_schema.dart';\nimport 'external_study_statistics_v36_schema.dart';\n",
+      "count": 1
+    },
+    {
+      "before": "static const int _dbVersion = externalAccessSchemaVersion;",
+      "after": "static const int _dbVersion = externalStudyStatisticsSchemaVersion;",
+      "count": 1
+    },
+    {
+      "before": "    if (oldVersion < externalAccessSchemaVersion) {\n      await migrateExternalAccessToV35(db);\n    }\n",
+      "after": "    if (oldVersion < externalAccessSchemaVersion) {\n      await migrateExternalAccessToV35(db);\n    }\n    if (oldVersion < externalStudyStatisticsSchemaVersion) {\n      await migrateExternalStudyStatisticsToV36(db);\n    }\n",
+      "count": 1
     }
   ],
   "lib/data/repositories/backup_snapshot_repository.dart": [

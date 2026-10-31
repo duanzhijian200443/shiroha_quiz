@@ -208,6 +208,11 @@ Never androidLinkFail() => throw StateError('android_link_unavailable');
 /// Caller completion does not release the slot: original approval, dispatch and
 /// persistence AND final response I/O must settle. Closing this port never shuts
 /// down the App host.
+// Shared response-settlement owner. The Android name remains a compatibility
+// spelling; this pure SDK/P10 port requires no native Android host or device
+// selector and can be injected by either target's trusted composition.
+typedef VnextMcpBusinessPort = AndroidMcpPort;
+
 final class AndroidMcpPort implements VnextMcpResponsePort {
   AndroidMcpPort(this.binding, this.current);
   final VnextMcpAppComposition binding;
@@ -219,6 +224,8 @@ final class AndroidMcpPort implements VnextMcpResponsePort {
   final _channelSettled = Completer<bool>();
   Completer<bool>? _output;
   Object? _responseId;
+  Object? _connectionSession;
+  Future<void> Function()? _invalidateReferences;
   bool _closed = false, _settlementFailed = false;
   bool _cancelledBeforeClose = false;
   int _requestId = 0;
@@ -265,26 +272,20 @@ final class AndroidMcpPort implements VnextMcpResponsePort {
       {required Stream<void> cancelled,
       required bool Function() available,
       Object? responseId}) async {
+    Map<String, Object?> failure(String code) => vnextFailure(code,
+        profileVersion: binding.profileVersion, source: binding.source);
     if (responseId == null ||
         _closeTransport == null ||
         _closed ||
         _settlementFailed ||
         !current() ||
         !available()) {
-      return vnextFailure('unavailable');
+      return failure('unavailable');
     }
-    if (!const {
-      'open_generation_context',
-      'search_questions',
-      'get_question_detail',
-      'retrieve_file_content',
-      'get_file_passage',
-      'propose_generated_questions',
-      'get_question_proposal',
-    }.contains(tool)) {
-      return vnextFailure('unavailable');
+    if (!VnextMcpServer.schemasFor(binding.profileVersion).containsKey(tool)) {
+      return failure('unavailable');
     }
-    if (_idle != null) return vnextFailure('resourceLimit');
+    if (_idle != null) return failure('resourceLimit');
     final done = _idle = Completer<void>();
     final output = _output = Completer<bool>();
     _responseId = responseId;
@@ -298,25 +299,45 @@ final class AndroidMcpPort implements VnextMcpResponsePort {
       unawaited(_closeTransport!().catchError((Object _) {}));
     });
     final projection = OfflineIpcCommandProjection(
-        host: binding.host, authentication: binding.authentication);
+        host: binding.host,
+        authentication: binding.supportsUnifiedProfile
+            ? VnextMcpSessionAuthentication(() async {
+                final session = await binding.authentication.authenticate();
+                if (session == null ||
+                    _connectionSession != null &&
+                        !identical(session, _connectionSession)) {
+                  return null;
+                }
+                _connectionSession = session;
+                _invalidateReferences = () => binding.settleConnection(session);
+                return session;
+              })
+            : binding.authentication);
     try {
-      final command = VnextMcpCommand.parse(tool, arguments);
+      final command = binding.supportsUnifiedProfile
+          ? VnextMcpCommand.parseUnified(tool, arguments)
+          : VnextMcpCommand.parse(tool, arguments);
       final id = 'android_${++_requestId}';
-      final result = await projection.invokeV3(command.request(id),
+      final result = await (binding.supportsUnifiedProfile
+              ? projection.invokeV4
+              : projection.invokeV3)(command.request(id),
           binding: binding,
           stageApprovalWait: true,
           control: control,
           responseAvailable: () => !_closed && current() && available());
-      if (result.frame == null) return vnextFailure('outcome_unknown');
+      if (result.frame == null) return failure('outcome_unknown');
       try {
-        return command.response(VnextMcpCommand.decodeFrame(result.frame!), id);
+        return {
+          ...command.response(VnextMcpCommand.decodeFrame(result.frame!), id),
+          if (binding.supportsUnifiedProfile) 'source': binding.source.toJson(),
+        };
       } catch (_) {
-        return vnextFailure('invalidResult');
+        return failure('invalidResult');
       }
     } on FormatException {
-      return vnextFailure('invalidRequest');
+      return failure('invalidRequest');
     } catch (_) {
-      return vnextFailure('unavailable');
+      return failure('unavailable');
     } finally {
       // Cancellation may have returned above while the original work is still
       // running. This same connection retains custody and refuses replacement.
@@ -356,6 +377,7 @@ final class AndroidMcpPort implements VnextMcpResponsePort {
         _settlementFailed = true;
       }
       await whenSettled;
+      await _invalidateReferences?.call();
       if (_settlementFailed) androidLinkFail();
     }();
   }

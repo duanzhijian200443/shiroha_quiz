@@ -126,9 +126,11 @@ void main() {
         contains('[_exchangeReadBegin, _exchangeConsume, _exchangeRelease]'));
     final workflow =
         File('.github/workflows/pr-contract-checks.yml').readAsStringSync();
+    final standing =
+        File('tool/ci/contract_test_suites.psd1').readAsStringSync();
     expect(
         "'test/data/external/windows_exchange_consumption_test.dart'"
-            .allMatches(workflow)
+            .allMatches(standing)
             .length,
         1);
     expect(

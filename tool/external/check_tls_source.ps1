@@ -6,6 +6,33 @@ $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $owned = @('windows_tls_transport.dart', 'windows_tls_resources.dart', 'windows_tls_credentials.dart',
     'windows_tls_channel.dart', 'windows_tls_host.dart', 'windows_tls_io.dart', 'windows_tls_bridge.dart')
 $external = [IO.Path]::GetFullPath((Join-Path $root 'lib/data/external'))
+function Assert-BusinessProfileProjection([string]$Source) {
+    $compact = $Source -replace '\s', ''
+    foreach ($required in @("'schemaVersion':profileVersion==3?4:3",
+        "decoded['schemaVersion']!=(profileVersion==3?4:3)",
+        'bridgeStageBlocked=>contextKind==VnextMcpContextKind.stage')) {
+        if (!$compact.Contains($required)) { throw 'Explicit v3/v4 projection guard missing' }
+    }
+    if ([regex]::Matches($compact, [regex]::Escape('this.profileVersion=2')).Count -ne 2) {
+        throw 'Legacy command constructors lost Profile 2 default'
+    }
+}
+$businessProjection = [IO.File]::ReadAllText((Join-Path $root 'lib/mcp/vnext_mcp_protocol_projection.dart'))
+Assert-BusinessProfileProjection $businessProjection
+$projectionMutations = @(
+    $businessProjection.Replace('profileVersion == 3 ? 4 : 3', '4'),
+    $businessProjection.Replace("decoded['schemaVersion'] !=", "decoded['schemaVersion'] =="),
+    $businessProjection.Replace('this.profileVersion = 2', 'this.profileVersion = 3'),
+    $businessProjection.Replace('bridgeStageBlocked => contextKind == VnextMcpContextKind.stage',
+        'bridgeStageBlocked => contextKind == VnextMcpContextKind.read')
+)
+foreach ($mutation in $projectionMutations) {
+    if ($mutation -ceq $businessProjection) { throw 'Business profile mutation did not apply' }
+    $rejected = $false
+    try { Assert-BusinessProfileProjection $mutation } catch { $rejected = $true }
+    if (!$rejected) { throw 'Business profile mutation escaped version/STAGE guard' }
+}
+Write-Output 'PASS: explicit v3/v4 and legacy-default projection mutations (4 cases)'
 foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.dart' -File -Recurse) {
     $code = [IO.File]::ReadAllText($file.FullName)
     if ($file.DirectoryName -eq $external -and $file.Name -in $owned) {
@@ -30,12 +57,8 @@ foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.
         }
         if (!$code.Contains('!bridge.enableStageApprovalWait') -or
             !$code.Contains('requestStageApproval(')) { throw 'Default Bridge STAGE refusal or explicit bounded path missing' }
-        $projection = [IO.File]::ReadAllText((Join-Path $root 'lib/mcp/vnext_mcp_protocol_projection.dart'))
-        if (!$projection.Contains("'schemaVersion': 3") -or
-            !$projection.Contains('bridgeStageBlocked => contextKind == VnextMcpContextKind.stage') -or
-            !$projection.Contains("decoded['schemaVersion'] != 3")) {
-            throw 'Bridge v3 selection/response or STAGE classification missing'
-        }
+        Assert-BusinessProfileProjection $businessProjection
+        if ($code.Contains('parseUnified(')) { throw 'Legacy Bridge selected unified commands' }
     } elseif ($file.FullName -eq (Join-Path $root 'lib/composition/mcp_vnext_windows_acquisition.dart')) {
         foreach ($token in @('dart:io', 'dart:ffi', 'Process.', 'Platform.environment',
             'DatabaseHelper', 'ExternalTrustCore(', 'ExternalSession(', 'ExternalPrincipal(',

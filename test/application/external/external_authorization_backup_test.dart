@@ -122,7 +122,7 @@ void main() {
     final before = await authRows();
     final copyPath = p.join(h.temp.path, 'scrub.db');
     final snapshot = await snapshots.createSanitizedSnapshot(copyPath);
-    expect(snapshot.schemaVersion, 35);
+    expect(snapshot.schemaVersion, 36);
     final copy = await databaseFactory.openDatabase(copyPath);
     try {
       for (final table in externalAuthorizationTables) {
@@ -222,7 +222,7 @@ void main() {
     expect(await authRows(), before);
     await restoring.commitPreparedRestore();
     h.db = await h.helper.database;
-    expect(await h.db.getVersion(), 35);
+    expect(await h.db.getVersion(), 36);
     for (final table in externalAuthorizationTables) {
       expect(await h.db.query(table), isEmpty);
     }

@@ -26,18 +26,25 @@ abstract interface class OfflineIpcAuthenticationPort {
 enum IpcContextSelectionKind {
   rootRead,
   read,
+  rootStudy,
+  study,
+  questionRead,
   stage,
   reconciliation,
   proposalLifecycle
 }
 
 final class IpcContextSelection {
-  const IpcContextSelection._(this.kind, {this.contextRef, this.submissionKey});
+  const IpcContextSelection._(this.kind,
+      {this.contextRef, this.submissionKey, this.questionRef});
   final IpcContextSelectionKind kind;
-  final String? contextRef, submissionKey;
+  final String? contextRef, submissionKey, questionRef;
   bool get isRead =>
       kind == IpcContextSelectionKind.rootRead ||
       kind == IpcContextSelectionKind.read ||
+      kind == IpcContextSelectionKind.rootStudy ||
+      kind == IpcContextSelectionKind.study ||
+      kind == IpcContextSelectionKind.questionRead ||
       kind == IpcContextSelectionKind.proposalLifecycle;
 }
 
@@ -53,6 +60,12 @@ abstract interface class IpcTrustedContextBinding {
     required IpcContextSelection selection,
     required ExternalCallControl control,
   });
+}
+
+/// Optional product profile admission, owned by the compiled App composition.
+abstract interface class IpcVersionedContextBinding
+    implements IpcTrustedContextBinding {
+  bool get supportsUnifiedProfile;
 }
 
 /// Optional compiled App binding for the explicit single-request human wait.
@@ -171,9 +184,24 @@ final class OfflineIpcCommandProjection {
           control: control,
           responseAvailable: responseAvailable);
 
+  Future<OfflineIpcCommandResult> invokeV4(UntrustedIpcEnvelope envelope,
+          {required IpcTrustedContextBinding binding,
+          bool stageApprovalWait = false,
+          void Function()? onStageWaiting,
+          ExternalCallControl? control,
+          bool Function()? responseAvailable}) =>
+      _invoke(envelope,
+          binding: binding,
+          selectedVersion: 4,
+          stageApprovalWait: stageApprovalWait,
+          onStageWaiting: onStageWaiting,
+          control: control,
+          responseAvailable: responseAvailable);
+
   Future<OfflineIpcCommandResult> _invoke(UntrustedIpcEnvelope envelope,
       {ExternalExecutionContext? context,
       IpcTrustedContextBinding? binding,
+      int selectedVersion = 3,
       bool stageApprovalWait = false,
       void Function()? onStageWaiting,
       ExternalCallControl? control,
@@ -197,9 +225,15 @@ final class OfflineIpcCommandProjection {
       }
       if (_closed) return _failure(envelope, IpcCommandFailure.unavailable);
       final bindingStarted = binding?.clock.now();
+      if (selectedVersion == 4 &&
+          (binding is! IpcVersionedContextBinding ||
+              !binding.supportsUnifiedProfile)) {
+        return _failure(envelope, IpcCommandFailure.unsupportedVersion);
+      }
       final _CommandRequest request;
       try {
-        request = _CommandRequest.decode(envelope, selected: binding != null);
+        request = _CommandRequest.decode(envelope,
+            selected: binding != null, selectedVersion: selectedVersion);
       } on IpcCommandSchemaException catch (error) {
         return _failure(envelope, error.failure);
       }
@@ -303,6 +337,16 @@ final class OfflineIpcCommandProjection {
                   !_closed && (responseAvailable?.call() ?? true));
       // Never manufacture CapabilityId from a request string or use an executor.
       final CapabilityResult result = await switch (request.command) {
+        _Command.openStudyContext => call(ExternalCapabilities.openStudyContext,
+            request.input as ExternalStudySelection),
+        _Command.listStudyBanks => call(ExternalCapabilities.listStudyBanks,
+            request.input as ExternalStudyQuery),
+        _Command.studyOverview => call(ExternalCapabilities.studyOverview,
+            request.input as ExternalStudyQuery),
+        _Command.dueReviewSummary => call(ExternalCapabilities.dueReviewSummary,
+            request.input as ExternalStudyQuery),
+        _Command.weakQuestions => call(ExternalCapabilities.weakQuestions,
+            request.input as ExternalStudyQuery),
         _Command.listTargets => call(ExternalCapabilities.listTargets,
             request.input as ExternalTargetQuery),
         _Command.createReadContext => call(
@@ -340,12 +384,18 @@ final class OfflineIpcCommandProjection {
       }
       try {
         final data = switch (request.command) {
+          _Command.listStudyBanks ||
+          _Command.studyOverview ||
+          _Command.dueReviewSummary ||
+          _Command.weakQuestions =>
+            (result.output as ExternalStudyResult).toJson(),
           _Command.proposalLifecycle =>
             (result.output as ExternalProposalLifecycle).toJson(),
           _Command.listTargets =>
             (result.output as ExternalTargetPage).toJson(),
           _Command.createReadContext ||
-          _Command.createFileContext =>
+          _Command.createFileContext ||
+          _Command.openStudyContext =>
             <String, Object?>{'contextRef': result.output as String},
           _Command.searchQuestions =>
             (result.output as ExternalQuestionSearchPage).toJson(),

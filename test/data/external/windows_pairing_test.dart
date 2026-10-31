@@ -1926,8 +1926,8 @@ void main() {
     }
     expect(
         "'test/data/external/windows_pairing_test.dart'"
-            .allMatches(File('.github/workflows/pr-contract-checks.yml')
-                .readAsStringSync())
+            .allMatches(
+                File('tool/ci/contract_test_suites.psd1').readAsStringSync())
             .length,
         1);
   });

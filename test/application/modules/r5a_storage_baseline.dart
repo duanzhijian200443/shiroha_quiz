@@ -41,7 +41,11 @@ String retainedR4StorageSource(String path, String source) {
             (before ==
                     'static const int _dbVersion = generatedProposalOriginSchemaVersion;' &&
                 after ==
-                    'static const int _dbVersion = externalAccessSchemaVersion;'));
+                    'static const int _dbVersion = externalAccessSchemaVersion;') ||
+            (before ==
+                    'static const int _dbVersion = externalAccessSchemaVersion;' &&
+                after ==
+                    'static const int _dbVersion = externalStudyStatisticsSchemaVersion;'));
     if (!version) {
       expect(after.length, greaterThan(before.length));
       expect(after.split(before).length - 1, 1,

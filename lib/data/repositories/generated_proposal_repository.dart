@@ -586,7 +586,7 @@ final class GeneratedProposalRepository
             record.grant!.policy.categories.map((c) => c.name).toList()..sort();
         // Codec validates history only, after authentication and current policy.
         final origin = ExternalProposalOrigin.fromPersistedPayload({
-          'schemaVersion': 1,
+          'schemaVersion': 2,
           'externalRequestId': externalRequestId,
           'adapterProtocol': {
             'adapter': record.profile.adapter,

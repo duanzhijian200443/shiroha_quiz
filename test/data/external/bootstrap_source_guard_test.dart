@@ -36,6 +36,8 @@ void main() {
   test('all P22 suites stand in CI once; source gate precedes execution', () {
     final workflow =
         File('.github/workflows/pr-contract-checks.yml').readAsStringSync();
+    final standing =
+        File('tool/ci/contract_test_suites.psd1').readAsStringSync();
     for (final name in [
       'pairing_transcript_codec',
       'exchange_message_codec',
@@ -43,7 +45,7 @@ void main() {
       'bootstrap_source_guard'
     ]) {
       expect(
-          "'test/data/external/${name}_test.dart'".allMatches(workflow).length,
+          "'test/data/external/${name}_test.dart'".allMatches(standing).length,
           1);
     }
     final gate = workflow.indexOf('./tool/external/check_bootstrap_source.ps1');

@@ -135,11 +135,11 @@ void main() {
       expect(mutation, isNot(proofSource));
       expect(() => expectProofOnly(mutation), throwsA(anything));
     }
-    final workflow =
-        File('.github/workflows/pr-contract-checks.yml').readAsStringSync();
+    final standing =
+        File('tool/ci/contract_test_suites.psd1').readAsStringSync();
     for (final name in ['windows_discovery', 'discovery_source_guard']) {
       expect(
-          "'test/data/external/${name}_test.dart'".allMatches(workflow).length,
+          "'test/data/external/${name}_test.dart'".allMatches(standing).length,
           1);
     }
     final cmake =

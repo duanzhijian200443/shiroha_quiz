@@ -227,7 +227,7 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
 6. Typed content mutation must not pass through the legacy editor or reconstruct authority from a V1 projection.
 7. Review/FSRS state is separate from typed question content mutation.
 8. `RichContent` is structural: a persisted `TextNode` is not reparsed later as Markdown/math/image syntax.
-9. Current database schema is **v35**: the frozen v15 typed sidecar remains
+9. Current database schema is **v36**: the frozen v15 typed sidecar remains
    authoritative, with the additive v16 File Library, v17 Project, v18 flat
    File Library Folder, v19 Conversation, and v20 parsed-artifact tables, the
    additive RAG-1 derived lexical-retrieval cache and FTS5 objects, the
@@ -242,7 +242,10 @@ R1–R8 and P5 are closed architecture stages. New features build on them rather
    Proposal originals/review/receipts/mappings, plus v33 non-secret external
    Profile/Grant policy, exact scopes and Egress categories. v35 adds the
    revision-coupled `external_access_preferences` all-content/generation policy;
-   legacy rows default to exact scope/manual confirmation. Portable B0 scrubs
+   legacy rows default to exact scope/manual confirmation. v36 extends only the
+   authorization category CHECK for independently consented studyStatistics; it
+   inserts no permission. Origin payload 2 retains readable payload 1 history.
+   Portable B0 scrubs
    this policy; raw rollback retains it (external boundary section 14). The authorization
    contract is owned by `external-agent-boundary.md` §6; P1 adds no authentication,
    pairing, runtime Enablement, external Origin, Dispatcher or Host wiring. B0
@@ -541,8 +544,10 @@ The [unified access and content exchange v1.1 contract](docs/product/agent-refac
 is the adopted target design. It replaces the candidate Windows-global host
 topology with independent Shiroha Link for local routing; Windows App remains
 necessary only when Windows is the business target. Profile 3/statistics/Origin
-compatibility remains a separately integrated prerequisite; this documentation
-does not change the current v35/seven-tool runtime or import a candidate schema.
+compatibility is implemented as an explicitly selected shared business foundation
+(MCP §19.1, external boundary §16), with current SQLite v36. Normal six/seven-tool
+roots retain their defaults; no independent Link or real eleven-tool consumer
+is activated by this foundation.
 Official Secure MCP Tunnel embedded on Android remains an unproved combination.
 Its final remote product gate requires the same phone's ChatGPT browser flow
 without a computer; server-only independence is preliminary evidence. Remote

@@ -6,7 +6,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:shiroha_quiz/core/database/database_helper.dart';
 import 'package:shiroha_quiz/core/database/training_content_v29_schema.dart';
 import 'package:shiroha_quiz/core/database/import_task_v31_schema.dart';
-import 'package:shiroha_quiz/core/database/external_access_v35_schema.dart';
+import 'package:shiroha_quiz/core/database/external_study_statistics_v36_schema.dart';
 import 'package:shiroha_quiz/domain/training/category_key.dart';
 
 const _uncategorized = '["uncategorized"]';
@@ -92,8 +92,9 @@ void main() {
     final db = await fresh('fresh');
     try {
       expect(importTaskSchemaVersion, 31);
-      expect(DatabaseHelper.databaseVersion, externalAccessSchemaVersion);
-      expect(await db.getVersion(), externalAccessSchemaVersion);
+      expect(
+          DatabaseHelper.databaseVersion, externalStudyStatisticsSchemaVersion);
+      expect(await db.getVersion(), externalStudyStatisticsSchemaVersion);
       await validateTrainingContentV29Schema(db);
       final expected = {
         trainingContentsTable: [

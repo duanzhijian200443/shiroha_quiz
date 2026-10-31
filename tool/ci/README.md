@@ -1,10 +1,25 @@
 # Contract CI timings, selective units and verified reuse
 
-The contracts job retains the standing test list in
-`.github/workflows/pr-contract-checks.yml`. Every executable entry must exist,
-appear once and be assigned once by the existing `index % 4` split. Support
-fixtures are not executable entries. Training/StudyActivity suites are standing
-coverage even when a PR changes only production code.
+The contracts job loads the ordered standing test list from
+`tool/ci/contract_test_suites.psd1` with `Import-PowerShellDataFile`.
+`.github/workflows/pr-contract-checks.yml` retains the execution and failure
+gates. Every executable entry must exist, appear once and be assigned once by
+the existing `index % 4` split. Support fixtures are not executable entries.
+Training/StudyActivity suites are standing coverage even when a PR changes only
+production code.
+
+The coverage check reads that same manifest and limits inline workflow run
+blocks to 10,000 characters. This conservative budget leaves room for GitHub's
+interpolation expansion under its 21,000-character expression limit; growing
+the test catalog no longer grows an inline expression. Manifest changes remain
+shared-configuration inputs requiring full validation, and the existing tracked
+input digest includes the manifest for reuse checks.
+
+Acceptance-readiness and Dart source guards read suite registrations from the
+same manifest; job ordering and Native/aggregate gates remain in the workflow.
+Changing the manifest location requires the readiness self-test and the affected
+source-guard suites as well as the timing/coverage check. Missing or duplicate
+required registrations still fail the readiness gate.
 
 Android device-access foundation adds standing pure foreground-lifetime,
 association-CAS and Native-boundary refusal tests. They use synthetic resources,
@@ -29,6 +44,13 @@ the repeatedly re-verified `rag_lazy`/Agent config-history suites. The contract
 test requires those entries. That is offline Linux evidence for the accepted
 P3-P12 behavior only; it is not Windows Credential, mTLS, ACL, Discovery or
 Host acceptance and it clears no WINDOWS_PENDING item.
+
+The unified business foundation adds standing v36 transactional rollback,
+independent statistics consent/scope/final-release, Profile 3 SDK and original
+File Context suites. They use real disposable SQLite and production owners with
+synthetic credential possession. Default v0/Profile 2 compatibility remains in
+the existing protocol suites. No Link, installed client, Native/TLS or phone
+acceptance is established by these deterministic tests.
 
 The App-owned relay adds standing framing/refusal, internal MCP client and App
 exit/log-drain suites. These portable tests load no Windows relay DLL and do not
@@ -187,12 +209,36 @@ commit and event, recomputes classification from Git, requires every required
 unit to be `EXECUTE` or recorded `REUSE` (never silently `NOT_APPLICABLE`),
 revalidates every reuse claim, compares each GitHub `needs.<job>.result` with the
 planned status, and, when contracts execute, requires exactly the four
-`Contract shard N/4` jobs with `success`. When the workflow result for contracts
-is already `success`, a shard observation that still reads back pending is
-re-read for up to about one minute before the aggregate fails closed; membership
-mismatches and a persistently unsettled matrix still fail. Missing or malformed
-evidence fails the aggregate. GitHub `skipped` is accepted only for
-`NOT_APPLICABLE` or verified `REUSE` units.
+`Contract shard N/4` jobs with status `completed` and conclusion `success`.
+The aggregate uses the Jobs API for the exact current run/attempt. On partial
+reruns, successful jobs carried forward by GitHub must appear in that attempt's
+response with that attempt identity; the gate never combines older attempts or
+uses the all-attempts job list. Every observed job must have a unique positive
+Job ID and match the current Run ID, Attempt and plan Head SHA (the event head,
+not the checked-out PR merge SHA). The plan still independently binds the tested
+merge commit and Base. The attempt-specific endpoint is described in the
+[GitHub Jobs API](https://docs.github.com/en/rest/actions/workflow-jobs#list-jobs-for-a-workflow-run-attempt).
+
+After `needs.contracts.result` succeeds, transient network/timeouts, rate limits,
+HTTP 5xx/404, incomplete API pages, missing shards and pending states share one
+budget: at most 12 reads with 5 seconds between reads (plus the existing
+30-second request timeout). Each successful observation must independently
+contain the complete matrix; earlier successes are never accumulated. Duplicate
+or illegal shards, duplicate Job IDs, identity mismatch and any terminal
+non-success conclusion fail immediately, even if another shard is missing.
+Authentication/permission failures and malformed responses also fail immediately.
+Persistent missing, pending or unavailable evidence exhausts the budget and
+fails closed. GitHub `skipped` is accepted only for `NOT_APPLICABLE` or verified
+`REUSE` units; current-attempt timings for those units remain advisory.
+
+API failures use fixed, redacted categories (`api_timeout`, `api_network`,
+`api_rate_limited`, `api_server_error`, `api_not_found`, `api_unauthorized`,
+`api_forbidden`, `api_http_error`, `api_request_invalid`, `api_invalid_json`,
+`api_invalid_payload`, `api_unavailable`, `evidence_incomplete`). Job observations
+log only the read number, Run/Attempt IDs, counts and a fixed reason. A permanent
+API refusal or exhausted API retry reports `matrix_unverifiable_<category>`;
+missing, duplicate, illegal, failed and identity-mismatched jobs retain distinct
+rejection codes. No API body, URL, token or exception text is emitted.
 
 ## Verified cross-head reuse
 
@@ -232,8 +278,8 @@ refuses reuse with a fixed code (`no_source_run`, `source_not_ancestor`,
 `toolchain_unverified`, `evidence_missing`, `evidence_expired`,
 `evidence_mismatch`, `source_used_reuse`, `source_not_successful`,
 `attempt_mismatch`, `shard_mismatch`, `fork_source`, `ci_inputs_changed`,
-`api_unavailable`) and executes the affected units. Ambiguous evidence (for
-example a re-run that leaves more than one plan artifact) is treated as missing
+the fixed API categories above) and executes the affected units. Ambiguous
+evidence (for example a re-run that leaves more than one plan artifact) is treated as missing
 evidence. A PR that modifies the workflow or classifier therefore never reuses,
 because the new machinery has not itself been accepted. `reuse.status` and its
 source run/attempt, artifact and evidence digests are recorded in the plan and
@@ -257,8 +303,11 @@ group.
 The aggregate writes `ci-execution-report.json` with each unit's planned status,
 GitHub result and duration, the contracts shard membership, the reuse source and
 the executed/not-applicable/reused counts, plus elapsed run time when the API is
-available. It is uploaded for seven days. The job summary repeats the same
-facts. The report never contains source contents, prompts, raw API bodies or
+available. Successful reports also retain the current Attempt, sanitized job
+observation history and the four validated shard Job/Run/Attempt/Head identities
+and completed-success states. Failed observation diagnostics remain in the job
+log; they never create a PASS report. It is uploaded for seven days. The job
+summary repeats the same facts. The report never contains source contents, prompts, raw API bodies or
 absolute paths.
 
 `resolve_ci_impact.py` and `resolve_ci_reuse.py` use only the Python standard

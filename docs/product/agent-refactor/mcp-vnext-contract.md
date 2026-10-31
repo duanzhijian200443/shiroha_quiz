@@ -2314,27 +2314,131 @@ keep interactive Codex alive, close phone access, await original adapter/cleanup
 then exit the client. Arbitrary process termination is not clean-close proof.
 
 <a id="unified-access-successor"></a>
-## 19. Unified access successor — adopted design only
+## 19. Unified business foundation and adopted access successor
 
 The [unified access and content exchange contract](unified-access-and-content-exchange-v1.md)
-owns the new topology, handoff and extension design. This section does not
-deliver Profile 3, new tool schemas, Link, a remote endpoint or database v36.
+owns the new topology, handoff and extension design. Section 19.1 implements
+the shared business foundation; Link, remote endpoints and exchange remain
+the separately adopted design below.
 Sections 1–18 retain the implemented six/seven-tool consumers and their actual
 admission/evidence. The candidate Windows-global host topology is superseded
 as the future design, without relabeling historical runtime results as success.
 
-### 19.1 Business profile and target authority
+### 19.1 Explicit Profile 3 business foundation
 
-The target Profile 3 retains the candidate eleven-tool question/file/statistics/
-generation surface listed in the [target design §8](unified-access-and-content-exchange-v1.md#s08).
-Independent studyStatistics consent, scope-before-query, original-key results
-and compatible Origin history remain required. Candidate input/output schemas,
-limits and persistence changes must be separately integrated and reviewed here
-before runtime exposure; merely listing eleven tools is not their acceptance.
-Existing v0/Profile 2 entries are not retired or silently selected as an
-authorization fallback. Content exchange requires an explicitly selected
-extension capability set; installation does not add tools or grants to an
-existing profile. Discovery remains static and does not connect to a device.
+The production Application/Data/P8/P10 composition implements the eleven-tool
+business foundation. `VnextMcpServer`, `VnextMcpAppComposition` and
+`McpVnextAppIntegration` retain **Profile 2 by default**. Profile 3 requires an
+explicit trusted profile selection, this target's statistics reader and an
+App-owned source. Merely injecting a reader, discovering tools, pairing,
+reconnecting or opening settings does not select Profile 3 or grant statistics.
+No normal Windows/Android registration or device handshake is upgraded here.
+The shared `VnextMcpBusinessPort` is a compatibility alias for the original
+pure-Dart `AndroidMcpPort` response-settlement owner. Explicit Profile 3 reuses
+its original P10/FirstPartyStageApproval path and one-call connection reservation.
+Transport owners acknowledge the actual response write or qualified cancelled
+close before `finishStageApproval`; a handler return alone never releases it.
+The Profile 3 port pins its original authenticated Session and calls the existing
+reference-invalidation seam after original work/output settle on close, so an
+otherwise still-enabled replacement connection cannot reuse its old handles.
+The direct App port retains its prior-approved-target source behavior; saved
+review/direct consumers use this response-aware connection port. No second
+approval, output settlement or Proposal state machine is introduced.
+Independent Link, real eleven-tool clients, remote mode and exchange remain
+separate acceptance scopes. No Windows device-selection/dirty state is required
+by this business construction.
+
+Every Profile 3 result is exactly `{profileVersion: 3, data, error, source}`.
+`data` is the operation object on success and null on failure; `error` is null
+on success. `source` is exactly `{kind, deviceRef}`. The actual target composition
+supplies `windows` or `android` and its bounded opaque label (1–128 ASCII token
+characters); a target-unavailable frontend may use `unselected` with null.
+Arguments/remote metadata cannot supply source, database paths, raw bank IDs,
+permissions or a wider profile. Source describes the selected instance; it is
+not an authentication credential. Non-selected failures expose no other device.
+
+All references are the original 43-character App-minted tokens, with their
+original kinds, Principal, revision, runtime, parent and finite expiry. The
+static directory contains exactly these tools, with no prefixed duplicates:
+
+| Tool | Input (unlisted keys reject) | Success data / permission |
+|---|---|---|
+| `open_context` | No arguments or `scope: authorized`; alternatively returned `targetRef` with optional `scope: bank`. File listing: `contextRef`, optional `pageSize/cursor`; explicit File Context: exactly `contextRef/fileRefs`. These modes cannot mix. | Aggregate or single-bank `{contextRef}`; file modes retain §7/P6 projections. READ and relevant independent egress. |
+| `list_question_banks` | `contextRef`, optional `pageSize` (20, 1–50), nullable `cursor` | `{items, nextCursor, statisticsAuthorized}`. Each item: `targetRef, bankName, folderName`; only with statistics consent add `questionCount, dueCount, masteredCount`. Unauthorized statistics are omitted, never zero-filled. |
+| `get_study_overview` | `contextRef`, optional `timezone` | Exactly `questionCount, masteredCount, dueCount, todayPracticeCount, wrongQuestionCount`; READ + studyStatistics. |
+| `get_due_review_summary` | `contextRef, from, to`, optional `timezone` | Exactly `dueNow, scheduledCount, buckets`; each bucket exactly `date, count`; READ + studyStatistics. |
+| `get_weak_questions` | `contextRef`, optional `pageSize` (20, 1–50), nullable `cursor` | `{items, nextCursor}`; items exactly `questionRef, bankName, stemPreview, lapseCount, difficulty, lastLapseAt`. READ + studyStatistics + questionContent; absent content consent refuses the preview-bearing operation. |
+| `search_questions` | `contextRef, query`, optional `pageSize/cursor` | Original §7/P5 projection; a single-bank Context and questionContent remain required. |
+| `get_question_detail` | `contextRef, questionRef` | Original §7/P5 projection; also accepts a weak-question reference under its exact aggregate parent; current questionContent required. |
+| `retrieve_file_content` | `contextRef, query`, optional `limit` | Original explicit File Context/P6 verified lexical projection and independent fileContent. |
+| `get_file_passage` | `contextRef, passageRef`, optional `cursor` | Original P6 passage/coverage projection; no OCR or original-file download. |
+| `propose_generated_questions` | `contextRef, submission` | Original Submission 1 and STAGED/NOT_REPORTED acknowledgement. Aggregate Contexts reject; single-bank selection still requires original first-party STAGE approval/current saved policy. |
+| `get_question_proposal` | `submissionKey` | Original six lifecycle/count fields, current READ/proposalMetadata and original/current target scopes; no old Context required. |
+
+The collection is resolved before any statistics query and overlapping grants
+are deduplicated by bank identity. Empty granted collections return valid empty
+results, without a whole-database fallback. Single-bank/file Contexts retain
+original existence/relationship checks. File selections, QuestionRefs and cursors
+cannot be interchanged or borrowed across parents. A trusted connection owner
+withdraws its channel, awaits `settleConnection(session)` and finishes original
+transport settlement before admitting replacement work. That seam invalidates
+this Principal's old references without revoking its durable grant; it does not
+claim TLS/process settlement or depend on a future Link implementation.
+
+T0 owns metric definitions, weak ordering and unknown-history semantics (null or
+non-positive last-lapse time is unknown, not invented history). Timezones use
+its existing bounded IANA resolver. Omitted timezone uses the target's trusted
+`studyTimeZone` (UTC unless configured); no display-mode inference is made.
+`from/to` are strict offset-bearing RFC 3339 instants, valid Gregorian/clock
+values with at most six fractional digits, `[from,to)` and a maximum 90-day
+duration. Integer-second stored timestamps use ceiling bounds at both edges,
+so fractional instants do not round into the wrong side of the interval; the
+legacy v0 entry is unchanged. Scheduled rows are scanned by time/id
+keyset in pages of at most 128; at most 92 local-date buckets cover the window
+including DST edges. No partial summary is reported as complete.
+
+Original 2-second owning READ deadline, 16/4 pending slots, 32 KiB response,
+256/160 references and 64/16 Context bounds remain. Statistics calls pin a
+transient SQLite change/data-version pair; both owning and Kernel release gates
+recheck it, current Grant/revision/target relations and selected content identity.
+Any intervening database write may conservatively make a held statistical
+result stale, including an unrelated write. It grants no persistent snapshot or
+new Context registry. Cancelled/timed-out work retains its slot until actual
+settlement. Outputs and withheld allocations remain under the original owners.
+
+Profile 3 explicitly selects internal command codec **v4**, still P9 envelope
+v1; business parameters cannot select it. `invokeV4` requires a trusted
+versioned binding supporting Profile 3. v1/v2 and `invokeV3` refuse v4/new routes,
+and v4 never retries with an older decoder. Existing ten commands/lifecycle
+retain their inputs; v4 adds `external_open_study_context` (nullable targetRef),
+`external_list_study_banks` and `external_weak_questions` (contextRef, pageSize,
+nullable cursor), `external_study_overview` (contextRef, nullable timezone), and
+`external_due_review_summary` (contextRef, nullable timezone, from, to). All
+internal keys are present; nullable means explicit null. v4 detail binds its
+returned questionRef as well as contextRef. Authentication and original P8
+Session entry still precede decoding; no v0/global internal identity is minted.
+
+Responses are checked by the exact P10 operation whitelist. Errors retain the
+closed `IpcCommandFailure` set (`unauthenticated`, `unavailable`,
+`invalidRequest`, `unsupportedVersion`, `unsupportedCapability`, `invalidResult`,
+`responseEncodingFailed`) and existing `capability.<CapabilityFailure>` values.
+The adapters additionally use fixed `busy`, `resourceLimit` and `outcome_unknown` failures.
+Statistics use the existing externalRead denied/stale/resourceLimit/unavailable/
+invalidRequest/dataCorrupt mappings; no SQL, paths, raw identity or exception is
+returned. Pre-command failures retain the null-capability v1 failure form; a
+success or parsed-command failure must match v4 and the original request id.
+
+Profile 3 annotates STAGE as possibly writing formal data under direct policy,
+and retrieval as possibly writing its existing derived cache; neither is marked
+read-only. Context creation is not idempotent. File passage and other reads have
+no new business writes. Profile 2's seven names/schemas/default annotations and
+v0's six-tool contract remain unchanged. Submission 1, Proposal JSON and Receipt
+versions are independent from Profile 3, Origin payload 2 and SQLite v36.
+
+Isolated real SQLite/Application/P10 and real MCP SDK initialization, discovery
+and calls exercise this foundation, including independent instance sources and
+cross-instance reference refusal. Synthetic credential possession fixtures are
+not real TLS, entity authentication, installed-Codex or phone acceptance.
 
 ### 19.2 Independent Link and close barriers
 

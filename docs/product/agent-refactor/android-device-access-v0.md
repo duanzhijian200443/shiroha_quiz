@@ -192,6 +192,11 @@ Returning to READ removes STAGE/proposalMetadata and restores confirm. Policy
 changes withdraw old access synchronously and join its owners before CAS;
 failure leaves access off. Saving never enables access: the user follows the
 original finite Enable/proof sequence again.
+The separate statistics action uses that same owner and close/CAS sequence to
+change only `studyStatistics`, preserving all existing scopes, categories and
+generation choices. It defaults off. External boundary §16 and MCP §19.1 own
+the explicit unified business foundation; configuring this consent does not
+upgrade this phone's normal seven-tool link or select Profile 3.
 The independent local file-body action adds/removes only `fileContent`, through
 the same policy owner and withdrawal/drain/revision CAS sequence. It preserves
 READ/STAGE, proposalMetadata, exact scopes, all-content and generationMode.

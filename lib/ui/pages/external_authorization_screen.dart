@@ -228,6 +228,19 @@ final class _ExternalAuthorizationScreenState
         });
       }, waitForRefresh: false);
 
+  Future<void> _setStudyStatistics(bool allowed) =>
+      _change((view, current) async {
+        final reference = _selected;
+        final record = _record;
+        if (reference == null || record?.grant == null) return;
+        final revision = record!.profile.grantRevision;
+        await _access?.disable();
+        if (!current()) return;
+        await view.saveStudyStatistics(reference, revision, allowed: allowed);
+        if (!current()) return;
+        await _load(view, reference);
+      });
+
   Future<void> _change(
       Future<void> Function(LocalAuthorizationView, bool Function()) action,
       {bool waitForRefresh = true}) async {
@@ -330,6 +343,16 @@ final class _ExternalAuthorizationScreenState
         onAccessChanged:
             !_loading && _current && _access != null ? _setAccess : null,
         onDirectWriteChanged: _busy || !_configured ? null : _setDirectWrite,
+        studyStatisticsAllowed: _record?.grant?.policy.categories
+                .contains(ExternalContentCategory.studyStatistics) ??
+            false,
+        onStudyStatisticsChanged: _loading ||
+                _busy ||
+                !_current ||
+                _record?.grant == null ||
+                _access == null
+            ? null
+            : _setStudyStatistics,
         onOpenReview: _openReview,
         connectionSettings: Column(children: [
           if (_profiles.length > 1)

@@ -39,6 +39,13 @@ final class _Access implements AndroidDeviceAccess {
   }
 
   @override
+  Future<void> setStudyStatisticsAllowed(bool allowed) async {
+    statistics.add(allowed);
+  }
+
+  final statistics = <bool>[];
+
+  @override
   Future<void> setFileContentAllowed(bool allowed) async {
     fileChoices.add(allowed);
     files = allowed;

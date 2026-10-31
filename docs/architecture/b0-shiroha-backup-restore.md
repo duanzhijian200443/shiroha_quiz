@@ -14,6 +14,23 @@ closure) are COMPLETE. B0 itself added no migration or dependency changes. At
 that closure point the runtime schema was v23 because the additive
 AnswerAttempt migration followed the original B0-P0 v22 freeze.
 
+### Current-state amendment: statistics authorization schema v36
+
+Current runtime/backup schema is v36; package format stays v2. The exact
+four-category authorization CHECK and transactional v35→v36 migration are owned
+by external boundary §16. Valid old packages upgrade in the staged database;
+unknown constraints/data and residual active or revoked authorization still
+reject before live replacement. Export does not mutate live policy.
+
+Portable snapshots retain Proposal/Origin history (payload 1 and 2), questions,
+Review, Receipt and original mappings. They validate and scrub
+`external_access_preferences` plus the four original authorization tables,
+including studyStatistics. Raw rollback preserves original local rows and
+preferences. Neither path restores runtime admission, Contexts, approval or
+credentials. No device-selection record or Windows-global-host barrier is added
+by this foundation. Future Link/handoff/exchange remains the separate design
+below; installed candidate data is not downgraded or cleared.
+
 <a id="unified-access-successor"></a>
 ### Unified access and content exchange successor (design only)
 
@@ -133,7 +150,7 @@ and runtime Context remain EXCLUDED. External history has soft Profile reference
 and remains readable after scrub/revoke or without any current Profile. It grants
 no external access, pairing, runtime Enablement or local approval authority.
 
-Current runtime is v34. Old legitimate v32/v33 packages upgrade in staging through
+That historical amendment introduced v34. Old legitimate v32/v33 packages upgrade in staging through
 DatabaseHelper's existing transaction and physical-schema authorities, preserving
 items, review, terminal receipts/mappings and Questions/sidecars. Malformed Origin
 rejects live open, export or staged admission before live replacement. Existing
