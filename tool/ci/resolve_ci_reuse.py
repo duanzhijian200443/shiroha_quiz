@@ -8,6 +8,7 @@ the real Git tree, the source run and its uploaded plan artifact.
 
 from datetime import datetime, timezone
 import hashlib
+import http.client
 import io
 import json
 from pathlib import Path
@@ -39,6 +40,12 @@ UNIT_JOBS = {
     "train_c_finalization_parity": ("TRAIN C finalization parity", 1),
     "contracts": ("Contract shard", 4),
 }
+API_ERROR_CODES = frozenset({
+    "api_unavailable", "api_unauthorized", "api_forbidden", "api_not_found",
+    "api_rate_limited", "api_server_error", "api_http_error", "api_timeout",
+    "api_network", "api_request_invalid", "api_invalid_json", "api_invalid_payload",
+    "evidence_incomplete",
+})
 
 
 class ReuseRefusal(Exception):
@@ -97,14 +104,35 @@ class GitHubApi:
         try:
             with self._opener.open(request, timeout=30) as response:
                 return response.read()
-        except (urllib.error.URLError, OSError, ValueError):
-            raise ReuseRefusal("api_unavailable") from None
+        except urllib.error.HTTPError as error:
+            # Inspect only status and rate-limit headers, never the response body
+            # or exception text (which can contain URLs and private API details).
+            headers = error.headers or {}
+            if error.code == 429 or (error.code == 403 and (
+                    headers.get("X-RateLimit-Remaining") == "0" or headers.get("Retry-After"))):
+                code = "api_rate_limited"
+            elif 500 <= error.code < 600:
+                code = "api_server_error"
+            else:
+                code = {401: "api_unauthorized", 403: "api_forbidden", 404: "api_not_found",
+                        408: "api_timeout"}.get(error.code, "api_http_error")
+            error.close()
+            raise ReuseRefusal(code) from None
+        except TimeoutError:
+            raise ReuseRefusal("api_timeout") from None
+        except urllib.error.URLError as error:
+            code = "api_timeout" if isinstance(error.reason, TimeoutError) else "api_network"
+            raise ReuseRefusal(code) from None
+        except (OSError, http.client.HTTPException):
+            raise ReuseRefusal("api_network") from None
+        except ValueError:
+            raise ReuseRefusal("api_request_invalid") from None
 
     def _json(self, path):
         try:
             return json.loads(self._request(path))
         except (ValueError, TypeError):
-            raise ReuseRefusal("api_unavailable") from None
+            raise ReuseRefusal("api_invalid_json") from None
 
     def list_runs(self, workflow, branch):
         if not branch:
@@ -114,19 +142,24 @@ class GitHubApi:
         payload = self._json(f"/repos/{self.repo}/actions/workflows/{workflow}/runs?{query}")
         runs = payload.get("workflow_runs") if isinstance(payload, dict) else None
         if not isinstance(runs, list):
-            raise ReuseRefusal("api_unavailable")
+            raise ReuseRefusal("api_invalid_payload")
         return runs
 
     def get_run(self, run_id):
         return self._json(f"/repos/{self.repo}/actions/runs/{int(run_id)}")
 
     def list_jobs(self, run_id, attempt):
+        # Query this exact attempt, including GitHub's carried-forward records on
+        # partial reruns. Never combine /jobs?filter=all or older attempt lists.
         payload = self._json(
             f"/repos/{self.repo}/actions/runs/{int(run_id)}/attempts/{int(attempt)}/jobs?per_page=100")
         jobs = payload.get("jobs") if isinstance(payload, dict) else None
-        if not isinstance(jobs, list):
-            raise ReuseRefusal("api_unavailable")
-        if payload.get("total_count", len(jobs)) > len(jobs):
+        if not isinstance(jobs, list) or not all(isinstance(job, dict) for job in jobs):
+            raise ReuseRefusal("api_invalid_payload")
+        count = payload.get("total_count")
+        if type(count) is not int or count < len(jobs):
+            raise ReuseRefusal("api_invalid_payload")
+        if count > len(jobs):
             raise ReuseRefusal("evidence_incomplete")
         return jobs
 
@@ -135,7 +168,7 @@ class GitHubApi:
             f"/repos/{self.repo}/actions/runs/{int(run_id)}/artifacts?per_page=100")
         artifacts = payload.get("artifacts") if isinstance(payload, dict) else None
         if not isinstance(artifacts, list):
-            raise ReuseRefusal("api_unavailable")
+            raise ReuseRefusal("api_invalid_payload")
         return artifacts
 
     def download_artifact(self, artifact_id):

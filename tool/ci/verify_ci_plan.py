@@ -29,6 +29,12 @@ RESULT_ENV = {
 }
 SHARD_POLL_ATTEMPTS = 12
 SHARD_POLL_INTERVAL_SECONDS = 5
+RETRYABLE_JOB_ERRORS = frozenset({
+    "api_timeout", "api_network", "api_server_error", "api_rate_limited",
+    "api_not_found", "evidence_incomplete",
+})
+SHARD_NAMES = tuple(f"Contract shard {index}/4" for index in range(1, 5))
+PENDING_JOB_STATES = frozenset({"queued", "in_progress", "waiting", "pending", "requested"})
 
 
 class GateError(Exception):
@@ -55,40 +61,92 @@ def _duration(job):
 
 def _jobs(api, run_id, attempt):
     if api is None:
-        return None
+        raise reuse.ReuseRefusal("api_unavailable")
     try:
-        return api.list_jobs(run_id, attempt)
-    except reuse.ReuseRefusal:
-        return None
+        jobs = api.list_jobs(run_id, attempt)
+    except reuse.ReuseRefusal as refusal:
+        code = refusal.code if refusal.code in reuse.API_ERROR_CODES else "api_unclassified"
+        raise reuse.ReuseRefusal(code) from None
+    _require(isinstance(jobs, list) and all(
+        isinstance(job, dict) and isinstance(job.get("name"), str) for job in jobs),
+        "jobs_invalid")
+    return jobs
 
 
-def _shard_jobs(jobs):
-    matching = [job for job in jobs if job.get("name", "").startswith("Contract shard ")]
-    names = sorted(job.get("name") for job in matching)
-    _require(names == [f"Contract shard {index}/4" for index in range(1, 5)], "shard_mismatch")
+def _shard_jobs(jobs, allow_missing=False):
+    matching = [job for job in jobs if job["name"].startswith("Contract shard")]
+    names = [job["name"] for job in matching]
+    _require(all(name in SHARD_NAMES for name in names), "shard_mismatch")
+    _require(len(names) == len(set(names)), "shard_duplicate")
+    if not allow_missing:
+        _require(sorted(names) == list(SHARD_NAMES), "shard_missing")
     return matching
 
 
-def _settled_jobs(api, run_id, attempt, contracts_execute, pause):
-    jobs = _jobs(api, run_id, attempt)
+def _job_identities(jobs, run_id, attempt, head):
+    ids = set()
+    for job in jobs:
+        _require(type(job.get("id")) is int and job["id"] > 0, "job_id_invalid")
+        _require(job["id"] not in ids, "job_id_duplicate")
+        ids.add(job["id"])
+        _require(type(job.get("run_id")) is int and job["run_id"] == run_id,
+                 "job_run_mismatch")
+        _require(type(job.get("run_attempt")) is int and job["run_attempt"] == attempt,
+                 "job_attempt_mismatch")
+        _require(job.get("head_sha") == head, "job_head_mismatch")
+
+
+def _settled_jobs(api, run_id, attempt, contracts_execute, pause, head, observe=None):
+    # For NOT_APPLICABLE/REUSE the current job list is only duration telemetry;
+    # the original needs/result and independent source-reuse gates still apply.
     if not contracts_execute:
-        return jobs
-    # needs.contracts.result is already success here. A newer matrix job can still
-    # briefly read back with a pending conclusion, so poll the observation rather
-    # than failing on a transient inconsistency; an unsettled matrix still fails.
-    for remaining in range(SHARD_POLL_ATTEMPTS):
-        _require(jobs is not None, "matrix_unverifiable")
-        shard_jobs = _shard_jobs(jobs)
-        if all(job.get("conclusion") == "success" for job in shard_jobs):
-            return jobs
-        if remaining + 1 == SHARD_POLL_ATTEMPTS:
-            break
+        try:
+            return _jobs(api, run_id, attempt)
+        except (reuse.ReuseRefusal, GateError):
+            return None
+    _require(type(run_id) is int and run_id > 0 and type(attempt) is int and attempt > 0,
+             "job_run_identity_invalid")
+    observe = observe or (lambda _observation: None)
+    # One shared budget covers transport errors, missing records and pending
+    # states. Each read must independently certify the whole current-attempt
+    # matrix; never accumulate successes from different observations/attempts.
+    for poll in range(1, SHARD_POLL_ATTEMPTS + 1):
+        observation = {"read": poll, "runId": run_id, "runAttempt": attempt,
+                       "jobs": None, "shards": None, "successfulShards": None}
+        try:
+            jobs = _jobs(api, run_id, attempt)
+            observation["jobs"] = len(jobs)
+            _job_identities(jobs, run_id, attempt, head)
+            shard_jobs = _shard_jobs(jobs, allow_missing=True)
+            observation["shards"] = len(shard_jobs)
+            for job in shard_jobs:
+                _require(job.get("conclusion") in (None, "success"), "shard_not_success")
+                _require(job.get("status") in PENDING_JOB_STATES | {"completed"}, "job_state_invalid")
+            successes = sum(job.get("status") == "completed" and job.get("conclusion") == "success"
+                            for job in shard_jobs)
+            observation["successfulShards"] = successes
+            if successes == len(SHARD_NAMES):
+                observe(dict(observation, code="settled"))
+                return jobs
+            code = "shard_missing" if len(shard_jobs) < len(SHARD_NAMES) else "shard_pending"
+            final_code = "shard_missing" if code == "shard_missing" else "shard_not_success"
+        except reuse.ReuseRefusal as refusal:
+            code = refusal.code
+            final_code = f"matrix_unverifiable_{code}"
+            if code not in RETRYABLE_JOB_ERRORS:
+                observe(dict(observation, code=code))
+                raise GateError(final_code) from None
+        except GateError as error:
+            observe(dict(observation, code=str(error)))
+            raise
+        observe(dict(observation, code=code))
+        if poll == SHARD_POLL_ATTEMPTS:
+            raise GateError(final_code)
         pause(SHARD_POLL_INTERVAL_SECONDS)
-        jobs = _jobs(api, run_id, attempt)
-    raise GateError("shard_not_success")
 
 
-def validate(plan, repo, results, api, event_name, event, run_id, attempt, now=None, pause=None):
+def validate(plan, repo, results, api, event_name, event, run_id, attempt, now=None, pause=None,
+             observe=None):
     now = now or datetime.now(timezone.utc)
     _require(plan.get("version") == 2, "invalid_plan")
     _require(plan.get("planSha256") == impact.canonical(plan), "plan_digest_mismatch")
@@ -143,7 +201,15 @@ def validate(plan, repo, results, api, event_name, event, run_id, attempt, now=N
         _require(actual == expected, f"unit_{job}_{status.lower()}_not_{expected}")
 
     contracts_execute = plan["units"]["contracts"]["status"] == impact.EXECUTE
-    jobs = _settled_jobs(api, run_id, attempt, contracts_execute, pause or time.sleep)
+    observations = []
+
+    def record(observation):
+        observations.append(observation)
+        if observe is not None:
+            observe(observation)
+
+    jobs = _settled_jobs(api, run_id, attempt, contracts_execute, pause or time.sleep,
+                         plan["headSha"], observe=record)
     shards = None
     if contracts_execute:
         shards = sorted(job.get("name") for job in _shard_jobs(jobs))
@@ -169,7 +235,8 @@ def validate(plan, repo, results, api, event_name, event, run_id, attempt, now=N
         except (reuse.ReuseRefusal, KeyError, TypeError, ValueError):
             started = None
     return {
-        "version": 1, "verdict": "PASS", "runId": run_id, "headSha": plan["headSha"],
+        "version": 1, "verdict": "PASS", "runId": run_id, "runAttempt": attempt,
+        "headSha": plan["headSha"],
         "baseSha": plan["baseSha"], "mergeBaseSha": plan["mergeBaseSha"],
         "units": {job: {"status": plan["units"][job]["status"], "result": results.get(job),
                         "durationSeconds": (max(shard_seconds) if job == "contracts" and shard_seconds
@@ -187,6 +254,12 @@ def validate(plan, repo, results, api, event_name, event, run_id, attempt, now=N
                   "sourceRunId": (plan["reuse"].get("source") or {}).get("runId"),
                   "units": plan["reuse"].get("units", [])},
         "shards": shards, "wronglySkipped": [],
+        "jobObservations": observations,
+        "shardJobs": [{"name": job["name"], "jobId": job["id"], "runId": job["run_id"],
+                       "runAttempt": job["run_attempt"], "headSha": job["head_sha"],
+                       "status": job["status"], "conclusion": job["conclusion"]}
+                      for job in sorted(_shard_jobs(jobs), key=lambda job: job["name"])]
+        if contracts_execute else [],
     }
 
 
@@ -222,7 +295,9 @@ def main():
         results = {job: os.environ.get(name, "") for job, name in RESULT_ENV.items()}
         api = reuse.GitHubApi.from_environment(os.environ)
         report = validate(plan, impact.ROOT, results, api, args.event_name, event,
-                          int(args.run_id or 0), int(args.attempt or 1))
+                          int(args.run_id or 0), int(args.attempt or 1),
+                          observe=lambda observation: print(
+                              "ci_gate:job_observation " + json.dumps(observation, sort_keys=True), flush=True))
         output = Path(args.output)
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
