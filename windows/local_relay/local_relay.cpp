@@ -17,6 +17,8 @@ namespace {
 constexpr int ok = 0, pending = 1, disconnected = 2, rejected = 3;
 constexpr DWORD capacity = 65536;
 std::atomic<bool> cleanup_failed{false};
+// Fixed local diagnostic stages only; no path, SID, payload or exception text.
+std::atomic<uint32_t> link_diagnostic{0};
 constexpr DWORD pipe_access = FILE_READ_DATA | FILE_WRITE_DATA |
     FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE;
 struct Handle {
@@ -64,6 +66,7 @@ std::vector<uint8_t> user_sid(HANDLE process) {
 }
 bool bind_image(HANDLE process, const std::wstring& expected,
                 Handle& expected_file, Handle& actual_file) {
+  link_diagnostic = 20;
   const auto actual = image(process);
   if (actual.empty()) return false;
   expected_file.value = CreateFileW(expected.c_str(), FILE_READ_ATTRIBUTES,
@@ -72,6 +75,7 @@ bool bind_image(HANDLE process, const std::wstring& expected,
   actual_file.value = CreateFileW(actual.c_str(), FILE_READ_ATTRIBUTES,
       FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT,
       nullptr);
+  link_diagnostic = !expected_file.valid() ? 21 : !actual_file.valid() ? 22 : 23;
   BY_HANDLE_FILE_INFORMATION left{}, right{};
   return expected_file.valid() && actual_file.valid() &&
       GetFileInformationByHandle(expected_file.value, &left) &&
@@ -126,6 +130,11 @@ std::wstring endpoint(const std::wstring& root, const std::wstring& sid,
   BCryptCloseAlgorithmProvider(algorithm, 0);
   if (!valid) return {};
   std::wstring result = L"\\\\.\\pipe\\ShirohaCodexRelayV1_";
+#if SHIROHA_LINK_ROLE == 1
+  result = L"\\\\.\\pipe\\ShirohaLinkBusinessV1_";
+#elif SHIROHA_LINK_ROLE == 2
+  result = L"\\\\.\\pipe\\ShirohaLinkControlV1_";
+#endif
   constexpr wchar_t hex[] = L"0123456789abcdef";
   for (const auto byte : digest) {
     result.push_back(hex[byte >> 4]);
@@ -145,6 +154,8 @@ struct Pipe {
     // Any-Job membership does not identify a Codex-owned Job. This mode admits
     // only a normal direct Explorer launch, using kernel process/file facts.
     // It does not grant business authority or resist same-user process spoofing.
+    // The independent Link uses this same provenance check with its own fixed
+    // image/pipe role. It does not require or impersonate a Windows Shiroha App.
     const DWORD parent = parent_id(child);
     DWORD shell = 0;
     const HWND shell_window = GetShellWindow();
@@ -191,19 +202,26 @@ struct Pipe {
         !ProcessIdToSessionId(id, &peer_session) || peer_session != session ||
         !GetProcessTimes(peer.value, &parent_created, &exited, &kernel, &user) ||
         !GetProcessTimes(GetCurrentProcess(), &self_created, &exited, &kernel, &user) ||
-        CompareFileTime(&parent_created, &self_created) >= 0 ||
-        !bind_image(peer.value, root + L"\\shiroha_quiz.exe",
+        CompareFileTime(&parent_created, &self_created) >= 0) return false;
+#if SHIROHA_LINK_ROLE == 1 || SHIROHA_LINK_ROLE == 2
+    if (!bind_image(peer.value, root + L"\\shiroha_link.exe",
                     expected_image, actual_image)) return false;
+#else
+    if (!bind_image(peer.value, root + L"\\shiroha_quiz.exe",
+                    expected_image, actual_image)) return false;
+#endif
     return independent_launch(id, peer.value) &&
         WaitForSingleObject(peer.value, 0) == WAIT_TIMEOUT;
   }
   bool authenticate() {
+    link_diagnostic = 10;
     ULONG id = 0;
     if (!(server ? GetNamedPipeClientProcessId(pipe.value, &id)
                  : GetNamedPipeServerProcessId(pipe.value, &id)) || id == 0)
       return false;
     peer.value = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE,
                              FALSE, id);
+    link_diagnostic = 11;
     DWORD peer_session = 0;
     const auto other_sid = peer.valid() ? user_sid(peer.value)
                                          : std::vector<uint8_t>{};
@@ -213,7 +231,14 @@ struct Pipe {
       return false;
     const auto expected = root + (server ? L"\\shiroha_codex.exe"
                                          : L"\\shiroha_quiz.exe");
-    return bind_image(peer.value, expected, expected_image, actual_image) &&
+    auto selected_expected = expected;
+#if SHIROHA_LINK_ROLE == 1
+    selected_expected = root + (server ? L"\\shiroha.exe" : L"\\shiroha_link.exe");
+#elif SHIROHA_LINK_ROLE == 2
+    selected_expected = root + (server ? L"\\shiroha_link_control.exe" : L"\\shiroha_link.exe");
+#endif
+    link_diagnostic = 12;
+    return bind_image(peer.value, selected_expected, expected_image, actual_image) &&
         WaitForSingleObject(peer.value, 0) == WAIT_TIMEOUT && launch_current();
   }
   bool live() const {
@@ -264,6 +289,7 @@ API void shiroha_relay_free(void* buffer) {
   if (buffer && !HeapFree(GetProcessHeap(), 0, buffer)) cleanup_failed = true;
 }
 static int open_pipe(uint32_t role, uint64_t* output) {
+  link_diagnostic = 1;
   if (!output || role > 3) return rejected;
   *output = 0;
   std::lock_guard<std::mutex> guard(mutex);
@@ -277,8 +303,20 @@ static int open_pipe(uint32_t role, uint64_t* output) {
   const auto name = self.substr(split + 1);
   const auto expected_name = role == 0 || role == 3 ? L"shiroha_quiz.exe"
       : role == 2 ? L"shiroha_bridge.exe" : L"shiroha_codex.exe";
-  if (_wcsicmp(name.c_str(), expected_name) != 0)
+  auto selected_name = expected_name;
+#if SHIROHA_LINK_ROLE == 1
+  if (role > 2) return rejected;
+  selected_name = role == 0 ? L"shiroha_link.exe" : role == 1 ? L"shiroha.exe" : L"AndroidDeviceAdapter.exe";
+#elif SHIROHA_LINK_ROLE == 2
+  if (role > 1) return rejected;
+  selected_name = role == 0 ? L"shiroha_link.exe" : L"shiroha_link_control.exe";
+#elif SHIROHA_LINK_ROLE == 3
+  if (role != 2) return rejected;
+  selected_name = L"AndroidDeviceAdapter.exe";
+#endif
+  if (_wcsicmp(name.c_str(), selected_name) != 0)
     return rejected;
+  link_diagnostic = 2;
   p->root = self.substr(0, split);
   p->sid = user_sid(GetCurrentProcess());
   if (p->sid.empty() || !ProcessIdToSessionId(GetCurrentProcessId(), &p->session))
@@ -291,6 +329,7 @@ static int open_pipe(uint32_t role, uint64_t* output) {
     return ok;
   }
   const auto sid = sid_text(p->sid);
+  link_diagnostic = 3;
   const auto address = endpoint(p->root, sid, p->session);
   if (sid.empty() || address.empty()) return rejected;
   if (p->server) {
@@ -306,21 +345,50 @@ static int open_pipe(uint32_t role, uint64_t* output) {
         1, capacity, capacity, 0, &attributes);
     LocalFree(descriptor);
   } else {
+    link_diagnostic = 4;
     p->pipe.value = CreateFileW(address.c_str(), pipe_access, 0, nullptr,
         OPEN_EXISTING, SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION, nullptr);
+#if SHIROHA_LINK_ROLE
+    if (!p->pipe.valid() && GetLastError() == ERROR_PIPE_BUSY) return 5;
+#endif
     DWORD mode = PIPE_READMODE_BYTE | PIPE_NOWAIT;
-    if (!p->pipe.valid() || !SetNamedPipeHandleState(p->pipe.value, &mode, nullptr, nullptr) ||
-        !p->authenticate()) return rejected;
+    if (!p->pipe.valid()) return rejected;
+    link_diagnostic = 5;
+    if (!SetNamedPipeHandleState(p->pipe.value, &mode, nullptr, nullptr)) return rejected;
+    link_diagnostic = 6;
+    if (!p->authenticate()) return rejected;
     p->connected = true;
   }
   if (!p->pipe.valid()) return rejected;
   owned = std::move(p);
   *output = ++generation;
+  link_diagnostic = 0;
   return ok;
 }
 API int shiroha_relay_open(uint32_t role, uint64_t* output) {
   try { return open_pipe(role, output); } catch (...) { return rejected; }
 }
+#if SHIROHA_LINK_ROLE
+API uint32_t shiroha_link_diagnostic() { return link_diagnostic.load(); }
+// Kernel-held process handle and creation time, never a peer-supplied identity.
+API uint64_t shiroha_link_peer_identity(uint64_t id) {
+  std::lock_guard<std::mutex> guard(mutex);
+  auto p = get(id);
+  FILETIME created{}, exited{}, kernel{}, user{};
+  if (!p || !p->live() || !GetProcessTimes(p->peer.value, &created, &exited, &kernel, &user)) return 0;
+  return (static_cast<uint64_t>(created.dwHighDateTime) << 32) | created.dwLowDateTime;
+}
+API int shiroha_link_process_current(uint32_t pid, uint64_t creation) {
+  Handle process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, pid));
+  if (!process.valid()) return GetLastError() == ERROR_INVALID_PARAMETER ? 0 : -1;
+  FILETIME created{}, exited{}, kernel{}, user{};
+  if (!GetProcessTimes(process.value, &created, &exited, &kernel, &user)) return -1;
+  const auto actual = (static_cast<uint64_t>(created.dwHighDateTime) << 32) | created.dwLowDateTime;
+  const auto state = WaitForSingleObject(process.value, 0);
+  if (state != WAIT_OBJECT_0 && state != WAIT_TIMEOUT) return -1;
+  return actual == creation && state == WAIT_TIMEOUT ? 1 : 0;
+}
+#endif
 static int accept_pipe(uint64_t id) {
   std::lock_guard<std::mutex> guard(mutex);
   auto* p = get(id);

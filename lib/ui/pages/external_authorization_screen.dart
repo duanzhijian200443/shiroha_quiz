@@ -355,6 +355,32 @@ final class _ExternalAuthorizationScreenState
             : _setStudyStatistics,
         onOpenReview: _openReview,
         connectionSettings: Column(children: [
+          if (FirstPartyExternalScope.handoffOf(context) case final handoff?)
+            ListTile(
+              leading: const Icon(Icons.move_up),
+              title: const Text('将旧手机连接交给 Shiroha Link'),
+              subtitle: const Text('关闭原连接并完成持久交接，手机授权保持不变'),
+              onTap: _busy
+                  ? null
+                  : () async {
+                      setState(() {
+                        _busy = true;
+                        _error = null;
+                      });
+                      try {
+                        await handoff.run();
+                        if (mounted) {
+                          setState(() => _error = '交接已释放，请在 Shiroha Link 中认领。');
+                        }
+                      } catch (_) {
+                        if (mounted) {
+                          setState(() => _error = '旧连接尚未确认结算，交接已停止。请保留原状态。');
+                        }
+                      } finally {
+                        if (mounted) setState(() => _busy = false);
+                      }
+                    },
+            ),
           if (_profiles.length > 1)
             DropdownButtonFormField<String>(
               initialValue: _selected?.profileId,

@@ -81,6 +81,14 @@ void main() {
       await f.open();
       try {
         final s = f.h.s;
+        const ownerKeys = [
+          'external_device_selection_v1',
+          'external_link_handoff_release_v1'
+        ];
+        for (final key in ownerKeys) {
+          await s.h.db.insert(
+              'app_settings', {'key': key, 'value': 'synthetic-local-owner'});
+        }
         final oldRead = await f.readContext();
         final oldStage = await f.stageContext();
         final oldEntry = f.entry;
@@ -124,6 +132,9 @@ void main() {
           await restoring.commitPreparedRestore();
         }
         s.h.db = await s.h.helper.database;
+        final localOwners = await s.h.db.query('app_settings',
+            columns: ['key'], where: 'key IN (?, ?)', whereArgs: ownerKeys);
+        expect(localOwners, hasLength(rollback ? 2 : 0));
         expectNotStarted(await f.host.dispatch(
             ExternalCapabilities.searchQuestions,
             const ExternalQuestionQuery('needle'),

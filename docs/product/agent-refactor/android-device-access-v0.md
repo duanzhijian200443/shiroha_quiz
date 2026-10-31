@@ -899,15 +899,62 @@ Interface support is not evidence that this combination has run successfully.
 - [Schannel version support](https://learn.microsoft.com/en-us/windows/win32/secauthn/protocols-in-tls-ssl--schannel-ssp-)
 
 <a id="unified-access-successor"></a>
-## 14. Independent Link and remote successor — adopted design only
+## 14. Independent Link candidate and remote design
 
 The [unified access target](unified-access-and-content-exchange-v1.md)
-defines a separate Shiroha Link host for future local unified Android access.
+defines a separate Shiroha Link host for local unified Android access.
 The computer runs Codex and Link, but Android routing must not run Windows
 Shiroha or read its database/settings/B0. The original adapter's identity, TLS,
-slot ownership and close protocol remain authoritative. This is a future
-composition, not Profile 3 delivery or a change to the existing seven-tool path.
+slot ownership and close protocol remain authoritative. `tool/link/` supplies
+the standalone AOT candidate and strict local IPC/state/claim infrastructure;
+this is not a declaration of completed native, phone or normal-client acceptance.
+Ordinary builds keep the existing seven-tool path. A target built explicitly
+with `SHIROHA_UNIFIED_LINK=true` wires the already implemented Profile 3 business
+composition, statistics reader and its own verified source.
 Target-app authorization, finite Enable and original owner settlement are retained.
+
+The opt-in business HELLO requests profileVersion=3; READY returns that exact
+version and the authenticated installationId in addition to the original
+device/Profile/runtime/connection binding. Profile 2 remains the default and
+cannot silently negotiate into Profile 3. The adapter checks the claimed
+device/installation/Profile against its protected record before CNG import,
+then checks the actual TLS/READY binding. Address, display name and client/model
+metadata cannot replace that identity. Original TLS 1.3, certificate Pin,
+P15/P0, DPAPI, non-exportable current-user CNG key custody and frame limits remain.
+
+Explicit phone PREPARING still precedes original enable-proof and its resource
+settlement; business uses a new TLS channel after finite Enable. EOF requests
+graceful CLOSE after original work/output, without manufacturing cancellation.
+The original phone response owner invalidates Session/Context references only
+after its actual output/work settlement. Link receives a bound original-adapter
+receipt only after target close, TLS shutdown and CNG retirement, and separately
+joins child exit and all streams. Failed/unknown cleanup retains the exact owner.
+The receipt is connection-resource evidence, not a Proposal Receipt or permission
+to replay STAGE. After a Link crash, explicit recovery needs that exact receipt
+and original process/slot checks; missing proof remains dirty.
+
+For an old candidate-hosted slot, only the old App may release its own database
+record; Link consumes the matched PREPARED/RELEASED/CLAIMED handoff. Daily Android
+access after the claim does not start that App or read its database/B0. A missing
+record on an already paired slot is not a fresh-install claim. Native handoff
+interruptions, independent survival, Android-only provisioning and normal Codex
+phone READ with Windows App absent are separate required gates; the bounded
+observations below identify the portions exercised so far.
+See [MCP §19](mcp-vnext-contract.md#unified-access-successor) and
+the [installation notes](../../../tool/link/README.md).
+
+The local candidate now has the finite migrated-slot READ, actual eleven-tool
+catalog, busy and client-exit observations in [MCP §19.5.1](mcp-vnext-contract.md#1951-bounded-local-candidate-observations).
+The original phone pairing/policy and existing test questions were retained;
+Windows App was not running during those model calls. A later Link-crash run
+retained dirty state but had no matching business receipt, and recovery correctly
+refused. This is not a clean-recovery or complete Android-only/new-install pass.
+
+For local diagnostics, the existing phone panel requires an eligible foreground,
+unlocked LAN environment before loading identity. With Wi-Fi disabled it may
+show the initial-pairing action even when policy remains stored. Restore the
+original LAN and reopen the panel to inspect the original pairing before
+considering any enrollment; never use that display alone to reset pairing.
 
 Phone-embedded official Secure MCP Tunnel is a separately admitted, unproved
 combination. It does not inherit desktop pairing or remove the LAN mode's

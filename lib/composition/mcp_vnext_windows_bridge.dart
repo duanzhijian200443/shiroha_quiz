@@ -18,11 +18,16 @@ final class McpVnextWindowsBridge implements VnextMcpPort {
   McpVnextWindowsBridge({
     required WindowsTlsBridge Function() createConnection,
     this.enableStageApprovalWait = false,
+    this.profileVersion = 2,
     this.report,
   }) : _createConnection = createConnection;
 
   final WindowsTlsBridge Function() _createConnection;
   final bool enableStageApprovalWait;
+  final int profileVersion;
+  Map<String, Object?> _failure(String code) => vnextFailure(code,
+      profileVersion: profileVersion,
+      source: const VnextDataSource('windows', 'local'));
   final WindowsBusinessProcessReport? report;
   VnextMcpBridgePort? _active;
   Completer<void>? _pending;
@@ -33,16 +38,18 @@ final class McpVnextWindowsBridge implements VnextMcpPort {
   Future<Map<String, Object?>> call(String tool, Map<String, dynamic> arguments,
       {required Stream<void> cancelled,
       required bool Function() available}) async {
-    if (_closed || !available()) return vnextFailure('unavailable');
-    if (_pending != null) return vnextFailure('busy');
+    if (_closed || !available()) return _failure('unavailable');
+    if (_pending != null) return _failure('busy');
     final VnextMcpCommand command;
     try {
-      command = VnextMcpCommand.parse(tool, arguments);
+      command = profileVersion == 3
+          ? VnextMcpCommand.parseUnified(tool, arguments)
+          : VnextMcpCommand.parse(tool, arguments);
     } catch (_) {
-      return vnextFailure('invalidRequest');
+      return _failure('invalidRequest');
     }
     if (command.bridgeStageBlocked && !enableStageApprovalWait) {
-      return vnextFailure('capability.accessDenied');
+      return _failure('capability.accessDenied');
     }
     final done = _pending = Completer<void>();
     final forwarded = StreamController<void>.broadcast(sync: true);
@@ -56,13 +63,14 @@ final class McpVnextWindowsBridge implements VnextMcpPort {
     var dispatched = false;
     try {
       final connection = _createConnection();
-      final port = _active = VnextMcpBridgePort(connection);
+      final port = _active =
+          VnextMcpBridgePort(connection, profileVersion: profileVersion);
       if (connection.enableStageApprovalWait != enableStageApprovalWait) {
-        result = vnextFailure('unavailable');
+        result = _failure('unavailable');
       } else {
         await connection.connect();
         if (_closed || interrupted || !available()) {
-          result = vnextFailure('cancelled');
+          result = _failure('cancelled');
         } else {
           dispatched = true;
           report?.enter(FirstPartyBusinessStage.request);
@@ -75,7 +83,7 @@ final class McpVnextWindowsBridge implements VnextMcpPort {
     } catch (error) {
       report?.primary(error);
       // No business call is retried, including ambiguous connection failures.
-      result = vnextFailure(dispatched
+      result = _failure(dispatched
           ? 'outcome_unknown'
           : interrupted
               ? 'cancelled'
@@ -95,7 +103,7 @@ final class McpVnextWindowsBridge implements VnextMcpPort {
       _pending = null;
       done.complete();
     }
-    return _cleanupFailed ? vnextFailure('outcome_unknown') : result;
+    return _cleanupFailed ? _failure('outcome_unknown') : result;
   }
 
   @override

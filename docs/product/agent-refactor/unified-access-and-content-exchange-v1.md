@@ -2,7 +2,7 @@
 
 > **状态：已采纳的目标设计契约（DESIGN ONLY）。不表示实现已交付、运行已准入或验收已通过。**
 >
-> 本文规范独立 Link、官方远程通道候选与内容交换的后续设计；相关权威文档同步声明其负责的增量。本文不修改现有运行行为，不授予凭据、网络、后台或写入权限。实施和实机验收仍须分别取得适用授权。
+> 本文规范独立 Link、官方远程通道候选与内容交换。独立本地 Link 的候选实现边界见 MCP §19 与本文 §7；官方远程通道和内容交换仍为设计。源码／构建证据不等于原生生命周期、真机或正常客户端验收；本文本身不授予凭据、网络、后台或写入权限。
 
 | 项目 | 定义 |
 |---|---|
@@ -346,6 +346,10 @@ Link 不读 `app_settings` 或任何题库数据库。使用用户私有、版�
 
 新路径由受信安装配置明确给定；不扫描旧工作区、任意用户目录或所有 CNG 对象寻找“可用身份”。
 
+本地候选使用 `tool/link/link.dart` 独立 Dart AOT 入口，复用原 .NET AndroidDeviceAdapter。其 `LinkStateStore` 最大 32 KiB，拒绝重复键、未知字段、非法 UTF-8、过深结构及不合法状态组合；持有原生文件独占锁，完整快照／expected revision CAS 后同目录原子替换和读回确认。中断的 pending 文件原样保留并阻止启动。只有独立安装初始化程序能新建实例，日常启动不从缺失／损坏文件恢复空状态。
+
+状态只保存 connectorInstanceId、targetRef、selectionRevision、routeGeneration、完整租约绑定、原 owner 的 run/resource/PID/creation 引用、dirtyPhase、handoffId 与固定诊断码。`businessResult`、`delivery`、`settlement` 分开记录；它们不保存题目／文件正文、提交参数、聊天或待重放请求。目标统计、Scope、Proposal、Receipt 仍在原 App。
+
 ### 7.2 凭据不随状态迁移
 
 原 Android 受保护记录和临时密钥 owner 尽量原地复用；Link 只保存槽位引用。原代码限制记录位置时，通过受控安装配置修订，不接受模型传入任意目录。不得为整洁命名重新配对或复制明文私钥。
@@ -398,6 +402,10 @@ B0、旧配置恢复或重新启用旧 MCP 注册不得恢复已释放的槽位�
 对于已有配对但旧托管状态不明的槽位，缺少交接记录不能被当作“全新槽位”；先通过受信来源核对旧 owner，不让新注册清空迁移责任。
 
 保持原数据、配对和 Profile，不降低数据库版本、不重装手机。旧 App 的一次性交接／中断恢复可需要启动旧 App；新 Link 正常拥有槽位后，Android 日常启动与使用不得再依赖旧 App 或它的数据库。
+
+候选实现把旧数据库事务限制在旧 App 的 `LegacyLinkHandoffRepository`，由第一方本地设置动作触发。原适配器先在真实 App/Explorer 父进程校验下解析原受保护配对的非秘密绑定；Link 不读取该凭据或旧数据库。旧 v1 选择状态的 generation 与完整原字符串摘要共同构成 CAS，未曾持久化的历史 revision／清理事实不得补造。既有槽位无有效旧 owner／释放记录时保持 `handoff_required`。当前安装命令只接受既有配对槽位；全新槽位的安装与配对准入仍须单独闭合，不能伪造旧宿主 RELEASED 来使 Android-only 安装看似完成。
+
+实现、原生中断恢复、真实设备、正常 Codex 四类证据必须分别记录。安装和诊断入口见 [`tool/link/README.md`](../../../tool/link/README.md)；目录可见、AOT 编译通过或 Link 进程存活均不能关闭 L01–L13。
 
 ### 7.4 B0
 
@@ -1153,6 +1161,10 @@ Link 可以有界读取并丢弃不能交付的 MCP 输出；这不允许持久�
 | L10 | 统计／文件／生成 | 原权限和正式数据结果一致，无旧 v0 回退 | D+A+C |
 | L11 | 插件／运行包更新 | 未覆盖在用程序，不改变手机 Grant | D+N |
 | L12 | 关闭全部外部入口 | 本地题库、Review、练习仍可用 | A |
+
+本地候选的有限执行观察单独记录于 [MCP §19.5.1](mcp-vnext-contract.md#1951-bounded-local-candidate-observations)：已迁移槽位在 Windows App 不运行时，正常 Codex 真实读取手机既有测试题；真实目录、第二会话 busy、正常退出与已完成 READ 后的客户端异常退出获得有界证据。旧宿主成功释放／认领也已观察。它们不把 L01 的“从未启动”新安装场景、L13 各中断点或整张矩阵变成 PASS。
+
+Link 崩溃后原 dirty 保留、无匹配 business 回执时拒绝恢复，属于 fail-closed 证据；完整干净恢复仍未闭合。不能用先前 enable-proof 的回执、退出码、PID 或密钥标记消失替代原 business owner 的结算。候选仍未完成本地解耦整包验收。
 
 ### 22.2 官方远程通道
 

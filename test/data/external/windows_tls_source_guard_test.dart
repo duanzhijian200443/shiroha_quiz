@@ -88,7 +88,26 @@ void main() {
         final projection = File('lib/mcp/vnext_mcp_protocol_projection.dart')
             .readAsStringSync();
         _expectBusinessProfileProjection(projection);
-        expect(source, isNot(contains('parseUnified(')));
+        void checkExplicitProfile(String candidate) {
+          final compact = candidate.replaceAll(RegExp(r'\s'), '');
+          expect(compact, contains('this.profileVersion=2'));
+          expect(
+              compact,
+              contains(
+                  'profileVersion==3?VnextMcpCommand.parseUnified(tool,arguments):VnextMcpCommand.parse(tool,arguments)'));
+          expect(candidate, contains('!bridge.enableStageApprovalWait'));
+        }
+
+        checkExplicitProfile(source);
+        for (final mutation in [
+          source.replaceFirst(
+              'this.profileVersion = 2', 'this.profileVersion = 3'),
+          source.replaceFirst('profileVersion == 3', 'true'),
+          source.replaceFirst('!bridge.enableStageApprovalWait', 'false'),
+        ]) {
+          expect(mutation, isNot(source));
+          expect(() => checkExplicitProfile(mutation), throwsA(anything));
+        }
         for (final token in [
           '.connect(',
           'WindowsTlsBridge(',

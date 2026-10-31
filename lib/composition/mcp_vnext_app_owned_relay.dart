@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -36,6 +37,7 @@ final class McpVnextAppOwnedRelay implements McpVnextWindowsProcessOwner {
   McpVnextAppOwnedRelay(
       {void Function(String, int)? onEvent,
       this.requireBusinessBootstrap = false,
+      this.profileVersion = 2,
       Duration idleTimeout = const Duration(minutes: 10)})
       : _onEvent = onEvent,
         _idleTimeout = idleTimeout {
@@ -47,6 +49,8 @@ final class McpVnextAppOwnedRelay implements McpVnextWindowsProcessOwner {
   final void Function(String, int)? _onEvent;
   final Duration _idleTimeout;
   final bool requireBusinessBootstrap;
+  final int profileVersion;
+  Future<Map<String, Object?>> Function()? linkBinding;
   int _connectionId = 0;
   void _report(String event) {
     try {
@@ -196,24 +200,54 @@ final class McpVnextAppOwnedRelay implements McpVnextWindowsProcessOwner {
 
   Future<void> _connection(WindowsLocalRelay pipe) async {
     var lastId = 0;
+    Map<String, Object?>? bound;
     while (!_closed && pipe.isCurrent) {
       // Idle expiry closes this connection; no approval/Session is revived.
       final message = await pipe.receive(_idleTimeout);
+      if (profileVersion == 3 &&
+          message['version'] == 2 &&
+          message['kind'] == 'attach' &&
+          message.length == 2 &&
+          bound == null) {
+        bound = await linkBinding?.call();
+        if (bound == null) throw const LocalRelayException();
+        await pipe.send({'version': 2, 'kind': 'attached', 'binding': bound},
+            const Duration(seconds: 5));
+        continue;
+      }
+      if (profileVersion == 3 &&
+          message['version'] == 2 &&
+          message['kind'] == 'close' &&
+          message.length == 3 &&
+          message['id'] == lastId + 1 &&
+          bound != null) {
+        await _bridge?.close();
+        _bridge = null;
+        await onDisconnected?.call();
+        await pipe.send({'version': 2, 'kind': 'closed', 'id': message['id']},
+            const Duration(seconds: 5));
+        return;
+      }
       final id = message['id'];
       final tool = message['tool'];
       final arguments = message['arguments'];
-      if (message.length != 4 ||
-          message['version'] != 1 ||
+      if (message.length != (profileVersion == 3 ? 5 : 4) ||
+          message['version'] != (profileVersion == 3 ? 2 : 1) ||
+          profileVersion == 3 && (message['kind'] != 'call' || bound == null) ||
           id is! int ||
           id != lastId + 1 ||
           id > 0x7fffffff ||
           tool is! String ||
-          !VnextMcpServer.inputSchemas.containsKey(tool) ||
+          !VnextMcpServer.schemasFor(profileVersion).containsKey(tool) ||
           arguments is! Map<String, dynamic>) {
         throw const LocalRelayException();
       }
       lastId = id;
       if (_closed || !pipe.isCurrent) throw const LocalRelayException();
+      if (profileVersion == 3 &&
+          jsonEncode(await linkBinding?.call()) != jsonEncode(bound)) {
+        throw const LocalRelayException();
+      }
       Map<String, Object?> result;
       if (_pairing != null) {
         result = vnextFailure('unavailable');
@@ -225,8 +259,10 @@ final class McpVnextAppOwnedRelay implements McpVnextWindowsProcessOwner {
             requireBootstrap: requireBusinessBootstrap,
             snapshot: businessBootstrap,
             dispatch: (packet) async {
-              final bridge =
-                  _bridge ??= _OwnedBridge(onEvent: _report, bootstrap: packet);
+              final bridge = _bridge ??= _OwnedBridge(
+                  onEvent: _report,
+                  bootstrap: packet,
+                  profileVersion: profileVersion);
               _observedBusiness = bridge.process;
               await bridge.start();
               if (_closed || !pipe.isCurrent) throw const LocalRelayException();
@@ -234,7 +270,12 @@ final class McpVnextAppOwnedRelay implements McpVnextWindowsProcessOwner {
             });
       }
       if (_closed || !pipe.isCurrent) throw const LocalRelayException();
-      await pipe.send({'version': 1, 'id': id, 'result': result},
+      if (profileVersion == 3 &&
+          jsonEncode(await linkBinding?.call()) != jsonEncode(bound)) {
+        throw const LocalRelayException();
+      }
+      await pipe.send(
+          {'version': profileVersion == 3 ? 2 : 1, 'id': id, 'result': result},
           const Duration(seconds: 5));
     }
   }
@@ -270,14 +311,17 @@ final class McpVnextAppOwnedRelay implements McpVnextWindowsProcessOwner {
 /// Stable internal protocol output stays alive after the outer pipe breaks.
 /// This keeps the original child's sole stdout consumer draining through EOF.
 final class _OwnedBridge {
-  _OwnedBridge({required this.onEvent, this.bootstrap}) {
+  _OwnedBridge(
+      {required this.onEvent, this.bootstrap, int profileVersion = 2}) {
     _toChild.onListen = () => _toListened = true;
     _fromChild.onListen = () => _fromListened = true;
     _output = IOSink(_ProtocolOutput(_fromChild));
     process =
         WindowsBridgeProcess.stdio(input: _toChild.stream, output: _output);
-    client =
-        VnextAppOwnedClient(input: _fromChild.stream, output: _toChild.sink);
+    client = VnextAppOwnedClient(
+        input: _fromChild.stream,
+        output: _toChild.sink,
+        profileVersion: profileVersion);
   }
   static bool get packagePresent {
     final root = p.dirname(Platform.resolvedExecutable);

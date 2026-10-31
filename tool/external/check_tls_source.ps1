@@ -58,7 +58,24 @@ foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'lib') -Filter '*.
         if (!$code.Contains('!bridge.enableStageApprovalWait') -or
             !$code.Contains('requestStageApproval(')) { throw 'Default Bridge STAGE refusal or explicit bounded path missing' }
         Assert-BusinessProfileProjection $businessProjection
-        if ($code.Contains('parseUnified(')) { throw 'Legacy Bridge selected unified commands' }
+        function Assert-ExplicitBridgeProfile([string]$Candidate) {
+            $compactCandidate = $Candidate -replace '\s', ''
+            foreach ($requiredProfile in @('this.profileVersion=2',
+                'profileVersion==3?VnextMcpCommand.parseUnified(tool,arguments):VnextMcpCommand.parse(tool,arguments)',
+                '!bridge.enableStageApprovalWait')) {
+                if (!$compactCandidate.Contains($requiredProfile)) { throw 'Bridge profile selection or original STAGE guard changed' }
+            }
+        }
+        Assert-ExplicitBridgeProfile $code
+        foreach ($candidateMutation in @(
+            $code.Replace('this.profileVersion = 2', 'this.profileVersion = 3'),
+            $code.Replace('profileVersion == 3', 'true'),
+            $code.Replace('!bridge.enableStageApprovalWait', 'false'))) {
+            if ($candidateMutation -ceq $code) { throw 'Bridge profile mutation did not change source' }
+            $rejectedProfile = $false
+            try { Assert-ExplicitBridgeProfile $candidateMutation } catch { $rejectedProfile = $true }
+            if (!$rejectedProfile) { throw 'Bridge accepted a profile or approval mutation' }
+        }
     } elseif ($file.FullName -eq (Join-Path $root 'lib/composition/mcp_vnext_windows_acquisition.dart')) {
         foreach ($token in @('dart:io', 'dart:ffi', 'Process.', 'Platform.environment',
             'DatabaseHelper', 'ExternalTrustCore(', 'ExternalSession(', 'ExternalPrincipal(',
@@ -201,7 +218,7 @@ Write-Output 'PASS: inactive TLS candidate, explicit Raw I/O, isolated TLS13 con
 function Assert-AppOwnedRelayBoundary([hashtable]$Sources) {
     # MCP 17.12 admits this one process consumer, with no protected authority.
     $relay = $Sources.relay
-    $imports = @('dart:async', 'dart:io', 'package:path/path.dart',
+    $imports = @('dart:async', 'dart:io', 'dart:convert', 'package:path/path.dart',
         '../application/external/first_party_external_access.dart',
         '../application/external/first_party_development_access.dart',
         '../data/external/windows_development_bootstrap.dart',
@@ -227,7 +244,7 @@ function Assert-AppOwnedRelayBoundary([hashtable]$Sources) {
     $constructor = [regex]::Match($Sources.registration,
         '(?s)McpVnextWindowsAppRegistration\.appOwnedRelay\(.*?;')
     if (!$constructor.Success -or
-        !(($constructor.Value -replace '\s', '').Contains('_relay=McpVnextAppOwnedRelay(onEvent:onRelayEvent,requireBusinessBootstrap:true)')) -or
+        !(($constructor.Value -replace '\s', '').Contains('_relay=McpVnextAppOwnedRelay(onEvent:onRelayEvent,requireBusinessBootstrap:true,profileVersion:integration.profileVersion)')) -or
         !$constructor.Value.Contains('requireBusinessBootstrap: true') -or
         $constructor.Value -match '_install|_startup|_acquirer|requireSecurityAdmission') {
         throw 'Local relay registration gained protected startup'
@@ -256,6 +273,7 @@ $mutations = @(
     @{key='relay'; code=$relaySources.relay + "`nProcess.start('tool', []);"; expected='Local relay gained authority'},
     @{key='relay'; code=$relaySources.relay.Replace('await process.stopAndWait();', ''); expected='Local relay lost original process custody'},
     @{key='registration'; code=$relaySources.registration.Replace('requireBusinessBootstrap: true', 'requireBusinessBootstrap: false'); expected='Local relay registration gained protected startup'},
+    @{key='registration'; code=$relaySources.registration.Replace('profileVersion: integration.profileVersion', 'profileVersion: 3'); expected='Local relay registration gained protected startup'},
     @{key='main'; code=$relaySources.main.Replace('.appOwnedRelay(integration,', '.directClient(integration,'); expected='Normal App registration activated protected startup'},
     @{key='main'; code=$relaySources.main.Replace('.appOwnedRelay(integration,', '.hostedClient(integration,'); expected='Normal App registration activated protected startup'},
     @{key='entry'; code=$relaySources.entry.Replace('serveDevelopmentWindowsBridge();', 'serveWindowsBridgeStdio(bootstrap: candidate);'); expected='Formal AOT acquired a business selector'}

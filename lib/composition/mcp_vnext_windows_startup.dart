@@ -396,10 +396,12 @@ final class McpVnextWindowsBridgeStartup implements VnextMcpPort {
   McpVnextWindowsBridgeStartup({
     required Future<McpVnextWindowsBridgeDependencies> Function() acquire,
     this.enableStageApprovalWait = false,
+    this.profileVersion = 2,
     this.report,
   }) : _acquire = acquire;
   final Future<McpVnextWindowsBridgeDependencies> Function() _acquire;
   final bool enableStageApprovalWait;
+  final int profileVersion;
   final WindowsBusinessProcessReport? report;
   McpVnextWindowsBridgeDependencies? _dependencies;
   bool _rejectedDependencies = false;
@@ -412,7 +414,7 @@ final class McpVnextWindowsBridgeStartup implements VnextMcpPort {
   Future<void> serveStdio() async {
     try {
       await start();
-      await VnextMcpServer(this).serveStdio();
+      await VnextMcpServer(this, profileVersion: profileVersion).serveStdio();
     } finally {
       await close();
     }
@@ -442,6 +444,7 @@ final class McpVnextWindowsBridgeStartup implements VnextMcpPort {
       }
       _bridge = McpVnextWindowsBridge(
         report: report,
+        profileVersion: profileVersion,
         enableStageApprovalWait: enableStageApprovalWait,
         createConnection: () => WindowsTlsBridge(
           report: report,
@@ -487,7 +490,9 @@ final class McpVnextWindowsBridgeStartup implements VnextMcpPort {
       {required Stream<void> cancelled,
       required bool Function() available}) async {
     final bridge = _bridge;
-    if (_stopped || bridge == null) return vnextFailure('unavailable');
+    if (_stopped || bridge == null) {
+      return vnextFailure('unavailable', profileVersion: profileVersion);
+    }
     return bridge.call(tool, arguments,
         cancelled: cancelled, available: () => !_stopped && available());
   }

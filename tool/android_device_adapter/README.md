@@ -19,6 +19,26 @@ the original File scope; they use the same phone F1/retrieval owners.
 The historical `.androidread` package and `android_device_read` directory names
 are retained; do not reinstall, re-pair or migrate credentials to rename them.
 
+## Independent Link candidate
+
+[`tool/link`](../link/README.md) compiles the original adapter with a standalone
+Dart AOT connection owner. Fixed `--link-proof`/`--link-business` entries require
+the adjacent Link's native desktop-parent/creation admission, strict installation
+configuration and claimed-slot fence before protected record/key acquisition.
+They request the explicit Profile 3 target composition; original direct entries
+still default to Profile 2. Device/installation/Profile are checked against the
+claim before CNG import and again through the authenticated TLS/READY channel.
+Neither tool arguments nor environment variables supply pairing credentials.
+
+Updated legacy acquisition checks every handoff fence phase and refuses released
+slots. `--handoff-binding` is restricted to the original App/Explorer parent
+chain and returns only the original protected record's non-secret binding to
+that App. It does not release database ownership or provide a model API.
+The original adapter emits a bounded resource receipt only after real close,
+TLS shutdown and original key retirement; Link must still join process/streams.
+This is candidate infrastructure, not a completed native/phone/normal-client
+qualification. The legacy focused workflow below retains its prior limits.
+
 ## Selected development workflow
 
 Publish a self-contained executable for the selected Windows host:

@@ -5,13 +5,19 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
+import 'bounded_json_object.dart';
 
 /// The local hop has no Application identity or credential authority.
 final class LocalRelayException implements Exception {
   const LocalRelayException(
-      {this.unsettled = false, this.independentAppRequired = false});
+      {this.unsettled = false,
+      this.independentAppRequired = false,
+      this.busy = false,
+      this.linkDiagnostic = 0});
   final bool unsettled;
   final bool independentAppRequired;
+  final bool busy;
+  final int linkDiagnostic;
   @override
   String toString() => 'Local relay unavailable';
 }
@@ -19,11 +25,13 @@ final class LocalRelayException implements Exception {
 /// Bounded framing shared by the two local transport endpoints.
 final class LocalRelayFrame {
   static const maxBytes = 2 * 1024 * 1024;
-  static void _checkTree(Map<String, Object?> value) {
+  static const linkBusinessBytes = 6324224;
+  static const linkControlBytes = 16384;
+  static void _checkTree(Map<String, Object?> value, int limit) {
     // Bound traversal before allocating the encoded body, including cycles.
     var units = 0;
     void visit(Object? node, int depth) {
-      if (depth > 32 || ++units > maxBytes) throw const LocalRelayException();
+      if (depth > 32 || ++units > limit) throw const LocalRelayException();
       if (node is String) {
         units += node.length * 6 + 2;
       } else if (node is Map<String, Object?>) {
@@ -38,16 +46,19 @@ final class LocalRelayFrame {
       } else if (node != null && node is! num && node is! bool) {
         throw const LocalRelayException();
       }
-      if (units > maxBytes) throw const LocalRelayException();
+      if (units > limit) throw const LocalRelayException();
     }
 
     visit(value, 0);
   }
 
-  static Uint8List encode(Map<String, Object?> value) {
-    _checkTree(value);
+  static Uint8List encode(Map<String, Object?> value, {int limit = maxBytes}) {
+    if (!{maxBytes, linkBusinessBytes, linkControlBytes}.contains(limit)) {
+      throw const LocalRelayException();
+    }
+    _checkTree(value, limit);
     final body = utf8.encode(jsonEncode(value));
-    if (body.isEmpty || body.length > maxBytes) {
+    if (body.isEmpty || body.length > limit) {
       throw const LocalRelayException();
     }
     final result = Uint8List(body.length + 4);
@@ -56,14 +67,15 @@ final class LocalRelayFrame {
     return result;
   }
 
-  static Map<String, Object?> decode(Uint8List bytes) {
-    if (bytes.isEmpty || bytes.length > maxBytes) {
+  static Map<String, Object?> decode(Uint8List bytes, {int limit = maxBytes}) {
+    if (!{maxBytes, linkBusinessBytes, linkControlBytes}.contains(limit) ||
+        bytes.isEmpty ||
+        bytes.length > limit) {
       throw const LocalRelayException();
     }
     try {
-      final value = jsonDecode(utf8.decode(bytes));
-      if (value is! Map<String, dynamic>) throw const LocalRelayException();
-      _checkTree(value);
+      final value = boundedJsonObject(bytes, maxBytes: limit);
+      _checkTree(value, limit);
       return value;
     } catch (_) {
       throw const LocalRelayException();
@@ -81,19 +93,55 @@ abstract interface class LocalRelayConnection {
   Future<void> close();
 }
 
-final class WindowsLocalRelay implements LocalRelayConnection {
-  WindowsLocalRelay._(this._native, this._id, this._server);
+abstract interface class LocalRelayServerConnection
+    implements LocalRelayConnection {
+  String get linkPeerIdentity;
+  Future<void> disconnect();
+}
+
+final class WindowsLocalRelay implements LocalRelayServerConnection {
+  WindowsLocalRelay._(this._native, this._id, this._server, this._messageLimit);
   static WindowsLocalRelay openApp() => _open(true);
   static WindowsLocalRelay openAdapter() => _open(false);
+  static WindowsLocalRelay openLinkBusiness({required bool server}) =>
+      _open(server, libraryName: 'shiroha_link_native.dll');
+  static WindowsLocalRelay openLinkControl({required bool server}) =>
+      _open(server, libraryName: 'shiroha_link_control_native.dll');
+  static bool linkProcessCurrent(int pid, String creation) {
+    final value = int.tryParse(creation);
+    if (value == null || value < 1 || pid < 1) {
+      throw const LocalRelayException();
+    }
+    final native = _RelayNative(libraryName: 'shiroha_link_native.dll');
+    try {
+      final result = native.linkProcessCurrent!(pid, value);
+      if (result < 0) throw const LocalRelayException();
+      return result == 1;
+    } finally {
+      native.dispose();
+    }
+  }
 
-  static WindowsLocalRelay _open(bool server) {
-    final native = _RelayNative();
+  static WindowsLocalRelay _open(bool server,
+      {String libraryName = 'shiroha_relay_native.dll'}) {
+    final native = _RelayNative(libraryName: libraryName);
     try {
       final result = native.open(server ? 0 : 1, native.id);
       if (result != 0 || native.id.value == 0) {
-        throw LocalRelayException(independentAppRequired: result == 6);
+        throw LocalRelayException(
+            independentAppRequired: result == 6,
+            busy: result == 5,
+            linkDiagnostic: native.linkDiagnostic?.call() ?? 0);
       }
-      return WindowsLocalRelay._(native, native.id.value, server);
+      return WindowsLocalRelay._(
+          native,
+          native.id.value,
+          server,
+          libraryName == 'shiroha_link_native.dll'
+              ? LocalRelayFrame.linkBusinessBytes
+              : libraryName == 'shiroha_link_control_native.dll'
+                  ? LocalRelayFrame.linkControlBytes
+                  : LocalRelayFrame.maxBytes);
     } catch (error) {
       native.dispose();
       if (error is LocalRelayException) rethrow;
@@ -104,6 +152,7 @@ final class WindowsLocalRelay implements LocalRelayConnection {
   final _RelayNative _native;
   final int _id;
   final bool _server;
+  final int _messageLimit;
   bool _closed = false, _reading = false, _writing = false;
   bool _accepted = false;
   Future<void>? _closing, _disconnecting;
@@ -112,6 +161,13 @@ final class WindowsLocalRelay implements LocalRelayConnection {
   Future<void> get disconnected => _lost.future;
   @override
   bool get isCurrent => !_closed && _accepted;
+
+  @override
+  String get linkPeerIdentity {
+    final value = isCurrent ? _native.linkPeerIdentity?.call(_id) : null;
+    if (value == null || value == 0) throw const LocalRelayException();
+    return 'peer-${value.toRadixString(16)}';
+  }
 
   /// Original independently launched App, including while awaiting a peer.
   /// This is provenance/liveness only, never credential or business admission.
@@ -193,9 +249,11 @@ final class WindowsLocalRelay implements LocalRelayConnection {
             used, used + length, _native.buffer.asTypedList(length));
         used += length;
         if (used != destination.length) continue;
-        if (body != null) return LocalRelayFrame.decode(body);
+        if (body != null) {
+          return LocalRelayFrame.decode(body, limit: _messageLimit);
+        }
         final size = ByteData.sublistView(header).getUint32(0, Endian.little);
-        if (size == 0 || size > LocalRelayFrame.maxBytes) {
+        if (size == 0 || size > _messageLimit) {
           throw const LocalRelayException();
         }
         body = Uint8List(size);
@@ -212,7 +270,7 @@ final class WindowsLocalRelay implements LocalRelayConnection {
     if (!isCurrent || _writing) throw const LocalRelayException();
     _writing = true;
     try {
-      final frame = LocalRelayFrame.encode(message);
+      final frame = LocalRelayFrame.encode(message, limit: _messageLimit);
       final watch = Stopwatch()..start();
       var offset = 0;
       while (isCurrent && watch.elapsed < deadline && offset < frame.length) {
@@ -251,6 +309,7 @@ final class WindowsLocalRelay implements LocalRelayConnection {
 
   /// Retire this peer while retaining the App's first-instance exclusion.
   /// The caller must settle original Bridge custody before accepting again.
+  @override
   Future<void> disconnect() {
     if (!_server) return close();
     _endConnection();
@@ -313,14 +372,25 @@ final class WindowsAppParentGuard {
 }
 
 final class _RelayNative {
-  _RelayNative() {
+  _RelayNative({String libraryName = 'shiroha_relay_native.dll'}) {
     if (!Platform.isWindows) throw const LocalRelayException();
     try {
-      final library = DynamicLibrary.open(p.join(
-          p.dirname(Platform.resolvedExecutable), 'shiroha_relay_native.dll'));
+      final library = DynamicLibrary.open(
+          p.join(p.dirname(Platform.resolvedExecutable), libraryName));
       final version = library.lookupFunction<Uint32 Function(), int Function()>(
           'shiroha_relay_version');
       if (version() != 1) throw const LocalRelayException();
+      if (libraryName != 'shiroha_relay_native.dll') {
+        linkDiagnostic =
+            library.lookupFunction<Uint32 Function(), int Function()>(
+                'shiroha_link_diagnostic');
+        linkPeerIdentity =
+            library.lookupFunction<Uint64 Function(Uint64), int Function(int)>(
+                'shiroha_link_peer_identity');
+        linkProcessCurrent = library.lookupFunction<
+            Int32 Function(Uint32, Uint64),
+            int Function(int, int)>('shiroha_link_process_current');
+      }
       _healthy = library.lookupFunction<Uint32 Function(), int Function()>(
           'shiroha_relay_healthy');
       _allocate = library.lookupFunction<Pointer<Uint8> Function(Uint32),
@@ -367,6 +437,9 @@ final class _RelayNative {
   late final int Function() _healthy;
   late final int Function(int, Pointer<Uint64>) open;
   late final int Function(int) accept, state, appLaunchState, close, disconnect;
+  int Function(int)? linkPeerIdentity;
+  int Function()? linkDiagnostic;
+  int Function(int, int)? linkProcessCurrent;
   late final int Function(int, Pointer<Uint8>, int, Pointer<Uint32>) read,
       write;
   late final Pointer<Uint8> buffer, writeBuffer;

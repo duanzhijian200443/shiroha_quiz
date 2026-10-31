@@ -75,8 +75,34 @@ internal static class SyntheticTests
         CheckFrameDeadlines().GetAwaiter().GetResult();
         Check(DeviceClient.IsNonce(DeviceClient.Nonce()));
         Check(!DeviceClient.IsNonce(new string('A', 42) + "B"));
-        Console.WriteLine("PASS: 38 synthetic Android adapter checks; no business or credential acquisition in this test");
+        CheckLinkClaimBinding(target);
+        Console.WriteLine("PASS: 38 original adapter checks plus Link claim binding cases; no business or credential acquisition in this test");
         return 0;
+    }
+
+    private static void CheckLinkClaimBinding(DeviceTarget target)
+    {
+        var claim = new Dictionary<string, object?> {
+            ["formatVersion"] = 1, ["handoffId"] = "handoff", ["handoffRevision"] = 2,
+            ["slotRef"] = "slot", ["oldOwnerInstance"] = "old", ["oldSelectionGeneration"] = 1,
+            ["oldStateRevision"] = 1, ["oldStateDigest"] = new string('a', 64),
+            ["releaseRecordRef"] = "release", ["newOwner"] = "link", ["newLinkStateRevision"] = 1,
+            ["phase"] = "CLAIMED", ["target"] = new { deviceIdentity = target.DeviceId,
+                installationIdentity = "installation", profileReference = target.ProfileId }
+        };
+        JsonElement Value() => JsonSerializer.SerializeToElement(claim);
+        SlotFence.RequireClaimRecord(Value(), "link", "slot", target, "installation");
+        Reject(() => SlotFence.RequireClaimRecord(Value(), "other", "slot", target, "installation"));
+        Reject(() => SlotFence.RequireClaimRecord(Value(), "link", "other", target, "installation"));
+        Reject(() => SlotFence.RequireClaimRecord(Value(), "link", "slot", target, "other"));
+        Reject(() => SlotFence.RequireClaimRecord(Value(), "link", "slot", target with { DeviceId = new string('f',64) }, "installation"));
+        Reject(() => SlotFence.RequireClaimRecord(Value(), "link", "slot", target with { ProfileId = "20000000-0000-4000-8000-000000000001" }, "installation"));
+        foreach (var phase in new[] { "PREPARED", "RELEASED", "claimed" }) {
+            claim["phase"] = phase;
+            Reject(() => SlotFence.RequireClaimRecord(Value(), "link", "slot", target, "installation"));
+        }
+        claim["phase"] = "CLAIMED"; claim["unrecognized"] = true;
+        Reject(() => SlotFence.RequireClaimRecord(Value(), "link", "slot", target, "installation"));
     }
 
     private static async Task CheckFrameDeadlines()

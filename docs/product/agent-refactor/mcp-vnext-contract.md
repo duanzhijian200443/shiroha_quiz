@@ -2332,7 +2332,9 @@ business foundation. `VnextMcpServer`, `VnextMcpAppComposition` and
 explicit trusted profile selection, this target's statistics reader and an
 App-owned source. Merely injecting a reader, discovering tools, pairing,
 reconnecting or opening settings does not select Profile 3 or grant statistics.
-No normal Windows/Android registration or device handshake is upgraded here.
+Ordinary builds retain Profile 2. The separate local Link candidate explicitly
+selects Profile 3 with `SHIROHA_UNIFIED_LINK=true` at the target App composition;
+its Android HELLO/READY and optional Windows relay require that same selection.
 The shared `VnextMcpBusinessPort` is a compatibility alias for the original
 pure-Dart `AndroidMcpPort` response-settlement owner. Explicit Profile 3 reuses
 its original P10/FirstPartyStageApproval path and one-call connection reservation.
@@ -2449,6 +2451,46 @@ its B0. Windows targets still use the original Windows App-owned path. Every
 target App retains identity, Grant, finite Enable, egress and formal-write
 authority. The model cannot supply target addresses, executable paths or keys.
 
+The local candidate in `tool/link/` compiles independent Dart AOT executables:
+`shiroha.exe` (MCP frontend), `shiroha_link.exe` (connection owner), and
+`shiroha_link_control.exe` (local management). The frontend reuses the real SDK,
+Profile 3 catalog, schemas and result projection. Discovery never opens a pipe
+or acquires a device credential. The frontend has no installation/slot reader,
+database, Grant, approval or request-replay store. Link's transitive entrypoint
+has no Flutter or SQLite initialization. Build and isolated regression evidence
+do not constitute installed-client, native lifecycle or phone acceptance.
+
+The business and control pipes use distinct native roles, same-user/session
+ACLs, pinned process creation identities and fixed adjacent executables. The
+business peer is `shiroha.exe`; the management peer is
+`shiroha_link_control.exe`. Link startup uses the original real-desktop-Explorer
+parent/image/user/session/creation checks with its own executable role. A
+system Job on the real shell is not classified as a Codex-owned Job; actual
+client-termination evidence is still required. None of these
+new endpoints changes the original Windows App/Explorer or Bridge peer checks.
+The business envelope binds runId, connectionId and capabilitySet before lease
+acquisition; monotonically correlated call/cancel/delivered messages follow.
+Control admits one bounded request per connection, at most ten per second;
+it cannot be reached through a business tool. Before allocation/JSON parsing,
+control messages are limited to 16 KiB, Link business messages to 6,324,224 bytes.
+The original Windows relay remains at 2 MiB. Original business size budgets
+remain in force; the Link envelope budget is not a larger Submission limit.
+
+The control peer acknowledges the exact run/ticket after receiving and writing
+its management result; the server retains that pipe until this acknowledgement
+or a bounded failure. The client then joins server disconnect. A kernel write
+alone does not justify DisconnectNamedPipe, which may discard unread bytes.
+Lost management delivery never rolls back a completed original settlement or
+replays a selection/claim operation; current revision/state must be inspected.
+
+Only an actual MCP cancellation notification establishes cancellation intent.
+SDK abort-on-EOF does not. Explicit cancellation received during attach or
+journal publication is correlated with its eventual original request, without
+replay. App response, actual frontend MCP output write, and resource settlement
+are recorded separately. A delivery acknowledgement does not prove that a user
+saw the result or that STAGED committed. Idle adapter loss withdraws readiness;
+closing joins the original request/output rather than inventing user cancellation.
+
 A lease fixes the device, installation, Profile, route generation and frontend
 peer. A second chat cannot take it over. Stop/switch withdraws admission before
 joining original work, matching output, target close, TLS, keys, processes and
@@ -2456,6 +2498,15 @@ streams. Dirty/unknown state blocks replacement. Link uses a distinct trusted
 IPC endpoint; it does not weaken the original Windows pipe's source validation.
 The complete ownership and failure rules live in
 [design §§4–7](unified-access-and-content-exchange-v1.md#s04).
+
+Android settlement additionally requires the original adapter's bound receipt
+after target CLOSE, TLS shutdown and CNG retirement, plus actual child exit and
+stdin/stdout/stderr drains. Exit code zero alone is insufficient. Failed close
+retains its original failure on repeated shutdown. The bounded state journal
+keeps the exact owner/run/resource/lease and three independent outcome fields.
+Recovery requires an original matching receipt, original process creation
+identity no longer current, unchanged claimed target, and the original slot/key
+barrier. It never deletes unknown markers or enumerates CNG objects to clean them.
 
 ### 19.3 Packaging and compatibility
 
@@ -2469,6 +2520,15 @@ plugin caches or portable packages. Updates await original lease settlement and
 do not change pairing or device grants. Old registrations may be disabled only
 after actual replacement acceptance and the user's explicit choice; two entries
 must not own the same paired-device slot concurrently.
+
+The candidate installer provides explicit state/slot/runtime locations in the
+adjacent strict `link-installation.json`; it restricts these directories to the
+current user and SYSTEM. Normal startup cannot initialize missing state. The
+build requires Dart/CMake and cached .NET runtime packs, but the installed
+Android-only output requires neither Flutter/source nor a Windows App binary.
+Optional Windows client/Bridge outputs retain the original App-owned path.
+Build/install/diagnostic commands and unclosed qualification limits are in
+[`tool/link/README.md`](../../../tool/link/README.md).
 
 ### 19.4 Recovery and old-host handoff
 
@@ -2486,7 +2546,22 @@ opens that database. Partial commits are reconciled from matching durable
 records. Missing handoff on a known slot is not a fresh installation. Every
 supported old/new acquisition checks the fence; an old binary lacking it must
 be explicitly disabled and excluded before migration. B0/config restore must
-not resurrect released ownership. This design grants no runtime migration.
+not resurrect released ownership.
+
+The candidate old-App action is `WindowsAppLinkHandoff` through the first-party
+local settings surface. `LegacyLinkHandoffRepository` alone reads the old App's
+existing settings and commits the exact release transaction. It requires a clean
+legacy selection, the original App instance, exact generation/raw-state digest,
+reserved releaseRecordRef and adapter-verified device/installation/Profile.
+It publishes PREPARED before its database transaction and RELEASED only after
+readback confirms that transaction. Link persists CLAIM_PENDING before consuming
+RELEASED and retains CLAIMED. The legacy selection v1 had no independent row
+revision: generation plus its exact raw-state digest form the CAS identity.
+Absent/dirty/incompatible legacy authority remains blocked, never guessed clean.
+Portable B0 snapshots omit both legacy selection and release settings, while the
+protected external slot fence remains authoritative. Raw rollback is unchanged.
+This candidate path still requires native interruption/old-entry and real-device
+qualification; no synthetic fixture authorizes a real slot transfer.
 
 ### 19.5 Independent acceptance
 
@@ -2498,3 +2573,35 @@ transport retry are not business settlement or permission to redispatch writes.
 Existing runtime close/recovery restrictions remain until their replacement
 has corresponding evidence. No production, mobile-native ChatGPT or full
 background-support claim follows from design adoption.
+
+#### 19.5.1 Bounded local candidate observations
+
+The current candidate has finite Executor observations over the retained paired
+Android development installation. These are distinct from complete package,
+independent verification, merge or production acceptance:
+
+| Boundary | Observed scope |
+|---|---|
+| Real client directory | Installed Codex actually discovered the exact eleven SDK tools. |
+| Phone READ without Windows App running | A normal model turn opened the authorized collection, listed banks, selected a test bank, searched and read one existing question through the independent Link. Results had Profile 3 and Android source. No question was created. |
+| Normal client exit | The original business adapter supplied CLOSE/TLS/key settlement; Link joined its process/streams, recorded returned/delivered separately and released the lease while remaining alive. |
+| Second normal model session | Its call returned busy; the original lease, selection, route and adapter remained unchanged. |
+| Abnormal client exit after completed READ | Terminating that Codex process left Link alive; its original adapter receipt and resource settlement completed. This does not establish interruption of every in-flight operation. |
+| Legacy handoff | The original Windows App released the exact retained slot; the independent Link consumed RELEASED and matched its local state with CLAIMED. This is the successful path, not every native interruption point. |
+| Link crash and restart | The original active/dirty snapshot survived byte-for-byte. The available receipt belonged to an earlier enable-proof, so explicit recovery refused without changing state; an old Context call returned unavailable. Full clean recovery was **not** proved. |
+
+The crash run lacks a matching original business settlement receipt and complete
+failure attribution. Later device inspection also found the App had left the
+foreground; that observation cannot establish the earlier event order. Do not
+infer successful settlement from absent PID/key marker or relabel this refusal
+as clean recovery. Preserve the original state and investigate its owner.
+
+These observations are a migrated-slot, Windows-App-not-running case. They do
+not prove a never-hosted installation where Windows App has never started. The
+current installer has no positive initial-owner path for an ambiguous legacy
+paired slot without the old App's release authority. Android-only provisioning,
+full native crash/handoff interruption recovery, Windows target qualification,
+real target switching, phone revoke/lock/expiry and the remaining local-study
+closure matrix remain open. Independent Verifier coverage is REQUIRED for this
+native/device/client gap; source tests alone do not close it. Exact executable,
+source and run identities belong to execution/PR evidence.
