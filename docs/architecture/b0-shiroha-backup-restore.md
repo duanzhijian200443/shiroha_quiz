@@ -39,15 +39,20 @@ defines future Link/handoff and exchange boundaries; this amendment implements
 no migration, new B0 codec or runtime maintenance barrier. Existing restore,
 rollback and original-owner settlement continue unchanged.
 
-Independent LinkStateStore, migration fences, pairing secrets, tunnel keys,
+Independent LinkStateStore, SlotOwnershipRecord, retained legacy source records,
+format-upgrade journals, retirement intents/fences, pairing secrets, tunnel keys,
 RemoteBinding/ExchangePermit runtime authority, temporary URLs/bytes and network
 in-flight state are excluded from portable `.shiroha` content. Link does not
 read Windows SQLite; Android routing must not depend on unrelated Windows B0.
 Restore/reinstall of the actual target still invalidates old Context and runtime
 authorization. Existing machine-local restore/rollback state is not permission
 to overwrite Link's independent fence or resurrect an old host. Acquisition
-must recheck the persistent handoff even after restoring an old App database or
-configuration. See the exact handoff protocol in the target design §7.3.
+must recheck current slot ownership and persistent retirement intent/fences even
+after restoring an old App database or configuration. Normal initialization does
+not manufacture a legacy handoff. Already CLAIMED Link ownership and dirty state
+remain with their original owner through compatibility reading; neither B0 nor
+format upgrade is settlement. See target design §§7.2–7.4. This design amendment
+does not add a runtime scrub, database migration or recovery implementation.
 
 Formally imported Questions and LibraryFiles follow their existing INCLUDE
 rules. Pending import/Review content follows its real owner's existing B0

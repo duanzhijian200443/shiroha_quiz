@@ -1915,6 +1915,13 @@ Link is only a transport/lifecycle owner. Each target App's Application owns
 Session creation, authorization and final writes; Link cannot consult Windows
 business state to authorize Android access.
 
+The v1.4 slot ownership/provenance model is Infrastructure state, not a second
+identity or authorization store. Normal initialization, one-time legacy retirement
+and existing Link owner recovery never mint a Grant or restore Enable. Original
+P15/P0 and target Application admission remain mandatory. Old-format adaptation
+preserves original ownership and dirty evidence without inventing clean results;
+see [the ownership contract](unified-access-and-content-exchange-v1.md#s07).
+
 Remote access is a different principal from desktop pairing. Tunnel control
 credentials, tunnel identity, verified caller, RemoteBinding, phone Profile/Grant
 and Session remain distinct. A locally approved binding to a proven caller is

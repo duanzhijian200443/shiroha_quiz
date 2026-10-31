@@ -1,7 +1,7 @@
 # Agent Runtime v1 / External Agent / MCP vNext Contract Index
 
 <a id="unified-access-design"></a>
-The [unified access and content exchange v1.1 target](unified-access-and-content-exchange-v1.md)
+The [unified access and content exchange v1.4 target](unified-access-and-content-exchange-v1.md)
 is adopted as a design-only canonical contract. It defines independent local
 Shiroha Link, an official remote-channel candidate and controlled file/question
 snapshots as separately accepted capabilities. Android-only local routing must
@@ -9,8 +9,12 @@ not depend on Windows App; the remote final gate is same-phone ChatGPT web use
 with no computer. The explicit Profile 3/statistics/Origin/v36 business foundation
 is implemented under MCP §19.1 and external boundary §16, using isolated real
 SQLite/SDK evidence. Normal six/seven-tool defaults and admission remain intact.
-Independent Link, real eleven-tool consumers, remote mode and exchange remain
-separate work; earlier bounded runtime evidence is not expanded by this foundation.
+The v1.4 local target separates normal setup, actual #356 retirement and
+existing Link owner recovery, including #359 format compatibility. The candidate
+source and bounded runtime evidence in [PR #359](https://github.com/duanzhijian200443/shiroha_quiz/pull/359)
+do not establish complete Link acceptance or resolve its dirty recovery. All
+applicable L01–L16 cases remain required. Remote mode and exchange are separate
+work; earlier bounded evidence is not expanded by this document adoption.
 
 Current scheduling is owned by the
 [limited Windows development milestone](../../architecture/shiroha-project-roadmap.md#limited-windows-development-use-and-maintenance-2026-10-27):

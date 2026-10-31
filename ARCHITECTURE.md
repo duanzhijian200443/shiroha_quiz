@@ -130,8 +130,13 @@ The adopted independent-Link target assigns local route selection, frontend
 leases and adapter settlement to a separate Infrastructure owner, with its own
 non-secret state store. Android-only routing must not initialize Windows App
 or read its SQLite/settings/B0. Each target App retains Application authorization
-and its own Data writer. This is a future composition boundary, not a claim that
-the Link or mobile tunnel is implemented; the existing runtime remains above.
+and its own Data writer. The v1.4 target separates normal provenance-based slot
+initialization, one-time legacy retirement and existing Link owner recovery.
+SlotOwnershipRecord and old-format adapters own no business authorization; the
+short slot control lock is distinct from the adapter TLS/CNG resource lock.
+This is a target composition boundary, not full Link or mobile-tunnel acceptance;
+candidate source/runtime evidence remains with its PR and the existing runtime
+above is unchanged.
 
 The External Windows primitive adapter in `lib/data/external/native` owns
 explicit SDK FFI calls to the independent `windows/external_native` C ABI DLL.
@@ -540,7 +545,7 @@ fileContent consent; other artifacts retain refusal.
 MCP v0 and the seven-tool business profile remain unchanged.
 
 <a id="unified-access-successor"></a>
-The [unified access and content exchange v1.1 contract](docs/product/agent-refactor/unified-access-and-content-exchange-v1.md)
+The [unified access and content exchange v1.4 contract](docs/product/agent-refactor/unified-access-and-content-exchange-v1.md)
 is the adopted target design. It replaces the candidate Windows-global host
 topology with independent Shiroha Link for local routing; Windows App remains
 necessary only when Windows is the business target. Profile 3/statistics/Origin

@@ -901,13 +901,30 @@ Interface support is not evidence that this combination has run successfully.
 <a id="unified-access-successor"></a>
 ## 14. Independent Link and remote successor — adopted design only
 
-The [unified access target](unified-access-and-content-exchange-v1.md)
-defines a separate Shiroha Link host for future local unified Android access.
+The [unified access v1.4 target](unified-access-and-content-exchange-v1.md)
+defines a separate Shiroha Link host for local unified Android access.
 The computer runs Codex and Link, but Android routing must not run Windows
 Shiroha or read its database/settings/B0. The original adapter's identity, TLS,
-slot ownership and close protocol remain authoritative. This is a future
-composition, not Profile 3 delivery or a change to the existing seven-tool path.
+slot ownership and close protocol remain authoritative. This target amendment
+does not activate a new consumer or change the existing seven-tool path. The
+Profile 3 business foundation is separately implemented under MCP §19.1.
 Target-app authorization, finite Enable and original owner settlement are retained.
+
+Normal setup uses trusted slot provenance rather than mandatory old-host release.
+New pairing remains UNCLAIMED/PREPARING until original P15/P0, credential
+persistence and resource settlement complete; LINK_OWNED precedes the separate
+finite Enable/business lease. Actual #356 slots alone use one-time retirement.
+Its short control lock and durable RETIRE_INTENT do not take the active adapter
+resource lock; original settlement precedes RETIRE_PREPARED and the old App
+retired transaction. Old records remain fenced across restart and B0.
+
+An existing #359 CLAIMED slot stays with its original Link owner. Compatibility
+reading must work without a new-format file and preserve dirty/run/resource
+evidence; an old enable-proof receipt cannot settle a later business connection.
+The [ownership and compatibility rules](unified-access-and-content-exchange-v1.md#s07)
+are future requirements. Candidate evidence in
+[PR #359](https://github.com/duanzhijian200443/shiroha_quiz/pull/359) does not close
+new-installation, full recovery or the remaining native/client acceptance.
 
 Phone-embedded official Secure MCP Tunnel is a separately admitted, unproved
 combination. It does not inherit desktop pairing or remove the LAN mode's
