@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui' show AppExitResponse;
 import 'package:flutter/widgets.dart';
 import '../../application/external/first_party_external_access.dart';
+import '../../application/external/local_link_handoff.dart';
 
 /// A cancelable exit waits for original custody and then its queued evidence.
 /// Log completion never substitutes for a successful original close.
@@ -31,10 +32,12 @@ final class FirstPartyExternalLifetime extends StatefulWidget {
       required this.access,
       required this.close,
       this.flushExitLogs,
+      this.linkHandoff,
       required this.child});
   final FirstPartyExternalAccess access;
   final Future<void> Function() close;
   final Future<void> Function()? flushExitLogs;
+  final LocalLinkHandoff? linkHandoff;
   final Widget child;
   @override
   State<FirstPartyExternalLifetime> createState() => _LifetimeState();
@@ -71,18 +74,27 @@ final class _LifetimeState extends State<FirstPartyExternalLifetime> {
   }
 
   @override
-  Widget build(BuildContext context) =>
-      FirstPartyExternalScope(access: widget.access, child: widget.child);
+  Widget build(BuildContext context) => FirstPartyExternalScope(
+      access: widget.access,
+      linkHandoff: widget.linkHandoff,
+      child: widget.child);
 }
 
 final class FirstPartyExternalScope extends InheritedWidget {
   const FirstPartyExternalScope(
-      {super.key, required this.access, required super.child});
+      {super.key,
+      required this.access,
+      this.linkHandoff,
+      required super.child});
   final FirstPartyExternalAccess access;
+  final LocalLinkHandoff? linkHandoff;
+  static LocalLinkHandoff? handoffOf(BuildContext context) => context
+      .dependOnInheritedWidgetOfExactType<FirstPartyExternalScope>()
+      ?.linkHandoff;
   static FirstPartyExternalAccess? maybeOf(BuildContext context) => context
       .dependOnInheritedWidgetOfExactType<FirstPartyExternalScope>()
       ?.access;
   @override
   bool updateShouldNotify(FirstPartyExternalScope oldWidget) =>
-      access != oldWidget.access;
+      access != oldWidget.access || linkHandoff != oldWidget.linkHandoff;
 }

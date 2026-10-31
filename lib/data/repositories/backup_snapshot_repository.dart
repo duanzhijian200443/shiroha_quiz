@@ -212,6 +212,11 @@ final class BackupSnapshotRepository {
     await db.delete('import_tasks');
     await db.delete('content_asset_reclamation_observations');
     if (await _tableExists(db, 'app_settings')) {
+      await db
+          .delete('app_settings', where: 'key IN (?, ?)', whereArgs: <Object?>[
+        'external_device_selection_v1',
+        'external_link_handoff_release_v1',
+      ]);
       await db.delete(
         'app_settings',
         where: 'key = ?',

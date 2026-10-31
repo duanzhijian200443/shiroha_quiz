@@ -28,15 +28,16 @@ Review, Receipt and original mappings. They validate and scrub
 including studyStatistics. Raw rollback preserves original local rows and
 preferences. Neither path restores runtime admission, Contexts, approval or
 credentials. No device-selection record or Windows-global-host barrier is added
-by this foundation. Future Link/handoff/exchange remains the separate design
-below; installed candidate data is not downgraded or cleared.
+by the statistics foundation. The separate local Link candidate and future
+content-exchange design are described below; installed candidate data is not
+downgraded or cleared.
 
 <a id="unified-access-successor"></a>
-### Unified access and content exchange successor (design only)
+### Local Link candidate and content exchange successor
 
 The [unified access target](../product/agent-refactor/unified-access-and-content-exchange-v1.md#s07)
-defines future Link/handoff and exchange boundaries; this amendment implements
-no migration, new B0 codec or runtime maintenance barrier. Existing restore,
+defines Link/handoff and future exchange boundaries. The local candidate adds
+no B0 codec, business schema or global maintenance barrier. Existing restore,
 rollback and original-owner settlement continue unchanged.
 
 Independent LinkStateStore, migration fences, pairing secrets, tunnel keys,
@@ -48,6 +49,14 @@ authorization. Existing machine-local restore/rollback state is not permission
 to overwrite Link's independent fence or resurrect an old host. Acquisition
 must recheck the persistent handoff even after restoring an old App database or
 configuration. See the exact handoff protocol in the target design §7.3.
+
+The candidate portable snapshot scrub excludes the old Windows-host local
+settings `external_device_selection_v1` and `external_link_handoff_release_v1`.
+Original raw rollback retains them. The independent Link journal, slot fence
+and adapter receipts remain outside the database and portable package; restoring
+an older local selection cannot bypass the updated adapter's persistent fence.
+The old App owns its one-time release transaction. B0 does not create, reset,
+claim or repair a Link owner, and Android routing does not start Windows B0.
 
 Formally imported Questions and LibraryFiles follow their existing INCLUDE
 rules. Pending import/Review content follows its real owner's existing B0

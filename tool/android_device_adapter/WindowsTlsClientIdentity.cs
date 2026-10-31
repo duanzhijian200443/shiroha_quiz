@@ -21,7 +21,7 @@ internal sealed class WindowsTlsClientIdentity : IDisposable
     internal X509Certificate2 Certificate => !closed && certificate != null
         ? certificate : throw new LinkFailure("credential_store_unavailable");
 
-    private WindowsTlsClientIdentity(string directory)
+    private WindowsTlsClientIdentity(string directory, Action? requireSlot)
     {
         Directory.CreateDirectory(directory);
         directoryLease = new FileStream(Path.Combine(directory, "adapter.lock"),
@@ -29,6 +29,7 @@ internal sealed class WindowsTlsClientIdentity : IDisposable
         markerPath = Path.Combine(directory, "native-client-key.pending");
         try
         {
+            (requireSlot ?? (() => SlotFence.RequireLegacy(directory)))();
             // Crash/unknown retirement is not permission to import another key.
             marker = new FileStream(markerPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None);
             WriteMarker(null);
@@ -40,12 +41,12 @@ internal sealed class WindowsTlsClientIdentity : IDisposable
         }
     }
 
-    internal static WindowsTlsClientIdentity Import(byte[] pfx, string directory, Action requireAdmission)
+    internal static WindowsTlsClientIdentity Import(byte[] pfx, string directory, Action requireAdmission, Action? requireSlot = null)
     {
         requireAdmission();
         if (!OperatingSystem.IsWindows() || pfx.Length is < 1 or > 65536)
             throw new LinkFailure("credential_rejected");
-        var owner = new WindowsTlsClientIdentity(directory);
+        var owner = new WindowsTlsClientIdentity(directory, requireSlot);
         try
         {
             // Do not preserve an input-supplied provider or key-container name.

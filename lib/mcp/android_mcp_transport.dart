@@ -7,35 +7,39 @@ import 'vnext_mcp_composition_root.dart';
 import 'vnext_mcp_protocol_projection.dart';
 import 'vnext_mcp_server.dart';
 
-VnextMcpServer androidDeviceServer(VnextMcpPort port) => VnextMcpServer(port,
-    protocolServer: McpServer(
-      const Implementation(name: 'shiroha_mcp_vnext', version: '0.2.0'),
-      options: const McpServerOptions(
-          instructions:
-              'Use the selected Android phone library. Call one tool at a time '
-              'and await its response. File access requires '
-              'local fileContent permission: list paginated choices under a '
-              'parent contextRef, then select returned fileRefs into a separate '
-              'File Context. Empty pages may have nextCursor; ordinals are '
-              'page-local. Retrieve hits, then read passageRef/cursor; report '
-              'coverage flags and never infer complete reading from hits. '
-              'Passage refs are not GeneratedEvidence. The current '
-              'phone policy may allow generated drafts or direct saving of new '
-              'batches. STAGED/NOT_REPORTED acknowledges publication only: query '
-              'get_question_proposal by the original submissionKey for lifecycle '
-              'and counts. Never replay an uncertain write. Local Review and direct consent belong '
-              'to the phone user. Submission v1 has schemaVersion:1, '
-              'submissionKey, requestedCount and items. Each item has exactly '
-              'itemKey, kind, stem, options, answer, explanation, evidenceKeys. '
-              'For singleChoice, stem/explanation and option content are node '
-              'arrays (for text: {type:"text",text:"..."}); explanation may be '
-              'null. Each option has optionKey,label,content; use 2..26 unique '
-              'options. answer is {type:"choice",optionKeys:[one optionKey]}. '
-              'Empty evidenceKeys:[] means uncited; do not add an uncited field. '
-              'itemKey/optionKey/submissionKey use '
-              '[A-Za-z0-9][A-Za-z0-9._-]{0,63}.',
-          capabilities: ServerCapabilities(tools: ServerCapabilitiesTools())),
-    ));
+VnextMcpServer androidDeviceServer(VnextMcpPort port,
+        {int profileVersion = 2}) =>
+    VnextMcpServer(port,
+        profileVersion: profileVersion,
+        protocolServer: McpServer(
+          const Implementation(name: 'shiroha_mcp_vnext', version: '0.2.0'),
+          options: const McpServerOptions(
+              instructions:
+                  'Use the selected Android phone library. Call one tool at a time '
+                  'and await its response. File access requires '
+                  'local fileContent permission: list paginated choices under a '
+                  'parent contextRef, then select returned fileRefs into a separate '
+                  'File Context. Empty pages may have nextCursor; ordinals are '
+                  'page-local. Retrieve hits, then read passageRef/cursor; report '
+                  'coverage flags and never infer complete reading from hits. '
+                  'Passage refs are not GeneratedEvidence. The current '
+                  'phone policy may allow generated drafts or direct saving of new '
+                  'batches. STAGED/NOT_REPORTED acknowledges publication only: query '
+                  'get_question_proposal by the original submissionKey for lifecycle '
+                  'and counts. Never replay an uncertain write. Local Review and direct consent belong '
+                  'to the phone user. Submission v1 has schemaVersion:1, '
+                  'submissionKey, requestedCount and items. Each item has exactly '
+                  'itemKey, kind, stem, options, answer, explanation, evidenceKeys. '
+                  'For singleChoice, stem/explanation and option content are node '
+                  'arrays (for text: {type:"text",text:"..."}); explanation may be '
+                  'null. Each option has optionKey,label,content; use 2..26 unique '
+                  'options. answer is {type:"choice",optionKeys:[one optionKey]}. '
+                  'Empty evidenceKeys:[] means uncited; do not add an uncited field. '
+                  'itemKey/optionKey/submissionKey use '
+                  '[A-Za-z0-9][A-Za-z0-9._-]{0,63}.',
+              capabilities:
+                  ServerCapabilities(tools: ServerCapabilitiesTools())),
+        ));
 
 /// Connection lifetime only. The App's P0/P15/Host owners remain outside it.
 final class AndroidMcpTransport extends Transport {
@@ -108,6 +112,12 @@ final class AndroidMcpTransport extends Transport {
           if (message['connectionId'] != connectionId ||
               !validNonce(message['nonce'])) {
             androidLinkFail();
+          }
+          if (message['type'] == 'closing' &&
+              port.binding.profileVersion == 3) {
+            await port.beginGracefulClose();
+            await _write(1, {...message, 'type': 'closed'});
+            return;
           }
           if (message['type'] == 'ping') {
             await _write(1, {...message, 'type': 'pong'});
@@ -227,10 +237,19 @@ final class AndroidMcpPort implements VnextMcpResponsePort {
   Object? _connectionSession;
   Future<void> Function()? _invalidateReferences;
   bool _closed = false, _settlementFailed = false;
+  bool _draining = false;
   bool _cancelledBeforeClose = false;
   int _requestId = 0;
 
   Future<void> get whenSettled => _idle?.future ?? Future<void>.value();
+
+  /// Peer EOF withdraws new admission; it is NOT a user cancellation. Join the
+  /// original operation AND output before acknowledging CLOSE.
+  Future<void> beginGracefulClose() async {
+    _draining = true;
+    await whenSettled;
+    if (_settlementFailed) androidLinkFail();
+  }
 
   void attachTransport(Future<void> Function() close) {
     if (_closeTransport != null || _closed) androidLinkFail();
@@ -277,6 +296,7 @@ final class AndroidMcpPort implements VnextMcpResponsePort {
     if (responseId == null ||
         _closeTransport == null ||
         _closed ||
+        _draining ||
         _settlementFailed ||
         !current() ||
         !available()) {

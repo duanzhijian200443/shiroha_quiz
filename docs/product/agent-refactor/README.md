@@ -2,15 +2,21 @@
 
 <a id="unified-access-design"></a>
 The [unified access and content exchange v1.1 target](unified-access-and-content-exchange-v1.md)
-is adopted as a design-only canonical contract. It defines independent local
+is the canonical contract for independent local
 Shiroha Link, an official remote-channel candidate and controlled file/question
 snapshots as separately accepted capabilities. Android-only local routing must
 not depend on Windows App; the remote final gate is same-phone ChatGPT web use
 with no computer. The explicit Profile 3/statistics/Origin/v36 business foundation
 is implemented under MCP §19.1 and external boundary §16, using isolated real
 SQLite/SDK evidence. Normal six/seven-tool defaults and admission remain intact.
-Independent Link, real eleven-tool consumers, remote mode and exchange remain
-separate work; earlier bounded runtime evidence is not expanded by this foundation.
+The independent local Link candidate has AOT/IPC/state and old-App handoff
+source under [MCP §19](mcp-vnext-contract.md#unified-access-successor) and
+[`tool/link`](../../../tool/link/README.md). Its bounded migrated-slot normal
+Codex READ without Windows App, actual directory/busy/client-exit and successful
+handoff observations are separated in [MCP §19.5.1](mcp-vnext-contract.md#1951-bounded-local-candidate-observations).
+Link crash preserves dirty but clean recovery remains unresolved. Android-only
+initial ownership and the rest of the native/platform matrix remain open;
+the package is not complete. Remote mode and exchange remain design-only.
 
 Current scheduling is owned by the
 [limited Windows development milestone](../../architecture/shiroha-project-roadmap.md#limited-windows-development-use-and-maintenance-2026-10-27):

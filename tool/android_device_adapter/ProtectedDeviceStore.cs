@@ -57,11 +57,12 @@ internal static class ProtectedDeviceStore
         return request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow.AddYears(2));
     }
 
-    internal static byte[] Read(string directory, Action? requireAdmission = null)
+    internal static byte[] Read(string directory, Action? requireAdmission = null, Action? requireSlot = null)
     {
         requireAdmission ??= DeviceTransport.RequireRuntime;
         requireAdmission();
         using var guard = new FileStream(Path.Combine(directory, "adapter.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        (requireSlot ?? (() => SlotFence.RequireLegacy(directory)))();
         using var file = File.OpenRead(Path.Combine(directory, "device.dpapi"));
         if (file.Length is < 1 or > 65536) throw new LinkFailure("credential_store_corrupt");
         byte[] bytes = new byte[(int)file.Length]; file.ReadExactly(bytes);
@@ -75,6 +76,7 @@ internal static class ProtectedDeviceStore
         using var parsed = LinkFrames.StrictObject(configuration);
         Directory.CreateDirectory(directory);
         using var guard = new FileStream(Path.Combine(directory, "adapter.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        SlotFence.RequireLegacy(directory);
         string target = Path.Combine(directory, "device.dpapi");
         if (File.Exists(target)) throw new LinkFailure("pairing_exists");
         byte[] encrypted = Protect(configuration, true, requireAdmission);
@@ -95,6 +97,7 @@ internal static class ProtectedDeviceStore
         using var parsed = LinkFrames.StrictObject(configuration);
         using var guard = new FileStream(Path.Combine(directory, "adapter.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         string target = Path.Combine(directory, "device.dpapi"), pending = Path.Combine(directory, "device.pending");
+        SlotFence.RequireLegacy(directory);
         using (var original = new FileStream(target, FileMode.Open, FileAccess.Read, FileShare.Read))
         {
             if (original.Length is < 1 or > 65536) throw new LinkFailure("credential_store_corrupt");

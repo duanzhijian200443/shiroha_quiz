@@ -202,8 +202,16 @@ selection/sharing is the first exchange route; it does not prove automatic
 ChatGPT attachments or device-to-device transport. The shared business foundation
 now implements explicit Profile 3, independent statistics and v36/Origin/B0
 compatibility through the original owners, with real isolated SQLite/MCP SDK
-checks. Normal six/seven-tool defaults remain; Link/installed eleven-tool client,
-phone remote use and exchange still need their own implementation and acceptance.
+checks. Normal six/seven-tool defaults remain. The independent Link candidate
+now has standalone AOT/IPC/state and old-App release/claim source, with bounded
+migrated-slot normal Codex phone READ, exact directory, busy, client-exit and
+successful-handoff observations. Link crash preserves dirty and refuses a
+non-matching receipt; clean recovery remains unresolved. Android-only initial
+ownership, native interruption/restore and the remaining platform matrix are
+not complete; this is not full local-Link or production acceptance. See
+[MCP §19](../product/agent-refactor/mcp-vnext-contract.md#unified-access-successor)
+and [install/diagnostics](../../tool/link/README.md). Phone remote use and exchange
+remain separate design/implementation and acceptance scopes.
 The target design itself adds no runtime admission. Existing OCR/Agent pauses,
 high-assurance/security gates and current finite-use limits remain unchanged.
 

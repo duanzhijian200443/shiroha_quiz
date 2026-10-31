@@ -11,6 +11,7 @@ import '../application/external/local_host_dispatch.dart';
 import '../data/external/windows_bridge_process.dart';
 import '../data/external/windows_codex_client.dart';
 import '../data/external/windows_tls_transport.dart';
+import '../services/backup/sha256.dart';
 import 'mcp_vnext_app_integration.dart';
 import 'mcp_vnext_app_owned_relay.dart';
 import 'mcp_vnext_windows_acquisition.dart';
@@ -28,10 +29,25 @@ final class McpVnextWindowsAppRegistration {
   McpVnextWindowsAppRegistration.appOwnedRelay(this.integration,
       {void Function(String, int)? onRelayEvent})
       : _relay = McpVnextAppOwnedRelay(
-            onEvent: onRelayEvent, requireBusinessBootstrap: true) {
+            onEvent: onRelayEvent,
+            requireBusinessBootstrap: true,
+            profileVersion: integration.profileVersion) {
     _development =
         McpVnextDevelopmentApp(integration: integration, relay: _relay!);
     integration.controls.installDevelopment(_development!);
+    _relay!.linkBinding = () async {
+      final packet = _relay!.businessBootstrap?.call();
+      final status = await integration.controls.status();
+      if (packet == null || !status.enabled || status.profileId == null) {
+        throw StateError('Windows target unavailable');
+      }
+      packet.requireCurrent(DateTime.now().toUtc(), expectedPairingUi: false);
+      return {
+        'deviceIdentity': sha256Hex(packet.issuerDer),
+        'installationIdentity': packet.installationId,
+        'profileReference': status.profileId
+      };
+    };
   }
 
   McpVnextWindowsAppRegistration.directClient({

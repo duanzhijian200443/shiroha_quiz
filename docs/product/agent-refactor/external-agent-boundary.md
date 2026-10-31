@@ -1905,7 +1905,7 @@ derived-cache writes are possible from file READ; cancellation retains original
 index work and matching output I/O custody until actual settlement.
 
 <a id="unified-access-successor"></a>
-## 15. Unified access and exchange — adopted design only
+## 15. Local Link candidate and remote/exchange design
 
 The [unified access target](unified-access-and-content-exchange-v1.md#s08)
 owns future consumer/permission boundaries. The business/statistics foundation
@@ -1914,6 +1914,18 @@ current-scope checks, final release validation and saved policy remain in force.
 Link is only a transport/lifecycle owner. Each target App's Application owns
 Session creation, authorization and final writes; Link cannot consult Windows
 business state to authorize Android access.
+
+The independent local candidate explicitly selects the existing Profile 3
+composition; it adds no Grant, Scope, STAGE approver or business writer. Its
+lease binds authenticated device/installation/Profile, connector run, selection
+revision, route generation, native frontend peer, connection, capability set
+and leaseId. Neither MCP input nor IP/display/model metadata selects identity.
+Old-host release SQL is owned only by the Windows App's first-party handoff
+repository. The Link entrypoint imports no database repository. External Link
+state/credentials/fences stay outside `.shiroha`; portable snapshots also omit
+the old local selection/release settings, while original raw rollback remains.
+The real-client, phone and native ownership/settlement gates remain distinct
+from isolated tests. See [MCP §19](mcp-vnext-contract.md#unified-access-successor).
 
 Remote access is a different principal from desktop pairing. Tunnel control
 credentials, tunnel identity, verified caller, RemoteBinding, phone Profile/Grant

@@ -130,8 +130,12 @@ The adopted independent-Link target assigns local route selection, frontend
 leases and adapter settlement to a separate Infrastructure owner, with its own
 non-secret state store. Android-only routing must not initialize Windows App
 or read its SQLite/settings/B0. Each target App retains Application authorization
-and its own Data writer. This is a future composition boundary, not a claim that
-the Link or mobile tunnel is implemented; the existing runtime remains above.
+and its own Data writer. The local candidate has a pure-Dart AOT entry at
+`tool/link/link.dart`, separate MCP/frontend and management peers, an external
+bounded state journal, and the original .NET adapter. Its old-host database
+release implementation is composed only inside the Windows App; Link never
+imports that repository. The native/device/normal-client acceptance is separate
+from builds and isolated tests. Mobile tunnel remains a design.
 
 The External Windows primitive adapter in `lib/data/external/native` owns
 explicit SDK FFI calls to the independent `windows/external_native` C ABI DLL.
@@ -546,8 +550,10 @@ topology with independent Shiroha Link for local routing; Windows App remains
 necessary only when Windows is the business target. Profile 3/statistics/Origin
 compatibility is implemented as an explicitly selected shared business foundation
 (MCP §19.1, external boundary §16), with current SQLite v36. Normal six/seven-tool
-roots retain their defaults; no independent Link or real eleven-tool consumer
-is activated by this foundation.
+roots retain their defaults. The independent local Link candidate uses an
+explicit `SHIROHA_UNIFIED_LINK=true` target composition, without replacing
+business owners. Native lifecycle, Android-only provisioning, old-host handoff
+and normal-client/phone acceptance remain required; none follows from discovery.
 Official Secure MCP Tunnel embedded on Android remains an unproved combination.
 Its final remote product gate requires the same phone's ChatGPT browser flow
 without a computer; server-only independence is preliminary evidence. Remote
