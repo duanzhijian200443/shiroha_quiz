@@ -1,4 +1,4 @@
-# Shiroha 统一接入、官方远程通道与内容交换契约 v1.1
+# Shiroha 统一接入、官方远程通道与内容交换契约 v1.4
 
 > **状态：已采纳的目标设计契约（DESIGN ONLY）。不表示实现已交付、运行已准入或验收已通过。**
 >
@@ -6,8 +6,8 @@
 
 | 项目 | 定义 |
 |---|---|
-| 文档版本 | 1.1；采纳目标约束，平台待证明项仍保持候选 |
-| 整理日期 | 2026-10-30 |
+| 文档版本 | 1.4；采纳目标约束，平台待证明项仍保持候选 |
+| 整理日期 | 2026-10-31 |
 | 仓库位置 | `docs/product/agent-refactor/unified-access-and-content-exchange-v1.md` |
 | 核心目标 | 统一业务能力；目标设备独立；连接托管不依赖无关业务 App；内容可受控交换 |
 | 近期本地方案 | 统一 MCP 前端 + 独立 Shiroha Link + 原目标设备适配器 |
@@ -20,9 +20,9 @@
 
 ### 设计范围与运行边界
 
-本契约明确三处关键边界：最终同手机验收、旧宿主的持久交接与排他迁移、接收结果移交本地 owner 后的取消权限截止。同步采用“手机 ChatGPT 网页优先”，明确 SDK 默认队列／并发／停止不代表业务结算，以及系统分享先交付的范围。
+v1.4 明确区分正常初始化、#356 遗留槽位的一次性退役和已归 Link 所有的资源恢复。新配对先保留准备记录，完成原 P15/P0、凭据保存与结算后才建立所有权；#359 旧格式通过保留来源的适配继续恢复。槽位控制锁与 adapter 资源锁分离，退役按持久准入意图、原资源结算、fence、旧 App 事务和最终发布推进。本地验收覆盖 L01–L16；同手机网页与内容交换仍是独立范围。
 
-这是设计修订，不是三项实现问题已被运行证明解决。正文中仍为候选、待证明的 SDK／平台／前后台能力不能随文档整体标为支持；本地可实施范围与远程组合验证分别收口。
+这是目标设计修订，不表示实现或资源恢复已通过运行验收。正文中仍为候选、待证明的 SDK／平台／前后台能力不能随文档整体标为支持；本地可实施范围与远程组合验证分别收口。
 
 ## 阅读导航
 
@@ -32,7 +32,7 @@
 - [4. 独立本地连接器](#s04)
 - [5. 路由、租约和本机通信](#s05)
 - [6. 生命周期、取消和结算](#s06)
-- [7. 存储、旧宿主交接与 B0](#s07)
+- [7. 存储、正常初始化、遗留退役与 B0](#s07)
 - [8. 统一业务能力与授权](#s08)
 - [9. 官方远程通道](#s09)
 - [10. Android 远程会话与前后台](#s10)
@@ -69,7 +69,7 @@
 | 外部平台事实 | 来自官方文档／官方实现，具有核对日期；不等于用户账号具备该权限 |
 | 本文设计 | 已采纳的目标约束、类型、接口、预算和验收；不表示已实现或批准上线 |
 
-设计来源包括 PR #356 中 Windows App 托管 Windows／Android 的方案，以及原桌面适配器直连手机的 LAN 路线。本文以独立 Link 替代前者作为目标设计，保留后者未变化范围的有限使用证据；PR 的实际状态由 Git／PR 记录判断。[R1][R2][R3]
+目标设计与业务基础分别以已合并的 #357、#358 为前置；#356 的 Windows 全局宿主仅作为遗留来源，不作为正常初始化或日常连接的支持路径。#359 的独立 Link 候选已产生的持久格式须按 §7.2.1 兼容；其有限运行、dirty 状态和未完成恢复由原 PR 证据据实记录，本文不把设计采纳改写为运行通过。PR 的实际状态由 Git／PR 记录判断。[R1][R3][R9][R10][R11]
 
 统一业务基础已实现显式 Profile 3、独立统计同意、受限查询、Origin payload v2／v1 兼容及 v36 迁移，准确协议与隔离验证范围由 MCP §19.1、External boundary §16 拥有。正常六／七工具入口仍保持原默认；本基础不激活独立 Link、正常 11 工具客户端、手机网页或内容交换。后续工作仍须核验实际 Git／准入范围，不能把隔离业务证据当作真机或宿主交接批准。
 
@@ -182,32 +182,101 @@ flowchart TD
 
 ### 4.1 运行形式
 
-选择独立、普通用户级的 Link 进程。优先采用独立 Dart AOT 入口复用现有纯 Dart 状态和进程逻辑；Android TLS 留在现有 .NET 适配器。不为本次解耦重写密码学或业务协议。
+选择独立、普通用户级的 Link 进程。优先采用独立 Dart AOT 入口复用可独立构建的纯 Dart 状态和进程逻辑；Android TLS 留在原 .NET 适配器。不为本次解耦重写密码学或业务协议。
 
-Link 必须能作为独立运行包安装，不依赖 Flutter 项目源码目录、`pubspec.yaml`、Windows App 可执行文件或 Windows 题库初始化。开发期可保留显式旧路径映射，但不得把向上扫描仓库根目录作为正式安装发现机制。
+Link 必须作为独立运行包安装，不依赖 Flutter 项目源码目录、`pubspec.yaml`、Windows App 可执行文件或 Windows 题库初始化。正式安装通过受信安装配置定位运行时，不向上扫描仓库或任意用户目录。
 
-首版由用户显式启动 Link，允许小型托盘／本地控制程序，不默认安装服务、管理员组件、登录启动项或自建 Web 控制台。
+首版由用户显式启动 Link；允许小型托盘／本地控制程序，不默认安装系统服务、管理员组件、登录启动项或自建 Web 控制台。
 
 ### 4.2 与客户端进程隔离
 
-Link 不得默认由 Codex 以同一终止范围的普通子进程方式托管。必须以实际进程／Job 归属和终止实验确认：结束客户端／MCP 前端后，Link 仍可完成原结算。无窗口、进程名不同和创建 detached 标志均不单独构成证明。[O7]
+Link 不得默认由 Codex 以同一终止范围的普通子进程方式托管。必须以实际进程／Job 归属和终止实验确认：结束客户端／MCP 前端后，Link 仍可完成原结算。无窗口、进程名不同和 detached 标志均不单独构成证明。[O7]
 
 自动唤起仅是后续 UX 优化；没有独立进程存活证明时继续要求显式启动，不退回启动完整 Windows App。
 
-### 4.3 安装包分离
+### 4.3 正常首次使用、来源判定与初始化
 
-- 插件源码包：manifest、skills、图标和可移植说明。
-- Link 运行包：Link、前端、适配器及其必要运行依赖，不带题库和用户秘密。
-- 目标 App：按各自平台安装；Android-only 不需要 Windows App 包。
-- 可变本机状态：由安装配置明确定位，放在用户私有数据位置，不放进插件缓存或源码包。
+**正常初始化不以旧宿主交接记录为前提；但必须以可验证的槽位来源和资源结算证据决定采用哪条路径。** 不得把“没有 handoff 文件”直接解释为新槽位，也不得要求正常新用户先运行 Windows Shiroha。
 
-更新插件说明不得覆盖在用运行时。更新 Link／适配器先等待原租约结束，采用版本目录切换；旧目录保留到不存在活跃 owner。更新不修改手机 Grant，也不重配对。
+统一准入按以下四类判定，顺序优先匹配更具体的既有 owner 状态：
 
-### 4.4 Windows 目标接入
+| 槽位类别 | 可接受的判定依据 | 唯一允许的路径 |
+|---|---|---|
+| **全新、未配对** | 受信 Link 安装配置首次创建槽位登记；通过槽位控制锁和唯一 operationId 确认无既有 owner 冲突 | 先创建 `UNCLAIMED/PREPARING`，完成原 P15/P0、凭据保存及资源结算后，才建立 `LINK_OWNED` |
+| **已配对、从未由 #356 托管且资源 clean** | 原适配器受保护配对记录可被原凭据 owner 正常读取；设备／安装身份与原槽位绑定匹配；原 owner 提供明确的 clean release／无活动租约证明，或原适配器提供与当前槽位、安装、resource generation 绑定的 clean 结算证明；受信本机注册记录确认该槽位未被 #356 认领 | Link 在槽位独占条件下创建自己的初始 owner；不要求旧 App 释放，不创建 PREPARED／RELEASED／CLAIMED |
+| **已知由 #356 托管** | 受信槽位登记、#356 原 owner 的持久记录、已知 CLAIMED／handoff 记录或旧 App 对该精确槽位的权威记录证明其曾由旧宿主管理 | 仅执行 §7.3 一次性遗留退役；不得按普通初始 owner 覆盖 |
+| **已归独立 Link 所有** | 本 LinkStateStore 与槽位 owner 记录在 connectorInstanceId、targetRef、installation、profile、owner generation、lease/resource generation 上匹配 | 沿用原 Link owner；clean 时正常连接，dirty／unknown 时进入原 Link 资源恢复，不重新初始化、不再次退役 |
 
-Link 只调用现有 Windows 目标客户端，由 Windows App 继续持有其原业务 Bridge。若原固定 peer 规则不能接受新角色，须做最小、明确的角色适配；不得普遍放开程序来源、绕过校验或伪造启动父进程。
+#### 可信来源记录
+
+为使上述判定可执行，Link 使用**独立的槽位所有权记录**（`SlotOwnershipRecord`），由受信本机安装／配对流程创建和条件更新，不放入 Windows 题库数据库。它不是 Grant、设备认证或业务授权，只记录连接托管历史和当前资源 owner。
+
+首次登记只能由受信安装配置指定、通过本机来源校验的独立 Link 初始化入口发起；MCP 业务前端和模型请求没有首次登记权限。初始化入口通过原凭据 owner 核对指定槽位的既有受保护配对引用、owner 来源和未结算资源；配对后的设备／安装／Profile 绑定由原 adapter 的验证结果提供，不能由初始化参数自报。既有配对或 owner 记录不会因 LinkStateStore 缺失、重装或重跑初始化命令而变成全新槽位，仍按上表处理；证据不明时拒绝普通初始化。
+
+初始化 operationId 必须在首次准备记录或对应初始化 journal 中持久化，绑定同一 slotRef、初始化来源及预期 revision。重复执行和崩溃续接复用同一 operationId；已完成时核对并返回同一 owner，不创建第二个 owner。存在未完成登记却无法核对原 operationId 时进入诊断，不用新 ID 覆盖原准备记录。
+
+最小字段：
+
+```text
+formatVersion
+slotRef
+verifiedInstallationBinding
+adapterCredentialSlotRef
+ownershipState: UNCLAIMED | LINK_OWNED | LEGACY356_OWNED | LEGACY_RETIRED | UNKNOWN
+ownerKind
+ownerInstanceId
+ownerGeneration
+resourceGeneration
+lastSettlementRef
+lastSettlementState: CLEAN | DIRTY | UNKNOWN
+revision
+```
+
+新配对的字段按阶段有效：`UNCLAIMED/PREPARING` 中 `verifiedInstallationBinding` 在原 P15/P0 验证完成前必须为 `null`；`adapterCredentialSlotRef` 可为 `null` 或原 adapter 预留的固定引用，但预留不证明凭据已保存或设备身份已验证。尚无结算证据时 `lastSettlementRef=null`、`lastSettlementState=UNKNOWN`。不得用自报值、占位身份或默认 clean 填齐字段。转为 `LINK_OWNED` 前，必须由原 adapter 的真实结果填入已验证绑定、已保存凭据引用及对应结算证据，并按同一 operationId／expected revision 条件更新；失败或中断仍保留准备阶段及已取得的真实证据。#359 的缺失旧字段另按 §7.2.1 处理。
+
+规则：
+
+- 新配对先创建 `UNCLAIMED/PREPARING` 准备记录；原 P15/P0 配对、用户确认、凭据保存和资源结算完成后，才在同一槽位控制锁及 expected revision CAS 下转为 `LINK_OWNED`。
+- 对历史上已存在、没有该记录的配对，**不能由缺失记录推断 `UNCLAIMED`**。只有原适配器／原 owner 能提供与设备、安装、槽位及 resource generation 绑定的 clean 结算证明，并且可信本机注册来源能证明未曾进入 #356 托管，才允许一次性建立初始 `LINK_OWNED` 记录。
+- 由 #356 创建或更新过的记录必须保留 `LEGACY356_OWNED`／对应旧 owner 证据；不得由新 Link 单方面改写成 `UNCLAIMED`。
+- 所有权来源记录损坏、未知版本、槽位／owner 绑定冲突或所有权来源缺失时设为／解释为 `UNKNOWN`，进入 `LEGACY_STATUS_UNKNOWN` 或 `RECOVERY_REQUIRED`，提供脱敏诊断信息和明确的人工处置出口；不得自动初始化、清空或重配对。
+- 已独立证实的所有权不因结算回执缺失、损坏或不属于当前资源运行而失效；保留原 `LINK_OWNED` 和 dirty／unknown 资源快照，进入 `RECOVERY_REQUIRED`。这些回执问题不能证明 clean，也不能把已确认 owner 改成 `UNKNOWN` 或未认领。
+- 所有创建／转换使用槽位独占与 expected revision CAS；同一槽位不能并发建立两个 owner。
+- `SlotOwnershipRecord` 只证明托管来源与资源状态，不认证设备、不授予 Grant、不恢复 Enable，也不能代替 P15/P0。
+
+配对凭据只证明对应设备／安装的密码学身份，**不能证明托管历史**。PID 不存在、锁可获取、CNG marker 缺失、handoff 文件缺失均不能单独证明 clean 或从未由 #356 托管。
+
+#### 初始化统一流程
+
+1. 读取受信安装配置和 LinkStateStore；若 LinkStateStore 不存在，仅允许在受信安装首次初始化流程中创建，不能在已有槽位异常时静默重置。
+2. 在原槽位互斥约束下读取／核验 `SlotOwnershipRecord`、原适配器凭据槽位引用及资源结算证据。
+3. 按上表唯一分类；不明确时进入诊断，不尝试其他分支。
+4. 全新槽位先持久创建 `UNCLAIMED/PREPARING`；完成原 P15/P0、凭据保存和资源结算后，才 CAS 建立 `LINK_OWNED`。合格历史配对仅在原身份、来源及 clean 证据匹配后建立 `LINK_OWNED`。
+5. 回读核验 `LINK_OWNED` 后，手机用户独立开启访问，按原 PREPARING／Enable proof／有限 Enable 流程建立业务连接。
+6. 只有原认证、Grant、Scope 和目标端准入均通过后，才建立业务租约。
+
+**正常新安装和从未由 #356 托管的 clean 配对，不创建 PREPARED／RELEASED／CLAIMED 旧宿主记录，也不要求启动 Windows Shiroha。**
+
+### 4.4 安装包分离
+
+- 插件包：manifest、skills、图标和可移植说明。
+- Link 运行包：Link、MCP 前端、Android adapter 及必要 runtime，不带题库和用户秘密。
+- Windows App：原 Windows 业务 App／Bridge；Android-only 不需要其安装包或可执行文件。
+- 可变本机状态：由受信安装配置明确定位，放在用户私有数据位置，不放进插件缓存或源码包。
+
+更新插件说明不得覆盖在用运行时。更新 Link／adapter 先停止新调用并等待原租约、输出、TLS、进程、流和临时密钥结算，采用版本目录切换；旧目录在无活跃 owner 后才清理。更新不修改手机 Grant、不重配对。
+
+### 4.5 Windows 目标接入
+
+选择 Windows 时仍由 Windows App 持有其原业务 Bridge。Link 仅经已验证的 Windows 目标客户端接入；若原固定 peer 规则不能接受新角色，须做最小、明确的角色适配，不得普遍放开程序来源、绕过校验或伪造启动父进程。
 
 Android 目标路径不得经过 Windows App 的 Named Pipe owner，也不得把 Windows App 的启动／可用性检查作为前置条件。
+
+### 4.6 #356 旧宿主路线的产品状态
+
+#356 的“Windows App 是所有设备唯一宿主”不再是目标架构，不作为新安装、正常连接、日常恢复或未来兼容的支持路径。不得继续扩展其 Windows 全局设备托管、Windows `app_settings` 作为 Android 路由状态、Windows B0 等待手机连接等设计。
+
+确由 #356 旧宿主管理过的槽位，按 §7.3 做一次性退役。退役完成后旧宿主不再拥有该槽位；不建设永久双宿主兼容层。旧 PR／旧二进制的历史运行证据只作历史记录，不构成未来支持承诺。
 
 <a id="s05"></a>
 ## 5. 路由、租约和本机通信
@@ -336,74 +405,150 @@ Link 停止接收新业务，按原 deadline 保留原工作和唯一输出消�
 任何未知生成结果均不重发 STAGE，只查询原设备、原 Profile 与原 submissionKey。连接恢复不得自动创建新的提交键。
 
 <a id="s07"></a>
-## 7. 存储、旧宿主交接与 B0
+## 7. 存储、正常初始化、遗留退役与 B0
 
 ### 7.1 独立 LinkStateStore
 
-Link 不读 `app_settings` 或任何题库数据库。使用用户私有、版本化的小型状态文件保存：目标引用、选择 revision、运行代次、原资源 owner 标识、dirty 阶段及固定诊断码。文件不得含业务正文、待执行请求、密码或私钥。
+Link 不读 `app_settings` 或任何题库数据库。使用用户私有、版本化的小型状态文件保存：Link 实例身份、目标引用、选择 revision、运行代次、当前租约、原资源 owner 标识、dirty 阶段及固定诊断码。文件不得含业务正文、待执行请求、密码或私钥。
 
-实现必须具备独占 owner、严格解析、有限长度、条件更新、原子替换和崩溃保留。保存之前建立原操作所有权，异步写入完成后不能绕过期间发生的取消。损坏状态不得退回空配置继续连接。
+实现必须具备独占 owner、严格解析、有限长度、条件更新、原子替换、必要 flush 和崩溃保留。保存前建立原操作所有权；异步写入完成后不能绕过期间发生的取消。损坏、未知版本或冲突状态不得退回空配置继续连接。
 
-新路径由受信安装配置明确给定；不扫描旧工作区、任意用户目录或所有 CNG 对象寻找“可用身份”。
+新路径由受信安装配置明确给定；不扫描旧工作区、任意用户目录或所有 CNG 对象寻找“可用身份”。LinkStateStore 不进入题库 SQLite、Windows `app_settings` 或 `.shiroha` B0，不承载业务数据和授权事实。
 
-### 7.2 凭据不随状态迁移
+### 7.2 槽位所有权记录与来源判定
 
-原 Android 受保护记录和临时密钥 owner 尽量原地复用；Link 只保存槽位引用。原代码限制记录位置时，通过受控安装配置修订，不接受模型传入任意目录。不得为整洁命名重新配对或复制明文私钥。
+`SlotOwnershipRecord` 是独立 Link Infrastructure 的托管历史／资源 owner 记录，不是设备认证、Grant 或业务 Session。其字段、来源和状态转换由 §4.3 定义；本节规定持久化和恢复要求。
 
-### 7.3 从 Windows 宿主交接
+- 已完成配对的记录必须与原受保护配对槽位、设备／安装身份和 adapter credential slot 一一绑定；新配对准备阶段的空值／预留引用按 §4.3 处理，不提前声明已验证身份。
+- 新配对在原 owner 流程内创建 `UNCLAIMED` 记录；只有原 P15/P0 与资源结算完成后才能转成 `LINK_OWNED`。
+- 已有历史配对若无记录，必须取得原 owner／adapter 对该精确槽位和 resource generation 的 clean 结算证据，并取得可信本机来源登记证明未由 #356 托管，才允许一次性初始化。
+- 缺记录不是 `UNCLAIMED` 证据；配对凭据不是托管历史证据；PID、锁、marker 的单独状态不是结算证明。
+- 已由 #356 管理的记录必须保持 `LEGACY356_OWNED`，不得被 Link 的普通初始化覆盖。
+- 已为 `LINK_OWNED` 的槽位沿用同一 owner；Link 崩溃后不得重新创建 owner 或再次执行旧宿主退役。
 
-若机器上已经使用 #356 候选，交接是一次性的受信本地管理操作，不是 MCP 工具、自动首次启动或通用迁移数据库。旧 App 是旧 SQLite 状态的唯一读取／结算 owner；新 Link 不直接打开它。
+LinkStateStore 与 SlotOwnershipRecord 的跨文件更新必须使用同一槽位互斥、expected revision、operationId 和可恢复阶段。若一侧写入完成而另一侧未完成，重启时只允许按同一 operationId／owner generation 核验并补齐；所有权无法确认时保持 `UNKNOWN`，已确认的 owner 则保留其所有权和原 dirty／unknown 资源状态，不能由缺失结算证据否定所有权。不得新建第二个 owner。
 
-#### 7.3.1 记录与信任
+#### 7.2.1 #359 旧格式适配与可恢复升级
 
-在原配对槽位的受控私有目录中建立最小、版本化的 `HostHandoffRecord`，与原适配器的槽位互斥约束一起工作。记录至少包含：
+#359 的已发布持久格式早于当前 `SlotOwnershipRecord`。不得假定旧安装已存在新记录，也不得因新文件缺失而判定为 UNCLAIMED。适配器必须对照 #359 实际 serializer／parser 和脱敏 fixture，读取原 `HostHandoffRecord`、`LinkStateStore` 与 adapter 资源回执；不得按本契约示例臆造旧字段。
 
-```text
-formatVersion
-handoffId / handoffRevision
-slotRef / verifiedInstallationBinding / originalProfileBinding
-oldOwnerInstance / oldSelectionGeneration / oldStateRevision
-oldStateDigest / releaseRecordRef
-intendedNewOwnerBinding / newLinkStateRevision
-phase: PREPARED | RELEASED | CLAIMED
-```
+旧格式映射：
 
-记录不含私钥、正文、数据库路径或新 Grant。`oldStateDigest` 只核对同一状态，不能自行证明“已干净”；`releaseRecordRef` 必须来自旧 App 已提交的精确释放决定。Link 通过已核验角色的本地交接通路和受保护的持久记录取得它，不能接受任意导入的 JSON、模型自报摘要或仅有成功文案的文件。
+| #359 旧状态 | 新规范投影 | 处理要求 |
+|---|---|---|
+| `RELEASED`，尚无 Link claim | `LEGACY_RETIRED` | 保留原 handoffId、releaseRecordRef 和 fence revision；不单独证明 Link 已拥有槽位 |
+| `CLAIM_PENDING` | `LINK_CLAIM_PENDING` | 只由同一 handoffId、Link instance 和预期 revision 续接 |
+| `CLAIMED` 且 owner 绑定完整 | `LINK_OWNED`，ownerKind=`legacy_link_claim` | 沿用原 Link owner／generation，不再次退役或创建第二 owner |
+| `CLAIMED`，owner 绑定完整且资源 dirty／unknown | `LINK_OWNED` + 原 settlement 状态 | 原样保留 dirty／unknown、原 run/resource/process 和缺失回执 |
+| `PREPARED`／旧释放未完成 | `LEGACY_RETIRE_PENDING` | 保留旧 owner 和 operationId，新 Link 不接管 |
+| 所有权来源缺失、损坏、冲突或未知版本 | `UNKNOWN` | 诊断，不推断全新、不生成 clean、不删除原文件 |
 
-同时保留旧 App 的不可自动回退释放记录、新 Link 的认领记录以及槽位上的迁移 fence。原 adapter.lock 只防同时占用；持久 fence 负责阻止已释放的旧宿主在之后重新取得所有权。实施必须明确记录目录的 ACL／peer 校验和实际支持的所有二进制；不宣称抵抗同用户任意恶意改写。
+旧字段映射必须以源码事实为准。若旧格式没有 `ownerGeneration` 或 `resourceGeneration` 同名字段，应从旧 owner／resource 绑定或资源回执映射；确实不存在时记录 `UNAVAILABLE_IN_LEGACY_FORMAT`，不得伪造数值、默认 0 或合成 clean。
 
-#### 7.3.2 固定写入顺序
+适配必须分开两类核验：
 
-1. 旧 App 冻结该槽位的新连接，在原 owner 下结算所有工作、输出、TLS、密钥和进程；核对当前旧代次处于 clean。dirty／未知时不发布释放凭证。
-2. 在原槽位独占锁下原子发布 `PREPARED` fence，绑定上述旧代次和明确的新 Link owner。所有参与此次交接的旧／新入口看到该状态均拒绝业务获取；锁只用于有界状态更新，不能让人工确认期间无限占用适配器工作锁。
-3. 旧 App 在自己的数据库事务内 CAS 记录“该精确槽位与代次已经移交／禁止继续托管”，并关联 handoffId。只有旧提交已确认后，才可将槽位记录从 PREPARED 条件更新为 `RELEASED`。数据库与文件不是一个事务，顺序不可反转。
-4. 新 Link 经本地确认在自身状态文件持久化 `CLAIM_PENDING`，在槽位锁下核验并独占消费同一 RELEASED 记录，CAS 成 `CLAIMED`；随后写入与该 handoffId／代次匹配的本地 owner 状态。记录必须保留认领结果，不通过删除凭证表达已消费。
-5. 只有共享 CLAIMED 与新 Link 本地认领记录互相匹配，原资源仍满足准入，且目标 App 重新认证／授权成立后，新 Link 才能连接。交接本身不恢复 Session、Context、Enable 或 Grant，不重放未知 STAGE。
+- **所有权核验**：按 #359 原认领规则核对 `HostHandoffRecord` 与 `LinkStateStore` 的 slotRef／targetRef、handoffId、newOwner／connectorInstanceId、设备／安装／Profile 绑定及认领 revision 与后续 revision 的合法关系；不得要求认领时 revision 等于当前运行 revision。所有权来源本身冲突或无法独立确认时 fail-closed，不认领、不初始化。
+- **资源结算核验**：独立核对原资源快照及回执的 run/resource/process、目标和完整结算事实。只有匹配当前待恢复资源的真实证据才能证明 clean；缺失、无法解码或仅属于较早 enable-proof／其他运行的回执不能证明当前 business 资源 clean，也不否定已独立确认的 `CLAIMED` owner。原 dirty／unknown、原资源身份和缺失证据必须保留；格式适配本身不执行 clean 转换。
 
-`PREPARED` 先于旧数据库释放提交，使中途崩溃保守地阻止双方；`RELEASED` 后于旧提交，使凭证不领先于真实释放。新 Link 文件与 CLAIMED 的部分提交也必须可重读核验，不能根据一个缺失文件猜测另一端成功。
+旧格式写入互斥是迁移的前置条件。#359 的 `HostHandoffStore` 使用原槽位的 `adapter.lock`，`LinkStateStore` 在打开期间持有原状态目录的 `link-owner.lock`；新的 `SlotOwnershipLock` 不能排除这些旧写入者。迁移前须撤回旧写入入口，确认旧 Link／原写入者已停止写入，并通过上述原互斥取得一致来源快照。受信安装／入口配置中的旧 #359 写入入口须在取快照前、于锁外完成升级或停用；须有其重新启动／旧配置恢复也不能恢复旧写入权的证据，不能仅关闭当前进程或写入旧二进制不认识的新迁移标记。资源已结算、PID 消失或一次摘要相等均不等于写入权已排除；旧进程已停止但资源仍 dirty 时可保留原状态适配，不要求先补造 clean。
 
-#### 7.3.3 崩溃、重放与旧入口复活
+原互斥须覆盖来源读取、新格式发布、回读核验和完成标记，不能读完便释放、再凭旧快照发布。全部迁移锁使用不等待的获取；任一不可得即释放本次取得的锁并有界拒绝，原 adapter 结算或人工等待留在锁外，不抢锁、不强杀、不清除 pending／dirty 文件。持锁期间只执行有界本机状态 I/O，不等待 TLS、进程退出或人工操作；完成标记发布前回读确认旧入口排除措施仍有效，释放锁后也不能恢复旧写入权。此要求沿用 §7.3.3 的受支持入口证明边界，不新增 owner 状态，也不重新执行 #356 退役。
+
+格式升级采用保留原件的单向适配：
+
+1. 满足上述旧写入者排除条件，在原 `link-owner.lock`、`adapter.lock` 与槽位控制锁共同保护下读取一致来源快照，记录各来源 revision／摘要并创建唯一 `migrationOperationId`。
+2. 严格解码所有权来源，独立完成 owner 核验；再按原资源快照核验可用结算回执。所有权冲突进入 `UNKNOWN`；owner 已确认但回执缺失或不匹配时，保留 `LINK_OWNED` 与原 dirty／unknown，不将二者混为同一失败。
+3. 写入新格式临时记录，包含 `sourceFormat=#359`、来源 revision／摘要、migrationOperationId、映射后的 owner 与 settlement 状态。仍在原互斥保护下重新读取来源并核对 revision／摘要，确认未变后 flush、原子发布；原文件不删除、不覆盖。
+4. 保持原互斥，回读新记录并与稳定的旧来源逐项比对；只有完全一致且旧入口升级／停用的持久排除证据成立，才写入迁移完成标记并切换到新格式。来源变化、锁保护丢失或排除措施不明时不得标记完成或使用新记录准入。
+5. 中断后先重新取得同样的原互斥并核验旧入口排除条件，再按同一 migrationOperationId 重读来源和目标；来源漂移时保留原件与未完成迁移记录并进入诊断，不用新摘要覆盖原 operation。不得创建第二 owner、改变 owner generation、把 dirty 改成 clean 或跳过原恢复。
+6. 只有新格式持久化、来源核验和旧写入者排除全部完成后，才允许新代码以该迁移结果继续运行；缺少匹配同一 migrationOperationId 的完成标记时，新文件存在不表示迁移已完成。旧文件保留到独立迁移验收完成，删除旧文件需要另行明确授权。
+
+`SlotOwnershipRecord` 是规范投影，不意味着必须把所有旧记录改写成一份新文件后才可恢复。兼容读取可先提供只读 adapter；用于接管／恢复准入的投影也必须来自原互斥保护的一致快照，并在使用期间维持单一写入 owner，不能以只读为由绕过旧写入者排除。任何升级写入必须可重入、可核验、保留来源且不改变资源结算事实。
+
+### 7.3 #356 遗留槽位的一次性退役
+
+本节仅适用于**有可信证据表明由 #356 Windows 全局宿主管理过，且尚未完成退役的槽位**。它不是正常 Link 初始化流程，也不是未来长期支持的双宿主兼容系统。
+
+目标是安全结束旧 owner、保留原配对和业务数据、持久阻止旧入口再次取得槽位，然后让独立 Link 建立新的 owner。新 Link 不读取 Windows SQLite；旧 App 是其旧数据库状态的唯一读取／结算 owner。
+
+#### 7.3.1 识别与绑定
+
+退役操作由本地受信控制面发起，绑定原配对槽位、设备／安装身份、原 Profile、旧宿主实例及选择代次、旧状态 revision／摘要、原 adapter owner／resource／process 身份、退役 operationId 和目标 Link 实例身份。
+
+记录不含私钥、正文、数据库路径或新 Grant。摘要只核对状态，不证明清理成功。释放事实必须来自旧 App 对精确槽位和代次的真实事务提交，以及原 adapter 的真实资源结算证据。
+
+#### 7.3.2 锁职责与退役顺序
+
+退役涉及两种不同锁，禁止混用：
+
+- `SlotOwnershipLock`：短时保护槽位来源、退役意图、fence、owner generation 和条件更新；不得跨越人工确认、TLS 关闭或 adapter 生命周期长期持有。
+- `adapter.lock`：由原 adapter 在 TLS／CNG 资源生命周期内持有，保护实际适配器资源独占。退役流程不得在活跃 adapter 持有该锁时要求先取得同一锁写 fence，也不得强行抢占或提前释放。
+
+旧宿主必须在资源结算前持久阻止新准入，但最终 `RETIRE_PREPARED` fence 必须在 adapter 真实结算并释放 `adapter.lock` 后、旧 App 数据库 `retired` 提交前发布。为避免“仅内存冻结”导致竞态，使用独立持久 `RETIRE_INTENT`：
+
+1. 在 `SlotOwnershipLock` 下 CAS 持久写入 `RETIRE_INTENT`，绑定 slotRef、旧 owner instance／generation、旧 state revision、operationId、目标 Link instance 和单调 revision。所有受支持旧入口每次获取槽位前检查此状态；存在意图时拒绝新连接／重连／配置恢复／B0 恢复。该记录不是资源 clean，也不授予新 Link 所有权。
+2. 旧 App 在原 owner 下撤回新业务准入并结算在途业务、输出、目标 CLOSE、TLS、adapter 进程、输入输出流和临时 CNG 对象。原 adapter 按自身协议持有并释放 `adapter.lock`；未 clean 时保留 `RETIRE_INTENT`，不继续。
+3. adapter 真实结算后，在 `SlotOwnershipLock` 下核对原 owner／resource generation 与 clean receipt，CAS 将 `RETIRE_INTENT` 转为持久 `RETIRE_PREPARED` fence。此步骤必须早于旧 App 数据库 retired 事务。
+4. 旧 App 在自己的数据库事务内，对精确槽位／旧代次 CAS 写入不可自动回退的 `retired` 记录，并关联同一 operationId、fence revision 和 releaseRecordRef。只有事务提交已确认后才继续。
+5. 在 `SlotOwnershipLock` 下将 `RETIRE_PREPARED` 条件转换为 `RETIRED`，绑定旧状态摘要、releaseRecordRef、目标 Link instance 和单调 revision。
+6. 新 Link 核对 `RETIRED`、旧 App 已提交的 release record、原 adapter 资源 clean、旧 owner 不再活动和 fence 匹配后，持久建立新 `LINK_OWNED` owner。
+7. 重新执行原设备认证／手机本地访问开启。退役记录不恢复 Session、Context、Enable、Grant 或业务批准。
+
+`RETIRE_INTENT` 是持久的“停止旧宿主新准入”状态；`RETIRE_PREPARED` 是资源 clean 后、旧数据库提交前的持久退役 fence；`RETIRED` 才表示旧 App 已提交 retired 且槽位退役记录已发布。数据库与槽位记录不是同一事务，任意中断均按同一 operationId 恢复。不得在持有 adapter.lock 等待槽位控制锁，也不得持有 SlotOwnershipLock 等待长时间 adapter 结算。
+
+#### 7.3.3 崩溃恢复与旧入口复活
 
 | 中断点 | 恢复原则 |
 |---|---|
-| 旧状态未确认 clean | 旧 owner 原恢复规则；新 Link 不接管 |
-| PREPARED 后、旧释放事务前 | 两端业务关闭；旧 App 在明确恢复中核对原状态，继续同一交接或在证明旧事务未释放且新端未认领后撤回准备；不能自动删 fence |
-| 旧释放事务已提交、RELEASED 文件未完成 | 旧 App 通过精确 releaseRecordRef 完成同一记录；新端不能仅凭旧进程退出认领 |
-| RELEASED 已存在、新端尚未认领 | 旧宿主保持禁用；仅匹配的新 Link 可认领 |
-| CLAIMED 成功、新 Link 最后一步落盘失败 | 新 Link 恢复自己的同一 handoff；旧宿主不自动恢复托管；有冲突则 fail-closed |
-| 旧凭证重放／双 Link 认领／代次不匹配 | 拒绝，不替换当前 owner，不递增代次洗白未知状态 |
+| `RETIRE_INTENT` 发布前 | 旧 owner 原规则；不得宣称已开始退役 |
+| `RETIRE_INTENT` 已持久、adapter 尚未 clean | 旧入口拒绝新准入；原 owner 继续结算；不抢占 adapter.lock，不发布 RETIRE_PREPARED |
+| `RETIRE_PREPARED` 已持久、旧 App retired 事务未提交 | 旧入口仍受 fence 阻止；由原旧 App owner 核对原状态，继续同一 operationId 或在证明事务未提交、无新 owner 后显式撤销同一 fence |
+| 旧资源 dirty／unknown | 保留 fence 与原 owner；不提交 retired，不允许新 Link 认领 |
+| retired 事务已提交、`RETIRED` 尚未发布 | 旧入口继续因 PREPARED fence 拒绝；旧 App 根据同一 operationId 和提交记录补齐 `RETIRED`，Link 不推断成功 |
+| `RETIRED` 已发布、新 Link 尚未建立 owner | 旧宿主永久拒绝；指定 Link 可按同一 operationId 继续认领 |
+| 新 Link 已持久建立 owner、最终确认中断 | 进入 §7.4 的 CLAIMED／LINK_OWNED 恢复，不再要求旧 App 退役或创建第二 owner |
+| 旧入口重启、旧配置或 B0 恢复 | 必须先检查持久 fence／retired 记录；已退役槽位拒绝旧 owner，不得自动恢复 |
 
-B0、旧配置恢复或重新启用旧 MCP 注册不得恢复已释放的槽位。旧入口在每次获取前检查当前迁移 fence；不支持该检查的旧二进制必须在交接前被明确停用并排除在支持运行集合之外。若仍有可继续竞争的受支持旧入口，交接不成立。一般文件锁、PID 不存在、临时 CNG 标记不存在都不足以替代这些事实。
+所有受支持旧入口在每次获取槽位前都必须检查 fence。若某个旧二进制不识别 fence，它必须在退役前被明确停用并从支持运行集合排除；只关闭当前进程不够。记录 ACL／peer 校验必须说明实际保护边界，不宣称抵抗同用户任意恶意改写。
 
-对于已有配对但旧托管状态不明的槽位，缺少交接记录不能被当作“全新槽位”；先通过受信来源核对旧 owner，不让新注册清空迁移责任。
+退役证据必须列明受信安装／入口配置内能够获取该槽位的旧入口标识、二进制版本或摘要，以及各入口是否识别 `RETIRE_INTENT`。不识别的入口须记录实际生效的升级／停用措施及回读结果，例如部署具备检查能力的受支持版本，或禁用旧注册／启动入口并隔离其运行包；仅把版本从“支持列表”移除不算措施。此清单和不兼容入口的停用须在发布 `RETIRE_INTENT` 前确认；已有资源仍由原 owner 正常结算，不通过停用措施强杀原工作或清除其资源。
 
-保持原数据、配对和 Profile，不降低数据库版本、不重装手机。旧 App 的一次性交接／中断恢复可需要启动旧 App；新 Link 正常拥有槽位后，Android 日常启动与使用不得再依赖旧 App 或它的数据库。
+退役完成前必须再次确认清单与已生效措施一致，并取得旧入口重新启动及旧注册／配置恢复后仍不能绕过措施、重新获取该槽位的证据。任一受支持入口未覆盖或措施效果不明，退役验收不通过，不得据此认领新 owner。证明范围限于上述受信配置和支持运行集合，不要求扫描任意用户目录，也不扩大为阻止同用户任意复制、改写或重建旧程序的安全承诺。
 
-### 7.4 B0
+#### 7.3.4 Dirty／unknown 遗留状态
+
+若旧业务、目标关闭、TLS、进程、流或临时密钥任一项为 dirty／unknown：
+
+- 不发布 `RETIRED`；
+- 不删除 marker、锁、凭据、fence 或旧 owner 记录；
+- 不重新配对、不替换 Pin、不递增代次洗白；
+- 不通过重新安装或恢复空白 LinkStateStore 绕过；
+- 保持 `LEGACY_STATUS_UNKNOWN`／`RECOVERY_REQUIRED`；
+- 只对该遗留实例做有证据的诊断与恢复。
+
+**放弃 #356 产品路线，不允许把它留下的真实资源状态当作不存在。** 遗留处理只服务实际旧实例，不扩展为每个新用户都必须执行的迁移系统。
+
+### 7.4 已归 Link 所有的恢复与 B0
+
+#### 7.4.1 `LINK_OWNED` 与 #359 已 CLAIMED 槽位
+
+已由独立 Link 成功认领的槽位，包括 #359 已产生 `RELEASED → CLAIM_PENDING → CLAIMED` 记录的测试槽位，属于**现有 Link owner 的恢复**，不是 #356 遗留退役，也不是新初始化。新代码必须先通过 §7.2.1 的 #359 旧格式只读适配取得规范投影；不得因新 `SlotOwnershipRecord` 尚未存在而拒绝已 CLAIMED 槽位，也不得先写新 owner 覆盖旧记录。
+
+必须按以下顺序处理：
+
+1. 读取 LinkStateStore、SlotOwnershipRecord 和原资源 journal，按 §7.2.1 分别核验持久 owner 的 `connectorInstanceId`、`targetRef`、installation binding、Profile、owner generation，以及待结算资源的 resource generation、lease/run/resource/process identity；原认领关系和结算回执不能互相代替，旧格式缺失字段不得补造。
+2. 若 owner 记录为 `LINK_OWNED`／`CLAIMED` 且所有 owner 绑定一致、无未结算资源，沿用同一个 owner generation；允许创建新的运行代次和新业务 lease，但不得创建第二个 owner、重做旧 App retired 或重新配对。
+3. 若业务／资源为 dirty／unknown，保留原 CLAIMED／LINK_OWNED、原 owner 和 dirty snapshot，进入原 owner 的恢复流程。恢复必须针对原 run/resource/process，不能拿更早的 enable-proof 回执替代 business 资源回执。
+4. 只有原 owner 的结算证据证明 clean，才允许对同一 owner generation 条件更新资源状态并建立新 lease。
+5. 若 owner 记录与 LinkStateStore 冲突、owner generation 不匹配或来源未知，进入 `RECOVERY_REQUIRED`，不创建新 owner，不降级为“新安装”。
+
+`CLAIM_PENDING` 只能由同一 `handoffId`、同一新 Link instance 和同一预期 revision 继续完成；不得重新发起退役或生成新 handoffId。`CLAIMED` 不因 Link 进程崩溃而失效；进程运行代次与持久 owner generation 是不同字段。
+
+#### 7.4.2 B0
 
 Windows B0 只协调 Windows 自己的业务 owner；Android B0 只协调手机自己的业务 owner。两端仍各自撤回访问、排空在途工作并失效 Session／Context。
 
-Link 状态与运行凭据不进入任何 `.shiroha` 包。目标被 Restore／重装后，旧本地路由不能自动复活其 Profile；新身份需要明确重新绑定。仅因 Windows 曾托管手机而加入的 B0 依赖应移除，真正属于 Windows 本地事务的屏障必须保留。
+Link 状态与运行凭据不进入任何 `.shiroha` 包。目标被 Restore／重装后，旧本地路由不能自动复活其 Profile；新身份需要明确重新绑定。仅因 #356 Windows 全局托管引入的跨 App B0 依赖应移除；真正属于 Windows 本地事务的屏障必须保留。
 
 B0 是整库恢复，不是选择性题目合并接口。[R4]
 
@@ -1076,7 +1221,7 @@ Link 可以有界读取并丢弃不能交付的 MCP 输出；这不允许持久�
 | Content Exchange | 独立 `exchangeVersion: 1` |
 | 题目快照包 | 独立 `formatVersion / schemaVersion: 1` |
 | 原 Android Link | 不把新二进制或远程控制塞进旧协议冒充兼容 |
-| 连接器状态 | 独立本机文件版本；不依赖题库数据库版本 |
+| 连接器状态 | 独立本机文件版本；#359 旧格式按 §7.2.1 适配并保留来源／dirty；不依赖题库数据库版本 |
 | Proposal／Submission／Receipt | 未改变的保持原版本及权威 |
 | 数据库 | 业务基础当前为 v36；保留合法旧库、Origin 与 B0 兼容。新增交换持久化另做准确最小迁移，不预占号码 |
 | 插件与运行包 | 独立版本；显式兼容矩阵，不在启动钩子自动下载替代运行时 |
@@ -1092,9 +1237,9 @@ Link 可以有界读取并丢弃不能交付的 MCP 输出；这不允许持久�
 
 | 区域 | 处理 |
 |---|---|
-| Profile 3、独立统计授权、范围查询、Origin 兼容 | 保留并按真实候选核验 |
+| Profile 3、独立统计授权、范围查询、Origin 兼容 | 复用已合并 #358 的业务基础；新接入另补对应验收 |
 | `external_device_connection.dart` | 尽量复用纯状态／租约逻辑，独立 Link 组装 |
-| `external_device_selection_store.dart` | 不再作为 Android 日常路由存储；旧记录通过显式交接处理 |
+| `external_device_selection_store.dart` | 不再作为 Android 日常路由存储；仅识别／退役确由 #356 托管的旧记录 |
 | `mcp_vnext_app_owned_relay.dart` | Windows App 只保留自身 Windows 业务托管，移出 Android 分支 |
 | `windows_android_adapter_layout.dart` | 受信安装配置，不依赖 Windows App 路径或仓库向上扫描 |
 | `external_device_settings.dart` | Windows 页面不再是手机必经控制入口 |
@@ -1108,7 +1253,7 @@ Link 可以有界读取并丢弃不能交付的 MCP 输出；这不允许持久�
 
 ### 21.2 新增能力的最小归属
 
-- Link state store：Infrastructure，自有小型文件，不进入题库 Data。
+- LinkStateStore／SlotOwnershipRecord：Infrastructure 的独立本机状态；正常初始化、遗留退役和现有 owner 恢复分别准入，不进入题库 Data。
 - 远程可信绑定：现有 External identity 的新适配，不在工具 handler 构造 Session。
 - Content Exchange Application：单独的应用能力，通过现有 File／typed import ports 执行。
 - 平台 File DTO：仅在平台适配层；不进入 Domain。
@@ -1119,7 +1264,7 @@ Link 可以有界读取并丢弃不能交付的 MCP 输出；这不允许持久�
 
 | 文档 | 负责的增量 |
 |---|---|
-| [MCP §19](mcp-vnext-contract.md#unified-access-successor) | 目标 Profile 3、独立 Link、安装与恢复；替代候选 Windows 全局托管设计 |
+| [MCP §19](mcp-vnext-contract.md#unified-access-successor) | 保留 Profile 3；同步独立 Link 初始化、旧格式适配、遗留退役及原 owner 恢复 |
 | [External boundary](external-agent-boundary.md#unified-access-successor) | 独立远程主体与 ExchangePermit；不扩张旧 Grant |
 | [Android](android-device-access-v0.md#unified-access-successor) | 本地 Link、远程前台／同手机后台的分别准入 |
 | [GeneratedQuestion](generated-question-proposals.md#content-exchange-successor) | 生成与内容交换的来源、策略、收据分界 |
@@ -1148,11 +1293,18 @@ Link 可以有界读取并丢弃不能交付的 MCP 输出；这不允许持久�
 | L06 | 目标切换 | 原结算后才变代次；旧引用不能访问新设备 | D+A+C |
 | L07 | 客户端／前端结束 | Link 存活、原输出／密钥／进程据实结算 | N+C |
 | L08 | Link 自身崩溃 | 重启保留 dirty，不重放、不自动删标记 | D+N |
-| L09 | 旧宿主交接 | 精确槽位／代次的持久释放与独占认领，配对不变；锁空闲不能替代旧状态依据 | D+N+A |
-| L13 | 交接各写入点崩溃／重放／旧入口再启 | PREPARED／RELEASED／CLAIMED 部分提交可核对，源端禁用 fence 保留；无双 owner、无自动清 dirty | D+N+A |
-| L10 | 统计／文件／生成 | 原权限和正式数据结果一致，无旧 v0 回退 | D+A+C |
-| L11 | 插件／运行包更新 | 未覆盖在用程序，不改变手机 Grant | D+N |
-| L12 | 关闭全部外部入口 | 本地题库、Review、练习仍可用 | A |
+| L09 | 新建 Link／新配对 | 仅受信初始化入口持久创建同一 operationId 的 UNCLAIMED/PREPARING；完成原 P15/P0、凭据保存及资源结算后 CAS 建立 LINK_OWNED；重试不创建第二 owner，不依赖旧宿主、不伪造交接 | D+N+A |
+| L10 | 已有配对、从未由 #356 托管 | 受信来源记录与原 owner clean 结算证据匹配后直接建立 LINK_OWNED；缺证据进入诊断 | D+N+A |
+| L11 | #356 遗留退役 | 旧入口清单与升级／停用证据成立；RETIRE_INTENT 持久阻断新准入；原 adapter 结算并释放 adapter.lock；RETIRE_PREPARED 先于旧 App retired 事务；RETIRED 后 Link 接管 | D+N+A |
+| L12 | #359 已 CLAIMED 的 Link owner 崩溃 | owner 绑定独立核验，同一 owner generation 恢复；缺失／旧回执保留原 owner 与 dirty；真实 owner 冲突拒绝；仅原 business run/resource/process 证据可证明结算；不再次退役、不新建 owner | D+N |
+| L13 | 初始化／旧格式升级／退役／认领各持久写入点中断 | UNCLAIMED/PREPARING、LINK_OWNED、RETIRE_INTENT、RETIRE_PREPARED、RETIRED、#359 RELEASED、CLAIM_PENDING、CLAIMED 均按 operationId／revision 恢复；无双 owner、无自动清 dirty、旧文件不丢失 | D+N+A |
+| L14 | 统计／文件／生成 | 原权限和正式数据结果一致，无旧 v0 回退 | D+A+C |
+| L15 | 插件／运行包更新 | 未覆盖在用程序，不改变手机 Grant | D+N |
+| L16 | 关闭全部外部入口 | 本地题库、Review、练习仍可用 | A |
+
+L09／L10 须在隔离夹具中覆盖“LinkStateStore 缺失但旧配对、owner 或 dirty 仍存在”、重复初始化、首次准备写入后崩溃与并发初始化；不得把这些情况误判为全新或生成第二 owner。L11／L13 须验证每个已登记旧入口的 `RETIRE_INTENT` 拒绝，或其实际停用措施在重新启动及旧注册／配置恢复后仍有效；仅观察当前进程退出不构成通过。这些是未来实现验收条件，不要求删除真实 dirty 文件，也不把静态推演计为真机恢复成功。
+
+L09 还须验证准备阶段允许的空值／预留引用不能通过 `LINK_OWNED` 的已验证身份门槛。L12 须分别覆盖 owner 一致但回执缺失、损坏、属于旧 enable-proof／其他运行，以及真正的 owner 绑定冲突；前者保留原 owner 与 dirty，后者 fail-closed，均不能启动新业务。L13 须覆盖旧写入者仍持原锁、快照读取后尝试写入、发布前／后及完成标记前中断、来源 revision／摘要漂移，以及迁移锁释放后旧入口重启／配置恢复；必须证明无未受保护的快照发布、无旧新双写、无 dirty 洗白。原写入者已停止而结算仍 unknown 的夹具可以原样适配，不把资源 clean 作为格式适配前置。
 
 ### 22.2 官方远程通道
 
@@ -1206,7 +1358,7 @@ Link 可以有界读取并丢弃不能交付的 MCP 输出；这不允许持久�
 
 目标先是“Windows App 未运行时 Android 的统一 READ 成功”，再覆盖 owner／异常恢复，最后核对原统计、文件和生成。不为解耦重写全部业务。
 
-完成条件是 L01–L13 的适用项具有真实证据，且旧候选的 Windows 全局宿主条款不再与实现冲突。它不以远程或内容交换全部完成为前提。
+完成条件是 L01–L16 的全部适用项具有对应证据；其中 L09–L13 的初始化、旧格式升级、一次性退役和现有 Link owner 恢复必须分别覆盖，不得互相代替。旧候选的 Windows 全局宿主条款不得与实现冲突。它不以远程或内容交换全部完成为前提。
 
 ### 23.2 官方远程能力证明与最终产品门槛
 
@@ -1266,14 +1418,17 @@ Link 可以有界读取并丢弃不能交付的 MCP 输出；这不允许持久�
 
 这些链接定位已核对的原权威或候选来源。PR 链接是设计来源，不是执行基线；实施任务仍按仓库规则核验最新状态。PR #356 的标题／正文和分支文档可能继续变化，不能以本文件反推未来合并状态。
 
-- **[R1]** PR #356：统一插件、Windows-owned 目标托管及候选验收范围。
-- **[R2]** PR #356 候选 `mcp-vnext-contract.md` §19：11 工具、statistics、路由、关闭、打包和恢复责任。
+- **[R1]** PR #356：已废弃 Windows 全局宿主路线的历史来源；不作为当前正常接入依据。
+- **[R2]** PR #356：历史候选来源，不是当前业务 Schema 或独立 Link 实现权威。
 - **[R3]** 主线 `android-device-access-v0.md`：原桌面适配器 → 手机的独立 LAN 路径及有限使用边界。
 - **[R4]** B0 focused contract：整库备份／恢复、事务、清理和兼容权威。
 - **[R5]** External boundary：原身份、授权、数据释放和 saved-policy 权威。
 - **[R6]** GeneratedQuestion contract：原候选、Review、幂等、正式事务和结果查询。
 - **[R7]** Architecture：原依赖方向与数据／应用／适配责任。
 - **[R8]** ImportTask／ReviewDraft lifecycle §8：待审核草稿保护、清理资格与原持久化权威。
+- **[R9]** 已合并 #358：Profile 3、独立统计授权、v36／Origin 兼容的业务基础。
+- **[R10]** #359：独立 Link 候选的实际格式、有限运行与未完成恢复证据；不等于整包通过。
+- **[R11]** 已合并 #357：独立 Link、官方远程候选和内容交换的目标设计前置。
 
 ### 官方外部来源
 
@@ -1294,7 +1449,7 @@ Link 可以有界读取并丢弃不能交付的 MCP 输出；这不允许持久�
 ---
 
 [R1]: https://github.com/duanzhijian200443/shiroha_quiz/pull/356
-[R2]: https://github.com/duanzhijian200443/shiroha_quiz/blob/codex/shiroha-plugin-v1/docs/product/agent-refactor/mcp-vnext-contract.md
+[R2]: https://github.com/duanzhijian200443/shiroha_quiz/pull/356
 [R3]: android-device-access-v0.md
 [R4]: ../../architecture/b0-shiroha-backup-restore.md
 [R5]: external-agent-boundary.md
@@ -1313,3 +1468,6 @@ Link 可以有界读取并丢弃不能交付的 MCP 输出；这不允许持久�
 [O9]: https://github.com/openai/tunnel-client/blob/master/client.go
 [O10]: https://developer.android.com/develop/background-work/services/fgs/service-types
 [T1]: https://github.com/localsend/protocol
+[R9]: https://github.com/duanzhijian200443/shiroha_quiz/pull/358
+[R10]: https://github.com/duanzhijian200443/shiroha_quiz/pull/359
+[R11]: https://github.com/duanzhijian200443/shiroha_quiz/pull/357

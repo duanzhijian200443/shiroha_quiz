@@ -2317,7 +2317,8 @@ then exit the client. Arbitrary process termination is not clean-close proof.
 ## 19. Unified business foundation and adopted access successor
 
 The [unified access and content exchange contract](unified-access-and-content-exchange-v1.md)
-owns the new topology, handoff and extension design. Section 19.1 implements
+owns the v1.4 topology, initialization, retirement, recovery and extension
+design. Section 19.1 implements
 the shared business foundation; Link, remote endpoints and exchange remain
 the separately adopted design below.
 Sections 1–18 retain the implemented six/seven-tool consumers and their actual
@@ -2449,6 +2450,12 @@ its B0. Windows targets still use the original Windows App-owned path. Every
 target App retains identity, Grant, finite Enable, egress and formal-write
 authority. The model cannot supply target addresses, executable paths or keys.
 
+Normal slot ownership is distinct from a legacy handoff. Fresh setup uses
+UNCLAIMED/PREPARING until original P15/P0, credential persistence and resource
+settlement succeed; only then may it establish LINK_OWNED. Existing paired slots
+need trusted provenance and original clean evidence. Unknown provenance stays
+closed. Slot records establish no Grant, Enable or business Session.
+
 A lease fixes the device, installation, Profile, route generation and frontend
 peer. A second chat cannot take it over. Stop/switch withdraws admission before
 joining original work, matching output, target close, TLS, keys, processes and
@@ -2468,30 +2475,92 @@ runtime replacement is allowed. Secrets, DPAPI records and databases never enter
 plugin caches or portable packages. Updates await original lease settlement and
 do not change pairing or device grants. Old registrations may be disabled only
 after actual replacement acceptance and the user's explicit choice; two entries
-must not own the same paired-device slot concurrently.
+must not own the same paired-device slot concurrently. Normal Android-only
+setup must not require a Windows App release or manufacture legacy handoff
+records. Already-owned or corrupt state is never reset by installation.
+First registration is restricted to the trusted local initialization entry;
+it checks the original protected-slot provenance and retains one durable
+initialization operationId across retries/interruption. The original adapter
+supplies verified device/installation/Profile bindings. Missing LinkStateStore
+with retained pairing/owner/dirty evidence is not a fresh-slot admission.
+For new pairing, PREPARING keeps an unverified installation binding null and
+allows only a null or adapter-reserved credential-slot reference. A reservation
+does not prove saved credentials or verified identity. LINK_OWNED requires the
+original verified binding, saved credentials and corresponding settlement;
+initialization never fabricates these values to satisfy required fields.
 
-### 19.4 Recovery and old-host handoff
+<a id="194-recovery-and-old-host-handoff"></a>
+### 19.4 Initialization, legacy retirement and Link recovery
 
 Recovery binds the original dirty snapshot, target, generation and resource
 identities. PID disappearance, a released lock or missing key marker is not
 settlement. Reproof retains the same device/Profile and original P15/P0 boundary;
 it does not replace pairing, expand grants or replay an unknown submission.
 
-Migration from an installed old Windows-global host uses the persistent
-PREPARED → RELEASED → CLAIMED handoff in
-[design §7.3](unified-access-and-content-exchange-v1.md#s07).
-The old App alone reads and settles its SQLite state. Its exact-generation
-release and persistent acquisition fence precede the new Link claim; Link never
-opens that database. Partial commits are reconciled from matching durable
-records. Missing handoff on a known slot is not a fresh installation. Every
-supported old/new acquisition checks the fence; an old binary lacking it must
-be explicitly disabled and excluded before migration. B0/config restore must
-not resurrect released ownership. This design grants no runtime migration.
+The [v1.4 ownership rules](unified-access-and-content-exchange-v1.md#s07)
+separate normal initialization, one-time retirement of an actual #356 owner,
+and recovery of an existing Link owner. Legacy retirement is not a prerequisite
+for normal new users. The old App alone reads and settles its database state;
+Link never opens Windows SQLite.
+
+Short SlotOwnershipLock updates protect provenance, retirement intent, fences
+and CAS. The original adapter retains adapter.lock throughout TLS/CNG custody.
+RETIRE_INTENT durably closes old admission without waiting on that resource
+lock. After the original adapter has actually settled, RETIRE_PREPARED is
+persisted before the old App's retired transaction; RETIRED is published only
+after confirmed commit. The designated Link may then acquire ownership.
+Old entrypoints must honor the persistent intent/fence; unsupported binaries
+are explicitly retired. B0/config restore cannot resurrect old ownership.
+Retirement evidence identifies the old entries in trusted installation/entry
+configuration, their binary identities and actual upgrade/disable measures.
+Incompatible entries are disabled before RETIRE_INTENT; old resource custody
+still settles normally. Completion needs restart/config-restore evidence that
+those entries cannot regain the slot, not just absence of a current process.
+Uncovered entries or unproved measures block retirement acceptance and new-owner
+claim. This does not promise protection against arbitrary same-user binaries.
+
+The actual #359 HostHandoffRecord/LinkStateStore format is read through the
+compatibility projection in design §7.2.1. Absence of the new file never makes
+an old CLAIMED slot unclaimed. RELEASED, CLAIM_PENDING, CLAIMED and PREPARED
+retain their original evidence and exact continuation identity. Optional format
+upgrade preserves source files, matching revisions and resource facts; missing
+legacy fields are not fabricated. A CLAIMED slot already belongs to Link and
+must not repeat old-App retirement. Dirty recovery still needs the original
+business run/resource/process evidence, not an earlier enable-proof receipt.
+
+Ownership and resource settlement are validated separately. An independently
+verified CLAIMED owner remains LINK_OWNED when its current resource receipt is
+missing, malformed or belongs to another run; retain the original dirty/unknown
+snapshot and refuse new business. Conflicting or unprovable ownership still
+fails closed. Format adaptation itself never marks resources clean.
+
+Old-format migration must exclude the original writers using the original
+link-owner.lock and adapter.lock as well as the short slot control lock. Keep
+the source snapshot protected through publication, readback and the completion
+marker; recheck source revisions/digests before publication. Acquire migration
+locks without waiting and release acquired locks on contention; never hold them
+while waiting for adapter settlement or human action. Stopped writers with dirty
+resources may be adapted without a fabricated clean receipt. Trusted installation
+and entry measures must be established outside the locks before taking the
+snapshot and rechecked before completion; after lock release they must still
+prevent old #359 writers from regaining write access through restart or config
+restore. A new lock, a one-time digest check or a marker unknown to the old binary
+is insufficient. Interrupted migration revalidates these conditions
+and the same operation identity; source drift blocks activation. This preserves
+the original owner and adds neither a new owner state nor another #356 retirement.
+
+These are target requirements, not implemented migration or recovery proof.
+The candidate's actual source and bounded observations remain in
+[PR #359](https://github.com/duanzhijian200443/shiroha_quiz/pull/359); its unresolved
+resource settlement is not cleared by this design amendment.
 
 ### 19.5 Independent acceptance
 
 Local decoupling, phone-hosted remote access and content exchange have separate
 [acceptance matrices](unified-access-and-content-exchange-v1.md#s22).
+Local completion covers all applicable L01–L16 items. New setup, historical
+clean pairing, legacy retirement, old-format upgrade and existing-owner recovery
+need their own evidence; migrated-slot READ cannot replace never-hosted setup.
 Remote final acceptance is same-phone ChatGPT web use without a computer; a
 desktop tunnel or another device's browser cannot replace it. SDK stop and
 transport retry are not business settlement or permission to redispatch writes.

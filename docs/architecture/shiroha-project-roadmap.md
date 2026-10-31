@@ -190,7 +190,7 @@ Current scheduling supersedes the earlier functionality-first priority below:
   mandatory; this closeout grants no external permission or credential operation.
 
 <a id="unified-access-design"></a>
-The [unified access and content exchange v1.1 target](../product/agent-refactor/unified-access-and-content-exchange-v1.md)
+The [unified access and content exchange v1.4 target](../product/agent-refactor/unified-access-and-content-exchange-v1.md)
 is adopted as design, with three independently bounded capabilities: local
 Shiroha Link decoupling, official remote-channel feasibility, and controlled
 file/question snapshot exchange. Local Android use requires Codex and Link on
@@ -202,8 +202,13 @@ selection/sharing is the first exchange route; it does not prove automatic
 ChatGPT attachments or device-to-device transport. The shared business foundation
 now implements explicit Profile 3, independent statistics and v36/Origin/B0
 compatibility through the original owners, with real isolated SQLite/MCP SDK
-checks. Normal six/seven-tool defaults remain; Link/installed eleven-tool client,
-phone remote use and exchange still need their own implementation and acceptance.
+checks. Normal six/seven-tool defaults remain. The v1.4 local target separates
+normal initialization from one-time #356 retirement and existing Link owner
+recovery, with source-preserving #359 format adaptation and distinct control/
+adapter resource locks. [PR #359](https://github.com/duanzhijian200443/shiroha_quiz/pull/359)
+owns its candidate implementation and bounded runtime evidence; it does not
+close new-installation, full recovery or the remaining L01–L16 requirements.
+Phone remote use and exchange retain their separate implementation/acceptance.
 The target design itself adds no runtime admission. Existing OCR/Agent pauses,
 high-assurance/security gates and current finite-use limits remain unchanged.
 
