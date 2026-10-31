@@ -21,6 +21,7 @@ final class _Phone {
   late AndroidMcpPort port;
   bool live = true;
   bool expectFailedSettlement = false;
+  bool expectFailedApproval = true;
   int responseSequence = 0;
   DurableStageHarness get s => app.h.s;
   Future<void> open() async {
@@ -122,7 +123,11 @@ final class _Phone {
     live = false;
     if (expectFailedSettlement) {
       await expectLater(port.close(), throwsStateError);
-      await expectLater(approval.close(), throwsA(isA<Exception>()));
+      if (expectFailedApproval) {
+        await expectLater(approval.close(), throwsA(isA<Exception>()));
+      } else {
+        await approval.close();
+      }
     } else {
       await port.close();
       await approval.close();
@@ -273,6 +278,42 @@ void main() {
     await f.open();
   });
   tearDown(() => f.close());
+
+  test(
+      'graceful CLOSE withdraws new work and waits for the original response output',
+      () async {
+    final result = await f.port.call('open_generation_context', {},
+        responseId: 'original',
+        cancelled: const Stream.empty(),
+        available: () => true);
+    expect(result['error'], isNull);
+    var settled = false;
+    final closing = f.port.beginGracefulClose().then((_) => settled = true);
+    await Future<void>.delayed(Duration.zero);
+    expect(settled, isFalse);
+    expect(
+        (await f.port.call('open_generation_context', {},
+            responseId: 'late',
+            cancelled: const Stream.empty(),
+            available: () => true))['error'],
+        'unavailable');
+    f.port.responseWritten('original');
+    await closing;
+    expect(settled, isTrue);
+  });
+
+  test('graceful CLOSE cannot acknowledge a failed original output', () async {
+    f.expectFailedSettlement = true;
+    f.expectFailedApproval = false; // This READ acquired no STAGE approval.
+    final result = await f.port.call('open_generation_context', {},
+        responseId: 'original',
+        cancelled: const Stream.empty(),
+        available: () => true);
+    expect(result['error'], isNull);
+    f.port.outputFailed();
+    f.port.responseWritten('original');
+    await expectLater(f.port.beginGracefulClose(), throwsStateError);
+  });
 
   test('seven schemas; old READ grant and all file modes refuse', () async {
     expect(VnextMcpServer.inputSchemas.length, 7);

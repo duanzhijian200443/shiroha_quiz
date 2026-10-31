@@ -209,6 +209,12 @@ adapter resource locks. [PR #359](https://github.com/duanzhijian200443/shiroha_q
 owns its candidate implementation and bounded runtime evidence; it does not
 close new-installation, full recovery or the remaining L01–L16 requirements.
 Phone remote use and exchange retain their separate implementation/acceptance.
+The bounded normal-initialization source in `tool/link` reuses the standalone
+frontend and original Android adapter, with independent state/provenance and
+explicit Android Profile 3 selection. It provides no Windows-global host and
+does not retire #356, migrate #359 formats or recover dirty slots. New-user and
+historical-pairing device/client evidence, including Windows database isolation,
+remain separate from its offline/source checks.
 The target design itself adds no runtime admission. Existing OCR/Agent pauses,
 high-assurance/security gates and current finite-use limits remain unchanged.
 

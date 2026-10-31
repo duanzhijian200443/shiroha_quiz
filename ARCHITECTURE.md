@@ -138,6 +138,17 @@ This is a target composition boundary, not full Link or mobile-tunnel acceptance
 candidate source/runtime evidence remains with its PR and the existing runtime
 above is unchanged.
 
+The explicit Android-only Link source root in `tool/link` implements bounded
+normal initialization and forwarding without importing the Windows App or its
+Data graph. A native-admitted local entry owns first registration; the original
+adapter supplies P15/P0, saved-credential and resource evidence. Its v2 local
+state and slot custody remain separate from SQLite. Explicit Android builds may
+select `SHIROHA_UNIFIED_LINK` for the existing Profile 3 foundation; defaults
+remain unchanged. Missing historical provenance and legacy/dirty records refuse
+normal initialization. This source slice does not implement #356 retirement,
+#359 format upgrade or dirty-resource recovery; its native/device/client
+acceptance remains separate from deterministic source tests.
+
 The External Windows primitive adapter in `lib/data/external/native` owns
 explicit SDK FFI calls to the independent `windows/external_native` C ABI DLL.
 It supplies bounded DPAPI memory operations, an unvalidated known-folder path

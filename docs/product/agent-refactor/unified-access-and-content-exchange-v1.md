@@ -259,6 +259,12 @@ revision
 
 ### 4.4 安装包分离
 
+**有界源码入口：** `tool/link` 的 Android-only 包以受信、本机显式启动的 Link 执行正常初始化，MCP 前端没有该权限。安装配置 v2 持久保存初始化 operationId；准备阶段使用独立 `slot-ownership.json`，新 Link 本地状态使用 `link-state-v2.json`。原 adapter 只在真实配对、凭据保存和原资源结算后发布 `adapter-origin.json` 与绑定回执；历史配对准入必须核验这些实际来源、原受保护记录及原资源身份。缺少可核验历史来源的旧配对保持诊断，不补造来源记录。完整初始化 pending 可在原互斥和同一 operationId/revision 下续接；不完整凭据／结算证据保持准备或故障状态，不自动再次配对。
+
+Link 在原 adapter 成功退出且 stdin/stdout/stderr 全部结算后，另行持久记录绑定同一 run/resource/process 的 `initialization-joined.json`。原 adapter 的 TLS／密钥回执与 PID 消失不能替代此原监督 owner 的结算事实；缺少证据保持准备／故障状态，不能通过再次调用 helper 补造。完整的 join pending 只按同一操作完成原子发布。跨文件中断也保留已预留的 resource generation，不为续接准备记录另造资源引用。
+
+该入口检测旧 handoff、旧 LinkStateStore 和 dirty 文件后转入对应诊断；不实现 §7.3 退役、§7.2.1 旧格式升级或 §7.4 dirty 恢复，也不将诊断拒绝视为这些后续能力已经完成。独立运行包的构建与隔离测试不能替代 L01/L02/L09/L10/L13 的相应真实客户端、原生及设备证据。安装、日常使用和保留状态说明见 [Link README](../../../tool/link/README.md)。
+
 - 插件包：manifest、skills、图标和可移植说明。
 - Link 运行包：Link、MCP 前端、Android adapter 及必要 runtime，不带题库和用户秘密。
 - Windows App：原 Windows 业务 App／Bridge；Android-only 不需要其安装包或可执行文件。

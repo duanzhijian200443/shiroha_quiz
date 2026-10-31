@@ -110,6 +110,8 @@ import 'composition/mcp_vnext_app_integration.dart';
 import 'composition/mcp_vnext_windows_registration.dart';
 import 'composition/mcp_vnext_development_pairing.dart';
 import 'data/repositories/external_target_read_repository.dart';
+import 'data/repositories/external_study_read_repository.dart';
+import 'mcp/vnext_mcp_server.dart';
 import 'data/repositories/external_question_read_repository.dart';
 import 'data/repositories/external_file_read_repository.dart';
 import 'ui/dependencies/first_party_external_scope.dart';
@@ -838,6 +840,20 @@ void runShirohaQuiz({
         McpVnextWindowsAppRegistration? externalRegistration;
         McpVnextAppIntegration createExternalIntegration() =>
             McpVnextAppIntegration(
+                profileVersion: Platform.isAndroid &&
+                        const bool.fromEnvironment('SHIROHA_UNIFIED_LINK')
+                    ? 3
+                    : 2,
+                source: VnextDataSource(
+                    Platform.isAndroid ? 'android' : 'windows',
+                    'local'),
+                study:
+                    Platform
+                                .isAndroid &&
+                            const bool.fromEnvironment('SHIROHA_UNIFIED_LINK')
+                        ? SqliteExternalStudyReadRepository(
+                            databaseHelper: databaseHelper)
+                        : null,
                 targets: SqliteExternalTargetReadRepository(
                     databaseHelper: databaseHelper),
                 questions: SqliteExternalQuestionReadRepository(

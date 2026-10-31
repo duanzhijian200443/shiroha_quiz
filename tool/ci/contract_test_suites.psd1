@@ -326,6 +326,11 @@
         'test/mcp/bridge_ui_host_failed_close_test.dart',
         # App-owned relay framing, protocol refusal and App exit barriers.
         'test/data/external/windows_local_relay_test.dart',
+        'test/data/external/link_initialization_test.dart',
+        'test/data/external/link_state_store_test.dart',
+        'test/data/external/link_runtime_test.dart',
+        'test/data/external/link_architecture_test.dart',
+        'test/mcp/link_frontend_test.dart',
         'test/mcp/vnext_app_owned_client_test.dart',
         'test/ui/external/first_party_external_exit_test.dart'
     )

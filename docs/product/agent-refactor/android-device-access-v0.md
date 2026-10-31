@@ -899,16 +899,27 @@ Interface support is not evidence that this combination has run successfully.
 - [Schannel version support](https://learn.microsoft.com/en-us/windows/win32/secauthn/protocols-in-tls-ssl--schannel-ssp-)
 
 <a id="unified-access-successor"></a>
-## 14. Independent Link and remote successor — adopted design only
+## 14. Bounded independent Link source and remote successor
 
 The [unified access v1.4 target](unified-access-and-content-exchange-v1.md)
 defines a separate Shiroha Link host for local unified Android access.
 The computer runs Codex and Link, but Android routing must not run Windows
 Shiroha or read its database/settings/B0. The original adapter's identity, TLS,
-slot ownership and close protocol remain authoritative. This target amendment
-does not activate a new consumer or change the existing seven-tool path. The
+slot ownership and close protocol remain authoritative. The design alone does
+not activate a consumer or change the existing seven-tool path. The
 Profile 3 business foundation is separately implemented under MCP §19.1.
 Target-app authorization, finite Enable and original owner settlement are retained.
+
+The explicit `tool/link` Android-only source consumer adds normal initialization
+through the original adapter and optional `SHIROHA_UNIFIED_LINK` Profile 3
+negotiation in the Android composition. Its fresh pairing keeps unverified
+installation fields null until original P15/P0 and settlement; the helper then
+saves the verified credential and bound provenance. Historical admission needs
+original provenance and clean receipt evidence, never a new handoff fabricated
+from a missing file. The ordinary build and seven-tool defaults remain unchanged.
+Profile 3 CLOSE joins the original operation/output before acknowledgment and
+TLS/key/process settlement. This source does not qualify a new device, a normal
+Codex READ, Windows database isolation or crash recovery by compilation alone.
 
 Normal setup uses trusted slot provenance rather than mandatory old-host release.
 New pairing remains UNCLAIMED/PREPARING until original P15/P0, credential

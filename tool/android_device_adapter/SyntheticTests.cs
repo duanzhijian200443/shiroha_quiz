@@ -75,6 +75,7 @@ internal static class SyntheticTests
         CheckFrameDeadlines().GetAwaiter().GetResult();
         Check(DeviceClient.IsNonce(DeviceClient.Nonce()));
         Check(!DeviceClient.IsNonce(new string('A', 42) + "B"));
+        LinkInitializationTests.Run();
         Console.WriteLine("PASS: 38 synthetic Android adapter checks; no business or credential acquisition in this test");
         return 0;
     }

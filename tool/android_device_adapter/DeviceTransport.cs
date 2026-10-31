@@ -122,11 +122,14 @@ internal static class DeviceTransport
         }
     }
 
-    internal static async Task Forward(DeviceTarget target, X509Certificate2 client, Stream input, Stream output, CancellationToken stop, Action? admission = null)
+    internal static async Task Forward(DeviceTarget target, X509Certificate2 client, Stream input, Stream output, CancellationToken stop,
+        Action? admission = null, int profileVersion = 2, Action<string, Exception>? observeFailure = null,
+        string? installation = null, Action? authenticated = null)
     {
         Action requireAdmission = admission ?? RequireRuntime;
         requireAdmission();
         target.Validate();
+        if (profileVersion is not (2 or 3)) throw new LinkFailure("unsupported_profile");
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(stop);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         deadline.CancelAfter(TimeSpan.FromSeconds(5));
@@ -135,8 +138,11 @@ internal static class DeviceTransport
         var tls = connection.Tls;
         byte[] nonce = RandomNumberGenerator.GetBytes(32);
         string encodedNonce = Convert.ToBase64String(nonce).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-        byte[] hello = JsonSerializer.SerializeToUtf8Bytes(new { type = "hello", purpose = "business", expectedDeviceId = target.DeviceId,
-            expectedProfileId = target.ProfileId, clientNonce = encodedNonce, linkVersions = new[] { 1 } });
+        var helloFields = new Dictionary<string, object?> { ["type"] = "hello", ["purpose"] = "business",
+            ["expectedDeviceId"] = target.DeviceId, ["expectedProfileId"] = target.ProfileId,
+            ["clientNonce"] = encodedNonce, ["linkVersions"] = new[] { 1 } };
+        if (profileVersion == 3) helloFields["profileVersion"] = 3;
+        byte[] hello = JsonSerializer.SerializeToUtf8Bytes(helloFields);
         await LinkFrames.Write(tls, 1, hello, false, deadline.Token);
         var ready = await LinkFrames.Read(tls, true, deadline.Token);
         if (ready.Kind != 1) throw new LinkFailure("protocol_violation");
@@ -145,8 +151,11 @@ internal static class DeviceTransport
         {
             var root = doc.RootElement;
             string[] fields = ["type", "linkVersion", "deviceId", "profileId", "runtimeId", "connectionId", "clientNonce", "serverNonce"];
+            if (profileVersion == 3) fields = [.. fields, "profileVersion", "installationId"];
             if (root.EnumerateObject().Count() != fields.Length || fields.Any(f => !root.TryGetProperty(f, out _)) ||
                 root.GetProperty("type").GetString() != "ready" || root.GetProperty("linkVersion").GetInt32() != 1 ||
+                (profileVersion == 3 && root.GetProperty("profileVersion").GetInt32() != 3) ||
+                (profileVersion == 3 && (installation == null || root.GetProperty("installationId").GetString() != installation)) ||
                 root.GetProperty("deviceId").GetString() != target.DeviceId || root.GetProperty("profileId").GetString() != target.ProfileId ||
                 root.GetProperty("clientNonce").GetString() != encodedNonce ||
                 !Guid.TryParseExact(root.GetProperty("runtimeId").GetString(), "D", out _) ||
@@ -155,14 +164,23 @@ internal static class DeviceTransport
                 throw new LinkFailure("device_mismatch");
             connectionId = root.GetProperty("connectionId").GetString()!;
         }
+        authenticated?.Invoke();
         using var writer = new LinkWriter(tls, lifetime.Token);
         long lastPeer = System.Diagnostics.Stopwatch.GetTimestamp();
         string? pendingPing = null;
         object heartbeatLock = new();
+        string? closingNonce = null;
+        var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         async Task Upload()
         {
             while (await LinkFrames.ReadStdioLine(input, lifetime.Token) is { } line)
                 await writer.Write(2, line);
+            if (profileVersion == 3)
+            {
+                closingNonce = DeviceClient.Nonce();
+                await writer.Write(1, JsonSerializer.SerializeToUtf8Bytes(new { type = "closing", connectionId, nonce = closingNonce }));
+                await closed.Task.WaitAsync(TimeSpan.FromSeconds(45), lifetime.Token);
+            }
         }
         async Task Download()
         {
@@ -177,6 +195,17 @@ internal static class DeviceTransport
                     string controlType = DeviceClient.Text(control, "type"), heartbeatNonce = DeviceClient.Text(control, "nonce");
                     if (DeviceClient.Text(control, "connectionId") != connectionId ||
                         !DeviceClient.IsNonce(heartbeatNonce)) throw new LinkFailure("protocol_violation");
+                    if (controlType == "closed" && profileVersion == 3 && closingNonce != null && heartbeatNonce == closingNonce)
+                    {
+                        using var closing = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+                        closing.CancelAfter(TimeSpan.FromSeconds(5));
+                        await tls.ShutdownAsync().WaitAsync(closing.Token);
+                        byte[] end = new byte[1];
+                        if (await tls.ReadAsync(end, closing.Token) != 0)
+                            throw new LinkFailure("settlement_unknown");
+                        closed.TrySetResult();
+                        return;
+                    }
                     if (controlType == "ping")
                         await writer.Write(1, JsonSerializer.SerializeToUtf8Bytes(new { type = "pong", connectionId, nonce = heartbeatNonce }));
                     else if (controlType == "pong")
@@ -215,7 +244,20 @@ internal static class DeviceTransport
             }
         }
         Task upload = Upload(), download = Download(), heartbeat = Heartbeat();
-        try { await await Task.WhenAny(upload, download, heartbeat); }
+        string endedStage = "connection";
+        try
+        {
+            var completed = await Task.WhenAny(upload, download, heartbeat);
+            endedStage = completed == upload ? "upload" : completed == download ? "download" : "heartbeat";
+            await completed;
+            if (profileVersion == 3 && !closed.Task.IsCompletedSuccessfully)
+                throw new LinkFailure("settlement_unknown");
+        }
+        catch (Exception error) when (profileVersion == 3)
+        {
+            try { observeFailure?.Invoke(endedStage, error); } catch { /* Observation only. */ }
+            throw new LinkFailure("settlement_unknown");
+        }
         finally
         {
             lifetime.Cancel(); tcp.Close();

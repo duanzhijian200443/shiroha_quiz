@@ -7,8 +7,11 @@ import 'vnext_mcp_server.dart';
 /// Protocol client over original App-owned streams; never launches a process.
 final class VnextAppOwnedClient {
   VnextAppOwnedClient(
-      {required Stream<List<int>> input, required StreamSink<List<int>> output})
+      {required Stream<List<int>> input,
+      required StreamSink<List<int>> output,
+      this.profileVersion = 2})
       : _transport = IOStreamTransport(stream: _bounded(input), sink: output);
+  final int profileVersion;
 
   final IOStreamTransport _transport;
   final _client = McpClient(
@@ -35,24 +38,27 @@ final class VnextAppOwnedClient {
   Future<void> connect() async {
     await _client.connect(_transport);
     final listed = (await _client.listTools()).tools.map((t) => t.name).toSet();
-    if (listed.length != VnextMcpServer.inputSchemas.length ||
-        !listed.containsAll(VnextMcpServer.inputSchemas.keys)) {
+    final expected = VnextMcpServer.schemasFor(profileVersion);
+    if (listed.length != expected.length ||
+        !listed.containsAll(expected.keys)) {
       throw StateError('Bridge protocol unavailable');
     }
   }
 
-  Future<Map<String, Object?>> call(
-      String tool, Map<String, dynamic> arguments) async {
+  Future<Map<String, Object?>> call(String tool, Map<String, dynamic> arguments,
+      {AbortSignal? signal}) async {
     final response = await _client.callTool(
         CallToolRequest(name: tool, arguments: arguments),
         options: RequestOptions(
+            signal: signal,
             timeout: tool == 'propose_generated_questions'
                 ? const Duration(seconds: 145)
                 : const Duration(seconds: 12)));
     final value = response.structuredContent;
     if (value == null ||
-        value.length != 3 ||
-        value['profileVersion'] != 2 ||
+        value.length != (profileVersion == 3 ? 4 : 3) ||
+        value['profileVersion'] != profileVersion ||
+        (profileVersion == 3 && !validVnextSource(value['source'])) ||
         !value.containsKey('data') ||
         !value.containsKey('error') ||
         (value['data'] != null && value['data'] is! Map) ||
