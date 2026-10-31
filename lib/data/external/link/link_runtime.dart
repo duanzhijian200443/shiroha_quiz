@@ -209,7 +209,8 @@ final class LinkRuntime {
         if (targetRef != installation.slotRef) {
           linkFail('invalid_target');
         }
-        await disconnect();
+        // This exclusive operation already owns selection and cannot join itself.
+        await _disconnect(waitForOperation: false);
         if (state.dirtyPhase != LinkDirtyPhase.clean) linkFail();
         await _record({
           'targetRef': targetRef,
@@ -274,6 +275,7 @@ final class LinkRuntime {
           linkFail('unavailable');
         }
         final target = await slots.requireOwned(state);
+        if (_closed || _withdrawing) linkFail('unavailable');
         _peer = peer;
         _connection = connection;
         final resource = linkNonce();
@@ -283,12 +285,7 @@ final class LinkRuntime {
               _backend = await _create(proof: false, resourceId: resource);
           unawaited(backend.disconnected.then((_) async {
             if (!identical(_backend, backend)) return;
-            _ready = false;
-            _withdrawing = true;
             try {
-              // Lease publication may still be in flight. Withdraw immediately,
-              // then join that publication before settling its exact owner.
-              await _operation;
               await disconnect();
             } catch (_) {/* Exact dirty owner remains. */}
           }));
@@ -296,6 +293,9 @@ final class LinkRuntime {
               jsonEncode(target.toJson())) {
             linkFail('device_mismatch');
           }
+          // Late acquisition remains owned for disconnect, but cannot publish
+          // a new business lease after withdrawal.
+          if (_closed || _withdrawing) linkFail('unavailable');
           final lease = LinkLease(
               connectorRunId: runId,
               selectionRevision: state.selectionRevision,
@@ -385,12 +385,18 @@ final class LinkRuntime {
   Future<void> delivered(bool delivered) =>
       _record({'delivery': delivered ? 'delivered' : 'unknown'});
 
-  Future<void> disconnect() {
+  Future<void> disconnect() => _disconnect(waitForOperation: true);
+
+  Future<void> _disconnect({required bool waitForOperation}) {
     if (_disconnecting != null) return _disconnecting!;
     _withdrawing = true;
     _ready = false;
+    final operation = waitForOperation ? _operation : null;
     return _disconnecting = () async {
       try {
+        // Keep withdrawal set until acquisition and lease publication finish.
+        // A backend arriving during this join belongs to this same settlement.
+        await operation;
         await _call; // EOF is not cancellation; retain the sole output consumer.
         final backend = _backend;
         if (backend != null) {
@@ -398,6 +404,11 @@ final class LinkRuntime {
           await backend.close();
           await _clean();
           _backend = null;
+        }
+        if (state.owner != null ||
+            state.lease != null ||
+            state.dirtyPhase == LinkDirtyPhase.recoveryRequired) {
+          linkFail('owner_unsettled');
         }
         _peer = null;
         _connection = null;
@@ -415,15 +426,9 @@ final class LinkRuntime {
     _closed = true;
     _ready = false;
     return _closing ??= () async {
-      await _operation;
       await disconnect();
       await _journal;
       await store.close();
-      if (state.owner != null ||
-          state.lease != null ||
-          state.dirtyPhase == LinkDirtyPhase.recoveryRequired) {
-        linkFail('owner_unsettled');
-      }
     }();
   }
 }

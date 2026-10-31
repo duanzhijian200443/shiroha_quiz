@@ -6,7 +6,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/data/external/link/link_initialization.dart';
 import 'package:shiroha_quiz/data/external/link/link_installation.dart';
-import 'package:shiroha_quiz/data/external/link/link_state_store.dart';
 import 'package:shiroha_quiz/data/external/link/link_values.dart';
 import 'package:shiroha_quiz/data/external/link/slot_ownership_store.dart';
 
@@ -77,7 +76,7 @@ void main() {
       'resourceGeneration': resource,
       'settlementRef': resource,
     });
-    if (joined)
+    if (joined) {
       await write('initialization-joined.json', {
         'formatVersion': 1,
         'operationId': operation,
@@ -94,6 +93,7 @@ void main() {
         'stdoutDrained': true,
         'stderrDrained': true,
       });
+    }
   }
 
   test(

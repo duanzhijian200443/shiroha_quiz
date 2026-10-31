@@ -20,6 +20,7 @@ final class _Backend implements LinkBackend {
   final lost = Completer<void>(), entered = Completer<void>();
   final response = Completer<Map<String, Object?>>();
   bool cancelled = false;
+  int closes = 0;
   @override
   Future<void> get disconnected => lost.future;
   @override
@@ -35,7 +36,10 @@ final class _Backend implements LinkBackend {
   }
 
   @override
-  Future<void> close() => settle();
+  Future<void> close() {
+    closes++;
+    return settle();
+  }
 }
 
 void main() {
@@ -45,6 +49,9 @@ void main() {
   late _Backend backend;
   final target = LinkVerifiedTarget('a' * 64, 'installation', 'profile');
   var starts = 0, wrongReceipt = false, failClose = false;
+  var holdProof = false, failAcquisition = false;
+  Completer<void>? acquisitionEntered, acquisitionReleased;
+  Completer<void>? closeEntered, closeReleased;
   Future<void> receipt(LinkOwnerReference owner, String mode) =>
       File(p.join(slot.path, 'link-settlement.json')).writeAsString(jsonEncode({
         'formatVersion': 2,
@@ -116,6 +123,10 @@ void main() {
     starts = 0;
     wrongReceipt = false;
     failClose = false;
+    holdProof = false;
+    failAcquisition = false;
+    acquisitionEntered = acquisitionReleased = null;
+    closeEntered = closeReleased = null;
     runtime = LinkRuntime(
         installation: config,
         store: store,
@@ -132,11 +143,20 @@ void main() {
               processStarted: '123456$starts',
               slotRef: 'phone');
           await acquired(owner);
-          if (proof) await receipt(owner, 'enable-proof');
           backend = _Backend(owner, target, () async {
+            if (closeEntered?.isCompleted == false) closeEntered!.complete();
+            await closeReleased?.future;
             if (failClose) throw const LinkException('owner_unsettled');
             if (!wrongReceipt) await receipt(owner, 'business');
           });
+          if (proof == holdProof && acquisitionEntered != null) {
+            acquisitionEntered!.complete();
+            await acquisitionReleased!.future;
+            if (failAcquisition) {
+              throw const LinkException('owner_unsettled');
+            }
+          }
+          if (proof) await receipt(owner, 'enable-proof');
           return backend;
         });
   });
@@ -176,6 +196,150 @@ void main() {
         runtime.attach('second', 'other'), throwsA(isA<LinkException>()));
     expect(starts, 2);
     expect(store.state.lease!.toJson(), lease);
+  });
+
+  for (final failedClose in [false, true]) {
+    test(
+        'disconnect joins pending attach and ${failedClose ? 'retains failed cleanup' : 'waits for original cleanup'}',
+        () async {
+      acquisitionEntered = Completer<void>();
+      acquisitionReleased = Completer<void>();
+      closeEntered = Completer<void>();
+      closeReleased = Completer<void>();
+      failClose = failedClose;
+      await runtime.connect();
+      final attaching = runtime
+          .attach('first', 'connection')
+          .then<Object?>((_) => null, onError: (Object error) => error);
+      await acquisitionEntered!.future;
+      final original = store.state.owner!.toJson();
+      var disconnected = false;
+      final originalDisconnect = runtime.disconnect();
+      expect(identical(runtime.disconnect(), originalDisconnect), isTrue);
+      final disconnecting = originalDisconnect.then<Object?>((_) {
+        disconnected = true;
+        return null;
+      }, onError: (Object error) {
+        disconnected = true;
+        return error;
+      });
+      try {
+        await Future<void>.delayed(Duration.zero);
+        expect(disconnected, isFalse);
+        expect(runtime.inspect()['ready'], isFalse);
+        expect(store.state.lease, isNull);
+        await expectLater(
+            () => runtime.connect(), throwsA(isA<LinkException>()));
+        await expectLater(() => runtime.attach('second', 'other'),
+            throwsA(isA<LinkException>()));
+        acquisitionReleased!.complete();
+        expect(await attaching, isA<LinkException>());
+        await closeEntered!.future.timeout(const Duration(seconds: 5));
+        expect(disconnected, isFalse);
+        expect(backend.closes, 1);
+        expect(store.state.lease, isNull);
+        expect(store.state.dirtyPhase, LinkDirtyPhase.draining);
+        closeReleased!.complete();
+        final result = await disconnecting;
+        expect(starts, 2);
+        expect(store.state.ownerGeneration, 'operation');
+        expect(runtime.inspect()['ready'], isFalse);
+        expect(runtime.inspect()['prepared'], isFalse);
+        if (failedClose) {
+          expect(result, isA<LinkException>());
+          expect(store.state.owner!.toJson(), original);
+          expect(store.state.dirtyPhase, LinkDirtyPhase.recoveryRequired);
+          expect((await ownership())['lastSettlementState'], 'DIRTY');
+          await expectLater(runtime.connect(), throwsA(isA<LinkException>()));
+        } else {
+          expect(result, isNull);
+          expect(store.state.owner, isNull);
+          expect(store.state.dirtyPhase, LinkDirtyPhase.clean);
+          expect((await ownership())['lastSettlementState'], 'CLEAN');
+          expect(
+              (await ownership())['lastSettlementRef'], original['resourceId']);
+          await expectLater(runtime.attach('first', 'new-connection'),
+              throwsA(isA<LinkException>()));
+        }
+      } finally {
+        if (!acquisitionReleased!.isCompleted) acquisitionReleased!.complete();
+        if (!closeReleased!.isCompleted) closeReleased!.complete();
+      }
+    });
+  }
+
+  test('disconnect during proof joins it without enabling a late attachment',
+      () async {
+    holdProof = true;
+    acquisitionEntered = Completer<void>();
+    acquisitionReleased = Completer<void>();
+    final connecting = runtime.connect();
+    await acquisitionEntered!.future;
+    var disconnected = false;
+    final disconnecting = runtime.disconnect().then((_) => disconnected = true);
+    try {
+      await Future<void>.delayed(Duration.zero);
+      expect(disconnected, isFalse);
+      acquisitionReleased!.complete();
+      await connecting;
+      await disconnecting;
+      expect(starts, 1);
+      expect(store.state.dirtyPhase, LinkDirtyPhase.clean);
+      expect(runtime.inspect()['prepared'], isFalse);
+      await expectLater(
+          runtime.attach('first', 'connection'), throwsA(isA<LinkException>()));
+    } finally {
+      if (!acquisitionReleased!.isCompleted) acquisitionReleased!.complete();
+    }
+  });
+
+  test('disconnect cannot report clean when pending acquisition fails',
+      () async {
+    acquisitionEntered = Completer<void>();
+    acquisitionReleased = Completer<void>();
+    failAcquisition = true;
+    await runtime.connect();
+    final attaching = runtime
+        .attach('first', 'connection')
+        .then<Object?>((_) => null, onError: (Object error) => error);
+    await acquisitionEntered!.future;
+    final original = store.state.owner!.toJson();
+    final disconnecting = runtime
+        .disconnect()
+        .then<Object?>((_) => null, onError: (Object error) => error);
+    acquisitionReleased!.complete();
+    expect(await attaching, isA<LinkException>());
+    expect(await disconnecting, isA<LinkException>());
+    expect(store.state.owner!.toJson(), original);
+    expect(store.state.dirtyPhase, LinkDirtyPhase.recoveryRequired);
+    expect((await ownership())['lastSettlementState'], 'DIRTY');
+    expect(starts, 2);
+    await expectLater(runtime.connect(), throwsA(isA<LinkException>()));
+  });
+
+  test(
+      'selection drains its backend without joining its own exclusive operation',
+      () async {
+    await runtime.connect();
+    await runtime.attach('first', 'connection');
+    closeEntered = Completer<void>();
+    closeReleased = Completer<void>();
+    final revision = store.state.selectionRevision;
+    final selecting = runtime.select('phone', revision);
+    await closeEntered!.future.timeout(const Duration(seconds: 5));
+    final disconnecting = runtime.disconnect();
+    try {
+      expect(store.state.selectionRevision, revision);
+      expect(runtime.inspect()['ready'], isFalse);
+    } finally {
+      closeReleased!.complete();
+    }
+    await selecting.timeout(const Duration(seconds: 5));
+    await disconnecting;
+    expect(backend.closes, 1);
+    expect(store.state.selectionRevision, revision + 1);
+    expect(store.state.dirtyPhase, LinkDirtyPhase.clean);
+    expect((await ownership())['lastSettlementState'], 'CLEAN');
   });
 
   test('EOF joins original work and output without manufacturing cancellation',
