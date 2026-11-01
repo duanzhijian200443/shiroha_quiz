@@ -64,6 +64,70 @@ handoff records, assert clean settlement, or change an existing slot's ACL.
 
 ## Explicit initialization
 
+### Independent registration before Link adoption
+
+For prospective independent pairing, run `configure_registration.ps1` with a
+new `SlotDirectory`, explicit `RuntimeDirectory`, `SlotRef`, `PhoneAddress`,
+`DeviceId` and `CertificateDigest`. It writes adjacent `pairing-registration.json`
+v1 with a registrar instance/operation/generation and original run/resource,
+under the empty-slot control lock. It creates no Link state or business authority.
+An existing matching config retains those identities; unknown/occupied state refuses.
+Launch `shiroha_link.exe --register-pairing` directly from the desktop shell.
+The native guard retains the original Explorer/image/user/session admission and
+opens no pipe. Compare the full original adapter fingerprint with the phone.
+It is printed to stderr and written, after original offer validation, to the
+fixed slot-local `registration-observation.json` (comparison-only kind, original
+operation/run/resource and 64-character fingerprint). This file is not authority
+or a success signal. Registrar emits `registration_sealed` only after completion.
+
+Slot custody v2 moves REGISTERING → SEALED; it is owned by an independent
+registrar, never Link UNCLAIMED. Original adapter production preserves immutable
+`registration-attempt.json`, `registration-receipt.json`,
+`registration-origin.json`; only the original supervising process can publish
+`registration-joined.json` after actual exit and stdin/stdout/stderr join.
+`registration-source.json` seals exact original-file hashes. Every source file
+uses create-new staging, flush and atomic publication. Hashes provide consistency,
+not authentication. Credential binding includes original association revision,
+client certificate digest and protected record bytes digest. No credential
+plaintext is recorded; ordinary config or model input cannot issue evidence.
+
+After SEALED, configure a new Link state directory using the existing
+`configure_installation.ps1`, selecting the same slot and omitting pairing inputs.
+Launch `shiroha_link.exe --initialize` from the desktop shell. The original
+credential owner verifies the sealed evidence and current protected credentials;
+Link joins that inspection helper and stores `registration-adoption-joined.json`.
+The short slot-control then original adapter-resource locks recheck the source
+and credential bytes before the single designated Link/operation CAS to
+ADOPT_PENDING. Registrar writes/re-pairing remain permanently fenced. Link
+publishes its initializing state, LINK_OWNED custody, then clean state; business
+requires completion and the phone's separate current Enable/Grant.
+
+Lock order is Link lifetime (when present), slot control, adapter resource.
+Neither short lock waits for TLS, process exit or user input; native credential
+callbacks do not acquire slot control. Complete original pending records may
+finish only their same operation/revision; missing original join never reruns
+pairing. ADOPT_PENDING can finish its reserved Link state; v2 LINK_OWNED with
+missing Link state refuses, preserving possible later business dirty history.
+The immutable original pairing package never reads/falls back to mutable latest
+`link-settlement.json`, even after proof/business replaces that receipt.
+
+Existing v1 records retain their parser and owner path without automatic upgrade.
+Unknown old pairings stay unknown. This is prospective source production, not
+retroactive history reconstruction, #356 retirement or #359 migration. Supported
+old entries retain their original marker/fence refusals; no claim is made about
+an arbitrary unknown old binary or malicious same-user program. Synthetic fixture
+production and source checks do not prove real device/client acceptance.
+
+### Link-owned fresh initialization
+
+Portable initialization tests cover v2 parser/preparation/refusal without issuing
+synthetic success evidence. The original C# producer + actual synthetic child
+process/join/adoption matrix is an explicit Windows/.NET 10 integration group;
+it builds offline into `build/link-registration-tests` and is skipped on other
+platforms. Existing portable standing CI does not supply that toolchain and does
+not replace this independent acceptance gap. The fixture executable is test-only;
+the shipped adapter exposes no synthetic source issuance command.
+
 Launch the installed `shiroha_link.exe --initialize` explicitly through the real
 desktop shell. Native checks the original shell/process/image/user/session
 before mutable-state access. Then invoke the adjacent
@@ -123,6 +187,19 @@ Codex's official STDIO configuration is documented in
 These configuration instructions do not assert that an installed client/phone
 READ or Windows file-I/O isolation has been exercised for a particular build.
 
+Graceful-close compatibility applies to the client executable and configuration
+bound by the acceptance evidence. An explicitly selected isolated Codex candidate
+does not establish compatibility for the installed client, another release or a
+PATH-selected executable. Retain its source/patch/toolchain and executable-hash
+binding, isolated client configuration and matching Link/Android artifact
+identities; see the [candidate manifest](#offline-client-shutdown-fixture).
+Offline shutdown fixtures alone do not prove real Android READ or production
+close capture. [Per-call close-capture acceptance](#optional-per-call-verification-capture)
+requires both complete production footers, matching call/resource identities and
+independently retained original-process exit evidence. Missing or mismatched
+evidence remains INCOMPLETE; later success does not repair earlier failed or
+incomplete attempts. Ordinary builds do not acquire a capture requirement.
+
 ### Bounded verification observations
 
 `build_runtime.ps1 -VerificationObservations` explicitly compiles only the Link
@@ -149,9 +226,246 @@ the single adapter receipt, preserve the original pairing receipt, origin,
 attempt, join and state/slot bytes. Keep both sides of a repeated initialize
 comparison. Preserve the business owner/lease and its corresponding receipt,
 supervision observations and final state separately. A new run never reconstructs
-lost historical evidence or closes L01, L10 or an unrelated client failure.
+lost historical evidence. It does not by itself close full L01 acceptance, the
+original historical L10 provenance gap or an unrelated client failure.
+
+### Optional per-call verification capture
+
+`-VerificationObservations` compiles the opt-in observer in both Link and the
+frontend. With no capture configuration the existing supervision-only Link log
+remains unchanged, including initialization. Normal builds ignore the capture
+configuration and allocate no capture writer.
+
+For one bounded READ attempt, the trusted local harness may place the separate
+`link-verification-capture.json` next to the runtime, with exactly these fields:
+
+```json
+{"formatVersion":2,"attemptId":"12345678-1234-1234-1234-123456789abc","evidenceDirectory":"<absolute normalized existing directory>"}
+```
+
+Use a new, empty evidence directory and bind this non-secret configuration to the
+source/artifact manifest. Frontend never loads `LinkInstallation` to find it and
+does not inspect state, custody or credentials. The config supplies no admission
+authority. Registration/initialization can finish before the harness creates it.
+The normal Link invocation then chooses this capture explicitly; initialization
+continues to use the original supervision log.
+
+Configuration version 1 retains the original eight-call diagnostic format and
+does not acquire new closure meaning. Version 2 selects the five-call closure
+capture below. All call/header/footer/collision records carry the selected `v`;
+the original resource observations retain their independent formatVersion 1.
+Never mix versions in one attempt or reinterpret an old v1 file as v2 evidence.
+
+Fixed new-only files are `frontend-calls.jsonl` and `link-verification.jsonl`.
+The frontend reserves its output once, asynchronously appends at most five (v2)
+finalized summaries, and joins its diagnostic I/O only after original close.
+Link buffers and publishes after original close. Any writer collision attempts
+one fixed `capture-collision.json`; existing files are never replaced. A
+collision invalidates the whole capture, even if an earlier writer has a footer.
+An I/O or observer failure affects evidence only, never business output or
+settlement. Codex stderr is not a guaranteed child-stderr capture channel. A
+client that terminates its frontend before close may leave partial records and
+no footer; this remains INCOMPLETE and is not repaired or backfilled.
+
+The v2 aggregate allocation, including every LF, is at most 27 records / 31936
+bytes. It reserves the external original-process witness and client summary,
+even though the source producers do not write those two records:
+
+| Allocation | Maximum records | Bytes per record |
+|---|---:|---:|
+| Frontend calls | 5 | 960 |
+| Link calls | 5 | 1152 |
+| Original resource observations | 7 | 2048 |
+| Frontend header | 1 | 256 |
+| Producer footers | 2 | 512 |
+| Collision marker | 1 | 128 |
+| Frontend lifecycle checkpoints | 4 | 256 |
+| External original-process witness | 1 | 512 |
+| External normal-client summary | 1 | 4096 |
+
+The external harness must enforce both external limits and the aggregate,
+counting LF and UTF-8 bytes. The fifth call is the last recorded v2 call;
+subsequent business calls are not blocked but make capture INCOMPLETE. The old
+v1 allocation remains 27 records / 32640 bytes for its eight-call producers and
+original resource/header/footer/collision records; it did not reserve these v2
+checkpoints or external witnesses. No per-spawn/resource filenames can enlarge
+either allocation. Tests use maximum legal 128-character IDs, maximum integer
+identities/revisions and FILETIME, all stages/known shapes, and UTF-8 encoding.
+Identities are never truncated to fit.
+
+Call records share a compact projection, explicitly discriminated by `v`:
+
+| Key | Meaning |
+|---|---|
+| `v,e,p,s,n,t` | version 1 or 2, `call`, producer `f`/`l`, producer sequence, local ordinal, tool index |
+| `r,c,i,l` | original run, frontend connection, IPC call ID, lease ID; null before available |
+| `g,q` | original route generation and selection revision; null in frontend |
+| `o` | original `[resourceId, processId, processStarted, slotRef]`; null in frontend, run is `r` |
+| `a,at,u` | frontend-only parameter shape rows, top-level JSON type, unknown-key count |
+| `x` | eight stage `[outcome,cause]` pairs in the order below |
+
+`a` rows are `[fieldIndex,present,type,length,overflow]`. Length/count saturate at
+256; no values, unknown names or nested data are retained. Type indices are
+0 absent, 1 null, 2 string, 3 bool, 4 int, 5 number, 6 array, 7 object, 8 other.
+Field order is `contextRef,targetRef,pageSize,cursor,fileRefs,scope,query,
+questionRef,timezone,from,to,limit,passageRef,submissionKey`; only each tool's
+fixed schema fields are projected. No external request identity is serialized
+or hashed. Tool order is `unknown,open_context,list_question_banks,
+get_study_overview,get_due_review_summary,get_weak_questions,search_questions,
+get_question_detail,retrieve_file_content,get_file_passage,get_question_proposal`.
+
+Stage order is admission, attach, ipcSend, ipcReceive, backendCall,
+resultValidate, outputSend, deliveryAck. Outcome order is unseen, entered,
+succeeded, rejected, failed, unknown. Cause order is none, unknown, unavailable,
+busy, invalidFrame, invalidResult, deviceMismatch, timeout, clientFailure,
+prePortRejected, invalidParams, invalidRequest, methodNotFound, internalError,
+eof, sendFailed, receiveFailed, resultMissing, resultShape, resultProfile,
+resultSource, resultData, resultErrorType, resultErrorFlag. These enum indices
+are diagnostic format fields, never new public error codes. Known refusals are
+observed at their original branch; unknown exception text is never inspected.
+
+Frontend observes SDK-handler refusals before port admission. A client failure
+before its request reaches this transport has no strong per-call association.
+Unbound transport errors are counted, not assigned by timing. Frontend `ipcSend`
+and Link `ipcReceive` join only by the exact non-null `(r,c,i)` key; Link supplies
+the original lease/route/owner. Frontend `deliveryAck=succeeded` means its existing
+ack frame send completed; the Link record separately proves the original receipt.
+Stages outside a producer's boundary remain unseen; a terminal resource record
+does not fill in a missing call stage.
+
+The frontend starts with `capture-start` containing attempt ID and PID. Each
+producer ends with `capture-finished` containing attempt ID, sequence, preceding
+record/byte counts, observed/finalized calls, resource count, unassociated count,
+`complete` and `originalClosed`. Original resource observations keep their own
+schema and meaning. A validator requires both complete footers, contiguous
+sequences/counts, no conflict marker, exact call joins and independently valid
+original resource/exit evidence. A successful footer alone is never sufficient;
+new failure diagnostics never confer clean authority or explain historical
+failures whose original details were not captured.
+
+For v2 only, `capture-start` also contains `processStarted`: the same process's
+actual Windows GetProcessTimes creation FILETIME as a decimal string. It is read
+only by the opt-in v2 frontend through a small kernel32 FFI call, without a new
+dependency, native ABI, subprocess or credential/configuration owner. Failure or
+non-Windows execution records null and makes capture INCOMPLETE; wall-clock time
+is never substituted. The external retained original-process handle must match
+both PID and creation time before its exit witness can be used.
+
+Four fixed lifecycle records have exactly `{v:2,e:"lifecycle",p:"f",s,k,o}`:
+
+| `k` | Original observation | `o` on normal EOF |
+|---:|---|---:|
+| 0 | Original transport onclose callback entered | 0 (observed) |
+| 1 | First original port.close future entered | 0 (observed) |
+| 2 | That same close future completed or failed | 1 (completed); 2 means failed |
+| 3 | capture.finish entered after original serving/close settles | 0 (observed) |
+
+Repeated close calls return the same original future and do not emit extra
+checkpoints. There is no additional business wait, delay, timeout, retry,
+cancellation or shutdown protocol. The normal EOF success sequence is naturally
+`k=[0,1,2,3], o=[0,0,1,0]`; other paths retain their actual order and cannot be
+made successful by rearranging observations. A missing checkpoint does not prove
+its phase was never executed. v2 footers add `lifecycle` (frontend 4, Link 0);
+complete v2 frontend evidence requires all four and successful original close.
+Observer or writer failure stays INCOMPLETE. Interruption before flush/finish may
+leave partial records, never an inferred footer. Automatic real-SDK EOF tests
+after attachment/calling cover delayed/failed original close and diagnostic
+failures without manually calling server.close to advance the lifecycle.
+
+In v2 validation builds, capture failure after original closure changes an
+otherwise zero process exit to diagnostic exit 80, preserving every original
+nonzero exit. This includes a final flush or file-close failure after a true
+footer was already written. Both producers require their independently retained
+original-process exit witness as well as their footer; the footer alone cannot
+prove diagnostic IO completion. v1 and normal builds keep their original exit
+policy. Diagnostic exit 80 does not change business results or clean/dirty state.
 
 ## State, interruption and diagnostics
+
+### Offline client shutdown fixture
+
+`test/mcp/fixtures/offline_codex_shutdown.py` is a separate, opt-in host test.
+It pins one installed Codex executable and uses a loopback-only scripted
+Responses service plus a pure test MCP server with one `probe_read` tool. Its
+`prepare`, `reference` and `baseline` entries use create-new evidence directories.
+The reference explicitly closes its own MCP input; the baseline runs normal
+`codex exec` and observes the client-owned MCP process without closing its stdin
+or injecting a terminal record. Baseline execution follows review of its frozen
+inputs and isolated configuration. No actual model, device, Link or App is used.
+
+Only an exact original nonce/success result allows the scripted final response.
+The first unexpected HTTP request stops the service; retries cannot accumulate
+failures or manufacture completion. Both original process handles, creation
+times and image hashes remain independently observed. Fixture records use their
+own `fixtureVersion` schema; they are not production Link footers or evidence of
+Android access. Missing EOF/cleanup/terminal records remain incomplete even if
+the tool result and client exit succeeded. Bounded timeout cleanup terminates
+only retained, verified fixture handles and marks the attempt ABORTED. It never
+establishes graceful compatibility or repairs an earlier missing footer.
+
+The pinned client emits a metadata-fallback warning for the deliberately local
+`offline-shutdown` model. Only that exact fixed-source message, at most once, is
+classified separately as an expected fixture warning. Other error events,
+similar text and duplicates still fail closed. Bounded booleans/counts identify
+which call, final-message or event-shape condition failed without retaining
+original output or error text.
+
+The skill-discovery isolation switch also has a fixed development-stage warning
+in that client. Its only accepted form names `skip_host_skill_discovery` alone
+and the exact current isolated `home/config.toml` path, at most once. The path
+is compared in memory; evidence retains only the fixed category/feature and
+count. Neither warning classification changes production Link footer checks.
+
+An isolated graceful-close candidate can be selected only at preparation:
+
+The pinned candidate's [source patch and reproduction instructions](../external/isolated_codex/f79b26cc/README.md)
+are retained separately from the local binary and execution evidence. Selecting
+it never updates the installed client or transfers an earlier run's approval.
+The host fixture resolves its pinned installed-client path and `flutter` SDK
+checkout under the current user's home; it does not persist another user's
+absolute path. The fixed installed-client hash check remains mandatory.
+
+```text
+python -I -B test/mcp/fixtures/offline_codex_shutdown.py prepare <new-root> --candidate-manifest <absolute-manifest>
+python -I -B test/mcp/fixtures/offline_codex_shutdown.py normal <new-root>
+python -I -B test/mcp/fixtures/offline_codex_shutdown.py delayed <new-root>
+python -I -B test/mcp/fixtures/offline_codex_shutdown.py hang <new-root>
+```
+
+The exact-key candidate manifest is limited to 16 KiB. It uses `formatVersion:1`,
+`kind:"isolated-codex-graceful-close"`, `executable`, `sha256`, `sourceBase`,
+`sourceManifestPath`, `sourceManifestSha256`, `patchPath`, `patchSha256`,
+`toolchain:{rustc,cargo,target,profile}`, `shutdownGraceMs:3000` and
+`shutdownBoundMs:9000`. The source base must be
+`f79b26ccbb3116b052544666a181012fb45dc49b`;
+target/profile must be `x86_64-pc-windows-msvc` / `dev-small`. All resolved paths
+must remain in `build/codex-gc`; the executable must be its
+`target/dev-small/codex.exe`. Candidate manifest/artifacts and the untouched
+installed-client hash are checked before and after every case. Omitting this
+option preserves the original fixed-client preparation and reference/baseline
+entries. No candidate is auto-selected from PATH.
+
+Candidate cases use separate `fixtureVersion:2` records, adding a fixed scenario,
+cleanup delay and same-Windows-monotonic-clock observations. Normal and delayed
+cases require complete original cleanup and exit0; the delayed fixture holds
+its resource for at least 750ms after `cleanup_begin`. The hang fixture holds
+for 30 seconds unless the candidate terminates it. Timeout protection requires
+observed EOF/cleanup entry, a zero Codex exit, a nonzero original MCP exit and no terminal record,
+with both original exits observed within 9000ms of turn completion. The observed
+cleanup survival lower bound must be at least 2500ms to reject immediate killing.
+An abnormal Codex exit cannot establish timeout protection, since a client crash
+could instead cause its Job to terminate the MCP process.
+That bound uses the monotonic timestamp taken before the last original-handle
+query that explicitly observed the process still alive. A late exit observation
+is only an upper bound and cannot establish survival. This tolerance does not
+replace the candidate's exact three-second Rust timer regression.
+`timeoutProtectionPassed` and `scenarioPassed` may be true for hang while
+`compatible` remains false. Any harness termination is still ABORTED. The
+record limit remains 12 records, 512 bytes each, including LF.
+
+Concurrent/repeated shutdown and Job descendant containment require the fixed
+candidate's Rust regression evidence. A normal exec run does not pretend to
+exercise a second shutdown, and the harness adds no synthetic MCP shutdown tool.
 
 New Link state uses `link-state-v2.json`; slot custody uses
 `slot-ownership.json`. The original #359 filenames are not overwritten.

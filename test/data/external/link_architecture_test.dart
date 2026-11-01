@@ -57,4 +57,49 @@ void main() {
     expect(runtime, isNot(contains('handoff.claim')));
     expect(runtime, isNot(contains('recover(')));
   });
+
+  test(
+      'registrar admission has no pipe or Link state and original native roles remain distinct',
+      () {
+    final entry = File('tool/link/link.dart').readAsStringSync();
+    final registration = entry.substring(
+        entry.indexOf("arguments.single == '--register-pairing'"),
+        entry.indexOf('LinkRuntime? runtime'));
+    expect(registration.indexOf('WindowsLinkRegistrationGuard.open'),
+        lessThan(registration.indexOf('PairingRegistration.load')));
+    for (final value in [
+      'openLinkBusiness',
+      'openLinkControl',
+      'LinkStateStore',
+      'LinkRuntime('
+    ]) {
+      expect(registration, isNot(contains(value)));
+    }
+    final native = File('windows/local_relay/local_relay.cpp')
+        .readAsStringSync()
+        .replaceAll('\r\n', '\n');
+    final guard = native.substring(native.indexOf('if (p->guard_only) {'),
+        native.indexOf('const auto sid = sid_text(p->sid);'));
+    expect(
+        guard,
+        contains(
+            'p->independent_guard ? !p->independent_launch() : !p->authenticate_parent()'));
+    expect(guard, isNot(contains('CreateNamedPipe')));
+    expect(
+        native,
+        contains(
+            'if (!p || p->guard_only || !p->live()) return disconnected;'));
+    expect(
+        native,
+        contains(
+            '#elif SHIROHA_LINK_ROLE == 3\n  if (role != 2) return rejected;'));
+    final adapter = File('tool/android_device_adapter/LinkAdapterContext.cs')
+        .readAsStringSync();
+    expect(
+        adapter, contains('"slot-ownership.json", "slot-ownership.pending"'));
+    final legacy =
+        File('tool/android_device_adapter/DeviceClient.cs').readAsStringSync();
+    expect(
+        legacy, contains('if (link == null && !IsRecordDirectory(directory))'));
+  });
 }

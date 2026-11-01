@@ -144,6 +144,7 @@ std::wstring endpoint(const std::wstring& root, const std::wstring& sid,
 }
 struct Pipe {
   bool server = false, connected = false, failed = false, guard_only = false;
+  bool independent_guard = false;
   DWORD session = 0;
   std::wstring root;
   std::vector<uint8_t> sid;
@@ -242,6 +243,8 @@ struct Pipe {
         WaitForSingleObject(peer.value, 0) == WAIT_TIMEOUT && launch_current();
   }
   bool live() const {
+    if (independent_guard)
+      return connected && !failed && guard_only && !pipe.valid() && launch_current();
     return connected && !failed && peer.valid() &&
         WaitForSingleObject(peer.value, 0) == WAIT_TIMEOUT && launch_current();
   }
@@ -305,8 +308,8 @@ static int open_pipe(uint32_t role, uint64_t* output) {
       : role == 2 ? L"shiroha_bridge.exe" : L"shiroha_codex.exe";
   auto selected_name = expected_name;
 #if SHIROHA_LINK_ROLE == 1
-  if (role > 2) return rejected;
-  selected_name = role == 0 ? L"shiroha_link.exe" : role == 1 ? L"shiroha.exe" : L"AndroidDeviceAdapter.exe";
+  selected_name = role == 0 || role == 3 ? L"shiroha_link.exe" : role == 1 ? L"shiroha.exe" : L"AndroidDeviceAdapter.exe";
+  p->independent_guard = role == 3;
 #elif SHIROHA_LINK_ROLE == 2
   if (role > 1) return rejected;
   selected_name = role == 0 ? L"shiroha_link.exe" : L"shiroha_link_control.exe";
@@ -322,7 +325,7 @@ static int open_pipe(uint32_t role, uint64_t* output) {
   if (p->sid.empty() || !ProcessIdToSessionId(GetCurrentProcessId(), &p->session))
     return rejected;
   if (p->guard_only) {
-    if (!p->authenticate_parent()) return rejected;
+    if (p->independent_guard ? !p->independent_launch() : !p->authenticate_parent()) return rejected;
     p->connected = true;
     owned = std::move(p);
     *output = ++generation;

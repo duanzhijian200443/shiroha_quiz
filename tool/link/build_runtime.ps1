@@ -13,7 +13,7 @@ Push-Location -LiteralPath $taskRoot
 try {
   $taskEntries = [ordered]@{link='shiroha_link'; frontend='shiroha'; control='shiroha_link_control'}
   foreach ($taskEntry in $taskEntries.GetEnumerator()) {
-    [string[]]$taskDefines = if ($VerificationObservations -and $taskEntry.Key -eq 'link') { @('-DSHIROHA_LINK_VERIFY_SUPERVISION=true') } else { @() }
+    [string[]]$taskDefines = if ($VerificationObservations -and $taskEntry.Key -in @('link','frontend')) { @('-DSHIROHA_LINK_VERIFY_SUPERVISION=true') } else { @() }
     & $DartExecutable compile exe @taskDefines "tool/link/$($taskEntry.Key).dart" -o (Join-Path $taskOutput "$($taskEntry.Value).exe")
     if ($LASTEXITCODE -ne 0) { throw 'Dart compilation failed.' }
   }

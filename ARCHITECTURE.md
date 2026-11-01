@@ -149,6 +149,14 @@ normal initialization. This source slice does not implement #356 retirement,
 #359 format upgrade or dirty-resource recovery; its native/device/client
 acceptance remains separate from deterministic source tests.
 
+Prospective independent registration uses the same native launch provenance
+without opening a pipe or LinkStateStore. The registrar owns versioned v2 slot
+custody until original adapter credential production and original supervisor join
+seal immutable pairing evidence. One specified Link may adopt that exact
+credential/association generation through ADOPT_PENDING; this Infrastructure
+transition grants no Application authority. v1 custody stays unchanged, missing
+v2 owned Link state refuses, and no old history or dirty recovery is reconstructed.
+
 The External Windows primitive adapter in `lib/data/external/native` owns
 explicit SDK FFI calls to the independent `windows/external_native` C ABI DLL.
 It supplies bounded DPAPI memory operations, an unvalidated known-folder path

@@ -58,6 +58,7 @@ internal static class LinkInitializationTests
         receipt["mode"] = "enable-proof"; Reject(ValidateReceipt); receipt["mode"] = "pairing";
         receipt["target"] = new { deviceIdentity = target.DeviceId, installationIdentity = "different", profileReference = target.ProfileId };
         Reject(ValidateReceipt);
+        RegistrationBoundaryTests.Run();
         Console.WriteLine("PASS: initialization owner, preparation and original-receipt boundary fixtures; no native or credential access");
     }
 }

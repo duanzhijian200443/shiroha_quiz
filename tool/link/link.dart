@@ -1,11 +1,33 @@
 import 'dart:io';
 import 'package:shiroha_quiz/data/external/link/link_installation.dart';
+import 'package:shiroha_quiz/data/external/link/link_registration.dart';
 import 'package:shiroha_quiz/data/external/link/link_runtime.dart';
 import 'package:shiroha_quiz/data/external/link/link_initialization.dart';
 import 'package:shiroha_quiz/data/external/link/link_verification_log.dart';
+import 'package:shiroha_quiz/data/external/link/link_call_capture.dart';
 import 'package:shiroha_quiz/data/external/windows_local_relay.dart';
 
 Future<void> main(List<String> arguments) async {
+  if (arguments.length == 1 && arguments.single == '--register-pairing') {
+    WindowsLinkRegistrationGuard? guard;
+    try {
+      guard = WindowsLinkRegistrationGuard.open();
+      final config = await PairingRegistration.load();
+      await LinkRegistration(config.installation)
+          .run(config, requireCurrent: guard.requireCurrent);
+      stderr.writeln('registration_sealed');
+    } catch (_) {
+      stderr.writeln('registration_incomplete');
+      exitCode = 78;
+    } finally {
+      try {
+        guard?.close();
+      } catch (_) {
+        exitCode = 79;
+      }
+    }
+    return;
+  }
   if (arguments.isNotEmpty &&
       (arguments.length != 1 || arguments.single != '--initialize')) {
     stderr.writeln('invalid_arguments');
@@ -14,6 +36,8 @@ Future<void> main(List<String> arguments) async {
   }
   LinkRuntime? runtime;
   LinkVerificationLog? verification;
+  LinkCallCapture? capture;
+  var originalClosed = false;
   WindowsLocalRelay? business, control;
   var phase = 'business_ipc';
   try {
@@ -31,12 +55,22 @@ Future<void> main(List<String> arguments) async {
       throw StateError('invalid_installation');
     }
     const verify = bool.fromEnvironment('SHIROHA_LINK_VERIFY_SUPERVISION');
+    if (verify && arguments.isEmpty) {
+      final captureConfig = await LinkCaptureConfig.load();
+      if (captureConfig != null) {
+        capture = LinkCallCapture(captureConfig, frontend: false);
+      }
+    }
     runtime = LinkRuntime(
         installation: config,
         store: store,
-        verificationObserver:
-            verify ? (event) => verification!.record(event) : null);
-    if (verify) {
+        callDiagnostics: capture?.diagnostics,
+        verificationObserver: capture != null
+            ? capture.resource
+            : verify
+                ? (event) => verification!.record(event)
+                : null);
+    if (verify && capture == null) {
       verification = LinkVerificationLog(config.stateDirectory, runtime.runId);
     }
     phase = 'serving';
@@ -52,6 +86,7 @@ Future<void> main(List<String> arguments) async {
       await runtime?.close();
       await business?.close();
       await control?.close();
+      originalClosed = true;
     } catch (_) {
       stderr.writeln('link_settlement_unknown');
       exitCode = 79;
@@ -59,6 +94,11 @@ Future<void> main(List<String> arguments) async {
     if (verification != null && !await verification.finish()) {
       stderr.writeln('link_verification_log_failed');
       if (exitCode == 0) exitCode = 80;
+    }
+    if (capture != null &&
+        !await capture.finish(originalClosed: originalClosed)) {
+      stderr.writeln('link_call_capture_incomplete');
+      exitCode = capture.exitCodeAfterFinish(exitCode, complete: false);
     }
   }
 }

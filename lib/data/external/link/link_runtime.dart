@@ -9,6 +9,7 @@ import 'link_installation.dart';
 import 'link_state_store.dart';
 import 'link_values.dart';
 import 'link_verification_log.dart';
+import 'link_call_diagnostics.dart';
 
 typedef LinkBackendFactory = Future<LinkBackend> Function(
     {required bool proof,
@@ -29,7 +30,8 @@ final class LinkRuntime {
       required this.store,
       LinkBackendFactory? backendFactory,
       LinkInitializationFactory? initializationFactory,
-      this.verificationObserver})
+      this.verificationObserver,
+      this.callDiagnostics})
       : _factory = backendFactory,
         _initializationFactory = initializationFactory,
         slots = SlotOwnershipStore(installation);
@@ -39,6 +41,7 @@ final class LinkRuntime {
   final LinkBackendFactory? _factory;
   final LinkInitializationFactory? _initializationFactory;
   final LinkVerificationObserver? verificationObserver;
+  final LinkCallDiagnostics? callDiagnostics;
   String? _pairingFingerprint, _initializationFailure;
   Future<LinkBackend> _create(
           {required bool proof, required String resourceId}) =>
@@ -318,7 +321,15 @@ final class LinkRuntime {
       });
 
   Future<Map<String, Object?>> call(String peer, String connection, int id,
-      String tool, Map<String, dynamic> arguments) async {
+      String tool, Map<String, dynamic> arguments,
+      {LinkCallTrace? diagnostic}) async {
+    diagnostic?.bind(
+        run: runId,
+        connection: connection,
+        call: id,
+        originalLease: state.lease,
+        originalOwner: state.owner);
+    diagnostic?.stage(LinkCallStage.admission, LinkCallOutcome.entered);
     if (_closed ||
         _withdrawing ||
         _operation != null ||
@@ -326,12 +337,21 @@ final class LinkRuntime {
         state.dirtyPhase != LinkDirtyPhase.active ||
         peer != _peer ||
         connection != _connection) {
+      diagnostic?.stage(LinkCallStage.admission, LinkCallOutcome.rejected,
+          LinkCallCause.unavailable);
       linkFail('unavailable');
     }
-    if (_call != null) linkFail('busy');
+    if (_call != null) {
+      diagnostic?.stage(LinkCallStage.admission, LinkCallOutcome.rejected,
+          LinkCallCause.busy);
+      linkFail('busy');
+    }
     if (!VnextMcpServer.schemasFor(3).containsKey(tool)) {
+      diagnostic?.stage(LinkCallStage.admission, LinkCallOutcome.rejected,
+          LinkCallCause.invalidRequest);
       linkFail('invalidRequest');
     }
+    diagnostic?.stage(LinkCallStage.admission, LinkCallOutcome.succeeded);
     final done = Completer<void>();
     _call = done.future;
     _activeId = id;
@@ -351,14 +371,29 @@ final class LinkRuntime {
     _cancel = cancel;
     try {
       await _record({'businessResult': 'pending', 'delivery': 'unknown'});
-      final result =
-          await _backend!.call(tool, arguments, cancelled: cancel.stream);
+      diagnostic?.stage(LinkCallStage.backendCall, LinkCallOutcome.entered);
+      final result = await _backend!.call(tool, arguments,
+          cancelled: cancel.stream, diagnostic: diagnostic);
+      diagnostic?.stage(LinkCallStage.backendCall, LinkCallOutcome.succeeded);
       await _record({
         'businessResult':
             result['error'] == 'outcome_unknown' ? 'unknown' : 'returned'
       });
       return result;
-    } catch (_) {
+    } catch (error) {
+      final prior = diagnostic?.stages[LinkCallStage.backendCall.index];
+      if (error is TimeoutException ||
+          prior == null ||
+          prior[0] != LinkCallOutcome.failed.index ||
+          prior[1] == LinkCallCause.none.index ||
+          prior[1] == LinkCallCause.unknown.index) {
+        diagnostic?.stage(
+            LinkCallStage.backendCall,
+            LinkCallOutcome.failed,
+            error is TimeoutException
+                ? LinkCallCause.timeout
+                : LinkCallCause.unknown);
+      }
       await _record({'businessResult': 'unknown'});
       return vnextFailure(
           tool == 'propose_generated_questions'
@@ -468,6 +503,7 @@ final class LinkPipeServer {
   Future<void> _serveBusiness() async {
     while (!_closed) {
       int? pendingDelivery;
+      LinkCallTrace? receivingTrace, pendingTrace;
       Completer<void>? outputAcknowledged;
       try {
         await business.accept();
@@ -503,6 +539,20 @@ final class LinkPipeServer {
         while (!_closed && business.isCurrent) {
           final message = await business.receive(const Duration(hours: 8));
           final kind = message['kind'];
+          if (kind == 'call') {
+            receivingTrace =
+                runtime.callDiagnostics?.begin(message['tool'], null);
+            receivingTrace?.bind(
+                run: runtime.runId,
+                connection: connection,
+                call: message['id'] is int && (message['id'] as int) > 0
+                    ? message['id'] as int
+                    : null,
+                originalLease: runtime.state.lease,
+                originalOwner: runtime.state.owner);
+            receivingTrace?.stage(
+                LinkCallStage.ipcReceive, LinkCallOutcome.entered);
+          }
           linkFields(message, {
             'version',
             'runId',
@@ -526,9 +576,13 @@ final class LinkPipeServer {
           if (kind == 'delivered') {
             if (pendingDelivery != id) linkFail('invalidRequest');
             await runtime.delivered(true);
+            pendingTrace?.stage(
+                LinkCallStage.deliveryAck, LinkCallOutcome.succeeded);
             pendingDelivery = null;
             outputAcknowledged?.complete();
             await Future.wait(_work.toList());
+            runtime.callDiagnostics?.finish(pendingTrace);
+            pendingTrace = null;
             continue;
           }
           if (kind != 'call' ||
@@ -544,6 +598,11 @@ final class LinkPipeServer {
             linkFail('busy');
           }
           pendingDelivery = id;
+          pendingTrace = receivingTrace;
+          receivingTrace = null;
+          final diagnostic = pendingTrace;
+          diagnostic?.stage(
+              LinkCallStage.ipcReceive, LinkCallOutcome.succeeded);
           final acknowledged = outputAcknowledged = Completer<void>();
           late Future<void> task;
           task = () async {
@@ -552,14 +611,29 @@ final class LinkPipeServer {
                 connection,
                 id,
                 message['tool'] as String,
-                message['arguments'] as Map<String, dynamic>);
+                message['arguments'] as Map<String, dynamic>,
+                diagnostic: diagnostic);
             if (business.isCurrent && runtime.mayDeliver(peer, connection)) {
-              await business.send(
-                  {...envelope, 'kind': 'result', 'id': id, 'result': result},
-                  const Duration(seconds: 5));
+              diagnostic?.stage(
+                  LinkCallStage.outputSend, LinkCallOutcome.entered);
+              diagnostic?.stage(
+                  LinkCallStage.deliveryAck, LinkCallOutcome.entered);
+              try {
+                await business.send(
+                    {...envelope, 'kind': 'result', 'id': id, 'result': result},
+                    const Duration(seconds: 5));
+                diagnostic?.stage(
+                    LinkCallStage.outputSend, LinkCallOutcome.succeeded);
+              } catch (_) {
+                diagnostic?.stage(LinkCallStage.outputSend,
+                    LinkCallOutcome.failed, LinkCallCause.sendFailed);
+                rethrow;
+              }
               try {
                 await acknowledged.future.timeout(const Duration(seconds: 5));
               } catch (_) {
+                diagnostic?.stage(LinkCallStage.deliveryAck,
+                    LinkCallOutcome.unknown, LinkCallCause.timeout);
                 await runtime.delivered(false);
                 await business.disconnect();
               }
@@ -571,7 +645,15 @@ final class LinkPipeServer {
           _work.add(task);
           unawaited(task.then((_) {}, onError: (Object _, StackTrace __) {}));
         }
-      } catch (_) {
+      } catch (error) {
+        receivingTrace?.stage(
+            LinkCallStage.ipcReceive,
+            LinkCallOutcome.rejected,
+            error is LinkException && error.code == 'busy'
+                ? LinkCallCause.busy
+                : error is LinkException && error.code == 'invalidRequest'
+                    ? LinkCallCause.invalidFrame
+                    : LinkCallCause.unknown);
         // No payload/unsafe exception is logged. Original work remains owned.
       } finally {
         final originalOwner = runtime.state.owner;
@@ -587,6 +669,14 @@ final class LinkPipeServer {
                   workFailed = true;
                 })));
         if (pendingDelivery != null) await runtime.delivered(false);
+        if (pendingTrace != null) {
+          if (pendingDelivery != null) {
+            pendingTrace.stage(LinkCallStage.deliveryAck,
+                LinkCallOutcome.unknown, LinkCallCause.eof);
+          }
+          runtime.callDiagnostics?.finish(pendingTrace);
+        }
+        runtime.callDiagnostics?.finish(receivingTrace);
         if (originalOwner != null) {
           observeLinkVerification(
               runtime.verificationObserver,

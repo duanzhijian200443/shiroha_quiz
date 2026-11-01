@@ -7,6 +7,7 @@ import '../../../mcp/link_app_client.dart';
 import '../bounded_json_object.dart';
 import 'link_installation.dart';
 import 'link_values.dart';
+import 'link_call_diagnostics.dart';
 import 'link_verification_log.dart';
 import 'slot_ownership_store.dart';
 
@@ -15,7 +16,7 @@ abstract interface class LinkBackend {
   LinkOwnerReference get owner;
   Future<void> get disconnected;
   Future<Map<String, Object?>> call(String tool, Map<String, dynamic> arguments,
-      {required Stream<void> cancelled});
+      {required Stream<void> cancelled, LinkCallTrace? diagnostic});
   Future<void> close();
 }
 
@@ -123,8 +124,31 @@ final class LinkAdapterProcess implements LinkBackend {
         await slots.registeredPairing();
       });
     }
-    final process = await Process.start(installation.adapterExecutable,
-        ['--link-pair', runId, resourceId, '--current-user-cng-import'],
+    final result = await superviseInitialization(installation,
+        runId: runId, resourceId: resourceId, onFingerprint: onFingerprint);
+    if (!existing) {
+      await slots.publishInitializationJoin(result.owner, result.target);
+    }
+    return result.target;
+  }
+
+  /// Captures only the original process object and joins its actual streams.
+  static Future<LinkInitializationSupervision> superviseInitialization(
+      LinkInstallation installation,
+      {required String runId,
+      required String resourceId,
+      String action = '--link-pair',
+      void Function(String)? onFingerprint,
+      Future<Process> Function(String, List<String>,
+              {required bool runInShell, required String workingDirectory})?
+          startProcess}) async {
+    if (!{'--link-pair', '--register-pair', '--link-inspect-registration'}
+        .contains(action)) {
+      linkFail();
+    }
+    final process = await (startProcess ?? Process.start)(
+        installation.adapterExecutable,
+        [action, runId, resourceId, '--current-user-cng-import'],
         runInShell: false,
         workingDirectory: File(installation.adapterExecutable).parent.path);
     LinkVerifiedTarget? verified;
@@ -219,10 +243,7 @@ final class LinkAdapterProcess implements LinkBackend {
     if (code != 0 || failed || verified == null || originalOwner == null) {
       linkFail('initialization_incomplete');
     }
-    if (!existing) {
-      await slots.publishInitializationJoin(originalOwner!, verified!);
-    }
-    return verified!;
+    return LinkInitializationSupervision(verified!, originalOwner!);
   }
 
   @override
@@ -347,13 +368,16 @@ final class LinkAdapterProcess implements LinkBackend {
 
   @override
   Future<Map<String, Object?>> call(String tool, Map<String, dynamic> arguments,
-      {required Stream<void> cancelled}) async {
+      {required Stream<void> cancelled, LinkCallTrace? diagnostic}) async {
     if (_closing != null || _failed || _client == null) linkFail('unavailable');
-    final result = await _client!.call(tool, arguments, cancelled: cancelled);
+    final result = await _client!
+        .call(tool, arguments, cancelled: cancelled, diagnostic: diagnostic);
     final source = result['source'];
     if (source is! Map ||
         source['kind'] != (_windows ? 'windows' : 'android') ||
         source['deviceRef'] != (_windows ? 'local' : target.deviceIdentity)) {
+      diagnostic?.stage(LinkCallStage.resultValidate, LinkCallOutcome.rejected,
+          LinkCallCause.deviceMismatch);
       linkFail('device_mismatch');
     }
     return result;
@@ -383,4 +407,10 @@ final class LinkAdapterProcess implements LinkBackend {
             () => LinkVerificationObservation.adapterJoined(owner,
                 proof: _proof, processExitCode: status));
       }();
+}
+
+final class LinkInitializationSupervision {
+  const LinkInitializationSupervision(this.target, this.owner);
+  final LinkVerifiedTarget target;
+  final LinkOwnerReference owner;
 }

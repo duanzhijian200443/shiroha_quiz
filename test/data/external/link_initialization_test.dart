@@ -8,8 +8,10 @@ import 'package:shiroha_quiz/data/external/link/link_initialization.dart';
 import 'package:shiroha_quiz/data/external/link/link_installation.dart';
 import 'package:shiroha_quiz/data/external/link/link_values.dart';
 import 'package:shiroha_quiz/data/external/link/slot_ownership_store.dart';
+import 'link_registration_cases.dart';
 
 void main() {
+  registrationCases();
   late Directory root, slot, stateDirectory;
   late LinkInstallation installation;
   late SlotOwnershipStore slots;

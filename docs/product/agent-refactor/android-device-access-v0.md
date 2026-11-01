@@ -939,6 +939,13 @@ TLS/key/process settlement. This source does not qualify a new device, a normal
 Codex READ, Windows database isolation or crash recovery by compilation alone.
 
 Normal setup uses trusted slot provenance rather than mandatory old-host release.
+Prospective registration may use the independent registrar-only local entry,
+which opens no business/control pipe and creates no Link state. The original
+P15/TLS/credential owner produces immutable pairing receipt and generation-bound
+origin; original process/stream join precedes SEALED. One specified Link adopts
+the same credential/association through ADOPT_PENDING. This creates neither
+Grant nor Enable; old evidence gaps remain diagnostic and v1 is not migrated.
+The unified contract §4.3 owns its records, locks and interruption rules.
 New pairing remains UNCLAIMED/PREPARING until original P15/P0, credential
 persistence and resource settlement complete; LINK_OWNED precedes the separate
 finite Enable/business lease. Actual #356 slots alone use one-time retirement.

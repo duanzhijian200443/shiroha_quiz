@@ -4,6 +4,28 @@ import 'package:mcp_dart/mcp_dart.dart';
 
 import 'vnext_mcp_server.dart';
 
+/// Client-local phases only; the shared client has no Link logging dependency.
+enum VnextClientCallPhase {
+  entered,
+  returned,
+  missing,
+  shape,
+  profile,
+  source,
+  data,
+  errorType,
+  errorFlag,
+  validated,
+  failed
+}
+
+typedef VnextClientCallObserver = void Function(VnextClientCallPhase);
+void _observe(VnextClientCallObserver? observer, VnextClientCallPhase phase) {
+  try {
+    observer?.call(phase);
+  } catch (_) {/* Diagnostics have no protocol authority. */}
+}
+
 /// Protocol client over original App-owned streams; never launches a process.
 final class VnextAppOwnedClient {
   VnextAppOwnedClient(
@@ -46,27 +68,47 @@ final class VnextAppOwnedClient {
   }
 
   Future<Map<String, Object?>> call(String tool, Map<String, dynamic> arguments,
-      {AbortSignal? signal}) async {
-    final response = await _client.callTool(
-        CallToolRequest(name: tool, arguments: arguments),
-        options: RequestOptions(
-            signal: signal,
-            timeout: tool == 'propose_generated_questions'
-                ? const Duration(seconds: 145)
-                : const Duration(seconds: 12)));
+      {AbortSignal? signal, VnextClientCallObserver? observer}) async {
+    _observe(observer, VnextClientCallPhase.entered);
+    late CallToolResult response;
+    try {
+      response = await _client.callTool(
+          CallToolRequest(name: tool, arguments: arguments),
+          options: RequestOptions(
+              signal: signal,
+              timeout: tool == 'propose_generated_questions'
+                  ? const Duration(seconds: 145)
+                  : const Duration(seconds: 12)));
+    } catch (_) {
+      _observe(observer, VnextClientCallPhase.failed);
+      rethrow;
+    }
+    _observe(observer, VnextClientCallPhase.returned);
     final value = response.structuredContent;
-    if (value == null ||
-        value.length != (profileVersion == 3 ? 4 : 3) ||
-        value['profileVersion'] != profileVersion ||
-        (profileVersion == 3 && !validVnextSource(value['source'])) ||
-        !value.containsKey('data') ||
-        !value.containsKey('error') ||
-        (value['data'] != null && value['data'] is! Map) ||
-        (value['error'] != null && value['error'] is! String) ||
-        (response.isError == true) != (value['error'] != null)) {
+    final invalid = value == null
+        ? VnextClientCallPhase.missing
+        : value.length != (profileVersion == 3 ? 4 : 3) ||
+                !value.containsKey('data') ||
+                !value.containsKey('error')
+            ? VnextClientCallPhase.shape
+            : value['profileVersion'] != profileVersion
+                ? VnextClientCallPhase.profile
+                : profileVersion == 3 && !validVnextSource(value['source'])
+                    ? VnextClientCallPhase.source
+                    : value['data'] != null && value['data'] is! Map
+                        ? VnextClientCallPhase.data
+                        : value['error'] != null && value['error'] is! String
+                            ? VnextClientCallPhase.errorType
+                            : (response.isError == true) !=
+                                    (value['error'] != null)
+                                ? VnextClientCallPhase.errorFlag
+                                : null;
+    if (invalid != null) {
+      _observe(observer, invalid);
       throw StateError('Bridge protocol unavailable');
     }
-    return value;
+    _observe(observer, VnextClientCallPhase.validated);
+    return value!;
   }
 
   /// The owning composition calls this only AFTER original child settlement.

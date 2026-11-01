@@ -331,6 +331,7 @@
         'test/data/external/link_runtime_test.dart',
         'test/data/external/link_architecture_test.dart',
         'test/mcp/link_frontend_test.dart',
+        'test/mcp/offline_codex_shutdown_test.dart',
         'test/mcp/vnext_app_owned_client_test.dart',
         'test/ui/external/first_party_external_exit_test.dart'
     )

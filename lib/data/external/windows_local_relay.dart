@@ -371,6 +371,38 @@ final class WindowsAppParentGuard {
   }
 }
 
+/// Explicit local registration admission. Holds Shell provenance, opens no pipe.
+final class WindowsLinkRegistrationGuard {
+  WindowsLinkRegistrationGuard._(this._native, this._id);
+  factory WindowsLinkRegistrationGuard.open() {
+    final native = _RelayNative(libraryName: 'shiroha_link_native.dll');
+    try {
+      if (native.open(3, native.id) != 0 || native.id.value == 0) {
+        throw const LocalRelayException();
+      }
+      return WindowsLinkRegistrationGuard._(native, native.id.value);
+    } catch (_) {
+      native.dispose();
+      rethrow;
+    }
+  }
+  final _RelayNative _native;
+  final int _id;
+  bool _closed = false;
+  void requireCurrent() {
+    if (_closed || _native.state(_id) != 0) throw const LocalRelayException();
+  }
+
+  void close() {
+    if (_closed) return;
+    _closed = true;
+    if (_native.close(_id) != 0) {
+      throw const LocalRelayException(unsettled: true);
+    }
+    _native.dispose();
+  }
+}
+
 final class _RelayNative {
   _RelayNative({String libraryName = 'shiroha_relay_native.dll'}) {
     if (!Platform.isWindows) throw const LocalRelayException();

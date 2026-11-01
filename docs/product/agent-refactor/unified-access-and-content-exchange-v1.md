@@ -246,6 +246,43 @@ revision
 
 配对凭据只证明对应设备／安装的密码学身份，**不能证明托管历史**。PID 不存在、锁可获取、CNG marker 缺失、handoff 文件缺失均不能单独证明 clean 或从未由 #356 托管。
 
+#### 前瞻独立配对登记与单次采纳
+
+已有配对的可信来源可以由**配对发生时**的独立 registrar 生产：受信本机
+`--register-pairing` 入口复用原 Explorer／image／user／session admission，
+不创建业务或控制 pipe，不构造 LinkStateStore，也不创建 Link 的 UNCLAIMED。
+它只接受新建空槽；安装 journal 保存独立 registrar instance、operation、generation
+和原 run/resource。此路径不追溯认证旧配对、不重建丢失历史，不改变 #356 退役、
+#359 升级或原 Link owner 恢复边界。
+
+新登记使用严格版本化的 `slot-ownership.json` v2：
+`REGISTERING → SEALED → ADOPT_PENDING → LINK_OWNED`。共同 custody 字段之外，
+不可变 `registration` 保存原 registrar/operation/generation/run/resource；
+`sourceDigest` 绑定原始来源包；`adoption` 在采纳时只绑定一次指定 Link instance/operation。
+REGISTERING 的已验证身份与来源摘要为空、结算 UNKNOWN。原 adapter 沿用 P15/P0、
+TLS、凭据存储，保存凭据后生产不可变 registration receipt/origin；原 supervisor
+持有真实进程并完成 exit、stdin/stdout/stderr join 后才记录原 join 和 seal。
+`registration-source.json` 固定列出 attempt/receipt/origin/join 的摘要，不接受任意文件引用。
+这些原件独立于可覆盖的 `link-settlement.json`，采纳绝不回退到 latest receipt。
+摘要只提供一致性；受信原 actor 与原 credential owner 的核验提供来源权威。
+普通配置、模型参数没有签发接口；此机制不承诺抵御任意恶意 same-user 程序。
+
+SEALED 禁止 registrar 再写凭据或重配。原 credential owner 在原资源锁下解密核验
+同一设备／安装／Profile、associationRevision、客户端证书摘要及受保护记录字节摘要；
+检查 helper 的原进程/流全部 join 后，短 slot control + adapter resource 互斥内重新
+核对原包、当前凭据及 pending，再以 expected revision 转为 ADOPT_PENDING。
+全局锁顺序为 Link lifetime（存在时）→ slot control → adapter resource；短锁不等待
+TLS、进程或用户，native credential callback 不反向取得 slot control。
+随后依次持久化 LinkState initializing、slot LINK_OWNED、LinkState clean，未全部完成不得业务。
+只有同一 operation/revision、已持久化的原 join 可续发布；不同 Link 或 operation 拒绝。
+ADOPT_PENDING 缺 LinkState 可完成该唯一预留 owner；**v2 LINK_OWNED 缺 LinkState 必须拒绝**，
+不能借原配对 clean 证据重建后来丢失的业务状态。既有 v1 不自动升版或改写；
+旧入口继续被原 slot marker/fence 排除，不能据 marker 推断未知旧 binary 已停用。
+
+原 adapter 在验证配对 offer 后可写固定 `registration-observation.json`，仅含原
+operation/run/resource 与真实完整客户端证书指纹，供本机比较。它是无权威观察，
+不是配对成功、clean、来源或业务准入证据。
+
 #### 初始化统一流程
 
 1. 读取受信安装配置和 LinkStateStore；若 LinkStateStore 不存在，仅允许在受信安装首次初始化流程中创建，不能在已有槽位异常时静默重置。
@@ -258,6 +295,10 @@ revision
 **正常新安装和从未由 #356 托管的 clean 配对，不创建 PREPARED／RELEASED／CLAIMED 旧宿主记录，也不要求启动 Windows Shiroha。**
 
 ### 4.4 安装包分离
+
+`tool/link` 另提供 §4.3 的 registrar-only 配置／入口；同一运行包中的原 adapter
+只接受其受信父进程，登记阶段不开 Link pipe／state。v2 采纳保留原 registration
+来源包，既有 v1 Link 初始化记录不自动转换。
 
 **有界源码入口：** `tool/link` 的 Android-only 包以受信、本机显式启动的 Link 执行正常初始化，MCP 前端没有该权限。安装配置 v2 持久保存初始化 operationId；准备阶段使用独立 `slot-ownership.json`，新 Link 本地状态使用 `link-state-v2.json`。原 adapter 只在真实配对、凭据保存和原资源结算后发布 `adapter-origin.json` 与绑定回执；历史配对准入必须核验这些实际来源、原受保护记录及原资源身份。缺少可核验历史来源的旧配对保持诊断，不补造来源记录。完整初始化 pending 可在原互斥和同一 operationId/revision 下续接；不完整凭据／结算证据保持准备或故障状态，不自动再次配对。
 
@@ -392,6 +433,10 @@ Link 停止接收新业务，按原 deadline 保留原工作和唯一输出消�
 
 ### 6.5 三类结果分别记录
 
+前瞻 registrar 的配对结算原件与采纳检查 helper 的实际进程 join 分别记录，
+后续 proof/business 的 latest receipt 不能覆盖或替代它们。配对比较观察文件
+同样不能充当 clean 结算或源证据。
+
 | 维度 | 示例值 | 权威 |
 |---|---|---|
 | 客户端交付 | delivered / undelivered / unknown | 原输出链路 |
@@ -401,6 +446,45 @@ Link 停止接收新业务，按原 deadline 保留原工作和唯一输出消�
 客户端未收到结果，但目标已经完成且所有资源干净，不应被误判为密钥损坏。反之，题目已提交也不能覆盖未知资源清理。新调用是否可进入只取决于真实准入与结算，业务未知通过原 key 查询。
 
 有界验证构建可在原 supervisor、输出工作 owner 和 Runtime 的实际成功屏障之后输出非秘密观察，绑定原 run/resource/process/start、连接／租约、回执及 revision。普通构建默认关闭；观察没有业务准入、持久状态或恢复权威，失败不能改写原 clean/dirty 判定。实现仅缓冲固定字段，在原关闭后以独立新文件保存，最多 32 条／32 KiB；缺记录、缺终结标记或诊断失败都不能作为通过证据。源码快照、工具链、编译 define 和成品摘要须共同绑定本次验证；在下一资源覆盖回执前保存原配对证据及重复初始化前后原件，新的运行不补写丢失历史。具体入口和限制见 [Link 验证说明](../../../tool/link/README.md#bounded-verification-observations)。
+
+同一验证构建可另外显式选择逐调用脱敏采证。Frontend 在原 transport 将
+`tools/call` 交给 SDK handler 前分配仅本次进程使用的 ordinal；任意外部
+requestId 只在有界内存关联表中使用，不落盘或直接哈希（v1 最多八项，v2 最多五项）。跨层只使用
+原 runId、frontendConnectionId、IPC call id，并在原 Link 侧绑定已有 lease、
+route 和原 resource/PID/start。取得前的身份为 null；客户端 SDK 尚未发出的
+失败及无请求身份的解析错误不能按时间补关联。每个 producer 每调用最多一条
+汇总，保留实际观察到的准入、attach、IPC、backend、校验、输出和 ack 阶段。
+Frontend 的 ack 已发送与 Link 的 ack 已接收是两个观察；输出成功或诊断成功
+都不能替代业务或资源结算。
+
+逐调用模式采用独立、非秘密的验证配置及固定 create-new 文件，不读写业务
+状态来保存诊断。v2 关闭采证的整个受控 attempt 最多五次 READ；第六次业务
+调用不被诊断阻止，但采证保持 INCOMPLETE。两 producer 连同七条原结算、
+header/footer、固定冲突标记、四条关闭检查点及外部原进程 witness／客户端
+摘要，共同限于 27 条／31936 UTF-8 字节（含换行）。其中外部两个记录分别
+预留 512／4096 字节，由外部 harness 独立强制；不会只计算 producer 文件。
+v1 原八次调用及其 27 条／32640 字节用途保留，不添加事后的 v2 关闭含义。
+Frontend 可以通过
+独立有界 I/O 链保存已完成汇总，只有原关闭后才 join 诊断 I/O 并结束文件；
+Link 仍在原关闭后发布新文件。首次 writer 冲突、observer 失败、超限、缺关联、
+缺记录或写失败仅使采证 INCOMPLETE，不能改变原输出、取消、超时、重试或
+clean/dirty 判定。正常客户端若直接终止 stdio 子进程导致缺 footer，保留
+部分记录并报告 INCOMPLETE，不新增 MCP 工具、等待协议或替代进程来伪造关闭。
+没有新采证配置时，原仅监督结算的验证模式继续适用。
+
+v2 只增加固定的 transport-onclose、首次原 port-close enter、同一个 close
+future completion/failed、capture.finish enter 检查点；重复 close 不重复
+记录。验证专用 header 同时保存自身 GetProcessTimes 原创建 FILETIME，与
+外部持有的原进程 handle 的 PID/start 精确核对以排除 PID 复用；读取失败为
+null／INCOMPLETE，不用当前时钟补值。检查点没有业务等待或关闭权威，缺失
+也不能反证对应阶段没有执行。只有自然完成的原关闭及完整新证据可以通过；
+旧运行缺失的 footer、异常详情或退出证据保持原缺口，不因后来成功而回填。
+
+v2 验证构建在原关闭完成后，若采证 finish 失败，仅将原本为零的进程退出码
+改为诊断退出码 80；已有非零退出码、v1 与普通构建保持原义。最后的 flush
+或文件 close 失败可能发生在 true footer 已落盘之后，所以两 producer 的
+原进程退出 witness 与 footer 必须共同验收，footer 不能单独证明诊断 I/O
+完成。诊断退出码不改写业务结果或 clean/dirty 状态。
 
 ### 6.6 恢复
 
@@ -424,6 +508,10 @@ Link 不读 `app_settings` 或任何题库数据库。使用用户私有、版�
 新路径由受信安装配置明确给定；不扫描旧工作区、任意用户目录或所有 CNG 对象寻找“可用身份”。LinkStateStore 不进入题库 SQLite、Windows `app_settings` 或 `.shiroha` B0，不承载业务数据和授权事实。
 
 ### 7.2 槽位所有权记录与来源判定
+
+前瞻登记的 v2 扩展按 §4.3 保留独立 registration 与单次 adoption；
+LinkStateStore 格式不变。只有 ADOPT_PENDING 与缺失本地状态是可续的首次发布间隙；
+v2 LINK_OWNED 缺失 LinkStateStore 拒绝重建，不能用原始配对 clean 洗去后续资源历史。
 
 `SlotOwnershipRecord` 是独立 Link Infrastructure 的托管历史／资源 owner 记录，不是设备认证、Grant 或业务 Session。其字段、来源和状态转换由 §4.3 定义；本节规定持久化和恢复要求。
 
@@ -1185,6 +1273,18 @@ recovery_required
 
 默认只记录固定阶段、结果类别、duration、字节／项数和本地诊断 ID。不记录正文、答案、下载 URL、完整 file ID、完整提交 key、证书、凭据、认证头或原异常消息。
 
+逐调用诊断的工具及参数字段名使用固定白名单；参数只投影 presence、null、
+JSON 类型和有界长度，未知键只记录有界数量。不记录参数值、正文、引用、
+submissionKey、外部 requestId、未知键名，亦不记录这些内容或异常文本的哈希。
+错误类别只取实际拒绝分支、明确类型及固定错误码；不能按异常文字猜测。
+原 Adapter 的无 call id stderr 只能是资源级旁证。新运行不能恢复缺失历史，
+尤其不能用后来的成功回填原无详情失败的原因。验证专用文件与 stderr 不属于
+MCP stdout，正常构建不读取采证配置，也不初始化任何采证 writer。
+
+关闭检查点仅固定阶段/结果枚举；不包含原异常、参数值、未知字段或外部
+requestId。v2 header 的进程身份读取及其失败只影响诊断完整性，不触达设备、
+凭据或原业务状态。外部进程 witness 与客户端摘要也属于同一次有界采证预算。
+
 Link 可以有界读取并丢弃不能交付的 MCP 输出；这不允许持久化它。调试导出也不能包含业务正文或受保护对象。
 
 运行密钥必须经明确配置保存在对应平台的受保护存储；不硬编码进 APK、插件包、命令参数、普通日志或题目包。个人运行密钥不用于公共分发；为公众使用必须重新设计凭据签发边界。
@@ -1319,6 +1419,13 @@ L01 的证据由三部分共同组成：与候选源码绑定的运行包清单�
 L09／L10 须在隔离夹具中覆盖“LinkStateStore 缺失但旧配对、owner 或 dirty 仍存在”、重复初始化、首次准备写入后崩溃与并发初始化；不得把这些情况误判为全新或生成第二 owner。L11／L13 须验证每个已登记旧入口的 `RETIRE_INTENT` 拒绝，或其实际停用措施在重新启动及旧注册／配置恢复后仍有效；仅观察当前进程退出不构成通过。这些是未来实现验收条件，不要求删除真实 dirty 文件，也不把静态推演计为真机恢复成功。
 
 L09 还须验证准备阶段允许的空值／预留引用不能通过 `LINK_OWNED` 的已验证身份门槛。L12 须分别覆盖 owner 一致但回执缺失、损坏、属于旧 enable-proof／其他运行，以及真正的 owner 绑定冲突；前者保留原 owner 与 dirty，后者 fail-closed，均不能启动新业务。L13 须覆盖旧写入者仍持原锁、快照读取后尝试写入、发布前／后及完成标记前中断、来源 revision／摘要漂移，以及迁移锁释放后旧入口重启／配置恢复；必须证明无未受保护的快照发布、无旧新双写、无 dirty 洗白。原写入者已停止而结算仍 unknown 的夹具可以原样适配，不把资源 clean 作为格式适配前置。
+
+前述 L10/L13 的前瞻登记验收还须由真实 producer 模块生成正向合成源，覆盖
+registration/receipt/join 的 owner、operation、run、resource、PID/start 与
+credential generation 误配；缺 join、原件篡改/截断/未知版本、latest receipt 覆盖、
+重复/竞争采纳及旧入口拒绝。逐一中断 ADOPT_PENDING、LinkState initializing、
+LINK_OWNED、LinkState clean 的 pending 与 final 发布点；只能保留同一 op/revision，
+不得在 v2 owned+缺状态时重建 owner。真实原生／设备证据仍独立要求。
 
 ### 22.2 官方远程通道
 

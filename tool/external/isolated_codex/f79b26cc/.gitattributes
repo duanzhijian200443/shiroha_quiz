@@ -1,0 +1,3 @@
+# Unified diff context uses space-only lines. Validate actual source additions
+# with git apply --check --whitespace=error-all, not patch-envelope whitespace.
+windows-stdio-shutdown.patch -text whitespace=-blank-at-eol

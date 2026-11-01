@@ -7,6 +7,7 @@ import '../bounded_json_object.dart';
 import 'link_installation.dart';
 import 'link_state_store.dart';
 import 'link_values.dart';
+import 'registration_evidence.dart';
 
 /// Non-secret custody, never a device credential or an Application grant.
 final class SlotOwnershipRecord {
@@ -26,14 +27,27 @@ final class SlotOwnershipRecord {
       'resourceGeneration',
       'lastSettlementRef',
       'lastSettlementState',
-      'revision'
+      'revision',
+      if (value['formatVersion'] == 2) ...[
+        'registration',
+        'sourceDigest',
+        'adoption'
+      ]
     });
-    if (value['formatVersion'] != 1 ||
+    final registered = value['formatVersion'] == 2;
+    if ((!registered && value['formatVersion'] != 1) ||
         !{'new_pairing', 'registered_pairing'}
             .contains(value['initializationSource']) ||
-        !{'UNCLAIMED', 'LINK_OWNED'}.contains(value['ownershipState']) ||
+        !(registered
+                ? {'REGISTERING', 'SEALED', 'ADOPT_PENDING', 'LINK_OWNED'}
+                : {'UNCLAIMED', 'LINK_OWNED'})
+            .contains(value['ownershipState']) ||
         !{'UNKNOWN', 'DIRTY', 'CLEAN'}.contains(value['lastSettlementState']) ||
-        value['ownerKind'] != 'independent_link') {
+        value['ownerKind'] !=
+            (registered &&
+                    {'REGISTERING', 'SEALED'}.contains(value['ownershipState'])
+                ? 'independent_registrar'
+                : 'independent_link')) {
       linkFail('invalid_state');
     }
     for (final key in ['slotRef', 'operationId', 'ownerInstanceId']) {
@@ -59,14 +73,59 @@ final class SlotOwnershipRecord {
             value['lastSettlementRef'] == null)) {
       linkFail('invalid_state');
     }
-    if (!owned && value['ownerGeneration'] != null ||
+    if (!registered && !owned && value['ownerGeneration'] != null ||
         value['lastSettlementState'] == 'CLEAN' &&
             (target == null || value['lastSettlementRef'] == null)) {
       linkFail('invalid_state');
     }
+    if (registered) {
+      final registration = value['registration'] as Map<String, dynamic>;
+      RegistrationEvidence.registration(registration);
+      final registrar =
+          {'REGISTERING', 'SEALED'}.contains(value['ownershipState']);
+      if (value['initializationSource'] != 'registered_pairing' ||
+          registrar &&
+              (value['ownerInstanceId'] !=
+                      registration['registrarInstanceId'] ||
+                  value['operationId'] != registration['operationId'] ||
+                  value['ownerGeneration'] != registration['generation']) ||
+          value['ownershipState'] == 'REGISTERING' &&
+              (value['sourceDigest'] != null ||
+                  value['adoption'] != null ||
+                  target != null ||
+                  value['adapterCredentialSlotRef'] != null ||
+                  value['lastSettlementRef'] != null ||
+                  value['lastSettlementState'] != 'UNKNOWN') ||
+          !owned && value['resourceGeneration'] != registration['resourceId'] ||
+          {'SEALED', 'ADOPT_PENDING'}.contains(value['ownershipState']) &&
+              value['lastSettlementState'] != 'CLEAN' ||
+          value['ownershipState'] != 'REGISTERING' &&
+              (target == null ||
+                  value['lastSettlementRef'] == null ||
+                  value['adapterCredentialSlotRef'] != 'device.dpapi')) {
+        linkFail();
+      }
+      if (value['ownershipState'] != 'REGISTERING') {
+        linkToken(value['sourceDigest'], digest: true);
+      }
+      if (registrar) {
+        if (value['adoption'] != null) {
+          linkFail();
+        }
+      } else {
+        final adoption = value['adoption'] as Map<String, dynamic>;
+        linkFields(adoption, {'connectorInstanceId', 'operationId'});
+        if (adoption['connectorInstanceId'] != value['ownerInstanceId'] ||
+            adoption['operationId'] != value['operationId'] ||
+            value['ownerGeneration'] != value['operationId']) {
+          linkFail();
+        }
+      }
+    }
   }
 
   final Map<String, dynamic> value;
+  bool get registered => value['formatVersion'] == 2;
   bool get owned => value['ownershipState'] == 'LINK_OWNED';
   int get revision => value['revision'] as int;
   String get operationId => value['operationId'] as String;
@@ -146,13 +205,22 @@ final class SlotOwnershipStore {
     }
   }
 
-  Future<SlotOwnershipRecord?> readLocked() async {
+  Future<SlotOwnershipRecord?> readAnyLocked() async {
     await rejectLegacy();
     if (await file('slot-ownership.pending').exists()) {
       linkFail('recovery_required');
     }
     if (!await file('slot-ownership.json').exists()) return null;
     final record = SlotOwnershipRecord(await readJson('slot-ownership.json'));
+    if (record.value['slotRef'] != installation.slotRef) {
+      linkFail('owner_conflict');
+    }
+    return record;
+  }
+
+  Future<SlotOwnershipRecord?> readLocked() async {
+    final record = await readAnyLocked();
+    if (record == null) return null;
     if (record.value['slotRef'] != installation.slotRef ||
         record.value['ownerInstanceId'] != installation.connectorInstanceId ||
         record.operationId != installation.operationId) {
@@ -161,9 +229,9 @@ final class SlotOwnershipStore {
     return record;
   }
 
-  Future<void> writeLocked(
-      SlotOwnershipRecord next, int? expectedRevision) async {
-    final current = await readLocked();
+  Future<void> writeLocked(SlotOwnershipRecord next, int? expectedRevision,
+      {bool transfer = false}) async {
+    final current = transfer ? await readAnyLocked() : await readLocked();
     if (current?.revision != expectedRevision ||
         next.revision !=
             (expectedRevision == null ? 0 : expectedRevision + 1)) {
@@ -179,7 +247,7 @@ final class SlotOwnershipStore {
       await handle.close();
     }
     await pending.rename(file('slot-ownership.json').path);
-    if (jsonEncode((await readLocked())!.value) != jsonEncode(next.value)) {
+    if (jsonEncode((await readAnyLocked())!.value) != jsonEncode(next.value)) {
       linkFail();
     }
   }
@@ -230,6 +298,12 @@ final class SlotOwnershipStore {
   }
 
   Future<Map<String, dynamic>> registeredPairing() async {
+    final custody = await readAnyLocked();
+    if (custody?.registered == true) {
+      final evidence = RegistrationEvidence(directory.path);
+      await evidence.noPending();
+      return evidence.verify(custody!.value);
+    }
     if (await file('initialization-joined.pending').exists()) linkFail();
     final origin = await readPairingOrigin();
     final receipt = await receiptFor(origin['resourceGeneration'] as String);
@@ -431,6 +505,14 @@ final class SlotOwnershipStore {
         }
         final current = await readLocked();
         if (current != null) {
+          if (current.registered) {
+            if (!{'ADOPT_PENDING', 'LINK_OWNED'}
+                .contains(current.value['ownershipState'])) {
+              linkFail();
+            }
+            await registeredPairing();
+            return current;
+          }
           await _resumeInitializationJoin(current);
           return current;
         }

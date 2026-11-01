@@ -10,6 +10,8 @@ import 'package:shiroha_quiz/data/external/link/link_runtime.dart';
 import 'package:shiroha_quiz/data/external/link/link_state_store.dart';
 import 'package:shiroha_quiz/data/external/link/link_values.dart';
 import 'package:shiroha_quiz/data/external/link/link_verification_log.dart';
+import 'package:shiroha_quiz/data/external/link/link_call_diagnostics.dart';
+import 'link_call_capture_cases.dart';
 import 'package:shiroha_quiz/data/external/windows_local_relay.dart';
 
 final class _Relay implements LocalRelayServerConnection {
@@ -23,6 +25,7 @@ final class _Relay implements LocalRelayServerConnection {
   final admitted = Completer<void>(), ended = Completer<void>();
   final sending = Completer<void>(), releaseSend = Completer<void>();
   bool holdResult = false, accepted = false, closed = false;
+  bool holdAfterResult = false;
   @override
   bool get isCurrent => accepted && !closed;
   @override
@@ -44,6 +47,10 @@ final class _Relay implements LocalRelayServerConnection {
       await releaseSend.future;
     }
     outgoing.add(message);
+    if (holdAfterResult && message['kind'] == 'result') {
+      sending.complete();
+      await releaseSend.future;
+    }
   }
 
   @override
@@ -143,15 +150,21 @@ final class _Backend implements LinkBackend {
   final lost = Completer<void>(), entered = Completer<void>();
   final response = Completer<Map<String, Object?>>();
   bool cancelled = false;
+  bool clientFailed = false;
   int closes = 0;
   @override
   Future<void> get disconnected => lost.future;
   @override
   Future<Map<String, Object?>> call(String tool, Map<String, dynamic> arguments,
-      {required Stream<void> cancelled}) async {
+      {required Stream<void> cancelled, LinkCallTrace? diagnostic}) async {
     final sub = cancelled.listen((_) => this.cancelled = true);
     entered.complete();
     try {
+      if (clientFailed) {
+        diagnostic?.stage(LinkCallStage.backendCall, LinkCallOutcome.failed,
+            LinkCallCause.clientFailure);
+        throw StateError('synthetic client exception');
+      }
       return await response.future;
     } finally {
       await sub.cancel();
@@ -166,6 +179,7 @@ final class _Backend implements LinkBackend {
 }
 
 void main() {
+  linkCallCaptureCases();
   group('original supervision observations', () {
     const config = LinkInstallation(
         stateDirectory: 'not-used',
@@ -321,6 +335,11 @@ void main() {
   final target = LinkVerifiedTarget('a' * 64, 'installation', 'profile');
   var starts = 0, wrongReceipt = false, failClose = false;
   var observerThrows = false;
+  late LinkCallDiagnostics calls;
+  final callRows = <Map>[];
+  var callObserverThrows = false;
+  void Function(int, LinkCallStage, LinkCallOutcome, LinkCallCause)? stageHook;
+  void Function()? callFinished;
   var holdProof = false, failAcquisition = false;
   Completer<void>? acquisitionEntered, acquisitionReleased;
   Completer<void>? closeEntered, closeReleased;
@@ -402,9 +421,22 @@ void main() {
     closeEntered = closeReleased = null;
     observations.clear();
     observerThrows = false;
+    callObserverThrows = false;
+    stageHook = null;
+    callFinished = null;
+    callRows.clear();
+    calls = LinkCallDiagnostics((trace) {
+      if (callObserverThrows) throw StateError('SENTINEL_DIAGNOSTIC');
+      callRows.add(jsonDecode(trace.encode(callRows.length + 1)) as Map);
+      callFinished?.call();
+    },
+        frontend: false,
+        stageObserved: (ordinal, stage, outcome, cause) =>
+            stageHook?.call(ordinal, stage, outcome, cause));
     runtime = LinkRuntime(
         installation: config,
         store: store,
+        callDiagnostics: calls,
         verificationObserver: (observation) {
           if (observerThrows) throw StateError('synthetic_observer');
           observations.add(observation);
@@ -492,6 +524,106 @@ void main() {
     expect(observations, isEmpty);
   });
 
+  for (final observer in ['normal', 'stage-throws', 'summary-throws']) {
+    test(
+        'specific client failure survives runtime catch with $observer diagnostics and original clean close',
+        () async {
+      await runtime.connect();
+      await runtime.attach('peer', 'connection');
+      backend.clientFailed = true;
+      if (observer == 'stage-throws') {
+        stageHook =
+            (_, stage, outcome, cause) => throw StateError('SENTINEL_STAGE');
+      }
+      callObserverThrows = observer == 'summary-throws';
+      final trace = calls.begin('search_questions', {})!;
+      final result = await runtime.call(
+          'peer', 'connection', 1, 'search_questions', {},
+          diagnostic: trace);
+      calls.finish(trace);
+      expect(result['error'], 'unavailable');
+      expect(trace.stages[LinkCallStage.backendCall.index],
+          [LinkCallOutcome.failed.index, LinkCallCause.clientFailure.index]);
+      expect(calls.incomplete, observer != 'normal');
+      await runtime.disconnect();
+      expect(store.state.dirtyPhase, LinkDirtyPhase.clean);
+      expect((await ownership())['lastSettlementState'], 'CLEAN');
+      expect(backend.closes, 1);
+    });
+  }
+
+  test(
+      'real delivered frame before send completion cannot regress observed acknowledgement',
+      () async {
+    await runtime.connect();
+    final ack = Completer<void>(), summary = Completer<void>();
+    stageHook = (ordinal, stage, outcome, cause) {
+      if (ordinal == 1 &&
+          stage == LinkCallStage.deliveryAck &&
+          outcome == LinkCallOutcome.succeeded) {
+        ack.complete();
+      }
+    };
+    callFinished = summary.complete;
+    final business = _Relay()..holdAfterResult = true;
+    final control = _Relay();
+    final serving = LinkPipeServer(runtime, business, control).serve();
+    business.admitted.complete();
+    final hello = await business.next();
+    business.incoming.add({...hello, 'kind': 'attach'});
+    await business.next();
+    final lease = store.state.lease!;
+    business.incoming.add({
+      'version': 1,
+      'runId': runtime.runId,
+      'connectionId': lease.frontendConnectionId,
+      'kind': 'call',
+      'id': 1,
+      'tool': 'open_context',
+      'arguments': <String, dynamic>{}
+    });
+    await backend.entered.future;
+    backend.response.complete({
+      'profileVersion': 3,
+      'data': <String, dynamic>{},
+      'error': null,
+      'source': {'kind': 'android', 'deviceRef': target.deviceIdentity}
+    });
+    final response = await business.next();
+    expect(response['kind'], 'result');
+    business.incoming.add({
+      'version': 1,
+      'runId': runtime.runId,
+      'connectionId': lease.frontendConnectionId,
+      'kind': 'delivered',
+      'id': 1
+    });
+    try {
+      await ack.future.timeout(const Duration(seconds: 2));
+      expect(store.state.delivery, LinkDelivery.delivered);
+      expect(callRows, isEmpty);
+    } finally {
+      business.releaseSend.complete();
+    }
+    await summary.future.timeout(const Duration(seconds: 2));
+    expect(callRows.single['x'][LinkCallStage.deliveryAck.index][0],
+        LinkCallOutcome.succeeded.index);
+    control.admitted.complete();
+    final ticket = await control.next();
+    control.incoming.add({
+      ...ticket,
+      'action': 'shutdown',
+      'targetRef': null,
+      'expectedSelectionRevision': null,
+      'expectedRevision': null
+    });
+    expect((await control.next())['error'], isNull);
+    control.incoming.add({...ticket, 'kind': 'received'});
+    await serving.timeout(const Duration(seconds: 2));
+    await business.dispose();
+    await control.dispose();
+  });
+
   test(
       'pipe observation waits for original send and preserves unknown EOF delivery',
       () async {
@@ -543,6 +675,22 @@ void main() {
     expect(events.first['pendingWork'], 1);
     expect(events.first['pendingWorkFailed'], isFalse);
     expect(events.last['leaseId'], originalLease.leaseId);
+    expect(callRows, hasLength(1));
+    expect(callRows.single['r'], runtime.runId);
+    expect(callRows.single['c'], originalLease.frontendConnectionId);
+    expect(callRows.single['i'], 1);
+    expect(callRows.single['l'], originalLease.leaseId);
+    expect(callRows.single['g'], originalLease.routeGeneration);
+    expect(callRows.single['o'], [
+      backend.owner.resourceId,
+      backend.owner.processId,
+      backend.owner.processStarted,
+      backend.owner.slotRef
+    ]);
+    expect(callRows.single['x'][LinkCallStage.outputSend.index][0],
+        LinkCallOutcome.succeeded.index);
+    expect(callRows.single['x'][LinkCallStage.deliveryAck.index][0],
+        LinkCallOutcome.unknown.index);
     control.admitted.complete();
     final ticket = await control.next();
     control.incoming.add({

@@ -66,7 +66,36 @@ internal static class ProtectedDeviceStore
         using var file = File.OpenRead(Path.Combine(directory, "device.dpapi"));
         if (file.Length is < 1 or > 65536) throw new LinkFailure("credential_store_corrupt");
         byte[] bytes = new byte[(int)file.Length]; file.ReadExactly(bytes);
-        try { return Protect(bytes, false, requireAdmission); } finally { CryptographicOperations.ZeroMemory(bytes); }
+        try {
+            byte[] clear = Protect(bytes, false, requireAdmission);
+            try {
+                string custodyPath = Path.Combine(directory, "slot-ownership.json");
+                if (File.Exists(custodyPath)) {
+                    var custody = RegistrationCustody.Read(directory, "slot-ownership.json");
+                    if (custody.GetProperty("formatVersion").GetInt32() == 2 && DeviceClient.Text(custody, "ownershipState") != "REGISTERING") {
+                        using var document = LinkFrames.StrictObject(clear);
+                        RegistrationCustody.Verify(directory, custody, document.RootElement, Convert.ToHexStringLower(SHA256.HashData(bytes)));
+                    }
+                }
+                return clear;
+            } catch { CryptographicOperations.ZeroMemory(clear); throw; }
+        } finally { CryptographicOperations.ZeroMemory(bytes); }
+    }
+
+    // Holds the SAME original resource mutex across decrypt, binding and source
+    // verification. The callback must never acquire the slot control lock.
+    internal static void Inspect(string directory, Action requireAdmission, Action requireSlot,
+        Action<JsonElement, string> inspect)
+    {
+        requireAdmission();
+        using var guard = new FileStream(Path.Combine(directory, "adapter.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        requireSlot();
+        using var file = new FileStream(Path.Combine(directory, "device.dpapi"), FileMode.Open, FileAccess.Read, FileShare.Read);
+        if (file.Length is < 1 or > 65536) throw new LinkFailure("credential_store_corrupt");
+        byte[] bytes = new byte[(int)file.Length]; file.ReadExactly(bytes);
+        byte[] clear = Protect(bytes, false, requireAdmission);
+        try { using var parsed = LinkFrames.StrictObject(clear); inspect(parsed.RootElement, Convert.ToHexStringLower(SHA256.HashData(bytes))); }
+        finally { CryptographicOperations.ZeroMemory(clear); CryptographicOperations.ZeroMemory(bytes); }
     }
 
     internal static void Create(string directory, byte[] configuration, Action? requireAdmission = null, Action? requireSlot = null)

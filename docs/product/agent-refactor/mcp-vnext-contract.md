@@ -2471,6 +2471,13 @@ explicit initialization, the original adapter, an independent AOT Link and the
 real Profile 3 MCP frontend. It uses operation-bound preparation and original
 pairing/settlement provenance, with v2 local state kept separate from #359 files.
 The frontend has no initialization/selection/recovery authority. Explicit
+local registration can separately seal prospective original pairing evidence
+without a business/control pipe or LinkStateStore. Native launch admission,
+original credential-generation verification and original process/stream join
+remain required; a single designated Link may adopt v2 registrar custody through
+ADOPT_PENDING. Model parameters cannot create source evidence. Existing v1 and
+unknown historical pairings retain their original paths; unified access §4.3
+owns these bounded records and recovery refusals. Explicit
 Android `SHIROHA_UNIFIED_LINK` builds negotiate Profile 3 with the original
 Application owner and acknowledge CLOSE only after original business/output
 settlement. Defaults remain unchanged. Legacy/dirty detection refuses normal

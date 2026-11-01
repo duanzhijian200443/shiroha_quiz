@@ -134,6 +134,8 @@ internal static class DeviceClient
                 profile = Text(offer, "profileId");
                 installation = Text(offer, "installationId");
                 target = new DeviceTarget(device, pin, profile, target.Address, target.Port);
+                if (link?.Registering == true)
+                    RegistrationCustody.ObserveFingerprint(directory, link.Operation, link.Run, link.Resource, actualClient);
                 Console.WriteLine(JsonSerializer.Serialize(new { stage = "verified-offer", deviceId = device,
                     certificateDigest = pin, clientCertificateDigest = actualClient, installationId = installation, profileId = profile,
                     action = mode == "pairing" ? "Compare the full client fingerprint and confirm on the phone" : "Waiting for original P15 confirmation and settlement" }));

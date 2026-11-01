@@ -21,6 +21,8 @@ internal sealed class LinkAdapterContext : IDisposable
     private readonly JsonElement pairingInput;
     internal string Operation { get; }
     internal bool Initializing { get; }
+    internal bool Registering { get; }
+    internal bool Inspecting { get; }
     internal string Directory { get; }
     internal string Owner { get; }
     internal string Slot { get; }
@@ -29,27 +31,27 @@ internal sealed class LinkAdapterContext : IDisposable
     internal bool Authenticated { get; private set; }
     private bool closed;
 
-    internal LinkAdapterContext(string run, string resource, bool initializing = false)
+    internal LinkAdapterContext(string run, string resource, bool initializing = false, bool registering = false, bool inspecting = false)
     {
-        Token(run); Token(resource); Initializing = initializing;
+        Token(run); Token(resource); Initializing = initializing || registering; Registering = registering; Inspecting = inspecting;
         if (!OperatingSystem.IsWindows() || shiroha_relay_open(2, out parent) != 0 || parent == 0)
             throw new LinkFailure("runtime_not_authorized");
         try
         {
-            using var file = new FileStream(Path.Combine(AppContext.BaseDirectory, "link-installation.json"),
+            using var file = new FileStream(Path.Combine(AppContext.BaseDirectory, registering ? "pairing-registration.json" : "link-installation.json"),
                 FileMode.Open, FileAccess.Read, FileShare.Read);
             if (file.Length is < 1 or > 16384) throw new LinkFailure("invalid_target");
             byte[] bytes = new byte[(int)file.Length]; file.ReadExactly(bytes);
             using var document = LinkFrames.StrictObject(bytes);
             var value = document.RootElement;
-            DeviceClient.Fields(value, ["version", "stateDirectory", "slotDirectory", "slotRef",
-                "connectorInstanceId", "operationId", "adapterExecutable", "pairingInput"]);
-            if (value.GetProperty("version").GetInt32() != 2) throw new LinkFailure("invalid_target");
+            DeviceClient.Fields(value, registering ? ["version", "slotDirectory", "slotRef", "registrarInstanceId", "registrationOperationId", "registrationGeneration", "runId", "resourceId", "adapterExecutable", "pairingInput"] : ["version", "stateDirectory", "slotDirectory", "slotRef", "connectorInstanceId", "operationId", "adapterExecutable", "pairingInput"]);
+            if (value.GetProperty("version").GetInt32() != (registering ? 1 : 2)) throw new LinkFailure("invalid_target");
             Directory = Absolute(DeviceClient.Text(value, "slotDirectory"));
             var executable = Absolute(DeviceClient.Text(value, "adapterExecutable"));
             if (!executable.Equals(Environment.ProcessPath, StringComparison.OrdinalIgnoreCase)) throw new LinkFailure("invalid_target");
-            Owner = Token(DeviceClient.Text(value, "connectorInstanceId"));
-            Operation = Token(DeviceClient.Text(value, "operationId"));
+            Owner = Token(DeviceClient.Text(value, registering ? "registrarInstanceId" : "connectorInstanceId"));
+            Operation = Token(DeviceClient.Text(value, registering ? "registrationOperationId" : "operationId"));
+            if (registering && (DeviceClient.Text(value, "runId") != run || DeviceClient.Text(value, "resourceId") != resource)) throw new LinkFailure("owner_conflict");
             pairingInput = value.GetProperty("pairingInput").Clone();
             Slot = Token(DeviceClient.Text(value, "slotRef")); Run = run; Resource = resource;
             RequireCurrent();
@@ -70,9 +72,9 @@ internal sealed class LinkAdapterContext : IDisposable
     {
         if (closed || shiroha_relay_state(parent) != 0) throw new LinkFailure("runtime_not_authorized");
     }
-    internal void RequireSlot() => SlotFence.RequireOwner(Directory, Owner, Slot, Operation, Resource, Initializing);
+    internal void RequireSlot() => SlotFence.RequireOwner(Directory, Owner, Slot, Operation, Resource, Initializing, registering: Registering, inspecting: Inspecting);
     internal void RequireTarget(DeviceTarget target, string installation) =>
-        SlotFence.RequireOwner(Directory, Owner, Slot, Operation, Resource, Initializing, target, installation);
+        SlotFence.RequireOwner(Directory, Owner, Slot, Operation, Resource, Initializing, target, installation, Registering, Inspecting);
     internal void Ready(DeviceTarget target, string installation)
     {
         RequireCurrent();
@@ -83,6 +85,17 @@ internal sealed class LinkAdapterContext : IDisposable
     }
     internal void Settled(string mode, DeviceTarget target, string installation)
     {
+        if (Registering) {
+            ProtectedDeviceStore.Inspect(Directory, RequireCurrent, RequireSlot, (paired, digest) => {
+                var binding = RegistrationCustody.CredentialBinding(paired);
+                var receipt = JsonSerializer.SerializeToElement(new { formatVersion = 2, operationId = Operation, receiptRef = Resource, runId = Run, resourceId = Resource,
+                    processId = Environment.ProcessId, processStarted = Process.GetCurrentProcess().StartTime.ToUniversalTime().ToFileTimeUtc().ToString(), slotRef = Slot, owner = Owner, mode,
+                    target = new { deviceIdentity = target.DeviceId, installationIdentity = installation, profileReference = target.ProfileId }, targetClose = true, tlsShutdown = true, keyRetired = true });
+                RegistrationCustody.Produce(Directory, ReadRecord("slot-ownership.json"), receipt, binding.Revision, binding.ClientDigest, digest);
+            });
+            EmitInitialized(target, installation);
+            return;
+        }
         // Original owner receipt, distinct from business result and delivery.
         using var guard = new FileStream(Path.Combine(Directory, "adapter.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         RequireSlot();
@@ -139,6 +152,7 @@ internal sealed class LinkAdapterContext : IDisposable
             if (File.Exists(Path.Combine(Directory, name))) throw new LinkFailure("recovery_required");
         if (File.Exists(Path.Combine(Directory, "device.dpapi")))
         {
+            if (Registering) throw new LinkFailure("registration_incomplete");
             byte[] clear = ProtectedDeviceStore.Read(Directory, RequireCurrent, RequireSlot);
             try
             {
@@ -205,6 +219,23 @@ internal sealed class LinkAdapterContext : IDisposable
         finally { CryptographicOperations.ZeroMemory(key); CryptographicOperations.ZeroMemory(configuration); }
         return false;
     }
+    internal void InspectRegistration()
+    {
+        if (!Inspecting) throw new LinkFailure("runtime_not_authorized");
+        ProtectedDeviceStore.Inspect(Directory, RequireCurrent, RequireSlot, (paired, digest) => {
+            var custody = ReadRecord("slot-ownership.json");
+            RegistrationCustody.Verify(Directory, custody, paired, digest);
+            var receipt = ReadRecord("registration-receipt.json");
+            var target = new DeviceTarget(DeviceClient.Text(paired, "deviceId"), DeviceClient.Text(paired, "certificateDigest"),
+                DeviceClient.Text(paired, "profileId"), IPAddress.Parse(DeviceClient.Text(paired, "address")), paired.GetProperty("port").GetInt32());
+            target.Validate();
+            string installation = DeviceClient.Text(paired, "installationId");
+            ValidateInitialReceipt(receipt, Slot, target, installation);
+            if (!ulong.TryParse(DeviceClient.Text(receipt, "processStarted"), out var started) ||
+                shiroha_link_process_current(receipt.GetProperty("processId").GetUInt32(), started) != 0) throw new LinkFailure("recovery_required");
+            EmitInitialized(target, installation);
+        });
+    }
     internal static void ValidateInitialReceipt(JsonElement receipt, string slot, DeviceTarget target, string installation)
     {
         DeviceClient.Fields(receipt, ["formatVersion", "operationId", "receiptRef", "runId", "resourceId", "processId", "processStarted", "slotRef", "owner", "mode", "target", "targetClose", "tlsShutdown", "keyRetired"]);
@@ -237,7 +268,7 @@ internal static class SlotFence
             if (File.Exists(Path.Combine(directory, name))) throw new LinkFailure("handoff_required");
     }
     internal static void RequireOwner(string directory, string owner, string slot, string operation, string resource,
-        bool initializing, DeviceTarget? target = null, string? installation = null)
+        bool initializing, DeviceTarget? target = null, string? installation = null, bool registering = false, bool inspecting = false)
     {
         foreach (var name in new[] { "host-handoff.json", "host-handoff.pending", "slot-ownership.pending" })
             if (File.Exists(Path.Combine(directory, name))) throw new LinkFailure("legacy_status_unknown");
@@ -245,11 +276,16 @@ internal static class SlotFence
         if (file.Length is < 1 or > 32768) throw new LinkFailure("recovery_required");
         byte[] bytes = new byte[(int)file.Length]; file.ReadExactly(bytes);
         using var doc = LinkFrames.StrictObject(bytes);
-        RequireOwnerRecord(doc.RootElement, owner, slot, operation, resource, initializing, target, installation);
+        RequireOwnerRecord(doc.RootElement, owner, slot, operation, resource, initializing, target, installation, registering, inspecting);
     }
     internal static void RequireOwnerRecord(JsonElement value, string owner, string slot, string operation, string resource,
-        bool initializing, DeviceTarget? target = null, string? installation = null)
+        bool initializing, DeviceTarget? target = null, string? installation = null, bool registering = false, bool inspecting = false)
     {
+        if (value.GetProperty("formatVersion").GetInt32() == 2) {
+            RegistrationCustody.RequireOwner(value, owner, slot, operation, resource, registering, inspecting, initializing, target, installation);
+            return;
+        }
+        if (registering || inspecting) throw new LinkFailure("owner_conflict");
         DeviceClient.Fields(value, ["formatVersion", "slotRef", "operationId", "initializationSource", "ownershipState", "ownerKind", "ownerInstanceId", "ownerGeneration",
             "verifiedInstallationBinding", "adapterCredentialSlotRef", "resourceGeneration", "lastSettlementRef", "lastSettlementState", "revision"]);
         if (value.GetProperty("formatVersion").GetInt32() != 1 || DeviceClient.Text(value, "ownerKind") != "independent_link" ||

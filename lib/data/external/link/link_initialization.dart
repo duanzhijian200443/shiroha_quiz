@@ -6,6 +6,8 @@ import '../bounded_json_object.dart';
 import '../windows_local_relay.dart';
 
 import 'link_installation.dart';
+import 'link_registration.dart';
+import 'link_adapter_process.dart';
 import 'link_state_store.dart';
 import 'link_values.dart';
 import 'slot_ownership_store.dart';
@@ -55,7 +57,80 @@ final class LinkInitialization {
         return original;
       });
 
-  Future<LinkStateStore> open({required bool initialize}) async {
+  Future<LinkStateStore> open(
+      {required bool initialize,
+      Future<LinkInitializationSupervision> Function()?
+          registrationInspector}) async {
+    final raw = await slots.locked(() async {
+      if (await slots.file('slot-ownership.pending').exists()) {
+        return SlotOwnershipRecord(
+            await slots.readJson('slot-ownership.pending'));
+      }
+      return slots.readAnyLocked();
+    });
+    if (raw?.registered == true) {
+      final registration =
+          LinkRegistration(installation, processCurrent: processCurrent);
+      if (initialize) await registration.adopt(inspect: registrationInspector);
+      final custody = await slots.locked(() => slots.readLocked());
+      if (custody == null ||
+          (!custody.owned &&
+              (!initialize ||
+                  custody.value['ownershipState'] != 'ADOPT_PENDING'))) {
+        linkFail();
+      }
+      final destination =
+          File(p.join(installation.stateDirectory, 'link-state-v2.json'));
+      if (custody.owned && !await destination.exists()) {
+        linkFail('recovery_required');
+      }
+      final store = await LinkStateStore.open(
+          Directory(installation.stateDirectory),
+          beforeReadUnderLock: initialize ? _resumeStatePreparation : null,
+          initialState: custody.owned
+              ? null
+              : LinkState(
+                  connectorInstanceId: installation.connectorInstanceId,
+                  initializationOperationId: installation.operationId,
+                  targetRef: installation.slotRef,
+                  dirtyPhase: LinkDirtyPhase.initializing,
+                  diagnostic: 'initialization_pending',
+                  settlement: LinkSettlement.unknown));
+      try {
+        if (store.state.connectorInstanceId !=
+                installation.connectorInstanceId ||
+            store.state.initializationOperationId != installation.operationId ||
+            store.state.targetRef != installation.slotRef) {
+          linkFail('owner_conflict');
+        }
+        if (store.state.dirtyPhase == LinkDirtyPhase.initializing &&
+            initialize) {
+          await slots.locked(() => registration.resourceLocked(() async {
+                var current = await slots.readLocked();
+                if (current == null ||
+                    store.state.lease != null ||
+                    store.state.owner != null) {
+                  linkFail();
+                }
+                await registration.requireAdoption(current);
+                if (!current.owned) {
+                  if (current.value['ownershipState'] != 'ADOPT_PENDING' ||
+                      store.state.ownerGeneration != null) {
+                    linkFail();
+                  }
+                  final next = current.change({'ownershipState': 'LINK_OWNED'});
+                  await slots.writeLocked(next, current.revision);
+                  current = next;
+                }
+                await _finishState(store, current);
+              }));
+        }
+        return store;
+      } catch (_) {
+        await store.close();
+        rethrow;
+      }
+    }
     final record = initialize ? await slots.prepare() : null;
     final store =
         await LinkStateStore.open(Directory(installation.stateDirectory),
@@ -98,8 +173,9 @@ final class LinkInitialization {
       LinkStateStore store, SlotOwnershipRecord owner) async {
     await slots.requireNoUnsettledFiles();
     final origin = await slots.registeredPairing();
-    final receipt =
-        await slots.receiptFor(origin['resourceGeneration'] as String);
+    final receipt = owner.registered
+        ? await slots.readJson('registration-receipt.json')
+        : await slots.receiptFor(origin['resourceGeneration'] as String);
     if (processCurrent(
         receipt['processId'] as int, receipt['processStarted'] as String)) {
       linkFail();
@@ -122,48 +198,67 @@ final class LinkInitialization {
   }
 
   Future<void> _resumeStatePreparation() => slots.locked(() async {
-        final pending =
-            File(p.join(installation.stateDirectory, 'link-state-v2.pending'));
-        if (!await pending.exists()) return;
-        final destination =
-            File(p.join(installation.stateDirectory, 'link-state-v2.json'));
-        Future<LinkState> read(File file) async => LinkState.fromJson(
-            boundedJsonObject(await readBoundedLinkFile(file),
-                maxBytes: linkStateLimit));
-        final next = await read(pending);
-        final previous =
-            await destination.exists() ? await read(destination) : null;
-        final owner = await slots.readLocked();
-        if (owner == null ||
-            next.initializationOperationId != installation.operationId ||
-            next.connectorInstanceId != installation.connectorInstanceId ||
-            next.targetRef != installation.slotRef ||
-            next.lease != null ||
-            next.revision != (previous == null ? 0 : previous.revision + 1) ||
-            previous != null &&
-                previous.dirtyPhase != LinkDirtyPhase.initializing ||
-            previous != null &&
-                previous.initializationOperationId !=
-                    next.initializationOperationId) {
-          linkFail();
+        final custody = await slots.readLocked();
+        if (custody?.registered == true) {
+          await LinkRegistration(installation, processCurrent: processCurrent)
+              .resourceLocked(_resumeStatePreparationLocked);
+        } else {
+          await _resumeStatePreparationLocked();
         }
-        if (next.dirtyPhase == LinkDirtyPhase.clean) {
-          if (!owner.owned ||
-              next.ownerGeneration != owner.value['ownerGeneration'] ||
-              next.owner != null ||
-              owner.value['lastSettlementState'] != 'CLEAN') {
-            linkFail();
-          }
-          final origin = await slots.registeredPairing();
-          if (origin['settlementRef'] != owner.value['lastSettlementRef']) {
-            linkFail();
-          }
-        } else if (next.dirtyPhase != LinkDirtyPhase.initializing ||
-            next.ownerGeneration != null) {
-          linkFail();
-        }
-        await pending.rename(destination.path);
       });
+
+  Future<void> _resumeStatePreparationLocked() async {
+    final pending =
+        File(p.join(installation.stateDirectory, 'link-state-v2.pending'));
+    if (!await pending.exists()) return;
+    final destination =
+        File(p.join(installation.stateDirectory, 'link-state-v2.json'));
+    Future<LinkState> read(File file) async =>
+        LinkState.fromJson(boundedJsonObject(await readBoundedLinkFile(file),
+            maxBytes: linkStateLimit));
+    final next = await read(pending);
+    final previous =
+        await destination.exists() ? await read(destination) : null;
+    final owner = await slots.readLocked();
+    if (owner == null ||
+        next.initializationOperationId != installation.operationId ||
+        next.connectorInstanceId != installation.connectorInstanceId ||
+        next.targetRef != installation.slotRef ||
+        next.lease != null ||
+        next.revision != (previous == null ? 0 : previous.revision + 1) ||
+        previous != null &&
+            previous.dirtyPhase != LinkDirtyPhase.initializing ||
+        previous != null &&
+            previous.initializationOperationId !=
+                next.initializationOperationId) {
+      linkFail();
+    }
+    if (owner.registered &&
+        previous == null &&
+        (owner.owned || next.dirtyPhase != LinkDirtyPhase.initializing)) {
+      linkFail();
+    }
+    if (owner.registered) {
+      await LinkRegistration(installation, processCurrent: processCurrent)
+          .requireAdoption(owner);
+    }
+    if (next.dirtyPhase == LinkDirtyPhase.clean) {
+      if (!owner.owned ||
+          next.ownerGeneration != owner.value['ownerGeneration'] ||
+          next.owner != null ||
+          owner.value['lastSettlementState'] != 'CLEAN') {
+        linkFail();
+      }
+      final origin = await slots.registeredPairing();
+      if (origin['settlementRef'] != owner.value['lastSettlementRef']) {
+        linkFail();
+      }
+    } else if (next.dirtyPhase != LinkDirtyPhase.initializing ||
+        next.ownerGeneration != null) {
+      linkFail();
+    }
+    await pending.rename(destination.path);
+  }
 
   /// Adapter has verified the protected pairing, and its original process and
   /// all streams have joined. A model argument cannot supply this result.
