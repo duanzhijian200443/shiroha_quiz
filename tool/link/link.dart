@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:shiroha_quiz/data/external/link/link_installation.dart';
 import 'package:shiroha_quiz/data/external/link/link_runtime.dart';
 import 'package:shiroha_quiz/data/external/link/link_initialization.dart';
+import 'package:shiroha_quiz/data/external/link/link_verification_log.dart';
 import 'package:shiroha_quiz/data/external/windows_local_relay.dart';
 
 Future<void> main(List<String> arguments) async {
@@ -12,6 +13,7 @@ Future<void> main(List<String> arguments) async {
     return;
   }
   LinkRuntime? runtime;
+  LinkVerificationLog? verification;
   WindowsLocalRelay? business, control;
   var phase = 'business_ipc';
   try {
@@ -28,7 +30,15 @@ Future<void> main(List<String> arguments) async {
       await store.close();
       throw StateError('invalid_installation');
     }
-    runtime = LinkRuntime(installation: config, store: store);
+    const verify = bool.fromEnvironment('SHIROHA_LINK_VERIFY_SUPERVISION');
+    runtime = LinkRuntime(
+        installation: config,
+        store: store,
+        verificationObserver:
+            verify ? (event) => verification!.record(event) : null);
+    if (verify) {
+      verification = LinkVerificationLog(config.stateDirectory, runtime.runId);
+    }
     phase = 'serving';
     stderr.writeln('link_started');
     await LinkPipeServer(runtime, business, control).serve();
@@ -45,6 +55,10 @@ Future<void> main(List<String> arguments) async {
     } catch (_) {
       stderr.writeln('link_settlement_unknown');
       exitCode = 79;
+    }
+    if (verification != null && !await verification.finish()) {
+      stderr.writeln('link_verification_log_failed');
+      if (exitCode == 0) exitCode = 80;
     }
   }
 }

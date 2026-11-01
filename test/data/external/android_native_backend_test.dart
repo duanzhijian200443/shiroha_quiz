@@ -30,8 +30,32 @@ void main() {
         .readAsStringSync();
     expect(activity,
         contains('!BuildConfig.DEBUG || !BuildConfig.ANDROID_READ_VALIDATION'));
-    expect(activity,
-        contains('packageName != "com.example.shiroha_quiz.androidread"'));
+    expect(
+        activity,
+        contains(
+            'packageName != BuildConfig.ANDROID_READ_VALIDATION_APPLICATION_ID'));
+    final build = File('android/app/build.gradle.kts').readAsStringSync();
+    expect(
+        build,
+        contains(
+            'check(!androidLinkIsolationValidation || androidReadValidation)'));
+    expect(
+        build,
+        contains(
+            r'buildConfigField("String", "ANDROID_READ_VALIDATION_APPLICATION_ID", "\"\"")'));
+    expect(build, contains('com.example.shiroha_quiz.androidread'));
+    expect(build, contains('com.example.shiroha_quiz.linkvalidation'));
+    expect(build, contains('androidLinkIsolationValidationTag'));
+    expect(build, contains('Regex("[a-z][a-z0-9]{0,23}")'));
+    final proof = File(
+            'android/app/src/debug/kotlin/com/example/shiroha_quiz/external/DeviceNativeProofActivity.kt')
+        .readAsStringSync();
+    expect(
+        proof,
+        contains(
+            'packageName != BuildConfig.ANDROID_READ_VALIDATION_APPLICATION_ID'));
+    expect(File('android/app/src/main/AndroidManifest.xml').readAsStringSync(),
+        isNot(contains('sharedUserId')));
     expect(activity, isNot(contains('DeviceTlsEndpoint')));
     expect(File('android/app/src/main/AndroidManifest.xml').readAsStringSync(),
         isNot(contains('<service')));

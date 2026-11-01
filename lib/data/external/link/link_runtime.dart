@@ -8,6 +8,7 @@ import 'link_adapter_process.dart';
 import 'link_installation.dart';
 import 'link_state_store.dart';
 import 'link_values.dart';
+import 'link_verification_log.dart';
 
 typedef LinkBackendFactory = Future<LinkBackend> Function(
     {required bool proof,
@@ -27,7 +28,8 @@ final class LinkRuntime {
       {required this.installation,
       required this.store,
       LinkBackendFactory? backendFactory,
-      LinkInitializationFactory? initializationFactory})
+      LinkInitializationFactory? initializationFactory,
+      this.verificationObserver})
       : _factory = backendFactory,
         _initializationFactory = initializationFactory,
         slots = SlotOwnershipStore(installation);
@@ -36,6 +38,7 @@ final class LinkRuntime {
   final SlotOwnershipStore slots;
   final LinkBackendFactory? _factory;
   final LinkInitializationFactory? _initializationFactory;
+  final LinkVerificationObserver? verificationObserver;
   String? _pairingFingerprint, _initializationFailure;
   Future<LinkBackend> _create(
           {required bool proof, required String resourceId}) =>
@@ -49,7 +52,8 @@ final class LinkRuntime {
               proof: proof,
               runId: runId,
               resourceId: resourceId,
-              acquired: _captureOwner);
+              acquired: _captureOwner,
+              verificationObserver: verificationObserver);
   final runId = linkNonce();
   LinkBackend? _backend;
   Future<void>? _operation, _call, _disconnecting, _closing;
@@ -400,10 +404,23 @@ final class LinkRuntime {
         await _call; // EOF is not cancellation; retain the sole output consumer.
         final backend = _backend;
         if (backend != null) {
+          final originalOwner = state.owner;
+          final originalLease = state.lease;
+          final originalRoute = state.routeGeneration;
           await _record({'dirtyPhase': 'draining', 'settlement': 'draining'});
           await backend.close();
           await _clean();
           _backend = null;
+          if (originalOwner != null && originalLease != null) {
+            observeLinkVerification(
+                verificationObserver,
+                () => LinkVerificationObservation.runtimeSettled(originalOwner,
+                    lease: originalLease,
+                    operationId: installation.operationId,
+                    connectorInstanceId: installation.connectorInstanceId,
+                    revision: state.revision,
+                    routeGeneration: originalRoute));
+          }
         }
         if (state.owner != null ||
             state.lease != null ||
@@ -557,18 +574,51 @@ final class LinkPipeServer {
       } catch (_) {
         // No payload/unsafe exception is logged. Original work remains owned.
       } finally {
+        final originalOwner = runtime.state.owner;
+        final originalConnection = runtime.state.lease?.frontendConnectionId;
+        final pendingWork = _work.length;
+        var workFailed = false;
         if (outputAcknowledged?.isCompleted == false) {
           outputAcknowledged!.complete();
         }
         await Future.wait(_work
             .toList()
-            .map((f) => f.then((_) {}, onError: (Object _, StackTrace __) {})));
+            .map((f) => f.then((_) {}, onError: (Object _, StackTrace __) {
+                  workFailed = true;
+                })));
         if (pendingDelivery != null) await runtime.delivered(false);
+        if (originalOwner != null) {
+          observeLinkVerification(
+              runtime.verificationObserver,
+              () => LinkVerificationObservation.outputJoined(originalOwner,
+                  frontendEnded: true,
+                  frontendConnectionId: originalConnection,
+                  delivery: runtime.state.delivery,
+                  workFailed: workFailed,
+                  pendingWork: pendingWork));
+        }
         try {
           await runtime.disconnect();
         } catch (_) {/* Dirty blocks replacement. */}
         if (!_closed) await business.disconnect();
       }
+    }
+  }
+
+  Future<void> _joinOutputWork() async {
+    final originalOwner = runtime.state.owner;
+    final originalConnection = runtime.state.lease?.frontendConnectionId;
+    final pendingWork = _work.length;
+    await Future.wait(_work.toList());
+    if (originalOwner != null) {
+      observeLinkVerification(
+          runtime.verificationObserver,
+          () => LinkVerificationObservation.outputJoined(originalOwner,
+              frontendEnded: false,
+              frontendConnectionId: originalConnection,
+              delivery: runtime.state.delivery,
+              workFailed: false,
+              pendingWork: pendingWork));
     }
   }
 
@@ -607,18 +657,18 @@ final class LinkPipeServer {
             await runtime.initialize();
           case 'select':
             _controlWithdrawing = true;
-            await Future.wait(_work.toList());
+            await _joinOutputWork();
             await runtime.select(linkToken(request['targetRef']),
                 linkRevision(request['expectedSelectionRevision']));
           case 'connect':
             await runtime.connect();
           case 'disconnect':
             _controlWithdrawing = true;
-            await Future.wait(_work.toList());
+            await _joinOutputWork();
             await runtime.disconnect();
           case 'shutdown':
             _controlWithdrawing = true;
-            await Future.wait(_work.toList());
+            await _joinOutputWork();
             await runtime.close();
             shutdownFinished = true;
           default:

@@ -9,6 +9,129 @@ import 'package:shiroha_quiz/data/external/link/link_installation.dart';
 import 'package:shiroha_quiz/data/external/link/link_runtime.dart';
 import 'package:shiroha_quiz/data/external/link/link_state_store.dart';
 import 'package:shiroha_quiz/data/external/link/link_values.dart';
+import 'package:shiroha_quiz/data/external/link/link_verification_log.dart';
+import 'package:shiroha_quiz/data/external/windows_local_relay.dart';
+
+final class _Relay implements LocalRelayServerConnection {
+  _Relay() {
+    input = StreamIterator(incoming.stream);
+    output = StreamIterator(outgoing.stream);
+  }
+  final incoming = StreamController<Map<String, Object?>>();
+  final outgoing = StreamController<Map<String, Object?>>();
+  late final StreamIterator<Map<String, Object?>> input, output;
+  final admitted = Completer<void>(), ended = Completer<void>();
+  final sending = Completer<void>(), releaseSend = Completer<void>();
+  bool holdResult = false, accepted = false, closed = false;
+  @override
+  bool get isCurrent => accepted && !closed;
+  @override
+  String get linkPeerIdentity => 'synthetic-peer';
+  @override
+  Future<void> accept() async {
+    if (accepted) {
+      await ended.future;
+      throw const LocalRelayException();
+    }
+    await admitted.future;
+    accepted = true;
+  }
+
+  @override
+  Future<void> send(Map<String, Object?> message, Duration deadline) async {
+    if (holdResult && message['kind'] == 'result') {
+      sending.complete();
+      await releaseSend.future;
+    }
+    outgoing.add(message);
+  }
+
+  @override
+  Future<Map<String, Object?>> receive(Duration deadline) async {
+    if (!await input.moveNext()) throw const LocalRelayException();
+    return input.current;
+  }
+
+  Future<Map<String, Object?>> next() async {
+    if (!await output.moveNext()) throw StateError('synthetic channel ended');
+    return output.current;
+  }
+
+  @override
+  Future<void> disconnect() async {}
+  @override
+  Future<void> close() async {
+    closed = true;
+    if (!ended.isCompleted) ended.complete();
+    unawaited(incoming.close());
+    unawaited(outgoing.close());
+  }
+
+  Future<void> dispose() async {
+    await close();
+    await input.cancel();
+    await output.cancel();
+  }
+}
+
+final class _InputConsumer implements StreamConsumer<List<int>> {
+  bool fail = false;
+  @override
+  Future<void> addStream(Stream<List<int>> stream) async {
+    await for (final _ in stream) {}
+  }
+
+  @override
+  Future<void> close() async {
+    if (fail) throw const LinkException('synthetic_input_failed');
+  }
+}
+
+final class _OriginalProcess implements Process {
+  _OriginalProcess() {
+    stdin = IOSink(input);
+  }
+  final input = _InputConsumer();
+  final output = StreamController<List<int>>();
+  final events = StreamController<List<int>>();
+  final exited = Completer<int>();
+  @override
+  late final IOSink stdin;
+  @override
+  Stream<List<int>> get stdout => output.stream;
+  @override
+  Stream<List<int>> get stderr => events.stream;
+  @override
+  Future<int> get exitCode => exited.future;
+  @override
+  int get pid => 42;
+  @override
+  bool kill([ProcessSignal signal = ProcessSignal.sigterm]) => false;
+
+  void ownerAndSettlement({String resource = 'resource', int? ownerPid}) {
+    for (final event in [
+      {
+        'type': 'owner',
+        'runId': 'run',
+        'resourceId': 'resource',
+        'processId': ownerPid ?? pid,
+        'processStarted': '123456',
+        'slotRef': 'phone',
+      },
+      {
+        'type': 'settled',
+        'runId': 'run',
+        'resourceId': resource,
+        'mode': 'enable-proof',
+        'targetClose': true,
+        'tlsShutdown': true,
+        'keyRetired': true,
+      }
+    ]) {
+      events.add(utf8.encode('SHIROHA_LINK_EVENT ${jsonEncode(event)}\n'));
+    }
+  }
+}
 
 final class _Backend implements LinkBackend {
   _Backend(this.owner, this.target, this.settle);
@@ -43,15 +166,165 @@ final class _Backend implements LinkBackend {
 }
 
 void main() {
+  group('original supervision observations', () {
+    const config = LinkInstallation(
+        stateDirectory: 'not-used',
+        slotDirectory: 'not-used',
+        slotRef: 'phone',
+        connectorInstanceId: 'connector',
+        operationId: 'operation',
+        adapterExecutable: 'synthetic');
+    Future<LinkAdapterProcess> start(
+            _OriginalProcess original, LinkVerificationObserver observer) =>
+        LinkAdapterProcess.start(config,
+            runId: 'run',
+            resourceId: 'resource',
+            proof: true,
+            acquired: (_) async {},
+            verificationObserver: observer, startProcess:
+                (executable, arguments,
+                    {required runInShell, required workingDirectory}) async {
+          expect(executable, 'synthetic');
+          expect(arguments,
+              ['--link-proof', 'run', 'resource', '--current-user-cng-import']);
+          expect(runInShell, isFalse);
+          return original;
+        });
+
+    test('exit alone cannot emit join; both original streams must finish',
+        () async {
+      final original = _OriginalProcess();
+      final observations = <LinkVerificationObservation>[];
+      final started = start(original, observations.add);
+      original.ownerAndSettlement();
+      original.exited.complete(0);
+      await Future<void>.delayed(Duration.zero);
+      expect(observations, isEmpty);
+      await original.output.close();
+      await Future<void>.delayed(Duration.zero);
+      expect(observations, isEmpty);
+      await original.events.close();
+      final adapter = await started;
+      expect(observations, hasLength(1));
+      final value = jsonDecode(observations.single.encode(1)) as Map;
+      expect((value['owner'] as Map)['processId'], 42);
+      expect(value['stdinClosed'], isTrue);
+      expect(value['stdoutDrained'], isTrue);
+      expect(value['stderrDrained'], isTrue);
+      await Future.wait([adapter.close(), adapter.close()]);
+      expect(observations, hasLength(1));
+    });
+
+    for (final failure in [
+      'stdin',
+      'stdout',
+      'stderr',
+      'exit',
+      'resource',
+      'pid'
+    ]) {
+      test('$failure failure cannot emit original join success', () async {
+        final original = _OriginalProcess();
+        final observations = <LinkVerificationObservation>[];
+        original.input.fail = failure == 'stdin';
+        final started = start(original, observations.add);
+        final refused = expectLater(started, throwsA(isA<LinkException>()));
+        original.ownerAndSettlement(
+            resource: failure == 'resource' ? 'other' : 'resource',
+            ownerPid: failure == 'pid' ? 43 : null);
+        if (failure == 'stdout') {
+          original.output.addError(const LinkException('synthetic_stream'));
+        }
+        if (failure == 'stderr') {
+          original.events.addError(const LinkException('synthetic_stream'));
+        }
+        original.exited.complete(failure == 'exit' ? 1 : 0);
+        await Future.wait([original.output.close(), original.events.close()]);
+        await refused;
+        expect(observations, isEmpty);
+      });
+    }
+
+    test('observer exception cannot change successful original settlement',
+        () async {
+      final original = _OriginalProcess();
+      final started =
+          start(original, (_) => throw StateError('synthetic_observer'));
+      original.ownerAndSettlement();
+      original.exited.complete(0);
+      await Future.wait([original.output.close(), original.events.close()]);
+      await (await started).close();
+    });
+  });
+
+  group('bounded verification log', () {
+    late Directory directory;
+    const owner = LinkOwnerReference(
+        runId: 'run',
+        resourceId: 'resource',
+        processId: 42,
+        processStarted: '123456',
+        slotRef: 'phone');
+    setUp(() async => directory =
+        await Directory.systemTemp.createTemp('link-verification-'));
+    tearDown(() async => directory.delete(recursive: true));
+
+    test('buffers until finish and writes ordered bounded terminal evidence',
+        () async {
+      final log = LinkVerificationLog(directory.path, 'run');
+      log.record(LinkVerificationObservation.adapterJoined(owner,
+          proof: false, processExitCode: 0));
+      expect(await directory.list().toList(), isEmpty);
+      expect(await log.finish(), isTrue);
+      final file = File(p.join(directory.path, 'verification-run.jsonl'));
+      final records = (await file.readAsLines()).map(jsonDecode).toList();
+      expect(records, hasLength(2));
+      expect(records.last['event'], 'verification-log-complete');
+      expect(records.last['observationCount'], 1);
+      expect(await file.length(), lessThanOrEqualTo(32768));
+      final before = await file.readAsBytes();
+      expect(await log.finish(), isFalse);
+      expect(await file.readAsBytes(), before);
+    });
+
+    test('existing output is never replaced', () async {
+      final file = File(p.join(directory.path, 'verification-run.jsonl'));
+      await file.writeAsString('retained');
+      final log = LinkVerificationLog(directory.path, 'run');
+      expect(await log.finish(), isFalse);
+      expect(await file.readAsString(), 'retained');
+    });
+
+    for (final failure in ['run', 'limit', 'write']) {
+      test(
+          '$failure latches diagnostics failure without throwing or success footer',
+          () async {
+        final log = LinkVerificationLog(
+            failure == 'write'
+                ? p.join(directory.path, 'absent')
+                : directory.path,
+            failure == 'run' ? 'different' : 'run');
+        for (var n = 0; n < (failure == 'limit' ? 32 : 1); n++) {
+          log.record(LinkVerificationObservation.adapterJoined(owner,
+              proof: false, processExitCode: 0));
+        }
+        expect(await log.finish(), isFalse);
+        expect(await directory.list().toList(), isEmpty);
+      });
+    }
+  });
+
   late Directory root, slot;
   late LinkStateStore store;
   late LinkRuntime runtime;
   late _Backend backend;
   final target = LinkVerifiedTarget('a' * 64, 'installation', 'profile');
   var starts = 0, wrongReceipt = false, failClose = false;
+  var observerThrows = false;
   var holdProof = false, failAcquisition = false;
   Completer<void>? acquisitionEntered, acquisitionReleased;
   Completer<void>? closeEntered, closeReleased;
+  final observations = <LinkVerificationObservation>[];
   Future<void> receipt(LinkOwnerReference owner, String mode) =>
       File(p.join(slot.path, 'link-settlement.json')).writeAsString(jsonEncode({
         'formatVersion': 2,
@@ -127,9 +400,15 @@ void main() {
     failAcquisition = false;
     acquisitionEntered = acquisitionReleased = null;
     closeEntered = closeReleased = null;
+    observations.clear();
+    observerThrows = false;
     runtime = LinkRuntime(
         installation: config,
         store: store,
+        verificationObserver: (observation) {
+          if (observerThrows) throw StateError('synthetic_observer');
+          observations.add(observation);
+        },
         backendFactory: (
             {required proof,
             required runId,
@@ -184,6 +463,10 @@ void main() {
     expect((await ownership())['lastSettlementState'], 'CLEAN');
     expect((await ownership())['lastSettlementRef'], backend.owner.resourceId);
     expect((await ownership())['ownerGeneration'], 'operation');
+    final observed = jsonDecode(observations.single.encode(1)) as Map;
+    expect(observed['event'], 'runtime-settled');
+    expect(observed['owner'], backend.owner.toJson());
+    expect(observed['stateRevision'], store.state.revision);
   });
 
   test(
@@ -196,6 +479,85 @@ void main() {
         runtime.attach('second', 'other'), throwsA(isA<LinkException>()));
     expect(starts, 2);
     expect(store.state.lease!.toJson(), lease);
+  });
+
+  test('runtime observer failure cannot turn clean settlement into unknown',
+      () async {
+    observerThrows = true;
+    await runtime.connect();
+    await runtime.attach('peer', 'connection');
+    await runtime.disconnect();
+    expect(store.state.dirtyPhase, LinkDirtyPhase.clean);
+    expect((await ownership())['lastSettlementState'], 'CLEAN');
+    expect(observations, isEmpty);
+  });
+
+  test(
+      'pipe observation waits for original send and preserves unknown EOF delivery',
+      () async {
+    await runtime.connect();
+    final business = _Relay()..holdResult = true;
+    final control = _Relay();
+    final serving = LinkPipeServer(runtime, business, control).serve();
+    business.admitted.complete();
+    final hello = await business.next();
+    business.incoming.add({...hello, 'kind': 'attach'});
+    await business.next();
+    final originalLease = store.state.lease!;
+    business.incoming.add({
+      'version': 1,
+      'runId': runtime.runId,
+      'connectionId': originalLease.frontendConnectionId,
+      'kind': 'call',
+      'id': 1,
+      'tool': 'open_context',
+      'arguments': <String, dynamic>{},
+    });
+    await backend.entered.future;
+    backend.response.complete({
+      'profileVersion': 3,
+      'data': {'contextRef': 'synthetic'},
+      'error': null,
+      'source': {'kind': 'android', 'deviceRef': target.deviceIdentity},
+    });
+    await business.sending.future;
+    business.incoming.addError(const LocalRelayException());
+    await Future<void>.delayed(Duration.zero);
+    expect(observations, isEmpty);
+    expect(store.state.owner, isNotNull);
+    business.releaseSend.complete();
+    await business.next();
+    await () async {
+      while (observations.length < 2) {
+        await Future<void>.delayed(Duration.zero);
+      }
+    }()
+        .timeout(const Duration(seconds: 2));
+    final events =
+        observations.map((o) => jsonDecode(o.encode(1)) as Map).toList();
+    expect(events.map((e) => e['event']),
+        ['output-work-joined', 'runtime-settled']);
+    expect(events.first['delivery'], 'unknown');
+    expect(events.first['frontendConnectionId'],
+        originalLease.frontendConnectionId);
+    expect(events.first['pendingWork'], 1);
+    expect(events.first['pendingWorkFailed'], isFalse);
+    expect(events.last['leaseId'], originalLease.leaseId);
+    control.admitted.complete();
+    final ticket = await control.next();
+    control.incoming.add({
+      ...ticket,
+      'action': 'shutdown',
+      'targetRef': null,
+      'expectedSelectionRevision': null,
+      'expectedRevision': null
+    });
+    final response = await control.next();
+    expect(response['error'], isNull);
+    control.incoming.add({...ticket, 'kind': 'received'});
+    await serving.timeout(const Duration(seconds: 2));
+    await business.dispose();
+    await control.dispose();
   });
 
   for (final failedClose in [false, true]) {
@@ -313,6 +675,7 @@ void main() {
     expect(store.state.owner!.toJson(), original);
     expect(store.state.dirtyPhase, LinkDirtyPhase.recoveryRequired);
     expect((await ownership())['lastSettlementState'], 'DIRTY');
+    expect(observations, isEmpty);
     expect(starts, 2);
     await expectLater(runtime.connect(), throwsA(isA<LinkException>()));
   });
@@ -388,6 +751,7 @@ void main() {
     expect(starts, 2);
     expect(store.state.owner, isNotNull);
     expect((await ownership())['ownerGeneration'], 'operation');
+    expect(observations, isEmpty);
   });
 
   test(

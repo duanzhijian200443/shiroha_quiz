@@ -1,7 +1,8 @@
 param(
   [Parameter(Mandatory=$true)][string]$DartExecutable,
   [Parameter(Mandatory=$true)][string]$CmakeExecutable,
-  [Parameter(Mandatory=$true)][string]$OutputDirectory
+  [Parameter(Mandatory=$true)][string]$OutputDirectory,
+  [switch]$VerificationObservations
 )
 $ErrorActionPreference = 'Stop'
 $taskRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '../..')).ProviderPath
@@ -12,7 +13,8 @@ Push-Location -LiteralPath $taskRoot
 try {
   $taskEntries = [ordered]@{link='shiroha_link'; frontend='shiroha'; control='shiroha_link_control'}
   foreach ($taskEntry in $taskEntries.GetEnumerator()) {
-    & $DartExecutable compile exe "tool/link/$($taskEntry.Key).dart" -o (Join-Path $taskOutput "$($taskEntry.Value).exe")
+    [string[]]$taskDefines = if ($VerificationObservations -and $taskEntry.Key -eq 'link') { @('-DSHIROHA_LINK_VERIFY_SUPERVISION=true') } else { @() }
+    & $DartExecutable compile exe @taskDefines "tool/link/$($taskEntry.Key).dart" -o (Join-Path $taskOutput "$($taskEntry.Value).exe")
     if ($LASTEXITCODE -ne 0) { throw 'Dart compilation failed.' }
   }
   & $CmakeExecutable -S windows/link -B build/link-native -A x64

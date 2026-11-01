@@ -669,8 +669,25 @@ the foundation's default admission remains closed. Opening settings does not
 enable access or authenticate a connection.
 
 An explicit Debug build with `-PandroidReadValidation=true` uses the separate
-`com.example.shiroha_quiz.androidread` installation. Its debug-only,
-shell-permission-protected native validation Activity consumes the SAME native
+`com.example.shiroha_quiz.androidread` installation. Adding
+`-PandroidLinkIsolationValidation=true` selects the
+`com.example.shiroha_quiz.linkvalidation` Debug identity and distinct launcher
+label for a new Link acceptance pairing while preserving an existing READ test
+installation. For a later fresh run that must preserve this installation too,
+`-PandroidLinkIsolationValidationTag=<tag>` appends a new package segment; the tag
+must match `[a-z][a-z0-9]{0,23}` and requires isolation. An omitted tag retains the
+original isolation ID. The isolation flag requires the READ validation flag. Both native
+entries check the generated exact validation application ID in addition to the
+existing Debug/API/admission gates; ordinary builds retain disabled admission.
+No shared UID is declared: private databases, `noBackupFilesDir` credentials and
+AndroidKeyStore aliases are scoped to each installation's distinct UID. Verify
+the APK identity, distinct installed UIDs and fresh state before pairing; never
+replace, clear or reset the existing installation to obtain fresh evidence.
+The two installations retain the same device TLS port, so independent identity
+and storage do not imply concurrent listeners: keep the old installation's
+access disabled during the isolated run, without changing its pairing or dirty
+records. Each selected artifact's debug-only, shell-permission-protected native
+validation Activity consumes the SAME native
 credential, peer-policy and TLS endpoint, with real foreground/network
 observations and a 120-second local admission. The local desktop `--native-proof`
 entry uses the SAME pinned TLS and current-user DPAPI primitives. Ordinary builds

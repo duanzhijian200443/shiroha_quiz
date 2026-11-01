@@ -11,7 +11,37 @@ L01/L02/L09/L10 and the initialization portion of L13 need their respective
 native/device evidence. Existing #359 CLAIMED/dirty slots are diagnostic-only
 here; this package neither upgrades their files nor recovers their resources.
 
+L01 may use an existing Windows account under the
+[local acceptance contract](../../docs/product/agent-refactor/unified-access-and-content-exchange-v1.md#221-本地独立连接).
+Use a candidate-bound independent runtime package and newly registered
+installation configuration, state directory and test pairing slot. Preserve all
+existing pairings and dirty owners. Record the initial state and start access
+tracing before configuration/initialization; retain coverage of the actual
+configuration, Link, Adapter and client process chain through real Android READ
+and original-resource shutdown. Package inventory, initial-state provenance and
+the complete trace jointly establish absence of Windows App startup, business
+IPC relay and business database/settings access or preprepared business state.
+A missing process observation alone is insufficient. Windows system libraries,
+protected credential storage and CNG/TLS remain allowed dependencies. Keep raw
+traces local and provide redacted evidence summaries. This does not prove L10
+historical provenance or crash recovery and does not upgrade earlier evidence.
+
 ## Build and configuration
+
+For a fresh Android pairing on a tablet that already has the READ test App,
+build Debug with `-PandroidReadValidation=true`,
+`-PandroidLinkIsolationValidation=true` and `SHIROHA_UNIFIED_LINK=true`.
+The default `com.example.shiroha_quiz.linkvalidation` application ID uses its own
+UID, private state and Keystore namespace. To preserve an earlier isolation run,
+add `-PandroidLinkIsolationValidationTag=<tag>` with a new lowercase tag matching
+`[a-z][a-z0-9]{0,23}`; this appends `.<tag>` to that ID and requires isolation.
+Verify the built package ID is new
+on the device and the installed UIDs differ before initialization. Never replace,
+clear or reset the existing App or copy its credentials/state. Both Apps use
+the same TLS port; only the new installation may enable access for this run.
+This does not change ordinary Debug/Release admission or prove simultaneous
+listener support. See the
+[Android admission contract](../../docs/product/agent-refactor/android-device-access-v0.md#12-bounded-seven-tool-integration-and-remaining-admission-boundary).
 
 Run `build_runtime.ps1` with explicit `DartExecutable`, `CmakeExecutable`, and
 a new `OutputDirectory`. It builds Dart AOT entries, two Windows x64 IPC DLLs,
@@ -92,6 +122,34 @@ Codex's official STDIO configuration is documented in
 [OpenAI's MCP guide](https://learn.chatgpt.com/docs/extend/mcp#stdio-servers).
 These configuration instructions do not assert that an installed client/phone
 READ or Windows file-I/O isolation has been exercised for a particular build.
+
+### Bounded verification observations
+
+`build_runtime.ps1 -VerificationObservations` explicitly compiles only the Link
+entry with `SHIROHA_LINK_VERIFY_SUPERVISION=true`. Ordinary builds default to no
+observer or log. This is build-time diagnostic instrumentation, not a model or
+control request, business permission, state format, or recovery authority.
+The original adapter supervisor observes successful stdin/exit/stdout/stderr/
+client settlement and the bound adapter event. The original pipe owner observes
+its pending output work and actual delivery status. Runtime observes the original
+call join and the matching receipt/CAS publication, retaining the original owner,
+lease, connection and resource identities before they are cleared.
+
+Only fixed non-secret fields are buffered (at most 31 observations plus a
+terminal record, 32 KiB total). After original Link shutdown, the entry writes a
+new `verification-<runId>.jsonl` under its trusted state directory, refusing an
+existing file. No observer exception changes business clean/dirty or admission;
+log failure makes the verification-build exit nonzero after original cleanup.
+Missing records, missing terminal marker, overflow or failed exit reject the
+evidence. Nothing consumes these logs to recover or mark resources clean.
+
+Bind a verification run to its exact source snapshot/patch, build inputs,
+toolchain, defines and all artifact hashes. Before proof or business can replace
+the single adapter receipt, preserve the original pairing receipt, origin,
+attempt, join and state/slot bytes. Keep both sides of a repeated initialize
+comparison. Preserve the business owner/lease and its corresponding receipt,
+supervision observations and final state separately. A new run never reconstructs
+lost historical evidence or closes L01, L10 or an unrelated client failure.
 
 ## State, interruption and diagnostics
 

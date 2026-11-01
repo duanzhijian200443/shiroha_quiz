@@ -7,6 +7,7 @@ import '../../../mcp/link_app_client.dart';
 import '../bounded_json_object.dart';
 import 'link_installation.dart';
 import 'link_values.dart';
+import 'link_verification_log.dart';
 import 'slot_ownership_store.dart';
 
 abstract interface class LinkBackend {
@@ -22,7 +23,7 @@ abstract interface class LinkBackend {
 /// and all three streams AND requires the adapter's bound settlement event.
 final class LinkAdapterProcess implements LinkBackend {
   LinkAdapterProcess._(this._process, this.runId, this.resourceId, this.slotRef,
-      this._proof, this._windows) {
+      this._proof, this._windows, this._verificationObserver) {
     _stderr = _readEvents();
     _stdout = _readOutput();
     unawaited(_stderr.then((_) {}, onError: (Object _, StackTrace __) {
@@ -46,6 +47,7 @@ final class LinkAdapterProcess implements LinkBackend {
   final String runId, resourceId, slotRef;
   final bool _proof;
   final bool _windows;
+  final LinkVerificationObserver? _verificationObserver;
   final _output = StreamController<List<int>>.broadcast(sync: true);
   final _identity = Completer<LinkVerifiedTarget>();
   LinkOwnerReference? _owner;
@@ -60,9 +62,13 @@ final class LinkAdapterProcess implements LinkBackend {
       {required String runId,
       required String resourceId,
       required bool proof,
-      required Future<void> Function(LinkOwnerReference) acquired}) async {
+      required Future<void> Function(LinkOwnerReference) acquired,
+      LinkVerificationObserver? verificationObserver,
+      Future<Process> Function(String, List<String>,
+              {required bool runInShell, required String workingDirectory})?
+          startProcess}) async {
     final executable = installation.adapterExecutable;
-    final process = await Process.start(
+    final process = await (startProcess ?? Process.start)(
         executable,
         [
           proof ? '--link-proof' : '--link-business',
@@ -72,8 +78,8 @@ final class LinkAdapterProcess implements LinkBackend {
         ],
         runInShell: false,
         workingDirectory: File(executable).parent.path);
-    final owned = LinkAdapterProcess._(
-        process, runId, resourceId, installation.slotRef, proof, false);
+    final owned = LinkAdapterProcess._(process, runId, resourceId,
+        installation.slotRef, proof, false, verificationObserver);
     try {
       // Ownership was persisted before Process.start by the caller. Capture the
       // exact original process, even if shutdown races this asynchronous create.
@@ -372,5 +378,9 @@ final class LinkAdapterProcess implements LinkBackend {
         if (status != 0 || !_settledEvent || _failed) {
           linkFail('owner_unsettled');
         }
+        observeLinkVerification(
+            _verificationObserver,
+            () => LinkVerificationObservation.adapterJoined(owner,
+                proof: _proof, processExitCode: status));
       }();
 }
