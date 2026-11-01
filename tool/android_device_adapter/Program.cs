@@ -7,6 +7,30 @@ internal static class Program
     internal static int Main(string[] args)
     {
         if (args is ["--self-test"]) return SyntheticTests.Run();
+        if (args is [var registrationAction, var registrationRun, var registrationResource, "--current-user-cng-import"] &&
+            registrationAction is "--register-pair" or "--link-inspect-registration")
+        {
+            try {
+                using var owner = new LinkAdapterContext(registrationRun, registrationResource,
+                    registering: registrationAction == "--register-pair", inspecting: registrationAction == "--link-inspect-registration");
+                if (owner.Inspecting) { owner.InspectRegistration(); return 0; }
+                owner.PrepareOrInspectPairing();
+                return DeviceClient.Run("pairing", owner.Directory, null, 3, owner).GetAwaiter().GetResult();
+            } catch { Console.Error.WriteLine("android_registration_unavailable"); return 79; }
+        }
+        if (args is [var action, var runId, var resourceId, "--current-user-cng-import"] &&
+            action is "--link-business" or "--link-proof" or "--link-pair")
+        {
+            try
+            {
+                using var owner = new LinkAdapterContext(runId, resourceId, action == "--link-pair");
+                if (action == "--link-pair" && owner.PrepareOrInspectPairing()) return 0;
+                return DeviceClient.Run(action == "--link-business" ? "business" :
+                    action == "--link-pair" ? "pairing" : "enable-proof",
+                    owner.Directory, null, 3, owner).GetAwaiter().GetResult();
+            }
+            catch { Console.Error.WriteLine("android_link_owner_unavailable"); return 79; }
+        }
         if (args is ["--pair", var directory, var address, "--current-user-cng-import"])
             return DeviceClient.Run("pairing", directory, address).GetAwaiter().GetResult();
         if (args is ["--enable-proof", var proofDirectory, "--current-user-cng-import"])

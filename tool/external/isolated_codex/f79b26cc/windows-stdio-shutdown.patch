@@ -1,0 +1,2463 @@
+--- a/codex-rs/Cargo.lock
++++ b/codex-rs/Cargo.lock
+@@ -287,7 +287,7 @@
+ 
+ [[package]]
+ name = "app_test_support"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -1888,7 +1888,7 @@
+ 
+ [[package]]
+ name = "codex-agent-extension"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "codex-core",
+@@ -1900,7 +1900,7 @@
+ 
+ [[package]]
+ name = "codex-agent-graph-store"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-protocol",
+  "codex-state",
+@@ -1915,7 +1915,7 @@
+ 
+ [[package]]
+ name = "codex-agent-identity"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -1935,7 +1935,7 @@
+ 
+ [[package]]
+ name = "codex-agent-message-board-client"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -1958,7 +1958,7 @@
+ 
+ [[package]]
+ name = "codex-agent-message-board-extension"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-extension-api",
+  "codex-message-board",
+@@ -1972,7 +1972,7 @@
+ 
+ [[package]]
+ name = "codex-agent-roles"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-config",
+  "codex-file-system",
+@@ -1985,7 +1985,7 @@
+ 
+ [[package]]
+ name = "codex-analytics"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-app-server-protocol",
+  "codex-git-utils",
+@@ -2008,7 +2008,7 @@
+ 
+ [[package]]
+ name = "codex-ansi-escape"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "ansi-to-tui",
+  "pretty_assertions",
+@@ -2019,7 +2019,7 @@
+ 
+ [[package]]
+ name = "codex-api"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "assert_matches",
+@@ -2057,7 +2057,7 @@
+ 
+ [[package]]
+ name = "codex-app-server"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "app_test_support",
+@@ -2175,7 +2175,7 @@
+ 
+ [[package]]
+ name = "codex-app-server-client"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-app-server",
+  "codex-app-server-protocol",
+@@ -2203,7 +2203,7 @@
+ 
+ [[package]]
+ name = "codex-app-server-daemon"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "blake3",
+@@ -2233,7 +2233,7 @@
+ 
+ [[package]]
+ name = "codex-app-server-protocol"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "codex-app-server-protocol-noop-macros",
+@@ -2267,11 +2267,11 @@
+ 
+ [[package]]
+ name = "codex-app-server-protocol-noop-macros"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ 
+ [[package]]
+ name = "codex-app-server-test-client"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "clap",
+@@ -2293,7 +2293,7 @@
+ 
+ [[package]]
+ name = "codex-app-server-transport"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "axum",
+  "base64 0.22.1",
+@@ -2336,7 +2336,7 @@
+ 
+ [[package]]
+ name = "codex-apply-patch"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "assert_cmd",
+@@ -2356,7 +2356,7 @@
+ 
+ [[package]]
+ name = "codex-arg0"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "codex-apply-patch",
+@@ -2379,7 +2379,7 @@
+ 
+ [[package]]
+ name = "codex-async-utils"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "pretty_assertions",
+  "rand 0.9.3",
+@@ -2389,7 +2389,7 @@
+ 
+ [[package]]
+ name = "codex-attachment-store"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "pretty_assertions",
+  "serde",
+@@ -2399,7 +2399,7 @@
+ 
+ [[package]]
+ name = "codex-aws-auth"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "aws-config",
+  "aws-credential-types",
+@@ -2425,7 +2425,7 @@
+ 
+ [[package]]
+ name = "codex-backend-client"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "codex-api",
+@@ -2445,7 +2445,7 @@
+ 
+ [[package]]
+ name = "codex-backend-openapi-models"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "serde",
+  "serde_json",
+@@ -2454,7 +2454,7 @@
+ 
+ [[package]]
+ name = "codex-build-info"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-install-context",
+  "pretty_assertions",
+@@ -2467,7 +2467,7 @@
+ 
+ [[package]]
+ name = "codex-bwrap"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "cc",
+  "libc",
+@@ -2476,7 +2476,7 @@
+ 
+ [[package]]
+ name = "codex-chatgpt"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "clap",
+@@ -2498,7 +2498,7 @@
+ 
+ [[package]]
+ name = "codex-cli"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "app_test_support",
+@@ -2602,7 +2602,7 @@
+ 
+ [[package]]
+ name = "codex-client"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-http-client",
+  "eventsource-stream",
+@@ -2616,7 +2616,7 @@
+ 
+ [[package]]
+ name = "codex-cloud-client"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "async-stream",
+@@ -2640,7 +2640,7 @@
+ 
+ [[package]]
+ name = "codex-cloud-config"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "base64 0.22.1",
+  "chrono",
+@@ -2668,7 +2668,7 @@
+ 
+ [[package]]
+ name = "codex-cloud-tasks"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -2701,7 +2701,7 @@
+ 
+ [[package]]
+ name = "codex-cloud-tasks-client"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -2716,7 +2716,7 @@
+ 
+ [[package]]
+ name = "codex-cloud-tasks-mock-client"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "chrono",
+  "codex-cloud-tasks-client",
+@@ -2725,7 +2725,7 @@
+ 
+ [[package]]
+ name = "codex-code-mode"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-code-mode-protocol",
+  "codex-http-client",
+@@ -2749,7 +2749,7 @@
+ 
+ [[package]]
+ name = "codex-code-mode-host"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "axum",
+@@ -2780,7 +2780,7 @@
+ 
+ [[package]]
+ name = "codex-code-mode-protocol"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-protocol",
+  "glob",
+@@ -2798,7 +2798,7 @@
+ 
+ [[package]]
+ name = "codex-code-mode-runtime"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-code-mode-protocol",
+@@ -2817,11 +2817,11 @@
+ 
+ [[package]]
+ name = "codex-collaboration-mode-templates"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ 
+ [[package]]
+ name = "codex-config"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -2874,7 +2874,7 @@
+ 
+ [[package]]
+ name = "codex-config-schema"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "clap",
+@@ -2883,7 +2883,7 @@
+ 
+ [[package]]
+ name = "codex-connectors"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "arc-swap",
+@@ -2905,7 +2905,7 @@
+ 
+ [[package]]
+ name = "codex-connectors-extension"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-connectors",
+  "codex-core-plugins",
+@@ -2919,7 +2919,7 @@
+ 
+ [[package]]
+ name = "codex-context-fragments"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-protocol",
+  "codex-protocol-test-support",
+@@ -2930,7 +2930,7 @@
+ 
+ [[package]]
+ name = "codex-core"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "arc-swap",
+@@ -3080,7 +3080,7 @@
+ 
+ [[package]]
+ name = "codex-core-api"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-analytics",
+  "codex-app-server-protocol",
+@@ -3103,7 +3103,7 @@
+ 
+ [[package]]
+ name = "codex-core-plugin-common"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-utils-absolute-path",
+  "semver",
+@@ -3114,7 +3114,7 @@
+ 
+ [[package]]
+ name = "codex-core-plugins"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -3171,7 +3171,7 @@
+ 
+ [[package]]
+ name = "codex-diagnostics"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "libc",
+  "pretty_assertions",
+@@ -3179,7 +3179,7 @@
+ 
+ [[package]]
+ name = "codex-direct-tool-timing"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-utils-critical-path",
+  "pretty_assertions",
+@@ -3190,7 +3190,7 @@
+ 
+ [[package]]
+ name = "codex-exec"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "assert_cmd",
+@@ -3243,7 +3243,7 @@
+ 
+ [[package]]
+ name = "codex-exec-server"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "arc-swap",
+@@ -3316,7 +3316,7 @@
+ 
+ [[package]]
+ name = "codex-exec-server-cli"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "assert_matches",
+@@ -3356,7 +3356,7 @@
+ 
+ [[package]]
+ name = "codex-exec-server-protocol"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-file-system",
+@@ -3374,7 +3374,7 @@
+ 
+ [[package]]
+ name = "codex-exec-server-test-support"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "codex-exec-server",
+@@ -3389,7 +3389,7 @@
+ 
+ [[package]]
+ name = "codex-execpolicy"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "clap",
+@@ -3407,7 +3407,7 @@
+ 
+ [[package]]
+ name = "codex-experimental-api-macros"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+@@ -3416,7 +3416,7 @@
+ 
+ [[package]]
+ name = "codex-extension-api"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-api",
+  "codex-config",
+@@ -3439,7 +3439,7 @@
+ 
+ [[package]]
+ name = "codex-extension-items"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-utils-absolute-path",
+  "pretty_assertions",
+@@ -3451,7 +3451,7 @@
+ 
+ [[package]]
+ name = "codex-external-agent-migration"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "chrono",
+  "codex-analytics",
+@@ -3482,7 +3482,7 @@
+ 
+ [[package]]
+ name = "codex-features"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-network-proxy",
+  "codex-protocol",
+@@ -3496,7 +3496,7 @@
+ 
+ [[package]]
+ name = "codex-feedback"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "bytes",
+@@ -3524,7 +3524,7 @@
+ 
+ [[package]]
+ name = "codex-file-search"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "clap",
+@@ -3540,7 +3540,7 @@
+ 
+ [[package]]
+ name = "codex-file-system"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "bytes",
+  "codex-protocol",
+@@ -3554,7 +3554,7 @@
+ 
+ [[package]]
+ name = "codex-file-watcher"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "notify",
+  "pretty_assertions",
+@@ -3565,7 +3565,7 @@
+ 
+ [[package]]
+ name = "codex-git-attribution"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-backend-client",
+  "codex-extension-api",
+@@ -3578,7 +3578,7 @@
+ 
+ [[package]]
+ name = "codex-git-utils"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -3606,7 +3606,7 @@
+ 
+ [[package]]
+ name = "codex-goal-extension"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -3631,7 +3631,7 @@
+ 
+ [[package]]
+ name = "codex-guardian-context"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-context-fragments",
+  "codex-history",
+@@ -3645,7 +3645,7 @@
+ 
+ [[package]]
+ name = "codex-guardian-reviewer"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "codex-analytics",
+@@ -3672,7 +3672,7 @@
+ 
+ [[package]]
+ name = "codex-guardian-v2"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "codex-analytics",
+@@ -3711,7 +3711,7 @@
+ 
+ [[package]]
+ name = "codex-guardian-v3"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-message-board",
+  "codex-protocol",
+@@ -3720,7 +3720,7 @@
+ 
+ [[package]]
+ name = "codex-history"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "codex-protocol",
+@@ -3732,7 +3732,7 @@
+ 
+ [[package]]
+ name = "codex-history-notes-extension"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-analytics",
+  "codex-client",
+@@ -3758,7 +3758,7 @@
+ 
+ [[package]]
+ name = "codex-home"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-extension-api",
+  "codex-utils-absolute-path",
+@@ -3770,7 +3770,7 @@
+ 
+ [[package]]
+ name = "codex-hooks"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "async-channel",
+@@ -3799,7 +3799,7 @@
+ 
+ [[package]]
+ name = "codex-http-client"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "bytes",
+  "codex-utils-cargo-bin",
+@@ -3839,7 +3839,7 @@
+ 
+ [[package]]
+ name = "codex-image-generation-extension"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-api",
+@@ -3871,7 +3871,7 @@
+ 
+ [[package]]
+ name = "codex-install-context"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-utils-absolute-path",
+  "codex-utils-home-dir",
+@@ -3884,7 +3884,7 @@
+ 
+ [[package]]
+ name = "codex-keyring-store"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "keyring",
+  "pretty_assertions",
+@@ -3895,7 +3895,7 @@
+ 
+ [[package]]
+ name = "codex-linux-sandbox"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "clap",
+  "codex-core",
+@@ -3924,7 +3924,7 @@
+ 
+ [[package]]
+ name = "codex-lmstudio"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-core",
+  "codex-http-client",
+@@ -3938,7 +3938,7 @@
+ 
+ [[package]]
+ name = "codex-login"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -3984,7 +3984,7 @@
+ 
+ [[package]]
+ name = "codex-mcp"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "arc-swap",
+@@ -4028,7 +4028,7 @@
+ 
+ [[package]]
+ name = "codex-mcp-extension"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "axum",
+@@ -4061,7 +4061,7 @@
+ 
+ [[package]]
+ name = "codex-memories-extension"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-core",
+  "codex-extension-api",
+@@ -4083,7 +4083,7 @@
+ 
+ [[package]]
+ name = "codex-memories-read"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-protocol",
+  "codex-shell-command",
+@@ -4093,7 +4093,7 @@
+ 
+ [[package]]
+ name = "codex-memories-write"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -4130,7 +4130,7 @@
+ 
+ [[package]]
+ name = "codex-mermaid"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "insta",
+  "pretty_assertions",
+@@ -4139,7 +4139,7 @@
+ 
+ [[package]]
+ name = "codex-message-board"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "base64 0.22.1",
+  "caseless",
+@@ -4162,7 +4162,7 @@
+ 
+ [[package]]
+ name = "codex-message-history"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-config",
+  "memchr",
+@@ -4176,7 +4176,7 @@
+ 
+ [[package]]
+ name = "codex-model-provider"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "base64 0.22.1",
+  "chrono",
+@@ -4215,7 +4215,7 @@
+ 
+ [[package]]
+ name = "codex-model-provider-info"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-client",
+  "codex-http-client",
+@@ -4233,7 +4233,7 @@
+ 
+ [[package]]
+ name = "codex-models-manager"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "chrono",
+  "codex-http-client",
+@@ -4252,7 +4252,7 @@
+ 
+ [[package]]
+ name = "codex-multi-env-copy-file"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "codex-config",
+@@ -4278,7 +4278,7 @@
+ 
+ [[package]]
+ name = "codex-mxc-sandbox"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "codex-network-proxy",
+@@ -4299,7 +4299,7 @@
+ 
+ [[package]]
+ name = "codex-network-proxy"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "aws-credential-types",
+@@ -4350,7 +4350,7 @@
+ 
+ [[package]]
+ name = "codex-ollama"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "assert_matches",
+  "async-stream",
+@@ -4370,7 +4370,7 @@
+ 
+ [[package]]
+ name = "codex-otel"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "bytes",
+  "chrono",
+@@ -4407,7 +4407,7 @@
+ 
+ [[package]]
+ name = "codex-otel-trace-websocket"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "axum",
+@@ -4418,7 +4418,7 @@
+ 
+ [[package]]
+ name = "codex-plugin"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-config",
+  "codex-core-plugin-common",
+@@ -4433,7 +4433,7 @@
+ 
+ [[package]]
+ name = "codex-plugin-host"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-utils-cargo-bin",
+  "codex-utils-process",
+@@ -4450,7 +4450,7 @@
+ 
+ [[package]]
+ name = "codex-process-hardening"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "libc",
+  "pretty_assertions",
+@@ -4458,7 +4458,7 @@
+ 
+ [[package]]
+ name = "codex-prompts"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "codex-collaboration-mode-templates",
+@@ -4476,7 +4476,7 @@
+ 
+ [[package]]
+ name = "codex-protocol"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "chardetng",
+@@ -4522,14 +4522,14 @@
+ 
+ [[package]]
+ name = "codex-protocol-test-support"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-protocol",
+ ]
+ 
+ [[package]]
+ name = "codex-queue-extension"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "codex-core",
+@@ -4550,7 +4550,7 @@
+ 
+ [[package]]
+ name = "codex-realtime-webrtc"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "codex-build-info",
+@@ -4569,7 +4569,7 @@
+ 
+ [[package]]
+ name = "codex-response-debug-context"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-api",
+@@ -4580,7 +4580,7 @@
+ 
+ [[package]]
+ name = "codex-responses-api-proxy"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "bytes",
+@@ -4604,7 +4604,7 @@
+ 
+ [[package]]
+ name = "codex-rmcp-client"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "axum",
+@@ -4655,7 +4655,7 @@
+ 
+ [[package]]
+ name = "codex-rollout"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -4688,7 +4688,7 @@
+ 
+ [[package]]
+ name = "codex-rollout-trace"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "codex-code-mode",
+@@ -4705,7 +4705,7 @@
+ 
+ [[package]]
+ name = "codex-runtime-agent-instance"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-agent-identity",
+@@ -4731,7 +4731,7 @@
+ 
+ [[package]]
+ name = "codex-sandboxing"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "codex-mxc-sandbox",
+@@ -4759,7 +4759,7 @@
+ 
+ [[package]]
+ name = "codex-secrets"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "age",
+  "anyhow",
+@@ -4780,7 +4780,7 @@
+ 
+ [[package]]
+ name = "codex-shell-command"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -4803,7 +4803,7 @@
+ 
+ [[package]]
+ name = "codex-skills"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-protocol",
+  "codex-shell-command",
+@@ -4820,7 +4820,7 @@
+ 
+ [[package]]
+ name = "codex-skills-extension"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "assert_matches",
+  "blake3",
+@@ -4860,7 +4860,7 @@
+ 
+ [[package]]
+ name = "codex-state"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -4889,7 +4889,7 @@
+ 
+ [[package]]
+ name = "codex-stdio-to-uds"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "codex-uds",
+@@ -4901,7 +4901,7 @@
+ 
+ [[package]]
+ name = "codex-tcp-tunnel"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "bytes",
+@@ -4922,7 +4922,7 @@
+ 
+ [[package]]
+ name = "codex-terminal-detection"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "pretty_assertions",
+  "tracing",
+@@ -4930,7 +4930,7 @@
+ 
+ [[package]]
+ name = "codex-test-binary-support"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-arg0",
+  "tempfile",
+@@ -4938,7 +4938,7 @@
+ 
+ [[package]]
+ name = "codex-thread-manager-sample"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "clap",
+@@ -4949,7 +4949,7 @@
+ 
+ [[package]]
+ name = "codex-thread-store"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "chrono",
+  "codex-app-server-protocol",
+@@ -4980,7 +4980,7 @@
+ 
+ [[package]]
+ name = "codex-tools"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "bitflags 2.13.1",
+  "codex-attachment-store",
+@@ -5006,7 +5006,7 @@
+ 
+ [[package]]
+ name = "codex-tui"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "app_test_support",
+@@ -5134,7 +5134,7 @@
+ 
+ [[package]]
+ name = "codex-uds"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "async-io",
+  "libc",
+@@ -5148,7 +5148,7 @@
+ 
+ [[package]]
+ name = "codex-user-verification"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "base64 0.22.1",
+  "block2",
+@@ -5169,7 +5169,7 @@
+ 
+ [[package]]
+ name = "codex-utils-absolute-path"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "dirs",
+  "dunce",
+@@ -5183,14 +5183,14 @@
+ 
+ [[package]]
+ name = "codex-utils-approval-presets"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-protocol",
+ ]
+ 
+ [[package]]
+ name = "codex-utils-audio"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-protocol",
+@@ -5204,7 +5204,7 @@
+ 
+ [[package]]
+ name = "codex-utils-cache"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "lru",
+  "sha1 0.10.6",
+@@ -5213,7 +5213,7 @@
+ 
+ [[package]]
+ name = "codex-utils-cargo-bin"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "assert_cmd",
+  "runfiles",
+@@ -5222,7 +5222,7 @@
+ 
+ [[package]]
+ name = "codex-utils-cli"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "clap",
+  "codex-protocol",
+@@ -5234,22 +5234,22 @@
+ 
+ [[package]]
+ name = "codex-utils-critical-path"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "pretty_assertions",
+ ]
+ 
+ [[package]]
+ name = "codex-utils-elapsed"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ 
+ [[package]]
+ name = "codex-utils-fuzzy-match"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ 
+ [[package]]
+ name = "codex-utils-git-discovery"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-git-utils",
+  "codex-utils-absolute-path",
+@@ -5262,14 +5262,14 @@
+ 
+ [[package]]
+ name = "codex-utils-head-tail-buffer"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "pretty_assertions",
+ ]
+ 
+ [[package]]
+ name = "codex-utils-home-dir"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-utils-absolute-path",
+  "dirs",
+@@ -5279,7 +5279,7 @@
+ 
+ [[package]]
+ name = "codex-utils-image"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-utils-cache",
+@@ -5293,7 +5293,7 @@
+ 
+ [[package]]
+ name = "codex-utils-json-to-toml"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "pretty_assertions",
+  "serde_json",
+@@ -5302,7 +5302,7 @@
+ 
+ [[package]]
+ name = "codex-utils-oss"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-core",
+  "codex-lmstudio",
+@@ -5312,7 +5312,7 @@
+ 
+ [[package]]
+ name = "codex-utils-output-truncation"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-protocol",
+  "codex-utils-string",
+@@ -5322,7 +5322,7 @@
+ 
+ [[package]]
+ name = "codex-utils-path"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-utils-absolute-path",
+  "dunce",
+@@ -5333,7 +5333,7 @@
+ 
+ [[package]]
+ name = "codex-utils-path-uri"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-utils-absolute-path",
+@@ -5349,7 +5349,7 @@
+ 
+ [[package]]
+ name = "codex-utils-plugins"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-exec-server",
+  "codex-exec-server-protocol",
+@@ -5363,7 +5363,7 @@
+ 
+ [[package]]
+ name = "codex-utils-process"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "pretty_assertions",
+  "tokio",
+@@ -5371,7 +5371,7 @@
+ 
+ [[package]]
+ name = "codex-utils-pty"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "codex-utils-cargo-bin",
+@@ -5390,7 +5390,7 @@
+ 
+ [[package]]
+ name = "codex-utils-readiness"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "assert_matches",
+  "thiserror 2.0.18",
+@@ -5400,7 +5400,7 @@
+ 
+ [[package]]
+ name = "codex-utils-redacted-string"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "schemars 0.8.22",
+  "serde",
+@@ -5408,14 +5408,14 @@
+ 
+ [[package]]
+ name = "codex-utils-rustls-provider"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "rustls",
+ ]
+ 
+ [[package]]
+ name = "codex-utils-sandbox-summary"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-protocol",
+  "codex-utils-absolute-path",
+@@ -5425,7 +5425,7 @@
+ 
+ [[package]]
+ name = "codex-utils-sleep-inhibitor"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "core-foundation 0.9.4",
+  "libc",
+@@ -5435,14 +5435,14 @@
+ 
+ [[package]]
+ name = "codex-utils-stream-parser"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "pretty_assertions",
+ ]
+ 
+ [[package]]
+ name = "codex-utils-string"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "pretty_assertions",
+  "regex-lite",
+@@ -5452,14 +5452,14 @@
+ 
+ [[package]]
+ name = "codex-utils-template"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "pretty_assertions",
+ ]
+ 
+ [[package]]
+ name = "codex-v8-poc"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "pretty_assertions",
+  "v8",
+@@ -5467,7 +5467,7 @@
+ 
+ [[package]]
+ name = "codex-voice-host"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "codex-install-context",
+@@ -5494,7 +5494,7 @@
+ 
+ [[package]]
+ name = "codex-web-search-extension"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-api",
+  "codex-core",
+@@ -5516,7 +5516,7 @@
+ 
+ [[package]]
+ name = "codex-websocket-auth"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -5535,7 +5535,7 @@
+ 
+ [[package]]
+ name = "codex-websocket-client"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-http-client",
+  "codex-utils-rustls-provider",
+@@ -5551,7 +5551,7 @@
+ 
+ [[package]]
+ name = "codex-windows-sandbox"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -5581,7 +5581,7 @@
+ 
+ [[package]]
+ name = "codex-windows-sandbox-service"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "codex-cloud-config",
+@@ -5599,14 +5599,14 @@
+ 
+ [[package]]
+ name = "codex-windows-sandbox-test-support"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "dirs",
+ ]
+ 
+ [[package]]
+ name = "codex-workload-identity"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "codex-http-client",
+  "pretty_assertions",
+@@ -5621,7 +5621,7 @@
+ 
+ [[package]]
+ name = "codex-worktree"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "codex-git-utils",
+@@ -5874,7 +5874,7 @@
+ 
+ [[package]]
+ name = "core_test_support"
+-version = "0.0.0"
++version = "0.166.0-alpha.5.1"
+ dependencies = [
+  "anyhow",
+  "assert_cmd",
+--- a/codex-rs/rmcp-client/src/bin/test_stdio_server.rs
++++ b/codex-rs/rmcp-client/src/bin/test_stdio_server.rs
+@@ -1140,7 +1140,28 @@
+     // A test can close an initialized transport without killing an arbitrary PID.
+     let exit_file = std::env::var_os("MCP_TEST_EXIT_FILE");
+     tokio::select! {
+-        result = running.waiting() => { result?; }
++        result = running.waiting() => {
++            let reason = result?;
++            if let Ok(path) = std::env::var("MCP_TEST_SHUTDOWN_FILE") {
++                let marker = if matches!(reason, rmcp::service::QuitReason::Closed) { "eof\ncleanup_begin\n" } else { "not_eof\n" };
++                std::fs::write(&path, marker)?;
++                let mode = std::env::var("MCP_TEST_SHUTDOWN_MODE").unwrap_or_default();
++                if mode == "hang" { std::future::pending::<()>().await; }
++                if mode == "delay" { sleep(Duration::from_millis(800)).await; }
++                if mode == "output" {
++                    use std::io::Write;
++                    std::io::stdout().write_all(&vec![b'x'; 256 * 1024])?;
++                    std::io::stdout().flush()?;
++                    std::io::stderr().write_all(&vec![b'y'; 256 * 1024])?;
++                    std::io::stderr().flush()?;
++                }
++                use std::io::Write;
++                let mut marker = std::fs::OpenOptions::new().append(true).open(&path)?;
++                marker.write_all(b"cleanup_end\nterminal\n")?;
++                marker.sync_all()?;
++                if mode == "nonzero" { std::process::exit(17); }
++            }
++        }
+         _ = async {
+             let Some(exit_file) = exit_file else {
+                 return std::future::pending::<()>().await;
+--- a/codex-rs/rmcp-client/src/bounded_stdio_transport.rs
++++ b/codex-rs/rmcp-client/src/bounded_stdio_transport.rs
+@@ -15,7 +15,6 @@
+ use tokio::io::AsyncWriteExt;
+ use tokio::io::BufReader;
+ use tokio::process::ChildStdin;
+-use tokio::process::ChildStdout;
+ use tokio::sync::Mutex;
+ use tracing::debug;
+ use tracing::warn;
+@@ -25,16 +24,20 @@
+ 
+ pub(super) struct BoundedStdioTransport {
+     stdin: Arc<Mutex<Option<ChildStdin>>>,
+-    stdout: BufReader<ChildStdout>,
++    stdout: BufReader<Box<dyn AsyncRead + Send + Unpin>>,
+     pending_line: Vec<u8>,
+     program_name: String,
+ }
+ 
+ impl BoundedStdioTransport {
+-    pub(super) fn new(stdin: ChildStdin, stdout: ChildStdout, program_name: String) -> Self {
++    pub(super) fn new(
++        stdin: ChildStdin,
++        stdout: impl AsyncRead + Send + Unpin + 'static,
++        program_name: String,
++    ) -> Self {
+         Self {
+             stdin: Arc::new(Mutex::new(Some(stdin))),
+-            stdout: BufReader::new(stdout),
++            stdout: BufReader::new(Box::new(stdout)),
+             pending_line: Vec::new(),
+             program_name,
+         }
+--- a/codex-rs/rmcp-client/src/lib.rs
++++ b/codex-rs/rmcp-client/src/lib.rs
+@@ -37,6 +37,8 @@
+ mod trace_context;
+ mod user_verification;
+ mod utils;
++#[cfg(windows)]
++mod windows_stdio_shutdown;
+ mod www_authenticate;
+ 
+ pub use auth_status::McpAuthState;
+--- a/codex-rs/rmcp-client/src/local_stdio_transport.rs
++++ b/codex-rs/rmcp-client/src/local_stdio_transport.rs
+@@ -4,7 +4,17 @@
+ 
+ use std::future::Future;
+ use std::io;
++#[cfg(windows)]
++use std::pin::Pin;
++#[cfg(windows)]
++use std::sync::{Arc, Mutex};
++#[cfg(windows)]
++use std::task::{Context, Poll};
+ use std::time::Duration;
++#[cfg(windows)]
++use tokio::io::ReadBuf;
++#[cfg(windows)]
++use tokio::process::ChildStdout;
+ 
+ use futures::FutureExt;
+ use rmcp::model::ClientRequest;
+@@ -30,6 +40,8 @@
+     child: Option<Box<Child>>,
+     transport: StdioTransport,
+     discovery: Option<Discovery>,
++    #[cfg(windows)]
++    shutdown_stdout: ShutdownStdout,
+ }
+ 
+ pub(super) enum DiscoveryOutcome {
+@@ -159,6 +171,10 @@
+             .take()
+             .ok_or_else(|| io::Error::other("MCP server stdout was not piped"))?;
+         let stderr = child.stderr.take();
++        #[cfg(windows)]
++        let stdout = ShutdownStdout(Arc::new(Mutex::new(stdout)));
++        #[cfg(windows)]
++        let shutdown_stdout = stdout.clone();
+         let transport = match protocol_mode {
+             McpProtocolMode::Legacy => {
+                 StdioTransport::Legacy(AsyncRwTransport::new(Box::new(stdout), stdin))
+@@ -172,9 +188,77 @@
+                 child: Some(Box::new(child)),
+                 transport,
+                 discovery: None,
++                #[cfg(windows)]
++                shutdown_stdout,
+             },
+             stderr,
+         ))
++    }
++
++    /// Called only after the service loop has stopped receiving messages. The
++    /// shared raw reader drains kernel bytes without running a second codec or
++    /// retaining shutdown output. Buffered codec bytes have already been read.
++    #[cfg(windows)]
++    pub(super) async fn close_for_shutdown(&mut self) -> io::Result<()> {
++        match &mut self.transport {
++            StdioTransport::Legacy(transport) => transport.close().await?,
++            StdioTransport::Modern(transport) => transport.close().await?,
++            StdioTransport::Closed => {}
++        }
++        let Some(child) = self.child.as_mut() else {
++            return Err(io::Error::other("Windows stdio child owner missing"));
++        };
++        let mut stdout = self.shutdown_stdout.clone();
++        tokio::time::timeout(Duration::from_secs(3), async {
++            let mut sink = tokio::io::sink();
++            let wait = child.wait();
++            let drain = tokio::io::copy(&mut stdout, &mut sink);
++            tokio::pin!(wait, drain);
++            // A descendant may retain a stdout handle after the root has
++            // exited. Keep draining while the root runs, then let the original
++            // Job owner retire descendants before requiring final stdout EOF.
++            let status = tokio::select! {
++                status = &mut wait => status?,
++                result = &mut drain => {
++                    result?;
++                    wait.await?
++                }
++            };
++            if status.success() {
++                Ok(())
++            } else {
++                Err(io::Error::other(
++                    "Windows stdio child exited unsuccessfully",
++                ))
++            }
++        })
++        .await
++        .map_err(|_| {
++            io::Error::new(
++                io::ErrorKind::TimedOut,
++                "Windows stdio graceful close timed out",
++            )
++        })?
++    }
++
++    #[cfg(windows)]
++    pub(super) async fn join_after_shutdown(&mut self) -> io::Result<()> {
++        let Some(child) = self.child.as_mut() else {
++            return Err(io::Error::other("Windows stdio child owner missing"));
++        };
++        let mut stdout = self.shutdown_stdout.clone();
++        tokio::time::timeout(Duration::from_secs(1), async {
++            let mut sink = tokio::io::sink();
++            tokio::try_join!(child.wait(), tokio::io::copy(&mut stdout, &mut sink))?;
++            Ok(())
++        })
++        .await
++        .map_err(|_| {
++            io::Error::new(
++                io::ErrorKind::TimedOut,
++                "Windows stdio final join timed out",
++            )
++        })?
+     }
+ 
+     pub(super) fn watch_discovery(
+@@ -294,3 +378,23 @@
+         }
+     }
+ }
++
++// Only the codec reads during service operation. Once its loop enters close,
++// the original close owner may drain the same handle. No second live consumer.
++#[cfg(windows)]
++#[derive(Clone)]
++struct ShutdownStdout(Arc<Mutex<ChildStdout>>);
++
++#[cfg(windows)]
++impl AsyncRead for ShutdownStdout {
++    fn poll_read(
++        self: Pin<&mut Self>,
++        cx: &mut Context<'_>,
++        buf: &mut ReadBuf<'_>,
++    ) -> Poll<io::Result<()>> {
++        match self.0.lock() {
++            Ok(mut reader) => Pin::new(&mut *reader).poll_read(cx, buf),
++            Err(_) => Poll::Ready(Err(io::Error::other("stdio reader lock poisoned"))),
++        }
++    }
++}
+--- a/codex-rs/rmcp-client/src/rmcp_client.rs
++++ b/codex-rs/rmcp-client/src/rmcp_client.rs
+@@ -110,6 +110,8 @@
+ use crate::stdio_server_launcher::StdioTermination;
+ use crate::tool_list_changes::track_tool_list_changes;
+ use crate::utils::build_default_headers;
++#[cfg(windows)]
++use crate::windows_stdio_shutdown::{CloseWorker, copy_error};
+ use codex_config::types::OAuthCredentialsStoreMode;
+ 
+ #[path = "stdio_handshake.rs"]
+@@ -424,6 +426,8 @@
+     elicitation_pause_state: ElicitationPauseState,
+     tool_list_revision: Arc<AtomicU64>,
+     cancel_requests_on_drop: AtomicBool,
++    #[cfg(windows)]
++    normal_shutdown: Mutex<Option<CloseWorker>>,
+ }
+ 
+ impl RmcpClient {
+@@ -484,6 +488,8 @@
+             elicitation_pause_state: ElicitationPauseState::new(),
+             tool_list_revision: Arc::default(),
+             cancel_requests_on_drop: AtomicBool::new(false),
++            #[cfg(windows)]
++            normal_shutdown: Mutex::new(None),
+         })
+     }
+ 
+@@ -560,6 +566,8 @@
+             elicitation_pause_state: ElicitationPauseState::new(),
+             tool_list_revision: Arc::default(),
+             cancel_requests_on_drop: AtomicBool::new(false),
++            #[cfg(windows)]
++            normal_shutdown: Mutex::new(None),
+         })
+     }
+ 
+@@ -669,6 +677,8 @@
+             elicitation_pause_state: ElicitationPauseState::new(),
+             tool_list_revision: Arc::default(),
+             cancel_requests_on_drop: AtomicBool::new(false),
++            #[cfg(windows)]
++            normal_shutdown: Mutex::new(None),
+         })
+     }
+ 
+@@ -1324,6 +1334,12 @@
+     }
+ 
+     async fn shutdown_for(&self, reason: StdioTermination) -> io::Result<()> {
++        #[cfg(windows)]
++        {
++            if let Some(worker) = self.start_windows_local_shutdown(reason).await {
++                return worker.await.map_err(copy_error);
++            }
++        }
+         let previous_state = {
+             let mut guard = self.state.lock().await;
+             std::mem::replace(&mut *guard, ClientState::Closed)
+@@ -1341,6 +1357,58 @@
+             process.terminate(reason).await?;
+         }
+         Ok(())
++    }
++
++    #[cfg(windows)]
++    async fn start_windows_local_shutdown(&self, reason: StdioTermination) -> Option<CloseWorker> {
++        let mut shutdown = self.normal_shutdown.lock().await;
++        if let Some(worker) = shutdown.as_ref() {
++            return Some(worker.clone());
++        }
++        if !matches!(reason, StdioTermination::Shutdown) {
++            return None;
++        }
++        let slot = self.stdio_process.as_ref()?;
++        let mut state = self.state.lock().await;
++        if matches!(*state, ClientState::Closed) {
++            return None;
++        }
++        let mut slot = slot.lock().await;
++        let process = slot.close().normal_shutdown_process()?;
++        // No cancellation point between withdrawing admission and installing
++        // the owned worker. Other service Arcs cannot prevent token cancellation.
++        let previous = std::mem::replace(&mut *state, ClientState::Closed);
++        process.request_normal_shutdown();
++        let worker = tokio::spawn(async move {
++            match previous {
++                ClientState::Ready { service, .. } => {
++                    service.cancellation_token().cancel();
++                    drop(service);
++                }
++                ClientState::Connecting {
++                    transport: Some(PendingTransport::Stdio { mut transport }),
++                } => {
++                    // The same original transport remains owned even if a caller
++                    // cancels its shutdown waiter while stdin is still draining.
++                    std::mem::drop(tokio::spawn(async move {
++                        let _ =
++                            rmcp::transport::Transport::<RoleClient>::close(&mut *transport).await;
++                    }));
++                }
++                // An in-flight initialize owns its transport. The closed state
++                // refuses publication; the bounded process owner remains here.
++                ClientState::Connecting { .. } | ClientState::Closed => {}
++            }
++            process.await_normal_shutdown().await
++        })
++        .map(|result| match result {
++            Ok(result) => result,
++            Err(error) => Err(Arc::new(io::Error::other(error))),
++        })
++        .boxed()
++        .shared();
++        *shutdown = Some(worker.clone());
++        Some(worker)
+     }
+ 
+     /// This should be called after every tool call so that if a given tool call triggered
+@@ -2123,3 +2191,7 @@
+         assert_eq!(Ok("done"), result);
+     }
+ }
++
++#[cfg(all(test, windows))]
++#[path = "windows_stdio_shutdown_tests.rs"]
++mod windows_stdio_shutdown_tests;
+--- a/codex-rs/rmcp-client/src/stdio_server_launcher.rs
++++ b/codex-rs/rmcp-client/src/stdio_server_launcher.rs
+@@ -17,7 +17,7 @@
+ use std::future::Future;
+ use std::io;
+ #[cfg(windows)]
+-use std::os::windows::io::OwnedHandle;
++use std::os::windows::io::{AsRawHandle, OwnedHandle};
+ use std::path::Path;
+ use std::path::PathBuf;
+ use std::sync::Arc;
+@@ -81,6 +81,8 @@
+ use crate::utils::create_env_for_mcp_server;
+ use crate::utils::create_env_overlay_for_remote_mcp_server;
+ use crate::utils::remote_mcp_env_var_names;
++#[cfg(windows)]
++use crate::windows_stdio_shutdown::{CloseCompletion, CloseResult, CloseWorker, copy_error};
+ 
+ // General purpose public code.
+ 
+@@ -161,6 +163,13 @@
+ }
+ 
+ impl StdioProcessRef {
++    #[cfg(windows)]
++    pub(super) fn normal_shutdown_process(&self) -> Option<Arc<StdioServerProcessHandle>> {
++        self.process
++            .upgrade()
++            .filter(|process| matches!(&process.kind, StdioServerProcessKind::Local(_)))
++    }
++
+     pub(super) async fn terminate(&self, reason: StdioTermination) -> io::Result<()> {
+         if let Some(cleanup) = &self.discovery_cleanup {
+             let result = cleanup.start(&Handle::current(), reason);
+@@ -217,6 +226,23 @@
+     }
+ 
+     async fn close(&mut self) -> std::result::Result<(), Self::Error> {
++        #[cfg(windows)]
++        if self
++            .process
++            .normal_shutdown_requested
++            .load(Ordering::Acquire)
++            && let StdioServerTransportInner::Local(local) = &mut self.inner
++        {
++            let close = local.close_for_shutdown().await;
++            // Always settle the original tree, even when the root exited first
++            // or the graceful stage failed. Preserve that first failure.
++            let tree = self.process.finish_windows_tree().await.map_err(copy_error);
++            let joined = local.join_after_shutdown().await;
++            let stderr = self.process.join_stderr().await.map_err(copy_error);
++            let result = close.and(tree).and(joined).and(stderr).map_err(Arc::new);
++            self.process.normal_close.complete(result.clone());
++            return result.map_err(copy_error);
++        }
+         if self.discovery_cleanup.is_none() {
+             self.process.terminate().await?;
+         }
+@@ -229,6 +255,20 @@
+ 
+ impl Drop for StdioServerTransport {
+     fn drop(&mut self) {
++        #[cfg(windows)]
++        if self
++            .process
++            .normal_shutdown_requested
++            .load(Ordering::Acquire)
++        {
++            self.process
++                .normal_close
++                .complete(Err(Arc::new(io::Error::new(
++                    io::ErrorKind::Interrupted,
++                    "Windows stdio transport dropped before close completion",
++                ))));
++            return;
++        }
+         // A client or handshake still holding this result may retry after the SDK drops a
+         // failed transport. Otherwise the process handle runs its ordinary shutdown on drop.
+         if let Some(cleanup) = &self.discovery_cleanup
+@@ -428,6 +468,14 @@
+     terminated: AtomicBool,
+     // An escaped descendant can keep stderr open after the MCP server exits.
+     stderr_reader: Option<watch::Sender<()>>,
++    #[cfg(windows)]
++    stderr_closed: Option<Arc<CloseCompletion>>,
++    #[cfg(windows)]
++    normal_shutdown_requested: AtomicBool,
++    #[cfg(windows)]
++    normal_close: CloseCompletion,
++    #[cfg(windows)]
++    normal_tree: OnceLock<CloseWorker>,
+ }
+ 
+ enum StdioServerProcessKind {
+@@ -543,7 +591,8 @@
+         let terminator = match job {
+             Some((job, root)) => Some(LocalProcessTerminator::Job {
+                 job,
+-                discovery_root: discovery_owned.then_some(root),
++                // Retain the actual root handle for normal close as well as restart.
++                discovery_root: Some(root),
+             }),
+             None => process_id.and_then(|process_id| {
+                 match codex_utils_pty::JobObject::open_process_handle(process_id) {
+@@ -572,7 +621,15 @@
+         };
+         #[cfg(not(any(unix, windows)))]
+         let terminator = process_id.map(|_| LocalProcessTerminator);
++        #[cfg(windows)]
++        let mut stderr_closed = None;
+         let stderr_reader = stderr.map(|stderr| {
++            #[cfg(windows)]
++            let completion = {
++                let completion = Arc::new(CloseCompletion::default());
++                stderr_closed = Some(Arc::clone(&completion));
++                completion
++            };
+             let program_name = program_name.clone();
+             let (stop_tx, mut stop_rx) = watch::channel(());
+             std::mem::drop(tokio::spawn(async move {
+@@ -582,10 +639,16 @@
+                 let drain_deadline = tokio::time::sleep(STDERR_READER_DRAIN_GRACE_PERIOD);
+                 tokio::pin!(drain_deadline);
+                 let mut draining = false;
++                #[cfg(windows)]
++                let mut close_error = None;
+                 loop {
+                     tokio::select! {
+                         biased;
+-                        _ = &mut drain_deadline, if draining => break,
++                        _ = &mut drain_deadline, if draining => {
++                            #[cfg(windows)]
++                            { close_error = Some(io::Error::new(io::ErrorKind::TimedOut, "Windows stdio stderr drain timed out")); }
++                            break;
++                        },
+                         _ = stop_rx.changed(), if !draining => {
+                             draining = true;
+                             drain_deadline.as_mut().reset(
+@@ -600,16 +663,26 @@
+                                 Ok(None) => break,
+                                 Err(error) => {
+                                     warn!("Failed to read MCP server stderr ({program_name}): {error}");
++                                    #[cfg(windows)]
++                                    { close_error = Some(error); }
+                                     break;
+                                 }
+                             }
+                         },
+                     }
+                 }
++                #[cfg(windows)]
++                completion.complete(close_error.map_or(Ok(()), |error| Err(Arc::new(error))));
+             }));
+             stop_tx
+         });
+-        let process = StdioServerProcessHandle::local(program_name, terminator, stderr_reader);
++        let process = StdioServerProcessHandle::local(
++            program_name,
++            terminator,
++            stderr_reader,
++            #[cfg(windows)]
++            stderr_closed,
++        );
+         let discovery_cleanup = discovery_owned.then(|| {
+             Arc::new(DiscoveryCleanup {
+                 process: Arc::downgrade(&process),
+@@ -752,12 +825,21 @@
+         program_name: String,
+         terminator: Option<LocalProcessTerminator>,
+         stderr_reader: Option<watch::Sender<()>>,
++        #[cfg(windows)] stderr_closed: Option<Arc<CloseCompletion>>,
+     ) -> Arc<Self> {
+         Arc::new(Self {
+             program_name,
+             kind: StdioServerProcessKind::Local(terminator),
+             terminated: AtomicBool::new(false),
+             stderr_reader,
++            #[cfg(windows)]
++            stderr_closed,
++            #[cfg(windows)]
++            normal_shutdown_requested: AtomicBool::new(false),
++            #[cfg(windows)]
++            normal_close: CloseCompletion::default(),
++            #[cfg(windows)]
++            normal_tree: OnceLock::new(),
+         })
+     }
+ 
+@@ -767,7 +849,111 @@
+             kind: StdioServerProcessKind::Executor(process),
+             terminated: AtomicBool::new(false),
+             stderr_reader: None,
++            #[cfg(windows)]
++            stderr_closed: None,
++            #[cfg(windows)]
++            normal_shutdown_requested: AtomicBool::new(false),
++            #[cfg(windows)]
++            normal_close: CloseCompletion::default(),
++            #[cfg(windows)]
++            normal_tree: OnceLock::new(),
+         })
++    }
++
++    #[cfg(windows)]
++    pub(super) fn request_normal_shutdown(&self) {
++        self.normal_shutdown_requested
++            .store(true, Ordering::Release);
++    }
++
++    #[cfg(windows)]
++    async fn finish_windows_tree(self: &Arc<Self>) -> CloseResult {
++        self.normal_tree
++            .get_or_init(|| {
++                let process = Arc::clone(self);
++                tokio::task::spawn_blocking(move || {
++                    process.begin_termination();
++                    match &process.kind {
++                        StdioServerProcessKind::Local(Some(LocalProcessTerminator::Job {
++                            job,
++                            discovery_root: Some(root),
++                        })) => job.terminate_and_wait(root, Duration::from_secs(1)),
++                        StdioServerProcessKind::Local(Some(LocalProcessTerminator::Process(
++                            handle,
++                        ))) => {
++                            match codex_utils_pty::JobObject::terminate_process_handle(handle) {
++                                Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {}
++                                result => result?,
++                            }
++                            // Even the legacy no-Job fallback retains and waits
++                            // its original handle; PID absence is not evidence.
++                            #[link(name = "kernel32")]
++                            unsafe extern "system" {
++                                fn WaitForSingleObject(
++                                    handle: *mut std::ffi::c_void,
++                                    milliseconds: u32,
++                                ) -> u32;
++                            }
++                            match unsafe { WaitForSingleObject(handle.as_raw_handle(), 1_000) } {
++                                0 => Ok(()),
++                                258 => Err(io::Error::new(
++                                    io::ErrorKind::TimedOut,
++                                    "Windows stdio root did not exit",
++                                )),
++                                _ => Err(io::Error::last_os_error()),
++                            }
++                        }
++                        _ => Err(io::Error::other(
++                            "Windows stdio original process owner unavailable",
++                        )),
++                    }
++                })
++                .map(|joined| match joined {
++                    Ok(result) => result.map_err(Arc::new),
++                    Err(error) => Err(Arc::new(io::Error::other(error))),
++                })
++                .boxed()
++                .shared()
++            })
++            .clone()
++            .await
++    }
++
++    #[cfg(windows)]
++    async fn join_stderr(&self) -> CloseResult {
++        if let Some(completion) = &self.stderr_closed {
++            tokio::time::timeout(Duration::from_secs(1), completion.wait())
++                .await
++                .unwrap_or_else(|_| {
++                    Err(Arc::new(io::Error::new(
++                        io::ErrorKind::TimedOut,
++                        "Windows stdio stderr join timed out",
++                    )))
++                })
++        } else {
++            Ok(())
++        }
++    }
++
++    #[cfg(windows)]
++    pub(super) async fn await_normal_shutdown(self: &Arc<Self>) -> CloseResult {
++        // Includes the SDK's existing cancellation drain and original 3s child
++        // grace. All waiters share this worker; cancelling one cannot drop it.
++        let result = tokio::time::timeout(Duration::from_secs(7), self.normal_close.wait()).await;
++        let result = match result {
++            Ok(result) => result,
++            Err(_) => {
++                let failure = Err(Arc::new(io::Error::new(
++                    io::ErrorKind::TimedOut,
++                    "Windows stdio shutdown deadline exceeded",
++                )));
++                self.normal_close.complete(failure.clone());
++                failure
++            }
++        };
++        let tree = self.finish_windows_tree().await;
++        let stderr = self.join_stderr().await;
++        result.and(tree).and(stderr)
+     }
+ 
+     fn begin_termination(&self) -> bool {
+--- /dev/null
++++ b/codex-rs/rmcp-client/src/windows_stdio_shutdown.rs
+@@ -0,0 +1,52 @@
++//! Private completion state for the original Windows local stdio close.
++//! Service cancellation is not evidence that process/pipe cleanup succeeded.
++
++use std::io;
++use std::sync::Arc;
++use std::sync::OnceLock;
++
++use futures::future::BoxFuture;
++use futures::future::Shared;
++use tokio::sync::watch;
++
++pub(super) type CloseResult = Result<(), Arc<io::Error>>;
++pub(super) type CloseWorker = Shared<BoxFuture<'static, CloseResult>>;
++
++pub(super) struct CloseCompletion {
++    result: OnceLock<CloseResult>,
++    changed: watch::Sender<bool>,
++}
++
++impl Default for CloseCompletion {
++    fn default() -> Self {
++        Self {
++            result: OnceLock::new(),
++            changed: watch::channel(false).0,
++        }
++    }
++}
++
++impl CloseCompletion {
++    // The first terminal result wins, including a timeout before a late close.
++    pub(super) fn complete(&self, result: CloseResult) {
++        if self.result.set(result).is_ok() {
++            self.changed.send_replace(true);
++        }
++    }
++
++    pub(super) async fn wait(&self) -> CloseResult {
++        let mut changed = self.changed.subscribe();
++        loop {
++            if let Some(result) = self.result.get() {
++                return result.clone();
++            }
++            if changed.changed().await.is_err() {
++                return Err(Arc::new(io::Error::other("stdio close observer lost")));
++            }
++        }
++    }
++}
++
++pub(super) fn copy_error(error: Arc<io::Error>) -> io::Error {
++    io::Error::new(error.kind(), error.to_string())
++}
+--- /dev/null
++++ b/codex-rs/rmcp-client/src/windows_stdio_shutdown_tests.rs
+@@ -0,0 +1,251 @@
++use super::*;
++use crate::stdio_server_launcher::LocalStdioServerLauncher;
++use crate::windows_stdio_shutdown::CloseCompletion;
++use rmcp::model::{ClientCapabilities, Implementation};
++use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
++use std::path::Path;
++
++#[link(name = "kernel32")]
++unsafe extern "system" {
++    fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut std::ffi::c_void;
++    fn WaitForSingleObject(handle: *mut std::ffi::c_void, milliseconds: u32) -> u32;
++    fn GetExitCodeProcess(handle: *mut std::ffi::c_void, code: *mut u32) -> i32;
++}
++
++fn process_handle(pid: u32) -> io::Result<OwnedHandle> {
++    let handle = unsafe { OpenProcess(0x0010_1000, 0, pid) };
++    if handle.is_null() {
++        return Err(io::Error::last_os_error());
++    }
++    Ok(unsafe { OwnedHandle::from_raw_handle(handle) })
++}
++
++fn exited(handle: &OwnedHandle) -> io::Result<u32> {
++    if unsafe { WaitForSingleObject(handle.as_raw_handle(), 1_000) } != 0 {
++        return Err(io::Error::other("original process is still alive"));
++    }
++    let mut code = 259;
++    if unsafe { GetExitCodeProcess(handle.as_raw_handle(), &mut code) } == 0 {
++        return Err(io::Error::last_os_error());
++    }
++    Ok(code)
++}
++
++async fn wait_marker(path: &Path, text: &str) -> Result<()> {
++    tokio::time::timeout(Duration::from_secs(5), async {
++        loop {
++            if std::fs::read_to_string(path)
++                .unwrap_or_default()
++                .contains(text)
++            {
++                break;
++            }
++            tokio::time::sleep(Duration::from_millis(10)).await;
++        }
++    })
++    .await?;
++    Ok(())
++}
++
++async fn client(
++    mode: &str,
++    protocol: McpProtocolMode,
++    descendants: bool,
++) -> Result<(Arc<RmcpClient>, tempfile::TempDir, OwnedHandle)> {
++    let directory = tempfile::tempdir()?;
++    let mut env = HashMap::from([
++        (
++            OsString::from("MCP_TEST_PID_FILE"),
++            directory.path().join("root.pid").into_os_string(),
++        ),
++        (
++            OsString::from("MCP_TEST_SHUTDOWN_FILE"),
++            directory.path().join("close.txt").into_os_string(),
++        ),
++        (
++            OsString::from("MCP_TEST_SHUTDOWN_MODE"),
++            OsString::from(mode),
++        ),
++    ]);
++    if protocol == McpProtocolMode::V20260728 {
++        env.insert(
++            OsString::from("CODEX_MCP_PROTOCOL_VERSION"),
++            OsString::from("2026-07-28"),
++        );
++    }
++    if descendants {
++        env.insert(
++            OsString::from("MCP_TEST_DESCENDANT_PID_FILE"),
++            directory.path().join("child.pid").into_os_string(),
++        );
++        env.insert(
++            OsString::from("MCP_TEST_BREAKAWAY_DENIED_FILE"),
++            directory.path().join("breakaway.txt").into_os_string(),
++        );
++    }
++    let client = RmcpClient::new_stdio_client_with_protocol_mode(
++        codex_utils_cargo_bin::cargo_bin("test_stdio_server")?.into_os_string(),
++        Vec::new(),
++        Some(env),
++        &[],
++        Some(directory.path().to_string_lossy().into_owned()),
++        Arc::new(LocalStdioServerLauncher::new(directory.path().to_owned())),
++        protocol,
++    )
++    .await?;
++    client
++        .initialize(
++            InitializeRequestParams::new(
++                ClientCapabilities::default(),
++                Implementation::new("close-test", "1"),
++            )
++            .with_protocol_version(ProtocolVersion::V_2025_06_18),
++            Some(Duration::from_secs(10)),
++            Box::new(|_, _| {
++                async {
++                    Ok(ElicitationResponse {
++                        action: ElicitationAction::Decline,
++                        content: None,
++                        meta: None,
++                    })
++                }
++                .boxed()
++            }),
++        )
++        .await?;
++    // Modern discovery is stateless: the server's serve() does not enter its
++    // running lifecycle until the first non-discover request. An actual result
++    // is the readiness barrier, not a delay or a client-side discovery reply.
++    let tools = client
++        .list_tools(None, Some(Duration::from_secs(10)))
++        .await?;
++    assert!(
++        !tools.tools.is_empty(),
++        "the original server must be running"
++    );
++    let pid = std::fs::read_to_string(directory.path().join("root.pid"))?.parse()?;
++    let handle = process_handle(pid)?;
++    Ok((Arc::new(client), directory, handle))
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn normal_shutdown_waits_for_original_eof_cleanup_and_exit_in_both_protocols() -> Result<()> {
++    for protocol in [McpProtocolMode::Legacy, McpProtocolMode::V20260728] {
++        let (client, directory, handle) = client("delay", protocol, false).await?;
++        let retained_service = client.service().await?;
++        let start = Instant::now();
++        client.shutdown_for(StdioTermination::Shutdown).await?;
++        assert!(start.elapsed() >= Duration::from_millis(700));
++        assert!(
++            retained_service.is_closed(),
++            "another Arc must not prevent explicit cancellation"
++        );
++        assert_eq!(
++            std::fs::read_to_string(directory.path().join("close.txt"))?,
++            "eof\ncleanup_begin\ncleanup_end\nterminal\n"
++        );
++        assert_eq!(exited(&handle)?, 0);
++        client.shutdown_for(StdioTermination::Shutdown).await?;
++    }
++    Ok(())
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn shutdown_drains_original_output_without_pipe_capacity_deadlock() -> Result<()> {
++    let (client, directory, handle) = client("output", McpProtocolMode::V20260728, false).await?;
++    client.shutdown_for(StdioTermination::Shutdown).await?;
++    assert!(std::fs::read_to_string(directory.path().join("close.txt"))?.contains("terminal"));
++    assert_eq!(exited(&handle)?, 0);
++    Ok(())
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn cancelled_first_waiter_does_not_cancel_shared_close() -> Result<()> {
++    let (client, directory, handle) = client("delay", McpProtocolMode::Legacy, false).await?;
++    let first_client = Arc::clone(&client);
++    let first =
++        tokio::spawn(async move { first_client.shutdown_for(StdioTermination::Shutdown).await });
++    wait_marker(&directory.path().join("close.txt"), "eof").await?;
++    first.abort();
++    let _ = first.await;
++    client.shutdown_for(StdioTermination::Shutdown).await?;
++    assert!(std::fs::read_to_string(directory.path().join("close.txt"))?.contains("terminal"));
++    assert_eq!(exited(&handle)?, 0);
++    Ok(())
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn hung_shutdown_is_bounded_and_concurrent_callers_keep_original_failure() -> Result<()> {
++    let (client, directory, handle) = client("hang", McpProtocolMode::Legacy, false).await?;
++    let other = Arc::clone(&client);
++    let start = Instant::now();
++    let (first, second) = tokio::join!(
++        client.shutdown_for(StdioTermination::Shutdown),
++        other.shutdown_for(StdioTermination::Shutdown)
++    );
++    let first = first.expect_err("hung child cannot be a successful close");
++    let second = second.expect_err("concurrent caller cannot hide failure");
++    assert_eq!(first.kind(), io::ErrorKind::TimedOut);
++    assert_eq!(first.to_string(), second.to_string());
++    assert!(start.elapsed() < Duration::from_secs(9));
++    assert_ne!(exited(&handle)?, 0);
++    assert!(!std::fs::read_to_string(directory.path().join("close.txt"))?.contains("terminal"));
++    let repeated = client
++        .shutdown_for(StdioTermination::Shutdown)
++        .await
++        .expect_err("failure is stable");
++    assert_eq!(repeated.to_string(), first.to_string());
++    Ok(())
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn nonzero_original_exit_does_not_become_clean() -> Result<()> {
++    let (client, _directory, handle) = client("nonzero", McpProtocolMode::Legacy, false).await?;
++    assert!(
++        client
++            .shutdown_for(StdioTermination::Shutdown)
++            .await
++            .is_err()
++    );
++    assert_eq!(exited(&handle)?, 17);
++    assert!(
++        client
++            .shutdown_for(StdioTermination::Shutdown)
++            .await
++            .is_err()
++    );
++    Ok(())
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn root_exit_does_not_leave_original_job_descendant_alive() -> Result<()> {
++    let (client, directory, root) = client("normal", McpProtocolMode::Legacy, true).await?;
++    let child =
++        process_handle(std::fs::read_to_string(directory.path().join("child.pid"))?.parse()?)?;
++    assert_eq!(
++        std::fs::read_to_string(directory.path().join("breakaway.txt"))?,
++        "denied"
++    );
++    client.shutdown_for(StdioTermination::Shutdown).await?;
++    assert_eq!(
++        std::fs::read_to_string(directory.path().join("close.txt"))?,
++        "eof\ncleanup_begin\ncleanup_end\nterminal\n"
++    );
++    assert_eq!(exited(&root)?, 0);
++    assert_ne!(exited(&child)?, 259);
++    Ok(())
++}
++
++#[tokio::test]
++async fn first_close_failure_cannot_be_replaced_by_late_success() {
++    let completion = CloseCompletion::default();
++    completion.complete(Err(Arc::new(io::Error::new(
++        io::ErrorKind::TimedOut,
++        "original timeout",
++    ))));
++    completion.complete(Ok(()));
++    assert_eq!(
++        completion.wait().await.expect_err("latched").kind(),
++        io::ErrorKind::TimedOut
++    );
++}

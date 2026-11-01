@@ -36,7 +36,7 @@ class DeviceNativeProofActivity : Activity() {
         observer = DeviceForegroundObserver(this, gate)
         try {
             if (!BuildConfig.ANDROID_READ_VALIDATION ||
-                packageName != "com.example.shiroha_quiz.androidread" ||
+                packageName != BuildConfig.ANDROID_READ_VALIDATION_APPLICATION_ID ||
                 applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0 ||
                 android.os.Build.VERSION.SDK_INT < 29 || savedInstanceState != null) {
                 throw DeviceLinkFailure("runtime_not_authorized")

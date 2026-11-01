@@ -2466,6 +2466,24 @@ The complete ownership and failure rules live in
 
 ### 19.3 Packaging and compatibility
 
+The bounded Android-only source package now lives in `tool/link`: native-admitted
+explicit initialization, the original adapter, an independent AOT Link and the
+real Profile 3 MCP frontend. It uses operation-bound preparation and original
+pairing/settlement provenance, with v2 local state kept separate from #359 files.
+The frontend has no initialization/selection/recovery authority. Explicit
+local registration can separately seal prospective original pairing evidence
+without a business/control pipe or LinkStateStore. Native launch admission,
+original credential-generation verification and original process/stream join
+remain required; a single designated Link may adopt v2 registrar custody through
+ADOPT_PENDING. Model parameters cannot create source evidence. Existing v1 and
+unknown historical pairings retain their original paths; unified access §4.3
+owns these bounded records and recovery refusals. Explicit
+Android `SHIROHA_UNIFIED_LINK` builds negotiate Profile 3 with the original
+Application owner and acknowledge CLOSE only after original business/output
+settlement. Defaults remain unchanged. Legacy/dirty detection refuses normal
+initialization; retirement, old-format upgrades and dirty recovery are outside
+this source slice. See [installation and evidence limits](../../../tool/link/README.md).
+
 The plugin source and Link runtime package are separate. Android-only packaging
 requires Link and the original Android adapter dependencies, not a Windows App
 build/layout. Windows target selection verifies its original adjacent

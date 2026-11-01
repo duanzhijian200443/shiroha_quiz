@@ -30,13 +30,13 @@ class MainActivity : FlutterActivity() {
     private fun observe() { runOnUiThread { device?.observer?.publish() } }
     private fun requireAndroidReadAdmission() {
         if (!BuildConfig.DEBUG || !BuildConfig.ANDROID_READ_VALIDATION || Build.VERSION.SDK_INT < 29 ||
-            packageName != "com.example.shiroha_quiz.androidread" || isFinishing || isDestroyed)
+            packageName != BuildConfig.ANDROID_READ_VALIDATION_APPLICATION_ID || isFinishing || isDestroyed)
             DeviceLinkAdmission.requireAuthorized()
     }
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         if (!BuildConfig.DEBUG || !BuildConfig.ANDROID_READ_VALIDATION || Build.VERSION.SDK_INT < 29 ||
-            packageName != "com.example.shiroha_quiz.androidread") return
+            packageName != BuildConfig.ANDROID_READ_VALIDATION_APPLICATION_ID) return
         val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "shiroha/android_device_foundation")
         device = DeviceFoundationChannel(this, channel, ::requireAndroidReadAdmission)
         channel.setMethodCallHandler(device)

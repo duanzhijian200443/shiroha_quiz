@@ -669,8 +669,25 @@ the foundation's default admission remains closed. Opening settings does not
 enable access or authenticate a connection.
 
 An explicit Debug build with `-PandroidReadValidation=true` uses the separate
-`com.example.shiroha_quiz.androidread` installation. Its debug-only,
-shell-permission-protected native validation Activity consumes the SAME native
+`com.example.shiroha_quiz.androidread` installation. Adding
+`-PandroidLinkIsolationValidation=true` selects the
+`com.example.shiroha_quiz.linkvalidation` Debug identity and distinct launcher
+label for a new Link acceptance pairing while preserving an existing READ test
+installation. For a later fresh run that must preserve this installation too,
+`-PandroidLinkIsolationValidationTag=<tag>` appends a new package segment; the tag
+must match `[a-z][a-z0-9]{0,23}` and requires isolation. An omitted tag retains the
+original isolation ID. The isolation flag requires the READ validation flag. Both native
+entries check the generated exact validation application ID in addition to the
+existing Debug/API/admission gates; ordinary builds retain disabled admission.
+No shared UID is declared: private databases, `noBackupFilesDir` credentials and
+AndroidKeyStore aliases are scoped to each installation's distinct UID. Verify
+the APK identity, distinct installed UIDs and fresh state before pairing; never
+replace, clear or reset the existing installation to obtain fresh evidence.
+The two installations retain the same device TLS port, so independent identity
+and storage do not imply concurrent listeners: keep the old installation's
+access disabled during the isolated run, without changing its pairing or dirty
+records. Each selected artifact's debug-only, shell-permission-protected native
+validation Activity consumes the SAME native
 credential, peer-policy and TLS endpoint, with real foreground/network
 observations and a 120-second local admission. The local desktop `--native-proof`
 entry uses the SAME pinned TLS and current-user DPAPI primitives. Ordinary builds
@@ -899,18 +916,36 @@ Interface support is not evidence that this combination has run successfully.
 - [Schannel version support](https://learn.microsoft.com/en-us/windows/win32/secauthn/protocols-in-tls-ssl--schannel-ssp-)
 
 <a id="unified-access-successor"></a>
-## 14. Independent Link and remote successor — adopted design only
+## 14. Bounded independent Link source and remote successor
 
 The [unified access v1.4 target](unified-access-and-content-exchange-v1.md)
 defines a separate Shiroha Link host for local unified Android access.
 The computer runs Codex and Link, but Android routing must not run Windows
 Shiroha or read its database/settings/B0. The original adapter's identity, TLS,
-slot ownership and close protocol remain authoritative. This target amendment
-does not activate a new consumer or change the existing seven-tool path. The
+slot ownership and close protocol remain authoritative. The design alone does
+not activate a consumer or change the existing seven-tool path. The
 Profile 3 business foundation is separately implemented under MCP §19.1.
 Target-app authorization, finite Enable and original owner settlement are retained.
 
+The explicit `tool/link` Android-only source consumer adds normal initialization
+through the original adapter and optional `SHIROHA_UNIFIED_LINK` Profile 3
+negotiation in the Android composition. Its fresh pairing keeps unverified
+installation fields null until original P15/P0 and settlement; the helper then
+saves the verified credential and bound provenance. Historical admission needs
+original provenance and clean receipt evidence, never a new handoff fabricated
+from a missing file. The ordinary build and seven-tool defaults remain unchanged.
+Profile 3 CLOSE joins the original operation/output before acknowledgment and
+TLS/key/process settlement. This source does not qualify a new device, a normal
+Codex READ, Windows database isolation or crash recovery by compilation alone.
+
 Normal setup uses trusted slot provenance rather than mandatory old-host release.
+Prospective registration may use the independent registrar-only local entry,
+which opens no business/control pipe and creates no Link state. The original
+P15/TLS/credential owner produces immutable pairing receipt and generation-bound
+origin; original process/stream join precedes SEALED. One specified Link adopts
+the same credential/association through ADOPT_PENDING. This creates neither
+Grant nor Enable; old evidence gaps remain diagnostic and v1 is not migrated.
+The unified contract §4.3 owns its records, locks and interruption rules.
 New pairing remains UNCLAIMED/PREPARING until original P15/P0, credential
 persistence and resource settlement complete; LINK_OWNED precedes the separate
 finite Enable/business lease. Actual #356 slots alone use one-time retirement.

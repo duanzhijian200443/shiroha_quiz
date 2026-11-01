@@ -16,6 +16,14 @@ do not establish complete Link acceptance or resolve its dirty recovery. All
 applicable L01–L16 cases remain required. Remote mode and exchange are separate
 work; earlier bounded evidence is not expanded by this document adoption.
 
+The bounded [Android-only Link source package](../../../tool/link/README.md)
+adds explicit normal initialization and Profile 3 forwarding through the original
+adapter. Operation-bound preparation, positive historical provenance and original
+resource settlement precede ownership. It detects and preserves legacy/dirty
+records, without implementing retirement, old-format upgrade or dirty recovery.
+Package/source checks do not close fresh-installation, historical-pairing,
+normal-Codex READ or Windows database-isolation acceptance.
+
 Current scheduling is owned by the
 [limited Windows development milestone](../../architecture/shiroha-project-roadmap.md#limited-windows-development-use-and-maintenance-2026-10-27):
 the existing normal App/Codex path, including already committed-question study

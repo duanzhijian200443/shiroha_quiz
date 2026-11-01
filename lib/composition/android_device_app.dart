@@ -16,6 +16,7 @@ import '../data/external/android_native_association_backend.dart';
 import '../data/external/android_native_channel.dart';
 import '../mcp/android_mcp_transport.dart' hide androidLinkFail;
 import '../mcp/vnext_mcp_composition_root.dart';
+import '../mcp/vnext_mcp_server.dart';
 import '../core/observability/app_logger.dart';
 import 'android_device_foundation.dart';
 import 'mcp_vnext_app_integration.dart';
@@ -483,9 +484,18 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
         'expectedDeviceId',
         'expectedProfileId',
         'clientNonce',
-        'linkVersions'
+        'linkVersions',
+        if (hello.containsKey('profileVersion')) 'profileVersion',
       });
       final purpose = hello['purpose'];
+      final profileVersion =
+          hello.containsKey('profileVersion') ? hello['profileVersion'] : 2;
+      if (profileVersion is! int ||
+          ![2, 3].contains(profileVersion) ||
+          purpose != 'business' && hello.containsKey('profileVersion') ||
+          profileVersion == 3 && _binding?.supportsUnifiedProfile != true) {
+        androidLinkFail();
+      }
       AppLogger.info('Android HELLO checks', module: 'MCP', data: {
         'control': kind == 1,
         'type': hello['type'] == 'hello',
@@ -563,6 +573,9 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
                 reads: appBinding.reads,
                 stages: appBinding.stages,
                 stageApproval: appBinding.stageApproval,
+                profileVersion: profileVersion,
+                source: VnextDataSource(
+                    'android', _identity!['deviceId'] as String),
                 approvedTargets: const [],
                 authentication: VnextMcpSessionAuthentication(() async =>
                     current() && await channel.attest() ? session : null)),
@@ -577,10 +590,13 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
             invalidate: channel.invalidate,
             connectionId: channel.id,
             current: current);
-        final server = androidDeviceServer(port);
+        final server =
+            androidDeviceServer(port, profileVersion: profileVersion);
         await channel.write(1, {
           'type': 'ready',
           'linkVersion': 1,
+          if (profileVersion == 3) 'profileVersion': 3,
+          if (profileVersion == 3) 'installationId': channel.installationId,
           'deviceId': _identity!['deviceId'],
           'profileId': reference.profileId,
           'runtimeId': _runtime,

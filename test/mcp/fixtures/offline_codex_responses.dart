@@ -11,18 +11,23 @@ final class ScriptedMcpCall {
 }
 
 final class OfflineCodexResponses {
-  OfflineCodexResponses(this.calls);
+  OfflineCodexResponses(this.calls,
+      {this.validateOutput, this.finalMessage = 'Offline probe complete.'});
   final List<ScriptedMcpCall> calls;
+  final bool Function(int, Map<String, dynamic>)? validateOutput;
+  final String finalMessage;
   final outputs = <Map<String, dynamic>>[];
   final issued = <Map<String, dynamic>>[];
   final failures = <String>[];
   HttpServer? _server;
   Future<void>? _serving;
   int requests = 0;
+  int totalRequests = 0;
   bool finished = false;
   Uri get base => Uri.parse('http://127.0.0.1:${_server!.port}/v1');
 
   Future<void> start() async {
+    if (calls.isEmpty || calls.length > 8) throw ArgumentError('script_limit');
     _server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     _serving = _serve();
   }
@@ -30,6 +35,9 @@ final class OfflineCodexResponses {
   Future<void> _serve() async {
     await for (final request in _server!) {
       try {
+        if (++totalRequests > calls.length + 1 || failures.isNotEmpty) {
+          throw StateError('total_request_limit');
+        }
         if (request.method != 'POST' ||
             request.uri.path != '/v1/responses' ||
             request.headers.value(HttpHeaders.authorizationHeader) != null) {
@@ -37,7 +45,7 @@ final class OfflineCodexResponses {
         }
         var size = 0;
         final bytes = <int>[];
-        await for (final chunk in request) {
+        await for (final chunk in request.timeout(const Duration(seconds: 5))) {
           size += chunk.length;
           if (size > 2 * 1024 * 1024) throw StateError('request_limit');
           bytes.addAll(chunk);
@@ -67,7 +75,11 @@ final class OfflineCodexResponses {
         if (index > 0) {
           final latest = returned['probe-call-${index - 1}'];
           if (latest == null) throw StateError('missing_original_output');
-          outputs.add(decodeOutput(latest['output']));
+          final decoded = decodeOutput(latest['output']);
+          if (validateOutput != null && !validateOutput!(index - 1, decoded)) {
+            throw StateError('original_output_mismatch');
+          }
+          outputs.add(decoded);
         }
         Map<String, dynamic> item;
         if (index < calls.length) {
@@ -103,7 +115,7 @@ final class OfflineCodexResponses {
             'id': 'probe-message',
             'role': 'assistant',
             'content': [
-              {'type': 'output_text', 'text': 'Offline probe complete.'}
+              {'type': 'output_text', 'text': finalMessage}
             ],
           };
         }
@@ -133,13 +145,20 @@ final class OfflineCodexResponses {
           'missing_original_output',
           'invalid_output_set',
           'mcp_tool_not_advertised',
+          'original_output_mismatch',
+          'total_request_limit',
+          'tool_error_output',
           'Unrecognized original tool output'
         };
         failures.add(error is StateError && categories.contains(error.message)
             ? error.message
-            : 'offline_response_rejected_at_$requests');
+            : 'offline_response_rejected');
         request.response.statusCode = HttpStatus.internalServerError;
         await request.response.close();
+        // The first invalid request terminates this attempt. No retry/failure
+        // accumulation, even if a client ignores its configured retry count.
+        unawaited(_server!.close(force: true));
+        break;
       }
     }
   }
@@ -156,6 +175,11 @@ final class OfflineCodexResponses {
       return decodeOutput((output.single as Map)['text']);
     }
     if (output is Map) {
+      if (output['error'] != null ||
+          ['isError', 'is_error']
+              .any((key) => output.containsKey(key) && output[key] != false)) {
+        throw StateError('tool_error_output');
+      }
       if (output['structuredContent'] != null) {
         return (output['structuredContent'] as Map).cast<String, dynamic>();
       }

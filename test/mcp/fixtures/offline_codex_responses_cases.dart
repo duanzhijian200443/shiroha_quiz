@@ -79,6 +79,97 @@ void offlineCodexResponsesCases() {
           }),
         };
 
+    test(
+        'both MCP error spellings and malformed flags reject before projection',
+        () {
+      for (final key in ['isError', 'is_error']) {
+        for (final flag in [true, null, 0, 'false']) {
+          expect(
+              () => OfflineCodexResponses.decodeOutput({
+                    key: flag,
+                    'structuredContent': {
+                      'data': {'ok': true}
+                    },
+                  }),
+              throwsStateError);
+        }
+      }
+      expect(
+          () => OfflineCodexResponses.decodeOutput({
+                'error': 'synthetic',
+                'structuredContent': {
+                  'data': {'ok': true}
+                },
+              }),
+          throwsStateError);
+    });
+
+    test(
+        'total limit counts unexpected requests and first failure stops service',
+        () async {
+      final request =
+          await http.getUrl(Uri.parse('${model.base}/not-responses'));
+      final response = await request.close();
+      await response.drain<void>();
+      expect(response.statusCode, 500);
+      expect(model.totalRequests, 1);
+      expect(model.requests, 0);
+      expect(model.failures, ['unexpected_request_or_auth']);
+      expect(model.finished, isFalse);
+      await model.close();
+      expect(model.failures, hasLength(1));
+    });
+
+    test('a third POST cannot extend a completed one-call script', () async {
+      expect((await post([])).status, 200);
+      expect((await post([output('probe-call-0')])).status, 200);
+      expect((await post([output('probe-call-0')])).status, 500);
+      expect(model.totalRequests, 3);
+      expect(model.requests, 2);
+      expect(model.failures, ['total_request_limit']);
+    });
+
+    for (final fault in ['none', 'nonce', 'error', 'wrapper-error', 'extra']) {
+      test('strict synthetic output checks $fault before sending final',
+          () async {
+        await model.close();
+        model = OfflineCodexResponses([
+          ScriptedMcpCall('open_generation_context', (_) => {}),
+        ],
+            validateOutput: (_, value) =>
+                value.length == 1 &&
+                value['data'] is Map &&
+                (value['data'] as Map).length == 2 &&
+                value['data']['ok'] == true &&
+                value['data']['nonce'] == 'public-nonce');
+        await model.start();
+        expect((await post([])).status, 200);
+        final returned = <String, dynamic>{
+          'data': {
+            'ok': true,
+            'nonce': fault == 'nonce' ? 'foreign-nonce' : 'public-nonce',
+          }
+        };
+        if (fault == 'error') returned['error'] = 'synthetic';
+        if (fault == 'extra') returned['extra'] = 'SENTINEL';
+        final response = await post([
+          {
+            'type': 'function_call_output',
+            'call_id': 'probe-call-0',
+            'output': jsonEncode(fault == 'wrapper-error'
+                ? {'isError': true, 'structuredContent': returned}
+                : returned),
+          }
+        ]);
+        expect(response.status, fault == 'none' ? 200 : 500);
+        expect(model.finished, fault == 'none');
+        expect(
+            response.body.contains('Offline probe complete.'), fault == 'none');
+        expect(response.body, isNot(contains('SENTINEL')));
+        expect(model.outputs, hasLength(fault == 'none' ? 1 : 0));
+      });
+    }
+
     void expectRejected(({int status, String body}) response,
         {int acceptedOutputs = 0, required String category}) {
       expect(response.status, 500);

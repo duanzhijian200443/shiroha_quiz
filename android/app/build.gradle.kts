@@ -13,6 +13,19 @@ android {
     // Explicit task installation; ordinary Debug/Release retain their identity.
     val androidReadValidation = providers.gradleProperty("androidReadValidation")
         .map { it == "true" }.getOrElse(false)
+    val androidLinkIsolationValidation = providers.gradleProperty("androidLinkIsolationValidation")
+        .map { it == "true" }.getOrElse(false)
+    val androidLinkIsolationValidationTag = providers.gradleProperty("androidLinkIsolationValidationTag")
+        .getOrElse("")
+    check(!androidLinkIsolationValidation || androidReadValidation) {
+        "Link isolation requires the explicit Android READ validation build."
+    }
+    check(androidLinkIsolationValidationTag.isEmpty() ||
+        (androidLinkIsolationValidation && androidLinkIsolationValidationTag.matches(Regex("[a-z][a-z0-9]{0,23}")))) {
+        "A fresh Link validation tag requires isolation and a bounded lowercase identifier."
+    }
+    val linkValidationApplicationId = "com.example.shiroha_quiz.linkvalidation" +
+        if (androidLinkIsolationValidationTag.isEmpty()) "" else ".$androidLinkIsolationValidationTag"
     buildFeatures { buildConfig = true }
 
     compileOptions {
@@ -34,14 +47,23 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         buildConfigField("boolean", "ANDROID_READ_VALIDATION", "false")
+        buildConfigField("String", "ANDROID_READ_VALIDATION_APPLICATION_ID", "\"\"")
+        manifestPlaceholders["applicationLabel"] = "shiroha_quiz"
         manifestPlaceholders["androidNativeProofEnabled"] = "false"
     }
 
     buildTypes {
         debug {
             if (androidReadValidation) {
-                applicationIdSuffix = ".androidread"
+                applicationIdSuffix = if (androidLinkIsolationValidation)
+                    linkValidationApplicationId.removePrefix("com.example.shiroha_quiz") else ".androidread"
                 buildConfigField("boolean", "ANDROID_READ_VALIDATION", "true")
+                buildConfigField("String", "ANDROID_READ_VALIDATION_APPLICATION_ID",
+                    if (androidLinkIsolationValidation) "\"$linkValidationApplicationId\""
+                    else "\"com.example.shiroha_quiz.androidread\"")
+                if (androidLinkIsolationValidation) {
+                    manifestPlaceholders["applicationLabel"] = "Shiroha Link validation"
+                }
                 manifestPlaceholders["androidNativeProofEnabled"] = "true"
             }
         }
