@@ -304,6 +304,12 @@ final class SlotOwnershipStore {
       await evidence.noPending();
       return evidence.verify(custody!.value);
     }
+    return _registeredPairingV1();
+  }
+
+  // Only prepare's locked, validated v1 publication may read this evidence
+  // while its own owner pending exists. Ordinary readers retain their fence.
+  Future<Map<String, dynamic>> _registeredPairingV1() async {
     if (await file('initialization-joined.pending').exists()) linkFail();
     final origin = await readPairingOrigin();
     final receipt = await receiptFor(origin['resourceGeneration'] as String);
@@ -480,24 +486,46 @@ final class SlotOwnershipStore {
           final current = await file('slot-ownership.json').exists()
               ? SlotOwnershipRecord(await readJson('slot-ownership.json'))
               : null;
-          if (next.operationId != installation.operationId ||
+          if (next.registered ||
+              current?.registered == true ||
+              next.operationId != installation.operationId ||
               next.value['ownerInstanceId'] !=
                   installation.connectorInstanceId ||
               next.value['slotRef'] != installation.slotRef ||
               current?.owned == true ||
               next.revision != (current == null ? 0 : current.revision + 1) ||
               current != null &&
-                  (current.operationId != next.operationId ||
+                  (current.value['slotRef'] != next.value['slotRef'] ||
+                      current.operationId != next.operationId ||
+                      current.value['initializationSource'] !=
+                          next.value['initializationSource'] ||
                       current.value['ownerInstanceId'] !=
                           next.value['ownerInstanceId'])) {
             linkFail();
           }
           if (next.owned) {
-            final origin = await registeredPairing();
-            if (next.value['lastSettlementState'] != 'CLEAN' ||
+            // An owner publication always has its original preparation. Do not
+            // turn an orphan pending or a v2 adoption into v1 initialization.
+            if (current == null) linkFail();
+            await requireNoUnsettledFiles();
+            final origin = await _registeredPairingV1();
+            final receipt =
+                await receiptFor(origin['resourceGeneration'] as String);
+            if (next.value['ownerGeneration'] != current.operationId ||
+                next.value['adapterCredentialSlotRef'] !=
+                    origin['credentialSlotRef'] ||
+                next.value['resourceGeneration'] !=
+                    origin['resourceGeneration'] ||
+                next.value['lastSettlementState'] != 'CLEAN' ||
                 next.value['lastSettlementRef'] != origin['settlementRef'] ||
                 jsonEncode(next.target!.toJson()) !=
-                    jsonEncode(origin['target'])) {
+                    jsonEncode(origin['target']) ||
+                current.value['initializationSource'] == 'new_pairing' &&
+                    (origin['operationId'] != current.operationId ||
+                        receipt['owner'] != current.value['ownerInstanceId'] ||
+                        current.value['resourceGeneration'] != null &&
+                            origin['resourceGeneration'] !=
+                                current.value['resourceGeneration'])) {
               linkFail();
             }
           }

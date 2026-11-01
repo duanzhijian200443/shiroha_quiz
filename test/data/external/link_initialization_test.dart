@@ -98,6 +98,34 @@ void main() {
     }
   }
 
+  Future<void> ownerPendingWindow() async {
+    final store = await initialize.open(initialize: true);
+    final ownership = File(p.join(slot.path, 'slot-ownership.json'));
+    final state = File(p.join(stateDirectory.path, 'link-state-v2.json'));
+    try {
+      final attempt = await initialize.beginAttempt(store, 'original-run');
+      final preparedOwner = await ownership.readAsBytes();
+      final preparedState = await state.readAsBytes();
+      await originalReceipt(resource: attempt.resourceId);
+      await initialize.complete(store, target);
+      await store.close();
+      // Keep the owner bytes produced by the real v1 completion, but restore
+      // the two original destinations as at flush-before-rename interruption.
+      await ownership.rename(p.join(slot.path, 'slot-ownership.pending'));
+      await ownership.writeAsBytes(preparedOwner, flush: true);
+      await state.writeAsBytes(preparedState, flush: true);
+    } finally {
+      await store.close();
+    }
+  }
+
+  Future<Map<String, List<int>>> retainedPublicationFiles() async => {
+        for (final directory in [slot, stateDirectory])
+          await for (final entry in directory.list())
+            if (entry is File && !entry.path.endsWith('.lock'))
+              entry.path: await entry.readAsBytes(),
+      };
+
   test(
       'L09 preparation has no verified identity, saved credential or clean claim',
       () async {
@@ -268,6 +296,125 @@ void main() {
     expect(await File(p.join(slot.path, 'slot-ownership.pending')).exists(),
         isFalse);
   });
+
+  test(
+      'L13 v1 owner pending resumes original publication only and is idempotent',
+      () async {
+    await ownerPendingWindow();
+    final pending = File(p.join(slot.path, 'slot-ownership.pending'));
+    final ownerBytes = await pending.readAsBytes();
+    final owner = await read('slot-ownership.pending');
+    final prepared = await read('slot-ownership.json');
+    expect(owner['revision'], (prepared['revision'] as int) + 1);
+    final evidence = {
+      for (final name in [
+        'device.dpapi',
+        'adapter-origin.json',
+        'link-settlement.json',
+        'initialization-joined.json'
+      ])
+        name: await File(p.join(slot.path, name)).readAsBytes(),
+    };
+    for (final readPending in [
+      slots.readAnyLocked,
+      slots.readLocked,
+      slots.registeredPairing
+    ]) {
+      await expectLater(
+          slots.locked(readPending), throwsA(isA<LinkException>()));
+    }
+    expect(await pending.readAsBytes(), ownerBytes);
+    var store = await initialize.open(initialize: true);
+    final resumedState = store.state.toJson();
+    expect(store.state.dirtyPhase, LinkDirtyPhase.clean);
+    expect(store.state.initializationOperationId, owner['operationId']);
+    expect(store.state.ownerGeneration, owner['ownerGeneration']);
+    expect(await pending.exists(), isFalse);
+    expect(await File(p.join(slot.path, 'slot-ownership.json')).readAsBytes(),
+        ownerBytes);
+    await store.close();
+    store = await initialize.open(initialize: true);
+    try {
+      await initialize.complete(store, target);
+      expect(store.state.toJson(), resumedState);
+      expect(await read('slot-ownership.json'), owner);
+      for (final entry in evidence.entries) {
+        expect(await File(p.join(slot.path, entry.key)).readAsBytes(),
+            entry.value);
+      }
+    } finally {
+      await store.close();
+    }
+  });
+
+  for (final mismatch in [
+    'operationId',
+    'revision',
+    'ownerGeneration',
+    'resourceGeneration',
+    'formatVersion',
+    'preparedSlot',
+    'orphan',
+    'missingJoin',
+    'incompleteJoin',
+    'receiptProcess',
+    'foreignOperation',
+    'unsettledReceipt'
+  ]) {
+    test('L13 v1 owner pending retains $mismatch without publication',
+        () async {
+      await ownerPendingWindow();
+      switch (mismatch) {
+        case 'preparedSlot':
+          await write('slot-ownership.json', {
+            ...await read('slot-ownership.json'),
+            'slotRef': 'different-slot',
+          });
+        case 'orphan':
+          await File(p.join(slot.path, 'slot-ownership.json')).delete();
+        case 'missingJoin':
+          await File(p.join(slot.path, 'initialization-joined.json')).delete();
+        case 'incompleteJoin':
+          await write('initialization-joined.json', {
+            ...await read('initialization-joined.json'),
+            'stderrDrained': false,
+          });
+        case 'receiptProcess':
+          await write('link-settlement.json', {
+            ...await read('link-settlement.json'),
+            'processStarted': 'different-process',
+          });
+        case 'foreignOperation':
+          for (final name in [
+            'adapter-origin.json',
+            'link-settlement.json',
+            'initialization-joined.json'
+          ]) {
+            await write(name, {
+              ...await read(name),
+              'operationId': 'different-operation',
+            });
+          }
+        case 'unsettledReceipt':
+          await write('link-settlement.pending', {'retained': true});
+        default:
+          final owner = await read('slot-ownership.pending');
+          await write('slot-ownership.pending', {
+            ...owner,
+            mismatch: mismatch == 'revision'
+                ? (owner['revision'] as int) + 1
+                : mismatch == 'formatVersion'
+                    ? 99
+                    : 'different-identity',
+          });
+      }
+      final retained = await retainedPublicationFiles();
+      await expectLater(initialize.open(initialize: true), throwsA(anything));
+      expect(await retainedPublicationFiles(), retained);
+      expect(await File(p.join(slot.path, 'slot-ownership.pending')).exists(),
+          isTrue);
+    });
+  }
 
   test(
       'L13 partial preparation remains untouched and cannot create another operation',

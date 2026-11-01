@@ -26,8 +26,13 @@ final class _Relay implements LocalRelayServerConnection {
   final sending = Completer<void>(), releaseSend = Completer<void>();
   bool holdResult = false, accepted = false, closed = false;
   bool holdAfterResult = false;
+  bool rearmOnDisconnect = false, notifyDisconnect = false, delayEof = false;
+  bool disconnected = false, eofSent = false;
+  int resultSends = 0;
+  final disconnectRequested = Completer<void>();
+  void Function(Map<String, Object?>)? onReceive;
   @override
-  bool get isCurrent => accepted && !closed;
+  bool get isCurrent => accepted && !closed && !disconnected;
   @override
   String get linkPeerIdentity => 'synthetic-peer';
   @override
@@ -42,6 +47,7 @@ final class _Relay implements LocalRelayServerConnection {
 
   @override
   Future<void> send(Map<String, Object?> message, Duration deadline) async {
+    if (message['kind'] == 'result') resultSends++;
     if (holdResult && message['kind'] == 'result') {
       sending.complete();
       await releaseSend.future;
@@ -56,6 +62,7 @@ final class _Relay implements LocalRelayServerConnection {
   @override
   Future<Map<String, Object?>> receive(Duration deadline) async {
     if (!await input.moveNext()) throw const LocalRelayException();
+    onReceive?.call(input.current);
     return input.current;
   }
 
@@ -65,7 +72,22 @@ final class _Relay implements LocalRelayServerConnection {
   }
 
   @override
-  Future<void> disconnect() async {}
+  Future<void> disconnect() async {
+    if (rearmOnDisconnect) accepted = false;
+    if (notifyDisconnect && !disconnected) {
+      disconnected = true;
+      disconnectRequested.complete();
+      if (!delayEof) finishDisconnect();
+    }
+  }
+
+  void finishDisconnect() {
+    if (!eofSent && !closed) {
+      eofSent = true;
+      incoming.addError(const LocalRelayException());
+    }
+  }
+
   @override
   Future<void> close() async {
     closed = true;
@@ -707,6 +729,273 @@ void main() {
     await business.dispose();
     await control.dispose();
   });
+
+  for (final action in ['disconnect', 'shutdown', 'select']) {
+    for (final phase in [
+      'backend',
+      'send',
+      'ack',
+      if (action == 'disconnect') 'prior-disconnect',
+      if (action == 'shutdown') 'prior-close',
+    ]) {
+      test('local control $action withdraws before joining $phase', () async {
+        await runtime.connect();
+        final business = _Relay()
+          ..notifyDisconnect = true
+          ..delayEof = true
+          ..holdResult = phase == 'send';
+        final control = _Relay()..rearmOnDisconnect = true;
+        final requestRead = Completer<void>();
+        control.onReceive = (message) {
+          if (message['action'] == action && !requestRead.isCompleted) {
+            requestRead.complete();
+          }
+        };
+        final serving = LinkPipeServer(runtime, business, control).serve();
+        business.admitted.complete();
+        final hello = await business.next();
+        business.incoming.add({...hello, 'kind': 'attach'});
+        await business.next();
+        final originalLease = store.state.lease!;
+        final originalOwner = store.state.owner!.toJson();
+        final selectionRevision = store.state.selectionRevision;
+        closeEntered = Completer<void>();
+        closeReleased = Completer<void>();
+        final envelope = {
+          'version': 1,
+          'runId': runtime.runId,
+          'connectionId': originalLease.frontendConnectionId,
+        };
+        business.incoming.add({
+          ...envelope,
+          'kind': 'call',
+          'id': 1,
+          'tool': 'open_context',
+          'arguments': <String, dynamic>{},
+        });
+        await backend.entered.future;
+        void releaseResponse() {
+          if (!backend.response.isCompleted) {
+            backend.response.complete({
+              'profileVersion': 3,
+              'data': <String, dynamic>{},
+              'error': null,
+              'source': {'kind': 'android', 'deviceRef': target.deviceIdentity},
+            });
+          }
+        }
+
+        final pendingBackend = phase == 'backend' || phase.startsWith('prior-');
+        if (!pendingBackend) releaseResponse();
+        if (phase == 'send') await business.sending.future;
+        if (phase == 'ack') {
+          expect((await business.next())['kind'], 'result');
+        }
+        final priorClose = phase == 'prior-disconnect'
+            ? runtime.disconnect()
+            : phase == 'prior-close'
+                ? runtime.close()
+                : null;
+        control.admitted.complete();
+        final ticket = await control.next();
+        var replied = false;
+        final reply = control.next().then((value) {
+          replied = true;
+          return value;
+        });
+        control.incoming.add({
+          ...ticket,
+          'action': action,
+          'targetRef': action == 'select' ? 'phone' : null,
+          'expectedSelectionRevision':
+              action == 'select' ? selectionRevision : null,
+          'expectedRevision': null,
+        });
+        try {
+          await requestRead.future;
+          await Future<void>.delayed(Duration.zero);
+          expect(
+              runtime.mayDeliver(business.linkPeerIdentity,
+                  originalLease.frontendConnectionId),
+              isFalse);
+          expect(runtime.inspect()['ready'], isFalse);
+          expect(replied, isFalse);
+          expect(backend.closes, 0);
+          expect(backend.cancelled, isFalse);
+          expect(store.state.owner!.toJson(), originalOwner);
+          await expectLater(
+              runtime.call(business.linkPeerIdentity,
+                  originalLease.frontendConnectionId, 2, 'open_context', {}),
+              throwsA(isA<LinkException>()));
+          final repeated = runtime.disconnect();
+          expect(identical(runtime.disconnect(), repeated), isTrue);
+          if (pendingBackend) {
+            releaseResponse();
+            await business.disconnectRequested.future;
+            // Disconnect returns before the receiving loop sees EOF. The last
+            // delivery journal must still precede backend/store settlement.
+            await Future<void>.delayed(Duration.zero);
+            expect(business.resultSends, 0);
+            expect(backend.closes, 0);
+            expect(replied, isFalse);
+            expect(observations, isEmpty);
+            business.finishDisconnect();
+          } else {
+            if (phase == 'send') {
+              business.releaseSend.complete();
+              expect((await business.next())['kind'], 'result');
+              expect(backend.closes, 0);
+            }
+            business.incoming.add({...envelope, 'kind': 'delivered', 'id': 1});
+          }
+          await closeEntered!.future.timeout(const Duration(seconds: 5));
+          expect(replied, isFalse);
+          expect(backend.closes, 1);
+          expect(backend.cancelled, isFalse);
+          expect(store.state.owner!.toJson(), originalOwner);
+          expect(store.state.dirtyPhase, LinkDirtyPhase.draining);
+          expect(store.state.delivery,
+              pendingBackend ? LinkDelivery.unknown : LinkDelivery.delivered);
+          if (phase == 'ack') {
+            // A new frame after the close snapshot must not create a pending
+            // delivery that can write after the store has closed. Its refusal
+            // ends the peer while the original resource is still draining.
+            final rejected = Completer<void>();
+            stageHook = (ordinal, stage, outcome, cause) {
+              if (ordinal == 2 &&
+                  stage == LinkCallStage.ipcReceive &&
+                  outcome == LinkCallOutcome.rejected) {
+                rejected.complete();
+              }
+            };
+            business.incoming.add({
+              ...envelope,
+              'kind': 'call',
+              'id': 2,
+              'tool': 'open_context',
+              'arguments': <String, dynamic>{},
+            });
+            await rejected.future.timeout(const Duration(seconds: 5));
+            expect(store.state.delivery, LinkDelivery.delivered);
+          }
+          closeReleased!.complete();
+          expect((await reply.timeout(const Duration(seconds: 5)))['error'],
+              isNull);
+          await repeated;
+          await priorClose;
+          expect(store.state.owner, isNull);
+          expect(store.state.lease, isNull);
+          expect(store.state.dirtyPhase, LinkDirtyPhase.clean);
+          expect(store.state.selectionRevision,
+              selectionRevision + (action == 'select' ? 1 : 0));
+          expect((await ownership())['lastSettlementState'], 'CLEAN');
+          final events = observations
+              .map((observation) => jsonDecode(observation.encode(1)) as Map)
+              .toList();
+          expect(events.map((event) => event['event']),
+              ['output-work-joined', 'runtime-settled']);
+          expect(events.last['leaseId'], originalLease.leaseId);
+        } finally {
+          releaseResponse();
+          if (!business.releaseSend.isCompleted) {
+            business.releaseSend.complete();
+          }
+          if (!closeReleased!.isCompleted) closeReleased!.complete();
+          business.finishDisconnect();
+          await reply.timeout(const Duration(seconds: 5));
+          control.incoming.add({...ticket, 'kind': 'received'});
+          if (action != 'shutdown') {
+            final shutdownTicket = await control.next();
+            await Future<void>.delayed(const Duration(milliseconds: 110));
+            control.incoming.add({
+              ...shutdownTicket,
+              'action': 'shutdown',
+              'targetRef': null,
+              'expectedSelectionRevision': null,
+              'expectedRevision': null,
+            });
+            expect((await control.next())['error'], isNull);
+            control.incoming.add({...shutdownTicket, 'kind': 'received'});
+          }
+          await serving.timeout(const Duration(seconds: 5));
+          await business.dispose();
+          await control.dispose();
+        }
+      });
+    }
+  }
+
+  for (final rejection in ['invalid_target', 'stale_revision']) {
+    test('local control select $rejection preserves pending output', () async {
+      await runtime.connect();
+      final business = _Relay();
+      final control = _Relay()..rearmOnDisconnect = true;
+      final serving = LinkPipeServer(runtime, business, control).serve();
+      business.admitted.complete();
+      final hello = await business.next();
+      business.incoming.add({...hello, 'kind': 'attach'});
+      await business.next();
+      final lease = store.state.lease!;
+      final envelope = {
+        'version': 1,
+        'runId': runtime.runId,
+        'connectionId': lease.frontendConnectionId,
+      };
+      business.incoming.add({
+        ...envelope,
+        'kind': 'call',
+        'id': 1,
+        'tool': 'open_context',
+        'arguments': <String, dynamic>{},
+      });
+      await backend.entered.future;
+      control.admitted.complete();
+      final ticket = await control.next();
+      control.incoming.add({
+        ...ticket,
+        'action': 'select',
+        'targetRef': rejection == 'invalid_target' ? 'other-phone' : 'phone',
+        'expectedSelectionRevision': store.state.selectionRevision +
+            (rejection == 'stale_revision' ? 1 : 0),
+        'expectedRevision': null,
+      });
+      expect(
+          (await control.next().timeout(const Duration(seconds: 5)))['error'],
+          rejection);
+      expect(
+          runtime.mayDeliver(
+              business.linkPeerIdentity, lease.frontendConnectionId),
+          isTrue);
+      expect(backend.closes, 0);
+      expect(backend.cancelled, isFalse);
+      control.incoming.add({...ticket, 'kind': 'received'});
+      final completed = Completer<void>();
+      callFinished = completed.complete;
+      backend.response.complete({
+        'profileVersion': 3,
+        'data': <String, dynamic>{},
+        'error': null,
+        'source': {'kind': 'android', 'deviceRef': target.deviceIdentity},
+      });
+      expect((await business.next())['kind'], 'result');
+      business.incoming.add({...envelope, 'kind': 'delivered', 'id': 1});
+      await completed.future;
+      final shutdownTicket = await control.next();
+      await Future<void>.delayed(const Duration(milliseconds: 110));
+      control.incoming.add({
+        ...shutdownTicket,
+        'action': 'shutdown',
+        'targetRef': null,
+        'expectedSelectionRevision': null,
+        'expectedRevision': null,
+      });
+      expect((await control.next())['error'], isNull);
+      control.incoming.add({...shutdownTicket, 'kind': 'received'});
+      await serving.timeout(const Duration(seconds: 5));
+      await business.dispose();
+      await control.dispose();
+    });
+  }
 
   for (final failedClose in [false, true]) {
     test(

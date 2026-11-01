@@ -60,6 +60,7 @@ final class LinkRuntime {
   final runId = linkNonce();
   LinkBackend? _backend;
   Future<void>? _operation, _call, _disconnecting, _closing;
+  Future<void> Function()? _joinOutput;
   Future<void> _journal = Future<void>.value();
   bool _ready = false, _closed = false, _withdrawing = false;
   String? _peer, _connection;
@@ -430,6 +431,12 @@ final class LinkRuntime {
     if (_disconnecting != null) return _disconnecting!;
     _withdrawing = true;
     _ready = false;
+    // Capture the original output barrier before a completed/failed task can
+    // leave the pipe's work set. Withdrawal itself neither cancels nor settles.
+    final output = _joinOutput?.call();
+    if (output != null) {
+      unawaited(output.then((_) {}, onError: (Object _, StackTrace __) {}));
+    }
     final operation = waitForOperation ? _operation : null;
     return _disconnecting = () async {
       try {
@@ -437,6 +444,7 @@ final class LinkRuntime {
         // A backend arriving during this join belongs to this same settlement.
         await operation;
         await _call; // EOF is not cancellation; retain the sole output consumer.
+        if (output != null) await output;
         final backend = _backend;
         if (backend != null) {
           final originalOwner = state.owner;
@@ -485,16 +493,31 @@ final class LinkRuntime {
   }
 }
 
+// Ends before Runtime disconnect, so a control close can join final delivery
+// bookkeeping without waiting on its own resource-settlement future.
+final class _PeerOutputDrain {
+  _PeerOutputDrain() {
+    unawaited(done.future.then((_) {}, onError: (Object _, StackTrace __) {}));
+  }
+  final done = Completer<void>();
+  bool ending = false, observed = false;
+}
+
 /// Separate authenticated pipes; no business method can select/recover a target.
 final class LinkPipeServer {
-  LinkPipeServer(this.runtime, this.business, this.control);
+  LinkPipeServer(this.runtime, this.business, this.control) {
+    // The original pipe owner participates in every close, including a backend
+    // disconnect that starts before a local control request joins it.
+    if (runtime._joinOutput != null) linkFail('busy');
+    runtime._joinOutput = _joinOutputWork;
+  }
   final LinkRuntime runtime;
   final LocalRelayServerConnection business, control;
   bool _closed = false;
-  bool _controlWithdrawing = false;
   final _controlClock = Stopwatch()..start();
   int _lastControl = -100;
   final _work = <Future<void>>{};
+  _PeerOutputDrain? _outputDrain;
   Future<void> serve() async {
     await Future.wait([_serveBusiness(), _serveControl()]);
     await Future.wait(_work.toList());
@@ -505,8 +528,10 @@ final class LinkPipeServer {
       int? pendingDelivery;
       LinkCallTrace? receivingTrace, pendingTrace;
       Completer<void>? outputAcknowledged;
+      _PeerOutputDrain? drain;
       try {
         await business.accept();
+        drain = _outputDrain = _PeerOutputDrain();
         final peer = business.linkPeerIdentity, connection = linkNonce();
         final envelope = {
           'version': 1,
@@ -528,7 +553,6 @@ final class LinkPipeServer {
             hello['capabilitySet'] != LinkLease.capabilitySet) {
           linkFail('invalidRequest');
         }
-        if (_controlWithdrawing) linkFail('busy');
         await runtime.attach(peer, connection);
         await business.send({
           ...envelope,
@@ -592,9 +616,12 @@ final class LinkPipeServer {
             linkFail('invalidRequest');
           }
           lastId = id;
+          // Do not create a new pending output after the original close has
+          // captured its barrier. Runtime remains the shared admission owner.
           if (_work.isNotEmpty ||
               pendingDelivery != null ||
-              _controlWithdrawing) {
+              !runtime.mayDeliver(peer, connection) ||
+              runtime._operation != null) {
             linkFail('busy');
           }
           pendingDelivery = id;
@@ -635,10 +662,14 @@ final class LinkPipeServer {
                 diagnostic?.stage(LinkCallStage.deliveryAck,
                     LinkCallOutcome.unknown, LinkCallCause.timeout);
                 await runtime.delivered(false);
+                drain!.ending = true;
                 await business.disconnect();
               }
-            } else if (business.isCurrent) {
-              await business.disconnect();
+            } else {
+              // The receiving loop may wake after disconnect returns. Retain
+              // its final delivery journal before control can close the store.
+              drain!.ending = true;
+              if (business.isCurrent) await business.disconnect();
             }
           }()
               .whenComplete(() => _work.remove(task));
@@ -656,6 +687,7 @@ final class LinkPipeServer {
                     : LinkCallCause.unknown);
         // No payload/unsafe exception is logged. Original work remains owned.
       } finally {
+        if (drain != null) drain.ending = true;
         final originalOwner = runtime.state.owner;
         final originalConnection = runtime.state.lease?.frontendConnectionId;
         final pendingWork = _work.length;
@@ -668,39 +700,54 @@ final class LinkPipeServer {
             .map((f) => f.then((_) {}, onError: (Object _, StackTrace __) {
                   workFailed = true;
                 })));
-        if (pendingDelivery != null) await runtime.delivered(false);
-        if (pendingTrace != null) {
-          if (pendingDelivery != null) {
-            pendingTrace.stage(LinkCallStage.deliveryAck,
-                LinkCallOutcome.unknown, LinkCallCause.eof);
+        try {
+          if (pendingDelivery != null) await runtime.delivered(false);
+          if (pendingTrace != null) {
+            if (pendingDelivery != null) {
+              pendingTrace.stage(LinkCallStage.deliveryAck,
+                  LinkCallOutcome.unknown, LinkCallCause.eof);
+            }
+            runtime.callDiagnostics?.finish(pendingTrace);
           }
-          runtime.callDiagnostics?.finish(pendingTrace);
-        }
-        runtime.callDiagnostics?.finish(receivingTrace);
-        if (originalOwner != null) {
-          observeLinkVerification(
-              runtime.verificationObserver,
-              () => LinkVerificationObservation.outputJoined(originalOwner,
-                  frontendEnded: true,
-                  frontendConnectionId: originalConnection,
-                  delivery: runtime.state.delivery,
-                  workFailed: workFailed,
-                  pendingWork: pendingWork));
+          runtime.callDiagnostics?.finish(receivingTrace);
+          if (originalOwner != null && drain?.observed != true) {
+            if (drain != null) drain.observed = true;
+            observeLinkVerification(
+                runtime.verificationObserver,
+                () => LinkVerificationObservation.outputJoined(originalOwner,
+                    frontendEnded: true,
+                    frontendConnectionId: originalConnection,
+                    delivery: runtime.state.delivery,
+                    workFailed: workFailed,
+                    pendingWork: pendingWork));
+          }
+          drain?.done.complete();
+        } catch (error, stack) {
+          drain?.done.completeError(error, stack);
+          rethrow;
         }
         try {
           await runtime.disconnect();
-        } catch (_) {/* Dirty blocks replacement. */}
+        } catch (_) {/* Dirty blocks replacement. */} finally {
+          if (identical(_outputDrain, drain)) _outputDrain = null;
+        }
         if (!_closed) await business.disconnect();
       }
     }
   }
 
   Future<void> _joinOutputWork() async {
+    final drain = _outputDrain;
     final originalOwner = runtime.state.owner;
     final originalConnection = runtime.state.lease?.frontendConnectionId;
     final pendingWork = _work.length;
-    await Future.wait(_work.toList());
-    if (originalOwner != null) {
+    try {
+      await Future.wait(_work.toList());
+    } finally {
+      if (drain?.ending == true) await drain!.done.future;
+    }
+    if (originalOwner != null && drain?.observed != true) {
+      if (drain != null) drain.observed = true;
       observeLinkVerification(
           runtime.verificationObserver,
           () => LinkVerificationObservation.outputJoined(originalOwner,
@@ -746,19 +793,13 @@ final class LinkPipeServer {
           case 'initialize':
             await runtime.initialize();
           case 'select':
-            _controlWithdrawing = true;
-            await _joinOutputWork();
             await runtime.select(linkToken(request['targetRef']),
                 linkRevision(request['expectedSelectionRevision']));
           case 'connect':
             await runtime.connect();
           case 'disconnect':
-            _controlWithdrawing = true;
-            await _joinOutputWork();
             await runtime.disconnect();
           case 'shutdown':
-            _controlWithdrawing = true;
-            await _joinOutputWork();
             await runtime.close();
             shutdownFinished = true;
           default:
@@ -778,7 +819,6 @@ final class LinkPipeServer {
           } catch (_) {/* Client gone. */}
         }
       } finally {
-        _controlWithdrawing = false;
         // A lost management reply cannot undo completed original settlement.
         if (shutdownFinished) {
           _closed = true;
