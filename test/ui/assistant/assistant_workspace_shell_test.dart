@@ -619,6 +619,207 @@ Future<_PreparedAssistantPresentation> _prepareFailurePresentation() async {
 }
 
 void main() {
+  testWidgets('RWD Assistant keeps its draft across the sidebar breakpoint',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1024, 768));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+      theme: AppTheme.lightTheme,
+      home: AssistantWorkspaceShell(
+        facade: _facade(),
+        conversationService: _conversationService(),
+        agentSettingsService: _agentSettingsService(),
+        startAgentTurn: _failedAgentTurn,
+      ),
+    ));
+    await tester.pumpAndSettle();
+    final composer = find.byKey(const ValueKey('u1-ux0-composer'));
+    await tester.enterText(composer, 'unsent resize draft');
+    final state = tester.state(find.byType(AssistantScreen));
+    for (final width in [360.0, 540.0, 768.0, 1024.0, 1260.0, 1700.0]) {
+      await tester.binding.setSurfaceSize(Size(width, 768));
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(composer).controller!.text,
+          'unsent resize draft',
+          reason: 'draft at $width');
+      expect(tester.state(find.byType(AssistantScreen)), same(state));
+      expect(composer.hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }
+  });
+
+  testWidgets('RWD desktop Library stays open when the global sidebar folds',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1260, 768));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+      theme: AppTheme.lightTheme,
+      home: AssistantWorkspaceShell(
+        facade: _facade(),
+        conversationService: _conversationService(),
+        agentSettingsService: _agentSettingsService(),
+        startAgentTurn: _failedAgentTurn,
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('u1-ux01-open-file-library')));
+    await tester.pumpAndSettle();
+    final search = find.byKey(const ValueKey('u1-ux01-file-search'));
+    await tester.enterText(search, 'notes');
+    for (final width in [768.0, 360.0, 1024.0, 1700.0, 540.0]) {
+      await tester.binding.setSurfaceSize(Size(width, 768));
+      await tester.pumpAndSettle();
+      expect(find.byType(FileLibraryWorkspace), findsOneWidget);
+      final editable =
+          find.descendant(of: search, matching: find.byType(EditableText));
+      expect(tester.widget<EditableText>(editable).controller.text, 'notes');
+      expect(find.text('notes.md').hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }
+    await tester
+        .tap(find.byKey(const ValueKey('u1-workspace-return-assistant')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('u1-ux0-open-drawer')));
+    await tester.pumpAndSettle();
+    expect(find.byType(GlobalSidebar), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('RWD Library keeps search and grid through local-nav resizing',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1700, 768));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final controller = FileLibraryController(_facade());
+    await controller.load();
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+      controller.dispose();
+    });
+    await tester.pumpWidget(MaterialApp(
+      theme: AppTheme.lightTheme,
+      home: FileLibraryWorkspace(controller: controller),
+    ));
+    await tester.pumpAndSettle();
+    final search = find.byKey(const ValueKey('u1-ux01-file-search'));
+    await tester.enterText(search, 'notes');
+    await tester.tap(find.byKey(const ValueKey('u1-file-layout-grid')));
+    await tester.pumpAndSettle();
+    for (final width in [1260.0, 1024.0, 768.0, 540.0, 360.0, 1700.0]) {
+      await tester.binding.setSurfaceSize(Size(width, 768));
+      await tester.pumpAndSettle();
+      final editable =
+          find.descendant(of: search, matching: find.byType(EditableText));
+      expect(tester.widget<EditableText>(editable).controller.text, 'notes',
+          reason: 'search at $width');
+      expect(controller.query, 'notes');
+      expect(find.byKey(const ValueKey('u1-ux01-file-grid')), findsOneWidget);
+      expect(find.text('notes.md').hitTestable(), findsOneWidget);
+      expect(tester.getRect(search).right, lessThanOrEqualTo(width));
+      expect(tester.takeException(), isNull);
+    }
+  });
+
+  testWidgets(
+      'RWD Library dialog input and tooltips stay reachable after resizing',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1700, 768));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final controller = FileLibraryController(_facade());
+    await controller.load();
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+      controller.dispose();
+    });
+    await tester.pumpWidget(MaterialApp(
+      theme: AppTheme.lightTheme,
+      home: FileLibraryWorkspace(controller: controller),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('u1-library-add-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('f0-1-create-folder')));
+    await tester.pumpAndSettle();
+    final input = find.byKey(const ValueKey('f0-1-folder-name-input'));
+    await tester.enterText(input, 'Unsubmitted folder');
+    for (final size in [const Size(360, 400), const Size(1700, 768)]) {
+      await tester.binding.setSurfaceSize(size);
+      await tester.pumpAndSettle();
+      final editable =
+          find.descendant(of: input, matching: find.byType(EditableText));
+      expect(tester.widget<EditableText>(editable).controller.text,
+          'Unsubmitted folder');
+      for (final control in [
+        input,
+        find.byKey(const ValueKey('f0-1-folder-name-save')),
+        find.text('取消'),
+      ]) {
+        expect(control.hitTestable(), findsOneWidget);
+        final rect = tester.getRect(control);
+        expect(rect.left, greaterThanOrEqualTo(0));
+        expect(rect.top, greaterThanOrEqualTo(0));
+        expect(rect.right, lessThanOrEqualTo(size.width));
+        expect(rect.bottom, lessThanOrEqualTo(size.height));
+      }
+      expect(tester.takeException(), isNull);
+    }
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.text('Unsubmitted folder'), findsNothing);
+    for (final size in [const Size(360, 400), const Size(1700, 768)]) {
+      await tester.binding.setSurfaceSize(size);
+      await tester.pumpAndSettle();
+      await tester.longPress(find.byKey(const ValueKey('u1-file-layout-grid')));
+      await tester.pump(const Duration(milliseconds: 200));
+      final tooltip = find.text('网格视图', findRichText: true);
+      expect(tooltip, findsOneWidget);
+      final rect = tester.getRect(tooltip);
+      expect(rect.left, greaterThanOrEqualTo(0));
+      expect(rect.top, greaterThanOrEqualTo(0));
+      expect(rect.right, lessThanOrEqualTo(size.width));
+      expect(rect.bottom, lessThanOrEqualTo(size.height));
+      Tooltip.dismissAllToolTips();
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    }
+  });
+
+  testWidgets(
+      'RWD compact Library keeps folders and files reachable in short windows',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final files = _Files();
+    final folders = _Folders(files);
+    final facade = _facade(files: files, folders: folders);
+    for (var i = 0; i < 18; i++) {
+      folders.values['extra-$i'] = LibraryFolder(
+          folderId: 'extra-$i',
+          displayName: 'Folder $i',
+          createdAt: DateTime.utc(2026, 8, 9));
+    }
+    final controller = FileLibraryController(facade);
+    await controller.load();
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+      controller.dispose();
+    });
+    await tester.pumpWidget(MaterialApp(
+      theme: AppTheme.lightTheme,
+      home: FileLibraryWorkspace(controller: controller),
+    ));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const ValueKey('u1-ux01-file-search')).hitTestable(),
+        findsOneWidget);
+    expect(find.text('notes.md').hitTestable(), findsOneWidget);
+    final lastFolder = find.byKey(const ValueKey('f0-1-folder-extra-17'));
+    await tester.ensureVisible(lastFolder);
+    await tester.pumpAndSettle();
+    expect(lastFolder.hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   for (final size in [const Size(360, 720), const Size(1024, 768)]) {
     testWidgets(
         'generated contribution enters actual Assistant AppBar at $size',
