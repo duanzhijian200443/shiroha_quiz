@@ -77,6 +77,17 @@ connections are rejected; no trusted MCP binding or credentials are installed.
 This is a bounded test entrypoint, not an OS sandbox or a production data-path
 selection option. The Windows MCP guide owns its repeatable commands and limits.
 
+The explicitly selected Debug-only `tool/ui_rwd_driver.dart` entry enables the
+Flutter SDK Driver extension for UI runtime validation. Each launch prepares a
+fresh owned temporary child and passes it through the same smoke path guard;
+it accepts no caller path and cannot adopt a prior installation's data. It reuses
+the refusing credential store and denied HTTP configuration. Normal `main()`
+does not import or enable Driver. Driver text emulation, widget-tree observations
+and rendered screenshots are recorded separately from native keyboard/window
+acceptance; they do not establish an independent review or whole-UI acceptance.
+Native keyboard acceptance explicitly disables Driver text-entry emulation
+before manual or OS input; the default emulated channel is not native-input proof.
+
 This stage does not migrate, scan, merge, delete, or automatically discover
 legacy worktree-local databases. Recovery or migration of legacy data is a
 separate authorized stage.
