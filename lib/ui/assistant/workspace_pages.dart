@@ -85,26 +85,35 @@ class FileLibraryWorkspace extends StatelessWidget {
         builder: (context, _) => LayoutBuilder(
           builder: (context, constraints) {
             final content = _FileLibraryContent(controller: controller);
-            if (constraints.maxWidth < 760) {
-              return Column(
-                key: const ValueKey<String>('u1-ux01-file-library-compact'),
-                children: [
-                  _FileFilters(controller: controller, compact: true),
-                  Expanded(child: content),
-                ],
-              );
-            }
-            return Row(
+            final compact = constraints.maxWidth < 760;
+            return Flex(
+              direction: compact ? Axis.vertical : Axis.horizontal,
               children: [
-                SizedBox(
-                  key: const ValueKey<String>(
-                    'u1-ux01-file-library-local-nav',
+                if (compact)
+                  ConstrainedBox(
+                    key: const ValueKey<String>('u1-ux01-file-library-compact'),
+                    constraints:
+                        BoxConstraints(maxHeight: constraints.maxHeight * 0.4),
+                    child: SingleChildScrollView(
+                      primary: false,
+                      child:
+                          _FileFilters(controller: controller, compact: true),
+                    ),
+                  )
+                else
+                  SizedBox(
+                    key: const ValueKey<String>(
+                      'u1-ux01-file-library-local-nav',
+                    ),
+                    width: 220,
+                    child: _FileFilters(controller: controller),
                   ),
-                  width: 220,
-                  child: _FileFilters(controller: controller),
+                if (!compact) const VerticalDivider(width: 1),
+                // The same keyed child stays mounted as the Flex changes axis.
+                Expanded(
+                  key: const ValueKey<String>('u1-file-content'),
+                  child: content,
                 ),
-                const VerticalDivider(width: 1),
-                Expanded(child: content),
               ],
             );
           },

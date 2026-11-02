@@ -132,6 +132,26 @@ On Mobile, the global destinations are available through the Assistant drawer
 and open as full-screen destinations. This is the compact form of the same IA,
 not a separate product hierarchy.
 
+### 4.5 Bounded responsive continuity
+
+The existing global Sidebar breakpoint remains 900 logical pixels of available
+workspace width; File Library uses its own available-width breakpoint of 760.
+These are local layout decisions, not a second appearance or navigation system.
+
+Resizing an active workspace preserves its mounted page and input state. Folding
+the global Sidebar must not discard an unsent Assistant draft or replace an open
+desktop File Library destination with the conversation. A desktop destination
+retained in compact space exposes a return-to-Assistant action; ordinary mobile
+drawer entries continue to use their existing full-screen routes. The registered
+global drawer remains valid while parent and child width observations update.
+
+File Library keeps search text and list/grid selection across its local navigation
+transition. Compact folder navigation occupies a bounded part of the available
+height and scrolls, so a long folder list cannot push the search and file area out
+of the window. Folder membership, file operations and conversation semantics are
+unchanged. Other reading/settings pages retain their shared `contentMaxWidth`
+constraints; this increment does not establish app-wide or real-device acceptance.
+
 ## 5. Learning Space semantics
 
 ```text

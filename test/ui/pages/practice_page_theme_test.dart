@@ -5,7 +5,7 @@ import 'package:shiroha_quiz/ui/pages/practice_page.dart';
 
 void main() {
   const question = Question(
-    id: 'question-1',
+    id: 'preview_question-1',
     type: 0,
     content: 'Synthetic question',
     options: '["A. One","B. Two"]',
@@ -16,8 +16,18 @@ void main() {
   );
 
   for (final brightness in Brightness.values) {
-    testWidgets('practice colors follow the $brightness color scheme',
+    testWidgets(
+        'practice retains neutral $brightness preview colors and actions',
         (tester) async {
+      // Practice retains its local neutral palette; host feedback colours are
+      // inherited. The appearance contract does not yet adopt the global palette.
+      final dark = brightness == Brightness.dark;
+      final canvas = dark ? const Color(0xFF191A20) : const Color(0xFFF7F7FA);
+      final surface = dark ? const Color(0xFF24252B) : Colors.white;
+      final ink = dark ? const Color(0xFFEAEAF0) : const Color(0xFF303238);
+      final selected = dark ? const Color(0xFF2D2E35) : const Color(0xFFF7F7FA);
+      final outline = dark ? const Color(0xFF40414A) : const Color(0xFFE8E8EE);
+      final correct = dark ? const Color(0xFF22362E) : const Color(0xFFF0F7F3);
       final scheme = ColorScheme.fromSeed(
         seedColor: Colors.indigo,
         brightness: brightness,
@@ -33,14 +43,14 @@ void main() {
       final scaffold = tester.widget<Scaffold>(
         find.byKey(const ValueKey<String>('practice-page-scaffold')),
       );
-      expect(scaffold.backgroundColor, scheme.surface);
+      expect(scaffold.backgroundColor, canvas);
 
       final questionCard = tester.widget<Container>(
         find.byKey(const ValueKey<String>('practice-question-card')),
       );
       expect(
         (questionCard.decoration! as BoxDecoration).color,
-        scheme.surfaceContainerLow,
+        surface,
       );
 
       AnimatedContainer option() => tester.widget<AnimatedContainer>(
@@ -50,11 +60,11 @@ void main() {
           tester.widget<Text>(find.text(text)).style!.color!;
       expect(
         (option().decoration! as BoxDecoration).color,
-        scheme.surfaceContainerLow,
+        surface,
       );
       expect(
         ((option().decoration! as BoxDecoration).border! as Border).top.color,
-        scheme.outlineVariant,
+        outline,
       );
 
       await tester.tap(
@@ -66,9 +76,9 @@ void main() {
           );
       expect(
         (selectedOption().decoration! as BoxDecoration).color,
-        scheme.primaryContainer,
+        selected,
       );
-      expect(optionTextColor('Two'), scheme.onPrimaryContainer);
+      expect(optionTextColor('Two'), ink);
 
       await tester.tap(
         find.byKey(const ValueKey<String>('practice-reveal-answer')),
@@ -76,22 +86,31 @@ void main() {
       await tester.pumpAndSettle();
       expect(
         (option().decoration! as BoxDecoration).color,
-        scheme.tertiaryContainer,
+        correct,
       );
-      expect(optionTextColor('One'), scheme.onTertiaryContainer);
+      expect(optionTextColor('One'), ink);
+      expect(find.text('正确答案'), findsOneWidget);
+      expect(find.byIcon(Icons.check_circle_outline), findsOneWidget);
       expect(
         (selectedOption().decoration! as BoxDecoration).color,
         scheme.errorContainer,
       );
       expect(optionTextColor('Two'), scheme.onErrorContainer);
+      expect(find.text('选择错误'), findsOneWidget);
+      expect(find.byIcon(Icons.cancel_outlined), findsOneWidget);
 
-      final gradeBar = tester.widget<Container>(
-        find.byKey(const ValueKey<String>('practice-grade-bar')),
-      );
-      expect(
-        (gradeBar.decoration! as BoxDecoration).color,
-        scheme.surfaceContainer,
-      );
+      // The preview_ fixture must never expose formal-session FSRS grades.
+      expect(find.byKey(const ValueKey<String>('practice-grade-bar')),
+          findsNothing);
+      expect(find.text('丢弃').hitTestable(), findsOneWidget);
+      final save = find.text('收入题库');
+      expect(save.hitTestable(), findsOneWidget);
+      final footer = find.ancestor(
+          of: save,
+          matching: find.byWidgetPredicate(
+              (widget) => widget is Container && widget.color != null));
+      expect(tester.widget<Container>(footer.first).color, surface);
+      expect(tester.takeException(), isNull);
     });
   }
 }

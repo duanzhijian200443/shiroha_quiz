@@ -187,7 +187,7 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
     if (created != null && mounted) await _openSpaceHome(created.projectId);
   }
 
-  Widget _buildWorkspace() {
+  Widget _buildWorkspace({required bool compact}) {
     return switch (_destination) {
       _WorkspaceDestination.conversation => Column(
           children: [
@@ -196,7 +196,7 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
                 spacesController: _spacesController,
                 fileController: _fileController,
                 conversationController: _conversationController,
-                showGlobalMenu: false,
+                showGlobalMenu: compact,
                 practiceCommands: widget.practiceCommands,
                 questionListQuery: widget.questionListQuery,
               ),
@@ -245,48 +245,68 @@ class _AssistantWorkspaceShellState extends State<AssistantWorkspaceShell> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        if (constraints.maxWidth < 900) {
-          return AssistantScreen(
-            spacesController: _spacesController,
-            fileController: _fileController,
-            conversationController: _conversationController,
-            practiceCommands: widget.practiceCommands,
-            questionListQuery: widget.questionListQuery,
-          );
-        }
+        final compact = constraints.maxWidth < 900;
         return Scaffold(
           key: const ValueKey<String>('u1-ux01-workspace-shell'),
           body: Row(
             children: [
-              SizedBox(
-                width: 300,
-                child: GlobalSidebar(
-                  controller: _spacesController,
-                  conversationController: _conversationController,
-                  onNewConversation: () => setState(() {
-                    _conversationController.startNew();
-                    _destination = _WorkspaceDestination.conversation;
-                  }),
-                  onOpenFileLibrary: () => setState(
-                    () => _destination = _WorkspaceDestination.fileLibrary,
+              if (!compact)
+                SizedBox(
+                  width: 300,
+                  child: GlobalSidebar(
+                    controller: _spacesController,
+                    conversationController: _conversationController,
+                    onNewConversation: () => setState(() {
+                      _conversationController.startNew();
+                      _destination = _WorkspaceDestination.conversation;
+                    }),
+                    onOpenFileLibrary: () => setState(
+                      () => _destination = _WorkspaceDestination.fileLibrary,
+                    ),
+                    onOpenLearningSpaces: () => setState(
+                      () => _destination = _WorkspaceDestination.learningSpaces,
+                    ),
+                    onOpenMcp: () => setState(
+                      () => _destination = _WorkspaceDestination.mcp,
+                    ),
+                    onOpenConversation: _openConversation,
+                    onOpenSpaceHome: _openSpaceHome,
+                    onCreateSpace: _createSpace,
+                    onFeedback: _feedback,
                   ),
-                  onOpenLearningSpaces: () => setState(
-                    () => _destination = _WorkspaceDestination.learningSpaces,
-                  ),
-                  onOpenMcp: () => setState(
-                    () => _destination = _WorkspaceDestination.mcp,
-                  ),
-                  onOpenConversation: _openConversation,
-                  onOpenSpaceHome: _openSpaceHome,
-                  onCreateSpace: _createSpace,
-                  onFeedback: _feedback,
                 ),
-              ),
-              const VerticalDivider(width: 1),
+              if (!compact) const VerticalDivider(width: 1),
+              // Retain the active workspace, composer and scroll state when
+              // the global sidebar is removed or restored.
               Expanded(
-                child: AnimatedBuilder(
-                  animation: _spacesController,
-                  builder: (context, _) => _buildWorkspace(),
+                key: const ValueKey<String>('u1-active-workspace'),
+                child: Column(
+                  children: [
+                    if (compact &&
+                        _destination != _WorkspaceDestination.conversation)
+                      SafeArea(
+                        bottom: false,
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            key: const ValueKey<String>(
+                                'u1-workspace-return-assistant'),
+                            onPressed: () => setState(() => _destination =
+                                _WorkspaceDestination.conversation),
+                            icon: const Icon(Icons.arrow_back),
+                            label: const Text('返回助手'),
+                          ),
+                        ),
+                      ),
+                    Expanded(
+                      key: const ValueKey<String>('u1-workspace-body'),
+                      child: AnimatedBuilder(
+                        animation: _spacesController,
+                        builder: (context, _) =>
+                            _buildWorkspace(compact: compact),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],

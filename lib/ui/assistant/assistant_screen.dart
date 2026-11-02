@@ -169,7 +169,9 @@ class _AssistantScreenState extends State<AssistantScreen> {
     });
   }
 
-  Widget _buildGlobalDrawer(BuildContext _) => _buildDrawer()!;
+  // MainScreen can rebuild for a new width before this retained child receives
+  // showGlobalMenu. A registered builder must remain valid during that frame.
+  Widget _buildGlobalDrawer(BuildContext _) => _buildDrawerContent();
 
   String get _currentSpace {
     final scope = widget.conversationController.currentScope;
@@ -468,6 +470,10 @@ class _AssistantScreenState extends State<AssistantScreen> {
 
   Drawer? _buildDrawer() {
     if (!widget.showGlobalMenu) return null;
+    return _buildDrawerContent();
+  }
+
+  Drawer _buildDrawerContent() {
     return Drawer(
       child: GlobalSidebar(
         controller: widget.spacesController,
