@@ -13,6 +13,92 @@ import 'package:shiroha_quiz/data/external/link/link_verification_log.dart';
 import 'package:shiroha_quiz/data/external/link/link_call_diagnostics.dart';
 import 'link_call_capture_cases.dart';
 import 'package:shiroha_quiz/data/external/windows_local_relay.dart';
+import '../../mcp/fixtures/codex_app_server_support.dart'
+    show flutterDartExecutable;
+
+Future<LinkAdapterProcess> _startBusinessChild(LinkInstallation installation,
+        {required String runId,
+        required String resourceId,
+        required File exitSignal,
+        required Future<void> Function(LinkOwnerReference) acquired,
+        required LinkVerificationObserver observer,
+        void Function(Process)? started,
+        Process Function(Process)? wrap,
+        bool settledBeforeExit = false}) =>
+    LinkAdapterProcess.start(installation,
+        runId: runId,
+        resourceId: resourceId,
+        proof: false,
+        acquired: acquired,
+        verificationObserver: observer, startProcess: (_, __,
+            {required runInShell, required workingDirectory}) async {
+      final dart = flutterDartExecutable();
+      // New SDKs split the CLI launcher from the VM. Supervise the very
+      // process that reports its PID, as with the distributed adapter.
+      final vm = File(p.join(
+          p.dirname(dart), Platform.isWindows ? 'dartvm.exe' : 'dartvm'));
+      final process = await Process.start(vm.existsSync() ? vm.path : dart, [
+        '--disable-dart-dev',
+        '--packages=${p.absolute('.dart_tool/package_config.json')}',
+        p.absolute('test/data/external/fixtures/link_business_child.dart'),
+        runId,
+        resourceId,
+        exitSignal.path,
+        settledBeforeExit ? 'settled' : 'missing',
+      ]);
+      started?.call(process);
+      addTearDown(() async {
+        await exitSignal.create();
+        await process.exitCode.timeout(const Duration(seconds: 8));
+      });
+      return wrap?.call(process) ?? process;
+    });
+
+// Keep the real process and pipes. Hold one input barrier until the test
+// explicitly lets it finish, so exit during a flush/close is deterministic.
+final class _HeldInput implements StreamConsumer<List<int>> {
+  _HeldInput(this.pipe, {required this.holdFlush});
+  final IOSink pipe;
+  final bool holdFlush;
+  final entered = Completer<void>(), release = Completer<void>();
+  Future<void> _hold() {
+    entered.complete();
+    return release.future;
+  }
+
+  @override
+  Future<void> addStream(Stream<List<int>> stream) async {
+    await for (final chunk in stream) {
+      pipe.add(chunk);
+    }
+    await pipe.flush();
+    if (holdFlush) await _hold();
+  }
+
+  @override
+  Future<void> close() async {
+    if (!holdFlush) await _hold();
+    await pipe.close();
+  }
+}
+
+final class _ProcessWithInput implements Process {
+  _ProcessWithInput(this.original, this.stdin);
+  final Process original;
+  @override
+  final IOSink stdin;
+  @override
+  int get pid => original.pid;
+  @override
+  Future<int> get exitCode => original.exitCode;
+  @override
+  Stream<List<int>> get stdout => original.stdout;
+  @override
+  Stream<List<int>> get stderr => original.stderr;
+  @override
+  bool kill([ProcessSignal signal = ProcessSignal.sigterm]) =>
+      original.kill(signal);
+}
 
 final class _Relay implements LocalRelayServerConnection {
   _Relay() {
@@ -503,6 +589,179 @@ void main() {
   Future<Map<String, dynamic>> ownership() async => jsonDecode(
           await File(p.join(slot.path, 'slot-ownership.json')).readAsString())
       as Map<String, dynamic>;
+
+  for (final exitsFirst in [false, true]) {
+    test(
+        'business child ${exitsFirst ? 'exits first' : 'receives EOF'} after Profile 3 READ',
+        () async {
+      final exitSignal = File(p.join(root.path, 'exit-after-read'));
+      late Future<void> inputDone;
+      final child = await _startBusinessChild(runtime.installation,
+          runId: 'run',
+          resourceId: 'resource',
+          exitSignal: exitSignal,
+          acquired: (_) async {},
+          observer: observations.add,
+          settledBeforeExit: true,
+          started: (process) => inputDone = process.stdin.done
+              .then<void>((_) {}, onError: (Object _, StackTrace __) {}));
+      final reply = await child.call('open_context', {'scope': 'authorized'},
+          cancelled: const Stream.empty());
+      expect(reply['data'], {'contextRef': 'synthetic-read'});
+      if (exitsFirst) {
+        await exitSignal.create();
+        await child.disconnected.timeout(const Duration(seconds: 5));
+        await inputDone.timeout(const Duration(seconds: 5));
+      }
+      final closing = child.close();
+      expect(identical(child.close(), closing), isTrue);
+      final result = closing.timeout(const Duration(seconds: 4));
+      if (exitsFirst) {
+        // Even a matching event and exit 0 do not establish a flushed input.
+        await expectLater(
+            result,
+            throwsA(isA<LinkException>()
+                .having((e) => e.code, 'code', 'owner_unsettled')));
+        expect(observations, isEmpty);
+      } else {
+        await result;
+        expect(observations, hasLength(1));
+      }
+    });
+  }
+
+  for (final holdFlush in [true, false]) {
+    test('business child exits during ${holdFlush ? 'flush' : 'close'}',
+        () async {
+      late _HeldInput held;
+      final exitSignal = File(p.join(root.path, 'exit-during-close'));
+      final child = await _startBusinessChild(runtime.installation,
+          runId: 'run',
+          resourceId: 'resource',
+          exitSignal: exitSignal,
+          acquired: (_) async {},
+          observer: observations.add,
+          settledBeforeExit: true, wrap: (process) {
+        held = _HeldInput(process.stdin, holdFlush: holdFlush);
+        return _ProcessWithInput(process, IOSink(held));
+      });
+      try {
+        final reply = await child.call('open_context', {'scope': 'authorized'},
+            cancelled: const Stream.empty());
+        expect(reply['data'], {'contextRef': 'synthetic-read'});
+        final closing = child.close();
+        final rejected = expectLater(
+            closing.timeout(const Duration(seconds: 5)),
+            throwsA(isA<LinkException>()
+                .having((e) => e.code, 'code', 'owner_unsettled')));
+        await held.entered.future.timeout(const Duration(seconds: 5));
+        expect(identical(child.close(), closing), isTrue);
+        await exitSignal.create();
+        await rejected;
+        expect(observations, isEmpty);
+      } finally {
+        held.release.complete();
+      }
+    });
+  }
+
+  test('business child input error stays failed after a settled exit',
+      () async {
+    late IOSink input;
+    final exitSignal = File(p.join(root.path, 'exit-after-input-error'));
+    final child = await _startBusinessChild(runtime.installation,
+        runId: 'run',
+        resourceId: 'resource',
+        exitSignal: exitSignal,
+        acquired: (_) async {},
+        observer: observations.add,
+        settledBeforeExit: true, wrap: (process) {
+      input = IOSink(_HeldInput(process.stdin, holdFlush: true));
+      return _ProcessWithInput(process, input);
+    });
+    final reply = await child.call('open_context', {'scope': 'authorized'},
+        cancelled: const Stream.empty());
+    expect(reply['data'], {'contextRef': 'synthetic-read'});
+    input.addError(const LinkException('synthetic_input_error'));
+    // Let the owner observe the sink's error before anyone requests close.
+    await Future<void>.delayed(Duration.zero);
+    await expectLater(input.done, throwsA(isA<LinkException>()));
+    final rejected = expectLater(
+        child.close().timeout(const Duration(seconds: 5)),
+        throwsA(isA<LinkException>()
+            .having((e) => e.code, 'code', 'owner_unsettled')));
+    await exitSignal.create();
+    await rejected;
+    expect(observations, isEmpty);
+  });
+
+  test('business child exit leaves the original runtime owner in recovery',
+      () async {
+    final exitSignal = File(p.join(root.path, 'exit-without-receipt'));
+    late LinkAdapterProcess child;
+    var businessStarts = 0;
+    final active = LinkRuntime(
+        installation: runtime.installation,
+        store: store,
+        backendFactory: (
+            {required proof,
+            required runId,
+            required resourceId,
+            required acquired}) async {
+          if (proof) {
+            final owner = LinkOwnerReference(
+                runId: runId,
+                resourceId: resourceId,
+                processId: 100,
+                processStarted: '123456',
+                slotRef: 'phone');
+            await acquired(owner);
+            await receipt(owner, 'enable-proof');
+            return _Backend(owner, target, () async {});
+          }
+          businessStarts++;
+          return child = await _startBusinessChild(runtime.installation,
+              runId: runId,
+              resourceId: resourceId,
+              exitSignal: exitSignal,
+              acquired: acquired,
+              observer: observations.add);
+        });
+    try {
+      await active.connect();
+      await active.attach('peer', 'connection');
+      final originalOwner = store.state.owner!.toJson();
+      final originalLease = store.state.lease!.toJson();
+      final reply = await active.call(
+          'peer', 'connection', 1, 'open_context', {'scope': 'authorized'});
+      expect(reply['data'], {'contextRef': 'synthetic-read'});
+      await exitSignal.create();
+      await child.disconnected.timeout(const Duration(seconds: 5));
+      await expectLater(
+          active.disconnect().timeout(const Duration(seconds: 5)),
+          throwsA(isA<LinkException>()
+              .having((e) => e.code, 'code', 'owner_unsettled')));
+      expect(store.state.dirtyPhase, LinkDirtyPhase.recoveryRequired);
+      expect(store.state.settlement, LinkSettlement.unknown);
+      expect(store.state.owner!.toJson(), originalOwner);
+      expect(store.state.lease!.toJson(), originalLease);
+      expect((await ownership())['lastSettlementState'], 'DIRTY');
+      expect(
+          jsonDecode(await File(p.join(slot.path, 'link-settlement.json'))
+              .readAsString())['mode'],
+          'enable-proof');
+      await expectLater(
+          active.attach('another-peer', 'new'), throwsA(isA<LinkException>()));
+      expect(businessStarts, 1);
+      expect(observations, isEmpty);
+    } finally {
+      try {
+        await active.close().timeout(const Duration(seconds: 5));
+      } on LinkException {
+        /* Failed original custody is retained until fixture teardown. */
+      }
+    }
+  });
 
   test(
       'normal proof and business closure settle exact resources, retaining owner generation',

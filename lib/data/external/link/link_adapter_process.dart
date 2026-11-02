@@ -25,19 +25,21 @@ abstract interface class LinkBackend {
 final class LinkAdapterProcess implements LinkBackend {
   LinkAdapterProcess._(this._process, this.runId, this.resourceId, this.slotRef,
       this._proof, this._windows, this._verificationObserver) {
-    _stderr = _readEvents();
-    _stdout = _readOutput();
-    unawaited(_stderr.then((_) {}, onError: (Object _, StackTrace __) {
-      _failed = true;
+    _stderr = _readEvents().catchError(_streamFailed);
+    _stdout = _readOutput().catchError(_streamFailed);
+    unawaited(_process.stdin.done.then<void>((_) {
+      _stdinDone = true;
+      _endInput();
+    }, onError: (Object error, StackTrace stack) {
+      _streamFailed(error, stack);
+      _endInput();
     }));
-    unawaited(_stdout.then((_) {}, onError: (Object _, StackTrace __) {
-      _failed = true;
-    }));
-    unawaited(_process.exitCode.then((_) {
+    _exit = _process.exitCode.whenComplete(() {
+      _endInput();
       if (!_identity.isCompleted) {
         _identity.completeError(const LinkException('adapter_unavailable'));
       }
-    }));
+    }).onError((Object _, StackTrace __) => -1);
     unawaited(
         _identity.future.then((_) {}, onError: (Object _, StackTrace __) {}));
     _client = _proof
@@ -55,8 +57,10 @@ final class LinkAdapterProcess implements LinkBackend {
   LinkVerifiedTarget? _target;
   LinkAppClient? _client;
   late final Future<void> _stdout, _stderr;
+  late final Future<int> _exit;
+  final _inputEnded = Completer<void>();
   Future<void>? _closing;
-  bool _settledEvent = false, _failed = false, _inputClosed = false;
+  bool _settledEvent = false, _failed = false, _stdinDone = false;
   int _diagnosticBytes = 0;
 
   static Future<LinkAdapterProcess> start(LinkInstallation installation,
@@ -253,7 +257,36 @@ final class LinkAdapterProcess implements LinkBackend {
   LinkOwnerReference get owner =>
       _owner ?? (throw const LinkException('unavailable'));
   @override
-  Future<void> get disconnected => _process.exitCode.then((_) {});
+  Future<void> get disconnected => _exit.then((_) {});
+
+  void _streamFailed(Object _, StackTrace __) => _failed = true;
+
+  void _endInput() {
+    if (!_inputEnded.isCompleted) _inputEnded.complete();
+  }
+
+  Future<void> _closeInput() async {
+    final input = _process.stdin;
+    if (_proof) {
+      // No SDK writer is created for proof. Only the original EOF is owed.
+      await input.close();
+      return;
+    }
+    try {
+      // Dart destroys the process pipe on exit. A flush started before or
+      // after that destruction can wait forever. Only flush itself is proof.
+      final flushed = !_inputEnded.isCompleted &&
+          await Future.any([
+            input.flush().then((_) => true),
+            _inputEnded.future.then((_) => false),
+          ]);
+      if (!flushed) _failed = true;
+    } finally {
+      // Exit can also interrupt a pending close. Observe the original sink's
+      // done independently; exit alone never satisfies the final input check.
+      await Future.any<void>([input.close(), _inputEnded.future]);
+    }
+  }
 
   Future<void> _readOutput() async {
     var proofBytes = 0;
@@ -387,19 +420,19 @@ final class LinkAdapterProcess implements LinkBackend {
   Future<void> close() => _closing ??= () async {
         // SDK close would abort request handlers. The owning Link first joins its
         // original call; EOF now requests the adapter's graceful target CLOSE.
-        if (!_inputClosed) {
-          _inputClosed = true;
-          try {
-            await _process.stdin.flush();
-            await _process.stdin.close();
-          } catch (_) {
-            _failed = true;
-          }
+        try {
+          await _closeInput();
+        } catch (_) {
+          _failed = true;
         }
-        final status = await _process.exitCode;
+        final status = await _exit;
         await Future.wait([_stdout, _stderr]);
-        await _client?.close();
-        if (status != 0 || !_settledEvent || _failed) {
+        try {
+          await _client?.close();
+        } catch (_) {
+          _failed = true;
+        }
+        if (status != 0 || !_stdinDone || !_settledEvent || _failed) {
           linkFail('owner_unsettled');
         }
         observeLinkVerification(
