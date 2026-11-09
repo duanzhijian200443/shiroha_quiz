@@ -248,6 +248,16 @@ final class _OriginalProcess implements Process {
   }
 }
 
+final class _CapturedStderr implements Stdout {
+  final lines = <String>[];
+
+  @override
+  void writeln([Object? object = '']) => lines.add(object.toString());
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 final class _Backend implements LinkBackend {
   _Backend(this.owner, this.target, this.settle);
   @override
@@ -335,6 +345,29 @@ void main() {
       expect(value['stderrDrained'], isTrue);
       await Future.wait([adapter.close(), adapter.close()]);
       expect(observations, hasLength(1));
+    });
+
+    test('receipt failure reports only bounded original stderr evidence',
+        () async {
+      final original = _OriginalProcess();
+      final diagnostics = _CapturedStderr();
+      final observations = <LinkVerificationObservation>[];
+      final started = IOOverrides.runZoned(
+          () => start(original, observations.add),
+          stderr: () => diagnostics);
+      final refused = expectLater(started, throwsA(isA<LinkException>()));
+      const report = '{"androidDevice":"unavailable",'
+          '"stage":"settlement-receipt","category":"io","code":-2147024891';
+      original.events.add(utf8.encode('$report,"path":"private"}\n'
+          '$report}\n$report}\n'));
+      original.exited.complete(78);
+      await Future.wait([original.output.close(), original.events.close()]);
+      await refused;
+      expect(diagnostics.lines, [
+        'android_adapter_settlement_receipt_failed pid=42 '
+            'category=io hresult=0x80070005'
+      ]);
+      expect(observations, isEmpty);
     });
 
     for (final failure in [
@@ -452,8 +485,9 @@ void main() {
   Completer<void>? acquisitionEntered, acquisitionReleased;
   Completer<void>? closeEntered, closeReleased;
   final observations = <LinkVerificationObservation>[];
-  Future<void> receipt(LinkOwnerReference owner, String mode) =>
-      File(p.join(slot.path, 'link-settlement.json')).writeAsString(jsonEncode({
+  Future<void> receipt(LinkOwnerReference owner, String mode,
+          {String filename = 'link-settlement.json'}) =>
+      File(p.join(slot.path, filename)).writeAsString(jsonEncode({
         'formatVersion': 2,
         'operationId': 'operation',
         'receiptRef': owner.resourceId,
@@ -735,6 +769,10 @@ void main() {
       final reply = await active.call(
           'peer', 'connection', 1, 'open_context', {'scope': 'authorized'});
       expect(reply['data'], {'contextRef': 'synthetic-read'});
+      const pendingName = 'link-settlement.pending';
+      final pending = File(p.join(slot.path, pendingName));
+      await receipt(store.state.owner!, 'business', filename: pendingName);
+      final originalPending = await pending.readAsBytes();
       await exitSignal.create();
       await child.disconnected.timeout(const Duration(seconds: 5));
       await expectLater(
@@ -745,6 +783,7 @@ void main() {
       expect(store.state.settlement, LinkSettlement.unknown);
       expect(store.state.owner!.toJson(), originalOwner);
       expect(store.state.lease!.toJson(), originalLease);
+      expect(await pending.readAsBytes(), originalPending);
       expect((await ownership())['lastSettlementState'], 'DIRTY');
       expect(
           jsonDecode(await File(p.join(slot.path, 'link-settlement.json'))
