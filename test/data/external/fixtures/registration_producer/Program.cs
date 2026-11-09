@@ -8,6 +8,8 @@ internal static class Program
     internal const bool RuntimeAvailable = false;
     internal static int Main(string[] args)
     {
+        if (args is ["--settlement-publication", var fixtureDirectory])
+            return SettlementPublicationCases.Run(fixtureDirectory);
         if (args.Length != 1 && args.Length != 3) return 64;
         string directory = Path.GetFullPath(args[0]);
         var custody = RegistrationCustody.Read(directory, "slot-ownership.json");

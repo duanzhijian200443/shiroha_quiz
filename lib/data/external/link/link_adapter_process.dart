@@ -61,7 +61,11 @@ final class LinkAdapterProcess implements LinkBackend {
   final _inputEnded = Completer<void>();
   Future<void>? _closing;
   bool _settledEvent = false, _failed = false, _stdinDone = false;
+  bool _receiptFailureReported = false;
   int _diagnosticBytes = 0;
+  static final _receiptFailure =
+      RegExp(r'^\{"androidDevice":"unavailable","stage":"settlement-receipt",'
+          r'"category":"(io|invalid_configuration)","code":(-\d{1,10})\}$');
 
   static Future<LinkAdapterProcess> start(LinkInstallation installation,
       {required String runId,
@@ -332,7 +336,23 @@ final class LinkAdapterProcess implements LinkBackend {
 
   void _event(String line) {
     if (!line.startsWith('SHIROHA_LINK_EVENT ')) {
-      return; // Never persist raw diagnostics.
+      if (!_windows && !_receiptFailureReported) {
+        final failure = _receiptFailure.firstMatch(line);
+        final code = int.tryParse(failure?.group(2) ?? '');
+        if (failure != null &&
+            code != null &&
+            code >= -0x80000000 &&
+            code < 0) {
+          _receiptFailureReported = true;
+          final hresult = code.toUnsigned(32).toRadixString(16).padLeft(8, '0');
+          try {
+            stderr.writeln('android_adapter_settlement_receipt_failed '
+                'pid=${_process.pid} category=${failure.group(1)} '
+                'hresult=0x$hresult');
+          } catch (_) {/* Diagnostic output cannot affect settlement. */}
+        }
+      }
+      return;
     }
     try {
       final value = boundedJsonObject(

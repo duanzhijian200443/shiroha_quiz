@@ -189,6 +189,15 @@ void registrationCases() {
 
     final refuses = throwsA(isA<Exception>());
 
+    test('Windows receipt publisher replaces proof and business atomically',
+        () async {
+      final result = await Process.run(
+          'dotnet', [producer, '--settlement-publication', slot.path]);
+      expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
+      expect(result.stdout, contains('PASS: six publications'));
+      expect(result.stdout, contains('publication_refused hresult=0x'));
+    });
+
     test(
         'real producer and original process join seal without Link state; adoption is single owner',
         () async {

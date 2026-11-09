@@ -11,7 +11,7 @@ internal static class DeviceClient
     internal static string? RecoveryReport(string stage, string? failure = null)
     {
         if (stage is not ("configuration" or "protected-configuration" or "client-key" or
-            "tls" or "hello" or "offer" or "proof" or "settlement" or "settled")) return null;
+            "tls" or "hello" or "offer" or "proof" or "settlement" or "settlement-receipt" or "settled")) return null;
         if (failure != null && failure is not ("runtime_not_authorized" or "invalid_target" or
             "pairing_required" or "credential_store_corrupt" or "credential_store_unavailable" or
             "credential_commit_unknown" or "credential_rejected" or "device_mismatch" or
@@ -168,8 +168,12 @@ internal static class DeviceClient
             }
             // CNG retirement and original TLS close precede persistent replacement.
             if (replacement.Length != 0) ProtectedDeviceStore.Replace(directory, clear, replacement, Admission, link == null ? null : link.RequireSlot);
+            if (link != null)
+            {
+                Enter("settlement-receipt");
+                link.Settled(mode, target, installation!);
+            }
             Enter("settled");
-            link?.Settled(mode, target, installation!);
             if (mode != "business") Console.WriteLine($"android_{mode}_settled; restart-business-adapter-only-after-phone-enabled");
             return 0;
         }
@@ -179,9 +183,10 @@ internal static class DeviceClient
         }
         catch (Exception error) {
             if (mode == "business") ReportBusinessFailure("connection", error);
+            bool receiptAccessDenied = stage == "settlement-receipt" && error is UnauthorizedAccessException;
             string category = error is System.Net.Sockets.SocketException ? "socket" :
                 error is System.Security.Authentication.AuthenticationException ? "tls" : error is EndOfStreamException ? "eof" :
-                error is OperationCanceledException ? "deadline" : error is IOException ? "io" : "invalid_configuration";
+                error is OperationCanceledException ? "deadline" : error is IOException || receiptAccessDenied ? "io" : "invalid_configuration";
             Report(category);
             Console.Error.WriteLine(JsonSerializer.Serialize(new {
             androidDevice = "unavailable", stage, category,

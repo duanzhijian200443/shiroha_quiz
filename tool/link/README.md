@@ -182,6 +182,14 @@ rechecks the protected record and original process absence before admission.
    current run/resource/process; an earlier enable-proof receipt cannot clear a
    business resource. EOF is not a user cancellation.
 
+The Windows Adapter flushes the create-new pending receipt while holding the
+original slot resource lock, then publishes it with a single overwrite rename
+within the slot before emitting `settled`. A refused rename keeps the pending
+receipt and the previous published receipt. Link preserves the original dirty
+owner and reports at most one receipt I/O diagnostic per original Adapter on
+local stderr with the process ID, safe category and HResult. That diagnostic
+does not participate in settlement.
+
 Codex's official STDIO configuration is documented in
 [OpenAI's MCP guide](https://learn.chatgpt.com/docs/extend/mcp#stdio-servers).
 These configuration instructions do not assert that an installed client/phone

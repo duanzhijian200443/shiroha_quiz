@@ -105,9 +105,7 @@ internal sealed class LinkAdapterContext : IDisposable
             slotRef = Slot, owner = Owner, mode, target = new { deviceIdentity = target.DeviceId,
                 installationIdentity = installation, profileReference = target.ProfileId },
             targetClose = true, tlsShutdown = true, keyRetired = true });
-        string pending = Path.Combine(Directory, "link-settlement.pending"), destination = Path.Combine(Directory, "link-settlement.json");
-        using (var file = new FileStream(pending, FileMode.CreateNew, FileAccess.Write, FileShare.None)) { file.Write(receipt); file.Flush(true); }
-        if (File.Exists(destination)) File.Replace(pending, destination, null); else File.Move(pending, destination);
+        PublishSettlementReceipt(Directory, receipt);
         if (Initializing)
         {
             WriteOrigin(JsonSerializer.SerializeToElement(new { formatVersion = 1, slotRef = Slot,
@@ -118,6 +116,21 @@ internal sealed class LinkAdapterContext : IDisposable
         }
         Emit(new { type = "settled", runId = Run, resourceId = Resource, mode, targetClose = true, tlsShutdown = true, keyRetired = true });
     }
+
+    internal static void PublishSettlementReceipt(string directory, ReadOnlySpan<byte> receipt)
+    {
+        string pending = Path.Combine(directory, "link-settlement.pending");
+        string destination = Path.Combine(directory, "link-settlement.json");
+        using (var file = new FileStream(pending, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        {
+            file.Write(receipt);
+            file.Flush(true);
+        }
+        // Both names are in the owned slot. Use a same-volume rename without
+        // ReplaceFile's destination metadata merge or a pre-delete window.
+        File.Move(pending, destination, overwrite: true);
+    }
+
     private JsonElement ReadRecord(string name)
     {
         using var file = new FileStream(Path.Combine(Directory, name), FileMode.Open, FileAccess.Read, FileShare.Read);
