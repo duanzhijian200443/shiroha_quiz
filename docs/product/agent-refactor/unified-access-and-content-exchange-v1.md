@@ -410,6 +410,56 @@ stateDiagram-v2
 
 配对仅在明确首次连接操作中进行。工具目录发现不得读取配对密钥、开启手机访问或启动循环证明。过早业务请求直接拒绝，不占用证明所需资源。
 
+<a id="link-address-refresh"></a>
+### 6.2.1 显式地址刷新与预认证失败边界
+
+受信本地 control 的 `refresh-address <private-ipv4>` 只补充原 connect 的路由输入；
+MCP 业务前端没有该字段或动作。只允许 clean、无 lease、无资源 owner/pending、
+尚未 prepared 的完整 v1 LINK_OWNED 槽位，保留同一 owner generation。
+原 Adapter 使用保存的客户端凭据和服务器 Pin，对候选地址完成真实 TLS 1.3 双向认证，
+并检查同一 deviceId、installationId、Profile 和 offer/proof associationRevision。
+地址不是身份或授权；仍须手机用户独立进入原 PREPARING，不重配对、不替换 Pin、
+不改 Scope，也不新增或延长 Enable。
+
+原 TLS shutdown/EOF 与临时 CNG retirement 完成后，先完成原资源回执发布，
+再由原 credential owner 在 adapter.lock 下重新核验 v1 custody、同一 resource 和
+expected-original 明文，复用 device.pending + 同目录 overwrite rename 更新受保护记录的
+address（复用已有回执发布的 rename 原语，原配对 ReplaceFile 路径不变）。
+该资源回执只证明 TLS/key，不证明地址保存、进程或流完成；Link 仍要求零退出码、
+原 stdin/stdout/stderr join 和绑定回执全部通过。提交前的认证、回执或写入失败保留旧配置；
+中断只能留下完整旧／新对象和已有 pending，不产生部分对象或虚假成功。
+提交后监督完成未知仍为 DIRTY，不能回滚猜测或自动重试。未知版本、未结算状态、
+锁冲突和 expected-original 不符一律拒绝，不增加跨文件恢复协议。
+
+v2 的封存登记来源固定绑定 credentialDigest、associationRevision 和客户端证书摘要。
+当前刷新明确返回 `address_update_unsupported`；不得重写 device.dpapi、原摘要、
+registration receipt/origin/join/source、owner 或登记，不自动降级成 v1。
+
+**最小 v2 后续建议（未实现）：** 允许显式候选地址成为仅本次运行的独立路由提示，
+先通过现有 ProtectedDeviceStore.Read / RegistrationCustody.Verify 核验封存来源，
+再用同一原凭据/Pin 完成原 proof 与结算；成功后在 Link 内存中按已认证
+device/installation/Profile、associationRevision、owner/route generation 绑定提示，
+仅传给后续同一目标的原 business Adapter。退出即失效，重新运行须再次显式输入。
+实际增量是本文 §4.3、§6.2/本边界和 Android device-access §2 的路由契约，
+以及 LinkPipeServer/control、LinkRuntime、LinkAdapterProcess、
+DeviceClient/LinkAdapterContext 的独立候选参数与绑定检查；需新增相应真实身份、
+换代失效和拒绝回归。ProtectedDeviceStore、RegistrationCustody 的封存字节核验、
+来源签发者和摘要算法保持原义，不添加持久路由格式或登记迁移。
+路由提示只决定去哪里认证，从不成为配对来源或可信身份，因此不改变原登记来源权威。
+
+原 Adapter stderr 的固定 `SHIROHA_ANDROID_RECOVERY|P|<stage>|<code>` 和
+`SHIROHA_ANDROID_LINK|P|connection|<code>` 由原 supervisor 严格按已知阶段／类别白名单
+解析，每个原进程最多输出一次该类诊断，仅含固定 PID、阶段、类别，不保留原 stderr、
+地址、密钥、证书或业务内容。业务已认证后不再将 connection 失败解释为预认证。
+诊断输出异常不参与状态或结算。TLS `tls/deadline` 与
+`settlement-receipt` 发布失败是不同阶段，后者继续保留既有有界诊断。
+
+TCP/TLS 建立失败时原 Adapter 会处置已取得的网络对象并尝试退役临时 CNG；
+原 Link 仍 join 原进程和三条流，但失败路径没有证明各项已完成的绑定 clean 回执。
+现有源码不提供该失败的独立原资源结算权威或历史恢复协议，因此必须保留原
+LINK_OWNED 与 RECOVERY_REQUIRED/DIRTY。超时、PID 消失、无 pending/lease、
+当前手机可访问或后来一次成功均不能清除此状态。本增量不处理历史 DIRTY。
+
 ### 6.3 正常关闭
 
 关闭不是单一 bool：

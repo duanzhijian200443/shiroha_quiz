@@ -69,6 +69,23 @@ VPN interface. No network scan/mDNS is introduced. The phone displays its curren
 address; the adapter remembers it only as a routing hint. Address changes update
 that hint only after verifying the original device. A fixed IP is optional.
 
+The independent Link's explicit local `refresh-address <private-ipv4>`
+control is limited to intact v1 LINK_OWNED custody with clean original resources,
+no lease and no pending files. It reuses the original enable-proof exchange,
+client credential and server pin, checks device/installation/Profile and the
+saved associationRevision in both offer and proof, and waits for original TLS
+EOF and CNG retirement before an expected-original atomic DPAPI replacement.
+Only the address changes; the credential owner/generation and original pairing
+provenance remain unchanged. The phone must independently enter PREPARING by its
+existing explicit access action; routing neither enables access nor renews an
+Enable period. A prepared/active/dirty/unknown owner refuses this operation.
+
+Sealed registration custody v2 binds the protected record's bytes through
+credentialDigest and immutable origin/source. Its address update returns
+`address_update_unsupported` without starting an adapter or changing those
+records. v1 success establishes no v2 update capability. See the
+[Link address boundary and deferred v2 proposal](unified-access-and-content-exchange-v1.md#link-address-refresh).
+
 TLS terminates in the desktop adapter and Android native layer. Both endpoints
 and Codex necessarily handle plaintext in memory. There is no additional relay,
 but ordinary Codex may send tool content to its model service. The UI must not

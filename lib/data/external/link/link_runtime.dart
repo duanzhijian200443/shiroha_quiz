@@ -15,6 +15,7 @@ typedef LinkBackendFactory = Future<LinkBackend> Function(
     {required bool proof,
     required String runId,
     required String resourceId,
+    String? candidateAddress,
     required Future<void> Function(LinkOwnerReference) acquired});
 
 typedef LinkInitializationFactory = Future<LinkVerifiedTarget> Function({
@@ -44,17 +45,21 @@ final class LinkRuntime {
   final LinkCallDiagnostics? callDiagnostics;
   String? _pairingFingerprint, _initializationFailure;
   Future<LinkBackend> _create(
-          {required bool proof, required String resourceId}) =>
+          {required bool proof,
+          required String resourceId,
+          String? candidateAddress}) =>
       _factory != null
           ? _factory(
               proof: proof,
               runId: runId,
               resourceId: resourceId,
+              candidateAddress: candidateAddress,
               acquired: _captureOwner)
           : LinkAdapterProcess.start(installation,
               proof: proof,
               runId: runId,
               resourceId: resourceId,
+              candidateAddress: candidateAddress,
               acquired: _captureOwner,
               verificationObserver: verificationObserver);
   final runId = linkNonce();
@@ -227,9 +232,33 @@ final class LinkRuntime {
         });
       });
 
-  Future<void> connect() => _exclusive(() async {
+  Future<void> connect({String? candidateAddress}) => _exclusive(() async {
+        if (candidateAddress != null) {
+          // Reject sealed v2 without starting resources or changing any state.
+          await slots.locked(() async {
+            final custody = await slots.readLocked();
+            if (custody?.registered == true) {
+              linkFail('address_update_unsupported');
+            }
+          });
+          if (_ready) linkFail('busy');
+          if (!RegExp(r'^(10|172|192)\.\d{1,3}\.\d{1,3}\.\d{1,3}$')
+              .hasMatch(candidateAddress)) {
+            linkFail('invalid_target');
+          }
+          final parts = candidateAddress.split('.').map(int.parse).toList();
+          if (parts.any((p) => p > 255) ||
+              !(parts[0] == 10 ||
+                  parts[0] == 172 && parts[1] >= 16 && parts[1] <= 31 ||
+                  parts[0] == 192 && parts[1] == 168) ||
+              parts.join('.') != candidateAddress) {
+            linkFail('invalid_target');
+          }
+        }
         if (_backend != null || _peer != null) linkFail('busy');
         if (state.dirtyPhase != LinkDirtyPhase.clean ||
+            state.owner != null ||
+            state.lease != null ||
             state.targetRef != installation.slotRef) {
           linkFail('unavailable');
         }
@@ -237,7 +266,10 @@ final class LinkRuntime {
         final resource = linkNonce();
         await _markStarting(resource);
         try {
-          await _create(proof: true, resourceId: resource);
+          await _create(
+              proof: true,
+              resourceId: resource,
+              candidateAddress: candidateAddress);
           await _clean();
           if (!_closed && !_withdrawing) _ready = true;
         } catch (_) {
@@ -774,6 +806,7 @@ final class LinkPipeServer {
           'ticket',
           'runId',
           'action',
+          if (request['action'] == 'refresh-address') 'candidateAddress',
           'targetRef',
           'expectedSelectionRevision',
           'expectedRevision'
@@ -797,6 +830,10 @@ final class LinkPipeServer {
                 linkRevision(request['expectedSelectionRevision']));
           case 'connect':
             await runtime.connect();
+          case 'refresh-address':
+            final address = request['candidateAddress'];
+            if (address is! String) linkFail('invalid_target');
+            await runtime.connect(candidateAddress: address);
           case 'disconnect':
             await runtime.disconnect();
           case 'shutdown':

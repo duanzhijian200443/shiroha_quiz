@@ -73,6 +73,16 @@ internal sealed class LinkAdapterContext : IDisposable
         if (closed || shiroha_relay_state(parent) != 0) throw new LinkFailure("runtime_not_authorized");
     }
     internal void RequireSlot() => SlotFence.RequireOwner(Directory, Owner, Slot, Operation, Resource, Initializing, registering: Registering, inspecting: Inspecting);
+    internal void RequireAddressRefresh()
+    {
+        RequireCurrent();
+        RequireSlot();
+        DeviceAddressRefresh.RequireV1(ReadRecord("slot-ownership.json"));
+        if (Initializing || Registering || Inspecting) throw new LinkFailure("owner_conflict");
+        foreach (var name in new[] { "device.pending", "native-client-key.pending",
+            "link-settlement.pending", "adapter-origin.pending" })
+            if (File.Exists(Path.Combine(Directory, name))) throw new LinkFailure("recovery_required");
+    }
     internal void RequireTarget(DeviceTarget target, string installation) =>
         SlotFence.RequireOwner(Directory, Owner, Slot, Operation, Resource, Initializing, target, installation, Registering, Inspecting);
     internal void Ready(DeviceTarget target, string installation)
