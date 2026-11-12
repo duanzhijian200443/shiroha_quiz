@@ -450,7 +450,11 @@ DeviceClient/LinkAdapterContext 的独立候选参数与绑定检查；需新增
 原 Adapter stderr 的固定 `SHIROHA_ANDROID_RECOVERY|P|<stage>|<code>` 和
 `SHIROHA_ANDROID_LINK|P|connection|<code>` 由原 supervisor 严格按已知阶段／类别白名单
 解析，每个原进程最多输出一次该类诊断，仅含固定 PID、阶段、类别，不保留原 stderr、
-地址、密钥、证书或业务内容。业务已认证后不再将 connection 失败解释为预认证。
+地址、密钥、证书或业务内容。business 在实际 authenticated 事件之前使用
+`android_adapter_preauthentication_failed`；已认证后不再将 connection 失败解释为预认证。
+enable-proof／地址刷新没有 authenticated 事件，一律使用中性的
+`android_adapter_stage_failed` 并保留原阶段／类别；proof 完成后的 settlement-receipt、
+protected-configuration 等后置阶段失败同样不标记为预认证失败。
 诊断输出异常不参与状态或结算。TLS `tls/deadline` 与
 `settlement-receipt` 发布失败是不同阶段，后者继续保留既有有界诊断。
 

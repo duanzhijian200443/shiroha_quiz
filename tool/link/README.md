@@ -413,9 +413,14 @@ command cannot repair an historical failure. The exact persistence, interruption
 and deferred v2 routing-only proposal are owned by the
 [canonical address boundary](../../docs/product/agent-refactor/unified-access-and-content-exchange-v1.md#link-address-refresh).
 
-Each original Adapter may forward one fixed preauthentication failure as
-`android_adapter_preauthentication_failed pid=<pid> stage=<stage> category=<code>`.
-Only existing whitelisted stage/code values are accepted; raw stderr is discarded.
+Each original Adapter may forward one fixed whitelisted failure as
+`<label> pid=<pid> stage=<stage> category=<code>`. A business process before its
+actual authenticated event uses `android_adapter_preauthentication_failed`;
+after that event no preauthentication diagnostic is emitted. An enable-proof or
+address-refresh process never emits an authenticated event, so it always uses
+the neutral `android_adapter_stage_failed`, including post-proof
+settlement-receipt or protected-configuration failures. Only existing
+whitelisted stage/code values are accepted; raw stderr is discarded.
 For example, `stage=tls category=deadline` is distinct from the existing
 settlement-receipt publication diagnostic. Neither observation proves clean.
 

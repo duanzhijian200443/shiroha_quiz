@@ -100,6 +100,34 @@ final class _ProcessWithInput implements Process {
       original.kill(signal);
 }
 
+// Appends one fixed failure line after every original stderr byte, so it is
+// guaranteed to arrive after the child's authenticated event.
+final class _ProcessWithStderrTail implements Process {
+  _ProcessWithStderrTail(this.original, String tail)
+      : stderr = original.stderr
+            .transform(StreamTransformer<List<int>, List<int>>.fromHandlers(
+          handleData: (chunk, sink) => sink.add(chunk),
+          handleDone: (sink) {
+            sink.add(utf8.encode(tail));
+            sink.close();
+          },
+        ));
+  final Process original;
+  @override
+  final Stream<List<int>> stderr;
+  @override
+  IOSink get stdin => original.stdin;
+  @override
+  int get pid => original.pid;
+  @override
+  Future<int> get exitCode => original.exitCode;
+  @override
+  Stream<List<int>> get stdout => original.stdout;
+  @override
+  bool kill([ProcessSignal signal = ProcessSignal.sigterm]) =>
+      original.kill(signal);
+}
+
 final class _Relay implements LocalRelayServerConnection {
   _Relay() {
     input = StreamIterator(incoming.stream);
@@ -311,18 +339,23 @@ void main() {
         operationId: 'operation',
         adapterExecutable: 'synthetic');
     Future<LinkAdapterProcess> start(
-            _OriginalProcess original, LinkVerificationObserver observer) =>
+            _OriginalProcess original, LinkVerificationObserver observer,
+            {bool proof = true}) =>
         LinkAdapterProcess.start(config,
             runId: 'run',
             resourceId: 'resource',
-            proof: true,
+            proof: proof,
             acquired: (_) async {},
             verificationObserver: observer, startProcess:
                 (executable, arguments,
                     {required runInShell, required workingDirectory}) async {
           expect(executable, 'synthetic');
-          expect(arguments,
-              ['--link-proof', 'run', 'resource', '--current-user-cng-import']);
+          expect(arguments, [
+            proof ? '--link-proof' : '--link-business',
+            'run',
+            'resource',
+            '--current-user-cng-import'
+          ]);
           expect(runInShell, isFalse);
           return original;
         });
@@ -356,7 +389,7 @@ void main() {
       'SHIROHA_ANDROID_LINK|P|connection|socket'
     ]) {
       test(
-          'preauthentication failure is bounded to the original process: $report',
+          'proof failure stays neutral and bounded to the original process: $report',
           () async {
         final original = _OriginalProcess();
         final diagnostics = _CapturedStderr();
@@ -381,11 +414,65 @@ void main() {
         await refused;
         final fields = report.split('|');
         expect(diagnostics.lines, [
-          'android_adapter_preauthentication_failed pid=42 '
+          'android_adapter_stage_failed pid=42 '
               'stage=${fields[2]} category=${fields[3]}'
         ]);
       });
     }
+
+    for (final report in [
+      'SHIROHA_ANDROID_RECOVERY|P|protected-configuration|credential_commit_unknown',
+      'SHIROHA_ANDROID_RECOVERY|P|settlement-receipt|io'
+    ]) {
+      test(
+          'post-proof failure keeps its stage without preauthentication: $report',
+          () async {
+        final original = _OriginalProcess();
+        final diagnostics = _CapturedStderr();
+        final observations = <LinkVerificationObservation>[];
+        final started = IOOverrides.runZoned(
+            () => start(original, observations.add),
+            stderr: () => diagnostics);
+        final refused = expectLater(started, throwsA(isA<LinkException>()));
+        // The original proof/TLS settlement is already observed when a later
+        // address commit or receipt stage fails; the report must stay neutral.
+        original.ownerAndSettlement();
+        original.events.add(utf8.encode('$report\n'));
+        original.exited.complete(78);
+        await Future.wait([original.output.close(), original.events.close()]);
+        await refused;
+        final fields = report.split('|');
+        expect(diagnostics.lines, [
+          'android_adapter_stage_failed pid=42 '
+              'stage=${fields[2]} category=${fields[3]}'
+        ]);
+        expect(observations, isEmpty);
+      });
+    }
+
+    test('business failure before authenticated keeps preauthentication report',
+        () async {
+      final original = _OriginalProcess();
+      final diagnostics = _CapturedStderr();
+      final started = IOOverrides.runZoned(
+          () => start(original, (_) {}, proof: false),
+          stderr: () => diagnostics);
+      final refused = expectLater(started, throwsA(isA<LinkException>()));
+      original.events
+          .add(utf8.encode('SHIROHA_ANDROID_LINK|P|connection|socket\n'
+              'SHIROHA_ANDROID_LINK|P|connection|socket\n'));
+      original.exited.complete(78);
+      await Future.wait([original.output.close(), original.events.close()]);
+      await refused;
+      // The SDK client logs to stderr; only adapter diagnostics are bounded.
+      expect(
+          diagnostics.lines
+              .where((line) => line.startsWith('android_adapter_')),
+          [
+            'android_adapter_preauthentication_failed pid=42 '
+                'stage=connection category=socket'
+          ]);
+    });
 
     test('diagnostic output failure cannot invalidate original settlement',
         () async {
@@ -788,6 +875,32 @@ void main() {
     await exitSignal.create();
     await rejected;
     expect(observations, isEmpty);
+  });
+
+  test('business failure after authenticated never reports preauthentication',
+      () async {
+    final exitSignal = File(p.join(root.path, 'exit-after-authenticated'));
+    final diagnostics = _CapturedStderr();
+    final child = await IOOverrides.runZoned(
+        () => _startBusinessChild(runtime.installation,
+            runId: 'run',
+            resourceId: 'resource',
+            exitSignal: exitSignal,
+            acquired: (_) async {},
+            observer: observations.add,
+            settledBeforeExit: true,
+            wrap: (process) => _ProcessWithStderrTail(
+                process, 'SHIROHA_ANDROID_LINK|P|connection|socket\n')),
+        stderr: () => diagnostics);
+    final reply = await child.call('open_context', {'scope': 'authorized'},
+        cancelled: const Stream.empty());
+    expect(reply['data'], {'contextRef': 'synthetic-read'});
+    await child.close();
+    expect(observations, hasLength(1));
+    // The SDK client logs to stderr; no adapter failure diagnostic may appear.
+    expect(
+        diagnostics.lines.where((line) => line.startsWith('android_adapter_')),
+        isEmpty);
   });
 
   test('business child exit leaves the original runtime owner in recovery',

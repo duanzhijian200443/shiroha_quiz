@@ -63,7 +63,7 @@ final class LinkAdapterProcess implements LinkBackend {
   bool _settledEvent = false, _failed = false, _stdinDone = false;
   bool _authenticatedEvent = false;
   bool _receiptFailureReported = false;
-  bool _preauthenticationFailureReported = false;
+  bool _stageFailureReported = false;
   static const _recoveryStages = {
     'configuration',
     'protected-configuration',
@@ -381,8 +381,8 @@ final class LinkAdapterProcess implements LinkBackend {
   void _event(String line) {
     if (!line.startsWith('SHIROHA_LINK_EVENT ')) {
       if (!_windows &&
-          !_authenticatedEvent &&
-          !_preauthenticationFailureReported) {
+          (_proof || !_authenticatedEvent) &&
+          !_stageFailureReported) {
         final fields = line.split('|');
         if (fields.length == 4 &&
             fields[1] == 'P' &&
@@ -391,9 +391,14 @@ final class LinkAdapterProcess implements LinkBackend {
                     _recoveryStages.contains(fields[2]) ||
                 fields[0] == 'SHIROHA_ANDROID_LINK' &&
                     fields[2] == 'connection')) {
-          _preauthenticationFailureReported = true;
+          _stageFailureReported = true;
+          // Proof has no authenticated event; a neutral label keeps post-proof
+          // failures from claiming preauthentication.
+          final label = _proof
+              ? 'android_adapter_stage_failed'
+              : 'android_adapter_preauthentication_failed';
           try {
-            stderr.writeln('android_adapter_preauthentication_failed '
+            stderr.writeln('$label '
                 'pid=${_process.pid} stage=${fields[2]} category=${fields[3]}');
           } catch (_) {/* Observation cannot affect original settlement. */}
         }
