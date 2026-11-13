@@ -390,7 +390,7 @@ policy. Diagnostic exit 80 does not change business results or clean/dirty state
 
 ## State, interruption and diagnostics
 
-### Explicit v1 address refresh
+### Explicit address refresh and v2 run-only routing
 
 From the existing trusted local control console, after the phone's independent
 access action has entered PREPARING:
@@ -400,12 +400,13 @@ shiroha_link_control refresh-address <private-ipv4>
 ```
 
 This is the original connect/proof operation with one explicit routing hint.
-It accepts only a clean, unprepared v1 LINK_OWNED slot with no lease/owner or
-pending resources. The original TLS client credential and server pin must prove
-the same device, installation, Profile and association revision before any
-protected address replacement. It retains the credential owner and pairing
-origin; it grants no business scope or Enable renewal. After success, business
-uses the saved hint through the original adapter.
+The same entry accepts a clean, unprepared v1 or v2 LINK_OWNED slot with no
+lease/owner or pending resources. The original TLS client credential and server
+pin must prove the same device, installation, Profile and association revision
+before any address persistence or routing hint. It retains the credential owner
+and pairing origin; it grants no business scope or Enable renewal, never
+re-pairs and never bypasses DIRTY. After success, business uses the persisted
+v1 address or the v2 run-only hint through the original adapter.
 
 For v1 this persists the verified address. v2 sealed registration refuses the
 persistent update with `address_update_unsupported` and never modifies

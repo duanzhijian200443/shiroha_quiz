@@ -414,10 +414,13 @@ stateDiagram-v2
 ### 6.2.1 显式地址刷新与预认证失败边界
 
 受信本地 control 的 `refresh-address <private-ipv4>` 只补充原 connect 的路由输入；
-MCP 业务前端没有该字段或动作。只允许 clean、无 lease、无资源 owner/pending、
-尚未 prepared 的完整 v1 LINK_OWNED 槽位，保留同一 owner generation。
-原 Adapter 使用保存的客户端凭据和服务器 Pin，对候选地址完成真实 TLS 1.3 双向认证，
-并检查同一 deviceId、installationId、Profile 和 offer/proof associationRevision。
+MCP 业务前端没有该字段或动作。同一入口准入符合原 CLEAN 条件的完整 v1 或 v2
+LINK_OWNED 槽位：clean、无 lease、无资源 owner/pending、尚未 prepared，
+保留同一 owner generation。原 Adapter 使用保存的客户端凭据和服务器 Pin，
+对候选地址完成真实 TLS 1.3 双向认证，并检查同一 deviceId、installationId、
+Profile 和 offer/proof associationRevision。认证通过后 v1 执行受保护凭据中的
+地址持久更新，v2 只建立当前 Link 实例的内存路由提示（见下），不修改
+device.dpapi、登记来源及其摘要。两者都不改变 owner、不重配对、不绕过 DIRTY。
 地址不是身份或授权；仍须手机用户独立进入原 PREPARING，不重配对、不替换 Pin、
 不改 Scope，也不新增或延长 Enable。
 

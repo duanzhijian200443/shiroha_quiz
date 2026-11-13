@@ -63,6 +63,8 @@ internal static class DeviceAddressRefreshTests
                         stage = variant;
                         await Exchange(target, record.RootElement, server.Certificate, client.Certificate, variant);
                     }
+                    stage = "v2-route-proof";
+                    await V2RouteProof(root, paired, target, server.Certificate, record.RootElement);
                 }
                 Check(!File.Exists(Path.Combine(root, "client", "native-client-key.pending")));
                 Check(!File.Exists(Path.Combine(root, "server", "native-client-key.pending")));
@@ -70,8 +72,6 @@ internal static class DeviceAddressRefreshTests
                 Check(DeviceClient.RecoveryReport("settlement-receipt", "io") == "SHIROHA_ANDROID_RECOVERY|P|settlement-receipt|io");
                 stage = "persistence";
                 Persistence(root, paired, record.RootElement);
-                stage = "v2-route-proof";
-                V2RouteProof(root, paired);
             }
             finally
             {
@@ -81,7 +81,7 @@ internal static class DeviceAddressRefreshTests
             }
             Console.SetOut(originalOutput);
             complete = true;
-            Console.WriteLine("PASS: address refresh isolated Windows mTLS (9 cases), CNG retirement, DPAPI CAS/interruption, v2 refusal and run-only route admission; no device/TCP/installation");
+            Console.WriteLine("PASS: address refresh isolated Windows mTLS (9 cases), CNG retirement, DPAPI CAS/interruption, v2 refusal, real sealed v2 provenance and run-only candidate routing (8 cases); no device/TCP/installation");
             return 0;
         }
         catch (Exception error)
@@ -261,7 +261,8 @@ internal static class DeviceAddressRefreshTests
         finally { CryptographicOperations.ZeroMemory(updated); CryptographicOperations.ZeroMemory(oldCiphertext); }
     }
 
-    private static void V2RouteProof(string root, byte[] paired)
+    private static async Task V2RouteProof(string root, byte[] paired, DeviceTarget original,
+        X509Certificate2 serverCertificate, JsonElement record)
     {
         // The run-only v2 routing proof admits sealed LINK_OWNED custody and
         // never rewrites the sealed package; persistent refresh still refuses v2.
@@ -279,16 +280,125 @@ internal static class DeviceAddressRefreshTests
             adapterCredentialSlotRef = "device.dpapi"
         })), "owner_conflict");
         Reject(() => DeviceAddressRefresh.RequireV1(sealedOwned), "address_update_unsupported");
-        // Routing only reads and verifies the original protected object; it
-        // produces no pending and leaves every ciphertext byte unchanged.
+
+        // Seal a REAL v2 package through the original producer path, so the
+        // routing read genuinely runs RegistrationCustody.Verify instead of
+        // skipping it for want of a custody record.
         string slot = Path.Combine(root, "v2-route-slot");
         Directory.CreateDirectory(slot);
-        ProtectedDeviceStore.Create(slot, paired, Admission, () => { });
-        byte[] before = File.ReadAllBytes(Path.Combine(slot, "device.dpapi"));
-        byte[] clear = ProtectedDeviceStore.Read(slot, Admission, () => { });
-        try { Check(clear.SequenceEqual(paired)); }
+        var registration = new { registrarInstanceId = "registrar", operationId = "registration",
+            generation = "generation", runId = "run", resourceId = "resource" };
+        var binding = new { deviceIdentity = original.DeviceId, installationIdentity = Installation,
+            profileReference = Profile };
+        var fields = new Dictionary<string, object?> {
+            ["formatVersion"] = 2, ["slotRef"] = "slot", ["operationId"] = "registration",
+            ["initializationSource"] = "registered_pairing", ["ownershipState"] = "REGISTERING",
+            ["ownerKind"] = "independent_registrar", ["ownerInstanceId"] = "registrar",
+            ["ownerGeneration"] = "generation", ["verifiedInstallationBinding"] = null,
+            ["adapterCredentialSlotRef"] = null, ["resourceGeneration"] = "resource",
+            ["lastSettlementRef"] = null, ["lastSettlementState"] = "UNKNOWN", ["revision"] = 0,
+            ["registration"] = registration, ["sourceDigest"] = null, ["adoption"] = null
+        };
+        JsonElement Custody() => JsonSerializer.SerializeToElement(fields);
+        RegistrationCustody.Publish(slot, "registration-attempt.json",
+            JsonSerializer.SerializeToElement(new { formatVersion = 1, slotRef = "slot", registration }));
+        void RegistrarSlot() => SlotFence.RequireOwnerRecord(Custody(), "registrar", "slot",
+            "registration", "resource", true, registering: true);
+        ProtectedDeviceStore.Create(slot, paired, Admission, RegistrarSlot);
+        string credentialDigest = RegistrationCustody.Digest(slot, "device.dpapi");
+        var clientBinding = RegistrationCustody.CredentialBinding(record);
+        var receipt = JsonSerializer.SerializeToElement(new {
+            formatVersion = 2, operationId = "registration", receiptRef = "resource", runId = "run",
+            resourceId = "resource", processId = Environment.ProcessId, processStarted = "123456",
+            slotRef = "slot", owner = "registrar", mode = "pairing", target = binding,
+            targetClose = true, tlsShutdown = true, keyRetired = true });
+        RegistrationCustody.Produce(slot, Custody(), receipt, clientBinding.Revision,
+            clientBinding.ClientDigest, credentialDigest);
+        RegistrationCustody.Publish(slot, "registration-joined.json", JsonSerializer.SerializeToElement(new {
+            formatVersion = 1, operationId = "registration", slotRef = "slot", ownerInstanceId = "registrar",
+            runId = "run", resourceId = "resource", processId = Environment.ProcessId, processStarted = "123456",
+            adapterReceiptRef = "resource", target = binding, processExitCode = 0,
+            stdinClosed = true, stdoutDrained = true, stderrDrained = true }));
+        var files = new Dictionary<string, object?>();
+        foreach (string name in RegistrationCustody.SourceFiles) files[name] = RegistrationCustody.Digest(slot, name);
+        RegistrationCustody.Publish(slot, "registration-source.json",
+            JsonSerializer.SerializeToElement(new { formatVersion = 1, slotRef = "slot", registration, files }));
+        fields["ownershipState"] = "LINK_OWNED"; fields["ownerKind"] = "independent_link";
+        fields["ownerInstanceId"] = "link"; fields["operationId"] = "adoption";
+        fields["ownerGeneration"] = "adoption"; fields["verifiedInstallationBinding"] = binding;
+        fields["adapterCredentialSlotRef"] = "device.dpapi"; fields["resourceGeneration"] = "business";
+        fields["lastSettlementRef"] = "resource"; fields["lastSettlementState"] = "CLEAN";
+        fields["adoption"] = new { connectorInstanceId = "link", operationId = "adoption" };
+        fields["sourceDigest"] = RegistrationCustody.Digest(slot, "registration-source.json");
+        File.WriteAllText(Path.Combine(slot, "slot-ownership.json"), Custody().GetRawText());
+        void LinkSlot() => SlotFence.RequireOwnerRecord(Custody(), "link", "slot", "adoption", "business", false);
+        DeviceAddressRefresh.RequireV2(Custody());
+
+        var sealedFiles = new List<string> { "device.dpapi", "slot-ownership.json", "registration-source.json" };
+        sealedFiles.AddRange(RegistrationCustody.SourceFiles);
+        var before = new Dictionary<string, byte[]>();
+        foreach (string name in sealedFiles) before[name] = File.ReadAllBytes(Path.Combine(slot, name));
+        Check(before.Count == 7);
+        void Unchanged()
+        {
+            foreach (string name in sealedFiles)
+                Check(File.ReadAllBytes(Path.Combine(slot, name)).SequenceEqual(before[name]));
+            foreach (string name in new[] { "device.pending", "native-client-key.pending",
+                "link-settlement.pending", "adapter-origin.pending", "slot-ownership.pending" })
+                Check(!File.Exists(Path.Combine(slot, name)));
+        }
+
+        // Real sealed provenance verification on the routing read path.
+        byte[] clear = ProtectedDeviceStore.Read(slot, Admission, LinkSlot);
+        string clientPfx;
+        try
+        {
+            Check(clear.SequenceEqual(paired));
+            using var sealedRecord = LinkFrames.StrictObject(clear);
+            clientPfx = DeviceClient.Text(sealedRecord.RootElement, "clientPfx");
+        }
         finally { CryptographicOperations.ZeroMemory(clear); }
-        Check(File.ReadAllBytes(Path.Combine(slot, "device.dpapi")).SequenceEqual(before));
-        Check(!File.Exists(Path.Combine(slot, "device.pending")));
+        Unchanged();
+        // A tampered source must fail closed, proving Verify is not decorative.
+        string tampered = Path.Combine(slot, "registration-receipt.json");
+        byte[] originalReceipt = File.ReadAllBytes(tampered);
+        try
+        {
+            File.WriteAllBytes(tampered, originalReceipt.Concat(new byte[] { 32 }).ToArray());
+            Reject(() => {
+                byte[] leaked = ProtectedDeviceStore.Read(slot, Admission, LinkSlot);
+                CryptographicOperations.ZeroMemory(leaked);
+            }, "source_changed");
+        }
+        finally { File.WriteAllBytes(tampered, originalReceipt); }
+        Unchanged();
+
+        // The candidate drives real pinned mTLS with the credential read out of
+        // the sealed package. Routing performs no address persistence, so every
+        // sealed byte and the original owner binding survive each variant.
+        byte[] sealedPfx = Convert.FromBase64String(clientPfx);
+        try
+        {
+            using var identity = WindowsTlsClientIdentity.Import(sealedPfx,
+                Path.Combine(root, "v2-route-client"), Admission);
+            foreach (string variant in new[] { "candidate", "pin", "device", "installation",
+                "profile", "offer-revision", "proof-revision", "tls-deadline" })
+            {
+                stage = "v2-route-" + variant;
+                await Exchange(original, record, serverCertificate, identity.Certificate, variant);
+                Unchanged();
+            }
+        }
+        finally { CryptographicOperations.ZeroMemory(sealedPfx); }
+        Check(!File.Exists(Path.Combine(root, "v2-route-client", "native-client-key.pending")));
+
+        // Production route-only entry still requires a real runtime owner. With
+        // no LinkAdapterContext it must refuse and write nothing. The successful
+        // route branch needs the relay-authenticated adapter parent, which this
+        // isolated fixture deliberately does not have.
+        stage = "v2-route-owner-required";
+        Check(DeviceClient.Run("enable-proof", slot, "192.168.15.147", 3, null, routeOnly: true)
+            .GetAwaiter().GetResult() != 0);
+        Unchanged();
     }
 }
