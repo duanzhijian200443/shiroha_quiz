@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shiroha_quiz/data/external/link/link_adapter_process.dart';
+import 'package:shiroha_quiz/data/external/link/link_call_diagnostics.dart';
 import 'package:shiroha_quiz/data/external/link/link_initialization.dart';
 import 'package:shiroha_quiz/data/external/link/link_installation.dart';
 import 'package:shiroha_quiz/data/external/link/link_registration.dart';
@@ -11,6 +12,23 @@ import 'package:shiroha_quiz/data/external/link/link_runtime.dart';
 import 'package:shiroha_quiz/data/external/link/link_state_store.dart';
 import 'package:shiroha_quiz/data/external/link/link_values.dart';
 import 'package:shiroha_quiz/data/external/link/slot_ownership_store.dart';
+
+final class _SealedRouteBackend implements LinkBackend {
+  _SealedRouteBackend(this.owner, this.target);
+  @override
+  final LinkOwnerReference owner;
+  @override
+  final LinkVerifiedTarget target;
+  final _disconnected = Completer<void>();
+  @override
+  Future<void> get disconnected => _disconnected.future;
+  @override
+  Future<Map<String, Object?>> call(String tool, Map<String, dynamic> arguments,
+          {required Stream<void> cancelled, LinkCallTrace? diagnostic}) async =>
+      {};
+  @override
+  Future<void> close() async {}
+}
 
 void registrationCases() {
   group('portable V3 custody refusal without credential or producer authority',
@@ -210,23 +228,70 @@ void registrationCases() {
     });
 
     test(
-        'original sealed v2 source and credential remain byte-identical on refresh refusal',
+        'original sealed v2 source and credential remain byte-identical during run-only routing',
         () async {
       await seal();
       await adopt();
       final before = <String, List<int>>{};
       await for (final file in slot.list()) {
-        if (file is File) before[file.path] = await file.readAsBytes();
+        final name = p.basename(file.path);
+        if (file is File &&
+            (name == 'device.dpapi' || name.startsWith('registration-'))) {
+          before[file.path] = await file.readAsBytes();
+        }
       }
       final store = await initializer().open(initialize: false);
-      final snapshot = store.state.toJson();
-      final runtime = LinkRuntime(installation: link, store: store);
+      final target = LinkVerifiedTarget(
+          'a' * 64, 'synthetic-installation', 'synthetic-profile');
+      String? routed;
+      var routedOnly = false;
+      final runtime = LinkRuntime(
+          installation: link,
+          store: store,
+          backendFactory: (
+              {required proof,
+              required runId,
+              required resourceId,
+              candidateAddress,
+              routeOnly = false,
+              required acquired}) async {
+            routed = candidateAddress;
+            routedOnly = routeOnly;
+            final owner = LinkOwnerReference(
+                runId: runId,
+                resourceId: resourceId,
+                processId: 100,
+                processStarted: '123456',
+                slotRef: 'synthetic-slot');
+            await acquired(owner);
+            await File(p.join(slot.path, 'link-settlement.json'))
+                .writeAsString(jsonEncode({
+              'formatVersion': 2,
+              'operationId': 'adoption-operation',
+              'receiptRef': owner.resourceId,
+              'runId': owner.runId,
+              'resourceId': owner.resourceId,
+              'processId': owner.processId,
+              'processStarted': owner.processStarted,
+              'slotRef': 'synthetic-slot',
+              'owner': 'adopting-link',
+              'mode': 'enable-proof',
+              'target': target.toJson(),
+              'targetClose': true,
+              'tlsShutdown': true,
+              'keyRetired': true,
+            }));
+            return _SealedRouteBackend(owner, target);
+          });
       try {
-        await expectLater(
-            runtime.connect(candidateAddress: '192.168.15.147'),
-            throwsA(isA<LinkException>()
-                .having((e) => e.code, 'code', 'address_update_unsupported')));
-        expect(store.state.toJson(), snapshot);
+        // Sealed v2 routing is run-only: the original proof settles without
+        // rewriting any sealed credential or registration byte, and the
+        // candidate binds a transient hint instead of a persistent update.
+        await runtime.connect(candidateAddress: '192.168.15.147');
+        expect(routed, '192.168.15.147');
+        expect(routedOnly, isTrue);
+        expect(store.state.dirtyPhase, LinkDirtyPhase.clean);
+        expect(store.state.owner, isNull);
         for (final entry in before.entries) {
           expect(await File(entry.key).readAsBytes(), entry.value,
               reason: p.basename(entry.key));

@@ -734,6 +734,7 @@ void main() {
             required runId,
             required resourceId,
             candidateAddress,
+            routeOnly = false,
             required acquired}) async {
           routedCandidate = candidateAddress;
           starts++;
@@ -916,6 +917,7 @@ void main() {
             required runId,
             required resourceId,
             candidateAddress,
+            routeOnly = false,
             required acquired}) async {
           if (proof) {
             final owner = LinkOwnerReference(
@@ -1691,7 +1693,8 @@ void main() {
     expect(starts, 0);
   });
 
-  test('v2 explicit refresh preserves all sealed bytes and state', () async {
+  test('v2 explicit routing keeps sealed bytes and binds a run-only hint',
+      () async {
     final custodyFile = File(p.join(slot.path, 'slot-ownership.json'));
     final custody = await ownership();
     await custodyFile.writeAsString(jsonEncode({
@@ -1721,19 +1724,66 @@ void main() {
     }
     final before = <String, List<int>>{};
     await for (final file in slot.list()) {
-      if (file is File) before[file.path] = await file.readAsBytes();
+      final name = p.basename(file.path);
+      if (file is File &&
+          (name == 'device.dpapi' || name.startsWith('registration-'))) {
+        before[file.path] = await file.readAsBytes();
+      }
     }
-    final state = store.state.toJson();
-    await expectLater(
-        runtime.connect(candidateAddress: '192.168.15.147'),
-        throwsA(isA<LinkException>()
-            .having((e) => e.code, 'code', 'address_update_unsupported')));
-    expect(starts, 0);
-    expect(store.state.toJson(), state);
+    // Sealed v2 no longer refuses the candidate: after the original proof
+    // settles it becomes a run-only routing hint, rewriting no sealed byte.
+    // This orchestration fixture does not authenticate; the separate Windows
+    // mTLS/DPAPI fixture proves the real identity and byte boundaries.
+    await runtime.connect(candidateAddress: '192.168.15.147');
+    expect(routedCandidate, '192.168.15.147');
+    expect(starts, 1);
+    expect(store.state.dirtyPhase, LinkDirtyPhase.clean);
+    expect(store.state.owner, isNull);
     for (final file in before.entries) {
       expect(await File(file.key).readAsBytes(), file.value,
           reason: p.basename(file.key));
     }
+    // The hint reaches the next original business adapter for the same target
+    // and generation; business still authenticates independently.
+    await runtime.attach('peer', 'connection');
+    expect(routedCandidate, '192.168.15.147');
+    expect(store.state.lease, isNotNull);
+    for (final file in before.entries) {
+      expect(await File(file.key).readAsBytes(), file.value,
+          reason: p.basename(file.key));
+    }
+  });
+
+  test('v2 routing hint cannot survive a target selection', () async {
+    final custody = await ownership();
+    await File(p.join(slot.path, 'slot-ownership.json'))
+        .writeAsString(jsonEncode({
+      ...custody,
+      'formatVersion': 2,
+      'initializationSource': 'registered_pairing',
+      'registration': {
+        'registrarInstanceId': 'registrar',
+        'operationId': 'registration',
+        'generation': 'registration-generation',
+        'runId': 'registration-run',
+        'resourceId': 'registration-resource'
+      },
+      'sourceDigest': 'a' * 64,
+      'adoption': {
+        'connectorInstanceId': 'connector',
+        'operationId': 'operation'
+      }
+    }));
+    await runtime.connect(candidateAddress: '192.168.15.147');
+    expect(routedCandidate, '192.168.15.147');
+    // Selection withdraws the original resources and bumps the selection and
+    // route generations, so the run-only hint must not reach the next business
+    // adapter; it falls back to the original saved address.
+    await runtime.select('phone', store.state.selectionRevision);
+    await runtime.connect();
+    await runtime.attach('peer', 'connection');
+    expect(routedCandidate, isNull);
+    expect(store.state.lease, isNotNull);
   });
 
   test('TLS failure diagnostic cannot clean the original owner', () async {
@@ -1746,12 +1796,14 @@ void main() {
                 required runId,
                 required resourceId,
                 candidateAddress,
+                routeOnly = false,
                 required acquired}) =>
             LinkAdapterProcess.start(runtime.installation,
                 runId: runId,
                 resourceId: resourceId,
                 proof: proof,
                 candidateAddress: candidateAddress,
+                routeOnly: routeOnly,
                 acquired: acquired, startProcess: (_, arguments,
                     {required runInShell, required workingDirectory}) async {
               expect(arguments.first, '--link-refresh-address');

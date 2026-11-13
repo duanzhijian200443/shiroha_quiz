@@ -70,6 +70,8 @@ internal static class DeviceAddressRefreshTests
                 Check(DeviceClient.RecoveryReport("settlement-receipt", "io") == "SHIROHA_ANDROID_RECOVERY|P|settlement-receipt|io");
                 stage = "persistence";
                 Persistence(root, paired, record.RootElement);
+                stage = "v2-route-proof";
+                V2RouteProof(root, paired);
             }
             finally
             {
@@ -79,7 +81,7 @@ internal static class DeviceAddressRefreshTests
             }
             Console.SetOut(originalOutput);
             complete = true;
-            Console.WriteLine("PASS: address refresh isolated Windows mTLS (9 cases), CNG retirement, DPAPI CAS/interruption and v2 refusal; no device/TCP/installation");
+            Console.WriteLine("PASS: address refresh isolated Windows mTLS (9 cases), CNG retirement, DPAPI CAS/interruption, v2 refusal and run-only route admission; no device/TCP/installation");
             return 0;
         }
         catch (Exception error)
@@ -257,5 +259,36 @@ internal static class DeviceAddressRefreshTests
             finally { CryptographicOperations.ZeroMemory(before); }
         }
         finally { CryptographicOperations.ZeroMemory(updated); CryptographicOperations.ZeroMemory(oldCiphertext); }
+    }
+
+    private static void V2RouteProof(string root, byte[] paired)
+    {
+        // The run-only v2 routing proof admits sealed LINK_OWNED custody and
+        // never rewrites the sealed package; persistent refresh still refuses v2.
+        var sealedOwned = JsonSerializer.SerializeToElement(new {
+            formatVersion = 2, ownershipState = "LINK_OWNED", ownerKind = "independent_link",
+            adapterCredentialSlotRef = "device.dpapi"
+        });
+        DeviceAddressRefresh.RequireV2(sealedOwned);
+        Reject(() => DeviceAddressRefresh.RequireV2(JsonSerializer.SerializeToElement(new {
+            formatVersion = 1, ownershipState = "LINK_OWNED", ownerKind = "independent_link",
+            adapterCredentialSlotRef = "device.dpapi"
+        })), "owner_conflict");
+        Reject(() => DeviceAddressRefresh.RequireV2(JsonSerializer.SerializeToElement(new {
+            formatVersion = 2, ownershipState = "SEALED", ownerKind = "independent_link",
+            adapterCredentialSlotRef = "device.dpapi"
+        })), "owner_conflict");
+        Reject(() => DeviceAddressRefresh.RequireV1(sealedOwned), "address_update_unsupported");
+        // Routing only reads and verifies the original protected object; it
+        // produces no pending and leaves every ciphertext byte unchanged.
+        string slot = Path.Combine(root, "v2-route-slot");
+        Directory.CreateDirectory(slot);
+        ProtectedDeviceStore.Create(slot, paired, Admission, () => { });
+        byte[] before = File.ReadAllBytes(Path.Combine(slot, "device.dpapi"));
+        byte[] clear = ProtectedDeviceStore.Read(slot, Admission, () => { });
+        try { Check(clear.SequenceEqual(paired)); }
+        finally { CryptographicOperations.ZeroMemory(clear); }
+        Check(File.ReadAllBytes(Path.Combine(slot, "device.dpapi")).SequenceEqual(before));
+        Check(!File.Exists(Path.Combine(slot, "device.pending")));
     }
 }

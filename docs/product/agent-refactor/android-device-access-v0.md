@@ -81,10 +81,18 @@ existing explicit access action; routing neither enables access nor renews an
 Enable period. A prepared/active/dirty/unknown owner refuses this operation.
 
 Sealed registration custody v2 binds the protected record's bytes through
-credentialDigest and immutable origin/source. Its address update returns
-`address_update_unsupported` without starting an adapter or changing those
-records. v1 success establishes no v2 update capability. See the
-[Link address boundary and deferred v2 proposal](unified-access-and-content-exchange-v1.md#link-address-refresh).
+credentialDigest and immutable origin/source. Its persistent address update
+returns `address_update_unsupported` without changing those records. A separate
+run-only routing hint lets the same explicit local control supply one candidate
+private IPv4: the adapter verifies the sealed provenance, completes the original
+pinned-TLS offer/proof and settlement against the candidate, and never writes the
+protected record or any registration file. Link binds the hint in memory to the
+authenticated identity and owner/selection/route generations and passes it only to
+the next same-target business adapter, which still authenticates independently.
+Exit, generation/owner/identity change, withdrawal or DIRTY invalidates it; it is
+never a pairing source, grant or recovery authority. v1 success establishes no v2
+persistent update capability. See the
+[Link address boundary and v2 run-only routing](unified-access-and-content-exchange-v1.md#link-address-refresh).
 
 TLS terminates in the desktop adapter and Android native layer. Both endpoints
 and Codex necessarily handle plaintext in memory. There is no additional relay,

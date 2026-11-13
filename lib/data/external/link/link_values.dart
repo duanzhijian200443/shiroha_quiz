@@ -106,6 +106,24 @@ final class LinkVerifiedTarget {
   }
 }
 
+/// Run-only routing hint for sealed v2 custody. Never persisted and never an
+/// identity, pairing source or grant: it only decides where the next original
+/// business adapter authenticates, bound to the authenticated target and the
+/// original owner/selection/route generations. Exit or any generation, owner or
+/// identity change invalidates it; a new run requires explicit re-input.
+final class LinkRouteHint {
+  const LinkRouteHint(
+      {required this.candidateAddress,
+      required this.target,
+      required this.ownerGeneration,
+      required this.selectionRevision,
+      required this.routeGeneration});
+  final String candidateAddress;
+  final LinkVerifiedTarget target;
+  final String? ownerGeneration;
+  final int selectionRevision, routeGeneration;
+}
+
 final class LinkLease {
   const LinkLease(
       {required this.connectorRunId,

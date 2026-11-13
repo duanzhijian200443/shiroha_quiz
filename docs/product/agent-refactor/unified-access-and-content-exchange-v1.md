@@ -432,20 +432,28 @@ address（复用已有回执发布的 rename 原语，原配对 ReplaceFile 路�
 锁冲突和 expected-original 不符一律拒绝，不增加跨文件恢复协议。
 
 v2 的封存登记来源固定绑定 credentialDigest、associationRevision 和客户端证书摘要。
-当前刷新明确返回 `address_update_unsupported`；不得重写 device.dpapi、原摘要、
-registration receipt/origin/join/source、owner 或登记，不自动降级成 v1。
+持久地址刷新（v1 路径）对 v2 仍明确返回 `address_update_unsupported`；不得重写
+device.dpapi、原摘要、registration receipt/origin/join/source、owner 或登记，
+不自动降级成 v1。
 
-**最小 v2 后续建议（未实现）：** 允许显式候选地址成为仅本次运行的独立路由提示，
-先通过现有 ProtectedDeviceStore.Read / RegistrationCustody.Verify 核验封存来源，
-再用同一原凭据/Pin 完成原 proof 与结算；成功后在 Link 内存中按已认证
-device/installation/Profile、associationRevision、owner/route generation 绑定提示，
-仅传给后续同一目标的原 business Adapter。退出即失效，重新运行须再次显式输入。
-实际增量是本文 §4.3、§6.2/本边界和 Android device-access §2 的路由契约，
-以及 LinkPipeServer/control、LinkRuntime、LinkAdapterProcess、
-DeviceClient/LinkAdapterContext 的独立候选参数与绑定检查；需新增相应真实身份、
-换代失效和拒绝回归。ProtectedDeviceStore、RegistrationCustody 的封存字节核验、
-来源签发者和摘要算法保持原义，不添加持久路由格式或登记迁移。
-路由提示只决定去哪里认证，从不成为配对来源或可信身份，因此不改变原登记来源权威。
+**v2 仅运行期路由提示（已实现）：** 受信本地 control 的同一 `refresh-address`
+入口对完整、clean、无 lease/owner/pending 的 v2 LINK_OWNED 槽位提供一次候选私有
+IPv4，作为仅本次运行的独立路由提示，而非持久地址更新。Adapter 经独立
+`--link-route-proof` 准入（RequireRouteProof/RequireV2）先通过现有
+ProtectedDeviceStore.Read / RegistrationCustody.Verify 核验封存来源，再用同一原
+凭据/Pin 对候选地址完成原 pinned TLS、offer/proof associationRevision 校验与结算
+（发布原资源回执），但绝不写入 device.dpapi 或任何 registration-* 文件。原进程零
+退出、stdin/stdout/stderr join 与绑定回执全部通过后，Link 才在内存中按已认证
+device/installation/Profile、ownerGeneration、selectionRevision、routeGeneration
+绑定提示（associationRevision 由原 proof 交换与不变封存凭据强制），仅传给后续同一
+目标、同一代次的原 business Adapter（`--link-business-route`）；business 仍执行原
+pinned TLS 与设备身份认证，不因先前 proof 成功而跳过。提示不延长 Enable、不扩大
+Grant/Scope、不恢复旧 Context。Link 实例退出/重新初始化、目标或 owner/路由代次切换、
+身份绑定变化、权限撤回、结算失败或 DIRTY 均清除或拒绝复用旧提示；退出即失效，重新
+运行须再次显式输入。MCP 业务前端没有该字段或动作。ProtectedDeviceStore、
+RegistrationCustody 的封存字节核验、来源签发者和摘要算法保持原义，不添加持久路由
+格式或登记迁移。路由提示只决定去哪里认证，从不成为配对来源或可信身份，因此不改变
+原登记来源权威。本增量不处理历史 DIRTY；候选地址不能绕过 DIRTY。
 
 原 Adapter stderr 的固定 `SHIROHA_ANDROID_RECOVERY|P|<stage>|<code>` 和
 `SHIROHA_ANDROID_LINK|P|connection|<code>` 由原 supervisor 严格按已知阶段／类别白名单

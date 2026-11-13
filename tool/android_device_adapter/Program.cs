@@ -46,6 +46,25 @@ internal static class Program
             }
             catch { Console.Error.WriteLine("android_address_update_refused"); return 79; }
         }
+        if (args is ["--link-route-proof", var routeRun, var routeResource, var routeCandidate, "--current-user-cng-import"])
+        {
+            try
+            {
+                using var owner = new LinkAdapterContext(routeRun, routeResource);
+                owner.RequireRouteProof();
+                return DeviceClient.Run("enable-proof", owner.Directory, routeCandidate, 3, owner, routeOnly: true).GetAwaiter().GetResult();
+            }
+            catch { Console.Error.WriteLine("android_route_proof_refused"); return 79; }
+        }
+        if (args is ["--link-business-route", var businessRouteRun, var businessRouteResource, var businessRouteCandidate, "--current-user-cng-import"])
+        {
+            try
+            {
+                using var owner = new LinkAdapterContext(businessRouteRun, businessRouteResource);
+                return DeviceClient.Run("business", owner.Directory, businessRouteCandidate, 3, owner).GetAwaiter().GetResult();
+            }
+            catch { Console.Error.WriteLine("android_link_owner_unavailable"); return 79; }
+        }
         if (args is ["--pair", var directory, var address, "--current-user-cng-import"])
             return DeviceClient.Run("pairing", directory, address).GetAwaiter().GetResult();
         if (args is ["--enable-proof", var proofDirectory, "--current-user-cng-import"])
