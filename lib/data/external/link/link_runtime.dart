@@ -16,6 +16,7 @@ typedef LinkBackendFactory = Future<LinkBackend> Function(
     required String runId,
     required String resourceId,
     String? candidateAddress,
+    bool routeOnly,
     required Future<void> Function(LinkOwnerReference) acquired});
 
 typedef LinkInitializationFactory = Future<LinkVerifiedTarget> Function({
@@ -44,22 +45,26 @@ final class LinkRuntime {
   final LinkVerificationObserver? verificationObserver;
   final LinkCallDiagnostics? callDiagnostics;
   String? _pairingFingerprint, _initializationFailure;
+  LinkRouteHint? _routeHint;
   Future<LinkBackend> _create(
           {required bool proof,
           required String resourceId,
-          String? candidateAddress}) =>
+          String? candidateAddress,
+          bool routeOnly = false}) =>
       _factory != null
           ? _factory(
               proof: proof,
               runId: runId,
               resourceId: resourceId,
               candidateAddress: candidateAddress,
+              routeOnly: routeOnly,
               acquired: _captureOwner)
           : LinkAdapterProcess.start(installation,
               proof: proof,
               runId: runId,
               resourceId: resourceId,
               candidateAddress: candidateAddress,
+              routeOnly: routeOnly,
               acquired: _captureOwner,
               verificationObserver: verificationObserver);
   final runId = linkNonce();
@@ -170,6 +175,7 @@ final class LinkRuntime {
     if (_operation != null || _closed) linkFail('busy');
     _pairingFingerprint = null;
     _initializationFailure = null;
+    _routeHint = null;
     final visible = Completer<void>();
     final completed = _exclusive(() async {
       if (state.dirtyPhase == LinkDirtyPhase.clean) {
@@ -233,13 +239,14 @@ final class LinkRuntime {
       });
 
   Future<void> connect({String? candidateAddress}) => _exclusive(() async {
+        var routeOnly = false;
         if (candidateAddress != null) {
-          // Reject sealed v2 without starting resources or changing any state.
+          // Sealed v2 keeps its credential/provenance bytes unchanged; the
+          // candidate becomes a run-only routing hint, never a persistent
+          // address update. v1 retains the original authenticated persistence.
           await slots.locked(() async {
             final custody = await slots.readLocked();
-            if (custody?.registered == true) {
-              linkFail('address_update_unsupported');
-            }
+            routeOnly = custody?.registered == true;
           });
           if (_ready) linkFail('busy');
           if (!RegExp(r'^(10|172|192)\.\d{1,3}\.\d{1,3}\.\d{1,3}$')
@@ -262,16 +269,27 @@ final class LinkRuntime {
             state.targetRef != installation.slotRef) {
           linkFail('unavailable');
         }
-        await slots.requireOwned(state);
+        final target = await slots.requireOwned(state);
         final resource = linkNonce();
         await _markStarting(resource);
         try {
           await _create(
               proof: true,
               resourceId: resource,
-              candidateAddress: candidateAddress);
+              candidateAddress: candidateAddress,
+              routeOnly: routeOnly);
           await _clean();
-          if (!_closed && !_withdrawing) _ready = true;
+          if (!_closed && !_withdrawing) {
+            _ready = true;
+            if (candidateAddress != null && routeOnly) {
+              _routeHint = LinkRouteHint(
+                  candidateAddress: candidateAddress,
+                  target: target,
+                  ownerGeneration: state.ownerGeneration,
+                  selectionRevision: state.selectionRevision,
+                  routeGeneration: state.routeGeneration);
+            }
+          }
         } catch (_) {
           await _unknown();
           rethrow;
@@ -302,6 +320,7 @@ final class LinkRuntime {
       });
   Future<void> _unknown() async {
     _ready = false;
+    _routeHint = null;
     await _record({
       'dirtyPhase': 'recoveryRequired',
       'settlement': 'unknown',
@@ -316,13 +335,29 @@ final class LinkRuntime {
         }
         final target = await slots.requireOwned(state);
         if (_closed || _withdrawing) linkFail('unavailable');
+        // Consume the run-only v2 routing hint only while it still binds the
+        // exact authenticated target and original generations. A stale or
+        // absent hint keeps the original saved address; it never bypasses
+        // authentication or recovery.
+        String? routeAddress;
+        final hint = _routeHint;
+        _routeHint = null;
+        if (hint != null &&
+            hint.selectionRevision == state.selectionRevision &&
+            hint.routeGeneration == state.routeGeneration &&
+            hint.ownerGeneration == state.ownerGeneration &&
+            jsonEncode(hint.target.toJson()) == jsonEncode(target.toJson())) {
+          routeAddress = hint.candidateAddress;
+        }
         _peer = peer;
         _connection = connection;
         final resource = linkNonce();
         await _markStarting(resource);
         try {
-          final backend =
-              _backend = await _create(proof: false, resourceId: resource);
+          final backend = _backend = await _create(
+              proof: false,
+              resourceId: resource,
+              candidateAddress: routeAddress);
           unawaited(backend.disconnected.then((_) async {
             if (!identical(_backend, backend)) return;
             try {
@@ -463,6 +498,7 @@ final class LinkRuntime {
     if (_disconnecting != null) return _disconnecting!;
     _withdrawing = true;
     _ready = false;
+    _routeHint = null;
     // Capture the original output barrier before a completed/failed task can
     // leave the pipe's work set. Withdrawal itself neither cancels nor settles.
     final output = _joinOutput?.call();

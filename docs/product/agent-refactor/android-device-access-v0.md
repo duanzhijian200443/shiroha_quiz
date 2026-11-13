@@ -70,21 +70,32 @@ address; the adapter remembers it only as a routing hint. Address changes update
 that hint only after verifying the original device. A fixed IP is optional.
 
 The independent Link's explicit local `refresh-address <private-ipv4>`
-control is limited to intact v1 LINK_OWNED custody with clean original resources,
+control admits intact v1 or v2 LINK_OWNED custody with clean original resources,
 no lease and no pending files. It reuses the original enable-proof exchange,
 client credential and server pin, checks device/installation/Profile and the
 saved associationRevision in both offer and proof, and waits for original TLS
-EOF and CNG retirement before an expected-original atomic DPAPI replacement.
-Only the address changes; the credential owner/generation and original pairing
-provenance remain unchanged. The phone must independently enter PREPARING by its
-existing explicit access action; routing neither enables access nor renews an
-Enable period. A prepared/active/dirty/unknown owner refuses this operation.
+EOF and CNG retirement. For v1 it then performs an expected-original atomic
+DPAPI replacement in which only the address changes; for v2 it establishes only
+the run-only in-memory routing hint described below and writes no protected or
+registration byte. Either way the credential owner/generation and original
+pairing provenance remain unchanged. The phone must independently enter
+PREPARING by its existing explicit access action; routing neither enables access
+nor renews an Enable period, re-pairs, or bypasses DIRTY. A
+prepared/active/dirty/unknown owner refuses this operation.
 
 Sealed registration custody v2 binds the protected record's bytes through
-credentialDigest and immutable origin/source. Its address update returns
-`address_update_unsupported` without starting an adapter or changing those
-records. v1 success establishes no v2 update capability. See the
-[Link address boundary and deferred v2 proposal](unified-access-and-content-exchange-v1.md#link-address-refresh).
+credentialDigest and immutable origin/source. Its persistent address update
+returns `address_update_unsupported` without changing those records. A separate
+run-only routing hint lets the same explicit local control supply one candidate
+private IPv4: the adapter verifies the sealed provenance, completes the original
+pinned-TLS offer/proof and settlement against the candidate, and never writes the
+protected record or any registration file. Link binds the hint in memory to the
+authenticated identity and owner/selection/route generations and passes it only to
+the next same-target business adapter, which still authenticates independently.
+Exit, generation/owner/identity change, withdrawal or DIRTY invalidates it; it is
+never a pairing source, grant or recovery authority. v1 success establishes no v2
+persistent update capability. See the
+[Link address boundary and v2 run-only routing](unified-access-and-content-exchange-v1.md#link-address-refresh).
 
 TLS terminates in the desktop adapter and Android native layer. Both endpoints
 and Codex necessarily handle plaintext in memory. There is no additional relay,

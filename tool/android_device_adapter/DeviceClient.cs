@@ -49,13 +49,14 @@ internal static class DeviceClient
         catch { return false; }
     }
 
-    internal static async Task<int> Run(string mode, string directory, string? address, int profileVersion = 2, LinkAdapterContext? link = null)
+    internal static async Task<int> Run(string mode, string directory, string? address, int profileVersion = 2, LinkAdapterContext? link = null, bool routeOnly = false)
     {
         byte[] clear = [], pfx = [], replacement = [];
         using var stop = new CancellationTokenSource();
         bool ended = false;
-        bool refresh = mode == "enable-proof" && address != null;
-        Action? credentialSlot = link == null ? null : refresh ? link.RequireAddressRefresh : link.RequireSlot;
+        bool refresh = mode == "enable-proof" && address != null && !routeOnly;
+        bool routeProof = mode == "enable-proof" && address != null && routeOnly;
+        Action? credentialSlot = link == null ? null : refresh ? link.RequireAddressRefresh : routeProof ? link.RequireRouteProof : link.RequireSlot;
         string stage = "configuration";
         void Report(string? failure = null)
         {
@@ -77,7 +78,7 @@ internal static class DeviceClient
             Report();
             if (link == null && !IsRecordDirectory(directory))
                 throw new LinkFailure("invalid_target");
-            if (refresh && link == null) throw new LinkFailure("runtime_not_authorized");
+            if ((refresh || routeProof) && link == null) throw new LinkFailure("runtime_not_authorized");
             Enter("protected-configuration");
             clear = ProtectedDeviceStore.Read(directory, Admission, credentialSlot);
             using var document = LinkFrames.StrictObject(clear);
@@ -86,7 +87,7 @@ internal static class DeviceClient
             if (mode != "pairing" && purpose != "android-read") throw new LinkFailure("pairing_required");
             if (mode == "pairing" && purpose is not ("native-proof-only" or "android-read" or "link-pairing")) throw new LinkFailure("credential_store_corrupt");
             if (purpose == "link-pairing" && link?.Initializing != true) throw new LinkFailure("runtime_not_authorized");
-            if (refresh) DeviceAddressRefresh.RequirePairedRecord(record);
+            if (refresh || routeProof) DeviceAddressRefresh.RequirePairedRecord(record);
             string device = record.GetProperty("deviceId").GetString()!, pin = record.GetProperty("certificateDigest").GetString()!;
             string? installation = record.GetProperty("installationId").GetString();
             string profile = purpose == "android-read" ? record.GetProperty("profileId").GetString()! : "00000000-0000-4000-8000-000000000001";

@@ -390,7 +390,7 @@ policy. Diagnostic exit 80 does not change business results or clean/dirty state
 
 ## State, interruption and diagnostics
 
-### Explicit v1 address refresh
+### Explicit address refresh and v2 run-only routing
 
 From the existing trusted local control console, after the phone's independent
 access action has entered PREPARING:
@@ -400,17 +400,25 @@ shiroha_link_control refresh-address <private-ipv4>
 ```
 
 This is the original connect/proof operation with one explicit routing hint.
-It accepts only a clean, unprepared v1 LINK_OWNED slot with no lease/owner or
-pending resources. The original TLS client credential and server pin must prove
-the same device, installation, Profile and association revision before any
-protected address replacement. It retains the credential owner and pairing
-origin; it grants no business scope or Enable renewal. After success, business
-uses the saved hint through the original adapter.
+The same entry accepts a clean, unprepared v1 or v2 LINK_OWNED slot with no
+lease/owner or pending resources. The original TLS client credential and server
+pin must prove the same device, installation, Profile and association revision
+before any address persistence or routing hint. It retains the credential owner
+and pairing origin; it grants no business scope or Enable renewal, never
+re-pairs and never bypasses DIRTY. After success, business uses the persisted
+v1 address or the v2 run-only hint through the original adapter.
 
-v2 sealed registration returns `address_update_unsupported` without starting a
-resource or modifying credentials/source digests. Dirty v1 also refuses; this
-command cannot repair an historical failure. The exact persistence, interruption
-and deferred v2 routing-only proposal are owned by the
+For v1 this persists the verified address. v2 sealed registration refuses the
+persistent update with `address_update_unsupported` and never modifies
+credentials/source digests; instead the same command supplies a run-only routing
+hint. The adapter verifies the sealed provenance, completes the original
+pinned-TLS offer/proof and settlement against the candidate, and writes no
+protected or registration byte. Link binds the hint in memory to the authenticated
+identity and owner/selection/route generations and passes it only to the next
+same-target business adapter, which still authenticates independently. Exit,
+generation/owner/identity change, withdrawal or DIRTY invalidates it. Dirty v1 also
+refuses; this command cannot repair an historical failure or bypass DIRTY. The
+exact persistence, interruption and v2 run-only routing boundary are owned by the
 [canonical address boundary](../../docs/product/agent-refactor/unified-access-and-content-exchange-v1.md#link-address-refresh).
 
 Each original Adapter may forward one fixed whitelisted failure as
@@ -426,7 +434,8 @@ settlement-receipt publication diagnostic. Neither observation proves clean.
 
 The Windows case in `link_initialization_test.dart` also runs real mTLS 1.3
 over isolated duplex pipes with generated identities, original proof/EOF and
-CNG retirement, plus DPAPI CAS/interruption and sealed-v2 refusal checks.
+CNG retirement, plus DPAPI CAS/interruption, sealed-v2 refusal and run-only
+route-admission checks.
 It uses no TCP connection, phone, installed Link or historical slot. The portable
 orchestration tests do not substitute synthetic TLS success for this check.
 

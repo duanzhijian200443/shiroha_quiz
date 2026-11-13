@@ -16,6 +16,17 @@ internal static class DeviceAddressRefresh
             throw new LinkFailure("owner_conflict");
     }
 
+    // Run-only routing proof for sealed v2 custody. The sealed package is never
+    // rewritten; ProtectedDeviceStore.Read verifies the original provenance.
+    internal static void RequireV2(JsonElement custody)
+    {
+        if (custody.GetProperty("formatVersion").GetInt32() != 2 ||
+            DeviceClient.Text(custody, "ownershipState") != "LINK_OWNED" ||
+            DeviceClient.Text(custody, "ownerKind") != "independent_link" ||
+            DeviceClient.Text(custody, "adapterCredentialSlotRef") != "device.dpapi")
+            throw new LinkFailure("owner_conflict");
+    }
+
     internal static void RequirePairedRecord(JsonElement record)
     {
         DeviceClient.Fields(record, ["purpose", "clientPfx", "deviceId", "certificateDigest",

@@ -107,18 +107,22 @@ final class LinkAdapterProcess implements LinkBackend {
       required String resourceId,
       required bool proof,
       String? candidateAddress,
+      bool routeOnly = false,
       required Future<void> Function(LinkOwnerReference) acquired,
       LinkVerificationObserver? verificationObserver,
       Future<Process> Function(String, List<String>,
               {required bool runInShell, required String workingDirectory})?
           startProcess}) async {
-    if (candidateAddress != null && !proof) linkFail('invalid_target');
     final executable = installation.adapterExecutable;
     final process = await (startProcess ?? Process.start)(
         executable,
         [
           candidateAddress != null
-              ? '--link-refresh-address'
+              ? (proof
+                  ? (routeOnly
+                      ? '--link-route-proof'
+                      : '--link-refresh-address')
+                  : '--link-business-route')
               : proof
                   ? '--link-proof'
                   : '--link-business',

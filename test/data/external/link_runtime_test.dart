@@ -22,6 +22,9 @@ Future<LinkAdapterProcess> _startBusinessChild(LinkInstallation installation,
         required File exitSignal,
         required Future<void> Function(LinkOwnerReference) acquired,
         required LinkVerificationObserver observer,
+        String? candidateAddress,
+        bool routeOnly = false,
+        void Function(List<String>)? arguments,
         void Function(Process)? started,
         Process Function(Process)? wrap,
         bool settledBeforeExit = false}) =>
@@ -29,9 +32,12 @@ Future<LinkAdapterProcess> _startBusinessChild(LinkInstallation installation,
         runId: runId,
         resourceId: resourceId,
         proof: false,
+        candidateAddress: candidateAddress,
+        routeOnly: routeOnly,
         acquired: acquired,
-        verificationObserver: observer, startProcess: (_, __,
+        verificationObserver: observer, startProcess: (_, argv,
             {required runInShell, required workingDirectory}) async {
+      arguments?.call(argv);
       final dart = flutterDartExecutable();
       // New SDKs split the CLI launcher from the VM. Supervise the very
       // process that reports its PID, as with the distributed adapter.
@@ -734,6 +740,7 @@ void main() {
             required runId,
             required resourceId,
             candidateAddress,
+            routeOnly = false,
             required acquired}) async {
           routedCandidate = candidateAddress;
           starts++;
@@ -916,6 +923,7 @@ void main() {
             required runId,
             required resourceId,
             candidateAddress,
+            routeOnly = false,
             required acquired}) async {
           if (proof) {
             final owner = LinkOwnerReference(
@@ -1691,7 +1699,8 @@ void main() {
     expect(starts, 0);
   });
 
-  test('v2 explicit refresh preserves all sealed bytes and state', () async {
+  test('v2 explicit routing keeps sealed bytes and binds a run-only hint',
+      () async {
     final custodyFile = File(p.join(slot.path, 'slot-ownership.json'));
     final custody = await ownership();
     await custodyFile.writeAsString(jsonEncode({
@@ -1721,18 +1730,303 @@ void main() {
     }
     final before = <String, List<int>>{};
     await for (final file in slot.list()) {
-      if (file is File) before[file.path] = await file.readAsBytes();
+      final name = p.basename(file.path);
+      if (file is File &&
+          (name == 'device.dpapi' || name.startsWith('registration-'))) {
+        before[file.path] = await file.readAsBytes();
+      }
     }
-    final state = store.state.toJson();
-    await expectLater(
-        runtime.connect(candidateAddress: '192.168.15.147'),
-        throwsA(isA<LinkException>()
-            .having((e) => e.code, 'code', 'address_update_unsupported')));
-    expect(starts, 0);
-    expect(store.state.toJson(), state);
+    // Sealed v2 no longer refuses the candidate: after the original proof
+    // settles it becomes a run-only routing hint, rewriting no sealed byte.
+    // This orchestration fixture does not authenticate; the separate Windows
+    // mTLS/DPAPI fixture proves the real identity and byte boundaries.
+    await runtime.connect(candidateAddress: '192.168.15.147');
+    expect(routedCandidate, '192.168.15.147');
+    expect(starts, 1);
+    expect(store.state.dirtyPhase, LinkDirtyPhase.clean);
+    expect(store.state.owner, isNull);
     for (final file in before.entries) {
       expect(await File(file.key).readAsBytes(), file.value,
           reason: p.basename(file.key));
+    }
+    // The hint reaches the next original business adapter for the same target
+    // and generation; business still authenticates independently.
+    await runtime.attach('peer', 'connection');
+    expect(routedCandidate, '192.168.15.147');
+    expect(store.state.lease, isNotNull);
+    for (final file in before.entries) {
+      expect(await File(file.key).readAsBytes(), file.value,
+          reason: p.basename(file.key));
+    }
+  });
+
+  test('v2 routing hint cannot survive a target selection', () async {
+    final custody = await ownership();
+    await File(p.join(slot.path, 'slot-ownership.json'))
+        .writeAsString(jsonEncode({
+      ...custody,
+      'formatVersion': 2,
+      'initializationSource': 'registered_pairing',
+      'registration': {
+        'registrarInstanceId': 'registrar',
+        'operationId': 'registration',
+        'generation': 'registration-generation',
+        'runId': 'registration-run',
+        'resourceId': 'registration-resource'
+      },
+      'sourceDigest': 'a' * 64,
+      'adoption': {
+        'connectorInstanceId': 'connector',
+        'operationId': 'operation'
+      }
+    }));
+    await runtime.connect(candidateAddress: '192.168.15.147');
+    expect(routedCandidate, '192.168.15.147');
+    // Selection withdraws the original resources and bumps the selection and
+    // route generations, so the run-only hint must not reach the next business
+    // adapter; it falls back to the original saved address.
+    await runtime.select('phone', store.state.selectionRevision);
+    await runtime.connect();
+    await runtime.attach('peer', 'connection');
+    expect(routedCandidate, isNull);
+    expect(store.state.lease, isNotNull);
+  });
+
+  test('v2 routing dispatches the real route-proof and business-route actions',
+      () async {
+    final custody = await ownership();
+    await File(p.join(slot.path, 'slot-ownership.json'))
+        .writeAsString(jsonEncode({
+      ...custody,
+      'formatVersion': 2,
+      'initializationSource': 'registered_pairing',
+      'registration': {
+        'registrarInstanceId': 'registrar',
+        'operationId': 'registration',
+        'generation': 'registration-generation',
+        'runId': 'registration-run',
+        'resourceId': 'registration-resource'
+      },
+      'sourceDigest': 'a' * 64,
+      'adoption': {
+        'connectorInstanceId': 'connector',
+        'operationId': 'operation'
+      }
+    }));
+    final actions = <List<String>>[];
+    final exitSignal = File(p.join(root.path, 'route-proof-exit'));
+    // Real LinkAdapterProcess argv construction and supervision; only the OS
+    // process is replaced. The business leg is the real Profile 3 child, so it
+    // authenticates independently instead of trusting the earlier proof.
+    final routed = LinkRuntime(
+        installation: runtime.installation,
+        store: store,
+        backendFactory: (
+                {required proof,
+                required runId,
+                required resourceId,
+                candidateAddress,
+                routeOnly = false,
+                required acquired}) =>
+            proof
+                ? LinkAdapterProcess.start(runtime.installation,
+                    runId: runId,
+                    resourceId: resourceId,
+                    proof: true,
+                    candidateAddress: candidateAddress,
+                    routeOnly: routeOnly,
+                    acquired: acquired, startProcess: (_, arguments,
+                        {required runInShell,
+                        required workingDirectory}) async {
+                    actions.add(arguments);
+                    final original = _OriginalProcess();
+                    scheduleMicrotask(() async {
+                      final owner = LinkOwnerReference(
+                          runId: runId,
+                          resourceId: resourceId,
+                          processId: original.pid,
+                          processStarted: '123456',
+                          slotRef: 'phone');
+                      for (final event in [
+                        {
+                          'type': 'owner',
+                          'runId': runId,
+                          'resourceId': resourceId,
+                          'processId': original.pid,
+                          'processStarted': '123456',
+                          'slotRef': 'phone',
+                        },
+                        {
+                          'type': 'settled',
+                          'runId': runId,
+                          'resourceId': resourceId,
+                          'mode': 'enable-proof',
+                          'targetClose': true,
+                          'tlsShutdown': true,
+                          'keyRetired': true,
+                        }
+                      ]) {
+                        original.events.add(utf8.encode(
+                            'SHIROHA_LINK_EVENT ${jsonEncode(event)}\n'));
+                      }
+                      await receipt(owner, 'enable-proof');
+                      original.exited.complete(0);
+                      await Future.wait(
+                          [original.output.close(), original.events.close()]);
+                    });
+                    return original;
+                  })
+                : _startBusinessChild(runtime.installation,
+                    runId: runId,
+                    resourceId: resourceId,
+                    exitSignal: exitSignal,
+                    acquired: acquired,
+                    observer: observations.add,
+                    candidateAddress: candidateAddress,
+                    routeOnly: routeOnly,
+                    arguments: actions.add,
+                    settledBeforeExit: true));
+    await routed.connect(candidateAddress: '192.168.15.147');
+    expect(actions.single[0], '--link-route-proof');
+    expect(actions.single[1], routed.runId);
+    expect(actions.single[3], '192.168.15.147');
+    expect(actions.single.last, '--current-user-cng-import');
+    expect(store.state.dirtyPhase, LinkDirtyPhase.clean);
+    await routed.attach('peer', 'connection');
+    expect(actions[1][0], '--link-business-route');
+    expect(actions[1][3], '192.168.15.147');
+    expect(store.state.lease, isNotNull);
+    await receipt(store.state.owner!, 'business');
+    await routed.disconnect();
+    expect(store.state.dirtyPhase, LinkDirtyPhase.clean);
+    await routed.close();
+  });
+
+  test('stale or dirty v2 routing cannot dispatch a routed business adapter',
+      () async {
+    final custody = await ownership();
+    await File(p.join(slot.path, 'slot-ownership.json'))
+        .writeAsString(jsonEncode({
+      ...custody,
+      'formatVersion': 2,
+      'initializationSource': 'registered_pairing',
+      'registration': {
+        'registrarInstanceId': 'registrar',
+        'operationId': 'registration',
+        'generation': 'registration-generation',
+        'runId': 'registration-run',
+        'resourceId': 'registration-resource'
+      },
+      'sourceDigest': 'a' * 64,
+      'adoption': {
+        'connectorInstanceId': 'connector',
+        'operationId': 'operation'
+      }
+    }));
+    final actions = <List<String>>[];
+    final exitSignal = File(p.join(root.path, 'stale-route-exit'));
+    late LinkAdapterProcess child;
+    final routed = LinkRuntime(
+        installation: runtime.installation,
+        store: store,
+        backendFactory: (
+            {required proof,
+            required runId,
+            required resourceId,
+            candidateAddress,
+            routeOnly = false,
+            required acquired}) async {
+          if (proof) {
+            return LinkAdapterProcess.start(runtime.installation,
+                runId: runId,
+                resourceId: resourceId,
+                proof: true,
+                candidateAddress: candidateAddress,
+                routeOnly: routeOnly,
+                acquired: acquired, startProcess: (_, arguments,
+                    {required runInShell, required workingDirectory}) async {
+              actions.add(arguments);
+              final original = _OriginalProcess();
+              scheduleMicrotask(() async {
+                final owner = LinkOwnerReference(
+                    runId: runId,
+                    resourceId: resourceId,
+                    processId: original.pid,
+                    processStarted: '123456',
+                    slotRef: 'phone');
+                for (final event in [
+                  {
+                    'type': 'owner',
+                    'runId': runId,
+                    'resourceId': resourceId,
+                    'processId': original.pid,
+                    'processStarted': '123456',
+                    'slotRef': 'phone',
+                  },
+                  {
+                    'type': 'settled',
+                    'runId': runId,
+                    'resourceId': resourceId,
+                    'mode': 'enable-proof',
+                    'targetClose': true,
+                    'tlsShutdown': true,
+                    'keyRetired': true,
+                  }
+                ]) {
+                  original.events.add(
+                      utf8.encode('SHIROHA_LINK_EVENT ${jsonEncode(event)}\n'));
+                }
+                await receipt(owner, 'enable-proof');
+                original.exited.complete(0);
+                await Future.wait(
+                    [original.output.close(), original.events.close()]);
+              });
+              return original;
+            });
+          }
+          return child = await _startBusinessChild(runtime.installation,
+              runId: runId,
+              resourceId: resourceId,
+              exitSignal: exitSignal,
+              acquired: acquired,
+              observer: observations.add,
+              candidateAddress: candidateAddress,
+              routeOnly: routeOnly,
+              arguments: actions.add);
+        });
+    try {
+      await routed.connect(candidateAddress: '192.168.15.147');
+      expect(actions.last[0], '--link-route-proof');
+      expect(actions.last[3], '192.168.15.147');
+      // Selection withdraws the original resources and bumps both generations.
+      await routed.select('phone', store.state.selectionRevision);
+      await routed.connect();
+      expect(actions.last[0], '--link-proof');
+      expect(actions.last.length, 4);
+      await routed.attach('peer', 'connection');
+      // The stale hint must not reach the adapter at all: plain business argv
+      // with no candidate, so the saved address is used.
+      expect(actions.last[0], '--link-business');
+      expect(actions.last.length, 4);
+      final starts = actions.length;
+      await exitSignal.create();
+      await child.disconnected.timeout(const Duration(seconds: 5));
+      await expectLater(
+          routed.disconnect().timeout(const Duration(seconds: 5)),
+          throwsA(isA<LinkException>()
+              .having((e) => e.code, 'code', 'owner_unsettled')));
+      expect(store.state.dirtyPhase, LinkDirtyPhase.recoveryRequired);
+      expect((await ownership())['lastSettlementState'], 'DIRTY');
+      // DIRTY starts no new business resource, with or without an old hint.
+      await expectLater(
+          routed.attach('another-peer', 'new'), throwsA(isA<LinkException>()));
+      expect(actions.length, starts);
+    } finally {
+      try {
+        await routed.close().timeout(const Duration(seconds: 5));
+      } on LinkException {
+        /* Failed original custody is retained until fixture teardown. */
+      }
     }
   });
 
@@ -1746,12 +2040,14 @@ void main() {
                 required runId,
                 required resourceId,
                 candidateAddress,
+                routeOnly = false,
                 required acquired}) =>
             LinkAdapterProcess.start(runtime.installation,
                 runId: runId,
                 resourceId: resourceId,
                 proof: proof,
                 candidateAddress: candidateAddress,
+                routeOnly: routeOnly,
                 acquired: acquired, startProcess: (_, arguments,
                     {required runInShell, required workingDirectory}) async {
               expect(arguments.first, '--link-refresh-address');
