@@ -54,6 +54,8 @@ internal static class DeviceClient
         byte[] clear = [], pfx = [], replacement = [];
         using var stop = new CancellationTokenSource();
         bool ended = false;
+        bool refresh = mode == "enable-proof" && address != null;
+        Action? credentialSlot = link == null ? null : refresh ? link.RequireAddressRefresh : link.RequireSlot;
         string stage = "configuration";
         void Report(string? failure = null)
         {
@@ -75,14 +77,16 @@ internal static class DeviceClient
             Report();
             if (link == null && !IsRecordDirectory(directory))
                 throw new LinkFailure("invalid_target");
+            if (refresh && link == null) throw new LinkFailure("runtime_not_authorized");
             Enter("protected-configuration");
-            clear = ProtectedDeviceStore.Read(directory, Admission, link == null ? null : link.RequireSlot);
+            clear = ProtectedDeviceStore.Read(directory, Admission, credentialSlot);
             using var document = LinkFrames.StrictObject(clear);
             var record = document.RootElement;
             string purpose = record.GetProperty("purpose").GetString()!;
             if (mode != "pairing" && purpose != "android-read") throw new LinkFailure("pairing_required");
             if (mode == "pairing" && purpose is not ("native-proof-only" or "android-read" or "link-pairing")) throw new LinkFailure("credential_store_corrupt");
             if (purpose == "link-pairing" && link?.Initializing != true) throw new LinkFailure("runtime_not_authorized");
+            if (refresh) DeviceAddressRefresh.RequirePairedRecord(record);
             string device = record.GetProperty("deviceId").GetString()!, pin = record.GetProperty("certificateDigest").GetString()!;
             string? installation = record.GetProperty("installationId").GetString();
             string profile = purpose == "android-read" ? record.GetProperty("profileId").GetString()! : "00000000-0000-4000-8000-000000000001";
@@ -93,7 +97,7 @@ internal static class DeviceClient
             pfx = Convert.FromBase64String(record.GetProperty("clientPfx").GetString()!);
             if (mode != "business") stop.CancelAfter(TimeSpan.FromSeconds(120));
             Enter("client-key");
-            using (var identity = WindowsTlsClientIdentity.Import(pfx, directory, Admission, link == null ? null : link.RequireSlot))
+            using (var identity = WindowsTlsClientIdentity.Import(pfx, directory, Admission, credentialSlot))
             {
                 if (mode == "business")
                 {
@@ -107,74 +111,42 @@ internal static class DeviceClient
                 establishment.CancelAfter(TimeSpan.FromSeconds(5));
                 Enter("tls");
                 using var connection = await DeviceTransport.OpenPinned(target, identity.Certificate, establishment.Token, Admission);
-                Enter("hello");
-                string clientNonce = Nonce();
-                await LinkFrames.Write(connection.Tls, 1, JsonSerializer.SerializeToUtf8Bytes(new {
-                    type = "hello", purpose = mode, expectedDeviceId = device,
-                    expectedProfileId = mode == "pairing" ? null : profile, clientNonce, linkVersions = new[] { 1 }
-                }), false, establishment.Token);
-                Enter("offer");
-                var offerFrame = await LinkFrames.Read(connection.Tls, true, establishment.Token);
-                using var offerDocument = LinkFrames.StrictObject(offerFrame.Body);
-                var offer = offerDocument.RootElement;
-                Fields(offer, ["type", "purpose", "deviceId", "installationId", "profileId", "runtimeId", "connectionId", "clientNonce", "serverNonce", "clientCertificateDigest", "serverCertificateDigest", "associationRevision"]);
-                string actualClient = Convert.ToHexStringLower(SHA256.HashData(identity.Certificate.RawData));
-                if (offerFrame.Kind != 1 || Text(offer, "type") != "offer" || Text(offer, "purpose") != mode ||
-                    Text(offer, "deviceId") != device ||
-                    (installation != null && Text(offer, "installationId") != installation) ||
-                    !Guid.TryParseExact(Text(offer, "installationId"), "D", out _) ||
-                    Text(offer, "serverCertificateDigest") != pin || Text(offer, "clientCertificateDigest") != actualClient ||
-                    Text(offer, "clientNonce") != clientNonce ||
-                    !Guid.TryParseExact(Text(offer, "profileId"), "D", out _) ||
-                    !Guid.TryParseExact(Text(offer, "runtimeId"), "D", out _) ||
-                    !Guid.TryParseExact(Text(offer, "connectionId"), "D", out _) ||
-                    !IsNonce(Text(offer, "serverNonce")) ||
-                    (mode != "pairing" && Text(offer, "profileId") != profile)) throw new LinkFailure("device_mismatch");
-                string connectionId = Text(offer, "connectionId"), serverNonce = Text(offer, "serverNonce");
-                profile = Text(offer, "profileId");
-                installation = Text(offer, "installationId");
-                target = new DeviceTarget(device, pin, profile, target.Address, target.Port);
-                if (link?.Registering == true)
-                    RegistrationCustody.ObserveFingerprint(directory, link.Operation, link.Run, link.Resource, actualClient);
-                Console.WriteLine(JsonSerializer.Serialize(new { stage = "verified-offer", deviceId = device,
-                    certificateDigest = pin, clientCertificateDigest = actualClient, installationId = installation, profileId = profile,
-                    action = mode == "pairing" ? "Compare the full client fingerprint and confirm on the phone" : "Waiting for original P15 confirmation and settlement" }));
-                Enter("proof");
-                var proofFrame = await LinkFrames.Read(connection.Tls, true, stop.Token);
-                using var proofDocument = LinkFrames.StrictObject(proofFrame.Body);
-                var proof = proofDocument.RootElement;
-                Fields(proof, ["type", "connectionId", "clientNonce", "serverNonce", "profileId", "associationRevision", "settlementNonce"]);
-                if (proofFrame.Kind != 1 || Text(proof, "type") != "proof-complete" || Text(proof, "connectionId") != connectionId ||
-                    Text(proof, "clientNonce") != clientNonce || Text(proof, "serverNonce") != serverNonce ||
-                    Text(proof, "profileId") != profile || proof.GetProperty("associationRevision").GetInt32() < 1)
-                    throw new LinkFailure("protocol_violation");
-                string settlementNonce = Text(proof, "settlementNonce");
-                if (!IsNonce(settlementNonce)) throw new LinkFailure("protocol_violation");
-                if (mode == "enable-proof" && proof.GetProperty("associationRevision").GetInt32() != record.GetProperty("associationRevision").GetInt32())
-                    throw new LinkFailure("stale_revision");
-                Enter("settlement");
-                using var closing = CancellationTokenSource.CreateLinkedTokenSource(stop.Token);
-                closing.CancelAfter(TimeSpan.FromSeconds(5));
-                await LinkFrames.Write(connection.Tls, 1, JsonSerializer.SerializeToUtf8Bytes(new { type = "closing", connectionId, clientNonce, serverNonce, settlementNonce }), false, closing.Token);
-                await connection.Tls.ShutdownAsync().WaitAsync(closing.Token);
-                byte[] one = new byte[1];
-                if (await connection.Tls.ReadAsync(one, closing.Token) != 0) throw new LinkFailure("settlement_unknown");
+                var binding = await DeviceProof.Exchange(connection.Tls, identity.Certificate, target, record, mode,
+                    establishment.Token, stop.Token, Enter, link?.Registering == true ?
+                        digest => RegistrationCustody.ObserveFingerprint(directory, link.Operation, link.Run, link.Resource, digest) : null);
+                profile = binding.Profile; installation = binding.Installation;
+                target = target with { ProfileId = profile };
                 if (mode == "pairing") replacement = JsonSerializer.SerializeToUtf8Bytes(new {
                     purpose = "android-read", clientPfx = Convert.ToBase64String(pfx), deviceId = device, certificateDigest = pin,
-                    installationId = installation, profileId = profile, associationRevision = proof.GetProperty("associationRevision").GetInt32(),
+                    installationId = installation, profileId = profile, associationRevision = binding.Revision,
                     address = target.Address.ToString(), port = target.Port,
                 });
+                else if (refresh) replacement = DeviceAddressRefresh.Replacement(record, target.Address);
                 }
             }
             // CNG retirement and original TLS close precede persistent replacement.
-            if (replacement.Length != 0) ProtectedDeviceStore.Replace(directory, clear, replacement, Admission, link == null ? null : link.RequireSlot);
-            if (link != null)
+            // For refresh, finish all fallible receipt publication before the
+            // address commit. The receipt attests TLS/key resources only; Link
+            // still requires original successful exit and all stream joins.
+            if (refresh) {
+                Enter("settlement-receipt");
+                link!.Settled(mode, target, installation!);
+            }
+            if (replacement.Length != 0) {
+                Enter("protected-configuration");
+                if (refresh) ProtectedDeviceStore.ReplaceAddress(directory, clear, replacement, Admission, credentialSlot!);
+                else ProtectedDeviceStore.Replace(directory, clear, replacement, Admission, credentialSlot);
+            }
+            if (link != null && !refresh)
             {
                 Enter("settlement-receipt");
                 link.Settled(mode, target, installation!);
             }
             Enter("settled");
-            if (mode != "business") Console.WriteLine($"android_{mode}_settled; restart-business-adapter-only-after-phone-enabled");
+            if (mode != "business") {
+                try { Console.WriteLine($"android_{mode}_settled; restart-business-adapter-only-after-phone-enabled"); }
+                catch when (refresh) { /* Commit succeeded; output is not authority. */ }
+            }
             return 0;
         }
         catch (LinkFailure error) {

@@ -7,6 +7,7 @@ import 'package:shiroha_quiz/data/external/link/link_adapter_process.dart';
 import 'package:shiroha_quiz/data/external/link/link_initialization.dart';
 import 'package:shiroha_quiz/data/external/link/link_installation.dart';
 import 'package:shiroha_quiz/data/external/link/link_registration.dart';
+import 'package:shiroha_quiz/data/external/link/link_runtime.dart';
 import 'package:shiroha_quiz/data/external/link/link_state_store.dart';
 import 'package:shiroha_quiz/data/external/link/link_values.dart';
 import 'package:shiroha_quiz/data/external/link/slot_ownership_store.dart';
@@ -189,6 +190,16 @@ void registrationCases() {
 
     final refuses = throwsA(isA<Exception>());
 
+    test(
+        'Windows v1 address proof uses actual mTLS and atomic protected update',
+        () async {
+      final result = await Process.run(
+          'dotnet', [producer, '--address-refresh-self-test']);
+      expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
+      expect(result.stdout,
+          contains('PASS: address refresh isolated Windows mTLS'));
+    });
+
     test('Windows receipt publisher replaces proof and business atomically',
         () async {
       final result = await Process.run(
@@ -196,6 +207,34 @@ void registrationCases() {
       expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
       expect(result.stdout, contains('PASS: six publications'));
       expect(result.stdout, contains('publication_refused hresult=0x'));
+    });
+
+    test(
+        'original sealed v2 source and credential remain byte-identical on refresh refusal',
+        () async {
+      await seal();
+      await adopt();
+      final before = <String, List<int>>{};
+      await for (final file in slot.list()) {
+        if (file is File) before[file.path] = await file.readAsBytes();
+      }
+      final store = await initializer().open(initialize: false);
+      final snapshot = store.state.toJson();
+      final runtime = LinkRuntime(installation: link, store: store);
+      try {
+        await expectLater(
+            runtime.connect(candidateAddress: '192.168.15.147'),
+            throwsA(isA<LinkException>()
+                .having((e) => e.code, 'code', 'address_update_unsupported')));
+        expect(store.state.toJson(), snapshot);
+        for (final entry in before.entries) {
+          expect(await File(entry.key).readAsBytes(), entry.value,
+              reason: p.basename(entry.key));
+        }
+      } finally {
+        await runtime.close();
+        await store.close();
+      }
     });
 
     test(

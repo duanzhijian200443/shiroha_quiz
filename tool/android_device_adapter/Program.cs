@@ -31,6 +31,21 @@ internal static class Program
             }
             catch { Console.Error.WriteLine("android_link_owner_unavailable"); return 79; }
         }
+        if (args is ["--link-refresh-address", var refreshRun, var refreshResource, var candidate, "--current-user-cng-import"])
+        {
+            try
+            {
+                using var owner = new LinkAdapterContext(refreshRun, refreshResource);
+                owner.RequireAddressRefresh();
+                return DeviceClient.Run("enable-proof", owner.Directory, candidate, 3, owner).GetAwaiter().GetResult();
+            }
+            catch (LinkFailure error) {
+                Console.Error.WriteLine(error.Code == "address_update_unsupported" ?
+                    "android_address_update_unsupported" : "android_address_update_refused");
+                return 79;
+            }
+            catch { Console.Error.WriteLine("android_address_update_refused"); return 79; }
+        }
         if (args is ["--pair", var directory, var address, "--current-user-cng-import"])
             return DeviceClient.Run("pairing", directory, address).GetAwaiter().GetResult();
         if (args is ["--enable-proof", var proofDirectory, "--current-user-cng-import"])

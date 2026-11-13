@@ -100,6 +100,34 @@ final class _ProcessWithInput implements Process {
       original.kill(signal);
 }
 
+// Appends one fixed failure line after every original stderr byte, so it is
+// guaranteed to arrive after the child's authenticated event.
+final class _ProcessWithStderrTail implements Process {
+  _ProcessWithStderrTail(this.original, String tail)
+      : stderr = original.stderr
+            .transform(StreamTransformer<List<int>, List<int>>.fromHandlers(
+          handleData: (chunk, sink) => sink.add(chunk),
+          handleDone: (sink) {
+            sink.add(utf8.encode(tail));
+            sink.close();
+          },
+        ));
+  final Process original;
+  @override
+  final Stream<List<int>> stderr;
+  @override
+  IOSink get stdin => original.stdin;
+  @override
+  int get pid => original.pid;
+  @override
+  Future<int> get exitCode => original.exitCode;
+  @override
+  Stream<List<int>> get stdout => original.stdout;
+  @override
+  bool kill([ProcessSignal signal = ProcessSignal.sigterm]) =>
+      original.kill(signal);
+}
+
 final class _Relay implements LocalRelayServerConnection {
   _Relay() {
     input = StreamIterator(incoming.stream);
@@ -250,9 +278,13 @@ final class _OriginalProcess implements Process {
 
 final class _CapturedStderr implements Stdout {
   final lines = <String>[];
+  bool fail = false;
 
   @override
-  void writeln([Object? object = '']) => lines.add(object.toString());
+  void writeln([Object? object = '']) {
+    if (fail) throw StateError('diagnostic_output_unavailable');
+    lines.add(object.toString());
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -307,18 +339,23 @@ void main() {
         operationId: 'operation',
         adapterExecutable: 'synthetic');
     Future<LinkAdapterProcess> start(
-            _OriginalProcess original, LinkVerificationObserver observer) =>
+            _OriginalProcess original, LinkVerificationObserver observer,
+            {bool proof = true}) =>
         LinkAdapterProcess.start(config,
             runId: 'run',
             resourceId: 'resource',
-            proof: true,
+            proof: proof,
             acquired: (_) async {},
             verificationObserver: observer, startProcess:
                 (executable, arguments,
                     {required runInShell, required workingDirectory}) async {
           expect(executable, 'synthetic');
-          expect(arguments,
-              ['--link-proof', 'run', 'resource', '--current-user-cng-import']);
+          expect(arguments, [
+            proof ? '--link-proof' : '--link-business',
+            'run',
+            'resource',
+            '--current-user-cng-import'
+          ]);
           expect(runInShell, isFalse);
           return original;
         });
@@ -344,6 +381,113 @@ void main() {
       expect(value['stdoutDrained'], isTrue);
       expect(value['stderrDrained'], isTrue);
       await Future.wait([adapter.close(), adapter.close()]);
+      expect(observations, hasLength(1));
+    });
+
+    for (final report in [
+      'SHIROHA_ANDROID_RECOVERY|P|tls|deadline',
+      'SHIROHA_ANDROID_LINK|P|connection|socket'
+    ]) {
+      test(
+          'proof failure stays neutral and bounded to the original process: $report',
+          () async {
+        final original = _OriginalProcess();
+        final diagnostics = _CapturedStderr();
+        final started = IOOverrides.runZoned(() => start(original, (_) {}),
+            stderr: () => diagnostics);
+        final refused = expectLater(started, throwsA(isA<LinkException>()));
+        // Wrong stage/code/arity/whitespace and success observations confer no
+        // diagnostics or settlement. Chunking and duplicate valid reports are safe.
+        original.events.add(
+            utf8.encode('SHIROHA_ANDROID_RECOVERY|P|private-address|deadline\n'
+                'SHIROHA_ANDROID_RECOVERY|P|tls|private-key\n'
+                'SHIROHA_ANDROID_LINK|P|upload|io\n'
+                'SHIROHA_ANDROID_RECOVERY|P|tls|deadline|private\n'
+                ' SHIROHA_ANDROID_RECOVERY|P|tls|deadline\n'
+                'SHIROHA_ANDROID_RECOVERY|S|tls\n'));
+        final split = report.length ~/ 2;
+        original.events.add(utf8.encode(report.substring(0, split)));
+        original.events
+            .add(utf8.encode('${report.substring(split)}\r\n$report\n'));
+        original.exited.complete(78);
+        await Future.wait([original.output.close(), original.events.close()]);
+        await refused;
+        final fields = report.split('|');
+        expect(diagnostics.lines, [
+          'android_adapter_stage_failed pid=42 '
+              'stage=${fields[2]} category=${fields[3]}'
+        ]);
+      });
+    }
+
+    for (final report in [
+      'SHIROHA_ANDROID_RECOVERY|P|protected-configuration|credential_commit_unknown',
+      'SHIROHA_ANDROID_RECOVERY|P|settlement-receipt|io'
+    ]) {
+      test(
+          'post-proof failure keeps its stage without preauthentication: $report',
+          () async {
+        final original = _OriginalProcess();
+        final diagnostics = _CapturedStderr();
+        final observations = <LinkVerificationObservation>[];
+        final started = IOOverrides.runZoned(
+            () => start(original, observations.add),
+            stderr: () => diagnostics);
+        final refused = expectLater(started, throwsA(isA<LinkException>()));
+        // The original proof/TLS settlement is already observed when a later
+        // address commit or receipt stage fails; the report must stay neutral.
+        original.ownerAndSettlement();
+        original.events.add(utf8.encode('$report\n'));
+        original.exited.complete(78);
+        await Future.wait([original.output.close(), original.events.close()]);
+        await refused;
+        final fields = report.split('|');
+        expect(diagnostics.lines, [
+          'android_adapter_stage_failed pid=42 '
+              'stage=${fields[2]} category=${fields[3]}'
+        ]);
+        expect(observations, isEmpty);
+      });
+    }
+
+    test('business failure before authenticated keeps preauthentication report',
+        () async {
+      final original = _OriginalProcess();
+      final diagnostics = _CapturedStderr();
+      final started = IOOverrides.runZoned(
+          () => start(original, (_) {}, proof: false),
+          stderr: () => diagnostics);
+      final refused = expectLater(started, throwsA(isA<LinkException>()));
+      original.events
+          .add(utf8.encode('SHIROHA_ANDROID_LINK|P|connection|socket\n'
+              'SHIROHA_ANDROID_LINK|P|connection|socket\n'));
+      original.exited.complete(78);
+      await Future.wait([original.output.close(), original.events.close()]);
+      await refused;
+      // The SDK client logs to stderr; only adapter diagnostics are bounded.
+      expect(
+          diagnostics.lines
+              .where((line) => line.startsWith('android_adapter_')),
+          [
+            'android_adapter_preauthentication_failed pid=42 '
+                'stage=connection category=socket'
+          ]);
+    });
+
+    test('diagnostic output failure cannot invalidate original settlement',
+        () async {
+      final original = _OriginalProcess();
+      final diagnostics = _CapturedStderr()..fail = true;
+      final observations = <LinkVerificationObservation>[];
+      final started = IOOverrides.runZoned(
+          () => start(original, observations.add),
+          stderr: () => diagnostics);
+      original.events
+          .add(utf8.encode('SHIROHA_ANDROID_RECOVERY|P|tls|deadline\n'));
+      original.ownerAndSettlement();
+      original.exited.complete(0);
+      await Future.wait([original.output.close(), original.events.close()]);
+      await (await started).close();
       expect(observations, hasLength(1));
     });
 
@@ -475,6 +619,7 @@ void main() {
   late _Backend backend;
   final target = LinkVerifiedTarget('a' * 64, 'installation', 'profile');
   var starts = 0, wrongReceipt = false, failClose = false;
+  String? routedCandidate;
   var observerThrows = false;
   late LinkCallDiagnostics calls;
   final callRows = <Map>[];
@@ -555,6 +700,7 @@ void main() {
     }));
     await init.complete(store, target);
     starts = 0;
+    routedCandidate = null;
     wrongReceipt = false;
     failClose = false;
     holdProof = false;
@@ -587,7 +733,9 @@ void main() {
             {required proof,
             required runId,
             required resourceId,
+            candidateAddress,
             required acquired}) async {
+          routedCandidate = candidateAddress;
           starts++;
           final owner = LinkOwnerReference(
               runId: runId,
@@ -729,6 +877,32 @@ void main() {
     expect(observations, isEmpty);
   });
 
+  test('business failure after authenticated never reports preauthentication',
+      () async {
+    final exitSignal = File(p.join(root.path, 'exit-after-authenticated'));
+    final diagnostics = _CapturedStderr();
+    final child = await IOOverrides.runZoned(
+        () => _startBusinessChild(runtime.installation,
+            runId: 'run',
+            resourceId: 'resource',
+            exitSignal: exitSignal,
+            acquired: (_) async {},
+            observer: observations.add,
+            settledBeforeExit: true,
+            wrap: (process) => _ProcessWithStderrTail(
+                process, 'SHIROHA_ANDROID_LINK|P|connection|socket\n')),
+        stderr: () => diagnostics);
+    final reply = await child.call('open_context', {'scope': 'authorized'},
+        cancelled: const Stream.empty());
+    expect(reply['data'], {'contextRef': 'synthetic-read'});
+    await child.close();
+    expect(observations, hasLength(1));
+    // The SDK client logs to stderr; no adapter failure diagnostic may appear.
+    expect(
+        diagnostics.lines.where((line) => line.startsWith('android_adapter_')),
+        isEmpty);
+  });
+
   test('business child exit leaves the original runtime owner in recovery',
       () async {
     final exitSignal = File(p.join(root.path, 'exit-without-receipt'));
@@ -741,6 +915,7 @@ void main() {
             {required proof,
             required runId,
             required resourceId,
+            candidateAddress,
             required acquired}) async {
           if (proof) {
             final owner = LinkOwnerReference(
@@ -1474,6 +1649,135 @@ void main() {
     expect(store.state.dirtyPhase, LinkDirtyPhase.recoveryRequired);
     expect((await ownership())['ownershipState'], 'LINK_OWNED');
     expect((await ownership())['lastSettlementState'], 'DIRTY');
+  });
+
+  test('v1 explicit routing reaches proof only and preserves owner generation',
+      () async {
+    final credential =
+        await File(p.join(slot.path, 'device.dpapi')).readAsBytes();
+    await runtime.connect(candidateAddress: '192.168.15.147');
+    expect(routedCandidate, '192.168.15.147');
+    expect(starts, 1);
+    expect((await ownership())['ownerGeneration'], 'operation');
+    expect(store.state.lease, isNull);
+    // This orchestration fixture does not authenticate or rewrite credentials;
+    // the separate Windows mTLS/DPAPI fixture proves those boundaries.
+    expect(await File(p.join(slot.path, 'device.dpapi')).readAsBytes(),
+        credential);
+  });
+
+  test('invalid route and unsettled v1 refuse before starting resources',
+      () async {
+    for (final address in [
+      '127.0.0.1',
+      '8.8.8.8',
+      '192.168.999.1',
+      '172.15.1.1',
+      '10.01.1.1',
+      '192.168.1.1|secret'
+    ]) {
+      await expectLater(runtime.connect(candidateAddress: address),
+          throwsA(isA<LinkException>()));
+    }
+    expect(starts, 0);
+    await store.replace(
+        store.state.change(
+            {'dirtyPhase': 'recoveryRequired', 'settlement': 'unknown'}),
+        expectedRevision: store.state.revision);
+    final snapshot = store.state.toJson();
+    await expectLater(runtime.connect(candidateAddress: '192.168.15.147'),
+        throwsA(isA<LinkException>()));
+    expect(store.state.toJson(), snapshot);
+    expect(starts, 0);
+  });
+
+  test('v2 explicit refresh preserves all sealed bytes and state', () async {
+    final custodyFile = File(p.join(slot.path, 'slot-ownership.json'));
+    final custody = await ownership();
+    await custodyFile.writeAsString(jsonEncode({
+      ...custody,
+      'formatVersion': 2,
+      'initializationSource': 'registered_pairing',
+      'registration': {
+        'registrarInstanceId': 'registrar',
+        'operationId': 'registration',
+        'generation': 'registration-generation',
+        'runId': 'registration-run',
+        'resourceId': 'registration-resource'
+      },
+      'sourceDigest': 'a' * 64,
+      'adoption': {
+        'connectorInstanceId': 'connector',
+        'operationId': 'operation'
+      }
+    }));
+    for (final name in [
+      'registration-receipt.json',
+      'registration-origin.json',
+      'registration-joined.json',
+      'registration-source.json'
+    ]) {
+      await File(p.join(slot.path, name)).writeAsString('sealed-test-sentinel');
+    }
+    final before = <String, List<int>>{};
+    await for (final file in slot.list()) {
+      if (file is File) before[file.path] = await file.readAsBytes();
+    }
+    final state = store.state.toJson();
+    await expectLater(
+        runtime.connect(candidateAddress: '192.168.15.147'),
+        throwsA(isA<LinkException>()
+            .having((e) => e.code, 'code', 'address_update_unsupported')));
+    expect(starts, 0);
+    expect(store.state.toJson(), state);
+    for (final file in before.entries) {
+      expect(await File(file.key).readAsBytes(), file.value,
+          reason: p.basename(file.key));
+    }
+  });
+
+  test('TLS failure diagnostic cannot clean the original owner', () async {
+    final original = _OriginalProcess();
+    final failed = LinkRuntime(
+        installation: runtime.installation,
+        store: store,
+        backendFactory: (
+                {required proof,
+                required runId,
+                required resourceId,
+                candidateAddress,
+                required acquired}) =>
+            LinkAdapterProcess.start(runtime.installation,
+                runId: runId,
+                resourceId: resourceId,
+                proof: proof,
+                candidateAddress: candidateAddress,
+                acquired: acquired, startProcess: (_, arguments,
+                    {required runInShell, required workingDirectory}) async {
+              expect(arguments.first, '--link-refresh-address');
+              expect(arguments[3], '192.168.15.147');
+              scheduleMicrotask(() async {
+                original.events.add(
+                    utf8.encode('SHIROHA_ANDROID_RECOVERY|P|tls|deadline\n'));
+                original.exited.complete(78);
+                await Future.wait(
+                    [original.output.close(), original.events.close()]);
+              });
+              return original;
+            }));
+    await expectLater(
+        failed.connect(candidateAddress: '192.168.15.147'),
+        throwsA(isA<LinkException>()
+            .having((e) => e.code, 'code', 'owner_unsettled')));
+    final owner = store.state.owner!.toJson();
+    expect(owner['processId'], 42);
+    expect(store.state.dirtyPhase, LinkDirtyPhase.recoveryRequired);
+    expect((await ownership())['ownershipState'], 'LINK_OWNED');
+    expect((await ownership())['lastSettlementState'], 'DIRTY');
+    await expectLater(failed.connect(candidateAddress: '192.168.15.147'),
+        throwsA(isA<LinkException>()));
+    expect(store.state.owner!.toJson(), owner);
+    await expectLater(failed.close(), throwsA(isA<LinkException>()));
   });
 
   test('failed original settlement keeps dirty custody and blocks replacement',

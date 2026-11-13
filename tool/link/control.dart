@@ -9,14 +9,17 @@ Future<void> main(List<String> arguments) async {
         'initialize',
         'select',
         'connect',
+        'refresh-address',
         'disconnect',
         'shutdown'
       }.contains(arguments.first) ||
-      (arguments.first == 'select'
-          ? arguments.length != 3
-          : arguments.length != 1)) {
+      (arguments.first == 'refresh-address'
+          ? arguments.length != 2
+          : arguments.first == 'select'
+              ? arguments.length != 3
+              : arguments.length != 1)) {
     stderr.writeln(
-        'usage: shiroha_link_control inspect|initialize|connect|disconnect|shutdown|select <target> <selection-revision>');
+        'usage: shiroha_link_control inspect|initialize|connect|disconnect|shutdown|select <target> <selection-revision>|refresh-address <private-ipv4>');
     exitCode = 64;
     return;
   }
@@ -39,6 +42,8 @@ Future<void> main(List<String> arguments) async {
     await connection.send({
       ...hello,
       'action': arguments.first,
+      if (arguments.first == 'refresh-address')
+        'candidateAddress': arguments[1],
       'targetRef': arguments.first == 'select' ? arguments[1] : null,
       'expectedSelectionRevision':
           arguments.first == 'select' ? int.tryParse(arguments[2]) : null,

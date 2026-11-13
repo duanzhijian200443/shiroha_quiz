@@ -61,7 +61,42 @@ final class LinkAdapterProcess implements LinkBackend {
   final _inputEnded = Completer<void>();
   Future<void>? _closing;
   bool _settledEvent = false, _failed = false, _stdinDone = false;
+  bool _authenticatedEvent = false;
   bool _receiptFailureReported = false;
+  bool _stageFailureReported = false;
+  static const _recoveryStages = {
+    'configuration',
+    'protected-configuration',
+    'client-key',
+    'tls',
+    'hello',
+    'offer',
+    'proof',
+    'settlement',
+    'settlement-receipt',
+    'settled'
+  };
+  static const _failureCodes = {
+    'runtime_not_authorized',
+    'invalid_target',
+    'pairing_required',
+    'credential_store_corrupt',
+    'credential_store_unavailable',
+    'credential_commit_unknown',
+    'credential_rejected',
+    'device_mismatch',
+    'stale_revision',
+    'protocol_violation',
+    'settlement_unknown',
+    'socket',
+    'tls',
+    'eof',
+    'deadline',
+    'io',
+    'invalid_configuration',
+    'peer_lost',
+    'resource_limit'
+  };
   int _diagnosticBytes = 0;
   static final _receiptFailure =
       RegExp(r'^\{"androidDevice":"unavailable","stage":"settlement-receipt",'
@@ -71,18 +106,25 @@ final class LinkAdapterProcess implements LinkBackend {
       {required String runId,
       required String resourceId,
       required bool proof,
+      String? candidateAddress,
       required Future<void> Function(LinkOwnerReference) acquired,
       LinkVerificationObserver? verificationObserver,
       Future<Process> Function(String, List<String>,
               {required bool runInShell, required String workingDirectory})?
           startProcess}) async {
+    if (candidateAddress != null && !proof) linkFail('invalid_target');
     final executable = installation.adapterExecutable;
     final process = await (startProcess ?? Process.start)(
         executable,
         [
-          proof ? '--link-proof' : '--link-business',
+          candidateAddress != null
+              ? '--link-refresh-address'
+              : proof
+                  ? '--link-proof'
+                  : '--link-business',
           runId,
           resourceId,
+          if (candidateAddress != null) candidateAddress,
           '--current-user-cng-import'
         ],
         runInShell: false,
@@ -320,7 +362,9 @@ final class LinkAdapterProcess implements LinkBackend {
       }
       for (final byte in chunk) {
         if (byte == 10) {
-          _event(utf8.decode(line, allowMalformed: false).trim());
+          final text = utf8.decode(line, allowMalformed: false);
+          _event(
+              text.endsWith('\r') ? text.substring(0, text.length - 1) : text);
           line = [];
         } else {
           if (line.length >= 4096) {
@@ -336,6 +380,29 @@ final class LinkAdapterProcess implements LinkBackend {
 
   void _event(String line) {
     if (!line.startsWith('SHIROHA_LINK_EVENT ')) {
+      if (!_windows &&
+          (_proof || !_authenticatedEvent) &&
+          !_stageFailureReported) {
+        final fields = line.split('|');
+        if (fields.length == 4 &&
+            fields[1] == 'P' &&
+            _failureCodes.contains(fields[3]) &&
+            (fields[0] == 'SHIROHA_ANDROID_RECOVERY' &&
+                    _recoveryStages.contains(fields[2]) ||
+                fields[0] == 'SHIROHA_ANDROID_LINK' &&
+                    fields[2] == 'connection')) {
+          _stageFailureReported = true;
+          // Proof has no authenticated event; a neutral label keeps post-proof
+          // failures from claiming preauthentication.
+          final label = _proof
+              ? 'android_adapter_stage_failed'
+              : 'android_adapter_preauthentication_failed';
+          try {
+            stderr.writeln('$label '
+                'pid=${_process.pid} stage=${fields[2]} category=${fields[3]}');
+          } catch (_) {/* Observation cannot affect original settlement. */}
+        }
+      }
       if (!_windows && !_receiptFailureReported) {
         final failure = _receiptFailure.firstMatch(line);
         final code = int.tryParse(failure?.group(2) ?? '');
@@ -387,6 +454,7 @@ final class LinkAdapterProcess implements LinkBackend {
             'profileReference'
           });
           if (_proof || _owner == null || _identity.isCompleted) linkFail();
+          _authenticatedEvent = true;
           _identity.complete(LinkVerifiedTarget.fromJson({
             'deviceIdentity': value['deviceIdentity'],
             'installationIdentity': value['installationIdentity'],

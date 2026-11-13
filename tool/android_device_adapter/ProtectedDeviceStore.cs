@@ -121,6 +121,26 @@ internal static class ProtectedDeviceStore
     }
 
     internal static void Replace(string directory, byte[] expected, byte[] configuration, Action requireAdmission, Action? requireSlot = null)
+        => ReplaceCore(directory, expected, configuration, requireAdmission, requireSlot, addressOnly: false);
+
+    internal static void ReplaceAddress(string directory, byte[] expected, byte[] configuration,
+        Action requireAdmission, Action requireSlot)
+    {
+        requireAdmission();
+        using var old = LinkFrames.StrictObject(expected);
+        using var next = LinkFrames.StrictObject(configuration);
+        DeviceAddressRefresh.RequirePairedRecord(old.RootElement);
+        DeviceAddressRefresh.RequirePairedRecord(next.RootElement);
+        foreach (var field in old.RootElement.EnumerateObject())
+            if (field.Name != "address" && field.Value.GetRawText() != next.RootElement.GetProperty(field.Name).GetRawText())
+                throw new LinkFailure("device_mismatch");
+        if (!System.Net.IPAddress.TryParse(DeviceClient.Text(next.RootElement, "address"), out var address) ||
+            !DeviceTarget.PrivateV4(address)) throw new LinkFailure("invalid_target");
+        ReplaceCore(directory, expected, configuration, requireAdmission, requireSlot, addressOnly: true);
+    }
+
+    private static void ReplaceCore(string directory, byte[] expected, byte[] configuration,
+        Action requireAdmission, Action? requireSlot, bool addressOnly)
     {
         requireAdmission();
         using var parsed = LinkFrames.StrictObject(configuration);
@@ -140,7 +160,11 @@ internal static class ProtectedDeviceStore
         {
             using (var staged = new FileStream(pending, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             { staged.Write(encrypted); staged.Flush(true); }
-            File.Replace(pending, target, null);
+            // The routing-only update reuses the same-volume overwrite rename
+            // already used by the receipt publisher, without ReplaceFile's
+            // destination metadata merge. Original pairing behavior is retained.
+            if (addressOnly) File.Move(pending, target, overwrite: true);
+            else File.Replace(pending, target, null);
         }
         catch { throw new LinkFailure("credential_commit_unknown"); }
         finally { CryptographicOperations.ZeroMemory(encrypted); }

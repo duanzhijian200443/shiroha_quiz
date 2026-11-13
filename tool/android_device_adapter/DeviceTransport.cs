@@ -93,7 +93,29 @@ internal static class DeviceTransport
             await tcp.ConnectAsync(target.Address, target.Port, deadline.Token);
             observe?.Invoke("tcp_connected");
             requireAdmission();
-            tls = new SslStream(tcp.GetStream(), false, (_, cert, _, _) =>
+            tls = await AuthenticatePinned(tcp.GetStream(), target, client, deadline.Token, requireAdmission, observe);
+            return new PinnedConnection(tcp, tls);
+        }
+        catch
+        {
+            bool clean = true;
+            try { tls?.Dispose(); } catch { clean = false; }
+            try { tcp.Dispose(); } catch { clean = false; }
+            if (!clean) throw new LinkFailure("settlement_unknown");
+            throw;
+        }
+    }
+
+    // The route supplies a stream; this same TLS 1.3/pin/possession check owns
+    // authentication for both production TCP and isolated duplex-stream tests.
+    internal static async Task<SslStream> AuthenticatePinned(Stream transport, DeviceTarget target,
+        X509Certificate2 client, CancellationToken stop, Action requireAdmission, Action<string>? observe = null)
+    {
+        requireAdmission(); target.Validate();
+        SslStream? tls = null;
+        try
+        {
+            tls = new SslStream(transport, false, (_, cert, _, _) =>
             {
                 bool accepted = cert is X509Certificate2 parsed && DeviceCertificatePolicy.Check(parsed, target);
                 observe?.Invoke(accepted ? "peer_certificate_valid" : "peer_certificate_rejected");
@@ -106,18 +128,16 @@ internal static class DeviceTransport
                 AllowRenegotiation = false,
                 AllowTlsResume = false,
                 ClientCertificates = new X509CertificateCollection { client },
-            }, deadline.Token);
+            }, stop);
             requireAdmission();
             if (!tls.IsMutuallyAuthenticated || tls.SslProtocol != SslProtocols.Tls13)
                 throw new LinkFailure("credential_rejected");
-            return new PinnedConnection(tcp, tls);
+            return tls;
         }
         catch
         {
-            bool clean = true;
-            try { tls?.Dispose(); } catch { clean = false; }
-            try { tcp.Dispose(); } catch { clean = false; }
-            if (!clean) throw new LinkFailure("settlement_unknown");
+            try { tls?.Dispose(); }
+            catch { throw new LinkFailure("settlement_unknown"); }
             throw;
         }
     }

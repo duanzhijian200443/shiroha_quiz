@@ -390,6 +390,46 @@ policy. Diagnostic exit 80 does not change business results or clean/dirty state
 
 ## State, interruption and diagnostics
 
+### Explicit v1 address refresh
+
+From the existing trusted local control console, after the phone's independent
+access action has entered PREPARING:
+
+```text
+shiroha_link_control refresh-address <private-ipv4>
+```
+
+This is the original connect/proof operation with one explicit routing hint.
+It accepts only a clean, unprepared v1 LINK_OWNED slot with no lease/owner or
+pending resources. The original TLS client credential and server pin must prove
+the same device, installation, Profile and association revision before any
+protected address replacement. It retains the credential owner and pairing
+origin; it grants no business scope or Enable renewal. After success, business
+uses the saved hint through the original adapter.
+
+v2 sealed registration returns `address_update_unsupported` without starting a
+resource or modifying credentials/source digests. Dirty v1 also refuses; this
+command cannot repair an historical failure. The exact persistence, interruption
+and deferred v2 routing-only proposal are owned by the
+[canonical address boundary](../../docs/product/agent-refactor/unified-access-and-content-exchange-v1.md#link-address-refresh).
+
+Each original Adapter may forward one fixed whitelisted failure as
+`<label> pid=<pid> stage=<stage> category=<code>`. A business process before its
+actual authenticated event uses `android_adapter_preauthentication_failed`;
+after that event no preauthentication diagnostic is emitted. An enable-proof or
+address-refresh process never emits an authenticated event, so it always uses
+the neutral `android_adapter_stage_failed`, including post-proof
+settlement-receipt or protected-configuration failures. Only existing
+whitelisted stage/code values are accepted; raw stderr is discarded.
+For example, `stage=tls category=deadline` is distinct from the existing
+settlement-receipt publication diagnostic. Neither observation proves clean.
+
+The Windows case in `link_initialization_test.dart` also runs real mTLS 1.3
+over isolated duplex pipes with generated identities, original proof/EOF and
+CNG retirement, plus DPAPI CAS/interruption and sealed-v2 refusal checks.
+It uses no TCP connection, phone, installed Link or historical slot. The portable
+orchestration tests do not substitute synthetic TLS success for this check.
+
 ### Offline client shutdown fixture
 
 `test/mcp/fixtures/offline_codex_shutdown.py` is a separate, opt-in host test.
