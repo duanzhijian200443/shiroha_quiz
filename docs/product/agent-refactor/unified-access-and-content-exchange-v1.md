@@ -469,11 +469,68 @@ protected-configuration 等后置阶段失败同样不标记为预认证失败�
 诊断输出异常不参与状态或结算。TLS `tls/deadline` 与
 `settlement-receipt` 发布失败是不同阶段，后者继续保留既有有界诊断。
 
-TCP/TLS 建立失败时原 Adapter 会处置已取得的网络对象并尝试退役临时 CNG；
-原 Link 仍 join 原进程和三条流，但失败路径没有证明各项已完成的绑定 clean 回执。
-现有源码不提供该失败的独立原资源结算权威或历史恢复协议，因此必须保留原
-LINK_OWNED 与 RECOVERY_REQUIRED/DIRTY。超时、PID 消失、无 pending/lease、
-当前手机可访问或后来一次成功均不能清除此状态。本增量不处理历史 DIRTY。
+### 6.2.2 受限预认证失败结算与显式恢复
+
+此语义仅属于本机 Link/Adapter 的 enable-proof 失败资源，不是 Android 链路协议、
+P15 proof 或 Enable 成功。正常成功回执仍为 formatVersion 2、原 settled 及 exit 0；
+v1 地址提交、v2 仅运行期路由及封存配对来源保持原义。
+
+| 类别 | 原始事实 | 准入 |
+| --- | --- | --- |
+| A 未获取资源 | 原 supervisor 在调用 Process.start 之前即拒绝缺失/无效程序路径，尚未发起创建；或原 Adapter 在临时 CNG/网络获取前失败 | 原监督器未创建证明；已启动 Adapter 另需独立失败回执和三流 join |
+| B 原资源已释放 | 原 Adapter 的 CNG 获取/删除/句柄释放、Socket/TLS 处置均已完成，未观察到对端证书且 TLS 从未建立 | 仅完整原件支持显式恢复 |
+| C 认证阶段或远端未知 | TLS 已建立、已观察对端证书、进入 HELLO/offer/proof、或业务结果未知 | 保持 DIRTY；不适用此恢复 |
+| D 本地结算未知 | 部分 CNG 导入、删除/句柄/Socket/TLS 关闭失败、pending、发布/进程/流 join 不完整 | 保持 DIRTY；不以失败名称推定 clean |
+
+TLS establishment deadline 只有原认证对象从未观察到对端证书、未建立 TLS、
+原 SslStream/TcpClient Dispose 成功，且原导入 CNG 的精确 key 删除、缺失核验、
+全部句柄释放和原 pending 删除完成，才可属于 B。对端证书一经观察即保守排除；
+不会把可能完成的 TLS 握手解释为预认证。单独 deadline、PID 消失、无 pending/lease、
+地址可达、后续成功或旧 enable-proof/business 回执均不是证明。
+
+原 Adapter 在 adapter.lock 下重新检查原 owner/resource custody、所有既有 pending，
+以 CREATE_NEW、flush、同目录无覆盖 rename 发布
+`link-preauth-<resourceId>.json`（其 `.json.pending` 留存即拒绝恢复）。严格字段为：
+`formatVersion:1, kind:preauth-failure, operationId, owner, ownerGeneration,
+slotRef, runId, resourceId, receiptRef, processId, processStarted,
+mode:enable-proof, stage, resources:not-acquired|released,
+tlsEstablished:false, peerObserved:false, socketClosed:true, tlsClosed:true,
+keyRetired:true, pendingClear:true, target`。处置为真的字段包含“该资源从未获取”的
+情形；resources 区分整体 A/B。keyRetired 同时要求精确删除、缺失核验、句柄释放、
+marker 校验及删除成功，pendingClear 另要求所有既有持久 pending 均不存在。
+只允许 configuration/protected-configuration/client-key/tls 的原失败阶段；
+发布后独立输出 `preauth-failure-settled` 事件（version 1、原 runId/resourceId），
+以专用失败退出码 80 结束。此事件绝不输出 authenticated/settled、目标 CLOSE、
+proof 成功或 Android Enable 权威。任何发布/父级释放失败不满足专用退出要求。
+
+原 supervisor 需在 owner 事件时核对原 PID/创建身份，并实际等待原进程 exit 80、
+stdin 完成、stdout/stderr 排空、无流错误、无冲突成功事件，再核对完整失败回执，
+在短槽位锁下发布 `link-preauth-<resourceId>-joined.json`。
+其 formatVersion 1 / kind preauth-supervisor，绑定 operationId、owner、
+ownerGeneration 和原 slot/run/resource/PID/start；保留 adapterReceipt 完整副本及
+processExitCode:80、stdinClosed/stdoutDrained/stderrDrained:true。
+只有原 supervisor 尚未调用 Process.start 的明确拒绝可以发布同版本 kind preauth-not-started，
+绑定同一组字段但 processId:0/processStarted:not-created，无 Adapter 回执。
+已尝试创建后，ProcessException 或其他异常均不能产生该证明。两种监督原件均不覆盖、删除旧原件，pending 或损坏拒绝。
+失败 connect 始终保留原 owner 和 RECOVERY_REQUIRED；不 prepared，不自动恢复。
+
+仅受信本地 control 新增 `recover-preauth <state-revision>`，MCP 业务前端没有该操作。
+在原 LinkStateStore writer 锁和短 slot 锁下重核原 owner generation、目标、
+operation、resource、revision、无 lease、业务 notStarted/delivery none、当前 DIRTY，
+并核对两份独立原件精确一致。以同版本 kind preauth-recovery 的
+`link-preauth-<resourceId>-recovery.json` 固定 beforeState/afterState、
+beforeSlot/afterSlot 两组完整非秘密快照，flush 后无覆盖发布。
+先 CAS Link 状态为 clean/无资源 owner，再 CAS 同一槽位资源 CLEAN；
+在状态写入失败时原槽位仍为 DIRTY，完整原 owner 及原件留在恢复意图中。
+状态写成功而槽位未完成时，DIRTY custody 继续阻断任何新连接；不把两文件当成原子事务。
+只有后续明确恢复请求可按原意图精确完成剩余 CAS，不重新观测或补造历史 join。
+原件/pending/revision 漂移、未知发布结果一律停止写入、保留现场；同一实例持久失败
+后不得继续连接。已完成意图的重复请求不创建 owner、不增长 revision；过期 revision 拒绝。
+
+恢复成功仅返回 SELECTED/连接准备状态，prepared/ready 仍为 false，原设备身份、
+配对字节、封存登记和历史来源不变。新 connect 和原 Android PREPARING/Enable 仍须
+用户明确操作。没有原失败回执或原 supervisor join 的历史 DIRTY 不得追溯使用本协议；
+一般业务未知结果、STAGE 重提及其他崩溃恢复不在此范围。
 
 ### 6.3 正常关闭
 

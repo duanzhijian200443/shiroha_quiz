@@ -981,6 +981,16 @@ Its short control lock and durable RETIRE_INTENT do not take the active adapter
 resource lock; original settlement precedes RETIRE_PREPARED and the old App
 retired transaction. Old records remain fenced across restart and B0.
 
+The bounded local Link preauthentication failure settlement is owned by unified
+access §6.2.2. Its independent version-1 adapter/supervisor records and explicit
+revision-bound recover-preauth action settle only original failed enable-proof
+resources before any peer-certificate observation/TLS establishment. Complete
+CNG/socket/TLS disposal and original exit/three-stream joins remain mandatory.
+A failed proof stays failed; recovery creates no Android proof, Enable, READY,
+new owner, pairing, automatic retry or business-result authority. Partial
+publication/cleanup and missing historical evidence retain DIRTY. This adds no
+Android wire protocol or real-device acceptance.
+
 An existing #359 CLAIMED slot stays with its original Link owner. Compatibility
 reading must work without a new-format file and preserve dirty/run/resource
 evidence; an old enable-proof receipt cannot settle a later business connection.

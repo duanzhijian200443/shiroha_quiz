@@ -17,6 +17,8 @@ internal sealed class WindowsTlsClientIdentity : IDisposable
     private CngKey? key;
     private string? keyName;
     private bool closed, failed;
+    private PreauthResources? preauth;
+    private Action<CngKey>? retireKey;
 
     internal X509Certificate2 Certificate => !closed && certificate != null
         ? certificate : throw new LinkFailure("credential_store_unavailable");
@@ -41,12 +43,13 @@ internal sealed class WindowsTlsClientIdentity : IDisposable
         }
     }
 
-    internal static WindowsTlsClientIdentity Import(byte[] pfx, string directory, Action requireAdmission, Action? requireSlot = null)
+    internal static WindowsTlsClientIdentity Import(byte[] pfx, string directory, Action requireAdmission, Action? requireSlot = null, PreauthResources? preauth = null, Action<CngKey>? retireKey = null)
     {
         requireAdmission();
         if (!OperatingSystem.IsWindows() || pfx.Length is < 1 or > 65536)
             throw new LinkFailure("credential_rejected");
-        var owner = new WindowsTlsClientIdentity(directory, requireSlot);
+        if (preauth != null) preauth.KeyStarted = true;
+        var owner = new WindowsTlsClientIdentity(directory, requireSlot) { preauth = preauth, retireKey = retireKey };
         try
         {
             // Do not preserve an input-supplied provider or key-container name.
@@ -95,7 +98,7 @@ internal sealed class WindowsTlsClientIdentity : IDisposable
         }
         closed = true;
         if (keyName == null) failed = true;
-        try { key?.Delete(); } catch { failed = true; }
+        try { if (key != null) (retireKey ?? (k => k.Delete()))(key); } catch { failed = true; }
         try { signing?.Dispose(); } catch { failed = true; }
         try { certificate?.Dispose(); } catch { failed = true; }
         try
@@ -115,13 +118,15 @@ internal sealed class WindowsTlsClientIdentity : IDisposable
             }
         }
         catch { failed = true; }
+        try { key?.Dispose(); } catch { failed = true; }
         try { marker?.Dispose(); } catch { failed = true; }
         if (!failed)
         {
             // The original directory lease still excludes other adapter writers.
-            try { File.Delete(markerPath); } catch { failed = true; }
+            try { File.Delete(markerPath); if (File.Exists(markerPath)) failed = true; } catch { failed = true; }
         }
         try { directoryLease.Dispose(); } catch { failed = true; }
+        if (preauth != null) { preauth.KeyRetired = !failed; preauth.CleanupFailed |= failed; }
         if (failed) throw new LinkFailure("settlement_unknown");
     }
 }

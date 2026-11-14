@@ -137,6 +137,36 @@ internal sealed class LinkAdapterContext : IDisposable
         Emit(new { type = "settled", runId = Run, resourceId = Resource, mode, targetClose = true, tlsShutdown = true, keyRetired = true });
     }
 
+    internal void FailedPreauth(PreauthResources resources, string stage)
+    {
+        if (Initializing || Registering || Inspecting || Authenticated || resources.Classification == null)
+            throw new LinkFailure("settlement_unknown");
+        RequireCurrent();
+        using var guard = new FileStream(Path.Combine(Directory, "adapter.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        RequireSlot();
+        foreach (string name in new[] { "native-client-key.pending", "device.pending", "link-settlement.pending", "adapter-origin.pending" })
+            if (File.Exists(Path.Combine(Directory, name))) throw new LinkFailure("settlement_unknown");
+        var custody = ReadRecord("slot-ownership.json");
+        string generation = DeviceClient.Text(custody, "ownerGeneration");
+        if (generation != Operation || DeviceClient.Text(custody, "lastSettlementState") != "DIRTY")
+            throw new LinkFailure("owner_conflict");
+        var receipt = resources.Receipt(Operation, Owner, Slot, Run, Resource, stage,
+            custody.GetProperty("verifiedInstallationBinding"));
+        PublishPreauthReceipt(Directory, Resource, JsonSerializer.SerializeToUtf8Bytes(receipt));
+        // Independent failure semantics: never a proof/Enable success event.
+        Emit(new { type = "preauth-failure-settled", runId = Run, resourceId = Resource, version = 1 });
+    }
+
+    internal static void PublishPreauthReceipt(string directory, string resource, ReadOnlySpan<byte> receipt)
+    {
+        Token(resource);
+        string destination = Path.Combine(directory, $"link-preauth-{resource}.json");
+        string pending = destination + ".pending";
+        using (var file = new FileStream(pending, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        { file.Write(receipt); file.Flush(true); }
+        File.Move(pending, destination, overwrite: false);
+    }
+
     internal static void PublishSettlementReceipt(string directory, ReadOnlySpan<byte> receipt)
     {
         string pending = Path.Combine(directory, "link-settlement.pending");

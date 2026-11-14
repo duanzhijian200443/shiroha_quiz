@@ -2,6 +2,22 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:shiroha_quiz/data/external/windows_local_relay.dart';
 
+/// Encodes an already validated local command into the bounded control frame.
+Map<String, Object?> linkControlRequest(
+        Map<String, Object?> hello, List<String> arguments) =>
+    {
+      ...hello,
+      'action': arguments.first,
+      if (arguments.first == 'refresh-address')
+        'candidateAddress': arguments[1],
+      'targetRef': arguments.first == 'select' ? arguments[1] : null,
+      'expectedSelectionRevision':
+          arguments.first == 'select' ? int.tryParse(arguments[2]) : null,
+      'expectedRevision': arguments.first == 'recover-preauth'
+          ? int.tryParse(arguments[1])
+          : null,
+    };
+
 Future<void> main(List<String> arguments) async {
   if (arguments.isEmpty ||
       !const {
@@ -10,16 +26,17 @@ Future<void> main(List<String> arguments) async {
         'select',
         'connect',
         'refresh-address',
+        'recover-preauth',
         'disconnect',
         'shutdown'
       }.contains(arguments.first) ||
-      (arguments.first == 'refresh-address'
+      ({'refresh-address', 'recover-preauth'}.contains(arguments.first)
           ? arguments.length != 2
           : arguments.first == 'select'
               ? arguments.length != 3
               : arguments.length != 1)) {
     stderr.writeln(
-        'usage: shiroha_link_control inspect|initialize|connect|disconnect|shutdown|select <target> <selection-revision>|refresh-address <private-ipv4>');
+        'usage: shiroha_link_control inspect|initialize|connect|disconnect|shutdown|select <target> <selection-revision>|refresh-address <private-ipv4>|recover-preauth <state-revision>');
     exitCode = 64;
     return;
   }
@@ -39,16 +56,8 @@ Future<void> main(List<String> arguments) async {
       throw StateError('invalid_protocol');
     }
     phase = 'request_write';
-    await connection.send({
-      ...hello,
-      'action': arguments.first,
-      if (arguments.first == 'refresh-address')
-        'candidateAddress': arguments[1],
-      'targetRef': arguments.first == 'select' ? arguments[1] : null,
-      'expectedSelectionRevision':
-          arguments.first == 'select' ? int.tryParse(arguments[2]) : null,
-      'expectedRevision': null,
-    }, const Duration(seconds: 5));
+    await connection.send(
+        linkControlRequest(hello, arguments), const Duration(seconds: 5));
     phase = 'result_read';
     final result = await connection.receive(const Duration(seconds: 150));
     stdout.writeln(jsonEncode(result));

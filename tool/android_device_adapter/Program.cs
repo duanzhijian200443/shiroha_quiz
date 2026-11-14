@@ -6,6 +6,10 @@ internal static class Program
     internal const bool RuntimeAvailable = false;
     internal static int Main(string[] args)
     {
+#if DEBUG
+        if (args is ["--preauth-native-fixture", var fixtureDirectory, var fixtureScenario, var fixtureRun, var fixtureResource])
+            return PreauthNativeFixture.Run(fixtureDirectory, fixtureScenario, fixtureRun, fixtureResource).GetAwaiter().GetResult();
+#endif
         if (args is ["--self-test"]) return SyntheticTests.Run();
         if (args is [var registrationAction, var registrationRun, var registrationResource, "--current-user-cng-import"] &&
             registrationAction is "--register-pair" or "--link-inspect-registration")

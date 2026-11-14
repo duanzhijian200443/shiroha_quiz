@@ -10,6 +10,7 @@ import 'link_state_store.dart';
 import 'link_values.dart';
 import 'link_verification_log.dart';
 import 'link_call_diagnostics.dart';
+import 'link_failure_settlement.dart';
 
 typedef LinkBackendFactory = Future<LinkBackend> Function(
     {required bool proof,
@@ -295,6 +296,30 @@ final class LinkRuntime {
           rethrow;
         }
       });
+
+  /// Explicit local recovery only. Completion leaves SELECTED, never prepared.
+  Future<void> recoverPreauth(int expectedRevision) => _exclusive(() async {
+        if (_ready ||
+            _backend != null ||
+            _peer != null ||
+            state.lease != null) {
+          linkFail();
+        }
+        await _journal;
+        try {
+          await LinkFailureSettlement(installation)
+              .recoverPreauth(store, expectedRevision);
+        } on LinkPreauthPublicationFailure catch (error, stack) {
+          // A persistence failure never permits more writes in this instance.
+          // Validation-only failures remain retryable with new evidence/revision.
+          _journal = Future<void>.error(error, stack);
+          unawaited(
+              _journal.then((_) {}, onError: (Object _, StackTrace __) {}));
+          rethrow;
+        }
+        _routeHint = null;
+      });
+
   Future<void> _markStarting(String resource) => _record({
         'routeGeneration': state.routeGeneration + 1,
         'dirtyPhase': 'preparing',
@@ -870,6 +895,9 @@ final class LinkPipeServer {
             final address = request['candidateAddress'];
             if (address is! String) linkFail('invalid_target');
             await runtime.connect(candidateAddress: address);
+          case 'recover-preauth':
+            await runtime
+                .recoverPreauth(linkRevision(request['expectedRevision']));
           case 'disconnect':
             await runtime.disconnect();
           case 'shutdown':

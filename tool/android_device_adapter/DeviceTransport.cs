@@ -80,11 +80,12 @@ internal static class DeviceTransport
     // A compiled local owner supplies acquisition admission. This produces no
     // Application evidence or READY, and the ordinary entry remains closed.
     internal static async Task<PinnedConnection> OpenPinned(DeviceTarget target,
-        X509Certificate2 client, CancellationToken stop, Action requireAdmission, Action<string>? observe = null)
+        X509Certificate2 client, CancellationToken stop, Action requireAdmission, Action<string>? observe = null, PreauthResources? preauth = null, Func<TcpClient>? createTcp = null)
     {
         requireAdmission();
         target.Validate();
-        var tcp = new TcpClient(AddressFamily.InterNetwork);
+        var tcp = createTcp?.Invoke() ?? new TcpClient(AddressFamily.InterNetwork);
+        if (preauth != null) preauth.SocketStarted = true;
         SslStream? tls = null;
         try
         {
@@ -93,14 +94,15 @@ internal static class DeviceTransport
             await tcp.ConnectAsync(target.Address, target.Port, deadline.Token);
             observe?.Invoke("tcp_connected");
             requireAdmission();
-            tls = await AuthenticatePinned(tcp.GetStream(), target, client, deadline.Token, requireAdmission, observe);
+            tls = await AuthenticatePinned(tcp.GetStream(), target, client, deadline.Token, requireAdmission, observe, preauth);
             return new PinnedConnection(tcp, tls);
         }
         catch
         {
             bool clean = true;
             try { tls?.Dispose(); } catch { clean = false; }
-            try { tcp.Dispose(); } catch { clean = false; }
+            try { tcp.Dispose(); if (preauth != null) preauth.SocketClosed = true; } catch { clean = false; }
+            if (preauth != null) preauth.CleanupFailed |= !clean;
             if (!clean) throw new LinkFailure("settlement_unknown");
             throw;
         }
@@ -109,14 +111,16 @@ internal static class DeviceTransport
     // The route supplies a stream; this same TLS 1.3/pin/possession check owns
     // authentication for both production TCP and isolated duplex-stream tests.
     internal static async Task<SslStream> AuthenticatePinned(Stream transport, DeviceTarget target,
-        X509Certificate2 client, CancellationToken stop, Action requireAdmission, Action<string>? observe = null)
+        X509Certificate2 client, CancellationToken stop, Action requireAdmission, Action<string>? observe = null, PreauthResources? preauth = null)
     {
         requireAdmission(); target.Validate();
         SslStream? tls = null;
         try
         {
+            if (preauth != null) preauth.TlsStarted = true;
             tls = new SslStream(transport, false, (_, cert, _, _) =>
             {
+                if (preauth != null) preauth.PeerObserved = true;
                 bool accepted = cert is X509Certificate2 parsed && DeviceCertificatePolicy.Check(parsed, target);
                 observe?.Invoke(accepted ? "peer_certificate_valid" : "peer_certificate_rejected");
                 return accepted;
@@ -129,6 +133,8 @@ internal static class DeviceTransport
                 AllowTlsResume = false,
                 ClientCertificates = new X509CertificateCollection { client },
             }, stop);
+            // Authentication completed even if subsequent local admission fails.
+            if (preauth != null) preauth.TlsEstablished = true;
             requireAdmission();
             if (!tls.IsMutuallyAuthenticated || tls.SslProtocol != SslProtocols.Tls13)
                 throw new LinkFailure("credential_rejected");
@@ -136,8 +142,9 @@ internal static class DeviceTransport
         }
         catch
         {
-            try { tls?.Dispose(); }
-            catch { throw new LinkFailure("settlement_unknown"); }
+            if (preauth != null && tls?.IsAuthenticated == true) preauth.TlsEstablished = true;
+            try { tls?.Dispose(); if (preauth != null) preauth.TlsClosed = true; }
+            catch { if (preauth != null) preauth.CleanupFailed = true; throw new LinkFailure("settlement_unknown"); }
             throw;
         }
     }
