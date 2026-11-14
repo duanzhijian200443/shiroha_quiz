@@ -161,3 +161,36 @@ block. It promises no universal TLS-timeout recovery.
 5. Only then execute the separately authorized V3 notification/split-screen,
    V4 new-session READ and V5 background/lock matrix with unchanged expiry,
    original identities and bounded evidence. Isolated PASS proves none of these.
+
+## Round-1 review repair amendment (2026-11-14)
+
+Post-delivery amendment; the original record above is preserved unchanged as
+the pre-repair historical evidence. Round-1 independent review
+(`[REVIEW REQUEST_CHANGES]` on head `6cefb8b224b8f67fe7093e87ddd41a1972680995`)
+reported one P2: the recovery publication-failure latch was consumed by a
+skipped journal callback, allowing a later disconnect diagnostic to rewrite
+custody/state revisions and permanently mismatch the immutable recovery intent.
+
+Repair commit `1d1f3e8a4c87fbca5c538bfc9f71d7c217c61f0f` adds a durable
+`_preauthPublicationFailed` instance flag checked before any runtime record, so
+no state/custody write follows a recovery publication failure and the preserved
+scene stays exactly completable by a new instance. It adds one portable
+regression (publication failure -> refused attach/disconnect activity -> exact
+scene preserved -> fresh instance completes the retained intent). No acceptance
+check was weakened; no C# or contract change was needed.
+
+Superseding counts and status:
+
+- Focused suite total is now 259 cases with 53 new failure settlement cases
+  (the original 258/52 plus this regression); the eight opt-in Windows
+  resource/supervisor cases are unchanged.
+- Portable rerun at the repair head: 251 passed, 8 skipped (the opt-in Windows
+  group), six suites, serial. The opt-in Windows matrix was not rerun by the
+  Executor at this head; it remains the required bounded Verifier target.
+- Review repair rounds: 1/4. Round-2 closure review recorded `[REVIEW APPROVAL]`
+  on head `1d1f3e8a4c87fbca5c538bfc9f71d7c217c61f0f` with zero open P0/P1/P2;
+  `PR contract checks` run 43575226400 succeeded on that head and base
+  `90a2e05828f4bf903458d075b56ba14c606b8c4d`.
+- The candidate SHA in the PR summary predates this repair; formal role evidence
+  comments carry the actual reviewed heads. Verifier requirement remains
+  REQUIRED / CI_COVERAGE_GAP on the current head.
