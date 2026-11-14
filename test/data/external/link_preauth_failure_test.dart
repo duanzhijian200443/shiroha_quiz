@@ -144,6 +144,33 @@ class _Fixture {
   }
 }
 
+// Withholds the original stderr until a fixed interval after launch, far
+// beyond the no-acquisition adapter's unbarriered lifetime. The fixed base is
+// deliberate: gating delivery on exit would deadlock the EOF barrier, which
+// keeps the adapter alive until the supervisor captures the owner identity.
+class _DelayedStderrProcess implements Process {
+  _DelayedStderrProcess(this._inner) {
+    _stderr = Future<void>.delayed(const Duration(milliseconds: 1500))
+        .asStream()
+        .asyncExpand((_) => _inner.stderr);
+  }
+  final Process _inner;
+  late final Stream<List<int>> _stderr;
+  @override
+  IOSink get stdin => _inner.stdin;
+  @override
+  Stream<List<int>> get stdout => _inner.stdout;
+  @override
+  Stream<List<int>> get stderr => _stderr;
+  @override
+  Future<int> get exitCode => _inner.exitCode;
+  @override
+  int get pid => _inner.pid;
+  @override
+  bool kill([ProcessSignal signal = ProcessSignal.sigterm]) =>
+      _inner.kill(signal);
+}
+
 class _Input implements StreamConsumer<List<int>> {
   final released = Completer<void>();
   bool held = false, failed = false;
@@ -690,7 +717,8 @@ void main() {
       'publish-interrupted',
       'tls-close-failed',
       'cng-delete-failed',
-      'socket-close-failed'
+      'socket-close-failed',
+      'delayed-supervisor'
     ]) {
       test(scenario, () async {
         await fixture.dispose();
@@ -708,6 +736,15 @@ void main() {
             run,
             resource
           ]);
+          if (scenario == 'delayed-supervisor') {
+            // Creation identity is queried only against the live process:
+            // OpenProcess fails once the original exits. Without the EOF
+            // barrier the no-acquisition adapter exits before this delayed
+            // owner event is processed, so the join must be refused.
+            fixture.identity =
+                (pid, start) => pid == process.pid && start == _creation(pid);
+            return _DelayedStderrProcess(process);
+          }
           final creation = _creation(process.pid);
           fixture.identity =
               (pid, start) => pid == process.pid && start == creation;
@@ -751,8 +788,11 @@ void main() {
                   ? await result.readAsString()
                   : 'native fixture omitted receipt');
           final receipt = await fixture.evidence.receipt(owner);
-          expect(receipt['resources'],
-              scenario == 'not-acquired' ? 'not-acquired' : 'released');
+          expect(
+              receipt['resources'],
+              scenario == 'not-acquired' || scenario == 'delayed-supervisor'
+                  ? 'not-acquired'
+                  : 'released');
           expect(
               await fixture.evidence.slots
                   .file('native-client-key.pending')

@@ -564,10 +564,13 @@ the phone's original PREPARING/Enable remain necessary. MCP has no recovery tool
 Only no-acquisition or completely released pre-TLS resources qualify. An observed
 peer certificate, established TLS/offer/proof, unknown CNG/socket/TLS cleanup,
 nonmatching receipt, pending publication or incomplete original process/stream
-join refuse. The separate per-resource files never replace normal receipts or
-registration provenance. A gone PID, no pending/lease, successful later run or
-old receipt cannot repair historical DIRTY. General business recovery remains
-outside this source slice.
+join refuse. The proof adapter waits for stdin EOF before exiting, and the
+supervisor sends that EOF only after owner-identity capture (or observed exit),
+so creation identity is always checked against the live original process even
+when stderr event processing is delayed. The separate per-resource files never
+replace normal receipts or registration provenance. A gone PID, no pending/lease,
+successful later run or old receipt cannot repair historical DIRTY. General
+business recovery remains outside this source slice.
 
 Portable regressions run in the standing Link suite. For explicit isolated
 Windows resource acceptance, build the current .NET adapter and run:

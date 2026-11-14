@@ -194,3 +194,48 @@ Superseding counts and status:
 - The candidate SHA in the PR summary predates this repair; formal role evidence
   comments carry the actual reviewed heads. Verifier requirement remains
   REQUIRED / CI_COVERAGE_GAP on the current head.
+
+## Round-2 owner-identity timing repair amendment (2026-11-14)
+
+Post-delivery amendment; the records above are preserved unchanged. A bounded
+verification task examined the race between `LinkAdapterProcess._event(owner)`
+and native `shiroha_link_process_current`: when the adapter exits 80 before the
+supervisor processes the owner event, `OpenProcess` on the retired PID fails
+(`ERROR_INVALID_PARAMETER` -> 0) or `WaitForSingleObject` returns `WAIT_OBJECT_0`
+-> 0, so `_processIdentityVerified` stays false and a valid supervisor join is
+refused. The original Windows fixture hid this with an explicit mid-run stdin
+wait; the production adapter had no such barrier.
+
+Repair (no admission relaxation): the enable-proof adapter now drains stdin to
+EOF before every exit (`Program.ProofExit`, fixture included), and the proof
+supervisor withholds EOF until owner-identity capture or observed exit
+(`_ownerCaptured` barrier in `_closeInput`). Creation identity is therefore
+always checked against the live original process; strict PID, creation, exit-80
+and three-stream checks are unchanged. The fixture's artificial mid-run wait was
+removed in favor of the production barrier. Contract §6.2.2 and tool/link/README
+record the EOF barrier.
+
+New deterministic Windows regression `delayed-supervisor`: stderr is withheld
+until a fixed interval after launch (exit-gated delivery would deadlock the
+barrier), and identity is queried only via live-process `OpenProcess`/
+`GetProcessTimes`. Without the barrier the no-acquisition adapter exits first
+and the join must be refused; with it, identity capture precedes EOF and exit,
+and recovery completes. The scenario was first observed failing on the receipt
+classification branch (fixture acquired resources incorrectly), repaired within
+this assignment, then passing.
+
+Executed at this amendment's candidate head:
+
+- PASS: Debug and Release .NET builds; Release synthetic self-test (38 checks).
+- PASS: portable six-suite serial run, 251 passed / 9 skipped (the opt-in
+  Windows group).
+- PASS: opt-in Windows native matrix (`LINK_PREAUTH_NATIVE=true`), all nine
+  resource/supervisor scenarios including `delayed-supervisor`, 54 passed.
+- PASS: read-only two-file Dart format gate, focused analysis, `git diff --check`.
+
+Superseding counts: 260 focused cases with 54 new failure settlement cases and
+nine opt-in Windows scenarios. Review repair rounds: 2/4 before this round.
+The Executor ran the isolated Windows matrix at this head; the independent
+Verifier requirement (REQUIRED / CI_COVERAGE_GAP) is unchanged and still needs
+its own bounded pass on the final head. No real slot, saved credential or phone
+was accessed.

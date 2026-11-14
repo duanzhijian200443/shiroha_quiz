@@ -68,6 +68,7 @@ final class LinkAdapterProcess implements LinkBackend {
   late final Future<void> _stdout, _stderr;
   late final Future<int> _exit;
   final _inputEnded = Completer<void>();
+  final _ownerCaptured = Completer<void>();
   Future<void>? _closing;
   bool _settledEvent = false, _failed = false, _stdinDone = false;
   bool _authenticatedEvent = false;
@@ -358,6 +359,10 @@ final class LinkAdapterProcess implements LinkBackend {
   Future<void> _closeInput() async {
     final input = _process.stdin;
     if (_proof) {
+      // The adapter owes stdin EOF before exit. Withhold EOF until the original
+      // owner identity is captured (or exit is observed), so creation identity
+      // is always checked against the still-live original process.
+      await Future.any([_ownerCaptured.future, _exit]);
       // No SDK writer is created for proof. Only the original EOF is owed.
       await input.close();
       return;
@@ -494,6 +499,7 @@ final class LinkAdapterProcess implements LinkBackend {
           } catch (_) {
             /* Unavailable creation identity cannot prove failure settlement. */
           }
+          if (!_ownerCaptured.isCompleted) _ownerCaptured.complete();
         case 'authenticated':
           linkFields(value, {
             'type',

@@ -512,6 +512,9 @@ processExitCode:80、stdinClosed/stdoutDrained/stderrDrained:true。
 只有原 supervisor 尚未调用 Process.start 的明确拒绝可以发布同版本 kind preauth-not-started，
 绑定同一组字段但 processId:0/processStarted:not-created，无 Adapter 回执。
 已尝试创建后，ProcessException 或其他异常均不能产生该证明。两种监督原件均不覆盖、删除旧原件，pending 或损坏拒绝。
+原 enable-proof Adapter 退出前必须先等待 stdin EOF；supervisor 仅在捕获 owner
+身份或观察到退出之后才发送 EOF，保证创建身份始终对仍存活的原进程核验。
+事件投递延迟不构成放宽 PID/创建身份/退出码/三流核验的理由。
 失败 connect 始终保留原 owner 和 RECOVERY_REQUIRED；不 prepared，不自动恢复。
 
 仅受信本地 control 新增 `recover-preauth <state-revision>`，MCP 业务前端没有该操作。
