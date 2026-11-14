@@ -146,7 +146,7 @@ state and slot custody remain separate from SQLite. Explicit Android builds may
 select `SHIROHA_UNIFIED_LINK` for the existing Profile 3 foundation; defaults
 remain unchanged. Missing historical provenance and legacy/dirty records refuse
 normal initialization. This source slice does not implement #356 retirement,
-#359 format upgrade or dirty-resource recovery; its native/device/client
+#359 format upgrade or general business dirty-resource recovery; its native/device/client
 acceptance remains separate from deterministic source tests.
 
 Prospective independent registration uses the same native launch provenance
@@ -156,6 +156,16 @@ seal immutable pairing evidence. One specified Link may adopt that exact
 credential/association generation through ADOPT_PENDING; this Infrastructure
 transition grants no Application authority. v1 custody stays unchanged, missing
 v2 owned Link state refuses, and no old history or dirty recovery is reconstructed.
+
+The Link's bounded preauthentication failure settlement uses independent,
+versioned local adapter/supervisor records for the original failed proof run.
+Explicit revision-bound recovery keeps the same owner generation and requires
+original TLS/socket/CNG disposal, creation identity, exit and all-stream joins;
+peer-certificate observation, established TLS, partial cleanup and missing
+historical joins refuse. The recovery intent preserves DIRTY custody until the
+state CAS completes and permits only exact explicit completion after interruption.
+Unified access §6.2.2 owns this local protocol; it adds no proof/Enable authority,
+automatic connection, general business recovery or historical evidence repair.
 
 The External Windows primitive adapter in `lib/data/external/native` owns
 explicit SDK FFI calls to the independent `windows/external_native` C ABI DLL.

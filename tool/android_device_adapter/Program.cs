@@ -6,6 +6,10 @@ internal static class Program
     internal const bool RuntimeAvailable = false;
     internal static int Main(string[] args)
     {
+#if DEBUG
+        if (args is ["--preauth-native-fixture", var fixtureDirectory, var fixtureScenario, var fixtureRun, var fixtureResource])
+            return ProofExit(PreauthNativeFixture.Run(fixtureDirectory, fixtureScenario, fixtureRun, fixtureResource).GetAwaiter().GetResult());
+#endif
         if (args is ["--self-test"]) return SyntheticTests.Run();
         if (args is [var registrationAction, var registrationRun, var registrationResource, "--current-user-cng-import"] &&
             registrationAction is "--register-pair" or "--link-inspect-registration")
@@ -25,9 +29,10 @@ internal static class Program
             {
                 using var owner = new LinkAdapterContext(runId, resourceId, action == "--link-pair");
                 if (action == "--link-pair" && owner.PrepareOrInspectPairing()) return 0;
-                return DeviceClient.Run(action == "--link-business" ? "business" :
+                int code = DeviceClient.Run(action == "--link-business" ? "business" :
                     action == "--link-pair" ? "pairing" : "enable-proof",
                     owner.Directory, null, 3, owner).GetAwaiter().GetResult();
+                return action == "--link-proof" ? ProofExit(code) : code;
             }
             catch { Console.Error.WriteLine("android_link_owner_unavailable"); return 79; }
         }
@@ -37,7 +42,7 @@ internal static class Program
             {
                 using var owner = new LinkAdapterContext(refreshRun, refreshResource);
                 owner.RequireAddressRefresh();
-                return DeviceClient.Run("enable-proof", owner.Directory, candidate, 3, owner).GetAwaiter().GetResult();
+                return ProofExit(DeviceClient.Run("enable-proof", owner.Directory, candidate, 3, owner).GetAwaiter().GetResult());
             }
             catch (LinkFailure error) {
                 Console.Error.WriteLine(error.Code == "address_update_unsupported" ?
@@ -52,7 +57,7 @@ internal static class Program
             {
                 using var owner = new LinkAdapterContext(routeRun, routeResource);
                 owner.RequireRouteProof();
-                return DeviceClient.Run("enable-proof", owner.Directory, routeCandidate, 3, owner, routeOnly: true).GetAwaiter().GetResult();
+                return ProofExit(DeviceClient.Run("enable-proof", owner.Directory, routeCandidate, 3, owner, routeOnly: true).GetAwaiter().GetResult());
             }
             catch { Console.Error.WriteLine("android_route_proof_refused"); return 79; }
         }
@@ -68,7 +73,7 @@ internal static class Program
         if (args is ["--pair", var directory, var address, "--current-user-cng-import"])
             return DeviceClient.Run("pairing", directory, address).GetAwaiter().GetResult();
         if (args is ["--enable-proof", var proofDirectory, "--current-user-cng-import"])
-            return DeviceClient.Run("enable-proof", proofDirectory, null).GetAwaiter().GetResult();
+            return ProofExit(DeviceClient.Run("enable-proof", proofDirectory, null).GetAwaiter().GetResult());
         if (args is ["--business", var businessDirectory, "--current-user-cng-import"])
             return DeviceClient.Run("business", businessDirectory, null).GetAwaiter().GetResult();
         if (args.Length >= 5 && args[0] == "--native-proof")
@@ -81,6 +86,16 @@ internal static class Program
         }
         Console.Error.WriteLine("android_device_runtime_not_authorized");
         return 78;
+    }
+
+    // Successful supervision owes live owner-identity capture before EOF.
+    // Rejection/deadline also releases EOF, without granting any join evidence.
+    // Keep the adapter alive until that original supervisor decision.
+    private static int ProofExit(int code)
+    {
+        try { Console.OpenStandardInput().CopyToAsync(Stream.Null).GetAwaiter().GetResult(); }
+        catch { /* EOF observation cannot change the original exit code. */ }
+        return code;
     }
 }
 

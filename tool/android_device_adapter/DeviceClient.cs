@@ -54,10 +54,17 @@ internal static class DeviceClient
         byte[] clear = [], pfx = [], replacement = [];
         using var stop = new CancellationTokenSource();
         bool ended = false;
+        string stage = "configuration";
+        var preauth = mode == "enable-proof" && link != null ? new PreauthResources() : null;
+        int FailureExit(int fallback)
+        {
+            if (preauth?.Classification == null || stage is not ("configuration" or "protected-configuration" or "client-key" or "tls")) return fallback;
+            try { link!.FailedPreauth(preauth, stage); return 80; }
+            catch { return 79; } // Missing/partial publication retains custody.
+        }
         bool refresh = mode == "enable-proof" && address != null && !routeOnly;
         bool routeProof = mode == "enable-proof" && address != null && routeOnly;
         Action? credentialSlot = link == null ? null : refresh ? link.RequireAddressRefresh : routeProof ? link.RequireRouteProof : link.RequireSlot;
-        string stage = "configuration";
         void Report(string? failure = null)
         {
             if (mode == "enable-proof" && RecoveryReport(stage, failure) is { } line)
@@ -98,7 +105,7 @@ internal static class DeviceClient
             pfx = Convert.FromBase64String(record.GetProperty("clientPfx").GetString()!);
             if (mode != "business") stop.CancelAfter(TimeSpan.FromSeconds(120));
             Enter("client-key");
-            using (var identity = WindowsTlsClientIdentity.Import(pfx, directory, Admission, credentialSlot))
+            using (var identity = WindowsTlsClientIdentity.Import(pfx, directory, Admission, credentialSlot, preauth))
             {
                 if (mode == "business")
                 {
@@ -111,7 +118,7 @@ internal static class DeviceClient
                 using var establishment = CancellationTokenSource.CreateLinkedTokenSource(stop.Token);
                 establishment.CancelAfter(TimeSpan.FromSeconds(5));
                 Enter("tls");
-                using var connection = await DeviceTransport.OpenPinned(target, identity.Certificate, establishment.Token, Admission);
+                using var connection = await DeviceTransport.OpenPinned(target, identity.Certificate, establishment.Token, Admission, preauth: preauth);
                 var binding = await DeviceProof.Exchange(connection.Tls, identity.Certificate, target, record, mode,
                     establishment.Token, stop.Token, Enter, link?.Registering == true ?
                         digest => RegistrationCustody.ObserveFingerprint(directory, link.Operation, link.Run, link.Resource, digest) : null);
@@ -152,7 +159,7 @@ internal static class DeviceClient
         }
         catch (LinkFailure error) {
             if (mode == "business") ReportBusinessFailure("connection", error);
-            Report(error.Code); Console.Error.WriteLine($"android_device:{stage}:{error.Code}"); return error.Code == "settlement_unknown" ? 79 : 78;
+            Report(error.Code); Console.Error.WriteLine($"android_device:{stage}:{error.Code}"); return FailureExit(error.Code == "settlement_unknown" ? 79 : 78);
         }
         catch (Exception error) {
             if (mode == "business") ReportBusinessFailure("connection", error);
@@ -163,7 +170,7 @@ internal static class DeviceClient
             Report(category);
             Console.Error.WriteLine(JsonSerializer.Serialize(new {
             androidDevice = "unavailable", stage, category,
-            code = error.HResult })); return 78; }
+            code = error.HResult })); return FailureExit(78); }
         finally
         {
             ended = true;

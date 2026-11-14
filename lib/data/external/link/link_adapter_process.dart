@@ -5,6 +5,8 @@ import 'dart:typed_data';
 
 import '../../../mcp/link_app_client.dart';
 import '../bounded_json_object.dart';
+import '../windows_local_relay.dart';
+import 'link_failure_settlement.dart';
 import 'link_installation.dart';
 import 'link_values.dart';
 import 'link_call_diagnostics.dart';
@@ -23,8 +25,15 @@ abstract interface class LinkBackend {
 /// The original adapter owns TLS and keys. This owner joins original process
 /// and all three streams AND requires the adapter's bound settlement event.
 final class LinkAdapterProcess implements LinkBackend {
-  LinkAdapterProcess._(this._process, this.runId, this.resourceId, this.slotRef,
-      this._proof, this._windows, this._verificationObserver) {
+  LinkAdapterProcess._(
+      this._process,
+      this.runId,
+      this.resourceId,
+      this.slotRef,
+      this._proof,
+      this._windows,
+      this._verificationObserver,
+      this._processIdentityMatches) {
     _stderr = _readEvents().catchError(_streamFailed);
     _stdout = _readOutput().catchError(_streamFailed);
     unawaited(_process.stdin.done.then<void>((_) {
@@ -59,9 +68,13 @@ final class LinkAdapterProcess implements LinkBackend {
   late final Future<void> _stdout, _stderr;
   late final Future<int> _exit;
   final _inputEnded = Completer<void>();
+  final _ownerCaptured = Completer<void>();
+  final _failure = Completer<void>();
   Future<void>? _closing;
   bool _settledEvent = false, _failed = false, _stdinDone = false;
   bool _authenticatedEvent = false;
+  bool _preauthSettled = false, _processIdentityVerified = false;
+  final bool Function(int, String) _processIdentityMatches;
   bool _receiptFailureReported = false;
   bool _stageFailureReported = false;
   static const _recoveryStages = {
@@ -108,12 +121,28 @@ final class LinkAdapterProcess implements LinkBackend {
       required bool proof,
       String? candidateAddress,
       bool routeOnly = false,
+      bool Function(int, String)? processIdentityMatches,
       required Future<void> Function(LinkOwnerReference) acquired,
       LinkVerificationObserver? verificationObserver,
       Future<Process> Function(String, List<String>,
               {required bool runInShell, required String workingDirectory})?
           startProcess}) async {
     final executable = installation.adapterExecutable;
+    if (proof &&
+        startProcess == null &&
+        await FileSystemEntity.type(executable, followLinks: false) !=
+            FileSystemEntityType.file) {
+      // We have not invoked process creation at all. An error returned by a
+      // launch attempt is deliberately NOT equivalent to this original fact.
+      await LinkFailureSettlement(installation).publishNotStarted(
+          LinkOwnerReference(
+              runId: runId,
+              resourceId: resourceId,
+              processId: 0,
+              processStarted: 'not-created',
+              slotRef: installation.slotRef));
+      throw const LinkPreauthFailure();
+    }
     final process = await (startProcess ?? Process.start)(
         executable,
         [
@@ -133,8 +162,15 @@ final class LinkAdapterProcess implements LinkBackend {
         ],
         runInShell: false,
         workingDirectory: File(executable).parent.path);
-    final owned = LinkAdapterProcess._(process, runId, resourceId,
-        installation.slotRef, proof, false, verificationObserver);
+    final owned = LinkAdapterProcess._(
+        process,
+        runId,
+        resourceId,
+        installation.slotRef,
+        proof,
+        false,
+        verificationObserver,
+        processIdentityMatches ?? WindowsLocalRelay.linkProcessCurrent);
     try {
       // Ownership was persisted before Process.start by the caller. Capture the
       // exact original process, even if shutdown races this asynchronous create.
@@ -148,6 +184,11 @@ final class LinkAdapterProcess implements LinkBackend {
         await owned.close();
         if (owned._owner == null) linkFail();
         await acquired(owned._owner!);
+        if (owned._preauthSettled) {
+          await LinkFailureSettlement(installation)
+              .publishJoined(owned._owner!);
+          throw const LinkPreauthFailure();
+        }
       } else {
         owned._target =
             await owned._identity.future.timeout(const Duration(seconds: 8));
@@ -160,6 +201,7 @@ final class LinkAdapterProcess implements LinkBackend {
       try {
         await owned.close();
       } catch (_) {/* Original dirty custody persists. */}
+      if (owned._owner != null) await acquired(owned._owner!);
       rethrow;
     }
   }
@@ -309,7 +351,12 @@ final class LinkAdapterProcess implements LinkBackend {
   @override
   Future<void> get disconnected => _exit.then((_) {});
 
-  void _streamFailed(Object _, StackTrace __) => _failed = true;
+  void _markFailed() {
+    _failed = true;
+    if (!_failure.isCompleted) _failure.complete();
+  }
+
+  void _streamFailed(Object _, StackTrace __) => _markFailed();
 
   void _endInput() {
     if (!_inputEnded.isCompleted) _inputEnded.complete();
@@ -318,6 +365,12 @@ final class LinkAdapterProcess implements LinkBackend {
   Future<void> _closeInput() async {
     final input = _process.stdin;
     if (_proof) {
+      // The adapter owes stdin EOF before exit. Withhold EOF until the original
+      // owner identity is captured, so it is checked against the live process.
+      // A rejected/absent event must also release the adapter's EOF wait. That
+      // release is failure-only and never substitutes for identity or join.
+      await Future.any([_ownerCaptured.future, _exit, _failure.future])
+          .timeout(const Duration(seconds: 8), onTimeout: _markFailed);
       // No SDK writer is created for proof. Only the original EOF is owed.
       await input.close();
       return;
@@ -330,7 +383,7 @@ final class LinkAdapterProcess implements LinkBackend {
             input.flush().then((_) => true),
             _inputEnded.future.then((_) => false),
           ]);
-      if (!flushed) _failed = true;
+      if (!flushed) _markFailed();
     } finally {
       // Exit can also interrupt a pending close. Observe the original sink's
       // done independently; exit alone never satisfies the final input check.
@@ -344,11 +397,11 @@ final class LinkAdapterProcess implements LinkBackend {
       await for (final bytes in _process.stdout) {
         if (_proof) {
           proofBytes += bytes.length;
-          if (proofBytes > 16384) _failed = true;
+          if (proofBytes > 16384) _markFailed();
         } else if (_output.hasListener) {
           _output.add(bytes);
         } else {
-          _failed = true;
+          _markFailed();
         }
       }
     } finally {
@@ -361,7 +414,7 @@ final class LinkAdapterProcess implements LinkBackend {
     await for (final chunk in _process.stderr) {
       _diagnosticBytes += chunk.length;
       if (_diagnosticBytes > 32768) {
-        _failed = true;
+        _markFailed();
         continue;
       }
       for (final byte in chunk) {
@@ -372,14 +425,14 @@ final class LinkAdapterProcess implements LinkBackend {
           line = [];
         } else {
           if (line.length >= 4096) {
-            _failed = true;
+            _markFailed();
             continue;
           }
           line.add(byte);
         }
       }
     }
-    if (line.isNotEmpty) _failed = true;
+    if (line.isNotEmpty || _proof && !_ownerCaptured.isCompleted) _markFailed();
   }
 
   void _event(String line) {
@@ -448,6 +501,13 @@ final class LinkAdapterProcess implements LinkBackend {
             linkFail();
           }
           _owner = LinkOwnerReference.fromJson({...value}..remove('type'));
+          try {
+            _processIdentityVerified =
+                _processIdentityMatches(_process.pid, _owner!.processStarted);
+          } catch (_) {
+            /* Unavailable creation identity cannot prove failure settlement. */
+          }
+          if (!_ownerCaptured.isCompleted) _ownerCaptured.complete();
         case 'authenticated':
           linkFields(value, {
             'type',
@@ -464,6 +524,17 @@ final class LinkAdapterProcess implements LinkBackend {
             'installationIdentity': value['installationIdentity'],
             'profileReference': value['profileReference']
           }));
+        case 'preauth-failure-settled':
+          linkFields(value, {'type', 'runId', 'resourceId', 'version'});
+          if (!_proof ||
+              _owner == null ||
+              _preauthSettled ||
+              _settledEvent ||
+              _authenticatedEvent ||
+              value['version'] != 1) {
+            linkFail();
+          }
+          _preauthSettled = true;
         case 'settled':
           linkFields(value, {
             'type',
@@ -475,6 +546,7 @@ final class LinkAdapterProcess implements LinkBackend {
             'keyRetired'
           });
           if (_settledEvent ||
+              _preauthSettled ||
               _owner == null ||
               value['mode'] != (_proof ? 'enable-proof' : 'business') ||
               value['targetClose'] != true ||
@@ -487,7 +559,7 @@ final class LinkAdapterProcess implements LinkBackend {
           linkFail();
       }
     } catch (_) {
-      _failed = true;
+      _markFailed();
     }
   }
 
@@ -515,14 +587,25 @@ final class LinkAdapterProcess implements LinkBackend {
         try {
           await _closeInput();
         } catch (_) {
-          _failed = true;
+          _markFailed();
         }
         final status = await _exit;
         await Future.wait([_stdout, _stderr]);
         try {
           await _client?.close();
         } catch (_) {
-          _failed = true;
+          _markFailed();
+        }
+        if (_preauthSettled) {
+          if (!_proof ||
+              status != 80 ||
+              !_stdinDone ||
+              !_processIdentityVerified ||
+              _settledEvent ||
+              _failed) {
+            linkFail('owner_unsettled');
+          }
+          return; // Never emit the normal adapterJoined success observation.
         }
         if (status != 0 || !_stdinDone || !_settledEvent || _failed) {
           linkFail('owner_unsettled');

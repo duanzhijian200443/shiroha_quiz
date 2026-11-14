@@ -329,6 +329,7 @@
         'test/data/external/link_initialization_test.dart',
         'test/data/external/link_state_store_test.dart',
         'test/data/external/link_runtime_test.dart',
+        'test/data/external/link_preauth_failure_test.dart',
         'test/data/external/link_architecture_test.dart',
         'test/mcp/link_frontend_test.dart',
         'test/mcp/offline_codex_shutdown_test.dart',

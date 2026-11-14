@@ -551,3 +551,44 @@ implementation and acceptance.
 successful business result never proves resource cleanup. An original-resource
 failure remains a failed shutdown with retained custody, and cannot be hidden
 by a later diagnostic write.
+
+## Explicit preauthentication failure recovery
+
+Unified access §6.2.2 defines the version-1 preauth-failure receipt, independent
+original-supervisor join and exact recovery intent. A failed enable-proof remains
+failed/DIRTY until `shiroha_link_control recover-preauth <state-revision>` is
+explicitly requested locally. Obtain the current revision with `inspect`.
+Recovery returns clean/SELECTED with prepared=false; a new explicit connect and
+the phone's original PREPARING/Enable remain necessary. MCP has no recovery tool.
+
+Only no-acquisition or completely released pre-TLS resources qualify. An observed
+peer certificate, established TLS/offer/proof, unknown CNG/socket/TLS cleanup,
+nonmatching receipt, pending publication or incomplete original process/stream
+join refuse. The proof adapter waits for stdin EOF before exiting. Successful
+supervision captures the live original owner's creation identity before EOF.
+Rejected events, stream errors or stderr ending without an owner latch failure
+and release that EOF wait immediately; an otherwise silent owner wait is bounded
+to eight seconds before failure and EOF. Failure release never proves identity
+or cleanup: later valid events cannot clear the latch or publish adapterJoined
+or a preauth supervisor join. Original exit and all streams are still actually
+joined; no process is killed or presumed settled. The separate per-resource files
+never replace normal receipts or registration provenance. A gone PID, no pending/lease,
+successful later run or old receipt cannot repair historical DIRTY. General
+business recovery remains outside this source slice.
+
+Portable regressions run in the standing Link suite. For explicit isolated
+Windows resource acceptance, build the current .NET adapter and run:
+
+```powershell
+dotnet build tool/android_device_adapter/AndroidDeviceAdapter.csproj --nologo
+flutter test --no-pub --concurrency=1 --dart-define=LINK_PREAUTH_NATIVE=true test/data/external/link_preauth_failure_test.dart
+```
+
+The test-only native fixture is confined to fresh directories under this
+checkout's build/link-preauth-native. It imports disposable current-user CNG keys,
+connects only to an endpoint bound on this computer, and executes original
+transport/disposal, receipt publication and Link supervisor paths. Failure
+injections occur after actual acquisition; no saved key or device is accessed.
+Production native parent admission/DPAPI composition and Android behavior remain
+separate acceptance; these isolated tests cannot establish historical recovery
+or ANDROID-FOCUS-1 V3–V5.
