@@ -564,11 +564,15 @@ the phone's original PREPARING/Enable remain necessary. MCP has no recovery tool
 Only no-acquisition or completely released pre-TLS resources qualify. An observed
 peer certificate, established TLS/offer/proof, unknown CNG/socket/TLS cleanup,
 nonmatching receipt, pending publication or incomplete original process/stream
-join refuse. The proof adapter waits for stdin EOF before exiting, and the
-supervisor sends that EOF only after owner-identity capture (or observed exit),
-so creation identity is always checked against the live original process even
-when stderr event processing is delayed. The separate per-resource files never
-replace normal receipts or registration provenance. A gone PID, no pending/lease,
+join refuse. The proof adapter waits for stdin EOF before exiting. Successful
+supervision captures the live original owner's creation identity before EOF.
+Rejected events, stream errors or stderr ending without an owner latch failure
+and release that EOF wait immediately; an otherwise silent owner wait is bounded
+to eight seconds before failure and EOF. Failure release never proves identity
+or cleanup: later valid events cannot clear the latch or publish adapterJoined
+or a preauth supervisor join. Original exit and all streams are still actually
+joined; no process is killed or presumed settled. The separate per-resource files
+never replace normal receipts or registration provenance. A gone PID, no pending/lease,
 successful later run or old receipt cannot repair historical DIRTY. General
 business recovery remains outside this source slice.
 

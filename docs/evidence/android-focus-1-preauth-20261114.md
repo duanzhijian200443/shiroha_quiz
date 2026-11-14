@@ -239,3 +239,82 @@ The Executor ran the isolated Windows matrix at this head; the independent
 Verifier requirement (REQUIRED / CI_COVERAGE_GAP) is unchanged and still needs
 its own bounded pass on the final head. No real slot, saved credential or phone
 was accessed.
+
+## Round-3 rejected/missing owner EOF repair amendment (2026-11-14)
+
+Same-PR bounded repair of the user-supplied latest review on
+`a1e1c53f01128805238d597ee72cc6bf08119d95`; prior evidence is preserved.
+Task-start remote inspection confirmed PR #368 OPEN, source
+`codex/link-preauth-failure-settlement`, base
+`90a2e05828f4bf903458d075b56ba14c606b8c4d`, and that exact local/remote head.
+The existing task worktree was clean and reused; the original dirty checkout
+was left untouched. No fetch, default alignment or branch creation was needed
+for this same-PR repair.
+
+The reported P2 is reproducible: a fake original proof process emits an invalid
+owner then waits for stdin EOF before exit, matching production `ProofExit`.
+Before the fix, the new regression failed with a two-second TimeoutException
+instead of the required `owner_unsettled` rejection. The supervisor waited for
+owner capture/exit while the adapter waited for the supervisor's EOF.
+
+The supervisor now latches failure and releases the owner wait immediately on
+event rejection, stream error/limits or stderr EOF without an owner. A silent
+owner wait expires after eight seconds and follows the same failed EOF path.
+Only the additional owner barrier is bounded: original process exit and all
+three actual stream joins remain mandatory; EOF release is no cleanup proof
+and does not kill a process. A later valid owner or complete failure receipt
+cannot clear the failure or publish normal adapterJoined/preauth supervisor
+join evidence. Successful live identity capture and the existing PID, creation
+identity, exit-code and stream requirements are retained.
+
+Ten new portable cases cover missing/invalid owner, a valid owner after
+rejection, stderr failure/EOF/overflow/invalid UTF-8, stdout failure, silent
+stderr and a valid owner delivered after the deadline. Each requires bounded
+connect/close rejection, retained DIRTY custody, prepared=false, no supervisor
+join/adapterJoined, and refused recovery despite a complete adapter receipt.
+Three additional Debug-only Windows fixture scenarios (missing-owner,
+invalid-owner, silent-stderr) return through production `Program.ProofExit`;
+the original process must exit 80 after EOF within the bound, while preserving
+the same rejection invariants. The prior delayed-supervisor positive and all
+original resource scenarios still pass. Production C# behavior is unchanged;
+only its barrier comment and the Debug fixture change. Governing unified
+access §6.2.2 and the Link README now describe failure-only EOF release.
+
+Executed on this repair's final source:
+
+- PASS: the six-suite serial command below, **273 passed**, no skips, including
+  **12 Windows original-resource/supervisor scenarios**. The preauth suite now
+  contains 67 cases. Log: ignored `build/link-preauth-round3-tests.log`.
+- PASS: .NET Debug and Release builds, zero warnings/errors; Release self-test,
+  38 synthetic checks.
+- PASS: read-only two-file Dart format gate, focused analysis, Link architecture
+  tests (included in the six-suite run), standing-suite/timing guard, diff check
+  and final scope inspection.
+
+```text
+dotnet build tool/android_device_adapter/AndroidDeviceAdapter.csproj --no-restore --nologo
+dotnet build tool/android_device_adapter/AndroidDeviceAdapter.csproj --configuration Release --no-restore --nologo
+dotnet run --project tool/android_device_adapter/AndroidDeviceAdapter.csproj --configuration Release --no-build -- --self-test
+flutter test --no-pub --concurrency=1 --dart-define=LINK_PREAUTH_NATIVE=true test/data/external/link_preauth_failure_test.dart test/data/external/link_runtime_test.dart test/data/external/link_state_store_test.dart test/data/external/link_initialization_test.dart test/data/external/link_architecture_test.dart test/mcp/link_frontend_test.dart
+dart format --output=none --set-exit-if-changed lib/data/external/link/link_adapter_process.dart test/data/external/link_preauth_failure_test.dart
+flutter analyze --no-pub lib/data/external/link/link_adapter_process.dart test/data/external/link_preauth_failure_test.dart
+tool/tests/ci_contract_timings_test.ps1
+git diff --check
+```
+
+This bounded assignment's semantic self-repair cycles: **0/4** (the expected
+pre-fix regression failure is reproduction evidence). Cumulative review-repair
+rounds for PR #368: **3/4**, retaining the two previous rounds. No check was
+weakened. Coupled paths are the existing Debug Windows fixture, barrier comment,
+governing contract, usage documentation and this execution evidence.
+
+Verifier requirement remains **REQUIRED / CI_COVERAGE_GAP**: standing Linux CI
+covers portable rejection but cannot exercise original Windows process/EOF,
+CNG and stream behavior. The independent bounded target must include the
+current-head twelve-scenario matrix (especially missing/invalid owner and silent
+stderr, alongside delayed-supervisor) and the existing revision/interruption
+refusals. These Executor results are not independent verification. Production
+native-parent/DPAPI and real-device/V3–V5 acceptance are NOT_RUN; no historical
+slot, saved credential or phone was accessed. Current-target standing CI and
+fresh independent semantic review remain pending after authorized push; no
+merge or PR metadata/evidence-comment mutation is part of this repair.

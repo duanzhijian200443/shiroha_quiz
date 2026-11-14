@@ -69,6 +69,7 @@ final class LinkAdapterProcess implements LinkBackend {
   late final Future<int> _exit;
   final _inputEnded = Completer<void>();
   final _ownerCaptured = Completer<void>();
+  final _failure = Completer<void>();
   Future<void>? _closing;
   bool _settledEvent = false, _failed = false, _stdinDone = false;
   bool _authenticatedEvent = false;
@@ -350,7 +351,12 @@ final class LinkAdapterProcess implements LinkBackend {
   @override
   Future<void> get disconnected => _exit.then((_) {});
 
-  void _streamFailed(Object _, StackTrace __) => _failed = true;
+  void _markFailed() {
+    _failed = true;
+    if (!_failure.isCompleted) _failure.complete();
+  }
+
+  void _streamFailed(Object _, StackTrace __) => _markFailed();
 
   void _endInput() {
     if (!_inputEnded.isCompleted) _inputEnded.complete();
@@ -360,9 +366,11 @@ final class LinkAdapterProcess implements LinkBackend {
     final input = _process.stdin;
     if (_proof) {
       // The adapter owes stdin EOF before exit. Withhold EOF until the original
-      // owner identity is captured (or exit is observed), so creation identity
-      // is always checked against the still-live original process.
-      await Future.any([_ownerCaptured.future, _exit]);
+      // owner identity is captured, so it is checked against the live process.
+      // A rejected/absent event must also release the adapter's EOF wait. That
+      // release is failure-only and never substitutes for identity or join.
+      await Future.any([_ownerCaptured.future, _exit, _failure.future])
+          .timeout(const Duration(seconds: 8), onTimeout: _markFailed);
       // No SDK writer is created for proof. Only the original EOF is owed.
       await input.close();
       return;
@@ -375,7 +383,7 @@ final class LinkAdapterProcess implements LinkBackend {
             input.flush().then((_) => true),
             _inputEnded.future.then((_) => false),
           ]);
-      if (!flushed) _failed = true;
+      if (!flushed) _markFailed();
     } finally {
       // Exit can also interrupt a pending close. Observe the original sink's
       // done independently; exit alone never satisfies the final input check.
@@ -389,11 +397,11 @@ final class LinkAdapterProcess implements LinkBackend {
       await for (final bytes in _process.stdout) {
         if (_proof) {
           proofBytes += bytes.length;
-          if (proofBytes > 16384) _failed = true;
+          if (proofBytes > 16384) _markFailed();
         } else if (_output.hasListener) {
           _output.add(bytes);
         } else {
-          _failed = true;
+          _markFailed();
         }
       }
     } finally {
@@ -406,7 +414,7 @@ final class LinkAdapterProcess implements LinkBackend {
     await for (final chunk in _process.stderr) {
       _diagnosticBytes += chunk.length;
       if (_diagnosticBytes > 32768) {
-        _failed = true;
+        _markFailed();
         continue;
       }
       for (final byte in chunk) {
@@ -417,14 +425,14 @@ final class LinkAdapterProcess implements LinkBackend {
           line = [];
         } else {
           if (line.length >= 4096) {
-            _failed = true;
+            _markFailed();
             continue;
           }
           line.add(byte);
         }
       }
     }
-    if (line.isNotEmpty) _failed = true;
+    if (line.isNotEmpty || _proof && !_ownerCaptured.isCompleted) _markFailed();
   }
 
   void _event(String line) {
@@ -551,7 +559,7 @@ final class LinkAdapterProcess implements LinkBackend {
           linkFail();
       }
     } catch (_) {
-      _failed = true;
+      _markFailed();
     }
   }
 
@@ -579,14 +587,14 @@ final class LinkAdapterProcess implements LinkBackend {
         try {
           await _closeInput();
         } catch (_) {
-          _failed = true;
+          _markFailed();
         }
         final status = await _exit;
         await Future.wait([_stdout, _stderr]);
         try {
           await _client?.close();
         } catch (_) {
-          _failed = true;
+          _markFailed();
         }
         if (_preauthSettled) {
           if (!_proof ||

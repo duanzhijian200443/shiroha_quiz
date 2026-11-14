@@ -20,19 +20,22 @@ internal static class PreauthNativeFixture
         while (repository != null && !File.Exists(Path.Combine(repository.FullName, "pubspec.yaml"))) repository = repository.Parent;
         if (repository == null || !Path.GetFullPath(directory).StartsWith(
             Path.Combine(repository.FullName, "build", "link-preauth-native") + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
-            scenario is not ("not-acquired" or "tcp-failure" or "tls-deadline" or "pending" or "publish-interrupted" or "tls-close-failed" or "cng-delete-failed" or "socket-close-failed" or "delayed-supervisor")) return 79;
+            scenario is not ("not-acquired" or "tcp-failure" or "tls-deadline" or "pending" or "publish-interrupted" or "tls-close-failed" or "cng-delete-failed" or "socket-close-failed" or "delayed-supervisor" or "missing-owner" or "invalid-owner" or "silent-stderr")) return 79;
         LinkAdapterContext.Token(run); LinkAdapterContext.Token(resource);
         var targetBinding = JsonSerializer.SerializeToElement(new {
             deviceIdentity = new string('a', 64), installationIdentity = "installation", profileReference = "profile"
         });
         void Emit(object value) => Console.Error.WriteLine("SHIROHA_LINK_EVENT " + JsonSerializer.Serialize(value));
-        Emit(new { type = "owner", runId = run, resourceId = resource, processId = Environment.ProcessId,
-            processStarted = Process.GetCurrentProcess().StartTime.ToUniversalTime().ToFileTimeUtc().ToString(), slotRef = "phone" });
+        bool ownerFault = scenario is "missing-owner" or "invalid-owner" or "silent-stderr";
+        if (scenario is not ("missing-owner" or "silent-stderr"))
+            Emit(new { type = "owner", runId = run, resourceId = resource,
+                processId = scenario == "invalid-owner" ? -1 : Environment.ProcessId,
+                processStarted = Process.GetCurrentProcess().StartTime.ToUniversalTime().ToFileTimeUtc().ToString(), slotRef = "phone" });
         var resources = new PreauthResources();
         string phase = "fixture";
         try
         {
-            if (scenario != "not-acquired" && scenario != "delayed-supervisor")
+            if (scenario != "not-acquired" && scenario != "delayed-supervisor" && !ownerFault)
             {
                 phase = "endpoint";
                 var local = NetworkInterface.GetAllNetworkInterfaces()
@@ -92,11 +95,12 @@ internal static class PreauthNativeFixture
             }
             if (scenario == "pending") { File.WriteAllText(Path.Combine(directory, "native-client-key.pending"), "fixture-pending"); return 79; }
             var receipt = resources.Receipt("operation", "connector", "phone", run, resource,
-                scenario is "not-acquired" or "delayed-supervisor" ? "protected-configuration" : "tls", targetBinding);
+                scenario is "not-acquired" or "delayed-supervisor" || ownerFault ? "protected-configuration" : "tls", targetBinding);
             if (scenario == "publish-interrupted")
                 File.WriteAllText(Path.Combine(directory, $"link-preauth-{resource}.json.pending"), "{");
             LinkAdapterContext.PublishPreauthReceipt(directory, resource, JsonSerializer.SerializeToUtf8Bytes(receipt));
-            Emit(new { type = "preauth-failure-settled", runId = run, resourceId = resource, version = 1 });
+            if (scenario != "silent-stderr")
+                Emit(new { type = "preauth-failure-settled", runId = run, resourceId = resource, version = 1 });
             return 80;
         }
         catch (Exception error) {

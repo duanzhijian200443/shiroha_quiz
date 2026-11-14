@@ -25,6 +25,7 @@ class _Fixture {
   late LinkRuntime runtime;
   late LinkFailureSettlement evidence;
   int starts = 0;
+  int adapterJoins = 0;
   Future<Process> Function(String, String)? launch;
   bool Function(int, String) identity =
       (pid, start) => pid == 42 && start == '123456';
@@ -105,6 +106,7 @@ class _Fixture {
               runId: runId,
               resourceId: resourceId,
               acquired: acquired,
+              verificationObserver: (_) => adapterJoins++,
               processIdentityMatches: (pid, start) => identity(pid, start),
               startProcess: launch == null
                   ? null
@@ -665,6 +667,110 @@ void main() {
         throwsA(anything));
     expect(fixture.store.state.dirtyPhase, LinkDirtyPhase.recoveryRequired);
   });
+  for (final fault in [
+    'missing-owner',
+    'invalid-owner',
+    'late-valid-owner',
+    'stderr-failed',
+    'stderr-closed',
+    'stderr-oversized',
+    'stderr-invalid-utf8',
+    'stdout-failed',
+    'silent-stderr',
+    'owner-after-deadline'
+  ]) {
+    test('proof EOF barrier rejects $fault within a bound without join',
+        () async {
+      final process = _Process();
+      fixture.launch = (run, resource) async {
+        unawaited(() async {
+          final owner = LinkOwnerReference(
+              runId: run,
+              resourceId: resource,
+              processId: process.pid,
+              processStarted: '123456',
+              slotRef: 'phone');
+          // Even a complete receipt cannot repair a missing/failed owner event.
+          await fixture.write(
+              fixture.evidence.receiptName(resource), fixture.receipt(owner));
+          switch (fault) {
+            case 'missing-owner':
+              process.emit({
+                'type': 'preauth-failure-settled',
+                'runId': run,
+                'resourceId': resource,
+                'version': 1
+              });
+            case 'invalid-owner':
+            case 'late-valid-owner':
+              process
+                  .emit({'type': 'owner', ...owner.toJson(), 'processId': -1});
+              if (fault == 'late-valid-owner') {
+                process.emit({'type': 'owner', ...owner.toJson()});
+                process.emit({
+                  'type': 'preauth-failure-settled',
+                  'runId': run,
+                  'resourceId': resource,
+                  'version': 1
+                });
+              }
+            case 'stderr-failed':
+              process.events
+                  .addError(const FileSystemException('fixture-read'));
+            case 'stderr-closed':
+              unawaited(process.events.close());
+            case 'stderr-oversized':
+              process.events.add(List<int>.filled(32769, 0));
+            case 'stderr-invalid-utf8':
+              process.events.add([0xff, 10]);
+            case 'stdout-failed':
+              process.output
+                  .addError(const FileSystemException('fixture-read'));
+          }
+          // Match production ProofExit: exit and stream EOF owe stdin EOF.
+          await process.stdin.done;
+          if (fault == 'owner-after-deadline') {
+            process.emit({'type': 'owner', ...owner.toJson()});
+            process.emit({
+              'type': 'preauth-failure-settled',
+              'runId': run,
+              'resourceId': resource,
+              'version': 1
+            });
+          }
+          process.exited.complete(80);
+          unawaited(process.output.close());
+          unawaited(process.events.close());
+        }());
+        return process;
+      };
+      await expectLater(
+          fixture.runtime.connect().timeout(Duration(
+              seconds: {'silent-stderr', 'owner-after-deadline'}.contains(fault)
+                  ? 10
+                  : 2)),
+          throwsA(isA<LinkException>()
+              .having((error) => error.code, 'code', 'owner_unsettled')));
+      expect(await process.exitCode, 80);
+      expect(fixture.store.state.dirtyPhase, LinkDirtyPhase.recoveryRequired);
+      expect(fixture.runtime.inspect()['prepared'], isFalse);
+      expect(fixture.adapterJoins, 0);
+      final owner = fixture.store.state.owner!;
+      expect(
+          await fixture.evidence.slots
+              .file(fixture.evidence.joinName(owner.resourceId))
+              .exists(),
+          isFalse);
+      expect((await fixture.read('slot-ownership.json'))['lastSettlementState'],
+          'DIRTY');
+      await expectLater(
+          fixture.runtime.recoverPreauth(fixture.store.state.revision),
+          throwsA(isA<LinkException>()));
+      await expectLater(
+          fixture.runtime.close().timeout(const Duration(seconds: 2)),
+          throwsA(isA<LinkException>()));
+    });
+  }
   test('original stdin/stdout/stderr joins cannot be inferred from exit',
       () async {
     final process = _Process();
@@ -718,7 +824,10 @@ void main() {
       'tls-close-failed',
       'cng-delete-failed',
       'socket-close-failed',
-      'delayed-supervisor'
+      'delayed-supervisor',
+      'missing-owner',
+      'invalid-owner',
+      'silent-stderr'
     ]) {
       test(scenario, () async {
         await fixture.dispose();
@@ -728,6 +837,13 @@ void main() {
             'tool/android_device_adapter/bin/Debug/net10.0/AndroidDeviceAdapter.exe');
         expect(File(exe).existsSync(), isTrue,
             reason: 'Build the current adapter before native acceptance');
+        Process? original;
+        addTearDown(() async {
+          // Release only this disposable fixture if a regression assertion
+          // fails before the supervisor supplies EOF; never kill by PID.
+          await original?.stdin.close();
+          await original?.exitCode.timeout(const Duration(seconds: 2));
+        });
         fixture.launch = (run, resource) async {
           final process = await Process.start(exe, [
             '--preauth-native-fixture',
@@ -736,6 +852,7 @@ void main() {
             run,
             resource
           ]);
+          original = process;
           if (scenario == 'delayed-supervisor') {
             // Creation identity is queried only against the live process:
             // OpenProcess fails once the original exits. Without the EOF
@@ -750,8 +867,43 @@ void main() {
               (pid, start) => pid == process.pid && start == creation;
           return process;
         };
-        await expectLater(fixture.runtime.connect(), throwsA(anything));
+        final ownerFault = {'missing-owner', 'invalid-owner', 'silent-stderr'}
+            .contains(scenario);
+        await expectLater(
+            fixture.runtime.connect().timeout(const Duration(seconds: 12)),
+            ownerFault
+                ? throwsA(isA<LinkException>()
+                    .having((error) => error.code, 'code', 'owner_unsettled'))
+                : throwsA(anything));
         expect(fixture.store.state.dirtyPhase, LinkDirtyPhase.recoveryRequired);
+        if (ownerFault) {
+          // The real adapter returned through production ProofExit after EOF.
+          expect(await original!.exitCode, 80);
+          final owner = fixture.store.state.owner!;
+          expect(
+              await fixture.evidence.slots
+                  .file(fixture.evidence.receiptName(owner.resourceId))
+                  .exists(),
+              isTrue);
+          expect(
+              await fixture.evidence.slots
+                  .file(fixture.evidence.joinName(owner.resourceId))
+                  .exists(),
+              isFalse);
+          expect(fixture.adapterJoins, 0);
+          expect(fixture.runtime.inspect()['prepared'], isFalse);
+          expect(
+              (await fixture
+                  .read('slot-ownership.json'))['lastSettlementState'],
+              'DIRTY');
+          await expectLater(
+              fixture.runtime.recoverPreauth(fixture.store.state.revision),
+              throwsA(isA<LinkException>()));
+          await expectLater(
+              fixture.runtime.close().timeout(const Duration(seconds: 2)),
+              throwsA(isA<LinkException>()));
+          return;
+        }
         if (scenario == 'pending' ||
             scenario == 'publish-interrupted' ||
             scenario == 'tls-close-failed' ||

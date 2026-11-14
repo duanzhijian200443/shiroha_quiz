@@ -512,8 +512,13 @@ processExitCode:80、stdinClosed/stdoutDrained/stderrDrained:true。
 只有原 supervisor 尚未调用 Process.start 的明确拒绝可以发布同版本 kind preauth-not-started，
 绑定同一组字段但 processId:0/processStarted:not-created，无 Adapter 回执。
 已尝试创建后，ProcessException 或其他异常均不能产生该证明。两种监督原件均不覆盖、删除旧原件，pending 或损坏拒绝。
-原 enable-proof Adapter 退出前必须先等待 stdin EOF；supervisor 仅在捕获 owner
-身份或观察到退出之后才发送 EOF，保证创建身份始终对仍存活的原进程核验。
+原 enable-proof Adapter 退出前必须先等待 stdin EOF；成功路径中 supervisor
+先捕获并核验仍存活的原进程 owner 创建身份，再发送 EOF。事件拒绝、流错误或
+stderr 在 owner 捕获前结束时，锁定失败并立即释放 EOF 屏障；无事件也无退出时，
+owner 等待最多 8 秒，超时锁定失败后发送 EOF，解除双方相互等待。
+失败释放 EOF 不代表身份核验或结算成功；即使后续收到合法 owner/失败回执，
+本次也不得发布正常 adapterJoined 或 preauth supervisor join，仍保留 DIRTY。
+原进程退出和三流实际 join 仍独立等待，释放屏障不推定资源关闭或强杀进程。
 事件投递延迟不构成放宽 PID/创建身份/退出码/三流核验的理由。
 失败 connect 始终保留原 owner 和 RECOVERY_REQUIRED；不 prepared，不自动恢复。
 

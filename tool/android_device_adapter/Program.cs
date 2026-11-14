@@ -88,9 +88,9 @@ internal static class Program
         return 78;
     }
 
-    // The supervisor owes EOF only after original owner-identity capture. The
-    // proof adapter must not exit before that EOF, so creation identity is
-    // always checked against the live original process, never a retired PID.
+    // Successful supervision owes live owner-identity capture before EOF.
+    // Rejection/deadline also releases EOF, without granting any join evidence.
+    // Keep the adapter alive until that original supervisor decision.
     private static int ProofExit(int code)
     {
         try { Console.OpenStandardInput().CopyToAsync(Stream.Null).GetAwaiter().GetResult(); }
