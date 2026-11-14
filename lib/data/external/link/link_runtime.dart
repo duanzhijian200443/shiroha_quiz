@@ -74,6 +74,7 @@ final class LinkRuntime {
   Future<void> Function()? _joinOutput;
   Future<void> _journal = Future<void>.value();
   bool _ready = false, _closed = false, _withdrawing = false;
+  bool _preauthPublicationFailed = false;
   String? _peer, _connection;
   StreamController<void>? _cancel;
   bool _cancelRequested = false;
@@ -88,6 +89,11 @@ final class LinkRuntime {
       connection == _connection;
 
   Future<void> _record(Map<String, Object?> fields) {
+    if (_preauthPublicationFailed) {
+      // A skipped journal callback would otherwise consume the latch and let
+      // a diagnostic rewrite drift the exact recovery-intent snapshots.
+      return Future<void>.error(const LinkPreauthPublicationFailure());
+    }
     var publishing = false;
     final next = _journal.then((_) => slots.locked(() async {
           final previous = state;
@@ -312,6 +318,7 @@ final class LinkRuntime {
         } on LinkPreauthPublicationFailure catch (error, stack) {
           // A persistence failure never permits more writes in this instance.
           // Validation-only failures remain retryable with new evidence/revision.
+          _preauthPublicationFailed = true;
           _journal = Future<void>.error(error, stack);
           unawaited(
               _journal.then((_) {}, onError: (Object _, StackTrace __) {}));

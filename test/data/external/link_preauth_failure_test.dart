@@ -521,6 +521,49 @@ void main() {
     await expectLater(fixture.runtime.connect(), throwsA(anything));
     expect(fixture.starts, 1);
   });
+  test(
+      'publication-failure latch survives disconnect and keeps the intent exact',
+      () async {
+    await failedProof();
+    final before = fixture.store.state.toJson();
+    final custody = await fixture.read('slot-ownership.json');
+    final revision = fixture.store.state.revision;
+    final resource = fixture.store.state.owner!.resourceId;
+    await File(p.join(fixture.config.stateDirectory, 'link-state-v2.pending'))
+        .writeAsString('{');
+    await expectLater(fixture.runtime.recoverPreauth(revision),
+        throwsA(isA<LinkPreauthPublicationFailure>()));
+    expect(
+        await fixture.evidence.slots
+            .file('link-preauth-$resource-recovery.json')
+            .exists(),
+        isTrue);
+    // Refused attach and explicit disconnects must not rewrite the scene; a
+    // consumed latch would drift the immutable intent's exact revisions.
+    for (var i = 0; i < 2; i++) {
+      await expectLater(
+          fixture.runtime.attach('peer', 'connection'), throwsA(anything));
+      await expectLater(fixture.runtime.disconnect(), throwsA(anything));
+    }
+    expect(fixture.store.state.toJson(), before);
+    expect(await fixture.read('slot-ownership.json'), custody);
+    await expectLater(fixture.runtime.recoverPreauth(revision),
+        throwsA(isA<LinkPreauthPublicationFailure>()));
+    expect(fixture.store.state.toJson(), before);
+    expect(await fixture.read('slot-ownership.json'), custody);
+    await File(p.join(fixture.config.stateDirectory, 'link-state-v2.pending'))
+        .delete();
+    await fixture.store.close();
+    fixture.store = await LinkInitialization(fixture.config,
+        processCurrent: (_, __) => false).open(initialize: false);
+    fixture.runtime =
+        LinkRuntime(installation: fixture.config, store: fixture.store);
+    await fixture.runtime.recoverPreauth(fixture.store.state.revision);
+    expect(fixture.store.state.dirtyPhase, LinkDirtyPhase.clean);
+    expect((await fixture.read('slot-ownership.json'))['lastSettlementState'],
+        'CLEAN');
+    expect(fixture.runtime.inspect()['prepared'], isFalse);
+  });
   test('explicit restart recovery finishes only its exact recorded state CAS',
       () async {
     await failedProof();
