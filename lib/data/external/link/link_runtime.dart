@@ -33,14 +33,17 @@ final class LinkRuntime {
       required this.store,
       LinkBackendFactory? backendFactory,
       LinkInitializationFactory? initializationFactory,
+      bool Function(int, String)? processCurrent,
       this.verificationObserver,
       this.callDiagnostics})
       : _factory = backendFactory,
         _initializationFactory = initializationFactory,
+        processCurrent = processCurrent ?? WindowsLocalRelay.linkProcessCurrent,
         slots = SlotOwnershipStore(installation);
   final LinkInstallation installation;
   final LinkStateStore store;
   final SlotOwnershipStore slots;
+  final bool Function(int, String) processCurrent;
   final LinkBackendFactory? _factory;
   final LinkInitializationFactory? _initializationFactory;
   final LinkVerificationObserver? verificationObserver;
@@ -71,7 +74,7 @@ final class LinkRuntime {
   final runId = linkNonce();
   LinkBackend? _backend;
   Future<void>? _operation, _call, _disconnecting, _closing;
-  Future<void> Function()? _joinOutput;
+  Future<void> Function({bool retirePeer})? _joinOutput;
   Future<void> _journal = Future<void>.value();
   bool _ready = false, _closed = false, _withdrawing = false;
   bool _preauthPublicationFailed = false;
@@ -235,7 +238,9 @@ final class LinkRuntime {
         if (targetRef != installation.slotRef) {
           linkFail('invalid_target');
         }
+        _ready = false;
         // This exclusive operation already owns selection and cannot join itself.
+        _routeHint = null;
         await _disconnect(waitForOperation: false);
         if (state.dirtyPhase != LinkDirtyPhase.clean) linkFail();
         await _record({
@@ -393,7 +398,7 @@ final class LinkRuntime {
           unawaited(backend.disconnected.then((_) async {
             if (!identical(_backend, backend)) return;
             try {
-              await disconnect();
+              await _disconnect(waitForOperation: true, retirePeer: true);
             } catch (_) {/* Exact dirty owner remains. */}
           }));
           if (jsonEncode(backend.target.toJson()) !=
@@ -524,16 +529,24 @@ final class LinkRuntime {
   Future<void> delivered(bool delivered) =>
       _record({'delivery': delivered ? 'delivered' : 'unknown'});
 
-  Future<void> disconnect() => _disconnect(waitForOperation: true);
-
-  Future<void> _disconnect({required bool waitForOperation}) {
-    if (_disconnecting != null) return _disconnecting!;
-    _withdrawing = true;
+  Future<void> disconnect() {
     _ready = false;
     _routeHint = null;
+    return _disconnect(waitForOperation: true);
+  }
+
+  Future<void> _peerEnded(String? peer, String? connection) async {
+    if (peer != _peer || connection != _connection || peer == null) return;
+    await _disconnect(waitForOperation: true, retirePeer: true);
+  }
+
+  Future<void> _disconnect(
+      {required bool waitForOperation, bool retirePeer = false}) {
+    if (_disconnecting != null) return _disconnecting!;
+    _withdrawing = true;
     // Capture the original output barrier before a completed/failed task can
     // leave the pipe's work set. Withdrawal itself neither cancels nor settles.
-    final output = _joinOutput?.call();
+    final output = _joinOutput?.call(retirePeer: retirePeer);
     if (output != null) {
       unawaited(output.then((_) {}, onError: (Object _, StackTrace __) {}));
     }
@@ -629,10 +642,12 @@ final class LinkPipeServer {
       LinkCallTrace? receivingTrace, pendingTrace;
       Completer<void>? outputAcknowledged;
       _PeerOutputDrain? drain;
+      String? originalPeer, originalConnectionId;
       try {
         await business.accept();
         drain = _outputDrain = _PeerOutputDrain();
-        final peer = business.linkPeerIdentity, connection = linkNonce();
+        final peer = originalPeer = business.linkPeerIdentity;
+        final connection = originalConnectionId = linkNonce();
         final envelope = {
           'version': 1,
           'runId': runtime.runId,
@@ -827,7 +842,7 @@ final class LinkPipeServer {
           rethrow;
         }
         try {
-          await runtime.disconnect();
+          await runtime._peerEnded(originalPeer, originalConnectionId);
         } catch (_) {/* Dirty blocks replacement. */} finally {
           if (identical(_outputDrain, drain)) _outputDrain = null;
         }
@@ -836,7 +851,7 @@ final class LinkPipeServer {
     }
   }
 
-  Future<void> _joinOutputWork() async {
+  Future<void> _joinOutputWork({bool retirePeer = false}) async {
     final drain = _outputDrain;
     final originalOwner = runtime.state.owner;
     final originalConnection = runtime.state.lease?.frontendConnectionId;
@@ -844,7 +859,13 @@ final class LinkPipeServer {
     try {
       await Future.wait(_work.toList());
     } finally {
-      if (drain?.ending == true) await drain!.done.future;
+      if (drain != null) {
+        if (retirePeer && identical(_outputDrain, drain)) {
+          drain.ending = true;
+          if (business.isCurrent) await business.disconnect();
+        }
+        if (drain.ending) await drain.done.future;
+      }
     }
     if (originalOwner != null && drain?.observed != true) {
       if (drain != null) drain.observed = true;

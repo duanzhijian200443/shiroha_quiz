@@ -166,6 +166,19 @@ rechecks the protected record and original process absence before admission.
 
 ## Daily READ and close
 
+After an idle or fully delivered Profile 3 READ, phone focus loss withdraws
+business admission immediately and requests the original connection's bounded
+close exchange. Use the matching phone, Adapter and Link builds. Failed output,
+missing close acknowledgement or missing EOF retains the original dirty owner.
+
+Once a passive disconnect settles cleanly in the same running Link, restart the
+client's MCP session to create a new frontend and authenticated business
+connection. The phone checks its original remaining Enable period; the Link
+does not run a new proof for this path. Open a new Context and perform a real
+READ. An explicit Link disconnect, selection, shutdown or unknown settlement
+requires a new explicit connect action. Background, lock and expired phone
+access still require the phone's explicit Enable/Proof workflow.
+
 1. Explicitly start Link from the desktop shell. Its normal entry never creates
    missing initialization state.
 2. On the phone, explicitly enable access and wait for PREPARING. Run the local

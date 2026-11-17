@@ -46,7 +46,9 @@ internal class DeviceFoundationChannel(private val context: Context,
             observer?.onFlutterResumed(call.argument<Boolean>("resumed") == true)
             result.success(true); return
         }
-        val executor = if (call.method in setOf("read", "write", "peerClosed")) io else control
+        // linkClose joins channels on control; their original close must remain
+        // runnable while that join is in progress.
+        val executor = if (call.method in setOf("read", "write", "peerClosed", "channelClose")) io else control
         try { executor.execute { handle(call, object : MethodChannel.Result {
             override fun success(value: Any?) { main.post { result.success(value) } }
             override fun error(code: String, message: String?, details: Any?) { main.post { result.error(code, message, details) } }
@@ -88,7 +90,10 @@ internal class DeviceFoundationChannel(private val context: Context,
                 }
                 "attest" -> result.success(requireLink().attest(token(call),
                     call.argument<String>("peer") ?: "", call.argument<String>("installationId") ?: ""))
-                "established" -> { requireLink().established(token(call)); result.success(true) }
+                "established" -> {
+                    requireLink().established(token(call), call.argument<Boolean>("closeControl") == true)
+                    result.success(true)
+                }
                 "proofStarted" -> { requireLink().proofStarted(token(call)); result.success(true) }
                 "read" -> result.success(requireLink().read(token(call)))
                 "peerClosed" -> result.success(requireLink().peerClosed(token(call)))

@@ -111,7 +111,9 @@ internal static class DeviceClient
                 {
                     using var input = new WindowsStdioInput();
                     await DeviceTransport.Forward(target, identity.Certificate, input, Console.OpenStandardOutput(), stop.Token,
-                        Admission, profileVersion, ReportBusinessFailure, installation, link == null ? null : () => link.Ready(target, installation!));
+                        Admission, profileVersion, ReportBusinessFailure, installation,
+                        link == null ? null : () => link.Ready(target, installation!),
+                        link == null ? null : link.Closing);
                 }
                 else
                 {

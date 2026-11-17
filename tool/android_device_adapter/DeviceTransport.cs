@@ -151,7 +151,7 @@ internal static class DeviceTransport
 
     internal static async Task Forward(DeviceTarget target, X509Certificate2 client, Stream input, Stream output, CancellationToken stop,
         Action? admission = null, int profileVersion = 2, Action<string, Exception>? observeFailure = null,
-        string? installation = null, Action? authenticated = null)
+        string? installation = null, Action? authenticated = null, Action? closingRequested = null)
     {
         Action requireAdmission = admission ?? RequireRuntime;
         requireAdmission();
@@ -192,18 +192,46 @@ internal static class DeviceTransport
             connectionId = root.GetProperty("connectionId").GetString()!;
         }
         authenticated?.Invoke();
+        await Pump(input, output, tls, connectionId, profileVersion, lifetime.Token,
+            requireAdmission, tls.ShutdownAsync, tcp.Close, closingRequested, observeFailure);
+    }
+
+    // The authenticated connection supplies these exact original streams and
+    // owners. Keeping the pumps here also permits deterministic stream tests.
+    internal static async Task Pump(Stream input, Stream output, Stream tls, string connectionId,
+        int profileVersion, CancellationToken stop, Action requireAdmission,
+        Func<Task> shutdownTls, Action disconnect, Action? closingRequested,
+        Action<string, Exception>? observeFailure = null)
+    {
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(stop);
         using var writer = new LinkWriter(tls, lifetime.Token);
         long lastPeer = System.Diagnostics.Stopwatch.GetTimestamp();
         string? pendingPing = null;
         object heartbeatLock = new();
+        bool heartbeatStopped = false;
+        Task heartbeatWrite = Task.CompletedTask;
+        TaskCompletionSource? pendingPong = null;
         string? closingNonce = null;
+        bool remoteClosing = false;
         var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         async Task Upload()
         {
             while (await LinkFrames.ReadStdioLine(input, lifetime.Token) is { } line)
+            {
+                if (Volatile.Read(ref remoteClosing)) throw new LinkFailure("settlement_unknown");
                 await writer.Write(2, line);
+            }
             if (profileVersion == 3)
             {
+                Task written, replied;
+                lock (heartbeatLock)
+                {
+                    heartbeatStopped = true;
+                    written = heartbeatWrite;
+                    replied = pendingPong?.Task ?? Task.CompletedTask;
+                }
+                await written;
+                await replied.WaitAsync(TimeSpan.FromSeconds(5), lifetime.Token);
                 closingNonce = DeviceClient.Nonce();
                 await writer.Write(1, JsonSerializer.SerializeToUtf8Bytes(new { type = "closing", connectionId, nonce = closingNonce }));
                 await closed.Task.WaitAsync(TimeSpan.FromSeconds(45), lifetime.Token);
@@ -222,11 +250,23 @@ internal static class DeviceTransport
                     string controlType = DeviceClient.Text(control, "type"), heartbeatNonce = DeviceClient.Text(control, "nonce");
                     if (DeviceClient.Text(control, "connectionId") != connectionId ||
                         !DeviceClient.IsNonce(heartbeatNonce)) throw new LinkFailure("protocol_violation");
+                    if (controlType == "closing" && profileVersion == 3 && closingRequested != null)
+                    {
+                        if (remoteClosing) throw new LinkFailure("protocol_violation");
+                        lock (heartbeatLock)
+                        {
+                            Volatile.Write(ref remoteClosing, true);
+                            heartbeatStopped = true;
+                        }
+                        lifetime.CancelAfter(TimeSpan.FromSeconds(5));
+                        closingRequested();
+                        continue;
+                    }
                     if (controlType == "closed" && profileVersion == 3 && closingNonce != null && heartbeatNonce == closingNonce)
                     {
                         using var closing = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
                         closing.CancelAfter(TimeSpan.FromSeconds(5));
-                        await tls.ShutdownAsync().WaitAsync(closing.Token);
+                        await shutdownTls().WaitAsync(closing.Token);
                         byte[] end = new byte[1];
                         if (await tls.ReadAsync(end, closing.Token) != 0)
                             throw new LinkFailure("settlement_unknown");
@@ -241,6 +281,7 @@ internal static class DeviceTransport
                         {
                             if (pendingPing == null || pendingPing != heartbeatNonce) throw new LinkFailure("protocol_violation");
                             pendingPing = null;
+                            pendingPong?.TrySetResult();
                         }
                     }
                     else throw new LinkFailure("protocol_violation");
@@ -249,6 +290,7 @@ internal static class DeviceTransport
                 }
                 if (frame.Kind != 2 || !doc.RootElement.TryGetProperty("jsonrpc", out var version) || version.GetString() != "2.0")
                     throw new LinkFailure("protocol_violation");
+                if (remoteClosing) throw new LinkFailure("protocol_violation");
                 Interlocked.Exchange(ref lastPeer, System.Diagnostics.Stopwatch.GetTimestamp());
                 using var write = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
                 write.CancelAfter(TimeSpan.FromSeconds(5));
@@ -262,12 +304,22 @@ internal static class DeviceTransport
             using var timer = new PeriodicTimer(TimeSpan.FromSeconds(15));
             while (await timer.WaitForNextTickAsync(lifetime.Token))
             {
+                if (Volatile.Read(ref heartbeatStopped)) continue;
                 requireAdmission();
                 if (System.Diagnostics.Stopwatch.GetElapsedTime(Interlocked.Read(ref lastPeer)) >= TimeSpan.FromSeconds(45))
                     throw new LinkFailure("peer_lost");
-                string? nonce = null;
-                lock (heartbeatLock) { if (pendingPing == null && !writer.Busy) nonce = pendingPing = DeviceClient.Nonce(); }
-                if (nonce != null) await writer.Write(1, JsonSerializer.SerializeToUtf8Bytes(new { type = "ping", connectionId, nonce }));
+                Task? sending = null;
+                lock (heartbeatLock)
+                {
+                    if (!heartbeatStopped && pendingPing == null && !writer.Busy)
+                    {
+                        string nonce = pendingPing = DeviceClient.Nonce();
+                        pendingPong = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                        sending = heartbeatWrite = writer.Write(1,
+                            JsonSerializer.SerializeToUtf8Bytes(new { type = "ping", connectionId, nonce }));
+                    }
+                }
+                if (sending != null) await sending;
             }
         }
         Task upload = Upload(), download = Download(), heartbeat = Heartbeat();
@@ -279,6 +331,7 @@ internal static class DeviceTransport
             await completed;
             if (profileVersion == 3 && !closed.Task.IsCompletedSuccessfully)
                 throw new LinkFailure("settlement_unknown");
+            if (profileVersion == 3) await Task.WhenAll(upload, download);
         }
         catch (Exception error) when (profileVersion == 3)
         {
@@ -287,7 +340,7 @@ internal static class DeviceTransport
         }
         finally
         {
-            lifetime.Cancel(); tcp.Close();
+            lifetime.Cancel(); disconnect();
             // Observe both original pumps. Never launch a replacement from here.
             try { await Task.WhenAll(upload, download, heartbeat); } catch { }
         }

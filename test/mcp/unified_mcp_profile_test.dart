@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:mcp_dart/mcp_dart.dart';
+import 'package:shiroha_quiz/mcp/android_mcp_transport.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:uuid/uuid.dart';
@@ -121,6 +122,175 @@ void main() {
 
   Future<String> context() async =>
       (await data('open_context'))['contextRef'] as String;
+
+  for (final reply in [
+    'valid',
+    'ping',
+    'pending-pong',
+    'desktop-first',
+    'invalid-pong',
+    'wrong-connection',
+    'wrong-nonce',
+    'business'
+  ]) {
+    test('focus CLOSE $reply joins the original Profile 3 SDK connection',
+        () async {
+      var live = true;
+      final input = StreamController<(int, Map<String, dynamic>)>();
+      final output = StreamController<(int, Map<String, dynamic>)>();
+      final reader = StreamIterator(input.stream);
+      final written = StreamIterator(output.stream);
+      final eof = Completer<void>();
+      Timer? heartbeat;
+      void Function(Timer)? tick;
+      final controls = <Map<String, dynamic>>[];
+      final pingWritten = Completer<void>();
+      final port = AndroidMcpPort(app, () => live);
+      final transport = AndroidMcpTransport(
+          port: port,
+          read: () async {
+            if (!await reader.moveNext()) throw StateError('fixture_eof');
+            return reader.current;
+          },
+          newNonce: () => 'notice',
+          validNonce: (n) => n == 'notice' || n == 'challenge',
+          write: (kind, value) async {
+            if (kind == 1) controls.add(value);
+            output.add((kind, value));
+            if (reply == 'desktop-first' && value['type'] == 'ping') {
+              await pingWritten.future;
+            }
+          },
+          peerClosed: () => eof.future,
+          closeChannel: () async {
+            unawaited(input.close());
+          },
+          invalidate: () => live = false,
+          connectionId: 'original',
+          current: () => live);
+      final server = androidDeviceServer(port, profileVersion: 3);
+      final serving = runZoned(() => server.serveTransport(transport),
+          zoneSpecification: ZoneSpecification(
+              createPeriodicTimer: (self, parent, zone, duration, callback) {
+        if (duration == const Duration(seconds: 15)) {
+          tick = callback;
+          return heartbeat = parent.createPeriodicTimer(
+              zone, const Duration(days: 1), callback);
+        }
+        return parent.createPeriodicTimer(zone, duration, callback);
+      })).then((_) => true, onError: (Object _, StackTrace __) => false);
+      Future<Map<String, dynamic>> next() async {
+        expect(await written.moveNext(), isTrue);
+        return written.current.$2;
+      }
+
+      try {
+        input.add((
+          2,
+          {
+            'jsonrpc': '2.0',
+            'id': 1,
+            'method': 'initialize',
+            'params': {
+              'protocolVersion': '2025-03-26',
+              'capabilities': {},
+              'clientInfo': {'name': 'focus-fixture', 'version': '1'}
+            }
+          }
+        ));
+        expect((await next())['error'], isNull);
+        input.add(
+            (2, {'jsonrpc': '2.0', 'method': 'notifications/initialized'}));
+        input.add((
+          2,
+          {
+            'jsonrpc': '2.0',
+            'id': 2,
+            'method': 'tools/call',
+            'params': {'name': 'open_context', 'arguments': {}}
+          }
+        ));
+        final read = await next();
+        expect(read['result']['structuredContent']['error'], isNull);
+        await port.whenSettled;
+        if (reply == 'pending-pong' || reply == 'desktop-first') {
+          tick!(heartbeat!);
+          expect((await next())['type'], 'ping');
+        }
+        Future<bool>? withdrawal;
+        if (reply != 'desktop-first') {
+          withdrawal = transport
+              .withdraw()
+              .then((_) => true, onError: (Object _, StackTrace __) => false);
+          expect((await next())['type'], 'closing');
+          expect(
+              (await port.call('open_context', {},
+                  responseId: 3,
+                  cancelled: const Stream.empty(),
+                  available: () => true))['error'],
+              'unavailable');
+        }
+        if (reply == 'ping') {
+          input.add((
+            1,
+            {'type': 'ping', 'connectionId': 'original', 'nonce': 'challenge'}
+          ));
+          expect((await next())['type'], 'pong');
+        }
+        final sent = controls.length;
+        input.add(reply == 'business'
+            ? (2, {'jsonrpc': '2.0', 'id': 4, 'method': 'tools/list'})
+            : (
+                1,
+                {
+                  'type': reply == 'invalid-pong' ? 'pong' : 'closing',
+                  'connectionId':
+                      reply == 'wrong-connection' ? 'other' : 'original',
+                  'nonce': reply == 'wrong-nonce' ? 'invalid' : 'challenge'
+                }
+              ));
+        if (reply == 'pending-pong' || reply == 'desktop-first') {
+          await Future<void>.delayed(Duration.zero);
+          expect(controls.length, sent);
+          input.add((
+            1,
+            {'type': 'pong', 'connectionId': 'original', 'nonce': 'notice'}
+          ));
+        }
+        if (reply == 'desktop-first') {
+          await Future<void>.delayed(Duration.zero);
+          expect(controls.length, sent);
+          pingWritten.complete();
+        }
+        if (['valid', 'ping', 'pending-pong', 'desktop-first']
+            .contains(reply)) {
+          expect(await next(), {
+            'type': 'closed',
+            'connectionId': 'original',
+            'nonce': 'challenge'
+          });
+          var completed = false;
+          unawaited(serving.then((_) => completed = true));
+          await Future<void>.delayed(Duration.zero);
+          expect(completed, isFalse);
+          eof.complete();
+          if (withdrawal != null) expect(await withdrawal, isTrue);
+          expect(await serving, isTrue);
+        } else {
+          expect(await withdrawal, isFalse);
+          expect(await serving, isFalse);
+        }
+      } finally {
+        if (!pingWritten.isCompleted) pingWritten.complete();
+        if (!eof.isCompleted) eof.complete();
+        await transport.close().catchError((Object _) {});
+        await serving;
+        await reader.cancel();
+        await written.cancel();
+        await output.close();
+      }
+    });
+  }
 
   test('SDK statistics reservation remains held until response output finishes',
       () async {

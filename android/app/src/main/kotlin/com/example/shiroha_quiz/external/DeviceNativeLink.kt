@@ -27,6 +27,7 @@ internal class DeviceNativeLink(
     private val workers = Executors.newFixedThreadPool(2)
     private val timer = Executors.newSingleThreadScheduledExecutor()
     private val closer = Executors.newSingleThreadExecutor()
+    private val listenerClose = DeviceCloseWork(closer) { endpoint.stopAccepting() }
     private val endpointClose = DeviceCloseWork(closer) { endpoint.close() }
     private val observedMs = android.os.SystemClock.elapsedRealtime()
     private val observedNanos = System.nanoTime()
@@ -121,9 +122,10 @@ internal class DeviceNativeLink(
             !channel.socket.isClosed && channel.socket.session.protocol == "TLSv1.3"
     }
 
-    fun established(id: String) {
+    fun established(id: String, closeControl: Boolean = false) {
         val channel = channel(id)
         channel.current()
+        channel.closeControl = business && closeControl
         channel.establishment?.cancel(false)
     }
     fun proofStarted(id: String) {
@@ -138,9 +140,9 @@ internal class DeviceNativeLink(
         val channel = channel(id)
         if (!channel.reading.compareAndSet(false, true)) throw DeviceLinkFailure("resource_limit")
         try {
-            channel.current()
+            channel.current(control = true)
             val frame = DeviceLinkFrames.readTimed(channel.socket)
-            channel.current()
+            channel.current(control = frame.kind == 1)
             return mapOf("kind" to frame.kind, "payload" to frame.payload)
         } catch (error: Exception) {
             channel.withdraw()
@@ -157,11 +159,11 @@ internal class DeviceNativeLink(
         }
         try {
             synchronized(channel.writer) {
-                channel.current()
+                channel.current(control = kind == 1)
                 val deadline = timer.schedule({ channel.withdraw() }, 5, TimeUnit.SECONDS)
                 try {
                     DeviceLinkFrames.write(channel.socket.outputStream, DeviceLinkFrame(kind, payload))
-                    channel.current()
+                    channel.current(control = kind == 1)
                 } finally { deadline.cancel(false) }
             }
         } catch (error: Exception) {
@@ -174,9 +176,11 @@ internal class DeviceNativeLink(
         val channel = channel(id)
         if (!channel.reading.compareAndSet(false, true)) throw DeviceLinkFailure("resource_limit")
         try {
-            channel.current()
+            channel.current(control = true)
             channel.socket.soTimeout = 5000
-            return channel.socket.inputStream.read() == -1
+            val ended = channel.socket.inputStream.read() == -1
+            channel.current(control = true)
+            return ended
         } finally { channel.reading.set(false) }
     }
 
@@ -192,15 +196,21 @@ internal class DeviceNativeLink(
     /** Synchronous invalidation is safe from Activity/network callbacks. */
     fun withdraw() {
         closed = true
-        synchronized(channels) { channels.values.toList() }.forEach { it.withdraw() }
-        endpointClose.request()
+        listenerClose.request()
+        synchronized(channels) { channels.values.toList() }.forEach { it.beginClosing() }
     }
 
     fun close() {
         withdraw()
-        workers.shutdown(); timer.shutdownNow()
-        if (!workers.awaitTermination(6, TimeUnit.SECONDS) ||
-            !timer.awaitTermination(6, TimeUnit.SECONDS)) failed = true
+        workers.shutdown()
+        if (!workers.awaitTermination(6, TimeUnit.SECONDS)) {
+            failed = true
+            synchronized(channels) { channels.values.toList() }.forEach { it.withdraw() }
+        }
+        timer.shutdownNow()
+        if (!timer.awaitTermination(6, TimeUnit.SECONDS)) failed = true
+        try { listenerClose.join() } catch (_: Exception) { failed = true }
+        endpointClose.request()
         try { endpointClose.join() } catch (_: Exception) { failed = true }
         // Keep this executor alive until every original accept worker has
         // joined, including a channel racing the admission withdrawal.
@@ -226,6 +236,9 @@ internal class DeviceNativeLink(
         private val certificateEnds = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(
             (certificateExpires - System.currentTimeMillis()).coerceAtLeast(0))
         @Volatile var closed = false
+        @Volatile var closeControl = false
+        private val closing = DeviceCloseDeadline()
+        private var closingDeadline: java.util.concurrent.ScheduledFuture<*>? = null
         val failed: Boolean get() = closeWork.failed
         val closeWork = DeviceCloseWork(closer) {
             try { socket.close() } finally { stopped.countDown() }
@@ -233,17 +246,33 @@ internal class DeviceNativeLink(
         var establishment: java.util.concurrent.ScheduledFuture<*>? = null
         @Volatile var proofEnds = Long.MAX_VALUE
         var proofDeadline: java.util.concurrent.ScheduledFuture<*>? = null
-        fun current() {
+        @Synchronized fun current(control: Boolean = false) {
+            if (closeControl && (this@DeviceNativeLink.closed || !gate.current(epoch, network))) beginClosing()
+            if (closing.started) {
+                if (closed || !closeControl) throw DeviceLinkFailure("connection_closed")
+                closing.requireControl(control)
+                return
+            }
             if (closed || this@DeviceNativeLink.closed || !gate.current(epoch, network) ||
                 System.nanoTime() >= admissionEnds ||
                 System.nanoTime() >= proofEnds ||
                 System.currentTimeMillis() >= certificateExpires || System.nanoTime() >= certificateEnds)
                 throw DeviceLinkFailure("connection_closed")
         }
+        @Synchronized fun beginClosing() {
+            if (closed || closing.started) return
+            if (!closeControl) {
+                withdraw()
+                return
+            }
+            closing.begin()
+            closingDeadline = timer.schedule({ withdraw() }, 5, TimeUnit.SECONDS)
+        }
         fun withdraw() {
             closed = true
             establishment?.cancel(false)
             proofDeadline?.cancel(false)
+            closingDeadline?.cancel(false)
             closeWork.request()
         }
         fun joinIo() {
