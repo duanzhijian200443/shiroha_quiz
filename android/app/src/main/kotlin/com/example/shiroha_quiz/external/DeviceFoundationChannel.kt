@@ -4,10 +4,14 @@ import android.content.Context
 import android.app.Activity
 import android.os.Handler
 import android.os.Looper
+import android.os.Build
+import android.os.PowerManager
+import android.app.KeyguardManager
+import android.content.pm.PackageManager
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 
-/** Explicit, unregistered platform adapter. MainActivity does not install it. */
+/** Platform adapter installed only by MainActivity's explicit READ admission. */
 internal class DeviceFoundationChannel(private val context: Context,
     private val channel: MethodChannel? = null,
     private val admission: () -> Unit = DeviceLinkAdmission::requireAuthorized) : MethodChannel.MethodCallHandler {
@@ -18,7 +22,10 @@ internal class DeviceFoundationChannel(private val context: Context,
     private var disposed = false
     private val credentials = DeviceCredentials(context, ::admitted)
     private val associations = DeviceAssociationFile(context, credentials)
-    private val gate = DeviceForegroundGate()
+    private val gate = DeviceForegroundGate({ android.os.SystemClock.elapsedRealtime() }, {
+        (context.getSystemService(Context.POWER_SERVICE) as? PowerManager)?.isInteractive == true &&
+            (context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager)?.isKeyguardLocked == false
+    })
     private val main = Handler(Looper.getMainLooper())
     private val io = java.util.concurrent.ThreadPoolExecutor(4, 4, 0,
         java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue(8))
@@ -27,15 +34,94 @@ internal class DeviceFoundationChannel(private val context: Context,
     private var observation: Map<String, Any?> = emptyMap()
     val observer = (context as? Activity)?.let { DeviceForegroundObserver(it, gate, { next ->
         observation = next
-        if (!gate.eligible || (link != null && next["network"] != originalNetwork)) link?.withdraw()
+        if ((!gate.eligible && !gate.backgroundRead) || (link != null && next["network"] != originalNetwork)) link?.withdraw()
+        finishNotificationPreparation()
         emit("foreground", next)
     }, flutterResumed = false) }
     private var originalNetwork: String? = null
     private var nextLease = 0L
     private var activeToken = 0L
     private var lease: DeviceAssociationFile.Lease? = null
+    @Volatile private var readSession: DeviceReadService.Session? = null
+    private var notificationResult: MethodChannel.Result? = null
+    private var permissionAnswered = false
+    private val notificationTimeout = Runnable { failNotificationPreparation() }
+
+    private fun failNotificationPreparation() {
+        val result = notificationResult ?: return
+        notificationResult = null
+        main.removeCallbacks(notificationTimeout)
+        readSession?.let { session -> DeviceReadService.finish(context, session) { settled ->
+            if (settled && readSession === session) readSession = null
+        } }
+        result.error("background_read_unavailable", "background_read_unavailable", null)
+    }
+    private fun finishNotificationPreparation() {
+        try { prepareNotificationService() } catch (_: Exception) { failNotificationPreparation() }
+    }
+    private fun prepareNotificationService() {
+        if (!permissionAnswered || notificationResult == null) return
+        if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            failNotificationPreparation(); return
+        }
+        // Permission dialogs temporarily remove focus. Wait for the ORIGINAL
+        // Activity's real foreground observation, never manufacture it.
+        if (!gate.eligible || readSession != null) return
+        if (!DeviceReadService.notifications(context)) { failNotificationPreparation(); return }
+        lateinit var session: DeviceReadService.Session
+        session = DeviceReadService.Session({ success -> main.post {
+            if (readSession !== session) return@post
+            val result = notificationResult
+            if (result != null && success && readSession?.running == true && gate.eligible) {
+                notificationResult = null; main.removeCallbacks(notificationTimeout); result.success(true)
+            } else failNotificationPreparation()
+        } }, {
+            if (readSession === session) {
+                gate.withdrawBackground(); link?.withdraw()
+                main.post {
+                    if (readSession === session) channel?.invokeMethod("backgroundStopped", emptyMap<String, Any?>())
+                }
+            }
+        })
+        readSession = session
+        try { DeviceReadService.start(context, session) } catch (_: Exception) { failNotificationPreparation() }
+    }
+    fun permissionResult(requestCode: Int) {
+        if (requestCode == 46444) { permissionAnswered = true; observer?.publish() }
+    }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
+        if (call.method == "backgroundWithdraw") {
+            gate.withdrawBackground(); link?.withdraw()
+            result.success(true); return
+        }
+        if (call.method == "backgroundPrepare") {
+            try {
+                admitted()
+                if (!gate.eligible || notificationResult != null || readSession != null) throw DeviceLinkFailure("foreground_required")
+                DeviceReadService.prepareNotifications(context)
+                notificationResult = result
+                main.postDelayed(notificationTimeout, 30000)
+                permissionAnswered = Build.VERSION.SDK_INT < 33 || context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+                if (!permissionAnswered) (context as Activity).requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 46444)
+                else finishNotificationPreparation()
+            } catch (_: Exception) {
+                if (notificationResult === result) failNotificationPreparation()
+                else result.error("background_read_unavailable", "background_read_unavailable", null)
+            }
+            return
+        }
+        if (call.method == "backgroundStop") {
+            gate.withdrawBackground(); link?.withdraw()
+            failNotificationPreparation()
+            val session = readSession
+            if (session == null) result.success(true)
+            else DeviceReadService.finish(context, session) { settled ->
+                if (settled) { if (readSession === session) readSession = null; result.success(true) }
+                else result.error("settlement_unknown", "settlement_unknown", null)
+            }
+            return
+        }
         if (call.method == "status") {
             val available = try { admitted(); true } catch (_: Exception) { false }
             if (available) observer?.publish()
@@ -104,7 +190,17 @@ internal class DeviceFoundationChannel(private val context: Context,
                 }
                 "channelClose" -> { requireLink().closeChannel(token(call)); result.success(true) }
                 "linkClose" -> { requireOriginalLink(call).close(); result.success(true) }
-                "linkEnabled" -> { requireOriginalLink(call).completePreparation(); result.success(true) }
+                "linkEnabled" -> {
+                    val original = requireOriginalLink(call)
+                    original.completePreparation()
+                    if (call.argument<Boolean>("backgroundRead") == true) {
+                        val session = readSession ?: throw DeviceLinkFailure("background_read_unavailable")
+                        gate.allowBackground(original.periodEndsMs) { session.running && !session.ended && DeviceReadService.runningNotification(context) }
+                        session.service?.activated(original.periodEndsMs)
+                        main.post { observer?.publish() }
+                    }
+                    result.success(true)
+                }
                 "linkRelease" -> {
                     requireOriginalLink(call).requireReleased()
                     link = null; originalNetwork = null; result.success(true)
@@ -142,6 +238,8 @@ internal class DeviceFoundationChannel(private val context: Context,
     fun withdraw() { link?.withdraw() }
     fun dispose() {
         disposed = true; gate.close(); withdraw()
+        failNotificationPreparation()
+        readSession?.let { DeviceReadService.finish(context, it) }; readSession = null
         control.execute {
             try { link?.close(); lease?.close() } catch (_: Exception) { /* Retain failed custody until process exit. */ }
             io.shutdown(); control.shutdown()

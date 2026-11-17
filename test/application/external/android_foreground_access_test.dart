@@ -9,6 +9,7 @@ AndroidForegroundObservation observation(int sequence,
         bool resumed = true,
         bool visible = true,
         bool unlocked = true,
+        bool backgroundRead = false,
         String? network = 'network-1'}) =>
     AndroidForegroundObservation(
         sequence: sequence,
@@ -17,7 +18,8 @@ AndroidForegroundObservation observation(int sequence,
         interactive: true,
         unlocked: unlocked,
         visible: visible,
-        network: network);
+        network: network,
+        backgroundRead: backgroundRead);
 
 final class Resources implements AndroidAccessResources {
   int withdrawals = 0, closes = 0;
@@ -74,6 +76,80 @@ void main() {
     await work;
     return r;
   }
+
+  Future<Resources> enableBackground() async {
+    access.observe(observation(1));
+    final p = Preparation(), r = Resources();
+    final enabling = access.enable((_) => p,
+        duration: const Duration(minutes: 30), allowBackgroundRead: true);
+    access.observe(observation(2, backgroundRead: true));
+    p.complete(r);
+    await enabling;
+    return r;
+  }
+
+  test('proved READ survives shade, split focus and background without renewal',
+      () async {
+    final r = await enableBackground();
+    final original = access.generation;
+    now = const Duration(minutes: 2);
+    access.observe(observation(3, focus: false, backgroundRead: true));
+    access.observe(observation(4,
+        focus: false, resumed: false, visible: false, backgroundRead: true));
+    expect(access.acceptsNew, isTrue);
+    expect(access.phase, AndroidAccessPhase.ready);
+    expect(access.generation, original);
+    expect(access.remaining, const Duration(minutes: 28));
+    expect(r.withdrawals, 0);
+    await access.disable();
+    expect(r.closes, 1);
+  });
+
+  for (final reason in ['lock', 'support-lost', 'network', 'expiry']) {
+    test('background READ revokes on $reason and never revives on return',
+        () async {
+      final r = await enableBackground();
+      if (reason == 'expiry') now = const Duration(minutes: 30);
+      access.observe(observation(3,
+          focus: false,
+          resumed: false,
+          visible: false,
+          unlocked: reason != 'lock',
+          backgroundRead: reason != 'support-lost',
+          network: reason == 'network' ? 'other-network' : 'network-1'));
+      expect(access.acceptsNew, isFalse);
+      await access.disable();
+      access.observe(observation(4, backgroundRead: true));
+      expect(access.phase, AndroidAccessPhase.off);
+      expect(access.acceptsNew, isFalse);
+      expect(r.withdrawals, greaterThan(0));
+      expect(r.closes, 1);
+    });
+  }
+
+  test('background support cannot rescue pending proof after focus loss',
+      () async {
+    access.observe(observation(1));
+    final p = Preparation(), r = Resources();
+    final enabling = access.enable((_) => p, allowBackgroundRead: true);
+    access.observe(observation(2, focus: false, backgroundRead: true));
+    expect(p.cancelled, isTrue);
+    p.complete(r);
+    await enabling;
+    expect(access.phase, AndroidAccessPhase.off);
+    expect(access.acceptsNew, isFalse);
+    expect(r.closes, greaterThan(0));
+  });
+
+  test('failed background drain remains recovery after unlock', () async {
+    final r = await enableBackground();
+    r.fail = true;
+    access.observe(observation(3, unlocked: false));
+    await access.disable();
+    access.observe(observation(4, backgroundRead: true));
+    expect(access.phase, AndroidAccessPhase.recovery);
+    expect(access.acceptsNew, isFalse);
+  });
 
   for (final event in [
     observation(1, focus: false),

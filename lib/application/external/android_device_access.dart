@@ -12,6 +12,14 @@ ExternalGrantPolicy androidQuestionReadPolicy() => ExternalGrantPolicy(
       allContent: true,
     );
 
+/// Background support cannot widen a saved STAGE/file/statistics grant.
+bool androidBackgroundQuestionRead(ExternalGrantPolicy policy) =>
+    policy.permissions.length == 1 &&
+    policy.permissions.contains(CapabilityPermission.read) &&
+    policy.categories.length == 1 &&
+    policy.categories.contains(ExternalContentCategory.questionContent) &&
+    policy.scopes.every((scope) => scope.kind == ExternalTargetKind.bank);
+
 /// First-party local control. Neither the UI nor a wire DTO supplies evidence.
 abstract interface class AndroidDeviceAccess {
   AndroidDeviceAccessState get state;
@@ -46,6 +54,7 @@ final class AndroidDeviceAccessState {
       this.awaitingConfirmation = false,
       this.policyReady = false,
       this.policyChanging = false,
+      this.backgroundRead = false,
       this.fileContentAllowed = false,
       this.studyStatisticsAllowed = false,
       this.allContent = false,
@@ -54,6 +63,7 @@ final class AndroidDeviceAccessState {
       this.error});
   final bool available, paired, awaitingConfirmation, listening, connected;
   final bool policyReady, policyChanging;
+  final bool backgroundRead;
   final bool fileContentAllowed,
       studyStatisticsAllowed,
       allContent,

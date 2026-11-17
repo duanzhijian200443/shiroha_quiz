@@ -7,7 +7,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.PowerManager
 
-/** Dormant observation adapter. No receiver, Service or background task is registered. */
+/** Actual Activity/network/screen observations; never authentication evidence. */
 internal class DeviceForegroundObserver(private val activity: Activity,
                                         private val gate: DeviceForegroundGate,
                                         private val changed: ((Map<String, Any?>) -> Unit)? = null,
@@ -41,7 +41,7 @@ internal class DeviceForegroundObserver(private val activity: Activity,
             "elapsedMs" to android.os.SystemClock.elapsedRealtime(),
             "resumed" to (resumed && flutterResumed), "focused" to focused,
             "interactive" to interactive, "unlocked" to unlocked,
-            "visible" to visible, "network" to networkId,
+            "visible" to visible, "backgroundRead" to gate.backgroundRead, "network" to networkId,
             "address" to if (wifi) address?.hostAddress else null))
     }
 }

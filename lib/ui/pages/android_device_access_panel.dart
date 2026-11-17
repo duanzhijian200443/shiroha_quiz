@@ -100,6 +100,10 @@ final class _AndroidPanelState extends State<AndroidDeviceAccessPanel> {
                 title: Text(generation ? '本机题库 · 读取与生成' : '本机题库 · 仅只读'),
                 subtitle: const Text(
                     '本次开启 30 分钟。授权范围内的题目与必要元数据可经 Codex 发送给模型服务。资料正文须单独允许。')),
+            ListTile(
+                subtitle: Text(state.backgroundRead
+                    ? '题目只读访问可在后台继续；锁屏、到期或关闭访问即停止。解锁不会自动重开。'
+                    : '仅题目只读模式支持后台继续，须允许持续通知。其他权限组合仍须保持前台。')),
             if (state.available && !state.paired)
               Padding(
                   padding: const EdgeInsets.all(16),

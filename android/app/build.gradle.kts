@@ -50,6 +50,7 @@ android {
         buildConfigField("String", "ANDROID_READ_VALIDATION_APPLICATION_ID", "\"\"")
         manifestPlaceholders["applicationLabel"] = "shiroha_quiz"
         manifestPlaceholders["androidNativeProofEnabled"] = "false"
+        manifestPlaceholders["androidReadBackgroundEnabled"] = "false"
     }
 
     buildTypes {
@@ -65,6 +66,7 @@ android {
                     manifestPlaceholders["applicationLabel"] = "Shiroha Link validation"
                 }
                 manifestPlaceholders["androidNativeProofEnabled"] = "true"
+                manifestPlaceholders["androidReadBackgroundEnabled"] = "true"
             }
         }
         release {

@@ -10,11 +10,15 @@ final class AndroidForegroundObservation {
     required this.unlocked,
     required this.visible,
     required this.network,
+    this.backgroundRead = false,
   });
 
   final int sequence;
   final bool resumed, focused, interactive, unlocked, visible;
   final String? network;
+  final bool backgroundRead;
+  bool get backgroundEligible =>
+      backgroundRead && interactive && unlocked && network != null;
   bool get eligible =>
       visible &&
       resumed &&
@@ -92,7 +96,8 @@ final class _OwnedPreparation implements AndroidAccessPreparation {
   }
 }
 
-/// Foreground lifetime only. This class cannot create a Session or execute tools.
+/// Original finite lifetime with optional Native-supported question READ in
+/// background. This class cannot create a Session or execute tools.
 final class AndroidForegroundAccess {
   AndroidForegroundAccess({required Duration Function() elapsed})
       : _elapsed = elapsed;
@@ -110,6 +115,10 @@ final class AndroidForegroundAccess {
   int _generation = 0;
   bool _disposed = false;
   bool _clockInvalid = false;
+  bool _allowBackgroundRead = false;
+  bool get _runningEligible => _allowBackgroundRead
+      ? _observation?.backgroundEligible == true
+      : _observation?.eligible == true;
 
   AndroidAccessPhase get phase => _phase;
   int get generation => _generation;
@@ -121,7 +130,7 @@ final class AndroidForegroundAccess {
   bool get acceptsNew =>
       !_disposed &&
       _phase == AndroidAccessPhase.ready &&
-      _observation?.eligible == true &&
+      _runningEligible &&
       _observation?.network == _network &&
       _timeValid();
 
@@ -143,9 +152,13 @@ final class AndroidForegroundAccess {
         _phase == AndroidAccessPhase.recovery) {
       return;
     }
-    if (next.withdraws || next.network != _network || !_timeValid()) {
+    final runningBackground =
+        _allowBackgroundRead && _phase == AndroidAccessPhase.ready;
+    if ((runningBackground ? !next.backgroundEligible : next.withdraws) ||
+        next.network != _network ||
+        !_timeValid()) {
       unawaited(disable());
-    } else if (!next.eligible) {
+    } else if (!next.eligible && !runningBackground) {
       // Pending enable cannot survive a lost local decision surface.
       if (_phase == AndroidAccessPhase.preparing) {
         unawaited(disable());
@@ -170,7 +183,8 @@ final class AndroidForegroundAccess {
   }
 
   Future<void> enable(AndroidAccessPreparation Function(int generation) begin,
-      {Duration duration = const Duration(hours: 8)}) async {
+      {Duration duration = const Duration(hours: 8),
+      bool allowBackgroundRead = false}) async {
     if (_disposed ||
         _clockInvalid ||
         _phase != AndroidAccessPhase.off ||
@@ -184,6 +198,7 @@ final class AndroidForegroundAccess {
       throw StateError('android_access_unavailable');
     }
     _lastTime = now;
+    _allowBackgroundRead = allowBackgroundRead;
     _expires = now + duration;
     _network = _observation!.network;
     await _prepare(begin);

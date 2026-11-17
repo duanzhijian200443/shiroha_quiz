@@ -59,10 +59,18 @@ demonstrated recovery action is **complete desktop exit/reopen, then return to
 the same task**. Its global settings list omitted the project-local MCP entry;
 the actual adapter process and normal tool calls confirmed loading. Do not treat
 that list or cached tools as connection evidence. Automatic recovery is not
-claimed. Following focus-only loss, return the phone to the foreground, retain
+claimed. The following describes the historical foreground-only artifact, not
+background support: following focus-only loss, return the phone to the foreground, retain
 the same remaining period, reopen Codex and create/read a fresh Context. After
 background, lock, network change, expiry or switch-off, repeat step 2 first.
 The adapter never restarts itself, polls for Enable or replays tool input.
+The current source adds only the finite pure question READ background exception
+in [Android lifecycle contract §5](../../docs/product/agent-refactor/android-device-access-v0.md#5-foreground-and-lifecycle).
+Pairing/preparation still requires foreground focus; after proof, the original
+owner/channel/deadline may continue under a visible connectedDevice FGS. Lock,
+expiry, stop and service loss still revoke. Wider saved grants stay foreground-only.
+Source/compilation checks do not extend the historical supported-device evidence;
+the changed artifact needs its own authorized lifecycle and settlement acceptance.
 Project-sourced entries can also appear in the MCP list with disabled editing
 controls: the inspected client marks project origins read-only, while the
 enabled value remains the one in `.codex/config.toml`. Its Restart button appears

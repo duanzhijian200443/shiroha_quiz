@@ -566,7 +566,12 @@ Existing pending proposals and repeated keys are never automatically committed.
 
 The existing Windows integration remains platform-specific. Android requires a
 separate composition over the same Application/Data owners, original
-request-scoped approval and Android foreground admission. Its specified LAN
+request-scoped approval and Android lifecycle admission. Pairing/preparation and
+non-question-READ policies require foreground eligibility. The bounded pure
+question READ exception keeps the original proved owner/channel/deadline under
+a non-sticky connectedDevice foreground service with a visible stop control;
+lock, expiry, revoke and owner/service loss still withdraw and settle originals.
+It does not authorize background STAGE, files, statistics or remote mode. Its specified LAN
 endpoint is not a Windows loopback-listener or development-exception extension.
 The selected Debug consumer wires question READ/generation/Proposal through
 those owners, including P6 file selection/retrieval/passages under independent

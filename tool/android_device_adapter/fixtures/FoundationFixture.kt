@@ -100,6 +100,62 @@ fun main(args: Array<String>) {
     gate.close()
     val late = gate.observe(true, true, true, true, "wifi-1")
     accepts(!gate.current(late, "wifi-1"))
+    var backgroundNow = 1L
+    var screenSafe = true
+    var supported = true
+    fun backgroundGate(): Pair<DeviceForegroundGate, Long> {
+        val background = DeviceForegroundGate({ backgroundNow }, { screenSafe })
+        val epoch = background.observe(true, true, true, true, "wifi-1")
+        background.allowBackground(100) { supported }
+        return Pair(background, epoch)
+    }
+    val (background, epoch) = backgroundGate()
+    background.observe(false, false, true, true, "wifi-1")
+    accepts(background.backgroundRead && !background.eligible)
+    accepts(background.current(epoch, "wifi-1"))
+    accepts(background.sequence == epoch)
+    background.observe(true, true, true, true, "wifi-1")
+    accepts(background.current(epoch, "wifi-1"))
+    backgroundNow = 100
+    accepts(!background.current(epoch, "wifi-1"))
+    accepts(!background.backgroundRead)
+    backgroundNow = 1
+    for (reason in listOf("lock", "network", "support", "physical-screen", "close")) {
+        val (original, originalEpoch) = backgroundGate()
+        when(reason) {
+            "lock" -> original.observe(false, false, true, false, "wifi-1")
+            "network" -> original.observe(false, false, true, true, "wifi-2")
+            "support" -> supported = false
+            "physical-screen" -> screenSafe = false
+            "close" -> original.close()
+        }
+        accepts(!original.current(originalEpoch, "wifi-1"))
+        supported = true; screenSafe = true
+        original.observe(true, true, true, true, "wifi-1")
+        accepts(!original.current(originalEpoch, "wifi-1"))
+    }
+    val denied = DeviceForegroundGate({ backgroundNow })
+    denied.observe(false, false, true, true, "wifi-1")
+    rejects { denied.allowBackground(100) { true } }
+    denied.observe(true, true, true, true, "wifi-1")
+    rejects { denied.allowBackground(100) { false } }
+    rejects { denied.allowBackground(1) { true } }
+    val unknownSupport = DeviceForegroundGate({ backgroundNow })
+    val unknownEpoch = unknownSupport.observe(true, true, true, true, "wifi-1")
+    var diagnosticKnown = true
+    unknownSupport.allowBackground(100) { if (!diagnosticKnown) error("synthetic") else true }
+    diagnosticKnown = false
+    accepts(!unknownSupport.current(unknownEpoch, "wifi-1"))
+    // The service's callback custody is JVM-only; no Service is instantiated.
+    val serviceCustody = DeviceReadService.Session({}, {})
+    val serviceResults = mutableListOf<Boolean>()
+    serviceCustody.stopped.add { serviceResults.add(it) }
+    serviceCustody.settled(false)
+    accepts(serviceCustody.stopFailed && serviceResults == listOf(false))
+    serviceCustody.settled(true) // Late platform destruction cannot erase timeout.
+    accepts(serviceCustody.stopFailed && serviceResults == listOf(false))
+    diagnosticKnown = true
+    accepts(!unknownSupport.current(unknownEpoch, "wifi-1"))
     val out = ByteArrayOutputStream()
     DeviceLinkFrames.write(out, DeviceLinkFrame(1, "{}".toByteArray()))
     val frame = DeviceLinkFrames.read(ByteArrayInputStream(out.toByteArray()))

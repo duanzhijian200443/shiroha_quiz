@@ -20,8 +20,7 @@ final class Calls implements AndroidNativeCalls {
 }
 
 void main() {
-  test(
-      'native entry requires the explicit dedicated Debug artifact; no Service',
+  test('native entry and finite READ service require dedicated Debug admission',
       () {
     expect(File('lib/main.dart').readAsStringSync(),
         isNot(contains('android_device_foundation')));
@@ -59,6 +58,21 @@ void main() {
     expect(activity, isNot(contains('DeviceTlsEndpoint')));
     expect(File('android/app/src/main/AndroidManifest.xml').readAsStringSync(),
         isNot(contains('<service')));
+    final debug =
+        File('android/app/src/debug/AndroidManifest.xml').readAsStringSync();
+    expect(
+        debug, contains(r'android:enabled="${androidReadBackgroundEnabled}"'));
+    expect(debug,
+        contains('android:exported="false" android:stopWithTask="true"'));
+    expect(debug, contains('android:foregroundServiceType="connectedDevice"'));
+    expect(
+        build,
+        contains(
+            'manifestPlaceholders["androidReadBackgroundEnabled"] = "false"'));
+    expect(
+        build,
+        contains(
+            'manifestPlaceholders["androidReadBackgroundEnabled"] = "true"'));
   });
   test('construction and inactive close never acquire Native resources',
       () async {

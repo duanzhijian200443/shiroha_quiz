@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/services.dart';
+import 'package:shiroha_quiz/application/capabilities/capability.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/external/android_device_access.dart';
 import 'package:shiroha_quiz/application/external/android_foreground_access.dart';
@@ -10,6 +12,33 @@ import '../application/external/local_authorization_test_support.dart';
 
 void main() {
   initializeGeneratedTests();
+  test('background predicate retains READ scope and excludes all wider grants',
+      () {
+    expect(androidBackgroundQuestionRead(androidQuestionReadPolicy()), isTrue);
+    for (final category in [
+      ExternalContentCategory.fileContent,
+      ExternalContentCategory.studyStatistics,
+      ExternalContentCategory.proposalMetadata
+    ]) {
+      expect(
+          androidBackgroundQuestionRead(ExternalGrantPolicy(
+              permissions: const [CapabilityPermission.read],
+              allContent: true,
+              scopes: const [],
+              categories: [ExternalContentCategory.questionContent, category])),
+          isFalse);
+    }
+    expect(
+        androidBackgroundQuestionRead(ExternalGrantPolicy(
+            permissions: const [
+              CapabilityPermission.read,
+              CapabilityPermission.stage
+            ],
+            allContent: true,
+            scopes: const [],
+            categories: const [ExternalContentCategory.questionContent])),
+        isFalse);
+  });
   test(
       'phone policy cancellation/CAS never creates replacement runtime or changes identity',
       () async {
@@ -27,6 +56,8 @@ void main() {
         protocol: 'android-device-link');
     await management.replaceGrant(ref, 0, androidQuestionReadPolicy());
     final calls = <String>[];
+    final prepareEntered = Completer<void>();
+    final prepareReply = Completer<Object?>();
     const channel = MethodChannel('shiroha/android_device_foundation');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
@@ -66,6 +97,11 @@ void main() {
             ])
           },
         'associationClose' => true,
+        'backgroundPrepare' => () {
+            prepareEntered.complete();
+            return prepareReply.future;
+          }(),
+        'backgroundWithdraw' || 'backgroundStop' => true,
         _ => throw StateError('Unexpected synthetic native call'),
       };
     });
@@ -85,6 +121,19 @@ void main() {
       expect(app.state.fileContentAllowed, isFalse);
       expect(app.state.allContent, isTrue);
       expect((await management.read(ref)).profile.grantRevision, 1);
+      final enabling = app.enable();
+      await prepareEntered.future;
+      expect(app.state.phase, AndroidAccessPhase.off);
+      expect(app.state.expiresAt, isNull);
+      expect(runtimes, 0);
+      await app.cancelPending();
+      prepareReply
+          .complete(true); // Late promotion cannot resurrect this owner.
+      await enabling;
+      expect(app.state.phase, AndroidAccessPhase.off);
+      expect(app.state.backgroundRead, isFalse);
+      expect(app.state.expiresAt, isNull);
+      expect(runtimes, 0);
       final cancelled = app.setGenerationMode(ExternalGenerationMode.review);
       final failure = expectLater(cancelled, throwsStateError);
       await app.cancelPending();
@@ -135,8 +184,15 @@ void main() {
       expect(app.state.profileId, profile);
       expect(app.state.deviceId, 'b' * 64);
       expect(runtimes, 0);
-      expect(calls.toSet(),
-          {'status', 'identity', 'associationBegin', 'associationClose'});
+      expect(calls.toSet(), {
+        'status',
+        'identity',
+        'associationBegin',
+        'associationClose',
+        'backgroundPrepare',
+        'backgroundWithdraw',
+        'backgroundStop'
+      });
     } finally {
       await app.close();
       management.invalidate();

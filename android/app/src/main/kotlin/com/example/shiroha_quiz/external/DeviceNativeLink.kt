@@ -15,7 +15,7 @@ internal class DeviceNativeLink(
     address: String,
     private val expectedClient: String?,
     enrollment: Boolean,
-    periodEndsMs: Long,
+    val periodEndsMs: Long,
     preparationEndsMs: Long,
     businessResume: Boolean,
     private val event: (String, Map<String, Any?>) -> Unit,

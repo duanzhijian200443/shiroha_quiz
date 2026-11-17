@@ -57,18 +57,45 @@ internal class DeviceCloseDeadline(private val now: () -> Long = System::nanoTim
 }
 
 /** Admission observation, never a P0 identity/Session or durable Grant. */
-class DeviceForegroundGate {
+class DeviceForegroundGate(
+    private val now: () -> Long = { System.nanoTime() / 1000000 },
+    private val screenSafe: () -> Boolean = { true },
+) {
     var sequence: Long = 0; private set
     var eligible: Boolean = false; private set
     var network: String? = null; private set
     private var closed = false
     private var last: List<Any?>? = null
+    private var backgroundEnds = 0L
+    private var backgroundNetwork: String? = null
+    private var support: () -> Boolean = { false }
+    private fun safe(check: () -> Boolean) = try { check() } catch (_: Exception) { false }
+
+    val backgroundRead: Boolean @Synchronized get() {
+        if (backgroundEnds != 0L && (now() >= backgroundEnds || !safe(screenSafe) || !safe(support))) {
+            withdrawBackground()
+        }
+        return backgroundEnds != 0L
+    }
+    @Synchronized fun allowBackground(ends: Long, supported: () -> Boolean) {
+        if (!eligible || closed || backgroundEnds != 0L || !safe(screenSafe) || ends <= now() || !safe(supported))
+            throw DeviceLinkFailure("foreground_required")
+        backgroundEnds = ends; backgroundNetwork = network; support = supported
+    }
+    @Synchronized fun withdrawBackground() {
+        if (backgroundEnds != 0L) sequence++
+        backgroundEnds = 0L; backgroundNetwork = null; support = { false }
+    }
 
     @Synchronized
     fun observe(resumed: Boolean, focused: Boolean, interactive: Boolean,
                 unlocked: Boolean, networkId: String?): Long {
         val observation = listOf(resumed, focused, interactive, unlocked, networkId)
-        if (last != observation) sequence++
+        val running = backgroundRead
+        if (running && (!interactive || !unlocked || networkId != backgroundNetwork)) withdrawBackground()
+        // Focus/visibility observations remain visible to UI, but cannot replace
+        // the transport epoch of the SAME proved, service-supported READ owner.
+        if (last != observation && !running) sequence++
         last = observation
         network = networkId
         eligible = !closed && resumed && focused && interactive && unlocked && networkId != null
@@ -76,9 +103,9 @@ class DeviceForegroundGate {
     }
 
     @Synchronized fun current(epoch: Long, networkId: String): Boolean =
-        !closed && eligible && epoch == sequence && networkId == network
+        !closed && (backgroundRead || eligible) && safe(screenSafe) && epoch == sequence && networkId == network
 
-    @Synchronized fun close() { closed = true; eligible = false; sequence++ }
+    @Synchronized fun close() { withdrawBackground(); closed = true; eligible = false; sequence++ }
 }
 
 class DeviceLinkFrame(val kind: Int, val payload: ByteArray) {
