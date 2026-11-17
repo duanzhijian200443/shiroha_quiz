@@ -604,11 +604,20 @@ three separate owners:
 | Desktop adapter | End the old forwarding attempt and settle its original streams/socket. A later client-launched instance verifies the same pinned phone/Profile and negotiates a fresh link. It neither relaunches itself nor replays tool input. |
 | Codex / user | Start a new MCP server session using a restart/reconnect action actually verified for that client. Where unavailable, completely exit/reopen the client after original settlement. No assumption of automatic restart, configuration rewrite or re-pairing. |
 
-For focus-only suspension with clean settlement, a new authenticated connection
-may consume the same remaining enable period, without renewal. Background, lock,
-expiry or other withdrawal instead requires section 3's explicit access/proof
-sequence before starting the new business adapter. Restored phone focus or a
-visible cached tool list is not evidence of a usable Codex connection.
+Under [section 5's bounded exception](#5-foreground-and-lifecycle), pure question
+READ that completed the original P15/P0 proof may stay in the background with
+the same original connection and authorization while service support remains
+valid, the screen stays interactive and unlocked, the selected network is
+unchanged and the original enable deadline remains unexpired. Background alone
+requires no new Enable/proof or client restart for that continuing connection.
+Other permission combinations retain the original foreground rules: focus-only
+suspension with clean settlement permits a new authenticated connection using
+only the same remaining enable period, whereas background withdrawal requires
+section 3's explicit access/proof sequence before a new business adapter. Lock,
+expiry, network change, switch-off, owner failure or loss of required service
+support still withdraw access; fresh access requires original settlement and
+the explicit access/proof sequence, never automatic restoration. Restored phone
+focus or a visible cached tool list is not evidence of a usable Codex connection.
 
 A supported client record must identify its actual version and demonstrated
 recovery action. Automatic recovery is a claim only for the exact combination
@@ -888,10 +897,17 @@ I/O before replacement. No STAGE settlement behavior is relaxed. The desktop sto
 identity/routing.
 
 The App owns READY access across normal navigation. Leaving preparation cancels
-and joins the original operation. Focus loss closes the original channel and
-may retain only the original remaining enable period; background, lock, network
-change and switch-off withdraw access. Native absolute deadlines start at the
-explicit action, and neither heartbeat nor reconnect extends them. Original
+and joins the original operation. Under [section 5's bounded
+exception](#5-foreground-and-lifecycle), pure question READ that completed the
+original P15/P0 proof may retain the same original connection and authorization
+across focus loss and background while service support is valid, the screen is
+interactive and unlocked, the selected network is unchanged and the original
+enable deadline is unexpired. Other permission combinations retain the original
+foreground rules: focus loss closes their original channel and may retain only
+the original remaining enable period; background withdraws their access. Lock,
+expiry, network change, switch-off, owner failure or loss of required service
+support still withdraw access in all applicable modes. Native absolute deadlines
+start at the explicit action, and neither heartbeat nor reconnect extends them. Original
 Native/Dart resources must actually settle before replacement; failure remains
 RECOVERY_REQUIRED. The existing learning-space/legacy-category bank browser now
 receives its original QuestionListQueryPort for local content comparison, without
