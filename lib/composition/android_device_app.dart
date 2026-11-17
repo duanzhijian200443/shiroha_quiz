@@ -58,6 +58,7 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
   String? _profile, _client, _address, _mode, _error;
   String _runtime = '';
   String? _businessId;
+  AndroidMcpTransport? _businessTransport;
   bool _listening = false;
   void _stage(String stage) => AppLogger.info('Android access stage',
       module: 'MCP', data: {'stage': stage});
@@ -587,6 +588,7 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
             read: channel.read,
             write: channel.write,
             closeChannel: channel.close,
+            peerClosed: channel.peerClosed,
             invalidate: channel.invalidate,
             connectionId: channel.id,
             current: current);
@@ -602,8 +604,9 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
           'runtimeId': _runtime,
           ...binding
         });
-        await channel.established();
+        await channel.established(closeControl: profileVersion == 3);
         _businessId = channel.id;
+        _businessTransport = transport;
         _notify();
         try {
           await server.serveTransport(transport);
@@ -613,6 +616,10 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
           _recovery = true;
           _verification?.invalidateAll();
           rethrow;
+        } finally {
+          if (identical(_businessTransport, transport)) {
+            _businessTransport = null;
+          }
         }
         return;
       }
@@ -973,6 +980,10 @@ final class _AndroidResources implements AndroidAccessResources {
     owner._listening = false;
     owner._businessId = null;
     owner._verification?.invalidateAll();
+    final transport = owner._businessTransport;
+    if (transport != null) {
+      unawaited(transport.withdraw().catchError((Object _) {}));
+    }
     unawaited(close().catchError((Object _) {}));
   }
 
@@ -985,15 +996,26 @@ final class _AndroidResources implements AndroidAccessResources {
           if (e.code == 'settlement_unknown') rethrow;
           return;
         }
-        // Native close unblocks every original read/write before their Dart joins.
-        if (await owner._native.invoke('linkClose', {'link': link}) != true) {
-          androidLinkFail();
+        // Native stops admission now and retains only the bounded CLOSE path.
+        // Join both owners even if either reports failure.
+        var clean = true;
+        try {
+          await Future.wait([
+            owner._native.invoke('linkClose', {'link': link}).then((result) {
+              if (result != true) androidLinkFail();
+            }),
+            if (owner._businessTransport != null)
+              owner._businessTransport!.withdraw(),
+          ]);
+        } catch (_) {
+          clean = false;
         }
         // Native has stopped accepting and posted all original channel events.
         // Include late arrivals/rejected peers in this SAME owner's drain.
         while (owner._connections.isNotEmpty) {
           await Future.wait(owner._connections.toList());
         }
+        if (!clean) androidLinkFail();
         if (await owner._native.invoke('linkRelease', {'link': link}) != true) {
           androidLinkFail();
         }

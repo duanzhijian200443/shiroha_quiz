@@ -81,6 +81,7 @@ final class AndroidNativeChannel {
   final AndroidNativeCalls native;
   final String id, peer, installationId;
   bool _live = true;
+  bool _closeControl = false;
   Future<void>? _closing;
   bool get live => _live;
   void invalidate() {
@@ -99,14 +100,19 @@ final class AndroidNativeChannel {
     return _live;
   }
 
-  Future<void> established() async {
-    if (!_live || await native.invoke('established', {'channel': id}) != true) {
+  Future<void> established({bool closeControl = false}) async {
+    if (!_live ||
+        await native.invoke('established',
+                {'channel': id, if (closeControl) 'closeControl': true}) !=
+            true) {
       androidLinkFail();
     }
+    _closeControl = closeControl;
   }
 
   Future<void> peerClosed() async {
-    if (!_live || await native.invoke('peerClosed', {'channel': id}) != true) {
+    if ((!_live && !_closeControl) ||
+        await native.invoke('peerClosed', {'channel': id}) != true) {
       androidLinkFail();
     }
   }
@@ -119,10 +125,9 @@ final class AndroidNativeChannel {
   }
 
   Future<(int, Map<String, dynamic>)> read() async {
-    if (!_live) androidLinkFail();
+    if (!_live && !_closeControl) androidLinkFail();
     final reply = await native.invoke('read', {'channel': id});
-    if (!_live ||
-        reply is! Map ||
+    if (reply is! Map ||
         reply.length != 2 ||
         reply['kind'] is! int ||
         reply['payload'] is! Uint8List) {
@@ -132,18 +137,28 @@ final class AndroidNativeChannel {
     // allocating another full raw frame; the platform retains its own custody.
     final bytes = reply['payload'] as Uint8List;
     if (reply['kind'] == 1 && bytes.length > 16384) androidLinkFail();
-    return (reply['kind'] as int, androidStrictObject(bytes));
+    final value = androidStrictObject(bytes);
+    if (!_live &&
+        (!_closeControl ||
+            reply['kind'] != 1 ||
+            !const {'closing', 'ping', 'pong'}.contains(value['type']))) {
+      androidLinkFail();
+    }
+    return (reply['kind'] as int, value);
   }
 
   Future<void> write(int kind, Map<String, dynamic> value) async {
-    if (!_live) androidLinkFail();
+    final closing = _closeControl &&
+        kind == 1 &&
+        const {'closing', 'closed', 'pong'}.contains(value['type']);
+    if (!_live && !closing) androidLinkFail();
     final bytes = Uint8List.fromList(utf8.encode(jsonEncode(value)));
     try {
       if (bytes.length > (kind == 1 ? 16384 : 524288) ||
           await native.invoke(
                   'write', {'channel': id, 'kind': kind, 'payload': bytes}) !=
               true ||
-          !_live) {
+          (!_live && !closing)) {
         androidLinkFail();
       }
     } finally {
@@ -153,6 +168,7 @@ final class AndroidNativeChannel {
 
   Future<void> close() {
     invalidate();
+    _closeControl = false;
     return _closing ??= () async {
       if (await native.invoke('channelClose', {'channel': id}) != true) {
         androidLinkFail();

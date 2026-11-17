@@ -57,6 +57,15 @@ Future<void> main(List<String> args) async {
       Timer.periodic(const Duration(milliseconds: 10), (timer) async {
     if (!exitSignal.existsSync()) return;
     timer.cancel();
+    if (args[3].endsWith('closing')) {
+      if (args[3] == 'wrong-closing') {
+        event({'type': 'closing', 'resourceId': 'wrong-resource'});
+      }
+      event({'type': 'closing'});
+      if (args[3] == 'duplicate-closing') event({'type': 'closing'});
+      await stderr.flush();
+      return;
+    }
     if (args[3] == 'settled') settled();
     await stderr.flush();
     exit(0);

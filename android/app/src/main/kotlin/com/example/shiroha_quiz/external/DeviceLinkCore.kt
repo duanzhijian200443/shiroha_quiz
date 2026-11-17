@@ -41,6 +41,21 @@ object DeviceLinkAdmission {
     }
 }
 
+/** One absolute control-only deadline on an already owned channel. */
+internal class DeviceCloseDeadline(private val now: () -> Long = System::nanoTime) {
+    private var expires: Long? = null
+    val started: Boolean get() = expires != null
+    fun begin(): Boolean {
+        if (started) return false
+        expires = now() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5)
+        return true
+    }
+    fun requireControl(control: Boolean) {
+        if (!control || expires == null || now() >= expires!!)
+            throw DeviceLinkFailure("connection_closed")
+    }
+}
+
 /** Admission observation, never a P0 identity/Session or durable Grant. */
 class DeviceForegroundGate {
     var sequence: Long = 0; private set

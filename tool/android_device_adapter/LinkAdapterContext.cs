@@ -30,6 +30,7 @@ internal sealed class LinkAdapterContext : IDisposable
     internal string Resource { get; }
     internal bool Authenticated { get; private set; }
     private bool closed;
+    private bool closingNotified;
 
     internal LinkAdapterContext(string run, string resource, bool initializing = false, bool registering = false, bool inspecting = false)
     {
@@ -102,6 +103,13 @@ internal sealed class LinkAdapterContext : IDisposable
         Authenticated = true;
         Emit(new { type = "authenticated", runId = Run, resourceId = Resource,
             deviceIdentity = target.DeviceId, installationIdentity = installation, profileReference = target.ProfileId });
+    }
+    internal void Closing()
+    {
+        RequireCurrent();
+        if (!Authenticated || closingNotified) throw new LinkFailure("protocol_violation");
+        closingNotified = true;
+        Emit(new { type = "closing", runId = Run, resourceId = Resource });
     }
     internal void Settled(string mode, DeviceTarget target, string installation)
     {

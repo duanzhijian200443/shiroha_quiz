@@ -45,6 +45,7 @@ final class LinkAdapterProcess implements LinkBackend {
     }));
     _exit = _process.exitCode.whenComplete(() {
       _endInput();
+      _signalDisconnected();
       if (!_identity.isCompleted) {
         _identity.completeError(const LinkException('adapter_unavailable'));
       }
@@ -70,6 +71,8 @@ final class LinkAdapterProcess implements LinkBackend {
   final _inputEnded = Completer<void>();
   final _ownerCaptured = Completer<void>();
   final _failure = Completer<void>();
+  final _disconnected = Completer<void>();
+  bool _closingNotified = false;
   Future<void>? _closing;
   bool _settledEvent = false, _failed = false, _stdinDone = false;
   bool _authenticatedEvent = false;
@@ -349,7 +352,11 @@ final class LinkAdapterProcess implements LinkBackend {
   LinkOwnerReference get owner =>
       _owner ?? (throw const LinkException('unavailable'));
   @override
-  Future<void> get disconnected => _exit.then((_) {});
+  Future<void> get disconnected => _disconnected.future;
+
+  void _signalDisconnected() {
+    if (!_disconnected.isCompleted) _disconnected.complete();
+  }
 
   void _markFailed() {
     _failed = true;
@@ -535,6 +542,17 @@ final class LinkAdapterProcess implements LinkBackend {
             linkFail();
           }
           _preauthSettled = true;
+        case 'closing':
+          linkFields(value, {'type', 'runId', 'resourceId'});
+          if (_proof ||
+              _owner == null ||
+              !_identity.isCompleted ||
+              _closingNotified ||
+              _settledEvent) {
+            linkFail();
+          }
+          _closingNotified = true;
+          _signalDisconnected();
         case 'settled':
           linkFields(value, {
             'type',

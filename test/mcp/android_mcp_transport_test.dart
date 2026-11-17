@@ -315,6 +315,22 @@ void main() {
     await expectLater(f.port.beginGracefulClose(), throwsStateError);
   });
 
+  test('focus withdrawal cannot acknowledge an unreleased original response',
+      () async {
+    f.expectFailedSettlement = true;
+    f.expectFailedApproval = false;
+    final result = await f.port.call('open_generation_context', {},
+        responseId: 'unreleased',
+        cancelled: const Stream.empty(),
+        available: () => true);
+    expect(result['error'], isNull);
+    f.live = false;
+    f.port.suspend();
+    await expectLater(
+        f.port.beginGracefulClose().timeout(const Duration(seconds: 1)),
+        throwsStateError);
+  });
+
   test('seven schemas; old READ grant and all file modes refuse', () async {
     expect(VnextMcpServer.inputSchemas.length, 7);
     await f.policy(null);

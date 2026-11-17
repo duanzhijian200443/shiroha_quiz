@@ -14,6 +14,17 @@ fun main(args: Array<String>) {
     }
     accepts(!DeviceLinkAdmission.runtimeAvailable)
     rejects { DeviceLinkAdmission.requireAuthorized() }
+    var closeTime = 0L
+    val closeDeadline = DeviceCloseDeadline { closeTime }
+    rejects { closeDeadline.requireControl(true) }
+    accepts(closeDeadline.begin())
+    closeDeadline.requireControl(true)
+    rejects { closeDeadline.requireControl(false) }
+    closeTime = 4_000_000_000
+    accepts(!closeDeadline.begin())
+    closeDeadline.requireControl(true)
+    closeTime = 5_000_000_000
+    rejects { closeDeadline.requireControl(true) }
     val closeExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
     try {
         val entered = java.util.concurrent.CountDownLatch(1)

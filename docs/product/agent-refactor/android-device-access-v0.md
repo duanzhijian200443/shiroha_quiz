@@ -430,6 +430,42 @@ business tools. All identifiers and fingerprints are non-secret selectors.
   messages share the bounded serialized writer; receiving control never waits
   for the business-call slot. Heartbeats create no authority.
 
+Profile 3 business shutdown uses the exact fields
+`type, connectionId, nonce`. The desktop's `closing` is a fresh challenge;
+Android returns `closed` with that same connection and nonce only after original
+business and output settlement. The desktop then sends TLS close-notify.
+Android observes peer EOF and closes its original Native channel; the desktop
+also requires peer EOF before publishing its resource receipt.
+
+An established Profile 3 phone may first send one `closing` notification to
+request this sequence after local withdrawal. Its nonce is independent of the
+desktop's final challenge. The original desktop Adapter notifies its supervising
+Link through a run/resource-bound `closing` process event. Link withdraws its
+lease and joins the original work/output before flushing and closing Adapter
+stdin. Only that EOF starts the desktop's final challenge. The notification
+provides no settlement evidence. Duplicate notifications, wrong bindings,
+unexpected frames and missing acknowledgement or EOF fail closed. A desktop
+challenge already in flight can complete without a phone notification.
+
+Native withdrawal immediately stops listener admission, business input/output
+and attestation. Only the already established Profile 3 channel retains control
+framing for at most five seconds from its first withdrawal. Dart accepts the
+bound closing exchange and valid in-flight ping/pong on that path. Repeated callbacks, heartbeat and focus
+return cannot renew this deadline or the original Enable. After the deadline the
+original socket closes and missing settlement evidence remains a failure.
+An unfinished, unreleased response at withdrawal cannot be acknowledged clean
+or converted into a user cancellation.
+
+This phone-initiated sequence requires the corresponding Profile 3 Adapter and
+Link support. Earlier peers reject the added direction and retain failed or
+unknown settlement. Profile 2 and proof-channel closing retain their existing
+contracts.
+Both peers stop producing new heartbeat requests during shutdown. They join
+already submitted control writes and consume the one matching outstanding pong
+before sending their final closing/closed frame. Incoming pings receive their
+bound pong without extending any deadline. Unsolicited or mismatched pongs and
+business frames after withdrawal still fail closed.
+
 The local listener uses the explicitly selected IPv4 and port 46443. No wildcard
 binding or alternate-address retry is permitted. Native connection handles are
 process-local opaque references, never accepted in a wire message. The trusted

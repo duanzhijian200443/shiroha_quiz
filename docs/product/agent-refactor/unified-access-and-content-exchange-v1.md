@@ -397,7 +397,8 @@ stateDiagram-v2
   READY --> ACTIVE: 获得业务租约
   ACTIVE --> DRAINING: 断开 / 撤权 / 前端消失
   READY --> DRAINING: 到期 / 切换 / 退出
-  DRAINING --> SELECTED: 全部必要资源干净结算
+  DRAINING --> READY: 被动断开 / 资源干净结算 / 保留连接意图
+  DRAINING --> SELECTED: 显式断开 / 资源干净结算
   DRAINING --> RECOVERY_REQUIRED: 失败或未知
   RECOVERY_REQUIRED --> SELECTED: 原目标显式恢复通过
 ```
@@ -552,6 +553,19 @@ beforeSlot/afterSlot 两组完整非秘密快照，flush 后无覆盖发布。
 6. 对同一目标、同一代次的 dirty 状态做条件更新。
 
 只有相关环节具备实际成功证据才释放原租约。禁止用正常退出码单独推断业务结果，或用密钥缺失单独推断目标工作结算。
+
+Android Profile 3 的手机侧撤回按 Android 契约 §7 发出原通道关闭通知。
+Adapter 通过原进程的 run/resource 绑定事件通知同一 Link，Link 先撤回租约、
+加入原任务与输出，再冲刷并关闭原 stdin。桌面仍发出最终关闭挑战，手机在
+原业务和输出结算后确认，双方等待原 TLS 关闭。通知、控制期限到期和进程
+退出均不能替代上述结算证据。未释放响应在撤回时仍按原规则判定失败。
+
+同一 Link 运行中，被动连接结束且所有原资源 clean 后，可以保留本次明确
+connect 的连接意图。原前端管道结束后，新前端只能取得新租约并发起新的
+目标认证。每次仍核验目标、owner generation、槽位和当前手机准入；此路径
+不执行新 proof，不延长 Enable，也不复用旧 Context。显式 disconnect、
+select、shutdown 或失败/未知结算会撤回该意图。手机后台、锁屏、过期后的
+新认证仍要求手机重新完成明确的 Enable/Proof。
 
 ### 6.4 前端消失
 

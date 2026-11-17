@@ -169,10 +169,14 @@ internal class DeviceTlsEndpoint(private val keys: DeviceCredentials, private va
         }
     }
 
-    @Synchronized fun close() {
+    @Synchronized fun stopAccepting() {
         closed = true
-        peer?.let { closePeer(it) }
         try { listener?.close() } catch (_: Exception) { failedClose("listener-close") }
+        if (closeFailed) throw DeviceLinkFailure("settlement_unknown")
+    }
+
+    @Synchronized fun close() {
+        try { stopAccepting() } finally { peer?.let { closePeer(it) } }
         // A later successful close never erases an earlier failure.
         if (closeFailed) throw DeviceLinkFailure("settlement_unknown")
     }

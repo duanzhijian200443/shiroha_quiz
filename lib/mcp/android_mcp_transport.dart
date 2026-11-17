@@ -50,6 +50,7 @@ final class AndroidMcpTransport extends Transport {
       required this.validNonce,
       required this.write,
       required this.closeChannel,
+      this.peerClosed,
       required this.invalidate,
       required this.connectionId,
       required this.current}) {
@@ -61,6 +62,7 @@ final class AndroidMcpTransport extends Transport {
   final bool Function(Object?) validNonce;
   final Future<void> Function(int, Map<String, dynamic>) write;
   final Future<void> Function() closeChannel;
+  final Future<void> Function()? peerClosed;
   final void Function() invalidate;
   final String connectionId;
   final bool Function() current;
@@ -70,9 +72,11 @@ final class AndroidMcpTransport extends Transport {
   Timer? _timer;
   bool _closed = false, _sendingPing = false;
   bool _ioFailed = false;
+  bool _withdrawing = false, _peerClosing = false;
+  final _handshake = Completer<bool>();
   final _writes = <Future<void>>{};
   final _requests = <Object>{};
-  Future<void>? _pump, _closing;
+  Future<void>? _pump, _closing, _withdrawal;
   @override
   String? get sessionId => null;
 
@@ -83,8 +87,11 @@ final class AndroidMcpTransport extends Transport {
     unawaited(_pump!.catchError((Object _) {}));
     _timer = Timer.periodic(const Duration(seconds: 15), (_) {
       if (_closed) return;
-      if (!current() ||
-          _elapsed.elapsed - _lastPeer >= const Duration(seconds: 45)) {
+      if (!current()) {
+        unawaited(withdraw().catchError((Object _) {}));
+        return;
+      }
+      if (_elapsed.elapsed - _lastPeer >= const Duration(seconds: 45)) {
         unawaited(close().catchError((Object _) {}));
         return;
       }
@@ -100,10 +107,11 @@ final class AndroidMcpTransport extends Transport {
   }
 
   Future<void> _read() async {
+    Map<String, dynamic>? closingRequest;
+    Timer? pongDeadline;
     try {
       while (!_closed) {
         final (kind, message) = await read();
-        if (!current()) androidLinkFail();
         if (kind == 1) {
           if (message.length != 3 ||
               !{'type', 'connectionId', 'nonce'}.every(message.containsKey)) {
@@ -115,20 +123,37 @@ final class AndroidMcpTransport extends Transport {
           }
           if (message['type'] == 'closing' &&
               port.binding.profileVersion == 3) {
-            await port.beginGracefulClose();
-            await _write(1, {...message, 'type': 'closed'});
-            return;
-          }
-          if (message['type'] == 'ping') {
-            await _write(1, {...message, 'type': 'pong'});
-          } else if (message['type'] == 'pong' &&
-              _ping != null &&
-              message['nonce'] == _ping) {
-            _ping = null;
+            if (_peerClosing) androidLinkFail();
+            _peerClosing = true;
+            _timer?.cancel();
+            closingRequest = message;
+            if (!current() && !_withdrawing) {
+              unawaited(withdraw().catchError((Object _) {}));
+            }
+            if (_ping != null) {
+              pongDeadline = Timer(const Duration(seconds: 5), () {
+                _ioFailed = true;
+                _requestClose();
+              });
+            }
           } else {
-            androidLinkFail();
+            if (!current() && !_withdrawing) {
+              if (port.binding.profileVersion != 3) androidLinkFail();
+              unawaited(withdraw().catchError((Object _) {}));
+            }
+            if (message['type'] == 'ping') {
+              await _write(1, {...message, 'type': 'pong'},
+                  closing: _withdrawing || _peerClosing);
+            } else if (message['type'] == 'pong' &&
+                _ping != null &&
+                message['nonce'] == _ping) {
+              _ping = null;
+            } else {
+              androidLinkFail();
+            }
           }
         } else if (kind == 2) {
+          if (_peerClosing || _withdrawing || !current()) androidLinkFail();
           final parsed = JsonRpcMessage.fromJson(message);
           if (parsed is JsonRpcRequest &&
               (_requests.length >= 2 || !_requests.add(parsed.id))) {
@@ -142,21 +167,41 @@ final class AndroidMcpTransport extends Transport {
           androidLinkFail();
         }
         _lastPeer = _elapsed.elapsed;
+        if (closingRequest != null && _ping == null) {
+          pongDeadline?.cancel();
+          await port.beginGracefulClose();
+          await Future.wait(_writes.toList());
+          if (_ioFailed) androidLinkFail();
+          await _write(1, {...closingRequest, 'type': 'closed'}, closing: true);
+          await peerClosed?.call();
+          if (_closed) androidLinkFail();
+          _handshake.complete(true);
+          return;
+        }
       }
+    } catch (_) {
+      if (!_closed) _ioFailed = true;
+      rethrow;
     } finally {
+      pongDeadline?.cancel();
       _requestClose();
     }
   }
 
   void _requestClose() => unawaited(close().catchError((Object _) {}));
 
-  Future<void> _write(int kind, Map<String, dynamic> value) async {
-    if (_closed || !current()) androidLinkFail();
+  Future<void> _write(int kind, Map<String, dynamic> value,
+      {bool closing = false}) async {
+    bool allowed() =>
+        !_closed &&
+        (closing && port.binding.profileVersion == 3 ||
+            !_withdrawing && current());
+    if (!allowed()) androidLinkFail();
     final done = Completer<void>();
     _writes.add(done.future);
     try {
       await write(kind, value);
-      if (_closed || !current()) androidLinkFail();
+      if (!allowed()) androidLinkFail();
     } catch (_) {
       _ioFailed = true;
       _requestClose();
@@ -170,7 +215,7 @@ final class AndroidMcpTransport extends Transport {
   @override
   Future<void> send(JsonRpcMessage message, {int? relatedRequestId}) async {
     try {
-      if (_closed || !current()) androidLinkFail();
+      if (_closed || _withdrawing || !current()) androidLinkFail();
       await _write(2, message.toJson());
       final id = switch (message) {
         JsonRpcResponse() => message.id,
@@ -190,9 +235,43 @@ final class AndroidMcpTransport extends Transport {
     }
   }
 
+  /// Withdraw business immediately, retaining only this channel's CLOSE.
+  Future<void> withdraw() {
+    if (port.binding.profileVersion != 3) return close();
+    if (_withdrawal != null) return _withdrawal!;
+    _withdrawing = true;
+    _timer?.cancel();
+    invalidate();
+    port.suspend();
+    return _withdrawal = () async {
+      try {
+        await port.beginGracefulClose();
+        if (!_peerClosing) {
+          await _write(
+              1,
+              {
+                'type': 'closing',
+                'connectionId': connectionId,
+                'nonce': newNonce()
+              },
+              closing: true);
+        }
+        if (!await _handshake.future.timeout(const Duration(seconds: 5))) {
+          androidLinkFail();
+        }
+      } catch (_) {
+        _ioFailed = true;
+        rethrow;
+      } finally {
+        await close();
+      }
+    }();
+  }
+
   @override
   Future<void> close() => _closing ??= () async {
         _closed = true;
+        if (!_handshake.isCompleted) _handshake.complete(false);
         _timer?.cancel();
         invalidate();
         port.withdraw();
@@ -247,6 +326,7 @@ final class AndroidMcpPort implements VnextMcpResponsePort {
   /// original operation AND output before acknowledging CLOSE.
   Future<void> beginGracefulClose() async {
     _draining = true;
+    if (_settlementFailed) androidLinkFail();
     await whenSettled;
     if (_settlementFailed) androidLinkFail();
   }
@@ -269,6 +349,14 @@ final class AndroidMcpPort implements VnextMcpResponsePort {
       _settlementFailed = true;
     }
     _closed = true;
+    _control?.cancel();
+  }
+
+  void suspend() {
+    _draining = true;
+    if (_output?.isCompleted == false && !_cancelledBeforeClose) {
+      _settlementFailed = true;
+    }
     _control?.cancel();
   }
 
@@ -312,7 +400,7 @@ final class AndroidMcpPort implements VnextMcpResponsePort {
     _cancelledBeforeClose = false;
     final control = _control = ExternalCallControl(clock: binding.clock);
     final cancellation = cancelled.listen((_) {
-      if (!_closed) _cancelledBeforeClose = true;
+      if (!_closed && !_draining) _cancelledBeforeClose = true;
       control.cancel();
       // The SDK suppresses a cancelled request's response. Close the original
       // channel instead of waiting forever for an output that will not exist.

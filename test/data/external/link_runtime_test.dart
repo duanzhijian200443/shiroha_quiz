@@ -163,6 +163,8 @@ final class _Relay implements LocalRelayServerConnection {
     }
     await admitted.future;
     accepted = true;
+    disconnected = false;
+    eofSent = false;
   }
 
   @override
@@ -182,6 +184,9 @@ final class _Relay implements LocalRelayServerConnection {
   @override
   Future<Map<String, Object?>> receive(Duration deadline) async {
     if (!await input.moveNext()) throw const LocalRelayException();
+    if (input.current['synthetic-eof'] == true) {
+      throw const LocalRelayException();
+    }
     onReceive?.call(input.current);
     return input.current;
   }
@@ -196,7 +201,7 @@ final class _Relay implements LocalRelayServerConnection {
     if (rearmOnDisconnect) accepted = false;
     if (notifyDisconnect && !disconnected) {
       disconnected = true;
-      disconnectRequested.complete();
+      if (!disconnectRequested.isCompleted) disconnectRequested.complete();
       if (!delayEof) finishDisconnect();
     }
   }
@@ -204,7 +209,11 @@ final class _Relay implements LocalRelayServerConnection {
   void finishDisconnect() {
     if (!eofSent && !closed) {
       eofSent = true;
-      incoming.addError(const LocalRelayException());
+      if (rearmOnDisconnect) {
+        incoming.add({'synthetic-eof': true});
+      } else {
+        incoming.addError(const LocalRelayException());
+      }
     }
   }
 
@@ -636,9 +645,7 @@ void main() {
   Completer<void>? acquisitionEntered, acquisitionReleased;
   Completer<void>? closeEntered, closeReleased;
   final observations = <LinkVerificationObservation>[];
-  Future<void> receipt(LinkOwnerReference owner, String mode,
-          {String filename = 'link-settlement.json'}) =>
-      File(p.join(slot.path, filename)).writeAsString(jsonEncode({
+  Map<String, Object?> receiptBody(LinkOwnerReference owner, String mode) => {
         'formatVersion': 2,
         'operationId': 'operation',
         'receiptRef': owner.resourceId,
@@ -653,7 +660,14 @@ void main() {
         'targetClose': true,
         'tlsShutdown': true,
         'keyRetired': true,
-      }));
+      };
+  Future<void> receipt(LinkOwnerReference owner, String mode,
+          {String filename = 'link-settlement.json'}) =>
+      File(p.join(slot.path, filename))
+          .writeAsString(jsonEncode(receiptBody(owner, mode)));
+  Future<void> pendingReceipt(LinkOwnerReference owner, String mode) =>
+      File(p.join(slot.path, 'link-settlement.pending'))
+          .writeAsString(jsonEncode(receiptBody(owner, mode)));
   setUp(() async {
     root = await Directory.systemTemp.createTemp('link-runtime-');
     slot = await Directory(p.join(root.path, 'slot')).create();
@@ -730,6 +744,7 @@ void main() {
     runtime = LinkRuntime(
         installation: config,
         store: store,
+        processCurrent: (_, __) => false,
         callDiagnostics: calls,
         verificationObserver: (observation) {
           if (observerThrows) throw StateError('synthetic_observer');
@@ -778,6 +793,32 @@ void main() {
   Future<Map<String, dynamic>> ownership() async => jsonDecode(
           await File(p.join(slot.path, 'slot-ownership.json')).readAsString())
       as Map<String, dynamic>;
+  Future<LinkOwnerReference> failedProofOwner() async {
+    holdProof = true;
+    failAcquisition = true;
+    acquisitionEntered = Completer<void>();
+    acquisitionReleased = Completer<void>();
+    final connecting = runtime.connect();
+    await acquisitionEntered!.future;
+    acquisitionReleased!.complete();
+    await expectLater(
+        connecting,
+        throwsA(isA<LinkException>()
+            .having((e) => e.code, 'code', 'owner_unsettled')));
+    final owner = store.state.owner!;
+    await store.replace(
+        store.state.change({
+          'owner': LinkOwnerReference(
+                  runId: owner.runId,
+                  resourceId: owner.resourceId,
+                  processId: owner.processId,
+                  processStarted: 'awaiting-adapter',
+                  slotRef: owner.slotRef)
+              .toJson(),
+        }),
+        expectedRevision: store.state.revision);
+    return store.state.owner!;
+  }
 
   for (final exitsFirst in [false, true]) {
     test(
@@ -983,6 +1024,90 @@ void main() {
         /* Failed original custody is retained until fixture teardown. */
       }
     }
+  });
+
+  for (final explicit in ['none', 'disconnect', 'select', 'close']) {
+    test('passive close preserves reconnect intent until $explicit', () async {
+      await runtime.connect();
+      await runtime.attach('old-peer', 'old-connection');
+      final oldLease = store.state.lease!;
+      closeEntered = Completer<void>();
+      closeReleased = Completer<void>();
+      addTearDown(() {
+        if (!closeReleased!.isCompleted) closeReleased!.complete();
+      });
+      backend.lost.complete();
+      await closeEntered!.future;
+      await expectLater(() => runtime.attach('early-peer', 'early'),
+          throwsA(isA<LinkException>()));
+      final Future<void>? withdrawn = switch (explicit) {
+        'disconnect' => runtime.disconnect(),
+        'close' => runtime.close(),
+        _ => null,
+      };
+      closeReleased!.complete();
+      await withdrawn;
+      await () async {
+        while (store.state.dirtyPhase != LinkDirtyPhase.clean ||
+            runtime.inspect()['busy'] == true) {
+          await Future<void>.delayed(Duration.zero);
+        }
+      }()
+          .timeout(const Duration(seconds: 2));
+      if (explicit == 'select') {
+        await runtime.select('phone', store.state.selectionRevision);
+      }
+      if (explicit == 'none') {
+        await runtime.attach('new-peer', 'new-connection');
+        expect(starts, 3); // One proof and two fresh business authentications.
+        expect(store.state.lease!.leaseId, isNot(oldLease.leaseId));
+        expect(store.state.lease!.routeGeneration,
+            greaterThan(oldLease.routeGeneration));
+        expect(store.state.ownerGeneration, 'operation');
+      } else {
+        await expectLater(() => runtime.attach('new-peer', 'new-connection'),
+            throwsA(isA<LinkException>()));
+        expect(starts, 2);
+      }
+    });
+  }
+
+  test('passive backend close releases idle frontend for a fresh attachment',
+      () async {
+    await runtime.connect();
+    final business = _Relay()
+      ..rearmOnDisconnect = true
+      ..notifyDisconnect = true;
+    final control = _Relay();
+    final server = LinkPipeServer(runtime, business, control);
+    final serving = server.serve();
+    business.admitted.complete();
+    final hello = await business.next();
+    business.incoming.add({...hello, 'kind': 'attach'});
+    final first = await business.next();
+    final oldOwner = store.state.owner!;
+    backend.lost.complete();
+    final next = await business.next().timeout(const Duration(seconds: 2));
+    expect(next['connectionId'], isNot(hello['connectionId']));
+    business.incoming.add({...next, 'kind': 'attach'});
+    final attached = await business.next();
+    expect(attached['leaseId'], isNot(first['leaseId']));
+    expect(store.state.owner!.resourceId, isNot(oldOwner.resourceId));
+    expect(starts, 3);
+    control.admitted.complete();
+    final ticket = await control.next();
+    control.incoming.add({
+      ...ticket,
+      'action': 'shutdown',
+      'targetRef': null,
+      'expectedSelectionRevision': null,
+      'expectedRevision': null
+    });
+    expect((await control.next())['error'], isNull);
+    control.incoming.add({...ticket, 'kind': 'received'});
+    await serving.timeout(const Duration(seconds: 2));
+    await business.dispose();
+    await control.dispose();
   });
 
   test(
@@ -1596,6 +1721,71 @@ void main() {
     expect(observations, isEmpty);
     expect(starts, 2);
     await expectLater(runtime.connect(), throwsA(isA<LinkException>()));
+  });
+
+  for (final sameCreation in [true, false]) {
+    test(
+        'disconnect retains proof receipt without original supervision: creation=$sameCreation',
+        () async {
+      final owner = await failedProofOwner();
+      final originalOwner = store.state.owner!.toJson();
+      final actual = LinkOwnerReference(
+          runId: owner.runId,
+          resourceId: owner.resourceId,
+          processId: owner.processId,
+          processStarted: sameCreation ? owner.processStarted : '999999',
+          slotRef: owner.slotRef);
+      await pendingReceipt(actual, 'enable-proof');
+      final pending = File(p.join(slot.path, 'link-settlement.pending'));
+      final published = File(p.join(slot.path, 'link-settlement.json'));
+      final pendingBefore = await pending.readAsBytes();
+      final publishedBefore = await published.readAsBytes();
+      final slotBefore = await ownership();
+      await expectLater(
+          runtime.disconnect(),
+          throwsA(isA<LinkException>()
+              .having((e) => e.code, 'code', 'owner_unsettled')));
+      expect(store.state.dirtyPhase, LinkDirtyPhase.recoveryRequired);
+      expect(store.state.settlement, LinkSettlement.unknown);
+      expect(store.state.owner!.toJson(), originalOwner);
+      expect(await pending.readAsBytes(), pendingBefore);
+      expect(await published.readAsBytes(), publishedBefore);
+      final slotAfter = await ownership();
+      expect(slotAfter['revision'], (slotBefore['revision'] as int) + 1);
+      expect({...slotAfter, 'revision': slotBefore['revision']}, slotBefore);
+      expect((await ownership())['lastSettlementState'], 'DIRTY');
+    });
+  }
+
+  test('proof recovery refuses a non-proof pending receipt', () async {
+    final owner = await failedProofOwner();
+    await pendingReceipt(owner, 'business');
+    await expectLater(
+        runtime.disconnect(),
+        throwsA(isA<LinkException>()
+            .having((e) => e.code, 'code', 'owner_unsettled')));
+    expect(store.state.dirtyPhase, LinkDirtyPhase.recoveryRequired);
+    expect(store.state.owner!.resourceId, owner.resourceId);
+    expect(await File(p.join(slot.path, 'link-settlement.pending')).exists(),
+        isTrue);
+    expect((await ownership())['lastSettlementState'], 'DIRTY');
+  });
+
+  test('proof recovery refuses while the adapter process is still current',
+      () async {
+    final owner = await failedProofOwner();
+    await pendingReceipt(owner, 'enable-proof');
+    final live = LinkRuntime(
+        installation: runtime.installation,
+        store: store,
+        processCurrent: (_, __) => true);
+    await expectLater(
+        live.disconnect(),
+        throwsA(isA<LinkException>()
+            .having((e) => e.code, 'code', 'owner_unsettled')));
+    expect(store.state.dirtyPhase, LinkDirtyPhase.recoveryRequired);
+    expect(await File(p.join(slot.path, 'link-settlement.pending')).exists(),
+        isTrue);
   });
 
   test(
