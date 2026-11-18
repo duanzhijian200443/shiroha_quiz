@@ -19,6 +19,8 @@ final class AndroidForegroundObservation {
   final bool backgroundRead;
   bool get backgroundEligible =>
       backgroundRead && interactive && unlocked && network != null;
+  bool canContinueBackground({required bool whileLocked}) =>
+      backgroundEligible || (whileLocked && backgroundRead && network != null);
   bool get eligible =>
       visible &&
       resumed &&
@@ -116,8 +118,11 @@ final class AndroidForegroundAccess {
   bool _disposed = false;
   bool _clockInvalid = false;
   bool _allowBackgroundRead = false;
+  bool _continueWhileLocked = false;
   bool get _runningEligible => _allowBackgroundRead
-      ? _observation?.backgroundEligible == true
+      ? _observation?.canContinueBackground(
+              whileLocked: _continueWhileLocked) ==
+          true
       : _observation?.eligible == true;
 
   AndroidAccessPhase get phase => _phase;
@@ -128,6 +133,11 @@ final class AndroidForegroundAccess {
   }
 
   bool get acceptsNew =>
+      _observation?.interactive == true &&
+      _observation?.unlocked == true &&
+      allowsAuthenticatedUse;
+
+  bool get allowsAuthenticatedUse =>
       !_disposed &&
       _phase == AndroidAccessPhase.ready &&
       _runningEligible &&
@@ -154,7 +164,9 @@ final class AndroidForegroundAccess {
     }
     final runningBackground =
         _allowBackgroundRead && _phase == AndroidAccessPhase.ready;
-    if ((runningBackground ? !next.backgroundEligible : next.withdraws) ||
+    if ((runningBackground
+            ? !next.canContinueBackground(whileLocked: _continueWhileLocked)
+            : next.withdraws) ||
         next.network != _network ||
         !_timeValid()) {
       unawaited(disable());
@@ -184,10 +196,12 @@ final class AndroidForegroundAccess {
 
   Future<void> enable(AndroidAccessPreparation Function(int generation) begin,
       {Duration duration = const Duration(hours: 8),
-      bool allowBackgroundRead = false}) async {
+      bool allowBackgroundRead = false,
+      bool continueWhileLocked = false}) async {
     if (_disposed ||
         _clockInvalid ||
         _phase != AndroidAccessPhase.off ||
+        (continueWhileLocked && !allowBackgroundRead) ||
         _observation?.eligible != true ||
         duration <= Duration.zero ||
         duration > const Duration(hours: 8)) {
@@ -199,6 +213,7 @@ final class AndroidForegroundAccess {
     }
     _lastTime = now;
     _allowBackgroundRead = allowBackgroundRead;
+    _continueWhileLocked = continueWhileLocked;
     _expires = now + duration;
     _network = _observation!.network;
     await _prepare(begin);

@@ -11,6 +11,7 @@ final class _Access implements AndroidDeviceAccess {
   final events = StreamController<void>.broadcast(sync: true);
   final choices = <ExternalGenerationMode?>[];
   final fileChoices = <bool>[];
+  final lockChoices = <bool>[];
   bool files = false, allContent = true, hasFileScope = false;
   int enables = 0, disables = 0, leaves = 0;
   ExternalGenerationMode? mode;
@@ -19,6 +20,7 @@ final class _Access implements AndroidDeviceAccess {
       available: true,
       paired: true,
       policyReady: true,
+      lockContinuationAvailable: !files && mode == null,
       fileContentAllowed: files,
       allContent: allContent,
       hasFileScope: hasFileScope,
@@ -53,8 +55,9 @@ final class _Access implements AndroidDeviceAccess {
   }
 
   @override
-  Future<void> enable() async {
+  Future<void> enable({bool continueWhileLocked = false}) async {
     enables++;
+    lockChoices.add(continueWhileLocked);
   }
 
   @override
@@ -80,6 +83,31 @@ final class _Access implements AndroidDeviceAccess {
 }
 
 void main() {
+  testWidgets(
+      'lock option is opt-in for one Enable and absent for wider policy',
+      (tester) async {
+    final access = _Access();
+    await tester.pumpWidget(
+        MaterialApp(home: AndroidDeviceAccessPanel(access: access)));
+    final option = find.byKey(const Key('android-continue-while-locked'));
+    final enable = find.byKey(const Key('android-enable'));
+    expect(tester.widget<SwitchListTile>(option).value, isFalse);
+    await tester.tap(option);
+    await tester.pump();
+    await tester.tap(enable);
+    await tester.pump();
+    expect(access.lockChoices, [true]);
+    expect(tester.widget<SwitchListTile>(option).value, isFalse);
+    await tester.tap(enable);
+    await tester.pump();
+    expect(access.lockChoices, [true, false]);
+    await access.setFileContentAllowed(true);
+    await tester.pump();
+    expect(option, findsNothing);
+    await tester.pumpWidget(const SizedBox());
+    await access.close();
+  });
+
   testWidgets('file consent describes actual scope and preserves direct mode',
       (tester) async {
     final access = _Access()..mode = ExternalGenerationMode.direct;
@@ -127,6 +155,7 @@ void main() {
             .onChanged,
         isNull);
     await tester.ensureVisible(find.byKey(const Key('android-generation')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('android-generation')));
     await tester.pumpAndSettle();
     expect(access.choices, [ExternalGenerationMode.review]);
@@ -136,6 +165,7 @@ void main() {
             .value,
         isFalse);
     await tester.ensureVisible(find.byKey(const Key('android-direct')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('android-direct')));
     await tester.pumpAndSettle();
     expect(access.choices,

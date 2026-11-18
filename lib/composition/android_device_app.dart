@@ -65,6 +65,7 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
   bool _available = false, _paired = false, _disposed = false, _action = false;
   bool _recovery = false;
   bool _backgroundRead = false;
+  bool _continueWhileLocked = false;
   int _enableGeneration = 0;
   DateTime? _expiresAt;
   Completer<void>? _confirmation, _proof;
@@ -101,6 +102,8 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
           _policyRecord?.grant?.revokedAtUtcMs == null,
       policyChanging: _policySaving != null,
       backgroundRead: _backgroundRead,
+      lockContinuationAvailable: _paired && _canUseBackgroundRead,
+      continueWhileLocked: _continueWhileLocked,
       fileContentAllowed: _policyRecord?.grant?.policy.categories
               .contains(ExternalContentCategory.fileContent) ??
           false,
@@ -115,6 +118,9 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
       awaitingConfirmation: _confirmation != null,
       expiresAt: _expiresAt,
       error: _error);
+
+  bool get _canUseBackgroundRead => androidBackgroundQuestionRead(
+      _policyRecord?.grant?.policy ?? androidQuestionReadPolicy());
 
   ExternalGenerationMode? get _generationMode {
     final grant = _policyRecord?.grant;
@@ -207,13 +213,19 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
       return;
     }
     if (name == 'disconnected') {
-      if (_businessId == value['channel']) _businessId = null;
+      final wasBusiness = _businessId == value['channel'];
+      if (wasBusiness) _businessId = null;
       if (value['channel'] is String) {
         _verification?.invalidate(value['channel'] as String);
       }
       if (value['settled'] != true) {
         _recovery = true;
         _error = '原连接结算失败，请关闭访问';
+      }
+      if (wasBusiness &&
+          _continueWhileLocked &&
+          value['backgroundRead'] != true) {
+        unawaited(disable());
       }
       _notify();
       return;
@@ -268,12 +280,14 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
     final runningBackground = _backgroundRead &&
         !wasPreparing &&
         _foreground.phase == AndroidAccessPhase.ready;
-    if ((runningBackground ? !next.backgroundEligible : !next.eligible) ||
+    final canContinue =
+        next.canContinueBackground(whileLocked: _continueWhileLocked);
+    if ((runningBackground ? !canContinue : !next.eligible) ||
         next.network != old?.network) {
       _verification?.invalidateAll();
     }
     _foreground.observe(next);
-    if (((runningBackground ? !next.backgroundEligible : next.withdraws) ||
+    if (((runningBackground ? !canContinue : next.withdraws) ||
             (old != null && next.network != old.network) ||
             wasPreparing && !next.eligible) &&
         _integration != null) {
@@ -300,8 +314,9 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
   @override
   Future<void> pair() => _begin('pairing');
   @override
-  Future<void> enable() => _begin('enable-proof');
-  Future<void> _begin(String mode) async {
+  Future<void> enable({bool continueWhileLocked = false}) =>
+      _begin('enable-proof', continueWhileLocked: continueWhileLocked);
+  Future<void> _begin(String mode, {bool continueWhileLocked = false}) async {
     if (!_current ||
         !_available ||
         _action ||
@@ -310,6 +325,7 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
         _stopping != null ||
         _nativeObservedMs == null ||
         _observation?.eligible != true ||
+        (continueWhileLocked && !_canUseBackgroundRead) ||
         (mode == 'pairing' ? _paired : !_paired)) {
       androidLinkFail();
     }
@@ -319,9 +335,8 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
     final generation = ++_enableGeneration;
     try {
       // Permission and actual service promotion precede PREPARING and deadlines.
-      _backgroundRead = mode == 'enable-proof' &&
-          androidBackgroundQuestionRead(
-              _policyRecord?.grant?.policy ?? androidQuestionReadPolicy());
+      _backgroundRead = mode == 'enable-proof' && _canUseBackgroundRead;
+      _continueWhileLocked = _backgroundRead && continueWhileLocked;
       if (_backgroundRead) {
         if (await _native.invoke('backgroundPrepare') != true ||
             generation != _enableGeneration ||
@@ -347,7 +362,9 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
         unawaited(disable());
       });
       await _foreground.enable((_) => _AccessPreparation(this, mode),
-          duration: duration, allowBackgroundRead: _backgroundRead);
+          duration: duration,
+          allowBackgroundRead: _backgroundRead,
+          continueWhileLocked: _continueWhileLocked);
       if (_foreground.phase != AndroidAccessPhase.ready || !_current) {
         androidLinkFail();
       }
@@ -466,8 +483,11 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
       // Both proof endpoints have closed before the original finite P0 enable.
       await integration.controls.enable(_foreground.remaining);
       operation.check();
-      if (await _native.invoke('linkEnabled',
-              {'link': _resources!.link, 'backgroundRead': _backgroundRead}) !=
+      if (await _native.invoke('linkEnabled', {
+            'link': _resources!.link,
+            'backgroundRead': _backgroundRead,
+            if (_continueWhileLocked) 'continueWhileLocked': true,
+          }) !=
           true) {
         androidLinkFail();
       }
@@ -594,7 +614,7 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
         bool current() {
           try {
             businessCurrent();
-            return _foreground.acceptsNew && verifier.isLive(event);
+            return _foreground.allowsAuthenticatedUse && verifier.isLive(event);
           } catch (_) {
             return false;
           }
@@ -637,7 +657,9 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
           'runtimeId': _runtime,
           ...binding
         });
-        await channel.established(closeControl: profileVersion == 3);
+        await channel.established(
+            closeControl: profileVersion == 3,
+            continueWhileLocked: _continueWhileLocked);
         _businessId = channel.id;
         _businessTransport = transport;
         _notify();
@@ -942,6 +964,7 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
           }
           _backgroundRead = false;
         }
+        _continueWhileLocked = false;
         _stopping = null;
         _notify();
       }

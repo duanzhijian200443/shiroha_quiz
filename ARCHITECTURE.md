@@ -570,7 +570,9 @@ request-scoped approval and Android lifecycle admission. Pairing/preparation and
 non-question-READ policies require foreground eligibility. The bounded pure
 question READ exception keeps the original proved owner/channel/deadline under
 a non-sticky connectedDevice foreground service with a visible stop control;
-lock, expiry, revoke and owner/service loss still withdraw and settle originals.
+lock withdraws by default. Per-Enable opt-in retains only the original channel
+authenticated before lock. New channels must authenticate while unlocked.
+Expiry, revoke and owner/service loss still withdraw and settle originals.
 It does not authorize background STAGE, files, statistics or remote mode. Its specified LAN
 endpoint is not a Windows loopback-listener or development-exception extension.
 The selected Debug consumer wires question READ/generation/Proposal through

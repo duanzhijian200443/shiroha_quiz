@@ -66,9 +66,11 @@ background, lock, network change, expiry or switch-off, repeat step 2 first.
 The adapter never restarts itself, polls for Enable or replays tool input.
 The current source adds only the finite pure question READ background exception
 in [Android lifecycle contract §5](../../docs/product/agent-refactor/android-device-access-v0.md#5-foreground-and-lifecycle).
-Pairing/preparation still requires foreground focus; after proof, the original
-owner/channel/deadline may continue under a visible connectedDevice FGS. Lock,
-expiry, stop and service loss still revoke. Wider saved grants stay foreground-only.
+Pairing/preparation still requires foreground focus. After proof, the original
+owner/channel/deadline may continue under a visible connectedDevice FGS. Lock
+revokes by default. The per-Enable opt-in keeps only the original authenticated
+channel while locked, in the same period. Expiry, stop and service loss still
+revoke. Wider saved grants stay foreground-only.
 Source/compilation checks do not extend the historical supported-device evidence;
 the changed artifact needs its own authorized lifecycle and settlement acceptance.
 Project-sourced entries can also appear in the MCP list with disabled editing

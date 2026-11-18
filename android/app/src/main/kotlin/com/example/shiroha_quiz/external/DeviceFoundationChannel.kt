@@ -23,8 +23,9 @@ internal class DeviceFoundationChannel(private val context: Context,
     private val credentials = DeviceCredentials(context, ::admitted)
     private val associations = DeviceAssociationFile(context, credentials)
     private val gate = DeviceForegroundGate({ android.os.SystemClock.elapsedRealtime() }, {
-        (context.getSystemService(Context.POWER_SERVICE) as? PowerManager)?.isInteractive == true &&
-            (context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager)?.isKeyguardLocked == false
+        val power = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        val keyguard = context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+        if (power == null || keyguard == null) null else power.isInteractive && !keyguard.isKeyguardLocked
     })
     private val main = Handler(Looper.getMainLooper())
     private val io = java.util.concurrent.ThreadPoolExecutor(4, 4, 0,
@@ -177,7 +178,8 @@ internal class DeviceFoundationChannel(private val context: Context,
                 "attest" -> result.success(requireLink().attest(token(call),
                     call.argument<String>("peer") ?: "", call.argument<String>("installationId") ?: ""))
                 "established" -> {
-                    requireLink().established(token(call), call.argument<Boolean>("closeControl") == true)
+                    requireLink().established(token(call), call.argument<Boolean>("closeControl") == true,
+                        call.argument<Boolean>("continueWhileLocked") == true)
                     result.success(true)
                 }
                 "proofStarted" -> { requireLink().proofStarted(token(call)); result.success(true) }
@@ -195,8 +197,11 @@ internal class DeviceFoundationChannel(private val context: Context,
                     original.completePreparation()
                     if (call.argument<Boolean>("backgroundRead") == true) {
                         val session = readSession ?: throw DeviceLinkFailure("background_read_unavailable")
-                        gate.allowBackground(original.periodEndsMs) { session.running && !session.ended && DeviceReadService.runningNotification(context) }
-                        session.service?.activated(original.periodEndsMs)
+                        val keepWhileLocked = call.argument<Boolean>("continueWhileLocked") == true
+                        gate.allowBackground(original.periodEndsMs, keepWhileLocked) {
+                            session.running && !session.ended && DeviceReadService.runningNotification(context)
+                        }
+                        session.service?.activated(original.periodEndsMs, keepWhileLocked)
                         main.post { observer?.publish() }
                     }
                     result.success(true)

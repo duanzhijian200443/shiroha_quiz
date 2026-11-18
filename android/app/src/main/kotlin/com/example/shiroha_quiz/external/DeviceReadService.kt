@@ -70,7 +70,7 @@ class DeviceReadService : Service() {
     private val main = Handler(Looper.getMainLooper())
     private var original: Session? = null
     private val deadline = Runnable { revoke() }
-    private fun notification(remaining: Long? = null): Notification {
+    private fun notification(remaining: Long? = null, continueWhileLocked: Boolean = false): Notification {
         val stop = PendingIntent.getService(this, 0,
             Intent(this, DeviceReadService::class.java).setAction(STOP)
                 .setData(android.net.Uri.parse("shiroha-read:" + original!!.token))
@@ -78,7 +78,11 @@ class DeviceReadService : Service() {
         return Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.stat_sys_upload)
             .setContentTitle(if (remaining == null) "Shiroha · 正在准备只读访问" else "Shiroha · 限时题目只读访问")
-            .setContentText("后台可继续；锁屏、到期或关闭即停止")
+            .setContentText(when {
+                remaining == null -> "保持前台，完成本轮访问证明"
+                continueWhileLocked -> "已有只读连接可在锁屏时继续；到期或关闭即停止"
+                else -> "后台可继续；锁屏、到期或关闭即停止"
+            })
             .setWhen(System.currentTimeMillis() + (remaining ?: 0))
             .setUsesChronometer(remaining != null).setChronometerCountDown(true)
             .setOngoing(true).setDeleteIntent(stop)
@@ -108,13 +112,16 @@ class DeviceReadService : Service() {
         } catch (_: Exception) { session.ready(false); revoke() }
         return START_NOT_STICKY
     }
-    internal fun activated(ends: Long) {
+    internal fun activated(ends: Long, continueWhileLocked: Boolean) {
         main.post {
             main.removeCallbacks(deadline)
             val remaining = ends - SystemClock.elapsedRealtime()
             if (remaining <= 0 || original?.running != true) revoke()
             else {
-                try { getSystemService(NotificationManager::class.java).notify(NOTIFICATION, notification(remaining)) }
+                try {
+                    getSystemService(NotificationManager::class.java).notify(NOTIFICATION,
+                        notification(remaining, continueWhileLocked))
+                }
                 catch (_: Exception) { revoke(); return@post }
                 main.postDelayed(deadline, remaining)
             }

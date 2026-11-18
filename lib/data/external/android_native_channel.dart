@@ -100,10 +100,14 @@ final class AndroidNativeChannel {
     return _live;
   }
 
-  Future<void> established({bool closeControl = false}) async {
+  Future<void> established(
+      {bool closeControl = false, bool continueWhileLocked = false}) async {
     if (!_live ||
-        await native.invoke('established',
-                {'channel': id, if (closeControl) 'closeControl': true}) !=
+        await native.invoke('established', {
+              'channel': id,
+              if (closeControl) 'closeControl': true,
+              if (continueWhileLocked) 'continueWhileLocked': true,
+            }) !=
             true) {
       androidLinkFail();
     }

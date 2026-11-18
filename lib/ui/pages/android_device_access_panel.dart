@@ -19,13 +19,21 @@ final class _AndroidPanelState extends State<AndroidDeviceAccessPanel> {
   StreamSubscription<void>? _changes;
   StreamSubscription<void>? _stageChanges;
   FirstPartyStageApprovalView? _stageView;
+  bool _continueWhileLocked = false;
   @override
   void initState() {
     super.initState();
     _changes = widget.access.changes.listen((_) {
       if (mounted) {
         _watchStage();
-        setState(() {});
+        final state = widget.access.state;
+        setState(() {
+          if (!state.lockContinuationAvailable ||
+              state.policyChanging ||
+              state.phase != AndroidAccessPhase.off) {
+            _continueWhileLocked = false;
+          }
+        });
       }
     });
     unawaited(widget.access.inspect());
@@ -55,6 +63,17 @@ final class _AndroidPanelState extends State<AndroidDeviceAccessPanel> {
             .showSnackBar(const SnackBar(content: Text('操作未完成，请检查设备连接状态。')));
       }
     }));
+  }
+
+  void _setAccess(bool enabled) {
+    if (!enabled) {
+      _run(widget.access.disable);
+      return;
+    }
+    final selected =
+        _continueWhileLocked && widget.access.state.lockContinuationAvailable;
+    setState(() => _continueWhileLocked = false);
+    _run(() => widget.access.enable(continueWhileLocked: selected));
   }
 
   @override
@@ -101,9 +120,11 @@ final class _AndroidPanelState extends State<AndroidDeviceAccessPanel> {
                 subtitle: const Text(
                     '本次开启 30 分钟。授权范围内的题目与必要元数据可经 Codex 发送给模型服务。资料正文须单独允许。')),
             ListTile(
-                subtitle: Text(state.backgroundRead
-                    ? '题目只读访问可在后台继续；锁屏、到期或关闭访问即停止。解锁不会自动重开。'
-                    : '仅题目只读模式支持后台继续，须允许持续通知。其他权限组合仍须保持前台。')),
+                subtitle: Text(state.continueWhileLocked
+                    ? '本轮已允许原只读连接在锁屏时继续。到期或关闭访问即停止。'
+                    : state.backgroundRead
+                        ? '题目只读访问可在后台继续；锁屏、到期或关闭访问即停止。解锁不会自动重开。'
+                        : '仅题目只读模式支持后台继续，须允许持续通知。其他权限组合仍须保持前台。')),
             if (state.available && !state.paired)
               Padding(
                   padding: const EdgeInsets.all(16),
@@ -111,6 +132,18 @@ final class _AndroidPanelState extends State<AndroidDeviceAccessPanel> {
                       key: const Key('android-pair'),
                       onPressed: off ? () => _run(widget.access.pair) : null,
                       child: const Text('首次连接电脑'))),
+            if (off &&
+                state.available &&
+                state.lockContinuationAvailable &&
+                !state.policyChanging)
+              SwitchListTile.adaptive(
+                key: const Key('android-continue-while-locked'),
+                title: const Text('本次锁屏后继续只读访问'),
+                subtitle: const Text('仅保留已连接的题目只读会话。锁屏时不能建立新连接，到期时间不变。'),
+                value: _continueWhileLocked,
+                onChanged: (selected) =>
+                    setState(() => _continueWhileLocked = selected),
+              ),
             if (state.paired)
               SwitchListTile.adaptive(
                   key: const Key('android-enable'),
@@ -120,9 +153,7 @@ final class _AndroidPanelState extends State<AndroidDeviceAccessPanel> {
                           !state.policyChanging &&
                           state.phase != AndroidAccessPhase.draining &&
                           state.phase != AndroidAccessPhase.recovery
-                      ? (enabled) => _run(enabled
-                          ? widget.access.enable
-                          : widget.access.disable)
+                      ? _setAccess
                       : null),
             if (!off)
               TextButton(

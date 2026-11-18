@@ -59,7 +59,7 @@ internal class DeviceCloseDeadline(private val now: () -> Long = System::nanoTim
 /** Admission observation, never a P0 identity/Session or durable Grant. */
 class DeviceForegroundGate(
     private val now: () -> Long = { System.nanoTime() / 1000000 },
-    private val screenSafe: () -> Boolean = { true },
+    private val screenSafe: () -> Boolean? = { true },
 ) {
     var sequence: Long = 0; private set
     var eligible: Boolean = false; private set
@@ -69,22 +69,39 @@ class DeviceForegroundGate(
     private var backgroundEnds = 0L
     private var backgroundNetwork: String? = null
     private var support: () -> Boolean = { false }
+    private var continueWhileLocked = false
+    private var retainedChannel: String? = null
     private fun safe(check: () -> Boolean) = try { check() } catch (_: Exception) { false }
+    private fun screen() = try { screenSafe() } catch (_: Exception) { null }
 
-    val backgroundRead: Boolean @Synchronized get() {
-        if (backgroundEnds != 0L && (now() >= backgroundEnds || !safe(screenSafe) || !safe(support))) {
+    private fun backgroundCurrent(screenState: Boolean?): Boolean {
+        if (backgroundEnds != 0L && (now() >= backgroundEnds || screenState == null ||
+            (screenState == false && retainedChannel == null) || !safe(support))) {
             withdrawBackground()
         }
         return backgroundEnds != 0L
     }
-    @Synchronized fun allowBackground(ends: Long, supported: () -> Boolean) {
-        if (!eligible || closed || backgroundEnds != 0L || !safe(screenSafe) || ends <= now() || !safe(supported))
+    val backgroundRead: Boolean @Synchronized get() = backgroundCurrent(screen())
+    @Synchronized fun allowBackground(ends: Long, keepWhileLocked: Boolean = false, supported: () -> Boolean) {
+        if (!eligible || closed || backgroundEnds != 0L || screen() != true || ends <= now() || !safe(supported))
             throw DeviceLinkFailure("foreground_required")
         backgroundEnds = ends; backgroundNetwork = network; support = supported
+        continueWhileLocked = keepWhileLocked
+    }
+    @Synchronized fun retainAuthenticatedChannel(epoch: Long, networkId: String, id: String) {
+        if (!continueWhileLocked || !current(epoch, networkId) || retainedChannel != null)
+            throw DeviceLinkFailure("foreground_required")
+        retainedChannel = id
+    }
+    @Synchronized fun releaseChannel(id: String) {
+        if (retainedChannel != id) return
+        retainedChannel = null
+        backgroundCurrent(screen())
     }
     @Synchronized fun withdrawBackground() {
         if (backgroundEnds != 0L) sequence++
         backgroundEnds = 0L; backgroundNetwork = null; support = { false }
+        continueWhileLocked = false; retainedChannel = null
     }
 
     @Synchronized
@@ -92,7 +109,8 @@ class DeviceForegroundGate(
                 unlocked: Boolean, networkId: String?): Long {
         val observation = listOf(resumed, focused, interactive, unlocked, networkId)
         val running = backgroundRead
-        if (running && (!interactive || !unlocked || networkId != backgroundNetwork)) withdrawBackground()
+        if (running && (networkId != backgroundNetwork ||
+            ((!interactive || !unlocked) && retainedChannel == null))) withdrawBackground()
         // Focus/visibility observations remain visible to UI, but cannot replace
         // the transport epoch of the SAME proved, service-supported READ owner.
         if (last != observation && !running) sequence++
@@ -102,8 +120,22 @@ class DeviceForegroundGate(
         return sequence
     }
 
-    @Synchronized fun current(epoch: Long, networkId: String): Boolean =
-        !closed && (backgroundRead || eligible) && safe(screenSafe) && epoch == sequence && networkId == network
+    @Synchronized fun current(epoch: Long, networkId: String, channelId: String? = null): Boolean {
+        val screenState = screen()
+        val running = backgroundCurrent(screenState)
+        return !closed && epoch == sequence && networkId == network &&
+            ((screenState == true && (running || eligible)) ||
+                (running && channelId != null && channelId == retainedChannel))
+    }
+
+    // Keep the original accept worker parked across screen changes. Each new
+    // socket still needs current() without a channel identity before TLS.
+    @Synchronized fun listenerCurrent(epoch: Long, networkId: String): Boolean {
+        val screenState = screen()
+        val running = backgroundCurrent(screenState)
+        return !closed && epoch == sequence && networkId == network &&
+            (running || (eligible && screenState == true))
+    }
 
     @Synchronized fun close() { withdrawBackground(); closed = true; eligible = false; sequence++ }
 }

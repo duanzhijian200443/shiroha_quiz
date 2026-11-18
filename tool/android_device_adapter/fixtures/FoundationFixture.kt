@@ -146,6 +146,51 @@ fun main(args: Array<String>) {
     unknownSupport.allowBackground(100) { if (!diagnosticKnown) error("synthetic") else true }
     diagnosticKnown = false
     accepts(!unknownSupport.current(unknownEpoch, "wifi-1"))
+    var lockScreen: Boolean? = true
+    fun lockContinuation(bind: Boolean = true): Pair<DeviceForegroundGate, Long> {
+        lockScreen = true
+        backgroundNow = 1
+        supported = true
+        val candidate = DeviceForegroundGate({ backgroundNow }, { lockScreen })
+        val ownerEpoch = candidate.observe(true, true, true, true, "wifi-1")
+        candidate.allowBackground(100, keepWhileLocked = true) { supported }
+        if (bind) candidate.retainAuthenticatedChannel(ownerEpoch, "wifi-1", "original")
+        return candidate to ownerEpoch
+    }
+    val (locked, lockedEpoch) = lockContinuation()
+    lockScreen = false
+    // The synchronous socket gate sees the lock even before the observer does.
+    accepts(locked.current(lockedEpoch, "wifi-1", "original"))
+    accepts(!locked.current(lockedEpoch, "wifi-1"))
+    accepts(!locked.current(lockedEpoch, "wifi-1", "replacement"))
+    rejects { locked.retainAuthenticatedChannel(lockedEpoch, "wifi-1", "late") }
+    accepts(locked.observe(false, false, false, false, "wifi-1") == lockedEpoch)
+    accepts(locked.listenerCurrent(lockedEpoch, "wifi-1"))
+    locked.releaseChannel("replacement")
+    accepts(locked.current(lockedEpoch, "wifi-1", "original"))
+    locked.releaseChannel("original")
+    accepts(!locked.backgroundRead)
+    lockScreen = true
+    locked.observe(true, true, true, true, "wifi-1")
+    accepts(!locked.current(lockedEpoch, "wifi-1", "original"))
+
+    val (pendingLock, pendingEpoch) = lockContinuation(bind = false)
+    lockScreen = false
+    accepts(!pendingLock.current(pendingEpoch, "wifi-1"))
+    rejects { pendingLock.retainAuthenticatedChannel(pendingEpoch, "wifi-1", "late") }
+    for (trigger in listOf("expiry", "network", "support", "unobserved-screen", "stop")) {
+        val (original, ownerEpoch) = lockContinuation()
+        lockScreen = false
+        when (trigger) {
+            "expiry" -> backgroundNow = 100
+            "network" -> original.observe(false, false, false, false, "wifi-2")
+            "support" -> supported = false
+            "unobserved-screen" -> lockScreen = null
+            "stop" -> original.withdrawBackground()
+        }
+        accepts(!original.current(ownerEpoch, "wifi-1", "original"))
+        accepts(!original.backgroundRead)
+    }
     // The service's callback custody is JVM-only; no Service is instantiated.
     val serviceCustody = DeviceReadService.Session({}, {})
     val serviceResults = mutableListOf<Boolean>()

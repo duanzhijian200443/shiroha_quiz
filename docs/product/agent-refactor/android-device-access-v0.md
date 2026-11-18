@@ -282,6 +282,19 @@ wider saved policy. The original Application P15/P0 proof and proof-channel
 settlement must finish while foreground-eligible before Native activates this
 exception on the SAME link/network and original monotonic deadline.
 
+Before enabling, the user may explicitly select **Continue this question READ
+while locked** for this period. It is off by default on each Enable and is
+unavailable for other permission combinations. Lock or screen-off may then
+retain only the one business channel that completed authentication and READY
+while the screen was interactive and unlocked. A pending proof, pending
+business handshake or period with no authenticated channel cannot survive that
+transition. The Native gate binds continuation to the original channel and
+rejects new TLS/business admission while locked or non-interactive. If the
+retained channel closes while locked, its Enable is withdrawn and unlock cannot
+restore it. No deadline, policy or scope changes. Unknown screen observations
+deny access. The ongoing notification describes the selected behavior and
+retains its stop action.
+
 An app-owned, non-exported `connectedDevice` foreground service supports that
 original runtime; it creates no engine, credential, Grant, Session or owner.
 Notification permission/visibility and actual service promotion are checked
@@ -289,10 +302,11 @@ before PREPARING and before the original 120-second preparation / 30-minute
 access clocks start. Denial, disabled notifications or start failure refuses
 background READ without silently falling back or repeatedly prompting. The
 ongoing notification has a stop-access action. Native rechecks service support,
-interactive screen and unlocked Keyguard at the transport gate, independently
-of delayed Flutter events. Service loss/notification withdrawal, owner disposal,
-lock, expiry, network change or explicit stop withdraws admission first and
-joins original resources; ending the service never asserts clean settlement.
+screen and Keyguard state at the transport gate, independently of delayed Flutter
+events. Service loss/notification withdrawal, owner disposal, expiry, network
+change or explicit stop withdraws admission first. Lock does so unless the
+original channel meets the opt-in conditions above. The owner then joins the
+original resources. Ending the service never asserts clean settlement.
 It is non-sticky, stops with its task, and cannot restore volatile Enable after
 process/engine death. No wake lock, battery exemption or automatic retry exists.
 
@@ -314,7 +328,8 @@ section 8 owns their distinct restart responsibilities and evidence requirements
 | Focused split screen | Allowed if every condition holds | Current authority | Normal |
 | Unfocused split screen / normal Home background | Proved background question READ only | Original channel and deadline, no renewal | Foreground-only policies retain their suspend/revoke behavior |
 | Owner/engine detached or destroyed | Deny | Revoke finite enable; DRAINING | Explicit enable; no replacement engine |
-| Lock/non-interactive screen | Deny even before Flutter update | Revoke and drain | Unlock does not enable |
+| Lock/non-interactive screen, default or no authenticated channel | Deny even before Flutter update | Revoke and drain | Unlock does not enable |
+| Lock/non-interactive screen, opt-in with original authenticated question READ | Only the original channel may continue READ | Same Session, network, scope and deadline. Losing that channel revokes and drains | No new connection while locked or automatic restoration after revocation |
 | Network/interface/address change | Deny | Revoke old access and connection | Update hint, explicit enable |
 | Single connection loss, same network | Deny on that channel | Cancel that channel; finite enable may remain | Fresh auth, no replay |
 | Switch off | Deny synchronously | Withdraw before asynchronous drain | Explicit enable |
@@ -607,14 +622,14 @@ three separate owners:
 Under [section 5's bounded exception](#5-foreground-and-lifecycle), pure question
 READ that completed the original P15/P0 proof may stay in the background with
 the same original connection and authorization while service support remains
-valid, the screen stays interactive and unlocked, the selected network is
-unchanged and the original enable deadline remains unexpired. Background alone
+valid, the screen satisfies section 5's default or opt-in conditions, the selected
+network is unchanged and the original enable deadline remains unexpired. Background alone
 requires no new Enable/proof or client restart for that continuing connection.
 Other permission combinations retain the original foreground rules: focus-only
 suspension with clean settlement permits a new authenticated connection using
 only the same remaining enable period, whereas background withdrawal requires
-section 3's explicit access/proof sequence before a new business adapter. Lock,
-expiry, network change, switch-off, owner failure or loss of required service
+section 3's explicit access/proof sequence before a new business adapter. Lock
+without eligible continuation, expiry, network change, switch-off, owner failure or loss of required service
 support still withdraw access; fresh access requires original settlement and
 the explicit access/proof sequence, never automatic restoration. Restored phone
 focus or a visible cached tool list is not evidence of a usable Codex connection.
@@ -719,7 +734,8 @@ existing draft inbox, folded first-connection/address/diagnostic controls.
 | Connected | Current auth and the applicable foreground/background READ checks hold |
 | Temporarily unfocused, foreground-only policy | Suspended; regain focus, settle the old link and recover the client session under section 8 |
 | Background question READ | Original finite access continues with visible notification; no scope or deadline change |
-| Closed by lock/network/service loss, or background under other policies | Explicit enable required |
+| Continue this question READ while locked | Optional for this Enable. Only an already-authenticated connection can continue. The notification retains Stop |
+| Closed by lock without continuation, network/service loss, or background under other policies | Explicit enable required |
 | Connection needs checking | Fixed safe diagnosis, never a false connected badge |
 
 Direct confirmation explains that later NEW batches may enter this phone's
@@ -756,7 +772,9 @@ not real cross-device LAN proof; no row requires OCR.
 | Dialog, notification shade, split screen after proved pure READ | Original connection, authority and deadline remain; no automatic reconnect or new proof | D+E+R |
 | Successful READ, focus-only loss/background, return, next Codex call | Proved pure READ completes under original authority; wider policies retain foreground withdrawal and explicit version-bound restart, no replay | D+E+R |
 | Client lacks automatic stdio restart | Demonstrate supported manual recovery or record unsupported/unverified; cached tool inventory is not success | R |
-| Lock/noninteractive, service/notification loss or original owner death | Revoke; unlock/return does not enable, original resources settle | D+E+R |
+| Lock/noninteractive without opt-in or an authenticated business channel | Revoke and settle the original. Unlock does not enable | D+E+R |
+| Opt-in, lock/noninteractive after business READY | Preserve only original READ and deadline. Pending or new connections refuse. Losing the original revokes without automatic reconnect | D+E+R |
+| Service/notification loss, expiry, user stop, network change or original owner death including during lock continuation | Revoke and settle the original. Unlock/return does not re-enable | D+E+R |
 | Background service permission/start denied; pending proof loses focus | No Enable, no implicit foreground fallback, late completion cannot restore authority | D+E+R |
 | Network/address switch | Close old authority, verify original identity again | D+R |
 | Kill before/during/after commit | Fresh authority; recover actual durable result | D+E+R |
@@ -781,7 +799,8 @@ enable access or authenticate a connection.
 
 The finite background question READ change in section 5 is source/offline scope.
 It is not a supported-device or release claim until the changed artifact's real
-shade, split-focus, Home, in-flight READ, lock, stop, expiry and service-loss
+shade, split-focus, Home, in-flight READ, default lock withdrawal and opt-in lock
+continuation, stop, expiry and service-loss
 behavior and original resource settlement are independently exercised. Historical
 foreground READ evidence cannot prove the changed lifecycle behavior.
 
@@ -900,12 +919,12 @@ The App owns READY access across normal navigation. Leaving preparation cancels
 and joins the original operation. Under [section 5's bounded
 exception](#5-foreground-and-lifecycle), pure question READ that completed the
 original P15/P0 proof may retain the same original connection and authorization
-across focus loss and background while service support is valid, the screen is
-interactive and unlocked, the selected network is unchanged and the original
+across focus loss and background while service support is valid, the screen meets
+section 5's default or opt-in conditions, the selected network is unchanged and the original
 enable deadline is unexpired. Other permission combinations retain the original
 foreground rules: focus loss closes their original channel and may retain only
-the original remaining enable period; background withdraws their access. Lock,
-expiry, network change, switch-off, owner failure or loss of required service
+the original remaining enable period; background withdraws their access. Lock
+without eligible continuation, expiry, network change, switch-off, owner failure or loss of required service
 support still withdraw access in all applicable modes. Native absolute deadlines
 start at the explicit action, and neither heartbeat nor reconnect extends them. Original
 Native/Dart resources must actually settle before replacement; failure remains

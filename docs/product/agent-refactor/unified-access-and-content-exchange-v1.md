@@ -921,7 +921,7 @@ read、review、direct、原 CAS／revision、当前存在性和最终释放检�
 
 **首版产品目标／同手机网页**：同一手机在 Shiroha 中明确开启限时远程协作会话，切到指定浏览器中的 ChatGPT 网页，进行真实查询；需要本地决定时切回 Shiroha，完成后再回原网页查询结果。此目标不能依赖另一个设备操作、长期分屏、画中画、假焦点或电脑转发才能成立；这些只能单独标为前置／兼容测试。
 
-切到手机浏览器仍会使 Shiroha 的 Activity 离开前台。“网页优先”不解除这一生命周期问题。只有用户从可见界面主动开启、有持续可见的运行指示与停止入口、有限期限、符合所选 Android 服务机制并有真实机型证据的独立 remote 模式，才可在该期限内继续工作。LAN 模式另有 [Android §5](android-device-access-v0.md#5-foreground-and-lifecycle) 的有限纯题目 READ 后台例外：原前台证明完成后，由 connectedDevice FGS 支撑原 owner／连接／期限，锁屏仍停止；它不授予 remote、STAGE、资料或统计后台权威，源码检查不能替代改版真机验收。
+切到手机浏览器仍会使 Shiroha 的 Activity 离开前台。“网页优先”不解除这一生命周期问题。只有用户从可见界面主动开启、有持续可见的运行指示与停止入口、有限期限、符合所选 Android 服务机制并有真实机型证据的独立 remote 模式，才可在该期限内继续工作。LAN 模式另有 [Android §5](android-device-access-v0.md#5-foreground-and-lifecycle) 的有限纯题目 READ 后台例外。原前台证明完成后，由 connectedDevice FGS 支撑原 owner、连接和期限。锁屏默认停止。每轮显式选择时，仅锁屏前已认证的纯题目 READ 原连接可继续。该例外的权威仅限 LAN 题目 READ。改版真机验收仍需独立证据。
 
 不得伪造焦点、循环唤醒、滥用前台服务类型或把长期收题队列包装成短时结算。Android 服务类型、启动限制、通知、超时和真实 target SDK 必须核验。[O8][O10] 其他项目的 specialUse 声明不是本项目已符合要求或已通过发行审查的证明。
 

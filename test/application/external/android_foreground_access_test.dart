@@ -77,16 +77,52 @@ void main() {
     return r;
   }
 
-  Future<Resources> enableBackground() async {
+  Future<Resources> enableBackground({bool continueWhileLocked = false}) async {
     access.observe(observation(1));
     final p = Preparation(), r = Resources();
     final enabling = access.enable((_) => p,
-        duration: const Duration(minutes: 30), allowBackgroundRead: true);
+        duration: const Duration(minutes: 30),
+        allowBackgroundRead: true,
+        continueWhileLocked: continueWhileLocked);
     access.observe(observation(2, backgroundRead: true));
     p.complete(r);
     await enabling;
     return r;
   }
+
+  test('lock opt-in retains authenticated READ but denies new sessions',
+      () async {
+    final r = await enableBackground(continueWhileLocked: true);
+    final generation = access.generation;
+    now = const Duration(minutes: 2);
+    access.observe(observation(3,
+        focus: false,
+        resumed: false,
+        visible: false,
+        unlocked: false,
+        backgroundRead: true));
+    expect(access.allowsAuthenticatedUse, isTrue);
+    expect(access.acceptsNew, isFalse);
+    expect(access.generation, generation);
+    expect(access.remaining, const Duration(minutes: 28));
+    expect(r.withdrawals, 0);
+    now = const Duration(minutes: 30);
+    expect(access.allowsAuthenticatedUse, isFalse);
+    await access.checkDeadline();
+    expect(r.closes, 1);
+  });
+
+  test('loss of Native lock continuation cannot restore the original on unlock',
+      () async {
+    final r = await enableBackground(continueWhileLocked: true);
+    access.observe(observation(3, unlocked: false));
+    expect(access.allowsAuthenticatedUse, isFalse);
+    await access.disable();
+    access.observe(observation(4, backgroundRead: true));
+    expect(access.phase, AndroidAccessPhase.off);
+    expect(access.acceptsNew, isFalse);
+    expect(r.closes, 1);
+  });
 
   test('proved READ survives shade, split focus and background without renewal',
       () async {

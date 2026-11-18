@@ -27,7 +27,7 @@ abstract interface class AndroidDeviceAccess {
   Future<void> inspect();
   Future<void> pair();
   void confirmPairing();
-  Future<void> enable();
+  Future<void> enable({bool continueWhileLocked = false});
   Future<void> disable();
   Future<void> setGenerationMode(ExternalGenerationMode? mode);
   Future<void> setFileContentAllowed(bool allowed);
@@ -55,6 +55,8 @@ final class AndroidDeviceAccessState {
       this.policyReady = false,
       this.policyChanging = false,
       this.backgroundRead = false,
+      this.lockContinuationAvailable = false,
+      this.continueWhileLocked = false,
       this.fileContentAllowed = false,
       this.studyStatisticsAllowed = false,
       this.allContent = false,
@@ -63,7 +65,7 @@ final class AndroidDeviceAccessState {
       this.error});
   final bool available, paired, awaitingConfirmation, listening, connected;
   final bool policyReady, policyChanging;
-  final bool backgroundRead;
+  final bool backgroundRead, lockContinuationAvailable, continueWhileLocked;
   final bool fileContentAllowed,
       studyStatisticsAllowed,
       allContent,
