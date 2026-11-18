@@ -112,6 +112,7 @@ final class AndroidMcpTransport extends Transport {
     try {
       while (!_closed) {
         final (kind, message) = await read();
+        if (_closed) return;
         if (kind == 1) {
           if (message.length != 3 ||
               !{'type', 'connectionId', 'nonce'}.every(message.containsKey)) {

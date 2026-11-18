@@ -279,6 +279,72 @@ void main() {
   });
   tearDown(() => f.close());
 
+  for (final outcome in [
+    'local-stop',
+    'late-frame',
+    'peer-eof',
+    'close-error'
+  ]) {
+    test('Profile 2 original read and close settle independently: $outcome',
+        () async {
+      await f.policy(null);
+      await f.disconnect();
+      f.connect(protocol: true);
+      expect(f.port.binding.profileVersion, 2);
+      final readEntered = Completer<void>();
+      final pendingRead = Completer<(int, Map<String, dynamic>)>();
+      var closeCalls = 0;
+      var received = 0;
+      final transport = AndroidMcpTransport(
+          port: f.port,
+          read: () {
+            readEntered.complete();
+            return pendingRead.future;
+          },
+          newNonce: () => 'nonce',
+          validNonce: (value) => value == 'nonce',
+          write: (_, __) async => fail('no active work'),
+          closeChannel: () async {
+            closeCalls++;
+            if (!pendingRead.isCompleted) {
+              if (outcome == 'late-frame') {
+                pendingRead.complete((
+                  2,
+                  {'jsonrpc': '2.0', 'id': 'late', 'method': 'tools/list'}
+                ));
+              } else {
+                pendingRead.completeError(StateError('test_native_read_end'));
+              }
+            }
+            if (outcome == 'close-error') throw StateError('test_close_failed');
+          },
+          invalidate: () {},
+          connectionId: 'synthetic',
+          current: () => f.live)
+        ..onmessage = (_) => received++;
+      await transport.start();
+      await readEntered.future;
+
+      final failed = outcome == 'peer-eof' || outcome == 'close-error';
+      f.expectFailedSettlement = failed;
+      f.expectFailedApproval = false;
+      if (outcome == 'peer-eof') {
+        pendingRead.completeError(StateError('test_peer_eof'));
+        // Deliver the independent failure before local withdrawal.
+        await Future<void>.delayed(Duration.zero);
+      }
+      if (outcome != 'late-frame') f.live = false;
+      final settlement = transport.withdraw();
+      if (failed) {
+        await expectLater(settlement, throwsStateError);
+      } else {
+        await settlement;
+      }
+      expect(closeCalls, 1);
+      expect(received, 0);
+    });
+  }
+
   test(
       'graceful CLOSE withdraws new work and waits for the original response output',
       () async {

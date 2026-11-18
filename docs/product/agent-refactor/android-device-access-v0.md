@@ -510,8 +510,13 @@ or converted into a user cancellation.
 
 This phone-initiated sequence requires the corresponding Profile 3 Adapter and
 Link support. Earlier peers reject the added direction and retain failed or
-unknown settlement. Profile 2 and proof-channel closing retain their existing
-contracts.
+unknown settlement. On local withdrawal, an established Profile 2 channel
+immediately loses admission on both streams. If no native write is queued or
+running, Native gives the original Dart owner up to five seconds to start
+socket close before releasing its pending read. A missed close deadline reports
+unknown settlement. No Profile 2 control exchange is added. Independent I/O or
+resource failures and an unreleased response still block clean settlement.
+Proof-channel closing is unchanged.
 Both peers stop producing new heartbeat requests during shutdown. They join
 already submitted control writes and consume the one matching outstanding pong
 before sending their final closing/closed frame. Incoming pings receive their

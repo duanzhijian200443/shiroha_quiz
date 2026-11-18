@@ -50,8 +50,10 @@ internal class DeviceCloseDeadline(private val now: () -> Long = System::nanoTim
         expires = now() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5)
         return true
     }
+    fun remainingNanos(): Long = expires?.let { (it - now()).coerceAtLeast(0) } ?: 0
+
     fun requireControl(control: Boolean) {
-        if (!control || expires == null || now() >= expires!!)
+        if (!control || remainingNanos() == 0L)
             throw DeviceLinkFailure("connection_closed")
     }
 }

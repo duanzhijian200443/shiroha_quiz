@@ -114,6 +114,7 @@ internal class DeviceNativeLink(
                 original?.let { channel ->
                     channel.withdraw()
                     try { channel.closeWork.join() } catch (_: Exception) { failed = true }
+                    if (channel.failed) failed = true
                     channel.settled.countDown()
                     event("disconnected", mapOf("channel" to channel.id, "settled" to !failed,
                         "backgroundRead" to gate.backgroundRead))
@@ -150,9 +151,9 @@ internal class DeviceNativeLink(
         val channel = channel(id)
         if (!channel.reading.compareAndSet(false, true)) throw DeviceLinkFailure("resource_limit")
         try {
-            channel.current(control = true)
+            channel.currentRead(control = true)
             val frame = DeviceLinkFrames.readTimed(channel.socket)
-            channel.current(control = frame.kind == 1)
+            channel.currentRead(control = frame.kind == 1)
             return mapOf("kind" to frame.kind, "payload" to frame.payload)
         } catch (error: Exception) {
             channel.withdraw()
@@ -247,9 +248,11 @@ internal class DeviceNativeLink(
             (certificateExpires - System.currentTimeMillis()).coerceAtLeast(0))
         @Volatile var closed = false
         @Volatile var closeControl = false
+        private var legacyBusiness = false
         private val closing = DeviceCloseDeadline()
         private var closingDeadline: java.util.concurrent.ScheduledFuture<*>? = null
-        val failed: Boolean get() = closeWork.failed
+        @Volatile private var legacyCloseTimedOut = false
+        val failed: Boolean get() = closeWork.failed || legacyCloseTimedOut
         val closeWork = DeviceCloseWork(closer) {
             try { socket.close() } finally { stopped.countDown() }
         }
@@ -262,31 +265,57 @@ internal class DeviceNativeLink(
             // already closed cannot become the retained lock-screen channel.
             if (keepWhileLocked) gate.retainAuthenticatedChannel(epoch, network, id)
             this.closeControl = closeControl
+            legacyBusiness = business && !closeControl
             establishment?.cancel(false)
         }
         @Synchronized fun current(control: Boolean = false) {
-            if (closeControl && (this@DeviceNativeLink.closed || !gate.current(epoch, network, id))) beginClosing()
+            val withdrawn = this@DeviceNativeLink.closed || !gate.current(epoch, network, id)
+            if ((closeControl || legacyBusiness) && withdrawn) beginClosing()
             if (closing.started) {
                 if (closed || !closeControl) throw DeviceLinkFailure("connection_closed")
                 closing.requireControl(control)
                 return
             }
-            if (closed || this@DeviceNativeLink.closed || !gate.current(epoch, network, id) ||
+            if (closed || withdrawn ||
                 admissionExpired() ||
                 System.nanoTime() >= proofEnds ||
                 System.currentTimeMillis() >= certificateExpires || System.nanoTime() >= certificateEnds)
                 throw DeviceLinkFailure("connection_closed")
         }
+
+        fun currentRead(control: Boolean) {
+            val remaining = synchronized(this) {
+                try {
+                    current(control)
+                    return
+                } catch (error: DeviceLinkFailure) {
+                    if (!legacyBusiness || !closing.started || closed) throw error
+                    closing.remainingNanos()
+                }
+            }
+            // A local withdrawal rejects the frame immediately. Let the
+            // original Dart owner enter close before releasing its pending read.
+            if (!stopped.await(remaining, TimeUnit.NANOSECONDS)) {
+                withdraw()
+                throw DeviceLinkFailure("settlement_unknown")
+            }
+            throw DeviceLinkFailure("connection_closed")
+        }
+
         @Synchronized fun beginClosing() {
             if (closed || closing.started) return
-            if (!closeControl) {
+            // A legacy writer already admitted by the gate must still lose
+            // its socket immediately. A fresh writer cannot pass current().
+            if (!closeControl && (!legacyBusiness || queued.get() != 0)) {
                 withdraw()
                 return
             }
             closing.begin()
-            closingDeadline = timer.schedule({ withdraw() }, 5, TimeUnit.SECONDS)
+            closingDeadline = timer.schedule({ withdraw() }, closing.remainingNanos(), TimeUnit.NANOSECONDS)
         }
         @Synchronized fun withdraw() {
+            if (!closed && legacyBusiness && closing.started && closing.remainingNanos() == 0L)
+                legacyCloseTimedOut = true
             closed = true
             gate.releaseChannel(id)
             establishment?.cancel(false)

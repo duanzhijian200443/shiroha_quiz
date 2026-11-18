@@ -16,14 +16,18 @@ fun main(args: Array<String>) {
     rejects { DeviceLinkAdmission.requireAuthorized() }
     var closeTime = 0L
     val closeDeadline = DeviceCloseDeadline { closeTime }
+    accepts(closeDeadline.remainingNanos() == 0L)
     rejects { closeDeadline.requireControl(true) }
     accepts(closeDeadline.begin())
+    accepts(closeDeadline.remainingNanos() == 5_000_000_000L)
     closeDeadline.requireControl(true)
     rejects { closeDeadline.requireControl(false) }
     closeTime = 4_000_000_000
     accepts(!closeDeadline.begin())
+    accepts(closeDeadline.remainingNanos() == 1_000_000_000L)
     closeDeadline.requireControl(true)
     closeTime = 5_000_000_000
+    accepts(closeDeadline.remainingNanos() == 0L)
     rejects { closeDeadline.requireControl(true) }
     val closeExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
     try {
