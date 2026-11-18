@@ -20,6 +20,21 @@ bool androidBackgroundQuestionRead(ExternalGrantPolicy policy) =>
     policy.categories.contains(ExternalContentCategory.questionContent) &&
     policy.scopes.every((scope) => scope.kind == ExternalTargetKind.bank);
 
+/// A choice for the next local Enable, never persisted with the Grant.
+enum AndroidAccessDuration {
+  fiveMinutes(Duration(minutes: 5)),
+  fifteenMinutes(Duration(minutes: 15)),
+  thirtyMinutes(Duration(minutes: 30)),
+  oneHour(Duration(hours: 1)),
+  twoHours(Duration(hours: 2)),
+  fourHours(Duration(hours: 4)),
+  eightHours(Duration(hours: 8)),
+  untilAppStops(null);
+
+  const AndroidAccessDuration(this.limit);
+  final Duration? limit;
+}
+
 /// First-party local control. Neither the UI nor a wire DTO supplies evidence.
 abstract interface class AndroidDeviceAccess {
   AndroidDeviceAccessState get state;
@@ -27,7 +42,10 @@ abstract interface class AndroidDeviceAccess {
   Future<void> inspect();
   Future<void> pair();
   void confirmPairing();
-  Future<void> enable({bool continueWhileLocked = false});
+  Future<void> enable({
+    AndroidAccessDuration duration = AndroidAccessDuration.thirtyMinutes,
+    bool continueWhileLocked = false,
+  });
   Future<void> disable();
   Future<void> setGenerationMode(ExternalGenerationMode? mode);
   Future<void> setFileContentAllowed(bool allowed);
@@ -55,8 +73,9 @@ final class AndroidDeviceAccessState {
       this.policyReady = false,
       this.policyChanging = false,
       this.backgroundRead = false,
-      this.lockContinuationAvailable = false,
+      this.backgroundReadAvailable = false,
       this.continueWhileLocked = false,
+      this.untilAppStops = false,
       this.fileContentAllowed = false,
       this.studyStatisticsAllowed = false,
       this.allContent = false,
@@ -65,7 +84,8 @@ final class AndroidDeviceAccessState {
       this.error});
   final bool available, paired, awaitingConfirmation, listening, connected;
   final bool policyReady, policyChanging;
-  final bool backgroundRead, lockContinuationAvailable, continueWhileLocked;
+  final bool backgroundRead, backgroundReadAvailable, continueWhileLocked;
+  final bool untilAppStops;
   final bool fileContentAllowed,
       studyStatisticsAllowed,
       allContent,

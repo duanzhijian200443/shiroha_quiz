@@ -12,6 +12,7 @@ final class _Access implements AndroidDeviceAccess {
   final choices = <ExternalGenerationMode?>[];
   final fileChoices = <bool>[];
   final lockChoices = <bool>[];
+  final durations = <AndroidAccessDuration>[];
   bool files = false, allContent = true, hasFileScope = false;
   int enables = 0, disables = 0, leaves = 0;
   ExternalGenerationMode? mode;
@@ -20,7 +21,7 @@ final class _Access implements AndroidDeviceAccess {
       available: true,
       paired: true,
       policyReady: true,
-      lockContinuationAvailable: !files && mode == null,
+      backgroundReadAvailable: !files && mode == null,
       fileContentAllowed: files,
       allContent: allContent,
       hasFileScope: hasFileScope,
@@ -55,9 +56,13 @@ final class _Access implements AndroidDeviceAccess {
   }
 
   @override
-  Future<void> enable({bool continueWhileLocked = false}) async {
+  Future<void> enable({
+    AndroidAccessDuration duration = AndroidAccessDuration.thirtyMinutes,
+    bool continueWhileLocked = false,
+  }) async {
     enables++;
     lockChoices.add(continueWhileLocked);
+    durations.add(duration);
   }
 
   @override
@@ -94,6 +99,8 @@ void main() {
     expect(tester.widget<SwitchListTile>(option).value, isFalse);
     await tester.tap(option);
     await tester.pump();
+    await tester.ensureVisible(enable);
+    await tester.pumpAndSettle();
     await tester.tap(enable);
     await tester.pump();
     expect(access.lockChoices, [true]);
@@ -104,6 +111,48 @@ void main() {
     await access.setFileContentAllowed(true);
     await tester.pump();
     expect(option, findsNothing);
+    await tester.pumpWidget(const SizedBox());
+    await access.close();
+  });
+
+  testWidgets('duration slider passes one explicit selection to Enable',
+      (tester) async {
+    final access = _Access();
+    await tester.pumpWidget(
+        MaterialApp(home: AndroidDeviceAccessPanel(access: access)));
+    final slider = find.byKey(const Key('android-access-duration'));
+    final enable = find.byKey(const Key('android-enable'));
+    expect(tester.widget<Slider>(slider).label, '30 分钟');
+    await tester.ensureVisible(slider);
+    await tester.pumpAndSettle();
+    await tester.tapAt(tester.getTopRight(slider) + const Offset(-8, 20));
+    await tester.pumpAndSettle();
+    expect(tester.widget<Slider>(slider).label, '应用运行期间');
+    await tester.ensureVisible(enable);
+    await tester.pumpAndSettle();
+    await tester.tap(enable);
+    await tester.pumpAndSettle();
+    expect(access.durations, [AndroidAccessDuration.untilAppStops]);
+    expect(access.lockChoices, [false]);
+    expect(tester.widget<Slider>(slider).label, '30 分钟');
+    await tester.ensureVisible(slider);
+    await tester.pumpAndSettle();
+    await tester.tapAt(tester.getTopLeft(slider) + const Offset(8, 20));
+    await tester.pumpAndSettle();
+    expect(tester.widget<Slider>(slider).label, '5 分钟');
+    await tester.ensureVisible(enable);
+    await tester.pumpAndSettle();
+    await tester.tap(enable);
+    await tester.pumpAndSettle();
+    expect(access.durations, [
+      AndroidAccessDuration.untilAppStops,
+      AndroidAccessDuration.fiveMinutes,
+    ]);
+    await access.setFileContentAllowed(true);
+    await tester.pumpAndSettle();
+    expect(tester.widget<Slider>(slider).max,
+        AndroidAccessDuration.thirtyMinutes.index.toDouble());
+    expect(find.text('应用运行期间'), findsNothing);
     await tester.pumpWidget(const SizedBox());
     await access.close();
   });

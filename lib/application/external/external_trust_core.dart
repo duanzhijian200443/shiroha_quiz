@@ -115,6 +115,7 @@ final class ExternalTrustCore {
     required this.mintProfileId,
     this.maxProfiles = 16,
     this.maxEnableDuration = const Duration(minutes: 30),
+    this.allowRuntimeEnable = false,
   }) {
     if (maxProfiles < 1 || maxEnableDuration <= Duration.zero) {
       throw ArgumentError('Invalid candidate limits');
@@ -127,6 +128,8 @@ final class ExternalTrustCore {
   // Candidate limits, not measured production thresholds.
   final int maxProfiles;
   final Duration maxEnableDuration;
+  // Opted in only by the externally supervised Android App composition.
+  final bool allowRuntimeEnable;
   final Map<String, _Profile> _profiles = {};
   int _generation = 1;
   int get generation => _generation;
@@ -245,21 +248,26 @@ final class ExternalTrustCore {
     profile.state = PairingState.pairedDisabled;
   }
 
-  /// Trusted explicit local action; never adds capabilities, scope or grants.
-  void enable(ExternalPrincipal principal, Duration duration,
+  /// Trusted explicit local action. A null duration is accepted only by an
+  /// opted-in runtime owner. This never adds capabilities, scope or grants.
+  void enable(ExternalPrincipal principal, Duration? duration,
       {DateTime? notAfter}) {
     final profile = _profile(principal);
     _refresh(profile);
     if (profile.state != PairingState.pairedDisabled) {
       throw ExternalCoreException(_stateFailure(profile));
     }
-    if (duration <= Duration.zero || duration > maxEnableDuration) {
+    if (duration == null
+        ? !allowRuntimeEnable || notAfter != null
+        : duration <= Duration.zero || duration > maxEnableDuration) {
       throw const ExternalCoreException(ExternalFailure.invalidRequest);
     }
     final now = clock.now();
-    var expiry = now.add(duration);
-    if (notAfter != null && notAfter.isBefore(expiry)) expiry = notAfter;
-    if (!now.isBefore(expiry)) {
+    var expiry = duration == null ? null : now.add(duration);
+    if (expiry != null && notAfter != null && notAfter.isBefore(expiry)) {
+      expiry = notAfter;
+    }
+    if (expiry != null && !now.isBefore(expiry)) {
       throw const ExternalCoreException(ExternalFailure.invalidRequest);
     }
     profile.enableEpoch++;
@@ -357,8 +365,10 @@ final class ExternalTrustCore {
   }
 
   void _refresh(_Profile profile) {
+    final expiry = profile.expiresAt;
     if (profile.state == PairingState.enabledForCurrentRuntime &&
-        !clock.now().isBefore(profile.expiresAt!)) {
+        expiry != null &&
+        !clock.now().isBefore(expiry)) {
       _disable(profile, ExternalFailure.expired);
     }
   }

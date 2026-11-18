@@ -112,7 +112,7 @@ associations, TLS and foreground/network observations through bounded ports.
 It owns no business SQLite or authorization. Keys remain native rather than
 being exported to Dart SecurityContext. The normal root constructs an inactive
 owner; only the explicitly selected Android READ Debug installation registers
-real lifecycle observations and admits local pairing/finite question access.
+real lifecycle observations and admits local pairing and explicit question access.
 Ordinary artifacts retain refusal. The separate native-only validation entry
 uses the same key/TLS primitives and itself creates no P15 or business authority.
 The admitted App composes original P15/P0, Grant, READ, request-scoped
@@ -568,10 +568,12 @@ The existing Windows integration remains platform-specific. Android requires a
 separate composition over the same Application/Data owners, original
 request-scoped approval and Android lifecycle admission. Pairing/preparation and
 non-question-READ policies require foreground eligibility. The bounded pure
-question READ exception keeps the original proved owner/channel/deadline under
+question READ exception keeps the original proved owner/channel/access period under
 a non-sticky connectedDevice foreground service with a visible stop control;
 lock withdraws by default. Per-Enable opt-in retains only the original channel
 authenticated before lock. New channels must authenticate while unlocked.
+The duration defaults to 30 minutes. Pure question READ alone may select the
+app-runtime period, tied to the live original engine and service.
 Expiry, revoke and owner/service loss still withdraw and settle originals.
 It does not authorize background STAGE, files, statistics or remote mode. Its specified LAN
 endpoint is not a Windows loopback-listener or development-exception extension.

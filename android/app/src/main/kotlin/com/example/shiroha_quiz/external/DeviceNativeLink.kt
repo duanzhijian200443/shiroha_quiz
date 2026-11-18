@@ -6,6 +6,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import android.os.SystemClock
 import javax.net.ssl.SSLSocket
 
 /** Native socket custody only. No Profile, P0, Grant or business implementation. */
@@ -15,7 +16,7 @@ internal class DeviceNativeLink(
     address: String,
     private val expectedClient: String?,
     enrollment: Boolean,
-    val periodEndsMs: Long,
+    val periodEndsMs: Long?,
     preparationEndsMs: Long,
     businessResume: Boolean,
     private val event: (String, Map<String, Any?>) -> Unit,
@@ -29,11 +30,9 @@ internal class DeviceNativeLink(
     private val closer = Executors.newSingleThreadExecutor()
     private val listenerClose = DeviceCloseWork(closer) { endpoint.stopAccepting() }
     private val endpointClose = DeviceCloseWork(closer) { endpoint.close() }
-    private val observedMs = android.os.SystemClock.elapsedRealtime()
-    private val observedNanos = System.nanoTime()
-    private val periodEnds = observedNanos + TimeUnit.MILLISECONDS.toNanos(periodEndsMs - observedMs)
-    @Volatile private var admissionEnds = minOf(periodEnds,
-        observedNanos + TimeUnit.MILLISECONDS.toNanos(preparationEndsMs - observedMs))
+    private val observedMs = SystemClock.elapsedRealtime()
+    @Volatile private var admissionEndsMs = if (businessResume) periodEndsMs
+        else minOf(periodEndsMs ?: preparationEndsMs, preparationEndsMs)
     private var business = businessResume
     private var expiry: java.util.concurrent.ScheduledFuture<*>? = null
     private val channels = mutableMapOf<String, Channel>()
@@ -42,7 +41,9 @@ internal class DeviceNativeLink(
     val port: Int
 
     init {
-        if (periodEndsMs <= observedMs || periodEndsMs - observedMs > TimeUnit.HOURS.toMillis(8) ||
+        if ((periodEndsMs == null && (enrollment || businessResume)) ||
+            (periodEndsMs != null && (periodEndsMs <= observedMs ||
+                periodEndsMs - observedMs > TimeUnit.HOURS.toMillis(8))) ||
             (!businessResume && (preparationEndsMs <= observedMs || preparationEndsMs - observedMs > 120000)) ||
             enrollment && businessResume)
             throw DeviceLinkFailure("foreground_required")
@@ -51,7 +52,6 @@ internal class DeviceNativeLink(
         try {
             port = endpoint.listen(InetAddress.getByName(address), expectedClient, epoch, network,
                 port = 46443, enrollment = enrollment, acceptTimeout = 0)
-            if (businessResume) admissionEnds = periodEnds
             scheduleExpiry()
             repeat(2) { workers.execute { accept() } }
         } catch (error: Exception) {
@@ -65,14 +65,25 @@ internal class DeviceNativeLink(
 
     private fun scheduleExpiry() {
         expiry?.cancel(false)
-        expiry = timer.schedule({ withdraw() }, (admissionEnds - System.nanoTime()).coerceAtLeast(0), TimeUnit.NANOSECONDS)
+        expiry = admissionEndsMs?.let { ends ->
+            timer.schedule(::expireAdmission, (ends - SystemClock.elapsedRealtime()).coerceAtLeast(0),
+                TimeUnit.MILLISECONDS)
+        }
     }
+    private fun admissionExpired(): Boolean =
+        admissionEndsMs?.let { SystemClock.elapsedRealtime() >= it } == true
+
+    @Synchronized private fun expireAdmission() {
+        if (closed) return
+        if (admissionExpired()) withdraw() else scheduleExpiry()
+    }
+
     @Synchronized fun completePreparation() {
-        if (closed || business || expectedClient == null || System.nanoTime() >= admissionEnds ||
+        if (closed || business || expectedClient == null || admissionExpired() ||
             !gate.current(epoch, network) || synchronized(channels) { channels.isNotEmpty() })
             throw DeviceLinkFailure("foreground_required")
         business = true
-        admissionEnds = periodEnds
+        admissionEndsMs = periodEndsMs
         scheduleExpiry()
     }
 
@@ -261,7 +272,7 @@ internal class DeviceNativeLink(
                 return
             }
             if (closed || this@DeviceNativeLink.closed || !gate.current(epoch, network, id) ||
-                System.nanoTime() >= admissionEnds ||
+                admissionExpired() ||
                 System.nanoTime() >= proofEnds ||
                 System.currentTimeMillis() >= certificateExpires || System.nanoTime() >= certificateEnds)
                 throw DeviceLinkFailure("connection_closed")

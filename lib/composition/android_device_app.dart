@@ -66,6 +66,7 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
   bool _recovery = false;
   bool _backgroundRead = false;
   bool _continueWhileLocked = false;
+  bool _untilAppStops = false;
   int _enableGeneration = 0;
   DateTime? _expiresAt;
   Completer<void>? _confirmation, _proof;
@@ -102,8 +103,9 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
           _policyRecord?.grant?.revokedAtUtcMs == null,
       policyChanging: _policySaving != null,
       backgroundRead: _backgroundRead,
-      lockContinuationAvailable: _paired && _canUseBackgroundRead,
+      backgroundReadAvailable: _paired && _canUseBackgroundRead,
       continueWhileLocked: _continueWhileLocked,
+      untilAppStops: _untilAppStops,
       fileContentAllowed: _policyRecord?.grant?.policy.categories
               .contains(ExternalContentCategory.fileContent) ??
           false,
@@ -314,9 +316,19 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
   @override
   Future<void> pair() => _begin('pairing');
   @override
-  Future<void> enable({bool continueWhileLocked = false}) =>
-      _begin('enable-proof', continueWhileLocked: continueWhileLocked);
-  Future<void> _begin(String mode, {bool continueWhileLocked = false}) async {
+  Future<void> enable({
+    AndroidAccessDuration duration = AndroidAccessDuration.thirtyMinutes,
+    bool continueWhileLocked = false,
+  }) =>
+      _begin('enable-proof',
+          duration: duration, continueWhileLocked: continueWhileLocked);
+  Future<void> _begin(
+    String mode, {
+    AndroidAccessDuration duration = AndroidAccessDuration.thirtyMinutes,
+    bool continueWhileLocked = false,
+  }) async {
+    final limit =
+        mode == 'pairing' ? const Duration(seconds: 120) : duration.limit;
     if (!_current ||
         !_available ||
         _action ||
@@ -325,7 +337,9 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
         _stopping != null ||
         _nativeObservedMs == null ||
         _observation?.eligible != true ||
-        (continueWhileLocked && !_canUseBackgroundRead) ||
+        ((continueWhileLocked ||
+                duration.index > AndroidAccessDuration.thirtyMinutes.index) &&
+            !_canUseBackgroundRead) ||
         (mode == 'pairing' ? _paired : !_paired)) {
       androidLinkFail();
     }
@@ -337,6 +351,7 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
       // Permission and actual service promotion precede PREPARING and deadlines.
       _backgroundRead = mode == 'enable-proof' && _canUseBackgroundRead;
       _continueWhileLocked = _backgroundRead && continueWhileLocked;
+      _untilAppStops = limit == null;
       if (_backgroundRead) {
         if (await _native.invoke('backgroundPrepare') != true ||
             generation != _enableGeneration ||
@@ -345,24 +360,24 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
           androidLinkFail();
         }
       }
-      final duration = mode == 'pairing'
-          ? const Duration(seconds: 120)
-          : const Duration(minutes: 30);
-      _expiresAt = _clock.now().add(duration);
+      _expiresAt = limit == null ? null : _clock.now().add(limit);
       // Native sampled before Dart received the event: this mapping is a
       // conservative ceiling. Preserve it unchanged across focus-only resumes.
       final nativeActionMs = _nativeObservedMs! +
           (_clock.elapsed - _observationReceived).inMilliseconds;
-      _nativePeriodEndsMs = nativeActionMs + duration.inMilliseconds;
+      _nativePeriodEndsMs =
+          limit == null ? null : nativeActionMs + limit.inMilliseconds;
       _nativePreparationEndsMs = nativeActionMs + 120000;
       _preparingDeadline = Timer(const Duration(seconds: 120), () {
         unawaited(disable());
       });
-      _deadline = Timer(duration, () {
-        unawaited(disable());
-      });
+      if (limit != null) {
+        _deadline = Timer(limit, () {
+          unawaited(disable());
+        });
+      }
       await _foreground.enable((_) => _AccessPreparation(this, mode),
-          duration: duration,
+          duration: limit,
           allowBackgroundRead: _backgroundRead,
           continueWhileLocked: _continueWhileLocked);
       if (_foreground.phase != AndroidAccessPhase.ready || !_current) {
@@ -412,6 +427,7 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
         monotonicNow: () => _clock.elapsed,
         enableStageApprovalWait: true,
         maxEnableDuration: const Duration(hours: 8),
+        allowRuntimeEnable: true,
         enableWithoutRetainedChannel: true,
         services: (boundary) {
           _boundary = boundary;
@@ -480,9 +496,21 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
     _stage('proof-settled');
     operation.check();
     if (mode == 'enable-proof') {
-      // Both proof endpoints have closed before the original finite P0 enable.
+      // Both proof endpoints have closed before the original P0 Enable.
       await integration.controls.enable(_foreground.remaining);
       operation.check();
+      if (_backgroundRead) {
+        final current = await management.read(reference);
+        operation.check();
+        if (current.profile.grantRevision !=
+                _policyRecord?.profile.grantRevision ||
+            current.profile.revokedAtUtcMs != null ||
+            current.grant == null ||
+            current.grant!.revokedAtUtcMs != null ||
+            !androidBackgroundQuestionRead(current.grant!.policy)) {
+          androidLinkFail();
+        }
+      }
       if (await _native.invoke('linkEnabled', {
             'link': _resources!.link,
             'backgroundRead': _backgroundRead,
@@ -965,6 +993,7 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
           _backgroundRead = false;
         }
         _continueWhileLocked = false;
+        _untilAppStops = false;
         _stopping = null;
         _notify();
       }
@@ -1036,7 +1065,10 @@ final class _AndroidResources implements AndroidAccessResources {
         'address': owner._address,
         'enrollment': owner._mode == 'pairing',
         'peer': owner._mode == 'pairing' ? null : owner._client,
-        'periodEndsMs': owner._nativePeriodEndsMs,
+        if (owner._untilAppStops)
+          'untilAppStops': true
+        else
+          'periodEndsMs': owner._nativePeriodEndsMs,
         'preparationEndsMs': owner._nativePreparationEndsMs,
         'businessResume': owner._mode == 'business',
       });

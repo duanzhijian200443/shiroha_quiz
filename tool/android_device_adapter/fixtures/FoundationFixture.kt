@@ -174,6 +174,25 @@ fun main(args: Array<String>) {
     locked.observe(true, true, true, true, "wifi-1")
     accepts(!locked.current(lockedEpoch, "wifi-1", "original"))
 
+    for (keepLocked in listOf(false, true)) {
+        backgroundNow = 1
+        lockScreen = true
+        val runtime = DeviceForegroundGate({ backgroundNow }, { lockScreen })
+        val ownerEpoch = runtime.observe(true, true, true, true, "wifi-1")
+        runtime.allowBackground(null, keepWhileLocked = keepLocked) { supported }
+        if (keepLocked) runtime.retainAuthenticatedChannel(ownerEpoch, "wifi-1", "original")
+        backgroundNow += 172800000
+        runtime.observe(false, false, true, true, "wifi-1")
+        accepts(runtime.current(ownerEpoch, "wifi-1"))
+        lockScreen = false
+        accepts(!runtime.current(ownerEpoch, "wifi-1"))
+        accepts(runtime.current(ownerEpoch, "wifi-1", "original") == keepLocked)
+        runtime.withdrawBackground()
+        lockScreen = true
+        runtime.observe(true, true, true, true, "wifi-1")
+        accepts(!runtime.current(ownerEpoch, "wifi-1", "original"))
+    }
+
     val (pendingLock, pendingEpoch) = lockContinuation(bind = false)
     lockScreen = false
     accepts(!pendingLock.current(pendingEpoch, "wifi-1"))

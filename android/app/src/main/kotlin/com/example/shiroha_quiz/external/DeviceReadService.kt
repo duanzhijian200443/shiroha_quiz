@@ -57,7 +57,7 @@ class DeviceReadService : Service() {
         }
         internal fun prepareNotifications(context: Context) {
             val manager = context.getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(NotificationChannel(CHANNEL, "限时题目只读访问", NotificationManager.IMPORTANCE_LOW))
+            manager.createNotificationChannel(NotificationChannel(CHANNEL, "题目只读访问", NotificationManager.IMPORTANCE_LOW))
         }
         internal fun notifications(context: Context): Boolean {
             val manager = context.getSystemService(NotificationManager::class.java)
@@ -70,20 +70,24 @@ class DeviceReadService : Service() {
     private val main = Handler(Looper.getMainLooper())
     private var original: Session? = null
     private val deadline = Runnable { revoke() }
-    private fun notification(remaining: Long? = null, continueWhileLocked: Boolean = false): Notification {
+    private fun notification(active: Boolean = false, remaining: Long? = null,
+                             continueWhileLocked: Boolean = false): Notification {
         val stop = PendingIntent.getService(this, 0,
             Intent(this, DeviceReadService::class.java).setAction(STOP)
                 .setData(android.net.Uri.parse("shiroha-read:" + original!!.token))
                 .putExtra("session", original!!.token), PendingIntent.FLAG_IMMUTABLE)
         return Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.stat_sys_upload)
-            .setContentTitle(if (remaining == null) "Shiroha · 正在准备只读访问" else "Shiroha · 限时题目只读访问")
+            .setContentTitle(if (active) "Shiroha · 题目只读访问" else "Shiroha · 正在准备只读访问")
             .setContentText(when {
-                remaining == null -> "保持前台，完成本轮访问证明"
+                !active -> "保持前台，完成本轮访问证明"
+                remaining == null && continueWhileLocked -> "应用运行期间有效；锁屏可保留原连接"
+                remaining == null -> "应用运行期间有效；锁屏或关闭即停止"
                 continueWhileLocked -> "已有只读连接可在锁屏时继续；到期或关闭即停止"
                 else -> "后台可继续；锁屏、到期或关闭即停止"
             })
             .setWhen(System.currentTimeMillis() + (remaining ?: 0))
+            .setShowWhen(remaining != null)
             .setUsesChronometer(remaining != null).setChronometerCountDown(true)
             .setOngoing(true).setDeleteIntent(stop)
             .addAction(Notification.Action.Builder(null, "关闭访问", stop).build()).build()
@@ -112,18 +116,18 @@ class DeviceReadService : Service() {
         } catch (_: Exception) { session.ready(false); revoke() }
         return START_NOT_STICKY
     }
-    internal fun activated(ends: Long, continueWhileLocked: Boolean) {
+    internal fun activated(ends: Long?, continueWhileLocked: Boolean) {
         main.post {
             main.removeCallbacks(deadline)
-            val remaining = ends - SystemClock.elapsedRealtime()
-            if (remaining <= 0 || original?.running != true) revoke()
+            val remaining = ends?.minus(SystemClock.elapsedRealtime())
+            if ((remaining != null && remaining <= 0) || original?.running != true) revoke()
             else {
                 try {
                     getSystemService(NotificationManager::class.java).notify(NOTIFICATION,
-                        notification(remaining, continueWhileLocked))
+                        notification(active = true, remaining = remaining, continueWhileLocked = continueWhileLocked))
                 }
                 catch (_: Exception) { revoke(); return@post }
-                main.postDelayed(deadline, remaining)
+                if (remaining != null) main.postDelayed(deadline, remaining)
             }
         }
     }

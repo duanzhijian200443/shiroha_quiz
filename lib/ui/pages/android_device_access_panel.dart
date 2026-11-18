@@ -20,6 +20,7 @@ final class _AndroidPanelState extends State<AndroidDeviceAccessPanel> {
   StreamSubscription<void>? _stageChanges;
   FirstPartyStageApprovalView? _stageView;
   bool _continueWhileLocked = false;
+  AndroidAccessDuration _duration = AndroidAccessDuration.thirtyMinutes;
   @override
   void initState() {
     super.initState();
@@ -28,10 +29,13 @@ final class _AndroidPanelState extends State<AndroidDeviceAccessPanel> {
         _watchStage();
         final state = widget.access.state;
         setState(() {
-          if (!state.lockContinuationAvailable ||
+          if (!state.backgroundReadAvailable ||
               state.policyChanging ||
               state.phase != AndroidAccessPhase.off) {
             _continueWhileLocked = false;
+            if (_duration.index > AndroidAccessDuration.thirtyMinutes.index) {
+              _duration = AndroidAccessDuration.thirtyMinutes;
+            }
           }
         });
       }
@@ -70,11 +74,30 @@ final class _AndroidPanelState extends State<AndroidDeviceAccessPanel> {
       _run(widget.access.disable);
       return;
     }
-    final selected =
-        _continueWhileLocked && widget.access.state.lockContinuationAvailable;
-    setState(() => _continueWhileLocked = false);
-    _run(() => widget.access.enable(continueWhileLocked: selected));
+    final extended = widget.access.state.backgroundReadAvailable;
+    final selected = _continueWhileLocked && extended;
+    final duration =
+        !extended && _duration.index > AndroidAccessDuration.thirtyMinutes.index
+            ? AndroidAccessDuration.thirtyMinutes
+            : _duration;
+    setState(() {
+      _continueWhileLocked = false;
+      _duration = AndroidAccessDuration.thirtyMinutes;
+    });
+    _run(() => widget.access
+        .enable(duration: duration, continueWhileLocked: selected));
   }
+
+  String _durationLabel(AndroidAccessDuration duration) => switch (duration) {
+        AndroidAccessDuration.fiveMinutes => '5 分钟',
+        AndroidAccessDuration.fifteenMinutes => '15 分钟',
+        AndroidAccessDuration.thirtyMinutes => '30 分钟',
+        AndroidAccessDuration.oneHour => '1 小时',
+        AndroidAccessDuration.twoHours => '2 小时',
+        AndroidAccessDuration.fourHours => '4 小时',
+        AndroidAccessDuration.eightHours => '8 小时',
+        AndroidAccessDuration.untilAppStops => '应用运行期间',
+      };
 
   @override
   void dispose() {
@@ -90,6 +113,11 @@ final class _AndroidPanelState extends State<AndroidDeviceAccessPanel> {
     final state = widget.access.state;
     final off = state.phase == AndroidAccessPhase.off;
     final generation = state.generationMode != null;
+    final maxDuration = state.backgroundReadAvailable
+        ? AndroidAccessDuration.untilAppStops
+        : AndroidAccessDuration.thirtyMinutes;
+    final selection =
+        _duration.index > maxDuration.index ? maxDuration : _duration;
     final canChangePolicy = state.available &&
         state.paired &&
         state.policyReady &&
@@ -117,14 +145,19 @@ final class _AndroidPanelState extends State<AndroidDeviceAccessPanel> {
                     Text(state.available ? status : '当前安装未开放 Android 连接')),
             ListTile(
                 title: Text(generation ? '本机题库 · 读取与生成' : '本机题库 · 仅只读'),
-                subtitle: const Text(
-                    '本次开启 30 分钟。授权范围内的题目与必要元数据可经 Codex 发送给模型服务。资料正文须单独允许。')),
+                subtitle:
+                    const Text('授权范围内的题目与必要元数据可经 Codex 发送给模型服务。资料正文须单独允许。')),
             ListTile(
-                subtitle: Text(state.continueWhileLocked
-                    ? '本轮已允许原只读连接在锁屏时继续。到期或关闭访问即停止。'
-                    : state.backgroundRead
-                        ? '题目只读访问可在后台继续；锁屏、到期或关闭访问即停止。解锁不会自动重开。'
-                        : '仅题目只读模式支持后台继续，须允许持续通知。其他权限组合仍须保持前台。')),
+                subtitle: Text(switch ((
+              state.backgroundRead,
+              state.continueWhileLocked,
+              state.untilAppStops
+            )) {
+              (true, true, _) => '本轮已允许原只读连接在锁屏时继续。关闭访问即停止。',
+              (true, false, true) => '只读访问可在后台继续。锁屏或关闭访问即停止，解锁不会自动重开。',
+              (true, false, false) => '只读访问可在后台继续。锁屏、到期或关闭访问即停止，解锁不会自动重开。',
+              _ => '仅题目只读模式支持后台继续，须允许持续通知。其他权限组合仍须保持前台。',
+            })),
             if (state.available && !state.paired)
               Padding(
                   padding: const EdgeInsets.all(16),
@@ -132,14 +165,45 @@ final class _AndroidPanelState extends State<AndroidDeviceAccessPanel> {
                       key: const Key('android-pair'),
                       onPressed: off ? () => _run(widget.access.pair) : null,
                       child: const Text('首次连接电脑'))),
+            if (off && state.available && state.paired && !state.policyChanging)
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('本次连接时长 · ${_durationLabel(selection)}'),
+                    Slider(
+                      key: const Key('android-access-duration'),
+                      value: selection.index.toDouble(),
+                      max: maxDuration.index.toDouble(),
+                      divisions: maxDuration.index,
+                      label: _durationLabel(selection),
+                      semanticFormatterCallback: (value) => _durationLabel(
+                          AndroidAccessDuration.values[value.round()]),
+                      onChanged: (value) => setState(() => _duration =
+                          AndroidAccessDuration.values[value.round()]),
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(_durationLabel(AndroidAccessDuration.fiveMinutes)),
+                        Text(_durationLabel(maxDuration)),
+                      ],
+                    ),
+                    if (selection == AndroidAccessDuration.untilAppStops)
+                      const Text('后台运行时可继续。应用停止、关闭访问或网络变化时断开。'),
+                  ],
+                ),
+              ),
             if (off &&
                 state.available &&
-                state.lockContinuationAvailable &&
+                state.backgroundReadAvailable &&
                 !state.policyChanging)
               SwitchListTile.adaptive(
                 key: const Key('android-continue-while-locked'),
                 title: const Text('本次锁屏后继续只读访问'),
-                subtitle: const Text('仅保留已连接的题目只读会话。锁屏时不能建立新连接，到期时间不变。'),
+                subtitle: const Text('仅保留已连接的题目只读会话。锁屏时不能建立新连接，沿用本轮时长。'),
                 value: _continueWhileLocked,
                 onChanged: (selected) =>
                     setState(() => _continueWhileLocked = selected),
@@ -159,7 +223,10 @@ final class _AndroidPanelState extends State<AndroidDeviceAccessPanel> {
               TextButton(
                   onPressed: () => _run(widget.access.disable),
                   child: const Text('关闭访问')),
-            if (state.expiresAt != null)
+            if (state.untilAppStops)
+              const Padding(
+                  padding: EdgeInsets.all(12), child: Text('本次连接时长 · 应用运行期间'))
+            else if (state.expiresAt != null)
               Padding(
                   padding: const EdgeInsets.all(12),
                   child: Text(

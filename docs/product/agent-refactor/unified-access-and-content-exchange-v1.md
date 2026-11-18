@@ -80,7 +80,7 @@ v1.4 明确区分正常初始化、#356 遗留槽位的一次性退役和已归 
 | `ARCHITECTURE.md` | 保持 Adapter → Application → Domain，以及 Data／Infrastructure 端口方向 |
 | `external-agent-boundary.md` | 保持身份、Grant、内容出站、当前权限和最终释放检查；增补远程及交换权限 |
 | `mcp-vnext-contract.md` | 保留业务工具语义，替换 Windows 全局托管，登记新能力集 |
-| `android-device-access-v0.md` | 保留原 LAN、设备身份、前台、有限 Enable、关闭责任；新增消费者需明确准入 |
+| `android-device-access-v0.md` | 保留原 LAN、设备身份、Enable 和关闭责任，生命周期与时长按 Android §5；新增消费者需明确准入 |
 | `generated-question-proposals.md` | 继续独占生成候选、review/direct、提交幂等与终态写入语义 |
 | 现有 F1／导入／Review 契约 | 继续拥有文件、ParsedArtifact、结构化预览和正式导入写入 |
 | B0 契约 | 继续拥有整库备份／恢复；不充当内容分享接口 |
@@ -289,7 +289,7 @@ operation/run/resource 与真实完整客户端证书指纹，供本机比较。
 2. 在原槽位互斥约束下读取／核验 `SlotOwnershipRecord`、原适配器凭据槽位引用及资源结算证据。
 3. 按上表唯一分类；不明确时进入诊断，不尝试其他分支。
 4. 全新槽位先持久创建 `UNCLAIMED/PREPARING`；完成原 P15/P0、凭据保存和资源结算后，才 CAS 建立 `LINK_OWNED`。合格历史配对仅在原身份、来源及 clean 证据匹配后建立 `LINK_OWNED`。
-5. 回读核验 `LINK_OWNED` 后，手机用户独立开启访问，按原 PREPARING／Enable proof／有限 Enable 流程建立业务连接。
+5. 回读核验 `LINK_OWNED` 后，手机用户独立开启访问，按原 PREPARING／Enable proof／Enable 流程建立业务连接。
 6. 只有原认证、Grant、Scope 和目标端准入均通过后，才建立业务租约。
 
 **正常新安装和从未由 #356 托管的 clean 配对，不创建 PREPARED／RELEASED／CLAIMED 旧宿主记录，也不要求启动 Windows Shiroha。**
@@ -392,7 +392,7 @@ stateDiagram-v2
   [*] --> OFF
   OFF --> SELECTED: 本地选择目标
   SELECTED --> PREPARING: 明确连接动作
-  PREPARING --> READY: 原证明和结算完成 / 有限 Enable
+  PREPARING --> READY: 原证明和结算完成 / Enable
   PREPARING --> DRAINING: 取消或失败
   READY --> ACTIVE: 获得业务租约
   ACTIVE --> DRAINING: 断开 / 撤权 / 前端消失
@@ -407,7 +407,7 @@ stateDiagram-v2
 
 ### 6.2 日常开启
 
-手机明确开启 → 原 PREPARING → Link 运行原 `enable-proof` helper → 原证明通道和双方资源结算 → 手机有限 Enable → 新 business TLS／HELLO／READY → MCP 业务。
+手机明确开启 → 原 PREPARING → Link 运行原 `enable-proof` helper → 原证明通道和双方资源结算 → 手机按 Android §5 的本轮时长 Enable → 新 business TLS／HELLO／READY → MCP 业务。
 
 配对仅在明确首次连接操作中进行。工具目录发现不得读取配对密钥、开启手机访问或启动循环证明。过早业务请求直接拒绝，不占用证明所需资源。
 

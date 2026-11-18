@@ -66,7 +66,7 @@ class DeviceForegroundGate(
     var network: String? = null; private set
     private var closed = false
     private var last: List<Any?>? = null
-    private var backgroundEnds = 0L
+    private var backgroundEnds: Long? = null
     private var backgroundNetwork: String? = null
     private var support: () -> Boolean = { false }
     private var continueWhileLocked = false
@@ -75,15 +75,16 @@ class DeviceForegroundGate(
     private fun screen() = try { screenSafe() } catch (_: Exception) { null }
 
     private fun backgroundCurrent(screenState: Boolean?): Boolean {
-        if (backgroundEnds != 0L && (now() >= backgroundEnds || screenState == null ||
+        if (backgroundNetwork != null && (backgroundEnds?.let { now() >= it } == true || screenState == null ||
             (screenState == false && retainedChannel == null) || !safe(support))) {
             withdrawBackground()
         }
-        return backgroundEnds != 0L
+        return backgroundNetwork != null
     }
     val backgroundRead: Boolean @Synchronized get() = backgroundCurrent(screen())
-    @Synchronized fun allowBackground(ends: Long, keepWhileLocked: Boolean = false, supported: () -> Boolean) {
-        if (!eligible || closed || backgroundEnds != 0L || screen() != true || ends <= now() || !safe(supported))
+    @Synchronized fun allowBackground(ends: Long?, keepWhileLocked: Boolean = false, supported: () -> Boolean) {
+        if (!eligible || closed || backgroundNetwork != null || screen() != true ||
+            (ends != null && ends <= now()) || !safe(supported))
             throw DeviceLinkFailure("foreground_required")
         backgroundEnds = ends; backgroundNetwork = network; support = supported
         continueWhileLocked = keepWhileLocked
@@ -99,8 +100,8 @@ class DeviceForegroundGate(
         backgroundCurrent(screen())
     }
     @Synchronized fun withdrawBackground() {
-        if (backgroundEnds != 0L) sequence++
-        backgroundEnds = 0L; backgroundNetwork = null; support = { false }
+        if (backgroundNetwork != null) sequence++
+        backgroundEnds = null; backgroundNetwork = null; support = { false }
         continueWhileLocked = false; retainedChannel = null
     }
 

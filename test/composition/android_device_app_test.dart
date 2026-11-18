@@ -121,7 +121,8 @@ void main() {
       expect(app.state.fileContentAllowed, isFalse);
       expect(app.state.allContent, isTrue);
       expect((await management.read(ref)).profile.grantRevision, 1);
-      final enabling = app.enable();
+      final enabling =
+          app.enable(duration: AndroidAccessDuration.untilAppStops);
       await prepareEntered.future;
       expect(app.state.phase, AndroidAccessPhase.off);
       expect(app.state.expiresAt, isNull);
@@ -132,6 +133,7 @@ void main() {
       await enabling;
       expect(app.state.phase, AndroidAccessPhase.off);
       expect(app.state.backgroundRead, isFalse);
+      expect(app.state.untilAppStops, isFalse);
       expect(app.state.expiresAt, isNull);
       expect(runtimes, 0);
       final cancelled = app.setGenerationMode(ExternalGenerationMode.review);
@@ -143,6 +145,10 @@ void main() {
       await app.setGenerationMode(ExternalGenerationMode.review);
       expect(app.state.generationMode, ExternalGenerationMode.review);
       expect(app.state.phase, AndroidAccessPhase.off);
+      await expectLater(
+          app.enable(duration: AndroidAccessDuration.untilAppStops),
+          throwsStateError);
+      expect(app.state.untilAppStops, isFalse);
       await app.setGenerationMode(ExternalGenerationMode.direct);
       expect(app.state.phase, AndroidAccessPhase.off);
       expect(app.state.generationMode, ExternalGenerationMode.direct);

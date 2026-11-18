@@ -11,7 +11,7 @@ The desktop source contains bounded framing, pinned TLS 1.3, strict handshake
 validation, two original stdio pumps and dedicated current-user DPAPI storage.
 It does not reference a Shiroha database or implement tool business behavior.
 Ordinary Android artifacts reject protected acquisition. The admitted App uses
-original P15/P0, association CAS, finite Enable and current authorization. Its
+original P15/P0, association CAS, current Enable and authorization. Its
 seven schemas are unchanged. The phone dispatches question READ plus
 `propose_generated_questions` and `get_question_proposal` under its current
 authorization. File modes additionally require explicit local fileContent and
@@ -50,9 +50,10 @@ The native probe refuses that paired record instead of overwriting it.
    Phone keys remain in Android Keystore; this executable never opens a question DB.
 
 All three commands require the same selected record and explicit CNG runtime
-scope. The default does not silently import a persisted key. The phone grants a
-30-minute access period from the local action, never from helper completion or
-reconnect. Content can reach the normal Codex model service, as the phone states.
+scope. The default does not silently import a persisted key. The phone applies
+the selected duration from the local action. The default is 30 minutes.
+Helper completion and reconnect do not restart the clock. Content can reach the
+normal Codex model service, as the phone states.
 
 For Codex desktop **26.1023.51421 (22530)** with CLI **0.165.0-alpha.1.2**, the
 demonstrated recovery action is **complete desktop exit/reopen, then return to
@@ -64,10 +65,11 @@ background support: following focus-only loss, return the phone to the foregroun
 the same remaining period, reopen Codex and create/read a fresh Context. After
 background, lock, network change, expiry or switch-off, repeat step 2 first.
 The adapter never restarts itself, polls for Enable or replays tool input.
-The current source adds only the finite pure question READ background exception
+The current source adds the pure question READ background exception
 in [Android lifecycle contract §5](../../docs/product/agent-refactor/android-device-access-v0.md#5-foreground-and-lifecycle).
 Pairing/preparation still requires foreground focus. After proof, the original
-owner/channel/deadline may continue under a visible connectedDevice FGS. Lock
+owner/channel/access period may continue under a visible connectedDevice FGS.
+The optional app-runtime period ends with the original task, engine or service. Lock
 revokes by default. The per-Enable opt-in keeps only the original authenticated
 channel while locked, in the same period. Expiry, stop and service loss still
 revoke. Wider saved grants stay foreground-only.

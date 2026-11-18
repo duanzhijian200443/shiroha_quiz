@@ -77,11 +77,14 @@ void main() {
     return r;
   }
 
-  Future<Resources> enableBackground({bool continueWhileLocked = false}) async {
+  Future<Resources> enableBackground({
+    bool continueWhileLocked = false,
+    Duration? duration = const Duration(minutes: 30),
+  }) async {
     access.observe(observation(1));
     final p = Preparation(), r = Resources();
     final enabling = access.enable((_) => p,
-        duration: const Duration(minutes: 30),
+        duration: duration,
         allowBackgroundRead: true,
         continueWhileLocked: continueWhileLocked);
     access.observe(observation(2, backgroundRead: true));
@@ -139,6 +142,36 @@ void main() {
     expect(r.withdrawals, 0);
     await access.disable();
     expect(r.closes, 1);
+  });
+
+  test('runtime-only READ outlives timed access and joins on service loss',
+      () async {
+    final r = await enableBackground(duration: null);
+    final original = access.generation;
+    now = const Duration(days: 2);
+    access.observe(observation(3,
+        resumed: false, focus: false, visible: false, backgroundRead: true));
+    await access.checkDeadline();
+    expect(access.acceptsNew, isTrue);
+    expect(access.remaining, isNull);
+    expect(access.generation, original);
+    expect(r.withdrawals, 0);
+    access.observe(observation(4, resumed: false, focus: false));
+    expect(access.acceptsNew, isFalse);
+    await access.disable();
+    expect(access.phase, AndroidAccessPhase.off);
+    expect(r.closes, 1);
+    expect(access.remaining, Duration.zero);
+  });
+
+  test('runtime-only period cannot enable foreground-only access', () async {
+    access.observe(observation(1));
+    await expectLater(
+        access.enable((_) => throw StateError('must not start'),
+            duration: null),
+        throwsA(isA<StateError>().having((error) => error.message, 'message',
+            'android_access_unavailable')));
+    expect(access.phase, AndroidAccessPhase.off);
   });
 
   for (final reason in ['lock', 'support-lost', 'network', 'expiry']) {

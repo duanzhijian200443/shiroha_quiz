@@ -167,9 +167,15 @@ internal class DeviceFoundationChannel(private val context: Context,
                     val enrollment = call.argument<Boolean>("enrollment") == true
                     val peer = call.argument<String>("peer")
                     if (enrollment != (peer == null)) throw DeviceLinkFailure("protocol_violation")
+                    val untilAppStops = call.argument<Boolean>("untilAppStops") == true
+                    val ends = call.argument<Number>("periodEndsMs")?.toLong()
+                    if (untilAppStops == call.hasArgument("periodEndsMs") ||
+                        (!untilAppStops && ends == null) ||
+                        (untilAppStops && readSession?.running != true))
+                        throw DeviceLinkFailure("protocol_violation")
                     originalNetwork = gate.network
                     val opened = DeviceNativeLink(credentials, gate, address, peer, enrollment,
-                        call.argument<Number>("periodEndsMs")?.toLong() ?: 0,
+                        ends,
                         call.argument<Number>("preparationEndsMs")?.toLong() ?: 0,
                         call.argument<Boolean>("businessResume") == true, ::emit)
                     link = opened
@@ -194,14 +200,26 @@ internal class DeviceFoundationChannel(private val context: Context,
                 "linkClose" -> { requireOriginalLink(call).close(); result.success(true) }
                 "linkEnabled" -> {
                     val original = requireOriginalLink(call)
+                    val backgroundRead = call.argument<Boolean>("backgroundRead") == true
+                    if (original.periodEndsMs == null && !backgroundRead)
+                        throw DeviceLinkFailure("background_read_unavailable")
+                    val session = if (backgroundRead) {
+                        readSession?.takeIf { it.running && !it.ended && it.service != null }
+                            ?: throw DeviceLinkFailure("background_read_unavailable")
+                    } else null
                     original.completePreparation()
-                    if (call.argument<Boolean>("backgroundRead") == true) {
-                        val session = readSession ?: throw DeviceLinkFailure("background_read_unavailable")
+                    if (session != null) {
                         val keepWhileLocked = call.argument<Boolean>("continueWhileLocked") == true
-                        gate.allowBackground(original.periodEndsMs, keepWhileLocked) {
-                            session.running && !session.ended && DeviceReadService.runningNotification(context)
+                        try {
+                            gate.allowBackground(original.periodEndsMs, keepWhileLocked) {
+                                session.running && !session.ended && DeviceReadService.runningNotification(context)
+                            }
+                            session.service!!.activated(original.periodEndsMs, keepWhileLocked)
+                        } catch (error: Exception) {
+                            gate.withdrawBackground()
+                            original.withdraw()
+                            throw error
                         }
-                        session.service?.activated(original.periodEndsMs, keepWhileLocked)
                         main.post { observer?.publish() }
                     }
                     result.success(true)
