@@ -908,6 +908,8 @@ bool _androidProjectionBoundary(String source) {
     'dart:async',
     'package:mcp_dart/mcp_dart.dart',
     '../application/external/external_invocation_core.dart',
+    // Pure-Dart best-effort close diagnostics only (Android contract §9).
+    '../core/observability/log_writer.dart',
     '../data/external/ipc_command_projection.dart',
     'vnext_mcp_composition_root.dart',
     'vnext_mcp_protocol_projection.dart',

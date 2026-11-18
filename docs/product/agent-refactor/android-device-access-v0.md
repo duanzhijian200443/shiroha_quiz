@@ -722,6 +722,15 @@ stages, durations, byte counts and App diagnostic IDs; no full Profile, key,
 fingerprint, IP, submissionKey, query, content or unsafe exception is logged.
 Public address/fingerprint display is confined to explicit local connection UI.
 
+The Android transport's Profile 2 close may emit one best-effort settlement
+diagnostic through the pure-Dart `LogWriter` seam after settlement completes:
+fixed stage codes, write counts and the first failure category only, within
+the limits above. The seam carries no platform, persistence or authority
+dependency, and logging never owns or changes connection settlement. The
+transport's exact supplied-source import gate admits only this added
+observability import; every other allowed import and all authority/lifecycle
+protections remain unchanged.
+
 ## 10. Permissions and daily interaction
 
 Main Manifest declares INTERNET and ACCESS_NETWORK_STATE. Follow actual target
