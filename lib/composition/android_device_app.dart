@@ -686,11 +686,12 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
           ...binding
         });
         await channel.established(
-            closeControl: profileVersion == 3,
+            businessProfileVersion: profileVersion,
             continueWhileLocked: _continueWhileLocked);
         _businessId = channel.id;
         _businessTransport = transport;
         _notify();
+        stage = 'business-transport';
         try {
           await server.serveTransport(transport);
         } catch (_) {

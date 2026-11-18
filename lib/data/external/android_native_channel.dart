@@ -82,6 +82,7 @@ final class AndroidNativeChannel {
   final String id, peer, installationId;
   bool _live = true;
   bool _closeControl = false;
+  bool _legacyBusiness = false;
   Future<void>? _closing;
   bool get live => _live;
   void invalidate() {
@@ -101,7 +102,8 @@ final class AndroidNativeChannel {
   }
 
   Future<void> established(
-      {bool closeControl = false, bool continueWhileLocked = false}) async {
+      {int? businessProfileVersion, bool continueWhileLocked = false}) async {
+    final closeControl = businessProfileVersion == 3;
     if (!_live ||
         await native.invoke('established', {
               'channel': id,
@@ -112,6 +114,7 @@ final class AndroidNativeChannel {
       androidLinkFail();
     }
     _closeControl = closeControl;
+    _legacyBusiness = businessProfileVersion == 2;
   }
 
   Future<void> peerClosed() async {
@@ -152,17 +155,22 @@ final class AndroidNativeChannel {
   }
 
   Future<void> write(int kind, Map<String, dynamic> value) async {
+    final type = value['type'];
     final closing = _closeControl &&
         kind == 1 &&
-        const {'closing', 'closed', 'pong'}.contains(value['type']);
+        const {'closing', 'closed', 'pong'}.contains(type);
     if (!_live && !closing) androidLinkFail();
+    // A late Native success on an already submitted heartbeat proves that
+    // write finished. Only the normal entry check admits a new write.
+    final heartbeat =
+        _legacyBusiness && kind == 1 && (type == 'ping' || type == 'pong');
     final bytes = Uint8List.fromList(utf8.encode(jsonEncode(value)));
     try {
       if (bytes.length > (kind == 1 ? 16384 : 524288) ||
           await native.invoke(
                   'write', {'channel': id, 'kind': kind, 'payload': bytes}) !=
               true ||
-          (!_live && !closing)) {
+          (!_live && !closing && !heartbeat)) {
         androidLinkFail();
       }
     } finally {

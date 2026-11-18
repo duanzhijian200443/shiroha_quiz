@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:mcp_dart/mcp_dart.dart';
 
 import '../application/external/external_invocation_core.dart';
+import '../core/observability/log_writer.dart';
 import '../data/external/ipc_command_projection.dart';
 import 'vnext_mcp_composition_root.dart';
 import 'vnext_mcp_protocol_projection.dart';
@@ -41,6 +42,8 @@ VnextMcpServer androidDeviceServer(VnextMcpPort port,
                   ServerCapabilities(tools: ServerCapabilitiesTools())),
         ));
 
+enum _IoFailure { read, heartbeatWrite, output, closeControl, nativeClose }
+
 /// Connection lifetime only. The App's P0/P15/Host owners remain outside it.
 final class AndroidMcpTransport extends Transport {
   AndroidMcpTransport(
@@ -71,7 +74,8 @@ final class AndroidMcpTransport extends Transport {
   String? _ping;
   Timer? _timer;
   bool _closed = false, _sendingPing = false;
-  bool _ioFailed = false;
+  _IoFailure? _ioFailure;
+  bool _lateHeartbeatReply = false;
   bool _withdrawing = false, _peerClosing = false;
   final _handshake = Completer<bool>();
   final _writes = <Future<void>>{};
@@ -133,7 +137,7 @@ final class AndroidMcpTransport extends Transport {
             }
             if (_ping != null) {
               pongDeadline = Timer(const Duration(seconds: 5), () {
-                _ioFailed = true;
+                _ioFailure ??= _IoFailure.closeControl;
                 _requestClose();
               });
             }
@@ -172,7 +176,7 @@ final class AndroidMcpTransport extends Transport {
           pongDeadline?.cancel();
           await port.beginGracefulClose();
           await Future.wait(_writes.toList());
-          if (_ioFailed) androidLinkFail();
+          if (_ioFailure != null) androidLinkFail();
           await _write(1, {...closingRequest, 'type': 'closed'}, closing: true);
           await peerClosed?.call();
           if (_closed) androidLinkFail();
@@ -181,7 +185,7 @@ final class AndroidMcpTransport extends Transport {
         }
       }
     } catch (_) {
-      if (!_closed) _ioFailed = true;
+      if (!_closed) _ioFailure ??= _IoFailure.read;
       rethrow;
     } finally {
       pongDeadline?.cancel();
@@ -198,13 +202,24 @@ final class AndroidMcpTransport extends Transport {
         (closing && port.binding.profileVersion == 3 ||
             !_withdrawing && current());
     if (!allowed()) androidLinkFail();
+    final heartbeat = value['type'] == 'ping' || value['type'] == 'pong';
+    final legacyHeartbeat =
+        port.binding.profileVersion == 2 && kind == 1 && heartbeat;
     final done = Completer<void>();
     _writes.add(done.future);
     try {
       await write(kind, value);
-      if (!allowed()) androidLinkFail();
+      if (!allowed()) {
+        if (!legacyHeartbeat) androidLinkFail();
+        _lateHeartbeatReply = true;
+        _requestClose();
+      }
     } catch (_) {
-      _ioFailed = true;
+      _ioFailure ??= kind == 2
+          ? _IoFailure.output
+          : heartbeat
+              ? _IoFailure.heartbeatWrite
+              : _IoFailure.closeControl;
       _requestClose();
       rethrow;
     } finally {
@@ -229,7 +244,7 @@ final class AndroidMcpTransport extends Transport {
       }
     } catch (_) {
       // Includes SDK response encoding, before any native write was started.
-      _ioFailed = true;
+      _ioFailure ??= _IoFailure.output;
       port.outputFailed();
       _requestClose();
       rethrow;
@@ -261,7 +276,7 @@ final class AndroidMcpTransport extends Transport {
           androidLinkFail();
         }
       } catch (_) {
-        _ioFailed = true;
+        _ioFailure ??= _IoFailure.closeControl;
         rethrow;
       } finally {
         await close();
@@ -276,20 +291,39 @@ final class AndroidMcpTransport extends Transport {
         _timer?.cancel();
         invalidate();
         port.withdraw();
+        final pendingWrites = _writes.length;
+        var nativeClosed = false;
         try {
           await closeChannel();
+          nativeClosed = true;
         } catch (_) {
-          _ioFailed = true;
+          _ioFailure ??= _IoFailure.nativeClose;
         } finally {
           try {
             await _pump;
           } catch (_) {/* Original channel close decides settlement. */}
           await Future.wait(_writes.toList());
-          port.channelSettled(clean: !_ioFailed);
+          port.channelSettled(clean: _ioFailure == null);
+          if (port.binding.profileVersion == 2) {
+            _recordLegacyClose(nativeClosed, pendingWrites);
+          }
           onclose?.call();
         }
-        if (_ioFailed) androidLinkFail();
+        if (_ioFailure != null) androidLinkFail();
       }();
+
+  void _recordLegacyClose(bool nativeClosed, int pendingWrites) {
+    try {
+      LogWriter.info('Android Profile 2 transport close', module: 'MCP', data: {
+        'nativeClose': nativeClosed ? 'joined' : 'failed',
+        'reader': _pump == null ? 'notStarted' : 'joined',
+        'writersAtClose': pendingWrites,
+        'writersJoined': true,
+        'lateHeartbeatReply': _lateHeartbeatReply,
+        'firstIoFailure': _ioFailure?.name ?? 'none',
+      });
+    } catch (_) {/* Diagnostics do not own connection settlement. */}
+  }
 }
 
 Never androidLinkFail() => throw StateError('android_link_unavailable');

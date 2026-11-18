@@ -1,11 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/capabilities/capability.dart';
 import 'package:shiroha_quiz/application/external/android_device_access.dart';
 import 'package:shiroha_quiz/application/external/external_authorization.dart';
 import 'package:shiroha_quiz/application/external/first_party_stage_approval.dart';
 import 'package:shiroha_quiz/application/generated_question/generated_question_service.dart';
+import 'package:shiroha_quiz/data/external/android_native_association_backend.dart';
+import 'package:shiroha_quiz/data/external/android_native_channel.dart'
+    show AndroidChannelVerification;
 import 'package:shiroha_quiz/data/repositories/generated_proposal_repository.dart';
 import 'package:shiroha_quiz/mcp/android_mcp_transport.dart';
 import 'package:shiroha_quiz/mcp/vnext_mcp_composition_root.dart';
@@ -270,6 +274,48 @@ final class _BeforeResponsePort implements VnextMcpResponsePort {
   Future<void> close() => original.close();
 }
 
+/// Hold the original Native heartbeat reply independently of channelClose.
+final class _HeartbeatNative implements AndroidNativeCalls {
+  static const id = '10000000-0000-4000-8000-000000000001';
+  static const ping = {'type': 'ping', 'connectionId': id, 'nonce': 'nonce'};
+  final writing = Completer<void>(), reading = Completer<void>();
+  final reply = Completer<Object?>(), socketClosed = Completer<void>();
+  int readCount = 0, writeCount = 0, closeCount = 0;
+  bool failClose = false;
+
+  @override
+  Future<Object?> invoke(String method,
+      [Map<String, Object?>? arguments]) async {
+    expect(arguments?['channel'], id);
+    switch (method) {
+      case 'established':
+        return true;
+      case 'read':
+        if (++readCount == 1) {
+          return {
+            'kind': 1,
+            'payload': Uint8List.fromList(utf8.encode(jsonEncode(ping))),
+          };
+        }
+        reading.complete();
+        await socketClosed.future;
+        throw StateError('original_reader_closed');
+      case 'write':
+        expect(++writeCount, 1);
+        expect(arguments?['kind'], 1);
+        expect(jsonDecode(utf8.decode(arguments!['payload'] as List<int>)),
+            {...ping, 'type': 'pong'});
+        writing.complete();
+        return reply.future;
+      case 'channelClose':
+        expect(++closeCount, 1);
+        socketClosed.complete();
+        return !failClose;
+    }
+    fail('Unexpected Native call $method');
+  }
+}
+
 void main() {
   initializeGeneratedTests();
   late _Phone f;
@@ -342,6 +388,79 @@ void main() {
       }
       expect(closeCalls, 1);
       expect(received, 0);
+    });
+  }
+
+  for (final outcome in [
+    'reply-first',
+    'withdrawal-first',
+    'write-error',
+    'write-unconfirmed',
+    'close-error',
+  ]) {
+    test('Profile 2 original heartbeat settlement: $outcome', () async {
+      await f.policy(null);
+      await f.disconnect();
+      f.connect(protocol: true);
+      final native = _HeartbeatNative()..failClose = outcome == 'close-error';
+      final verifier = AndroidChannelVerification(native,
+          elapsed: () => Duration.zero,
+          current: () => f.live,
+          installationId: 'test-install',
+          expiresAt: DateTime.utc(2035));
+      final channel = verifier.accept({
+        'channel': _HeartbeatNative.id,
+        'peer': 'a' * 64,
+        'installationId': 'test-install',
+      });
+      await channel.established(businessProfileVersion: 2);
+      final transport = AndroidMcpTransport(
+          port: f.port,
+          read: channel.read,
+          write: channel.write,
+          closeChannel: channel.close,
+          invalidate: channel.invalidate,
+          newNonce: () => 'nonce',
+          validNonce: (value) => value == 'nonce',
+          connectionId: channel.id,
+          current: () => f.live);
+      await transport.start();
+      await native.writing.future;
+      if (outcome == 'reply-first') {
+        native.reply.complete(true);
+        await native.reading.future;
+      }
+
+      f.live = false;
+      final shouldFail = const {
+        'write-error',
+        'write-unconfirmed',
+        'close-error'
+      }.contains(outcome);
+      f.expectFailedSettlement = shouldFail;
+      f.expectFailedApproval = false;
+      var finished = false;
+      final joined = transport.withdraw().then((_) {
+        finished = true;
+        return true;
+      }, onError: (Object _) {
+        finished = true;
+        return false;
+      });
+      await native.socketClosed.future;
+      if (!native.reply.isCompleted) {
+        expect(finished, isFalse);
+        if (outcome == 'write-error') {
+          native.reply.completeError(StateError('original_write_failed'));
+        } else {
+          native.reply.complete(outcome != 'write-unconfirmed');
+        }
+      }
+      expect(await joined, !shouldFail);
+      await expectLater(
+          channel.write(1, _HeartbeatNative.ping), throwsStateError);
+      expect(native.writeCount, 1);
+      expect(native.closeCount, 1);
     });
   }
 

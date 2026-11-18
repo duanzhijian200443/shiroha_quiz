@@ -516,6 +516,9 @@ running, Native gives the original Dart owner up to five seconds to start
 socket close before releasing its pending read. A missed close deadline reports
 unknown settlement. No Profile 2 control exchange is added. Independent I/O or
 resource failures and an unreleased response still block clean settlement.
+When Native has confirmed a submitted Profile 2 ping or pong write, the original
+transport joins that write even if the success arrives after Dart withdrawal.
+This completion does not admit another frame or acknowledge any business output.
 Proof-channel closing is unchanged.
 Both peers stop producing new heartbeat requests during shutdown. They join
 already submitted control writes and consume the one matching outstanding pong
