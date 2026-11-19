@@ -196,7 +196,10 @@ internal class DeviceFoundationChannel(private val context: Context,
                     try { requireLink().write(token(call), call.argument<Int>("kind") ?: 0, payload); result.success(true) }
                     finally { payload.fill(0) }
                 }
-                "channelClose" -> { requireLink().closeChannel(token(call)); result.success(true) }
+                "channelClose" -> {
+                    val trace = requireLink().closeChannel(token(call), call.argument<Any>("profile2Trace") == true)
+                    result.success(if (trace == null) true else mapOf("closed" to true, "profile2Trace" to trace))
+                }
                 "linkClose" -> { requireOriginalLink(call).close(); result.success(true) }
                 "linkEnabled" -> {
                     val original = requireOriginalLink(call)

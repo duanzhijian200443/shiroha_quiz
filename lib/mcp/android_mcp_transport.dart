@@ -53,6 +53,7 @@ final class AndroidMcpTransport extends Transport {
       required this.validNonce,
       required this.write,
       required this.closeChannel,
+      this.nativeCloseTrace,
       this.peerClosed,
       required this.invalidate,
       required this.connectionId,
@@ -65,6 +66,7 @@ final class AndroidMcpTransport extends Transport {
   final bool Function(Object?) validNonce;
   final Future<void> Function(int, Map<String, dynamic>) write;
   final Future<void> Function() closeChannel;
+  final Map<String, Object>? Function()? nativeCloseTrace;
   final Future<void> Function()? peerClosed;
   final void Function() invalidate;
   final String connectionId;
@@ -75,6 +77,8 @@ final class AndroidMcpTransport extends Transport {
   Timer? _timer;
   bool _closed = false, _sendingPing = false;
   _IoFailure? _ioFailure;
+  int? _dartClosedAtUs;
+  ({int atUs, bool closed, String stage, String category})? _dartReadFailure;
   bool _lateHeartbeatReply = false;
   bool _withdrawing = false, _peerClosing = false;
   final _handshake = Completer<bool>();
@@ -113,10 +117,13 @@ final class AndroidMcpTransport extends Transport {
   Future<void> _read() async {
     Map<String, dynamic>? closingRequest;
     Timer? pongDeadline;
+    var stage = 'awaitRead';
     try {
       while (!_closed) {
+        stage = 'awaitRead';
         final (kind, message) = await read();
         if (_closed) return;
+        stage = 'handleFrame';
         if (kind == 1) {
           if (message.length != 3 ||
               !{'type', 'connectionId', 'nonce'}.every(message.containsKey)) {
@@ -184,7 +191,20 @@ final class AndroidMcpTransport extends Transport {
           return;
         }
       }
-    } catch (_) {
+    } catch (error) {
+      if (port.binding.profileVersion == 2) {
+        _dartReadFailure = (
+          atUs: _elapsed.elapsedMicroseconds,
+          closed: _closed,
+          stage: stage,
+          category: switch (error) {
+            FormatException() => 'format',
+            StateError() => 'state',
+            TypeError() => 'type',
+            _ => 'other',
+          },
+        );
+      }
       if (!_closed) _ioFailure ??= _IoFailure.read;
       rethrow;
     } finally {
@@ -287,6 +307,7 @@ final class AndroidMcpTransport extends Transport {
   @override
   Future<void> close() => _closing ??= () async {
         _closed = true;
+        _dartClosedAtUs = _elapsed.elapsedMicroseconds;
         if (!_handshake.isCompleted) _handshake.complete(false);
         _timer?.cancel();
         invalidate();
@@ -314,6 +335,7 @@ final class AndroidMcpTransport extends Transport {
 
   void _recordLegacyClose(bool nativeClosed, int pendingWrites) {
     try {
+      final failure = _dartReadFailure;
       LogWriter.info('Android Profile 2 transport close', module: 'MCP', data: {
         'nativeClose': nativeClosed ? 'joined' : 'failed',
         'reader': _pump == null ? 'notStarted' : 'joined',
@@ -321,6 +343,14 @@ final class AndroidMcpTransport extends Transport {
         'writersJoined': true,
         'lateHeartbeatReply': _lateHeartbeatReply,
         'firstIoFailure': _ioFailure?.name ?? 'none',
+        'dartClosedAtUs': _dartClosedAtUs,
+        if (failure != null) ...{
+          'dartReadFailedAtUs': failure.atUs,
+          'dartReadSawClosed': failure.closed,
+          'dartReadStage': failure.stage,
+          'dartReadError': failure.category,
+        },
+        if (nativeCloseTrace?.call() case final trace?) 'nativeTrace': trace,
       });
     } catch (_) {/* Diagnostics do not own connection settlement. */}
   }

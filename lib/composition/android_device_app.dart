@@ -669,6 +669,7 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
             read: channel.read,
             write: channel.write,
             closeChannel: channel.close,
+            nativeCloseTrace: () => channel.profile2CloseTrace,
             peerClosed: channel.peerClosed,
             invalidate: channel.invalidate,
             connectionId: channel.id,

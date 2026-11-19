@@ -29,6 +29,24 @@ fun main(args: Array<String>) {
     closeTime = 5_000_000_000
     accepts(closeDeadline.remainingNanos() == 0L)
     rejects { closeDeadline.requireControl(true) }
+    for (readFirst in listOf(true, false)) {
+        val trace = DeviceProfile2CloseTrace()
+        val withdrawal = DeviceProfile2CloseTrace.Mark.withdrawal
+        val stage = DeviceProfile2CloseTrace.ReadStage.frame
+        if (!readFirst) trace.mark(withdrawal)
+        trace.readFailed(stage, java.net.SocketException("unsanitized-message"))
+        trace.mark(withdrawal)
+        trace.mark(DeviceProfile2CloseTrace.Mark.closeCall)
+        trace.mark(DeviceProfile2CloseTrace.Mark.socketCloseRequested)
+        trace.mark(DeviceProfile2CloseTrace.Mark.socketCloseStarted)
+        trace.readFailed(DeviceProfile2CloseTrace.ReadStage.afterFrame, DeviceLinkFailure("connection_closed"))
+        accepts(trace.snapshot() == mapOf(
+            "withdrawal" to if (readFirst) 2 else 1,
+            "readFailure" to if (readFirst) 1 else 2,
+            "closeCall" to 3, "socketCloseRequested" to 4, "socketCloseStarted" to 5,
+            "readStage" to "frame", "readError" to "socket"
+        ))
+    }
     val closeExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
     try {
         val entered = java.util.concurrent.CountDownLatch(1)

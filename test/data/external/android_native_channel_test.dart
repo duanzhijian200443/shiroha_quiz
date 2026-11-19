@@ -13,6 +13,8 @@ import '../../application/external/external_trust_test_support.dart';
 final class _Native implements AndroidNativeCalls {
   bool live = true;
   Object? readReply;
+  Object? closeReply = true;
+  Map<String, Object?>? closeArguments;
   Completer<void>? attesting, release;
   @override
   Future<Object?> invoke(String method,
@@ -22,7 +24,11 @@ final class _Native implements AndroidNativeCalls {
       await release?.future;
       return live;
     }
-    if (method == 'channelClose') return true;
+    if (method == 'established') return true;
+    if (method == 'channelClose') {
+      closeArguments = arguments;
+      return closeReply;
+    }
     if (method == 'read') return readReply;
     throw StateError('unexpected_native_call');
   }
@@ -34,6 +40,40 @@ void main() {
     expect(androidNonceIsValid(androidNonce()), isTrue);
     expect(androidNonceIsValid('${'A' * 42}B'), isFalse);
     expect(androidNonceIsValid('${'A' * 43}='), isFalse);
+  });
+  test('Profile 2 close accepts only fixed diagnostic fields', () async {
+    final native = _Native()
+      ..closeReply = {
+        'closed': true,
+        'profile2Trace': {
+          'readFailure': 1,
+          'readStage': 'frame',
+          'readError': 'socket',
+          'withdrawal': 2,
+          'closeCall': 3,
+          'rawException': 'must not survive',
+        },
+      };
+    final verifier = AndroidChannelVerification(native,
+        elapsed: () => Duration.zero,
+        current: () => true,
+        installationId: 'test-install',
+        expiresAt: DateTime.utc(2035));
+    final channel = verifier.accept({
+      'channel': '10000000-0000-4000-8000-000000000001',
+      'peer': 'a' * 64,
+      'installationId': 'test-install',
+    });
+    await channel.established(businessProfileVersion: 2);
+    await verifier.retire(channel);
+    expect(native.closeArguments?['profile2Trace'], true);
+    expect(channel.profile2CloseTrace, {
+      'readFailure': 1,
+      'readStage': 'frame',
+      'readError': 'socket',
+      'withdrawal': 2,
+      'closeCall': 3,
+    });
   });
   test('strict link JSON rejects escaped/nested duplicates and malformed UTF8',
       () {

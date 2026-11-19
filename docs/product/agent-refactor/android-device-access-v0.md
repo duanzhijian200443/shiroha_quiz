@@ -724,8 +724,14 @@ Public address/fingerprint display is confined to explicit local connection UI.
 
 The Android transport's Profile 2 close may emit one best-effort settlement
 diagnostic through the pure-Dart `LogWriter` seam after settlement completes:
-fixed stage codes, write counts and the first failure category only, within
-the limits above. The seam carries no platform, persistence or authority
+fixed stage codes, write counts and the first failure category, within the
+limits above. When the original Native channel close replies successfully,
+its optional diagnostic records the first withdrawal, socket close request
+and start, close call and read failure in Native observation order. Dart records
+its own monotonic close and read observations in the same diagnostic. The Native
+close call follows the Dart close latch; the two observation clocks are not
+compared. Missing diagnostics carry no settlement meaning.
+The seam carries no platform, persistence or authority
 dependency, and logging never owns or changes connection settlement. The
 transport's exact supplied-source import gate admits only this added
 observability import; every other allowed import and all authority/lifecycle

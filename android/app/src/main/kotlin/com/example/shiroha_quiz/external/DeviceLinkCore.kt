@@ -8,6 +8,44 @@ import java.nio.charset.CodingErrorAction
 /** Fixed safe categories only. Never retain a platform exception or payload. */
 class DeviceLinkFailure(val code: String) : Exception(code)
 
+/** One established Profile 2 channel's first observations, ordered across Native threads. */
+internal class DeviceProfile2CloseTrace {
+    enum class Mark { withdrawal, socketCloseRequested, socketCloseStarted, closeCall, readFailure }
+    enum class ReadStage { beforeFrame, frame, afterFrame }
+
+    private val order = mutableMapOf<Mark, Int>()
+    private var readStage: ReadStage? = null
+    private var readError: String? = null
+
+    @Synchronized fun mark(event: Mark) {
+        if (event !in order) order[event] = order.size + 1
+    }
+
+    @Synchronized fun readFailed(stage: ReadStage, error: Exception) {
+        if (Mark.readFailure in order) return
+        mark(Mark.readFailure)
+        readStage = stage
+        readError = when (error) {
+            is DeviceLinkFailure -> when (error.code) {
+                "connection_closed", "settlement_unknown", "deadline_exceeded",
+                "protocol_violation", "resource_limit" -> error.code
+                else -> "linkFailure"
+            }
+            is java.net.SocketTimeoutException -> "socketTimeout"
+            is javax.net.ssl.SSLException -> "tls"
+            is java.net.SocketException -> "socket"
+            is java.io.IOException -> "io"
+            else -> "other"
+        }
+    }
+
+    @Synchronized fun snapshot(): Map<String, Any> = buildMap {
+        for ((mark, sequence) in order) put(mark.name, sequence)
+        readStage?.let { put("readStage", it.name) }
+        readError?.let { put("readError", it) }
+    }
+}
+
 /** One original close, off the Activity thread; completion never clears failure. */
 internal class DeviceCloseWork(private val executor: java.util.concurrent.Executor,
                                private val action: () -> Unit) {

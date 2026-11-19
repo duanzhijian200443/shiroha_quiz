@@ -8,6 +8,8 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import android.os.SystemClock
 import javax.net.ssl.SSLSocket
+import com.example.shiroha_quiz.external.DeviceProfile2CloseTrace.Mark
+import com.example.shiroha_quiz.external.DeviceProfile2CloseTrace.ReadStage
 
 /** Native socket custody only. No Profile, P0, Grant or business implementation. */
 internal class DeviceNativeLink(
@@ -150,12 +152,16 @@ internal class DeviceNativeLink(
     fun read(id: String): Map<String, Any?> {
         val channel = channel(id)
         if (!channel.reading.compareAndSet(false, true)) throw DeviceLinkFailure("resource_limit")
+        var stage = ReadStage.beforeFrame
         try {
             channel.currentRead(control = true)
+            stage = ReadStage.frame
             val frame = DeviceLinkFrames.readTimed(channel.socket)
+            stage = ReadStage.afterFrame
             channel.currentRead(control = frame.kind == 1)
             return mapOf("kind" to frame.kind, "payload" to frame.payload)
         } catch (error: Exception) {
+            channel.closeTrace?.readFailed(stage, error)
             channel.withdraw()
             throw error
         } finally { channel.reading.set(false) }
@@ -195,13 +201,15 @@ internal class DeviceNativeLink(
         } finally { channel.reading.set(false) }
     }
 
-    fun closeChannel(id: String) {
+    fun closeChannel(id: String, includeTrace: Boolean): Map<String, Any>? {
         val original = channel(id)
+        original.closeTrace?.mark(Mark.closeCall)
         original.withdraw()
         if (!original.settled.await(5, TimeUnit.SECONDS) || original.failed || failed)
             throw DeviceLinkFailure("settlement_unknown")
         original.joinIo()
         synchronized(channels) { channels.remove(id) }
+        return if (includeTrace) original.closeTrace?.snapshot() else null
     }
 
     /** Synchronous invalidation is safe from Activity/network callbacks. */
@@ -249,11 +257,14 @@ internal class DeviceNativeLink(
         @Volatile var closed = false
         @Volatile var closeControl = false
         private var legacyBusiness = false
+        @Volatile var closeTrace: DeviceProfile2CloseTrace? = null
+            private set
         private val closing = DeviceCloseDeadline()
         private var closingDeadline: java.util.concurrent.ScheduledFuture<*>? = null
         @Volatile private var legacyCloseTimedOut = false
         val failed: Boolean get() = closeWork.failed || legacyCloseTimedOut
         val closeWork = DeviceCloseWork(closer) {
+            closeTrace?.mark(Mark.socketCloseStarted)
             try { socket.close() } finally { stopped.countDown() }
         }
         var establishment: java.util.concurrent.ScheduledFuture<*>? = null
@@ -266,6 +277,7 @@ internal class DeviceNativeLink(
             if (keepWhileLocked) gate.retainAuthenticatedChannel(epoch, network, id)
             this.closeControl = closeControl
             legacyBusiness = business && !closeControl
+            if (legacyBusiness && closeTrace == null) closeTrace = DeviceProfile2CloseTrace()
             establishment?.cancel(false)
         }
         @Synchronized fun current(control: Boolean = false) {
@@ -303,6 +315,7 @@ internal class DeviceNativeLink(
         }
 
         @Synchronized fun beginClosing() {
+            closeTrace?.mark(Mark.withdrawal)
             if (closed || closing.started) return
             // A legacy writer already admitted by the gate must still lose
             // its socket immediately. A fresh writer cannot pass current().
@@ -321,6 +334,7 @@ internal class DeviceNativeLink(
             establishment?.cancel(false)
             proofDeadline?.cancel(false)
             closingDeadline?.cancel(false)
+            closeTrace?.mark(Mark.socketCloseRequested)
             closeWork.request()
         }
         fun joinIo() {

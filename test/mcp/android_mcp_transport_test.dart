@@ -7,6 +7,7 @@ import 'package:shiroha_quiz/application/external/android_device_access.dart';
 import 'package:shiroha_quiz/application/external/external_authorization.dart';
 import 'package:shiroha_quiz/application/external/first_party_stage_approval.dart';
 import 'package:shiroha_quiz/application/generated_question/generated_question_service.dart';
+import 'package:shiroha_quiz/core/observability/log_writer.dart';
 import 'package:shiroha_quiz/data/external/android_native_association_backend.dart';
 import 'package:shiroha_quiz/data/external/android_native_channel.dart'
     show AndroidChannelVerification;
@@ -337,6 +338,13 @@ void main() {
       await f.disconnect();
       f.connect(protocol: true);
       expect(f.port.binding.profileVersion, 2);
+      final observations = <Map<String, Object?>>[];
+      LogWriter.setRecordHandler((record) {
+        if (record.message == 'Android Profile 2 transport close') {
+          observations.add(record.data);
+        }
+      });
+      addTearDown(() => LogWriter.setRecordHandler(null));
       final readEntered = Completer<void>();
       final pendingRead = Completer<(int, Map<String, dynamic>)>();
       var closeCalls = 0;
@@ -388,6 +396,21 @@ void main() {
       }
       expect(closeCalls, 1);
       expect(received, 0);
+      final diagnostic = observations.single;
+      if (outcome == 'late-frame') {
+        expect(diagnostic.containsKey('dartReadSawClosed'), false);
+      } else {
+        final readFirst = outcome == 'peer-eof';
+        expect(diagnostic['dartReadSawClosed'], !readFirst);
+        expect(diagnostic['dartReadStage'], 'awaitRead');
+        expect(diagnostic['dartReadError'], 'state');
+        final closedAt = diagnostic['dartClosedAtUs'] as int;
+        expect(
+            diagnostic['dartReadFailedAtUs'],
+            readFirst
+                ? lessThanOrEqualTo(closedAt)
+                : greaterThanOrEqualTo(closedAt));
+      }
     });
   }
 
