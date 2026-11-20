@@ -80,7 +80,7 @@ v1.4 明确区分正常初始化、#356 遗留槽位的一次性退役和已归 
 | `ARCHITECTURE.md` | 保持 Adapter → Application → Domain，以及 Data／Infrastructure 端口方向 |
 | `external-agent-boundary.md` | 保持身份、Grant、内容出站、当前权限和最终释放检查；增补远程及交换权限 |
 | `mcp-vnext-contract.md` | 保留业务工具语义，替换 Windows 全局托管，登记新能力集 |
-| `android-device-access-v0.md` | 保留原 LAN、设备身份、前台、有限 Enable、关闭责任；新增消费者需明确准入 |
+| `android-device-access-v0.md` | 保留原 LAN、设备身份、Enable 和关闭责任，生命周期与时长按 Android §5；新增消费者需明确准入 |
 | `generated-question-proposals.md` | 继续独占生成候选、review/direct、提交幂等与终态写入语义 |
 | 现有 F1／导入／Review 契约 | 继续拥有文件、ParsedArtifact、结构化预览和正式导入写入 |
 | B0 契约 | 继续拥有整库备份／恢复；不充当内容分享接口 |
@@ -289,7 +289,7 @@ operation/run/resource 与真实完整客户端证书指纹，供本机比较。
 2. 在原槽位互斥约束下读取／核验 `SlotOwnershipRecord`、原适配器凭据槽位引用及资源结算证据。
 3. 按上表唯一分类；不明确时进入诊断，不尝试其他分支。
 4. 全新槽位先持久创建 `UNCLAIMED/PREPARING`；完成原 P15/P0、凭据保存和资源结算后，才 CAS 建立 `LINK_OWNED`。合格历史配对仅在原身份、来源及 clean 证据匹配后建立 `LINK_OWNED`。
-5. 回读核验 `LINK_OWNED` 后，手机用户独立开启访问，按原 PREPARING／Enable proof／有限 Enable 流程建立业务连接。
+5. 回读核验 `LINK_OWNED` 后，手机用户独立开启访问，按原 PREPARING／Enable proof／Enable 流程建立业务连接。
 6. 只有原认证、Grant、Scope 和目标端准入均通过后，才建立业务租约。
 
 **正常新安装和从未由 #356 托管的 clean 配对，不创建 PREPARED／RELEASED／CLAIMED 旧宿主记录，也不要求启动 Windows Shiroha。**
@@ -392,7 +392,7 @@ stateDiagram-v2
   [*] --> OFF
   OFF --> SELECTED: 本地选择目标
   SELECTED --> PREPARING: 明确连接动作
-  PREPARING --> READY: 原证明和结算完成 / 有限 Enable
+  PREPARING --> READY: 原证明和结算完成 / Enable
   PREPARING --> DRAINING: 取消或失败
   READY --> ACTIVE: 获得业务租约
   ACTIVE --> DRAINING: 断开 / 撤权 / 前端消失
@@ -407,7 +407,7 @@ stateDiagram-v2
 
 ### 6.2 日常开启
 
-手机明确开启 → 原 PREPARING → Link 运行原 `enable-proof` helper → 原证明通道和双方资源结算 → 手机有限 Enable → 新 business TLS／HELLO／READY → MCP 业务。
+手机明确开启 → 原 PREPARING → Link 运行原 `enable-proof` helper → 原证明通道和双方资源结算 → 手机按 Android §5 的本轮时长 Enable → 新 business TLS／HELLO／READY → MCP 业务。
 
 配对仅在明确首次连接操作中进行。工具目录发现不得读取配对密钥、开启手机访问或启动循环证明。过早业务请求直接拒绝，不占用证明所需资源。
 
@@ -921,7 +921,7 @@ read、review、direct、原 CAS／revision、当前存在性和最终释放检�
 
 **首版产品目标／同手机网页**：同一手机在 Shiroha 中明确开启限时远程协作会话，切到指定浏览器中的 ChatGPT 网页，进行真实查询；需要本地决定时切回 Shiroha，完成后再回原网页查询结果。此目标不能依赖另一个设备操作、长期分屏、画中画、假焦点或电脑转发才能成立；这些只能单独标为前置／兼容测试。
 
-切到手机浏览器仍会使 Shiroha 的 Activity 离开前台。“网页优先”不解除这一生命周期问题。只有用户从可见界面主动开启、有持续可见的运行指示与停止入口、有限期限、符合所选 Android 服务机制并有真实机型证据的独立 remote 模式，才可在该期限内继续工作；LAN 模式的失焦／后台规则保持不变。
+切到手机浏览器仍会使 Shiroha 的 Activity 离开前台。“网页优先”不解除这一生命周期问题。只有用户从可见界面主动开启、有持续可见的运行指示与停止入口、有限期限、符合所选 Android 服务机制并有真实机型证据的独立 remote 模式，才可在该期限内继续工作。LAN 模式另有 [Android §5](android-device-access-v0.md#5-foreground-and-lifecycle) 的有限纯题目 READ 后台例外。原前台证明完成后，由 connectedDevice FGS 支撑原 owner、连接和期限。锁屏默认停止。每轮显式选择时，仅锁屏前已认证的纯题目 READ 原连接可继续。该例外的权威仅限 LAN 题目 READ。改版真机验收仍需独立证据。
 
 不得伪造焦点、循环唤醒、滥用前台服务类型或把长期收题队列包装成短时结算。Android 服务类型、启动限制、通知、超时和真实 target SDK 必须核验。[O8][O10] 其他项目的 specialUse 声明不是本项目已符合要求或已通过发行审查的证明。
 

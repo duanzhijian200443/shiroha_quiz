@@ -1013,9 +1013,15 @@ final class FirstPartyExternalAccess {
         }
       });
 
-  Future<void> enable(Duration duration) => _run(() async {
+  Future<void> enable(Duration? duration) => _run(() async {
         final b = _binding;
         if (b == null) externalAuthFail(ExternalAuthFailure.unauthorized);
+        if (duration == null &&
+            (!b.trust.allowRuntimeEnable ||
+                !b.enableWithoutRetainedChannel ||
+                _development != null)) {
+          externalAuthFail(ExternalAuthFailure.unauthorized);
+        }
         // Preflight belongs to this same cancellable operation: a disconnect or
         // departing view during status I/O must not be reset by its continuation.
         _forgetAccess();
@@ -1039,6 +1045,7 @@ final class FirstPartyExternalAccess {
             final expiresAt = deployment.expiresAt;
             if (deployment.phase != FirstPartyDevelopmentPhase.active ||
                 expiresAt == null ||
+                duration == null ||
                 duration <= Duration.zero ||
                 duration > deployment.maxAccessDuration ||
                 !b.trust.clock.now().isBefore(expiresAt)) {
@@ -1054,12 +1061,13 @@ final class FirstPartyExternalAccess {
           final expiry = snapshot.expiresAt;
           final now = b.trust.clock.now();
           if (snapshot.state != PairingState.enabledForCurrentRuntime ||
-              expiry == null ||
-              !now.isBefore(expiry)) {
+              (expiry == null ? duration != null : !now.isBefore(expiry))) {
             externalAuthFail(ExternalAuthFailure.unauthorized);
           }
           _enableExpiresAt = expiry;
-          deadline = Timer(expiry.difference(now), _expireEnable);
+          if (expiry != null) {
+            deadline = Timer(expiry.difference(now), _expireEnable);
+          }
           if (b.enableWithoutRetainedChannel) {
             if (services == null) {
               externalAuthFail(ExternalAuthFailure.unauthorized);
@@ -1075,7 +1083,7 @@ final class FirstPartyExternalAccess {
                     PairingState.enabledForCurrentRuntime) {
               externalAuthFail(ExternalAuthFailure.unauthorized);
             }
-            // Enable is finite local policy. Each request must independently
+            // Enable is current local policy. Each request must independently
             // authenticate through P15; no Session is manufactured or retained.
             _sessionRevision = record.grant!.revision;
             return;

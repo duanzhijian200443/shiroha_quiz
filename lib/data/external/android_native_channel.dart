@@ -82,6 +82,9 @@ final class AndroidNativeChannel {
   final String id, peer, installationId;
   bool _live = true;
   bool _closeControl = false;
+  bool _legacyBusiness = false;
+  Map<String, Object>? _profile2CloseTrace;
+  Map<String, Object>? get profile2CloseTrace => _profile2CloseTrace;
   Future<void>? _closing;
   bool get live => _live;
   void invalidate() {
@@ -100,14 +103,20 @@ final class AndroidNativeChannel {
     return _live;
   }
 
-  Future<void> established({bool closeControl = false}) async {
+  Future<void> established(
+      {int? businessProfileVersion, bool continueWhileLocked = false}) async {
+    final closeControl = businessProfileVersion == 3;
     if (!_live ||
-        await native.invoke('established',
-                {'channel': id, if (closeControl) 'closeControl': true}) !=
+        await native.invoke('established', {
+              'channel': id,
+              if (closeControl) 'closeControl': true,
+              if (continueWhileLocked) 'continueWhileLocked': true,
+            }) !=
             true) {
       androidLinkFail();
     }
     _closeControl = closeControl;
+    _legacyBusiness = businessProfileVersion == 2;
   }
 
   Future<void> peerClosed() async {
@@ -148,17 +157,22 @@ final class AndroidNativeChannel {
   }
 
   Future<void> write(int kind, Map<String, dynamic> value) async {
+    final type = value['type'];
     final closing = _closeControl &&
         kind == 1 &&
-        const {'closing', 'closed', 'pong'}.contains(value['type']);
+        const {'closing', 'closed', 'pong'}.contains(type);
     if (!_live && !closing) androidLinkFail();
+    // A late Native success on an already submitted heartbeat proves that
+    // write finished. Only the normal entry check admits a new write.
+    final heartbeat =
+        _legacyBusiness && kind == 1 && (type == 'ping' || type == 'pong');
     final bytes = Uint8List.fromList(utf8.encode(jsonEncode(value)));
     try {
       if (bytes.length > (kind == 1 ? 16384 : 524288) ||
           await native.invoke(
                   'write', {'channel': id, 'kind': kind, 'payload': bytes}) !=
               true ||
-          (!_live && !closing)) {
+          (!_live && !closing && !heartbeat)) {
         androidLinkFail();
       }
     } finally {
@@ -170,11 +184,66 @@ final class AndroidNativeChannel {
     invalidate();
     _closeControl = false;
     return _closing ??= () async {
-      if (await native.invoke('channelClose', {'channel': id}) != true) {
-        androidLinkFail();
+      final result = await native.invoke('channelClose', {
+        'channel': id,
+        if (_legacyBusiness) 'profile2Trace': true,
+      });
+      if (result == true) return;
+      if (_legacyBusiness && result is Map && result['closed'] == true) {
+        _profile2CloseTrace = _safeProfile2CloseTrace(result['profile2Trace']);
+        return;
       }
+      androidLinkFail();
     }();
   }
+}
+
+Map<String, Object>? _safeProfile2CloseTrace(Object? raw) {
+  if (raw is! Map) return null;
+  const marks = {
+    'withdrawal',
+    'socketCloseRequested',
+    'socketCloseStarted',
+    'closeCall',
+    'readFailure',
+  };
+  final trace = <String, Object>{};
+  final ordinals = <int>{};
+  for (final mark in marks) {
+    final value = raw[mark];
+    if (value == null) continue;
+    if (value is! int ||
+        value < 1 ||
+        value > marks.length ||
+        !ordinals.add(value)) {
+      return null;
+    }
+    trace[mark] = value;
+  }
+  const stages = {'beforeFrame', 'frame', 'afterFrame'};
+  const errors = {
+    'connection_closed',
+    'settlement_unknown',
+    'deadline_exceeded',
+    'protocol_violation',
+    'resource_limit',
+    'linkFailure',
+    'socketTimeout',
+    'tls',
+    'socket',
+    'io',
+    'other',
+  };
+  final stage = raw['readStage'], error = raw['readError'];
+  if (trace.containsKey('readFailure') &&
+      stage is String &&
+      stages.contains(stage) &&
+      error is String &&
+      errors.contains(error)) {
+    trace['readStage'] = stage;
+    trace['readError'] = error;
+  }
+  return trace.isEmpty ? null : Map.unmodifiable(trace);
 }
 
 /// Native event ownership and private one-use P15 verification events.

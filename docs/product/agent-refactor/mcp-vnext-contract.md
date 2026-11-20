@@ -2251,9 +2251,11 @@ File READ may build the existing derived index; it is not a zero-write claim.
 Server instructions describe the file workflow and partial coverage, and make
 clear that PassageRefs do not become GeneratedEvidence; use existing uncited
 semantics when no recognized evidence exists.
-First pairing and daily finite Enable
-use the original Native-bound P15/P0 and association CAS; the proof connection
-settles before a fresh business connection may reach READY/MCP. The App remains
+First pairing and daily Enable use the original Native-bound P15/P0 and
+association CAS. The selected access duration follows the
+[Android lifecycle contract §5](android-device-access-v0.md#5-foreground-and-lifecycle).
+The proof connection settles before a fresh business connection may reach
+READY/MCP. The App remains
 owner across settings navigation, with immediate current-authorization checks
 and original cancellation/settlement. No desktop question database is used.
 
@@ -2447,7 +2449,7 @@ Shiroha Link owns trusted local target selection, frontend business leases,
 non-secret LinkStateStore and hosted Android adapter settlement. Android-only
 startup must not initialize Windows Shiroha, read its SQLite/settings or wait on
 its B0. Windows targets still use the original Windows App-owned path. Every
-target App retains identity, Grant, finite Enable, egress and formal-write
+target App retains identity, Grant, Enable, egress and formal-write
 authority. The model cannot supply target addresses, executable paths or keys.
 
 Normal slot ownership is distinct from a legacy handoff. Fresh setup uses

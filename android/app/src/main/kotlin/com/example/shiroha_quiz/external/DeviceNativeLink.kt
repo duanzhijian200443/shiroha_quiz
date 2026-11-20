@@ -6,7 +6,10 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import android.os.SystemClock
 import javax.net.ssl.SSLSocket
+import com.example.shiroha_quiz.external.DeviceProfile2CloseTrace.Mark
+import com.example.shiroha_quiz.external.DeviceProfile2CloseTrace.ReadStage
 
 /** Native socket custody only. No Profile, P0, Grant or business implementation. */
 internal class DeviceNativeLink(
@@ -15,7 +18,7 @@ internal class DeviceNativeLink(
     address: String,
     private val expectedClient: String?,
     enrollment: Boolean,
-    periodEndsMs: Long,
+    val periodEndsMs: Long?,
     preparationEndsMs: Long,
     businessResume: Boolean,
     private val event: (String, Map<String, Any?>) -> Unit,
@@ -29,11 +32,9 @@ internal class DeviceNativeLink(
     private val closer = Executors.newSingleThreadExecutor()
     private val listenerClose = DeviceCloseWork(closer) { endpoint.stopAccepting() }
     private val endpointClose = DeviceCloseWork(closer) { endpoint.close() }
-    private val observedMs = android.os.SystemClock.elapsedRealtime()
-    private val observedNanos = System.nanoTime()
-    private val periodEnds = observedNanos + TimeUnit.MILLISECONDS.toNanos(periodEndsMs - observedMs)
-    @Volatile private var admissionEnds = minOf(periodEnds,
-        observedNanos + TimeUnit.MILLISECONDS.toNanos(preparationEndsMs - observedMs))
+    private val observedMs = SystemClock.elapsedRealtime()
+    @Volatile private var admissionEndsMs = if (businessResume) periodEndsMs
+        else minOf(periodEndsMs ?: preparationEndsMs, preparationEndsMs)
     private var business = businessResume
     private var expiry: java.util.concurrent.ScheduledFuture<*>? = null
     private val channels = mutableMapOf<String, Channel>()
@@ -42,7 +43,9 @@ internal class DeviceNativeLink(
     val port: Int
 
     init {
-        if (periodEndsMs <= observedMs || periodEndsMs - observedMs > TimeUnit.HOURS.toMillis(8) ||
+        if ((periodEndsMs == null && (enrollment || businessResume)) ||
+            (periodEndsMs != null && (periodEndsMs <= observedMs ||
+                periodEndsMs - observedMs > TimeUnit.HOURS.toMillis(8))) ||
             (!businessResume && (preparationEndsMs <= observedMs || preparationEndsMs - observedMs > 120000)) ||
             enrollment && businessResume)
             throw DeviceLinkFailure("foreground_required")
@@ -51,7 +54,6 @@ internal class DeviceNativeLink(
         try {
             port = endpoint.listen(InetAddress.getByName(address), expectedClient, epoch, network,
                 port = 46443, enrollment = enrollment, acceptTimeout = 0)
-            if (businessResume) admissionEnds = periodEnds
             scheduleExpiry()
             repeat(2) { workers.execute { accept() } }
         } catch (error: Exception) {
@@ -65,19 +67,30 @@ internal class DeviceNativeLink(
 
     private fun scheduleExpiry() {
         expiry?.cancel(false)
-        expiry = timer.schedule({ withdraw() }, (admissionEnds - System.nanoTime()).coerceAtLeast(0), TimeUnit.NANOSECONDS)
+        expiry = admissionEndsMs?.let { ends ->
+            timer.schedule(::expireAdmission, (ends - SystemClock.elapsedRealtime()).coerceAtLeast(0),
+                TimeUnit.MILLISECONDS)
+        }
     }
+    private fun admissionExpired(): Boolean =
+        admissionEndsMs?.let { SystemClock.elapsedRealtime() >= it } == true
+
+    @Synchronized private fun expireAdmission() {
+        if (closed) return
+        if (admissionExpired()) withdraw() else scheduleExpiry()
+    }
+
     @Synchronized fun completePreparation() {
-        if (closed || business || expectedClient == null || System.nanoTime() >= admissionEnds ||
+        if (closed || business || expectedClient == null || admissionExpired() ||
             !gate.current(epoch, network) || synchronized(channels) { channels.isNotEmpty() })
             throw DeviceLinkFailure("foreground_required")
         business = true
-        admissionEnds = periodEnds
+        admissionEndsMs = periodEndsMs
         scheduleExpiry()
     }
 
     private fun accept() {
-        while (!closed && gate.current(epoch, network)) {
+        while (!closed && gate.listenerCurrent(epoch, network)) {
             var original: Channel? = null
             try {
                 endpoint.withChannel(epoch, network, expectedClient) { socket, digest, establishmentEnds ->
@@ -97,14 +110,16 @@ internal class DeviceNativeLink(
                 }
             } catch (error: Exception) {
                 if (error is DeviceLinkFailure && error.code == "settlement_unknown") failed = true
-                if (closed || !gate.current(epoch, network)) break
+                if (closed || !gate.listenerCurrent(epoch, network)) break
                 // A refused extra/early peer never acquires the incumbent slot.
             } finally {
                 original?.let { channel ->
                     channel.withdraw()
                     try { channel.closeWork.join() } catch (_: Exception) { failed = true }
+                    if (channel.failed) failed = true
                     channel.settled.countDown()
-                    event("disconnected", mapOf("channel" to channel.id, "settled" to !failed))
+                    event("disconnected", mapOf("channel" to channel.id, "settled" to !failed,
+                        "backgroundRead" to gate.backgroundRead))
                 }
             }
         }
@@ -117,16 +132,14 @@ internal class DeviceNativeLink(
     fun attest(id: String, peer: String, installation: String): Boolean {
         val channel = channel(id)
         try { channel.current() } catch (_: DeviceLinkFailure) { return false }
-        return !closed && !channel.closed && gate.current(epoch, network) &&
+        return !closed && !channel.closed && gate.current(epoch, network, id) &&
             channel.peer == peer && keys.installationId() == installation &&
             !channel.socket.isClosed && channel.socket.session.protocol == "TLSv1.3"
     }
 
-    fun established(id: String, closeControl: Boolean = false) {
-        val channel = channel(id)
-        channel.current()
-        channel.closeControl = business && closeControl
-        channel.establishment?.cancel(false)
+    fun established(id: String, closeControl: Boolean = false, keepWhileLocked: Boolean = false) {
+        if (keepWhileLocked && !business) throw DeviceLinkFailure("protocol_violation")
+        channel(id).established(business && closeControl, keepWhileLocked)
     }
     fun proofStarted(id: String) {
         val channel = channel(id)
@@ -139,12 +152,16 @@ internal class DeviceNativeLink(
     fun read(id: String): Map<String, Any?> {
         val channel = channel(id)
         if (!channel.reading.compareAndSet(false, true)) throw DeviceLinkFailure("resource_limit")
+        var stage = ReadStage.beforeFrame
         try {
-            channel.current(control = true)
+            channel.currentRead(control = true)
+            stage = ReadStage.frame
             val frame = DeviceLinkFrames.readTimed(channel.socket)
-            channel.current(control = frame.kind == 1)
+            stage = ReadStage.afterFrame
+            channel.currentRead(control = frame.kind == 1)
             return mapOf("kind" to frame.kind, "payload" to frame.payload)
         } catch (error: Exception) {
+            channel.closeTrace?.readFailed(stage, error)
             channel.withdraw()
             throw error
         } finally { channel.reading.set(false) }
@@ -184,13 +201,15 @@ internal class DeviceNativeLink(
         } finally { channel.reading.set(false) }
     }
 
-    fun closeChannel(id: String) {
+    fun closeChannel(id: String, includeTrace: Boolean): Map<String, Any>? {
         val original = channel(id)
+        original.closeTrace?.mark(Mark.closeCall)
         original.withdraw()
         if (!original.settled.await(5, TimeUnit.SECONDS) || original.failed || failed)
             throw DeviceLinkFailure("settlement_unknown")
         original.joinIo()
         synchronized(channels) { channels.remove(id) }
+        return if (includeTrace) original.closeTrace?.snapshot() else null
     }
 
     /** Synchronous invalidation is safe from Activity/network callbacks. */
@@ -237,42 +256,85 @@ internal class DeviceNativeLink(
             (certificateExpires - System.currentTimeMillis()).coerceAtLeast(0))
         @Volatile var closed = false
         @Volatile var closeControl = false
+        private var legacyBusiness = false
+        @Volatile var closeTrace: DeviceProfile2CloseTrace? = null
+            private set
         private val closing = DeviceCloseDeadline()
         private var closingDeadline: java.util.concurrent.ScheduledFuture<*>? = null
-        val failed: Boolean get() = closeWork.failed
+        @Volatile private var legacyCloseTimedOut = false
+        val failed: Boolean get() = closeWork.failed || legacyCloseTimedOut
         val closeWork = DeviceCloseWork(closer) {
+            closeTrace?.mark(Mark.socketCloseStarted)
             try { socket.close() } finally { stopped.countDown() }
         }
         var establishment: java.util.concurrent.ScheduledFuture<*>? = null
         @Volatile var proofEnds = Long.MAX_VALUE
         var proofDeadline: java.util.concurrent.ScheduledFuture<*>? = null
+        @Synchronized fun established(closeControl: Boolean, keepWhileLocked: Boolean) {
+            current()
+            // Serialize pinning with original withdrawal. A channel that was
+            // already closed cannot become the retained lock-screen channel.
+            if (keepWhileLocked) gate.retainAuthenticatedChannel(epoch, network, id)
+            this.closeControl = closeControl
+            legacyBusiness = business && !closeControl
+            if (legacyBusiness && closeTrace == null) closeTrace = DeviceProfile2CloseTrace()
+            establishment?.cancel(false)
+        }
         @Synchronized fun current(control: Boolean = false) {
-            if (closeControl && (this@DeviceNativeLink.closed || !gate.current(epoch, network))) beginClosing()
+            val withdrawn = this@DeviceNativeLink.closed || !gate.current(epoch, network, id)
+            if ((closeControl || legacyBusiness) && withdrawn) beginClosing()
             if (closing.started) {
                 if (closed || !closeControl) throw DeviceLinkFailure("connection_closed")
                 closing.requireControl(control)
                 return
             }
-            if (closed || this@DeviceNativeLink.closed || !gate.current(epoch, network) ||
-                System.nanoTime() >= admissionEnds ||
+            if (closed || withdrawn ||
+                admissionExpired() ||
                 System.nanoTime() >= proofEnds ||
                 System.currentTimeMillis() >= certificateExpires || System.nanoTime() >= certificateEnds)
                 throw DeviceLinkFailure("connection_closed")
         }
+
+        fun currentRead(control: Boolean) {
+            val remaining = synchronized(this) {
+                try {
+                    current(control)
+                    return
+                } catch (error: DeviceLinkFailure) {
+                    if (!legacyBusiness || !closing.started || closed) throw error
+                    closing.remainingNanos()
+                }
+            }
+            // A local withdrawal rejects the frame immediately. Let the
+            // original Dart owner enter close before releasing its pending read.
+            if (!stopped.await(remaining, TimeUnit.NANOSECONDS)) {
+                withdraw()
+                throw DeviceLinkFailure("settlement_unknown")
+            }
+            throw DeviceLinkFailure("connection_closed")
+        }
+
         @Synchronized fun beginClosing() {
+            closeTrace?.mark(Mark.withdrawal)
             if (closed || closing.started) return
-            if (!closeControl) {
+            // A legacy writer already admitted by the gate must still lose
+            // its socket immediately. A fresh writer cannot pass current().
+            if (!closeControl && (!legacyBusiness || queued.get() != 0)) {
                 withdraw()
                 return
             }
             closing.begin()
-            closingDeadline = timer.schedule({ withdraw() }, 5, TimeUnit.SECONDS)
+            closingDeadline = timer.schedule({ withdraw() }, closing.remainingNanos(), TimeUnit.NANOSECONDS)
         }
-        fun withdraw() {
+        @Synchronized fun withdraw() {
+            if (!closed && legacyBusiness && closing.started && closing.remainingNanos() == 0L)
+                legacyCloseTimedOut = true
             closed = true
+            gate.releaseChannel(id)
             establishment?.cancel(false)
             proofDeadline?.cancel(false)
             closingDeadline?.cancel(false)
+            closeTrace?.mark(Mark.socketCloseRequested)
             closeWork.request()
         }
         fun joinIo() {

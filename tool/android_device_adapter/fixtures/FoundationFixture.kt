@@ -16,15 +16,37 @@ fun main(args: Array<String>) {
     rejects { DeviceLinkAdmission.requireAuthorized() }
     var closeTime = 0L
     val closeDeadline = DeviceCloseDeadline { closeTime }
+    accepts(closeDeadline.remainingNanos() == 0L)
     rejects { closeDeadline.requireControl(true) }
     accepts(closeDeadline.begin())
+    accepts(closeDeadline.remainingNanos() == 5_000_000_000L)
     closeDeadline.requireControl(true)
     rejects { closeDeadline.requireControl(false) }
     closeTime = 4_000_000_000
     accepts(!closeDeadline.begin())
+    accepts(closeDeadline.remainingNanos() == 1_000_000_000L)
     closeDeadline.requireControl(true)
     closeTime = 5_000_000_000
+    accepts(closeDeadline.remainingNanos() == 0L)
     rejects { closeDeadline.requireControl(true) }
+    for (readFirst in listOf(true, false)) {
+        val trace = DeviceProfile2CloseTrace()
+        val withdrawal = DeviceProfile2CloseTrace.Mark.withdrawal
+        val stage = DeviceProfile2CloseTrace.ReadStage.frame
+        if (!readFirst) trace.mark(withdrawal)
+        trace.readFailed(stage, java.net.SocketException("unsanitized-message"))
+        trace.mark(withdrawal)
+        trace.mark(DeviceProfile2CloseTrace.Mark.closeCall)
+        trace.mark(DeviceProfile2CloseTrace.Mark.socketCloseRequested)
+        trace.mark(DeviceProfile2CloseTrace.Mark.socketCloseStarted)
+        trace.readFailed(DeviceProfile2CloseTrace.ReadStage.afterFrame, DeviceLinkFailure("connection_closed"))
+        accepts(trace.snapshot() == mapOf(
+            "withdrawal" to if (readFirst) 2 else 1,
+            "readFailure" to if (readFirst) 1 else 2,
+            "closeCall" to 3, "socketCloseRequested" to 4, "socketCloseStarted" to 5,
+            "readStage" to "frame", "readError" to "socket"
+        ))
+    }
     val closeExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
     try {
         val entered = java.util.concurrent.CountDownLatch(1)
@@ -100,6 +122,126 @@ fun main(args: Array<String>) {
     gate.close()
     val late = gate.observe(true, true, true, true, "wifi-1")
     accepts(!gate.current(late, "wifi-1"))
+    var backgroundNow = 1L
+    var screenSafe = true
+    var supported = true
+    fun backgroundGate(): Pair<DeviceForegroundGate, Long> {
+        val background = DeviceForegroundGate({ backgroundNow }, { screenSafe })
+        val epoch = background.observe(true, true, true, true, "wifi-1")
+        background.allowBackground(100) { supported }
+        return Pair(background, epoch)
+    }
+    val (background, epoch) = backgroundGate()
+    background.observe(false, false, true, true, "wifi-1")
+    accepts(background.backgroundRead && !background.eligible)
+    accepts(background.current(epoch, "wifi-1"))
+    accepts(background.sequence == epoch)
+    background.observe(true, true, true, true, "wifi-1")
+    accepts(background.current(epoch, "wifi-1"))
+    backgroundNow = 100
+    accepts(!background.current(epoch, "wifi-1"))
+    accepts(!background.backgroundRead)
+    backgroundNow = 1
+    for (reason in listOf("lock", "network", "support", "physical-screen", "close")) {
+        val (original, originalEpoch) = backgroundGate()
+        when(reason) {
+            "lock" -> original.observe(false, false, true, false, "wifi-1")
+            "network" -> original.observe(false, false, true, true, "wifi-2")
+            "support" -> supported = false
+            "physical-screen" -> screenSafe = false
+            "close" -> original.close()
+        }
+        accepts(!original.current(originalEpoch, "wifi-1"))
+        supported = true; screenSafe = true
+        original.observe(true, true, true, true, "wifi-1")
+        accepts(!original.current(originalEpoch, "wifi-1"))
+    }
+    val denied = DeviceForegroundGate({ backgroundNow })
+    denied.observe(false, false, true, true, "wifi-1")
+    rejects { denied.allowBackground(100) { true } }
+    denied.observe(true, true, true, true, "wifi-1")
+    rejects { denied.allowBackground(100) { false } }
+    rejects { denied.allowBackground(1) { true } }
+    val unknownSupport = DeviceForegroundGate({ backgroundNow })
+    val unknownEpoch = unknownSupport.observe(true, true, true, true, "wifi-1")
+    var diagnosticKnown = true
+    unknownSupport.allowBackground(100) { if (!diagnosticKnown) error("synthetic") else true }
+    diagnosticKnown = false
+    accepts(!unknownSupport.current(unknownEpoch, "wifi-1"))
+    var lockScreen: Boolean? = true
+    fun lockContinuation(bind: Boolean = true): Pair<DeviceForegroundGate, Long> {
+        lockScreen = true
+        backgroundNow = 1
+        supported = true
+        val candidate = DeviceForegroundGate({ backgroundNow }, { lockScreen })
+        val ownerEpoch = candidate.observe(true, true, true, true, "wifi-1")
+        candidate.allowBackground(100, keepWhileLocked = true) { supported }
+        if (bind) candidate.retainAuthenticatedChannel(ownerEpoch, "wifi-1", "original")
+        return candidate to ownerEpoch
+    }
+    val (locked, lockedEpoch) = lockContinuation()
+    lockScreen = false
+    // The synchronous socket gate sees the lock even before the observer does.
+    accepts(locked.current(lockedEpoch, "wifi-1", "original"))
+    accepts(!locked.current(lockedEpoch, "wifi-1"))
+    accepts(!locked.current(lockedEpoch, "wifi-1", "replacement"))
+    rejects { locked.retainAuthenticatedChannel(lockedEpoch, "wifi-1", "late") }
+    accepts(locked.observe(false, false, false, false, "wifi-1") == lockedEpoch)
+    accepts(locked.listenerCurrent(lockedEpoch, "wifi-1"))
+    locked.releaseChannel("replacement")
+    accepts(locked.current(lockedEpoch, "wifi-1", "original"))
+    locked.releaseChannel("original")
+    accepts(!locked.backgroundRead)
+    lockScreen = true
+    locked.observe(true, true, true, true, "wifi-1")
+    accepts(!locked.current(lockedEpoch, "wifi-1", "original"))
+
+    for (keepLocked in listOf(false, true)) {
+        backgroundNow = 1
+        lockScreen = true
+        val runtime = DeviceForegroundGate({ backgroundNow }, { lockScreen })
+        val ownerEpoch = runtime.observe(true, true, true, true, "wifi-1")
+        runtime.allowBackground(null, keepWhileLocked = keepLocked) { supported }
+        if (keepLocked) runtime.retainAuthenticatedChannel(ownerEpoch, "wifi-1", "original")
+        backgroundNow += 172800000
+        runtime.observe(false, false, true, true, "wifi-1")
+        accepts(runtime.current(ownerEpoch, "wifi-1"))
+        lockScreen = false
+        accepts(!runtime.current(ownerEpoch, "wifi-1"))
+        accepts(runtime.current(ownerEpoch, "wifi-1", "original") == keepLocked)
+        runtime.withdrawBackground()
+        lockScreen = true
+        runtime.observe(true, true, true, true, "wifi-1")
+        accepts(!runtime.current(ownerEpoch, "wifi-1", "original"))
+    }
+
+    val (pendingLock, pendingEpoch) = lockContinuation(bind = false)
+    lockScreen = false
+    accepts(!pendingLock.current(pendingEpoch, "wifi-1"))
+    rejects { pendingLock.retainAuthenticatedChannel(pendingEpoch, "wifi-1", "late") }
+    for (trigger in listOf("expiry", "network", "support", "unobserved-screen", "stop")) {
+        val (original, ownerEpoch) = lockContinuation()
+        lockScreen = false
+        when (trigger) {
+            "expiry" -> backgroundNow = 100
+            "network" -> original.observe(false, false, false, false, "wifi-2")
+            "support" -> supported = false
+            "unobserved-screen" -> lockScreen = null
+            "stop" -> original.withdrawBackground()
+        }
+        accepts(!original.current(ownerEpoch, "wifi-1", "original"))
+        accepts(!original.backgroundRead)
+    }
+    // The service's callback custody is JVM-only; no Service is instantiated.
+    val serviceCustody = DeviceReadService.Session({}, {})
+    val serviceResults = mutableListOf<Boolean>()
+    serviceCustody.stopped.add { serviceResults.add(it) }
+    serviceCustody.settled(false)
+    accepts(serviceCustody.stopFailed && serviceResults == listOf(false))
+    serviceCustody.settled(true) // Late platform destruction cannot erase timeout.
+    accepts(serviceCustody.stopFailed && serviceResults == listOf(false))
+    diagnosticKnown = true
+    accepts(!unknownSupport.current(unknownEpoch, "wifi-1"))
     val out = ByteArrayOutputStream()
     DeviceLinkFrames.write(out, DeviceLinkFrame(1, "{}".toByteArray()))
     val frame = DeviceLinkFrames.read(ByteArrayInputStream(out.toByteArray()))

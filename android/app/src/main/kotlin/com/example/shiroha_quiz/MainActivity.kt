@@ -55,6 +55,10 @@ class MainActivity : FlutterActivity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus); device?.observer?.onWindowFocusChanged(hasFocus)
     }
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        device?.permissionResult(requestCode)
+    }
     override fun onDestroy() {
         if (device != null) {
             connectivity?.unregisterNetworkCallback(network); unregisterReceiver(screen)

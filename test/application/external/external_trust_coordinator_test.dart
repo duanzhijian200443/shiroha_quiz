@@ -86,6 +86,42 @@ void main() {
         PairingState.pairedDisabled);
   });
 
+  test('runtime Enable is opt-in and still invalidates original Sessions', () {
+    for (final allowed in [false, true]) {
+      final trust = ExternalTrustCore(
+          credentials: f.credentials,
+          clock: f.clock,
+          mintProfileId: () => f.reference.profileId,
+          allowRuntimeEnable: allowed);
+      final principal = trust.createProfile();
+      trust.requestPairing(principal,
+          requestId: 'first', credentialIdentity: 'first');
+      trust.approvePairing(principal);
+      trust.completePairing(principal, f.credentials.first);
+      final peer = trust.authenticate(f.credentials.first);
+      expect(
+          () => trust.enable(principal, null,
+              notAfter: f.clock.now().add(const Duration(minutes: 5))),
+          coreFailure(ExternalFailure.invalidRequest));
+      if (!allowed) {
+        expect(() => trust.enable(principal, null),
+            coreFailure(ExternalFailure.invalidRequest));
+        continue;
+      }
+      trust.enable(principal, null);
+      final session = trust.openSession(peer);
+      f.clock.current = f.clock.now().add(const Duration(days: 2));
+      expect(trust.snapshot(principal).expiresAt, isNull);
+      expect(session.failure, isNull);
+      trust.disable(principal);
+      trust.enable(principal, const Duration(minutes: 5));
+      expect(session.failure, ExternalFailure.disabled);
+      final next = trust.openSession(peer);
+      trust.restart();
+      expect(next.failure, ExternalFailure.staleGeneration);
+    }
+  });
+
   test('parallel/repeated opaque selection returns one identical Principal',
       () async {
     final selected = await f.management.selectProfile(f.reference.profileId);

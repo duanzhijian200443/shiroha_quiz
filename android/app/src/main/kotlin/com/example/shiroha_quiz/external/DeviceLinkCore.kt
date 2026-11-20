@@ -8,6 +8,44 @@ import java.nio.charset.CodingErrorAction
 /** Fixed safe categories only. Never retain a platform exception or payload. */
 class DeviceLinkFailure(val code: String) : Exception(code)
 
+/** One established Profile 2 channel's first observations, ordered across Native threads. */
+internal class DeviceProfile2CloseTrace {
+    enum class Mark { withdrawal, socketCloseRequested, socketCloseStarted, closeCall, readFailure }
+    enum class ReadStage { beforeFrame, frame, afterFrame }
+
+    private val order = mutableMapOf<Mark, Int>()
+    private var readStage: ReadStage? = null
+    private var readError: String? = null
+
+    @Synchronized fun mark(event: Mark) {
+        if (event !in order) order[event] = order.size + 1
+    }
+
+    @Synchronized fun readFailed(stage: ReadStage, error: Exception) {
+        if (Mark.readFailure in order) return
+        mark(Mark.readFailure)
+        readStage = stage
+        readError = when (error) {
+            is DeviceLinkFailure -> when (error.code) {
+                "connection_closed", "settlement_unknown", "deadline_exceeded",
+                "protocol_violation", "resource_limit" -> error.code
+                else -> "linkFailure"
+            }
+            is java.net.SocketTimeoutException -> "socketTimeout"
+            is javax.net.ssl.SSLException -> "tls"
+            is java.net.SocketException -> "socket"
+            is java.io.IOException -> "io"
+            else -> "other"
+        }
+    }
+
+    @Synchronized fun snapshot(): Map<String, Any> = buildMap {
+        for ((mark, sequence) in order) put(mark.name, sequence)
+        readStage?.let { put("readStage", it.name) }
+        readError?.let { put("readError", it) }
+    }
+}
+
 /** One original close, off the Activity thread; completion never clears failure. */
 internal class DeviceCloseWork(private val executor: java.util.concurrent.Executor,
                                private val action: () -> Unit) {
@@ -50,35 +88,97 @@ internal class DeviceCloseDeadline(private val now: () -> Long = System::nanoTim
         expires = now() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5)
         return true
     }
+    fun remainingNanos(): Long = expires?.let { (it - now()).coerceAtLeast(0) } ?: 0
+
     fun requireControl(control: Boolean) {
-        if (!control || expires == null || now() >= expires!!)
+        if (!control || remainingNanos() == 0L)
             throw DeviceLinkFailure("connection_closed")
     }
 }
 
 /** Admission observation, never a P0 identity/Session or durable Grant. */
-class DeviceForegroundGate {
+class DeviceForegroundGate(
+    private val now: () -> Long = { System.nanoTime() / 1000000 },
+    private val screenSafe: () -> Boolean? = { true },
+) {
     var sequence: Long = 0; private set
     var eligible: Boolean = false; private set
     var network: String? = null; private set
     private var closed = false
     private var last: List<Any?>? = null
+    private var backgroundEnds: Long? = null
+    private var backgroundNetwork: String? = null
+    private var support: () -> Boolean = { false }
+    private var continueWhileLocked = false
+    private var retainedChannel: String? = null
+    private fun safe(check: () -> Boolean) = try { check() } catch (_: Exception) { false }
+    private fun screen() = try { screenSafe() } catch (_: Exception) { null }
+
+    private fun backgroundCurrent(screenState: Boolean?): Boolean {
+        if (backgroundNetwork != null && (backgroundEnds?.let { now() >= it } == true || screenState == null ||
+            (screenState == false && retainedChannel == null) || !safe(support))) {
+            withdrawBackground()
+        }
+        return backgroundNetwork != null
+    }
+    val backgroundRead: Boolean @Synchronized get() = backgroundCurrent(screen())
+    @Synchronized fun allowBackground(ends: Long?, keepWhileLocked: Boolean = false, supported: () -> Boolean) {
+        if (!eligible || closed || backgroundNetwork != null || screen() != true ||
+            (ends != null && ends <= now()) || !safe(supported))
+            throw DeviceLinkFailure("foreground_required")
+        backgroundEnds = ends; backgroundNetwork = network; support = supported
+        continueWhileLocked = keepWhileLocked
+    }
+    @Synchronized fun retainAuthenticatedChannel(epoch: Long, networkId: String, id: String) {
+        if (!continueWhileLocked || !current(epoch, networkId) || retainedChannel != null)
+            throw DeviceLinkFailure("foreground_required")
+        retainedChannel = id
+    }
+    @Synchronized fun releaseChannel(id: String) {
+        if (retainedChannel != id) return
+        retainedChannel = null
+        backgroundCurrent(screen())
+    }
+    @Synchronized fun withdrawBackground() {
+        if (backgroundNetwork != null) sequence++
+        backgroundEnds = null; backgroundNetwork = null; support = { false }
+        continueWhileLocked = false; retainedChannel = null
+    }
 
     @Synchronized
     fun observe(resumed: Boolean, focused: Boolean, interactive: Boolean,
                 unlocked: Boolean, networkId: String?): Long {
         val observation = listOf(resumed, focused, interactive, unlocked, networkId)
-        if (last != observation) sequence++
+        val running = backgroundRead
+        if (running && (networkId != backgroundNetwork ||
+            ((!interactive || !unlocked) && retainedChannel == null))) withdrawBackground()
+        // Focus/visibility observations remain visible to UI, but cannot replace
+        // the transport epoch of the SAME proved, service-supported READ owner.
+        if (last != observation && !running) sequence++
         last = observation
         network = networkId
         eligible = !closed && resumed && focused && interactive && unlocked && networkId != null
         return sequence
     }
 
-    @Synchronized fun current(epoch: Long, networkId: String): Boolean =
-        !closed && eligible && epoch == sequence && networkId == network
+    @Synchronized fun current(epoch: Long, networkId: String, channelId: String? = null): Boolean {
+        val screenState = screen()
+        val running = backgroundCurrent(screenState)
+        return !closed && epoch == sequence && networkId == network &&
+            ((screenState == true && (running || eligible)) ||
+                (running && channelId != null && channelId == retainedChannel))
+    }
 
-    @Synchronized fun close() { closed = true; eligible = false; sequence++ }
+    // Keep the original accept worker parked across screen changes. Each new
+    // socket still needs current() without a channel identity before TLS.
+    @Synchronized fun listenerCurrent(epoch: Long, networkId: String): Boolean {
+        val screenState = screen()
+        val running = backgroundCurrent(screenState)
+        return !closed && epoch == sequence && networkId == network &&
+            (running || (eligible && screenState == true))
+    }
+
+    @Synchronized fun close() { withdrawBackground(); closed = true; eligible = false; sequence++ }
 }
 
 class DeviceLinkFrame(val kind: Int, val payload: ByteArray) {

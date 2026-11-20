@@ -10,11 +10,17 @@ final class AndroidForegroundObservation {
     required this.unlocked,
     required this.visible,
     required this.network,
+    this.backgroundRead = false,
   });
 
   final int sequence;
   final bool resumed, focused, interactive, unlocked, visible;
   final String? network;
+  final bool backgroundRead;
+  bool get backgroundEligible =>
+      backgroundRead && interactive && unlocked && network != null;
+  bool canContinueBackground({required bool whileLocked}) =>
+      backgroundEligible || (whileLocked && backgroundRead && network != null);
   bool get eligible =>
       visible &&
       resumed &&
@@ -92,7 +98,8 @@ final class _OwnedPreparation implements AndroidAccessPreparation {
   }
 }
 
-/// Foreground lifetime only. This class cannot create a Session or execute tools.
+/// Original runtime lifetime with optional Native-supported question READ in
+/// background. This class cannot create a Session or execute tools.
 final class AndroidForegroundAccess {
   AndroidForegroundAccess({required Duration Function() elapsed})
       : _elapsed = elapsed;
@@ -105,23 +112,37 @@ final class AndroidForegroundAccess {
   Future<void>? _closing;
   Future<void>? _suspending;
   Duration? _expires;
+  bool _untilAppStops = false;
   Duration? _lastTime;
   String? _network;
   int _generation = 0;
   bool _disposed = false;
   bool _clockInvalid = false;
+  bool _allowBackgroundRead = false;
+  bool _continueWhileLocked = false;
+  bool get _runningEligible => _allowBackgroundRead
+      ? _observation?.canContinueBackground(
+              whileLocked: _continueWhileLocked) ==
+          true
+      : _observation?.eligible == true;
 
   AndroidAccessPhase get phase => _phase;
   int get generation => _generation;
-  Duration get remaining {
+  Duration? get remaining {
     if (!_timeValid()) return Duration.zero;
+    if (_untilAppStops) return null;
     return _expires! - _elapsed();
   }
 
   bool get acceptsNew =>
+      _observation?.interactive == true &&
+      _observation?.unlocked == true &&
+      allowsAuthenticatedUse;
+
+  bool get allowsAuthenticatedUse =>
       !_disposed &&
       _phase == AndroidAccessPhase.ready &&
-      _observation?.eligible == true &&
+      _runningEligible &&
       _observation?.network == _network &&
       _timeValid();
 
@@ -132,7 +153,8 @@ final class AndroidForegroundAccess {
     }
     if (_clockInvalid) return false;
     _lastTime = now;
-    return _expires != null && now < _expires!;
+    final expiry = _expires;
+    return _untilAppStops || (expiry != null && now < expiry);
   }
 
   void observe(AndroidForegroundObservation next) {
@@ -143,9 +165,15 @@ final class AndroidForegroundAccess {
         _phase == AndroidAccessPhase.recovery) {
       return;
     }
-    if (next.withdraws || next.network != _network || !_timeValid()) {
+    final runningBackground =
+        _allowBackgroundRead && _phase == AndroidAccessPhase.ready;
+    if ((runningBackground
+            ? !next.canContinueBackground(whileLocked: _continueWhileLocked)
+            : next.withdraws) ||
+        next.network != _network ||
+        !_timeValid()) {
       unawaited(disable());
-    } else if (!next.eligible) {
+    } else if (!next.eligible && !runningBackground) {
       // Pending enable cannot survive a lost local decision surface.
       if (_phase == AndroidAccessPhase.preparing) {
         unawaited(disable());
@@ -170,13 +198,17 @@ final class AndroidForegroundAccess {
   }
 
   Future<void> enable(AndroidAccessPreparation Function(int generation) begin,
-      {Duration duration = const Duration(hours: 8)}) async {
+      {Duration? duration = const Duration(hours: 8),
+      bool allowBackgroundRead = false,
+      bool continueWhileLocked = false}) async {
     if (_disposed ||
         _clockInvalid ||
         _phase != AndroidAccessPhase.off ||
+        ((continueWhileLocked || duration == null) && !allowBackgroundRead) ||
         _observation?.eligible != true ||
-        duration <= Duration.zero ||
-        duration > const Duration(hours: 8)) {
+        (duration != null &&
+            (duration <= Duration.zero ||
+                duration > const Duration(hours: 8)))) {
       throw StateError('android_access_unavailable');
     }
     final now = _elapsed();
@@ -184,7 +216,10 @@ final class AndroidForegroundAccess {
       throw StateError('android_access_unavailable');
     }
     _lastTime = now;
-    _expires = now + duration;
+    _allowBackgroundRead = allowBackgroundRead;
+    _continueWhileLocked = continueWhileLocked;
+    _untilAppStops = duration == null;
+    _expires = duration == null ? null : now + duration;
     _network = _observation!.network;
     await _prepare(begin);
   }
@@ -248,7 +283,9 @@ final class AndroidForegroundAccess {
 
   /// Called by the owning timer; observing an expired authority never renews it.
   Future<void> checkDeadline() =>
-      _expires != null && !_timeValid() ? disable() : Future<void>.value();
+      (_expires != null || _untilAppStops) && !_timeValid()
+          ? disable()
+          : Future<void>.value();
 
   Future<void> disable() {
     if (_closing != null) return _closing!;
@@ -259,6 +296,7 @@ final class AndroidForegroundAccess {
     _generation++;
     _phase = AndroidAccessPhase.draining;
     _expires = null;
+    _untilAppStops = false;
     final preparation = _preparation;
     preparation?.cancel();
     _resources?.withdraw();

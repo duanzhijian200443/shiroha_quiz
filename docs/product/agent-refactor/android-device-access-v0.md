@@ -12,7 +12,10 @@ installation/network authorization. This bounded loop does not complete Android 
 ## 1. Scope and authority
 
 One normally used Codex client reaches one explicitly selected Android Shiroha
-installation over a foreground LAN connection. Results belong to that phone's
+installation over a user-enabled LAN connection. Pairing and preparation
+require foreground focus. The selected Debug installation may keep a proved,
+pure question READ session running in the background under section 5; other
+policy combinations retain foreground-only admission. Results belong to that phone's
 database, not a Windows database awaiting synchronization. The App remains the
 sole business writer. Windows limited development use stays in maintenance; its
 credential, pairing, relay and admission paths are unchanged. Windows G0/HALT and
@@ -25,7 +28,7 @@ Review, direct-policy transactions and reconciliation. [Application
 capabilities](application-capabilities.md), [B0](../../architecture/b0-shiroha-backup-restore.md)
 and [ARCHITECTURE](../../../ARCHITECTURE.md) retain their ownership.
 
-Excluded: background receipt, foreground services, WorkManager, keepalive,
+Excluded: background STAGE/file/statistics access, unattended receipt, WorkManager, keepalive,
 durable request queues, bidirectional synchronization, cloud question storage,
 hosted ChatGPT, new study/analytics/exam/StudyPlan tools, image/table submissions,
 OCR activation, arbitrary file paths and external COMMIT/DESTRUCTIVE.
@@ -145,13 +148,13 @@ Daily enable reads the current exact association only after explicit local
 action, obtains fresh same-channel evidence and uses the original P15/P0
 existing-credential confirmation. No repeated fingerprint comparison is required
 for an intact pairing. Verified proof and its original channel settlement
-precede finite Enable; only then may a fresh business connection be admitted.
+precede Enable; only then may a fresh business connection be admitted.
 Opening a page or reading saved state does not hydrate authentication.
 Preparation is bounded to 120 seconds; the actual P15 proof keeps its existing
 maximum 30-second window.
 
 An enable period is at most eight hours from the explicit action, shortened by
-credential validity, foreground loss, revoke or other limits. Repeating enable
+credential validity, lifecycle withdrawal under section 5, revoke or other limits. Repeating enable
 does not renew it. The design permits one selected active desktop association;
 same-name devices never auto-select or fail over. The adapter keeps the original
 device and Profile even when an address now belongs to another phone.
@@ -170,7 +173,7 @@ arguments. This local connect action does not repeat enrollment or authorize
 business. The helper is not a background polling service or a second writer.
 
 The original phone P15/P0 owner verifies the proof on its original live channel,
-then joins that channel's settlement before finite Enable. The helper must also
+then joins that channel's settlement before Enable. The helper must also
 settle its original connection. Only after the phone reports enabled may the
 normal Codex client start/restart its business adapter. The business connection
 performs fresh TLS, HELLO(business), current-association and access checks before
@@ -188,7 +191,7 @@ sequenceDiagram
   User->>Helper: Connect to the existing pinned phone/Profile
   Helper->>Phone: Fresh TLS and HELLO(enable-proof); original P15 proof
   Note over Helper,Phone: Verify same-channel proof; settle original proof connection
-  Note over Phone: Original owner enables finite access
+  Note over Phone: Original owner enables the selected access period
   User->>Codex: Start or restart the configured MCP server
   Codex->>Adapter: Launch business adapter
   Adapter->>Phone: Fresh TLS and HELLO(business)
@@ -219,7 +222,7 @@ review; direct requires a separate explicit action after generation is enabled.
 Returning to READ removes STAGE/proposalMetadata and restores confirm. Policy
 changes withdraw old access synchronously and join its owners before CAS;
 failure leaves access off. Saving never enables access: the user follows the
-original finite Enable/proof sequence again.
+original Enable/proof sequence again.
 The separate statistics action uses that same owner and close/CAS sequence to
 change only `studyStatistics`, preserving all existing scopes, categories and
 generation choices. It defaults off. External boundary §16 and MCP §19.1 own
@@ -255,7 +258,7 @@ Four independent conditions must remain separate in code and UI:
 | Condition | Persistence | Sufficient by itself? |
 |---|---|---|
 | Saved Grant / generation preference | Existing SQLite v35 | No |
-| Current finite access enabled | Memory only | No |
+| Current access enabled | Memory only | No |
 | Exact connection authenticated | Memory only | No |
 | Current invocation and release authorized | Revalidated per call | Only for that operation |
 
@@ -266,11 +269,60 @@ new direct batch; original-key lifecycle query determines the saved result.
 
 ## 5. Foreground and lifecycle
 
-Business admission requires all of: Flutter resumed, native Activity resumed,
+Pairing, initial Enable proof and foreground-only business admission require all of: Flutter resumed, native Activity resumed,
 window focus, interactive screen, unlocked Keyguard, unchanged selected network,
-and current finite enable/association/policy epoch. Unknown or contradictory
+and current enable/association/policy epoch. Unknown or contradictory
 observations deny. Native first closes input/output admission, then informs
 Dart; stale observation generations never restore old connections.
+
+The bounded background exception applies only to a saved grant containing READ
+alone, questionContent alone and bank scopes (or its original allContent scope).
+It does not grant background STAGE, file reading or statistics, nor rewrite a
+wider saved policy. The original Application P15/P0 proof and proof-channel
+settlement must finish while foreground-eligible before Native activates this
+exception on the same link/network and original access period.
+
+The phone user selects a duration before Enable. Each new selection starts at
+30 minutes. The slider offers 5, 15 and 30 minutes to eligible policies.
+Pure question READ also offers 1, 2, 4 and 8 hours and, at the right end,
+**While the app is running**. Timed periods use the deadline measured from the
+local action. The app-runtime choice is memory-only and has no scheduled access
+expiry while the original engine and foreground service remain live, including
+in the background. It still needs the original P15/P0 proof, visible Stop action,
+current policy, same selected network and applicable screen rules. It expires
+with the original task, engine or service. The lock option remains a separate
+choice. Pairing, preparation, certificate validity, heartbeat, operation and
+settlement limits still apply.
+
+Before enabling, the user may explicitly select **Continue this question READ
+while locked** for this period. It is off by default on each Enable and is
+unavailable for other permission combinations. Lock or screen-off may then
+retain only the one business channel that completed authentication and READY
+while the screen was interactive and unlocked. A pending proof, pending
+business handshake or period with no authenticated channel cannot survive that
+transition. The Native gate binds continuation to the original channel and
+rejects new TLS/business admission while locked or non-interactive. If the
+retained channel closes while locked, its Enable is withdrawn and unlock cannot
+restore it. No deadline, policy or scope changes. Unknown screen observations
+deny access. The ongoing notification describes the selected behavior and
+retains its stop action.
+
+An app-owned, non-exported `connectedDevice` foreground service supports that
+original runtime; it creates no engine, credential, Grant, Session or owner.
+Notification permission/visibility and actual service promotion are checked
+before PREPARING and before the 120-second preparation and any selected access
+clock start. Denial, disabled notifications or start failure refuses
+background READ without silently falling back or repeatedly prompting. The
+ongoing notification has a stop-access action. Native rechecks service support,
+screen and Keyguard state at the transport gate, independently of delayed Flutter
+events. Service loss/notification withdrawal, owner disposal, expiry, network
+change or explicit stop withdraws admission first. Lock does so unless the
+original channel meets the opt-in conditions above. The owner then joins the
+original resources. Failed business settlement also withdraws the background
+Enable and drains its original resources and service while retaining
+RECOVERY_REQUIRED. Ending the service never asserts clean settlement.
+It is non-sticky, stops with its task, and cannot restore volatile Enable after
+process/engine death. No wake lock, battery exemption or automatic retry exists.
 
 States: OFF, PREPARING, READY, SUSPENDED, DRAINING, RECOVERY_REQUIRED.
 SUSPENDED preserves the unexpired enable intent only; its old connection is
@@ -286,13 +338,14 @@ section 8 owns their distinct restart responsibilities and evidence requirements
 | Explicit enable | Proof controls only | PREPARING; original bounded operation | Fresh proof and Enable |
 | Leave pending setup view | Deny | Cancel original operation; join late acquisition | Explicit new action |
 | Navigate after READY | Allowed under current checks | Settings is not owner | No new action |
-| Dialog/notification shade/focus loss | Deny unreleased output and new work | SUSPENDED, cancel/close connection | Fresh connection, same remaining period |
+| Dialog/notification shade/focus loss after READY | Proved background question READ continues under all other original checks; other policies deny | Background READ retains original channel/epoch/deadline; others SUSPENDED and close | No renewal/replay; foreground-only policies need a fresh connection |
 | Focused split screen | Allowed if every condition holds | Current authority | Normal |
-| Unfocused split screen/PiP | Deny | SUSPENDED | Regain focus and authenticate |
-| onStop/hidden/paused/detached | Deny | Revoke finite enable; DRAINING | Explicit enable |
-| Lock/non-interactive screen | Deny even before Flutter update | Revoke and drain | Unlock does not enable |
+| Unfocused split screen / normal Home background | Proved background question READ only | Original channel and deadline, no renewal | Foreground-only policies retain their suspend/revoke behavior |
+| Owner/engine detached or destroyed | Deny | Revoke Enable; DRAINING | Explicit enable; no replacement engine |
+| Lock/non-interactive screen, default or no authenticated channel | Deny even before Flutter update | Revoke and drain | Unlock does not enable |
+| Lock/non-interactive screen, opt-in with original authenticated question READ | Only the original channel may continue READ | Same Session, network, scope and deadline. Losing that channel revokes and drains | No new connection while locked or automatic restoration after revocation |
 | Network/interface/address change | Deny | Revoke old access and connection | Update hint, explicit enable |
-| Single connection loss, same network | Deny on that channel | Cancel that channel; finite enable may remain | Fresh auth, no replay |
+| Single connection loss, same network while unlocked | Deny on that channel | Cancel that channel; current Enable may remain | Fresh auth, no replay |
 | Switch off | Deny synchronously | Withdraw before asynchronous drain | Explicit enable |
 | Revoke | Deny synchronously | Original Grant/association CAS and drain | Explicit recovery/re-pair if applicable |
 | Expiry | Deny | No renewal; drain to OFF | Explicit enable |
@@ -307,7 +360,8 @@ There is no atomic Native/Dart/SQLite transition and no promise that Android
 delivers every callback. Bytes already released to TLS/OS cannot be recalled.
 
 Short settlement of an admitted transaction is not permission to accept a
-background task. No Service/WorkManager/keepalive/queue is introduced.
+background task outside this READ exception. The service supports only this
+original runtime; no WorkManager/keepalive/durable queue is introduced.
 
 ## 6. Credentials and storage
 
@@ -376,7 +430,7 @@ existing negotiated protocol, Shiroha profile 2, Submission 1, current Proposal 
 Origin / Receipt codecs and SQLite v35. No automatic protocol/TLS downgrade.
 
 TLS authentication precedes HELLO and current-association/runtime checks.
-For purpose=business, READY requires completed finite Enable and fresh business
+For purpose=business, READY requires completed Enable and fresh business
 channel authentication; only that READY permits MCP negotiation. Pairing and
 enable-proof stay control-only and never become business channels after their
 completion. Declaring a purpose grants no corresponding permission. Section 3
@@ -416,7 +470,7 @@ business tools. All identifiers and fingerprints are non-secret selectors.
 - `proof-complete`: type, connectionId, clientNonce, serverNonce, profileId,
   associationRevision, settlementNonce (fresh 32-byte unpadded base64url).
   This is sent only after the original P15/P0 operation.
-  It is neither business READY nor finite Enable.
+  It is neither business READY nor Enable.
 - `closing`: type, connectionId, clientNonce, serverNonce, settlementNonce. The helper sends this
   bound acknowledgement and TLS close-notify, closes its original connection
   and retires its original temporary key owner. The phone requires the matching
@@ -458,8 +512,16 @@ or converted into a user cancellation.
 
 This phone-initiated sequence requires the corresponding Profile 3 Adapter and
 Link support. Earlier peers reject the added direction and retain failed or
-unknown settlement. Profile 2 and proof-channel closing retain their existing
-contracts.
+unknown settlement. On local withdrawal, an established Profile 2 channel
+immediately loses admission on both streams. If no native write is queued or
+running, Native gives the original Dart owner up to five seconds to start
+socket close before releasing its pending read. A missed close deadline reports
+unknown settlement. No Profile 2 control exchange is added. Independent I/O or
+resource failures and an unreleased response still block clean settlement.
+When Native has confirmed a submitted Profile 2 ping or pong write, the original
+transport joins that write even if the success arrives after Dart withdrawal.
+This completion does not admit another frame or acknowledge any business output.
+Proof-channel closing is unchanged.
 Both peers stop producing new heartbeat requests during shutdown. They join
 already submitted control writes and consume the one matching outstanding pong
 before sending their final closing/closed frame. Incoming pings receive their
@@ -530,9 +592,9 @@ heartbeats or a new frame never renews access or an original business deadline.
   one absolute 5-second output budget; heartbeats cannot hide a stalled writer.
 - Original READ/STAGE and manual-decision timers retain their existing owners
   and start points. A legacy confirmation wait can therefore last beyond a
-  frame's body timeout while bounded heartbeats continue. Background/focus loss,
-  switch-off or failed settlement still closes the link; heartbeats never keep
-  a suspended/background runtime alive or clear an unknown write outcome.
+  frame's body timeout while bounded heartbeats continue. Lifecycle withdrawal
+  under section 5, switch-off or failed settlement still closes the link;
+  heartbeats neither grant background authority nor clear an unknown write outcome.
 
 These rules define the pending runtime scheduling, not an implemented heartbeat
 codec or a new business schema. Exact connection-bound heartbeat control encoding
@@ -579,11 +641,20 @@ three separate owners:
 | Desktop adapter | End the old forwarding attempt and settle its original streams/socket. A later client-launched instance verifies the same pinned phone/Profile and negotiates a fresh link. It neither relaunches itself nor replays tool input. |
 | Codex / user | Start a new MCP server session using a restart/reconnect action actually verified for that client. Where unavailable, completely exit/reopen the client after original settlement. No assumption of automatic restart, configuration rewrite or re-pairing. |
 
-For focus-only suspension with clean settlement, a new authenticated connection
-may consume the same remaining enable period, without renewal. Background, lock,
-expiry or other withdrawal instead requires section 3's explicit access/proof
-sequence before starting the new business adapter. Restored phone focus or a
-visible cached tool list is not evidence of a usable Codex connection.
+Under [section 5's bounded exception](#5-foreground-and-lifecycle), pure question
+READ that completed the original P15/P0 proof may stay in the background with
+the same original connection and authorization while service support remains
+valid, the screen satisfies section 5's default or opt-in conditions, the selected
+network is unchanged and the original access period remains valid. Background alone
+requires no new Enable/proof or client restart for that continuing connection.
+Other permission combinations retain the original foreground rules: focus-only
+suspension with clean settlement permits a new authenticated connection using
+only the same remaining enable period, whereas background withdrawal requires
+section 3's explicit access/proof sequence before a new business adapter. Lock
+without eligible continuation, expiry, network change, switch-off, owner failure or loss of required service
+support still withdraw access; fresh access requires original settlement and
+the explicit access/proof sequence, never automatic restoration. Restored phone
+focus or a visible cached tool list is not evidence of a usable Codex connection.
 
 A supported client record must identify its actual version and demonstrated
 recovery action. Automatic recovery is a claim only for the exact combination
@@ -653,6 +724,21 @@ stages, durations, byte counts and App diagnostic IDs; no full Profile, key,
 fingerprint, IP, submissionKey, query, content or unsafe exception is logged.
 Public address/fingerprint display is confined to explicit local connection UI.
 
+The Android transport's Profile 2 close may emit one best-effort settlement
+diagnostic through the pure-Dart `LogWriter` seam after settlement completes:
+fixed stage codes, write counts and the first failure category, within the
+limits above. When the original Native channel close replies successfully,
+its optional diagnostic records the first withdrawal, socket close request
+and start, close call and read failure in Native observation order. Dart records
+its own monotonic close and read observations in the same diagnostic. The Native
+close call follows the Dart close latch; the two observation clocks are not
+compared. Missing diagnostics carry no settlement meaning.
+The seam carries no platform, persistence or authority
+dependency, and logging never owns or changes connection settlement. The
+transport's exact supplied-source import gate admits only this added
+observability import; every other allowed import and all authority/lifecycle
+protections remain unchanged.
+
 ## 10. Permissions and daily interaction
 
 Main Manifest declares INTERNET and ACCESS_NETWORK_STATE. Follow actual target
@@ -660,6 +746,17 @@ SDK local-network rules: Android 17 / target 37 requires ACCESS_LOCAL_NETWORK;
 older targets do not gain a speculative permission request. No lowering target
 SDK to bypass admission. Permission denial/revoke keeps access off; no prompt loop
 or alternate egress path. Record actual OS/target SDK in device evidence.
+
+The Debug manifest additionally declares FOREGROUND_SERVICE,
+FOREGROUND_SERVICE_CONNECTED_DEVICE, CHANGE_NETWORK_STATE (the connectedDevice
+network prerequisite; no network-changing API is invoked) and POST_NOTIFICATIONS.
+The service is enabled only by the explicit READ validation build flag; ordinary
+Debug disables it and Release has no service/permission declarations. Android
+does not require POST_NOTIFICATIONS to start an FGS, but this product requires
+its normal notification and stop control to remain visible for background READ.
+The permission dialog is handled before the original preparation action; returning
+from it must regain actual foreground focus. The existing API 29 admission and
+original TLS/Pin/association/Grant checks remain unchanged.
 
 Reuse the external Agent settings body: current phone/computer labels and short
 identities, access switch with actual status/expiry, default drafts/direct toggle,
@@ -670,10 +767,13 @@ existing draft inbox, folded first-connection/address/diagnostic controls.
 | Not paired | First local connection |
 | Access off | Saved policy is not enablement; user may enable |
 | Verifying connection | PREPARING; complete the local desktop proof action or cancel; no business access yet |
-| Enabled, waiting for Codex | Finite enable, no business channel; start/restart the configured server as in section 8 |
-| Connected | Foreground and current auth hold |
-| Temporarily unfocused | Suspended; regain focus, settle the old link and recover the client session under section 8 |
-| Closed by background/lock/network | Explicit enable required |
+| Enabled, waiting for Codex | Current Enable, no business channel; start/restart the configured server as in section 8 |
+| Connected | Current auth and the applicable foreground/background READ checks hold |
+| Temporarily unfocused, foreground-only policy | Suspended; regain focus, settle the old link and recover the client session under section 8 |
+| Connection duration | Select before Enable. Default is 30 minutes. Only pure question READ can select While the app is running |
+| Background question READ | Original access period continues with visible notification; no scope change or extension |
+| Continue this question READ while locked | Optional for this Enable. Only an already-authenticated connection can continue. The notification retains Stop |
+| Closed by lock without continuation, network/service loss, or background under other policies | Explicit enable required |
 | Connection needs checking | Fixed safe diagnosis, never a false connected badge |
 
 Direct confirmation explains that later NEW batches may enter this phone's
@@ -707,10 +807,15 @@ not real cross-device LAN proof; no row requires OCR.
 | Commit then lost reply | Query original key, one durable result, no replay | D+R |
 | Query absent while unsettled | Unknown, never automatic retry | D |
 | Navigate after ready / leave pending setup | Preserve ready / cancel original pending operation | D+E+R |
-| Dialog, notification shade, split screen | Suspend when unfocused, no deadline renewal | D+E+R |
-| Successful READ, focus-only loss, return, next Codex call | Actual version-bound server restart/reconnect or proven automatic recovery; fresh link/MCP, same remaining enable time, no write replay | D+E+R |
+| Dialog, notification shade, split screen after proved pure READ | Original connection, authority and deadline remain; no automatic reconnect or new proof | D+E+R |
+| Successful READ, focus-only loss/background, return, next Codex call | Proved pure READ completes under original authority; wider policies retain foreground withdrawal and explicit version-bound restart, no replay | D+E+R |
 | Client lacks automatic stdio restart | Demonstrate supported manual recovery or record unsupported/unverified; cached tool inventory is not success | R |
-| Background/lock | Revoke; explicit foreground enable required | D+E+R |
+| Lock/noninteractive without opt-in or an authenticated business channel | Revoke and settle the original. Unlock does not enable | D+E+R |
+| Opt-in, lock/noninteractive after business READY | Preserve only original READ and deadline. Pending or new connections refuse. Losing the original revokes without automatic reconnect | D+E+R |
+| Service/notification loss, expiry, user stop, network change or original owner death including during lock continuation | Revoke and settle the original. Unlock/return does not re-enable | D+E+R |
+| Slider timed choice, then expiry | Apply the selected limit from local Enable; proof and foreground pauses never renew it | D+E+R |
+| Slider app-runtime choice | Keep proved question READ past the prior timed limit. Stop, original service/task loss or other applicable withdrawal denies and drains. A restart starts OFF | D+E+R |
+| Background service permission/start denied; pending proof loses focus | No Enable, no implicit foreground fallback, late completion cannot restore authority | D+E+R |
 | Network/address switch | Close old authority, verify original identity again | D+R |
 | Kill before/during/after commit | Fresh authority; recover actual durable result | D+E+R |
 | B0/system restore/reinstall | No automatic pairing/direct consent; preserve local facts | D+E; transfer R |
@@ -731,6 +836,13 @@ Activity/Flutter, focus, screen/keyguard and Wi-Fi observations. Ordinary Debug,
 Release, other installations and unsupported platforms retain explicit refusal;
 the foundation's default admission remains closed. Opening settings does not
 enable access or authenticate a connection.
+
+The background question READ changes in section 5 are source/offline scope.
+It is not a supported-device or release claim until the changed artifact's real
+shade, split-focus, Home, in-flight READ, default lock withdrawal and opt-in lock
+continuation, finite expiry, app-runtime duration, stop and service-loss
+behavior and original resource settlement are independently exercised. Historical
+foreground READ evidence cannot prove the changed lifecycle behavior.
 
 An explicit Debug build with `-PandroidReadValidation=true` uses the separate
 `com.example.shiroha_quiz.androidread` installation. Adding
@@ -844,10 +956,17 @@ I/O before replacement. No STAGE settlement behavior is relaxed. The desktop sto
 identity/routing.
 
 The App owns READY access across normal navigation. Leaving preparation cancels
-and joins the original operation. Focus loss closes the original channel and
-may retain only the original remaining enable period; background, lock, network
-change and switch-off withdraw access. Native absolute deadlines start at the
-explicit action, and neither heartbeat nor reconnect extends them. Original
+and joins the original operation. Under [section 5's bounded
+exception](#5-foreground-and-lifecycle), pure question READ that completed the
+original P15/P0 proof may retain the same original connection and authorization
+across focus loss and background while service support is valid, the screen meets
+section 5's default or opt-in conditions, the selected network is unchanged and the original
+access period remains valid. Other permission combinations retain the original
+foreground rules: focus loss closes their original channel and may retain only
+the original remaining enable period; background withdraws their access. Lock
+without eligible continuation, expiry, network change, switch-off, owner failure or loss of required service
+support still withdraw access in all applicable modes. Native absolute deadlines
+start at the explicit action, and neither heartbeat nor reconnect extends them. Original
 Native/Dart resources must actually settle before replacement; failure remains
 RECOVERY_REQUIRED. The existing learning-space/legacy-category bank browser now
 receives its original QuestionListQueryPort for local content comparison, without
@@ -989,7 +1108,7 @@ Shiroha or read its database/settings/B0. The original adapter's identity, TLS,
 slot ownership and close protocol remain authoritative. The design alone does
 not activate a consumer or change the existing seven-tool path. The
 Profile 3 business foundation is separately implemented under MCP §19.1.
-Target-app authorization, finite Enable and original owner settlement are retained.
+Target-app authorization, Enable and original owner settlement are retained.
 
 The explicit `tool/link` Android-only source consumer adds normal initialization
 through the original adapter and optional `SHIROHA_UNIFIED_LINK` Profile 3
@@ -1012,7 +1131,7 @@ Grant nor Enable; old evidence gaps remain diagnostic and v1 is not migrated.
 The unified contract §4.3 owns its records, locks and interruption rules.
 New pairing remains UNCLAIMED/PREPARING until original P15/P0, credential
 persistence and resource settlement complete; LINK_OWNED precedes the separate
-finite Enable/business lease. Actual #356 slots alone use one-time retirement.
+Enable/business lease. Actual #356 slots alone use one-time retirement.
 Its short control lock and durable RETIRE_INTENT do not take the active adapter
 resource lock; original settlement precedes RETIRE_PREPARED and the old App
 retired transaction. Old records remain fenced across restart and B0.
@@ -1036,8 +1155,8 @@ are future requirements. Candidate evidence in
 new-installation, full recovery or the remaining native/client acceptance.
 
 Phone-embedded official Secure MCP Tunnel is a separately admitted, unproved
-combination. It does not inherit desktop pairing or remove the LAN mode's
-foreground/focus restrictions. A new finite remote mode would require proven
+combination. It does not inherit desktop pairing or the LAN mode's bounded
+background READ exception. A new finite remote mode would require proven
 caller binding, epoch isolation, visible bounded lifecycle and lawful platform
 background behavior; SDK Stop is not evidence of settled business work.
 

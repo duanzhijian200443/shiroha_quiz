@@ -1311,16 +1311,21 @@ The coordinator delegates the unchanged sequence to P0: unpaired ->
 requestPending -> approvedPendingProof -> pairedDisabled ->
 enabledForCurrentRuntime. Local approval still requires separate credential
 possession proof. Invalid proof stays approvedPendingProof. Enablement selects
-one Profile and a finite positive duration within P0's existing thirty-minute
-candidate ceiling.
+one Profile and by default a finite positive duration within P0's existing
+thirty-minute candidate ceiling.
 MCP §17.12's separately authorized normal Windows App-owned development
 composition explicitly supplies an eight-hour ceiling and guided default. Its
 first-party Enable passes the absolute deployment deadline through the same
 coordinator to P0. P0 clamps its expiry at the original state transition, after
 policy reads, so a delayed read cannot renew that ceiling; an elapsed ceiling
-rejects. The page shows that actual deadline. Other compositions keep the thirty-minute
-default; no automatic renewal, persisted Enable or revived Session/approval is
-introduced. Identity-proof and STAGE confirmation windows are unchanged.
+rejects. The page shows that actual deadline. The admitted Android consumer may
+select a longer finite limit or app-runtime Enable only for proved pure question
+READ under the [Android lifecycle contract §5](android-device-access-v0.md#5-foreground-and-lifecycle).
+Only that composition can Enable without a scheduled expiry. It remains bound
+to the original runtime, current policy and Native service. Other compositions
+keep their existing limits. Automatic renewal, persisted Enable and resumed
+Session/approval remain prohibited. Identity-proof and STAGE confirmation windows
+are unchanged.
 Authentication requires that selected Profile's Principal;
 it adds no READ/STAGE. Saving P11 policy never enables a Profile. Grantless
 credential-proven Sessions release no business content and cannot bind P8.

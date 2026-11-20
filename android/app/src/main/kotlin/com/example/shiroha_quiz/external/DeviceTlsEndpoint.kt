@@ -124,7 +124,7 @@ internal class DeviceTlsEndpoint(private val keys: DeviceCredentials, private va
                         action: (SSLSocket, String, Long) -> T): T {
         keys.requireAuthorized()
         val server = synchronized(this) {
-            if (closed || !gate.current(epoch, network)) throw DeviceLinkFailure("unavailable")
+            if (closed || !gate.listenerCurrent(epoch, network)) throw DeviceLinkFailure("unavailable")
             listener ?: throw DeviceLinkFailure("unavailable")
         }
         val socket = server.accept() as SSLSocket

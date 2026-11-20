@@ -134,6 +134,7 @@ final class McpVnextAppIntegration {
     bool enableStageApprovalWait = false,
     bool enableWithoutRetainedChannel = false,
     Duration maxEnableDuration = const Duration(minutes: 30),
+    bool allowRuntimeEnable = false,
     McpVnextAppTransport Function(ExternalTrustCoordinator coordinator,
             VnextMcpAppComposition binding)?
         transport,
@@ -159,7 +160,8 @@ final class McpVnextAppIntegration {
               credentials: boundary,
               clock: clock,
               mintProfileId: mintId,
-              maxEnableDuration: maxEnableDuration);
+              maxEnableDuration: maxEnableDuration,
+              allowRuntimeEnable: allowRuntimeEnable);
         },
         readiness,
         () => null,
