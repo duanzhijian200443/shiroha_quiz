@@ -318,7 +318,9 @@ screen and Keyguard state at the transport gate, independently of delayed Flutte
 events. Service loss/notification withdrawal, owner disposal, expiry, network
 change or explicit stop withdraws admission first. Lock does so unless the
 original channel meets the opt-in conditions above. The owner then joins the
-original resources. Ending the service never asserts clean settlement.
+original resources. Failed business settlement also withdraws the background
+Enable and drains its original resources and service while retaining
+RECOVERY_REQUIRED. Ending the service never asserts clean settlement.
 It is non-sticky, stops with its task, and cannot restore volatile Enable after
 process/engine death. No wake lock, battery exemption or automatic retry exists.
 

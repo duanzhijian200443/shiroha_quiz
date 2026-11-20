@@ -700,6 +700,8 @@ final class AndroidDeviceApp implements AndroidDeviceAccess {
           // business settlement must not become a replaceable native channel.
           _recovery = true;
           _verification?.invalidateAll();
+          // The runtime drain joins this connection, so it must run separately.
+          if (_backgroundRead) unawaited(_disableRuntime());
           rethrow;
         } finally {
           if (identical(_businessTransport, transport)) {
