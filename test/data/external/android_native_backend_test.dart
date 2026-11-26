@@ -21,7 +21,7 @@ final class Calls implements AndroidNativeCalls {
 
 void main() {
   test(
-      'native entry requires the explicit dedicated Debug artifact; no Service',
+      'native entry requires dedicated Debug admission; manifest exposes only non-exported connectedDevice service',
       () {
     expect(File('lib/main.dart').readAsStringSync(),
         isNot(contains('android_device_foundation')));
@@ -54,11 +54,37 @@ void main() {
         proof,
         contains(
             'packageName != BuildConfig.ANDROID_READ_VALIDATION_APPLICATION_ID'));
-    expect(File('android/app/src/main/AndroidManifest.xml').readAsStringSync(),
-        isNot(contains('sharedUserId')));
+    final manifest =
+        File('android/app/src/main/AndroidManifest.xml').readAsStringSync();
+    expect(manifest, isNot(contains('sharedUserId')));
     expect(activity, isNot(contains('DeviceTlsEndpoint')));
-    expect(File('android/app/src/main/AndroidManifest.xml').readAsStringSync(),
-        isNot(contains('<service')));
+    expect('<service'.allMatches(manifest).length, 1);
+    expect(
+        manifest,
+        contains(
+            'android:name="com.example.shiroha_quiz.external.DeviceReadService"'));
+    expect(manifest, contains('android:exported="false"'));
+    expect(manifest, contains('android:stopWithTask="true"'));
+    expect(
+        manifest, contains('android:foregroundServiceType="connectedDevice"'));
+    expect(manifest, contains('android.permission.FOREGROUND_SERVICE'));
+    expect(manifest,
+        contains('android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE'));
+
+    final service = File(
+            'android/app/src/main/kotlin/com/example/shiroha_quiz/external/DeviceReadService.kt')
+        .readAsStringSync();
+    expect(service, contains('START_NOT_STICKY'));
+    expect(service, contains('FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE'));
+
+    final tlsStore = File(
+            'android/app/src/main/kotlin/com/example/shiroha_quiz/external/DeviceHttpTlsStore.kt')
+        .readAsStringSync();
+    expect(tlsStore, contains('KeyStore.getInstance("AndroidKeyStore")'));
+    expect(tlsStore, contains('KeyInfo::class.java'));
+    expect(tlsStore, contains('credentials.seal(pkcs8, "http-leaf-key")'));
+    expect(tlsStore, isNot(contains('engine.')));
+    expect(tlsStore, isNot(contains('FlutterSecureStorage')));
   });
   test('construction and inactive close never acquire Native resources',
       () async {

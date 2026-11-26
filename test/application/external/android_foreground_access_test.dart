@@ -1,22 +1,27 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shiroha_quiz/application/capabilities/capability.dart';
 import 'package:shiroha_quiz/application/external/android_foreground_access.dart';
+import 'package:shiroha_quiz/application/external/external_authorization.dart';
 import '../../composition/android_device_app_test.dart' as app_policy;
 
 AndroidForegroundObservation observation(int sequence,
         {bool focus = true,
         bool resumed = true,
         bool visible = true,
+        bool interactive = true,
         bool unlocked = true,
+        bool backgroundRead = false,
         String? network = 'network-1'}) =>
     AndroidForegroundObservation(
         sequence: sequence,
         resumed: resumed,
         focused: focus,
-        interactive: true,
+        interactive: interactive,
         unlocked: unlocked,
         visible: visible,
+        backgroundRead: backgroundRead,
         network: network);
 
 final class Resources implements AndroidAccessResources {
@@ -302,5 +307,186 @@ void main() {
     now = const Duration(hours: 8);
     expect(access.acceptsNew, isFalse);
     await access.disable();
+  });
+
+  test('androidBackgroundQuestionRead admits pure question READ only', () {
+    final pureScopedRead = ExternalGrantPolicy(
+      permissions: const [CapabilityPermission.read],
+      scopes: [
+        ExternalGrantScope(kind: ExternalTargetKind.bank, targetId: 'Bank A'),
+      ],
+      categories: const [ExternalContentCategory.questionContent],
+    );
+    expect(androidBackgroundQuestionRead(pureScopedRead), isTrue);
+
+    final pureAllContentRead = ExternalGrantPolicy(
+      permissions: const [CapabilityPermission.read],
+      scopes: const [],
+      categories: const [ExternalContentCategory.questionContent],
+      allContent: true,
+    );
+    expect(androidBackgroundQuestionRead(pureAllContentRead), isTrue);
+
+    expect(
+      androidBackgroundQuestionRead(ExternalGrantPolicy(
+        permissions: const [
+          CapabilityPermission.read,
+          CapabilityPermission.stage,
+        ],
+        scopes: const [],
+        categories: const [ExternalContentCategory.questionContent],
+        allContent: true,
+      )),
+      isFalse,
+    );
+    expect(
+      androidBackgroundQuestionRead(ExternalGrantPolicy(
+        permissions: const [CapabilityPermission.read],
+        scopes: const [],
+        categories: const [
+          ExternalContentCategory.questionContent,
+          ExternalContentCategory.studyStatistics,
+        ],
+        allContent: true,
+      )),
+      isFalse,
+    );
+    expect(
+      androidBackgroundQuestionRead(ExternalGrantPolicy(
+        permissions: const [CapabilityPermission.read],
+        scopes: const [],
+        categories: const [
+          ExternalContentCategory.questionContent,
+          ExternalContentCategory.fileContent,
+        ],
+        allContent: true,
+      )),
+      isFalse,
+    );
+    expect(
+      androidBackgroundQuestionRead(ExternalGrantPolicy(
+        permissions: const [CapabilityPermission.read],
+        scopes: [
+          ExternalGrantScope(kind: ExternalTargetKind.file, targetId: 'f1'),
+        ],
+        categories: const [ExternalContentCategory.questionContent],
+      )),
+      isFalse,
+    );
+    expect(
+      AndroidAccessDuration.values.map((d) => d.limit).toList(),
+      const [
+        Duration(minutes: 5),
+        Duration(minutes: 15),
+        Duration(minutes: 30),
+        Duration(hours: 1),
+        Duration(hours: 2),
+        Duration(hours: 4),
+        Duration(hours: 8),
+        null,
+      ],
+    );
+  });
+
+  test(
+      'background pure-question READ supports untilAppStops and continueWhileLocked gating',
+      () async {
+    access.observe(observation(1, backgroundRead: true));
+    await expectLater(
+      access.enable((_) => Preparation(), continueWhileLocked: true),
+      throwsStateError,
+    );
+    await expectLater(
+      access.enable((_) => Preparation(), duration: null),
+      throwsStateError,
+    );
+
+    final p = Preparation(), r = Resources();
+    final work = access.enable(
+      (_) => p,
+      duration: AndroidAccessDuration.untilAppStops.limit,
+      allowBackgroundRead: true,
+      continueWhileLocked: true,
+    );
+    p.complete(r);
+    await work;
+
+    expect(access.phase, AndroidAccessPhase.ready);
+    expect(access.untilAppStops, isTrue);
+    expect(access.boundedRemaining, isNull);
+    expect(access.allowsAuthenticatedUse, isTrue);
+    expect(access.acceptsNew, isTrue);
+
+    access.observe(observation(
+      2,
+      visible: false,
+      resumed: false,
+      focus: false,
+      backgroundRead: true,
+    ));
+    expect(access.phase, AndroidAccessPhase.ready);
+    expect(access.allowsAuthenticatedUse, isTrue);
+    expect(access.acceptsNew, isTrue);
+
+    access.observe(observation(
+      3,
+      visible: false,
+      resumed: false,
+      focus: false,
+      interactive: false,
+      unlocked: false,
+      backgroundRead: true,
+    ));
+    expect(access.phase, AndroidAccessPhase.ready);
+    expect(access.allowsAuthenticatedUse, isTrue);
+    expect(access.acceptsNew, isFalse);
+
+    now = const Duration(hours: 24);
+    await access.checkDeadline();
+    expect(access.phase, AndroidAccessPhase.ready);
+    expect(access.allowsAuthenticatedUse, isTrue);
+
+    access.observe(observation(
+      4,
+      visible: false,
+      resumed: false,
+      focus: false,
+      interactive: false,
+      unlocked: false,
+      backgroundRead: false,
+    ));
+    await access.disable();
+    expect(access.phase, AndroidAccessPhase.off);
+    expect(r.closes, 1);
+    expect(access.allowsAuthenticatedUse, isFalse);
+    expect(access.acceptsNew, isFalse);
+  });
+
+  test(
+      'background READ without continueWhileLocked withdraws immediately on lock',
+      () async {
+    access.observe(observation(1, backgroundRead: true));
+    final p = Preparation(), r = Resources();
+    final work = access.enable(
+      (_) => p,
+      duration: AndroidAccessDuration.thirtyMinutes.limit,
+      allowBackgroundRead: true,
+      continueWhileLocked: false,
+    );
+    p.complete(r);
+    await work;
+
+    access.observe(observation(
+      2,
+      visible: false,
+      resumed: false,
+      focus: false,
+      interactive: false,
+      unlocked: false,
+      backgroundRead: true,
+    ));
+    await access.disable();
+    expect(access.phase, AndroidAccessPhase.off);
+    expect(r.closes, 1);
   });
 }

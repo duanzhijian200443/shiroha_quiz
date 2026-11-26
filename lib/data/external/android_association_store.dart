@@ -24,14 +24,41 @@ final class AndroidAssociationStore
     implements
         ExternalCredentialAssociationStore,
         ExternalCredentialIdentityLookup {
-  AndroidAssociationStore(this.backend, {required int Function() nowUtcMs})
-      : _now = nowUtcMs;
+  AndroidAssociationStore(
+    this.backend, {
+    required int Function() nowUtcMs,
+    this.maxActiveAssociations = 1,
+  }) : _now = nowUtcMs {
+    if (maxActiveAssociations < 1 || maxActiveAssociations > maxRecords) {
+      throw ArgumentError.value(
+        maxActiveAssociations,
+        'maxActiveAssociations',
+        'Must be between 1 and $maxRecords',
+      );
+    }
+  }
+
+  /// Creates an association store bounded to Android HTTP multi-client custody
+  /// (at most 16 concurrent active client profiles, preserving up to 64 total
+  /// records including monotonic revocation tombstones).
+  factory AndroidAssociationStore.forHttp(
+    AndroidAssociationBackend backend, {
+    required int Function() nowUtcMs,
+  }) =>
+      AndroidAssociationStore(
+        backend,
+        nowUtcMs: nowUtcMs,
+        maxActiveAssociations: defaultHttpMaxActiveAssociations,
+      );
+
   final AndroidAssociationBackend backend;
   final int Function() _now;
+  final int maxActiveAssociations;
   Future<void> _tail = Future.value();
   int _epoch = 0, _pending = 0;
   bool _closed = false;
   static const maxRecords = 64, maxBytes = 65536;
+  static const defaultHttpMaxActiveAssociations = 16;
 
   void _guard() {
     if (_closed || !backend.isCurrent) {
@@ -85,8 +112,13 @@ final class AndroidAssociationStore
         credentialFail(ExternalCredentialFailure.dataCorrupt);
       }
       final records = AssociationObjectCodec.decode(bytes);
+      final active = records.where((r) => !r.association.revoked).toList();
       if (records.length > maxRecords ||
-          records.where((r) => !r.association.revoked).length > 1) {
+          active.length > maxActiveAssociations ||
+          records.map((r) => r.association.profileId).toSet().length !=
+              records.length ||
+          active.map((r) => r.association.credentialIdentity).toSet().length !=
+              active.length) {
         credentialFail(ExternalCredentialFailure.dataCorrupt);
       }
       return List.of(records);
@@ -104,6 +136,21 @@ final class AndroidAssociationStore
   ExternalCredentialAssociationSnapshot _snapshot(
           ExternalCredentialAssociation? record) =>
       _AndroidSnapshot(this, record, _epoch);
+
+  /// Returns a monotonic read-only snapshot of all currently active
+  /// (non-revoked) associations, ordered deterministically by profileId.
+  Future<AndroidActiveAssociationsSnapshot> listActive() => _run((lease) async {
+        final active = _read(lease)
+            .where((r) => !r.association.revoked)
+            .map((r) => r.association)
+            .toList()
+          ..sort((a, b) => a.profileId.compareTo(b.profileId));
+        return AndroidActiveAssociationsSnapshot._(
+          this,
+          List.unmodifiable(active),
+          _epoch,
+        );
+      });
 
   @override
   Future<ExternalCredentialAssociationSnapshot> read(String profileId) =>
@@ -171,9 +218,22 @@ final class AndroidAssociationStore
                   revision: 1,
                   revoked: false),
               failure: ExternalCredentialFailure.invalidInput);
-          if (records.any(
-              (r) => !r.association.revoked && r.association.profileId != id)) {
+          if (records.any((r) =>
+              !r.association.revoked &&
+              r.association.profileId != id &&
+              r.association.credentialIdentity == identity)) {
             credentialFail(ExternalCredentialFailure.conflict);
+          }
+          final otherActiveCount = records
+              .where((r) =>
+                  !r.association.revoked && r.association.profileId != id)
+              .length;
+          if (otherActiveCount >= maxActiveAssociations) {
+            credentialFail(
+              maxActiveAssociations == 1
+                  ? ExternalCredentialFailure.conflict
+                  : ExternalCredentialFailure.resourceLimit,
+            );
           }
           if (old != null &&
               !old.revoked &&
@@ -230,6 +290,21 @@ final class AndroidAssociationStore
     _closed = true;
     _epoch++;
     await _tail;
+  }
+}
+
+final class AndroidActiveAssociationsSnapshot {
+  AndroidActiveAssociationsSnapshot._(this._owner, this.records, this._epoch);
+
+  final AndroidAssociationStore _owner;
+  final List<ExternalCredentialAssociation> records;
+  final int _epoch;
+  bool _invalid = false;
+
+  bool get isCurrent {
+    _invalid |=
+        _owner._closed || !_owner.backend.isCurrent || _owner._epoch != _epoch;
+    return !_invalid;
   }
 }
 

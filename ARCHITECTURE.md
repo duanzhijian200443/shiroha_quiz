@@ -109,11 +109,28 @@ Owns physical persistence and external integration:
 
 The Android device-access foundation owns native Keystore operations, protected
 associations, TLS and foreground/network observations through bounded ports.
-It owns no business SQLite or authorization. Keys remain native rather than
-being exported to Dart SecurityContext. The normal root constructs an inactive
-owner; only the explicitly selected Android READ Debug installation registers
-real lifecycle observations and admits local pairing/finite question access.
-Ordinary artifacts retain refusal. The separate native-only validation entry
+It owns no business SQLite or authorization. Legacy `SHAD` keys remain native
+rather than being exported to Dart SecurityContext. The normal root constructs
+an inactive owner; only the explicitly selected Android READ Debug installation
+registers real lifecycle observations and admits local pairing/finite question
+access. Ordinary artifacts retain refusal.
+
+The **Android Streamable HTTP MCP v1** mainline (`docs/product/agent-refactor/android-http-mcp-v1.md`)
+adds Increment H1 alongside that frozen legacy foundation without switching
+default `main.dart` / `MainActivity.kt` UI admission: `ExternalCertificateDer`
+adds optional dynamic private IPv4 SAN and SKI/AKI extensions (preserving legacy
+defaults); `DeviceHttpTlsStore.kt` keeps a non-exportable `AndroidKeyStore`
+Root CA key (reporting actual per-device `KeyInfo` security level) and seals the
+IP-bound Server Leaf PKCS#8 key at rest with AES-256-GCM under `noBackupFilesDir`
+(runtime Dart TLS injection makes no claim of complete memory zeroing);
+non-exported `DeviceReadService.kt` (`connectedDevice`, `START_NOT_STICKY`,
+`stopWithTask="true"`) and `AndroidForegroundAccess` carry pure-question READ
+extended durations (`5m..8h` / `untilAppStops`) and opt-in `continueWhileLocked`
+(admitting only clients already authenticated while unlocked); `AndroidAssociationStore.forHttp`
+(`maxActiveAssociations = 16`) and `AndroidHttpTokenCodec` / `AndroidHttpClientCredentials`
+own multi-client domain-separated SHA-256 Bearer custody, isolated single-client
+revocation, fail-closed whole-Enable withdrawal on durable revoke failure, and
+tombstone-preserving re-issuance. The separate native-only validation entry
 uses the same key/TLS primitives and itself creates no P15 or business authority.
 The admitted App composes original P15/P0, Grant, READ, request-scoped
 FirstPartyStageApproval/P10 and Proposal owners; Native and the desktop adapter
@@ -575,13 +592,17 @@ MCP v0 and the seven-tool business profile remain unchanged.
 
 <a id="unified-access-successor"></a>
 The [unified access and content exchange v1.4 contract](docs/product/agent-refactor/unified-access-and-content-exchange-v1.md)
-is the adopted target design. It replaces the candidate Windows-global host
-topology with independent Shiroha Link for local routing; Windows App remains
-necessary only when Windows is the business target. Profile 3/statistics/Origin
-compatibility is implemented as an explicitly selected shared business foundation
-(MCP §19.1, external boundary §16), with current SQLite v36. Normal six/seven-tool
-roots retain their defaults; no independent Link or real eleven-tool consumer
-is activated by this foundation.
+is now a **FROZEN historical baseline** for its local Shiroha Link / desktop
+adapter route, while its shared Profile 3/statistics/Origin/v36 business
+foundation remains active authority (MCP §19.1, external boundary §16). The
+**Android Streamable HTTP MCP v1** contract (`docs/product/agent-refactor/android-http-mcp-v1.md`)
+is the adopted Android mainline: Increment H1 adds `lib/mcp/android_http_mcp_server.dart`
+exposing Profile 3's exact 9 READ tools over TLS 1.3 Streamable HTTP (supporting
+`2026-07-28` stateless and bounded in-memory `2025-06-18`/`2025-11-25` sessions,
+pre-send `OUTPUT_WITHHELD`, with `studyStatistics`/`fileContent` off by default
+and STAGE deferred to H3) without activating default UI entrypoints (H2). Normal
+six/seven-tool roots retain their defaults; no independent Link or real eleven-tool
+consumer is activated by this foundation.
 Official Secure MCP Tunnel embedded on Android remains an unproved combination.
 Its final remote product gate requires the same phone's ChatGPT browser flow
 without a computer; server-only independence is preliminary evidence. Remote
@@ -1141,7 +1162,8 @@ The focused current contract is
 `docs/architecture/data-path-authority.md`. Legacy worktree-local data is not
 automatically migrated by this boundary.
 
-Android external installation identity and credential-association files use the
+Android external installation identity, credential-association files, and the
+hybrid HTTP TLS store (`noBackupFilesDir/shiroha-external-v1/http/`) use the
 platform no-backup directory through the dedicated Native adapter. This security
 state is not a second business data root and is excluded from B0/system transfer.
 Database, managed files, Proposal and learning data retain AppDataPaths ownership.

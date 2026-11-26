@@ -17,6 +17,7 @@ internal class DeviceFoundationChannel(private val context: Context,
     }
     private var disposed = false
     private val credentials = DeviceCredentials(context, ::admitted)
+    private val httpTls = DeviceHttpTlsStore(context, credentials)
     private val associations = DeviceAssociationFile(context, credentials)
     private val gate = DeviceForegroundGate()
     private val main = Handler(Looper.getMainLooper())
@@ -34,6 +35,7 @@ internal class DeviceFoundationChannel(private val context: Context,
     private var nextLease = 0L
     private var activeToken = 0L
     private var lease: DeviceAssociationFile.Lease? = null
+    @Volatile private var readServiceSession: DeviceReadService.Session? = null
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         if (call.method == "status") {
@@ -63,7 +65,14 @@ internal class DeviceFoundationChannel(private val context: Context,
     private fun handle(call: MethodCall, result: MethodChannel.Result) {
         try {
             // Original-owner close remains available after admission withdrawal.
-            if (call.method !in setOf("associationClose", "linkClose", "linkRelease", "channelClose")) admitted()
+            if (call.method !in setOf(
+                    "associationClose",
+                    "linkClose",
+                    "linkRelease",
+                    "channelClose",
+                    "readServiceStop"
+                )
+            ) admitted()
             when (call.method) {
                 "identity" -> {
                     if (!gate.eligible) throw DeviceLinkFailure("foreground_required")
@@ -126,6 +135,101 @@ internal class DeviceFoundationChannel(private val context: Context,
                     lease = null
                     result.success(true)
                 }
+                "httpCaEnsure" -> result.success(httpTls.ensureCaKey())
+                "httpCaSignTbs" -> {
+                    val tbs = call.argument<ByteArray>("tbs")
+                        ?: throw DeviceLinkFailure("protocol_violation")
+                    try {
+                        result.success(httpTls.signTbsWithCa(tbs))
+                    } finally {
+                        tbs.fill(0)
+                    }
+                }
+                "httpCaStore" -> {
+                    val caDer = call.argument<ByteArray>("caDer")
+                        ?: throw DeviceLinkFailure("protocol_violation")
+                    httpTls.storeCaCertificate(caDer)
+                    result.success(true)
+                }
+                "httpCaRead" -> result.success(httpTls.readCaCertificate())
+                "httpLeafGenerateKey" -> result.success(httpTls.generateAndSealLeafKey())
+                "httpLeafStore" -> {
+                    val ipv4 = call.argument<String>("ipv4")
+                        ?: throw DeviceLinkFailure("protocol_violation")
+                    val expiresAtUtcMs = call.argument<Number>("expiresAtUtcMs")?.toLong() ?: 0L
+                    val leafDer = call.argument<ByteArray>("leafDer")
+                        ?: throw DeviceLinkFailure("protocol_violation")
+                    httpTls.storeLeafCertificate(ipv4, expiresAtUtcMs, leafDer)
+                    result.success(true)
+                }
+                "httpLeafOpen" -> result.success(httpTls.openLeafMaterial())
+                "readServiceStart" -> {
+                    if (!gate.eligible) throw DeviceLinkFailure("foreground_required")
+                    if (readServiceSession != null) throw DeviceLinkFailure("busy")
+                    DeviceReadService.prepareNotifications(context)
+                    if (!DeviceReadService.notifications(context)) {
+                        throw DeviceLinkFailure("notification_permission_required")
+                    }
+                    val readyLatch = java.util.concurrent.CountDownLatch(1)
+                    val readyOk = java.util.concurrent.atomic.AtomicBoolean(false)
+                    val session = DeviceReadService.Session(
+                        ready = { ok ->
+                            readyOk.set(ok)
+                            readyLatch.countDown()
+                        },
+                        withdrawn = { emit("readServiceWithdrawn", mapOf("reason" to "service_stop")) },
+                    )
+                    readServiceSession = session
+                    try {
+                        DeviceReadService.start(context, session)
+                        val completed = readyLatch.await(3, java.util.concurrent.TimeUnit.SECONDS)
+                        if (!completed || !readyOk.get()) throw DeviceLinkFailure("service_start_failed")
+                        val limit = android.os.SystemClock.elapsedRealtime() + 1500
+                        while (!DeviceReadService.runningNotification(context) &&
+                            android.os.SystemClock.elapsedRealtime() < limit
+                        ) {
+                            Thread.sleep(25)
+                        }
+                        if (!DeviceReadService.runningNotification(context)) {
+                            throw DeviceLinkFailure("notification_not_ready")
+                        }
+                        result.success(true)
+                    } catch (e: Exception) {
+                        readServiceSession = null
+                        DeviceReadService.finish(context, session) {}
+                        throw if (e is DeviceLinkFailure) e else DeviceLinkFailure("service_start_failed")
+                    }
+                }
+                "readServiceActivate" -> {
+                    val active = readServiceSession
+                        ?: throw DeviceLinkFailure("connection_closed")
+                    val ends = call.argument<Number>("endsElapsedMs")?.toLong()
+                    val continueWhileLocked = call.argument<Boolean>("continueWhileLocked") == true
+                    active.service?.activated(ends, continueWhileLocked)
+                        ?: throw DeviceLinkFailure("connection_closed")
+                    result.success(true)
+                }
+                "readServiceStop" -> {
+                    val active = readServiceSession
+                    if (active == null) {
+                        result.success(true)
+                    } else {
+                        val stopLatch = java.util.concurrent.CountDownLatch(1)
+                        val stopClean = java.util.concurrent.atomic.AtomicBoolean(false)
+                        DeviceReadService.finish(context, active) { clean ->
+                            if (clean && readServiceSession === active) readServiceSession = null
+                            stopClean.set(clean)
+                            stopLatch.countDown()
+                        }
+                        val finished = try {
+                            stopLatch.await(6, java.util.concurrent.TimeUnit.SECONDS) && stopClean.get()
+                        } catch (_: Exception) {
+                            false
+                        }
+                        if (!finished) throw DeviceLinkFailure("commit_unknown")
+                        result.success(true)
+                    }
+                }
                 else -> result.notImplemented()
             }
         } catch (e: DeviceLinkFailure) { result.error(e.code, e.code, null) }
@@ -142,6 +246,11 @@ internal class DeviceFoundationChannel(private val context: Context,
     fun withdraw() { link?.withdraw() }
     fun dispose() {
         disposed = true; gate.close(); withdraw()
+        readServiceSession?.let { active ->
+            DeviceReadService.finish(context, active) { clean ->
+                if (clean && readServiceSession === active) readServiceSession = null
+            }
+        }
         control.execute {
             try { link?.close(); lease?.close() } catch (_: Exception) { /* Retain failed custody until process exit. */ }
             io.shutdown(); control.shutdown()

@@ -1,8 +1,29 @@
 # Agent Runtime v1 / External Agent / MCP vNext Contract Index
 
+<a id="android-http-mcp-v1"></a>
+**Adopted Android mainline — [Android Streamable HTTP MCP v1](android-http-mcp-v1.md):**
+Standard Streamable HTTP over private-IPv4 TLS 1.3 (`lib/mcp/android_http_mcp_server.dart`,
+pinned `mcp_dart: 2.4.0`) supersedes the local Link/Adapter (`SHAD`) topology as
+the primary Android route. Increment **H1** implements the hybrid TLS/foreground
+native foundation (`ExternalCertificateDer` dynamic private IPv4 SAN + SKI/AKI,
+`DeviceHttpTlsStore.kt`, non-exported `connectedDevice` `DeviceReadService.kt`),
+multi-client Bearer Token custody (`AndroidAssociationStore.forHttp` max 16,
+domain-separated SHA-256 + constant-time comparison, isolated per-client revoke
+with fail-closed whole-Enable withdrawal, tombstone-preserving re-issuance),
+pure-question READ extended durations (`5m..8h`/`untilAppStops`) and opt-in
+`continueWhileLocked`, and Profile 3's exact 9 READ tools (`studyStatistics` and
+`fileContent` off by default; STAGE deferred to **H3**; default UI entry switch
+deferred to **H2**). Codex is the primary supported round-1 client; WorkBuddy
+and Qoder are labeled per verified PoC status; Tailscale is deferred; `NO_PROXY`
+is on-demand.
+
 <a id="unified-access-design"></a>
 The [unified access and content exchange v1.4 target](unified-access-and-content-exchange-v1.md)
-is adopted as a design-only canonical contract. It defines independent local
+local Shiroha Link route and [Android device access v0](android-device-access-v0.md)
+are marked **FROZEN historical baselines** (retained intact, not deleted or
+claimed formally retired) while the shared Profile 3/statistics/Origin/v36
+business foundation remains active authority under MCP §19.1 and external
+boundary §16. It defines independent local
 Shiroha Link, an official remote-channel candidate and controlled file/question
 snapshots as separately accepted capabilities. Android-only local routing must
 not depend on Windows App; the remote final gate is same-phone ChatGPT web use
