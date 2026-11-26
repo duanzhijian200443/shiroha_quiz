@@ -23,6 +23,8 @@ import 'package:shiroha_quiz/data/repositories/external_target_read_repository.d
 import 'package:shiroha_quiz/data/repositories/generated_local_authority_repository.dart';
 import 'package:shiroha_quiz/data/repositories/generated_proposal_repository.dart';
 import 'package:shiroha_quiz/mcp/android_http_mcp_server.dart';
+import 'package:shiroha_quiz/mcp/vnext_mcp_composition_root.dart';
+import 'package:shiroha_quiz/mcp/vnext_mcp_server.dart';
 import 'package:uuid/uuid.dart';
 
 import '../application/external/local_host_test_support.dart';
@@ -252,6 +254,22 @@ final class _AndroidHttpHarness {
     ));
   }
 
+  VnextMcpPort _openPort(
+    ExternalSession session,
+    bool Function() isSessionCurrent,
+  ) =>
+      VnextMcpAppComposition(
+        host: host,
+        reads: reads,
+        stages: stages,
+        authentication: VnextMcpSessionAuthentication(() async {
+          return isSessionCurrent() ? session : null;
+        }),
+        profileVersion: 3,
+        source: const VnextDataSource('android', 'phone-1'),
+        approvedTargets: const [],
+      );
+
   Future<void> enableAccess({
     Duration? duration = const Duration(hours: 1),
     bool allowBackgroundRead = true,
@@ -280,9 +298,9 @@ final class _AndroidHttpHarness {
       listener: listener,
       bindAddress: '127.0.0.1',
       isTls: false,
-      host: host,
-      reads: reads,
-      stages: stages,
+      openPort: _openPort,
+      invalidateSessionContexts: reads.invalidateConnectionContexts,
+      drainReads: () => reads.whenIdle,
       deviceRef: 'phone-1',
       authenticateBearer: credentials.authenticateAuthorizationHeader,
       checkAdmission: (_) async => AndroidHttpAdmissionStatus(
@@ -322,9 +340,9 @@ final class _AndroidHttpHarness {
       listener: listener,
       bindAddress: '127.0.0.1',
       isTls: false,
-      host: host,
-      reads: reads,
-      stages: stages,
+      openPort: _openPort,
+      invalidateSessionContexts: reads.invalidateConnectionContexts,
+      drainReads: () => reads.whenIdle,
       deviceRef: 'phone-1',
       authenticateBearer: credentials.authenticateAuthorizationHeader,
       checkAdmission: (_) async => AndroidHttpAdmissionStatus(

@@ -15,12 +15,8 @@ import 'dart:typed_data';
 
 import 'package:mcp_dart/mcp_dart.dart';
 
-import '../application/external/external_generated_stage.dart';
-import '../application/external/external_read_context.dart';
 import '../application/external/external_trust_core.dart';
-import '../application/external/local_host_dispatch.dart';
 import '../data/external/external_certificate_der.dart';
-import 'vnext_mcp_composition_root.dart';
 import 'vnext_mcp_server.dart';
 
 /// Current runtime access gate snapshot supplied by trusted composition.
@@ -53,6 +49,10 @@ typedef AndroidHttpEventSink = void Function(
   String event,
   Map<String, Object?> fields,
 );
+typedef AndroidHttpPortFactory = VnextMcpPort Function(
+  ExternalSession session,
+  bool Function() isSessionCurrent,
+);
 
 /// Bounded in-memory legacy MCP HTTP session (2025-06-18 / 2025-11-25).
 /// Ephemeral only: no persistence, no durable lease, no DIRTY state.
@@ -74,9 +74,9 @@ final class AndroidHttpMcpServer {
   AndroidHttpMcpServer({
     required this.listener,
     required this.bindAddress,
-    required this.host,
-    required this.reads,
-    required this.stages,
+    required this.openPort,
+    required this.invalidateSessionContexts,
+    required this.drainReads,
     required this.deviceRef,
     required this.authenticateBearer,
     required this.checkAdmission,
@@ -106,9 +106,6 @@ final class AndroidHttpMcpServer {
         maxBodyBytes < 1024 ||
         idleSessionTtl <= Duration.zero) {
       throw ArgumentError('Invalid HTTP MCP server bounds');
-    }
-    if (!reads.studyQueriesAvailable) {
-      throw ArgumentError('Profile 3 READ server requires study queries');
     }
   }
 
@@ -149,9 +146,9 @@ final class AndroidHttpMcpServer {
   final HttpServer listener;
   final String bindAddress;
   final bool isTls;
-  final LocalHostDispatchCore host;
-  final ExternalReadContextService reads;
-  final ExternalGeneratedStageService stages;
+  final AndroidHttpPortFactory openPort;
+  final void Function(ExternalSession session) invalidateSessionContexts;
+  final Future<void> Function() drainReads;
   final String deviceRef;
   final AndroidHttpBearerAuthenticator authenticateBearer;
   final AndroidHttpAdmissionCheck checkAdmission;
@@ -169,7 +166,7 @@ final class AndroidHttpMcpServer {
   final Set<String> _allowedHosts;
 
   final Map<String, _LegacyHttpSession> _sessions = {};
-  final Map<String, VnextMcpAppComposition> _compositions = {};
+  final Map<String, VnextMcpPort> _ports = {};
   final Map<String, ExternalSession> _activeSessions = {};
   final Set<String> _unlockedAuthenticatedProfiles = {};
   final Set<Future<void>> _inFlight = {};
@@ -241,7 +238,7 @@ final class AndroidHttpMcpServer {
     ExternalSession? session,
   }) async {
     _unlockedAuthenticatedProfiles.remove(profileId);
-    _compositions.remove(profileId);
+    _ports.remove(profileId);
     final trackedSession = _activeSessions.remove(profileId) ?? session;
     final matchingIds = _sessions.entries
         .where((e) => e.value.profileId == profileId)
@@ -256,20 +253,20 @@ final class AndroidHttpMcpServer {
       await entry.server.close().catchError((Object _) {});
     }
     if (trackedSession != null) {
-      reads.invalidateConnectionContexts(trackedSession);
+      invalidateSessionContexts(trackedSession);
     }
   }
 
   /// Stops accepting requests, closes all ephemeral legacy HTTP sessions, and
   /// awaits in-flight request handlers + owning READ settlement. Never closes
-  /// the shared `LocalHostDispatchCore` or SQLite database.
+  /// the shared host dispatch core or SQLite database.
   Future<void> close() {
     _closed = true;
     return _closing ??= () async {
       _sweepTimer?.cancel();
       _sweepTimer = null;
       _unlockedAuthenticatedProfiles.clear();
-      _compositions.clear();
+      _ports.clear();
       _activeSessions.clear();
       await _subscription?.cancel();
       _subscription = null;
@@ -284,7 +281,7 @@ final class AndroidHttpMcpServer {
         await session.server.close().catchError((Object _) {});
       }
       await Future.wait(_inFlight.toList());
-      await reads.whenIdle;
+      await drainReads();
     }();
   }
 
@@ -527,29 +524,24 @@ final class AndroidHttpMcpServer {
     return (entry, transport);
   }
 
-  VnextMcpAppComposition _compositionFor(
+  VnextMcpPort _portFor(
     String profileId,
     ExternalSession session,
   ) {
     final tracked = _activeSessions[profileId];
-    final existing = _compositions[profileId];
+    final existing = _ports[profileId];
     if (existing != null && identical(tracked, session)) {
       return existing;
     }
     _activeSessions[profileId] = session;
-    final created = VnextMcpAppComposition(
-      host: host,
-      reads: reads,
-      stages: stages,
-      authentication: VnextMcpSessionAuthentication(() async {
-        if (_closed || session.failure != null) return null;
-        return identical(_activeSessions[profileId], session) ? session : null;
-      }),
-      profileVersion: 3,
-      source: VnextDataSource('android', deviceRef),
-      approvedTargets: const [],
+    final created = openPort(
+      session,
+      () =>
+          !_closed &&
+          session.failure == null &&
+          identical(_activeSessions[profileId], session),
     );
-    _compositions[profileId] = created;
+    _ports[profileId] = created;
     return created;
   }
 
@@ -637,8 +629,8 @@ final class _HttpReadMcpPort implements VnextMcpPort {
         !await owner._isProfileAllowedForSession(profileId, session)) {
       return denied();
     }
-    final composition = owner._compositionFor(profileId, session);
-    final result = await composition.call(
+    final port = owner._portFor(profileId, session);
+    final result = await port.call(
       tool,
       arguments,
       cancelled: cancelled,
