@@ -121,12 +121,15 @@ default `main.dart` / `MainActivity.kt` UI admission: `ExternalCertificateDer`
 adds optional dynamic private IPv4 SAN and SKI/AKI extensions (preserving legacy
 defaults); `DeviceHttpTlsStore.kt` keeps a non-exportable `AndroidKeyStore`
 Root CA key (reporting actual per-device `KeyInfo` security level) and seals the
-IP-bound Server Leaf PKCS#8 key at rest with AES-256-GCM under `noBackupFilesDir`
-(runtime Dart TLS injection makes no claim of complete memory zeroing);
-non-exported `DeviceReadService.kt` (`connectedDevice`, `START_NOT_STICKY`,
+IP-bound Server Leaf PKCS#8 key at rest with AES-256-GCM under `noBackupFilesDir`.
+The leaf key, certificate and IP metadata publish together under Native
+ownership. Dart converts PKCS#8 DER to PEM at the TLS loader boundary.
+The non-exported `DeviceReadService.kt` (`connectedDevice`, `START_NOT_STICKY`,
 `stopWithTask="true"`) and `AndroidForegroundAccess` carry pure-question READ
-extended durations (`5m..8h` / `untilAppStops`) and opt-in `continueWhileLocked`
-(admitting only clients already authenticated while unlocked); `AndroidAssociationStore.forHttp`
+extended durations (`5m..8h` / `untilAppStops`) and opt-in `continueWhileLocked`.
+P0 binds to the original lifecycle window, and Application rechecks the current
+Grant for continuation. The Android HTTP adapter binds locked continuation to
+the original unlocked-authenticated Session. `AndroidAssociationStore.forHttp`
 (`maxActiveAssociations = 16`) and `AndroidHttpTokenCodec` / `AndroidHttpClientCredentials`
 own multi-client domain-separated SHA-256 Bearer custody, isolated single-client
 revocation, fail-closed whole-Enable withdrawal on durable revoke failure, and

@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/capabilities/capability.dart';
+import 'package:shiroha_quiz/application/external/android_foreground_access.dart';
 import 'package:shiroha_quiz/application/external/external_authorization.dart';
 import 'package:shiroha_quiz/application/external/external_credential_association.dart';
 import 'package:shiroha_quiz/application/external/external_runtime_admission.dart';
@@ -28,12 +30,15 @@ final class _MemoryBackend implements AndroidAssociationBackend {
   bool isCurrent = true;
   Uint8List? bytes;
   bool failCommit = false;
+  bool loseCommitAcknowledgment = false;
   bool occupied = false;
+  Future<void> Function()? beforeBegin;
 
   @override
   Future<AndroidAssociationLease> begin() async {
     if (occupied) throw StateError('overlap');
     occupied = true;
+    await beforeBegin?.call();
     return _MemoryLease(this);
   }
 }
@@ -55,12 +60,34 @@ final class _MemoryLease implements AndroidAssociationLease {
       credentialFail(ExternalCredentialFailure.commitUnknown);
     }
     owner.bytes = Uint8List.fromList(plaintext);
+    if (owner.loseCommitAcknowledgment) {
+      owner.loseCommitAcknowledgment = false;
+      credentialFail(ExternalCredentialFailure.commitUnknown);
+    }
   }
 
   @override
   Future<void> close() async {
     owner.occupied = false;
   }
+}
+
+final class _AccessPreparation
+    implements AndroidAccessPreparation, AndroidAccessResources {
+  @override
+  Future<AndroidAccessResources> get result async => this;
+
+  @override
+  Future<void> get settled async {}
+
+  @override
+  void cancel() {}
+
+  @override
+  void withdraw() {}
+
+  @override
+  Future<void> close() async {}
 }
 
 void main() {
@@ -125,7 +152,11 @@ void main() {
     late ExternalTrustCore trust;
     late ExternalRuntimeAdmission admission;
     late AndroidHttpClientCredentials credentials;
+    late AndroidForegroundAccess foreground;
+    late SqliteExternalAuthorizationRepository repository;
     var enableWithdrawnCount = 0;
+    var observationSequence = 0;
+    var failPairing = false;
     final revokedCallbacks = <String>[];
 
     const installationId = '30000000-0000-4000-8000-000000000001';
@@ -154,10 +185,12 @@ void main() {
         trust: trust,
         credentialPort: port,
         admission: admission,
+        foreground: foreground,
         installationId: installationId,
-        mintRequestId: () => 'req-${++req}',
+        mintRequestId: () => failPairing ? '' : 'req-${++req}',
         onRevokeFailureWithdrawEnable: () async {
           enableWithdrawnCount++;
+          await foreground.disable();
         },
         onProfileRevoked: (profileId, _) async {
           revokedCallbacks.add(profileId);
@@ -165,8 +198,31 @@ void main() {
       );
     }
 
+    Future<void> prepareForeground() async {
+      foreground.observe(AndroidForegroundObservation(
+        sequence: ++observationSequence,
+        resumed: true,
+        focused: true,
+        interactive: true,
+        unlocked: true,
+        visible: true,
+        network: 'lab',
+      ));
+      await foreground.enable(
+        (_) => _AccessPreparation(),
+        duration: const Duration(hours: 1),
+      );
+    }
+
+    Future<List<String>> enable() async {
+      await prepareForeground();
+      return credentials.enableActiveClients();
+    }
+
     setUp(() async {
       enableWithdrawnCount = 0;
+      observationSequence = 0;
+      failPairing = false;
       revokedCallbacks.clear();
       db = GeneratedHarness();
       await db.open();
@@ -176,10 +232,11 @@ void main() {
         backend,
         nowUtcMs: () => clock.now().millisecondsSinceEpoch,
       );
+      repository =
+          SqliteExternalAuthorizationRepository(databaseHelper: db.helper);
+      foreground = AndroidForegroundAccess(elapsed: () => Duration.zero);
       management = ExternalAuthorizationManagement(
-        repository: SqliteExternalAuthorizationRepository(
-          databaseHelper: db.helper,
-        ),
+        repository: repository,
         compositionIsCurrent: () => db.db.isOpen,
         mintProfileId: const Uuid().v4,
         clock: clock.now,
@@ -188,6 +245,8 @@ void main() {
     });
 
     tearDown(() async {
+      credentials.disableAllActiveClients();
+      await foreground.disable();
       await store.close();
       await db.close();
     });
@@ -218,9 +277,7 @@ void main() {
       final clientB = await credentials.issueClient(displayName: 'Client B');
       final clientC = await credentials.issueClient(displayName: 'Client C');
 
-      final enabled = await credentials.enableActiveClients(
-        duration: const Duration(hours: 1),
-      );
+      final enabled = await enable();
       expect(enabled, hasLength(3));
 
       final sA1 = await credentials
@@ -272,11 +329,122 @@ void main() {
       );
     });
 
+    test('withdrawal invalidates Enable before its pending store read settles',
+        () async {
+      final client =
+          await credentials.issueClient(displayName: 'Delayed Enable');
+      await prepareForeground();
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      backend.beforeBegin = () {
+        entered.complete();
+        return release.future;
+      };
+      final enabling = credentials.enableActiveClients();
+      final refused = expectLater(
+          enabling,
+          throwsA(isA<ExternalCoreException>().having(
+              (error) => error.failure, 'failure', ExternalFailure.cancelled)));
+      await entered.future;
+      credentials.disableAllActiveClients();
+      await foreground.disable();
+      backend.beforeBegin = null;
+      release.complete();
+      await refused;
+      expect(credentials.enableWindowOpen, isFalse);
+      expect(
+          await credentials
+              .authenticateAuthorizationHeader(['Bearer ${client.token}']),
+          isNull);
+
+      await enable();
+      final original = await credentials
+          .authenticateAuthorizationHeader(['Bearer ${client.token}']);
+      expect(original, isNotNull);
+      await expectLater(
+        credentials.enableActiveClients(),
+        throwsA(isA<ExternalCoreException>()),
+      );
+
+      // The lifecycle owner can withdraw on its own before HTTP sees another
+      // request. An explicit new generation can reuse the same durable token.
+      await foreground.disable();
+      expect(original!.failure, isNotNull);
+      await enable();
+      final replacement = await credentials
+          .authenticateAuthorizationHeader(['Bearer ${client.token}']);
+      expect(replacement, isNotNull);
+      expect(identical(original, replacement), isFalse);
+    });
+
+    test('reserves the last association slot before creating a Profile',
+        () async {
+      for (var i = 0;
+          i < AndroidAssociationStore.defaultHttpMaxActiveAssociations - 1;
+          i++) {
+        await credentials.issueClient(displayName: 'Synthetic $i');
+      }
+      final first = credentials.issueClient(displayName: 'Last slot');
+      final rejected = expectLater(
+        credentials.issueClient(displayName: 'Over capacity'),
+        throwsA(isA<ExternalCredentialException>().having(
+            (error) => error.failure,
+            'failure',
+            ExternalCredentialFailure.resourceLimit)),
+      );
+      await first;
+      await rejected;
+      final profiles = await repository.listProfiles();
+      expect(profiles.items,
+          hasLength(AndroidAssociationStore.defaultHttpMaxActiveAssociations));
+      expect(profiles.items.map((item) => item.displayName),
+          isNot(contains('Over capacity')));
+    });
+
+    test(
+        'failed local pairing withdraws the unpublished Profile and leaves capacity',
+        () async {
+      failPairing = true;
+      await expectLater(
+        credentials.issueClient(displayName: 'Failed preparation'),
+        throwsA(isA<ExternalCredentialException>()),
+      );
+      expect((await store.listActive()).records, isEmpty);
+      final afterFailure = await repository.listProfiles();
+      expect(afterFailure.items.single.revokedAtUtcMs, isNotNull);
+      failPairing = false;
+      final issued = await credentials.issueClient(displayName: 'Replacement');
+      expect((await store.listActive()).records.single.profileId,
+          issued.clientProfileId);
+    });
+
+    test('lost issuance acknowledgment reconciles only the unpublished Profile',
+        () async {
+      final sibling = await credentials.issueClient(displayName: 'Existing');
+      backend.loseCommitAcknowledgment = true;
+      await expectLater(
+        credentials.issueClient(displayName: 'Unpublished'),
+        throwsA(isA<ExternalCredentialException>().having(
+            (error) => error.failure,
+            'failure',
+            ExternalCredentialFailure.commitUnknown)),
+      );
+      final failed = (await repository.listProfiles())
+          .items
+          .singleWhere((profile) => profile.displayName == 'Unpublished');
+      expect(failed.revokedAtUtcMs, isNotNull);
+      final tombstone = (await store.read(failed.clientProfileId)).record;
+      expect(tombstone?.revoked, isTrue);
+      expect(tombstone?.revision, 2);
+      expect((await store.listActive()).records.single.profileId,
+          sibling.clientProfileId);
+    });
+
     test(
         'tokens survive stop/restart/re-enable and reissue revokes old with tombstone',
         () async {
       final clientA = await credentials.issueClient(displayName: 'Codex Main');
-      await credentials.enableActiveClients(duration: const Duration(hours: 1));
+      await enable();
       expect(
         await credentials
             .authenticateAuthorizationHeader(['Bearer ${clientA.token}']),
@@ -284,6 +452,7 @@ void main() {
       );
 
       credentials.disableAllActiveClients();
+      await foreground.disable();
       expect(
         await credentials
             .authenticateAuthorizationHeader(['Bearer ${clientA.token}']),
@@ -306,7 +475,7 @@ void main() {
       );
 
       // Explicit local Enable restores access with the exact same Token.
-      await credentials.enableActiveClients(duration: const Duration(hours: 1));
+      await enable();
       final resumed = await credentials
           .authenticateAuthorizationHeader(['Bearer ${clientA.token}']);
       expect(resumed, isNotNull);

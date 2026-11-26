@@ -3,6 +3,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import '../../application/capabilities/capability.dart';
+import '../../application/external/android_foreground_access.dart';
 import '../../application/external/external_authorization.dart';
 import '../../application/external/external_credential_association.dart';
 import '../../application/external/external_runtime_admission.dart';
@@ -218,6 +219,23 @@ final class _HttpAuthTicket {
   bool consumed = false;
 }
 
+/// Identifies the original Profile for first-party cleanup when issuance could
+/// not settle. It never carries the unpublished Token or a native exception.
+final class AndroidHttpIssuanceRecoveryRequired implements Exception {
+  const AndroidHttpIssuanceRecoveryRequired(this.profileId);
+  final String profileId;
+
+  @override
+  String toString() => 'android_http_issuance_recovery_required';
+}
+
+final class _HttpEnableWindow {
+  _HttpEnableWindow(this.foregroundGeneration, this.trustGeneration);
+  final int foregroundGeneration;
+  final int trustGeneration;
+  bool ready = false;
+}
+
 /// Multi-client Android HTTP Bearer Token custody over existing P1/P0/P4/P15
 /// stores. Construction performs no I/O and hydrates no credentials at startup.
 final class AndroidHttpClientCredentials {
@@ -227,6 +245,7 @@ final class AndroidHttpClientCredentials {
     required this.trust,
     required this.credentialPort,
     required this.admission,
+    required this.foreground,
     required this.installationId,
     required this.mintRequestId,
     required this.onRevokeFailureWithdrawEnable,
@@ -249,6 +268,7 @@ final class AndroidHttpClientCredentials {
   final ExternalTrustCore trust;
   final AndroidHttpCredentialPort credentialPort;
   final ExternalRuntimeAdmission admission;
+  final AndroidForegroundAccess foreground;
   final String installationId;
   final String Function() mintRequestId;
 
@@ -264,236 +284,338 @@ final class AndroidHttpClientCredentials {
 
   final Random? _random;
 
-  final Map<String, ExternalProfileReference> _references = {};
-  final Map<String, ExternalPrincipal> _principals = {};
-  final Map<String, ExternalSession> _sessions = {};
-  bool _enableWindowOpen = false;
-  DateTime? _enableNotAfter;
-  Duration? _enableDuration;
+  final _references = <String, ExternalProfileReference>{};
+  final _principals = <String, ExternalPrincipal>{};
+  final _sessions = <String, ExternalSession>{};
+  final _revoking = <String>{};
+  _HttpEnableWindow? _enable;
+  bool _preparingEnable = false;
+  int _issuing = 0;
 
-  bool get enableWindowOpen => _enableWindowOpen;
+  bool get enableWindowOpen {
+    final window = _enable;
+    return window != null && window.ready && _isCurrent(window);
+  }
 
-  /// Creates a new SQLite Profile + default READ/questionContent Grant, mints
-  /// an independent 256-bit Bearer Token, persists only its domain-separated
-  /// SHA-256 in `AndroidAssociationStore`, and pairs it in `ExternalTrustCore`.
+  bool _isCurrent(_HttpEnableWindow window) =>
+      identical(_enable, window) &&
+      foreground.generation == window.foregroundGeneration &&
+      trust.generation == window.trustGeneration &&
+      foreground.allowsAuthenticatedUse;
+
+  void _requireCurrent(_HttpEnableWindow window) {
+    if (!_isCurrent(window)) {
+      throw const ExternalCoreException(ExternalFailure.cancelled);
+    }
+  }
+
+  void _enablePrincipal(ExternalPrincipal principal, _HttpEnableWindow window) {
+    _requireCurrent(window);
+    final remaining = foreground.boundedRemaining;
+    trust.enableForRuntime(
+      principal,
+      isCurrent: () => _isCurrent(window),
+      expiresAt: remaining == null ? null : trust.clock.now().add(remaining),
+    );
+  }
+
+  /// Reserve the protected association slot before creating durable P1 state.
+  /// Pairing proof completes after the association commit, and the Token is
+  /// delivered only after both owners acknowledge the same Profile.
   Future<AndroidIssuedClientToken> issueClient({
     required String displayName,
     ExternalGrantPolicy? initialPolicy,
   }) async {
-    final policy = initialPolicy ?? androidHttpDefaultReadPolicy();
-    final reference = await management.createProfile(
-      displayName: displayName,
-      adapter: AndroidHttpTokenCodec.adapterName,
-      protocol: AndroidHttpTokenCodec.protocolName,
-    );
-    await management.replaceGrant(reference, 0, policy);
-    final token = AndroidHttpTokenCodec.mint(random: _random);
-    final digest = AndroidHttpTokenCodec.digestToken(token);
-    final snapshot = await associations.register(
-      profileId: reference.profileId,
-      installationId: installationId,
-      credentialIdentity: digest,
-      expectedRevision: 0,
-      validateManagement: () => _requireActiveProfile(reference),
-    );
-    final record = snapshot.record;
-    if (record == null || record.revoked) {
-      credentialFail(ExternalCredentialFailure.dataCorrupt);
+    if (_preparingEnable || _issuing >= associations.maxActiveAssociations) {
+      credentialFail(ExternalCredentialFailure.resourceLimit);
     }
-    final principal = await _bindAndPair(reference, digest);
-    if (_enableWindowOpen &&
-        _enableDuration != null &&
-        _enableNotAfter != null &&
-        trust.clock.now().isBefore(_enableNotAfter!)) {
-      final remaining = _enableNotAfter!.difference(trust.clock.now());
-      final clamped = remaining > trust.maxEnableDuration
-          ? trust.maxEnableDuration
-          : remaining;
-      trust.enable(principal, clamped, notAfter: _enableNotAfter);
-    }
-    return AndroidIssuedClientToken(
-      profileReference: reference,
-      clientProfileId: reference.profileId,
-      displayName: displayName,
-      token: token,
-      credentialIdentity: digest,
-      associationRevision: record.revision,
-    );
-  }
-
-  /// Explicitly enables all currently active, unrevoked HTTP Profiles matching
-  /// `installationId` for one bounded local Enable window. Calling this after
-  /// stop, expiry, IP change, or restart keeps existing Tokens valid without
-  /// re-minting or re-pairing.
-  Future<List<String>> enableActiveClients({
-    required Duration duration,
-    DateTime? notAfter,
-  }) async {
-    if (duration <= Duration.zero) {
-      throw const ExternalCoreException(ExternalFailure.invalidRequest);
-    }
-    final effectiveDuration =
-        duration > trust.maxEnableDuration ? trust.maxEnableDuration : duration;
-    final now = trust.clock.now();
-    var targetNotAfter = now.add(effectiveDuration);
-    if (notAfter != null && notAfter.isBefore(targetNotAfter)) {
-      targetNotAfter = notAfter;
-    }
-    if (!now.isBefore(targetNotAfter)) {
-      throw const ExternalCoreException(ExternalFailure.invalidRequest);
-    }
-    final activeProfiles = await _loadActiveHttpProfiles();
-    final enabledIds = <String>[];
-    for (final (reference, assoc) in activeProfiles) {
-      final principal = await _bindAndPair(reference, assoc.credentialIdentity);
-      final state = trust.snapshot(principal).state;
-      if (state == PairingState.enabledForCurrentRuntime) {
-        trust.disable(principal);
+    _issuing++;
+    ExternalProfileReference? preparedReference;
+    late final ExternalPrincipal principal;
+    late final String requestId;
+    late final String digest;
+    try {
+      final policy = initialPolicy ?? androidHttpDefaultReadPolicy();
+      final token = AndroidHttpTokenCodec.mint(random: _random);
+      digest = AndroidHttpTokenCodec.digestToken(token);
+      final snapshot = await associations.registerNewHttpAssociation(
+        installationId: installationId,
+        credentialIdentity: digest,
+        prepareProfile: () async {
+          final ref = preparedReference = await management.createProfile(
+            displayName: displayName,
+            adapter: AndroidHttpTokenCodec.adapterName,
+            protocol: AndroidHttpTokenCodec.protocolName,
+          );
+          await management.replaceGrant(ref, 0, policy);
+          principal = await _bindIdentity(ref);
+          requestId = _preparePairing(principal, digest);
+          return ref.profileId;
+        },
+        validateManagement: (id) async {
+          final current = await _readHttpProfile(preparedReference!);
+          if (current.profile.revokedAtUtcMs != null ||
+              current.grant?.revision != 1 ||
+              _revoking.contains(id)) {
+            credentialFail(ExternalCredentialFailure.unauthorized);
+          }
+        },
+      );
+      final reference = preparedReference!;
+      final record = snapshot.record;
+      if (record == null || record.revoked) {
+        credentialFail(ExternalCredentialFailure.dataCorrupt);
       }
-      _sessions.remove(reference.profileId);
-      trust.enable(principal, effectiveDuration, notAfter: targetNotAfter);
-      enabledIds.add(reference.profileId);
+      final current = await _readHttpProfile(reference);
+      if (current.profile.revokedAtUtcMs != null ||
+          current.grant?.revision != 1 ||
+          _revoking.contains(reference.profileId)) {
+        credentialFail(ExternalCredentialFailure.unauthorized);
+      }
+      _completePairing(principal, requestId, digest);
+      final window = _enable;
+      if (window != null &&
+          window.ready &&
+          _isCurrent(window) &&
+          foreground.allowsHttpReadGrant(current.grant)) {
+        _enablePrincipal(principal, window);
+      }
+      return AndroidIssuedClientToken(
+        profileReference: reference,
+        clientProfileId: reference.profileId,
+        displayName: displayName,
+        token: token,
+        credentialIdentity: digest,
+        associationRevision: record.revision,
+      );
+    } catch (_) {
+      final reference = preparedReference;
+      if (reference != null) {
+        final id = reference.profileId;
+        _revokeLocal(id);
+        try {
+          // The unpublished credential cannot rehydrate even if Native's
+          // original commit is uncertain. Only reconcile its exact association.
+          await _revokeDurableProfile(reference);
+          await _revokeAssociation(reference, unpublishedDigest: digest);
+          _forget(id);
+        } catch (_) {
+          throw AndroidHttpIssuanceRecoveryRequired(id);
+        }
+      }
+      rethrow;
+    } finally {
+      _issuing--;
     }
-    _enableWindowOpen = true;
-    _enableDuration = effectiveDuration;
-    _enableNotAfter = targetNotAfter;
-    return enabledIds;
   }
 
-  /// Disables the current Enable window without revoking any durable client
-  /// Token or SQLite Profile. Subsequent Enable windows (including after an IP
-  /// address change) admit the exact same Tokens.
+  /// Uses the already prepared, explicit Android Enable window for each P0
+  /// Principal. Its owner and generation are captured before the first await.
+  Future<List<String>> enableActiveClients() async {
+    if (_preparingEnable ||
+        _issuing != 0 ||
+        enableWindowOpen ||
+        !foreground.acceptsNew) {
+      throw const ExternalCoreException(ExternalFailure.invalidState);
+    }
+    if (_enable != null) disableAllActiveClients();
+    final remaining = foreground.boundedRemaining;
+    if (!foreground.allowBackgroundRead &&
+        (remaining == null || remaining > trust.maxEnableDuration)) {
+      throw const ExternalCoreException(ExternalFailure.invalidRequest);
+    }
+    final window =
+        _enable = _HttpEnableWindow(foreground.generation, trust.generation);
+    _preparingEnable = true;
+    try {
+      final active = await associations.listActive();
+      _requireCurrent(window);
+      final candidates = <(ExternalPrincipal, ExternalCredentialAssociation)>[];
+      for (final association in active.records) {
+        final id = association.profileId;
+        if (association.installationId != installationId ||
+            _revoking.contains(id)) {
+          continue;
+        }
+        final reference = _references[id] ?? await management.selectProfile(id);
+        final current = await management.read(reference);
+        _requireCurrent(window);
+        if (!_isHttpProfile(current.profile) ||
+            current.profile.revokedAtUtcMs != null ||
+            !foreground.allowsHttpReadGrant(current.grant) ||
+            !active.isRecordCurrent(association) ||
+            _revoking.contains(id)) {
+          continue;
+        }
+        final principal = await _bindIdentity(reference);
+        _requireCurrent(window);
+        if (trust.snapshot(principal).state == PairingState.unpaired) {
+          _completePairing(
+            principal,
+            _preparePairing(principal, association.credentialIdentity),
+            association.credentialIdentity,
+          );
+        }
+        candidates.add((principal, association));
+      }
+      _requireCurrent(window);
+      final enabledIds = <String>[];
+      for (final (principal, association) in candidates) {
+        if (!active.isRecordCurrent(association) ||
+            _revoking.contains(principal.profileId) ||
+            trust.snapshot(principal).state == PairingState.revoked) {
+          continue;
+        }
+        _enablePrincipal(principal, window);
+        enabledIds.add(principal.profileId);
+      }
+      window.ready = true;
+      return enabledIds;
+    } catch (_) {
+      if (identical(_enable, window)) disableAllActiveClients();
+      rethrow;
+    } finally {
+      _preparingEnable = false;
+    }
+  }
+
+  /// Admission and P0 Sessions lose the original window synchronously.
+  /// Pending preparation may settle but cannot reopen it.
   void disableAllActiveClients() {
-    _enableWindowOpen = false;
-    _enableDuration = null;
-    _enableNotAfter = null;
-    for (final principal in _principals.values) {
-      final state = trust.snapshot(principal).state;
-      if (state == PairingState.enabledForCurrentRuntime) {
-        trust.disable(principal);
-      }
-    }
+    _enable = null;
     _sessions.clear();
+    for (final principal in _principals.values) {
+      // P0 observes the withdrawn owner and releases its runtime reference.
+      trust.snapshot(principal);
+    }
   }
 
-  /// Authenticates one HTTP `Authorization` header against active associations
-  /// using domain-separated SHA-256 + constant-time digest comparison across
-  /// all active records, then returns the Profile's current `ExternalSession`.
-  /// Returns `null` on any auth/state failure (HTTP 401).
+  /// Matches all active digests and revalidates the matched record after the
+  /// asynchronous P1 lookup. A sibling's commit does not invalidate that row.
   Future<ExternalSession?> authenticateAuthorizationHeader(
     List<String>? authorizationHeaders,
   ) async {
-    if (!_enableWindowOpen) return null;
+    final window = _enable;
+    if (window == null || !window.ready || !_isCurrent(window)) return null;
     final token = AndroidHttpTokenCodec.parseBearerHeader(authorizationHeaders);
     if (token == null) return null;
     final candidateDigest = AndroidHttpTokenCodec.digestToken(token);
-    final activeSnapshots = await associations.listActive();
-    ExternalCredentialAssociation? matched;
-    for (final record in activeSnapshots.records) {
-      final sameDigest = AndroidHttpTokenCodec.constantTimeDigestEquals(
-        record.credentialIdentity,
-        candidateDigest,
-      );
-      if (sameDigest &&
-          !record.revoked &&
-          record.installationId == installationId) {
-        matched = record;
-      }
-    }
-    if (matched == null || !activeSnapshots.isCurrent) return null;
-    final profileId = matched.profileId;
-    final reference = _references[profileId];
-    final principal = _principals[profileId];
-    if (reference == null || principal == null) return null;
     try {
-      final authRecord = await management.read(reference);
-      if (authRecord.profile.revokedAtUtcMs != null ||
-          authRecord.profile.clientProfileId != profileId) {
+      final active = await associations.listActive();
+      ExternalCredentialAssociation? matched;
+      for (final record in active.records) {
+        final sameDigest = AndroidHttpTokenCodec.constantTimeDigestEquals(
+          record.credentialIdentity,
+          candidateDigest,
+        );
+        if (sameDigest && record.installationId == installationId) {
+          matched = record;
+        }
+      }
+      if (matched == null || !active.isRecordCurrent(matched)) return null;
+      final profileId = matched.profileId;
+      final reference = _references[profileId];
+      final principal = _principals[profileId];
+      if (reference == null || principal == null) return null;
+      final current = await _readHttpProfile(reference);
+      if (!_isCurrent(window) ||
+          _revoking.contains(profileId) ||
+          current.profile.revokedAtUtcMs != null ||
+          !foreground.allowsHttpReadGrant(current.grant) ||
+          !active.isRecordCurrent(matched) ||
+          trust.snapshot(principal).state !=
+              PairingState.enabledForCurrentRuntime) {
         return null;
       }
-    } catch (_) {
-      return null;
-    }
-    if (!activeSnapshots.isCurrent) return null;
-    final snapshot = trust.snapshot(principal);
-    if (snapshot.state != PairingState.enabledForCurrentRuntime) {
-      _sessions.remove(profileId);
-      return null;
-    }
-    final existing = _sessions[profileId];
-    if (existing != null && existing.failure == null) {
-      return existing;
-    }
-    try {
+      final existing = _sessions[profileId];
+      if (existing != null && existing.failure == null) return existing;
       final session = credentialPort._withAuth(
         matched.credentialIdentity,
         (ticket) {
           final peer = trust.authenticate(ticket);
+          if (!identical(peer.principal, principal)) {
+            throw const ExternalCoreException(
+                ExternalFailure.authenticationRejected);
+          }
           return trust.openSession(peer);
         },
       );
       _sessions[profileId] = session;
       return session;
     } catch (_) {
-      _sessions.remove(profileId);
       return null;
     }
   }
 
-  /// Revokes a single client Profile cleanly without disrupting sibling clients.
-  ///
-  /// Ordering:
-  /// 1. Synchronously revoke only the target `ExternalPrincipal` in memory and
-  ///    drop its `ExternalSession` + invoke `onProfileRevoked` (so the target
-  ///    loses access immediately even before durable commit).
-  /// 2. Durably commit `AndroidAssociationStore.revoke` (preserving monotonic
-  ///    tombstone) and `ExternalAuthorizationManagement.revokeProfile`.
-  /// 3. If either durable revocation fails, FAIL CLOSED by synchronously
-  ///    withdrawing the entire Enable window (`disableAllActiveClients` +
-  ///    `onRevokeFailureWithdrawEnable`), then rethrow the failure.
+  /// Withdraw the target before any durable I/O. A failure closes the entire
+  /// Enable window while keeping the original Profile identity for retry.
   Future<void> revokeClient(String profileId) async {
-    final reference =
-        _references[profileId] ?? await _selectReference(profileId);
-    final principal = _principals[profileId];
-    final existingSession = _sessions.remove(profileId);
-    if (principal != null) {
-      final state = trust.snapshot(principal).state;
-      if (state != PairingState.revoked) {
-        trust.revoke(principal);
-      }
+    if (!_revoking.add(profileId)) {
+      credentialFail(ExternalCredentialFailure.resourceLimit);
     }
     try {
-      if (onProfileRevoked != null) {
-        await onProfileRevoked!(profileId, existingSession);
+      final known = _references[profileId];
+      final reference = known ?? await management.selectProfile(profileId);
+      if (known == null) await _readHttpProfile(reference);
+      final existingSession = _revokeLocal(profileId);
+      try {
+        await onProfileRevoked?.call(profileId, existingSession);
+        await _revokeAssociation(reference);
+        await _revokeDurableProfile(reference);
+        _forget(profileId);
+      } catch (_) {
+        disableAllActiveClients();
+        await onRevokeFailureWithdrawEnable();
+        rethrow;
       }
-      final currentAssoc = await associations.read(profileId);
-      final assocRecord = currentAssoc.record;
-      if (assocRecord != null && !assocRecord.revoked) {
-        await associations.revoke(
-          profileId: profileId,
-          expectedRevision: assocRecord.revision,
-          validateManagement: () async {
-            final rec = await management.read(reference);
-            if (rec.profile.clientProfileId != profileId) {
-              credentialFail(ExternalCredentialFailure.unauthorized);
-            }
-          },
-        );
-      }
-      final currentPolicy = await management.read(reference);
-      if (currentPolicy.profile.revokedAtUtcMs == null) {
-        await management.revokeProfile(
-          reference,
-          currentPolicy.profile.grantRevision,
-        );
-      }
-      _references.remove(profileId);
-      _principals.remove(profileId);
-    } catch (_) {
-      disableAllActiveClients();
-      await onRevokeFailureWithdrawEnable();
-      rethrow;
+    } finally {
+      _revoking.remove(profileId);
     }
+  }
+
+  ExternalSession? _revokeLocal(String id) {
+    final session = _sessions.remove(id);
+    final principal = _principals[id];
+    if (principal != null &&
+        trust.snapshot(principal).state != PairingState.revoked) {
+      trust.revoke(principal);
+    }
+    return session;
+  }
+
+  Future<void> _revokeAssociation(
+    ExternalProfileReference reference, {
+    String? unpublishedDigest,
+  }) async {
+    final profileId = reference.profileId;
+    final current = await associations.read(profileId);
+    final record = current.record;
+    if (record == null || record.revoked) return;
+    if (record.installationId != installationId ||
+        (unpublishedDigest != null &&
+            (record.revision != 1 ||
+                record.credentialIdentity != unpublishedDigest))) {
+      credentialFail(ExternalCredentialFailure.staleRevision);
+    }
+    await associations.revoke(
+      profileId: profileId,
+      expectedRevision: record.revision,
+      validateManagement: () async {
+        await _readHttpProfile(reference);
+      },
+    );
+  }
+
+  Future<void> _revokeDurableProfile(ExternalProfileReference reference) async {
+    final current = await _readHttpProfile(reference);
+    if (current.profile.revokedAtUtcMs == null) {
+      await management.revokeProfile(reference, current.profile.grantRevision);
+    }
+  }
+
+  void _forget(String id) {
+    _references.remove(id);
+    _principals.remove(id);
   }
 
   /// Re-issuance is strictly "revoke old Profile preserving tombstone + create
@@ -503,9 +625,9 @@ final class AndroidHttpClientCredentials {
     String? newDisplayName,
     ExternalGrantPolicy? policyOverride,
   }) async {
-    final oldRef =
-        _references[oldProfileId] ?? await _selectReference(oldProfileId);
-    final oldRecord = await management.read(oldRef);
+    final oldRef = _references[oldProfileId] ??
+        await management.selectProfile(oldProfileId);
+    final oldRecord = await _readHttpProfile(oldRef);
     final displayName = newDisplayName ?? oldRecord.profile.displayName;
     final policy = policyOverride ??
         oldRecord.grant?.policy ??
@@ -516,68 +638,53 @@ final class AndroidHttpClientCredentials {
 
   ExternalSession? activeSessionFor(String profileId) {
     final session = _sessions[profileId];
-    if (session == null || session.failure != null) return null;
+    if (!enableWindowOpen || session == null || session.failure != null) {
+      return null;
+    }
     return session;
   }
 
-  Future<ExternalPrincipal> _bindAndPair(
-    ExternalProfileReference reference,
-    String credentialIdentity,
-  ) async {
+  Future<ExternalPrincipal> _bindIdentity(
+      ExternalProfileReference reference) async {
     final principal =
         await trust.registerExistingProfile(reference, management);
-    final state = trust.snapshot(principal).state;
-    if (state == PairingState.unpaired) {
-      final reqId = mintRequestId();
-      trust.requestPairing(
-        principal,
-        requestId: reqId,
-        credentialIdentity: credentialIdentity,
-      );
-      trust.approvePairing(principal);
-      credentialPort._withProof(
-        reqId,
-        credentialIdentity,
-        (ticket) => trust.completePairing(principal, ticket),
-      );
-    }
-    await admission.bindIdentity(reference, principal);
     _references[reference.profileId] = reference;
     _principals[reference.profileId] = principal;
+    await admission.bindIdentity(reference, principal);
     return principal;
   }
 
-  Future<void> _requireActiveProfile(ExternalProfileReference reference) async {
+  String _preparePairing(ExternalPrincipal principal, String digest) {
+    final requestId = mintRequestId();
+    trust.requestPairing(principal,
+        requestId: requestId, credentialIdentity: digest);
+    trust.approvePairing(principal);
+    return requestId;
+  }
+
+  void _completePairing(
+    ExternalPrincipal principal,
+    String requestId,
+    String digest,
+  ) {
+    credentialPort._withProof(
+      requestId,
+      digest,
+      (ticket) => trust.completePairing(principal, ticket),
+    );
+  }
+
+  bool _isHttpProfile(ExternalClientProfile profile) =>
+      profile.adapter == AndroidHttpTokenCodec.adapterName &&
+      profile.protocol == AndroidHttpTokenCodec.protocolName;
+
+  Future<ExternalAuthorizationRecord> _readHttpProfile(
+      ExternalProfileReference reference) async {
     final record = await management.read(reference);
     if (record.profile.clientProfileId != reference.profileId ||
-        record.profile.revokedAtUtcMs != null) {
+        !_isHttpProfile(record.profile)) {
       credentialFail(ExternalCredentialFailure.unauthorized);
     }
-  }
-
-  Future<ExternalProfileReference> _selectReference(String profileId) async {
-    final ref = await management.selectProfile(profileId);
-    _references[profileId] = ref;
-    return ref;
-  }
-
-  Future<List<(ExternalProfileReference, ExternalCredentialAssociation)>>
-      _loadActiveHttpProfiles() async {
-    final active = await associations.listActive();
-    final result =
-        <(ExternalProfileReference, ExternalCredentialAssociation)>[];
-    for (final assoc in active.records) {
-      if (assoc.revoked || assoc.installationId != installationId) continue;
-      final reference = _references[assoc.profileId] ??
-          await _selectReference(assoc.profileId);
-      final record = await management.read(reference);
-      if (record.profile.revokedAtUtcMs != null) continue;
-      if (record.profile.adapter != AndroidHttpTokenCodec.adapterName ||
-          record.profile.protocol != AndroidHttpTokenCodec.protocolName) {
-        continue;
-      }
-      result.add((reference, assoc));
-    }
-    return result;
+    return record;
   }
 }

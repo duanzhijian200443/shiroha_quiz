@@ -86,6 +86,7 @@ final class _Profile {
   String? requestId;
   String? credential;
   DateTime? expiresAt;
+  bool Function()? runtimeIsCurrent;
   ExternalFailure? disableReason;
   int enableEpoch = 0;
 }
@@ -262,8 +263,33 @@ final class ExternalTrustCore {
     if (!now.isBefore(expiry)) {
       throw const ExternalCoreException(ExternalFailure.invalidRequest);
     }
+    _enable(profile, expiry);
+  }
+
+  /// Trusted Android HTTP composition binds P0 to its original, observed
+  /// Enable window. The owner enforces the monotonic deadline (if selected)
+  /// and withdrawal. [expiresAt] is the wall-clock projection for display.
+  void enableForRuntime(
+    ExternalPrincipal principal, {
+    required bool Function() isCurrent,
+    DateTime? expiresAt,
+  }) {
+    final profile = _profile(principal);
+    _refresh(profile);
+    if (profile.state != PairingState.pairedDisabled) {
+      throw ExternalCoreException(_stateFailure(profile));
+    }
+    if (!isCurrent()) {
+      throw const ExternalCoreException(ExternalFailure.disabled);
+    }
+    _enable(profile, expiresAt, runtimeIsCurrent: isCurrent);
+  }
+
+  void _enable(_Profile profile, DateTime? expiresAt,
+      {bool Function()? runtimeIsCurrent}) {
     profile.enableEpoch++;
-    profile.expiresAt = expiry;
+    profile.expiresAt = expiresAt;
+    profile.runtimeIsCurrent = runtimeIsCurrent;
     profile.disableReason = null;
     profile.state = PairingState.enabledForCurrentRuntime;
   }
@@ -357,8 +383,11 @@ final class ExternalTrustCore {
   }
 
   void _refresh(_Profile profile) {
-    if (profile.state == PairingState.enabledForCurrentRuntime &&
-        !clock.now().isBefore(profile.expiresAt!)) {
+    if (profile.state != PairingState.enabledForCurrentRuntime) return;
+    final isCurrent = profile.runtimeIsCurrent;
+    if (isCurrent != null) {
+      if (!isCurrent()) _disable(profile, ExternalFailure.disabled);
+    } else if (!clock.now().isBefore(profile.expiresAt!)) {
       _disable(profile, ExternalFailure.expired);
     }
   }
@@ -366,6 +395,7 @@ final class ExternalTrustCore {
   void _disable(_Profile profile, ExternalFailure reason) {
     profile.enableEpoch++;
     profile.expiresAt = null;
+    profile.runtimeIsCurrent = null;
     profile.disableReason = reason;
     if (profile.state == PairingState.enabledForCurrentRuntime) {
       profile.state = PairingState.pairedDisabled;

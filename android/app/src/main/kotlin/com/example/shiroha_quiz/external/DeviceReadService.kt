@@ -25,13 +25,17 @@ class DeviceReadService : Service() {
         val token: String = java.util.UUID.randomUUID().toString()
         @Volatile var running = false
         @Volatile var ended = false
-        var service: DeviceReadService? = null
+        @Volatile var service: DeviceReadService? = null
+        @Volatile var startFailure: String? = null
         var stopping = false
         var stopFailed = false
+        var stopTimeout: Runnable? = null
         val stopped = mutableListOf<(Boolean) -> Unit>()
 
         fun settled(clean: Boolean) {
-            if (!clean) stopFailed = true
+            stopTimeout?.let { ownershipHandler.removeCallbacks(it) }
+            stopTimeout = null
+            stopFailed = !clean
             val callbacks = stopped.toList()
             stopped.clear()
             callbacks.forEach { it(clean) }
@@ -42,7 +46,8 @@ class DeviceReadService : Service() {
         const val CHANNEL = "shiroha_finite_read"
         private const val STOP = "stop_read"
         private const val NOTIFICATION = 46444
-        @Volatile private var owner: Session? = null
+        private val ownershipHandler = Handler(Looper.getMainLooper())
+        private var owner: Session? = null
 
         internal fun start(context: Context, session: Session) {
             check(owner == null)
@@ -64,11 +69,11 @@ class DeviceReadService : Service() {
         internal fun finish(context: Context, session: Session, stopped: (Boolean) -> Unit = {}) {
             session.ended = true
             session.running = false
-            if (session.stopFailed) {
-                stopped(false)
-                return
-            }
             if (owner === session) {
+                if (session.stopFailed) {
+                    stopped(false)
+                    return
+                }
                 if (session.service == null) {
                     try {
                         context.stopService(Intent(context, DeviceReadService::class.java))
@@ -88,9 +93,9 @@ class DeviceReadService : Service() {
                         session.settled(false)
                         return
                     }
-                    Handler(Looper.getMainLooper()).postDelayed({
-                        session.settled(false)
-                    }, 5000)
+                    val timeout = Runnable { session.settled(false) }
+                    session.stopTimeout = timeout
+                    ownershipHandler.postDelayed(timeout, 5000)
                 }
             } else {
                 stopped(session.service == null)

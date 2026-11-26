@@ -189,6 +189,12 @@ void main() {
       failure(ExternalCredentialFailure.resourceLimit),
     );
 
+    final beforeRevoke = await httpStore.listActive();
+    final target =
+        beforeRevoke.records.singleWhere((r) => r.profileId == uuidFor(2));
+    final sibling =
+        beforeRevoke.records.singleWhere((r) => r.profileId == uuidFor(1));
+
     // Revoking 1 profile preserves its tombstone and leaves 15 active.
     await httpStore.revoke(
       profileId: uuidFor(2),
@@ -196,6 +202,9 @@ void main() {
       validateManagement: () async {},
     );
     expect(activeList.isCurrent, isFalse);
+    expect(beforeRevoke.isCurrent, isFalse);
+    expect(beforeRevoke.isRecordCurrent(target), isFalse);
+    expect(beforeRevoke.isRecordCurrent(sibling), isTrue);
     final afterRevoke = await httpStore.listActive();
     expect(afterRevoke.records, hasLength(15));
     expect(
@@ -214,6 +223,8 @@ void main() {
       ),
       failure(ExternalCredentialFailure.conflict),
     );
+
+    expect(beforeRevoke.isRecordCurrent(sibling), isFalse);
 
     // New distinct credential fills the freed 16th active slot cleanly.
     final replacement = await httpStore.register(

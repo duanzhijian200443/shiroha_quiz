@@ -16,6 +16,7 @@ import 'package:shiroha_quiz/application/generated_question/generated_local_auth
 import 'package:shiroha_quiz/application/generated_question/generated_question_service.dart';
 import 'package:shiroha_quiz/data/external/android_association_store.dart';
 import 'package:shiroha_quiz/data/external/android_http_token_codec.dart';
+import 'package:shiroha_quiz/data/external/external_certificate_der.dart';
 import 'package:shiroha_quiz/data/repositories/external_authorization_repository.dart';
 import 'package:shiroha_quiz/data/repositories/external_question_read_repository.dart';
 import 'package:shiroha_quiz/data/repositories/external_study_read_repository.dart';
@@ -222,6 +223,7 @@ final class _AndroidHttpHarness {
       trust: trust,
       credentialPort: credPort,
       admission: stages.runtimeAdmission,
+      foreground: foreground,
       installationId: installationId,
       mintRequestId: () => 'http-req-${++_reqSeq}',
       onRevokeFailureWithdrawEnable: () async {
@@ -290,9 +292,11 @@ final class _AndroidHttpHarness {
       allowBackgroundRead: allowBackgroundRead,
       continueWhileLocked: continueWhileLocked,
     );
-    await credentials.enableActiveClients(
-      duration: duration ?? const Duration(hours: 8),
-    );
+    await credentials.enableActiveClients();
+    await _startServer();
+  }
+
+  Future<void> _startServer() async {
     final listener = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final created = AndroidHttpMcpServer(
       listener: listener,
@@ -303,10 +307,8 @@ final class _AndroidHttpHarness {
       drainReads: () => reads.whenIdle,
       deviceRef: 'phone-1',
       authenticateBearer: credentials.authenticateAuthorizationHeader,
-      checkAdmission: (_) async => AndroidHttpAdmissionStatus(
-        allowsAuthenticatedUse: foreground.allowsAuthenticatedUse,
-        acceptsNew: foreground.acceptsNew,
-      ),
+      foreground: foreground,
+      runtimeAdmission: stages.runtimeAdmission,
       now: clock.now,
       beforeResponseRelease: (profileId, tool) async {
         if (beforeResponseRelease != null) {
@@ -335,30 +337,7 @@ final class _AndroidHttpHarness {
     if (active != null) {
       await active.close();
     }
-    final listener = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    final created = AndroidHttpMcpServer(
-      listener: listener,
-      bindAddress: '127.0.0.1',
-      isTls: false,
-      openPort: _openPort,
-      invalidateSessionContexts: reads.invalidateConnectionContexts,
-      drainReads: () => reads.whenIdle,
-      deviceRef: 'phone-1',
-      authenticateBearer: credentials.authenticateAuthorizationHeader,
-      checkAdmission: (_) async => AndroidHttpAdmissionStatus(
-        allowsAuthenticatedUse: foreground.allowsAuthenticatedUse,
-        acceptsNew: foreground.acceptsNew,
-      ),
-      now: clock.now,
-      beforeResponseRelease: (profileId, tool) async {
-        if (beforeResponseRelease != null) {
-          await beforeResponseRelease!(profileId, tool);
-        }
-      },
-      onEvent: (event, fields) => events.add((event, fields)),
-    );
-    created.start();
-    server = created;
+    await _startServer();
   }
 
   Future<void> close() async {
@@ -422,21 +401,25 @@ final class _AndroidHttpHarness {
         statusCode: res.statusCode, headers: res.headers, body: body);
   }
 
+  Future<_HttpReply> initialize(String token,
+          {String protocolVersion = '2025-06-18'}) =>
+      send(
+        token: token,
+        jsonBody: {
+          'jsonrpc': '2.0',
+          'id': 1,
+          'method': 'initialize',
+          'params': {
+            'protocolVersion': protocolVersion,
+            'capabilities': {},
+            'clientInfo': {'name': 'test-client', 'version': '1.0'},
+          },
+        },
+      );
+
   Future<String> initializeLegacy(String token,
       {String protocolVersion = '2025-06-18'}) async {
-    final init = await send(
-      token: token,
-      jsonBody: {
-        'jsonrpc': '2.0',
-        'id': 1,
-        'method': 'initialize',
-        'params': {
-          'protocolVersion': protocolVersion,
-          'capabilities': {},
-          'clientInfo': {'name': 'test-client', 'version': '1.0'},
-        },
-      },
-    );
+    final init = await initialize(token, protocolVersion: protocolVersion);
     expect(init.statusCode, HttpStatus.ok, reason: init.body);
     final sessionId = init.headers.value('mcp-session-id');
     expect(sessionId, isNotNull);
@@ -742,6 +725,22 @@ void main() {
     );
     expect(ninthGlobal.statusCode, 429);
 
+    final refusedDelete = await h.send(
+      method: 'DELETE',
+      token: clientA.token,
+      sessionId: sessionA2,
+      protocolVersion: 'unsupported-version',
+    );
+    expect(refusedDelete.statusCode, HttpStatus.badRequest);
+    expect(h.server!.activeLegacySessionCount, 8);
+    final stillOpen = await h.callTool(
+      token: clientA.token,
+      sessionId: sessionA2,
+      protocolVersion: '2025-06-18',
+      name: 'open_context',
+    );
+    expect(h.structuredResult(stillOpen)['error'], isNull);
+
     // DELETE /mcp closes A2 cleanly; reusing A2 returns 404.
     final deleted = await h.send(
       method: 'DELETE',
@@ -920,6 +919,15 @@ void main() {
     ));
     expect(lockedReadA['error'], isNull);
 
+    final advance = const Duration(hours: 9);
+    h.elapsed += advance;
+    h.clock.current = h.clock.current.add(advance);
+    final beyondFiniteLimit = h.structuredResult(await h.callTool(
+      token: clientA.token,
+      name: 'open_context',
+    ));
+    expect(beyondFiniteLimit['error'], isNull);
+
     // Brand-new Client B (never authenticated while unlocked) is refused 403.
     final lockedNewB = await h.callTool(
       token: clientB.token,
@@ -932,6 +940,116 @@ void main() {
           e.$2['profileId'] == clientB.clientProfileId),
       isTrue,
     );
+
+    h.observe(
+      visible: false,
+      resumed: false,
+      focused: false,
+      interactive: false,
+      unlocked: false,
+      backgroundRead: false,
+    );
+    expect(
+      (await h.callTool(token: clientA.token, name: 'open_context')).statusCode,
+      HttpStatus.unauthorized,
+    );
+  });
+
+  test('concurrent legacy initialization obeys Profile and server limits',
+      () async {
+    final a = await h.credentials.issueClient(displayName: 'Profile A');
+    final b = await h.credentials.issueClient(displayName: 'Profile B');
+    final c = await h.credentials.issueClient(displayName: 'Profile C');
+    await h.enableAccess();
+
+    final first =
+        await Future.wait(List.generate(6, (_) => h.initialize(a.token)));
+    expect(first.where((reply) => reply.statusCode == 200), hasLength(4));
+    expect(first.where((reply) => reply.statusCode == 429), hasLength(2));
+
+    final other = await Future.wait([
+      for (var i = 0; i < 3; i++) h.initialize(b.token),
+      for (var i = 0; i < 3; i++) h.initialize(c.token),
+    ]);
+    expect(other.where((reply) => reply.statusCode == 200), hasLength(4));
+    expect(other.where((reply) => reply.statusCode == 429), hasLength(2));
+    expect(h.server!.activeLegacySessionCount, 8);
+  });
+
+  test(
+      'a Grant expanded during an opted-in background window withholds the result',
+      () async {
+    final client = await h.credentials.issueClient(displayName: 'Scoped READ');
+    final widerPolicy = ExternalGrantPolicy(
+      permissions: const [CapabilityPermission.read],
+      categories: const [
+        ExternalContentCategory.questionContent,
+        ExternalContentCategory.studyStatistics,
+      ],
+      scopes: const [],
+      allContent: true,
+    );
+    final statsClient = await h.credentials.issueClient(
+      displayName: 'Statistics READ',
+      initialPolicy: widerPolicy,
+    );
+    await h.enableAccess(continueWhileLocked: true);
+    final foregroundRefusal = await h.callTool(
+      token: statsClient.token,
+      name: 'open_context',
+    );
+    expect(foregroundRefusal.statusCode, HttpStatus.unauthorized);
+
+    final opened = h.structuredResult(await h.callTool(
+      token: client.token,
+      name: 'open_context',
+    ));
+    final contextRef = opened['data']['contextRef'] as String;
+
+    h.beforeResponseRelease = (_, tool) async {
+      if (tool == 'list_question_banks') {
+        await h.management
+            .replaceGrant(client.profileReference, 1, widerPolicy);
+        h.observe(
+          visible: false,
+          resumed: false,
+          focused: false,
+          interactive: false,
+          unlocked: false,
+        );
+      }
+    };
+    final result = h.structuredResult(await h.callTool(
+      token: client.token,
+      name: 'list_question_banks',
+      arguments: {'contextRef': contextRef},
+    ));
+    expect(result['error'], 'unavailable');
+    expect(result['data'], isNull);
+    expect(h.events.any((event) => event.$1 == 'OUTPUT_WITHHELD'), isTrue);
+
+    final lockedRefusal = await h.callTool(
+      token: client.token,
+      name: 'get_study_overview',
+      arguments: {'contextRef': contextRef},
+    );
+    expect(lockedRefusal.statusCode, HttpStatus.unauthorized);
+
+    await h.disableAccess();
+    await h.enableAccess(
+      allowBackgroundRead: false,
+      duration: const Duration(minutes: 30),
+    );
+    final foregroundContext = h.structuredResult(await h.callTool(
+      token: statsClient.token,
+      name: 'open_context',
+    ));
+    final overview = h.structuredResult(await h.callTool(
+      token: statsClient.token,
+      name: 'get_study_overview',
+      arguments: {'contextRef': foregroundContext['data']['contextRef']},
+    ));
+    expect(overview['error'], isNull);
   });
 
   test('OUTPUT_WITHHELD intercepts in-flight question detail on revoke/disable',
@@ -988,6 +1106,67 @@ void main() {
           e.$2['tool'] == 'get_question_detail'),
       isTrue,
     );
+  });
+
+  // Deliberately public P-256 test keys (leaf scalar 1, CA scalar 2). The
+  // synthetic certificate chain is scoped to loopback and only trusted here.
+  const leafPkcs8Base64 =
+      'MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgAAAAAAAAAAAAAAAAAA'
+      'AAAAAAAAAAAAAAAAAAAAAAAAGhRANCAARrF9Hy4SxCR/i85uVjpEDydwN9gS3rM6D0'
+      'oTlF2JjClk/jQuL+Gn+bjufrSnwPnhYrzjNXazFezsu2QGg3v1H1';
+  const rootDerBase64 =
+      'MIIBSjCB8aADAgECAgEBMAoGCCqGSM49BAMCMCMxITAfBgNVBAMMGFNoaXJvaGEgbG'
+      '9vcGJhY2sgdGVzdCBDQTAeFw0yMDAxMDEwMDAwMDBaFw00MDAxMDEwMDAwMDBaMCMx'
+      'ITAfBgNVBAMMGFNoaXJvaGEgbG9vcGJhY2sgdGVzdCBDQTBZMBMGByqGSM49AgEGCC'
+      'qGSM49AwEHA0IABHzyexiNA09+ilI4AwS1GsPAiWnid/IbNaYLSPxHZpl4B3dVENuO'
+      '0EApPZrGn3Qw27p9reY86YIpngS3nSJ4c9GjFjAUMBIGA1UdEwEB/wQIMAYBAf8CAQ'
+      'AwCgYIKoZIzj0EAwIDSAAwRQIgZ1ZPFDYWyRl+Y195/N86hgRD9ISdgAoNMAFY+3ev'
+      'RF8CIQCvbGTXo9Mp+OSlb0bT8ujxdtpMgZFgcsoOUWOHiFGsTw==';
+  const leafDerBase64 =
+      'MIIBbTCCAROgAwIBAgIBAjAKBggqhkjOPQQDAjAjMSEwHwYDVQQDDBhTaGlyb2hhIG'
+      'xvb3BiYWNrIHRlc3QgQ0EwHhcNMjAwMTAxMDAwMDAwWhcNNDAwMTAxMDAwMDAwWjAl'
+      'MSMwIQYDVQQDDBpTaGlyb2hhIGxvb3BiYWNrIHRlc3QgbGVhZjBZMBMGByqGSM49Ag'
+      'EGCCqGSM49AwEHA0IABGsX0fLhLEJH+Lzm5WOkQPJ3A32BLeszoPShOUXYmMKWT+NC'
+      '4v4af5uO5+tKfA+eFivOM1drMV7Oy7ZAaDe/UfWjNjA0MAwGA1UdEwEB/wQCMAAwDw'
+      'YDVR0RBAgwBocEfwAAATATBgNVHSUEDDAKBggrBgEFBQcDATAKBggqhkjOPQQDAgNI'
+      'ADBFAiABNU8LryXKOgSXasi7RqXOmnGdbq8lQU29G8z2voM/HgIhAMDYpeP8FynMsg'
+      'pzyVmArgaCsibwNODITWzKLIQmMJEv';
+
+  test('bindSecure completes a trusted TLS handshake with Native-format PKCS#8',
+      () async {
+    final leaf = ExternalCertificateDer.encodePemCertificate(
+        base64Decode(leafDerBase64));
+    final root = ExternalCertificateDer.encodePemCertificate(
+        base64Decode(rootDerBase64));
+    final leafKey = base64Decode(leafPkcs8Base64);
+    final listener = await AndroidHttpMcpServer.bindSecure(
+      ipv4Address: '127.0.0.1',
+      port: 0,
+      certificateChainPemBytes: Uint8List.fromList(ascii.encode(leaf + root)),
+      privateKeyPemOrPkcs8Bytes: leafKey,
+      allowLoopbackForTest: true,
+    );
+    addTearDown(() => listener.close(force: true));
+    leafKey.fillRange(0, leafKey.length, 0);
+    listener.listen((request) async {
+      request.response.write('synthetic TLS');
+      await request.response.close();
+    });
+
+    final context = SecurityContext(withTrustedRoots: false)
+      ..minimumTlsProtocolVersion = TlsProtocolVersion.tls1_3
+      ..setTrustedCertificatesBytes(ascii.encode(root));
+    final client = _DirectLoopbackHttpOverrides().createHttpClient(context);
+    addTearDown(() => client.close(force: true));
+    final request = await client.getUrl(Uri(
+      scheme: 'https',
+      host: '127.0.0.1',
+      port: listener.port,
+      path: '/',
+    ));
+    final response = await request.close();
+    expect(response.statusCode, HttpStatus.ok);
+    expect(await utf8.decoder.bind(response).join(), 'synthetic TLS');
   });
 
   test('bindSecure rejects public/wildcard IPv4 addresses before socket bind',

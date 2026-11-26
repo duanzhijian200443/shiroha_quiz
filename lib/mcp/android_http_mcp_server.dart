@@ -15,35 +15,15 @@ import 'dart:typed_data';
 
 import 'package:mcp_dart/mcp_dart.dart';
 
+import '../application/external/android_foreground_access.dart';
+import '../application/external/external_authorization.dart';
+import '../application/external/external_runtime_admission.dart';
 import '../application/external/external_trust_core.dart';
 import '../data/external/external_certificate_der.dart';
 import 'vnext_mcp_server.dart';
 
-/// Current runtime access gate snapshot supplied by trusted composition.
-final class AndroidHttpAdmissionStatus {
-  const AndroidHttpAdmissionStatus({
-    required this.allowsAuthenticatedUse,
-    required this.acceptsNew,
-  });
-
-  static const denied = AndroidHttpAdmissionStatus(
-    allowsAuthenticatedUse: false,
-    acceptsNew: false,
-  );
-
-  /// Whether already-authenticated clients from the current unlocked Enable
-  /// window may continue issuing READ calls (e.g., under `continueWhileLocked`).
-  final bool allowsAuthenticatedUse;
-
-  /// Whether new clients/sessions may authenticate (requires unlocked screen).
-  final bool acceptsNew;
-}
-
 typedef AndroidHttpBearerAuthenticator = Future<ExternalSession?> Function(
   List<String>? authorizationHeaders,
-);
-typedef AndroidHttpAdmissionCheck = Future<AndroidHttpAdmissionStatus> Function(
-  String profileId,
 );
 typedef AndroidHttpEventSink = void Function(
   String event,
@@ -54,17 +34,23 @@ typedef AndroidHttpPortFactory = VnextMcpPort Function(
   bool Function() isSessionCurrent,
 );
 
+final class _LegacySessionReservation {
+  _LegacySessionReservation(this.profileId);
+  final String profileId;
+}
+
 /// Bounded in-memory legacy MCP HTTP session (2025-06-18 / 2025-11-25).
 /// Ephemeral only: no persistence, no durable lease, no DIRTY state.
 final class _LegacyHttpSession {
   _LegacyHttpSession({
-    required this.profileId,
+    required this.session,
     required this.server,
     required this.transport,
     required this.lastActivity,
   });
 
-  final String profileId;
+  final ExternalSession session;
+  String get profileId => session.principal.profileId;
   final VnextMcpServer server;
   final StreamableHTTPServerTransport transport;
   DateTime lastActivity;
@@ -79,7 +65,8 @@ final class AndroidHttpMcpServer {
     required this.drainReads,
     required this.deviceRef,
     required this.authenticateBearer,
-    required this.checkAdmission,
+    required this.foreground,
+    required this.runtimeAdmission,
     this.isTls = true,
     DateTime Function()? now,
     this.idleSessionTtl = defaultIdleSessionTtl,
@@ -133,8 +120,22 @@ final class AndroidHttpMcpServer {
     final context = SecurityContext(withTrustedRoots: false)
       ..minimumTlsProtocolVersion = TlsProtocolVersion.tls1_3
       ..allowLegacyUnsafeRenegotiation = false
-      ..useCertificateChainBytes(certificateChainPemBytes)
-      ..usePrivateKeyBytes(privateKeyPemOrPkcs8Bytes);
+      ..useCertificateChainBytes(certificateChainPemBytes);
+    final key = privateKeyPemOrPkcs8Bytes;
+    if (key.isNotEmpty && key.first == 0x30) {
+      if (key.length > 4096) throw const FormatException('Invalid PKCS#8 key');
+      // Native hands off unencrypted PKCS#8 DER. Dart's TLS loader expects PEM.
+      final pem = ascii.encode('-----BEGIN PRIVATE KEY-----\n'
+          '${base64.encode(key)}\n'
+          '-----END PRIVATE KEY-----\n');
+      try {
+        context.usePrivateKeyBytes(pem);
+      } finally {
+        pem.fillRange(0, pem.length, 0);
+      }
+    } else {
+      context.usePrivateKeyBytes(key);
+    }
     return HttpServer.bindSecure(
       InternetAddress(ipv4Address),
       port,
@@ -151,7 +152,8 @@ final class AndroidHttpMcpServer {
   final Future<void> Function() drainReads;
   final String deviceRef;
   final AndroidHttpBearerAuthenticator authenticateBearer;
-  final AndroidHttpAdmissionCheck checkAdmission;
+  final AndroidForegroundAccess foreground;
+  final ExternalRuntimeAdmission runtimeAdmission;
   final DateTime Function() _now;
   final Duration idleSessionTtl;
   final int maxSessions;
@@ -166,9 +168,10 @@ final class AndroidHttpMcpServer {
   final Set<String> _allowedHosts;
 
   final Map<String, _LegacyHttpSession> _sessions = {};
+  final _initializing = <_LegacySessionReservation>{};
   final Map<String, VnextMcpPort> _ports = {};
   final Map<String, ExternalSession> _activeSessions = {};
-  final Set<String> _unlockedAuthenticatedProfiles = {};
+  final _unlockedSessions = <String, ExternalSession>{};
   final Set<Future<void>> _inFlight = {};
 
   StreamSubscription<HttpRequest>? _subscription;
@@ -218,7 +221,8 @@ final class AndroidHttpMcpServer {
     final cutoff = _now().subtract(idleSessionTtl);
     final expiredIds = <String>[];
     _sessions.forEach((id, session) {
-      if (!session.lastActivity.isAfter(cutoff)) {
+      if (session.session.failure != null ||
+          !session.lastActivity.isAfter(cutoff)) {
         expiredIds.add(id);
       }
     });
@@ -237,7 +241,9 @@ final class AndroidHttpMcpServer {
     String profileId, {
     ExternalSession? session,
   }) async {
-    _unlockedAuthenticatedProfiles.remove(profileId);
+    _unlockedSessions.remove(profileId);
+    _initializing
+        .removeWhere((reservation) => reservation.profileId == profileId);
     _ports.remove(profileId);
     final trackedSession = _activeSessions.remove(profileId) ?? session;
     final matchingIds = _sessions.entries
@@ -265,7 +271,8 @@ final class AndroidHttpMcpServer {
     return _closing ??= () async {
       _sweepTimer?.cancel();
       _sweepTimer = null;
-      _unlockedAuthenticatedProfiles.clear();
+      _unlockedSessions.clear();
+      _initializing.clear();
       _ports.clear();
       _activeSessions.clear();
       await _subscription?.cancel();
@@ -290,7 +297,7 @@ final class AndroidHttpMcpServer {
     var transient = false;
     _LegacyHttpSession? activeLegacy;
     VnextMcpServer? transientServer;
-    String? assignedSessionId;
+    _LegacySessionReservation? reservation;
     try {
       if (_closed) {
         await _reject(response, HttpStatus.unauthorized);
@@ -326,15 +333,17 @@ final class AndroidHttpMcpServer {
       }
       final profileId = session.principal.profileId;
 
-      final admission = await checkAdmission(profileId);
-      if (!admission.allowsAuthenticatedUse || _closed) {
+      if (await foreground.currentHttpReadGrant(runtimeAdmission, session) ==
+              null ||
+          _closed ||
+          session.failure != null) {
         _emit('AUTH_REFUSED', {'profileId': profileId, 'http': 401});
         await _reject(response, HttpStatus.unauthorized);
         return;
       }
-      if (admission.acceptsNew) {
-        _unlockedAuthenticatedProfiles.add(profileId);
-      } else if (!_unlockedAuthenticatedProfiles.contains(profileId)) {
+      if (foreground.acceptsNew) {
+        _unlockedSessions[profileId] = session;
+      } else if (!identical(_unlockedSessions[profileId], session)) {
         _emit('LOCKED_NEW_CLIENT_REFUSED', {
           'profileId': profileId,
           'http': HttpStatus.forbidden,
@@ -365,6 +374,10 @@ final class AndroidHttpMcpServer {
           await _reject(response, HttpStatus.forbidden);
           return;
         }
+        if (!identical(existing.session, session)) {
+          await _reject(response, HttpStatus.notFound);
+          return;
+        }
         existing.lastActivity = _now();
       }
 
@@ -373,8 +386,6 @@ final class AndroidHttpMcpServer {
           await _reject(response, HttpStatus.badRequest);
           return;
         }
-        activeLegacy = existing;
-        assignedSessionId = suppliedSessionId;
         await existing.transport.handleRequest(request, null);
         await response.done.timeout(responseTimeout);
         return;
@@ -406,7 +417,7 @@ final class AndroidHttpMcpServer {
       }
 
       // Recheck admission after reading the body.
-      if (!await _isProfileAllowedForSession(profileId, session)) {
+      if (await _currentGrant(session) == null) {
         _emit('AUTH_REFUSED', {'profileId': profileId, 'http': 401});
         await _reject(response, HttpStatus.unauthorized);
         return;
@@ -420,30 +431,28 @@ final class AndroidHttpMcpServer {
         activeLegacy = existing;
         transport = existing.transport;
       } else if (isInitialize) {
-        if (_sessions.length >= maxSessions ||
-            _sessions.values.where((s) => s.profileId == profileId).length >=
-                maxSessionsPerProfile) {
+        reservation = _reserveLegacySession(profileId);
+        if (reservation == null) {
           await _reject(response, HttpStatus.tooManyRequests);
           return;
         }
         final created = await _createServerAndTransport(
-          profileId: profileId,
           session: session,
-          initializing: true,
+          reservation: reservation,
         );
         activeLegacy = created.$1;
         transport = created.$2;
       } else {
         transient = true;
-        final created = await _createServerAndTransport(
-          profileId: profileId,
-          session: session,
-          initializing: false,
-        );
+        final created = await _createServerAndTransport(session: session);
         transientServer = created.$1.server;
         transport = created.$2;
       }
 
+      if (!_mayUseSession(session)) {
+        await _reject(response, HttpStatus.unauthorized);
+        return;
+      }
       await transport.handleRequest(request, decoded);
       await response.done.timeout(responseTimeout);
       if (activeLegacy != null) {
@@ -459,29 +468,39 @@ final class AndroidHttpMcpServer {
         await _tryReject(response, HttpStatus.internalServerError);
       }
     } finally {
-      if (transient && transientServer != null) {
+      if (reservation != null) {
+        _initializing.remove(reservation);
+        final created = activeLegacy;
+        if (created != null &&
+            !identical(_sessions[created.transport.sessionId], created)) {
+          await created.server.close().catchError((Object _) {});
+        }
+      } else if (transient && transientServer != null) {
         await transientServer.close().catchError((Object _) {});
-      } else if (request.method == 'DELETE' &&
-          assignedSessionId != null &&
-          activeLegacy != null) {
-        _sessions.remove(assignedSessionId);
-        await activeLegacy.server.close().catchError((Object _) {});
-      } else if (activeLegacy != null &&
-          activeLegacy.transport.sessionId == null) {
-        await activeLegacy.server.close().catchError((Object _) {});
       }
     }
   }
 
+  _LegacySessionReservation? _reserveLegacySession(String profileId) {
+    if (_sessions.length + _initializing.length >= maxSessions) return null;
+    final owned =
+        _sessions.values.where((entry) => entry.profileId == profileId);
+    final pending =
+        _initializing.where((entry) => entry.profileId == profileId);
+    if (owned.length + pending.length >= maxSessionsPerProfile) return null;
+    final reservation = _LegacySessionReservation(profileId);
+    _initializing.add(reservation);
+    return reservation;
+  }
+
   Future<(_LegacyHttpSession, StreamableHTTPServerTransport)>
       _createServerAndTransport({
-    required String profileId,
     required ExternalSession session,
-    required bool initializing,
+    _LegacySessionReservation? reservation,
   }) async {
     final portAdapter = _HttpReadMcpPort(
       owner: this,
-      profileId: profileId,
+      profileId: session.principal.profileId,
       session: session,
     );
     final protocolServer = McpServer(
@@ -504,9 +523,11 @@ final class AndroidHttpMcpServer {
     late final _LegacyHttpSession entry;
     final transport = StreamableHTTPServerTransport(
       options: StreamableHTTPServerTransportOptions(
-        sessionIdGenerator: initializing ? _mintSessionId : () => null,
+        sessionIdGenerator: reservation == null ? () => null : _mintSessionId,
         onsessioninitialized: (id) {
-          if (!_closed) {
+          if (reservation != null &&
+              _initializing.remove(reservation) &&
+              _mayUseSession(session)) {
             _sessions[id] = entry;
           }
         },
@@ -515,12 +536,23 @@ final class AndroidHttpMcpServer {
       ),
     );
     entry = _LegacyHttpSession(
-      profileId: profileId,
+      session: session,
       server: mcpServer,
       transport: transport,
       lastActivity: _now(),
     );
-    await protocolServer.connect(transport);
+    final onClose = protocolServer.server.onclose;
+    protocolServer.server.onclose = () {
+      final id = transport.sessionId;
+      if (identical(_sessions[id], entry)) _sessions.remove(id);
+      onClose?.call();
+    };
+    try {
+      await protocolServer.connect(transport);
+    } catch (_) {
+      await mcpServer.close().catchError((Object _) {});
+      rethrow;
+    }
     return (entry, transport);
   }
 
@@ -545,20 +577,18 @@ final class AndroidHttpMcpServer {
     return created;
   }
 
-  Future<bool> _isProfileAllowedForSession(
-    String profileId,
-    ExternalSession session,
-  ) async {
-    if (_closed || session.failure != null) return false;
-    final status = await checkAdmission(profileId);
-    if (!status.allowsAuthenticatedUse || _closed || session.failure != null) {
-      return false;
-    }
-    if (status.acceptsNew) {
-      _unlockedAuthenticatedProfiles.add(profileId);
-      return true;
-    }
-    return _unlockedAuthenticatedProfiles.contains(profileId);
+  bool _mayUseSession(ExternalSession session) =>
+      !_closed &&
+      session.failure == null &&
+      foreground.allowsAuthenticatedUse &&
+      (foreground.acceptsNew ||
+          identical(_unlockedSessions[session.principal.profileId], session));
+
+  Future<ExternalGrant?> _currentGrant(ExternalSession session) async {
+    if (!_mayUseSession(session)) return null;
+    final grant =
+        await foreground.currentHttpReadGrant(runtimeAdmission, session);
+    return _mayUseSession(session) ? grant : null;
   }
 
   bool _isOriginAllowed(List<String>? origins) {
@@ -625,24 +655,21 @@ final class _HttpReadMcpPort implements VnextMcpPort {
     if (!VnextMcpServer.unifiedReadOnlyInputSchemas.containsKey(tool)) {
       return denied();
     }
-    if (!available() ||
-        !await owner._isProfileAllowedForSession(profileId, session)) {
-      return denied();
-    }
+    if (!available()) return denied();
+    final grant = await owner._currentGrant(session);
+    if (!available() || grant == null) return denied();
     final port = owner._portFor(profileId, session);
     final result = await port.call(
       tool,
       arguments,
       cancelled: cancelled,
-      available: () => !owner._closed && session.failure == null && available(),
+      available: () => owner._mayUseSession(session) && available(),
     );
     if (owner.beforeResponseRelease != null) {
       await owner.beforeResponseRelease!(profileId, tool);
     }
-    final stillAllowed = available() &&
-        !owner._closed &&
-        session.failure == null &&
-        await owner._isProfileAllowedForSession(profileId, session);
+    final current = await owner._currentGrant(session);
+    final stillAllowed = available() && current?.revision == grant.revision;
     if (!stillAllowed) {
       owner._emit('OUTPUT_WITHHELD', {
         'profileId': profileId,

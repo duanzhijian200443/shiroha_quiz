@@ -1342,6 +1342,13 @@ Authentication requires that selected Profile's Principal;
 it adds no READ/STAGE. Saving P11 policy never enables a Profile. Grantless
 credential-proven Sessions release no business content and cannot bind P8.
 
+Android Streamable HTTP H1 binds P0 to its explicit Android lifecycle window
+through the trusted runtime-owner entry. Base P12 and Windows callers retain
+their finite Enable path. The Android owner supplies a monotonic deadline for
+finite access, or a live process window for pure-question READ untilAppStops.
+The original window and the Profile's current Grant must still permit HTTP
+admission and final release. See the [Android HTTP lifecycle contract](android-http-mcp-v1.md#5-foreground-service-extended-durations-and-lock-screen-continuation).
+
 P8/P7 and their owning services still reload current Profile/Grant, revision,
 exact Scope and independent Egress on every admission/publication/release.
 READ references retain same-Principal/current-generation cross-Session semantics;

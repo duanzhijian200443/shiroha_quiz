@@ -16,8 +16,11 @@ import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.PrivateKey
 import java.security.Signature
+import java.security.cert.CertificateFactory
+import java.security.cert.X509Certificate
 import java.security.interfaces.ECPublicKey
 import java.security.spec.ECGenParameterSpec
+import java.security.spec.PKCS8EncodedKeySpec
 
 /**
  * Hybrid TLS native custody for Android Streamable HTTP MCP.
@@ -46,9 +49,24 @@ internal class DeviceHttpTlsStore(
     private val caAlias = "shiroha.external.android.http.v1.ca"
     private val directory = File(context.noBackupFilesDir, "shiroha-external-v1/http")
     private val caCertFile = AtomicFile(File(directory, "ca.der"))
-    private val leafCertFile = AtomicFile(File(directory, "leaf.der"))
-    private val leafKeyFile = AtomicFile(File(directory, "leaf-key.bin"))
-    private val leafMetaFile = AtomicFile(File(directory, "leaf-meta.bin"))
+    private val leafFile = AtomicFile(File(directory, "leaf.bin"))
+    private val legacyLeafCertFile = AtomicFile(File(directory, "leaf.der"))
+    private val legacyLeafKeyFile = AtomicFile(File(directory, "leaf-key.bin"))
+    private val legacyLeafMetaFile = AtomicFile(File(directory, "leaf-meta.bin"))
+    private var pendingLeaf: PendingLeaf? = null
+
+    private class PendingLeaf(val publicKey: ByteArray, val sealedKey: ByteArray)
+    private class LeafMaterial(
+        val ipv4: String,
+        val expiresAtUtcMs: Long,
+        val certificate: ByteArray,
+        val sealedKey: ByteArray,
+    )
+
+    private companion object {
+        const val MAX_CERT_BYTES = 4096
+        const val MAX_LEAF_BYTES = 2 * MAX_CERT_BYTES + 256
+    }
 
     private fun store(): KeyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
 
@@ -123,7 +141,16 @@ internal class DeviceHttpTlsStore(
     @Synchronized
     fun storeCaCertificate(caDer: ByteArray) {
         credentials.requireAuthorized()
-        if (caDer.isEmpty() || caDer.size > 4096) throw DeviceLinkFailure("protocol_violation")
+        if (caDer.isEmpty() || caDer.size > MAX_CERT_BYTES) {
+            throw DeviceLinkFailure("protocol_violation")
+        }
+        val key = store().getCertificate(caAlias)?.publicKey
+            ?: throw DeviceLinkFailure("pairing_required")
+        val certificate = parseCertificate(caDer)
+        if (!key.encoded.contentEquals(certificate.publicKey.encoded)) {
+            throw DeviceLinkFailure("protocol_violation")
+        }
+        certificate.verify(key)
         writeAtomic(caCertFile, caDer)
     }
 
@@ -134,10 +161,8 @@ internal class DeviceHttpTlsStore(
     }
 
     /**
-     * Generates a software EC P-256 Server Leaf key pair, seals its PKCS#8
-     * private key at rest with AndroidKeyStore AES-256-GCM (`http-leaf-key`),
-     * wipes local intermediate arrays on a best-effort basis, and returns only
-     * the 65-byte uncompressed public point for `ExternalCertificateDer.buildTbs`.
+     * Prepares an encrypted leaf key in memory. The published identity is
+     * replaced only after a matching certificate and metadata are available.
      */
     @Synchronized
     fun generateAndSealLeafKey(): ByteArray {
@@ -151,84 +176,172 @@ internal class DeviceHttpTlsStore(
         } catch (_: Exception) {
             throw DeviceLinkFailure("credential_store_unavailable")
         }
-        val ecPublic = keyPair.public as? ECPublicKey
+        val publicKey = keyPair.public as? ECPublicKey
             ?: throw DeviceLinkFailure("credential_store_corrupt")
+        val point = uncompressedPoint(publicKey)
         val pkcs8 = keyPair.private.encoded
             ?: throw DeviceLinkFailure("credential_store_corrupt")
-        var encrypted: ByteArray? = null
         try {
-            encrypted = credentials.seal(pkcs8, "http-leaf-key")
-            writeAtomic(leafKeyFile, encrypted)
-            return uncompressedPoint(ecPublic)
+            val sealed = credentials.seal(pkcs8, "http-leaf-key")
+            discardPreparedLeaf()
+            pendingLeaf = PendingLeaf(publicKey.encoded, sealed)
+            return point
         } finally {
             pkcs8.fill(0)
-            encrypted?.fill(0)
         }
+    }
+
+    @Synchronized
+    fun discardPreparedLeaf() {
+        pendingLeaf?.sealedKey?.fill(0)
+        pendingLeaf = null
     }
 
     @Synchronized
     fun storeLeafCertificate(ipv4: String, expiresAtUtcMs: Long, leafDer: ByteArray) {
         credentials.requireAuthorized()
-        if (ipv4.length !in 7..15 || leafDer.isEmpty() || leafDer.size > 4096 || expiresAtUtcMs <= 0L) {
+        val pending = pendingLeaf ?: throw DeviceLinkFailure("pairing_required")
+        if (ipv4.length !in 7..15 || expiresAtUtcMs <= 0L ||
+            leafDer.isEmpty() || leafDer.size > MAX_CERT_BYTES
+        ) {
             throw DeviceLinkFailure("protocol_violation")
         }
-        writeAtomic(leafCertFile, leafDer)
+        val caDer = readCaCertificate() ?: throw DeviceLinkFailure("pairing_required")
+        val leaf = LeafMaterial(ipv4, expiresAtUtcMs, leafDer, pending.sealedKey)
+        val certificate = checkLeaf(leaf, caDer)
+        if (!pending.publicKey.contentEquals(certificate.publicKey.encoded)) {
+            throw DeviceLinkFailure("protocol_violation")
+        }
         val out = ByteArrayOutputStream()
         DataOutputStream(out).use {
             it.writeByte(1)
             it.writeUTF(ipv4)
             it.writeLong(expiresAtUtcMs)
+            it.writeInt(leafDer.size)
+            it.write(leafDer)
+            it.writeInt(pending.sealedKey.size)
+            it.write(pending.sealedKey)
         }
-        writeAtomic(leafMetaFile, out.toByteArray())
+        writeAtomic(leafFile, out.toByteArray())
+        discardPreparedLeaf()
     }
 
     /**
-     * Loads the stored Root CA DER, current IP-bound Server Leaf DER, metadata,
-     * and decrypted PKCS#8 leaf private key for in-process Dart TLS startup.
-     * Callers must wipe the returned ByteArray copy on a best-effort basis once
-     * loaded into Dart's TLS context; complete zeroing of runtime memory copies
-     * is explicitly not claimed.
+     * Reads one published generation and releases only a matching PKCS#8 key.
+     * The caller wipes its returned key bytes after TLS loading.
      */
     @Synchronized
     fun openLeafMaterial(): Map<String, Any> {
         credentials.requireAuthorized()
-        val caDer = readBounded(caCertFile, 4096)
+        val caDer = readCaCertificate() ?: throw DeviceLinkFailure("pairing_required")
+        val leaf = readLeaf()
+        val certificate = checkLeaf(leaf, caDer)
+        val privateKey = store().getKey(caAlias, null) as? PrivateKey
             ?: throw DeviceLinkFailure("pairing_required")
-        val leafDer = readBounded(leafCertFile, 4096)
-            ?: throw DeviceLinkFailure("pairing_required")
-        val metaBytes = readBounded(leafMetaFile, 256)
-            ?: throw DeviceLinkFailure("credential_store_corrupt")
-        val encryptedKey = readBounded(leafKeyFile, 4096)
-            ?: throw DeviceLinkFailure("credential_store_corrupt")
-        val ipv4: String
-        val expiresAtUtcMs: Long
+        val securityLevel = keySecurityLevel(privateKey)
+        val pkcs8 = try {
+            credentials.open(leaf.sealedKey, "http-leaf-key")
+        } finally {
+            leaf.sealedKey.fill(0)
+        }
         try {
-            val input = DataInputStream(ByteArrayInputStream(metaBytes))
+            // Also guards old, independently written leaf files left by H1.
+            requireKeyMatch(pkcs8, certificate)
+            return mapOf(
+                "caDer" to caDer,
+                "leafDer" to leaf.certificate,
+                "leafPrivateKeyPkcs8" to pkcs8,
+                "ipv4" to leaf.ipv4,
+                "expiresAtUtcMs" to leaf.expiresAtUtcMs,
+                "nonExportableCa" to true,
+                "caSecurityLevel" to securityLevel,
+            )
+        } catch (_: Exception) {
+            pkcs8.fill(0)
+            throw DeviceLinkFailure("credential_store_corrupt")
+        }
+    }
+
+    private fun readLeaf(): LeafMaterial {
+        val bundled = readBounded(leafFile, MAX_LEAF_BYTES)
+        try {
+            if (bundled != null) {
+                val input = DataInputStream(ByteArrayInputStream(bundled))
+                if (input.readUnsignedByte() != 1) throw DeviceLinkFailure("credential_store_corrupt")
+                val leaf = LeafMaterial(input.readUTF(), input.readLong(), readPart(input), readPart(input))
+                if (input.read() != -1) throw DeviceLinkFailure("credential_store_corrupt")
+                return leaf
+            }
+
+            // A missing bundle may be an older store. A present invalid bundle
+            // fails closed; the older files are never a corruption fallback.
+            val cert = readBounded(legacyLeafCertFile, MAX_CERT_BYTES)
+                ?: throw DeviceLinkFailure("pairing_required")
+            val meta = readBounded(legacyLeafMetaFile, 256)
+                ?: throw DeviceLinkFailure("credential_store_corrupt")
+            val input = DataInputStream(ByteArrayInputStream(meta))
             if (input.readUnsignedByte() != 1) throw DeviceLinkFailure("credential_store_corrupt")
-            ipv4 = input.readUTF()
-            expiresAtUtcMs = input.readLong()
+            val ipv4 = input.readUTF()
+            val expiresAt = input.readLong()
             if (input.read() != -1) throw DeviceLinkFailure("credential_store_corrupt")
-        } catch (e: DeviceLinkFailure) {
-            throw e
+            val key = readBounded(legacyLeafKeyFile, MAX_CERT_BYTES)
+                ?: throw DeviceLinkFailure("credential_store_corrupt")
+            return LeafMaterial(ipv4, expiresAt, cert, key)
+        } catch (error: DeviceLinkFailure) {
+            throw error
         } catch (_: Exception) {
             throw DeviceLinkFailure("credential_store_corrupt")
         }
-        val privateKey = store().getKey(caAlias, null) as? PrivateKey
-            ?: throw DeviceLinkFailure("pairing_required")
-        val pkcs8 = try {
-            credentials.open(encryptedKey, "http-leaf-key")
-        } finally {
-            encryptedKey.fill(0)
+    }
+
+    private fun readPart(input: DataInputStream): ByteArray {
+        val size = input.readInt()
+        if (size !in 1..MAX_CERT_BYTES) throw DeviceLinkFailure("credential_store_corrupt")
+        return ByteArray(size).also { input.readFully(it) }
+    }
+
+    private fun parseCertificate(der: ByteArray): X509Certificate {
+        val input = ByteArrayInputStream(der)
+        val certificate = CertificateFactory.getInstance("X.509")
+            .generateCertificate(input) as X509Certificate
+        if (input.available() != 0) throw DeviceLinkFailure("credential_store_corrupt")
+        return certificate
+    }
+
+    private fun checkLeaf(leaf: LeafMaterial, caDer: ByteArray): X509Certificate {
+        try {
+            val ca = parseCertificate(caDer)
+            val installedCa = store().getCertificate(caAlias)?.publicKey
+                ?: throw DeviceLinkFailure("pairing_required")
+            val certificate = parseCertificate(leaf.certificate)
+            val addressMatches = certificate.subjectAlternativeNames?.any {
+                it.size == 2 && it[0] == 7 && it[1] == leaf.ipv4
+            } == true
+            if (!installedCa.encoded.contentEquals(ca.publicKey.encoded) ||
+                certificate.issuerX500Principal != ca.subjectX500Principal ||
+                certificate.notAfter.time != leaf.expiresAtUtcMs ||
+                !addressMatches
+            ) throw DeviceLinkFailure("credential_store_corrupt")
+            certificate.verify(installedCa)
+            return certificate
+        } catch (error: DeviceLinkFailure) {
+            throw error
+        } catch (_: Exception) {
+            throw DeviceLinkFailure("credential_store_corrupt")
         }
-        return mapOf(
-            "caDer" to caDer,
-            "leafDer" to leafDer,
-            "leafPrivateKeyPkcs8" to pkcs8,
-            "ipv4" to ipv4,
-            "expiresAtUtcMs" to expiresAtUtcMs,
-            "nonExportableCa" to true,
-            "caSecurityLevel" to keySecurityLevel(privateKey),
-        )
+    }
+
+    private fun requireKeyMatch(pkcs8: ByteArray, certificate: X509Certificate) {
+        val privateKey = KeyFactory.getInstance("EC")
+            .generatePrivate(PKCS8EncodedKeySpec(pkcs8))
+        val challenge = "shiroha-http-leaf-key-match-v1".toByteArray(Charsets.US_ASCII)
+        val signature = Signature.getInstance("SHA256withECDSA")
+        signature.initSign(privateKey)
+        signature.update(challenge)
+        val proof = signature.sign()
+        signature.initVerify(certificate.publicKey)
+        signature.update(challenge)
+        if (!signature.verify(proof)) throw DeviceLinkFailure("credential_store_corrupt")
     }
 
     private fun keySecurityLevel(privateKey: PrivateKey): String {
@@ -279,6 +392,13 @@ internal class DeviceHttpTlsStore(
             target.finishWrite(stream)
         } catch (_: Exception) {
             target.failWrite(stream)
+            throw DeviceLinkFailure("commit_unknown")
+        }
+        try {
+            if (readBounded(target, bytes.size)?.contentEquals(bytes) != true) {
+                throw DeviceLinkFailure("commit_unknown")
+            }
+        } catch (_: Exception) {
             throw DeviceLinkFailure("commit_unknown")
         }
     }

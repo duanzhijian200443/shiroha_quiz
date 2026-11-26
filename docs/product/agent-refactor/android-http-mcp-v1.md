@@ -56,7 +56,8 @@ Android Streamable HTTP uses **Hybrid TLS**:
 2. **Dynamic IP-Bound Server Leaf (Software P-256 + AES-256-GCM At-Rest Protection)**:
    - Software EC P-256 leaf key pair generated in Kotlin; PKCS#8 DER private key is sealed at rest via `DeviceCredentials.seal(..., "http-leaf-key")` (AES-256-GCM backed by `AndroidKeyStore`) under `noBackupFilesDir/shiroha-external-v1/http/` (covered by `@xml/external_backup_rules` and `@xml/external_data_extraction_rules`).
    - Signed exclusively by the `AndroidKeyStore` Root CA key (`SHA256withECDSA`) over `ExternalCertificateDer.buildTbs` output with `CA:FALSE`, critical `digitalSignature`, `EKU=serverAuth`, critical private RFC 1918 IPv4 SAN (`10/8`, `172.16/12`, `192.168/16`), `SKI`, `AKI` matching CA `SKI`, and 90-day validity.
-   - At HTTPS listen time, Dart loads an isolated `SecurityContext(withTrustedRoots: false)` (`minimumTlsProtocolVersion = TlsProtocolVersion.tls1_3`, `allowLegacyUnsafeRenegotiation = false`) via `useCertificateChainBytes` / `usePrivateKeyBytes` bound exclusively to the verified private IPv4 address (never `0.0.0.0`, wildcard, cellular, or VPN).
+   - Native reserves the replacement key in memory. It verifies that the signed certificate matches the prepared key, installation CA, IP and expiry, then atomically publishes the certificate, sealed key and metadata together. An interrupted preparation preserves the previously published leaf. Valid older split files remain readable when the bundle is absent, with the same key and certificate checks. A corrupt bundle fails closed.
+   - At HTTPS listen time, Dart wraps Native PKCS#8 DER in PEM for its key loader and loads an isolated `SecurityContext(withTrustedRoots: false)` (`minimumTlsProtocolVersion = TlsProtocolVersion.tls1_3`, `allowLegacyUnsafeRenegotiation = false`) via `useCertificateChainBytes` / `usePrivateKeyBytes` bound exclusively to the verified private IPv4 address (never `0.0.0.0`, wildcard, cellular, or VPN).
    - **Memory zeroing disclaimer**: local `ByteArray` / `Uint8List` buffers are overwritten on a best-effort basis after handoff, **without claiming complete zeroing** of JVM, Dart GC, or BoringSSL runtime memory copies.
 
 ---
@@ -69,10 +70,11 @@ Android Streamable HTTP uses **Hybrid TLS**:
    - **Protected Association**: `AndroidAssociationStore.forHttp` (`maxActiveAssociations = 16`, `maxRecords = 64` including monotonic revocation tombstones; legacy single-client callers retain default `maxActiveAssociations = 1`) stores only the domain-separated lowercase hex digest `SHA-256("shiroha-http-bearer-v1:" || token)` via `StreamingSha256`. Plaintext tokens never enter SQLite, backups, logs, or association storage.
    - **Constant-Time Verification**: `AndroidHttpTokenCodec.constantTimeDigestEquals` compares every active association record's digest without short-circuiting on slot index.
    - **Default Grant**: newly issued HTTP Profiles default strictly to `READ` + `questionContent` only. `studyStatistics` and `fileContent` are off by default; `STAGE` is excluded in H1 and deferred to H3.
-   - **Finite Runtime Enable**: temporary local user activation in memory; stopping Enable, expiring, restarting the App, or switching Wi-Fi/IP invalidates active runtime `ExternalSession`s and `contextRef`s **without** revoking durable Bearer Tokens or SQLite Profiles. Re-enabling admits the same Tokens cleanly.
+   - **Runtime Enable**: explicit local user activation in memory. P0 binds each enabled Principal to the original Android lifecycle window before admitting Sessions. Withdrawal invalidates preparations synchronously. Stopping Enable, expiring, restarting the App, or switching Wi-Fi/IP invalidates active runtime `ExternalSession`s and `contextRef`s **without** revoking durable Bearer Tokens or SQLite Profiles. Re-enabling admits the same Tokens cleanly.
 
-2. **Isolated Single-Client Revocation, Fail-Closed Error Policy, and Re-Issuance**:
-   - Revoking Profile A immediately revokes only A's `ExternalPrincipal`, drops only A's HTTP sessions and READ `contextRef`s, commits A's tombstone in `AndroidAssociationStore`, and revokes A's SQLite Profile—sibling Clients B/C remain uninterrupted.
+2. **Issuance, Isolated Revocation and Re-Issuance**
+   - Issuance reserves a protected-store slot before it creates the SQLite Profile and Grant. It completes P0 pairing after committing the association and delivers the Token only after both owners acknowledge the same Profile. A failed issuance withdraws the unpublished Profile and reconciles only its exact association. If that cleanup is uncertain, the first-party caller receives the original Profile ID for recovery.
+   - Revoking Profile A immediately revokes A's P0 Principal, drops its HTTP sessions and READ references, commits its association tombstone, and revokes its SQLite Profile. In-flight Bearer authentication revalidates the exact matched association across the Profile lookup, so a successful sibling commit leaves it current. An observed store failure invalidates all snapshots.
    - **Fail-Closed Durable Revoke Failure**: if durable revocation (`AndroidAssociationStore.revoke` or `ExternalAuthorizationManagement.revokeProfile`) fails, the server **immediately withdraws the entire active Enable window** before propagating the error, rather than introducing a complex cross-store recovery framework.
    - **Token Re-Issuance**: strictly defined as "revoke old Profile preserving tombstone + create a new Profile & mint a new Token"; no silent in-place credential overwrite.
 
@@ -89,27 +91,28 @@ Android Streamable HTTP uses **Hybrid TLS**:
 2. **Protocol Compatibility and Bounded Ephemeral Sessions**:
    - Supports both **stateless `2026-07-28`** (`sessionIdGenerator: () => null`) and **legacy `2025-06-18` / `2025-11-25`** (`mcp-session-id`) simultaneously via pinned `mcp_dart: 2.4.0`.
    - Legacy `mcp-session-id` entries exist **strictly as bounded in-memory protocol state**:
-     - Global cap: **8** active sessions; per-Profile cap: **4** (`429 Too Many Requests` when exceeded).
+     - Global cap is **8** and per-Profile cap is **4**, counting active sessions and in-flight initialization reservations. Excess initialization returns HTTP 429. Failure, close and Profile revocation release the applicable reservations.
      - Idle expiration: **15 minutes** (lazily swept on requests and periodically every 30s; expired or post-restart session IDs return `404 Not Found`).
      - Cross-Profile session hijacking returns `403 Forbidden` before tool execution.
-     - Explicit `DELETE /mcp` removes the session cleanly.
+     - The server removes a session when the SDK closes its transport after accepting DELETE. A rejected DELETE preserves the current session.
      - **No persistent leases, no `LinkStateStore`, and no `DIRTY` state.**
    - Valid Application `contextRef` / `questionRef` handles survive across stateless HTTP requests and legacy session refreshes within the same `(Profile, enableEpoch)` and are invalidated on Profile revocation, Enable withdrawal, expiry, restart, or B0 restore.
 
 3. **HTTP Framing & Pre-Send Release Gate**:
    - Endpoint path strictly `/mcp` (other paths `404`); foreign `Origin` headers rejected `403`; `GET /mcp` returns `405` (`Allow: POST, DELETE`); body cap **64 KiB** (`413`) with 4-second read timeout.
-   - Before every tool result leaves the HTTP port, admission is revalidated; if Enable was withdrawn, expired, or the Profile was revoked while the query ran, the result is discarded, `OUTPUT_WITHHELD` is emitted, and only safe `unavailable` is returned.
+   - Before releasing a tool result, the HTTP port revalidates the current Enable, Session, Grant revision and window eligibility. Withdrawal, expiry, Profile revocation or a Grant change withholds the result, emits OUTPUT_WITHHELD, and returns the safe unavailable envelope.
 
 ---
 
 ## 5. Foreground Service, Extended Durations, and Lock-Screen Continuation
 
 - `DeviceReadService` is declared in `android/app/src/main/AndroidManifest.xml` as a **non-exported** (`android:exported="false"`) `connectedDevice` foreground service with `START_NOT_STICKY` and `android:stopWithTask="true"`.
-- Extended durations (`5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `8h`, `untilAppStops`) and optional per-Enable lock-screen continuation (`continueWhileLocked`) are eligible **only** when `androidBackgroundQuestionRead(policy)` holds (pure `READ` + `questionContent` + bank scopes; never widens `STAGE`, `fileContent`, or `studyStatistics`).
+- The opted-in background window admits only Profiles whose current Grant is pure question READ (READ + questionContent + bank scopes). Application checks that policy at admission and final release, including while the App is visible in that window. File and statistics Grants use the foreground-only finite window within its P0 ceiling.
+- Pure-question READ can choose 5m, 15m, 30m, 1h, 2h, 4h, 8h or untilAppStops. P0, HTTP admission, and the foreground-service lifetime use the same original Android window. A finite window uses its monotonic deadline. UntilAppStops has no synthetic time ceiling and ends with the original owner, explicit withdrawal or loss of the required observation.
 - Under `continueWhileLocked: true`:
-  - Clients already authenticated while the device was unlocked during the current Enable window (`allowsAuthenticatedUse == true`) may continue READ calls after screen lock.
+  - The HTTP server accepts a locked continuation only for the same Application Session recorded while unlocked in the current Enable window.
   - Brand-new clients attempting first authentication while locked (`acceptsNew == false`) are refused (`403 Forbidden`).
-  - Losing the foreground-service notification (`backgroundRead == false`) or switching networks withdraws the Enable window immediately.
+  - Losing the foreground-service notification or switching networks withdraws the Enable window immediately. Native serializes foreground-service start, stop and Activity disposal under the original channel owner, keeping custody of an already accepted start through its stop result.
 
 ---
 

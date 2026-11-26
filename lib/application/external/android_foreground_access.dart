@@ -2,6 +2,8 @@ import 'dart:async';
 
 import '../capabilities/capability.dart';
 import 'external_authorization.dart';
+import 'external_runtime_admission.dart';
+import 'external_trust_core.dart';
 
 /// Pure question-only READ predicate. Background/lock-screen continuation never
 /// widens a saved STAGE, fileContent, or studyStatistics grant.
@@ -162,14 +164,9 @@ final class AndroidForegroundAccess {
   bool get continueWhileLocked => _continueWhileLocked;
   bool get untilAppStops => _untilAppStops;
 
-  /// Non-null remaining duration for compatibility with finite callers. When
-  /// `untilAppStops` is active, returns the 8-hour compatibility bound; inspect
-  /// [boundedRemaining] or [untilAppStops] for exact unbounded-until-stop mode.
-  Duration get remaining {
-    if (!_timeValid()) return Duration.zero;
-    if (_untilAppStops) return const Duration(hours: 8);
-    return _expires! - _elapsed();
-  }
+  /// Remaining duration for the existing finite caller.
+  Duration get remaining =>
+      boundedRemaining ?? (throw StateError('android_access_process_bound'));
 
   /// Exact finite remaining duration, or `null` when `untilAppStops` is active.
   Duration? get boundedRemaining {
@@ -193,6 +190,33 @@ final class AndroidForegroundAccess {
       _runningEligible &&
       _observation?.network == _network &&
       _timeValid();
+
+  /// Policy for the current HTTP window. An opted-in background window admits
+  /// only pure question READ Profiles, including while the App is visible.
+  bool allowsHttpReadGrant(ExternalGrant? grant) =>
+      allowsAuthenticatedUse &&
+      grant != null &&
+      grant.revokedAtUtcMs == null &&
+      grant.policy.permissions.contains(CapabilityPermission.read) &&
+      (!_allowBackgroundRead || androidBackgroundQuestionRead(grant.policy));
+
+  Future<ExternalGrant?> currentHttpReadGrant(
+    ExternalRuntimeAdmission admission,
+    ExternalSession session,
+  ) async {
+    if (!allowsAuthenticatedUse) return null;
+    final generation = _generation;
+    try {
+      final access = await admission.admit(session);
+      final grant = access.grantSnapshot;
+      if (generation == _generation && allowsHttpReadGrant(grant)) {
+        return grant;
+      }
+    } on ExternalAuthException {
+      return null;
+    }
+    return null;
+  }
 
   bool _timeValid() {
     final now = _elapsed();

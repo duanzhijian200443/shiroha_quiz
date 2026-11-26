@@ -55,14 +55,17 @@ final class AndroidAssociationStore
   final int Function() _now;
   final int maxActiveAssociations;
   Future<void> _tail = Future.value();
-  int _epoch = 0, _pending = 0;
+  int _epoch = 0, _pending = 0, _invalidatedAt = 0;
+  final _changedAt = <String, int>{};
   bool _closed = false;
   static const maxRecords = 64, maxBytes = 65536;
   static const defaultHttpMaxActiveAssociations = 16;
 
+  void _invalidateSnapshots() => _invalidatedAt = ++_epoch;
+
   void _guard() {
     if (_closed || !backend.isCurrent) {
-      _epoch++;
+      _invalidateSnapshots();
       credentialFail(ExternalCredentialFailure.temporarilyUnavailable);
     }
   }
@@ -85,17 +88,17 @@ final class AndroidAssociationStore
       return await action(lease);
     } on ExternalCredentialException {
       // An observed outage/corruption must not later revive old snapshots.
-      _epoch++;
+      _invalidateSnapshots();
       rethrow;
     } catch (_) {
-      _epoch++;
+      _invalidateSnapshots();
       credentialFail(ExternalCredentialFailure.temporarilyUnavailable);
     } finally {
       try {
         await lease?.close();
       } catch (_) {
         _closed = true;
-        _epoch++;
+        _invalidateSnapshots();
         credentialFail(ExternalCredentialFailure.commitUnknown);
       } finally {
         _pending--;
@@ -182,27 +185,60 @@ final class AndroidAssociationStore
           required int expectedRevision,
           required Future<void> Function() validateManagement}) =>
       _write(profileId, expectedRevision, installationId, credentialIdentity,
-          validateManagement);
+          (_) => validateManagement());
+
+  /// Reserves capacity under the original Native lease before the first-party
+  /// owner creates the Profile. [prepareProfile] must not reenter this store.
+  Future<ExternalCredentialAssociationSnapshot> registerNewHttpAssociation({
+    required String installationId,
+    required String credentialIdentity,
+    required Future<String> Function() prepareProfile,
+    required Future<void> Function(String) validateManagement,
+  }) =>
+      _write(null, 0, installationId, credentialIdentity, validateManagement,
+          prepareProfile: prepareProfile);
 
   @override
   Future<ExternalCredentialAssociationSnapshot> revoke(
           {required String profileId,
           required int expectedRevision,
           required Future<void> Function() validateManagement}) =>
-      _write(profileId, expectedRevision, null, null, validateManagement);
+      _write(
+          profileId, expectedRevision, null, null, (_) => validateManagement());
+
+  Future<String> _reserveNewProfile(
+    List<AssociationObjectRecord> records,
+    String identity,
+    Future<String> Function() prepareProfile,
+  ) async {
+    final active = records.where((row) => !row.association.revoked);
+    if (records.length >= maxRecords ||
+        active.length >= maxActiveAssociations) {
+      credentialFail(ExternalCredentialFailure.resourceLimit);
+    }
+    if (active.any((row) => row.association.credentialIdentity == identity)) {
+      credentialFail(ExternalCredentialFailure.conflict);
+    }
+    final id = await prepareProfile();
+    _id(id);
+    return id;
+  }
 
   Future<ExternalCredentialAssociationSnapshot> _write(
-          String id,
+          String? existingId,
           int revision,
           String? installation,
           String? identity,
-          Future<void> Function() validate) =>
+          Future<void> Function(String) validate,
+          {Future<String> Function()? prepareProfile}) =>
       _run((lease) async {
-        _id(id);
+        if (existingId != null) _id(existingId);
         if (revision < 0 || revision > ExternalAuthLimits.maxRevision) {
           credentialFail(ExternalCredentialFailure.invalidInput);
         }
         final records = _read(lease);
+        final id = existingId ??
+            await _reserveNewProfile(records, identity!, prepareProfile!);
         final index = records.indexWhere((r) => r.association.profileId == id);
         final old = index < 0 ? null : records[index].association;
         if ((old?.revision ?? 0) != revision) {
@@ -242,7 +278,7 @@ final class AndroidAssociationStore
             credentialFail(ExternalCredentialFailure.conflict);
           }
         }
-        await validate();
+        await validate(id);
         _guard();
         if (!lease.isCurrent) {
           credentialFail(ExternalCredentialFailure.staleRevision);
@@ -272,12 +308,12 @@ final class AndroidAssociationStore
           if (bytes.length > maxBytes) {
             credentialFail(ExternalCredentialFailure.resourceLimit);
           }
-          await validate();
+          await validate(id);
           _guard();
           if (!lease.isCurrent) {
             credentialFail(ExternalCredentialFailure.staleRevision);
           }
-          _epoch++;
+          _changedAt[id] = ++_epoch;
           await lease.commit(bytes);
           _guard();
           return _snapshot(updated);
@@ -288,7 +324,7 @@ final class AndroidAssociationStore
 
   Future<void> close() async {
     _closed = true;
-    _epoch++;
+    _invalidateSnapshots();
     await _tail;
   }
 }
@@ -299,13 +335,23 @@ final class AndroidActiveAssociationsSnapshot {
   final AndroidAssociationStore _owner;
   final List<ExternalCredentialAssociation> records;
   final int _epoch;
-  bool _invalid = false;
+  bool _unavailable = false;
 
-  bool get isCurrent {
-    _invalid |=
-        _owner._closed || !_owner.backend.isCurrent || _owner._epoch != _epoch;
-    return !_invalid;
+  bool get _canUse {
+    _unavailable |= _owner._closed ||
+        !_owner.backend.isCurrent ||
+        _owner._invalidatedAt > _epoch;
+    return !_unavailable;
   }
+
+  bool get isCurrent => _canUse && _owner._epoch == _epoch;
+
+  /// Sibling commits keep this row current. Storage failure or any attempted
+  /// mutation of this exact Profile invalidates it permanently.
+  bool isRecordCurrent(ExternalCredentialAssociation record) =>
+      _canUse &&
+      records.contains(record) &&
+      (_owner._changedAt[record.profileId] ?? 0) <= _epoch;
 }
 
 final class _AndroidSnapshot implements ExternalCredentialAssociationSnapshot {
