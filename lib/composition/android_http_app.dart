@@ -20,6 +20,13 @@ import '../mcp/vnext_mcp_composition_root.dart';
 import '../mcp/vnext_mcp_server.dart';
 import 'mcp_vnext_app_integration.dart';
 
+typedef AndroidHttpListenerBinder = Future<HttpServer> Function({
+  required String ipv4Address,
+  required int port,
+  required Uint8List certificateChainPemBytes,
+  required Uint8List privateKeyPemOrPkcs8Bytes,
+});
+
 /// The regular Android App owns one inactive READ composition. Opening a
 /// window and issuing a credential are separate local actions.
 final class AndroidHttpApp implements AndroidHttpAccess {
@@ -27,8 +34,10 @@ final class AndroidHttpApp implements AndroidHttpAccess {
     required McpVnextAppIntegration Function() createIntegration,
     required bool Function() applicationCurrent,
     required String Function() mintId,
+    AndroidHttpListenerBinder bindListener = AndroidHttpMcpServer.bindSecure,
   })  : _createIntegration = createIntegration,
         _applicationCurrent = applicationCurrent,
+        _bindListener = bindListener,
         _mintId = mintId {
     _foreground = AndroidForegroundAccess(elapsed: () => _clock.elapsed);
     _tls = AndroidHttpTls(_native, now: _clock.now);
@@ -41,6 +50,7 @@ final class AndroidHttpApp implements AndroidHttpAccess {
   static const _foregroundLimit = Duration(minutes: 30);
   final McpVnextAppIntegration Function() _createIntegration;
   final bool Function() _applicationCurrent;
+  final AndroidHttpListenerBinder _bindListener;
   final String Function() _mintId;
   final _clock = _HttpClock();
   final _native = AndroidDeviceMethodChannel();
@@ -79,7 +89,14 @@ final class AndroidHttpApp implements AndroidHttpAccess {
   @override
   AndroidHttpAccessState get state {
     final server = _server;
+    final foregroundPhase = _foreground.phase;
+    final phase = _enabling &&
+            (foregroundPhase == AndroidAccessPhase.off ||
+                foregroundPhase == AndroidAccessPhase.ready)
+        ? AndroidAccessPhase.preparing
+        : foregroundPhase;
     final ready = _current &&
+        phase == AndroidAccessPhase.ready &&
         _foreground.allowsAuthenticatedUse &&
         _credentials?.enableWindowOpen == true &&
         server != null &&
@@ -88,9 +105,7 @@ final class AndroidHttpApp implements AndroidHttpAccess {
       available: _available,
       privateWifi: _address != null,
       notificationsAllowed: _notificationsAllowed,
-      phase: _enabling && !ready && _foreground.phase == AndroidAccessPhase.off
-          ? AndroidAccessPhase.preparing
-          : _foreground.phase,
+      phase: phase,
       endpoint: ready
           ? Uri(
               scheme: 'https',
@@ -217,7 +232,8 @@ final class AndroidHttpApp implements AndroidHttpAccess {
     }
   }
 
-  Future<T> _local<T>(Future<T> Function() action) async {
+  Future<T> _local<T>(Future<T> Function() action,
+      {void Function()? validatePending}) async {
     if (!_current || _operation != null) {
       throw const AndroidHttpAccessException('busy');
     }
@@ -225,6 +241,7 @@ final class AndroidHttpApp implements AndroidHttpAccess {
     _operation = done.future;
     try {
       await _refreshStatus();
+      validatePending?.call();
       _requireLocalForeground();
       return await action();
     } on AndroidHttpIssuanceRecoveryRequired catch (error) {
@@ -241,7 +258,8 @@ final class AndroidHttpApp implements AndroidHttpAccess {
     }
   }
 
-  Future<AndroidHttpClientCredentials> _ensureCredentials() async {
+  Future<AndroidHttpClientCredentials> _ensureCredentials(
+      {void Function()? validatePending}) async {
     final existing = _credentials;
     if (existing != null) return existing;
     Object? identity;
@@ -249,8 +267,10 @@ final class AndroidHttpApp implements AndroidHttpAccess {
       identity = await _native.invoke('identity');
     } on PlatformException catch (error) {
       if (error.code != 'pairing_required') rethrow;
+      validatePending?.call();
       identity = await _native.invoke('identity', {'initialize': true});
     }
+    validatePending?.call();
     _requireLocalForeground();
     if (identity is! Map ||
         identity['installationId'] is! String ||
@@ -299,76 +319,88 @@ final class AndroidHttpApp implements AndroidHttpAccess {
 
   @override
   Future<void> enable(AndroidAccessDuration duration,
-      {required bool background, required bool continueWhileLocked}) {
+      {required bool background, required bool continueWhileLocked}) async {
+    if (!_current ||
+        _operation != null ||
+        _enabling ||
+        _foreground.phase != AndroidAccessPhase.off) {
+      throw const AndroidHttpAccessException('busy');
+    }
     final requestedEpoch = _cancelEpoch;
-    return _local(() async {
-      if (_foreground.phase != AndroidAccessPhase.off) {
-        throw const AndroidHttpAccessException('busy');
+    void validatePending() {
+      if (!_current || requestedEpoch != _cancelEpoch) {
+        throw const AndroidHttpAccessException('enable_cancelled');
       }
-      final address = _address;
-      if (address == null) {
-        throw const AndroidHttpAccessException('wifi_required');
-      }
-      if (background && !_notificationsAllowed) {
-        throw const AndroidHttpAccessException(
-            'notification_permission_required');
-      }
-      if (!background &&
-          (continueWhileLocked ||
-              duration.limit == null ||
-              duration.limit! > _foregroundLimit)) {
-        throw const AndroidHttpAccessException('invalid_duration');
-      }
-      _enabling = true;
-      _duration = duration;
+    }
+
+    _enabling = true;
+    _notify();
+    try {
+      await _local(() async {
+        final address = _address;
+        if (address == null) {
+          throw const AndroidHttpAccessException('wifi_required');
+        }
+        if (background && !_notificationsAllowed) {
+          throw const AndroidHttpAccessException(
+              'notification_permission_required');
+        }
+        if (!background &&
+            (continueWhileLocked ||
+                duration.limit == null ||
+                duration.limit! > _foregroundLimit)) {
+          throw const AndroidHttpAccessException('invalid_duration');
+        }
+        _duration = duration;
+        _HttpAccessWindow? window;
+        try {
+          final credentials =
+              await _ensureCredentials(validatePending: validatePending);
+          validatePending();
+          if (_address != address) {
+            throw const AndroidHttpAccessException('enable_cancelled');
+          }
+          await _foreground.enable(
+            (generation) => window = _HttpAccessWindow(
+                this, generation, address, background, continueWhileLocked),
+            duration: duration.limit,
+            allowBackgroundRead: background,
+            continueWhileLocked: continueWhileLocked,
+          );
+          if (_foreground.phase != AndroidAccessPhase.ready) {
+            throw window?.failure ??
+                const AndroidHttpAccessException('enable_cancelled');
+          }
+          validatePending();
+          final remaining = _foreground.boundedRemaining;
+          if (remaining != null) {
+            _deadline = Timer(remaining, () => unawaited(disable()));
+          }
+          final readyWindow = window!;
+          readyWindow.stage = 'client_admission';
+          final enabled = await credentials.enableActiveClients();
+          validatePending();
+          readyWindow.check();
+          if (enabled.isEmpty) {
+            throw const AndroidHttpAccessException('no_eligible_clients');
+          }
+          readyWindow.stage = 'listen';
+          _server!.start();
+        } catch (error) {
+          AppLogger.warning('Android HTTP access could not start',
+              module: 'MCP',
+              data: {
+                'stage': window?.stage ?? 'app_attachment',
+                'failure': _setupFailure(error),
+              });
+          await disable();
+          rethrow;
+        }
+      }, validatePending: validatePending);
+    } finally {
+      _enabling = false;
       _notify();
-      _HttpAccessWindow? window;
-      try {
-        final credentials = await _ensureCredentials();
-        if (requestedEpoch != _cancelEpoch ||
-            _address != address ||
-            !_current) {
-          throw const AndroidHttpAccessException('enable_cancelled');
-        }
-        await _foreground.enable(
-          (generation) => window = _HttpAccessWindow(
-              this, generation, address, background, continueWhileLocked),
-          duration: duration.limit,
-          allowBackgroundRead: background,
-          continueWhileLocked: continueWhileLocked,
-        );
-        if (_foreground.phase != AndroidAccessPhase.ready ||
-            requestedEpoch != _cancelEpoch ||
-            !_current) {
-          throw window?.failure ??
-              const AndroidHttpAccessException('enable_cancelled');
-        }
-        final remaining = _foreground.boundedRemaining;
-        if (remaining != null) {
-          _deadline = Timer(remaining, () => unawaited(disable()));
-        }
-        final readyWindow = window!;
-        readyWindow.stage = 'client_admission';
-        final enabled = await credentials.enableActiveClients();
-        if (enabled.isEmpty) {
-          throw const AndroidHttpAccessException('no_eligible_clients');
-        }
-        readyWindow.check();
-        readyWindow.stage = 'listen';
-        _server!.start();
-      } catch (error) {
-        AppLogger.warning('Android HTTP access could not start',
-            module: 'MCP',
-            data: {
-              'stage': window?.stage ?? 'app_attachment',
-              'failure': _setupFailure(error),
-            });
-        await disable();
-        rethrow;
-      } finally {
-        _enabling = false;
-      }
-    });
+    }
   }
 
   @override
@@ -515,7 +547,7 @@ final class _HttpAccessWindow
       check();
       owner._root = tls.root;
       stage = 'bind';
-      _listener = await AndroidHttpMcpServer.bindSecure(
+      _listener = await owner._bindListener(
         ipv4Address: address,
         port: AndroidHttpApp._port,
         certificateChainPemBytes: tls.chainPem,

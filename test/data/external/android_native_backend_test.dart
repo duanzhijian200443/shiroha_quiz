@@ -21,7 +21,7 @@ final class Calls implements AndroidNativeCalls {
   }
 }
 
-final class _CertificateCalls implements AndroidNativeCalls {
+final class AndroidHttpCertificateCalls implements AndroidNativeCalls {
   final rootKey = Uint8List.fromList([4, ...List.filled(64, 1)]);
   final leafKey = Uint8List.fromList([4, ...List.filled(64, 2)]);
   Uint8List? root, leaf;
@@ -83,7 +83,7 @@ void main() {
   test(
       'HTTP certificate expiry uses the signed whole second and an IP change retains the CA',
       () async {
-    final calls = _CertificateCalls();
+    final calls = AndroidHttpCertificateCalls();
     final now = DateTime.utc(2026, 11, 27, 12, 0, 4, 567, 89);
     final tls = AndroidHttpTls(calls, now: () => now);
     final first = await tls.prepare('192.168.1.10');

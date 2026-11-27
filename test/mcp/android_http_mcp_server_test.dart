@@ -792,6 +792,35 @@ void main() {
     expect(sessionA4, isNotEmpty);
   });
 
+  test('server close invalidates the active Session context after READ drains',
+      () async {
+    final client = await h.credentials.issueClient(displayName: 'Client');
+    await h.enableAccess();
+    final opened = h.structuredResult(
+        await h.callTool(token: client.token, name: 'open_context'));
+    final contextRef = opened['data']['contextRef'] as String;
+    final session = h.credentials.activeSessionFor(client.clientProfileId);
+    expect(session, isNotNull);
+
+    Future<Map<String, dynamic>> listBanks() async =>
+        h.structuredResult(await h.callTool(
+          token: client.token,
+          name: 'list_question_banks',
+          arguments: {'contextRef': contextRef},
+        ));
+
+    expect((await listBanks())['error'], isNull);
+    await h.restartServerOnly();
+    expect(
+        identical(
+            h.credentials.activeSessionFor(client.clientProfileId), session),
+        isTrue);
+    expect((await listBanks())['error'], isNotNull);
+    final fresh = h.structuredResult(
+        await h.callTool(token: client.token, name: 'open_context'));
+    expect(fresh['error'], isNull);
+  });
+
   test(
       'multi-client alternating calls, single-client revoke isolation, revoke error fail-closed, and stop/IP survival',
       () async {

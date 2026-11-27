@@ -113,13 +113,18 @@ Future<void> _validateExternalAuthorizationSchema(
 }
 
 Future<ExternalAuthorizationRecord> readExternalAuthorization(
+        DatabaseExecutor db, String id) async =>
+    await findExternalAuthorization(db, id) ??
+    externalAuthFail(ExternalAuthFailure.unauthorized);
+
+Future<ExternalAuthorizationRecord?> findExternalAuthorization(
     DatabaseExecutor db, String id) async {
   if (!ExternalAuthLimits.validId(id)) {
     externalAuthFail(ExternalAuthFailure.unauthorized);
   }
   final profiles = await db.query('external_client_profiles',
       where: 'profile_id=?', whereArgs: [id]);
-  if (profiles.isEmpty) externalAuthFail(ExternalAuthFailure.unauthorized);
+  if (profiles.isEmpty) return null;
   try {
     final p = profiles.single;
     final profile = ExternalClientProfile(

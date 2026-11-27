@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
+import '../../application/backup/backup_restore_gate.dart';
 import '../../application/capabilities/capability.dart';
 import '../../application/external/android_foreground_access.dart';
 import '../../application/external/android_http_access.dart';
@@ -349,6 +350,14 @@ final class AndroidHttpClientCredentials {
       final policy = initialPolicy ?? androidHttpDefaultReadPolicy();
       final token = AndroidHttpTokenCodec.mint(random: _random);
       digest = AndroidHttpTokenCodec.digestToken(token);
+      await BackupRestoreMutationGate.instance.runMutation(
+        () => associations.retireOrphanedHttpAssociations(
+          installationId: installationId,
+          profileIsMissing: (id) async =>
+              await management.selectProfileIfPresent(id) == null,
+          validateManagement: management.validateCurrent,
+        ),
+      );
       final snapshot = await associations.registerNewHttpAssociation(
         installationId: installationId,
         credentialIdentity: digest,
@@ -456,7 +465,10 @@ final class AndroidHttpClientCredentials {
             _revoking.contains(id)) {
           continue;
         }
-        final reference = _references[id] ?? await management.selectProfile(id);
+        final reference =
+            _references[id] ?? await management.selectProfileIfPresent(id);
+        _requireCurrent(window);
+        if (reference == null) continue;
         final current = await management.read(reference);
         _requireCurrent(window);
         if (!_isHttpProfile(current.profile) ||

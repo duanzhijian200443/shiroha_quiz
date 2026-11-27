@@ -176,6 +176,9 @@ abstract interface class ExternalAuthorizationRepository {
   Future<ExternalAuthorizationRecord> create(
       ExternalClientProfile profile, void Function() validateManagement);
   Future<ExternalAuthorizationRecord> read(String profileId);
+
+  /// Returns null only for a confirmed absent Profile in the current store.
+  Future<ExternalAuthorizationRecord?> readIfPresent(String profileId);
   Future<ExternalAuthorizationRecord> change(
       String profileId,
       int expectedRevision,
@@ -218,6 +221,8 @@ final class ExternalAuthorizationManagement {
   final DateTime Function() _clock;
   bool _invalidated = false;
   void invalidate() => _invalidated = true;
+  void validateCurrent() => _validate();
+
   void _validate() {
     BackupRestoreMutationGate.instance.ensureMutationAllowed();
     if (_invalidated || !_isCurrent()) {
@@ -260,6 +265,16 @@ final class ExternalAuthorizationManagement {
     await _repository.read(profileId);
     _validate();
     return ExternalProfileReference._(this, profileId);
+  }
+
+  /// First-party credential reconciliation needs to distinguish a missing
+  /// Profile from a failed authorization or unavailable store.
+  Future<ExternalProfileReference?> selectProfileIfPresent(
+      String profileId) async {
+    _validate();
+    final record = await _repository.readIfPresent(profileId);
+    _validate();
+    return record == null ? null : ExternalProfileReference._(this, profileId);
   }
 
   Future<ExternalAuthorizationRecord> read(ExternalProfileReference ref) async {

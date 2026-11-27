@@ -61,6 +61,10 @@ final class _Repository
   }
 
   @override
+  Future<ExternalAuthorizationRecord?> readIfPresent(String id) async =>
+      id == record.profile.clientProfileId ? record : null;
+
+  @override
   Future<ExternalReadSnapshot> query(ExternalRuntimeAccess access,
       int? revision, void Function() check) async {
     check();

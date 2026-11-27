@@ -91,6 +91,14 @@ final class SqliteExternalAuthorizationRepository
       _transaction((db) => readExternalAuthorization(db, profileId));
 
   @override
+  Future<ExternalAuthorizationRecord?> readIfPresent(String profileId) =>
+      _transaction((db) async {
+        final record = await findExternalAuthorization(db, profileId);
+        if (record == null) await validateExternalAccessV35Schema(db);
+        return record;
+      });
+
+  @override
   Future<ExternalAuthorizationRecord> change(
           String profileId,
           int expectedRevision,

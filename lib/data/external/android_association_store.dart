@@ -155,6 +155,42 @@ final class AndroidAssociationStore
         );
       });
 
+  /// Portable B0 can scrub SQLite Profiles while retaining this installation's
+  /// protected store. Preserve the revoked digests and the total record bound.
+  Future<void> retireOrphanedHttpAssociations({
+    required String installationId,
+    required Future<bool> Function(String) profileIsMissing,
+    required void Function() validateManagement,
+  }) =>
+      _run((lease) async {
+        final records = _read(lease);
+        final retired = <String>[];
+        for (var index = 0; index < records.length; index++) {
+          final old = records[index].association;
+          if (old.revoked ||
+              old.installationId != installationId ||
+              !await profileIsMissing(old.profileId)) {
+            continue;
+          }
+          if (old.revision == ExternalAuthLimits.maxRevision) {
+            credentialFail(ExternalCredentialFailure.resourceLimit);
+          }
+          records[index] = AssociationObjectRecord(
+            ExternalCredentialAssociation(
+              profileId: old.profileId,
+              installationId: old.installationId,
+              credentialIdentity: old.credentialIdentity,
+              revision: old.revision + 1,
+              revoked: true,
+            ),
+            _now(),
+          );
+          retired.add(old.profileId);
+        }
+        if (retired.isEmpty) return;
+        await _commit(lease, records, retired, validate: validateManagement);
+      });
+
   @override
   Future<ExternalCredentialAssociationSnapshot> read(String profileId) =>
       _run((lease) async {
@@ -321,24 +357,36 @@ final class AndroidAssociationStore
         } else {
           records[index] = row;
         }
-        final bytes = AssociationObjectCodec.encode(records);
-        try {
-          if (bytes.length > maxBytes) {
-            credentialFail(ExternalCredentialFailure.resourceLimit);
-          }
-          await validate(id);
-          _guard();
-          if (!lease.isCurrent) {
-            credentialFail(ExternalCredentialFailure.staleRevision);
-          }
-          _changedAt[id] = ++_epoch;
-          await lease.commit(bytes);
-          _guard();
-          return _snapshot(updated);
-        } finally {
-          bytes.fillRange(0, bytes.length, 0);
-        }
+        await validate(id);
+        await _commit(lease, records, [id]);
+        return _snapshot(updated);
       });
+
+  Future<void> _commit(
+    AndroidAssociationLease lease,
+    List<AssociationObjectRecord> records,
+    Iterable<String> changedProfiles, {
+    void Function()? validate,
+  }) async {
+    final bytes = AssociationObjectCodec.encode(records);
+    try {
+      if (bytes.length > maxBytes) {
+        credentialFail(ExternalCredentialFailure.resourceLimit);
+      }
+      validate?.call();
+      _guard();
+      if (!lease.isCurrent) {
+        credentialFail(ExternalCredentialFailure.staleRevision);
+      }
+      for (final id in changedProfiles) {
+        _changedAt[id] = ++_epoch;
+      }
+      await lease.commit(bytes);
+      _guard();
+    } finally {
+      bytes.fillRange(0, bytes.length, 0);
+    }
+  }
 
   Future<void> close() async {
     _closed = true;
