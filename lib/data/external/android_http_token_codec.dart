@@ -525,13 +525,17 @@ final class AndroidHttpClientCredentials {
 
   /// Matches all active digests and revalidates the matched record after the
   /// asynchronous P1 lookup. A sibling's commit does not invalidate that row.
-  Future<ExternalSession?> authenticateAuthorizationHeader(
+  /// Never opens or caches a P0 [ExternalSession] for a brand-new client while
+  /// the device is locked (`!foreground.acceptsNew`).
+  Future<AndroidHttpAuthResult> authenticateRequest(
     List<String>? authorizationHeaders,
   ) async {
     final window = _enable;
-    if (window == null || !window.ready || !_isCurrent(window)) return null;
+    if (window == null || !window.ready || !_isCurrent(window)) {
+      return const AndroidHttpUnauthenticated();
+    }
     final token = AndroidHttpTokenCodec.parseBearerHeader(authorizationHeaders);
-    if (token == null) return null;
+    if (token == null) return const AndroidHttpUnauthenticated();
     final candidateDigest = AndroidHttpTokenCodec.digestToken(token);
     try {
       final active = await associations.listActive();
@@ -545,11 +549,15 @@ final class AndroidHttpClientCredentials {
           matched = record;
         }
       }
-      if (matched == null || !active.isRecordCurrent(matched)) return null;
+      if (matched == null || !active.isRecordCurrent(matched)) {
+        return const AndroidHttpUnauthenticated();
+      }
       final profileId = matched.profileId;
       final reference = _references[profileId];
       final principal = _principals[profileId];
-      if (reference == null || principal == null) return null;
+      if (reference == null || principal == null) {
+        return const AndroidHttpUnauthenticated();
+      }
       final current = await _readHttpProfile(reference);
       if (!_isCurrent(window) ||
           _revoking.contains(profileId) ||
@@ -558,10 +566,15 @@ final class AndroidHttpClientCredentials {
           !active.isRecordCurrent(matched) ||
           trust.snapshot(principal).state !=
               PairingState.enabledForCurrentRuntime) {
-        return null;
+        return const AndroidHttpUnauthenticated();
       }
       final existing = _sessions[profileId];
-      if (existing != null && existing.failure == null) return existing;
+      if (existing != null && existing.failure == null) {
+        return AndroidHttpAuthenticated(existing);
+      }
+      if (!foreground.acceptsNew) {
+        return AndroidHttpLockedNewClientRefused(profileId);
+      }
       final session = credentialPort._withAuth(
         matched.credentialIdentity,
         (ticket) {
@@ -574,11 +587,23 @@ final class AndroidHttpClientCredentials {
         },
       );
       _sessions[profileId] = session;
-      return session;
+      return AndroidHttpAuthenticated(session);
     } catch (_) {
-      return null;
+      return const AndroidHttpUnauthenticated();
     }
   }
+
+  /// Convenience wrapper returning the admitted [ExternalSession], or `null`
+  /// when unauthenticated or refused as a brand-new client while locked.
+  Future<ExternalSession?> authenticateAuthorizationHeader(
+    List<String>? authorizationHeaders,
+  ) async =>
+      switch (await authenticateRequest(authorizationHeaders)) {
+        AndroidHttpAuthenticated(:final session) => session,
+        AndroidHttpLockedNewClientRefused() ||
+        AndroidHttpUnauthenticated() =>
+          null,
+      };
 
   /// Withdraw the target before any durable I/O. A failure closes the entire
   /// Enable window while keeping the original Profile identity for retry.

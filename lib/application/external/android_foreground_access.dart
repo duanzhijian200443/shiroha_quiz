@@ -63,6 +63,27 @@ final class AndroidForegroundObservation {
 
 enum AndroidAccessPhase { off, preparing, ready, suspended, draining, recovery }
 
+/// Outcome of authenticating an Android HTTP Bearer request against the current
+/// Enable window. Locked brand-new clients are refused without opening a P0
+/// [ExternalSession].
+sealed class AndroidHttpAuthResult {
+  const AndroidHttpAuthResult();
+}
+
+final class AndroidHttpAuthenticated extends AndroidHttpAuthResult {
+  const AndroidHttpAuthenticated(this.session);
+  final ExternalSession session;
+}
+
+final class AndroidHttpLockedNewClientRefused extends AndroidHttpAuthResult {
+  const AndroidHttpLockedNewClientRefused(this.profileId);
+  final String profileId;
+}
+
+final class AndroidHttpUnauthenticated extends AndroidHttpAuthResult {
+  const AndroidHttpUnauthenticated();
+}
+
 /// A resource owner must invalidate immediately and retain custody until close.
 /// It supplies no business identity; future composition must also use P0/P15.
 abstract interface class AndroidAccessResources {

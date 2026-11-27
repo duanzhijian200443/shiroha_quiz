@@ -306,7 +306,7 @@ final class _AndroidHttpHarness {
       invalidateSessionContexts: reads.invalidateConnectionContexts,
       drainReads: () => reads.whenIdle,
       deviceRef: 'phone-1',
-      authenticateBearer: credentials.authenticateAuthorizationHeader,
+      authenticateBearer: credentials.authenticateRequest,
       foreground: foreground,
       runtimeAdmission: stages.runtimeAdmission,
       now: clock.now,
@@ -928,12 +928,22 @@ void main() {
     ));
     expect(beyondFiniteLimit['error'], isNull);
 
-    // Brand-new Client B (never authenticated while unlocked) is refused 403.
+    // Brand-new Client B (never authenticated while unlocked) is refused 403
+    // without opening or caching a P0 ExternalSession in credentials.
+    expect(h.credentials.activeSessionFor(clientB.clientProfileId), isNull);
     final lockedNewB = await h.callTool(
       token: clientB.token,
       name: 'open_context',
     );
     expect(lockedNewB.statusCode, 403);
+    expect(h.credentials.activeSessionFor(clientB.clientProfileId), isNull);
+    expect(
+      await h.credentials
+          .authenticateAuthorizationHeader(['Bearer ${clientB.token}']),
+      isNull,
+    );
+    expect(h.credentials.activeSessionFor(clientB.clientProfileId), isNull);
+    expect(h.credentials.activeSessionFor(clientA.clientProfileId), isNotNull);
     expect(
       h.events.any((e) =>
           e.$1 == 'LOCKED_NEW_CLIENT_REFUSED' &&

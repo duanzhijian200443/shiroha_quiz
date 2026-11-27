@@ -788,5 +788,93 @@ void main() {
       expect(newSession, isNotNull);
       expect(newSession!.principal.profileId, reissued.clientProfileId);
     });
+
+    test(
+        'locked continueWhileLocked refuses brand-new clients without minting P0 sessions',
+        () async {
+      final clientA = await credentials.issueClient(displayName: 'Client A');
+      final clientB = await credentials.issueClient(displayName: 'Client B');
+      final clientC = await credentials.issueClient(displayName: 'Client C');
+
+      foreground.observe(AndroidForegroundObservation(
+        sequence: ++observationSequence,
+        resumed: true,
+        focused: true,
+        interactive: true,
+        unlocked: true,
+        visible: true,
+        backgroundRead: true,
+        network: 'lab',
+      ));
+      await foreground.enable(
+        (_) => _AccessPreparation(),
+        duration: AndroidAccessDuration.untilAppStops.limit,
+        allowBackgroundRead: true,
+        continueWhileLocked: true,
+      );
+      await credentials.enableActiveClients();
+
+      // Client A authenticates while unlocked; Client B and C do not.
+      final sessionA = await credentials
+          .authenticateAuthorizationHeader(['Bearer ${clientA.token}']);
+      expect(sessionA, isNotNull);
+      expect(
+          identical(
+              credentials.activeSessionFor(clientA.clientProfileId), sessionA),
+          isTrue);
+      expect(credentials.activeSessionFor(clientB.clientProfileId), isNull);
+
+      // Revoke C before locking to verify revoked clients stay unauthenticated.
+      await credentials.revokeClient(clientC.clientProfileId);
+
+      // Lock device while foreground service keeps backgroundRead active.
+      foreground.observe(AndroidForegroundObservation(
+        sequence: ++observationSequence,
+        resumed: false,
+        focused: false,
+        interactive: false,
+        unlocked: false,
+        visible: false,
+        backgroundRead: true,
+        network: 'lab',
+      ));
+      expect(foreground.allowsAuthenticatedUse, isTrue);
+      expect(foreground.acceptsNew, isFalse);
+
+      // Already-authenticated Client A continues with the exact same Session.
+      final continuedA =
+          await credentials.authenticateRequest(['Bearer ${clientA.token}']);
+      expect(
+        continuedA,
+        isA<AndroidHttpAuthenticated>()
+            .having((r) => r.session, 'session', same(sessionA)),
+      );
+      expect(
+        await credentials
+            .authenticateAuthorizationHeader(['Bearer ${clientA.token}']),
+        same(sessionA),
+      );
+
+      // Brand-new Client B is refused without minting or caching a P0 Session.
+      final refusedB =
+          await credentials.authenticateRequest(['Bearer ${clientB.token}']);
+      expect(
+        refusedB,
+        isA<AndroidHttpLockedNewClientRefused>()
+            .having((r) => r.profileId, 'profileId', clientB.clientProfileId),
+      );
+      expect(
+        await credentials
+            .authenticateAuthorizationHeader(['Bearer ${clientB.token}']),
+        isNull,
+      );
+      expect(credentials.activeSessionFor(clientB.clientProfileId), isNull);
+
+      // Revoked Client C remains unauthenticated (not locked-new-client 403).
+      expect(
+        await credentials.authenticateRequest(['Bearer ${clientC.token}']),
+        isA<AndroidHttpUnauthenticated>(),
+      );
+    });
   });
 }

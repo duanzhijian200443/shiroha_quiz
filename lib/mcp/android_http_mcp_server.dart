@@ -22,7 +22,7 @@ import '../application/external/external_trust_core.dart';
 import '../data/external/external_certificate_der.dart';
 import 'vnext_mcp_server.dart';
 
-typedef AndroidHttpBearerAuthenticator = Future<ExternalSession?> Function(
+typedef AndroidHttpBearerAuthenticator = Future<AndroidHttpAuthResult> Function(
   List<String>? authorizationHeaders,
 );
 typedef AndroidHttpEventSink = void Function(
@@ -323,13 +323,29 @@ final class AndroidHttpMcpServer {
         return;
       }
 
-      final session = await authenticateBearer(
+      final auth = await authenticateBearer(
         request.headers[HttpHeaders.authorizationHeader],
       );
-      if (session == null || session.failure != null) {
-        _emit('AUTH_REFUSED', {'http': HttpStatus.unauthorized});
-        await _reject(response, HttpStatus.unauthorized);
-        return;
+      final ExternalSession session;
+      switch (auth) {
+        case AndroidHttpUnauthenticated():
+          _emit('AUTH_REFUSED', {'http': HttpStatus.unauthorized});
+          await _reject(response, HttpStatus.unauthorized);
+          return;
+        case AndroidHttpLockedNewClientRefused(:final profileId):
+          _emit('LOCKED_NEW_CLIENT_REFUSED', {
+            'profileId': profileId,
+            'http': HttpStatus.forbidden,
+          });
+          await _reject(response, HttpStatus.forbidden);
+          return;
+        case AndroidHttpAuthenticated(session: final admitted):
+          if (admitted.failure != null) {
+            _emit('AUTH_REFUSED', {'http': HttpStatus.unauthorized});
+            await _reject(response, HttpStatus.unauthorized);
+            return;
+          }
+          session = admitted;
       }
       final profileId = session.principal.profileId;
 
