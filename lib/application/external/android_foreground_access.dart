@@ -1,5 +1,35 @@
 import 'dart:async';
 
+import '../capabilities/capability.dart';
+import 'external_authorization.dart';
+import 'external_runtime_admission.dart';
+import 'external_trust_core.dart';
+
+/// Pure question-only READ predicate. Background/lock-screen continuation never
+/// widens a saved STAGE, fileContent, or studyStatistics grant.
+bool androidBackgroundQuestionRead(ExternalGrantPolicy policy) =>
+    policy.permissions.length == 1 &&
+    policy.permissions.contains(CapabilityPermission.read) &&
+    policy.categories.length == 1 &&
+    policy.categories.contains(ExternalContentCategory.questionContent) &&
+    policy.scopes.every((scope) => scope.kind == ExternalTargetKind.bank);
+
+/// Bounded duration choices for an Android pure-question-READ Enable window.
+/// Never persisted into a Grant.
+enum AndroidAccessDuration {
+  fiveMinutes(Duration(minutes: 5)),
+  fifteenMinutes(Duration(minutes: 15)),
+  thirtyMinutes(Duration(minutes: 30)),
+  oneHour(Duration(hours: 1)),
+  twoHours(Duration(hours: 2)),
+  fourHours(Duration(hours: 4)),
+  eightHours(Duration(hours: 8)),
+  untilAppStops(null);
+
+  const AndroidAccessDuration(this.limit);
+  final Duration? limit;
+}
+
 /// Platform observations, not authentication, a Grant, or P0 Enablement.
 final class AndroidForegroundObservation {
   const AndroidForegroundObservation({
@@ -10,11 +40,17 @@ final class AndroidForegroundObservation {
     required this.unlocked,
     required this.visible,
     required this.network,
+    this.backgroundRead = false,
   });
 
   final int sequence;
   final bool resumed, focused, interactive, unlocked, visible;
   final String? network;
+  final bool backgroundRead;
+  bool get backgroundEligible =>
+      backgroundRead && interactive && unlocked && network != null;
+  bool canContinueBackground({required bool whileLocked}) =>
+      backgroundEligible || (whileLocked && backgroundRead && network != null);
   bool get eligible =>
       visible &&
       resumed &&
@@ -26,6 +62,27 @@ final class AndroidForegroundObservation {
 }
 
 enum AndroidAccessPhase { off, preparing, ready, suspended, draining, recovery }
+
+/// Outcome of authenticating an Android HTTP Bearer request against the current
+/// Enable window. Locked brand-new clients are refused without opening a P0
+/// [ExternalSession].
+sealed class AndroidHttpAuthResult {
+  const AndroidHttpAuthResult();
+}
+
+final class AndroidHttpAuthenticated extends AndroidHttpAuthResult {
+  const AndroidHttpAuthenticated(this.session);
+  final ExternalSession session;
+}
+
+final class AndroidHttpLockedNewClientRefused extends AndroidHttpAuthResult {
+  const AndroidHttpLockedNewClientRefused(this.profileId);
+  final String profileId;
+}
+
+final class AndroidHttpUnauthenticated extends AndroidHttpAuthResult {
+  const AndroidHttpUnauthenticated();
+}
 
 /// A resource owner must invalidate immediately and retain custody until close.
 /// It supplies no business identity; future composition must also use P0/P15.
@@ -92,7 +149,9 @@ final class _OwnedPreparation implements AndroidAccessPreparation {
   }
 }
 
-/// Foreground lifetime only. This class cannot create a Session or execute tools.
+/// Original runtime lifetime with optional Native-supported pure-question READ
+/// in background and opt-in lock-screen continuation for already-authenticated
+/// clients. This class cannot create a Session or execute tools.
 final class AndroidForegroundAccess {
   AndroidForegroundAccess({required Duration Function() elapsed})
       : _elapsed = elapsed;
@@ -105,25 +164,80 @@ final class AndroidForegroundAccess {
   Future<void>? _closing;
   Future<void>? _suspending;
   Duration? _expires;
+  bool _untilAppStops = false;
   Duration? _lastTime;
   String? _network;
   int _generation = 0;
   bool _disposed = false;
   bool _clockInvalid = false;
+  bool _allowBackgroundRead = false;
+  bool _continueWhileLocked = false;
+
+  bool get _runningEligible => _allowBackgroundRead
+      ? _observation?.canContinueBackground(
+              whileLocked: _continueWhileLocked) ==
+          true
+      : _observation?.eligible == true;
 
   AndroidAccessPhase get phase => _phase;
   int get generation => _generation;
-  Duration get remaining {
+  bool get allowBackgroundRead => _allowBackgroundRead;
+  bool get continueWhileLocked => _continueWhileLocked;
+  bool get untilAppStops => _untilAppStops;
+
+  /// Remaining duration for the existing finite caller.
+  Duration get remaining =>
+      boundedRemaining ?? (throw StateError('android_access_process_bound'));
+
+  /// Exact finite remaining duration, or `null` when `untilAppStops` is active.
+  Duration? get boundedRemaining {
     if (!_timeValid()) return Duration.zero;
+    if (_untilAppStops) return null;
     return _expires! - _elapsed();
   }
 
+  /// Admits new client authentications / sessions only while unlocked and
+  /// interactive. Locked continuation never admits brand-new clients.
   bool get acceptsNew =>
+      _observation?.interactive == true &&
+      _observation?.unlocked == true &&
+      allowsAuthenticatedUse;
+
+  /// Admits requests from clients/sessions that were already authenticated
+  /// while unlocked during this same Enable window.
+  bool get allowsAuthenticatedUse =>
       !_disposed &&
       _phase == AndroidAccessPhase.ready &&
-      _observation?.eligible == true &&
+      _runningEligible &&
       _observation?.network == _network &&
       _timeValid();
+
+  /// Policy for the current HTTP window. An opted-in background window admits
+  /// only pure question READ Profiles, including while the App is visible.
+  bool allowsHttpReadGrant(ExternalGrant? grant) =>
+      allowsAuthenticatedUse &&
+      grant != null &&
+      grant.revokedAtUtcMs == null &&
+      grant.policy.permissions.contains(CapabilityPermission.read) &&
+      (!_allowBackgroundRead || androidBackgroundQuestionRead(grant.policy));
+
+  Future<ExternalGrant?> currentHttpReadGrant(
+    ExternalRuntimeAdmission admission,
+    ExternalSession session,
+  ) async {
+    if (!allowsAuthenticatedUse) return null;
+    final generation = _generation;
+    try {
+      final access = await admission.admit(session);
+      final grant = access.grantSnapshot;
+      if (generation == _generation && allowsHttpReadGrant(grant)) {
+        return grant;
+      }
+    } on ExternalAuthException {
+      return null;
+    }
+    return null;
+  }
 
   bool _timeValid() {
     final now = _elapsed();
@@ -132,7 +246,8 @@ final class AndroidForegroundAccess {
     }
     if (_clockInvalid) return false;
     _lastTime = now;
-    return _expires != null && now < _expires!;
+    final expiry = _expires;
+    return _untilAppStops || (expiry != null && now < expiry);
   }
 
   void observe(AndroidForegroundObservation next) {
@@ -143,9 +258,15 @@ final class AndroidForegroundAccess {
         _phase == AndroidAccessPhase.recovery) {
       return;
     }
-    if (next.withdraws || next.network != _network || !_timeValid()) {
+    final runningBackground =
+        _allowBackgroundRead && _phase == AndroidAccessPhase.ready;
+    if ((runningBackground
+            ? !next.canContinueBackground(whileLocked: _continueWhileLocked)
+            : next.withdraws) ||
+        next.network != _network ||
+        !_timeValid()) {
       unawaited(disable());
-    } else if (!next.eligible) {
+    } else if (!next.eligible && !runningBackground) {
       // Pending enable cannot survive a lost local decision surface.
       if (_phase == AndroidAccessPhase.preparing) {
         unawaited(disable());
@@ -169,14 +290,20 @@ final class AndroidForegroundAccess {
     // Resume is deliberately explicit: the old connection never becomes live.
   }
 
-  Future<void> enable(AndroidAccessPreparation Function(int generation) begin,
-      {Duration duration = const Duration(hours: 8)}) async {
+  Future<void> enable(
+    AndroidAccessPreparation Function(int generation) begin, {
+    Duration? duration = const Duration(hours: 8),
+    bool allowBackgroundRead = false,
+    bool continueWhileLocked = false,
+  }) async {
     if (_disposed ||
         _clockInvalid ||
         _phase != AndroidAccessPhase.off ||
+        ((continueWhileLocked || duration == null) && !allowBackgroundRead) ||
         _observation?.eligible != true ||
-        duration <= Duration.zero ||
-        duration > const Duration(hours: 8)) {
+        (duration != null &&
+            (duration <= Duration.zero ||
+                duration > const Duration(hours: 8)))) {
       throw StateError('android_access_unavailable');
     }
     final now = _elapsed();
@@ -184,7 +311,10 @@ final class AndroidForegroundAccess {
       throw StateError('android_access_unavailable');
     }
     _lastTime = now;
-    _expires = now + duration;
+    _allowBackgroundRead = allowBackgroundRead;
+    _continueWhileLocked = continueWhileLocked;
+    _untilAppStops = duration == null;
+    _expires = duration == null ? null : now + duration;
     _network = _observation!.network;
     await _prepare(begin);
   }
@@ -248,7 +378,9 @@ final class AndroidForegroundAccess {
 
   /// Called by the owning timer; observing an expired authority never renews it.
   Future<void> checkDeadline() =>
-      _expires != null && !_timeValid() ? disable() : Future<void>.value();
+      (_expires != null || _untilAppStops) && !_timeValid()
+          ? disable()
+          : Future<void>.value();
 
   Future<void> disable() {
     if (_closing != null) return _closing!;
@@ -259,6 +391,9 @@ final class AndroidForegroundAccess {
     _generation++;
     _phase = AndroidAccessPhase.draining;
     _expires = null;
+    _untilAppStops = false;
+    _allowBackgroundRead = false;
+    _continueWhileLocked = false;
     final preparation = _preparation;
     preparation?.cancel();
     _resources?.withdraw();

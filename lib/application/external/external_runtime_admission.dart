@@ -30,23 +30,46 @@ final class ExternalRuntimeAdmission {
   }
 
   /// Trusted App selection only; strings and credential claims cannot bind.
+  /// [validateSelection] may reject a withdrawn selection before binding.
   Future<void> bindIdentity(
-      ExternalProfileReference reference, ExternalPrincipal principal) async {
+      ExternalProfileReference reference, ExternalPrincipal principal,
+      {void Function()? validateSelection}) async {
     validate();
     final generation = trust.generation;
     trust.snapshot(principal);
     final record = await _management.read(reference);
     validate();
-    trust.snapshot(principal);
     if (generation != trust.generation ||
         principal.profileId != record.profile.clientProfileId ||
         reference.profileId != principal.profileId ||
-        record.profile.revokedAtUtcMs != null ||
         (record.grant != null &&
             record.grant!.profileId != principal.profileId)) {
       externalAuthFail(ExternalAuthFailure.unauthorized);
     }
+    validateSelection?.call();
+    if (trust.snapshot(principal).state == PairingState.revoked ||
+        record.profile.revokedAtUtcMs != null) {
+      externalAuthFail(ExternalAuthFailure.unauthorized);
+    }
     _bindings[principal] = (reference, generation);
+  }
+
+  /// Releases the binding and P0 slot after the credential owner settles its
+  /// association and the current P1 owner confirms durable revocation.
+  Future<void> releaseRevokedIdentity(
+      ExternalProfileReference reference, ExternalPrincipal principal) async {
+    validate();
+    final generation = trust.generation;
+    final record = await _management.read(reference);
+    validate();
+    if (generation != trust.generation ||
+        reference.profileId != principal.profileId ||
+        record.profile.clientProfileId != principal.profileId ||
+        record.profile.revokedAtUtcMs == null) {
+      externalAuthFail(ExternalAuthFailure.unauthorized);
+    }
+    trust.releaseRevokedProfile(principal);
+    _bindings.remove(principal);
   }
 
   void validateSession(ExternalSession session) {

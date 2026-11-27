@@ -9,13 +9,17 @@ Full wire schemas/version identifiers are frozen in AR-R6B before exposure.
 ## 1. Tools-only profile and consumer boundaries
 
 Windows uses its stdio bridge and authenticated local IPC, including section
-17.12's admitted App-owned relay. The separately specified Android consumer uses
-a local stdio transport adapter and authenticated device link to the foreground
-Android App, where the same MCP projection executes. Android's link is not
-Streamable HTTP or a new business authority. Identity/context/egress belong to
-[external-agent-boundary.md](external-agent-boundary.md); its platform boundary
-belongs to [Android device access](android-device-access-v0.md). Neither adapter
-has a database, repository, migration or alternate App writer.
+17.12's admitted App-owned relay. The legacy local stdio-adapter Android link
+in [Android device access](android-device-access-v0.md) is now marked a
+**FROZEN historical baseline** (not deleted or claimed formally retired). The
+adopted Android mainline is **Streamable HTTP MCP v1** defined in
+[android-http-mcp-v1.md](android-http-mcp-v1.md): Increment H1 introduces
+`lib/mcp/android_http_mcp_server.dart` over pinned `mcp_dart: 2.4.0` exposing
+Profile 3's exact 9 READ tools (supporting `2026-07-28` stateless and bounded
+in-memory `2025-06-18`/`2025-11-25` sessions, with `studyStatistics` and
+`fileContent` off by default and STAGE deferred to H3). Identity/context/egress
+remain owned by [external-agent-boundary.md](external-agent-boundary.md).
+Neither adapter has a database, repository, migration or alternate App writer.
 
 The authorized App-owned relay in §17.12 adds a local authenticated hop before
 that SAME stdio Bridge. It does not replace the authenticated App Host channel.
@@ -2441,7 +2445,17 @@ and calls exercise this foundation, including independent instance sources and
 cross-instance reference refusal. Synthetic credential possession fixtures are
 not real TLS, entity authentication, installed-Codex or phone acceptance.
 
-### 19.2 Independent Link and close barriers
+### 19.2 Independent Link and close barriers (FROZEN historical baseline)
+
+> **Mainline update (Android Streamable HTTP MCP v1):** Local Shiroha Link /
+> desktop-adapter routing and its lease/dirty-slot model below are **FROZEN as
+> a historical baseline** for Android integration; they are retained intact
+> rather than deleted or declared retired until H2/H3 replacement acceptance
+> completes. The shared Profile 3 business foundation in §19.1 remains active
+> authority and is reused directly by [android-http-mcp-v1.md](android-http-mcp-v1.md)
+> (Increment H1 exposes Profile 3's exact 9 READ tools via
+> `VnextMcpServer(readOnlyToolsOnly: true)` and `AndroidHttpMcpServer`, without
+> persistent leases or `DIRTY` state).
 
 Shiroha Link owns trusted local target selection, frontend business leases,
 non-secret LinkStateStore and hosted Android adapter settlement. Android-only

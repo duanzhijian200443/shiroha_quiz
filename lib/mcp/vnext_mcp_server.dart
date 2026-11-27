@@ -53,9 +53,13 @@ bool validVnextSource(Object? value) =>
 
 /// Separate entrypoint; construction never enables an App or authenticates it.
 final class VnextMcpServer {
-  VnextMcpServer(this.port,
-      {McpServer? protocolServer, this.profileVersion = 2}) {
-    final schemas = schemasFor(profileVersion);
+  VnextMcpServer(
+    this.port, {
+    McpServer? protocolServer,
+    this.profileVersion = 2,
+    this.readOnlyToolsOnly = false,
+  }) {
+    final schemas = schemasFor(profileVersion, readOnlyOnly: readOnlyToolsOnly);
     _server = protocolServer ??
         McpServer(
           Implementation(
@@ -165,6 +169,7 @@ final class VnextMcpServer {
   }
   final VnextMcpPort port;
   final int profileVersion;
+  final bool readOnlyToolsOnly;
   late final McpServer _server;
   bool _closed = false;
   final _settled = Completer<void>();
@@ -231,12 +236,24 @@ final class VnextMcpServer {
     'committedCount',
     'rejectedCount'
   ]);
-  static Map<String, Map<String, dynamic>> schemasFor(int profile) =>
+  static Map<String, Map<String, dynamic>> schemasFor(
+    int profile, {
+    bool readOnlyOnly = false,
+  }) =>
       switch (profile) {
-        2 => inputSchemas,
+        2 when !readOnlyOnly => inputSchemas,
+        3 when readOnlyOnly => unifiedReadOnlyInputSchemas,
         3 => unifiedInputSchemas,
         _ => throw ArgumentError('Unsupported business profile'),
       };
+
+  static final unifiedReadOnlyInputSchemas =
+      Map<String, Map<String, dynamic>>.unmodifiable({
+    for (final entry in unifiedInputSchemas.entries)
+      if (entry.key != 'propose_generated_questions' &&
+          entry.key != 'get_question_proposal')
+        entry.key: entry.value,
+  });
 
   static const _count = {
     'type': 'integer',

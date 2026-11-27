@@ -15,8 +15,9 @@ internal class DeviceFoundationChannel(private val context: Context,
         if (disposed) throw DeviceLinkFailure("runtime_not_authorized")
         admission()
     }
-    private var disposed = false
+    @Volatile private var disposed = false
     private val credentials = DeviceCredentials(context, ::admitted)
+    private val httpTls = DeviceHttpTlsStore(context, credentials)
     private val associations = DeviceAssociationFile(context, credentials)
     private val gate = DeviceForegroundGate()
     private val main = Handler(Looper.getMainLooper())
@@ -34,6 +35,8 @@ internal class DeviceFoundationChannel(private val context: Context,
     private var nextLease = 0L
     private var activeToken = 0L
     private var lease: DeviceAssociationFile.Lease? = null
+    // The control executor owns reservation, start, stop and disposal.
+    private var readServiceSession: DeviceReadService.Session? = null
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         if (call.method == "status") {
@@ -63,7 +66,14 @@ internal class DeviceFoundationChannel(private val context: Context,
     private fun handle(call: MethodCall, result: MethodChannel.Result) {
         try {
             // Original-owner close remains available after admission withdrawal.
-            if (call.method !in setOf("associationClose", "linkClose", "linkRelease", "channelClose")) admitted()
+            if (call.method !in setOf(
+                    "associationClose",
+                    "linkClose",
+                    "linkRelease",
+                    "channelClose",
+                    "readServiceStop"
+                )
+            ) admitted()
             when (call.method) {
                 "identity" -> {
                     if (!gate.eligible) throw DeviceLinkFailure("foreground_required")
@@ -126,6 +136,51 @@ internal class DeviceFoundationChannel(private val context: Context,
                     lease = null
                     result.success(true)
                 }
+                "httpCaEnsure" -> result.success(httpTls.ensureCaKey())
+                "httpCaSignTbs" -> {
+                    val tbs = call.argument<ByteArray>("tbs")
+                        ?: throw DeviceLinkFailure("protocol_violation")
+                    try {
+                        result.success(httpTls.signTbsWithCa(tbs))
+                    } finally {
+                        tbs.fill(0)
+                    }
+                }
+                "httpCaStore" -> {
+                    val caDer = call.argument<ByteArray>("caDer")
+                        ?: throw DeviceLinkFailure("protocol_violation")
+                    httpTls.storeCaCertificate(caDer)
+                    result.success(true)
+                }
+                "httpCaRead" -> result.success(httpTls.readCaCertificate())
+                "httpLeafGenerateKey" -> result.success(httpTls.generateAndSealLeafKey())
+                "httpLeafStore" -> {
+                    val ipv4 = call.argument<String>("ipv4")
+                        ?: throw DeviceLinkFailure("protocol_violation")
+                    val expiresAtUtcMs = call.argument<Number>("expiresAtUtcMs")?.toLong() ?: 0L
+                    val leafDer = call.argument<ByteArray>("leafDer")
+                        ?: throw DeviceLinkFailure("protocol_violation")
+                    httpTls.storeLeafCertificate(ipv4, expiresAtUtcMs, leafDer)
+                    result.success(true)
+                }
+                "httpLeafOpen" -> result.success(httpTls.openLeafMaterial())
+                "readServiceStart" -> {
+                    startReadService()
+                    result.success(true)
+                }
+                "readServiceActivate" -> {
+                    val active = readServiceSession
+                        ?: throw DeviceLinkFailure("connection_closed")
+                    val ends = call.argument<Number>("endsElapsedMs")?.toLong()
+                    val continueWhileLocked = call.argument<Boolean>("continueWhileLocked") == true
+                    active.service?.activated(ends, continueWhileLocked)
+                        ?: throw DeviceLinkFailure("connection_closed")
+                    result.success(true)
+                }
+                "readServiceStop" -> {
+                    stopReadService()
+                    result.success(true)
+                }
                 else -> result.notImplemented()
             }
         } catch (e: DeviceLinkFailure) { result.error(e.code, e.code, null) }
@@ -139,10 +194,83 @@ internal class DeviceFoundationChannel(private val context: Context,
         return original
     }
     private fun token(call: MethodCall) = call.argument<String>("channel") ?: throw DeviceLinkFailure("protocol_violation")
+    private fun startReadService() {
+        if (!gate.eligible) throw DeviceLinkFailure("foreground_required")
+        if (readServiceSession != null) throw DeviceLinkFailure("busy")
+        val ready = java.util.concurrent.CountDownLatch(1)
+        val readyOk = java.util.concurrent.atomic.AtomicBoolean(false)
+        val session = DeviceReadService.Session(
+            ready = { ok ->
+                readyOk.set(ok)
+                ready.countDown()
+            },
+            withdrawn = { emit("readServiceWithdrawn", mapOf("reason" to "service_stop")) },
+        )
+        readServiceSession = session
+        try {
+            // Service callbacks and global Service ownership are main-thread confined.
+            val posted = main.post {
+                try {
+                    admitted()
+                    if (!gate.eligible) throw DeviceLinkFailure("foreground_required")
+                    DeviceReadService.prepareNotifications(context)
+                    if (!DeviceReadService.notifications(context)) {
+                        throw DeviceLinkFailure("notification_permission_required")
+                    }
+                    DeviceReadService.start(context, session)
+                } catch (error: Exception) {
+                    session.startFailure = (error as? DeviceLinkFailure)?.code ?: "service_start_failed"
+                    session.ready(false)
+                }
+            }
+            if (!posted || !ready.await(3, java.util.concurrent.TimeUnit.SECONDS) || !readyOk.get()) {
+                throw DeviceLinkFailure(session.startFailure ?: "service_start_failed")
+            }
+            val limit = android.os.SystemClock.elapsedRealtime() + 1500
+            while (!DeviceReadService.runningNotification(context) &&
+                android.os.SystemClock.elapsedRealtime() < limit
+            ) {
+                admitted()
+                Thread.sleep(25)
+            }
+            admitted()
+            if (!gate.eligible) throw DeviceLinkFailure("foreground_required")
+            if (!session.running || !DeviceReadService.runningNotification(context)) {
+                throw DeviceLinkFailure("notification_not_ready")
+            }
+        } catch (error: Exception) {
+            // Keep the original reservation if cleanup is uncertain.
+            stopReadService()
+            throw if (error is DeviceLinkFailure) error else DeviceLinkFailure("service_start_failed")
+        }
+    }
+
+    private fun stopReadService() {
+        val session = readServiceSession ?: return
+        val stopped = java.util.concurrent.CountDownLatch(1)
+        val clean = java.util.concurrent.atomic.AtomicBoolean(false)
+        val posted = main.post {
+            DeviceReadService.finish(context, session) { settled ->
+                clean.set(settled)
+                stopped.countDown()
+            }
+        }
+        val finished = try {
+            posted && stopped.await(6, java.util.concurrent.TimeUnit.SECONDS) && clean.get()
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            false
+        }
+        if (!finished) throw DeviceLinkFailure("commit_unknown")
+        readServiceSession = null
+    }
+
     fun withdraw() { link?.withdraw() }
     fun dispose() {
         disposed = true; gate.close(); withdraw()
         control.execute {
+            try { stopReadService() } catch (_: Exception) { /* Keep any unsettled Service owner. */ }
+            httpTls.discardPreparedLeaf()
             try { link?.close(); lease?.close() } catch (_: Exception) { /* Retain failed custody until process exit. */ }
             io.shutdown(); control.shutdown()
         }

@@ -1,8 +1,16 @@
 # Android device access v0
 
-Status: **The selected dedicated Debug installation has exercised the bounded
-seven-tool usage loop; the full Android v0 matrix and release acceptance remain
-pending.**
+Status: **FROZEN historical baseline (not formally retired or deleted).**
+The local `SHAD` / desktop-adapter route documented here is superseded as the
+primary Android integration mainline by
+[Android Streamable HTTP MCP v1](android-http-mcp-v1.md). Existing `SHAD`
+source, offline tests, and selected-device evidence remain preserved intact until
+H2/H3 Streamable HTTP acceptance completes and formal retirement is separately
+authorized.
+
+Historical delivery record: **The selected dedicated Debug installation has
+exercised the bounded seven-tool usage loop; the full Android v0 matrix and
+release acceptance remain pending.**
 The user approved this design and its first foundation implementation on
 2026-10-28. Design approval alone grants no real connection, credential operation,
 model call, business exposure or Android product acceptance. The task-only native

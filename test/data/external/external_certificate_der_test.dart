@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -686,5 +687,180 @@ void main() {
             tbs: _bytes('3000'),
             rawSignature: _bytes(_serverRawHex)),
         rejected);
+  });
+
+  test('private IPv4 SAN parsing accepts RFC 1918 only and rejects non-private',
+      () {
+    expect(ExternalCertificateDer.parsePrivateIpv4('10.0.0.1'),
+        Uint8List.fromList([10, 0, 0, 1]));
+    expect(ExternalCertificateDer.parsePrivateIpv4('172.16.0.1'),
+        Uint8List.fromList([172, 16, 0, 1]));
+    expect(ExternalCertificateDer.parsePrivateIpv4('172.31.255.254'),
+        Uint8List.fromList([172, 31, 255, 254]));
+    expect(ExternalCertificateDer.parsePrivateIpv4('192.168.1.42'),
+        Uint8List.fromList([192, 168, 1, 42]));
+    for (final invalid in [
+      '',
+      '127.0.0.1',
+      '0.0.0.0',
+      '8.8.8.8',
+      '100.64.0.1',
+      '169.254.1.1',
+      '172.15.255.255',
+      '172.32.0.1',
+      '192.167.1.1',
+      '192.168.01.1',
+      '192.168.1.256',
+      '192.168.1',
+      'localhost',
+      '::1',
+    ]) {
+      expect(() => ExternalCertificateDer.parsePrivateIpv4(invalid), rejected,
+          reason: invalid);
+    }
+  });
+
+  test('dynamic private IPv4 SAN, SKI/AKI, 90-day leaf validity and PEM output',
+      () {
+    final caSki = ExternalCertificateDer.computeKeyIdentifier(key);
+    expect(caSki, hasLength(20));
+    final leafPoint = Uint8List.fromList(key)..[64] ^= 0x01;
+    final leafSki = ExternalCertificateDer.computeKeyIdentifier(leafPoint);
+    expect(leafSki, isNot(equals(caSki)));
+
+    final caTbs = ExternalCertificateDer.buildTbs(
+      role: ExternalCertificateRole.issuer,
+      serial16: serial,
+      generationUtc: generation,
+      publicKey: key,
+      subjectKeyIdentifier: caSki,
+    );
+    final caCert = ExternalCertificateDer.assembleFromDerSignature(
+      role: ExternalCertificateRole.issuer,
+      tbs: caTbs,
+      derSignature: _bytes(_serverDerHex),
+      expectedSubjectKeyIdentifier: caSki,
+    );
+    final inspectedCa = ExternalCertificateDer.inspect(
+      caCert,
+      role: ExternalCertificateRole.issuer,
+      expectedSubjectKeyIdentifier: caSki,
+    );
+    expect(inspectedCa.subjectKeyIdentifier, caSki);
+    expect(inspectedCa.authorityKeyIdentifier, isNull);
+    expect(inspectedCa.ipv4San, isNull);
+    expect(
+      () => ExternalCertificateDer.buildTbs(
+        role: ExternalCertificateRole.issuer,
+        serial16: serial,
+        generationUtc: generation,
+        publicKey: key,
+        authorityKeyIdentifier: caSki,
+      ),
+      rejected,
+    );
+    expect(
+      () => ExternalCertificateDer.buildTbs(
+        role: ExternalCertificateRole.issuer,
+        serial16: serial,
+        generationUtc: generation,
+        publicKey: key,
+        ipv4San: '192.168.1.42',
+      ),
+      rejected,
+    );
+
+    final leafTbs = ExternalCertificateDer.buildTbs(
+      role: ExternalCertificateRole.server,
+      serial16: serial,
+      generationUtc: generation,
+      publicKey: leafPoint,
+      ipv4San: '192.168.1.42',
+      subjectKeyIdentifier: leafSki,
+      authorityKeyIdentifier: caSki,
+      validityDays: 90,
+    );
+    final leafCert = ExternalCertificateDer.assembleFromDerSignature(
+      role: ExternalCertificateRole.server,
+      tbs: leafTbs,
+      derSignature: _bytes(_serverDerHex),
+      expectedIpv4San: '192.168.1.42',
+      expectedSubjectKeyIdentifier: leafSki,
+      expectedAuthorityKeyIdentifier: caSki,
+      expectedValidityDays: 90,
+    );
+    final inspectedLeaf = ExternalCertificateDer.inspect(
+      leafCert,
+      role: ExternalCertificateRole.server,
+      expectedIpv4San: '192.168.1.42',
+      expectedSubjectKeyIdentifier: leafSki,
+      expectedAuthorityKeyIdentifier: caSki,
+      expectedValidityDays: 90,
+    );
+    expect(inspectedLeaf.ipv4San, '192.168.1.42');
+    expect(inspectedLeaf.subjectKeyIdentifier, leafSki);
+    expect(inspectedLeaf.authorityKeyIdentifier, caSki);
+    expect(inspectedLeaf.notAfter, generation.add(const Duration(days: 90)));
+
+    expect(
+      () => ExternalCertificateDer.inspect(
+        leafCert,
+        role: ExternalCertificateRole.server,
+        expectedIpv4San: '192.168.1.43',
+        expectedSubjectKeyIdentifier: leafSki,
+        expectedAuthorityKeyIdentifier: caSki,
+        expectedValidityDays: 90,
+      ),
+      rejected,
+    );
+    expect(
+      () => ExternalCertificateDer.inspect(
+        leafCert,
+        role: ExternalCertificateRole.server,
+        expectedIpv4San: '192.168.1.42',
+        expectedSubjectKeyIdentifier: caSki,
+        expectedAuthorityKeyIdentifier: caSki,
+        expectedValidityDays: 90,
+      ),
+      rejected,
+    );
+    expect(
+      () => ExternalCertificateDer.inspect(
+        leafCert,
+        role: ExternalCertificateRole.server,
+        expectedIpv4San: '192.168.1.42',
+        expectedSubjectKeyIdentifier: leafSki,
+        expectedAuthorityKeyIdentifier: leafSki,
+        expectedValidityDays: 90,
+      ),
+      rejected,
+    );
+    expect(
+      () => ExternalCertificateDer.inspect(
+        leafCert,
+        role: ExternalCertificateRole.server,
+        expectedIpv4San: '192.168.1.42',
+        expectedSubjectKeyIdentifier: leafSki,
+        expectedAuthorityKeyIdentifier: caSki,
+        expectedValidityDays: 730,
+      ),
+      rejected,
+    );
+    expect(
+      () => ExternalCertificateDer.inspect(
+        leafCert,
+        role: ExternalCertificateRole.server,
+      ),
+      rejected,
+    );
+
+    final pem = ExternalCertificateDer.encodePemCertificate(leafCert);
+    expect(pem, startsWith('-----BEGIN CERTIFICATE-----\n'));
+    expect(pem.trimRight(), endsWith('-----END CERTIFICATE-----'));
+    final body = pem
+        .split('\n')
+        .where((line) => line.isNotEmpty && !line.startsWith('-----'))
+        .join();
+    expect(base64.decode(body), leafCert);
   });
 }

@@ -14,7 +14,12 @@ Windows consumer:
 External Agent -> stdio adapter / existing local relay
                -> authenticated local IPC -> App LocalCapabilityHost
 
-Android-device consumer, after separate implementation and acceptance:
+Android Streamable HTTP mainline (Increment H1 core; UI switch in H2; STAGE in H3):
+External Agent -> HTTPS (TLS 1.3 + Bearer shq_...)
+               -> Android App `AndroidHttpMcpServer` (Profile 3 9 READ tools)
+               -> LocalCapabilityHost / Application owners
+
+Legacy Android-device consumer (FROZEN historical baseline, not retired):
 External Agent -> local stdio transport adapter
                -> authenticated Android device link
                -> foreground Android App MCP adapter / LocalCapabilityHost
@@ -29,9 +34,12 @@ roots wire implementations; adapters do not bypass Application ports.
 
 Windows and Android have independent installation identity, credential
 association and runtime admission. A Windows pairing, Profile, development
-exception or accepted local relay does not authorize Android. The Android
-boundary is owned by [Android device access](android-device-access-v0.md).
-Its source-only foundation supplies no runtime or business activation.
+exception or accepted local relay does not authorize Android. The adopted
+Android mainline boundary is owned by
+[Android Streamable HTTP MCP v1](android-http-mcp-v1.md); the legacy `SHAD`
+consumer in [Android device access](android-device-access-v0.md) is preserved as
+a FROZEN historical baseline. H1 supplies core foundation and offline tests
+without switching default UI startup.
 
 Any authorized client can use this boundary. No brand-specific Proposal/origin
 types or business `if client == ...` branches. A different protocol may add an
@@ -65,13 +73,18 @@ these limitations bypasses current Application authorization, Scope, Egress or
 explicit local COMMIT approval.
 
 Every App runtime generation defaults to external business access disabled.
-The user must actively enable one selected, paired Profile through trusted
-Shiroha UI and choose a finite validity period. Enablement binds only that
-Profile and current generation; it adds no Grant, Scope or Egress. Legitimate
-reconnections authenticate again and recheck current authorization, but need
-no repeated prompt within the same valid enablement period. Disable, expiry,
-revoke, restart or Restore invalidates the applicable runtime enablement; old
-connections, Contexts and sessions cannot automatically regain business access.
+The user must actively enable one selected, paired Profile (or, for Android
+Streamable HTTP MCP v1 in [android-http-mcp-v1.md](android-http-mcp-v1.md), the
+set of currently active, unrevoked multi-client HTTP Profiles up to 16) through
+trusted Shiroha UI and choose a finite validity period (or pure-question READ
+`untilAppStops` with optional `continueWhileLocked` for already-authenticated
+clients). Enablement binds only the enabled Profile(s) and current generation;
+it adds no Grant, Scope or Egress. Legitimate reconnections authenticate again
+and recheck current authorization, but need no repeated prompt within the same
+valid enablement period. Disable, expiry, revoke, restart or Restore invalidates
+the applicable runtime enablement; old connections, Contexts and sessions cannot
+automatically regain business access, while ordinary stop/expiry/IP changes keep
+durable Android HTTP Bearer Tokens valid for the next explicit Enable window.
 Duration limits, resource counts and concrete UX remain implementation and
 validation choices; no numerical runtime-enable limit is frozen here. Section 3
 and per-call/final-release authorization remain independently required.
@@ -636,11 +649,15 @@ AF_UNIX-only tests does not remove other credential, object or input protections
 Choose the least complex candidate passing every hard property. Spike must be
 allowed to overturn the TCP preference, fall back to Named Pipe or reject all
 candidates if evidence requires it. If none passes, keep
-Host unpublished; no unauthenticated fallback. HTTP is not preferred without a
-specific benefit. No shell or generic arbitrary RPC dispatch is allowed. Windows
-exposes no remote listener. Android's only specified endpoint is its foreground
-LAN endpoint; public hosting, automatic tunneling and background receipt remain
-excluded.
+Host unpublished; no unauthenticated fallback. For Windows, HTTP is not preferred
+without a specific benefit. No shell or generic arbitrary RPC dispatch is
+allowed. Windows exposes no remote listener. For Android, **Streamable HTTP over
+private-IPv4 TLS 1.3** ([android-http-mcp-v1.md](android-http-mcp-v1.md)) is now
+the adopted mainline (backed by non-exported `connectedDevice`
+`DeviceReadService` for pure-question READ and opt-in `continueWhileLocked`),
+while public hosting, automatic tunneling, and unauthenticated fallback remain
+excluded; the legacy foreground LAN `SHAD` endpoint is retained as a FROZEN
+historical baseline.
 Wire envelope belongs to infrastructure; Application remains typed/protocol-free.
 
 ## 6. Persistence, backup and acceptance
@@ -1325,6 +1342,13 @@ Authentication requires that selected Profile's Principal;
 it adds no READ/STAGE. Saving P11 policy never enables a Profile. Grantless
 credential-proven Sessions release no business content and cannot bind P8.
 
+Android Streamable HTTP H1 binds P0 to its explicit Android lifecycle window
+through the trusted runtime-owner entry. Base P12 and Windows callers retain
+their finite Enable path. The Android owner supplies a monotonic deadline for
+finite access, or a live process window for pure-question READ untilAppStops.
+The original window and the Profile's current Grant must still permit HTTP
+admission and final release. See the [Android HTTP lifecycle contract](android-http-mcp-v1.md#5-foreground-service-extended-durations-and-lock-screen-continuation).
+
 P8/P7 and their owning services still reload current Profile/Grant, revision,
 exact Scope and independent Egress on every admission/publication/release.
 READ references retain same-Principal/current-generation cross-Session semantics;
@@ -1493,11 +1517,24 @@ P0 per-Session revoke operation. Restart reads no association automatically;
 replacement is unpaired/disabled and requires fresh proof, binding and enablement.
 
 Android startup likewise performs no automatic credential hydration or
-enablement. An explicit local Android access action may request fresh
-existing-credential confirmation for its selected Profile, using original P15
-private evidence and P0/P12 state transitions. Its verifier must bind the live
-native TLS channel, exact protected association, current runtime and deadline.
-Stored metadata alone remains non-authorizing. This separately specified
+enablement. For the frozen legacy `SHAD` link, an explicit local Android access
+action requests fresh existing-credential confirmation for its single selected
+Profile (`maxActiveAssociations = 1`), using original P15 private evidence and
+P0/P12 state transitions. For the adopted **Android Streamable HTTP MCP v1**
+mainline ([android-http-mcp-v1.md](android-http-mcp-v1.md)), `AndroidAssociationStore.forHttp`
+parameterizes `maxActiveAssociations = 16` (preserving up to 64 total records
+with monotonic revocation tombstones), storing only domain-separated SHA-256
+digests (`SHA-256("shiroha-http-bearer-v1:" || token)`) matched in constant
+time. Single-client revocation revokes only that Profile's `ExternalPrincipal`,
+HTTP sessions, `contextRef`s, association record, and SQLite Profile without
+disturbing sibling clients; if durable revocation fails, the entire active
+Enable window withdraws fail-closed. After durable revocation settles, its P0
+slot is released and old handles remain revoked. Enable preparation skips an
+individually withdrawn Profile. Re-issuance checks capacity for the new durable
+record before revoking the old Profile, preserving its tombstone, and creating
+a new Profile and Token. Implicit policy inheritance requires an active Grant
+and revision-matched revocation of the original Profile. Stored metadata
+alone remains non-authorizing until an explicit local Enable action. This
 consumer does not use or relax the Windows development exception.
 
 MCP §17.12's separately authorized development residual-recovery entry exposes
@@ -1865,9 +1902,12 @@ settings. Business ownership remains in Application/Data, never UI SQLite calls.
 
 For Android, all-content covers only the selected device's current Shiroha data
 instance. Saved review/direct policy may authorize request-scoped STAGE through
-original FirstPartyStageApproval without an open settings view. Foreground
-enablement, live connection authentication and per-call/final-release checks
-remain independent. Installation, migration, pairing and navigation never widen
+original FirstPartyStageApproval without an open settings view (deferred to H3
+for Android Streamable HTTP MCP v1; H1 exposes READ-only Profile 3 tools).
+Foreground/background pure-question READ enablement (`5m..8h`/`untilAppStops`
+and opt-in `continueWhileLocked` for already-authenticated clients), live
+authentication and per-call/final-release checks (`OUTPUT_WITHHELD`) remain
+independent. Installation, migration, pairing and navigation never widen
 existing exact-scope/confirm policies. Background, lock and network changes use
 the Android lifecycle and never delete durable content.
 

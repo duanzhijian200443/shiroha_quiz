@@ -1,12 +1,24 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import '../../services/backup/sha256.dart';
+
 /// 仅供离线处理 X.509 结构；检视与组装都不验证签名、公钥曲线成员、信任链或当前有效期。
 enum ExternalCertificateRole { issuer, server, client }
 
 final class ExternalCertificateStructure {
-  ExternalCertificateStructure._(this.role, this._tbs, this._publicKey,
-      this._rawSignature, this.notBefore, this.notAfter);
+  ExternalCertificateStructure._(
+    this.role,
+    this._tbs,
+    this._publicKey,
+    this._rawSignature,
+    this.notBefore,
+    this.notAfter, {
+    this.ipv4San,
+    Uint8List? subjectKeyIdentifier,
+    Uint8List? authorityKeyIdentifier,
+  })  : _subjectKeyIdentifier = subjectKeyIdentifier,
+        _authorityKeyIdentifier = authorityKeyIdentifier;
 
   final ExternalCertificateRole role;
   final Uint8List _tbs;
@@ -14,10 +26,19 @@ final class ExternalCertificateStructure {
   final Uint8List _rawSignature;
   final DateTime notBefore;
   final DateTime notAfter;
+  final String? ipv4San;
+  final Uint8List? _subjectKeyIdentifier;
+  final Uint8List? _authorityKeyIdentifier;
 
   Uint8List get tbs => Uint8List.fromList(_tbs);
   Uint8List get publicKey => Uint8List.fromList(_publicKey);
   Uint8List get rawSignature => Uint8List.fromList(_rawSignature);
+  Uint8List? get subjectKeyIdentifier => _subjectKeyIdentifier == null
+      ? null
+      : Uint8List.fromList(_subjectKeyIdentifier);
+  Uint8List? get authorityKeyIdentifier => _authorityKeyIdentifier == null
+      ? null
+      : Uint8List.fromList(_authorityKeyIdentifier);
 }
 
 abstract final class ExternalCertificateDer {
@@ -39,12 +60,59 @@ abstract final class ExternalCertificateDer {
   ];
   static final _basicConstraintsOid = [0x55, 0x1d, 0x13];
   static final _keyUsageOid = [0x55, 0x1d, 0x0f];
+  static final _skiOid = [0x55, 0x1d, 0x0e];
+  static final _akiOid = [0x55, 0x1d, 0x23];
   static final _ekuOid = [0x55, 0x1d, 0x25];
   static final _sanOid = [0x55, 0x1d, 0x11];
+  static final _ipv4Pattern = RegExp(
+    r'^(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})$',
+  );
 
   /// Shares the P21 uncompressed-point shape check; not curve membership proof.
   static void inspectPublicPointShape(Uint8List publicKey) =>
       _checkPointShape(publicKey);
+
+  /// Computes a 20-byte RFC 7093 truncated SHA-256 key identifier from an
+  /// uncompressed P-256 subjectPublicKey point (`0x04 || X || Y`).
+  static Uint8List computeKeyIdentifier(Uint8List publicKey) {
+    _checkPointShape(publicKey);
+    final hex = sha256Hex(publicKey);
+    return Uint8List.fromList([
+      for (var i = 0; i < 40; i += 2)
+        int.parse(hex.substring(i, i + 2), radix: 16),
+    ]);
+  }
+
+  /// Parses an RFC 1918 private IPv4 address (`10/8`, `172.16/12`, `192.168/16`).
+  /// Rejects loopback, link-local, public, non-canonical, and non-IPv4 inputs.
+  static Uint8List parsePrivateIpv4(String address) {
+    final match = _ipv4Pattern.firstMatch(address);
+    if (match == null) _invalid();
+    final octets = [
+      for (var i = 1; i <= 4; i++) int.parse(match.group(i)!),
+    ];
+    if (octets.any((octet) => octet < 0 || octet > 255)) _invalid();
+    final o0 = octets[0];
+    final o1 = octets[1];
+    final isPrivate = o0 == 10 ||
+        (o0 == 172 && o1 >= 16 && o1 <= 31) ||
+        (o0 == 192 && o1 == 168);
+    if (!isPrivate) _invalid();
+    return Uint8List.fromList(octets);
+  }
+
+  /// Encodes a bounded DER X.509 certificate into standard 64-column PEM text.
+  static String encodePemCertificate(Uint8List certificateDer) {
+    if (certificateDer.isEmpty || certificateDer.length > 4096) _invalid();
+    final encoded = base64.encode(certificateDer);
+    final buffer = StringBuffer('-----BEGIN CERTIFICATE-----\n');
+    for (var i = 0; i < encoded.length; i += 64) {
+      final end = i + 64 < encoded.length ? i + 64 : encoded.length;
+      buffer.writeln(encoded.substring(i, end));
+    }
+    buffer.writeln('-----END CERTIFICATE-----');
+    return buffer.toString();
+  }
 
   static Uint8List signatureFromRaw(Uint8List raw) {
     if (raw.length != 64) _invalid();
@@ -68,20 +136,31 @@ abstract final class ExternalCertificateDer {
   }
 
   /// 调用方提供已生成的 16 字节正整数序列号及未压缩 P-256 公钥；不生成随机数、密钥或签名。
+  /// 省略可选参数时与既有 P21 冻结行为逐字节一致。
   static Uint8List buildTbs({
     required ExternalCertificateRole role,
     required Uint8List serial16,
     required DateTime generationUtc,
     required Uint8List publicKey,
+    String? ipv4San,
+    Uint8List? subjectKeyIdentifier,
+    Uint8List? authorityKeyIdentifier,
+    int? validityDays,
   }) {
     if (serial16.length != 16 || serial16.every((byte) => byte == 0)) {
       _invalid();
     }
     _checkPointShape(publicKey);
+    final options = _validateOptions(
+      role: role,
+      ipv4San: ipv4San,
+      subjectKeyIdentifier: subjectKeyIdentifier,
+      authorityKeyIdentifier: authorityKeyIdentifier,
+      validityDays: validityDays,
+    );
     final generation = generationUtc.toUtc();
     final before = generation.subtract(const Duration(minutes: 5));
-    final after = generation.add(
-        Duration(days: role == ExternalCertificateRole.issuer ? 3650 : 730));
+    final after = generation.add(Duration(days: options.validityDays));
     if (generation.millisecond != 0 ||
         generation.microsecond != 0 ||
         before.year < 1950 ||
@@ -102,7 +181,7 @@ abstract final class ExternalCertificateDer {
       ...validity,
       ..._names[role.index],
       ...spki,
-      ..._Der.wrap(0xa3, _Der.wrap(0x30, _extensions(role))),
+      ..._Der.wrap(0xa3, _Der.wrap(0x30, _extensions(role, options))),
     ]);
   }
 
@@ -111,6 +190,10 @@ abstract final class ExternalCertificateDer {
     required ExternalCertificateRole role,
     required Uint8List tbs,
     required Uint8List rawSignature,
+    String? expectedIpv4San,
+    Uint8List? expectedSubjectKeyIdentifier,
+    Uint8List? expectedAuthorityKeyIdentifier,
+    int? expectedValidityDays,
   }) {
     final derSignature = signatureFromRaw(rawSignature);
     final certificate = _Der.wrap(0x30, [
@@ -118,19 +201,60 @@ abstract final class ExternalCertificateDer {
       ..._signatureAlgorithm,
       ..._Der.wrap(0x03, [0, ...derSignature]),
     ]);
-    inspect(certificate, role: role);
+    inspect(
+      certificate,
+      role: role,
+      expectedIpv4San: expectedIpv4San,
+      expectedSubjectKeyIdentifier: expectedSubjectKeyIdentifier,
+      expectedAuthorityKeyIdentifier: expectedAuthorityKeyIdentifier,
+      expectedValidityDays: expectedValidityDays,
+    );
     return certificate;
   }
 
+  /// Assembles a certificate from an ASN.1 DER ECDSA signature (such as
+  /// Android Keystore `SHA256withECDSA` output) after canonical DER validation.
+  static Uint8List assembleFromDerSignature({
+    required ExternalCertificateRole role,
+    required Uint8List tbs,
+    required Uint8List derSignature,
+    String? expectedIpv4San,
+    Uint8List? expectedSubjectKeyIdentifier,
+    Uint8List? expectedAuthorityKeyIdentifier,
+    int? expectedValidityDays,
+  }) =>
+      assemble(
+        role: role,
+        tbs: tbs,
+        rawSignature: signatureToRaw(derSignature),
+        expectedIpv4San: expectedIpv4San,
+        expectedSubjectKeyIdentifier: expectedSubjectKeyIdentifier,
+        expectedAuthorityKeyIdentifier: expectedAuthorityKeyIdentifier,
+        expectedValidityDays: expectedValidityDays,
+      );
+
   /// 严格检视离线结构与角色配置；绝不执行密码学签名验证。
-  static ExternalCertificateStructure inspect(Uint8List certificate,
-      {required ExternalCertificateRole role}) {
+  static ExternalCertificateStructure inspect(
+    Uint8List certificate, {
+    required ExternalCertificateRole role,
+    String? expectedIpv4San,
+    Uint8List? expectedSubjectKeyIdentifier,
+    Uint8List? expectedAuthorityKeyIdentifier,
+    int? expectedValidityDays,
+  }) {
     if (certificate.length > 4096) _invalid();
+    final options = _validateOptions(
+      role: role,
+      ipv4San: expectedIpv4San,
+      subjectKeyIdentifier: expectedSubjectKeyIdentifier,
+      authorityKeyIdentifier: expectedAuthorityKeyIdentifier,
+      validityDays: expectedValidityDays,
+    );
     final root = _Cursor(certificate);
     final outer = _Cursor(root.read(0x30).body);
     root.done();
     final tbsNode = outer.read(0x30);
-    final publicKeyAndTimes = _inspectTbs(tbsNode.body, role);
+    final publicKeyAndTimes = _inspectTbs(tbsNode.body, role, options);
     _expect(outer.read(0x30).encoded, _signatureAlgorithm);
     final signatureBits = outer.read(0x03).body;
     outer.done();
@@ -143,11 +267,63 @@ abstract final class ExternalCertificateDer {
       raw,
       publicKeyAndTimes.$2,
       publicKeyAndTimes.$3,
+      ipv4San: options.ipv4SanText,
+      subjectKeyIdentifier: options.subjectKeyIdentifier == null
+          ? null
+          : Uint8List.fromList(options.subjectKeyIdentifier!),
+      authorityKeyIdentifier: options.authorityKeyIdentifier == null
+          ? null
+          : Uint8List.fromList(options.authorityKeyIdentifier!),
+    );
+  }
+
+  static _CertificateOptions _validateOptions({
+    required ExternalCertificateRole role,
+    required String? ipv4San,
+    required Uint8List? subjectKeyIdentifier,
+    required Uint8List? authorityKeyIdentifier,
+    required int? validityDays,
+  }) {
+    if (ipv4San != null && role != ExternalCertificateRole.server) _invalid();
+    if (subjectKeyIdentifier != null && subjectKeyIdentifier.length != 20) {
+      _invalid();
+    }
+    if (authorityKeyIdentifier != null &&
+        (authorityKeyIdentifier.length != 20 ||
+            role == ExternalCertificateRole.issuer)) {
+      _invalid();
+    }
+    final resolvedValidity =
+        validityDays ?? (role == ExternalCertificateRole.issuer ? 3650 : 730);
+    if (resolvedValidity < 1 || resolvedValidity > 3650) _invalid();
+    final Uint8List? sanBytes;
+    final String? sanText;
+    if (role == ExternalCertificateRole.server) {
+      if (ipv4San == null) {
+        sanBytes = Uint8List.fromList(const [127, 0, 0, 1]);
+        sanText = '127.0.0.1';
+      } else {
+        sanBytes = parsePrivateIpv4(ipv4San);
+        sanText = ipv4San;
+      }
+    } else {
+      sanBytes = null;
+      sanText = null;
+    }
+    return _CertificateOptions(
+      ipv4SanBytes: sanBytes,
+      ipv4SanText: sanText,
+      subjectKeyIdentifier: subjectKeyIdentifier,
+      authorityKeyIdentifier: authorityKeyIdentifier,
+      validityDays: resolvedValidity,
     );
   }
 
   static (Uint8List, DateTime, DateTime) _inspectTbs(
-      Uint8List body, ExternalCertificateRole role) {
+    Uint8List body,
+    ExternalCertificateRole role,
+    _CertificateOptions options,
+  ) {
     final tbs = _Cursor(body);
     _expect(tbs.read(0xa0).body, _Der.wrap(0x02, [2]));
     final serialBytes = tbs.read(0x02).body;
@@ -159,8 +335,9 @@ abstract final class ExternalCertificateDer {
     final before = _readTime(validity);
     final after = _readTime(validity);
     validity.done();
-    final expectedAfter = before.add(const Duration(minutes: 5)).add(
-        Duration(days: role == ExternalCertificateRole.issuer ? 3650 : 730));
+    final expectedAfter = before
+        .add(const Duration(minutes: 5))
+        .add(Duration(days: options.validityDays));
     if (after != expectedAfter) _invalid();
     _expect(tbs.read(0x30).encoded, _names[role.index]);
     final spki = _Cursor(tbs.read(0x30).body);
@@ -171,13 +348,16 @@ abstract final class ExternalCertificateDer {
     final point = Uint8List.fromList(pointBits.sublist(1));
     _checkPointShape(point);
     final extensions = _Cursor(tbs.read(0xa3).body);
-    _expect(extensions.read(0x30).body, _extensions(role));
+    _expect(extensions.read(0x30).body, _extensions(role, options));
     extensions.done();
     tbs.done();
     return (point, before, after);
   }
 
-  static List<int> _extensions(ExternalCertificateRole role) {
+  static List<int> _extensions(
+    ExternalCertificateRole role,
+    _CertificateOptions options,
+  ) {
     final issuer = role == ExternalCertificateRole.issuer;
     return [
       ..._extension(_basicConstraintsOid,
@@ -185,6 +365,13 @@ abstract final class ExternalCertificateDer {
           critical: true),
       ..._extension(_keyUsageOid, _Der.wrap(0x03, issuer ? [2, 4] : [7, 0x80]),
           critical: true),
+      if (options.subjectKeyIdentifier != null)
+        ..._extension(_skiOid, _Der.wrap(0x04, options.subjectKeyIdentifier!)),
+      if (options.authorityKeyIdentifier != null)
+        ..._extension(
+          _akiOid,
+          _Der.wrap(0x30, _Der.wrap(0x80, options.authorityKeyIdentifier!)),
+        ),
       if (!issuer)
         ..._extension(
             _ekuOid,
@@ -201,8 +388,11 @@ abstract final class ExternalCertificateDer {
                   role == ExternalCertificateRole.server ? 1 : 2,
                 ]))),
       if (role == ExternalCertificateRole.server)
-        ..._extension(_sanOid, _Der.wrap(0x30, [0x87, 4, 127, 0, 0, 1]),
-            critical: true),
+        ..._extension(
+          _sanOid,
+          _Der.wrap(0x30, [0x87, 4, ...options.ipv4SanBytes!]),
+          critical: true,
+        ),
     ];
   }
 
@@ -319,6 +509,22 @@ abstract final class ExternalCertificateDer {
       if (actual[i] != expected[i]) _invalid();
     }
   }
+}
+
+final class _CertificateOptions {
+  const _CertificateOptions({
+    required this.ipv4SanBytes,
+    required this.ipv4SanText,
+    required this.subjectKeyIdentifier,
+    required this.authorityKeyIdentifier,
+    required this.validityDays,
+  });
+
+  final Uint8List? ipv4SanBytes;
+  final String? ipv4SanText;
+  final Uint8List? subjectKeyIdentifier;
+  final Uint8List? authorityKeyIdentifier;
+  final int validityDays;
 }
 
 Never _invalid() =>

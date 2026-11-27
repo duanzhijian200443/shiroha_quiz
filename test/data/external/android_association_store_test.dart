@@ -132,4 +132,121 @@ void main() {
     expect(results.where((ok) => ok).length, 1);
     expect(backend.writes, 1);
   });
+
+  test('forHttp supports up to 16 active associations with conflict and cap',
+      () async {
+    expect(
+      () => AndroidAssociationStore(
+        backend,
+        nowUtcMs: () => 1,
+        maxActiveAssociations: 0,
+      ),
+      throwsArgumentError,
+    );
+    expect(
+      () => AndroidAssociationStore(
+        backend,
+        nowUtcMs: () => 1,
+        maxActiveAssociations: 65,
+      ),
+      throwsArgumentError,
+    );
+    final httpStore = AndroidAssociationStore.forHttp(
+      backend,
+      nowUtcMs: () => 50000,
+    );
+    expect(httpStore.maxActiveAssociations, 16);
+
+    String uuidFor(int n) =>
+        '10000000-0000-4000-8000-${n.toString().padLeft(12, '0')}';
+    String digestFor(int n) => n.toRadixString(16).padLeft(64, '0');
+
+    for (var i = 1; i <= 16; i++) {
+      final snap = await httpStore.register(
+        profileId: uuidFor(i),
+        installationId: installation,
+        credentialIdentity: digestFor(i),
+        expectedRevision: 0,
+        validateManagement: () async {},
+      );
+      expect(snap.record!.revision, 1);
+      expect(snap.record!.revoked, isFalse);
+    }
+
+    final activeList = await httpStore.listActive();
+    expect(activeList.isCurrent, isTrue);
+    expect(activeList.records, hasLength(16));
+
+    // 17th distinct active association hits resourceLimit.
+    await expectLater(
+      httpStore.register(
+        profileId: uuidFor(17),
+        installationId: installation,
+        credentialIdentity: digestFor(17),
+        expectedRevision: 0,
+        validateManagement: () async {},
+      ),
+      failure(ExternalCredentialFailure.resourceLimit),
+    );
+
+    final beforeRevoke = await httpStore.listActive();
+    final target =
+        beforeRevoke.records.singleWhere((r) => r.profileId == uuidFor(2));
+    final sibling =
+        beforeRevoke.records.singleWhere((r) => r.profileId == uuidFor(1));
+
+    // Revoking 1 profile preserves its tombstone and leaves 15 active.
+    await httpStore.revoke(
+      profileId: uuidFor(2),
+      expectedRevision: 1,
+      validateManagement: () async {},
+    );
+    expect(activeList.isCurrent, isFalse);
+    expect(beforeRevoke.isCurrent, isFalse);
+    expect(beforeRevoke.isRecordCurrent(target), isFalse);
+    expect(beforeRevoke.isRecordCurrent(sibling), isTrue);
+    final afterRevoke = await httpStore.listActive();
+    expect(afterRevoke.records, hasLength(15));
+    expect(
+      afterRevoke.records.any((r) => r.profileId == uuidFor(2)),
+      isFalse,
+    );
+
+    // Duplicate active credentialIdentity on another profile fails with conflict.
+    await expectLater(
+      httpStore.register(
+        profileId: uuidFor(17),
+        installationId: installation,
+        credentialIdentity: digestFor(1),
+        expectedRevision: 0,
+        validateManagement: () async {},
+      ),
+      failure(ExternalCredentialFailure.conflict),
+    );
+
+    expect(beforeRevoke.isRecordCurrent(sibling), isFalse);
+
+    await expectLater(
+      httpStore.registerNewHttpAssociation(
+        installationId: installation,
+        credentialIdentity: target.credentialIdentity,
+        prepareProfile: () async =>
+            fail('Reused Token digest reached Profile creation'),
+        validateManagement: (_) async {},
+      ),
+      failure(ExternalCredentialFailure.conflict),
+    );
+
+    // New distinct credential fills the freed 16th active slot cleanly.
+    final replacement = await httpStore.register(
+      profileId: uuidFor(17),
+      installationId: installation,
+      credentialIdentity: digestFor(17),
+      expectedRevision: 0,
+      validateManagement: () async {},
+    );
+    expect(replacement.record!.profileId, uuidFor(17));
+    expect((await httpStore.listActive()).records, hasLength(16));
+    await httpStore.close();
+  });
 }
