@@ -63,6 +63,12 @@ final class AndroidForegroundObservation {
 
 enum AndroidAccessPhase { off, preparing, ready, suspended, draining, recovery }
 
+/// Root-level owner shared by the Android access surfaces.
+abstract interface class AndroidAccessLifecycle {
+  Future<void> observeFlutter(bool resumed);
+  Future<void> close();
+}
+
 /// Outcome of authenticating an Android HTTP Bearer request against the current
 /// Enable window. Locked brand-new clients are refused without opening a P0
 /// [ExternalSession].

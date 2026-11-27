@@ -4,7 +4,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/external/external_credential_association.dart';
 import 'package:shiroha_quiz/composition/android_device_foundation.dart';
+import 'package:shiroha_quiz/data/external/android_http_tls.dart';
 import 'package:shiroha_quiz/data/external/android_native_association_backend.dart';
+import 'package:shiroha_quiz/data/external/external_certificate_der.dart';
 
 final class Calls implements AndroidNativeCalls {
   final methods = <String>[];
@@ -19,9 +21,85 @@ final class Calls implements AndroidNativeCalls {
   }
 }
 
+final class _CertificateCalls implements AndroidNativeCalls {
+  final rootKey = Uint8List.fromList([4, ...List.filled(64, 1)]);
+  final leafKey = Uint8List.fromList([4, ...List.filled(64, 2)]);
+  Uint8List? root, leaf;
+  String? address;
+  int? expiresAt;
+  int leafPublications = 0;
+
+  @override
+  Future<Object?> invoke(String method,
+      [Map<String, Object?>? arguments]) async {
+    switch (method) {
+      case 'httpCaEnsure':
+        return {'publicKey': rootKey, 'nonExportable': true};
+      case 'httpCaRead':
+        return root;
+      case 'httpCaSignTbs':
+        return Uint8List.fromList([0x30, 6, 2, 1, 1, 2, 1, 1]);
+      case 'httpCaStore':
+        root = arguments!['caDer'] as Uint8List;
+        return true;
+      case 'httpLeafGenerateKey':
+        return leafKey;
+      case 'httpLeafStore':
+        address = arguments!['ipv4'] as String;
+        expiresAt = arguments['expiresAtUtcMs'] as int;
+        leaf = arguments['leafDer'] as Uint8List;
+        final certificate = ExternalCertificateDer.inspect(
+          leaf!,
+          role: ExternalCertificateRole.server,
+          expectedIpv4San: address,
+          expectedSubjectKeyIdentifier:
+              ExternalCertificateDer.computeKeyIdentifier(leafKey),
+          expectedAuthorityKeyIdentifier:
+              ExternalCertificateDer.computeKeyIdentifier(rootKey),
+          expectedValidityDays: 90,
+        );
+        expect(expiresAt, certificate.notAfter.millisecondsSinceEpoch);
+        leafPublications++;
+        return true;
+      case 'httpLeafDiscard':
+        return true;
+      case 'httpLeafOpen':
+        if (leaf == null) throw PlatformException(code: 'pairing_required');
+        return {
+          'caDer': root,
+          'leafDer': leaf,
+          'ipv4': address,
+          'expiresAtUtcMs': expiresAt,
+          'leafPrivateKeyPkcs8':
+              Uint8List.fromList([0x30, 0]).asUnmodifiableView(),
+        };
+      default:
+        throw StateError('unexpected certificate method');
+    }
+  }
+}
+
 void main() {
   test(
-      'native entry requires dedicated Debug admission; manifest exposes only non-exported connectedDevice service',
+      'HTTP certificate expiry uses the signed whole second and an IP change retains the CA',
+      () async {
+    final calls = _CertificateCalls();
+    final now = DateTime.utc(2026, 11, 27, 12, 0, 4, 567, 89);
+    final tls = AndroidHttpTls(calls, now: () => now);
+    final first = await tls.prepare('192.168.1.10');
+    first.privateKey.fillRange(0, first.privateKey.length, 0);
+    expect(first.privateKey, [0, 0]);
+    expect(calls.expiresAt! % 1000, 0);
+    expect(calls.leafPublications, 1);
+    await tls.prepare('192.168.1.10');
+    expect(calls.leafPublications, 1);
+    final second = await tls.prepare('192.168.1.11');
+    expect(calls.address, '192.168.1.11');
+    expect(calls.leafPublications, 2);
+    expect(second.root.fingerprint, first.root.fingerprint);
+  });
+  test(
+      'default Android admits HTTP, legacy needs Debug, and READ service is private',
       () {
     expect(File('lib/main.dart').readAsStringSync(),
         isNot(contains('android_device_foundation')));
@@ -29,11 +107,20 @@ void main() {
             'android/app/src/main/kotlin/com/example/shiroha_quiz/MainActivity.kt')
         .readAsStringSync();
     expect(activity,
-        contains('!BuildConfig.DEBUG || !BuildConfig.ANDROID_READ_VALIDATION'));
+        contains('BuildConfig.DEBUG && BuildConfig.ANDROID_READ_VALIDATION'));
     expect(
         activity,
         contains(
-            'packageName != BuildConfig.ANDROID_READ_VALIDATION_APPLICATION_ID'));
+            'packageName == BuildConfig.ANDROID_READ_VALIDATION_APPLICATION_ID'));
+    expect(activity, contains('httpOnly = !legacyValidationSelected()'));
+    expect(activity, contains('Build.VERSION.SDK_INT < 29'));
+    final channel = File(
+            'android/app/src/main/kotlin/com/example/shiroha_quiz/external/DeviceFoundationChannel.kt')
+        .readAsStringSync();
+    final methods = channel.split('val httpMethods = setOf(').last;
+    expect(methods, contains('"httpLeafOpen"'));
+    expect(methods, contains('"readServiceActivate"'));
+    expect(methods, isNot(contains('"linkOpen"')));
     final build = File('android/app/build.gradle.kts').readAsStringSync();
     expect(
         build,

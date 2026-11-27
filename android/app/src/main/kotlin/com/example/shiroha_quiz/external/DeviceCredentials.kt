@@ -177,8 +177,15 @@ internal class DeviceCredentials(
 }
 
 /** One owner and one outstanding lease. No directories/files are created at construction. */
-internal class DeviceAssociationFile(context: Context, private val credentials: DeviceCredentials) {
-    private val directory = File(context.noBackupFilesDir, "shiroha-external-v1")
+internal class DeviceAssociationFile(
+    context: Context,
+    private val credentials: DeviceCredentials,
+    http: Boolean = false,
+) {
+    private val directory = File(
+        context.noBackupFilesDir, if (http) "shiroha-external-v1/http" else "shiroha-external-v1"
+    )
+    private val purpose = if (http) "http-associations" else "associations"
     private val file = AtomicFile(File(directory, "associations.bin"))
     private var occupied = false
     private var poisoned = false
@@ -201,7 +208,7 @@ internal class DeviceAssociationFile(context: Context, private val credentials: 
             attempted = true
             val current = readEncrypted()
             if (!equal(current, original)) { poisoned = true; throw DeviceLinkFailure("stale_revision") }
-            val encrypted = credentials.seal(bytes)
+            val encrypted = credentials.seal(bytes, purpose)
             var stream: java.io.FileOutputStream? = null
             try {
                 if (!directory.exists() && !directory.mkdirs()) throw DeviceLinkFailure("credential_store_unavailable")
@@ -230,7 +237,7 @@ internal class DeviceAssociationFile(context: Context, private val credentials: 
         occupied = true
         return try {
             val original = readEncrypted()
-            Lease(revision, original, original?.let { credentials.open(it) })
+            Lease(revision, original, original?.let { credentials.open(it, purpose) })
         } catch (e: DeviceLinkFailure) { occupied = false; poisoned = true; throw e }
           catch (_: Exception) { occupied = false; poisoned = true; throw DeviceLinkFailure("credential_store_unavailable") }
     }

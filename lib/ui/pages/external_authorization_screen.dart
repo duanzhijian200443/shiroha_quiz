@@ -9,6 +9,7 @@ import '../../application/modules/module_composition.dart';
 import '../dependencies/first_party_external_scope.dart';
 import '../dependencies/android_device_scope.dart';
 import 'android_device_access_panel.dart';
+import 'android_http_access_panel.dart';
 import '../dependencies/generated_question_dependencies_scope.dart';
 import '../generated_question/generated_proposal_inbox_screen.dart';
 import 'external_agent_settings_body.dart';
@@ -16,17 +17,31 @@ import 'first_party_external_control.dart';
 
 const externalPolicyNotice = '开启后允许外部 Agent 读取 Shiroha 内全部题库与资料。';
 
-final class ExternalAuthorizationScreen extends StatefulWidget {
+final class ExternalAuthorizationScreen extends StatelessWidget {
   const ExternalAuthorizationScreen({super.key, required this.service});
   final LocalAuthorizationService service;
 
   @override
-  State<ExternalAuthorizationScreen> createState() =>
+  Widget build(BuildContext context) {
+    final http = AndroidHttpAccessScope.maybeOf(context);
+    return http == null
+        ? _ExistingExternalAuthorizationScreen(service: service)
+        : AndroidHttpAccessPanel(
+            key: ObjectKey(http), access: http, service: service);
+  }
+}
+
+final class _ExistingExternalAuthorizationScreen extends StatefulWidget {
+  const _ExistingExternalAuthorizationScreen({required this.service});
+  final LocalAuthorizationService service;
+
+  @override
+  State<_ExistingExternalAuthorizationScreen> createState() =>
       _ExternalAuthorizationScreenState();
 }
 
 final class _ExternalAuthorizationScreenState
-    extends State<ExternalAuthorizationScreen> {
+    extends State<_ExistingExternalAuthorizationScreen> {
   LocalAuthorizationView? _view;
   FirstPartyExternalAccess? _access;
   ExternalProfileReference? _selected;
@@ -71,7 +86,7 @@ final class _ExternalAuthorizationScreenState
   }
 
   @override
-  void didUpdateWidget(ExternalAuthorizationScreen oldWidget) {
+  void didUpdateWidget(_ExistingExternalAuthorizationScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.service, widget.service)) {
       _operation++;

@@ -28,17 +28,23 @@ class MainActivity : FlutterActivity() {
         override fun onReceive(context: Context?, intent: Intent?) = observe()
     }
     private fun observe() { runOnUiThread { device?.observer?.publish() } }
+    private fun legacyValidationSelected() =
+        BuildConfig.DEBUG && BuildConfig.ANDROID_READ_VALIDATION &&
+            packageName == BuildConfig.ANDROID_READ_VALIDATION_APPLICATION_ID
+
     private fun requireAndroidReadAdmission() {
-        if (!BuildConfig.DEBUG || !BuildConfig.ANDROID_READ_VALIDATION || Build.VERSION.SDK_INT < 29 ||
-            packageName != BuildConfig.ANDROID_READ_VALIDATION_APPLICATION_ID || isFinishing || isDestroyed)
+        if (Build.VERSION.SDK_INT < 29 || isFinishing || isDestroyed ||
+            (BuildConfig.ANDROID_READ_VALIDATION && !legacyValidationSelected()))
             DeviceLinkAdmission.requireAuthorized()
     }
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        if (!BuildConfig.DEBUG || !BuildConfig.ANDROID_READ_VALIDATION || Build.VERSION.SDK_INT < 29 ||
-            packageName != BuildConfig.ANDROID_READ_VALIDATION_APPLICATION_ID) return
+        if (Build.VERSION.SDK_INT < 29 ||
+            (BuildConfig.ANDROID_READ_VALIDATION && !legacyValidationSelected())) return
         val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "shiroha/android_device_foundation")
-        device = DeviceFoundationChannel(this, channel, ::requireAndroidReadAdmission)
+        device = DeviceFoundationChannel(
+            this, channel, ::requireAndroidReadAdmission, httpOnly = !legacyValidationSelected()
+        )
         channel.setMethodCallHandler(device)
         connectivity = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         connectivity?.registerDefaultNetworkCallback(network)

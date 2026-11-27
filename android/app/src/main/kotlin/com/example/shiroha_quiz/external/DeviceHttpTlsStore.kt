@@ -82,6 +82,9 @@ internal class DeviceHttpTlsStore(
         try {
             val keys = store()
             if (!keys.containsAlias(caAlias)) {
+                if (readBounded(caCertFile, MAX_CERT_BYTES) != null) {
+                    throw DeviceLinkFailure("credential_store_corrupt")
+                }
                 val generator = KeyPairGenerator.getInstance(
                     KeyProperties.KEY_ALGORITHM_EC,
                     "AndroidKeyStore",
@@ -157,7 +160,19 @@ internal class DeviceHttpTlsStore(
     @Synchronized
     fun readCaCertificate(): ByteArray? {
         credentials.requireAuthorized()
-        return readBounded(caCertFile, 4096)
+        val bytes = readBounded(caCertFile, MAX_CERT_BYTES) ?: return null
+        try {
+            val key = store().getCertificate(caAlias)?.publicKey
+                ?: throw DeviceLinkFailure("credential_store_corrupt")
+            val certificate = parseCertificate(bytes)
+            if (!key.encoded.contentEquals(certificate.publicKey.encoded)) {
+                throw DeviceLinkFailure("credential_store_corrupt")
+            }
+            certificate.verify(key)
+            return bytes
+        } catch (_: Exception) {
+            throw DeviceLinkFailure("credential_store_corrupt")
+        }
     }
 
     /**

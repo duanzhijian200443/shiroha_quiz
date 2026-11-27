@@ -2,6 +2,7 @@ import '../backup/backup_restore_gate.dart';
 import '../capabilities/capability.dart';
 import '../file_library/library_folder_service.dart';
 import '../projects/project_service.dart';
+import 'android_http_access.dart';
 import 'external_authorization.dart';
 
 /// Only compiled first-party composition receives this policy-management service.
@@ -270,6 +271,46 @@ final class LocalAuthorizationView {
                 permissions: permissions,
                 scopes: selected.map((t) => t.scope),
                 categories: categories));
+      });
+
+  /// HTTP setup can edit the same revisioned grant using local target choices.
+  Future<ExternalAuthorizationRecord> saveAndroidHttpRead(
+    ExternalProfileReference ref,
+    int revision, {
+    required bool allContent,
+    required Iterable<LocalAuthorizationTarget> targets,
+    required bool fileContent,
+    required bool studyStatistics,
+  }) =>
+      _run(() async {
+        final record = await _management.read(ref);
+        final profile = record.profile;
+        if (profile.adapter != androidHttpAdapter ||
+            profile.protocol != androidHttpProtocol ||
+            profile.revokedAtUtcMs != null) {
+          externalAuthFail(ExternalAuthFailure.unauthorized);
+        }
+        final selected = targets.toList();
+        if (selected.any((target) =>
+            !identical(target._owner, this) ||
+            (!fileContent && target.scope.kind == ExternalTargetKind.file))) {
+          externalAuthFail(ExternalAuthFailure.unauthorized);
+        }
+        return _management.replaceGrant(
+          ref,
+          revision,
+          ExternalGrantPolicy(
+            permissions: const [CapabilityPermission.read],
+            scopes:
+                allContent ? const [] : selected.map((target) => target.scope),
+            categories: [
+              ExternalContentCategory.questionContent,
+              if (fileContent) ExternalContentCategory.fileContent,
+              if (studyStatistics) ExternalContentCategory.studyStatistics,
+            ],
+            allContent: allContent,
+          ),
+        );
       });
   Future<ExternalAuthorizationRecord> revokeGrant(
           ExternalProfileReference ref, int revision) =>

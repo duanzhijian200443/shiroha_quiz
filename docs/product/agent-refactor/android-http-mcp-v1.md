@@ -1,6 +1,6 @@
 # Android Streamable HTTP MCP v1 — Focused Canonical Contract
 
-Status: **Canonical Android Streamable HTTP MCP target contract; Increment H1 (core foundation + 9-tool READ server) implemented without switching default UI entrypoints; H2 (non-USB setup UI + default Android composition) and H3 (STAGE + local Review) remain separate increments.**
+Status: **Canonical Android Streamable HTTP MCP contract. H2 wires the H1 READ service and setup panel into the default Android App. Physical-device acceptance is tracked with H2 delivery evidence. H3 owns STAGE and local Review.**
 
 This contract defines the formal **Android Streamable HTTP MCP** mainline that supersedes the earlier local Link/Adapter (`SHAD`) route as the primary Android integration direction, while preserving existing Application authorization (`P0`/`P1`/`P3`–`P8`), SQLite **v36**, B0 **v2**, S0 `engine.*`, and MCP v0 (6-tool stdio) invariants.
 
@@ -40,6 +40,7 @@ Hard boundaries:
 - Zero new `pubspec.yaml` dependencies; SQLite stays **v36**; B0 stays **v2**; S0 `engine.*` is untouched; MCP v0 (`study_mcp_server.dart`) remains exactly 6 read-only stdio tools.
 - `package:mcp_dart` stays confined to `lib/mcp/**`.
 - Construction and normal App startup perform **no** automatic credential hydration, foreground-service launch, or network listener startup.
+- The regular Android build uses the HTTP composition on Android 10 (API 29) and above. The explicit legacy Android READ Debug build retains its own native admission. HTTP uses its own protected association file and the regular App's existing Profile, Grant, P0 and READ owners.
 
 ---
 
@@ -57,6 +58,7 @@ Android Streamable HTTP uses **Hybrid TLS**:
    - Software EC P-256 leaf key pair generated in Kotlin; PKCS#8 DER private key is sealed at rest via `DeviceCredentials.seal(..., "http-leaf-key")` (AES-256-GCM backed by `AndroidKeyStore`) under `noBackupFilesDir/shiroha-external-v1/http/` (covered by `@xml/external_backup_rules` and `@xml/external_data_extraction_rules`).
    - Signed exclusively by the `AndroidKeyStore` Root CA key (`SHA256withECDSA`) over `ExternalCertificateDer.buildTbs` output with `CA:FALSE`, critical `digitalSignature`, `EKU=serverAuth`, critical private RFC 1918 IPv4 SAN (`10/8`, `172.16/12`, `192.168/16`), `SKI`, `AKI` matching CA `SKI`, and 90-day validity.
    - Native reserves the replacement key in memory. It verifies that the signed certificate matches the prepared key, installation CA, IP and expiry, then atomically publishes the certificate, sealed key and metadata together. An interrupted preparation preserves the previously published leaf. Valid older split files remain readable when the bundle is absent, with the same key and certificate checks. A corrupt bundle fails closed.
+   - Dart rounds the generation time down to a UTC second before building the certificate. Native expiry metadata uses that same timestamp. An address change issues a new leaf under the same installation CA.
    - At HTTPS listen time, Dart wraps Native PKCS#8 DER in PEM for its key loader and loads an isolated `SecurityContext(withTrustedRoots: false)` (`minimumTlsProtocolVersion = TlsProtocolVersion.tls1_3`, `allowLegacyUnsafeRenegotiation = false`) via `useCertificateChainBytes` / `usePrivateKeyBytes` bound exclusively to the verified private IPv4 address (never `0.0.0.0`, wildcard, cellular, or VPN).
    - **Memory zeroing disclaimer**: local `ByteArray` / `Uint8List` buffers are overwritten on a best-effort basis after handoff, **without claiming complete zeroing** of JVM, Dart GC, or BoringSSL runtime memory copies.
 
@@ -67,7 +69,7 @@ Android Streamable HTTP uses **Hybrid TLS**:
 1. **Relationship between Token, Profile, Enable, Grant, Scope, and Context**:
    - **Client Profile** (`external_client_profiles`, `adapter='android-http'`, `protocol='streamable-http'`): durable non-secret identity in SQLite v36.
    - **Bearer Token**: 256-bit CSPRNG credential formatted as `shq_<43 unpadded base64url>` (47 ASCII chars), shown once at issuance (`AndroidIssuedClientToken.toString()` is always `REDACTED`).
-   - **Protected Association**: `AndroidAssociationStore.forHttp` (`maxActiveAssociations = 16`, `maxRecords = 64` including monotonic revocation tombstones; legacy single-client callers retain default `maxActiveAssociations = 1`) stores only the domain-separated lowercase hex digest `SHA-256("shiroha-http-bearer-v1:" || token)` via `StreamingSha256`. Plaintext tokens never enter SQLite, backups, logs, or association storage.
+   - **Protected Association**: `AndroidAssociationStore.forHttp` (`maxActiveAssociations = 16`, `maxRecords = 64` including monotonic revocation tombstones) stores the domain-separated lowercase hex digest `SHA-256("shiroha-http-bearer-v1:" || token)` via `StreamingSha256`. Native seals the HTTP association file with a separate purpose from the legacy association file. Plaintext tokens never enter SQLite, backups, logs, or association storage.
    - **Constant-Time Verification**: `AndroidHttpTokenCodec.constantTimeDigestEquals` compares every active association record's digest without short-circuiting on slot index.
    - **Default Grant**: newly issued HTTP Profiles default strictly to `READ` + `questionContent` only. `studyStatistics` and `fileContent` are off by default; `STAGE` is excluded in H1 and deferred to H3.
    - **Runtime Enable**: explicit local user activation in memory. P0 binds each enabled Principal to the original Android lifecycle window before admitting Sessions. Withdrawal invalidates preparations synchronously. Stopping Enable, expiring, restarting the App, or switching Wi-Fi/IP invalidates active runtime `ExternalSession`s and `contextRef`s **without** revoking durable Bearer Tokens or SQLite Profiles. Re-enabling admits the same Tokens cleanly.
@@ -107,6 +109,7 @@ Android Streamable HTTP uses **Hybrid TLS**:
 ## 5. Foreground Service, Extended Durations, and Lock-Screen Continuation
 
 - `DeviceReadService` is declared in `android/app/src/main/AndroidManifest.xml` as a **non-exported** (`android:exported="false"`) `connectedDevice` foreground service with `START_NOT_STICKY` and `android:stopWithTask="true"`.
+- Foreground-only mode offers 5, 15 and 30 minutes. The App waits for the original background service's promotion, visible notification and activation before admitting clients and displaying the current URL. HTTP admission and pre-send release refresh trusted Android observations.
 - The opted-in background window admits only Profiles whose current Grant is pure question READ (READ + questionContent + bank scopes). Application checks that policy at admission and final release, including while the App is visible in that window. File and statistics Grants use the foreground-only finite window within its P0 ceiling.
 - Pure-question READ can choose 5m, 15m, 30m, 1h, 2h, 4h, 8h or untilAppStops. P0, HTTP admission, and the foreground-service lifetime use the same original Android window. A finite window uses its monotonic deadline. UntilAppStops has no synthetic time ceiling and ends with the original owner, explicit withdrawal or loss of the required observation.
 - Under `continueWhileLocked: true`:
@@ -124,10 +127,14 @@ Android Streamable HTTP uses **Hybrid TLS**:
 | **WorkBuddy** | **Experimental / Partial** | Bundled CLI engine verified over local HTTP (`2025-11-25`, ToolSearch/DeferExecuteTool); desktop settings UI & custom CA trust still unverified. |
 | **Qoder** | **Experimental / Handshake-Only** | Bundled worker verified `initialize`/`initialized`/`ping` (`2025-11-25`); `tools/list`, `tools/call`, login-state runtime, and custom CA trust still unverified. |
 
-Configuration policy (H2):
-- User delivery of CA certificate + Bearer Token + URL snippet must work **without USB** (LAN QR/copy/export), while normal ADB development and log observation remain permitted during development/verification.
-- **Tailscale** is explicitly **deferred** (not a baseline dependency).
-- **`NO_PROXY`** is documented as **on-demand** when a local HTTP proxy intercepts private RFC 1918 LAN addresses.
+### Configure Codex on the same private Wi-Fi
+
+1. Open **外部 Agent 授权** in the Android App. Add a client and transfer its one-time Token to the computer through a private channel. The client starts with question READ. Change its Grant and exact bank or file scopes in **授权范围**.
+2. Export the public root CA PEM from the same panel and transfer it to the computer. The panel shows its SHA-256 fingerprint. Enable access in the App and copy the current `https://<private-ip>:17443/mcp` URL.
+3. Copy the Codex template into `~/.codex/config.toml`. Set `CODEX_CA_CERTIFICATE` to the PEM path and `SHIROHA_ANDROID_MCP_TOKEN` to the issued Token in the environment that starts Codex. Restart Codex with that environment. Set `NO_PROXY` for the device IP if a local proxy intercepts the LAN request. See [Codex MCP configuration](https://learn.chatgpt.com/docs/extend/mcp#streamable-http-servers) and [custom CA bundles](https://learn.chatgpt.com/docs/auth#custom-ca-bundles).
+4. For background question READ, turn on **后台运行** and allow the app notification. **锁屏后继续读取** keeps only this window's previously authenticated Sessions. After Wi-Fi recovery, explicitly enable access again and update the URL if the IP changed. The client can reuse its Token and CA.
+
+ADB is available for installation and logs during development. Tailscale is deferred.
 
 ---
 
@@ -135,6 +142,6 @@ Configuration policy (H2):
 
 | Increment | Scope | Activation / Status |
 |---|---|---|
-| **H1 (Current)** | Canonical contract & legacy `FROZEN` markers; `ExternalCertificateDer` IPv4 SAN/SKI/AKI; `DeviceReadService` + `DeviceHttpTlsStore`; `AndroidAssociationStore.forHttp` + `AndroidHttpTokenCodec` / `AndroidHttpClientCredentials`; `AndroidForegroundAccess` extended durations & `continueWhileLocked`; `AndroidHttpMcpServer` (Profile 3 exact 9 READ tools). | Core implemented & tested offline; default `lib/main.dart` / `MainActivity.kt` UI entrypoints **unchanged**. |
-| **H2** | First-party Android HTTP setup/control UI (non-USB CA & Token delivery, client list/revoke/reissue, Enable toggle), default Android composition switch, and physical-device Codex HTTPS verification. | Planned (separate PR). |
+| **H1** | Hybrid TLS, protected multi-client credentials, foreground service and Profile 3's exact nine-tool READ server. | Core implemented and tested offline. |
+| **H2** | First-party Android HTTP setup, default composition, and physical-device Codex HTTPS acceptance. | Setup and composition implemented. See delivery evidence for device acceptance. |
 | **H3** | Enable Profile 3 STAGE (`propose_generated_questions` + `get_question_proposal`) over Android HTTP with existing first-party local Review / saved generation policy and original-key reconciliation. | Planned (separate PR). |

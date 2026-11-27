@@ -14,7 +14,7 @@ Windows consumer:
 External Agent -> stdio adapter / existing local relay
                -> authenticated local IPC -> App LocalCapabilityHost
 
-Android Streamable HTTP mainline (Increment H1 core; UI switch in H2; STAGE in H3):
+Android Streamable HTTP mainline (READ in the H2 App; STAGE in H3):
 External Agent -> HTTPS (TLS 1.3 + Bearer shq_...)
                -> Android App `AndroidHttpMcpServer` (Profile 3 9 READ tools)
                -> LocalCapabilityHost / Application owners
@@ -38,8 +38,9 @@ exception or accepted local relay does not authorize Android. The adopted
 Android mainline boundary is owned by
 [Android Streamable HTTP MCP v1](android-http-mcp-v1.md); the legacy `SHAD`
 consumer in [Android device access](android-device-access-v0.md) is preserved as
-a FROZEN historical baseline. H1 supplies core foundation and offline tests
-without switching default UI startup.
+a FROZEN historical baseline. The default Android App composes HTTP READ and
+first-party management. Each issued HTTP Profile starts with question READ
+and uses the original P1 Grant and exact-scope checks.
 
 Any authorized client can use this boundary. No brand-specific Proposal/origin
 types or business `if client == ...` branches. A different protocol may add an

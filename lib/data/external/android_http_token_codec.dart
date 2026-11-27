@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import '../../application/capabilities/capability.dart';
 import '../../application/external/android_foreground_access.dart';
+import '../../application/external/android_http_access.dart';
 import '../../application/external/external_authorization.dart';
 import '../../application/external/external_credential_association.dart';
 import '../../application/external/external_runtime_admission.dart';
@@ -40,8 +41,8 @@ abstract final class AndroidHttpTokenCodec {
   static const tokenPrefix = 'shq_';
   static const tokenLength = 47;
   static const domainPrefix = 'shiroha-http-bearer-v1:';
-  static const adapterName = 'android-http';
-  static const protocolName = 'streamable-http';
+  static const adapterName = androidHttpAdapter;
+  static const protocolName = androidHttpProtocol;
 
   static final _bodyPattern = RegExp(r'^[A-Za-z0-9_-]{43}$');
   static final _hex64Pattern = RegExp(r'^[0-9a-f]{64}$');

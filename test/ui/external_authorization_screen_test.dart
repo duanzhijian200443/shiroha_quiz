@@ -2,10 +2,42 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/capabilities/capability.dart';
+import 'package:shiroha_quiz/application/external/android_foreground_access.dart';
+import 'package:shiroha_quiz/application/external/android_http_access.dart';
 import 'package:shiroha_quiz/application/external/external_authorization.dart';
+import 'package:shiroha_quiz/ui/dependencies/android_device_scope.dart';
 import 'package:shiroha_quiz/ui/pages/external_authorization_screen.dart';
+import 'package:uuid/uuid.dart';
 import '../application/external/local_authorization_test_support.dart';
 import 'android_device_access_panel_test.dart' as android_panel;
+
+final class _HttpAccess extends Fake implements AndroidHttpAccess {
+  bool enabled = false;
+  (AndroidAccessDuration, bool, bool)? requested;
+  @override
+  AndroidHttpAccessState get state => AndroidHttpAccessState(
+        available: true,
+        privateWifi: true,
+        notificationsAllowed: true,
+        phase: enabled ? AndroidAccessPhase.ready : AndroidAccessPhase.off,
+        endpoint: enabled ? Uri.parse('https://192.168.1.10:17443/mcp') : null,
+        duration: requested?.$1,
+        background: requested?.$2 ?? false,
+        continueWhileLocked: requested?.$3 ?? false,
+      );
+  @override
+  Stream<void> get changes => const Stream.empty();
+  @override
+  Future<void> inspect() async {}
+  @override
+  Future<void> cancelPending() async {}
+  @override
+  Future<void> enable(AndroidAccessDuration duration,
+      {required bool background, required bool continueWhileLocked}) async {
+    requested = (duration, background, continueWhileLocked);
+    enabled = true;
+  }
+}
 
 void main() {
   group('Android generation settings', android_panel.main);
@@ -21,6 +53,50 @@ void main() {
         home: ExternalAuthorizationScreen(service: fixture.service)));
     await tester.pumpAndSettle();
   }
+
+  testWidgets(
+      'Android HTTP setup uses the requested window and the live URL in Codex setup',
+      (tester) async {
+    final management = ExternalAuthorizationManagement(
+      repository: fixture.repository,
+      compositionIsCurrent: () => true,
+      mintProfileId: const Uuid().v4,
+    );
+    await management.createProfile(
+      displayName: 'Test Codex',
+      adapter: androidHttpAdapter,
+      protocol: androidHttpProtocol,
+    );
+    addTearDown(management.invalidate);
+    await tester.binding.setSurfaceSize(const Size(720, 1080));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final access = _HttpAccess();
+    await tester.pumpWidget(MaterialApp(
+      home: AndroidHttpAccessScope(
+        access: access,
+        child: ExternalAuthorizationScreen(service: fixture.service),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('后台运行'), findsOneWidget);
+    expect(find.text('锁屏后继续读取'), findsNothing);
+    await tester.tap(find.text('后台运行'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('锁屏后继续读取'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('允许局域网只读访问'));
+    await tester.pumpAndSettle();
+    expect(
+        access.requested, (AndroidAccessDuration.fifteenMinutes, true, true));
+    expect(find.byTooltip('复制 HTTPS URL'), findsOneWidget);
+    await tester.tap(find.text('Codex 配置模板'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('url = "https://192.168.1.10:17443/mcp"'),
+        findsOneWidget);
+    expect(find.textContaining('bearer_token_env_var'), findsOneWidget);
+    expect(find.text('待审核草稿'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets(
       'opening simplified settings neither creates nor widens authorization',

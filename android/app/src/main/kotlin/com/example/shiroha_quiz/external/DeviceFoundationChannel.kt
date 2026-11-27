@@ -1,16 +1,26 @@
 package com.example.shiroha_quiz.external
 
+import android.Manifest
+import android.content.ClipData
+import android.content.ClipDescription
+import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.app.Activity
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PersistableBundle
+import android.provider.Settings
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 
-/** Explicit, unregistered platform adapter. MainActivity does not install it. */
+/** App-owned local platform adapter with separate HTTP and legacy admission. */
 internal class DeviceFoundationChannel(private val context: Context,
     private val channel: MethodChannel? = null,
-    private val admission: () -> Unit = DeviceLinkAdmission::requireAuthorized) : MethodChannel.MethodCallHandler {
+    private val admission: () -> Unit = DeviceLinkAdmission::requireAuthorized,
+    private val httpOnly: Boolean = false) : MethodChannel.MethodCallHandler {
     private fun admitted() {
         if (disposed) throw DeviceLinkFailure("runtime_not_authorized")
         admission()
@@ -18,42 +28,79 @@ internal class DeviceFoundationChannel(private val context: Context,
     @Volatile private var disposed = false
     private val credentials = DeviceCredentials(context, ::admitted)
     private val httpTls = DeviceHttpTlsStore(context, credentials)
-    private val associations = DeviceAssociationFile(context, credentials)
+    private val associations = DeviceAssociationFile(context, credentials, http = httpOnly)
     private val gate = DeviceForegroundGate()
     private val main = Handler(Looper.getMainLooper())
     private val io = java.util.concurrent.ThreadPoolExecutor(4, 4, 0,
         java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue(8))
     private val control = java.util.concurrent.Executors.newSingleThreadExecutor()
     @Volatile private var link: DeviceNativeLink? = null
-    private var observation: Map<String, Any?> = emptyMap()
+    @Volatile private var observation: Map<String, Any?> = emptyMap()
     val observer = (context as? Activity)?.let { DeviceForegroundObserver(it, gate, { next ->
-        observation = next
+        observation = if (httpOnly) next + mapOf(
+            "backgroundRead" to DeviceReadService.backgroundRunning(context, readServiceSession),
+            "notificationsAllowed" to DeviceReadService.notifications(context),
+        ) else next
         if (!gate.eligible || (link != null && next["network"] != originalNetwork)) link?.withdraw()
-        emit("foreground", next)
+        emit("foreground", observation)
     }, flutterResumed = false) }
     private var originalNetwork: String? = null
     private var nextLease = 0L
     private var activeToken = 0L
     private var lease: DeviceAssociationFile.Lease? = null
     // The control executor owns reservation, start, stop and disposal.
-    private var readServiceSession: DeviceReadService.Session? = null
+    @Volatile private var readServiceSession: DeviceReadService.Session? = null
+    private var notificationRequested = false
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
+        if (call.method == "legacyValidation") {
+            result.success(!httpOnly && try { admitted(); true } catch (_: Exception) { false })
+            return
+        }
         if (call.method == "status") {
             val available = try { admitted(); true } catch (_: Exception) { false }
             if (available) observer?.publish()
-            result.success(mapOf("runtimeAvailable" to available, "observation" to observation))
+            result.success(mapOf("runtimeAvailable" to available, "http" to httpOnly,
+                "observation" to observation))
             return
         }
         if (call.method == "flutterLifecycle") {
             observer?.onFlutterResumed(call.argument<Boolean>("resumed") == true)
             result.success(true); return
         }
+        if (httpOnly && call.method !in httpMethods) {
+            result.error("runtime_not_authorized", "runtime_not_authorized", null)
+            return
+        }
+        if (call.method == "httpNotificationSettings" || call.method == "httpCopyToken") {
+            try {
+                admitted()
+                requireLocalForeground()
+                if (call.method == "httpNotificationSettings") requestNotifications()
+                else copyToken(call.argument<String>("token"))
+                result.success(true)
+            } catch (e: DeviceLinkFailure) {
+                result.error(e.code, e.code, null)
+            } catch (_: Exception) {
+                result.error("runtime_not_authorized", "runtime_not_authorized", null)
+            }
+            return
+        }
         // linkClose joins channels on control; their original close must remain
         // runnable while that join is in progress.
         val executor = if (call.method in setOf("read", "write", "peerClosed", "channelClose")) io else control
         try { executor.execute { handle(call, object : MethodChannel.Result {
-            override fun success(value: Any?) { main.post { result.success(value) } }
+            override fun success(value: Any?) {
+                main.post {
+                    try {
+                        result.success(value)
+                    } finally {
+                        if (call.method == "httpLeafOpen") {
+                            ((value as? Map<*, *>)?.get("leafPrivateKeyPkcs8") as? ByteArray)?.fill(0)
+                        }
+                    }
+                }
+            }
             override fun error(code: String, message: String?, details: Any?) { main.post { result.error(code, message, details) } }
             override fun notImplemented() { main.post { result.notImplemented() } }
         }) } } catch (_: java.util.concurrent.RejectedExecutionException) {
@@ -76,8 +123,14 @@ internal class DeviceFoundationChannel(private val context: Context,
             ) admitted()
             when (call.method) {
                 "identity" -> {
-                    if (!gate.eligible) throw DeviceLinkFailure("foreground_required")
+                    if (httpOnly) requireLocalForeground()
+                    else if (!gate.eligible) throw DeviceLinkFailure("foreground_required")
                     if (call.argument<Boolean>("initialize") == true) credentials.initialize()
+                    if (httpOnly) {
+                        result.success(mapOf("deviceId" to credentials.deviceId(),
+                            "installationId" to credentials.installationId()))
+                        return
+                    }
                     if (!credentials.tlsDigestAuthorized()) throw DeviceLinkFailure("recovery_required")
                     result.success(mapOf("deviceId" to credentials.deviceId(),
                         "installationId" to credentials.installationId(),
@@ -164,17 +217,18 @@ internal class DeviceFoundationChannel(private val context: Context,
                     result.success(true)
                 }
                 "httpLeafOpen" -> result.success(httpTls.openLeafMaterial())
+                "httpLeafDiscard" -> {
+                    httpTls.discardPreparedLeaf()
+                    result.success(true)
+                }
                 "readServiceStart" -> {
                     startReadService()
                     result.success(true)
                 }
                 "readServiceActivate" -> {
-                    val active = readServiceSession
-                        ?: throw DeviceLinkFailure("connection_closed")
                     val ends = call.argument<Number>("endsElapsedMs")?.toLong()
                     val continueWhileLocked = call.argument<Boolean>("continueWhileLocked") == true
-                    active.service?.activated(ends, continueWhileLocked)
-                        ?: throw DeviceLinkFailure("connection_closed")
+                    activateReadService(ends, continueWhileLocked)
                     result.success(true)
                 }
                 "readServiceStop" -> {
@@ -194,6 +248,59 @@ internal class DeviceFoundationChannel(private val context: Context,
         return original
     }
     private fun token(call: MethodCall) = call.argument<String>("channel") ?: throw DeviceLinkFailure("protocol_violation")
+
+    private fun requireLocalForeground() {
+        val current = observation
+        if (!listOf("visible", "resumed", "focused", "interactive", "unlocked")
+                .all { current[it] == true }
+        ) throw DeviceLinkFailure("foreground_required")
+    }
+
+    private fun requestNotifications() {
+        val activity = context as? Activity ?: throw DeviceLinkFailure("foreground_required")
+        DeviceReadService.prepareNotifications(context)
+        if (Build.VERSION.SDK_INT >= 33 &&
+            activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
+            (!notificationRequested ||
+                activity.shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS))
+        ) {
+            notificationRequested = true
+            activity.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 464)
+        } else {
+            activity.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, activity.packageName))
+        }
+    }
+
+    private fun copyToken(token: String?) {
+        if (token == null || !Regex("shq_[a-zA-Z0-9_-]{43}").matches(token)) {
+            throw DeviceLinkFailure("protocol_violation")
+        }
+        val clip = ClipData.newPlainText("Shiroha MCP Token", token)
+        clip.description.extras = PersistableBundle().apply {
+            putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
+        }
+        context.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
+    }
+
+    private fun activateReadService(ends: Long?, continueWhileLocked: Boolean) {
+        val session = readServiceSession ?: throw DeviceLinkFailure("connection_closed")
+        val ready = java.util.concurrent.CountDownLatch(1)
+        val activated = java.util.concurrent.atomic.AtomicBoolean(false)
+        val posted = main.post {
+            try {
+                admitted()
+                if (gate.eligible && session.service?.activate(ends, continueWhileLocked) == true) {
+                    observer?.publish()
+                    activated.set(true)
+                }
+            } catch (_: Exception) { /* The original owner still joins stop. */ }
+            finally { ready.countDown() }
+        }
+        if (!posted || !ready.await(3, java.util.concurrent.TimeUnit.SECONDS) ||
+            !activated.get() || !DeviceReadService.backgroundRunning(context, session)
+        ) throw DeviceLinkFailure("notification_not_ready")
+    }
     private fun startReadService() {
         if (!gate.eligible) throw DeviceLinkFailure("foreground_required")
         if (readServiceSession != null) throw DeviceLinkFailure("busy")
@@ -268,6 +375,7 @@ internal class DeviceFoundationChannel(private val context: Context,
     fun withdraw() { link?.withdraw() }
     fun dispose() {
         disposed = true; gate.close(); withdraw()
+        if (httpOnly) emit("readServiceWithdrawn", mapOf("reason" to "owner_closed"))
         control.execute {
             try { stopReadService() } catch (_: Exception) { /* Keep any unsettled Service owner. */ }
             httpTls.discardPreparedLeaf()
@@ -280,5 +388,15 @@ internal class DeviceFoundationChannel(private val context: Context,
         val token = call.argument<Number>("lease")?.toLong()
         if (token != activeToken) throw DeviceLinkFailure("stale_revision")
         return lease ?: throw DeviceLinkFailure("stale_revision")
+    }
+
+    private companion object {
+        val httpMethods = setOf(
+            "identity", "associationBegin", "associationCommit", "associationClose",
+            "httpCaEnsure", "httpCaSignTbs", "httpCaStore", "httpCaRead",
+            "httpLeafGenerateKey", "httpLeafStore", "httpLeafOpen", "httpLeafDiscard",
+            "readServiceStart", "readServiceActivate", "readServiceStop",
+            "httpNotificationSettings", "httpCopyToken",
+        )
     }
 }
