@@ -129,11 +129,15 @@ final class ExternalTrustCore {
   final int maxProfiles;
   final Duration maxEnableDuration;
   final Map<String, _Profile> _profiles = {};
+  // Keep the revoked result for outstanding handles without retaining the
+  // Principal or counting its released runtime slot against the limit.
+  final _releasedRevokedProfiles = Expando<bool>();
   int _generation = 1;
   int get generation => _generation;
+  bool get hasProfileCapacity => _profiles.length < maxProfiles;
 
   ExternalPrincipal createProfile() {
-    if (_profiles.length >= maxProfiles) {
+    if (!hasProfileCapacity) {
       throw const ExternalCoreException(ExternalFailure.resourceLimit);
     }
     return _createProfile(mintProfileId());
@@ -142,16 +146,26 @@ final class ExternalTrustCore {
   /// Trusted offline composition only. The opaque local reference selects
   /// existing policy; it supplies neither credential proof nor business rights.
   /// Repeated selection returns this core's single Principal for that Profile.
+  /// [validateSelection] may reject a withdrawn selection before registration.
   Future<ExternalPrincipal> registerExistingProfile(
       ExternalProfileReference reference,
-      ExternalAuthorizationManagement management) async {
+      ExternalAuthorizationManagement management,
+      {void Function()? validateSelection}) async {
     final generation = _generation;
+    final previous = _profiles[reference.profileId];
     final record = await management.read(reference);
     if (generation != _generation ||
         record.profile.clientProfileId != reference.profileId ||
-        record.profile.revokedAtUtcMs != null ||
         (record.grant != null &&
             record.grant!.profileId != reference.profileId)) {
+      throw const ExternalCoreException(ExternalFailure.authenticationRejected);
+    }
+    validateSelection?.call();
+    if (previous != null &&
+        _releasedRevokedProfiles[previous.principal] == true) {
+      throw const ExternalCoreException(ExternalFailure.revoked);
+    }
+    if (record.profile.revokedAtUtcMs != null) {
       throw const ExternalCoreException(ExternalFailure.authenticationRejected);
     }
     final existing = _profiles[reference.profileId];
@@ -166,7 +180,7 @@ final class ExternalTrustCore {
   }
 
   ExternalPrincipal _createProfile(String id) {
-    if (_profiles.length >= maxProfiles) {
+    if (!hasProfileCapacity) {
       throw const ExternalCoreException(ExternalFailure.resourceLimit);
     }
     if (id.isEmpty || id.length > 128 || _profiles.containsKey(id)) {
@@ -178,6 +192,9 @@ final class ExternalTrustCore {
   }
 
   _Profile _profile(ExternalPrincipal principal) {
+    if (_releasedRevokedProfiles[principal] == true) {
+      throw const ExternalCoreException(ExternalFailure.revoked);
+    }
     final profile = _profiles[principal.profileId];
     if (profile == null || !identical(profile.principal, principal)) {
       throw const ExternalCoreException(ExternalFailure.authenticationRejected);
@@ -186,6 +203,10 @@ final class ExternalTrustCore {
   }
 
   ExternalProfileSnapshot snapshot(ExternalPrincipal principal) {
+    if (_releasedRevokedProfiles[principal] == true) {
+      return const ExternalProfileSnapshot(
+          PairingState.revoked, ExternalFailure.revoked, null);
+    }
     final profile = _profile(principal);
     _refresh(profile);
     return ExternalProfileSnapshot(
@@ -309,6 +330,17 @@ final class ExternalTrustCore {
     profile.state = PairingState.revoked;
   }
 
+  /// The admission owner may release a revoked runtime slot after durable
+  /// settlement. Existing handles keep their revoked result.
+  void releaseRevokedProfile(ExternalPrincipal principal) {
+    if (_releasedRevokedProfiles[principal] == true) return;
+    if (_profile(principal).state != PairingState.revoked) {
+      throw const ExternalCoreException(ExternalFailure.invalidState);
+    }
+    _releasedRevokedProfiles[principal] = true;
+    _profiles.remove(principal.profileId);
+  }
+
   void restart() {
     _generation++;
     for (final profile in _profiles.values) {
@@ -371,6 +403,9 @@ final class ExternalTrustCore {
       return ExternalFailure.authenticationRejected;
     }
     if (peer.generation != _generation) return ExternalFailure.staleGeneration;
+    if (_releasedRevokedProfiles[peer.principal] == true) {
+      return ExternalFailure.revoked;
+    }
     final profile = _profile(peer.principal);
     _refresh(profile);
     if (profile.state != PairingState.enabledForCurrentRuntime) {

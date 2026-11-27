@@ -290,6 +290,7 @@ final class AndroidHttpClientCredentials {
   final _revoking = <String>{};
   _HttpEnableWindow? _enable;
   bool _preparingEnable = false;
+  bool _reissuing = false;
   int _issuing = 0;
 
   bool get enableWindowOpen {
@@ -326,10 +327,19 @@ final class AndroidHttpClientCredentials {
     required String displayName,
     ExternalGrantPolicy? initialPolicy,
   }) async {
+    if (_reissuing) credentialFail(ExternalCredentialFailure.resourceLimit);
+    return _issueClient(displayName: displayName, initialPolicy: initialPolicy);
+  }
+
+  Future<AndroidIssuedClientToken> _issueClient({
+    required String displayName,
+    ExternalGrantPolicy? initialPolicy,
+  }) async {
     if (_preparingEnable || _issuing >= associations.maxActiveAssociations) {
       credentialFail(ExternalCredentialFailure.resourceLimit);
     }
     _issuing++;
+    String? committedProfileId;
     ExternalProfileReference? preparedReference;
     late final ExternalPrincipal principal;
     late final String requestId;
@@ -342,10 +352,14 @@ final class AndroidHttpClientCredentials {
         installationId: installationId,
         credentialIdentity: digest,
         prepareProfile: () async {
+          if (!trust.hasProfileCapacity) {
+            credentialFail(ExternalCredentialFailure.resourceLimit);
+          }
           final ref = preparedReference = await management.createProfile(
             displayName: displayName,
             adapter: AndroidHttpTokenCodec.adapterName,
             protocol: AndroidHttpTokenCodec.protocolName,
+            onCommitted: (id) => committedProfileId = id,
           );
           await management.replaceGrant(ref, 0, policy);
           principal = await _bindIdentity(ref);
@@ -390,18 +404,21 @@ final class AndroidHttpClientCredentials {
       );
     } catch (_) {
       final reference = preparedReference;
-      if (reference != null) {
-        final id = reference.profileId;
-        _revokeLocal(id);
-        try {
-          // The unpublished credential cannot rehydrate even if Native's
-          // original commit is uncertain. Only reconcile its exact association.
-          await _revokeDurableProfile(reference);
-          await _revokeAssociation(reference, unpublishedDigest: digest);
-          _forget(id);
-        } catch (_) {
-          throw AndroidHttpIssuanceRecoveryRequired(id);
-        }
+      if (reference == null) {
+        final id = committedProfileId;
+        if (id != null) throw AndroidHttpIssuanceRecoveryRequired(id);
+        rethrow;
+      }
+      final id = reference.profileId;
+      _revokeLocal(id);
+      try {
+        // The unpublished credential cannot rehydrate even if Native's
+        // original commit is uncertain. Only reconcile its exact association.
+        await _revokeDurableProfile(reference);
+        await _revokeAssociation(reference, unpublishedDigest: digest);
+        await _forgetRevokedProfile(reference);
+      } catch (_) {
+        throw AndroidHttpIssuanceRecoveryRequired(id);
       }
       rethrow;
     } finally {
@@ -414,6 +431,7 @@ final class AndroidHttpClientCredentials {
   Future<List<String>> enableActiveClients() async {
     if (_preparingEnable ||
         _issuing != 0 ||
+        _reissuing ||
         enableWindowOpen ||
         !foreground.acceptsNew) {
       throw const ExternalCoreException(ExternalFailure.invalidState);
@@ -447,8 +465,23 @@ final class AndroidHttpClientCredentials {
             _revoking.contains(id)) {
           continue;
         }
-        final principal = await _bindIdentity(reference);
-        _requireCurrent(window);
+        void validateSelection() {
+          _requireCurrent(window);
+          if (_revoking.contains(id) || !active.isRecordCurrent(association)) {
+            throw const ExternalCoreException(ExternalFailure.revoked);
+          }
+        }
+
+        final ExternalPrincipal principal;
+        try {
+          principal = await _bindIdentity(reference,
+              validateSelection: validateSelection);
+          validateSelection();
+        } on ExternalCoreException catch (error) {
+          if (error.failure != ExternalFailure.revoked) rethrow;
+          _requireCurrent(window);
+          continue;
+        }
         if (trust.snapshot(principal).state == PairingState.unpaired) {
           _completePairing(
             principal,
@@ -549,20 +582,28 @@ final class AndroidHttpClientCredentials {
 
   /// Withdraw the target before any durable I/O. A failure closes the entire
   /// Enable window while keeping the original Profile identity for retry.
-  Future<void> revokeClient(String profileId) async {
+  Future<void> revokeClient(String profileId) => _revokeClient(profileId);
+
+  Future<void> _revokeClient(String profileId,
+      {int? expectedGrantRevision}) async {
     if (!_revoking.add(profileId)) {
       credentialFail(ExternalCredentialFailure.resourceLimit);
     }
     try {
       final known = _references[profileId];
       final reference = known ?? await management.selectProfile(profileId);
-      if (known == null) await _readHttpProfile(reference);
+      if (known == null || expectedGrantRevision != null) {
+        await _readHttpProfile(reference,
+            expectedGrantRevision: expectedGrantRevision);
+      }
       final existingSession = _revokeLocal(profileId);
       try {
         await onProfileRevoked?.call(profileId, existingSession);
-        await _revokeAssociation(reference);
-        await _revokeDurableProfile(reference);
-        _forget(profileId);
+        await _revokeAssociation(reference,
+            expectedGrantRevision: expectedGrantRevision);
+        await _revokeDurableProfile(reference,
+            expectedGrantRevision: expectedGrantRevision);
+        await _forgetRevokedProfile(reference);
       } catch (_) {
         disableAllActiveClients();
         await onRevokeFailureWithdrawEnable();
@@ -586,6 +627,7 @@ final class AndroidHttpClientCredentials {
   Future<void> _revokeAssociation(
     ExternalProfileReference reference, {
     String? unpublishedDigest,
+    int? expectedGrantRevision,
   }) async {
     final profileId = reference.profileId;
     final current = await associations.read(profileId);
@@ -601,19 +643,29 @@ final class AndroidHttpClientCredentials {
       profileId: profileId,
       expectedRevision: record.revision,
       validateManagement: () async {
-        await _readHttpProfile(reference);
+        await _readHttpProfile(reference,
+            expectedGrantRevision: expectedGrantRevision);
       },
     );
   }
 
-  Future<void> _revokeDurableProfile(ExternalProfileReference reference) async {
-    final current = await _readHttpProfile(reference);
+  Future<void> _revokeDurableProfile(
+    ExternalProfileReference reference, {
+    int? expectedGrantRevision,
+  }) async {
+    final current = await _readHttpProfile(reference,
+        expectedGrantRevision: expectedGrantRevision);
     if (current.profile.revokedAtUtcMs == null) {
       await management.revokeProfile(reference, current.profile.grantRevision);
     }
   }
 
-  void _forget(String id) {
+  Future<void> _forgetRevokedProfile(ExternalProfileReference reference) async {
+    final id = reference.profileId;
+    final principal = _principals[id];
+    if (principal != null) {
+      await admission.releaseRevokedIdentity(reference, principal);
+    }
     _references.remove(id);
     _principals.remove(id);
   }
@@ -625,15 +677,40 @@ final class AndroidHttpClientCredentials {
     String? newDisplayName,
     ExternalGrantPolicy? policyOverride,
   }) async {
-    final oldRef = _references[oldProfileId] ??
-        await management.selectProfile(oldProfileId);
-    final oldRecord = await _readHttpProfile(oldRef);
-    final displayName = newDisplayName ?? oldRecord.profile.displayName;
-    final policy = policyOverride ??
-        oldRecord.grant?.policy ??
-        androidHttpDefaultReadPolicy();
-    await revokeClient(oldProfileId);
-    return issueClient(displayName: displayName, initialPolicy: policy);
+    if (_reissuing || _issuing != 0 || _preparingEnable) {
+      credentialFail(ExternalCredentialFailure.resourceLimit);
+    }
+    _reissuing = true;
+    try {
+      final oldRef = _references[oldProfileId] ??
+          await management.selectProfile(oldProfileId);
+      final oldRecord = await _readHttpProfile(oldRef);
+      final displayName = newDisplayName ?? oldRecord.profile.displayName;
+      final oldGrant = oldRecord.grant;
+      if (policyOverride == null &&
+          (oldRecord.profile.revokedAtUtcMs != null ||
+              oldGrant == null ||
+              oldGrant.revokedAtUtcMs != null ||
+              oldGrant.profileId != oldProfileId ||
+              oldGrant.revision != oldRecord.profile.grantRevision)) {
+        credentialFail(ExternalCredentialFailure.unauthorized);
+      }
+      final policy = policyOverride ?? oldGrant!.policy;
+      final expectedGrantRevision =
+          policyOverride == null ? oldRecord.profile.grantRevision : null;
+      // Keep other issuance and Enable preparations out until the replacement
+      // consumes the capacity checked here.
+      if (!trust.hasProfileCapacity && !_principals.containsKey(oldProfileId)) {
+        credentialFail(ExternalCredentialFailure.resourceLimit);
+      }
+      await associations.checkHttpReplacementCapacity(oldProfileId);
+      await _revokeClient(oldProfileId,
+          expectedGrantRevision: expectedGrantRevision);
+      return await _issueClient(
+          displayName: displayName, initialPolicy: policy);
+    } finally {
+      _reissuing = false;
+    }
   }
 
   ExternalSession? activeSessionFor(String profileId) {
@@ -644,13 +721,14 @@ final class AndroidHttpClientCredentials {
     return session;
   }
 
-  Future<ExternalPrincipal> _bindIdentity(
-      ExternalProfileReference reference) async {
-    final principal =
-        await trust.registerExistingProfile(reference, management);
+  Future<ExternalPrincipal> _bindIdentity(ExternalProfileReference reference,
+      {void Function()? validateSelection}) async {
+    final principal = await trust.registerExistingProfile(reference, management,
+        validateSelection: validateSelection);
     _references[reference.profileId] = reference;
     _principals[reference.profileId] = principal;
-    await admission.bindIdentity(reference, principal);
+    await admission.bindIdentity(reference, principal,
+        validateSelection: validateSelection);
     return principal;
   }
 
@@ -679,11 +757,17 @@ final class AndroidHttpClientCredentials {
       profile.protocol == AndroidHttpTokenCodec.protocolName;
 
   Future<ExternalAuthorizationRecord> _readHttpProfile(
-      ExternalProfileReference reference) async {
+      ExternalProfileReference reference,
+      {int? expectedGrantRevision}) async {
     final record = await management.read(reference);
     if (record.profile.clientProfileId != reference.profileId ||
         !_isHttpProfile(record.profile)) {
       credentialFail(ExternalCredentialFailure.unauthorized);
+    }
+    if (expectedGrantRevision != null &&
+        (record.profile.revokedAtUtcMs != null ||
+            record.profile.grantRevision != expectedGrantRevision)) {
+      credentialFail(ExternalCredentialFailure.staleRevision);
     }
     return record;
   }

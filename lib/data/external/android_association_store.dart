@@ -198,6 +198,15 @@ final class AndroidAssociationStore
       _write(null, 0, installationId, credentialIdentity, validateManagement,
           prepareProfile: prepareProfile);
 
+  /// A replacement can reuse the old client's active slot. The tombstone
+  /// still occupies a durable record, so check both limits before revocation.
+  Future<void> checkHttpReplacementCapacity(String oldProfileId) =>
+      _run((lease) async {
+        _id(oldProfileId);
+        _requireNewProfileCapacity(_read(lease),
+            replacingProfileId: oldProfileId);
+      });
+
   @override
   Future<ExternalCredentialAssociationSnapshot> revoke(
           {required String profileId,
@@ -206,17 +215,26 @@ final class AndroidAssociationStore
       _write(
           profileId, expectedRevision, null, null, (_) => validateManagement());
 
+  void _requireNewProfileCapacity(
+    List<AssociationObjectRecord> records, {
+    String? replacingProfileId,
+  }) {
+    final otherActive = records.where((row) =>
+        !row.association.revoked &&
+        row.association.profileId != replacingProfileId);
+    if (records.length >= maxRecords ||
+        otherActive.length >= maxActiveAssociations) {
+      credentialFail(ExternalCredentialFailure.resourceLimit);
+    }
+  }
+
   Future<String> _reserveNewProfile(
     List<AssociationObjectRecord> records,
     String identity,
     Future<String> Function() prepareProfile,
   ) async {
-    final active = records.where((row) => !row.association.revoked);
-    if (records.length >= maxRecords ||
-        active.length >= maxActiveAssociations) {
-      credentialFail(ExternalCredentialFailure.resourceLimit);
-    }
-    if (active.any((row) => row.association.credentialIdentity == identity)) {
+    _requireNewProfileCapacity(records);
+    if (records.any((row) => row.association.credentialIdentity == identity)) {
       credentialFail(ExternalCredentialFailure.conflict);
     }
     final id = await prepareProfile();

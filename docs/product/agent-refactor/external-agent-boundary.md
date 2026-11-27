@@ -1528,8 +1528,12 @@ digests (`SHA-256("shiroha-http-bearer-v1:" || token)`) matched in constant
 time. Single-client revocation revokes only that Profile's `ExternalPrincipal`,
 HTTP sessions, `contextRef`s, association record, and SQLite Profile without
 disturbing sibling clients; if durable revocation fails, the entire active
-Enable window withdraws fail-closed. Re-issuance revokes the old Profile
-(preserving tombstone) and creates a new Profile and Token. Stored metadata
+Enable window withdraws fail-closed. After durable revocation settles, its P0
+slot is released and old handles remain revoked. Enable preparation skips an
+individually withdrawn Profile. Re-issuance checks capacity for the new durable
+record before revoking the old Profile, preserving its tombstone, and creating
+a new Profile and Token. Implicit policy inheritance requires an active Grant
+and revision-matched revocation of the original Profile. Stored metadata
 alone remains non-authorizing until an explicit local Enable action. This
 consumer does not use or relax the Windows development exception.
 

@@ -226,6 +226,17 @@ void main() {
 
     expect(beforeRevoke.isRecordCurrent(sibling), isFalse);
 
+    await expectLater(
+      httpStore.registerNewHttpAssociation(
+        installationId: installation,
+        credentialIdentity: target.credentialIdentity,
+        prepareProfile: () async =>
+            fail('Reused Token digest reached Profile creation'),
+        validateManagement: (_) async {},
+      ),
+      failure(ExternalCredentialFailure.conflict),
+    );
+
     // New distinct credential fills the freed 16th active slot cleanly.
     final replacement = await httpStore.register(
       profileId: uuidFor(17),

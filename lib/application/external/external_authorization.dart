@@ -232,10 +232,14 @@ final class ExternalAuthorizationManagement {
     }
   }
 
+  /// Reports the original ID after the repository acknowledges creation.
+  /// The callback carries no management reference. That reference still
+  /// requires the owning composition to pass the final validation.
   Future<ExternalProfileReference> createProfile(
       {required String displayName,
       required String adapter,
-      required String protocol}) async {
+      required String protocol,
+      void Function(String profileId)? onCommitted}) async {
     _validate();
     final profile = ExternalClientProfile(
         clientProfileId: _mintProfileId(),
@@ -245,6 +249,7 @@ final class ExternalAuthorizationManagement {
         createdAtUtcMs: _clock().toUtc().millisecondsSinceEpoch,
         grantRevision: 0);
     await _repository.create(profile, _validate);
+    onCommitted?.call(profile.clientProfileId);
     _validate();
     return ExternalProfileReference._(this, profile.clientProfileId);
   }
