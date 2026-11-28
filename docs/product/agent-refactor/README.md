@@ -11,9 +11,10 @@ multi-client Bearer Token custody (`AndroidAssociationStore.forHttp` max 16,
 domain-separated SHA-256 + constant-time comparison, isolated per-client revoke
 with fail-closed whole-Enable withdrawal, tombstone-preserving re-issuance),
 pure-question READ extended durations (`5m..8h`/`untilAppStops`) and opt-in
-`continueWhileLocked`, and Profile 3's exact 9 READ tools (`studyStatistics` and
-`fileContent` off by default; STAGE deferred to **H3**). **H2** wires that
-server and the non-USB setup panel into the regular Android App.
+`continueWhileLocked`, and the original nine Profile 3 READ tools. **H2** wires
+that server and the non-USB setup panel into the regular Android App. **H3**
+adds foreground STAGE, original-key proposal status and local Review. New
+clients start with question READ. Direct saving requires explicit local consent.
 Codex is the primary supported round-1 client; WorkBuddy
 and Qoder are labeled per verified PoC status; Tailscale is deferred; `NO_PROXY`
 is on-demand.

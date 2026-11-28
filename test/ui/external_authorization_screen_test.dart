@@ -5,6 +5,7 @@ import 'package:shiroha_quiz/application/capabilities/capability.dart';
 import 'package:shiroha_quiz/application/external/android_foreground_access.dart';
 import 'package:shiroha_quiz/application/external/android_http_access.dart';
 import 'package:shiroha_quiz/application/external/external_authorization.dart';
+import 'package:shiroha_quiz/data/external/android_http_token_codec.dart';
 import 'package:shiroha_quiz/ui/dependencies/android_device_scope.dart';
 import 'package:shiroha_quiz/ui/pages/external_authorization_screen.dart';
 import 'package:uuid/uuid.dart';
@@ -84,7 +85,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('锁屏后继续读取'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('允许局域网只读访问'));
+    await tester.tap(find.text('允许局域网访问'));
     await tester.pumpAndSettle();
     expect(
         access.requested, (AndroidAccessDuration.fifteenMinutes, true, true));
@@ -95,6 +96,70 @@ void main() {
         findsOneWidget);
     expect(find.textContaining('bearer_token_env_var'), findsOneWidget);
     expect(find.text('待审核草稿'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+      'Android HTTP generation starts with scoped review and explicit direct consent',
+      (tester) async {
+    final management = ExternalAuthorizationManagement(
+      repository: fixture.repository,
+      compositionIsCurrent: () => true,
+      mintProfileId: const Uuid().v4,
+    );
+    addTearDown(management.invalidate);
+    final profile = await management.createProfile(
+      displayName: 'Test HTTP',
+      adapter: androidHttpAdapter,
+      protocol: androidHttpProtocol,
+    );
+    await management.replaceGrant(profile, 0, androidHttpDefaultReadPolicy());
+    await tester.binding.setSurfaceSize(const Size(720, 1080));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+      home: AndroidHttpAccessScope(
+        access: _HttpAccess(),
+        child: ExternalAuthorizationScreen(service: fixture.service),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    Future<void> tap(Finder finder) async {
+      await tester.ensureVisible(finder);
+      await tester.tap(finder);
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> openGrant() async {
+      await tap(find.byTooltip('管理 Test HTTP'));
+      await tap(find.text('授权范围'));
+    }
+
+    CheckboxListTile checkbox(String label) => tester.widget(find.ancestor(
+        of: find.text(label), matching: find.byType(CheckboxListTile)));
+
+    await openGrant();
+    expect(checkbox('允许提交生成题目').value, isFalse);
+    expect(find.text('允许直接写入题库'), findsNothing);
+    await tap(find.text('允许提交生成题目'));
+    expect(checkbox('全部范围（含今后新增）').value, isFalse);
+    expect(checkbox('允许直接写入题库').value, isFalse);
+    final save = find.widgetWithText(FilledButton, '保存');
+    expect(tester.widget<FilledButton>(save).onPressed, isNull);
+    await tap(find.text('题库 · 本地 · second'));
+    await tap(save);
+    final saved = (await management.read(profile)).grant!.policy;
+    expect(saved.generationMode, ExternalGenerationMode.review);
+    expect(saved.scopes.single.targetId, 'second');
+    expect(saved.allContent, isFalse);
+
+    await openGrant();
+    expect(checkbox('允许直接写入题库').value, isFalse);
+    await tap(find.text('允许直接写入题库'));
+    await tap(save);
+    final direct = (await management.read(profile)).grant!.policy;
+    expect(direct.generationMode, ExternalGenerationMode.direct);
+    expect(direct.scopes, saved.scopes);
     await tester.pumpWidget(const SizedBox());
   });
 

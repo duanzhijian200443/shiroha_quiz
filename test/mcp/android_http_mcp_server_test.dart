@@ -11,6 +11,7 @@ import 'package:shiroha_quiz/application/external/external_credential_associatio
 import 'package:shiroha_quiz/application/external/external_generated_stage.dart';
 import 'package:shiroha_quiz/application/external/external_read_context.dart';
 import 'package:shiroha_quiz/application/external/external_trust_core.dart';
+import 'package:shiroha_quiz/application/external/first_party_stage_approval.dart';
 import 'package:shiroha_quiz/application/external/local_host_dispatch.dart';
 import 'package:shiroha_quiz/application/generated_question/generated_local_authority.dart';
 import 'package:shiroha_quiz/application/generated_question/generated_question_service.dart';
@@ -139,6 +140,8 @@ final class _AndroidHttpHarness {
   late ExternalTrustCore trust;
   late ExternalGeneratedStageService stages;
   late ExternalReadContextService reads;
+  late GeneratedLocalAuthoritySession localSession;
+  late FirstPartyStageApproval stageApproval;
   late LocalHostDispatchCore host;
   late AndroidForegroundAccess foreground;
   late AndroidHttpClientCredentials credentials;
@@ -185,7 +188,7 @@ final class _AndroidHttpHarness {
       proposals: local,
       compositionIsCurrent: () => db.db.isOpen,
     );
-    final localSession = await localFactory.openSession();
+    localSession = await localFactory.openSession();
     credPort = AndroidHttpCredentialPort();
     trust = ExternalTrustCore(
       credentials: credPort,
@@ -217,6 +220,12 @@ final class _AndroidHttpHarness {
       readiness: OfflineReadiness(() async {}),
     );
     await host.startOffline();
+    stageApproval = FirstPartyStageApproval(
+      host: host,
+      stages: stages,
+      localOwner: localSession,
+      compositionIsCurrent: () => db.db.isOpen,
+    );
     credentials = AndroidHttpClientCredentials(
       associations: store,
       management: management,
@@ -256,7 +265,7 @@ final class _AndroidHttpHarness {
     ));
   }
 
-  VnextMcpPort _openPort(
+  VnextMcpAppComposition _openPort(
     ExternalSession session,
     bool Function() isSessionCurrent,
   ) =>
@@ -264,6 +273,7 @@ final class _AndroidHttpHarness {
         host: host,
         reads: reads,
         stages: stages,
+        stageApproval: stageApproval,
         authentication: VnextMcpSessionAuthentication(() async {
           return isSessionCurrent() ? session : null;
         }),
@@ -343,10 +353,12 @@ final class _AndroidHttpHarness {
   Future<void> close() async {
     httpClient.close(force: true);
     await disableAccess();
+    await stageApproval.close();
     await host.shutdown();
     reads.close();
     await reads.whenIdle;
     await store.close();
+    localSession.close();
     await db.close();
   }
 
@@ -359,11 +371,12 @@ final class _AndroidHttpHarness {
     String? origin,
     Object? jsonBody,
     List<int>? rawBody,
+    HttpClient? connection,
   }) async {
     final activePort = server!.port;
     final uri =
         Uri(scheme: 'http', host: '127.0.0.1', port: activePort, path: path);
-    final req = await httpClient.openUrl(method, uri);
+    final req = await (connection ?? httpClient).openUrl(method, uri);
     req.headers
         .set(HttpHeaders.acceptHeader, 'application/json, text/event-stream');
     if (token != null) {
@@ -443,11 +456,13 @@ final class _AndroidHttpHarness {
     String? sessionId,
     String protocolVersion = '2026-07-28',
     int id = 2,
+    HttpClient? connection,
   }) =>
       send(
         token: token,
         sessionId: sessionId,
         protocolVersion: protocolVersion,
+        connection: connection,
         jsonBody: {
           'jsonrpc': '2.0',
           'id': id,
@@ -488,8 +503,7 @@ void main() {
     await h.close();
   });
 
-  test(
-      'Profile 3 exposes exact 9 READ tools, denies statistics/file by default, and enforces HTTP guards',
+  test('Profile 3 lists eleven tools with READ-only default and HTTP guards',
       () async {
     final client = await h.credentials.issueClient(displayName: 'Codex A');
     await h.enableAccess();
@@ -533,7 +547,6 @@ void main() {
     );
     expect(oversized.statusCode, 413);
 
-    // Exact 9 Profile 3 READ tools (no propose_generated_questions / get_question_proposal).
     final listReply = await h.send(
       token: client.token,
       protocolVersion: '2026-07-28',
@@ -564,9 +577,9 @@ void main() {
       'get_question_detail',
       'retrieve_file_content',
       'get_file_passage',
+      'propose_generated_questions',
+      'get_question_proposal',
     });
-    expect(tools, isNot(contains('propose_generated_questions')));
-    expect(tools, isNot(contains('get_question_proposal')));
 
     // Default READ + questionContent grant allows question READ and bank listing
     // without statistics, while denying studyStatistics and fileContent tools.
@@ -628,6 +641,17 @@ void main() {
     expect(bankCtx['error'], isNull);
     final bankRef = bankCtx['data']['contextRef'] as String;
 
+    final proposal = h.structuredResult(await h.callTool(
+      token: client.token,
+      name: 'propose_generated_questions',
+      arguments: {
+        'contextRef': bankRef,
+        'submission': jsonDecode(submission()),
+      },
+    ));
+    expect(proposal['error'], isNotNull);
+    expect(await h.db.count('generated_question_proposals'), 0);
+
     final fileChoices = h.structuredResult(await h.callTool(
       token: client.token,
       name: 'open_context',
@@ -654,6 +678,247 @@ void main() {
     expect(detail['error'], isNull);
     expect(jsonEncode(detail['data']),
         contains(_AndroidHttpHarness.syntheticStem));
+  });
+
+  ExternalGrantPolicy stagePolicy(ExternalGenerationMode mode) =>
+      ExternalGrantPolicy(
+        permissions: const [
+          CapabilityPermission.read,
+          CapabilityPermission.stage
+        ],
+        scopes: [
+          ExternalGrantScope(kind: ExternalTargetKind.bank, targetId: 'bank'),
+        ],
+        categories: const [
+          ExternalContentCategory.questionContent,
+          ExternalContentCategory.proposalMetadata,
+        ],
+        generationMode: mode,
+      );
+
+  Future<Map<String, dynamic>> tool(String token, String name,
+          [Map<String, Object?> arguments = const {}]) async =>
+      h.structuredResult(
+          await h.callTool(token: token, name: name, arguments: arguments));
+
+  Future<String> bankContext(String token) async {
+    final root = await tool(token, 'open_context');
+    final banks = await tool(token, 'list_question_banks',
+        {'contextRef': root['data']['contextRef']});
+    expect((banks['data']['items'] as List).map((bank) => bank['bankName']),
+        ['bank']);
+    final bank = await tool(token, 'open_context', {
+      'targetRef': (banks['data']['items'] as List).single['targetRef'],
+    });
+    return bank['data']['contextRef'] as String;
+  }
+
+  test(
+      'HTTP saved review publishes a scoped draft and local approval writes it',
+      () async {
+    await h.db.db.insert('bank_folders', {
+      'bank_name': 'other-bank',
+      'folder_name': 'other-folder',
+    });
+    final client = await h.credentials.issueClient(
+        displayName: 'Synthetic review',
+        initialPolicy: stagePolicy(ExternalGenerationMode.review));
+    final other = await h.credentials.issueClient(
+        displayName: 'Synthetic sibling',
+        initialPolicy: stagePolicy(ExternalGenerationMode.review));
+    final readOnly =
+        await h.credentials.issueClient(displayName: 'Synthetic READ');
+    await h.enableAccess(allowBackgroundRead: false);
+
+    final root = await tool(readOnly.token, 'open_context');
+    final banks = await tool(readOnly.token, 'list_question_banks',
+        {'contextRef': root['data']['contextRef']});
+    final foreignTarget = (banks['data']['items'] as List)
+        .singleWhere((bank) => bank['bankName'] == 'other-bank')['targetRef'];
+    expect(
+        (await tool(client.token, 'open_context',
+            {'targetRef': foreignTarget}))['data'],
+        isNull);
+
+    final context = await bankContext(client.token);
+    final original = candidate(stem: 'Synthetic HTTP generated content');
+    (original['stem'] as List).add({'type': 'inline_math', 'latex': '2+3'});
+    original['explanation'] = [
+      {'type': 'text', 'text': 'Addition combines two quantities.'},
+      {'type': 'block_math', 'latex': '2+3=5'},
+    ];
+    final arguments = {
+      'contextRef': context,
+      'submission':
+          jsonDecode(submission(key: 'http-review', items: [original])),
+    };
+    final legacy = await h.initializeLegacy(client.token);
+    final first = h.structuredResult(await h.callTool(
+        token: client.token,
+        name: 'propose_generated_questions',
+        arguments: arguments,
+        sessionId: legacy,
+        protocolVersion: '2025-06-18'));
+    expect(first['error'], isNull);
+    final key = {'submissionKey': 'http-review'};
+    expect(
+        (await tool(client.token, 'get_question_proposal', key))['data']
+            ['lifecycleStatus'],
+        'pending_review');
+    final foreign = await tool(other.token, 'get_question_proposal', key);
+    final missing = await tool(
+        other.token, 'get_question_proposal', {'submissionKey': 'unknown'});
+    expect(foreign, missing);
+    expect(foreign['data'], isNull);
+    expect(await h.db.count('questions'), 1);
+
+    final proposal = (await h.localSession.pending()).single;
+    final confirmed = h.localSession.confirmDisplayedTarget(proposal.target);
+    final reviewed = await h.db.service.flush(
+      GeneratedReviewFlush.fromJson({
+        'proposalId': proposal.proposalId,
+        'expectedReviewRevision': proposal.reviewRevision,
+        'operations': [
+          {
+            'type': 'decide',
+            'itemId': proposal.items.single.itemId,
+            'decision': 'accepted'
+          },
+        ],
+      }),
+      confirmed,
+    );
+    await h.db.service.approve(h.db.approval(reviewed), confirmed);
+    final status =
+        (await tool(client.token, 'get_question_proposal', key))['data'];
+    expect(status['lifecycleStatus'], 'committed');
+    expect(status['committedCount'], 1);
+    final search = (await tool(client.token, 'search_questions', {
+      'contextRef': context,
+      'query': 'Synthetic HTTP generated',
+    }))['data'];
+    final detail = (await tool(client.token, 'get_question_detail', {
+      'contextRef': context,
+      'questionRef': (search['items'] as List).single['questionRef'],
+    }))['data'];
+    expect(detail['stem'], original['stem']);
+    expect(detail['answer'], (original['answer'] as Map)['content']);
+    expect(detail['explanation'], original['explanation']);
+    final repeated =
+        await tool(client.token, 'propose_generated_questions', arguments);
+    expect(repeated['data'], first['data']);
+    expect(await h.db.count('questions'), 2);
+    expect(await h.db.count('generated_question_proposals'), 1);
+  });
+
+  for (final disconnect in [false, true]) {
+    test(
+        'HTTP direct commit survives ${disconnect ? 'lost response' : 'Grant revision before release'}',
+        () async {
+      final client = await h.credentials.issueClient(
+          displayName: 'Synthetic direct',
+          initialPolicy: stagePolicy(ExternalGenerationMode.direct));
+      await h.enableAccess(allowBackgroundRead: false);
+      final context = await bankContext(client.token);
+      final held = Completer<void>();
+      final release = Completer<void>();
+      addTearDown(() {
+        if (!release.isCompleted) release.complete();
+      });
+      h.beforeResponseRelease = (_, tool) async {
+        if (tool != 'propose_generated_questions') return;
+        held.complete();
+        await release.future;
+      };
+      final socket = _DirectLoopbackHttpOverrides().createHttpClient(null);
+      addTearDown(() => socket.close(force: true));
+      final arguments = {
+        'contextRef': context,
+        'submission': jsonDecode(submission(key: 'http-direct')),
+      };
+      final pending = h.callTool(
+          token: client.token,
+          name: 'propose_generated_questions',
+          arguments: arguments,
+          connection: socket);
+      final observed = disconnect
+          ? expectLater(pending, throwsA(isA<IOException>()))
+          : pending.then((reply) {
+              final result = h.structuredResult(reply);
+              expect(result['data'], isNull);
+              expect(result['error'], 'unavailable');
+              expect(
+                  h.events.any((entry) =>
+                      entry.$1 == 'OUTPUT_WITHHELD' &&
+                      entry.$2['tool'] == 'propose_generated_questions'),
+                  isTrue);
+            });
+      await held.future.timeout(const Duration(seconds: 5));
+      expect(await h.db.count('questions'), 2);
+      if (disconnect) socket.close(force: true);
+      // Advance the Grant while the HTTP response is held after durable commit.
+      final profile = await h.management.selectProfile(client.clientProfileId);
+      final revision = (await h.management.read(profile)).profile.grantRevision;
+      await h.management.replaceGrant(
+          profile, revision, stagePolicy(ExternalGenerationMode.review));
+      release.complete();
+      await observed;
+      final lifecycle = await tool(client.token, 'get_question_proposal',
+          {'submissionKey': 'http-direct'});
+      expect(lifecycle['data']['committedCount'], 1);
+      expect(lifecycle['data']['lifecycleStatus'], 'committed');
+      expect(await h.db.count('questions'), 2);
+      expect(await h.db.count('generated_question_proposals'), 1);
+      expect(await h.db.count('generated_question_commit_receipts'), 1);
+    });
+  }
+
+  test('only an eligible proposal may exceed the HTTP READ body limit',
+      () async {
+    final client = await h.credentials.issueClient(
+        displayName: 'Synthetic stage',
+        initialPolicy: stagePolicy(ExternalGenerationMode.review));
+    final readOnly =
+        await h.credentials.issueClient(displayName: 'Synthetic READ');
+    await h.enableAccess(allowBackgroundRead: false);
+    final context = await bankContext(client.token);
+    final arguments = {
+      'contextRef': context,
+      'submission': jsonDecode(submission(key: 'http-large', items: [
+        for (var index = 0; index < 24; index++)
+          candidate(
+              key: 'item-$index', stem: 'Synthetic item $index ${' x' * 1500}'),
+      ])),
+    };
+    expect(utf8.encode(jsonEncode(arguments)).length,
+        greaterThan(AndroidHttpMcpServer.defaultMaxBodyBytes));
+    expect(
+        (await h.callTool(
+                token: readOnly.token,
+                name: 'propose_generated_questions',
+                arguments: arguments))
+            .statusCode,
+        413);
+    expect(
+        (await h.callTool(
+                token: client.token,
+                name: 'search_questions',
+                arguments: {'contextRef': context, 'query': ' x' * 34000}))
+            .statusCode,
+        413);
+    final reply =
+        await tool(client.token, 'propose_generated_questions', arguments);
+    expect(reply['error'], isNull);
+    expect((await h.localSession.pending()).single.items, hasLength(24));
+    await h.disableAccess();
+    await h.enableAccess(continueWhileLocked: true);
+    expect(
+        (await h.callTool(
+                token: client.token,
+                name: 'propose_generated_questions',
+                arguments: arguments))
+            .statusCode,
+        401);
   });
 
   test(

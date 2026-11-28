@@ -14,9 +14,9 @@ Windows consumer:
 External Agent -> stdio adapter / existing local relay
                -> authenticated local IPC -> App LocalCapabilityHost
 
-Android Streamable HTTP mainline (READ in the H2 App; STAGE in H3):
+Android Streamable HTTP mainline:
 External Agent -> HTTPS (TLS 1.3 + Bearer shq_...)
-               -> Android App `AndroidHttpMcpServer` (Profile 3 9 READ tools)
+               -> Android App `AndroidHttpMcpServer` (Profile 3, eleven tools)
                -> LocalCapabilityHost / Application owners
 
 Legacy Android-device consumer (FROZEN historical baseline, not retired):
@@ -1797,6 +1797,8 @@ seven-tool loop. Its partial-reading and manual-shutdown limits are recorded
 separately in that contract, without claiming the full Android matrix.
 Durable policy, default drafts/direct insertion and file
 discovery below define shared semantics for explicitly admitted consumers.
+The [Android HTTP consumer](android-http-mcp-v1.md) uses the same saved review
+and direct policies with its own per-client Grant and foreground access window.
 The everyday-access subsection describes Windows deployment/channel/child
 orchestration; Android uses its separate foreground and credential boundary.
 Neither gains generic external COMMIT, cross-device authorization or production
@@ -1903,8 +1905,8 @@ settings. Business ownership remains in Application/Data, never UI SQLite calls.
 
 For Android, all-content covers only the selected device's current Shiroha data
 instance. Saved review/direct policy may authorize request-scoped STAGE through
-original FirstPartyStageApproval without an open settings view (deferred to H3
-for Android Streamable HTTP MCP v1; H1 exposes READ-only Profile 3 tools).
+original FirstPartyStageApproval without an open settings view. Android HTTP
+requires a foreground window and the current Profile's explicit STAGE Grant.
 Foreground/background pure-question READ enablement (`5m..8h`/`untilAppStops`
 and opt-in `continueWhileLocked` for already-authenticated clients), live
 authentication and per-call/final-release checks (`OUTPUT_WITHHELD`) remain

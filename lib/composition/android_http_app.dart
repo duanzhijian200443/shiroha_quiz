@@ -27,7 +27,7 @@ typedef AndroidHttpListenerBinder = Future<HttpServer> Function({
   required Uint8List privateKeyPemOrPkcs8Bytes,
 });
 
-/// The regular Android App owns one inactive READ composition. Opening a
+/// The regular Android App owns one inactive external composition. Opening a
 /// window and issuing a credential are separate local actions.
 final class AndroidHttpApp implements AndroidHttpAccess {
   AndroidHttpApp({
@@ -290,6 +290,7 @@ final class AndroidHttpApp implements AndroidHttpAccess {
         trust: trust,
         readiness: _HttpReadiness(() => _current),
         authenticationAttempt: () => null,
+        enableStageApprovalWait: true,
         onBound: (management, binding) {
           _binding = binding;
           _deviceId = (identity as Map)['deviceId'] as String;
@@ -570,6 +571,7 @@ final class _HttpAccessWindow
         host: binding.host,
         reads: binding.reads,
         stages: binding.stages,
+        stageApproval: binding.stageApproval,
         authentication: VnextMcpSessionAuthentication(
             () async => owner._current && current() ? session : null),
         approvedTargets: const [],
@@ -584,7 +586,7 @@ final class _HttpAccessWindow
       beforeResponseRelease: (_, __) => owner._refreshStatus(),
       onEvent: (event, _) {
         if (event == 'OUTPUT_WITHHELD') {
-          AppLogger.info('Android HTTP READ output withheld',
+          AppLogger.info('Android HTTP MCP output withheld',
               module: 'MCP', data: {'event': event});
         }
       },

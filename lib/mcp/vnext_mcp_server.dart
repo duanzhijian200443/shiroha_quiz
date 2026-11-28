@@ -6,6 +6,16 @@ import 'dart:convert';
 import 'dart:io' show Stdin;
 import 'package:mcp_dart/mcp_dart.dart';
 
+const vnextGeneratedSubmissionInstructions =
+    'Submission v1 has schemaVersion:1, submissionKey, requestedCount and items. '
+    'Each item has exactly itemKey, kind, stem, options, answer, explanation, '
+    'evidenceKeys. For singleChoice, stem/explanation and option content are node '
+    'arrays (for text: {type:"text",text:"..."}); explanation may be null. '
+    'Each option has optionKey,label,content; use 2..26 unique options. '
+    'answer is {type:"choice",optionKeys:[one optionKey]}. '
+    'Empty evidenceKeys:[] means uncited; do not add an uncited field. '
+    'itemKey/optionKey/submissionKey use [A-Za-z0-9][A-Za-z0-9._-]{0,63}.';
+
 /// Trusted bridge transport/composition, never selected by client metadata.
 abstract interface class VnextMcpPort {
   Future<Map<String, Object?>> call(String tool, Map<String, dynamic> arguments,

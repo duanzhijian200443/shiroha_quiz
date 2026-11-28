@@ -13,13 +13,14 @@ Windows uses its stdio bridge and authenticated local IPC, including section
 in [Android device access](android-device-access-v0.md) is now marked a
 **FROZEN historical baseline** (not deleted or claimed formally retired). The
 adopted Android mainline is **Streamable HTTP MCP v1** defined in
-[android-http-mcp-v1.md](android-http-mcp-v1.md): Increment H1 introduces
-`lib/mcp/android_http_mcp_server.dart` over pinned `mcp_dart: 2.4.0` exposing
-Profile 3's exact 9 READ tools (supporting `2026-07-28` stateless and bounded
-in-memory `2025-06-18`/`2025-11-25` sessions, with `studyStatistics` and
-`fileContent` off by default and STAGE deferred to H3). Identity/context/egress
-remain owned by [external-agent-boundary.md](external-agent-boundary.md). H2
-selects that READ projection in the default Android App when the user enables access.
+[android-http-mcp-v1.md](android-http-mcp-v1.md). H1 introduces
+`lib/mcp/android_http_mcp_server.dart` over pinned `mcp_dart: 2.4.0` with
+`2026-07-28` stateless requests and bounded in-memory
+`2025-06-18`/`2025-11-25` sessions. H2 wires it into the default Android App
+when the user enables access. H3 exposes Profile 3's eleven tools, with generation
+subject to explicit foreground consent and the saved review/direct policy.
+Identity, context and egress remain owned by
+[external-agent-boundary.md](external-agent-boundary.md).
 Neither adapter has a database, repository, migration or alternate App writer.
 
 The authorized App-owned relay in §17.12 adds a local authenticated hop before
@@ -2354,6 +2355,12 @@ Independent Link, real eleven-tool clients, remote mode and exchange remain
 separate acceptance scopes. No Windows device-selection/dirty state is required
 by this business construction.
 
+[Android HTTP MCP v1](android-http-mcp-v1.md) connects the full directory to the
+default Android App. For a generation call, the HTTP consumer reuses the same
+response-aware port and joins the individual POST and the owning business
+operation. Its references remain owned by the Profile's HTTP Enable window
+across individual requests.
+
 Every Profile 3 result is exactly `{profileVersion: 3, data, error, source}`.
 `data` is the operation object on success and null on failure; `error` is null
 on success. `source` is exactly `{kind, deviceRef}`. The actual target composition
@@ -2454,9 +2461,8 @@ not real TLS, entity authentication, installed-Codex or phone acceptance.
 > rather than deleted or declared retired until H2/H3 replacement acceptance
 > completes. The shared Profile 3 business foundation in §19.1 remains active
 > authority and is reused directly by [android-http-mcp-v1.md](android-http-mcp-v1.md)
-> (Increment H1 exposes Profile 3's exact 9 READ tools via
-> `VnextMcpServer(readOnlyToolsOnly: true)` and `AndroidHttpMcpServer`, without
-> persistent leases or `DIRTY` state).
+> through `AndroidHttpMcpServer`. H1 introduced the nine READ tools and H3
+> adds the two generation tools. The HTTP route uses ephemeral state.
 
 Shiroha Link owns trusted local target selection, frontend business leases,
 non-secret LinkStateStore and hosted Android adapter settlement. Android-only
