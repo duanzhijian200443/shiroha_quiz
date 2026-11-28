@@ -1086,6 +1086,40 @@ void main() {
     expect(fresh['error'], isNull);
   });
 
+  test('server close joins an in-flight POST before withdrawing the window',
+      () async {
+    final client = await h.credentials.issueClient(displayName: 'Client');
+    await h.enableAccess();
+    final opened = h.structuredResult(
+        await h.callTool(token: client.token, name: 'open_context'));
+    final contextRef = opened['data']['contextRef'] as String;
+    final held = Completer<void>();
+    final release = Completer<void>();
+    h.beforeResponseRelease = (_, tool) async {
+      if (tool != 'list_question_banks') return;
+      held.complete();
+      await release.future;
+    };
+    final pending = h.callTool(
+      token: client.token,
+      name: 'list_question_banks',
+      arguments: {'contextRef': contextRef},
+    );
+    await held.future.timeout(const Duration(seconds: 5));
+    var closed = false;
+    final active = h.server!;
+    final closing = active.close().then((_) => closed = true);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(closed, isFalse);
+    release.complete();
+    await closing;
+    expect(closed, isTrue);
+    final reply = await pending;
+    expect(reply.statusCode, 200);
+    expect(h.structuredResult(reply)['error'], isNotNull);
+    h.server = null;
+  });
+
   test(
       'multi-client alternating calls, single-client revoke isolation, revoke error fail-closed, and stop/IP survival',
       () async {

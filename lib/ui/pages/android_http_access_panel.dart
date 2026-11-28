@@ -296,6 +296,8 @@ class _AndroidHttpAccessPanelState extends State<AndroidHttpAccessPanel> {
                 if (file || statistics || generationMode != null)
                   const Text('此客户端适用前台访问模式。'),
                 if (generationMode != null) const Text('读取和生成使用此处选定的题库范围。'),
+                if (widget.access.state.phase == AndroidAccessPhase.ready)
+                  const Text('保存会先关闭当前访问窗口并等待原操作结算，之后需要重新开启。'),
                 if (!all)
                   for (final target in targets)
                     if (file || target.scope.kind == ExternalTargetKind.bank)
@@ -329,6 +331,14 @@ class _AndroidHttpAccessPanelState extends State<AndroidHttpAccessPanel> {
         ),
       );
       if (confirmed == true && mounted) {
+        final wasActive = widget.access.state.phase != AndroidAccessPhase.off;
+        // Shared canonical §14/§16: a policy change withdraws old runtime
+        // access and joins original work before the Grant revision CAS.
+        await widget.access.disable();
+        if (!mounted || !view.isCurrent) return;
+        if (widget.access.state.phase != AndroidAccessPhase.off) {
+          throw const AndroidHttpAccessException('settlement_unknown');
+        }
         await view.saveAndroidHttpGrant(
           ref,
           record.profile.grantRevision,
@@ -339,7 +349,9 @@ class _AndroidHttpAccessPanelState extends State<AndroidHttpAccessPanel> {
           studyStatistics: statistics,
           generationMode: generationMode,
         );
-        if (mounted) _snack('已保存客户端授权');
+        if (mounted) {
+          _snack(wasActive ? '已保存授权，请重新开启访问' : '已保存客户端授权');
+        }
       }
     } finally {
       view.close();

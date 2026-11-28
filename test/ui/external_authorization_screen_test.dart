@@ -14,13 +14,17 @@ import 'android_device_access_panel_test.dart' as android_panel;
 
 final class _HttpAccess extends Fake implements AndroidHttpAccess {
   bool enabled = false;
+  AndroidAccessPhase? forcedPhase;
   (AndroidAccessDuration, bool, bool)? requested;
+  int disableCalls = 0;
+  Future<void> Function()? onDisable;
   @override
   AndroidHttpAccessState get state => AndroidHttpAccessState(
         available: true,
         privateWifi: true,
         notificationsAllowed: true,
-        phase: enabled ? AndroidAccessPhase.ready : AndroidAccessPhase.off,
+        phase: forcedPhase ??
+            (enabled ? AndroidAccessPhase.ready : AndroidAccessPhase.off),
         endpoint: enabled ? Uri.parse('https://192.168.1.10:17443/mcp') : null,
         duration: requested?.$1,
         background: requested?.$2 ?? false,
@@ -37,6 +41,13 @@ final class _HttpAccess extends Fake implements AndroidHttpAccess {
       {required bool background, required bool continueWhileLocked}) async {
     requested = (duration, background, continueWhileLocked);
     enabled = true;
+  }
+
+  @override
+  Future<void> disable() async {
+    disableCalls++;
+    await onDisable?.call();
+    enabled = false;
   }
 }
 
@@ -160,6 +171,148 @@ void main() {
     final direct = (await management.read(profile)).grant!.policy;
     expect(direct.generationMode, ExternalGenerationMode.direct);
     expect(direct.scopes, saved.scopes);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+      'a live Android HTTP grant save withdraws and joins before revision CAS',
+      (tester) async {
+    final management = ExternalAuthorizationManagement(
+      repository: fixture.repository,
+      compositionIsCurrent: () => true,
+      mintProfileId: const Uuid().v4,
+    );
+    addTearDown(management.invalidate);
+    final profile = await management.createProfile(
+      displayName: 'Test HTTP',
+      adapter: androidHttpAdapter,
+      protocol: androidHttpProtocol,
+    );
+    await management.replaceGrant(profile, 0, androidHttpDefaultReadPolicy());
+    final access = _HttpAccess()..enabled = true;
+    final withdrawing = Completer<void>();
+    int? revisionAtWithdraw;
+    access.onDisable = () async {
+      revisionAtWithdraw =
+          (await management.read(profile)).profile.grantRevision;
+      await withdrawing.future;
+    };
+    await tester.binding.setSurfaceSize(const Size(720, 1080));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+      home: AndroidHttpAccessScope(
+        access: access,
+        child: ExternalAuthorizationScreen(service: fixture.service),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    Future<void> tap(Finder finder) async {
+      await tester.ensureVisible(finder);
+      await tester.tap(finder);
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> openGrant() async {
+      await tap(find.byTooltip('管理 Test HTTP'));
+      await tap(find.text('授权范围'));
+    }
+
+    CheckboxListTile checkbox(String label) => tester.widget(find.ancestor(
+        of: find.text(label), matching: find.byType(CheckboxListTile)));
+
+    // READY: READ -> review. The save must join the live window first.
+    await openGrant();
+    expect(find.text('保存会先关闭当前访问窗口并等待原操作结算，之后需要重新开启。'), findsOneWidget);
+    await tap(find.text('允许提交生成题目'));
+    await tap(find.text('题库 · 本地 · second'));
+    await tap(find.widgetWithText(FilledButton, '保存'));
+    expect(access.disableCalls, 1);
+    expect(revisionAtWithdraw, 1);
+    expect((await management.read(profile)).profile.grantRevision, 1);
+    expect((await management.read(profile)).grant!.policy.generationMode,
+        ExternalGenerationMode.confirm);
+    withdrawing.complete();
+    await tester.pumpAndSettle();
+    expect(access.enabled, isFalse);
+    final reviewed = await management.read(profile);
+    expect(reviewed.profile.grantRevision, 2);
+    expect(
+        reviewed.grant!.policy.generationMode, ExternalGenerationMode.review);
+    expect(find.text('已保存授权，请重新开启访问'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+
+    // A new explicit Enable keeps the window, then review -> direct withdraws again.
+    access.enabled = true;
+    access.onDisable = () async {
+      revisionAtWithdraw =
+          (await management.read(profile)).profile.grantRevision;
+    };
+    await openGrant();
+    expect(checkbox('允许直接写入题库').value, isFalse);
+    await tap(find.text('允许直接写入题库'));
+    await tap(find.widgetWithText(FilledButton, '保存'));
+    expect(access.disableCalls, 2);
+    expect(revisionAtWithdraw, 2);
+    expect(access.enabled, isFalse);
+    final direct = (await management.read(profile)).grant!.policy;
+    expect(direct.generationMode, ExternalGenerationMode.direct);
+    expect(direct.scopes, reviewed.grant!.policy.scopes);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('an unsettled withdrawal keeps the Android HTTP grant unchanged',
+      (tester) async {
+    final management = ExternalAuthorizationManagement(
+      repository: fixture.repository,
+      compositionIsCurrent: () => true,
+      mintProfileId: const Uuid().v4,
+    );
+    addTearDown(management.invalidate);
+    final profile = await management.createProfile(
+      displayName: 'Test HTTP',
+      adapter: androidHttpAdapter,
+      protocol: androidHttpProtocol,
+    );
+    await management.replaceGrant(profile, 0, androidHttpDefaultReadPolicy());
+    final access = _HttpAccess()..enabled = true;
+    access.onDisable = () async {
+      // Withdrawal did not reach a confirmed clean close.
+      access.forcedPhase = AndroidAccessPhase.recovery;
+    };
+    await tester.binding.setSurfaceSize(const Size(720, 1080));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+      home: AndroidHttpAccessScope(
+        access: access,
+        child: ExternalAuthorizationScreen(service: fixture.service),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byTooltip('管理 Test HTTP'));
+    await tester.tap(find.byTooltip('管理 Test HTTP'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('授权范围'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('允许提交生成题目'));
+    await tester.tap(find.text('允许提交生成题目'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('题库 · 本地 · second'));
+    await tester.tap(find.text('题库 · 本地 · second'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.widgetWithText(FilledButton, '保存'));
+    await tester.tap(find.widgetWithText(FilledButton, '保存'));
+    await tester.pumpAndSettle();
+
+    expect(access.disableCalls, 1);
+    expect(access.state.phase, AndroidAccessPhase.recovery);
+    final unchanged = await management.read(profile);
+    expect(unchanged.profile.grantRevision, 1);
+    expect(
+        unchanged.grant!.policy.generationMode, ExternalGenerationMode.confirm);
+    expect(find.text('操作未完成，请检查连接或重新打开此页。'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
 
