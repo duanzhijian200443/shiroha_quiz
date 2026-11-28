@@ -12,8 +12,9 @@ domain-separated SHA-256 + constant-time comparison, isolated per-client revoke
 with fail-closed whole-Enable withdrawal, tombstone-preserving re-issuance),
 pure-question READ extended durations (`5m..8h`/`untilAppStops`) and opt-in
 `continueWhileLocked`, and Profile 3's exact 9 READ tools (`studyStatistics` and
-`fileContent` off by default; STAGE deferred to **H3**; default UI entry switch
-deferred to **H2**). Codex is the primary supported round-1 client; WorkBuddy
+`fileContent` off by default; STAGE deferred to **H3**). **H2** wires that
+server and the non-USB setup panel into the regular Android App.
+Codex is the primary supported round-1 client; WorkBuddy
 and Qoder are labeled per verified PoC status; Tailscale is deferred; `NO_PROXY`
 is on-demand.
 

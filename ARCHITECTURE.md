@@ -110,14 +110,13 @@ Owns physical persistence and external integration:
 The Android device-access foundation owns native Keystore operations, protected
 associations, TLS and foreground/network observations through bounded ports.
 It owns no business SQLite or authorization. Legacy `SHAD` keys remain native
-rather than being exported to Dart SecurityContext. The normal root constructs
-an inactive owner; only the explicitly selected Android READ Debug installation
-registers real lifecycle observations and admits local pairing/finite question
-access. Ordinary artifacts retain refusal.
+rather than being exported to Dart SecurityContext. Legacy local pairing and
+transport are limited to the explicitly selected Android READ Debug installation.
 
 The **Android Streamable HTTP MCP v1** mainline (`docs/product/agent-refactor/android-http-mcp-v1.md`)
-adds Increment H1 alongside that frozen legacy foundation without switching
-default `main.dart` / `MainActivity.kt` UI admission: `ExternalCertificateDer`
+uses an inactive owner in the default Android `main.dart` / `MainActivity.kt`
+composition. The first-party external Agent panel opens explicit access windows
+and manages client credentials and Grants. `ExternalCertificateDer`
 adds optional dynamic private IPv4 SAN and SKI/AKI extensions (preserving legacy
 defaults); `DeviceHttpTlsStore.kt` keeps a non-exportable `AndroidKeyStore`
 Root CA key (reporting actual per-device `KeyInfo` security level) and seals the
@@ -590,7 +589,7 @@ request-scoped approval and Android foreground admission. Its specified LAN
 endpoint is not a Windows loopback-listener or development-exception extension.
 The selected Debug consumer wires question READ/generation/Proposal through
 those owners, including P6 file selection/retrieval/passages under independent
-fileContent consent; other artifacts retain refusal.
+fileContent consent under the explicit legacy admission.
 MCP v0 and the seven-tool business profile remain unchanged.
 
 <a id="unified-access-successor"></a>
@@ -603,9 +602,9 @@ is the adopted Android mainline: Increment H1 adds `lib/mcp/android_http_mcp_ser
 exposing Profile 3's exact 9 READ tools over TLS 1.3 Streamable HTTP (supporting
 `2026-07-28` stateless and bounded in-memory `2025-06-18`/`2025-11-25` sessions,
 pre-send `OUTPUT_WITHHELD`, with `studyStatistics`/`fileContent` off by default
-and STAGE deferred to H3) without activating default UI entrypoints (H2). Normal
-six/seven-tool roots retain their defaults; no independent Link or real eleven-tool
-consumer is activated by this foundation.
+and STAGE deferred to H3). H2 selects this server and first-party setup in
+the default Android App. The Windows relay and stdio roots retain their own
+admission and profiles.
 Official Secure MCP Tunnel embedded on Android remains an unproved combination.
 Its final remote product gate requires the same phone's ChatGPT browser flow
 without a computer; server-only independence is preliminary evidence. Remote

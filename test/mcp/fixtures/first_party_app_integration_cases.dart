@@ -20,6 +20,7 @@ import 'package:shiroha_quiz/data/repositories/generated_proposal_repository.dar
 import 'package:shiroha_quiz/data/repositories/external_target_read_repository.dart';
 import 'package:shiroha_quiz/data/repositories/external_question_read_repository.dart';
 import 'package:shiroha_quiz/data/repositories/external_file_read_repository.dart';
+import 'package:shiroha_quiz/data/repositories/external_study_read_repository.dart';
 import 'package:shiroha_quiz/domain/backup/backup_failure.dart';
 import 'package:shiroha_quiz/domain/backup/backup_manifest.dart';
 import 'package:shiroha_quiz/mcp/vnext_mcp_server.dart';
@@ -48,9 +49,12 @@ final class _FailSwap extends BackupFaultInjector {
 /// The exact product root, with existing isolated DB/F1/RAG owners. Only this
 /// fixture supplies synthetic P0 credentials; product startup supplies none.
 class FirstPartyAppHarness {
-  FirstPartyAppHarness({FirstPartyRelayObservation Function()? observeRelay})
-      : _observeRelay = observeRelay;
+  FirstPartyAppHarness({
+    FirstPartyRelayObservation Function()? observeRelay,
+    this.androidHttpProfile = false,
+  }) : _observeRelay = observeRelay;
   final FirstPartyRelayObservation Function()? _observeRelay;
+  final bool androidHttpProfile;
   final files = FileReadHarness();
   late LocalAuthorizationService policy;
   late McpVnextAppIntegration integration;
@@ -82,6 +86,13 @@ class FirstPartyAppHarness {
         compositionIsCurrent: () => db.isOpen);
     integration = McpVnextAppIntegration(
         policy: policy,
+        profileVersion: androidHttpProfile ? 3 : 2,
+        source: androidHttpProfile
+            ? const VnextDataSource('android', 'offline-phone')
+            : const VnextDataSource('unselected'),
+        study: androidHttpProfile
+            ? SqliteExternalStudyReadRepository(databaseHelper: s.h.helper)
+            : null,
         targets: SqliteExternalTargetReadRepository(databaseHelper: s.h.helper),
         questions:
             SqliteExternalQuestionReadRepository(databaseHelper: s.h.helper),

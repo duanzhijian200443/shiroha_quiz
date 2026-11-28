@@ -13,7 +13,7 @@ ExternalGrantPolicy androidQuestionReadPolicy() => ExternalGrantPolicy(
     );
 
 /// First-party local control. Neither the UI nor a wire DTO supplies evidence.
-abstract interface class AndroidDeviceAccess {
+abstract interface class AndroidDeviceAccess implements AndroidAccessLifecycle {
   AndroidDeviceAccessState get state;
   Stream<void> get changes;
   Future<void> inspect();
@@ -26,8 +26,6 @@ abstract interface class AndroidDeviceAccess {
   Future<void> setStudyStatisticsAllowed(bool allowed);
   FirstPartyStageApprovalView? openStageApprovalView();
   Future<void> cancelPending();
-  Future<void> observeFlutter(bool resumed);
-  Future<void> close();
 }
 
 final class AndroidDeviceAccessState {

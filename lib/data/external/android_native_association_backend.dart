@@ -19,6 +19,18 @@ final class AndroidDeviceMethodChannel implements AndroidNativeCalls {
     });
   }
   static const _channel = MethodChannel('shiroha/android_device_foundation');
+
+  /// Selects only the explicitly admitted legacy Debug installation.
+  static Future<bool> legacyValidationSelected() async {
+    try {
+      return await _channel.invokeMethod<bool>('legacyValidation') == true;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
   final _events =
       StreamController<(String, Map<String, Object?>)>.broadcast(sync: true);
   Stream<(String, Map<String, Object?>)> get events => _events.stream;

@@ -2,8 +2,11 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shiroha_quiz/application/backup/backup_restore_gate.dart';
 import 'package:shiroha_quiz/application/capabilities/capability.dart';
+import 'package:shiroha_quiz/application/external/android_http_access.dart';
 import 'package:shiroha_quiz/application/external/external_authorization.dart';
 import 'package:shiroha_quiz/application/external/local_authorization_service.dart';
+import 'package:shiroha_quiz/data/external/android_http_token_codec.dart';
+import 'package:uuid/uuid.dart';
 import 'external_authorization_data_test.dart' show authFailure;
 import 'local_authorization_test_support.dart';
 
@@ -41,6 +44,62 @@ void main() {
     expect(record.grant, isNull);
     expect(record.profile.protocol, 'unconfigured');
     expect((await view.profiles()).items.single.clientProfileId, ref.profileId);
+  });
+
+  test(
+      'Android HTTP grant editing preserves READ and requires a current scope choice',
+      () async {
+    final management = ExternalAuthorizationManagement(
+      repository: fixture.repository,
+      compositionIsCurrent: () => true,
+      mintProfileId: const Uuid().v4,
+    );
+    final profile = await management.createProfile(
+      displayName: 'Synthetic HTTP',
+      adapter: androidHttpAdapter,
+      protocol: androidHttpProtocol,
+    );
+    await management.replaceGrant(profile, 0, androidHttpDefaultReadPolicy());
+    final ref = await view.select(profile.profileId);
+    final targets = await view.targets();
+    final bank = targets
+        .firstWhere((target) => target.scope.kind == ExternalTargetKind.bank);
+    final file = targets
+        .firstWhere((target) => target.scope.kind == ExternalTargetKind.file);
+    final saved = await view.saveAndroidHttpRead(
+      ref,
+      1,
+      allContent: false,
+      targets: [bank, file],
+      fileContent: true,
+      studyStatistics: false,
+    );
+    expect(saved.grant!.policy.permissions, {CapabilityPermission.read});
+    expect(saved.grant!.policy.categories, {
+      ExternalContentCategory.questionContent,
+      ExternalContentCategory.fileContent
+    });
+    expect(saved.grant!.policy.scopes, {bank.scope, file.scope});
+    expect(saved.grant!.policy.allContent, isFalse);
+    await expectLater(
+      view.saveAndroidHttpRead(ref, 1,
+          allContent: true,
+          targets: [],
+          fileContent: false,
+          studyStatistics: true),
+      authFailure(ExternalAuthFailure.staleRevision),
+    );
+    final foreign = fixture.service.openView();
+    addTearDown(foreign.close);
+    await expectLater(
+      view.saveAndroidHttpRead(ref, 2,
+          allContent: false,
+          targets: await foreign.targets(),
+          fileContent: true,
+          studyStatistics: true),
+      authFailure(ExternalAuthFailure.unauthorized),
+    );
+    management.invalidate();
   });
   for (final mode in ExternalGenerationMode.values) {
     for (final allContent in [false, true]) {

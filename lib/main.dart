@@ -21,7 +21,10 @@ import 'application/practice/practice_session_mutation_command.dart';
 import 'application/questions/question_write_mutation_command.dart';
 import 'data/repositories/answer_attempt_repository.dart';
 import 'dart:async';
+import 'application/external/android_foreground_access.dart';
 import 'composition/android_device_app.dart';
+import 'composition/android_http_app.dart';
+import 'data/external/android_native_association_backend.dart';
 import 'ui/dependencies/android_device_scope.dart';
 import 'dart:io';
 import 'dart:ui';
@@ -277,7 +280,7 @@ void runShirohaQuiz({
       );
       late Future<void> Function() relaunchApp;
       McpVnextWindowsAppRegistration? externalIntegration;
-      AndroidDeviceApp? androidIntegration;
+      AndroidAccessLifecycle? androidIntegration;
       final backupRestore = BackupRestoreCoordinator(
         compositionReload: () => relaunchApp(),
         operations: BackupRestoreRuntime(
@@ -838,22 +841,20 @@ void runShirohaQuiz({
 
         AppLogger.info('Application started', module: 'Application');
         McpVnextWindowsAppRegistration? externalRegistration;
+        final legacyAndroid = Platform.isAndroid &&
+            await AndroidDeviceMethodChannel.legacyValidationSelected();
+        final unifiedAndroid = Platform.isAndroid &&
+            (!legacyAndroid ||
+                const bool.fromEnvironment('SHIROHA_UNIFIED_LINK'));
         McpVnextAppIntegration createExternalIntegration() =>
             McpVnextAppIntegration(
-                profileVersion: Platform.isAndroid &&
-                        const bool.fromEnvironment('SHIROHA_UNIFIED_LINK')
-                    ? 3
-                    : 2,
+                profileVersion: unifiedAndroid ? 3 : 2,
                 source: VnextDataSource(
-                    Platform.isAndroid ? 'android' : 'windows',
-                    'local'),
-                study:
-                    Platform
-                                .isAndroid &&
-                            const bool.fromEnvironment('SHIROHA_UNIFIED_LINK')
-                        ? SqliteExternalStudyReadRepository(
-                            databaseHelper: databaseHelper)
-                        : null,
+                    Platform.isAndroid ? 'android' : 'windows', 'local'),
+                study: unifiedAndroid
+                    ? SqliteExternalStudyReadRepository(
+                        databaseHelper: databaseHelper)
+                    : null,
                 targets: SqliteExternalTargetReadRepository(
                     databaseHelper: databaseHelper),
                 questions: SqliteExternalQuestionReadRepository(
@@ -876,13 +877,20 @@ void runShirohaQuiz({
                 compositionIsCurrent: () => authorizationDatabase.isOpen);
         final integration =
             Platform.isWindows ? createExternalIntegration() : null;
-        final android = androidIntegration = Platform.isAndroid
+        final androidLegacy = legacyAndroid
             ? AndroidDeviceApp(
                 createIntegration: createExternalIntegration,
                 policy: authorizationService,
                 applicationCurrent: () => authorizationDatabase.isOpen,
                 mintId: uuid.v4)
             : null;
+        final androidHttp = Platform.isAndroid && !legacyAndroid
+            ? AndroidHttpApp(
+                createIntegration: createExternalIntegration,
+                applicationCurrent: () => authorizationDatabase.isOpen,
+                mintId: uuid.v4)
+            : null;
+        final android = androidIntegration = androidLegacy ?? androidHttp;
         externalRegistration = integration == null
             ? null
             : McpVnextWindowsAppRegistration.appOwnedRelay(integration,
@@ -954,8 +962,13 @@ void runShirohaQuiz({
         );
         runApp(
           android != null
-              ? AndroidDeviceLifetime(
-                  key: ObjectKey(android), access: android, child: app)
+              ? AndroidAccessLifetime(
+                  key: ObjectKey(android),
+                  access: android,
+                  child: androidHttp != null
+                      ? AndroidHttpAccessScope(access: androidHttp, child: app)
+                      : AndroidDeviceScope(access: androidLegacy!, child: app),
+                )
               : integration == null
                   ? app
                   : FirstPartyExternalLifetime(

@@ -49,8 +49,18 @@ final class TrustManagementBarrier implements ExternalAuthorizationRepository {
   ExternalAuthorizationRecord Function(ExternalAuthorizationRecord)? transform;
   Future<void> Function(ExternalAuthorizationRecord)? afterRead;
   @override
-  Future<ExternalAuthorizationRecord> read(String profileId) async {
-    final record = await inner.read(profileId);
+  Future<ExternalAuthorizationRecord> read(String profileId) async =>
+      _afterRead(await inner.read(profileId));
+
+  @override
+  Future<ExternalAuthorizationRecord?> readIfPresent(String profileId) async {
+    final record = await inner.readIfPresent(profileId);
+    if (record == null) return null;
+    return _afterRead(record);
+  }
+
+  Future<ExternalAuthorizationRecord> _afterRead(
+      ExternalAuthorizationRecord record) async {
     if (afterRead != null) await afterRead!(record);
     if (reached != null && !reached!.isCompleted) reached!.complete();
     await resume?.future;

@@ -18,7 +18,8 @@ adopted Android mainline is **Streamable HTTP MCP v1** defined in
 Profile 3's exact 9 READ tools (supporting `2026-07-28` stateless and bounded
 in-memory `2025-06-18`/`2025-11-25` sessions, with `studyStatistics` and
 `fileContent` off by default and STAGE deferred to H3). Identity/context/egress
-remain owned by [external-agent-boundary.md](external-agent-boundary.md).
+remain owned by [external-agent-boundary.md](external-agent-boundary.md). H2
+selects that READ projection in the default Android App when the user enables access.
 Neither adapter has a database, repository, migration or alternate App writer.
 
 The authorized App-owned relay in §17.12 adds a local authenticated hop before

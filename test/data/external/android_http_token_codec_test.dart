@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
+import 'package:shiroha_quiz/application/backup/backup_restore_gate.dart';
 import 'package:shiroha_quiz/application/capabilities/capability.dart';
 import 'package:shiroha_quiz/application/external/android_foreground_access.dart';
 import 'package:shiroha_quiz/application/external/external_authorization.dart';
@@ -12,6 +15,7 @@ import 'package:shiroha_quiz/application/external/external_runtime_admission.dar
 import 'package:shiroha_quiz/application/external/external_trust_core.dart';
 import 'package:shiroha_quiz/data/external/android_association_store.dart';
 import 'package:shiroha_quiz/data/external/android_http_token_codec.dart';
+import 'package:shiroha_quiz/data/repositories/backup_snapshot_repository.dart';
 import 'package:shiroha_quiz/data/repositories/external_authorization_repository.dart';
 import 'package:shiroha_quiz/services/backup/sha256.dart';
 import 'package:uuid/uuid.dart';
@@ -241,6 +245,28 @@ void main() {
       return credentials.enableActiveClients();
     }
 
+    Future<void> restorePortableSnapshot() async {
+      final snapshot = p.join(db.temp.path, 'portable.db');
+      await BackupSnapshotRepository(databaseHelper: db.helper)
+          .createSanitizedSnapshot(snapshot);
+      final databasePath = db.db.path;
+      management.invalidate();
+      await store.close();
+      await db.helper.close();
+      await File(snapshot).copy(databasePath);
+      db.db = await db.helper.database;
+      // The SQLite owner is replaced; Native's no-backup file is retained.
+      store = AndroidAssociationStore.forHttp(backend,
+          nowUtcMs: () => clock.now().millisecondsSinceEpoch);
+      management = ExternalAuthorizationManagement(
+        repository: repository,
+        compositionIsCurrent: () => db.db.isOpen,
+        mintProfileId: const Uuid().v4,
+        clock: clock.now,
+      );
+      credentials = buildCredentials(store, management);
+    }
+
     setUp(() async {
       enableWithdrawnCount = 0;
       observationSequence = 0;
@@ -272,6 +298,95 @@ void main() {
       await foreground.disable();
       await store.close();
       await db.close();
+    });
+
+    test('Enable skips associations with Profiles scrubbed by portable B0',
+        () async {
+      final old = await credentials.issueClient(displayName: 'Before restore');
+      await restorePortableSnapshot();
+      expect(await db.count('external_client_profiles'), 0);
+      expect(await enable(), isEmpty);
+      expect(
+          await credentials
+              .authenticateAuthorizationHeader(['Bearer ${old.token}']),
+          isNull);
+    });
+
+    test('portable B0 leaves room to issue again at the active client cap',
+        () async {
+      final old = [
+        for (var i = 0; i < store.maxActiveAssociations; i++)
+          await credentials.issueClient(displayName: 'Before restore ${i + 1}')
+      ];
+      await restorePortableSnapshot();
+      expect((await store.listActive()).records, hasLength(old.length));
+
+      final issued =
+          await credentials.issueClient(displayName: 'After restore');
+      expect(await enable(), [issued.clientProfileId]);
+      for (final previous in old) {
+        final retired = (await store.read(previous.clientProfileId)).record!;
+        expect(retired.revoked, isTrue);
+        expect(retired.revision, previous.associationRevision + 1);
+        expect(
+            retired.credentialIdentity == previous.credentialIdentity, isTrue);
+        expect(
+            await credentials
+                .authenticateAuthorizationHeader(['Bearer ${previous.token}']),
+            isNull);
+      }
+      final session = await credentials
+          .authenticateAuthorizationHeader(['Bearer ${issued.token}']);
+      expect(session?.principal.profileId, issued.clientProfileId);
+    });
+
+    test('corrupt authorization state cannot confirm an orphan', () async {
+      final old = await credentials.issueClient(displayName: 'Before restore');
+      await restorePortableSnapshot();
+      await db.db.execute('DROP TABLE external_access_preferences');
+      await expectLater(
+          enable(),
+          throwsA(isA<ExternalAuthException>().having((error) => error.failure,
+              'failure', ExternalAuthFailure.corruptState)));
+      expect(credentials.enableWindowOpen, isFalse);
+      await expectLater(credentials.issueClient(displayName: 'During failure'),
+          throwsA(isA<ExternalCredentialException>()));
+      final association = (await store.read(old.clientProfileId)).record!;
+      expect(association.revoked, isFalse);
+      expect(association.revision, old.associationRevision);
+    });
+
+    test('B0 maintenance drains reconciliation without retiring an orphan',
+        () async {
+      final old = await credentials.issueClient(displayName: 'Before restore');
+      await restorePortableSnapshot();
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      backend.beforeBegin = () {
+        entered.complete();
+        return release.future;
+      };
+      final issuing =
+          credentials.issueClient(displayName: 'Before maintenance');
+      final refused =
+          expectLater(issuing, throwsA(isA<ExternalCredentialException>()));
+      await entered.future;
+      final gate = BackupRestoreMutationGate.instance;
+      final quiescent = gate.enterQuiescence();
+      try {
+        expect(gate.activeMutationCount, 1);
+        backend.beforeBegin = null;
+        release.complete();
+        await refused;
+        await quiescent;
+      } finally {
+        if (!release.isCompleted) release.complete();
+        gate.exitQuiescence();
+      }
+      expect(await db.count('external_client_profiles'), 0);
+      final association = (await store.read(old.clientProfileId)).record!;
+      expect(association.revoked, isFalse);
+      expect(association.revision, old.associationRevision);
     });
 
     test(

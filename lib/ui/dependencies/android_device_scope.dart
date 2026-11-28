@@ -1,17 +1,19 @@
 import 'dart:async';
 import 'package:flutter/widgets.dart';
 import '../../application/external/android_device_access.dart';
+import '../../application/external/android_foreground_access.dart';
+import '../../application/external/android_http_access.dart';
 
-final class AndroidDeviceLifetime extends StatefulWidget {
-  const AndroidDeviceLifetime(
+final class AndroidAccessLifetime extends StatefulWidget {
+  const AndroidAccessLifetime(
       {super.key, required this.access, required this.child});
-  final AndroidDeviceAccess access;
+  final AndroidAccessLifecycle access;
   final Widget child;
   @override
-  State<AndroidDeviceLifetime> createState() => _AndroidLifetimeState();
+  State<AndroidAccessLifetime> createState() => _AndroidLifetimeState();
 }
 
-final class _AndroidLifetimeState extends State<AndroidDeviceLifetime> {
+final class _AndroidLifetimeState extends State<AndroidAccessLifetime> {
   late final AppLifecycleListener _listener;
   void _observe(AppLifecycleState state) {
     unawaited(widget.access.observeFlutter(state == AppLifecycleState.resumed));
@@ -33,8 +35,19 @@ final class _AndroidLifetimeState extends State<AndroidDeviceLifetime> {
   }
 
   @override
-  Widget build(BuildContext context) =>
-      AndroidDeviceScope(access: widget.access, child: widget.child);
+  Widget build(BuildContext context) => widget.child;
+}
+
+final class AndroidHttpAccessScope extends InheritedWidget {
+  const AndroidHttpAccessScope(
+      {super.key, required this.access, required super.child});
+  final AndroidHttpAccess access;
+  static AndroidHttpAccess? maybeOf(BuildContext context) => context
+      .dependOnInheritedWidgetOfExactType<AndroidHttpAccessScope>()
+      ?.access;
+  @override
+  bool updateShouldNotify(AndroidHttpAccessScope oldWidget) =>
+      !identical(access, oldWidget.access);
 }
 
 final class AndroidDeviceScope extends InheritedWidget {

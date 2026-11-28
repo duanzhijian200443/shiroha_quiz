@@ -106,12 +106,14 @@ final class McpVnextAppIntegration {
       {required ExternalTrustCore trust,
       required LocalHostReadinessPort readiness,
       bool enableStageApprovalWait = false,
+      void Function(ExternalAuthorizationManagement, VnextMcpAppComposition)?
+          onBound,
       required Object? Function() authenticationAttempt}) {
     if (_attaching != null || !controls.isCurrent) {
       throw StateError('External composition unavailable');
     }
     return _attaching = _attach((_) => trust, readiness, authenticationAttempt,
-        enableStageApprovalWait: enableStageApprovalWait);
+        enableStageApprovalWait: enableStageApprovalWait, onBound: onBound);
   }
 
   /// Composes an inactive credential boundary against this App's management.
@@ -187,7 +189,9 @@ final class McpVnextAppIntegration {
               VnextMcpAppComposition binding)?
           transport,
       bool enableStageApprovalWait = false,
-      bool enableWithoutRetainedChannel = false}) async {
+      bool enableWithoutRetainedChannel = false,
+      void Function(ExternalAuthorizationManagement, VnextMcpAppComposition)?
+          onBound}) async {
     final owner = await localAuthority.openSession();
     late ExternalTrustCore trust;
     final management = ExternalAuthorizationManagement(
@@ -309,6 +313,7 @@ final class McpVnextAppIntegration {
       if (!controls.isCurrent) {
         throw StateError('External composition unavailable');
       }
+      onBound?.call(management, port);
       return _AppPort(port, this);
     } catch (_) {
       await shutdown();

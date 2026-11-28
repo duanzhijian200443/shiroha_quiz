@@ -274,6 +274,7 @@ final class AndroidHttpMcpServer {
       _unlockedSessions.clear();
       _initializing.clear();
       _ports.clear();
+      final active = _activeSessions.values.toList();
       _activeSessions.clear();
       await _subscription?.cancel();
       _subscription = null;
@@ -289,6 +290,9 @@ final class AndroidHttpMcpServer {
       }
       await Future.wait(_inFlight.toList());
       await drainReads();
+      for (final session in active) {
+        invalidateSessionContexts(session);
+      }
     }();
   }
 

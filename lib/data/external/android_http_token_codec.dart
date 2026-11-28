@@ -2,8 +2,10 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
+import '../../application/backup/backup_restore_gate.dart';
 import '../../application/capabilities/capability.dart';
 import '../../application/external/android_foreground_access.dart';
+import '../../application/external/android_http_access.dart';
 import '../../application/external/external_authorization.dart';
 import '../../application/external/external_credential_association.dart';
 import '../../application/external/external_runtime_admission.dart';
@@ -40,8 +42,8 @@ abstract final class AndroidHttpTokenCodec {
   static const tokenPrefix = 'shq_';
   static const tokenLength = 47;
   static const domainPrefix = 'shiroha-http-bearer-v1:';
-  static const adapterName = 'android-http';
-  static const protocolName = 'streamable-http';
+  static const adapterName = androidHttpAdapter;
+  static const protocolName = androidHttpProtocol;
 
   static final _bodyPattern = RegExp(r'^[A-Za-z0-9_-]{43}$');
   static final _hex64Pattern = RegExp(r'^[0-9a-f]{64}$');
@@ -348,6 +350,14 @@ final class AndroidHttpClientCredentials {
       final policy = initialPolicy ?? androidHttpDefaultReadPolicy();
       final token = AndroidHttpTokenCodec.mint(random: _random);
       digest = AndroidHttpTokenCodec.digestToken(token);
+      await BackupRestoreMutationGate.instance.runMutation(
+        () => associations.retireOrphanedHttpAssociations(
+          installationId: installationId,
+          profileIsMissing: (id) async =>
+              await management.selectProfileIfPresent(id) == null,
+          validateManagement: management.validateCurrent,
+        ),
+      );
       final snapshot = await associations.registerNewHttpAssociation(
         installationId: installationId,
         credentialIdentity: digest,
@@ -455,7 +465,10 @@ final class AndroidHttpClientCredentials {
             _revoking.contains(id)) {
           continue;
         }
-        final reference = _references[id] ?? await management.selectProfile(id);
+        final reference =
+            _references[id] ?? await management.selectProfileIfPresent(id);
+        _requireCurrent(window);
+        if (reference == null) continue;
         final current = await management.read(reference);
         _requireCurrent(window);
         if (!_isHttpProfile(current.profile) ||

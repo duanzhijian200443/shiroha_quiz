@@ -24,6 +24,7 @@ class DeviceReadService : Service() {
     internal class Session(val ready: (Boolean) -> Unit, val withdrawn: () -> Unit) {
         val token: String = java.util.UUID.randomUUID().toString()
         @Volatile var running = false
+        @Volatile var active = false
         @Volatile var ended = false
         @Volatile var service: DeviceReadService? = null
         @Volatile var startFailure: String? = null
@@ -55,11 +56,12 @@ class DeviceReadService : Service() {
             try {
                 val intent = Intent(context, DeviceReadService::class.java)
                     .putExtra("session", session.token)
-                if (Build.VERSION.SDK_INT >= 26) {
+                val started = if (Build.VERSION.SDK_INT >= 26) {
                     context.startForegroundService(intent)
                 } else {
                     context.startService(intent)
                 }
+                if (started == null) throw DeviceLinkFailure("service_start_failed")
             } catch (error: Exception) {
                 owner = null
                 throw error
@@ -113,9 +115,9 @@ class DeviceReadService : Service() {
         internal fun notifications(context: Context): Boolean {
             val manager = context.getSystemService(NotificationManager::class.java)
             if (Build.VERSION.SDK_INT >= 26) {
-                val channel = manager.getNotificationChannel(CHANNEL) ?: return false
+                val channel = manager.getNotificationChannel(CHANNEL)
                 return manager.areNotificationsEnabled() &&
-                    channel.importance != NotificationManager.IMPORTANCE_NONE
+                    channel?.importance != NotificationManager.IMPORTANCE_NONE
             }
             return true
         }
@@ -126,11 +128,20 @@ class DeviceReadService : Service() {
             return context.getSystemService(NotificationManager::class.java)
                 .activeNotifications.any { it.id == NOTIFICATION }
         }
+
+        internal fun backgroundRunning(context: Context, session: Session?): Boolean =
+            session?.active == true && session.running && !session.ended && runningNotification(context)
     }
 
     private val main = Handler(Looper.getMainLooper())
     private var original: Session? = null
     private val deadline = Runnable { revoke() }
+    private val notificationWatch = object : Runnable {
+        override fun run() {
+            if (!backgroundRunning(this@DeviceReadService, original)) revoke()
+            else main.postDelayed(this, 500)
+        }
+    }
 
     private fun notification(
         active: Boolean = false,
@@ -180,6 +191,9 @@ class DeviceReadService : Service() {
         if (Build.VERSION.SDK_INT >= 24) {
             builder.setChronometerCountDown(true)
         }
+        if (Build.VERSION.SDK_INT >= 31) {
+            builder.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE)
+        }
         return builder.build()
     }
 
@@ -227,29 +241,31 @@ class DeviceReadService : Service() {
         return START_NOT_STICKY
     }
 
-    internal fun activated(ends: Long?, continueWhileLocked: Boolean) {
-        main.post {
-            main.removeCallbacks(deadline)
-            val remaining = ends?.minus(SystemClock.elapsedRealtime())
-            if ((remaining != null && remaining <= 0) || original?.running != true) {
-                revoke()
-            } else {
-                try {
-                    getSystemService(NotificationManager::class.java).notify(
-                        NOTIFICATION,
-                        notification(
-                            active = true,
-                            remaining = remaining,
-                            continueWhileLocked = continueWhileLocked,
-                        ),
-                    )
-                } catch (_: Exception) {
-                    revoke()
-                    return@post
-                }
-                if (remaining != null) main.postDelayed(deadline, remaining)
-            }
+    /** Main-thread acknowledgement after promotion and the visible notification. */
+    internal fun activate(ends: Long?, continueWhileLocked: Boolean): Boolean {
+        val session = original ?: return false
+        val remaining = ends?.minus(SystemClock.elapsedRealtime())
+        if (session.ended || !session.running || session.active ||
+            (remaining != null && remaining <= 0) || !runningNotification(this)
+        ) return false
+        try {
+            getSystemService(NotificationManager::class.java).notify(
+                NOTIFICATION,
+                notification(
+                    active = true,
+                    remaining = remaining,
+                    continueWhileLocked = continueWhileLocked,
+                ),
+            )
+        } catch (_: Exception) {
+            revoke()
+            return false
         }
+        session.active = true
+        main.removeCallbacks(deadline)
+        if (remaining != null) main.postDelayed(deadline, remaining)
+        main.postDelayed(notificationWatch, 500)
+        return true
     }
 
     private fun revoke() {
@@ -257,6 +273,8 @@ class DeviceReadService : Service() {
         if (!session.ended) {
             session.ended = true
             session.running = false
+            session.active = false
+            main.removeCallbacks(notificationWatch)
             session.withdrawn() // Native withdrawal precedes asynchronous Dart drain.
         }
         // Original owner stops this service after its drain attempt, not here.
@@ -264,6 +282,7 @@ class DeviceReadService : Service() {
 
     override fun onDestroy() {
         main.removeCallbacks(deadline)
+        main.removeCallbacks(notificationWatch)
         revoke()
         original?.service = null
         original?.let { session ->
