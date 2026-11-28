@@ -274,13 +274,14 @@ final class LocalAuthorizationView {
       });
 
   /// HTTP setup can edit the same revisioned grant using local target choices.
-  Future<ExternalAuthorizationRecord> saveAndroidHttpRead(
+  Future<ExternalAuthorizationRecord> saveAndroidHttpGrant(
     ExternalProfileReference ref,
     int revision, {
     required bool allContent,
     required Iterable<LocalAuthorizationTarget> targets,
     required bool fileContent,
     required bool studyStatistics,
+    ExternalGenerationMode? generationMode,
   }) =>
       _run(() async {
         final record = await _management.read(ref);
@@ -292,23 +293,35 @@ final class LocalAuthorizationView {
         }
         final selected = targets.toList();
         if (selected.any((target) =>
-            !identical(target._owner, this) ||
-            (!fileContent && target.scope.kind == ExternalTargetKind.file))) {
+                !identical(target._owner, this) ||
+                (!fileContent &&
+                    target.scope.kind == ExternalTargetKind.file)) ||
+            generationMode == ExternalGenerationMode.confirm ||
+            (generationMode != null &&
+                !allContent &&
+                !selected.any((target) =>
+                    target.scope.kind == ExternalTargetKind.bank))) {
           externalAuthFail(ExternalAuthFailure.unauthorized);
         }
         return _management.replaceGrant(
           ref,
           revision,
           ExternalGrantPolicy(
-            permissions: const [CapabilityPermission.read],
+            permissions: [
+              CapabilityPermission.read,
+              if (generationMode != null) CapabilityPermission.stage,
+            ],
             scopes:
                 allContent ? const [] : selected.map((target) => target.scope),
             categories: [
               ExternalContentCategory.questionContent,
               if (fileContent) ExternalContentCategory.fileContent,
               if (studyStatistics) ExternalContentCategory.studyStatistics,
+              if (generationMode != null)
+                ExternalContentCategory.proposalMetadata,
             ],
             allContent: allContent,
+            generationMode: generationMode ?? ExternalGenerationMode.confirm,
           ),
         );
       });

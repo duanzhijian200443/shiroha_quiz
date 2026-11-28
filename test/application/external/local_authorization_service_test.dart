@@ -66,7 +66,7 @@ void main() {
         .firstWhere((target) => target.scope.kind == ExternalTargetKind.bank);
     final file = targets
         .firstWhere((target) => target.scope.kind == ExternalTargetKind.file);
-    final saved = await view.saveAndroidHttpRead(
+    final saved = await view.saveAndroidHttpGrant(
       ref,
       1,
       allContent: false,
@@ -82,7 +82,7 @@ void main() {
     expect(saved.grant!.policy.scopes, {bank.scope, file.scope});
     expect(saved.grant!.policy.allContent, isFalse);
     await expectLater(
-      view.saveAndroidHttpRead(ref, 1,
+      view.saveAndroidHttpGrant(ref, 1,
           allContent: true,
           targets: [],
           fileContent: false,
@@ -92,13 +92,44 @@ void main() {
     final foreign = fixture.service.openView();
     addTearDown(foreign.close);
     await expectLater(
-      view.saveAndroidHttpRead(ref, 2,
+      view.saveAndroidHttpGrant(ref, 2,
           allContent: false,
           targets: await foreign.targets(),
           fileContent: true,
           studyStatistics: true),
       authFailure(ExternalAuthFailure.unauthorized),
     );
+    await expectLater(
+      view.saveAndroidHttpGrant(ref, 2,
+          allContent: false,
+          targets: [file],
+          fileContent: true,
+          studyStatistics: false,
+          generationMode: ExternalGenerationMode.review),
+      authFailure(ExternalAuthFailure.unauthorized),
+    );
+    final reviewed = await view.saveAndroidHttpGrant(ref, 2,
+        allContent: false,
+        targets: [bank],
+        fileContent: false,
+        studyStatistics: false,
+        generationMode: ExternalGenerationMode.review);
+    expect(reviewed.grant!.policy.scopes, {bank.scope});
+    expect(reviewed.grant!.policy.permissions,
+        {CapabilityPermission.read, CapabilityPermission.stage});
+    expect(reviewed.grant!.policy.categories, {
+      ExternalContentCategory.questionContent,
+      ExternalContentCategory.proposalMetadata,
+    });
+    expect(
+        reviewed.grant!.policy.generationMode, ExternalGenerationMode.review);
+    final direct = await view.saveAndroidHttpGrant(ref, 3,
+        allContent: false,
+        targets: [bank],
+        fileContent: false,
+        studyStatistics: false,
+        generationMode: ExternalGenerationMode.direct);
+    expect(direct.grant!.policy.generationMode, ExternalGenerationMode.direct);
     management.invalidate();
   });
   for (final mode in ExternalGenerationMode.values) {

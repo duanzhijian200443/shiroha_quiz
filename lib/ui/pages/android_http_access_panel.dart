@@ -4,10 +4,12 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../application/capabilities/capability.dart';
 import '../../application/external/android_foreground_access.dart';
 import '../../application/external/android_http_access.dart';
 import '../../application/external/external_authorization.dart';
 import '../../application/external/local_authorization_service.dart';
+import '../generated_question/generated_proposal_inbox_screen.dart';
 
 final class AndroidHttpAccessPanel extends StatefulWidget {
   const AndroidHttpAccessPanel({
@@ -230,6 +232,10 @@ class _AndroidHttpAccessPanelState extends State<AndroidHttpAccessPanel> {
       final targets = await view.targets();
       if (!mounted || !view.isCurrent) return;
       final policy = record.grant?.policy;
+      var generationMode =
+          policy?.permissions.contains(CapabilityPermission.stage) == true
+              ? policy!.generationMode
+              : null;
       var all = policy?.allContent ?? false;
       var file =
           policy?.categories.contains(ExternalContentCategory.fileContent) ??
@@ -245,10 +251,33 @@ class _AndroidHttpAccessPanelState extends State<AndroidHttpAccessPanel> {
         builder: (context) => StatefulBuilder(
           builder: (context, update) => AlertDialog(
             scrollable: true,
-            title: Text('${client.displayName}的只读授权'),
+            title: Text('${client.displayName}的授权范围'),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                CheckboxListTile(
+                  title: const Text('允许提交生成题目'),
+                  subtitle: generationMode == ExternalGenerationMode.direct
+                      ? null
+                      : const Text('生成草稿由本机审校后入库。'),
+                  value: generationMode != null,
+                  onChanged: (enabled) => update(() {
+                    generationMode =
+                        enabled == true ? ExternalGenerationMode.review : null;
+                    if (enabled == true) all = false;
+                  }),
+                ),
+                if (generationMode != null)
+                  CheckboxListTile(
+                    title: const Text('允许直接写入题库'),
+                    subtitle: const Text('新提交通过校验后立即入库。'),
+                    value: generationMode == ExternalGenerationMode.direct,
+                    onChanged: (enabled) => update(() {
+                      generationMode = enabled == true
+                          ? ExternalGenerationMode.direct
+                          : ExternalGenerationMode.review;
+                    }),
+                  ),
                 CheckboxListTile(
                   title: const Text('全部范围（含今后新增）'),
                   value: all,
@@ -264,7 +293,11 @@ class _AndroidHttpAccessPanelState extends State<AndroidHttpAccessPanel> {
                   value: file,
                   onChanged: (value) => update(() => file = value!),
                 ),
-                if (file || statistics) const Text('此客户端适用前台访问模式。'),
+                if (file || statistics || generationMode != null)
+                  const Text('此客户端适用前台访问模式。'),
+                if (generationMode != null) const Text('读取和生成使用此处选定的题库范围。'),
+                if (widget.access.state.phase == AndroidAccessPhase.ready)
+                  const Text('保存会先关闭当前访问窗口并等待原操作结算，之后需要重新开启。'),
                 if (!all)
                   for (final target in targets)
                     if (file || target.scope.kind == ExternalTargetKind.bank)
@@ -286,14 +319,27 @@ class _AndroidHttpAccessPanelState extends State<AndroidHttpAccessPanel> {
                   onPressed: () => Navigator.pop(context),
                   child: const Text('取消')),
               FilledButton(
-                  onPressed: () => Navigator.pop(context, true),
+                  onPressed: generationMode == null ||
+                          all ||
+                          selected.any((target) =>
+                              target.scope.kind == ExternalTargetKind.bank)
+                      ? () => Navigator.pop(context, true)
+                      : null,
                   child: const Text('保存')),
             ],
           ),
         ),
       );
       if (confirmed == true && mounted) {
-        await view.saveAndroidHttpRead(
+        final wasActive = widget.access.state.phase != AndroidAccessPhase.off;
+        // Shared canonical §14/§16: a policy change withdraws old runtime
+        // access and joins original work before the Grant revision CAS.
+        await widget.access.disable();
+        if (!mounted || !view.isCurrent) return;
+        if (widget.access.state.phase != AndroidAccessPhase.off) {
+          throw const AndroidHttpAccessException('settlement_unknown');
+        }
+        await view.saveAndroidHttpGrant(
           ref,
           record.profile.grantRevision,
           allContent: all,
@@ -301,8 +347,11 @@ class _AndroidHttpAccessPanelState extends State<AndroidHttpAccessPanel> {
               (target) => file || target.scope.kind == ExternalTargetKind.bank),
           fileContent: file,
           studyStatistics: statistics,
+          generationMode: generationMode,
         );
-        if (mounted) _snack('已保存只读授权');
+        if (mounted) {
+          _snack(wasActive ? '已保存授权，请重新开启访问' : '已保存客户端授权');
+        }
       }
     } finally {
       view.close();
@@ -377,7 +426,7 @@ class _AndroidHttpAccessPanelState extends State<AndroidHttpAccessPanel> {
         padding: const EdgeInsets.all(16),
         children: [
           SwitchListTile(
-            title: const Text('允许局域网只读访问'),
+            title: const Text('允许局域网访问'),
             subtitle: Text(status),
             value: ready,
             onChanged: ready
@@ -449,6 +498,7 @@ class _AndroidHttpAccessPanelState extends State<AndroidHttpAccessPanel> {
                     style:
                         TextStyle(color: Theme.of(context).colorScheme.error))),
           const Divider(),
+          const GeneratedProposalWorkspaceAction(label: '审校生成题目'),
           if (state.endpoint case final endpoint?)
             ListTile(
               title: SelectableText(endpoint.toString()),

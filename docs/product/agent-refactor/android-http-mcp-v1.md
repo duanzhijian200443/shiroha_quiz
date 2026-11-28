@@ -1,6 +1,6 @@
 # Android Streamable HTTP MCP v1 — Focused Canonical Contract
 
-Status: **Canonical Android Streamable HTTP MCP contract. H2 wires the H1 READ service and setup panel into the default Android App. Physical-device acceptance is tracked with H2 delivery evidence. H3 owns STAGE and local Review.**
+Status: **Canonical Android Streamable HTTP MCP contract. H3 connects Profile 3 generation and proposal status to the default Android App. H3 physical-device acceptance is tracked separately from source delivery.**
 
 This contract defines the formal **Android Streamable HTTP MCP** mainline that supersedes the earlier local Link/Adapter (`SHAD`) route as the primary Android integration direction, while preserving existing Application authorization (`P0`/`P1`/`P3`–`P8`), SQLite **v36**, B0 **v2**, S0 `engine.*`, and MCP v0 (6-tool stdio) invariants.
 
@@ -17,7 +17,7 @@ External MCP Client (Codex primary; WorkBuddy/Qoder experimental)
     |  HTTPS (TLS 1.3, private RFC 1918 IPv4, Authorization: Bearer shq_...)
     v
 Android App (`lib/mcp/android_http_mcp_server.dart`, pinned `mcp_dart: 2.4.0`)
-    |-- Profile 3 exact 9 READ tools (H1; STAGE deferred to H3)
+    |-- Profile 3 exact 11 tools (READ, STAGE and proposal lifecycle)
     |-- Ephemeral in-memory legacy HTTP sessions (2025-06-18 / 2025-11-25)
     |-- Stateless HTTP dispatch (2026-07-28)
     |-- Pre-send `OUTPUT_WITHHELD` revalidation
@@ -25,6 +25,7 @@ Android App (`lib/mcp/android_http_mcp_server.dart`, pinned `mcp_dart: 2.4.0`)
 Shared Application Owners (P0/P4/P5/P6/P7/P8/P10/P15)
     |-- `ExternalTrustCore`, `ExternalRuntimeAdmission`, `ExternalAuthorizationManagement`
     |-- `LocalHostDispatchCore`, `ExternalCapabilityGateway`, `ExternalReadContextService`
+    |-- `FirstPartyStageApproval`, `ExternalGeneratedStageService`, existing local Review
     |-- `AndroidForegroundAccess` (pure-question READ extended durations + opt-in `continueWhileLocked`)
     v
 Data / Android Native Foundation (No business SQLite or Grant authority)
@@ -71,7 +72,9 @@ Android Streamable HTTP uses **Hybrid TLS**:
    - **Bearer Token**: 256-bit CSPRNG credential formatted as `shq_<43 unpadded base64url>` (47 ASCII chars), shown once at issuance (`AndroidIssuedClientToken.toString()` is always `REDACTED`).
    - **Protected Association**: `AndroidAssociationStore.forHttp` (`maxActiveAssociations = 16`, `maxRecords = 64` including monotonic revocation tombstones) stores the domain-separated lowercase hex digest `SHA-256("shiroha-http-bearer-v1:" || token)` via `StreamingSha256`. Native seals the HTTP association file with a separate purpose from the legacy association file. Plaintext tokens never enter SQLite, backups, logs, or association storage.
    - **Constant-Time Verification**: `AndroidHttpTokenCodec.constantTimeDigestEquals` compares every active association record's digest without short-circuiting on slot index.
-   - **Default Grant**: newly issued HTTP Profiles default strictly to `READ` + `questionContent` only. `studyStatistics` and `fileContent` are off by default; `STAGE` is excluded in H1 and deferred to H3.
+   - **Default Grant**: newly issued HTTP Profiles default strictly to `READ` + `questionContent`. `studyStatistics`, `fileContent`, `STAGE` and `proposalMetadata` require local authorization.
+   - **Generation Grant**: enabling generation adds `STAGE` and `proposalMetadata` to that Profile's revisioned Grant. The user selects one or more banks or explicitly selects all content. The first enablement defaults to `review`, which publishes pending drafts. A separate explicit choice saves `direct` for new batches under the [shared saved-policy contract](external-agent-boundary.md#14-simplified-first-party-access-and-v35-saved-generation-policy).
+   - **Grant Change**: every save in **授权范围** first withdraws the current access window and joins its in-flight work before the revision CAS. Saving never enables access; a new finite Enable is required. An unsettled withdrawal leaves the Grant unchanged.
    - **Runtime Enable**: explicit local user activation in memory. P0 binds each enabled Principal to the original Android lifecycle window before admitting Sessions. Withdrawal invalidates preparations synchronously. Stopping Enable, expiring, restarting the App, or switching Wi-Fi/IP invalidates active runtime `ExternalSession`s and `contextRef`s **without** revoking durable Bearer Tokens or SQLite Profiles. Re-enabling admits the same Tokens cleanly.
 
 2. **Issuance, Isolated Revocation and Re-Issuance**
@@ -85,10 +88,11 @@ Android Streamable HTTP uses **Hybrid TLS**:
 
 ## 4. MCP Protocol, Tool Surface, and Ephemeral Sessions
 
-1. **Tool Surface (H1)**:
-   - Exposes **Profile 3's exact 9 READ tools** (`VnextMcpServer(readOnlyToolsOnly: true)`):
+1. **Tool Surface**:
+   - Exposes **Profile 3's exact 11 tools**. The original nine READ tools are
      `open_context`, `list_question_banks`, `get_study_overview`, `get_due_review_summary`, `get_weak_questions`, `search_questions`, `get_question_detail`, `retrieve_file_content`, `get_file_passage`.
-   - `propose_generated_questions` and `get_question_proposal` are omitted from `tools/list` and refused by the HTTP port until H3.
+   - `propose_generated_questions` consumes Submission v1 under the current saved generation policy for the App-resolved bank. It returns the existing `STAGED` / `NOT_REPORTED` acknowledgement. The HTTP request retains first-party approval until the original business operation and response stream have settled. The App keeps existing references for the same Profile and Enable window across individual POSTs.
+   - `get_question_proposal` queries lifecycle and counts by the original `submissionKey`. It requires current READ, proposal metadata consent and both original and current target scope for the authenticated Profile. After a lost response, the client queries by the original key without replaying the write. The existing [Proposal contract](generated-question-proposals.md#12-external-proposal-lifecycle-metadata-query) governs lookup, publication, review and formal writes.
    - `studyStatistics` and `fileContent` remain independently gated by Application Grants; unauthorized calls fail closed with safe Profile 3 envelopes (`{profileVersion: 3, data: null, error: ..., source: {kind: "android", deviceRef}}`).
 
 2. **Protocol Compatibility and Bounded Ephemeral Sessions**:
@@ -102,7 +106,7 @@ Android Streamable HTTP uses **Hybrid TLS**:
    - Valid Application `contextRef` / `questionRef` handles survive across stateless HTTP requests and legacy session refreshes within the same `(Profile, enableEpoch)` and are invalidated on Profile revocation, Enable withdrawal, expiry, restart, or B0 restore.
 
 3. **HTTP Framing & Pre-Send Release Gate**:
-   - Endpoint path strictly `/mcp` (other paths `404`); foreign `Origin` headers rejected `403`; `GET /mcp` returns `405` (`Allow: POST, DELETE`); body cap **64 KiB** (`413`) with 4-second read timeout.
+   - Endpoint path strictly `/mcp` (other paths `404`), with foreign `Origin` headers rejected `403`. `GET /mcp` returns `405` (`Allow: POST, DELETE`). The ordinary body cap is **64 KiB** (`413`) with the existing 4-second read timeout. An eligible foreground STAGE Profile can submit a single proposal call up to **1 MiB + 64 KiB** for submission and JSON-RPC framing. Up to four expanded bodies may be admitted concurrently. The shared Profile 3 decoder enforces its original submission and content limits.
    - Before releasing a tool result, the HTTP port revalidates the current Enable, Session, Grant revision and window eligibility. Withdrawal, expiry, Profile revocation or a Grant change withholds the result, emits OUTPUT_WITHHELD, and returns the safe unavailable envelope.
 
 ---
@@ -112,7 +116,7 @@ Android Streamable HTTP uses **Hybrid TLS**:
 - `DeviceReadService` is declared in `android/app/src/main/AndroidManifest.xml` as a **non-exported** (`android:exported="false"`) `connectedDevice` foreground service with `START_NOT_STICKY` and `android:stopWithTask="true"`.
 - Foreground-only mode offers 5, 15 and 30 minutes. The App waits for the original background service's promotion, visible notification and activation before admitting clients and displaying the current URL. HTTP admission and pre-send release refresh trusted Android observations.
 - Leaving the authorization panel cancels a pending Enable, including its initial Android status read. After the endpoint is ready, navigation leaves the current Enable window active under its selected lifecycle policy.
-- The opted-in background window admits only Profiles whose current Grant is pure question READ (READ + questionContent + bank scopes). Application checks that policy at admission and final release, including while the App is visible in that window. File and statistics Grants use the foreground-only finite window within its P0 ceiling.
+- The opted-in background window admits only Profiles whose current Grant is pure question READ (READ + questionContent + bank scopes). Application checks that policy at admission and final release, including while the App is visible in that window. File, statistics and STAGE Grants use the foreground-only finite window within its P0 ceiling.
 - Pure-question READ can choose 5m, 15m, 30m, 1h, 2h, 4h, 8h or untilAppStops. P0, HTTP admission, and the foreground-service lifetime use the same original Android window. A finite window uses its monotonic deadline. UntilAppStops has no synthetic time ceiling and ends with the original owner, explicit withdrawal or loss of the required observation.
 - Under `continueWhileLocked: true`:
   - The HTTP server accepts a locked continuation only for the same Application Session recorded while unlocked in the current Enable window.
@@ -135,6 +139,7 @@ Android Streamable HTTP uses **Hybrid TLS**:
 2. Export the public root CA PEM from the same panel and transfer it to the computer. The panel shows its SHA-256 fingerprint. Enable access in the App and copy the current `https://<private-ip>:17443/mcp` URL.
 3. Copy the Codex template into `~/.codex/config.toml`. Set `CODEX_CA_CERTIFICATE` to the PEM path and `SHIROHA_ANDROID_MCP_TOKEN` to the issued Token in the environment that starts Codex. Restart Codex with that environment. Set `NO_PROXY` for the device IP if a local proxy intercepts the LAN request. See [Codex MCP configuration](https://learn.chatgpt.com/docs/extend/mcp#streamable-http-servers) and [custom CA bundles](https://learn.chatgpt.com/docs/auth#custom-ca-bundles).
 4. For background question READ, turn on **后台运行** and allow the app notification. **锁屏后继续读取** keeps only this window's previously authenticated Sessions. After Wi-Fi recovery, explicitly enable access again and update the URL if the IP changed. The client can reuse its Token and CA.
+5. For generation, turn on **允许提交生成题目**, select the target banks, and open a foreground access window. Open **审校生成题目** to review and save a draft. **允许直接写入题库** explicitly authorizes direct saving for new batches that pass the existing validation and transaction gates.
 
 ADB is available for installation and logs during development. Tailscale is deferred.
 
@@ -146,4 +151,4 @@ ADB is available for installation and logs during development. Tailscale is defe
 |---|---|---|
 | **H1** | Hybrid TLS, protected multi-client credentials, foreground service and Profile 3's exact nine-tool READ server. | Core implemented and tested offline. |
 | **H2** | First-party Android HTTP setup, default composition, and physical-device Codex HTTPS acceptance. | Setup and composition implemented. See delivery evidence for device acceptance. |
-| **H3** | Enable Profile 3 STAGE (`propose_generated_questions` + `get_question_proposal`) over Android HTTP with existing first-party local Review / saved generation policy and original-key reconciliation. | Planned (separate PR). |
+| **H3** | Enable Profile 3 STAGE (`propose_generated_questions` + `get_question_proposal`) over Android HTTP with existing first-party local Review / saved generation policy and original-key reconciliation. | Source implemented. Physical-device Codex HTTPS and local Review acceptance remain separately tracked. |

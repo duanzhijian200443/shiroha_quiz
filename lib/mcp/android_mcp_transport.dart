@@ -27,16 +27,8 @@ VnextMcpServer androidDeviceServer(VnextMcpPort port,
                   'batches. STAGED/NOT_REPORTED acknowledges publication only: query '
                   'get_question_proposal by the original submissionKey for lifecycle '
                   'and counts. Never replay an uncertain write. Local Review and direct consent belong '
-                  'to the phone user. Submission v1 has schemaVersion:1, '
-                  'submissionKey, requestedCount and items. Each item has exactly '
-                  'itemKey, kind, stem, options, answer, explanation, evidenceKeys. '
-                  'For singleChoice, stem/explanation and option content are node '
-                  'arrays (for text: {type:"text",text:"..."}); explanation may be '
-                  'null. Each option has optionKey,label,content; use 2..26 unique '
-                  'options. answer is {type:"choice",optionKeys:[one optionKey]}. '
-                  'Empty evidenceKeys:[] means uncited; do not add an uncited field. '
-                  'itemKey/optionKey/submissionKey use '
-                  '[A-Za-z0-9][A-Za-z0-9._-]{0,63}.',
+                  'to the phone user. '
+                  '$vnextGeneratedSubmissionInstructions',
               capabilities:
                   ServerCapabilities(tools: ServerCapabilitiesTools())),
         ));
@@ -303,9 +295,12 @@ Never androidLinkFail() => throw StateError('android_link_unavailable');
 typedef VnextMcpBusinessPort = AndroidMcpPort;
 
 final class AndroidMcpPort implements VnextMcpResponsePort {
-  AndroidMcpPort(this.binding, this.current);
+  AndroidMcpPort(this.binding, this.current) : _httpRequest = false;
+  AndroidMcpPort.httpRequest(this.binding, this.current) : _httpRequest = true;
+
   final VnextMcpAppComposition binding;
   final bool Function() current;
+  final bool _httpRequest;
   Completer<void>? _idle;
   ExternalCallControl? _control;
   Future<void>? _closing;
@@ -340,6 +335,14 @@ final class AndroidMcpPort implements VnextMcpResponsePort {
     if (!_closed && id == _responseId && _output?.isCompleted == false) {
       _output!.complete(true);
     }
+  }
+
+  /// The original HTTP response has finished or its stream has closed.
+  /// Neither outcome is evidence that the client received the result.
+  void httpResponseSettled() {
+    if (!_httpRequest) throw StateError('Expected an HTTP request port');
+    _control?.cancel();
+    if (_output?.isCompleted == false) _output!.complete(true);
   }
 
   void withdraw() {
@@ -402,8 +405,8 @@ final class AndroidMcpPort implements VnextMcpResponsePort {
     final cancellation = cancelled.listen((_) {
       if (!_closed && !_draining) _cancelledBeforeClose = true;
       control.cancel();
-      // The SDK suppresses a cancelled request's response. Close the original
-      // channel instead of waiting forever for an output that will not exist.
+      // The SDK suppresses a cancelled response. Close the original Link
+      // channel or the individual HTTP response, as owned by this port.
       unawaited(_closeTransport!().catchError((Object _) {}));
     });
     final projection = OfflineIpcCommandProjection(
@@ -417,7 +420,10 @@ final class AndroidMcpPort implements VnextMcpResponsePort {
                   return null;
                 }
                 _connectionSession = session;
-                _invalidateReferences = () => binding.settleConnection(session);
+                if (!_httpRequest) {
+                  _invalidateReferences =
+                      () => binding.settleConnection(session);
+                }
                 return session;
               })
             : binding.authentication);

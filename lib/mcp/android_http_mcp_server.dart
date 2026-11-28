@@ -1,4 +1,4 @@
-/// Android Streamable HTTP MCP v1 READ-only server core (Profile 3, 9 tools).
+/// Android Streamable HTTP MCP v1 server (Profile 3).
 ///
 /// Owns only HTTP transport framing, Bearer admission wiring, bounded in-memory
 /// legacy MCP sessions (8 global / 4 per Profile / 15 min idle TTL), stateless
@@ -15,11 +15,15 @@ import 'dart:typed_data';
 
 import 'package:mcp_dart/mcp_dart.dart';
 
+import '../application/capabilities/capability.dart';
 import '../application/external/android_foreground_access.dart';
 import '../application/external/external_authorization.dart';
 import '../application/external/external_runtime_admission.dart';
 import '../application/external/external_trust_core.dart';
 import '../data/external/external_certificate_der.dart';
+import '../domain/generated_question/generated_question_contract.dart';
+import 'android_mcp_transport.dart';
+import 'vnext_mcp_composition_root.dart';
 import 'vnext_mcp_server.dart';
 
 typedef AndroidHttpBearerAuthenticator = Future<AndroidHttpAuthResult> Function(
@@ -29,10 +33,30 @@ typedef AndroidHttpEventSink = void Function(
   String event,
   Map<String, Object?> fields,
 );
-typedef AndroidHttpPortFactory = VnextMcpPort Function(
+typedef AndroidHttpPortFactory = VnextMcpAppComposition Function(
   ExternalSession session,
   bool Function() isSessionCurrent,
 );
+
+const _proposeTool = 'propose_generated_questions';
+final _httpStageRequestKey = Object();
+
+/// Correlates the SDK callback with its actual POST, even when a legacy
+/// session has concurrent requests or different sessions reuse JSON-RPC ids.
+final class _HttpStageRequest {
+  _HttpStageRequest(this.revision, {required this.closeResponse});
+
+  final int revision;
+  final Future<void> Function() closeResponse;
+  VnextMcpBusinessPort? port;
+  bool settled = false;
+
+  Future<void> settle() async {
+    settled = true;
+    port?.httpResponseSettled();
+    await port?.whenSettled;
+  }
+}
 
 final class _LegacySessionReservation {
   _LegacySessionReservation(this.profileId);
@@ -100,6 +124,9 @@ final class AndroidHttpMcpServer {
   static const defaultMaxSessionsPerProfile = 4;
   static const defaultIdleSessionTtl = Duration(minutes: 15);
   static const defaultMaxBodyBytes = 65536; // 64 KiB
+  static const maxProposalBodyBytes =
+      GeneratedLimits.submissionBytes + defaultMaxBodyBytes;
+  static const _maxExpandedBodies = 4;
   static const defaultBodyReadTimeout = Duration(seconds: 4);
   static const defaultResponseTimeout = Duration(seconds: 35);
 
@@ -169,10 +196,11 @@ final class AndroidHttpMcpServer {
 
   final Map<String, _LegacyHttpSession> _sessions = {};
   final _initializing = <_LegacySessionReservation>{};
-  final Map<String, VnextMcpPort> _ports = {};
+  final Map<String, VnextMcpAppComposition> _ports = {};
   final Map<String, ExternalSession> _activeSessions = {};
   final _unlockedSessions = <String, ExternalSession>{};
   final Set<Future<void>> _inFlight = {};
+  int _expandedBodies = 0;
 
   StreamSubscription<HttpRequest>? _subscription;
   Timer? _sweepTimer;
@@ -264,8 +292,7 @@ final class AndroidHttpMcpServer {
   }
 
   /// Stops accepting requests, closes all ephemeral legacy HTTP sessions, and
-  /// awaits in-flight request handlers + owning READ settlement. Never closes
-  /// the shared host dispatch core or SQLite database.
+  /// awaits in-flight request handlers and owning business settlement.
   Future<void> close() {
     _closed = true;
     return _closing ??= () async {
@@ -302,6 +329,8 @@ final class AndroidHttpMcpServer {
     _LegacyHttpSession? activeLegacy;
     VnextMcpServer? transientServer;
     _LegacySessionReservation? reservation;
+    _HttpStageRequest? stage;
+    var expanded = false;
     try {
       if (_closed) {
         await _reject(response, HttpStatus.unauthorized);
@@ -353,10 +382,9 @@ final class AndroidHttpMcpServer {
       }
       final profileId = session.principal.profileId;
 
-      if (await foreground.currentHttpReadGrant(runtimeAdmission, session) ==
-              null ||
-          _closed ||
-          session.failure != null) {
+      final initialGrant =
+          await foreground.currentHttpReadGrant(runtimeAdmission, session);
+      if (initialGrant == null || _closed || session.failure != null) {
         _emit('AUTH_REFUSED', {'profileId': profileId, 'http': 401});
         await _reject(response, HttpStatus.unauthorized);
         return;
@@ -411,31 +439,53 @@ final class AndroidHttpMcpServer {
         return;
       }
 
-      final declaredLength = request.contentLength;
-      if (declaredLength > maxBodyBytes) {
+      final bodyLimit = _allowsStage(initialGrant)
+          ? max(maxBodyBytes, maxProposalBodyBytes)
+          : maxBodyBytes;
+      if (request.contentLength > bodyLimit) {
         await _reject(response, HttpStatus.requestEntityTooLarge);
         return;
       }
-      final bytes = <int>[];
+      final bytes = BytesBuilder(copy: false);
       await for (final chunk in request.timeout(bodyReadTimeout)) {
-        if (bytes.length + chunk.length > maxBodyBytes) {
+        final length = bytes.length + chunk.length;
+        if (length > bodyLimit) {
           await _reject(response, HttpStatus.requestEntityTooLarge);
           return;
         }
-        bytes.addAll(chunk);
+        if (length > maxBodyBytes && !expanded) {
+          if (_expandedBodies >= _maxExpandedBodies) {
+            await _reject(response, HttpStatus.tooManyRequests);
+            return;
+          }
+          expanded = true;
+          _expandedBodies++;
+        }
+        bytes.add(chunk);
       }
-      final Object? decoded;
+      final Map<String, dynamic> decoded;
       try {
-        decoded = jsonDecode(utf8.decode(bytes));
+        final value = jsonDecode(utf8.decode(bytes.takeBytes()));
+        if (value is! Map<String, dynamic>) throw const FormatException();
+        decoded = value;
       } on FormatException {
-        await _reject(response, HttpStatus.badRequest);
-        return;
-      }
-      if (decoded is! Map<String, dynamic>) {
-        await _reject(response, HttpStatus.badRequest);
+        await _reject(
+            response,
+            expanded
+                ? HttpStatus.requestEntityTooLarge
+                : HttpStatus.badRequest);
         return;
       }
 
+      final method = decoded['method'];
+      final params = decoded['params'];
+      final isProposal = method == 'tools/call' &&
+          params is Map<String, dynamic> &&
+          params['name'] == _proposeTool;
+      if (expanded && !isProposal) {
+        await _reject(response, HttpStatus.requestEntityTooLarge);
+        return;
+      }
       // Recheck admission after reading the body.
       if (await _currentGrant(session) == null) {
         _emit('AUTH_REFUSED', {'profileId': profileId, 'http': 401});
@@ -443,7 +493,6 @@ final class AndroidHttpMcpServer {
         return;
       }
 
-      final method = decoded['method'];
       final isInitialize = method == 'initialize';
       final StreamableHTTPServerTransport transport;
 
@@ -473,7 +522,18 @@ final class AndroidHttpMcpServer {
         await _reject(response, HttpStatus.unauthorized);
         return;
       }
-      await transport.handleRequest(request, decoded);
+      if (isProposal) {
+        final operation = stage = _HttpStageRequest(
+          initialGrant.revision,
+          closeResponse: () => _tryReject(response, HttpStatus.requestTimeout),
+        );
+        await runZoned(
+          () => transport.handleRequest(request, decoded),
+          zoneValues: {_httpStageRequestKey: operation},
+        );
+      } else {
+        await transport.handleRequest(request, decoded);
+      }
       await response.done.timeout(responseTimeout);
       if (activeLegacy != null) {
         activeLegacy.lastActivity = _now();
@@ -488,6 +548,11 @@ final class AndroidHttpMcpServer {
         await _tryReject(response, HttpStatus.internalServerError);
       }
     } finally {
+      try {
+        await stage?.settle();
+      } finally {
+        if (expanded) _expandedBodies--;
+      }
       if (reservation != null) {
         _initializing.remove(reservation);
         final created = activeLegacy;
@@ -518,7 +583,7 @@ final class AndroidHttpMcpServer {
     required ExternalSession session,
     _LegacySessionReservation? reservation,
   }) async {
-    final portAdapter = _HttpReadMcpPort(
+    final portAdapter = _HttpMcpPort(
       owner: this,
       profileId: session.principal.profileId,
       session: session,
@@ -528,9 +593,13 @@ final class AndroidHttpMcpServer {
       options: const McpServerOptions(
         protocol: McpProtocol.stable,
         instructions:
-            'Read currently authorized Shiroha question banks, study summaries, '
-            'and explicitly permitted files over Streamable HTTP (Profile 3 '
-            'read-only subset).',
+            'Read authorized Shiroha content and submit generated questions '
+            'under the local generation policy. STAGED only acknowledges '
+            'publication. Query get_question_proposal with the original '
+            'submissionKey for the saved status. Never replay an uncertain write. '
+            'For generation, open a single-bank context from an authorized '
+            'targetRef. Submit at most 50 items. '
+            '$vnextGeneratedSubmissionInstructions',
         capabilities: ServerCapabilities(tools: ServerCapabilitiesTools()),
       ),
     );
@@ -538,7 +607,6 @@ final class AndroidHttpMcpServer {
       portAdapter,
       protocolServer: protocolServer,
       profileVersion: 3,
-      readOnlyToolsOnly: true,
     );
     late final _LegacyHttpSession entry;
     final transport = StreamableHTTPServerTransport(
@@ -576,7 +644,7 @@ final class AndroidHttpMcpServer {
     return (entry, transport);
   }
 
-  VnextMcpPort _portFor(
+  VnextMcpAppComposition _portFor(
     String profileId,
     ExternalSession session,
   ) {
@@ -610,6 +678,16 @@ final class AndroidHttpMcpServer {
         await foreground.currentHttpReadGrant(runtimeAdmission, session);
     return _mayUseSession(session) ? grant : null;
   }
+
+  bool _allowsStage(ExternalGrant grant) =>
+      !foreground.allowBackgroundRead &&
+      foreground.acceptsNew &&
+      grant.policy.permissions.contains(CapabilityPermission.stage) &&
+      grant.policy.generationMode != ExternalGenerationMode.confirm &&
+      grant.policy.categories.containsAll(const {
+        ExternalContentCategory.questionContent,
+        ExternalContentCategory.proposalMetadata,
+      });
 
   bool _isOriginAllowed(List<String>? origins) {
     if (origins == null || origins.isEmpty) return true;
@@ -647,11 +725,10 @@ final class AndroidHttpMcpServer {
   }
 }
 
-/// Per-request / per-session VnextMcpPort adapter that enforces Profile 3's
-/// 9-tool read-only allowlist and pre-send `OUTPUT_WITHHELD` revalidation
-/// without invalidating `contextRef`s on single HTTP request close.
-final class _HttpReadMcpPort implements VnextMcpPort {
-  _HttpReadMcpPort({
+/// Applies the HTTP window and final release gates around the shared Profile 3
+/// port. Only proposal writes need to retain approval until POST settlement.
+final class _HttpMcpPort implements VnextMcpResponsePort {
+  _HttpMcpPort({
     required this.owner,
     required this.profileId,
     required this.session,
@@ -667,29 +744,50 @@ final class _HttpReadMcpPort implements VnextMcpPort {
     Map<String, dynamic> arguments, {
     required Stream<void> cancelled,
     required bool Function() available,
+    Object? responseId,
   }) async {
     final source = VnextDataSource('android', owner.deviceRef);
     Map<String, Object?> denied() =>
         vnextFailure('unavailable', profileVersion: 3, source: source);
 
-    if (!VnextMcpServer.unifiedReadOnlyInputSchemas.containsKey(tool)) {
-      return denied();
-    }
     if (!available()) return denied();
     final grant = await owner._currentGrant(session);
     if (!available() || grant == null) return denied();
-    final port = owner._portFor(profileId, session);
-    final result = await port.call(
-      tool,
-      arguments,
-      cancelled: cancelled,
-      available: () => owner._mayUseSession(session) && available(),
-    );
+    final binding = owner._portFor(profileId, session);
+    final operation = tool == _proposeTool
+        ? Zone.current[_httpStageRequestKey] as _HttpStageRequest?
+        : null;
+    final Map<String, Object?> result;
+    if (tool == _proposeTool) {
+      if (!owner._allowsStage(grant) ||
+          operation == null ||
+          operation.settled ||
+          operation.port != null ||
+          operation.revision != grant.revision) {
+        return denied();
+      }
+      bool current() =>
+          !operation.settled && owner._mayUseSession(session) && available();
+      final port = operation.port = VnextMcpBusinessPort.httpRequest(
+        binding,
+        current,
+      )..attachTransport(operation.closeResponse);
+      result = await port.call(tool, arguments,
+          cancelled: cancelled, available: current, responseId: responseId);
+    } else {
+      result = await binding.call(tool, arguments,
+          cancelled: cancelled,
+          available: () => owner._mayUseSession(session) && available());
+    }
     if (owner.beforeResponseRelease != null) {
       await owner.beforeResponseRelease!(profileId, tool);
     }
     final current = await owner._currentGrant(session);
-    final stillAllowed = available() && current?.revision == grant.revision;
+    final stillAllowed = available() &&
+        current != null &&
+        current.revision == grant.revision &&
+        (operation == null ||
+            !operation.settled && owner._allowsStage(current));
     if (!stillAllowed) {
       owner._emit('OUTPUT_WITHHELD', {
         'profileId': profileId,

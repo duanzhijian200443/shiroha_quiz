@@ -598,13 +598,15 @@ is now a **FROZEN historical baseline** for its local Shiroha Link / desktop
 adapter route, while its shared Profile 3/statistics/Origin/v36 business
 foundation remains active authority (MCP §19.1, external boundary §16). The
 **Android Streamable HTTP MCP v1** contract (`docs/product/agent-refactor/android-http-mcp-v1.md`)
-is the adopted Android mainline: Increment H1 adds `lib/mcp/android_http_mcp_server.dart`
-exposing Profile 3's exact 9 READ tools over TLS 1.3 Streamable HTTP (supporting
-`2026-07-28` stateless and bounded in-memory `2025-06-18`/`2025-11-25` sessions,
-pre-send `OUTPUT_WITHHELD`, with `studyStatistics`/`fileContent` off by default
-and STAGE deferred to H3). H2 selects this server and first-party setup in
-the default Android App. The Windows relay and stdio roots retain their own
-admission and profiles.
+is the adopted Android mainline. H1 adds TLS 1.3 Streamable HTTP with
+`2026-07-28` stateless requests, bounded in-memory `2025-06-18`/`2025-11-25`
+sessions and pre-send `OUTPUT_WITHHELD`. H2 selects this server and first-party
+setup in the default Android App. H3 exposes all eleven Profile 3 tools and
+reuses first-party STAGE approval, saved generation policy and local Review.
+New clients have question READ only. The STAGE Grant requires a foreground
+window, and lifecycle status uses the original key under current READ/metadata
+authority. The Windows relay and stdio roots retain their own admission and
+profiles.
 Official Secure MCP Tunnel embedded on Android remains an unproved combination.
 Its final remote product gate requires the same phone's ChatGPT browser flow
 without a computer; server-only independence is preliminary evidence. Remote
